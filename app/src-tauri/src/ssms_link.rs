@@ -3,7 +3,7 @@
 // ActiveDirectoryInteractive [-U <user>] -nosplash`, so SSMS signs in on its own with Microsoft
 // Entra. The app passes it no password or token. Every value is checked here before it goes on the
 // command line: the server must be a Fabric SQL endpoint, and nothing may start with "-", so a
-// value can't become another SSMS switch. The same values make VS Code's MSSQL extension link.
+// value can't become another SSMS switch, and SSMS itself must be signed by Microsoft. The same values make VS Code's MSSQL extension link.
 // Only std, so it is tested without a window or Windows.
 
 use std::path::{Path, PathBuf};
@@ -75,6 +75,27 @@ pub fn candidates(program_files: &Path) -> Vec<PathBuf> {
 /// (The shell also checks it is on a drive of this PC and exists.)
 pub fn named_ssms(path: &Path) -> bool {
     path.is_absolute() && path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.eq_ignore_ascii_case("ssms.exe"))
+}
+
+/// Whether SSMS's signer, as signature::signer reads it, is Microsoft: a signature Windows trusts
+/// whose certificate subject names Microsoft Corporation as both CN and O. An unsigned file, one
+/// Windows doesn't trust, or another publisher's isn't started, so a file merely named ssms.exe
+/// (one dropped in Downloads) never is.
+pub fn microsoft_signed(signer: &Result<Option<String>, String>) -> Result<(), String> {
+    const MS: &str = "Microsoft Corporation";
+    match signer {
+        Ok(Some(subject)) => {
+            let parts: Vec<&str> = subject.split(", ").map(str::trim).collect();
+            let has = |key: &str| parts.iter().any(|p| p.strip_prefix(key) == Some(MS));
+            if !subject.contains('"') && has("CN=") && has("O=") {
+                Ok(())
+            } else {
+                Err("That ssms.exe isn't signed by Microsoft, so KratosForge didn't start it. Choose the folder of SSMS from Microsoft.".into())
+            }
+        }
+        Ok(None) => Err("That ssms.exe isn't signed, so KratosForge didn't start it. Choose the folder of SSMS from Microsoft.".into()),
+        Err(why) => Err(format!("Windows doesn't trust that ssms.exe's signature ({why}), so KratosForge didn't start it.")),
+    }
 }
 
 /// A name for the query file: the warehouse's name with anything but letters, digits, "-" and "_"
@@ -168,6 +189,19 @@ mod tests {
         assert!(!named_ssms(&PathBuf::from(format!("{root}cmd.exe"))));
         assert!(!named_ssms(Path::new("ssms.exe")));
         assert!(!named_ssms(&PathBuf::from(format!("{root}ssms.exe.bat"))));
+    }
+
+    #[test]
+    fn only_ssms_signed_by_microsoft_is_started() {
+        let ms = "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US";
+        assert_eq!(microsoft_signed(&Ok(Some(ms.into()))), Ok(()));
+        assert!(microsoft_signed(&Ok(None)).unwrap_err().contains("isn't signed"));
+        assert!(microsoft_signed(&Err("0x800B0109".into())).unwrap_err().contains("doesn't trust"));
+        for other in ["CN=Contoso, O=Contoso, C=US", "CN=Microsoft Corporation, O=Contoso, C=US",
+                      "CN=Contoso, O=Microsoft Corporation, C=US", "CN=\"x, CN=Microsoft Corporation\", O=\"y, O=Microsoft Corporation\"",
+                      "CN=Microsoft Corporation Evil, O=Microsoft Corporation Evil", ""] {
+            assert!(microsoft_signed(&Ok(Some(other.into()))).unwrap_err().contains("isn't signed by Microsoft"), "{other}");
+        }
     }
 
     #[test]

@@ -54,12 +54,13 @@ async function whOpenSsms(ref, query = null) {
   const exe = await attempt(() => invoke("ssms_find", { chosen: whSsmsFolder() }), "Couldn't look for SSMS");
   if (exe === undefined) return;
   if (!exe) { ssmsNotFound(ref, conn, query); return; }
-  await whSsmsLaunch(ref, conn, exe, query);
+  await whSsmsLaunch(ref, conn, query);
 }
 
-async function whSsmsLaunch(ref, conn, exe, query) {
+// The shell finds SSMS again itself (in the chosen folder or where it installs): the page never names the program.
+async function whSsmsLaunch(ref, conn, query) {
   const ok = await attempt(async () => {
-    await invoke("open_in_ssms", { exe, server: conn.server, database: conn.database, user: conn.user || "", query: query || null });
+    await invoke("open_in_ssms", { chosen: whSsmsFolder(), server: conn.server, database: conn.database, user: conn.user || "", query: query || null });
     return true;
   }, "Couldn't open SSMS");
   if (ok) toast(`Opened SSMS on ${ref.name}. Sign in there if it asks; KratosForge doesn't pass it a password or token.`);
@@ -85,10 +86,10 @@ function ssmsNotFound(ref, conn, query = null) {
       const folder = await attempt(() => invoke("pick_folder", { start: whSsmsFolder() }), "Couldn't open the folder dialog");
       if (!folder) return;
       const exe = await attempt(() => invoke("ssms_find", { chosen: folder }), "Couldn't look for SSMS");
-      if (!exe) { problem.textContent = `SSMS.exe isn't in ${folder}. Choose the folder that holds it (…\\Common7\\IDE).`; problem.hidden = false; return; }
+      if (!exe) { problem.textContent = `There's no SSMS.exe signed by Microsoft in ${folder}. Choose the folder that holds it (…\\Common7\\IDE).`; problem.hidden = false; return; }
       whSsmsRememberFolder(folder);
       closeDialog();
-      await whSsmsLaunch(ref, conn, exe, query);
+      await whSsmsLaunch(ref, conn, query);
     } finally { choose.disabled = false; }
   }, "tool outline");
   showDialog("SSMS isn't on this PC", h("div", { style: "display:flex;flex-direction:column;gap:10px;max-width:520px" },

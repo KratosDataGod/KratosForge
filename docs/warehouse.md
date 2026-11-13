@@ -233,7 +233,7 @@ The arrow beside it has more:
 | **Copy server name** | Copies the warehouse's server name (its SQL connection string), to connect from any tool by hand |
 | **Open in VS Code (MSSQL extension)** | Opens VS Code's [MSSQL extension](https://learn.microsoft.com/sql/tools/visual-studio-code-extensions/mssql/mssql-extension-visual-studio-code) connected to the warehouse with Microsoft Entra MFA (a `vscode://ms-mssql.mssql/connect` link) |
 
-The app looks for SSMS 22, then SSMS 21, where they install by default (`C:\Program Files\Microsoft SQL Server Management Studio 22\Release\Common7\IDE\SSMS.exe`). When neither is there, **SSMS isn't on this PC** shows the server name to copy, with **Get SSMS** and **Choose SSMS's folder…**: pick the folder that holds `SSMS.exe` and the app remembers it on this PC. SSMS 20 and before don't take `-A`, so choose SSMS 21 or later.
+The app looks for SSMS 22, then SSMS 21, where they install by default (`C:\Program Files\Microsoft SQL Server Management Studio 22\Release\Common7\IDE\SSMS.exe`). When neither is there, **SSMS isn't on this PC** shows the server name to copy, with **Get SSMS** and **Choose SSMS's folder…**: pick the folder that holds `SSMS.exe` and the app remembers it on this PC. The app starts only an `SSMS.exe` whose signature Windows trusts and names Microsoft Corporation, so a file that is merely named `ssms.exe` is never started. The page never names the program: the shell finds SSMS itself each time. SSMS 20 and before don't take `-A`, so choose SSMS 21 or later.
 
 ## Estimated plan
 

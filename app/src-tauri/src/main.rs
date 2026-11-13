@@ -2614,29 +2614,38 @@ fn open_in_vscode(path: String, insiders: bool) -> Result<(), String> {
 
 /// Open in SSMS on the Warehouse page: where SSMS is. `chosen` is a folder or ssms.exe the person
 /// picked earlier ("Choose SSMS's folder…"), used when it still holds SSMS; otherwise SSMS 22, then
-/// 21, where they install by default. None when neither is found.
+/// 21, where they install by default. Only an ssms.exe signed by Microsoft counts. None when none is
+/// found. The page only learns whether SSMS was found: open_in_ssms finds it again itself.
 #[tauri::command]
 fn ssms_find(chosen: Option<String>) -> Option<String> {
+    find_ssms(chosen).and_then(|p| p.to_str().map(String::from))
+}
+
+fn find_ssms(chosen: Option<String>) -> Option<PathBuf> {
     if let Some(c) = chosen.filter(|c| vscode_link::may_look_at(c)) {
         let p = PathBuf::from(&c);
         let exe = if p.is_dir() { p.join("SSMS.exe") } else { p };
-        if ssms_link::named_ssms(&exe) && exe.is_file() {
-            return exe.to_str().map(String::from);
+        if ssms_link::named_ssms(&exe) && exe.is_file() && ssms_trusted(&exe).is_ok() {
+            return Some(exe);
         }
     }
     let pf = std::env::var_os("ProgramFiles").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Program Files"));
-    ssms_link::candidates(&pf).into_iter().find(|p| p.is_file()).and_then(|p| p.to_str().map(String::from))
+    ssms_link::candidates(&pf).into_iter().find(|p| p.is_file() && ssms_trusted(p).is_ok())
 }
 
-/// Opens SSMS on a warehouse, signed in with Microsoft Entra (ssms_link.rs). `exe` must be an
-/// ssms.exe on a drive of this PC; `query`, when given, is written to a .sql file in the app's data
-/// folder (ssms\) and opened in a query window. Files there older than a day are removed first.
+/// SSMS is started only when Windows trusts its signature and it names Microsoft (ssms_link.rs).
+fn ssms_trusted(exe: &Path) -> Result<(), String> {
+    ssms_link::microsoft_signed(&signature::signer(exe))
+}
+
+/// Opens SSMS on a warehouse, signed in with Microsoft Entra (ssms_link.rs). The page never names
+/// the program: SSMS is found here (find_ssms, from `chosen` or the default folders) and must be
+/// signed by Microsoft. `query`, when given, is written to a .sql file in the app's data folder
+/// (ssms\) and opened in a query window. Files there older than a day are removed first.
 #[tauri::command]
-fn open_in_ssms(exe: String, server: String, database: String, user: String, query: Option<String>) -> Result<(), String> {
-    let program = PathBuf::from(&exe);
-    if !vscode_link::may_look_at(&exe) || !ssms_link::named_ssms(&program) || !program.is_file() {
-        return Err(format!("Not SSMS on this PC: {exe}"));
-    }
+fn open_in_ssms(chosen: Option<String>, server: String, database: String, user: String, query: Option<String>) -> Result<(), String> {
+    let program = find_ssms(chosen).ok_or("SSMS signed by Microsoft isn't on this PC, so it wasn't opened.")?;
+    ssms_trusted(&program)?;
     ssms_link::args(&server, &database, &user, None)?;  // the connection is checked before any file is written
     let file = match query.filter(|q| !q.trim().is_empty()) {
         None => None,

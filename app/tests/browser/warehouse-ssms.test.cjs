@@ -62,7 +62,7 @@ test("choosing SSMS's folder remembers it and opens SSMS", { skip }, async () =>
   await dialog.getByRole("button", { name: "Choose SSMS's folder…" }).click();
   await dialog.waitFor({ state: "detached" });
   const opened = await shellCalls("open_in_ssms");
-  assert.deepStrictEqual(opened.at(-1), { exe: EXE, server: SERVER, database: "WH_Gold", user: "dana@contoso.com", query: null });
+  assert.deepStrictEqual(opened.at(-1), { chosen: "D:\\Tools\\SSMS", server: SERVER, database: "WH_Gold", user: "dana@contoso.com", query: null });
   assert.strictEqual(await page().evaluate(() => localStorage.getItem("fd.ssms.folder")), "D:\\Tools\\SSMS");
   assert.match(await page().locator("#toast").textContent(), /Opened SSMS on WH_Gold\. Sign in there if it asks; KratosForge doesn't pass it a password or token\./);
 });
@@ -79,7 +79,7 @@ test("the menu opens SSMS with the query, copies the server, and opens VS Code",
   await menu.getByRole("menuitem", { name: "Open in SSMS with this query" }).click();
   await page().waitForFunction(() => window.__fdShellCalls.filter((x) => x.cmd === "open_in_ssms").length >= 2);
   const opened = (await shellCalls("open_in_ssms")).at(-1);
-  assert.strictEqual(opened.exe, EXE);
+  assert.strictEqual(opened.chosen, "D:\\Tools\\SSMS");
   assert.strictEqual(opened.query, "SELECT TOP 10 * FROM dbo.sales");
   await page().getByRole("button", { name: "More SSMS options" }).click();
   await page().evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true,

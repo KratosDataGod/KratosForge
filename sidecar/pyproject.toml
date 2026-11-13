@@ -142,4 +142,5 @@ testpaths = ["tests"]
 filterwarnings = ["error:Arrow output on a DB-API result:UserWarning"]
 # These take the exercise runtime's access off the shared Python install for the whole machine, so
 # another xdist worker's running exercise would lose its Python. CI runs them in a serial step of their own.
-markers = ["machine_wide_grants: removes the exercise runtime's machine-wide grants; run without xdist"]
+markers = ["machine_wide_grants: removes the exercise runtime's machine-wide grants; run without xdist",
+           "real_kernel_default: runs notebook cells with the real kernel_process default (conftest pins it off for fakes)"]

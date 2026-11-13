@@ -1285,7 +1285,7 @@ function renderResultViewer(o, wrap, bar, numeric, count) {
     v.busy = true;
     draw();
     try {
-      const p = await rpc("notebook_frame_page", { frame: o.frame, offset: Math.max(0, offset), limit: RESULT_PAGE,
+      const p = await rpc("notebook_frame_page", { frame: o.frame, notebook: state.notebook?.name, offset: Math.max(0, offset), limit: RESULT_PAGE,
         sort: v.sort ? v.sort.i : null, desc: v.sort ? v.sort.dir < 0 : false, q: v.q });
       if (ask !== v.asked) return; // a newer search or page was asked for while this one ran
       if (p.gone) v.gone = true;
@@ -1313,7 +1313,7 @@ function copyResultPage(o) {
 async function downloadResult(o, format) {
   const label = { csv: "CSV", xlsx: "Excel", parquet: "Parquet" }[format];
   toast(`Downloading the whole result as ${label}...`);
-  const out = await attempt(() => rpc("notebook_frame_download", { frame: o.frame, format, name: state.notebook?.name || "notebook" }), "Could not download");
+  const out = await attempt(() => rpc("notebook_frame_download", { frame: o.frame, format, name: state.notebook?.name || "notebook", notebook: state.notebook?.name }), "Could not download");
   if (!out) return;
   if (out.gone) { toast(out.message, true); return; }
   toast(`Saved ${out.rows.toLocaleString()} row${out.rows === 1 ? "" : "s"} to ${out.path}`);
@@ -1455,7 +1455,7 @@ function renderFrameProfile(o, numeric, count) {
   };
   if (o.profile) { show(o.profile); return box; }
   box.append(renderInspect(o, numeric), h("div", { class: "more", role: "status" }, `Summary of ${count.toLowerCase()}. Profiling every row...`));
-  rpc("notebook_frame_profile", { frame: o.frame }).then((p) => {
+  rpc("notebook_frame_profile", { frame: o.frame, notebook: state.notebook?.name }).then((p) => {
     if (p.gone) {
       o.profileGone = true;
       box.querySelector(".more").textContent = `Summary of ${count.toLowerCase()}. Run the cell again to profile every row.`;

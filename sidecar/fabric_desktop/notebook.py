@@ -1090,6 +1090,8 @@ class Kernel:
             with contextlib.suppress(Exception):
                 from . import spark_local
                 spark_local.watch_connections(ident, None)
+                if status == "cancelled":
+                    spark_local.release_cancelled()
             self._local.run = None
             if restart and run.guest:
                 self._guests.pop(run.guest, None)  # a guest restarts only its own variables

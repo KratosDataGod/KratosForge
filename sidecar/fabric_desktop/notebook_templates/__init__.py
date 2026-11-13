@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .. import jsonfile
+
 VERSION = "1.0.0"
 HERE = Path(__file__).parent
 
@@ -298,5 +300,5 @@ def record_version(allow_change: bool = False) -> dict[str, dict[str, str]]:
             if have is not None and have != cells and not allow_change:
                 raise ValueError(f"{p}/{k} {VERSION} is released and its standard cells changed; raise VERSION")
             std[f"{p}/{k}"][VERSION] = added[f"{p}/{k}"] = cells
-    (HERE / "standards.json").write_text(json.dumps(std, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    jsonfile.write_text(HERE / "standards.json", json.dumps(std, indent=1, sort_keys=True) + "\n", newline="\n")
     return added

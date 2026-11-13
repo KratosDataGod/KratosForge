@@ -39,8 +39,8 @@ def codes(svc, text, **kw):
 
 
 def test_a_query_on_a_lakehouse_returns_its_rows(sql):
-    text = pipeline(script("Totals", ("Query", "SELECT region, SUM(amount) AS total FROM orders GROUP BY region "
-                                               "ORDER BY region"),
+    text = pipeline(script("Totals", ("Query", ("SELECT region, SUM(amount) AS total FROM orders GROUP BY region "
+                                               "ORDER BY region")),
                            ("Query", "SELECT COUNT(*) AS n FROM orders")),
                     act("Use", "SetVariable", ["Totals"], variableName="v",
                         value="@string(activity('Totals').output.resultSets[1].rows[0].n)"),

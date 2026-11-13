@@ -10,9 +10,12 @@ A client still takes an injected session, which wins over the shared one (tests 
 
 from __future__ import annotations
 
+import email.utils
 import os
 import threading
+import time
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -48,7 +51,36 @@ class _Session(requests.Session):
     def request(self, method: str, url: str | bytes, *args: Any, **kwargs: Any) -> requests.Response:
         if kwargs.get("timeout") is None:
             kwargs["timeout"] = DEFAULT_TIMEOUT
-        return super().request(method, url, *args, **kwargs)
+        resp = super().request(method, url, *args, **kwargs)
+        note_server_time(resp)
+        return resp
+
+
+# This PC's clock against the last server that answered over HTTPS (its Date header): seconds this PC
+# is ahead (positive) or behind, the server's host, and when it was seen. Sign-in, certificates,
+# schedules and audit times all use the PC's clock, so the Ready to work list says when it is off.
+_offset: dict[str, Any] | None = None
+
+
+def note_server_time(resp: Any, now: float | None = None) -> None:
+    """Remember how far this PC's clock is from the server's, from a response's Date header. A Date
+    is to the second, and the response took a moment to arrive, so only minutes are meaningful."""
+    global _offset
+    try:
+        url = urlsplit(str(resp.url))
+        stamp = resp.headers.get("Date")
+        if url.scheme != "https" or not stamp:
+            return
+        server = email.utils.parsedate_to_datetime(stamp).timestamp()
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return
+    seen = time.time() if now is None else now
+    _offset = {"seconds": round(seen - server), "host": url.hostname or "", "at": seen}
+
+
+def clock_offset() -> dict[str, Any] | None:
+    """``{"seconds", "host", "at"}`` from the last HTTPS answer, or None before any."""
+    return dict(_offset) if _offset else None
 
 
 _lock = threading.Lock()

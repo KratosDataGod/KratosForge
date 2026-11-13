@@ -373,3 +373,58 @@ def test_a_pyspark_run_never_asks_for_the_appcontainer(tmp_path, monkeypatch):
     (tmp_path / "w").mkdir()
     pyspark_lab.run_learner(tmp_path / "w", "print('hi')", data_root=tmp_path / "data")
     assert asked == [False]
+
+
+def test_a_run_that_dies_without_a_message_reports_its_exit_code(tmp_path):
+    # A native crash (seen once on Windows CI) leaves no Python traceback: the exit code is the clue.
+    pyspark_lab.prepare(tmp_path, "CREATE SCHEMA s; CREATE TABLE s.t AS SELECT 1 AS id;")
+    run = pyspark_lab.run_reference(tmp_path, "import os\nos._exit(3)\n")
+    assert run["status"] == "error" and run["exit_code"] == 3
+    assert pyspark_lab._error(run) == "Your code stopped without an error message (exit code 3)."
+    windows = {"status": "error", "exit_code": 0xC0000005, "stderr": ""}   # an access violation as Windows reports it
+    assert pyspark_lab._error(windows) == "Your code stopped without an error message (exit code 0xC0000005)."
+    posix = {"status": "error", "exit_code": -11, "stderr": ""}
+    assert pyspark_lab._error(posix) == "Your code stopped without an error message (signal 11)."
+    assert pyspark_lab._error({"status": "error", "stderr": "Traceback\nValueError: bad"}) == \
+        "Your code stopped with an error: ValueError: bad"
+    assert pyspark_lab._lower_first("Your code crashed: x (exit code 0xC0000005).") == \
+        "your code crashed: x (exit code 0xC0000005)."
+
+
+def test_a_real_native_crash_reports_the_fatal_error_line_and_exit_code(tmp_path):
+    # A genuine crash in native code: faulthandler's dump must not hide the cause behind its last frame.
+    pyspark_lab.prepare(tmp_path, "CREATE SCHEMA s; CREATE TABLE s.t AS SELECT 1 AS id;")
+    run = pyspark_lab.run_reference(tmp_path, "import ctypes\nctypes.string_at(0)\n")
+    assert run["status"] == "error" and run["exit_code"]
+    msg = pyspark_lab._error(run)
+    assert msg.startswith("Your code crashed: "), msg
+    assert "Fatal Python error:" in msg or "Windows fatal exception:" in msg, msg
+    assert "signal" in msg or "exit code" in msg, msg
+    # A failing reference solution also says where it crashed: the innermost Python frames, by file name.
+    frames = pyspark_lab._crash_frames(run)
+    assert "in string_at" in frames and "answer.py:2 in <module>" in frames, run["stderr"]
+
+
+def test_a_crash_dump_gives_the_crashing_threads_innermost_frames_and_no_paths():
+    windows = """Windows fatal exception: access violation
+
+Thread 0x00001a2c (most recent call first):
+  File "C:\\py\\Lib\\threading.py", line 359 in wait
+
+Current thread 0x00000b18 (most recent call first):
+  File "C:\\py\\Lib\\site-packages\\deltalake\\table.py", line 1201 in merge
+  File "C:\\Temp\\kf-learner-x\\kf_learner\\pyspark_delta.py", line 88 in execute
+  File "answer.py", line 14 in <module>
+  File "<string>", line 9 in <module>
+  File "<string>", line 1 in <module>
+
+Extension modules: duckdb, deltalake (total: 2)
+"""
+    frames = pyspark_lab._crash_frames({"stderr": windows})
+    assert frames == (" Innermost frames: table.py:1201 in merge; pyspark_delta.py:88 in execute; answer.py:14 in <module>; "
+                      "<string>:9 in <module>.")
+    assert "C:" not in frames and "Temp" not in frames
+    # A plain Python error, or a crash with no frames, adds nothing.
+    assert pyspark_lab._crash_frames({"stderr": "Traceback\nValueError: bad"}) == ""
+    assert pyspark_lab._crash_frames({"stderr": "Fatal Python error: Aborted\n"}) == ""
+    assert pyspark_lab._crash_frames({}) == ""

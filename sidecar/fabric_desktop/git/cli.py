@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
 
+from ..engines.runtimes import PATH_HINT, trusted_cli
 from .secrets import redact
 
 TIMEOUT = 60
@@ -36,7 +36,8 @@ class GitError(RuntimeError):
 
 
 def git_path() -> str | None:
-    return shutil.which("git")
+    """git from PATH's absolute folders only (runtimes.trusted_cli), never a git.exe in the current folder."""
+    return trusted_cli("git")
 
 
 def version() -> str | None:
@@ -84,8 +85,8 @@ BASE_OPTIONS = ["-c", "core.quotepath=false", "-c", "color.ui=false", "-c", "cor
 def command(cwd: Path | str | None, args: list[str]) -> list[str]:
     exe = git_path()
     if not exe:
-        raise GitError("Git isn't installed on this PC. Install Git for Windows (git-scm.com), then try again.",
-                       kind="no_git")
+        raise GitError("Git isn't installed on this PC. Install Git for Windows (git-scm.com), then try again. "
+                       + PATH_HINT, kind="no_git")
     for a in args:
         if not isinstance(a, str) or "\0" in a:
             raise GitError("A Git argument wasn't plain text.", kind="invalid")
@@ -125,16 +126,16 @@ _KNOWN: list[tuple[re.Pattern[str], str, str]] = [
      "Git needs your name and email for commits. Set them in Source control > Repository settings."),
     (re.compile(r"Authentication failed|could not read (Username|Password)|terminal prompts disabled|"
                 r"HTTP Basic: Access denied|returned error: 401|invalid credentials|Logon failed", re.I), "auth",
-     "Git couldn't sign in to the remote. Git signs in through Git Credential Manager: sign in when its "
-     "window opens, or check that your account can read this repository."),
+     ("Git couldn't sign in to the remote. Git signs in through Git Credential Manager: sign in when its "
+     "window opens, or check that your account can read this repository.")),
     (re.compile(r"returned error: 403|Permission to .* denied|access denied|not authorized", re.I), "forbidden",
      "Your account can't do that in this repository. Ask its owner for write access."),
     (re.compile(r"Permission denied \(publickey|no such identity|sign_and_send_pubkey", re.I), "ssh_key",
-     "The SSH server didn't accept your key. Add your key to the SSH agent (ssh-add) and to your account on "
-     "the Git host, or clone with the HTTPS address instead."),
+     ("The SSH server didn't accept your key. Add your key to the SSH agent (ssh-add) and to your account on "
+     "the Git host, or clone with the HTTPS address instead.")),
     (re.compile(r"Host key verification failed", re.I), "ssh_host",
-     "This PC doesn't know the SSH server's host key yet. Connect once from a terminal (ssh -T git@host) to "
-     "trust it, or use the HTTPS address."),
+     ("This PC doesn't know the SSH server's host key yet. Connect once from a terminal (ssh -T git@host) to "
+     "trust it, or use the HTTPS address.")),
     (re.compile(r"Could not resolve host|Could not resolve hostname|Failed to connect|Connection timed out|"
                 r"Connection refused|Network is unreachable|unable to access", re.I), "network",
      "Couldn't reach the Git server. Check the internet connection and the address, then try again."),

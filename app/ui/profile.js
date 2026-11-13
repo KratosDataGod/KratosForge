@@ -40,29 +40,45 @@ function profileTabs(p) {
     tab("report", "Professional report"), tab("settings", "Settings"));
 }
 
+// Living Experience (home-hero.js, Preview): Chris's header art with "Profile" and Edit profile on its
+// sky. Your name, picture and role stay under it, so a long name never runs onto the art. The Ranks
+// tab carries its own banner under the tabs, so there the page keeps its plain heading: one picture per screen.
+function profileHero(actions) {
+  if (profilePage.tab === "ranks") return null;
+  return typeof pageHero === "function" ? pageHero("profile", "Profile ", { tag: previewMarked("profile", h("span")), actions }) : null;
+}
+
+function profilePageView(cls, ...children) {
+  const hero = profileHero();
+  return h("div", { class: hero ? `${cls} living-head` : cls }, hero || h("h1", {}, "Profile"), ...children);
+}
+
 async function renderProfile() {
-  setView(h("div", { class: "page" }, h("h1", {}, "Profile"), h("p", { class: "muted-text" }, "Loading...")));
+  setView(profilePageView("page", h("p", { class: "muted-text" }, "Loading...")));
   const p = await loadProfile();
   if (state.view !== "profile") return;
   if (!p) {
-    setView(h("div", { class: "page" }, h("h1", {}, "Profile"), h("p", { class: "muted-text" }, "Your profile opens once the local engine is running.")));
+    setView(profilePageView("page", h("p", { class: "muted-text" }, "Your profile opens once the local engine is running.")));
     return;
   }
   const who = p.identity;
+  const edit = btn("Edit profile", "person", editProfileIdentity, "tool outline");
+  const hero = profileHero([edit]);
   const head = h("div", { class: "page-head" },
     h("div", { class: "profile-id" },
       profileAvatar(p, "profile-avatar"),
-      h("div", {}, previewMarked("profile", h("h1", {}, who.display_name || "Your profile")),
+      h("div", {}, hero ? h("h2", { class: "profile-name" }, who.display_name || "Your profile")
+        : previewMarked("profile", h("h1", {}, who.display_name || "Your profile")),
         h("p", { class: "sub" }, [who.role, who.technologies, state.user ? `Signed in as ${state.user}` : "Not signed in: this profile is kept for this PC"]
           .filter(Boolean).join(" · "), " ", learnMore("profile-preview")))),
-    btn("Edit profile", "person", editProfileIdentity, "tool outline"));
+    hero ? null : edit);
   // Journey and Achievements are progression: with it off they aren't shown.
   if (!p.settings.progression && ["journey", "ranks", "achievements"].includes(profilePage.tab)) profilePage.tab = "overview";
   const body = { overview: profileOverview, journey: profileJourney, ranks: profileRanks, achievements: profileAchievements, impact: profileImpact, goals: profileGoals, report: profileReport,
     settings: profileSettings }[profilePage.tab](p);
   const notice = p.notice ? h("div", { class: "callout git-warn", role: "alert" }, h("span", { class: "grow" }, p.notice),
     btn("Dismiss", null, () => saveProfile({ dismiss_notice: true }, null), "tool outline small")) : null;
-  setView(h("div", { class: "page profile" }, head, notice, profileTabs(p), body));
+  setView(h("div", { class: hero ? "page profile living-head" : "page profile" }, hero, head, notice, profileTabs(p), body));
 }
 
 function editProfileIdentity() {

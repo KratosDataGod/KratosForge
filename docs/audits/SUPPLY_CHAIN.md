@@ -14,11 +14,11 @@ This page records what KratosForge ships, which licenses it ships under, and how
 | Charts | Vega, Vega-Lite, vega-embed and the d3 packages they bundle, in `app/ui/vendor/vega/vega-frame.js` | That folder's `package.json` gives exact versions for the direct packages. `THIRD-PARTY-NOTICES.md` there lists each bundled package and its version | `sbom-ui.cdx.json`: Vega, Vega-Lite and vega-embed from `package-lock.json` with their hashes, and the packages their prebuilt files bundle from `THIRD-PARTY-NOTICES.md` (the versions the upstream build used, so no hash) |
 | Skin typefaces | Inter and DM Sans, latin `woff2` files copied from Fontsource into `app/ui/vendor/fonts` | That folder's `package.json` gives exact versions. The font files are committed | `sbom-ui.cdx.json`: both packages from `package-lock.json` with their hashes. Their licence (SIL OFL 1.1) is in `LICENSE-inter` and `LICENSE-dm-sans` there |
 | Model converter | The Apache Ossie Microsoft converter, copied into `sidecar/fabric_desktop/_vendor/ossie_microsoft` | Committed source | Covered by the engine's own package |
-| VS Code extension | `vscode/` | `vscode/package-lock.json`. It has no runtime dependencies, only build and test tools | Listed as itself in `sbom-ui.cdx.json`, with no npm packages (it is packaged with `--no-dependencies`) |
+| VS Code extension | `vscode/` | `vscode/package-lock.json`. It has no runtime dependencies, only build and test tools | `sbom-vscode.cdx.json`, made from `kratosforge.vsix` itself: the file's SHA-256, every file inside it with its SHA-256, and the build tools from `package-lock.json` with their SHA-512 hashes, scope `excluded` (it is packaged with `--no-dependencies`, so none ships). It is also listed as itself in `sbom-ui.cdx.json`. The `.vsix` is reproducible: CI builds it twice and fails if the two differ |
 
-Every CI build makes three SBOMs: `sbom-engine` in the engine job, and `sbom-app` and `sbom-ui` in the `sbom-app` job. `sbom-ui` is made by `.github/scripts/sbom_npm.py` from the committed lock files, with no extra tool. All three are CycloneDX JSON. The release job attaches them to each Preview and Stable release, and `version.json` gives each one's SHA-256 (`sbom_engine_sha256`, `sbom_app_sha256`, `sbom_ui_sha256`). Promote to stable checks those before copying them. The engine and the shell need no new CI job.
+Every CI build makes four SBOMs: `sbom-engine` in the engine job, `sbom-app` and `sbom-ui` in the `sbom-app` job, and `sbom-vscode` in the `vscode-extension` job. `sbom-ui` is made by `.github/scripts/sbom_npm.py` from the committed lock files, with no extra tool. All four are CycloneDX JSON. The release job attaches them to each Preview and Stable release, and `version.json` gives each one's SHA-256 (`sbom_engine_sha256`, `sbom_app_sha256`, `sbom_ui_sha256`, `sbom_vscode_sha256`). Promote to stable checks those before copying them. The engine and the shell need no new CI job.
 
-`.github/scripts/sbom_check.py` fails CI when a dependency is pinned without a hash, or an SBOM doesn't match its lock file. In the `sbom-app` job it checks every lock file: each npm package comes from registry.npmjs.org with a SHA-512, each crate from crates.io with a checksum, and each pip pin in a hashed requirements file is `name==version` with SHA-256 hashes. It then checks that `sbom-app` lists exactly the crates the Windows build compiles (from `cargo metadata --filter-platform`), each with its `Cargo.lock` checksum, and that `sbom-ui` lists every bundled package with its lock file's hash. In the engine job it checks that `sbom-engine` lists every package `engine-requirements.txt` pins, at that version, with a hash the file pins. The packages Vega's prebuilt files bundle are the one listed exception: they come from `THIRD-PARTY-NOTICES.md` and have no hash of their own.
+`.github/scripts/sbom_check.py` fails CI when a dependency is pinned without a hash, or an SBOM doesn't match its lock file. In the `sbom-app` job it checks every lock file: each npm package comes from registry.npmjs.org with a SHA-512, each crate from crates.io with a checksum, and each pip pin in a hashed requirements file is `name==version` with SHA-256 hashes. It then checks that `sbom-app` lists exactly the crates the Windows build compiles (from `cargo metadata --filter-platform`), each with its `Cargo.lock` checksum, and that `sbom-ui` lists every bundled package with its lock file's hash. In the `vscode-extension` job it checks that `sbom-vscode` names the `.vsix` by its SHA-256, lists every file inside it and no other, each with its SHA-256, and lists each build tool with its lock file's hash; that job also runs `npm audit signatures`. In the engine job it checks that `sbom-engine` lists every package `engine-requirements.txt` pins, at that version, with a hash the file pins. The packages Vega's prebuilt files bundle are the one listed exception: they come from `THIRD-PARTY-NOTICES.md` and have no hash of their own.
 
 ## Licenses
 
@@ -141,12 +141,33 @@ Some wheels bundle native libraries of their own, for example pyarrow and polars
 | What | Pinned by | Hash-checked on install |
 | --- | --- | --- |
 | Engine packages | `engine-requirements.txt` | Yes: `pip install --require-hashes --only-binary=:all:`, then `pip check` |
+| Engine packages and test tools in CI's test and lint jobs | `.github/requirements/test-linux.txt`, `test-windows.txt` and `lint.txt`, at `constraints.txt`'s versions (`tests/test_toolchain_pins.py` checks they match) | Yes: `pip install --require-hashes --only-binary=:all:`. The engine itself is then installed with `--no-deps --no-build-isolation`, built by the hashed setuptools |
 | Engine Python | `PYTHON_VERSION` in `ci.yml` | Yes: python.org's MD5 and a pinned SHA-256 |
 | Shell crates | `Cargo.lock` | Yes: `cargo build --locked` checks each crate's checksum against the lock file |
-| GitHub Actions | A commit SHA on every `uses:` line in every workflow (16 actions) | Yes, by the commit SHA |
-| CI-only Rust tools (cargo-audit, cargo-cyclonedx) | An exact version, with `cargo install --locked` | Yes, through each tool's own lock file |
+| GitHub Actions | A commit SHA on every `uses:` line in every workflow (16 actions). `.github/scripts/check_workflows.py` fails one named by a tag or branch | Yes, by the commit SHA |
+| CI-only Rust tools (cargo-audit, cargo-deny, cargo-cyclonedx) | An exact version, with `cargo install --locked` | Yes, through each tool's own lock file |
 | Bundled JavaScript | The built files are committed | They can't change without a PR |
 
+
+## Known vulnerabilities
+
+The CI `audit` job checks every lock file that ships, on every pull request, and the release job waits for it:
+
+| Lock file | Tool | Fails on |
+| --- | --- | --- |
+| `sidecar/constraints.txt`, `sidecar/engine-requirements.txt`, `sidecar/fabric_desktop/engines/dbconnect_locks/*.txt` | `pip-audit` | Any advisory |
+| `app/ui/vendor/*/package-lock.json`, `vscode/package-lock.json` (build tools too) | `npm audit` | High or critical; moderate and low are warnings |
+| `app/src-tauri/Cargo.lock` | `cargo audit` | Any advisory |
+
+An advisory can be let through only by a line in `.github/audit-exceptions.txt` that names it, says why, and lapses within 90 days (`.github/scripts/audit_exceptions.py`).
+
+Gap: the packages that Vega's prebuilt files bundle aren't in a lock file (they come from `THIRD-PARTY-NOTICES.md`), so `npm audit` doesn't see them.
+
+## Secret scanning
+
+The CI `secrets` job runs detect-secrets (pinned with hashes in `.github/requirements/secret-scan.txt`) through `.github/scripts/secret_scan.py`. A pull request's changed files are scanned, and a push to main scans every tracked file. The release job waits for it. Anything that looks like a token, a key or a password fails the job unless `.secrets.baseline` lists it as reviewed (`"is_secret": false`). Entries are matched by file, kind and a hash of the value, so moving a line doesn't need a new review, and the job never prints the value. On a pull request the job also warns on each entry the pull request adds to the baseline, each filter or plugin it adds or removes there, and each line it adds with `pragma: allowlist secret`, so its reviewers see everything it lets through. It also scans each of the pull request's own commits, and warns on a value one commit adds and a later one takes out: the final files no longer have it, but the pull request's history does, so a real secret there still needs revoking. That is a warning rather than a failure, because failing can't take it out of the history and the baseline can only mark what the files hold now. A line holding only a `commit`, `sha` or `revision` field with a 40-character commit id is skipped, because product checks and benchmarks record a new one each run.
+
+The baseline started with 235 entries, each checked by hand. All are test fixtures (redaction and credential-handling cases), example strings in docs, or hashes and commit ids. The repository's history was scanned once too, and the result was reviewed. `tests/test_secret_scan.py` checks that every entry is reviewed and that the job is wired as described.
 
 ## Reproducible builds
 

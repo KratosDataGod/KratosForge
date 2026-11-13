@@ -71,7 +71,7 @@ Notes:
 | Sign-in and workspace discovery | Partial | Missing | Built | · | · |
 | SQL warehouses and the SQL editor | Partial | Missing | Built | Partial | · |
 | Notebooks, Spark and dbutils | Partial | Missing | Built | Partial | · |
-| Unity Catalog | Partial | Missing | · | · | · |
+| Unity Catalog | Partial | Missing | · | Partial | · |
 | Jobs and Lakeflow pipelines | Partial | Partial | Partial | · | · |
 | Compute | Partial | Missing | · | · | · |
 | Asset bundles and deployment | Partial | Missing | Partial | · | · |
@@ -82,9 +82,10 @@ Notes:
 - **Every area, Visual familiarity:** The Databricks-familiar skin (Preview) gives a blue accent and Databricks' page names on the rail; pages keep KratosForge's own layout.
 - **Sign-in and workspace discovery, Cloud API integration:** Against fakes of the CLI and APIs; no live run yet.
 - **SQL warehouses and the SQL editor, Cloud API integration:** Against fakes of the SQL Statement API; no live run yet.
-- **SQL warehouses and the SQL editor, Local execution:** Databricks SQL is translated to DuckDB; functions that differ are listed in docs/engines.md.
+- **SQL warehouses and the SQL editor, Local execution:** Databricks SQL is translated to DuckDB; docs/databricks-functions.md says for every built-in whether it runs, differs, is refused or fails, checked in CI.
 - **Notebooks, Spark and dbutils, Cloud API integration:** Databricks Connect (runtime 16 and later), behind an authorization, and a notebook folder synced with a workspace folder (Preview); against fakes, no live run yet.
-- **Notebooks, Spark and dbutils, Local execution:** dbutils and PySpark are simulated on this PC; Databricks Runtime equivalence isn't claimed.
+- **Notebooks, Spark and dbutils, Local execution:** dbutils and PySpark are simulated on this PC; Databricks Runtime equivalence isn't claimed. Each dbutils call and % magic: docs/databricks-notebook-helpers.md.
+- **Unity Catalog, Local execution:** No Unity Catalog on this PC: a notebook's tables are the attached lakehouse's. catalog.schema.table, USE CATALOG, USE SCHEMA and backticked names read or write the table they name there, or are refused by name (another catalog or schema); none resolves to another table. spark.catalog's calls answer about the lakehouse and temp views, or are refused by name.
 - **Jobs and Lakeflow pipelines, Workflow compatibility:** The skin names Monitor "Jobs and pipelines" and puts it where Databricks does; inside it, runs are read, not created or started.
 - **Jobs and Lakeflow pipelines, Cloud API integration:** Monitor > Databricks (Preview) reads job runs and Lakeflow updates with their tasks and errors; jobs aren't created or started here. Against fakes, no live run yet.
 - **Asset bundles and deployment, Cloud API integration:** Source control > Bundles (Preview) validates, plans and deploys through the Databricks CLI; bundle run and destroy aren't offered. Against a fake CLI, no live run yet.
@@ -105,7 +106,7 @@ Notes:
 Notes:
 
 - **Every area, Visual familiarity:** The Snowflake-familiar skin (Preview) gives a blue accent and Snowsight's page names on the rail; pages keep KratosForge's own layout.
-- **SQL worksheets, Local execution:** Validation and translation only: Snowflake SQL runs on DuckDB with a label per statement. Not a Snowflake runtime.
+- **SQL worksheets, Local execution:** Validation and translation only: Snowflake SQL runs on DuckDB with a label per statement. Not a Snowflake runtime. docs/snowflake-functions.md says for every function whether it runs, differs, is refused or fails.
 <!-- END GENERATED: parity -->
 
 Areas marked · are the parity backlog: each gets assessed against the platform's current

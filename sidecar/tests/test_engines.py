@@ -556,6 +556,18 @@ def test_duckdb_refusal_names_the_statement_and_plan_refuses_too(tmp_path):
         s.close()
 
 
+def test_duckdb_runs_a_cell_ending_in_comment_lines_and_still_refuses_copy_before_them(tmp_path):
+    s = registry.adapter("local-duckdb").open_session(SessionConfig("nb"))
+    try:
+        r = s.execute(sql("-- first\n-- second\nSELECT 1 AS x;\n-- notes\n-- more notes"))
+        assert r.status == "ok", r.outputs
+        r = s.execute(sql(f"COPY (SELECT 1) TO '{tmp_path.as_posix()}/o.csv';\n-- notes"))
+        assert r.outputs[0]["ename"] == "OutsideSession" and "COPY" in r.outputs[0]["evalue"]
+        assert list(tmp_path.iterdir()) == []
+    finally:
+        s.close()
+
+
 def test_duckdb_sessions_cant_read_local_files_even_when_the_classifier_allows_it(tmp_path):
     f = tmp_path / "a.csv"
     f.write_text("x\n1\n")

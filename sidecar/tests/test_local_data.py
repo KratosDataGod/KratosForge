@@ -258,7 +258,7 @@ def test_requests_from_several_threads_take_turns(local, data):
             for _ in range(20):
                 e.execute("INSERT INTO counter VALUES (1)")
                 e.tables()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - collected and checked by the test below
             errors.append(exc)
     threads = [threading.Thread(target=work) for _ in range(4)]
     [t.start() for t in threads]
@@ -300,8 +300,8 @@ def test_another_process_cant_open_the_database_for_writing(local, data, tmp_pat
     assert out.startswith("refused")
     # And this app reports it in words when it is the one locked out.
     local.close(pid)
-    holder = subprocess.Popen([sys.executable, "-c", "import duckdb, sys, time\nc = duckdb.connect(sys.argv[1])\n"
-                               "print('ready', flush=True)\ntime.sleep(30)", db], stdout=subprocess.PIPE, text=True)
+    holder = subprocess.Popen([sys.executable, "-c", ("import duckdb, sys, time\nc = duckdb.connect(sys.argv[1])\n"
+                               "print('ready', flush=True)\ntime.sleep(30)"), db], stdout=subprocess.PIPE, text=True)
     try:
         assert holder.stdout.readline().strip() == "ready"
         with pytest.raises(EngineBusy, match="open in another program"):

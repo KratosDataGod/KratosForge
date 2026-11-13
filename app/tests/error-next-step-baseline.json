@@ -1,0 +1,9 @@
+{
+  "about": "Errors that don't name a next step yet (WR-503). Fix one, then remove its line; the test fails while a fixed line is still listed.",
+  "without_next_step": [
+    "dataops.js: Fabric runs: …",
+    "shortcuts.js: … broke: …",
+    "vscode.js: Left as they are: ….",
+    "xray.js: Adopted …. Skipped: …"
+  ]
+}

@@ -109,7 +109,7 @@ class OptimizeMixin:
                 names = self._optimize_lake(workspace_id, lh["id"]).table_names()
                 entry["optimize"] = "fdopt_schema_version" in names
                 entry["other_tables"] = sum(1 for n in names if schema.family_of(n) is None)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - any read failure is shown as no access or unreadable
                 entry["error"] = "No access" if setup.denied(exc) else "Couldn't be read"
             out.append(entry)
         return sorted(out, key=lambda e: (not e["optimize"], e["lakehouse_name"].lower()))
@@ -229,7 +229,7 @@ class OptimizeMixin:
             for item in items:
                 try:
                     self._optimize_send(shared, item["kind"], item["payload"])
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - the failure is recorded on the item and reported
                     if self._optimize_transient(exc) or isinstance(exc, PermissionError) or setup.denied(exc):
                         box.failed(item["id"], str(exc))
                         out["error"] = redact.secrets(str(exc))

@@ -621,8 +621,8 @@ def _spark_refused(node: ast.Call, values: dict[str, list[ast.expr | None]],
             [k.arg for k in node.keywords] + ([None] if node.args else [])
         for key in keys:
             if key is None:
-                out["unknown_local"].append((line, "sets a write option named only at run time, so the check can't "
-                                                   "tell whether this PC's Spark takes it"))
+                out["unknown_local"].append((line, ("sets a write option named only at run time, so the check can't "
+                                                   "tell whether this PC's Spark takes it")))
             elif text := sl.writer_option_refusal(key, None):
                 out["fabric"].append((line, text))
         return
@@ -640,8 +640,8 @@ def _spark_refused(node: ast.Call, values: dict[str, list[ast.expr | None]],
             out["fabric"].append((line, sl.TABLE_FORMAT_TEXT.format(f)))
             return
         if method == "saveAsTable" and fmt is not None and _text(fmt) is None:
-            out["unknown_local"].append((line, "saves a lakehouse table in a format named only at run time, so the "
-                                               "check can't tell whether it's Delta, the only one this PC saves"))
+            out["unknown_local"].append((line, ("saves a lakehouse table in a format named only at run time, so the "
+                                               "check can't tell whether it's Delta, the only one this PC saves")))
         hit = next((t for k in names_set if (t := sl.writer_option_refusal(k, method))), None)
         if hit:
             out["fabric"].append((line, hit))
@@ -661,8 +661,8 @@ def _spark_refused(node: ast.Call, values: dict[str, list[ast.expr | None]],
     fmt_text = (_text(fmt) or "").lower() if fmt is not None else \
         {"table": "delta", "load": "parquet"}.get(method, method)  # load's default, as on this PC
     if fmt is not None and _text(fmt) is None:
-        out["unknown_local"].append((line, "reads a format named only at run time, so the check can't tell whether "
-                                           "this PC's Spark reads it"))
+        out["unknown_local"].append((line, ("reads a format named only at run time, so the check can't tell whether "
+                                           "this PC's Spark reads it")))
         return
     if method == "load" and fmt_text not in sl.READ_FORMATS:
         out["fabric"].append((line, sl.READ_FORMAT_TEXT.format(fmt_text or "parquet")))
@@ -705,8 +705,8 @@ def _read_python(tree: ast.AST, utils: dict[str, str], values: dict[str, list[as
         call, first = _call_name(node), node.args[0] if node.args else None
         _spark_refused(node, values, out, line)
         if call == "getattr" and len(node.args) >= 2 and _text(node.args[1]) is None and _full(node.args[0], utils):
-            out["unknown_local"].append((line, "looks up a notebookutils function by a name known only at run time, "
-                                               "so the check can't tell whether it needs Fabric"))
+            out["unknown_local"].append((line, ("looks up a notebookutils function by a name known only at run time, "
+                                               "so the check can't tell whether it needs Fabric")))
         elif call == "getattr" and (full := _full(node, utils)) and _UTILS_USE.match(full):
             out["fabric"].append((line, _UTILS_TEXT))
         elif call in ("exec", "eval", "compile") and first is not None and _text(first) is None:
@@ -728,8 +728,8 @@ def _read_python(tree: ast.AST, utils: dict[str, str], values: dict[str, list[as
                 continue
             verdicts = {_sql_where(t, own) for t in texts}
             if "fabric" in verdicts:
-                out["fabric"].append((line, "changes table rows in place with spark.sql (MERGE, UPDATE or DELETE of another "
-                                            "lakehouse, or with Preview features off), which runs in Fabric only"))
+                out["fabric"].append((line, ("changes table rows in place with spark.sql (MERGE, UPDATE or DELETE of another "
+                                            "lakehouse, or with Preview features off), which runs in Fabric only")))
             elif refused := next((r for t in texts if (r := _sql_refused(t)) and r[0] == "blocked"), None):
                 out["fabric"].append((line, refused[1]))
             elif verdicts & {"statement", "table"}:
@@ -852,8 +852,8 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
         unknown: list[tuple[int, str]] = []
         sql_unknown: list[tuple[int, str]] = []  # SQL this PC's Spark may refuse, by what it names at run time
         if isinstance(tree, SyntaxError):
-            unknown = [(tree.lineno or 1, f"isn't Python the check can read (line {tree.lineno or 1}: {tree.msg}), "
-                                          "so it can't tell where the cell runs")]
+            unknown = [(tree.lineno or 1, (f"isn't Python the check can read (line {tree.lineno or 1}: {tree.msg}), "
+                                          "so it can't tell where the cell runs"))]
         language = magics.cell(source).language
         if language in ("scala", "r", "csharp"):
             local.append({"cell": n, "text": "uses a Scala, R or .NET cell", "code": _snippet(source)})
@@ -876,8 +876,8 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
             hit = hit or next(((m, text) for m in spark_local.REFUSED_OPTION_TEXT.finditer(source)
                                if (text := spark_local.writer_option_refusal(m[1], None))), None)
             if read is None:  # not parsed: the literal spark.sql calls in its text
-                hit = hit or next(((m, "changes table rows in place with spark.sql (MERGE, UPDATE or DELETE of another "
-                                       "lakehouse, or with Preview features off), which runs in Fabric only")
+                hit = hit or next(((m, ("changes table rows in place with spark.sql (MERGE, UPDATE or DELETE of another "
+                                       "lakehouse, or with Preview features off), which runs in Fabric only"))
                                    for m in _SPARK_SQL_LITERAL.finditer(source)
                                    if not _in_comment(source, m.start()) and _sql_in_place(_literal_sql(m), own)), None)
                 hit = hit or next(((m, r[1]) for m in _SPARK_SQL_LITERAL.finditer(source)

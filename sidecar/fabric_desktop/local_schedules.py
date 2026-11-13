@@ -25,6 +25,7 @@ from xml.sax.saxutils import escape
 from . import signed_out_tasks
 from .fabric_run import WEEKDAYS, describe_schedule, schedule_configuration
 from .jsonfile import read_json, read_text, write_json
+from .winexe import system32
 
 TASK_FOLDER = "FabricDesktop"
 RUNS_FILE = "schedule_runs.jsonl"
@@ -219,7 +220,7 @@ class TaskScheduler:
         try:
             # schtasks answers in a second; one that doesn't (a hung Task Scheduler service) would
             # otherwise hold every page's engine calls behind it, with no Stop to reach.
-            res = subprocess.run(["schtasks", *args], capture_output=True, text=True, errors="replace", creationflags=flags,
+            res = subprocess.run([system32("schtasks.exe"), *args], capture_output=True, text=True, errors="replace", creationflags=flags,
                                  timeout=SCHTASKS_SECONDS)
         except subprocess.TimeoutExpired:
             raise RuntimeError(f"Task Scheduler didn't answer in {SCHTASKS_SECONDS} seconds. Check that the "

@@ -86,7 +86,13 @@ pub fn parse(url: &str) -> Result<Link, String> {
         return Ok(Link::Refused(String::new()));
     }
     if target.eq_ignore_ascii_case("notebook") {
-        if let Some(path) = param("path")?.filter(|p| !p.is_empty()) {
+        // A path is the whole rest of the query, and `+` in it is a plus: VS Code sends `&`, `=` and `+`
+        // in a file's path as they are (docs/vscode.md, "Paths"), so neither may cut it short or become a space.
+        let path = match query.strip_prefix("path=") {
+            Some(raw) => Some(decode_as(raw, false)?),
+            None => param("path")?,
+        };
+        if let Some(path) = path.filter(|p| !p.is_empty()) {
             if !path.to_ascii_lowercase().ends_with(".ipynb") {
                 return Err("A notebook link names an .ipynb file.".into());
             }
@@ -408,6 +414,11 @@ pub fn register_args(exe: &str) -> Vec<Vec<String>> {
 }
 
 fn decode(s: &str) -> Result<String, String> {
+    decode_as(s, true)
+}
+
+/// %-codes decoded; `+` is a space only when `plus_is_space`, as in a form, never in a path.
+fn decode_as(s: &str, plus_is_space: bool) -> Result<String, String> {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -418,7 +429,7 @@ fn decode(s: &str) -> Result<String, String> {
                 out.push(u8::from_str_radix(hex, 16).map_err(|_| "The link has a broken % code.")?);
                 i += 3;
             }
-            b'+' => {
+            b'+' if plus_is_space => {
                 out.push(b' ');
                 i += 1;
             }
@@ -491,6 +502,33 @@ mod tests {
         }
         assert!(parse("kratosforge://notebook?path=C%3A%5CUsers%5Ca%5Cx.ipynb").is_ok());
         assert!(parse("kratosforge://notebook?path=c:/Users/a/x.ipynb").is_ok());
+    }
+
+    #[test]
+    fn real_world_paths_read_as_the_file_they_name() {
+        let path = |url: &str| match parse(url) {
+            Ok(Link::NotebookPath(p)) => p,
+            other => panic!("{url}: {other:?}"),
+        };
+        // What the extension sends (encodeURIComponent of the path), and what VS Code hands Windows when it
+        // re-encodes a link (its URI's minimal form, then encodeURI): both read as the same file.
+        for (sent, reencoded, file) in [
+            ("C%3A%5CUsers%5CAna%20Lima%5CDocuments%5CDaily%20sales.ipynb",
+             "C:%5CUsers%5CAna%20Lima%5CDocuments%5CDaily%20sales.ipynb", r"C:\Users\Ana Lima\Documents\Daily sales.ipynb"),
+            ("C%3A%5CUsers%5CJos%C3%A9%5C%F0%9F%93%8A%20Q1%5Ca%2520b.ipynb",
+             "C:%5CUsers%5CJos%C3%A9%5C%F0%9F%93%8A%20Q1%5Ca%2520b.ipynb", "C:\\Users\\José\\📊 Q1\\a%20b.ipynb"),
+            ("C%3A%5Ca%2Bb%5Cc%26d%3De.ipynb", "C:%5Ca+b%5Cc&d=e.ipynb", r"C:\a+b\c&d=e.ipynb"),
+            ("C%3A%5CUsers%5Cme%5COneDrive%20-%20Contoso%5CDocuments%5Cx.ipynb",
+             "C:%5CUsers%5Cme%5COneDrive%20-%20Contoso%5CDocuments%5Cx.ipynb", r"C:\Users\me\OneDrive - Contoso\Documents\x.ipynb"),
+            ("Z%3A%5Cteam%5Cx.ipynb", "Z:%5Cteam%5Cx.ipynb", r"Z:\team\x.ipynb"),
+        ] {
+            assert_eq!(path(&format!("kratosforge://notebook?path={sent}")), file);
+            assert_eq!(path(&format!("kratosforge://notebook?path={reencoded}")), file);
+        }
+        let long = format!("C:\\{}\\x.ipynb", "d".repeat(300));
+        assert_eq!(path(&format!("kratosforge://notebook?path={}", long.replace('\\', "%5C"))), long);
+        // A name link keeps `+` as a space, as before.
+        assert_eq!(parse("kratosforge://notebook?name=Daily+load").unwrap(), Link::NotebookName("Daily load".into()));
     }
 
     #[test]

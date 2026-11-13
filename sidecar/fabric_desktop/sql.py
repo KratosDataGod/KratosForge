@@ -23,7 +23,7 @@ from sqlglot.dialects.duckdb import DuckDB
 from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
-from . import spark_builtins_sql, sql_dialects
+from . import spark_builtins_sql, spark_sql_names, sql_dialects
 from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
 
 # sqlglot logs a warning when it reads a statement as a bare command ('SHOW TABLES' ...). With no
@@ -43,11 +43,11 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
         raise ValueError(f"{chosen['label']} can't run on this PC. KratosForge checks and formats "
                          "it here; run it in Fabric, or pick Spark SQL or DuckDB to run on this PC.")
     try:
-        statements = _statements(sqlglot.parse(diff_spellings(query) if chosen["id"] == "spark" else query,
-                                               read=chosen["sqlglot"]))
+        statements = _statements(sql_dialects.parse(diff_spellings(query) if chosen["id"] == "spark" else query,
+                                                    read=chosen["sqlglot"]))
         if chosen["id"] == "spark":
-            statements = [spark_legacy_times(spark_fixes(s)) for s in statements]
-    except ParseError as first_error:
+            statements = [spark_legacy_times(spark_fixes(spark_legacy_casts(s))) for s in statements]
+    except (ParseError, TokenError) as first_error:  # an unclosed quote is a TokenError
         if chosen["id"] == "spark" and (respelled := _spark_spellings(query)) != query:
             try:
                 return parse(respelled, dialect)
@@ -55,11 +55,11 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
                 pass  # report the error in the query as written
         if chosen["id"] == "spark" and _only_empty_structs_fail(query):
             raise ValueError(_EMPTY_STRUCT) from None
-        if chosen["id"] != "spark":
+        if chosen["id"] != "spark" or getattr(first_error, "uneven_pairs", False):  # DuckDB would drop an argument
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
         try:
             statements = _statements(sqlglot.parse(query, read="duckdb"))
-        except ParseError:
+        except (ParseError, TokenError):
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
     if not statements:
         raise ValueError("The query is empty.")
@@ -162,7 +162,7 @@ def _only_empty_structs_fail(query: str) -> bool:
     for start, end in reversed(spans):
         filled = filled[:start] + "<x: int>" + filled[end + 1:]
     try:
-        sqlglot.parse(filled, read="spark")
+        sql_dialects.parse(filled, read="spark")
     except ParseError:
         return False
     return True
@@ -180,8 +180,34 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     Apache Spark 3.5 (Fabric) quotes only names that need it. timestampdiff counts whole units
     (_spark_timestampdiff)."""
     statement = spark_builtins_sql.mark(statement)
-    return _spark_timestampdiff(spark_builtins_sql.rewrite(
-        _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_names(statement))))))))
+    statement = _spark_timestampdiff(spark_builtins_sql.rewrite(
+        _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_cast_functions(_spark_names(statement)))))))))
+    return statement if databricks else _spark_session_functions(statement)
+
+
+def _spark_session_functions(statement: exp.Expression) -> exp.Expression:
+    """Spark's session functions in a Fabric notebook, where DuckDB would describe its own session
+    ('memory' for its catalog). current_catalog() is spark_catalog, as in Fabric; current_timezone()
+    is the session's spark.sql.session.timeZone (DuckDB's TimeZone, which spark.conf.set changes).
+    current_database() and current_schema() are refused: in Fabric they name the default lakehouse,
+    which a SQL cell here can't read; spark.catalog.currentDatabase() can. Databricks SQL keeps
+    DuckDB's own answers (its session is the engine's, not a Unity Catalog one)."""
+    for node in list(statement.find_all(exp.CurrentCatalog, exp.CurrentTimezone, exp.CurrentDatabase,
+                                        exp.CurrentSchema)):
+        if isinstance(node, exp.CurrentCatalog):
+            new: exp.Expression = exp.Literal.string("spark_catalog")
+        elif isinstance(node, exp.CurrentTimezone):
+            new = exp.Anonymous(this="CURRENT_SETTING", expressions=[exp.Literal.string("TimeZone")])
+        else:
+            name = "current_database" if isinstance(node, exp.CurrentDatabase) else "current_schema"
+            raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric, so nothing ran: in Fabric "
+                             "it names the notebook's default lakehouse, and a SQL cell here would name DuckDB's "
+                             "own database instead. Use spark.catalog.currentDatabase() in a Python cell, or run "
+                             "the cell in Fabric.")
+        if node is statement:
+            return new
+        node.replace(new)
+    return statement
 
 
 # Spark functions whose sqlglot DuckDB SQL answers differently or doesn't run, as DuckDB SQL that
@@ -742,6 +768,50 @@ def _whole_number(node: exp.Expression) -> bool:
     return isinstance(node, (exp.Cast, exp.TryCast)) and node.to.this in _INT_CASTS
 
 
+# Spark's cast functions (int(x), bigint(x), double(x), ...) are CAST(x AS type) in Spark. sqlglot reads
+# int(), double() and most others as a Cast, and bigint, smallint, tinyint, decimal and binary as plain calls,
+# which spark_fixes makes casts so the casts below give Spark's value. binary(text) is its UTF-8 bytes
+# (DuckDB's cast reads escapes and refuses non-ASCII). decimal(x) is DECIMAL(10, 0).
+_CAST_FUNCTIONS = {"BIGINT": "BIGINT", "SMALLINT": "SMALLINT", "TINYINT": "TINYINT", "DECIMAL": "DECIMAL(10, 0)"}
+_BINARY_FUNCTION = ("CASE WHEN typeof(fj_arg0) = 'VARCHAR' THEN ENCODE(CAST(fj_arg0 AS VARCHAR)) "
+                    "WHEN typeof(fj_arg0) IN ('BLOB', '\"NULL\"') THEN TRY_CAST(fj_arg0 AS BLOB) "
+                    "ELSE ERROR('binary() of type ' || typeof(fj_arg0) || ' can''t run on this PC the way it runs in "
+                    "Fabric, so nothing ran: Spark writes its bytes. Run the cell in Fabric, or pass text.') END")
+
+
+def _spark_cast_functions(statement: exp.Expression, legacy: bool = False) -> exp.Expression:
+    """The cast functions as casts: Databricks SQL's CAST (ANSI, a Cast), or with ``legacy`` Spark's CAST
+    with ANSI off (a TryCast, as sqlglot reads Spark's CAST), as spark_legacy_casts uses it. binary() is
+    written inside spark_fixes only, after spark_builtins_sql.mark(), so its typeof stays DuckDB's."""
+    kind = exp.TryCast if legacy else exp.Cast
+    for call in list(statement.find_all(exp.Anonymous)):
+        name = call.name.upper()
+        if name == "BINARY" and len(call.expressions) == 1 and not legacy:  # inside spark_fixes, after mark()
+            call.replace(exp.paren(_with_args(_BINARY_FUNCTION, [call.expressions[0]])))
+        elif name in _CAST_FUNCTIONS and len(call.expressions) == 1:
+            call.replace(kind(this=call.expressions[0].copy(),
+                              to=exp.DataType.build(_CAST_FUNCTIONS[name], dialect="spark")))
+    return statement
+
+
+def spark_legacy_casts(statement: exp.Expression) -> exp.Expression:
+    """Spark SQL and the DataFrame API only (ANSI off, as Fabric runs): int('1.9') is Spark's CAST, which
+    gives 1. sqlglot reads Spark's CAST and :: as a TryCast, so a plain Cast came from a cast function
+    (int(x), double(x), ...) or is a typed literal; a cast function's becomes a TryCast before spark_fixes. Databricks SQL is ANSI and
+    doesn't use this. Casts to a timestamp are left to spark_legacy_times."""
+    for node in list(statement.find_all(exp.Cast)):
+        # A typed literal (DATE '2026-13-01') is a Cast too, but Spark refuses a bad one even with ANSI off,
+        # so it stays a Cast. sqlglot tells them apart only by position: a cast function's Cast carries
+        # its name's place in the query (tests/test_spark_builtins_sql.py pins it).
+        if type(node) is exp.Cast and node.to.this not in _TIMESTAMPS and "start" in node.meta:
+            replacement = exp.TryCast(this=node.this, to=node.to)
+            replacement.meta.update(spark_sql_names.kept(node))  # double(x) keeps the name Spark gives it
+            if node is statement:
+                return replacement
+            node.replace(replacement)
+    return _spark_cast_functions(statement, legacy=True)
+
+
 def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
     """Casts to TINYINT, SMALLINT, INT or BIGINT written out as Spark casts (EA-003, and EA-014 for a
     timestamp): see spark_integer_cast. Casts to a timestamp read a number as seconds (spark_timestamp_cast).
@@ -930,6 +1000,7 @@ def spark_legacy_times(statement: exp.Expression) -> exp.Expression:
             node.set("safe", True)
         elif type(node) is exp.Cast and node.to.this in _TIMESTAMPS:
             replacement = exp.TryCast(this=node.this, to=node.to)
+            replacement.meta.update(spark_sql_names.kept(node))  # double(x) keeps the name Spark gives it
             if node is statement:
                 return replacement
             node.replace(replacement)
@@ -1104,11 +1175,19 @@ _BUILTIN_NAMES = spark_builtins_sql.names()
 
 
 def _spark_names(statement: exp.Expression) -> exp.Expression:
-    """Name a selected expression this module rewrites as Spark names it ("add_months(d, 1)"), not after
-    the DuckDB SQL it becomes."""
+    """Name each selected expression without AS as Spark names it ("upper(a)", "locate(b, s, 1)"), not after
+    the DuckDB SQL it becomes (spark_sql_names); one that module can't name keeps the older rule: named
+    by spark_name when this module rewrites it."""
     for select in statement.find_all(exp.Select):
         for i, column in enumerate(select.expressions):
-            if isinstance(column, (exp.Alias, exp.Column, exp.Star)) or not (
+            if isinstance(column, (exp.Alias, exp.Column, exp.Star)):
+                continue
+            named = spark_sql_names.column_name(column, statement)
+            if named is not None:
+                select.expressions[i] = exp.alias_(column, named, quoted=True)
+                select.expressions[i].parent = select
+                continue
+            if not (
                     column.find(*_REWRITTEN, *spark_builtins_sql.typed_classes())
                     or any(str(a.this).upper() in _ANON_TEMPLATES or str(a.this).upper() in _MAP_LAMBDAS
                            or str(a.this).upper() in _BUILTIN_NAMES
@@ -1267,7 +1346,7 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
         if not table.db and (table.name.lower() in ctes or is_local(table.name) or table.name in views.values()):
             continue
         # lakehouse.table_ref checks the parts: a catalog is only allowed as the lakehouse's own name.
-        name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
+        name = table_name(table)
         point = _time_travel(table)  # VERSION AS OF n, TIMESTAMP AS OF '...', or Databricks' sales@v3
         opened, at = None, {}
         if point is None:
@@ -1285,6 +1364,14 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
         # Keep the name the query used as the alias, so sales.Country still resolves.
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier(table.name))
         table.replace(exp.Table(this=exp.to_identifier(views[key]), alias=alias))
+
+
+def table_name(table: exp.Table) -> str:
+    """``table``'s name as lakehouse.table_ref reads it: catalog, schema and name, each in backticks when
+    it holds a dot or a backtick (`` `dbo.sales` `` stays one name), so no part is dropped or split."""
+    def part(p: str) -> str:
+        return "`" + p.replace("`", "``") + "`" if "." in p or "`" in p else p
+    return ".".join(part(p) for p in (table.catalog, table.db, table.name) if p)
 
 
 def is_local(con: duckdb.DuckDBPyConnection, name: str) -> bool:
@@ -1343,7 +1430,7 @@ def history_query(statement: exp.Expression, con: duckdb.DuckDBPyConnection,
     if not (isinstance(statement, exp.Describe) and str(statement.args.get("style") or "").upper() == "HISTORY"):
         return statement
     table = statement.this
-    name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
+    name = table_name(table)  # `dbo.sales` stays one name, so it's refused rather than read as dbo.sales
     view = f"__lakehouse_history_{len(views)}"
     views[f"history:{name.lower()}:{len(views)}"] = view
     con.register(view, _lakehouse().table_history(name).to_arrow())

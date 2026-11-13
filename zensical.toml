@@ -193,6 +193,7 @@ nav = [
       { "Development status" = "product/DEVELOPMENT_STATUS.md" },
       { "Development operations" = "product/operations/README.md" },
       { "12-week roadmap" = "product/operations/roadmap.md" },
+      { "Execution plan, week of 11-16" = "product/operations/execution-plan-2026-11-16.md" },
     ] },
   ] },
   { "Contributing" = [

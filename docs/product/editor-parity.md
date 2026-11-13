@@ -194,7 +194,7 @@ existing control does go straight to a draft PR.
 | 17 | **Find inside outputs** in notebook Find | N47 | 2 | 2 | S | 4 | No |
 | 18 | **Notebook as a read-only report**: outputs only, from the HTML export, opened in its own window | N48 | 2 | 3 | M | 3 | Yes |
 | 19 | **Scratch console** beside a notebook, in the same session | N40 | 2 | 2 | M | 2 | Yes |
-| — | **Dark mode applied** to the shell, notebooks and the SQL editor (CodeMirror themes from the same tokens). Owned by the Appearance work that saved `ui_color_mode` (#2569); counted here, not built twice | N60, S45 | 4 | 5 | M | 10 | Owned elsewhere |
+| — | **Dark mode applied** to the shell, notebooks and the SQL editor (CodeMirror themes from the same tokens). `ui_color_mode` is saved but not applied (#2569) and nobody owns applying it yet. It touches the standing light-shell design rule, so it needs Chris's go and a mockup before anyone builds it | N60, S45 | 4 | 5 | M | 10 | Yes, and Chris's go |
 
 Wave 1 closes 24 Gap rows and 11 Partial rows. Afterwards: 94.5 of 99 rows, **95%**.
 

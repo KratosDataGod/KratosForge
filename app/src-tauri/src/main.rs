@@ -16,6 +16,7 @@ use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 mod crash;
 mod deep_link;
 mod disk_space;
+mod engine_folder;
 mod engine_patch;
 mod exe_name;
 mod folder_pick;
@@ -427,12 +428,32 @@ fn engine_root() -> PathBuf {
     data_dir().join("engine")
 }
 
+/// IT's engine folder (engine_folder.rs, Preview): None when the policy file doesn't set one,
+/// otherwise this build's python.exe there or why it can't be used. The policy file's permissions
+/// are checked before it is read, as for engine_download_url.
+fn it_engine() -> Option<Result<PathBuf, String>> {
+    let file = PathBuf::from(std::env::var_os("ProgramData")?).join("FabricDesktop").join("policy.json");
+    let trusted = policy_trust::admin_only(&file);
+    let text = std::fs::read_to_string(&file).ok()?;
+    let checks = engine_folder::Checks {
+        policy: trusted,
+        engine: &policy_trust::admin_only_engine,
+        ancestor: &policy_trust::admin_only_ancestor,
+    };
+    engine_folder::resolve(&text, policy_allows_updates(&text), BUILD_COMMIT, checks).transpose()
+}
+
 /// This build's engine, or failing that another build's, which can still run the
 /// startup check that then updates this exe or the engine. A signed build runs only its own
-/// (own_engine_only); a missing one is installed from this build's release.
+/// (own_engine_only); a missing one is installed from this build's release. When IT keeps the
+/// engine in a folder of its own, only that one, and none when it can't be used (install_engine
+/// then says why).
 fn engine_python() -> Option<PathBuf> {
     if !bundled() {
         return None;
+    }
+    if let Some(it) = it_engine() {
+        return it.ok();
     }
     let exact = engine_root().join(BUILD_COMMIT).join("python.exe");
     if exact.exists() {
@@ -596,7 +617,22 @@ const APP_CONTROL_BLOCKED: [i32; 3] = [1260, 4551, 577];
 fn python_failed(e: &std::io::Error) -> String {
     let folder = python().ok().and_then(|p| PathBuf::from(p).parent().map(|d| d.display().to_string()))
         .unwrap_or_else(|| engine_root().display().to_string());
-    python_failed_text(e.raw_os_error(), &e.to_string(), &folder)
+    let text = python_failed_text(e.raw_os_error(), &e.to_string(), &folder);
+    if it_engine().is_some() { managed_engine_text(e.raw_os_error(), text) } else { text }
+}
+
+/// With IT's own engine folder the person can't delete or repair it, so a file that may have
+/// changed (577) goes to IT, who copies the engine there again before allowing anything.
+fn managed_engine_text(code: Option<i32>, text: String) -> String {
+    if code != Some(577) {
+        return text;
+    }
+    text.replacen(
+        "close KratosForge, delete the folder",
+        "ask IT to copy this build's engine into",
+        1,
+    )
+    .replacen(", and start KratosForge again to download a fresh engine.", " again.", 1)
 }
 
 /// Why the engine didn't start. Application control's line stands on its own; anything else keeps
@@ -1362,6 +1398,17 @@ fn run_tool(mut cmd: Command, what: &str) -> Result<(), String> {
 /// engine already has the release's Python and packages, only the engine's own code is
 /// downloaded (engine_patch.rs); the whole engine is the fallback.
 fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
+    if let Some(it) = it_engine() {
+        // Never install into IT's folder, and never fall back to the per-user engine their rules block.
+        return Err(match it {
+            Ok(python) => format!(
+                "Your organization manages the engine in {}, so KratosForge doesn't install or repair it. Ask IT to \
+                 copy this build's engine there again.",
+                python.parent().unwrap_or(&python).display()
+            ),
+            Err(why) => why,
+        });
+    }
     // A full or read-only profile disk (shared and virtual desktops) is said plainly (disk_space.rs).
     install_engine_into(app).map_err(|e| disk_space::explain(&e, &engine_root()))
 }
@@ -3026,6 +3073,11 @@ mod integrity_tests {
         assert!(changed.contains(&format!("close KratosForge, delete the folder {folder}, and start KratosForge again")), "{changed}");
         assert!(changed.contains("If it's still blocked, your organization's application control (App Control"), "{changed}");
         assert!(!python_failed_text(Some(1260), "x", folder).contains("may have been changed"));
+        // IT's engine folder: the person can't delete it, so IT copies the engine there again.
+        let managed = managed_engine_text(Some(577), changed.clone());
+        assert!(managed.contains(&format!("A file may have been changed: ask IT to copy this build's engine into {folder} again.")), "{managed}");
+        assert!(!managed.contains("delete the folder") && managed.contains("If it's still blocked"));
+        assert_eq!(managed_engine_text(Some(1260), "x".into()), "x");
         assert_eq!(python_failed_text(Some(2), "not found", folder), "Python was not found (not found).");
         assert_eq!(python_failed_text(Some(5), "Access is denied", folder), "Python could not be started (Access is denied).");
     }

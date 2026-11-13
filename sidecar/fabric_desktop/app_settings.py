@@ -277,7 +277,7 @@ INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integration
                     "integrations_editors", "receipt_redactions")
 # Read only by the shell (main.rs), which applies them itself; listed so the file has one list of
 # settings and policy_problems() can say what the shell will skip.
-SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_download_url")
+SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_download_url", "engine_folder")
 # Read by appstudio/policy.py: what App Studio may send to AI models (connections, providers, hosts, sample rows).
 APPSTUDIO_KEYS = ("appstudio_models", "appstudio_providers", "appstudio_hosts", "appstudio_sample_rows")
 POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *APPSTUDIO_KEYS, *SHELL_KEYS)
@@ -457,6 +457,8 @@ def policy_problems() -> list[str]:
             problems.extend(_sign_in_host_problems(value))
         elif key == "engine_download_url":
             problems.extend(_engine_url_problems(value, data.get("auto_update")))
+        elif key == "engine_folder":
+            problems.extend(_engine_folder_problems(value, data.get("auto_update")))
         elif key == "notebook_package_folder" and isinstance(value, str) and value:
             why = package_folder_problem(value)
             if why:
@@ -549,6 +551,21 @@ def _engine_url_problems(value: Any, auto_update: Any) -> list[str]:
     if ignored:
         return [(f"engine_download_url is ignored, so the engine comes from GitHub: {ignored}. Push policy.json "
                 "as SYSTEM (Intune, Group Policy) or from an elevated prompt, so only administrators can change it")]
+    return []
+
+
+def _engine_folder_problems(value: Any, auto_update: Any) -> list[str]:
+    """What the shell refuses in engine_folder (Preview; it reads the key and checks the folder's
+    permissions itself, engine_folder.rs). The app then doesn't start its engine, so say why here too."""
+    text = value.strip() if isinstance(value, str) else ""
+    parts = text.split("\\")
+    if not (len(text) >= 3 and text[0].isascii() and text[0].isalpha() and text[1:3] == ":\\"
+            and "/" not in text and not any(p in (".", "..") for p in parts)
+            and not any(ord(c) < 32 or ord(c) == 127 for c in text)):
+        return [(f"engine_folder: {json.dumps(value)} isn't a full folder path on this PC like "
+                 "C:\\Program Files\\KratosForge\\engine, so the engine can't start until it's fixed")]
+    if auto_update is not False:
+        return ['engine_folder is used only with "auto_update": false, so the engine can\'t start until that is set']
     return []
 
 

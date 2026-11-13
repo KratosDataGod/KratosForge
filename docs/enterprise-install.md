@@ -124,6 +124,27 @@ On a network that can't reach GitHub, or to keep 5,000 PCs from each downloading
 
 The app installs only an engine whose `version.json` names the app's own build and whose zip matches the checksum in it and the checksum built into the exe, and it follows redirects only to `https`. **Settings > Help and about** says when the address isn't one it will use, and why. Not yet tried on a real network.
 
+## Keep the engine in a folder only administrators can write (Preview)
+
+AppLocker's default rules and App Control for Business path rules allow programs only in folders standard users can't write. The engine normally lives in the user's own `%LOCALAPPDATA%\FabricDesktop\engine`, so it needs a hash rule for every build. Instead, you can install the engine yourself under `C:\Program Files`:
+
+1. Download `fabric-desktop-engine.zip` and `version.json` from the build's `build-<first 12 characters of its commit>` release, and check the zip as in [Install: Check a download yourself](https://github.com/KratosDataGod/KratosForge/blob/main/docs/install.md#check-a-download-yourself).
+2. From an elevated prompt, unpack the zip into a folder named with the full `commit` from `version.json`. For example, `python.exe` ends up at `C:\Program Files\KratosForge\engine\0123456789abcdef0123456789abcdef01234567\python.exe`. Keep the permissions `C:\Program Files` gives new folders.
+3. In `policy.json`, set `"auto_update": false` and `"engine_folder": "C:\\Program Files\\KratosForge\\engine"`, the folder above the build folders. Push the file as SYSTEM or from an elevated prompt.
+4. For each new exe you roll out, add its build's folder first, then deploy the exe. Remove old build folders once no PC runs their exe.
+
+The app uses the folder only when all of these hold:
+- the policy file passes the same check as for `engine_download_url`;
+- the path is a full local path (no network share);
+- the folder, the build's folder, `python.exe`, `pythonw.exe`, `python3*.dll`, `python3*._pth`, `python3*.zip`, `pyvenv.cfg`, `DLLs`, `Lib`, `Lib\site-packages` and each folder directly in it are owned by SYSTEM, Administrators or TrustedInstaller, and nobody else may create, change or delete anything in them;
+- every folder above it, up to the drive, is owned by one of those and lets nobody else delete, rename or replace what is in it (creating new folders there is fine, as on `C:\`).
+
+Otherwise the engine doesn't start, and the app says why. It never installs or repairs an engine there, and it never falls back to the per-user engine, because that is the one your rules block. **Settings > Help and about** shows a setting it can't use.
+
+The app checks those files and folders, not every file below them, so leave the permissions the folders pass down unchanged. Notebook-environment packages still install in the user's profile; see `notebook_package_folder`.
+
+This is Preview. It's a setting in the policy file, not a screen, so Settings > Preview features doesn't list it. It hasn't yet been tried on a PC with AppLocker or App Control for Business enforced.
+
 ## Roll back
 
 There is no one-click rollback yet.
@@ -245,6 +266,7 @@ What we suggest until signing lands:
 
 - Use the [managed update model](#pick-an-update-model): copy `kratosforge.exe` to `C:\Program Files\KratosForge\` with `"auto_update": false`. Under App Control, add a hash rule for each build.
 - Allow the engine by hash from a reference PC after the app has installed its engine once, and again for each engine build that changes packages (the release notes say when). Under AppLocker, `Get-AppLockerFileInformation` piped to `New-AppLockerPolicy -RuleType Publisher,Hash` does this. Under App Control, add a signer rule for the Python Software Foundation and `New-CIPolicy -Level FilePublisher -Fallback Hash -UserPEs` on the engine folder. A path rule on the engine folder is simpler but lets the user run anything they put there, because they can write to it.
+- Or install the engine yourself in a folder only administrators can write, so a path rule covers it ([Keep the engine in a folder only administrators can write](#keep-the-engine-in-a-folder-only-administrators-can-write-preview), Preview).
 - For notebook packages, use `notebook_package_folder` and allow its wheels' files by hash, or turn the features off with `"allow_notebook_packages": false` and `"allow_dbconnect_install": false`.
 - Run shell commands with `%%powershell` or `!command` rather than `%%cmd`; don't allow `%TEMP%`.
 - Under script enforcement PowerShell runs in Constrained Language Mode, so "also run while signed out" on a schedule can't be saved. Ordinary schedules are unaffected.

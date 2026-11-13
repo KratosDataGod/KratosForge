@@ -128,7 +128,7 @@ Every call passes PermissionAuthorizer.check (integrations/permissions.py) befor
 | `fabric_desktop_start_pipeline_run` | `sidecar/fabric_desktop/integrations/services.py:296` | EXECUTE_LOCAL_CODE | yes | always |  |
 | `fabric_desktop_start_proof` | `sidecar/fabric_desktop/integrations/services.py:476` | MODIFY_FABRIC_ARTIFACTS | no (refused) | always |  |
 
-## 3. Engine methods that change something (415)
+## 3. Engine methods that change something (416)
 
 Reached only by the app window, over the engine's own pipe. "What it changes" and "Check" are found by reading the method and the methods it calls; "platform's check per operation" points at section 1.
 
@@ -282,26 +282,26 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `list_files` | `sidecar/fabric_desktop/service.py:751` | Fabric or OneLake | Fabric's own rights |
 | `list_items` | `sidecar/fabric_desktop/service.py:662` | Fabric or OneLake | Fabric's own rights |
 | `list_lakehouses` | `sidecar/fabric_desktop/service.py:563` | Fabric or OneLake | Fabric's own rights |
-| `list_local_projects` | `sidecar/fabric_desktop/localdata_service.py:41` | this PC | the signed-in Windows user's own files |
-| `list_local_tables` | `sidecar/fabric_desktop/localdata_service.py:77` | this PC | the signed-in Windows user's own files |
+| `list_local_projects` | `sidecar/fabric_desktop/localdata_service.py:42` | this PC | the signed-in Windows user's own files |
+| `list_local_tables` | `sidecar/fabric_desktop/localdata_service.py:78` | this PC | the signed-in Windows user's own files |
 | `list_notebooks` | `sidecar/fabric_desktop/service.py:1345` | this PC | the signed-in Windows user's own files |
 | `list_tables` | `sidecar/fabric_desktop/service.py:724` | Fabric or OneLake | Fabric's own rights |
 | `list_workspaces` | `sidecar/fabric_desktop/service.py:560` | Fabric or OneLake | Fabric's own rights |
-| `local_add_source` | `sidecar/fabric_desktop/localdata_service.py:62` | this PC | the signed-in Windows user's own files |
-| `local_change_delta` | `sidecar/fabric_desktop/localdata_service.py:165` | this PC | confirm or approve argument |
-| `local_close_project` | `sidecar/fabric_desktop/localdata_service.py:54` | this PC | the signed-in Windows user's own files |
-| `local_create_project` | `sidecar/fabric_desktop/localdata_service.py:44` | this PC | the signed-in Windows user's own files |
-| `local_drop_delta` | `sidecar/fabric_desktop/localdata_service.py:192` | this PC | confirm or approve argument |
-| `local_forget_project` | `sidecar/fabric_desktop/localdata_service.py:48` | this PC | the signed-in Windows user's own files |
-| `local_project_settings` | `sidecar/fabric_desktop/localdata_service.py:59` | this PC | the signed-in Windows user's own files |
-| `local_query` | `sidecar/fabric_desktop/localdata_service.py:84` | this PC | confirm or approve argument |
-| `local_query_cancel` | `sidecar/fabric_desktop/localdata_service.py:134` | this PC | the signed-in Windows user's own files |
-| `local_query_start` | `sidecar/fabric_desktop/localdata_service.py:106` | this PC | confirm or approve argument |
-| `local_refresh` | `sidecar/fabric_desktop/localdata_service.py:73` | this PC | the signed-in Windows user's own files |
-| `local_remove_source` | `sidecar/fabric_desktop/localdata_service.py:68` | this PC | the signed-in Windows user's own files |
-| `local_set_types` | `sidecar/fabric_desktop/localdata_service.py:80` | this PC | the signed-in Windows user's own files |
-| `local_transform_run` | `sidecar/fabric_desktop/localdata_service.py:179` | this PC | the signed-in Windows user's own files |
-| `local_write_delta` | `sidecar/fabric_desktop/localdata_service.py:148` | this PC | PermissionError; confirm or approve argument |
+| `local_add_source` | `sidecar/fabric_desktop/localdata_service.py:63` | this PC | the signed-in Windows user's own files |
+| `local_change_delta` | `sidecar/fabric_desktop/localdata_service.py:179` | this PC | confirm or approve argument |
+| `local_close_project` | `sidecar/fabric_desktop/localdata_service.py:55` | this PC | the signed-in Windows user's own files |
+| `local_create_project` | `sidecar/fabric_desktop/localdata_service.py:45` | this PC | the signed-in Windows user's own files |
+| `local_drop_delta` | `sidecar/fabric_desktop/localdata_service.py:206` | this PC | confirm or approve argument |
+| `local_forget_project` | `sidecar/fabric_desktop/localdata_service.py:49` | this PC | the signed-in Windows user's own files |
+| `local_project_settings` | `sidecar/fabric_desktop/localdata_service.py:60` | this PC | the signed-in Windows user's own files |
+| `local_query` | `sidecar/fabric_desktop/localdata_service.py:85` | this PC | confirm or approve argument |
+| `local_query_cancel` | `sidecar/fabric_desktop/localdata_service.py:148` | this PC | the signed-in Windows user's own files |
+| `local_query_start` | `sidecar/fabric_desktop/localdata_service.py:107` | this PC | confirm or approve argument |
+| `local_refresh` | `sidecar/fabric_desktop/localdata_service.py:74` | this PC | the signed-in Windows user's own files |
+| `local_remove_source` | `sidecar/fabric_desktop/localdata_service.py:69` | this PC | the signed-in Windows user's own files |
+| `local_set_types` | `sidecar/fabric_desktop/localdata_service.py:81` | this PC | the signed-in Windows user's own files |
+| `local_transform_run` | `sidecar/fabric_desktop/localdata_service.py:193` | this PC | the signed-in Windows user's own files |
+| `local_write_delta` | `sidecar/fabric_desktop/localdata_service.py:162` | this PC | PermissionError; confirm or approve argument |
 | `local_writes_clear` | `sidecar/fabric_desktop/local_writes_service.py:139` | this PC | the signed-in Windows user's own files |
 | `local_writes_reveal` | `sidecar/fabric_desktop/local_writes_service.py:126` | this PC | the signed-in Windows user's own files |
 | `mail_server_forget` | `sidecar/fabric_desktop/platform_notify_service.py:195` | this PC | the signed-in Windows user's own files |
@@ -334,9 +334,10 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `meta_model_dictionary_export` | `sidecar/fabric_desktop/model_dictionary_service.py:54` | this PC | the signed-in Windows user's own files |
 | `meta_model_dictionary_import` | `sidecar/fabric_desktop/model_dictionary_service.py:76` | platform: save_enrichment | platform's check per operation; confirm or approve argument |
 | `meta_model_dictionary_save` | `sidecar/fabric_desktop/model_dictionary_service.py:63` | this PC | the signed-in Windows user's own files |
-| `meta_model_ossie_import` | `sidecar/fabric_desktop/model_ossie_service.py:214` | Fabric or OneLake | Fabric's own rights; confirm or approve argument |
-| `meta_model_ossie_save` | `sidecar/fabric_desktop/model_ossie_service.py:156` | this PC | the signed-in Windows user's own files |
-| `meta_model_tmdl_save` | `sidecar/fabric_desktop/model_ossie_service.py:236` | Fabric or OneLake | Fabric's own rights |
+| `meta_model_ossie_import` | `sidecar/fabric_desktop/model_ossie_service.py:240` | Fabric or OneLake | Fabric's own rights; confirm or approve argument |
+| `meta_model_ossie_save` | `sidecar/fabric_desktop/model_ossie_service.py:182` | this PC | the signed-in Windows user's own files |
+| `meta_model_ossie_to_tmdl` | `sidecar/fabric_desktop/model_ossie_service.py:290` | this PC | confirm or approve argument |
+| `meta_model_tmdl_save` | `sidecar/fabric_desktop/model_ossie_service.py:262` | Fabric or OneLake | Fabric's own rights |
 | `meta_new_entity` | `sidecar/fabric_desktop/meta_service.py:439` | Fabric or OneLake; runs code or a pipeline on this PC | Fabric's own rights |
 | `meta_new_key_table` | `sidecar/fabric_desktop/meta_service.py:983` | Fabric or OneLake | Fabric's own rights |
 | `meta_open` | `sidecar/fabric_desktop/meta_service.py:225` | this PC | the signed-in Windows user's own files |

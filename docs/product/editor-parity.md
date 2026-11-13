@@ -13,7 +13,8 @@ This page is that plan. It is read against main `e9e8e3e8b` (2026-11-13).
   the VS Code MSSQL extension (Azure Data Studio was retired in February 2026), DataGrip, DBeaver,
   Snowflake Snowsight.
 - **Competitor columns** come from each product's public documentation and common use as of
-  November 2026. They were not re-tested for this page. **Y** has it, **P** has part of it (or only
+  November 2026. They were not re-read or re-tested for this page, and products change fast (Azure Data
+  Studio was retired this year), so a dated correction to any cell is welcome. **Y** has it, **P** has part of it (or only
   through a common extension), **N** doesn't.
 - **KratosForge** cells were checked in this repository's code at the commit above, with the file
   that shows it. **Have** = on main, **Partial** = some of it (the note says what is missing),
@@ -31,9 +32,9 @@ This page is that plan. It is read against main `e9e8e3e8b` (2026-11-13).
 
 | Group | Counted rows | Have | Partial | Gap | Score |
 | --- | --- | --- | --- | --- | --- |
-| Notebook | 54 | 41 | 2 | 11 | 78% |
-| SQL editor | 45 | 20 | 8 | 17 | 53% |
-| **Both** | **99** | **61** | **10** | **28** | **67%** |
+| Notebook | 54 | 40 | 3 | 11 | 77% |
+| SQL editor | 45 | 19 | 9 | 17 | 52% |
+| **Both** | **99** | **59** | **12** | **28** | **66%** |
 
 The notebook is close: its gaps are Markdown rendering (math, tables, images), code navigation and a
 few comfort features. The SQL editor's editing is strong (dialects, schema-aware suggestions, Format
@@ -106,7 +107,7 @@ Products: JL = JupyterLab, VSC = VS Code, Fab = Fabric, Dbx = Databricks.
 | N57 | Real-time co-editing | P | P | Y | Y | Y | Not counted | can't run on one PC; teams share through Git |
 | N58 | Item sharing and permissions | N | N | Y | Y | Y | Not counted | set in Fabric after Publish |
 | N59 | In-editor AI assistant | P | Y | Y | Y | Y | Not counted | AI-ready by policy: AI tools use the local API |
-| N60 | Dark mode and themes | Y | Y | Y | Y | Y | Have | skins, `COLOR_MODES` in `skins.py` |
+| N60 | Dark mode and themes | Y | Y | Y | Y | Y | Partial | skins change the look; a dark color mode is saved (`ui_color_mode`, #2569) but not applied yet: the page reads only the light tokens (`skins.js`) |
 
 ## SQL editor matrix
 
@@ -132,11 +133,11 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S16 | Time, rows and a Messages view | Y | Y | Y | Y | Y | Have | `query.js:604` |
 | S17 | Query variables and parameters | Y | P | Y | Y | Y | Gap | |
 | S18 | Transactions and auto-commit control | Y | Y | Y | Y | P | Partial | warehouse changes go through Allow changes and a confirm; no open transaction across runs |
-| S19 | Sort the result grid by a column | P | Y | Y | Y | Y | Gap | plain table (`query.js:633`) |
+| S19 | Sort the result grid by a column | P | Y | Y | Y | Y | Gap | plain table (`drawResults` in `query.js`) |
 | S20 | Filter or search the result grid | N | Y | Y | Y | Y | Gap | |
 | S21 | Resize and reorder result columns | Y | Y | Y | Y | Y | Gap | |
 | S22 | Open a long text or JSON value in a viewer | P | Y | Y | Y | Y | Gap | |
-| S23 | Copy selected cells, with or without headers, as CSV, JSON or INSERT | Y | Y | Y | Y | Y | Partial | copies the page as TSV with headers (`query.js:498`) |
+| S23 | Copy selected cells, with or without headers, as CSV, JSON or INSERT | Y | Y | Y | Y | Y | Partial | copies the page as TSV with headers (`copyRows` in `query.js`) |
 | S24 | Export as CSV, Excel and JSON | Y | Y | Y | Y | Y | Partial | CSV and Parquet only (`sql_exec.py:975`) |
 | S25 | Chart a result | N | Y | N | P | Y | Have | `sqlchart.js` |
 | S26 | Column statistics on a result | N | N | P | N | Y | Gap | the notebook's profile (`frame_profile`) isn't on the SQL page |
@@ -158,7 +159,7 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S42 | Connect to other engines (SQL Server, Postgres, Snowflake, Databricks SQL) | P | P | Y | Y | N | Partial | lakehouse, SQL endpoint, warehouse and local project only |
 | S43 | SQL notebooks mixing SQL and Markdown | N | Y | N | N | Y | Have | notebooks with `%%sql` |
 | S44 | SSMS-style keys beyond F5 (Ctrl+R, Ctrl+Shift+U/L) | Y | Y | Y | Y | P | Partial | F5, Ctrl+Enter, Shift+Alt+F |
-| S45 | Dark mode | Y | Y | Y | Y | Y | Have | skins |
+| S45 | Dark mode | Y | Y | Y | Y | Y | Partial | as N60 |
 | S46 | Go to line, bookmarks | Y | Y | Y | Y | N | Gap | |
 | S47 | In-editor AI assistant | Y | Y | Y | Y | Y | Not counted | AI-ready by policy |
 
@@ -193,8 +194,9 @@ existing control does go straight to a draft PR.
 | 17 | **Find inside outputs** in notebook Find | N47 | 2 | 2 | S | 4 | No |
 | 18 | **Notebook as a read-only report**: outputs only, from the HTML export, opened in its own window | N48 | 2 | 3 | M | 3 | Yes |
 | 19 | **Scratch console** beside a notebook, in the same session | N40 | 2 | 2 | M | 2 | Yes |
+| — | **Dark mode applied** to the shell, notebooks and the SQL editor (CodeMirror themes from the same tokens). Owned by the Appearance work that saved `ui_color_mode` (#2569); counted here, not built twice | N60, S45 | 4 | 5 | M | 10 | Owned elsewhere |
 
-Wave 1 closes 24 Gap rows and 9 Partial rows. Afterwards: 94.5 of 99 rows, **95%**.
+Wave 1 closes 24 Gap rows and 11 Partial rows. Afterwards: 94.5 of 99 rows, **95%**.
 
 ### Wave 2: the last 5%
 

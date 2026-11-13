@@ -79,7 +79,8 @@
       "evidence": [
         "livetest.py never run",
         "docs/README.md lists features tried on the maintainer's tenant",
-        "The ten-flow smoke-test harness merged (#884) on main at 188d5a93; the live run waits on Chris's yes"
+        "The ten-flow smoke-test harness merged (#884) on main at 188d5a93; the live run waits on Chris's yes",
+        "Run 10 on the non-production Trial workspace, 2026-11-13 at e9e8e3e8: flows 1 to 6, 9, 10 and 11 passed (schema v5, 37 tables), the 401 check passed and cleanup left the workspace as it was; flow 12 failed when Fabric refused the UDF library list on update (fixed in #2591), and flows 13 to 15 were skipped. Run 11 waits on the product owner's typed go"
       ],
       "features": [
         "FEAT-SHL-01",

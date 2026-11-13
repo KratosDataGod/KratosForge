@@ -1,10 +1,12 @@
 name: Performance
 
-# The start-up, notebook-start and SQL benchmark (examples/benchmark/startup_and_sql.py) on the Windows
-# runner, compared with the recorded baseline (examples/benchmark/baseline-windows.json). It runs after
-# each merge to main, on demand, and on a pull request that changes the benchmark or this workflow.
-# It is advisory: a regression is a warning in the run and the job summary, not a failure. When it
-# becomes a gate, the compare step gets --gate (see docs/performance.md).
+# The start-up, notebook-start and SQL benchmark (examples/benchmark/startup_and_sql.py) on each runner
+# image in the matrix, compared with that image's recorded baseline (examples/benchmark/baselines/<image>.json).
+# It runs after each merge to main, on demand, and on a pull request that changes the benchmark or this
+# workflow. It is a gate: a measurement past the margin is a warning the first time, and fails the job
+# when the previous run on the same image was past it too (two runs in a row; see docs/performance.md).
+# The previous run's result comes from the Actions cache. This workflow never writes a baseline: a
+# new one is a reviewed change to its file.
 on:
   push:
     branches: [main]
@@ -12,7 +14,7 @@ on:
     paths:
       - examples/benchmark/startup_and_sql.py
       - examples/benchmark/compare.py
-      - examples/benchmark/baseline-windows.json
+      - examples/benchmark/baselines/**
       - .github/workflows/perf.yml
   workflow_dispatch:
 
@@ -27,7 +29,11 @@ concurrency:
 
 jobs:
   benchmark:
-    runs-on: windows-2025-vs2026
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [windows-2025-vs2026]  # each needs examples/benchmark/baselines/<image>.json
+    runs-on: ${{ matrix.image }}
     timeout-minutes: 30
     defaults:
       run:
@@ -38,21 +44,37 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: |
-            sidecar/constraints.txt
-            sidecar/pyproject.toml
-      - run: python -m pip install -e ".[dev]" -c constraints.txt
+          cache-dependency-path: .github/requirements/test-windows.txt
+      # Every package checked against its hash (test-windows.txt, constraints.txt's versions); then the engine
+      # itself, built by the hashed setuptools (see ci.yml's sidecar job).
+      - run: |
+          python -m pip install --only-binary=:all: --require-hashes -r ../.github/requirements/test-windows.txt
+      - run: python -m pip install --no-deps --no-build-isolation -e .
       # The settings the baseline was recorded with: 5 runs after 1 warm-up, 1,000,000 rows.
       - name: Run the benchmark
         run: python ../examples/benchmark/startup_and_sql.py --runs 5 --warmup 1 --rows 1000000 --json "$env:RUNNER_TEMP/bench.json"
+      # The last run's measurements past the margin on this image (this branch's, else main's).
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/perf-streak.json
+          key: perf-streak-${{ matrix.image }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: perf-streak-${{ matrix.image }}-
       - name: Compare with the baseline
-        run: python ../examples/benchmark/compare.py "$env:RUNNER_TEMP/bench.json" --baseline ../examples/benchmark/baseline-windows.json --summary "$env:GITHUB_STEP_SUMMARY"
+        id: compare
+        run: python ../examples/benchmark/compare.py "$env:RUNNER_TEMP/bench.json" --baselines ../examples/benchmark/baselines --image "${{ matrix.image }}" --streak "$env:RUNNER_TEMP/perf-streak.json" --summary "$env:GITHUB_STEP_SUMMARY" --gate
+      # Kept for the next run whether or not this one failed (compare.py writes it before it exits).
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: always() && (steps.compare.outcome == 'success' || steps.compare.outcome == 'failure')
+        with:
+          path: ${{ runner.temp }}/perf-streak.json
+          key: perf-streak-${{ matrix.image }}-${{ github.run_id }}-${{ github.run_attempt }}
       # The whole result in the log too, so a new baseline can be read from it.
       - name: Show the result
+        if: always()
         run: Get-Content "$env:RUNNER_TEMP/bench.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: benchmark-${{ github.sha }}
+          name: benchmark-${{ matrix.image }}-${{ github.sha }}
           path: ${{ runner.temp }}/bench.json
           if-no-files-found: ignore

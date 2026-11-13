@@ -311,6 +311,7 @@ Criticality sets the rate when `success_rate` is left out: critical 99 %, high 9
   - If a write on this PC stops part way, for example because the app was closed, it can leave files that no commit names. Table health lists them.
   - Compact removes unfinished files after an hour, and data files that no commit names once they're older than the layer's history days.
   - Compact only touches files named the way Delta names them. Anything else in the folder stays, such as a note or a CSV someone put there. Compact never goes into a linked folder (a symbolic link or a junction).
+  - The project's own meta tables on this PC (the run log, watermarks and the rest) are compacted by themselves at every 100th commit, so runs don't slow down as they add up.
 
 ## 7. Environments and promote
 

@@ -612,7 +612,7 @@ def test_a_refused_mailbox_listing_is_one_line_and_still_retryable():
     control = OneLakeControl("ws", "meta-lh", lambda: "tok", session=dfs, sleep=lambda s: None)
     with pytest.raises(requests.HTTPError) as err:
         control.list("requests")
-    assert str(err.value) == "OneLake didn't list the requests mailbox folder (403: AuthorizationPermissionMismatch)."
+    assert str(err.value) == "OneLake didn't list the requests mailbox folder (403: AuthorizationPermissionMismatch). Your account needs access to this workspace in Fabric (Contributor to write). Ask a workspace admin."
     assert "https://" not in str(err.value) and not is_retryable(err.value)
 
     dfs = Refusing(429, {})

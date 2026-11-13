@@ -155,7 +155,7 @@ async function warehouseRunOk(ref) {
   if (sqlWarehouseOk.has(sqlRefKey(ref))) return true;
   const ok = await confirmDialog(`Run this query in Fabric on ${ref.name}?`,
     `It runs on the ${ref.kind === "endpoint" ? "SQL analytics endpoint" : "warehouse"} in ${ref.workspace_name || "its workspace"}, ` +
-    "as you, and uses capacity. Only a query that reads is sent; anything that would change the warehouse is refused before Fabric is asked. " +
+    "as you, and uses capacity. Until you tick Allow changes, only a query that reads is sent; anything that would change the warehouse is refused before Fabric is asked. " +
     "This asks once per warehouse each time the app starts.", "Run in Fabric");
   if (ok) sqlWarehouseOk.add(sqlRefKey(ref));
   return ok;
@@ -260,6 +260,8 @@ function renderQuery() {
     },
     check: (text, dialect) => checkSql(text, dialect),
   });
+  // F5 with focus outside the editor (app.js): runs this tab's query, as Run does.
+  p.runQuery = () => { if (here()) run(); };
   const insertAtCursor = (text) => editor.insert(text);
 
   // SQL-002: the compatibility check, run by the editor shortly after typing stops. It reads the SQL
@@ -845,10 +847,10 @@ function renderQuery() {
   }
   function drawActions() {
     if (wh) {
-      actions.replaceChildren(btn("Run", "play", () => run(), "tool primary"),
+      actions.replaceChildren(btn("Run", "play", () => run(), "tool primary", { title: "Run the selected text, or the whole query when nothing is selected (F5 or Ctrl+Enter)", "aria-keyshortcuts": "F5 Control+Enter" }),
         btn("Estimated plan", "flowchart", () => estimatedPlan(), "tool outline",
           { title: "How Fabric would run the query (or the selection), without running it. Uses a little capacity." }),
-        h("span", { class: "muted-text" }, "Ctrl+Enter, or select text to run just that"),
+        h("span", { class: "muted-text" }, "F5 or Ctrl+Enter runs it, or select text to run just that"),
         h("span", { class: "sql-sep", "aria-hidden": "true" }),
         h("span", { class: "sql-target-note" }, SQL_DIALECTS[tab.dialect].label),
         btn("Format SQL", null, formatSql, "tool outline", { title: "Format the selection, or the whole query (Shift+Alt+F)" }),
@@ -856,8 +858,8 @@ function renderQuery() {
       return;
     }
     const local = runsHere();
-    actions.replaceChildren(btn("Run", "play", () => run(), "tool primary", { disabled: !local }),
-      h("span", { class: "muted-text" }, local ? "Ctrl+Enter, or select text to run just that"
+    actions.replaceChildren(btn("Run", "play", () => run(), "tool primary", { disabled: !local, title: "Run the selected text, or the whole query when nothing is selected (F5 or Ctrl+Enter)", "aria-keyshortcuts": "F5 Control+Enter" }),
+      h("span", { class: "muted-text" }, local ? "F5 or Ctrl+Enter runs it, or select text to run just that"
         : `${SQL_DIALECTS[tab.dialect].short} is formatted here, not run`),
       h("span", { class: "sql-sep", "aria-hidden": "true" }),
       dialectPick,
@@ -1115,5 +1117,6 @@ function renderQuery() {
 
 // The query tabs' own key, listed in the Keyboard shortcuts dialog while the SQL page is open (sqlTab above).
 registerShortcuts("SQL query", [
+  { keys: ["F5", "Ctrl+Enter"], label: "Run the selected text, or the whole query when nothing is selected", when: () => state.view === "query" },
   { keys: ["Delete"], label: "On a query tab: close it (asks first when it has SQL of its own)", when: () => !!document.querySelector(".sql-tabs") },
 ]);

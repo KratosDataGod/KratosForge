@@ -32,9 +32,9 @@ from deltalake.exceptions import TableNotFoundError
 
 from . import runlog
 from .onelake import FileStore, TableRef, storage_options
-from .publish import publish, refuse_conversions, resolve_schema_mode, stage_locally
+from .publish import WriteTokenExpired, publish, refuse_conversions, resolve_schema_mode, stage_locally
 from .redact import describe
-from .retrying import data_upload_dropped
+from .retrying import data_upload_dropped, log_commit_dropped
 
 _log = logging.getLogger(__name__)
 
@@ -189,10 +189,40 @@ def has_schemas() -> bool:
     return _current().schemas_enabled()
 
 
+def name_parts(table: str) -> list[str]:
+    """``table`` split at its dots, as Spark reads a multi-part name: a part in backticks is one name
+    (`` `dbo`.`sales` `` is dbo and sales; `` `dbo.sales` `` is one name with a dot in it), and two
+    backticks inside one stand for a backtick."""
+    parts, part, quoted, i = [], [], False, 0
+    while i < len(table):
+        c = table[i]
+        if c == "`" and quoted and table[i + 1:i + 2] == "`":
+            part.append("`")
+            i += 2
+            continue
+        if c == "`":
+            quoted = not quoted
+        elif c == "." and not quoted:
+            parts.append("".join(part))
+            part = []
+        else:
+            part.append(c)
+        i += 1
+    if quoted:
+        raise ValueError(f"{table!r} isn't a table name: a backtick isn't closed.")
+    return [*parts, "".join(part)]
+
+
 def table_ref(table: str) -> TableRef:
-    """``table``, ``schema.table``, or either with the lakehouse name in front, as Spark in Fabric allows."""
+    """``table``, ``schema.table``, or either with the lakehouse name in front, as Spark in Fabric allows.
+    Parts may be in backticks. Another catalog (a Unity Catalog name such as main.sales.orders) is refused."""
     lh = _current()
-    parts = table.split(".")
+    parts = name_parts(table)
+    if any("." in p for p in parts):
+        dotted = next(p for p in parts if "." in p)
+        raise ValueError(f"{table}: `{dotted}` is one name with a dot in it, and Spark looks for a table called "
+                         f"exactly that, so nothing was read or written. Put backticks around each part "
+                         f"(`{'`.`'.join(dotted.split('.'))}`) or leave them out.")
     # lakehouse.schema.table, or lakehouse.table when the lakehouse has no schemas.
     if parts[0].lower() == lh.name.lower() and (len(parts) == 3 or len(parts) == 2 and not lh.schemas_enabled()):
         parts = parts[1:]
@@ -201,7 +231,9 @@ def table_ref(table: str) -> TableRef:
     if not all(parts) or any(c in p for p in parts for c in "/\\"):
         raise ValueError(f"{table!r} isn't a table name: a schema or table name can't be empty or hold / or \\.")
     if len(parts) > 2:
-        raise ValueError(f"{table}: name tables as table or schema.table in the attached lakehouse ({lh.name}).")
+        raise ValueError(f"{table}: {parts[0]} isn't the attached lakehouse, and a catalog (such as a Unity Catalog "
+                         f"catalog) isn't on this PC, so nothing was read or written. Name tables as table or "
+                         f"schema.table in the attached lakehouse ({lh.name}), or run the cell where {parts[0]} is.")
     schema, name_ = (parts[0], parts[1]) if len(parts) == 2 else ("", parts[0])
     if lh.schemas_enabled():
         return TableRef(lh.workspace_id, lh.lakehouse_id, schema or "dbo", name_)
@@ -304,7 +336,7 @@ def open_table(table: str, version: Any = None, timestamp: Any = None) -> DeltaT
     if point is not None:
         try:
             opened.load_as_version(point)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - any read failure at a version becomes the same plain message
             what = f"version {point}" if isinstance(point, int) else f"{point.isoformat()}"
             raise ValueError(f"{table} has no {what} to read: {exc}. DESCRIBE HISTORY {table} lists its versions; "
                              "versions removed by VACUUM can't be read.") from None
@@ -471,6 +503,10 @@ def _stream(data: Any) -> tuple[pa.Schema, Iterator[pa.Table]] | None:
     return first.schema, chain()
 
 
+class CommitOutcomeUnknown(RuntimeError):
+    """A table write whose Delta log entry may or may not have gone in (retrying.log_commit_dropped)."""
+
+
 # A table write whose data file upload was dropped (retrying.data_upload_dropped) is written again,
 # whole: nothing of it was committed. On top of object_store's own retries of each part.
 UPLOAD_ATTEMPTS = 3
@@ -555,10 +591,20 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
         try:
             for attempt in range(UPLOAD_ATTEMPTS):
                 try:
-                    delta = publish(arrow if arrow is not None else cast(write_queue.Spill, spill).reader(), ref, mode, lh.storage_token(),
+                    # The token function, not one token: the write lease is renewed with it (HD-034).
+                    delta = publish(arrow if arrow is not None else cast(write_queue.Spill, spill).reader(), ref, mode, lh.storage_token,
                                     schema_mode=schema_mode, rows=fingerprint, skip_unchanged=skip_unchanged)
                     break
+                except WriteTokenExpired as exc:  # nothing was committed: again at once, with a fresh token
+                    if attempt == UPLOAD_ATTEMPTS - 1:
+                        raise
+                    _log.warning("Writing %s again with a fresh token: %s", name_, describe(exc))
                 except Exception as exc:  # noqa: BLE001 - only a dropped data file upload is tried again
+                    if log_commit_dropped(exc):
+                        raise CommitOutcomeUnknown(
+                            f"Writing {name_}: the connection dropped while the commit was being written, so it "
+                            "may or may not have gone in. Look at the table's history before writing it again, "
+                            "so an append isn't in the table twice.") from exc
                     if attempt == UPLOAD_ATTEMPTS - 1 or not data_upload_dropped(exc):
                         raise
                     wait = UPLOAD_RETRY_WAIT * (attempt + 1)
@@ -638,7 +684,7 @@ def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
             return DeltaTable(uri, storage_options=opts)
         try:
             p.read_location(ref.schema, ref.table)  # a table the proof can't read can't be changed in it
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - the reader's own error types vary; all mean the table isn't there
             raise TableNotFoundError(str(exc)) from None
         uri = p.write_location(ref.schema, ref.table, "append", seed)  # "append": the pinned version comes first
     else:

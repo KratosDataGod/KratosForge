@@ -128,7 +128,7 @@ Every call passes PermissionAuthorizer.check (integrations/permissions.py) befor
 | `fabric_desktop_start_pipeline_run` | `sidecar/fabric_desktop/integrations/services.py:296` | EXECUTE_LOCAL_CODE | yes | always |  |
 | `fabric_desktop_start_proof` | `sidecar/fabric_desktop/integrations/services.py:476` | MODIFY_FABRIC_ARTIFACTS | no (refused) | always |  |
 
-## 3. Engine methods that change something (409)
+## 3. Engine methods that change something (410)
 
 Reached only by the app window, over the engine's own pipe. "What it changes" and "Check" are found by reading the method and the methods it calls; "platform's check per operation" points at section 1.
 
@@ -255,6 +255,7 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `incident_tell_impacted` | `sidecar/fabric_desktop/incident_desk.py:151` | Fabric or OneLake | Fabric's own rights |
 | `incidents_evaluate` | `sidecar/fabric_desktop/incident_service.py:175` | platform: report_product_status; Fabric or OneLake | platform's check per operation; Fabric's own rights |
 | `incidents_history_sync` | `sidecar/fabric_desktop/incident_desk.py:180` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
+| `incidents_measures` | `sidecar/fabric_desktop/incident_desk.py:239` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
 | `incidents_watch` | `sidecar/fabric_desktop/incident_service.py:271` | platform: report_product_status; Fabric or OneLake | platform's check per operation; Fabric's own rights |
 | `integrations_activity` | `sidecar/fabric_desktop/integrations/app_service.py:241` | this PC | the signed-in Windows user's own files |
 | `integrations_add_client` | `sidecar/fabric_desktop/integrations/app_service.py:190` | this PC | the signed-in Windows user's own files |

@@ -20,13 +20,21 @@ ALIAS = "platform"
 ITEM = "UDF_Platform"
 
 
+# Names Fabric keeps for itself: live run 8 (2026-11-11) refused UDF_Platform with "input parameter
+# 'context' is a reserved keyword and cannot be used". req and reqInvocationId are the host's own
+# binding names too. A parameter with one of these names takes the name given here instead.
+RESERVED = {"context": "callContext", "req": "request", "reqInvocationId": "requestInvocationId"}
+
+
 def fabric_name(name: str) -> str:
     """A parameter's name in UDF_Platform: the operation's own name in camelCase (business_key is
     businessKey). Fabric refuses a function whose input parameter has an underscore in its name
-    (live run 6, 2026-11-04: "input parameter 'business_key' cannot contain an underscore"), so the
-    functions take these names and pass each one on to its operation under the operation's name."""
+    (live run 6, 2026-11-04: "input parameter 'business_key' cannot contain an underscore"), or
+    is one of its reserved names (RESERVED, live run 8), so the functions take these names and pass
+    each one on to its operation under the operation's name."""
     first, *rest = name.split("_")
-    return first + "".join(part[:1].upper() + part[1:] for part in rest)
+    camel = first + "".join(part[:1].upper() + part[1:] for part in rest)
+    return RESERVED.get(camel, camel)
 
 _WRAPPERS = '''
 
@@ -774,10 +782,10 @@ def policy_applicability(sqlDB: fn.FabricSqlConnection, id: str) -> dict:
 
 @udf.connection(argName="sqlDB", alias="platform")
 @udf.function()
-def resolve_policies(sqlDB: fn.FabricSqlConnection, local: list, context: dict, project: str = "", entity: str = "",
+def resolve_policies(sqlDB: fn.FabricSqlConnection, local: list, callContext: dict, project: str = "", entity: str = "",
                      domain: str = "", subdomain: str = "", today: str = "") -> dict:
     return _run(sqlDB, "resolve_policies", project=project, entity=entity, domain=domain, subdomain=subdomain,
-                local=local or [], context=context or {}, today=today)
+                local=local or [], context=callContext or {}, today=today)
 
 
 @udf.connection(argName="sqlDB", alias="platform")

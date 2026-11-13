@@ -83,6 +83,9 @@ before(async () => {
         { path: "AGENTS.md", state: "exists", label: "Agent notes", why: "Tells AI tools about the repo", text: "Use KratosForge." }] }),
       platform_domains: () => [{ id: "d1", name: "Sales", parent_id: null }, { id: "d2", name: "EMEA", parent_id: "d1" }],
       environment: () => ({ python: "Python 3 (test)", user: "ana@contoso.com", tenant: "t1" }),
+      appstudio_publish_check: () => ({ ready: true, problems: [], warnings: ["Visual titles aren't compiled yet."], name: "Sales overview",
+        workspace_id: "w1", workspace_name: "Sales Dev", confirm_text: "Sales Dev", model: { id: "m1", name: "Sales model" },
+        conflict: { id: "r1", ours: false }, unfinished: { at: AT, workspace_id: "w1", name: "Sales overview" }, fingerprint: "f1", parts: [] }),
       list_workspaces: () => [{ id: "w1", displayName: "Sales Dev", capacityId: "c1" }, { id: "w2", displayName: "Finance", capacityId: null }],
       list_lakehouses: () => [{ id: "l1", displayName: "LH_Bronze" }],
       list_notebooks: () => [{ name: "Daily sales" }, { name: "Orders" }, { name: "reports/Weekly" }],
@@ -252,8 +255,9 @@ const CASES = [
   ["estate.js:costSettingsDialog", "Cost estimate", () => { costSettingsDialog({ price_per_cu_hour: 0.18, currency: "USD", python_cu: 2, spark_cu: 8 }); }],
   // Batch 5: App Studio, Fabric step, secrets, dictionary, restore, tools, approvals and warehouse changes.
   ["appstudio.js:appStudioImport", "Import an app", () => { appStudioImport(); }],
-  ["appstudio.js:appStudioPublishDialog", "Publish", () => {
-    appStudioPublishDialog({ valid: true, spec: { pages: [{ components: [{}, {}] }], sources: [{ kind: "sample" }] } }); }],
+  ["appstudio.js:appStudioPublishDialog", "Publish to Power BI", () => {
+    appStudioPublishDialog({ valid: true, spec: { name: "Sales overview", pages: [{ components: [{}, {}] }], sources: [{ kind: "sample" }] } }); },
+    "#dialog-root .dialog input[aria-label='Type Sales Dev to publish']"],
   ["fabricstep.js:stepConfirm", "Run the last cell of Daily sales on Fabric?", () => {
     stepConfirm({ name: "Daily sales" }, { tables: ["silver.orders"], workspace_name: "Sales Dev", workspace_id: "w1", lakehouse: "LH_Silver", item_name: "Daily sales (step)" }); }],
   ["git.js:gitSecretsDialog", "These files look like they hold a secret", () => {

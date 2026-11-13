@@ -1613,7 +1613,7 @@ async function runCells(cells) {
   // Cells done of cells to run, in the status bar, with the wolf on it (motion.js).
   const track = code.length > 1 ? wolfTrack(() => document.querySelector(".statusbar"), "Notebook run", "Cell", "on this PC") : null;
   track?.set(0, code.length);
-  // Monitor's Forge view (forge-activity.js) reads the same count, and how the run ended. Only a run in
+  // Monitor's run progress (forge-activity.js) reads the same count, and how the run ended. Only a run in
   // this PC's kernel: a run on another engine isn't shown there as running on this PC.
   const forgeRun = { done: 0, total: code.length, started: Date.now(), result: null, ended: null };
   nb.forgeRun = !code.length || nbOnEngine(nb) ? null : forgeRun;

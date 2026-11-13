@@ -225,7 +225,7 @@ class Scanner:
             self.gate.wait()
             try:
                 ws["assignments"] = self.fabric.list_role_assignments(ws["id"])
-            except Exception:
+            except Exception:  # noqa: BLE001 - not an admin there: roles are hidden
                 ws["assignments"] = []  # not an admin there: roles are hidden
             try:
                 return [{"workspace_id": ws["id"], "workspace_name": ws["name"], "lakehouse_id": lh["id"],
@@ -250,7 +250,7 @@ class Scanner:
                 self.gate.wait()
                 try:
                     h = self.health(t["workspace_id"], t["lakehouse_id"], t["schema"], t["table"])
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - one table's health error is shown on that table
                     h = {"exists": True, "advice": [], "files": 0, "bytes": 0, "error": str(exc)}
                 done[0] += 1
                 if done[0] % 10 == 0:

@@ -92,10 +92,15 @@ def connect() -> Any:
     return con
 
 
+# Checked against Fabric's Spark session, not a warehouse's: Databricks SQL answers with the session's
+# Unity Catalog catalog and its own time zone setting, so these have no value to compare here.
+SESSION = frozenset({"current_catalog", "current_timezone"})
+
+
 def check(function: dict[str, Any], con: Any) -> tuple[str, str]:
     """``function``'s status and a short note, from running its example as a Databricks SQL cell."""
     example, expected = function.get("example"), DATABRICKS_VALUES.get(function["name"], function.get("value"))
-    if not example or function["name"] in spark_coverage.VARYING or "value" not in function:
+    if not example or function["name"] in spark_coverage.VARYING | SESSION or "value" not in function:
         return "not checked", ""
     try:
         got = run(example, con)
@@ -186,8 +191,8 @@ def markdown(rows: list[dict[str, Any]]) -> str:
         "- **Differs**: runs, but gives another value. Check results that use it on the warehouse.",
         "- **Refused**: stops with a message saying why, so nothing runs with another answer.",
         "- **Fails**: stops with an error. Run the cell on a Databricks SQL warehouse.",
-        "- **Not checked**: no example whose value can be compared (random values, the clock or the "
-        "session, or no example), or DuckDB accepts it but no check compares its value yet.",
+        ("- **Not checked**: no example whose value can be compared (random values, the clock or the "
+        "session, or no example), or DuckDB accepts it but no check compares its value yet."),
         "",
         "AI (`ai_`), geospatial (`h3_`, `st_`), file, stream, secret, Unity Catalog and account functions",
         "aren't listed: they need Databricks' own services. The IP address functions (`ip_`), `url_decode`,",

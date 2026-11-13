@@ -9,6 +9,11 @@ the engine's Python runtime added to the engine's SBOM. Standard library only: n
                         versions their upstream build used, so those come from that table instead,
                         with no hash. The VS Code extension is listed as itself: it is packaged with
                         --no-dependencies, so it bundles no npm package.
+    vscode OUT VSIX     the VS Code extension (kratosforge.vsix): the file itself with its SHA-256, each
+                        file inside it with its SHA-256, and the build tools that made it (from
+                        vscode/package-lock.json, with their integrity hashes, scope "excluded": none is
+                        in the file, which is packaged with --no-dependencies). Made the same way twice
+                        from the same .vsix and SOURCE_DATE_EPOCH, it comes out byte for byte the same.
     add-python SBOM VERSION SHA256 URL
                         add python.org's embeddable Python (the engine's runtime) to an existing SBOM
                         made by cyclonedx-py, which lists packages but not the interpreter.
@@ -21,10 +26,13 @@ the engine's Python runtime added to the engine's SBOM. Standard library only: n
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
+import os
 import re
 import sys
 import uuid
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
@@ -139,6 +147,50 @@ def ui() -> dict:
     return bom("KratosForge UI and VS Code extension", components)
 
 
+def vsix_files(vsix: Path) -> list[tuple[str, str]]:
+    """(path, SHA-256) of each file in a .vsix, in the order the zip lists them."""
+    with zipfile.ZipFile(vsix) as z:
+        return [(i.filename, hashlib.sha256(z.read(i)).hexdigest()) for i in z.infolist() if not i.is_dir()]
+
+
+def vscode_build_tools() -> list[tuple[str, dict]]:
+    """The packages vscode/package.json names (all build and test tools), with their lock file entries."""
+    folder = ROOT / "vscode"
+    manifest = json.loads((folder / "package.json").read_text(encoding="utf-8"))
+    packages = json.loads((folder / "package-lock.json").read_text(encoding="utf-8"))["packages"]
+    return [(n, packages[f"node_modules/{n}"]) for n in sorted(manifest.get("devDependencies", {}))]
+
+
+def vscode(vsix: Path) -> dict:
+    manifest = json.loads((ROOT / "vscode" / "package.json").read_text(encoding="utf-8"))
+    if manifest.get("dependencies"):
+        raise ValueError("vscode/package.json has runtime dependencies now; list them in this SBOM")
+    with zipfile.ZipFile(vsix) as z:
+        packaged = json.loads(z.read("extension/package.json"))
+    version = packaged.get("version", "")
+    sha = hashlib.sha256(vsix.read_bytes()).hexdigest()
+    files = [{"type": "file", "bom-ref": f"file:{path}", "name": path, "hashes": [{"alg": "SHA-256", "content": digest}]}
+             for path, digest in vsix_files(vsix)]
+    tools = []
+    for name, entry in vscode_build_tools():
+        item = component(name, entry, "vscode")
+        item["scope"] = "excluded"  # builds the file; not in it
+        item["properties"].append({"name": "kratosforge:role", "value": "build or test tool"})
+        tools.append(item)
+    # Reproducible: the time is the commit's (SOURCE_DATE_EPOCH, as for the .vsix) and the serial number
+    # follows from the file, so the same .vsix always gets the same SBOM.
+    epoch = os.environ.get("SOURCE_DATE_EPOCH")
+    when = datetime.fromtimestamp(int(epoch), UTC) if epoch else datetime.now(UTC)
+    return {"bomFormat": "CycloneDX", "specVersion": "1.5", "serialNumber": f"urn:uuid:{uuid.uuid5(uuid.NAMESPACE_URL, 'kratosforge.vsix:' + sha)}",
+            "version": 1,
+            "metadata": {"timestamp": when.isoformat(timespec="seconds"),
+                         "component": {"type": "application", "bom-ref": "kratosforge.vsix", "name": "kratosforge.vsix",
+                                       "version": version, "purl": f"pkg:generic/kratosforge-vscode@{quote(version)}",
+                                       "hashes": [{"alg": "SHA-256", "content": sha}],
+                                       "description": "The KratosForge extension for VS Code (vscode/)"}},
+            "components": files + tools}
+
+
 def add_python(path: Path, version: str, sha256: str, url: str) -> None:
     data = json.loads(path.read_text(encoding="utf-8"))
     data.setdefault("components", []).append({
@@ -171,6 +223,9 @@ def add_hashes(path: Path, report: Path) -> None:
 def main(argv: list[str]) -> int:
     if argv[:1] == ["ui"] and len(argv) == 2:
         Path(argv[1]).write_text(json.dumps(ui(), indent=2), encoding="utf-8")
+        return 0
+    if argv[:1] == ["vscode"] and len(argv) == 3:
+        Path(argv[1]).write_text(json.dumps(vscode(Path(argv[2])), indent=2), encoding="utf-8")
         return 0
     if argv[:1] == ["add-python"] and len(argv) == 5:
         add_python(Path(argv[1]), argv[2], argv[3], argv[4])

@@ -270,13 +270,12 @@ def _databricks(code: str) -> list[Any]:
     fixes sql.parse makes for Spark SQL (X '1010', substring from 0, date_add returning a date, trunc,
     unix_timestamp, Spark's column names), so a query answers here as it does on the warehouse. ValueError when
     it can't be read."""
-    import sqlglot
     from sqlglot import exp
     from sqlglot.errors import ParseError
 
     from .. import sql, sql_dialects
     try:  # every statement sqlglot returns is an Expression (a Command when it can't read it)
-        statements = [s for s in sqlglot.parse(sql.diff_spellings(sql._spark_spellings(code), databricks=True), read="databricks")
+        statements = [s for s in sql_dialects.parse(sql.diff_spellings(sql._spark_spellings(code), databricks=True), read="databricks")
                       if isinstance(s, exp.Expression)]
     except ParseError as exc:
         raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(exc)}") from None
@@ -354,7 +353,7 @@ class DuckDBSession(_SqlSession):
         else:
             # On 1.x con.sql gives no result for a change, where execute gives its Count, so keep execute.
             cur = self._con.execute(code)
-            if cur.description is None:
+            if cur is None or cur.description is None:  # 1.x gives no cursor for a cell with no statement
                 return None, 0
             reader = (getattr(cur, "to_arrow_reader", None) or cur.fetch_record_batch)()
         table, total = _drain(reader, request.preview_rows, request.result_rows)

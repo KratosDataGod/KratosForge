@@ -134,10 +134,15 @@ def test_a_failing_service_never_ends_the_connection(svc, monkeypatch):
 
 
 def test_cancelling_a_call_tells_the_handler_to_stop():
-    stopped = []
+    """The call is cancelled only once its handler is running: cancelled any sooner (a loaded runner can
+    take longer than a fixed wait to dispatch it), the handler never starts and there is nothing to stop."""
+    import threading
+
+    started, stopped = threading.Event(), []
     reg = Registry()
 
     def slow(svc, ctx):
+        started.set()
         while not ctx.cancelled:
             time.sleep(0.01)
         stopped.append(True)
@@ -147,14 +152,19 @@ def test_cancelling_a_call_tells_the_handler_to_stop():
 
     async def go():
         async with connect(build_server(reg), "legacy") as c:
-            with anyio.move_on_after(0.5):
-                await c.call_tool("ext_slow", {})
-            for _ in range(100):
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(c.call_tool, "ext_slow", {})
+                for _ in range(1000):  # up to 20 s for the handler to start
+                    if started.is_set():
+                        break
+                    await anyio.sleep(0.02)
+                tg.cancel_scope.cancel()
+            for _ in range(500):
                 if stopped:
                     break
                 await anyio.sleep(0.02)
     run(go)
-    assert stopped
+    assert started.is_set() and stopped
 
 
 def test_the_real_stdio_process_speaks_mcp(tmp_path):

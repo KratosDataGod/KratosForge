@@ -338,7 +338,9 @@ def test_one_failed_heartbeat_doesnt_let_the_lease_lapse(setup):
     beat = threading.Thread(target=agent._heartbeat, args=(job, done, lost))
     beat.start()
     try:
-        deadline = time.monotonic() + 10
+        # Longer than the queue file's 30 s busy wait: a renewal can block on a locked file (Windows
+        # runners, a scanner) and still succeed, since heartbeat extends the lease whenever the job is ours.
+        deadline = time.monotonic() + 45
         while len(renewed) < 3 and time.monotonic() < deadline:
             time.sleep(0.05)
         # The beats after the failed one renewed the lease. (Asserting recover() == [] against the
@@ -807,6 +809,53 @@ def test_agent_prunes_at_start_and_then_daily(setup):
     clock.t += 86400
     agent.step()
     assert q.get(later["id"]) is None
+
+
+def test_agent_sweeps_old_local_copies_in_its_home_at_start_and_then_daily(setup):
+    import os
+    clock = Clock()
+    agent = Agent(setup, queue=JobQueue(setup.home / "queue.sqlite3", clock=clock, backoff_seconds=0), clock=clock)
+    old = time.time() - 40 * 86400
+    data = agent.runtime.root  # <home>/data: where the agent's runs keep the download cache and staging
+    assert data == setup.home / "data"
+    copy = data / "onelake-cache" / "test" / "LH_Landing" / "Files" / "x.json"
+    staged = data / "staging" / "orders" / "part-0.parquet"
+    spill = data / "staging" / "_writes" / "left-over.parquet"
+    kept = [setup.home / "audit" / "audit-2020-01.jsonl", setup.home / "logs" / "agent.log.3",
+            # This PC data of a project kept under the data folder: a LocalStore's tables, never a cache
+            data / "project" / ".local" / "dev" / "silver" / "orders" / "part-0.parquet",
+            data / "local-data" / "p1" / "data.duckdb"]
+    for path in (copy, staged, spill, *kept):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x")
+        os.utime(path, (old, old))
+    agent.step()
+    assert not copy.exists() and not staged.exists() and not spill.exists()  # local_retention_days (30); a day for spills
+    assert all(p.exists() for p in kept)  # the audit trail, logs, queue and This PC data are never the sweep's
+    again = data / "files" / "lh" / "a.csv"
+    again.parent.mkdir(parents=True, exist_ok=True)
+    again.write_text("x")
+    os.utime(again, (old, old))
+    clock.t += 3600
+    agent.step()  # swept an hour ago: not yet
+    assert again.exists()
+    clock.t += 86400
+    agent.step()
+    assert not again.exists()
+
+
+def test_a_sweep_that_fails_is_logged_and_the_pass_goes_on(setup, monkeypatch, caplog):
+    from fabric_desktop import retention
+    clock = Clock()
+    agent = Agent(setup, queue=JobQueue(setup.home / "queue.sqlite3", clock=clock, backoff_seconds=0), clock=clock)
+
+    def broken(*_a, **_k):
+        raise OSError("disk full")
+    monkeypatch.setattr(retention, "sweep", broken)
+    with caplog.at_level("WARNING", logger="fabric_desktop.agent"):
+        agent.step()
+    assert any("couldn't clean up local copies" in r.getMessage() for r in caplog.records)
+    assert agent._policy_at is not None  # the rest of the pass ran
 
 
 def test_cli_requeue_and_prune(setup, capsys):

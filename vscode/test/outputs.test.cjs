@@ -31,3 +31,58 @@ test("a cell failed when it ended in error or showed one", () => {
   assert.strictEqual(failed("error"), true);
   assert.strictEqual(failed("ok", [{ type: "error" }]), true);
 });
+
+// Hostile outputs: what a cell can display, written to break the window or reach past the renderers.
+const { MAX_ITEM } = require("../out/outputs.js");
+
+function deep(depth) {
+  let v = 1;
+  for (let i = 0; i < depth; i++) v = [v];
+  return v;
+}
+
+test("script tags and javascript: links in a table stay text", () => {
+  const evil = ["<script>alert(1)</script>", "<img src=x onerror=alert(1)>", "<a href=\"javascript:alert(1)\">x</a>", "\"><svg onload=alert(1)>"];
+  const [html, plain] = convert({ type: "table", columns: evil, rows: [evil, [{ "<script>": "</td><script>" }]] }).items;
+  assert.doesNotMatch(html.text, /<(script|img|a|svg)\b/i);
+  assert.doesNotMatch(html.text, /<td>[^<]*"/, "a quote was left unescaped in a cell");
+  assert.match(html.text, /&lt;a href=&quot;javascript:alert\(1\)&quot;&gt;/);
+  assert.ok(plain.text.includes("<script>alert(1)</script>"), "the plain text lost the value");
+  assert.strictEqual(convert({ type: "table", columns: "nope", rows: 3 }).items[0].mime, "text/plain");
+});
+
+test("JSON nested too deeply, or a chart that is, shows a line instead of stopping the run", () => {
+  const value = deep(100_000);
+  for (const out of [{ type: "json", data: value }, { type: "vegalite", spec: value }, { type: "plotly", figure: value },
+    { type: "something new", value }, { type: "table", columns: ["a"], rows: [[value]] }]) {
+    const got = convert(out);
+    assert.ok("items" in got, out.type);
+    assert.strictEqual(got.items[0].mime, out.type === "table" ? "text/html" : "text/plain", out.type);
+    if (out.type !== "table") assert.match(got.items[0].text, /nested too deeply/, out.type);
+  }
+  assert.strictEqual(convert({ type: "json", data: deep(50) }).items[0].mime, "application/json");
+});
+
+test("an output past the item limit shows a line saying so", () => {
+  const huge = "x".repeat(MAX_ITEM + 1);
+  for (const out of [{ type: "html", html: huge }, { type: "markdown", text: huge }, { type: "text", text: huge },
+    { type: "stream", text: huge }, { type: "json", data: huge }, { type: "plotly", figure: { huge } },
+    { type: "image", mime: "image/png", data: "A".repeat(Math.ceil((MAX_ITEM + 3) / 3) * 4) },
+    { type: "image", mime: "image/svg+xml", data: Buffer.from(`<svg>${huge}</svg>`).toString("base64") }]) {
+    const { items } = convert(out);
+    assert.strictEqual(items.length, 1, out.type);
+    assert.strictEqual(items[0].mime, "text/plain", out.type);
+    assert.match(items[0].text, /MB, more than VS Code is sent/, out.type);
+  }
+  const fits = convert({ type: "image", mime: "image/png", data: Buffer.alloc(1_000_000).toString("base64") }).items[0];
+  assert.strictEqual(fits.bytes.length, 1_000_000);
+});
+
+test("control characters in text and tracebacks are dropped; tabs, newlines and colors stay", () => {
+  const text = "a\tb\r\nc\x1b[31mred\x1b[0m\b\x00\x07\x0b\x0c\x7f\x9b2J\u0085d";
+  assert.strictEqual(convert({ type: "stream", text }).items[0].text, "a\tb\r\nc\x1b[31mred\x1b[0m\b2Jd");
+  assert.strictEqual(convert({ type: "text", text }).items[0].text, "a\tb\r\nc\x1b[31mred\x1b[0m\b2Jd");
+  const { error } = convert({ type: "error", ename: "Bad\x00Name" + "N".repeat(1000), evalue: "v\x07", traceback: "t\x1b[1m\x00" });
+  assert.ok(error.name.startsWith("BadName") && error.name.length <= 200);
+  assert.deepStrictEqual([error.message, error.stack], ["v", "t\x1b[1m"]);
+});

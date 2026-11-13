@@ -88,7 +88,7 @@ class _AppCredential:
     def silent_token(self, scopes: list[str]) -> str | None:
         try:
             return self._token(scopes)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - no token is a state the agent reports, not a crash
             _log.info("No token for the agent's credential: %s", describe(exc))
             return None
 

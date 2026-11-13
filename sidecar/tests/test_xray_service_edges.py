@@ -157,6 +157,8 @@ def test_power_bis_dataflow_list_is_read_with_its_own_token(tmp_path, monkeypatc
         _token=lambda scopes: asked.append(scopes) or "pbi-token")), raising=False)
 
     class Reply:
+        status_code = 200
+
         def raise_for_status(self):
             pass
 
@@ -236,3 +238,30 @@ def test_adopt_names_tables_it_cant_read_and_works_without_a_sign_in(adopt_svc, 
     monkeypatch.setattr(adopt_svc, "_source_table", unreadable)
     out = adopt_svc.xray_adopt("ws", "lh", "LH", "Sales", [{"schema": "dbo", "table": "dumped_csv"}])
     assert out == {"adopted": [], "problems": ["dumped_csv: OSError: No Delta log here"], "layer": "bronze"}
+
+
+def _dataflows(monkeypatch, tmp_path, replies):
+    s = Service(root=tmp_path / "app")
+    monkeypatch.setattr(Service, "auth", property(lambda self: SimpleNamespace(_token=lambda scopes: "pbi-token")),
+                        raising=False)
+    sent = []
+
+    def get(url, headers, timeout):
+        sent.append(url)
+        status, body = replies.pop(0)
+        return SimpleNamespace(status_code=status, headers={"Retry-After": "0"}, json=lambda: body,
+                               text="secret body", close=lambda: None)
+    monkeypatch.setattr(xs.http_session, "session", lambda: SimpleNamespace(get=get))
+    return s, sent
+
+
+def test_power_bis_dataflow_list_is_read_again_when_throttled(tmp_path, monkeypatch):
+    s, sent = _dataflows(monkeypatch, tmp_path, [(429, {}), (503, {}), (200, {"value": [{"objectId": "g1"}]})])
+    assert s._powerbi_dataflows(WS) == [{"objectId": "g1"}] and len(sent) == 3
+
+
+def test_a_refused_dataflow_list_says_the_status_not_the_body(tmp_path, monkeypatch):
+    s, sent = _dataflows(monkeypatch, tmp_path, [(403, {"error": "secret body"})])
+    with pytest.raises(RuntimeError) as exc:
+        s._powerbi_dataflows(WS)
+    assert str(exc.value) == "Power BI answered 403" and len(sent) == 1

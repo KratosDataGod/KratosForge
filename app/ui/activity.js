@@ -98,11 +98,19 @@ function friendlyError(err) {
   const engine = [
     [/^The engine stopped answering/, "The local engine stopped answering, so the app restarted it. Notebook variables were cleared, so run the notebook's cells again. The details below name the request that hung."],
     [/^The engine keeps stopping as it starts/, "The local engine keeps stopping as it starts, so KratosForge has stopped starting it for a few minutes. Your files and settings are untouched. The details below say when it tries again and which files to send IT."],
+    // Rust aborts the whole engine when an allocation fails (Polars, delta-rs), and its log says so.
+    [/^The Python sidecar stopped[\s\S]*(memory allocation of \d+ bytes failed|running out of memory)/, "This PC ran out of memory, so the local engine stopped. Nothing was half-written: a table being written keeps its last version. Close other apps, or read less at once, then run it again. The engine restarts on your next action."],
     [/^The Python sidecar stopped/, "The local engine stopped while doing this. It restarts on your next action; if it keeps stopping, the details below show why."],
     [/Application Control policy|WinError 4551/i, "Windows blocked part of the local engine (Smart App Control or an App Control policy). Restart KratosForge to see which files and what to do."],
   ];
   const known = [
-    [/AADSTS53000|AADSTS53001|AADSTS53003|AADSTS530003|ConditionalAccess/i, "Your organization's sign-in rules (Conditional Access) blocked this sign-in, for example because this PC isn't managed by your organization. Ask IT; docs/permissions.md says what they can allow."],
+    // Conditional Access, by what it asked for (docs/troubleshooting.md). Windows sign-in not starting comes first: then the device was never shown.
+    [/Windows sign-in didn't start, so this sign-in used the browser/, "Windows sign-in didn't start, so KratosForge signed in through the browser, and your organization's sign-in rules (Conditional Access) need Windows to show that this PC is managed. Restart KratosForge and sign in again; if it repeats, the details below help IT."],
+    [/AADSTS53000\b|AADSTS530003\b/, "Your organization's sign-in rules (Conditional Access) only allow a PC it manages and finds compliant, and this one isn't. Use a managed PC, or ask IT to check this one; docs/permissions.md says what they can allow."],
+    [/AADSTS53001\b/, "Your organization's sign-in rules (Conditional Access) only allow a PC joined to its domain, and this one isn't. Use a joined PC, or ask IT."],
+    [/AADSTS53002\b/, "Your organization's sign-in rules (Conditional Access) only allow approved apps, and KratosForge's sign-in (Microsoft's Fabric CLI app) isn't one. Ask IT; docs/permissions.md says what they can allow."],
+    [/AADSTS53004\b/, "Your organization needs you to set up multi-factor authentication before you sign in. Set it up at https://aka.ms/mfasetup, then sign in again."],
+    [/AADSTS53003\b|AADSTS530032\b|ConditionalAccess/i, "Your organization's sign-in rules (Conditional Access) blocked this sign-in, for example from this location or network, or for Microsoft's developer tools. Ask IT and quote the code in the details below; docs/permissions.md says what they can allow."],
     [/AADSTS700016|AADSTS90094|AADSTS90008|admin_consent|needs? admin approval/i, "Your organization hasn't allowed this sign-in yet. Ask a Microsoft Entra admin; docs/permissions.md says what they can do."],
     [/Capacity\.Read\.All|list_?capacities/i, "Your sign-in can't list capacities, so pick the workspace's capacity in Fabric instead. docs/permissions.md explains why and what IT can change."],
     [/InsufficientScopes|AADSTS65001|consent_required/i, "Your sign-in doesn't carry the permission this feature needs. docs/permissions.md lists each feature's permission and what IT can change."],
@@ -115,11 +123,11 @@ function friendlyError(err) {
     [/^SignInError: /, "Microsoft sign-in didn't finish. Sign in again; if it happens again, the details below help IT."],
     [/AADSTS|interaction_required/i, "Your sign-in needs attention. Sign in again and retry; if it happens again, ask IT and quote the code in the details below."],
     [/\b403\b|Forbidden|InsufficientPrivileges|PrincipalTypeNotSupported/i, "You don't have permission for that in this workspace. A workspace admin can make you a Contributor or above."],
-    [/\b404\b|NotFound|ItemNotFound|does not exist/i, "Fabric couldn't find that item. It may have been deleted or renamed."],
+    [/\b404\b|NotFound|ItemNotFound|does not exist/i, "Fabric couldn't find that item. It may have been deleted or renamed, so refresh the list and pick it again."],
     [/\b429\b|TooManyRequests|throttl/i, "Fabric is busy and asked the app to slow down. Try again in a minute."],
     [/ConnectionError|Max retries|timed out|Timeout|NameResolution|getaddrinfo|ECONN|network/i, "Couldn't reach Fabric. Check the internet connection and try again."],
     [/DisplayName is Invalid|InvalidDisplayName/i, "Fabric doesn't accept that name. A lakehouse name can use only letters, numbers and underscores, and must start with a letter."],
-    [/CapacityNotActive|capacity.*paused|CapacityLimitExceeded/i, "The workspace's Fabric capacity is paused or full."],
+    [/CapacityNotActive|capacity.*paused|CapacityLimitExceeded/i, "The workspace's Fabric capacity is paused or full. Ask a capacity admin to resume or scale it, or try again later. Work on this PC isn't affected."],
   ];
   if (/^SignInCancelled: /.test(raw)) return { text: "", details: "", cancelled: true };  // closed the sign-in window: not a failure
   if (!raw) return { text: "Something went wrong and no reason was given. Try again; if it keeps happening, report a problem.", details: "" };

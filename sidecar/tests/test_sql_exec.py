@@ -257,6 +257,20 @@ def test_the_time_limit_stops_a_run(tmp_path, lake):
     try:
         status = wait(manager, manager.start(SLOW, lake)["id"])
         assert status["state"] == "timed_out" and "time limit" in status["error"]
+        assert "Settings › SQL" in status["error"]
+    finally:
+        manager.shutdown()
+
+
+def test_a_lakehouse_run_stopped_by_the_organizations_limit_says_so(tmp_path, lake):
+    manager = sql_exec.SqlExecutions(tmp_path, token=lambda: "",
+                                     limits=limits(sql_time_limit_minutes=0.02, sql_time_limit_by_policy=True))
+    try:
+        run = manager.start(SLOW, lake)
+        status = wait(manager, run["id"])
+        assert status["state"] == "timed_out", status
+        assert status["error"] == "Stopped after your organization's time limit (0.02 minutes)."
+        assert not manager._get(run["id"]).folder.exists()  # its spill folder goes with it
     finally:
         manager.shutdown()
 
@@ -493,7 +507,8 @@ def test_sql_settings_have_defaults_ranges_and_policy(tmp_path, monkeypatch):
     monkeypatch.setenv("ProgramData", str(tmp_path / "policy"))
     assert app_settings.sql_limits() == {"sql_page_rows": 1000, "sql_time_limit_minutes": 10,
                                          "sql_memory_limit_percent": 60, "sql_max_concurrent": 2,
-                                         "sql_result_retention_hours": 24, "sql_temp_dir": ""}
+                                         "sql_result_retention_hours": 24, "sql_temp_dir": "",
+                                         "sql_time_limit_by_policy": False}
     app_settings.save({"sql_page_rows": "500", "sql_time_limit_minutes": 0})
     assert app_settings.sql_limits()["sql_page_rows"] == 500
     assert app_settings.sql_limits()["sql_time_limit_minutes"] == 0
@@ -582,6 +597,21 @@ def test_lakehouse_refusals_are_unchanged_by_the_local_class():
         assert verdicts[0].kind == "onelake_write" and not verdicts[0].confirm
     with pytest.raises(ValueError):
         sql_policy.classify([], "elsewhere")
+
+
+def test_comment_lines_after_the_last_semicolon_are_read_only_in_every_dialect():
+    for dialect in ("spark", "duckdb"):
+        for target in ("lakehouse", "local"):
+            verdicts = sql_policy.classify(sql.parse("SELECT 1;\n-- notes\n-- more", dialect), target)
+            assert [v.kind for v in verdicts] == ["read_only", "read_only"]
+    # comments don't hide what comes before them
+    verdicts = sql_policy.classify(sql.parse("DROP TABLE sales; -- notes", "spark"))
+    assert verdicts[0].kind == "onelake_write"
+    # a Semicolon that ever carries parts isn't read as comments only
+    from sqlglot import exp
+    odd = exp.Semicolon()
+    odd.set("this", exp.to_identifier("x"))
+    assert sql_policy.classify([odd])[0].kind == "fabric_mutation"
 
 
 def test_a_lakehouse_run_can_never_allow_project_writes(runs, lake):
@@ -826,3 +856,10 @@ def test_a_temp_view_is_found_whatever_case_it_is_named_in(runs, lake):
                                    "SELECT count(*) AS n FROM recent", lake, allow=["local_mutation"])["id"])
     assert status["state"] == "completed", status.get("error")
     assert runs.page(status["id"])["rows"] == [[2]]
+
+
+def test_local_and_lakehouse_runs_share_the_time_limit_wording():
+    assert sql_exec.time_limit_message("sql", 600) == "Stopped after the time limit (10 minutes, Settings › SQL)."
+    assert sql_exec.time_limit_message("policy", 90) == "Stopped after your organization's time limit (1.5 minutes)."
+    assert "project's settings" in sql_exec.time_limit_message("project", 60)
+    assert sql_exec.time_limit_message("caller", 60) == ""

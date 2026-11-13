@@ -1984,7 +1984,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-074](#pb-074) | Release pipeline hardening | P1 | Enterprise readiness | S | Accepted |
 | [PB-076](#pb-076) | Retire side by side into Prove | P2 | Prove | S | Proposed |
 | [PB-103](#pb-103) | Engineering quality program | P0 | Engineering quality review | XL | In progress |
-| [PB-136](#pb-136) | Process kernel by default after a clean Windows trial | P2 | Prove | S | In progress |
+| [PB-136](#pb-136) | Process kernel by default after a clean Windows trial | P2 | Prove | S | In review |
 
 ### PB-002
 
@@ -2181,11 +2181,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-136
 
-**Process kernel by default after a clean Windows trial** · P2 (score 2.17) · S · confidence Medium · In progress
+**Process kernel by default after a clean Windows trial** · P2 (score 2.17) · S · confidence Medium · In review
 
 - **Problem:** Notebooks share the in-engine kernel unless a Preview setting is on, so Stop restarts the whole engine and the cell limits don't apply.
 - **Proposed capability:** Rerun the Windows trial from issue #896 on Python 3.12 with the #996 fix; only if it is clean, make the process kernel the default in its own PR and keep the in-engine kernel as a setting.
-- **Current-state evidence:** Issue #896 trial, 2026-10-28; closed 2026-11-02 waiting on Chris's go; PB-073 review docs/product/reviews/PB-073-kernel-limits.md; Notebooks run in a process of their own by default; a user's or a policy's choice still wins (#2601) on main at af7d786b. Trial results per area on Windows are still to be recorded for review
+- **Current-state evidence:** Issue #896 trial, 2026-10-28; closed 2026-11-02 waiting on Chris's go; PB-073 review docs/product/reviews/PB-073-kernel-limits.md; Notebooks run in a process of their own by default; a user's or a policy's choice still wins (#2601) on main at af7d786b. Trial results per area on Windows are still to be recorded for review; Implementation review docs/product/reviews/PB-136-kernel-default.md recommends Accept with documented limitations: the Windows trial on Python 3.12.10 (2026-11-13, after the product owner's go) passed in every area with no product defects; #2601 flipped the default in its own PR; test_kernel_default.py shows unchanged results on main at af7d786b
 - **Inventory features:** [FEAT-NB-03](FEATURE_INVENTORY.md#feat-nb-03)
 - **Dependencies:** Chris's go for a Windows trial on his PC through Remote Control
 - **Owner:** Prove (FD-110, PB-073)

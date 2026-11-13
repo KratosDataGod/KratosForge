@@ -7600,7 +7600,8 @@
       "evidence": [
         "Issue #896 trial, 2026-10-28; closed 2026-11-02 waiting on Chris's go",
         "PB-073 review docs/product/reviews/PB-073-kernel-limits.md",
-        "Notebooks run in a process of their own by default; a user's or a policy's choice still wins (#2601) on main at af7d786b. Trial results per area on Windows are still to be recorded for review"
+        "Notebooks run in a process of their own by default; a user's or a policy's choice still wins (#2601) on main at af7d786b. Trial results per area on Windows are still to be recorded for review",
+        "Implementation review docs/product/reviews/PB-136-kernel-default.md recommends Accept with documented limitations: the Windows trial on Python 3.12.10 (2026-11-13, after the product owner's go) passed in every area with no product defects; #2601 flipped the default in its own PR; test_kernel_default.py shows unchanged results on main at af7d786b"
       ],
       "features": [
         "FEAT-NB-03"
@@ -7627,7 +7628,7 @@
       ],
       "effort": "S",
       "confidence": "Medium",
-      "state": "In progress",
+      "state": "In review",
       "external_dependencies": [
         "Chris's go for a Windows trial on his PC through Remote Control"
       ],

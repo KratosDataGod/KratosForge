@@ -199,6 +199,17 @@ test("Ctrl+Shift+U and Ctrl+Shift+L change case, and Ctrl+G goes to a line", { s
   assert.strictEqual(await docText(), "SELECT a\nfrom sales\nwhere x = 1", "the word at the cursor");
   await page().keyboard.press("Control+z");
   assert.strictEqual(await docText(), "SELECT a\nfrom Sales\nwhere x = 1", "one undo step");
+  // Two cursors in one word, and a selection inside it: the word changes once.
+  await setDoc("select Sales", 0);
+  await page().evaluate(() => {
+    const v = sqlPage.editor.view;
+    const ES = v.state.selection.constructor;  // EditorSelection
+    v.dispatch({ selection: ES.create([ES.cursor(8), ES.cursor(10), ES.range(9, 11)]) });
+    v.focus();
+  });
+  await page().keyboard.press("Control+Shift+U");
+  assert.strictEqual(await docText(), "select SALES");
+  await setDoc("SELECT a\nfrom Sales\nwhere x = 1", 0);
   await page().keyboard.press("Control+g");
   const box = page().locator(".sql-edit .cm-gotoLine input");
   await box.waitFor();

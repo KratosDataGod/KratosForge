@@ -431,7 +431,14 @@ function sqlCompletionSource(provider, getDialect) {
 // Ctrl+Shift+U / Ctrl+Shift+L: each selection, or the word at a bare cursor, in upper or lower case, as one undo step.
 function sqlChangeCase(view, to) {
   const { state } = view;
-  const ranges = state.selection.ranges.map((r) => (r.empty ? state.wordAt(r.head) : r)).filter(Boolean);
+  // Bare cursors grow to their word; ranges that then overlap or touch (two cursors in one word) are merged,
+  // so no text is changed twice.
+  const ranges = [];
+  for (const r of state.selection.ranges.map((r) => (r.empty ? state.wordAt(r.head) : r)).filter(Boolean).sort((a, b) => a.from - b.from)) {
+    const last = ranges[ranges.length - 1];
+    if (last && r.from <= last.to) last.to = Math.max(last.to, r.to);
+    else ranges.push({ from: r.from, to: r.to });
+  }
   const changes = ranges.map((r) => {
     const text = state.sliceDoc(r.from, r.to);
     return { from: r.from, to: r.to, insert: to === "upper" ? text.toUpperCase() : text.toLowerCase() };

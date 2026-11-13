@@ -4838,7 +4838,9 @@ test("Format code (nbformat.js): the engine call, its hooks in notebook.js and t
   assert.match(src, /rpc\("notebook_format", \{ sources: sent \}\)/);
   assert.match(src, /c\.source === sent\[i\]/, "a cell typed in while formatting keeps what was typed");
   assert.match(nb, /\{ key: "Shift-Alt-f", run: \(\) => \{ formatCells\(\[cell\]\); return true; \} \}/);
-  assert.match(nb, /btn\("Format notebook", "code", formatNotebook/);
+  // Format notebook on the Home tab and the Edit tab; a Format button on every code cell.
+  assert.strictEqual(nb.match(/btn\("Format notebook", "code", formatNotebook, "tool", \{ title: FORMAT_NOTEBOOK_TITLE \}\)/g).length, 2);
+  assert.match(nb, /cell\.type === "code" \? h\("button", \{ class: "tool small", title: "Format this cell \(Shift\+Alt\+F\)", "data-format-cell": true,\s*onclick: \(\) => formatCells\(\[cell\]\) \}, icon\("code", 14\), "Format"\)/);
   assert.match(nb, /label: "Format cell"/);
   assert.match(src, /registerShortcuts\("Notebook", \[\s*\{ keys: \["Shift\+Alt\+F"\]/);
 });

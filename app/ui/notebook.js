@@ -108,6 +108,7 @@ function renderNotebook() {
     home: [skinGroup || runAllBtn, skinGroup ? h("div", { class: "sep" }) : null, cancelBtn, ...engineCtl(), ribbonMenu("Check", "ok", () => [sbsToggle(nb), validateToggle(nb), proveToggle(nb)],
         "Side by side, Validate and Prove (also on the Run tab)"),
       h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
+      btn("Format notebook", "code", formatNotebook, "tool", { title: FORMAT_NOTEBOOK_TITLE }),  // nbformat.js
       h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb),
       skinGroup ? null : btn("Save", "save", () => saveExplicitly(() => document.querySelector("button[data-save]")), "tool", { "data-save": true }),
       ribbonMenu("Share", "arrowUpload", (menu) => [btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions), nbfExportButton(menu)],
@@ -127,7 +128,7 @@ function renderNotebook() {
       toggleBtn("Parameter cell", "braces", isParams(sel), () => toggleParams(sel), { disabled: sel.type !== "code" }),
       toggleBtn("Freeze", "shield", sel.meta?.frozen, () => toggleFreeze(sel)),
       btn("Find and replace", "search", () => openFind(true), "tool", { title: "Find and replace in every cell (Ctrl+H)" }),
-      btn("Format notebook", "code", formatNotebook, "tool", { title: "Format every code cell: Python in Black's style, SQL in the SQL page's style (nbformat.js)" }),
+      btn("Format notebook", "code", formatNotebook, "tool", { title: FORMAT_NOTEBOOK_TITLE }),
       h("div", { class: "sep" }), btn("Clear all outputs", "clear", clearOutputs)],
     run: [runAllBtn, btn("Run cell", "play", () => runCell(selectedCell()), "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       btn("Run all above", "up", runAbove, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
@@ -363,6 +364,9 @@ function renderCell(cell) {
     ...cellHeadExtras(cell),
     commentBadge(cell),  // notebook-comments.js
     h("span", { class: "spacer" }),
+    // One click formats this cell, as Shift+Alt+F and Format cell in ... do (nbformat.js).
+    cell.type === "code" ? h("button", { class: "tool small", title: "Format this cell (Shift+Alt+F)", "data-format-cell": true,
+      onclick: () => formatCells([cell]) }, icon("code", 14), "Format") : null,
     cell.type === "code" ? h("button", { class: "tool small", title: meta.source_hidden ? "Show code" : "Hide code",
       "aria-label": meta.source_hidden ? "Show code" : "Hide code", onclick: () => setMeta(cell, "source_hidden", !meta.source_hidden) },
     icon("code", 14)) : null,

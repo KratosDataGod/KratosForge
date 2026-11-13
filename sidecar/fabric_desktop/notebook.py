@@ -1290,10 +1290,8 @@ class Kernel:
         SQL database. That engine is in Fabric, so here the cell is checked against its rules
         (sqlcompat, nothing sent anywhere) and stops, as a Scala cell does."""
         from . import sqlcompat
-        typed = re.search(r"-type\s+(\w+)", cell.args)
-        kind = (typed[1] if typed else "Warehouse").lower()
-        target = {"warehouse": "warehouse", "lakehouse": "endpoint", "sqlanalyticsendpoint": "endpoint",
-                  "sqldatabase": "sqldb", "sqldb": "sqldb"}.get(kind, "warehouse")
+        from .code_format import tsql_dialect
+        target = tsql_dialect(cell.args)
         report = sqlcompat.analyze(cell.body, target)
         found = [f"- line {d['line']}: {d['title']}. {d.get('action') or ''}".rstrip()
                  for d in report["diagnostics"] if d["severity"] in ("error", "warning")]

@@ -306,7 +306,7 @@ A bundle also lists what it can't promise: cells that hadn't run, ran in a diffe
 
 - Cells have line numbers, bracket matching, folding, find in the cell (**Ctrl+F**), **Ctrl+/** to comment, and autocomplete (**Ctrl+Space**) from the running kernel's variables, Python names, and the attached lakehouse's table names inside strings and `%%sql` cells. In a `%%sql` cell, typing a table's alias and a dot (`s.`) offers that table's columns, as on the SQL page, without running anything. The app keeps the table and column names it last read for each lakehouse (names only, no data), so completion still works offline or signed out; they go with the other cached copies after `local_retention_days`.
 - Hover a name for its signature and docs, see a call's parameters as you type, and get a red underline on syntax errors. See [IntelliSense in notebook cells](notebook-editor/intellisense.md).
-- **Shift+Alt+F** formats the cell you're editing (Python in Black's style, `%%sql` as Format SQL does), and **Edit > Format notebook** formats every code cell. See [Format code in a notebook](notebook-editor/format-code.md).
+- **Format** on a code cell, or **Shift+Alt+F** while you edit it, formats that cell (Python in Black's style, `%%sql` and `%%tsql` as Format SQL does), and **Format notebook** on the Home or Edit tab formats every code cell. See [Format code in a notebook](notebook-editor/format-code.md).
 - **Ctrl+H** finds and replaces across every cell. See [Find and replace in a notebook](notebook-editor/find-and-replace.md).
 - Drag a table or file from **Explorer > Data items** into a cell, or right-click it to load it with Polars, Spark, SQL or pandas. See [Drag tables and files into a notebook](notebook-editor/load-data-items.md).
 - **Shift+click** or **Shift+Down** selects several cells to run, copy, merge, freeze or delete together, and **Ctrl+Shift+Enter** runs just the selected text. See [Select several cells and run part of a notebook](notebook-editor/select-and-run-parts.md).
@@ -318,7 +318,7 @@ The ribbon has four tabs:
 
 | Tab | What's on it |
 | --- | --- |
-| **Home** | Run all, Cancel, **Runs on**, **Check** (Side by side, Validate, Prove), Add data items, Save, **Share** (Save a copy, Versions, Export), Open in VS Code, **Schedule** (Schedule, Recent runs), **Publish to OneLake**. The buttons under Check and Schedule are also on the Run tab |
+| **Home** | Run all, Cancel, **Runs on**, **Check** (Side by side, Validate, Prove), Add data items, Format notebook, Save, **Share** (Save a copy, Versions, Export), Open in VS Code, **Schedule** (Schedule, Recent runs), **Publish to OneLake**. The buttons under Check and Schedule are also on the Run tab |
 | **Edit** | Add Code or Markdown cells, Move up or down, Split cell, Merge with below, Delete cell, Undo delete, **Parameter cell**, **Freeze**, Find and replace (every cell), Format notebook, Clear all outputs |
 | **Run** | Run all, Run cell, Run all above, Run cell and below, Run selected cells, Cancel, Runs on, Restart kernel, Restart and run all, Schedule, Recent runs |
 | **View** | Explorer, **Outline** (Markdown headings; click to jump), **Variables** (name, type, size and value of each variable, secrets hidden; click one to display it), collapse or expand all inputs and outputs, line numbers |

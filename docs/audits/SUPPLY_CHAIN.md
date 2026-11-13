@@ -89,7 +89,7 @@ The full list, crate by crate, is in each release's `sbom-app.cdx.json`.
 | mssql-python-rs | 0.3.0 | MIT |  |
 | narwhals | 2.27.1 | MIT |  |
 | numpy | 2.5.3 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 |  |
-| opentelemetry-api | 1.45.1 | Apache-2.0 |  |
+| opentelemetry-api | 1.45.2 | Apache-2.0 |  |
 | packaging | 26.3 | Apache-2.0 OR BSD-2-Clause |  |
 | pandas | 2.3.3 | BSD-3-Clause |  |
 | pillow | 13.0.0 | MIT-CMU |  |

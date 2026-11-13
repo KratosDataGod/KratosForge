@@ -98,6 +98,7 @@ def test_the_service_adds_the_notes_to_a_profile_and_leaves_a_gone_one_alone():
 
     class _Svc:
         notebook_frame_query_profile = Service.notebook_frame_query_profile
+        _frame_kernel = Service._frame_kernel
 
     svc = _Svc()
     svc.kernel = _Kernel(_profile(_scan(3_000_000, 369_600, '("year"(order_date) = 2026)')))

@@ -64,28 +64,6 @@ test("no two page scripts declare the same top-level name", () => {
   assert.deepStrictEqual(clashes, []);
 });
 
-// esc and inlineMd from app.js, without the rest of the page.
-function markdownHelpers() {
-  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  const code = src.match(/function esc\([\s\S]*?\n}\n/)[0] + src.match(/function inlineMd\([\s\S]*?\n}\n/)[0];
-  const ctx = {};
-  vm.runInNewContext(`${code}; this.esc = esc; this.inlineMd = inlineMd;`, ctx);
-  return ctx;
-}
-
-test("a Markdown link can't add attributes or handlers", () => {
-  const { inlineMd } = markdownHelpers();
-  const html = inlineMd('[x](a" style="position:fixed" onmouseover="alert(1)) and [y](b\' onclick=\'z)');
-  assert.ok(!/"\s+on\w+=|'\s+on\w+=|" style=/.test(html), html);
-  assert.match(html, /title="a&quot; style=&quot;/);
-});
-
-test("Markdown still formats", () => {
-  const { inlineMd } = markdownHelpers();
-  assert.strictEqual(inlineMd("**b** *i* `c` [ok](https://x.y) <b>"),
-    '<strong>b</strong> <em>i</em> <code>c</code> <u title="https://x.y">ok</u> &lt;b&gt;');
-});
-
 test("a run says where it ran: Fabric, an agent or this PC", () => {
   const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
   const ctx = {};
@@ -1740,12 +1718,6 @@ test("the access cache view flags what's worth a look and asks before setting an
 test("no raw HTML sinks in app/ui outside the reviewed list", () => {
   const sink = /\.(?:innerHTML|outerHTML)\b|\binsertAdjacentHTML\b|\bdocument\.write(?:ln)?\b|\bcreateContextualFragment\b|\bDOMParser\b|\b(?:set|parse)HTMLUnsafe\b|\bsrcdoc\b|\beval\s*\(|\bnew Function\b|\bFunction\s*\(/;
   const allowed = new Set([
-    // markdown(): a fixed placeholder string, no data.
-    `app.js: wrap.innerHTML = '<p class="placeholder">Empty Markdown cell. Double-click to edit.</p>';`,
-    // markdown(): every piece of cell text goes through inlineMd(), which esc()apes &<>"' before adding
-    // <code>, <strong>, <em> and <u title>; headings and lists add only fixed tags. See the two
-    // Markdown tests at the top of this file.
-    `app.js: wrap.innerHTML = html.join("");`,
     // sqlParsePlan(): Fabric's showplan parsed as XML ("application/xml" runs no script and loads nothing);
     // the document is never put on the page, only attribute values are read and drawn as text with h().
     `sqlplan.js: const doc = new DOMParser().parseFromString(String(xml || ""), "application/xml");`,
@@ -1786,6 +1758,9 @@ test("no URL sinks built from data in app/ui outside the reviewed list", () => {
   const allowed = new Set([
     // Image output: only the picture types imageOutputOk() accepts, with base64 data, and <img> never runs script.
     "notebook.js: return h(\"div\", { class: \"output\" }, h(\"img\", { class: \"out-img\", alt: \"Chart from this cell\", src: `data:${o.mime};base64,${o.data}` }));",
+    // Markdown images (#2579): only a data: URL mdImageData() built from a picture type in MD_IMAGE_TYPES and
+    // base64 it checked, from the cell's own attachments or a data:image URL; never a file or web address.
+    "app.js: if (data) return h(\"img\", { class: \"md-img\", src: data, alt });",
     // HTML output frame: the shell's fixed frame URL, no data (HD-020).
     "notebook.js: src: window.__TAURI__.core.convertFileSrc(\"frame\", \"nbout\") });",
     // Profile picture (PB-125): only a base64 PNG data URL passes profilePicture()'s test; the engine checks it is a
@@ -2545,7 +2520,7 @@ test("Forge animations in the notebook: runs of several cells use the wolf track
 test("Motion & effects settings: four levels, family switches, reduced-motion choice, lockable, applied at once; CSS honours them", () => {
   const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const card = s.match(/function motionSettingsCard\([\s\S]*?\n}\n/)[0];
-  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n(?:\s+.*skinChooser\(locked\).*\n)?\s+h\("h3", \{\}, "Layout"\)[\s\S]*Object\.keys\(LAYOUT_CHOICES\)\.map\(choice\),\n\s+h\("h3", \{\}, "Living Experience"\)/);
+  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n(?:\s+.*skinChooser\(locked\).*\n)?(?:\s+.*choice\("ui_color_mode"\).*\n)?\s+h\("h3", \{\}, "Layout"\)[\s\S]*Object\.keys\(LAYOUT_CHOICES\)\.filter\(\(key\) => key !== "ui_color_mode"\)\.map\(choice\),\n\s+h\("h3", \{\}, "Living Experience"\)/);
   assert.match(card, /type: "radio", name: "motion_level"/);
   assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
   assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
@@ -3765,10 +3740,10 @@ test("the notebook result viewer pages, searches and sorts the whole result in t
   const [prev, next] = findAll(wrap, (n) => n.tag === "button" && ["Previous", "Next"].includes(texts(n)));
   assert.strictEqual(prev.disabled, true);
   await next.attrs.onclick();
-  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_page", { frame: "f1", offset: 100, limit: 100, sort: null, desc: false, q: "" }]);
+  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_page", { frame: "f1", notebook: "Sales", offset: 100, limit: 100, sort: null, desc: false, q: "" }]);
   assert.strictEqual(status.textContent, "Rows 101 to 101 of 5,000");
   await findAll(wrap, (n) => n.attrs?.class === "th-sort")[0].attrs.onclick();
-  assert.deepStrictEqual(plain(calls[1][1]), { frame: "f1", offset: 0, limit: 100, sort: 0, desc: false, q: "" });
+  assert.deepStrictEqual(plain(calls[1][1]), { frame: "f1", notebook: "Sales", offset: 0, limit: 100, sort: 0, desc: false, q: "" });
   const search = findAll(bar, (n) => n.attrs?.type === "search")[0];
   search.value = "42";
   search.listeners.input();
@@ -3788,7 +3763,7 @@ test("a result the kernel no longer holds says to run the cell again; downloads 
   const items = findAll(bar, (n) => n.attrs?.role === "menuitem").map(texts);
   assert.deepStrictEqual(plain(items), ["CSV", "Excel", "Parquet"]);
   await ctx.download(o, "xlsx");
-  assert.deepStrictEqual(plain(calls[1]), ["notebook_frame_download", { frame: "f1", format: "xlsx", name: "Sales" }]);
+  assert.deepStrictEqual(plain(calls[1]), ["notebook_frame_download", { frame: "f1", format: "xlsx", name: "Sales", notebook: "Sales" }]);
   assert.deepStrictEqual(plain(toasts.at(-1)), ["Saved 5,000 rows to C:\\Users\\me\\Downloads\\Sales result.xlsx", false]);
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
   assert.match(nb, /if \(o\.view === "table" && o\.frame\) \{\n    renderResultViewer\(o, wrap, bar, numeric, count\);/);
@@ -4307,7 +4282,7 @@ test("Inspect profiles every row of a held result, and says so when the kernel n
     { name: "bad", type: "double", kind: "number", error: "Couldn't profile this column: Out of Range" }] },
     { frame: "h", rows: 5000000, profiled_rows: 1000000, sampled: true, more_columns: 0, columns: [{ name: "v", type: "double", kind: "number", missing: 0, distinct: 2, infinite: 3, min: 1, max: 2, mean: 1.5, std: 0.5, q1: 1, median: 1.5, q3: 2, histogram: [1, 1] }] },
     { frame: "f", gone: true }];
-  const ctx = { h: el, isNumber: (v) => typeof v === "number", friendlyError: String, rpc: async () => answers.shift() };
+  const ctx = { state: { notebook: { name: "Sales" } }, h: el, isNumber: (v) => typeof v === "number", friendlyError: String, rpc: async () => answers.shift() };
   vm.createContext(ctx);
   vm.runInContext(grab("renderFrameProfile") + grab("renderInspect") + "this.p = renderFrameProfile;", ctx);
   const o = { frame: "f", columns: ["n", "s"], rows: [[1, "a"]] };
@@ -4342,7 +4317,7 @@ function chartsHarness(answer) {
     addEventListener(t, fn) { this.listeners[t] = fn; } });
   const calls = [];
   let dirty = 0;
-  const ctx = { h: node, btn: (label, _i, onclick) => node("button", { onclick }, label), friendlyError: String, markDirty: () => { dirty += 1; },
+  const ctx = { state: { notebook: { name: "Sales" } }, h: node, btn: (label, _i, onclick) => node("button", { onclick }, label), friendlyError: String, markDirty: () => { dirty += 1; },
     document: { createElementNS: (_ns, tag) => node(tag) },
     rpc: async (m, a) => { calls.push([m, a]); return typeof answer === "function" ? answer(a) : answer; } };
   vm.createContext(ctx);
@@ -4360,14 +4335,14 @@ test("the chart builder asks the engine for every row and keeps the cell's chart
   const cfg = ctx.api.chartConfig(o, [false, false, true], cell);
   assert.deepStrictEqual(plain(cfg), { kind: "bar", x: "region", y: "amount", agg: "sum", series: null, title: "" });
   const box = ctx.api.renderChartBuilder(o, [false, false, true], cell);
-  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_chart", { frame: "f", kind: "bar", x: 0, y: 2, agg: "sum", series: null }]);
+  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_chart", { frame: "f", notebook: "Sales", kind: "bar", x: 0, y: 2, agg: "sum", series: null }]);
   const kind = allNodes(box).find((n) => n.tag === "select" && n.attrs["aria-label"] === "Chart");
   kind.attrs.onchange({ target: { value: "stacked" } });
   const series = allNodes(box.replaced).find((n) => n.tag === "select" && n.attrs["aria-label"] === "Series");
   series.attrs.onchange({ target: { value: "product" } });
   assert.deepStrictEqual(plain(cell.meta.chart), { kind: "stacked", x: "region", y: "amount", agg: "sum", series: "product", title: "" });
   assert.strictEqual(dirty(), 2);
-  assert.deepStrictEqual(plain(calls.at(-1)[1]), { frame: "f", kind: "stacked", x: 0, y: 2, agg: "sum", series: 1 });
+  assert.deepStrictEqual(plain(calls.at(-1)[1]), { frame: "f", notebook: "Sales", kind: "stacked", x: 0, y: 2, agg: "sum", series: 1 });
   await new Promise((r) => setImmediate(r));
   // A rerun keeps the saved chart; a renamed column falls back to the default.
   assert.strictEqual(ctx.api.chartConfig({ columns: ["region", "product", "amount"] }, [false, false, true], cell).series, "product");
@@ -4450,7 +4425,7 @@ function wranglerHarness(answer) {
   const calls = [];
   const inserted = [];
   const ctx = { h: node, btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label), friendlyError: String,
-    resultTable: (columns) => ({ ...node("table", {}), columns, querySelectorAll: () => [] }), state: { selected: null },
+    resultTable: (columns) => ({ ...node("table", {}), columns, querySelectorAll: () => [] }), state: { selected: null, notebook: { name: "Sales" } },
     insertCell: (code) => inserted.push(code), toast: () => {}, attempt: (fn) => fn(), navigator: { clipboard: { writeText: async () => {} } },
     rpc: async (m, a) => { calls.push([m, JSON.parse(JSON.stringify(a))]); return typeof answer === "function" ? answer(a) : answer; } };
   vm.createContext(ctx);
@@ -4468,7 +4443,7 @@ test("Data Wrangler sends its steps to the engine and adds the code as a new cel
   const o = { frame: "f", columns: ["id", "name"], rows: [] };
   const cell = { id: "c1", source: "display(orders)" };
   ctx.api.renderWrangler(o, cell);
-  assert.deepStrictEqual(calls[0], ["notebook_frame_wrangle", { frame: "f", steps: [], name: "orders" }]);
+  assert.deepStrictEqual(calls[0], ["notebook_frame_wrangle", { frame: "f", notebook: "Sales", steps: [], name: "orders" }]);
   // Adding a step: pick the operation, then its columns, then Add step.
   o.wrangle.adding = "dedupe";
   const form = ctx.api.renderWrangleAdd(o, o.wrangle, () => {});
@@ -4549,8 +4524,8 @@ test("Python cells get hover, signature help, syntax errors and completion docs"
   assert.match(nb, /CM\.autocompletion\(\{ override: \[pythonCompletions\], activateOnTypingDelay: 150 \}\),\n\s+\.\.\.intelExtensions\(\)\]/);
   assert.match(nb, /info: intelCompletionInfo\(base, i\.label\)/);
   const intel = fs.readFileSync(path.join(ui, "nbintel.js"), "utf8");
-  assert.match(intel, /rpc\("kernel_inspect", \{ code: line\.text, cursor: pos - line\.from \}\)/);
-  assert.match(intel, /rpc\("kernel_inspect", \{ code, call: true \}\)/);
+  assert.match(intel, /rpc\("kernel_inspect", \{ code: line\.text, cursor: pos - line\.from, notebook: state\.notebook\?\.name \}\)/);
+  assert.match(intel, /rpc\("kernel_inspect", \{ code, call: true, notebook: state\.notebook\?\.name \}\)/);
   assert.match(intel, /rpc\("notebook_syntax", \{ source \}\)/);
   assert.match(intel, /function intelLive\(\) \{\n\s+return state\.notebook && !nbWhere\(state\.notebook\)\.fabric;/);
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
@@ -5043,7 +5018,7 @@ test("the query profile runs only when asked, warns about capacity and lists eac
     { depth: 0, name: "ORDER_BY", rows: 6, seconds: 0.001, share: 0.001, details: { "Order By": "revenue DESC" } },
     { depth: 1, name: "HASH_GROUP_BY", rows: 6, seconds: 0.29, share: 0.21, details: { Groups: "region" } },
     { depth: 2, name: "SEQ_SCAN", rows: 12480113, seconds: 0.97, share: 0.71, details: { Table: "silver.orders", Filters: "status='shipped'" } }] };
-  const ctx = { h: node, friendlyError: (e) => ({ text: `failed: ${e.message}`, details: "" }), toast: () => {}, attempt: (fn) => fn(),
+  const ctx = { state: { notebook: { name: "Sales" } }, h: node, friendlyError: (e) => ({ text: `failed: ${e.message}`, details: "" }), toast: () => {}, attempt: (fn) => fn(),
     btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label),
     navigator: { clipboard: { writeText: async (t) => { copied = t; } } },
     rpc: async (m, a) => { calls.push([m, a]); if (answer instanceof Error) throw answer; return answer; } };
@@ -5057,7 +5032,7 @@ test("the query profile runs only when asked, warns about capacity and lists eac
   assert.match(text(box), /read from OneLake again, which uses capacity/);
   allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Profile the query")).attrs.onclick();
   await new Promise((r) => setImmediate(r));
-  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_query_profile", { frame: "f" }]);
+  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_query_profile", { frame: "f", notebook: "Sales" }]);
   const t = text(box);
   assert.match(t, /Read table/);
   assert.match(t, /silver\.orders/);
@@ -5700,7 +5675,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
-    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look"],
+    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
     validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],
@@ -5960,9 +5935,10 @@ test("a developer Python missing a package says the command that installs it", (
 // mode changes it in one place. Colors still written into rules may only go down; lower LITERAL_COLORS
 // when a change moves more of them onto tokens.
 test("styles.css writes no more colors outside its tokens than it did", () => {
-  const LITERAL_COLORS = 50;
+  const LITERAL_COLORS = 28;
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
-  const rules = css.slice(css.indexOf("}") + 1);  // after the :root block
+  // After the :root block, and without the dark tokens (html[data-color-mode="dark"]), which are tokens too.
+  const rules = css.slice(css.indexOf("}") + 1).replace(/html\[data-color-mode="dark"\] \{[^}]*\}/, "");
   const found = (rules.match(/#[0-9a-fA-F]{3,8}\b/g) || []).length;
   assert.ok(found <= LITERAL_COLORS, `styles.css has ${found} color literals outside :root (limit ${LITERAL_COLORS}): use a token from :root, or add one there`);
 });

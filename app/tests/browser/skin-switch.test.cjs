@@ -154,3 +154,46 @@ test("a skin's typeface loads from the app's own fonts and its corners change, u
   assert.deepStrictEqual(await drawn("kratosforge"), { font: "Segoe UI Variable Text", loaded: true, corner: "4px" });
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("a wide rail puts each label beside its icon, and gives its room back in a narrow window", { skip }, async () => {
+  // The page settles its layout a frame or two after a skin or window change, so wait for the width asked.
+  const railAt = (w) => page().waitForFunction((w) => Math.round(document.getElementById("rail").getBoundingClientRect().width) === w, w, { timeout: 3000 }).catch(() => {});
+  const rail = () => page().evaluate(() => {
+    const r = document.getElementById("rail").getBoundingClientRect();
+    const item = getComputedStyle(document.querySelector(".rail-item"));
+    return { width: Math.round(r.width), direction: item.flexDirection };
+  });
+  await page().evaluate(() => { state.settings.ui_skin = { ...(state.settings.ui_skin || {}), value: "databricks" }; applySkin(); });
+  await railAt(208);
+  assert.deepStrictEqual(await rail(), { width: 208, direction: "row" });
+  await page().setViewportSize({ width: 900, height: 900 });
+  await railAt(72);
+  assert.deepStrictEqual(await rail(), { width: 72, direction: "column" });
+  // A short window (200% zoom on a laptop): like the app's own rail, it shows icons only.
+  await page().setViewportSize({ width: 1280, height: 600 });
+  await railAt(52);
+  assert.deepStrictEqual(await rail(), { width: 52, direction: "column" });
+  await page().setViewportSize({ width: 1440, height: 900 });
+  await page().evaluate(() => { state.settings.ui_skin.value = "kratosforge"; applySkin(); });
+  await railAt(72);
+  assert.deepStrictEqual(await rail(), { width: 72, direction: "column" });
+});
+
+test("a brand header fills the bar with the skin's accent and keeps its text readable", { skip }, async () => {
+  const bar = () => page().evaluate(() => {
+    const cs = (sel) => getComputedStyle(document.querySelector(sel));
+    return { bg: cs("body > header.topbar").backgroundColor, search: cs("body > header.topbar .search input").color, n: document.querySelectorAll(".topbar").length };
+  });
+  await page().evaluate(() => { state.settings.ui_skin = { ...(state.settings.ui_skin || {}), value: "fabric" }; applySkin(); });
+  await page().waitForFunction(() => getComputedStyle(document.querySelector("body > header.topbar")).backgroundColor === "rgb(15, 108, 92)", null, { timeout: 3000 }).catch(() => {});
+  assert.deepStrictEqual(await bar(), { bg: "rgb(15, 108, 92)", search: "rgb(255, 255, 255)", n: 1 });
+  if (axeSource) assert.deepStrictEqual(await axeFindings(page(), ".topbar"), []);
+  // The brand lettering is never recolored: on the brand bar the name shows as text instead.
+  const name = () => page().evaluate(() => [".brand-name", ".brand-text"].map((s) => getComputedStyle(document.querySelector(s)).display !== "none"));
+  assert.deepStrictEqual(await name(), [false, true]);
+  assert.strictEqual(await page().evaluate(() => getComputedStyle(document.querySelector(".brand-name")).filter), "none");
+  await page().evaluate(() => { state.settings.ui_skin.value = "kratosforge"; applySkin(); });
+  await page().waitForFunction(() => getComputedStyle(document.querySelector("body > header.topbar")).backgroundColor === "rgb(255, 255, 255)", null, { timeout: 3000 }).catch(() => {});
+  assert.strictEqual((await bar()).bg, "rgb(255, 255, 255)");
+  assert.deepStrictEqual(await name(), [true, false]);
+});

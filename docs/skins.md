@@ -106,8 +106,17 @@ What each choice draws so far:
 - **icons:** the app's icons are filled shapes. `bold` traces their edge so they read heavier. `regular`
   and `light` draw them as they are.
 
-The other parts (header, rail, tabs, cells) are marked on the page but not drawn yet. They come in the
-next Preview changes.
+- **rail:** `stacked` is KratosForge's narrow rail. `inline` is a wide rail, 208 px, with each label beside
+  its icon. In a window narrower than 1000 px, such as when zoomed in, it draws as stacked so the page keeps
+  its room, and in a window shorter than 640 px it shows icons only, like the app's own rail.
+- **header:** `light` is KratosForge's white bar. `brand` fills the bar with the skin's accent. The bar's
+  text and buttons turn to `--on-accent`, and the search box sits on `--accent-dark`. The brand lettering
+  image is never recolored, so the bar shows the name as text instead. `none`
+  blends the bar into the canvas, without its line. The bar keeps search, the breadcrumb, Activity and
+  the account in every skin.
+
+The other parts (tabs, cells) are marked on the page but not drawn yet. They come in the next Preview
+changes.
 
 The look is Preview: with Preview features hidden in Settings, every skin draws the app's own look.
 
@@ -115,8 +124,24 @@ The choices are plain platform looks. None adds art or game styling to controls,
 type or data panels; the KratosForge skin keeps its light shell.
 
 Two settings choose the skin: `ui_skin` (its id, `kratosforge` by default) and `ui_color_mode`
-(`skin` follows the skin's own mode, or `light` or `dark`). The app saves `ui_color_mode` but doesn't
-apply it yet: it always uses the skin's light colors. See [the settings file](azure-setup.md).
+(`skin` follows the skin's own mode, or `light` or `dark`). See [the settings file](azure-setup.md).
+
+### Color mode (Preview)
+
+Settings > Appearance > Color mode chooses Follow the skin, Light or Dark. Follow the skin is the default,
+and KratosForge's own mode is light, so nothing changes for anyone who doesn't choose. The choice is
+Preview: with Preview features hidden, the app is light.
+
+Your organization can set `ui_color_mode` in policy.json. Then it applies for everyone, even with Preview
+features hidden, and Settings shows the choice locked with "Set by your organization's policy".
+
+Dark is a neutral charcoal, never navy, with the same layout and no art. Its colors are the tokens under
+`html[data-color-mode="dark"]` in styles.css, and the KratosForge skin's `dark` tokens in `skins.py` (a
+test keeps the two equal). The accent turns a light blue, so links on a surface and the primary button's
+dark text both pass 4.5:1. A skin with its own `dark` tokens (Databricks-familiar) draws with them; a
+skin without them draws with KratosForge's dark. Every skin's accent must also reach 4.5:1 on its surface,
+because the accent is link text too. The code editors, charts and notebook output follow the mode. The
+Power BI embed shows Power BI's own colors.
 
 ## Notebook commands (Preview)
 

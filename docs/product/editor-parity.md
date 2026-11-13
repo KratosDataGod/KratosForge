@@ -4,7 +4,7 @@ Chris asked on 2026-11-13 for the notebook and SQL editor to have the same funct
 notebooks and SQL editors: a feature parity matrix against the top ten, a roadmap, and an execution
 plan ordered by capability and usefulness, reaching 95% as soon as possible and the last 5% soon after.
 
-This page is that plan. It is read against main `e9e8e3e8b` (2026-11-13).
+This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and rows move as their PRs merge (last update at main `68552d394`).
 
 ## How to read it
 
@@ -32,9 +32,9 @@ This page is that plan. It is read against main `e9e8e3e8b` (2026-11-13).
 
 | Group | Counted rows | Have | Partial | Gap | Score |
 | --- | --- | --- | --- | --- | --- |
-| Notebook | 54 | 40 | 3 | 11 | 77% |
-| SQL editor | 45 | 19 | 9 | 17 | 52% |
-| **Both** | **99** | **59** | **12** | **28** | **66%** |
+| Notebook | 54 | 42 | 3 | 9 | 81% |
+| SQL editor | 45 | 23 | 7 | 15 | 59% |
+| **Both** | **99** | **65** | **10** | **24** | **71%** |
 
 The notebook is close: its gaps are Markdown rendering (math, tables, images), code navigation and a
 few comfort features. The SQL editor's editing is strong (dialects, schema-aware suggestions, Format
@@ -94,12 +94,12 @@ Products: JL = JupyterLab, VSC = VS Code, Fab = Fabric, Dbx = Databricks.
 | N44 | No-code data cleaning | N | Y | Y | P | N | Have | `wrangler.js` |
 | N45 | Collapse, scroll and clear outputs; hide code | Y | Y | Y | Y | Y | Have | `notebook.js:149` |
 | N46 | Download a result as CSV, Excel or Parquet | N | P | Y | Y | Y | Have | `frame_download` |
-| N47 | Find inside outputs | Y | Y | N | N | N | Gap | `nbfind.js` searches sources only |
+| N47 | Find inside outputs | Y | Y | N | N | N | Have | Find searches cell outputs too (#2581) |
 | N48 | Publish a notebook as a read-only report or app | P | N | N | Y | Y | Gap | App Studio builds apps from a spec, not from a notebook |
 | N49 | Presentation (slide) mode | P | N | N | Y | Y | Gap | |
 | N50 | Autosave, versions, diff, restore | P | P | Y | Y | Y | Have | `notebook-versions.js` |
 | N51 | Export as .ipynb, .py, HTML | Y | Y | Y | Y | P | Have | `notebook-formats.js` |
-| N52 | Export as PDF | Y | Y | N | P | Y | Gap | |
+| N52 | Export as PDF | Y | Y | N | P | Y | Have | Export as PDF through print to PDF (#2584) |
 | N53 | Git with a notebook-aware diff | P | Y | Y | Y | Y | Have | `git.js:589` Notebook view |
 | N54 | Comments on cells | N | N | Y | Y | Y | Have | `notebook-comments.js` |
 | N55 | Notebook files, folders and search | Y | Y | Y | Y | Y | Have | `notebook-files.js` |
@@ -107,7 +107,7 @@ Products: JL = JupyterLab, VSC = VS Code, Fab = Fabric, Dbx = Databricks.
 | N57 | Real-time co-editing | P | P | Y | Y | Y | Not counted | can't run on one PC; teams share through Git |
 | N58 | Item sharing and permissions | N | N | Y | Y | Y | Not counted | set in Fabric after Publish |
 | N59 | In-editor AI assistant | P | Y | Y | Y | Y | Not counted | AI-ready by policy: AI tools use the local API |
-| N60 | Dark mode and themes | Y | Y | Y | Y | Y | Partial | skins change the look; a dark color mode is saved (`ui_color_mode`, #2569) but not applied yet: the page reads only the light tokens (`skins.js`) |
+| N60 | Dark mode and themes | Y | Y | Y | Y | Y | Partial | skins change the look; Settings > Appearance > Color mode (Preview, opt-in, light stays the default) is built in #2585 and counts when it merges |
 
 ## SQL editor matrix
 
@@ -127,7 +127,7 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S10 | Snippets and templates | Y | Y | Y | Y | P | Have | `sqltemplates.js` |
 | S11 | Signature help for functions | P | Y | Y | P | P | Gap | |
 | S12 | Run all or the selection; F5 and Ctrl+Enter | Y | Y | Y | Y | Y | Have | #2406 |
-| S13 | Run the statement under the cursor | N | P | Y | Y | Y | Gap | `sqlStatementAt` (`sqleditor.js:183`) exists but only feeds suggestions |
+| S13 | Run the statement under the cursor | N | P | Y | Y | Y | Have | Ctrl+Shift+Enter runs the statement at the cursor (#2582) |
 | S14 | Scripts with several statements and several result sets | Y | Y | Y | Y | Y | Gap | one statement at a time ([Warehouses](../warehouse.md)) |
 | S15 | Stop a running query | Y | Y | Y | Y | Y | Have | `sql_cancel` |
 | S16 | Time, rows and a Messages view | Y | Y | Y | Y | Y | Have | `query.js:604` |
@@ -138,11 +138,11 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S21 | Resize and reorder result columns | Y | Y | Y | Y | Y | Gap | |
 | S22 | Open a long text or JSON value in a viewer | P | Y | Y | Y | Y | Gap | |
 | S23 | Copy selected cells, with or without headers, as CSV, JSON or INSERT | Y | Y | Y | Y | Y | Partial | copies the page as TSV with headers (`copyRows` in `query.js`) |
-| S24 | Export as CSV, Excel and JSON | Y | Y | Y | Y | Y | Partial | CSV and Parquet only (`sql_exec.py:975`) |
+| S24 | Export as CSV, Excel and JSON | Y | Y | Y | Y | Y | Have | CSV, Parquet, Excel and JSON (#2587) |
 | S25 | Chart a result | N | Y | N | P | Y | Have | `sqlchart.js` |
 | S26 | Column statistics on a result | N | N | P | N | Y | Gap | the notebook's profile (`frame_profile`) isn't on the SQL page |
 | S27 | Result history, pin a result | N | N | Y | Y | P | Gap | |
-| S28 | Results pane: resize, maximize, hide (Ctrl+R) | Y | Y | Y | Y | Y | Partial | editor resizes (`styles.css:672`); no maximize or hide |
+| S28 | Results pane: resize, maximize, hide (Ctrl+R) | Y | Y | Y | Y | Y | Have | maximize, hide with Ctrl+R, and resize (#2583) |
 | S29 | Object explorer: schemas, tables, views, procedures, functions, columns | Y | Y | Y | Y | Y | Have | warehouse Explorer; lakehouse lists tables and columns |
 | S30 | Script as SELECT, CREATE, ALTER, DROP | Y | Y | Y | Y | P | Have | warehouse ([Warehouses](../warehouse.md)) |
 | S31 | Table detail, data preview, profile | P | P | Y | Y | Y | Have | Preview, `whdetail.js` |
@@ -158,9 +158,9 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S41 | Running queries; stop someone's | Y | N | P | Y | Y | Have | Preview, `whmonitor.js` |
 | S42 | Connect to other engines (SQL Server, Postgres, Snowflake, Databricks SQL) | P | P | Y | Y | N | Partial | lakehouse, SQL endpoint, warehouse and local project only |
 | S43 | SQL notebooks mixing SQL and Markdown | N | Y | N | N | Y | Have | notebooks with `%%sql` |
-| S44 | SSMS-style keys beyond F5 (Ctrl+R, Ctrl+Shift+U/L) | Y | Y | Y | Y | P | Partial | F5, Ctrl+Enter, Shift+Alt+F |
+| S44 | SSMS-style keys beyond F5 (Ctrl+R, Ctrl+Shift+U/L) | Y | Y | Y | Y | P | Have | F5, Ctrl+Enter, Shift+Alt+F, Ctrl+R, Ctrl+Shift+U/L (#2583) |
 | S45 | Dark mode | Y | Y | Y | Y | Y | Partial | as N60 |
-| S46 | Go to line, bookmarks | Y | Y | Y | Y | N | Gap | |
+| S46 | Go to line, bookmarks | Y | Y | Y | Y | N | Partial | Ctrl+G goes to a line (#2583); no bookmarks yet |
 | S47 | In-editor AI assistant | Y | Y | Y | Y | Y | Not counted | AI-ready by policy |
 
 ## Roadmap
@@ -194,9 +194,9 @@ existing control does go straight to a draft PR.
 | 17 | **Find inside outputs** in notebook Find | N47 | 2 | 2 | S | 4 | No |
 | 18 | **Notebook as a read-only report**: outputs only, from the HTML export, opened in its own window | N48 | 2 | 3 | M | 3 | Yes |
 | 19 | **Scratch console** beside a notebook, in the same session | N40 | 2 | 2 | M | 2 | Yes |
-| — | **Dark mode applied** to the shell, notebooks and the SQL editor (CodeMirror themes from the same tokens). `ui_color_mode` is saved but not applied (#2569) and nobody owns applying it yet. It touches the standing light-shell design rule, so it needs Chris's go and a mockup before anyone builds it | N60, S45 | 4 | 5 | M | 10 | Yes, and Chris's go |
+| — | **Dark mode applied** to the shell, notebooks and the SQL editor (CodeMirror themes from the same tokens). Chris approved the color mode mockup on 2026-11-13; the Platform skins work builds it in #2585, opt-in and Preview, with light the default | N60, S45 | 4 | 5 | M | 10 | Done: approved |
 
-Wave 1 closes 24 Gap rows and 11 Partial rows. Afterwards: 94.5 of 99 rows, **95%**.
+Wave 1 closes 24 Gap rows and 11 Partial rows. Afterwards: 94.5 of 99 rows, **95%**. Item 3 shipped go to line without bookmarks, so S46 stays Partial (94 of 99 until bookmarks land; they join wave 2).
 
 ### Wave 2: the last 5%
 
@@ -204,6 +204,7 @@ Wave 1 closes 24 Gap rows and 11 Partial rows. Afterwards: 94.5 of 99 rows, **95
 | --- | --- | --- |
 | Rich-text Markdown editing (toolbar, live preview) | N23 | Lower use; Markdown source stays the format saved |
 | Presentation (slide) mode | N49 | Lower use |
+| Bookmarks in the SQL editor | S46 | Go to line shipped in wave 1; bookmarks are used less |
 | Data compare between two tables | S34 | Builds on the result grid and several result sets |
 | Edit rows in the result grid | S35 | Writes to lakehouse and warehouse tables are guarded on purpose; needs Chris's decision and a Security read |
 | Connect to other engines (Azure SQL Database first) | S42 | Needs a Security read (token audience, SQL auth) and Chris's go; the Azure SQL query editor check ranked it first |
@@ -245,7 +246,7 @@ each its own PR and Preview until used for real:
 | F7 | `notebookutils` writes: `lakehouse.loadTable`, `create`, `update`; `notebook.create`, `update`, `updateDefinition` | No |
 | F8 | Rich-text Markdown editing (N23), after the Markdown renderer | Yes |
 | F9 | Editor display settings (N17, Wave 1 item 16) | Yes |
-| F10 | Dark mode applied (N60), only with Chris's go | Yes |
+| F10 | Dark mode applied (N60): mockup approved 2026-11-13, built in #2585 | Done |
 
 What can't run on a PC stays a one-click hand-off to Fabric rather than a silent failure: real Spark
 executors and Scala, R and .NET cells, `rdd` and pandas-on-Spark, continuous streaming and watermarks,

@@ -2558,6 +2558,7 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 .nb-intel-value { display: block; margin-top: 4px; color: var(--text-2); }
 .nb-intel-doc { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-soft); max-height: 220px; overflow: hidden; white-space: pre-wrap; color: var(--text-2); font-size: 12px; line-height: 1.45; }
 .nb-intel-info { max-width: 460px; padding: 4px 2px; font-size: 12px; }
+.sql-intel-cols { display: grid; gap: 1px; white-space: normal; }
 .cm-diagnostic-error { border-left-color: var(--danger); }
 
 /* Platform notices (platform-notices.js): the bell's Platform filter and Settings > Notifications. */

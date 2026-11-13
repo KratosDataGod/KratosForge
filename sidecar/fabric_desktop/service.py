@@ -23,7 +23,7 @@ from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator, cached_account
 from .fabric_api import FabricClient
-from . import app_settings, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
+from . import app_settings, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_format, sql_function_help, sqlcompat, warehouse
 from .learn import evidence
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
@@ -1030,6 +1030,11 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def sql_format(self, query: str, dialect: str = "spark") -> dict[str, Any]:
         """Format SQL without running it; the original comes back with a warning when that isn't safe."""
         return sql_format.format_sql(query, dialect)
+
+    def sql_function_help(self, name: str, dialect: str = "spark") -> dict[str, Any] | None:
+        """A function's forms and what it does, for the SQL editor's hover card and signature help.
+        Read on this PC (sql_function_help.py); nothing runs and Fabric isn't called."""
+        return sql_function_help.function_help(dialect, name)
 
     def sql_analyze(self, query: str, target: str = "spark") -> dict[str, Any]:
         """Check SQL against a Fabric engine's documented rules, without running it or calling Fabric."""

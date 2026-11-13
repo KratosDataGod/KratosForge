@@ -20,7 +20,7 @@ const skip = !playwright && "Playwright is not installed";
 before(async () => {
   if (skip) return;
   app = await openApp({
-    engine: ["sql_format"],
+    engine: ["sql_format", "sql_function_help"],
     // A query tab saved by the old textarea page: no dialect.
     storage: { "fabric-desktop.sql.lh1": JSON.stringify([{ name: "Monthly revenue", sql: "-- Revenue\nSELECT 1;\n" }, { name: "Query 2", sql: "SELECT 2" }]) },
     mocks: {
@@ -237,6 +237,43 @@ test("Ctrl+Shift+Enter runs only the statement at the cursor, or the selection",
   assert.strictEqual(await docText(), text, "nothing in the editor changed");
   const run = page().getByRole("button", { name: "Run", exact: true });
   assert.match(await run.getAttribute("title"), /Ctrl\+Shift\+Enter/);
+});
+
+test("hovering a column, a table or a function shows what it is, and typing a call shows its arguments", { skip }, async () => {
+  const text = "SELECT s.amount, date_trunc('month', s.order_date) FROM sales s";
+  await setDoc(text, 0);
+  await page().waitForTimeout(100);
+  const hoverAt = async (pos) => {
+    const xy = await page().evaluate((pos) => { const c = sqlPage.editor.view.coordsAtPos(pos); return { x: c.left + 2, y: (c.top + c.bottom) / 2 }; }, pos);
+    await page().mouse.move(xy.x, xy.y);
+    const card = page().locator(".nb-intel.hover:not([hidden])");
+    await card.waitFor({ timeout: 15000 });  // the first answer starts the engine's DuckDB
+    return card.innerText();
+  };
+  const away = () => page().mouse.move(5, 5);
+  assert.match(await hoverAt(text.indexOf("amount") + 2), /amount[\s\S]*decimal\(18,2\)[\s\S]*Column of sales/);
+  await away();
+  const fn = await hoverAt(text.indexOf("date_trunc") + 2);
+  assert.match(fn, /date_trunc\(fmt, ts\)/, "Spark's own usage, from the real engine");
+  assert.match(fn, /truncated to the unit/);
+  await away();
+  assert.match(await hoverAt(text.indexOf("sales s") + 1), /sales[\s\S]*order_id[\s\S]*Region Name/);
+  await away();
+  // Signature help while typing: the argument the cursor is on is marked.
+  await setDoc("SELECT date_trunc('month', ");
+  const call = page().locator(".nb-intel.call:not([hidden])");
+  await call.waitFor({ timeout: 15000 });
+  assert.strictEqual(await call.locator("b").textContent(), "ts");
+  await page().keyboard.type("x)");
+  await page().waitForSelector(".nb-intel.call", { state: "hidden" });
+  // T-SQL forms for a T-SQL dialect.
+  await page().locator("select.sql-dialect").selectOption("warehouse");
+  await setDoc("SELECT CHARINDEX('a', b, ");
+  await call.waitFor({ timeout: 15000 });
+  assert.match(await call.innerText(), /CHARINDEX\(expression_to_find, expression_to_search\[, start_location\]\)/);
+  assert.strictEqual(await call.locator("b").textContent(), "start_location");
+  await page().locator("select.sql-dialect").selectOption("spark");
+  await setDoc("SELECT 1");
 });
 
 test("SQL errors stay visible under the editor", { skip }, async () => {

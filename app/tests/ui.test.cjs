@@ -548,7 +548,7 @@ function sqlEditorHelpers() {
   const code = src.slice(0, src.indexOf("// ---------- the editor ----------"));
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { SQL_DIALECTS, SQL_WORDS, sqlDialect, sqlQuoteIdent, sqlTableName,
-    sqlMask, sqlStatementAt, sqlRunnableStatementAt, sqlTableRefs, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
+    sqlMask, sqlStatementAt, sqlRunnableStatementAt, sqlTableRefs, sqlHoverTarget, sqlCallAt, sqlSignatureParts, sqlPickForm, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
     sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics });`, ctx);
   return ctx;
 }
@@ -609,6 +609,45 @@ test("Ctrl+Shift+Enter finds the statement at the cursor, or the nearest one whe
   assert.strictEqual(sqlRunnableStatementAt("  ;\n -- x\n", 2), null);
   assert.strictEqual(sqlRunnableStatementAt("", 0), null);
   assert.strictEqual(sqlRunnableStatementAt(";;\nSELECT 9", 0).text, "SELECT 9", "falls forward when nothing is before");
+});
+
+test("hovering finds the function, table, alias or column under the pointer", () => {
+  const { sqlHoverTarget } = sqlEditorHelpers();
+  const cols = { sales: [{ name: "amount", type: "decimal" }, { name: "Region Name", type: "string" }], budget: [{ name: "year", type: "int" }] };
+  const q = "SELECT s.amount, DATEADD(day, 1, d), [Region Name], year -- amount\nFROM sales s JOIN finance.budget b ON 1 = 1 WHERE x = 'sales'";
+  const at = (w, k = 1, dialect = "warehouse") => plain(sqlHoverTarget(q, q.indexOf(w) + k, dialect, SQL_TABLES, (t) => cols[t.name]));
+  assert.deepStrictEqual(at("s.amount", 0), { kind: "alias", name: "s", table: { schema: "dbo", name: "sales" }, from: 7, to: 8 });
+  const amount = at("amount");
+  assert.deepStrictEqual([amount.kind, amount.table.name, amount.column.type], ["column", "sales", "decimal"]);
+  assert.deepStrictEqual(at("DATEADD"), { kind: "function", name: "dateadd", from: 17, to: 24 });
+  assert.strictEqual(at("[Region").column.name, "Region Name", "a quoted bare column of the statement's table");
+  assert.strictEqual(at("year").table.name, "budget", "a bare column found in the second table");
+  assert.deepStrictEqual(at("budget").table, { schema: "finance", name: "budget" });
+  assert.strictEqual(at("FROM"), null, "keywords");
+  assert.strictEqual(at("day"), null, "a T-SQL date part keyword");
+  assert.strictEqual(at("-- amount", 4), null, "comments");
+  assert.strictEqual(at("'sales'", 2), null, "strings");
+  const unread = sqlHoverTarget("SELECT qty FROM sales", 8, "spark", SQL_TABLES, () => undefined);
+  assert.deepStrictEqual([unread.kind, unread.table, unread.unread.length], ["column", null, 1], "columns not read yet: asked for when shown");
+  assert.strictEqual(sqlHoverTarget("SELECT qty FROM nowhere", 8, "spark", SQL_TABLES, () => []), null);
+});
+
+test("signature help knows the call and the argument the cursor is on", () => {
+  const { sqlCallAt, sqlSignatureParts, sqlPickForm } = sqlEditorHelpers();
+  const t = "SELECT concat_ws(',', a, substring(b, 1, (2 + 3)), ";
+  assert.deepStrictEqual(plain(sqlCallAt(t, t.length)), { name: "concat_ws", from: 7, arg: 3 });
+  assert.deepStrictEqual(plain(sqlCallAt(t, t.indexOf("1,") + 3)), { name: "substring", from: 25, arg: 2 });
+  assert.strictEqual(sqlCallAt(t, t.indexOf("',") + 1), null, "inside a string");
+  assert.strictEqual(sqlCallAt("SELECT * FROM t WHERE x IN (1, ", 31), null, "IN (...) is a list, not a call");
+  assert.strictEqual(sqlCallAt("SELECT * FROM (SELECT 1", 23), null, "a subquery");
+  assert.strictEqual(sqlCallAt("SELECT a FROM t; SELECT f(", 26).name, "f", "only the current statement");
+  const parts = plain(sqlSignatureParts("CHARINDEX(expression_to_find, expression_to_search[, start_location])"));
+  assert.deepStrictEqual(parts, { head: "CHARINDEX(", args: ["expression_to_find", ", expression_to_search", "[, start_location]"], tail: ")" });
+  assert.strictEqual(parts.head + parts.args.join("") + parts.tail, "CHARINDEX(expression_to_find, expression_to_search[, start_location])");
+  assert.deepStrictEqual(plain(sqlSignatureParts("now()")), { head: "now(", args: [], tail: ")" });
+  const forms = [{ signature: "count(*)" }, { signature: "count(expr[, expr...])" }];
+  assert.deepStrictEqual(plain(sqlPickForm(forms, 0)), { form: forms[0], mark: 0 });
+  assert.deepStrictEqual(plain(sqlPickForm(forms, 4)), { form: forms[1], mark: 1 }, "a repeating last argument stays marked");
 });
 
 test("table references are found with their aliases, across joins, comma lists, subqueries and CTEs", () => {

@@ -60,8 +60,8 @@ def ids(query, **kw):
     ("SELECT CASE WHEN name LIKE '%son' THEN 1 END AS s FROM dbo.t", []),
     ("SELECT a FROM dbo.t AS x JOIN dbo.u AS y ON y.n LIKE '%' + x.n", []),
     # DM002: ROW_NUMBER() written to a key column renumbers it on every load
-    ("INSERT INTO dbo.dim_customer (customer_key, customer_id) "
-     "SELECT ROW_NUMBER() OVER (ORDER BY customer_id) AS customer_key, customer_id FROM stg.customer", ["DM002"]),
+    (("INSERT INTO dbo.dim_customer (customer_key, customer_id) "
+      "SELECT ROW_NUMBER() OVER (ORDER BY customer_id) AS customer_key, customer_id FROM stg.customer"), ["DM002"]),
     ("CREATE TABLE dbo.dim_product AS SELECT ROW_NUMBER() OVER (ORDER BY id) product_sk, id FROM stg.product",
      ["DM002"]),
     ("SELECT ROW_NUMBER() OVER (ORDER BY id) AS customer_key, id FROM stg.customer", []),  # only looked at

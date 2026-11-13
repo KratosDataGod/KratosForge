@@ -255,6 +255,7 @@ function renderQuery() {
         const stmt = editor.statement();
         if (stmt.trim()) run(stmt);
       },
+      togglePane: () => togglePane(),
       save: () => {
         if (tab.proj) { whProjectSave(tab).then((ok) => { if (ok) { saveQueryTabs(); p.whProjectView?.refresh(); } }); return; }
         const ok = saveQueryTabs();
@@ -312,6 +313,7 @@ function renderQuery() {
   // same managed run sends one query that reads to the warehouse (sql_start target "warehouse").
   async function run(query = editor.chosen(), allow = []) {
     if (!query.trim() || tab.running) return;
+    if (p.pane === "hidden") p.pane = null;  // a run shows its results, as in SSMS
     if (!runsHere()) {
       toast(`${SQL_DIALECTS[tab.dialect].label} can't run on this PC. Pick Spark SQL or DuckDB to run here.`, true);
       return;
@@ -620,7 +622,14 @@ function renderQuery() {
       r && (r.has_previous || r.has_next) ? btn("Next ›", null, () => goPage(r.offset + r.limit), "tool small",
         { disabled: !r.has_next || tab.paging, "aria-label": "Next page" }) : null,
       btn("Copy", null, copyRows, "tool small", { disabled: !r, title: "Copy the rows on this page" }),
-      exportMenu].filter(Boolean));
+      exportMenu,
+      h("span", { class: "sql-sep", "aria-hidden": "true" }),
+      btn(p.pane === "max" ? "Restore" : "Maximize", null, () => setPane(p.pane === "max" ? null : "max"), "tool small sql-pane-max",
+        { title: p.pane === "max" ? "Show the editor again" : "Give the results the whole page, hiding the editor" }),
+      btn(p.pane === "hidden" ? "Show results" : "Hide results", null, togglePane, "tool small sql-pane-hide",
+        { "aria-keyshortcuts": "Control+R",
+          title: p.pane === "hidden" ? "Show the results pane (Ctrl+R)" : "Hide the results pane and give the editor the room (Ctrl+R)" })].filter(Boolean));
+    applyPane();
     if (view === "plan") {
       grid.replaceChildren(tab.planning ? h("p", { class: "muted-text", style: "padding:12px 16px" }, "Asking Fabric for the estimated plan...")
         : sqlPlanView(tab.plan));
@@ -649,6 +658,20 @@ function renderQuery() {
     }
   }
   sqlPage.redraw = () => { if (here()) drawResults(); };
+  // The results pane: as it is, maximized (the editor hidden) or hidden (the editor gets the room), as
+  // SSMS's Ctrl+R. Kept for the page's tabs until the page is left; a run shows hidden results again.
+  function applyPane() {
+    const card = grid.parentElement;
+    card?.classList.toggle("sql-pane-max", p.pane === "max");
+    card?.classList.toggle("sql-pane-hidden", p.pane === "hidden");
+  }
+  function setPane(pane) {
+    p.pane = pane || null;
+    drawResults();
+    if (p.pane !== "max") editor.focus();
+  }
+  const togglePane = () => setPane(p.pane === "hidden" ? null : "hidden");
+  p.togglePane = () => { if (here()) togglePane(); };
 
   const nextTabName = () => {
     let n = p.tabs.length + 1;
@@ -1123,5 +1146,18 @@ function renderQuery() {
 registerShortcuts("SQL query", [
   { keys: ["F5", "Ctrl+Enter"], label: "Run the selected text, or the whole query when nothing is selected", when: () => state.view === "query" },
   { keys: ["Ctrl+Shift+Enter"], label: "Run only the statement the cursor is in (or the selected text)", when: () => state.view === "query" },
+  { keys: ["Ctrl+R"], label: "Hide or show the results pane", when: () => state.view === "query" },
+  { keys: ["Ctrl+Shift+U", "Ctrl+Shift+L"], label: "In the editor: make the selection (or the word at the cursor) upper or lower case", when: () => state.view === "query" },
+  { keys: ["Ctrl+G"], label: "In the editor: go to a line", when: () => state.view === "query" },
   { keys: ["Delete"], label: "On a query tab: close it (asks first when it has SQL of its own)", when: () => !!document.querySelector(".sql-tabs") },
 ]);
+
+// Ctrl+R on the SQL page hides or shows the results pane wherever focus is (the editor handles it itself
+// first), and never reloads the window, which would lose open work.
+document.addEventListener("keydown", (e) => {
+  if (state.view !== "query" || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "r") return;
+  const handled = e.defaultPrevented;
+  e.preventDefault();
+  if (handled || document.getElementById("dialog-root")?.childElementCount || document.getElementById("palette")) return;
+  sqlPage.togglePane?.();
+});

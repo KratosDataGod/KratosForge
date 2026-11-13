@@ -116,14 +116,21 @@ class Host:
         if context is None:
             lh.attach(None)
         else:
-            schemas = bool(context.get("schemas_enabled", True))
+            known = context.get("schemas_enabled")  # else asked of the engine the first time a cell needs it
+            schemas: list[bool] = [] if known is None else [bool(known)]
+
+            def schemas_enabled() -> bool:
+                if not schemas:
+                    schemas.append(bool(self.channel.call("schemas_enabled")))
+                return schemas[0]
+
             lh.attach(lh.Attached(
                 workspace_id=context["workspace_id"], lakehouse_id=context["lakehouse_id"], name=context["name"],
                 workspace_name=context.get("workspace_name") or "",
                 storage_token=lambda: self.channel.call("token", "storage"),
                 work_dir=Path(context["work_dir"]),
                 history_file=Path(context["history_file"]) if context.get("history_file") else None,
-                schemas_enabled=lambda: schemas))
+                schemas_enabled=schemas_enabled))
         setattr(lh, "write_guard", (lambda name, schema, table: self.channel.call("write_guard", name, schema, table)) if guard else None)  # noqa: B010 - a module hook
         return True
 

@@ -68,6 +68,18 @@ def no_sign_in_service(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def cells_in_the_engine_unless_a_test_asks(request, monkeypatch):
+    """Notebooks run in a process of their own by default (PB-136), but most tests fake OneLake,
+    Fabric or a token by patching this process, and a cell in a process of its own doesn't see
+    those patches (it would reach the real service). So tests run cells inside the engine unless
+    they turn kernel_process on themselves, or are marked ``real_kernel_default``
+    (test_kernel_default.py checks the default itself)."""
+    if request.node.get_closest_marker("real_kernel_default") is None:
+        from fabric_desktop import app_settings
+        monkeypatch.setitem(app_settings.DEFAULTS, "kernel_process", False)
+
+
+@pytest.fixture(autouse=True)
 def saved_policy_in_tmp(monkeypatch, tmp_path):
     """Reading a policy file keeps a copy of it (app_settings.saved_policy_path); keep it out of the
     real profile, so one test's copy can't stand in for another test's broken file."""

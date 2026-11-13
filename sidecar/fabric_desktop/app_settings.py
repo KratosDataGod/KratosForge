@@ -46,7 +46,7 @@ Keys:
                      "same" (default) follows learn_mode; "expert", "professional" or "guided"
                      overrides it for that subject. Checks and policies are the same at every level
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
-                     and crashes end only that process (default false while in preview)
+                     and crashes end only that process (default true; false runs cells inside the engine)
     cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
                      0 (default) for no limit
     kernel_memory_limit_gb   with kernel_process: gigabytes the notebook's process may use before
@@ -158,7 +158,7 @@ from .auth import MICROSOFT_CLIENT_ID
 
 CHANNELS = ("stable", "preview")
 DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable", "show_preview": True, "support_url": "",
-                            "platform": {}, "kernel_process": False, "auto_update": True, "allow_fabric_runs": True,
+                            "platform": {}, "kernel_process": True, "auto_update": True, "allow_fabric_runs": True,
                             "allow_replay_samples": True, "allowed_tenants": [], "local_retention_days": 30, "telemetry": False,
                             "telemetry_connection_string": "",
                             "cell_time_limit_minutes": 0, "kernel_memory_limit_gb": 0,

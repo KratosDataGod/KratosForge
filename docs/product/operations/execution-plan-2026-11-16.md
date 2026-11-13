@@ -64,29 +64,29 @@ Dark mode (parity N60) stays out of this week unless Chris says otherwise, becau
 
 ## Git: how long each step takes
 
-The CI times below were measured from the last 40 pull request CI runs on 2026-11-12 and 2026-11-13. The review and merge times are this plan's **targets**. Release management and the Quality reviewers confirm them in review of this page.
+The CI and merge times below were measured from recent runs on 2026-11-12 and 2026-11-13, and Release management checked them. The review times are this plan's **targets**.
 
 | Step | Typical | Worst normal case | Basis |
 | --- | --- | --- | --- |
-| PR CI, from push to green | 30 min | 47 min (p90) | Measured, 31 successful runs. Fastest 14 min |
+| PR CI, from push to green | 30 min (docs only 14 to 19) | 47 min (p90) | Measured, 31 successful runs; RM's check of 15 runs agrees |
 | Quality review, from green CI to verdict | 45 min | 90 min | Target. Four Quality reviewers. A re-check after a push starts the wait again |
 | Security read, when one is needed | 2 h | 4 h | Target. Asked for when the PR opens, so it runs alongside CI |
-| Wait for the next merge train | 1 h | 2 h | Target: a train every 2 hours (below) |
-| Main CI after a merge | 35 min | 50 min | Measured on main, 2026-11-12 to 2026-11-13 |
-| **PR to on main and green** | **about 3 h** | **about 5 h** | Sum of the above, with no Security read |
+| Wait for the next merge batch, plus precheck | under 1 h | 2 h | Batches start whenever main is green (below); precheck and merge 5 to 10 min |
+| Main CI after a merge | 45 min | 52 min | Measured by Release management, last 12 green main runs |
+| **PR to on main and green** | **about 3 h** | **about 5 h** | Sum of the above, with no Security read. The worst case includes one flake re-run on main |
 | PR with a Security read | about 4 h | about 7 h | The Security read replaces the Quality wait on the longest path |
 
-### Merge trains
+### Merge batches
 
-Release management already merges in batches of 15 or fewer and waits for main to go green. To make waits predictable, this plan suggests fixed train times:
+Release management merges in batches of 15 or fewer and waits for main to go green. This plan keeps that and makes the wait predictable:
 
-- **Times:** every 2 hours, on the even hour (UTC), from 00:00 to 22:00.
-- **Cut-off:** a PR boards a train when it has green CI on its final head, a current Quality PASS (and Security where asked), and base equal to main, 15 minutes before the train.
-- **Size:** at most 15 PRs. A fix for a red main leaves alone and at once, as today.
-- **Missed train:** the next one. The owner doesn't need to ping anyone.
-- **Red main:** trains stop until main is green. Never re-run a red main that may be a real bug; re-run only known flakes, as Release management does today.
+- **When:** a batch starts whenever main is green and at least one PR is ready, up to once per main run (about every 50 minutes today). **2 hours is the longest a ready PR waits**, not the schedule.
+- **Ready:** green CI on the final head, a current Quality PASS (and Security where asked), and base equal to main.
+- **Size:** at most 15 PRs. Release management's combined-tree precheck and merge take 5 to 10 minutes.
+- **Missed batch:** the next one. The owner doesn't need to ping anyone.
+- **Red main:** batches stop, and only the fix merges, alone. Never re-run a red main that may be a real bug; re-run only known flakes, as Release management does today. A flake re-run adds about 45 minutes.
 
-With 12 trains a day of up to 15 PRs, the train limit is 180 merges a day, above last week's best day (157). The trains are not the limit.
+At up to 15 PRs every 50 minutes, the batch limit is well above last week's best day (157 merges). Merging is not the limit.
 
 ### CI capacity
 
@@ -136,7 +136,7 @@ Things only Chris can do are listed once, on Monday's card, with no deadline. Th
 
 ## How we track it
 
-- **Every 6 hours, the orchestrator sweep checks:** the CI queue and start waits, main, merges against the train times, idle threads, and the work list above. It refills idle threads the same hour.
+- **Every 6 hours, the orchestrator sweep checks:** the CI queue and start waits, main, merge batch waits, idle threads, and the work list above. It refills idle threads the same hour.
 - **The coordinator** gives Chris a one-paragraph status at the 09:00 and 22:00 roundups, alongside the cards.
 - **Editor parity:** the editor parity page (#2579) moves a row from Gap or Partial to Have only when the code is on main.
 - **The weekly review** on Monday 11-23 records what this plan delivered and what slipped, and why.

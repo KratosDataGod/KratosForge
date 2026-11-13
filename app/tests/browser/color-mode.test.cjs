@@ -40,6 +40,16 @@ test("KratosForge is light by default, and choosing Dark in Settings turns the a
   await page().waitForFunction(() => document.documentElement.dataset.colorMode === "light");
 });
 
+test("in dark the header shows the name as text and leaves the brand lettering image as it is", { skip }, async () => {
+  const shown = () => page().evaluate(() => [".brand-name", ".brand-text"].map((s) => getComputedStyle(document.querySelector(s)).display !== "none"));
+  assert.deepStrictEqual(await shown(), [true, false]);
+  await set("dark");
+  assert.deepStrictEqual(await shown(), [false, true]);
+  assert.strictEqual(await page().locator(".brand-name").getAttribute("src"), "kratosforge-lettering.png");
+  assert.strictEqual(await page().getByText("KratosForge", { exact: true }).first().isVisible(), true);
+  await set("skin", "default", true);
+});
+
 test("a user's Dark waits for Preview features; a policy value applies anyway", { skip }, async () => {
   await set("dark", "user", false);
   assert.strictEqual(await mode(), "light");

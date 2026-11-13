@@ -157,7 +157,10 @@ html[data-color-mode="dark"] {
   --code-ref: #9be0b6; --code-comment: #8a9a8a; --code-number: #9fd99f; --code-keyword: #8cc4ff; --code-string: #f0a07a;
   --code-function: #c9a6f0; --code-builtin: #7fd3e8;
 }
-html[data-color-mode="dark"] .brand-name { content: url("kratosforge-lettering-light.png"); }
+/* Dark mode shows the name as text: the brand lettering image is never recolored. */
+.brand .brand-text { display: none; font-size: 17px; font-weight: 700; letter-spacing: 0.01em; }
+html[data-color-mode="dark"] .brand .brand-name { display: none; }
+html[data-color-mode="dark"] .brand .brand-text { display: inline; }
 /* Fields no rule colors keep the browser's own; in dark they sit on the surface (zero specificity, so any rule wins). */
 :where(html[data-color-mode="dark"]) :where(select, input, textarea) { background-color: var(--surface); }
 
@@ -204,7 +207,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* Zoomed to 200% (Ctrl+=) the default window is about 720 px wide: the lettering and the Ctrl+K hint
    and the Data mesh environment label give their room, so the account button and Runs on stay whole (PB-063). */
 @media (max-width: 860px) {
-  .brand .brand-name, .search kbd, .env-label > .muted-text { display: none; }  /* the picker keeps its name: aria-label "Environment" */
+  .brand .brand-name, html[data-color-mode] .brand .brand-text, .search kbd, .env-label > .muted-text { display: none; }  /* the picker keeps its name: aria-label "Environment" */
   .topbar { gap: 10px; padding: 0 10px; }
 }
 .search {

@@ -10,6 +10,7 @@ const NBF_EXPORTS = [
   { format: "fabric_py", label: "Fabric source (.py)" },
   { format: "databricks_py", label: "Databricks source (.py)" },
   { format: "html", label: "Web page (.html)" },
+  { format: "pdf", label: "PDF (print to PDF)" },
 ];
 
 // A cell's language by the first line the engine reports (its Fabric cell magic, or python).
@@ -26,19 +27,20 @@ function nbfExportPayload(nb, format) {
 }
 
 function nbfExportMenu() {
-  return [{ info: "Saves a new file in your Downloads folder. A file already there is never replaced, and the notebook isn't saved or changed." },
+  return [{ info: "Saves a new file in your Downloads folder. A file already there is never replaced, and the notebook isn't saved or changed. PDF opens the print window, where you pick where it goes." },
     ...NBF_EXPORTS.map((x) => ({ label: x.label, icon: "arrowDownload", action: () => nbfExport(x.format) }))];
 }
 
 // anchor: where the formats menu opens when the button itself sits in a menu (the ribbon's Share).
 function nbfExportButton(anchor = null) {
   return previewMarked("nbFormats", btn("Export", "arrowDownload", (e) => showMenu(anchor || e.currentTarget, nbfExportMenu()), "tool",
-    { title: "Save this notebook as .ipynb, Fabric or Databricks source, or a web page" }));
+    { title: "Save this notebook as .ipynb, Fabric or Databricks source, a web page or a PDF" }));
 }
 
 async function nbfExport(format) {
   const nb = state.notebook;
   if (!nb) return;
+  if (format === "pdf") return nbfPrintPdf(nb);
   const out = await attempt(() => rpc("notebook_export", nbfExportPayload(nb, format)), "Could not export the notebook");
   if (!out) return;
   toast(`Saved ${nb.name} to ${out.path}`);
@@ -47,6 +49,47 @@ async function nbfExport(format) {
       h("p", { class: "text" }, `The file is saved. ${nbfPlural(out.notes.length, "thing")} in this notebook didn't carry over as it is:`),
       nbfNotesTable(out.notes)), [btn("OK", null, closeDialog, "tool primary")]);
   }
+}
+
+// PDF: the web page export (the same page as Export > Web page), printed with the system's print
+// dialog, where "Save as PDF" or "Microsoft Print to PDF" makes the file. The page's text is all
+// escaped by the engine and it has no script; it is parsed inert (not run) and only its
+// body's elements are kept, without anything that could load or run something, then shown alone
+// for printing (styles.css, @media print) and removed after.
+function nbfPrintNodes(html) {
+  const doc = new DOMParser().parseFromString(String(html || ""), "text/html");
+  doc.body.querySelectorAll("script, style, link, meta, iframe, frame, object, embed, base, form, svg, math").forEach((el) => el.remove());
+  doc.body.querySelectorAll("*").forEach((el) => {
+    for (const a of [...el.attributes]) {
+      const keep = a.name === "class" || a.name === "alt" || (a.name === "src" && el.tagName === "IMG" && /^data:image\/(png|jpeg|gif|svg\+xml);base64,/.test(a.value));
+      if (!keep) el.removeAttribute(a.name);
+    }
+    // The page's classes (cell, label, out...) get their own prefix, so the app's rules for its own
+    // classes of the same names don't apply.
+    if (el.className) el.className = el.className.split(/\s+/).filter(Boolean).map((c) => `nbfp-${c}`).join(" ");
+  });
+  return [...doc.body.childNodes];
+}
+
+function nbfPrintDone() {
+  document.getElementById("nbf-print")?.remove();
+  document.body.classList.remove("nbf-printing");
+}
+
+async function nbfPrintPdf(nb) {
+  const out = await attempt(() => rpc("notebook_print_page", { name: nb.name, cells: nbfExportPayload(nb, "html").cells }),
+    "Could not make the notebook's page to print");
+  if (!out) return;
+  nbfPrintDone();
+  const root = h("div", { id: "nbf-print", class: "nbf-print", "aria-hidden": "true" });
+  root.append(...nbfPrintNodes(out.html));
+  document.body.append(root);
+  document.body.classList.add("nbf-printing");
+  window.addEventListener("afterprint", nbfPrintDone, { once: true });
+  toast("In the print window, pick Save as PDF or Microsoft Print to PDF as the printer.");
+  // After the toast has drawn: print() can hold the page until the dialog closes.
+  // The page stays until the dialog closes (afterprint); it shows only when printing (styles.css).
+  setTimeout(() => window.print(), 50);
 }
 
 // An ArrayBuffer as base64, a chunk at a time so a large archive doesn't overflow the call stack.
@@ -136,7 +179,7 @@ registerFeature({
   id: "nbFormats",
   commands: [
     { label: "Import Fabric or Databricks source, or a .dbc archive", icon: "arrowUpload", keywords: "import ipynb jupyter fabric databricks dbc py source percent open file", run: nbfImportDialog },
-    ...NBF_EXPORTS.map((x) => ({ label: `Export notebook as ${x.label}`, icon: "arrowDownload", keywords: "export save download ipynb fabric databricks html",
+    ...NBF_EXPORTS.map((x) => ({ label: `Export notebook as ${x.label}`, icon: "arrowDownload", keywords: "export save download ipynb fabric databricks html pdf print",
       when: () => !!state.notebook && state.view === "notebook", run: () => nbfExport(x.format) })),
   ],
 });

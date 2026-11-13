@@ -24,6 +24,8 @@ PACKAGE = Path(fabric_desktop.__file__).parent
 IN_PLACE = {
     "backup.py:restore": "the safety copy of a file being replaced goes to a new folder; the restored file itself is "
                          "written aside, checked against its hash and swapped in",
+    "policy_schema.py:write_templates": "a build step run by hand to regenerate the Group Policy templates "
+                                        "in the repository; the app never runs it",
     "backup.py:_write": "the backup zip, written whole as <name>.part, flushed, and swapped in by create() once done",
     "benchmark.py:write": "writes the example benchmark notebooks into the repository (examples/benchmark)",
     "central/entra_service.py:_entra_script": "a generated script the person downloads",

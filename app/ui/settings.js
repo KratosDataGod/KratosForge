@@ -927,7 +927,7 @@ async function renderSettings() {
         // The nil GUID alone is the engine's "no tenant" (app_settings.NO_TENANT): the file can't be read.
         h("dd", {}, s.allowed_tenants.value.includes("00000000-0000-0000-0000-000000000000")
           ? "No account, until the problems below are fixed" : "Only your organization's own work accounts")] : null,
-      s.policy_problems?.length ? [h("dt", {}, "Problems in that file"),
+      s.policy_problems?.length ? [h("dt", {}, "Problems in your organization's settings"),
         h("dd", {}, h("ul", { class: "plain" }, s.policy_problems.map((p) => h("li", {}, p))))] : null));
 
   // Integrations (external AI tools, integrations.js) is a tab: the left rail is full.

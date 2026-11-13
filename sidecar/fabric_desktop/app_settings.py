@@ -274,6 +274,13 @@ SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_downl
 # Read by appstudio/policy.py: what App Studio may send to AI models (connections, providers, hosts, sample rows).
 APPSTUDIO_KEYS = ("appstudio_models", "appstudio_providers", "appstudio_hosts", "appstudio_sample_rows")
 POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *APPSTUDIO_KEYS, *SHELL_KEYS)
+# Settings that widen what KratosForge trusts or where it sends or fetches things: sign-in hosts, a
+# package source, the sign-in app, a telemetry or help-desk address, hosts App Studio and integrations
+# may call. Only a source the person using the PC couldn't change may set them (Chris, 2026-11-10):
+# from a policy file or Group Policy key they could change, or the last good copy in their own profile,
+# they are ignored and reported; that source's restrictions still apply, with a warning.
+LOOSENING = ("fabric_view_sign_in_hosts", "dbconnect_index_url", "notebook_package_folder", "client_id",
+             "telemetry_connection_string", "appstudio_hosts", "integrations_http", "support_url")
 # No real tenant has the nil GUID, so allowed_tenants of just this lets no account sign in.
 NO_TENANT = "00000000-0000-0000-0000-000000000000"
 # The restrictions among DEFAULTS, and the value each takes when the policy file or that key can't
@@ -320,8 +327,58 @@ def saved_policy_path() -> Path:
 
 
 def _policy_file(digest: dict[str, str | None] | None = None) -> tuple[dict[str, Any], str | None, bool]:
-    """(settings, why the file can't be used, whether the saved copy stands in for it). With ``digest``,
-    also the SHA-256 of the very bytes it read, as digest["sha256"] (None when it couldn't read any)."""
+    """(settings, why the file can't be used, whether the saved copy stands in for it): the policy file's
+    settings with Group Policy's (registry_policy.py) laid over them, since a value Group Policy sets wins.
+    With ``digest``, also the SHA-256 of the very bytes the file read, as digest["sha256"] (None when it
+    couldn't read any), and of Group Policy's settings, as digest["registry_sha256"] (None for none)."""
+    data, reason, from_copy, registry, _ = _policy_sources(digest)
+    return ({**data, **registry} if registry else data), reason, from_copy
+
+
+def policy_file_untrusted() -> str | None:
+    """Why the policy file can't set LOOSENING settings, or None when only SYSTEM and Administrators
+    could have written it (policy_trust.py, the shell's test). Whether the current account can write it
+    isn't enough: another account may have created it."""
+    from . import policy_trust
+    return policy_trust.admin_only(policy_path())
+
+
+def registry_key_untrusted(lists: list[str]) -> str | None:
+    """Why Group Policy's key can't set LOOSENING settings, or None when only SYSTEM and Administrators
+    could have written it, its parent and the ``lists`` subkeys it sets them in (policy_trust.py)."""
+    from . import policy_trust
+    from .policy_schema import REGISTRY_KEY
+    why = policy_trust.key_admin_only(REGISTRY_KEY, lists)
+    return f"Group Policy's key isn't one only administrators could have written: {why}" if why else None
+
+
+def _policy_sources(digest: dict[str, str | None] | None = None
+                    ) -> tuple[dict[str, Any], str | None, bool, dict[str, Any], dict[str, tuple[list[str], str]]]:
+    """The policy file's settings (as _file_policy reads them) and Group Policy's, each without the
+    LOOSENING settings unless only administrators could have written that source, and which were left
+    out and why ({"file" or "registry": ([keys], why)}). The Group Policy fingerprint is of all it sets."""
+    from . import registry_policy
+    data, reason, from_copy = _file_policy(digest)
+    registry, _ = registry_policy.read()
+    if digest is not None:
+        digest["registry_sha256"] = registry_policy.fingerprint(registry)
+    ignored: dict[str, tuple[list[str], str]] = {}
+    if any(k in data for k in LOOSENING):
+        why = ("the last copy of the policy file kept in your profile applies, which you can change" if from_copy
+               else policy_file_untrusted())
+        if why:
+            ignored["file"] = (sorted(k for k in data if k in LOOSENING), why)
+            data = {k: v for k, v in data.items() if k not in LOOSENING}
+    if any(k in registry for k in LOOSENING):
+        why = registry_key_untrusted([k for k in registry if k in LOOSENING and isinstance(registry[k], list)])
+        if why:
+            ignored["registry"] = (sorted(k for k in registry if k in LOOSENING), why)
+            registry = {k: v for k, v in registry.items() if k not in LOOSENING}
+    return data, reason, from_copy, registry, ignored
+
+
+def _file_policy(digest: dict[str, str | None] | None = None) -> tuple[dict[str, Any], str | None, bool]:
+    """The policy file alone, as _policy_file says."""
     path = policy_path()
     saved = saved_policy_path()
     if digest is not None:
@@ -386,12 +443,17 @@ def policy_fingerprint() -> dict[str, Any]:
     which settings apply ("applied", "last_good" when the saved copy stands in for a broken file,
     "fail_closed" when nothing can, "none" with no file); and whether the account running the app
     could change or replace it."""
+    from . import registry_policy
     path = policy_path()
     digest: dict[str, str | None] = {}
     _, reason, from_copy = _policy_file(digest)  # one read: the hash is of the bytes whose settings apply
     exists = digest["sha256"] is not None or reason is not None
-    state = "last_good" if from_copy else "fail_closed" if reason else "applied" if exists else "none"
-    return {"sha256": digest["sha256"], "state": state, "user_can_change": exists and user_can_change(path)}
+    registry = digest.get("registry_sha256")
+    state = ("last_good" if from_copy else "fail_closed" if reason else "applied" if exists or registry
+             else "none")
+    return {"sha256": digest["sha256"], "state": state,
+            "user_can_change": (exists and user_can_change(path)) or bool(registry and registry_policy.user_can_change()),
+            "registry_sha256": registry}
 
 
 def _restricted(key: str, policy: dict[str, Any], error: str | None) -> bool:
@@ -434,13 +496,25 @@ def package_folder_problem(folder: str) -> str | None:
 
 def policy_problems() -> list[str]:
     """What in the organization's policy file is ignored or restricted, and why; empty when all of it applies."""
-    data, reason, from_copy = _policy_file()
+    from . import registry_policy
+    file_data, reason, from_copy, registry, ignored = _policy_sources()
+    data = {**file_data, **registry}
+    _, left_out = registry_policy.read()
     if reason and not from_copy:
-        return [reason]
+        return [reason, *left_out]
     problems = [reason] if reason else []
+    problems += left_out
+    for keys, cause in ignored.values():
+        problems.append(f"{', '.join(keys)} {'is' if len(keys) == 1 else 'are'} ignored, because only a source only "
+                        f"administrators could have written may widen what KratosForge trusts, and {cause}. Push "
+                        "policy.json as SYSTEM (Intune, Group Policy) or from an elevated prompt. Its restrictions still apply")
     if not from_copy and user_can_change(policy_path()):
         problems.append(f"{policy_path()} can be changed by the account you're signed in to this PC with, so "
                         "anyone using it can change what it allows. Ask IT to push it so only administrators can change it")
+    if registry and registry_policy.user_can_change():
+        problems.append("The Group Policy settings (HKLM\\Software\\Policies\\KratosBI\\KratosForge) can be changed by "
+                        "the account you're signed in to this PC with, so anyone using it can change what they allow. "
+                        "Ask IT to reset that key's permissions so only administrators can change it")
     for key, value in data.items():
         if key not in POLICY_KEYS:
             problems.append(f"{one_line(key, 80)} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
@@ -514,8 +588,13 @@ def _sign_in_host_problems(value: Any) -> list[str]:
         return [(f"fabric_view_sign_in_hosts should be a list of host names, not {type(value).__name__}, "
                 "so the Fabric view opens no extra sign-in hosts")]
     bad = [v for v in value if not (isinstance(v, str) and dns_name(v))]
-    return [f"fabric_view_sign_in_hosts: {json.dumps(v)} isn't a host name like adfs.contoso.com "
-            "(no *, https://, port or path), so it's skipped" for v in bad]
+    problems = [f"fabric_view_sign_in_hosts: {json.dumps(v)} isn't a host name like adfs.contoso.com "
+                "(no *, https://, port or path), so it's skipped" for v in bad]
+    ignored = os.environ.get("FABRIC_DESKTOP_SIGN_IN_HOSTS_IGNORED", "")  # the shell's own check, at start
+    if ignored:
+        problems.append(f"fabric_view_sign_in_hosts: {ignored}. Push policy.json as SYSTEM (Intune, Group Policy) "
+                        "or from an elevated prompt, so only administrators can change it")
+    return problems
 
 
 def engine_url_ok(url: str) -> bool:

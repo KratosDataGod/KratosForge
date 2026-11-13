@@ -428,6 +428,24 @@ function sqlCompletionSource(provider, getDialect) {
   };
 }
 
+// Ctrl+Shift+U / Ctrl+Shift+L: each selection, or the word at a bare cursor, in upper or lower case, as one undo step.
+function sqlChangeCase(view, to) {
+  const { state } = view;
+  const ranges = state.selection.ranges.map((r) => (r.empty ? state.wordAt(r.head) : r)).filter(Boolean);
+  const changes = ranges.map((r) => {
+    const text = state.sliceDoc(r.from, r.to);
+    return { from: r.from, to: r.to, insert: to === "upper" ? text.toUpperCase() : text.toLowerCase() };
+  }).filter((c) => c.insert !== state.sliceDoc(c.from, c.to));
+  if (changes.length) view.dispatch({ changes, userEvent: "input.case" });
+  return true;
+}
+
+// Ctrl+G: CodeMirror's go-to-line box, which the search keys bind to Ctrl+Alt+G.
+function sqlGotoLine(view) {
+  const binding = CM.searchKeymap.find((k) => k.key === "Mod-Alt-g");
+  return binding ? binding.run(view) : false;
+}
+
 // CodeMirror puts its styles in a <style> element, which the CSP (style-src 'self') allows only
 // with the nonce the shell gives each page load: Tauri sets it on index.html's empty <style> and
 // adds it to the policy. Without a CSP (the browser tests) there is none and none is needed.
@@ -455,6 +473,12 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
     { key: "Mod-s", run: () => { on.save(); return true; }, preventDefault: true },
     { key: "Shift-Alt-f", run: () => { on.format(); return true; } },
     { key: "Mod-/", run: CM.toggleComment },
+    // SSMS's keys: Ctrl+R hides or shows the results, Ctrl+Shift+U and Ctrl+Shift+L change case, Ctrl+G goes to a
+    // line (CodeMirror's own go-to-line box; F3 and Shift+F3 still find the next and previous match).
+    { key: "Mod-r", run: () => { on.togglePane?.(); return true; }, preventDefault: true },
+    { key: "Shift-Mod-u", run: (v) => sqlChangeCase(v, "upper"), preventDefault: true },
+    { key: "Shift-Mod-l", run: (v) => sqlChangeCase(v, "lower"), preventDefault: true },
+    { key: "Mod-g", run: (v) => sqlGotoLine(v), preventDefault: true },
   ];
   const view = new CM.EditorView({
     state: CM.EditorState.create({

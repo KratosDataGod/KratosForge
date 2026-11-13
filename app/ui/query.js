@@ -621,9 +621,9 @@ function renderQuery() {
       exportMenu,
       h("span", { class: "sql-sep", "aria-hidden": "true" }),
       btn(p.pane === "max" ? "Restore" : "Maximize", null, () => setPane(p.pane === "max" ? null : "max"), "tool small sql-pane-max",
-        { "aria-pressed": String(p.pane === "max"), title: p.pane === "max" ? "Show the editor again" : "Give the results the whole page, hiding the editor" }),
-      btn(p.pane === "hidden" ? "Show results" : "Hide", null, togglePane, "tool small sql-pane-hide",
-        { "aria-pressed": String(p.pane === "hidden"), "aria-keyshortcuts": "Control+R",
+        { title: p.pane === "max" ? "Show the editor again" : "Give the results the whole page, hiding the editor" }),
+      btn(p.pane === "hidden" ? "Show results" : "Hide results", null, togglePane, "tool small sql-pane-hide",
+        { "aria-keyshortcuts": "Control+R",
           title: p.pane === "hidden" ? "Show the results pane (Ctrl+R)" : "Hide the results pane and give the editor the room (Ctrl+R)" })].filter(Boolean));
     applyPane();
     if (view === "plan") {

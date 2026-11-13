@@ -112,3 +112,29 @@ test("switching back to KratosForge removes the skin's colors and restores the r
   assert.strictEqual(await page().locator(".rail-group-label").count(), 0);  // the KratosForge skin needs no label
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("with Preview features hidden, a skin's look falls back to the app's own", { skip }, async () => {
+  const look = (shown) => page().evaluate((shown) => {
+    state.settings.show_preview = { ...(state.settings.show_preview || {}), value: shown };
+    state.settings.ui_skin = { ...(state.settings.ui_skin || {}), value: "databricks" };
+    applySkin();
+    return [document.body.dataset.skinFont, document.body.dataset.skinRail];
+  }, shown);
+  assert.deepStrictEqual(await look(false), ["segoe-variable", "stacked"]);
+  assert.deepStrictEqual(await look(true), ["dm-sans", "inline"]);
+});
+
+test("each skin marks the page with its look, part by part, and KratosForge keeps its own", { skip }, async () => {
+  const look = (skin) => page().evaluate((skin) => {
+    state.settings.ui_skin = { ...(state.settings.ui_skin || {}), value: skin };
+    applySkin();
+    const d = document.body.dataset;
+    return [d.skinFont, d.skinHeader, d.skinRail, d.skinCorners, d.skinTabs, d.skinCells, d.skinIcons];
+  }, skin);
+  assert.deepStrictEqual(await look("databricks"), ["dm-sans", "light", "inline", "square", "boxed", "flat", "bold"]);
+  assert.deepStrictEqual(await look("snowflake"), ["inter", "none", "inline", "round", "pill", "rounded", "regular"]);
+  assert.deepStrictEqual(await look("fabric"), ["segoe", "brand", "stacked", "soft", "underline", "card", "light"]);
+  // Back to KratosForge, every part is its own again: nothing from the last skin stays.
+  assert.deepStrictEqual(await look("kratosforge"), ["segoe-variable", "light", "stacked", "soft", "underline", "bordered", "regular"]);
+  assert.deepStrictEqual(app.errors, []);
+});

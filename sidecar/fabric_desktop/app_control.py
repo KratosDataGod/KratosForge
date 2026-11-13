@@ -123,14 +123,15 @@ def explain(exc: BaseException) -> str | None:
 
 
 def _own_engine(prefix: str | None = None) -> bool:
-    """Whether this engine is the person's own download (under %LOCALAPPDATA%\\FabricDesktop\\engine),
-    which they can delete for a fresh copy, rather than one IT keeps in a folder of its own
-    (engine_folder), which only IT can replace."""
-    local = os.environ.get("LOCALAPPDATA")
-    if not local:
+    """Whether this engine is one the person can delete for a fresh copy, rather than one IT keeps in
+    the folder the engine_folder policy names, which only IT can replace."""
+    from . import app_settings  # here, not at the top: app_settings is heavier and this runs on errors only
+
+    folder = app_settings.read_policy()[0].get("engine_folder")
+    if not isinstance(folder, str) or not folder.strip():
         return True
     try:
-        Path(prefix or sys.prefix).resolve().relative_to((Path(local) / "FabricDesktop" / "engine").resolve())
+        Path(prefix or sys.prefix).resolve().relative_to(Path(folder).resolve())
     except ValueError:
-        return False
-    return True
+        return True
+    return False

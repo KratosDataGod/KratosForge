@@ -28,6 +28,7 @@ SOURCES: dict[str, Path] = {
     "duckdb_rows.py": _ENGINE / "duckdb_rows.py",
     "spark_builtins_sql.py": _ENGINE / "spark_builtins_sql.py",
     "sql_dialects.py": _ENGINE / "sql_dialects.py",
+    "spark_sql_names.py": _ENGINE / "spark_sql_names.py",
     "spark_decimals.py": _ENGINE / "spark_decimals.py",
     "spark_hash.py": _ENGINE / "spark_hash.py",
     "spark_number_format.py": _ENGINE / "spark_number_format.py",

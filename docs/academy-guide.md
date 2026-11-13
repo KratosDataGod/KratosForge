@@ -39,12 +39,13 @@ generated data and your answer, which is saved as you type and kept after a rest
 
 - **Run** (Ctrl+Enter or F5) runs your SQL and shows the first rows. Changes are undone after each run.
 - **Check my work** runs the exercise's checks on a fresh copy of its data. A pass is recorded in
-  Profile for the exercise's objectives, with how many hints you used.
+  Profile for the exercise's objectives, with how many hints you used. An answer over 1 MB isn't run.
 - **Hints** go from a nudge to nearly the answer. A challenge passed with more than one hint, or after
   opening the explanation, doesn't count as independent. Neither does a quiz passed after changing an answer
   that was already checked.
 - **…** has **Compare with the expected result** and **Reset the exercise**, which asks first because it
-  throws your answer away.
+  throws your answer away. Reset keeps the hints you used, the explanation you opened and the quiz answers you
+  changed, so a pass after Reset still isn't independent, until the exercise gets a new version.
 
 The panel beside the editor has **Task** (the scenario, requirements, how it's checked and the
 lesson), **Hints** and **Check** (each check's result, what it proves and doesn't, the explanation once

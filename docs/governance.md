@@ -301,11 +301,31 @@ offline too.
   sit beside rule ids in the same **Checked by** (`learn.guidance, NB003`), and Check now has nothing
   to check for it: a policy that only sets a level shows as not checked, never as passing.
 
+#### Team notes
+
+The same policy can carry the team's own guidance: a `notes` parameter, a fixed value that maps a
+rule's or a decision pattern's id to a note in plain text, like
+`{"SQ002": "Our fact tables are partitioned by order_date_key, so filter on it.", "DP-02": "We use DuckDB up to 50 GB."}`.
+A note sits beside the built-in guide and never replaces it, and it never changes a check.
+
+- **Owned, versioned and hashed like the policy.** Each note comes with its policy's name, owner,
+  version and SHA-256, so a reader knows who wrote it and which published version it's from. Changing
+  a note is publishing a new version, with the policy's usual history.
+- **Offline.** The notes travel in the project's [policy package](#offline-policy-packages). When the
+  platform can't be reached, `learn_team_notes` reads the latest package on this PC, verified first: a
+  package changed after it was taken is never used.
+- **Every team's note is kept.** Two policies with a note for one rule both show, in policy name order.
+- **What's ignored, and said:** a note for an id with no guide or decision pattern, one that isn't text,
+  and anything past 200 notes in one policy. A note is cut at 2,000 characters.
+
+The engine method `learn_team_notes` returns `{notes: {id: [{text, policy, owner, version, sha256}]},
+problems, package, note}`. The app doesn't show the notes yet: that waits on a mockup.
+
 | Field | Example |
 | --- | --- |
 | Name | New starters |
 | Checked by | `learn.guidance` |
-| Parameters | `level` = `guided` (fixed), `sql` = `professional` (fixed) |
+| Parameters | `level` = `guided` (fixed), `sql` = `professional` (fixed), `notes` = `{"SQ002": "..."}` (fixed) |
 
 ## What isn't built yet
 

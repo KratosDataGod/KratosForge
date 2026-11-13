@@ -290,8 +290,8 @@ def table_markdown() -> str:
     """The docs text: the functions that don't answer the same, as a table, then the ones that do."""
     words = {"differs": "Different result", "varies": "Can differ", "error": "Doesn't run",
              "untranslated": "Not translated"}
-    rows = [f"Of {len(CASES)} checks on commonly used Databricks SQL built-in functions, these are the functions the "
-            "DuckDB engine doesn't answer the same way.", "",
+    rows = [(f"Of {len(CASES)} checks on commonly used Databricks SQL built-in functions, these are the functions the "
+            "DuckDB engine doesn't answer the same way."), "",
             "| Function | Group | On this PC | What to know |", "| --- | --- | --- | --- |"]
     rows += [f"| `{c.function}` | {c.group} | {words[c.outcome]} | {c.note} |" for c in CASES if c.outcome != "same"]
     same_ = [f"`{c.function}`" for c in CASES if c.outcome == "same"]

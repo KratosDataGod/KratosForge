@@ -119,13 +119,14 @@ def _handed_names(outer: ast.AST) -> set[str]:
 
 
 def _handed_to_a_helper(call: ast.Call, outer: ast.AST, parents: dict[ast.AST, ast.AST], handed: set[str]) -> bool:
-    """Whether this one request is sent by a retry helper: it sits in a lambda (or nested def) that is
-    an argument of send_with_retry, send_remote or _change, or in a nested def whose name is passed
-    to one of them in ``outer``."""
+    """Whether this one request is sent by a retry helper: it sits in a lambda that is an argument of
+    send_with_retry, send_remote or _change, or in a nested def whose name is passed to one of them in
+    ``outer``. A request made right there in the helper's arguments (``send_with_retry(http.get(url),
+    ...)``) is sent once, before the helper sees it, so it doesn't count."""
     node: ast.AST = call
     while node is not outer and node in parents:
         parent = parents[node]
-        if _helper_call(parent) and node is not getattr(parent, "func", None):
+        if _helper_call(parent) and isinstance(node, ast.Lambda):
             return True
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in handed:
             return True
@@ -182,5 +183,9 @@ def test_the_request_check_finds_an_unretried_get(tmp_path):
         "    def page():\n"
         "        return http.get(url, timeout=30)\n"
         "    send_with_retry(lambda: None, 'GET')\n"
-        "    return page()\n", encoding="utf-8")
-    assert unretried_requests(tmp_path) == {"client.py:read", "client.py:half", "client.py:unused_helper"}
+        "    return page()\n"
+        "def eager(url):\n"
+        "    http = http_session.session()\n"
+        "    return send_with_retry(http.get(url, timeout=30), 'GET')\n", encoding="utf-8")
+    assert unretried_requests(tmp_path) == {"client.py:read", "client.py:half", "client.py:unused_helper",
+                                            "client.py:eager"}

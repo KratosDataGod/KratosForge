@@ -19,6 +19,7 @@ to its audit log as the desktop app does (policy_watch.py), since the policy app
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import os
 import signal
@@ -36,7 +37,7 @@ from .audit import AuditLog
 from .audit import outcome as audit_outcome
 from .dataops_service import post_teams
 from .fabric_api import FabricClient
-from .jobqueue import JobQueue
+from .jobqueue import JobQueue, QueueFull
 from .local_schedules import next_run
 from .logs import fields
 from .mailbox import ControlFolderInUse, LocalControl, Mailbox, hold_control_folder
@@ -67,6 +68,23 @@ POLICY_CHECK_SECONDS = 900  # how often a running agent looks for a change to th
 
 def _epoch(local: dt.datetime) -> float:
     return local.timestamp()  # naive datetimes are this machine's local time, as schedules are
+
+
+def _spec(s: Any) -> str:
+    """A schedule's timing as configured: when it fires, and whether agents share it."""
+    return json.dumps({"config": s.config, "shared": bool(s.shared)}, sort_keys=True, default=str)
+
+
+def _wall(local: dt.datetime) -> str:
+    """A schedule's next run as the local time it names, kept with it: ``+fold`` marks the second
+    time a repeated hour comes round when the clocks go back."""
+    return local.strftime("%Y-%m-%dT%H:%M") + ("+fold" if local.fold else "")
+
+
+def _from_wall(wall: str) -> float:
+    """That local time as a moment, in this machine's time zone as it is now."""
+    text, _, fold = wall.partition("+")
+    return _epoch(dt.datetime.fromisoformat(text).replace(fold=1 if fold == "fold" else 0))
 
 
 def _due(last: float | None, every: float, now: float) -> bool:
@@ -131,6 +149,10 @@ class Agent:
         self._alert_box: Outbox | None = None  # "job didn't finish" alerts Teams didn't take yet
         self._alert_lock = threading.Lock()  # workers alert at once; one send at a time posts each just once
         self.messages_dropped = 0  # Teams or flow messages dropped unsent since this start (in the status record)
+        # Schedule due times held back while the queue was full (agent.max_queued), since this start; each
+        # runs once there is room. _deferred: the due time each schedule is waiting with, logged once.
+        self.schedules_deferred = 0
+        self._deferred: dict[str, float] = {}
         self._dropped_lock = threading.Lock()  # the shortcut check sends from its own thread
         self._missed: set[str] = set()  # shared-schedule requests already alerted as missed, this start
         self.audit = AuditLog(config.home / "audit", app="agent")
@@ -402,11 +424,56 @@ class Agent:
         if env not in self.config.environments:
             raise PermissionError(f"This agent may run {', '.join(self.config.environments)}, not {env}")
         payload = {"env": env, "entities": list(entities or []), "backfill": backfill, "cascade": cascade}
-        job = self.queue.enqueue(KIND_META, payload, source=source, max_attempts=self.config.max_attempts,
-                                 dedupe_key=dedupe_key)
+        try:
+            job = self.queue.enqueue(KIND_META, payload, source=source, max_attempts=self.config.max_attempts,
+                                     dedupe_key=dedupe_key, limit=self.config.max_queued)
+        except QueueFull as exc:
+            self.log.warning("not queued: the agent's queue is full", extra=fields(
+                env=env, entities=payload["entities"], source=source, waiting=exc.waiting, max_queued=exc.limit))
+            raise
         self.log.info("queued" if not job.get("deduplicated") else "already queued",
                       extra=fields(job_id=job["id"], env=env, entities=payload["entities"], source=source))
         return job
+
+    def reconcile_schedules(self) -> dict[str, list[str]]:
+        """Bring what the queue kept for schedules in line with agent.toml, once at start (it is read
+        only then). A schedule whose timing changed is worked out again from now, so it never runs
+        once more at its old time. A schedule removed from agent.toml loses its kept next run (added
+        back later, it starts afresh rather than catching up), and a run of it still waiting to start
+        or to retry is cancelled with that reason. A first run of an edited schedule still waiting is
+        changed to its new environment, tables and backfill, so it runs once, as configured now; a
+        retry keeps the tables it still has to finish. A running job is never touched."""
+        out: dict[str, list[str]] = {"retimed": [], "forgotten": [], "cancelled": [], "updated": []}
+        current = {s.id: s for s in self.config.schedules}
+        kept = self.queue.schedule_specs()
+        for sid, spec in kept.items():
+            s = current.get(sid)
+            if s is None:
+                self.queue.forget_schedule(sid)
+                out["forgotten"].append(sid)
+            elif spec is None:
+                self.queue.set_schedule_spec(sid, _spec(s))  # kept before specs were: taken as unchanged
+            elif spec != _spec(s):
+                self.queue.forget_schedule(sid)
+                out["retimed"].append(sid)
+        known = set(kept) | set(current)
+        for sid in sorted(known):
+            s = current.get(sid)
+            for job in self.queue.queued_with_key(f"schedule:{sid}"):
+                if s is None:
+                    if self.queue.cancel(job["id"], "its schedule was removed from agent.toml"):
+                        out["cancelled"].append(job["id"])
+                    continue
+                if s.shared or job["attempts"]:
+                    continue
+                want = {"env": s.env, "entities": list(s.entities), "backfill": s.backfill, "cascade": False}
+                if job["payload"] != want and s.env in self.config.environments \
+                        and self.queue.set_payload(job["id"], want):
+                    out["updated"].append(job["id"])
+        for what, items in out.items():
+            if items:
+                self.log.info(f"schedules changed in agent.toml: {what}", extra=fields(**{what: items}))
+        return out
 
     def tick_schedules(self) -> list[str]:
         """Enqueue every schedule that is due. A schedule missed while the agent was down runs once
@@ -416,6 +483,16 @@ class Agent:
         now = self.clock()
         for s in self.config.schedules:
             due = self.queue.schedule_next(s.id)
+            wall = self.queue.schedule_wall(s.id) if due is not None and not s.shared else None
+            if wall and due is not None and abs(_from_wall(wall) - due) >= 60:
+                # The PC's time zone changed since this was worked out (Windows reads a new zone when the
+                # agent starts). A schedule names a time of day on this PC, so it moves with the zone:
+                # left as it was, a 06:00 schedule would run at 03:00 after a move three hours west, then
+                # again at 06:00 the same day.
+                self.log.warning("the PC's time zone changed; the schedule runs at the same time of day "
+                                 "in the new zone", extra=fields(schedule=s.id, wall=wall))
+                due = _from_wall(wall)
+                self.queue.set_schedule_next(s.id, due, wall)  # kept, so this is noticed and logged once
             if due is not None and due > now + _longest_wait(s.when):
                 # Set before the clock went back: without this, a 15-minute schedule would stop for as
                 # long as the jump. Worked out again from now, so nothing runs twice for one due time.
@@ -426,17 +503,33 @@ class Agent:
                 if due is not None:
                     if s.shared:
                         self._submit_shared(s, due, now)
-                    else:
-                        self.enqueue(s.env, s.entities, s.backfill, source=f"schedule:{s.id}",
-                                     dedupe_key=f"schedule:{s.id}")
+                    elif not self._enqueue_due(s, due):
+                        continue  # deferred: its next time stays this one, so it runs once there is room
                     fired.append(s.id)
                 nxt = shared_schedules.next_aligned(s.when, now) if s.shared else None
+                wall = None
                 if nxt is None:
                     local = next_run(s.config, dt.datetime.fromtimestamp(now))
-                    nxt = _epoch(local) if local is not None else None
+                    nxt, wall = (_epoch(local), _wall(local)) if local is not None else (None, None)
                 if nxt is not None:
-                    self.queue.set_schedule_next(s.id, nxt)
+                    self.queue.set_schedule_next(s.id, nxt, wall, _spec(s))
         return fired
+
+    def _enqueue_due(self, s: Any, due: float) -> bool:
+        """Queue a schedule's due run. While the queue is full (agent.max_queued) it is deferred, not
+        dropped: logged once for this due time, counted in the status record, and tried at every tick."""
+        try:
+            self.enqueue(s.env, s.entities, s.backfill, source=f"schedule:{s.id}", dedupe_key=f"schedule:{s.id}")
+        except QueueFull as exc:
+            if self._deferred.get(s.id) != due:
+                self._deferred[s.id] = due
+                self.schedules_deferred += 1
+                self.log.warning("schedule deferred: the agent's queue is full; it runs once there is room",
+                                 extra=fields(schedule=s.id, env=s.env, waiting=exc.waiting, max_queued=exc.limit))
+            return False
+        if self._deferred.pop(s.id, None) is not None:
+            self.log.info("deferred schedule queued", extra=fields(schedule=s.id, env=s.env))
+        return True
 
     def _submit_shared(self, s: Any, due: float, now: float) -> None:
         """One request for this due time in the mailbox, unless another agent wrote it first or its
@@ -480,8 +573,8 @@ class Agent:
                  f"Schedule {s.id}, due {when}: it passed its deadline here, and the {s.env.title()} mailbox "
                  "couldn't be read to check whether another agent ran it.")
         self._notify(f"KratosForge agent {self.config.name}: a shared {s.env.title()} run was missed",
-                     [first, "Check that the agents with this schedule are running and can reach the mailbox. "
-                             "The next due time runs as usual.",
+                     [first, ("Check that the agents with this schedule are running and can reach the mailbox. "
+                             "The next due time runs as usual."),
                       f"To run it now: fabric-desktop agent enqueue {s.env} {' '.join(s.entities)}".rstrip()],
                      schedule=s.id, request_id=rid)
 
@@ -726,8 +819,8 @@ class Agent:
             return
         self._notify(f"KratosForge agent {self.config.name}: its job queue file couldn't be read",
                      [f"It was moved to {moved.name} in the agent's home, and the agent started with an empty queue.",
-                      "Jobs that were waiting in it won't run. Schedules add their next runs again on their own; "
-                      "queue any other job again with fabric-desktop agent enqueue."],
+                      ("Jobs that were waiting in it won't run. Schedules add their next runs again on their own; "
+                      "queue any other job again with fabric-desktop agent enqueue.")],
                      moved_to=moved.name)
 
     # ---- the loop
@@ -874,6 +967,7 @@ class Agent:
                                                     environments=self.config.environments,
                                                     schedules=[s.id for s in self.config.schedules],
                                                     project=str(self.config.project)))
+        self.reconcile_schedules()
         from .credentials import KEY_FILE_OPEN, key_file_open
         if key_file_open(self.config.auth):
             self.log.warning(KEY_FILE_OPEN)

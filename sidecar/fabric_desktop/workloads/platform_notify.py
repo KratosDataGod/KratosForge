@@ -217,6 +217,13 @@ class Ledger:
         with self._db() as db:
             db.execute("DELETE FROM sent WHERE key = ?", (key,))
 
+    def prune(self, older_than: float) -> int:
+        """Delete closed and one-off keys last marked more than ``older_than`` seconds ago. Open keys (a
+        request still waiting, a shortcut still broken) are never deleted, so they're never posted twice.
+        The same one-off event reported again after that long is posted again."""
+        with self._db() as db:
+            return db.execute("DELETE FROM sent WHERE open = 0 AND at < ?", (self.clock() - older_than,)).rowcount
+
     def open_keys(self) -> list[dict[str, Any]]:
         with self._db() as db:
             rows = db.execute("SELECT key, kind, at FROM sent WHERE open = 1 ORDER BY at").fetchall()

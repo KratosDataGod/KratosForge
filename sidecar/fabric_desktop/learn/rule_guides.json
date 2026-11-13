@@ -1,4 +1,21 @@
 {
+ "FOREACH": {
+  "importance": "Recommended",
+  "area": "Pipelines",
+  "why": "Data Factory doesn't allow a ForEach inside another ForEach or an Until, or Set Variable inside a ForEach that runs in parallel. Pipeline variables are shared by every iteration, so the last iteration to finish wins. A local run allows both. Fabric's ForEach page doesn't state these limits, so the warnings say they aren't verified in Fabric yet.",
+  "fine": "",
+  "instead": "Use a child pipeline for the inner loop. Make the ForEach sequential, or use Append Variable or a child pipeline instead of Set Variable.",
+  "principle": "Each loop iteration keeps its own state.",
+  "impact": "Data. A variable set in a parallel loop can hold any iteration's value.",
+  "check": "`fabric-desktop pipeline compat` shows no `nested_foreach` or `set_variable_in_parallel_foreach` warning.",
+  "language": "",
+  "before": "",
+  "after": "",
+  "codes": [
+   "nested_foreach",
+   "set_variable_in_parallel_foreach"
+  ]
+ },
  "NB001": {
   "importance": "Critical",
   "area": "Security",
@@ -232,6 +249,259 @@
   "language": "sql",
   "before": "VACUUM sales RETAIN 0 HOURS",
   "after": "VACUUM sales RETAIN 168 HOURS"
+ },
+ "PG1": {
+  "importance": "Recommended",
+  "area": "Pipelines",
+  "why": "A local run finds a notebook by the name you give it. Fabric finds a Notebook activity's notebook by its item id in the workspace, so a name there fails when the pipeline runs.",
+  "fine": "",
+  "instead": "Put the notebook in the Fabric workspace first, then use its item id in `notebookId`.",
+  "principle": "Deploy what a pipeline calls before the pipeline that calls it.",
+  "impact": "Reliability. The pipeline deploys, then fails at the Notebook activity.",
+  "check": "`fabric-desktop pipeline compat` shows no `notebook_not_an_item_id` warning.",
+  "language": "",
+  "before": "",
+  "after": "",
+  "codes": [
+   "notebook_not_an_item_id"
+  ]
+ },
+ "PG10": {
+  "importance": "Recommended",
+  "area": "Pipelines",
+  "why": "Fabric only accepts a pipeline as a `DataPipeline` item. A `.platform` part with another type is refused.",
+  "fine": "",
+  "instead": "Set `\"type\": \"DataPipeline\"` in the `.platform` part.",
+  "principle": "An item's definition says truthfully what kind of item it is.",
+  "impact": "Reliability. Fabric refuses the item when it is deployed or synced from Git.",
+  "check": "`fabric-desktop pipeline compat` shows no `item_type_not_data_pipeline` warning.",
+  "language": "",
+  "before": "",
+  "after": "",
+  "codes": [
+   "item_type_not_data_pipeline"
+  ]
+ },
+ "PG2": {
+  "importance": "Recommended",
+  "area": "Pipelines",
+  "why": "Fabric stops a Notebook activity after 12 hours at most. A local run uses the timeout as written, so a long notebook passes here and is stopped there.",
+  "fine": "",
+  "instead": "Use `0.12:00:00` or less. For longer work, use a Spark job definition or split the notebook into steps.",
+  "principle": "Keep each step inside the limits of the place it runs.",
+  "impact": "Reliability. A long run is stopped part way, and later activities don't run.",
+  "check": "`fabric-desktop pipeline compat` shows no `notebook_timeout_over_12_hours` warning.",
+  "language": "",
+  "before": "",
+  "after": "",
+  "codes": [
+   "notebook_timeout_over_12_hours"
+  ]
+ },
+ "PG3": {
+  "importance": "Recommended",
+  "area": "Pipelines",
+  "why": "Fabric pipelines have no `pipeline().globalParameters`, so an expression that reads one gets nothing there. A local run can't read them either.",
+  "fine": "",
+  "instead": "Put the value in a variable library and read it as `pipeline().libraryVariables.<name>`.",
+  "principle": "Keep settings that change between environments in one place the pipeline reads at run time.",
+  "impact": "Reliability. The value is missing in Fabric, and the activity fails or uses an empty value.",
+  "check": "`fabric-desktop pipeline compat` shows no `global_parameters` warning.",
+  "language": "",
+  "before": "",
+  "after": "",
+  "codes": [
+   "global_parameters"
+  ]
+ },
+ "PG4": {
+  "importance": "Recommended",
+  "area": "Pipelines",
+  "why": "Fabric has no dataset items, so an activity that points at a Data Factory dataset has nothing to point at there.",
+  "fine": "",
+  "instead": "Put the dataset's settings (its connection, path or table) in the activity itself.",
+  "principle": "An activity carries what it needs to run.",
+  "impact": "Reliability. The activity can't be imported or fails when it runs.",
+  "check": "`fabric-desktop pipeline compat` shows no `dataset_reference` warning.",
+  "language": "",
+  "before": "",
+  "after": "",
+  "codes": [
+   "dataset_reference"
+  ]
+ },
+ "PG5": {
+  "importance": "Recommended",
+  "area": "Pipelines",
+  "why": "Fabric has no integration runtimes. Data on your own network is reached through an on-premises data gateway connection.",
+  "fine": "",
+  "instead": "Set up a connection through an on-premises data gateway, and use that connection in the activity.",
+  "principle": "Name how a pipeline reaches private data in the connection, not in the activity.",
+  "impact": "Reliability. The activity can't reach the data in Fabric.",
+  "check": "`fabric-desktop pipeline compat` shows no `integration_runtime` warning.",
+  "language": "",
+  "before": "",
+  "after": "",
+  "codes": [
+   "integration_runtime"
+  ]
+ },
+ "PG6": {
+  "importance": "Recommended",
+  "area": "Pipelines",
+  "why": "Validation, SSIS, Azure Batch (`Custom`) and HDInsight Hive, Pig and MapReduce activities can't run in Fabric. Each warning's hint says what to use instead.",
+  "fine": "",
+  "instead": "Follow the hint: Get Metadata with an If Condition for Validation, a notebook, a warehouse or a Web activity for the others.",
+  "principle": "Move a pipeline's work to what the platform runs, rather than keeping a step it can't run.",
+  "impact": "Reliability. The pipeline can't be deployed to Fabric as it is.",
+  "check": "`fabric-desktop pipeline compat` shows no `no_fabric_equivalent` warning.",
+  "language": "",
+  "before": "",
+  "after": "",
+  "codes": [
+   "no_fabric_equivalent"
+  ]
+ },
+ "PG7": {
+  "importance": "Recommended",
+  "area": "Pipelines",
+  "why": "A local run finds a child pipeline by its name. Fabric needs the child's item id and its `workspaceId`, even when it is in the same workspace.",
+  "fine": "",
+  "instead": "Deploy the child pipeline first, then use Invoke pipeline with the child's `pipelineId` and `workspaceId`.",
+  "principle": "Refer to another item by its id, which stays the same when it's renamed.",
+  "impact": "Reliability. The parent pipeline fails at the activity that starts the child.",
+  "check": "`fabric-desktop pipeline compat` shows no `child_pipeline_by_name` or `child_pipeline_no_workspace` warning.",
+  "language": "",
+  "before": "",
+  "after": "",
+  "codes": [
+   "child_pipeline_by_name",
+   "child_pipeline_no_workspace"
+  ]
+ },
+ "PG8": {
+  "importance": "Critical",
+  "area": "Pipelines",
+  "why": "Fabric has no linked services, so a Key Vault linked service has nothing to point at. A Web activity that reads a secret without `secureOutput` puts the secret in run history, in Fabric and in a local run.",
+  "fine": "",
+  "instead": "Read the secret with a Web activity that calls Key Vault, with `policy.secureOutput` set to true, and set `secureInput` on the activities that use it.",
+  "principle": "A secret is never written where people can read it later.",
+  "impact": "Security. Anyone who can see the pipeline's runs can read the secret.",
+  "check": "`fabric-desktop pipeline compat` shows no `key_vault_linked_service` or `secret_in_run_history` warning. A secret that was ever shown in run history should be rotated.",
+  "language": "",
+  "before": "",
+  "after": "",
+  "codes": [
+   "key_vault_linked_service",
+   "secret_in_run_history"
+  ]
+ },
+ "PG9": {
+  "importance": "Educational",
+  "area": "Pipelines",
+  "why": "A variable library holds only text, numbers and true or false. A global parameter that was an array or an object has to be kept as JSON text.",
+  "fine": "",
+  "instead": "Store the value as JSON text in the variable library and read it with `json(...)` in the expression.",
+  "principle": "Convert a value once, where it is read, and say so in the expression.",
+  "impact": "Reliability. An expression that reads into the value fails until it parses the text.",
+  "check": "`fabric-desktop pipeline compat` shows no `global_parameter_array_or_object` warning.",
+  "language": "",
+  "before": "",
+  "after": "",
+  "codes": [
+   "global_parameter_array_or_object"
+  ]
+ },
+ "SM001": {
+  "importance": "Critical",
+  "area": "Error Prevention",
+  "why": "A relationship between a `bigint` key and a `string` key either fails to build or matches nothing, so totals by that dimension come out blank. Give both ends the same type in their contracts.",
+  "fine": "Never. A relationship between two types can't be right.",
+  "instead": "",
+  "principle": "The two ends of a relationship are one value. Give them one type.",
+  "impact": "Data. Totals by the dimension come out blank, or the model won't build.",
+  "check": "After the contract change, Check now lists no SM001 for the model, and Update model builds the relationship.",
+  "language": "",
+  "before": "",
+  "after": ""
+ },
+ "SM002": {
+  "importance": "Recommended",
+  "area": "Performance",
+  "why": "Integer keys compress better and join faster than text keys, which matters most in Direct Lake and Import models with large facts. Take keys from LH_Keys (`[[keys]]`) or a `[[lookup]]`.",
+  "fine": "A small dimension whose natural key is short text, in a model nobody filters by it at scale.",
+  "instead": "",
+  "principle": "Join on small whole numbers. Keep business keys as attributes.",
+  "impact": "Performance. Text keys make the model larger and every filter through the relationship slower.",
+  "check": "Check now lists no SM002, and the key column's type in the data dictionary is a whole number.",
+  "language": "",
+  "before": "",
+  "after": ""
+ },
+ "SM003": {
+  "importance": "Recommended",
+  "area": "Performance",
+  "why": "`double` and `float` store an approximation, so money can be off by a fraction of a cent and totals can differ between visuals. `decimal(p,s)` is exact.",
+  "fine": "Measurements that are approximate by nature, like sensor readings or scientific values.",
+  "instead": "",
+  "principle": "Store money and counts as exact numbers.",
+  "impact": "Data. Totals can differ in the last digits between visuals and from the source system.",
+  "check": "Check now lists no SM003, and the column's type in the contract is `decimal(p,s)`.",
+  "language": "",
+  "before": "",
+  "after": ""
+ },
+ "SM004": {
+  "importance": "Educational",
+  "area": "Formatting",
+  "why": "People slice by the dimension's columns, not by the fact's key. A visible key adds a field that gives wrong answers when used on its own. Name it like the dimension's surrogate key (`_sk`) and Update model hides it.",
+  "fine": "Rarely. The rule looks only at a fact's columns that join to a dimension. A column people look up on its own, like an order number, doesn't join, so it isn't flagged.",
+  "instead": "",
+  "principle": "Show people the columns they filter by, and hide the ones that only join tables.",
+  "impact": "Usability. People who drag a key into a visual get numbers that look right and aren't.",
+  "check": "Check now lists no SM004, and the key isn't in the model's field list after Update model.",
+  "language": "",
+  "before": "",
+  "after": ""
+ },
+ "SM005": {
+  "importance": "Educational",
+  "area": "Maintenance",
+  "why": "Descriptions appear in the field list, Copilot and the data catalog. Without them people guess what a column means.",
+  "fine": "A column whose name says everything, like a date key. A short description still helps.",
+  "instead": "",
+  "principle": "Write down what each table and column means once, where everyone reads it.",
+  "impact": "Usability. People guess what a column means, and two reports can answer the same question differently.",
+  "check": "Check now lists no SM005, and the data dictionary shows a description for each table and visible column.",
+  "language": "",
+  "before": "",
+  "after": ""
+ },
+ "SM006": {
+  "importance": "Recommended",
+  "area": "Maintenance",
+  "why": "A fact with no relationship can only be summed as a whole, so filters on other tables don't reach it and visuals show the same total on every row.",
+  "fine": "A small table kept only for a measure that doesn't need filtering, like a single-row settings table.",
+  "instead": "",
+  "principle": "Every fact is filtered through at least one dimension.",
+  "impact": "Data. Visuals repeat the same total on every row, which reads as a real number.",
+  "check": "Check now lists no SM006, and the model's relationships include one from the fact after Update model.",
+  "language": "",
+  "before": "",
+  "after": ""
+ },
+ "SM007": {
+  "importance": "Recommended",
+  "area": "Naming Conventions",
+  "why": "Hidden characters make two names look the same, break DAX that names the column, and fail deployment checks.",
+  "fine": "Never. A name that looks clean should be clean.",
+  "instead": "",
+  "principle": "Names are typed in DAX and read in tools. Keep them plain.",
+  "impact": "Maintenance. DAX that names the column fails, and deployment checks refuse the model.",
+  "check": "Check now lists no SM007 after the column or table is renamed.",
+  "language": "",
+  "before": "",
+  "after": ""
  },
  "SQ001": {
   "importance": "Recommended",

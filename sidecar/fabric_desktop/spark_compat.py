@@ -11,6 +11,7 @@ Nothing here writes anywhere; it only builds queries. ``install()`` is called by
 from __future__ import annotations
 
 import builtins
+import functools
 import inspect
 import itertools
 import re
@@ -25,7 +26,7 @@ from duckdb.experimental.spark.sql.column import Column
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.group import GroupedData
 from sqlglot import exp
-from . import spark_builtins_sql
+from . import spark_builtins_sql, spark_sql_names, sql_dialects
 from . import sql as spark_sql
 from .duckdb_rows import one_row
 
@@ -54,7 +55,7 @@ def spark_expr(text: str) -> str:
 
 def _parse(text: str) -> exp.Expression:
     """One Spark SQL expression as sqlglot reads it (it types the result as its base Expr)."""
-    return cast(exp.Expression, sqlglot.parse_one(text, read="spark"))
+    return cast(exp.Expression, sql_dialects.parse_one(text, read="spark"))
 
 
 def _literal(text: str) -> Callable[[re.Match[str]], str]:
@@ -388,6 +389,9 @@ def expr(text: str) -> Column:
     col = _sql(spark_sql.duckdb_sql(body))
     if isinstance(read, (exp.Column, exp.Star)):
         return col
+    named = spark_sql_names.column_name(read)
+    if named is not None:
+        return _named(col, named)
     shown = read.copy()  # Spark's name drops a string literal's quotes
     for literal in list(shown.find_all(exp.Literal)):
         if literal.is_string:
@@ -951,6 +955,36 @@ def _case_step(fn: Any, kind: str) -> Any:
     return step
 
 
+# F functions whose argument at this place Spark casts to text (upper(14) is '14'), and its name.
+_TEXT_ARGS = {"upper": 0, "lower": 0, "trim": 0, "ltrim": 0, "rtrim": 0, "initcap": 0, "ascii": 0, "length": 0,
+              "char_length": 0, "character_length": 0, "instr": 0, "locate": 1, "split": 0, "regexp_replace": 0,
+              "translate": 0, "lpad": 0, "rpad": 0, "repeat": 0, "left": 0, "right": 0, "replace": 0}
+
+
+def _text_argument(name: str, at: int, fn: Any) -> Any:
+    """F.<name> with its text argument cast as Spark casts it (spark_builtins_sql.spark_text_arg); the
+    argument keeps its own name, so the column is still named upper(i)."""
+    @functools.wraps(fn)
+    def call(*args: Any, **kwargs: Any) -> Any:
+        if len(args) > at and isinstance(args[at], (Column, str)):
+            given = F.col(args[at]) if isinstance(args[at], str) else args[at]
+            text = _named(_sql(spark_builtins_sql.spark_text_arg_sql(_col_sql(given), name)), _spark_text(given))
+            args = (*args[:at], text, *args[at + 1:])
+        return fn(*args, **kwargs)
+    return call
+
+
+def _refusing_struct_edits(fn: Any) -> Any:
+    """groupBy, orderBy, sort and agg refuse an edited struct inside an expression by name, as select
+    does (spark_struct_fields), before DuckDB's own error about it."""
+    @functools.wraps(fn)
+    def call(self: Any, *cols: Any, **kwargs: Any) -> Any:
+        from .spark_struct_fields import refuse_unresolved
+        refuse_unresolved(list(_flat(cols)) + [c for c in kwargs.values() if isinstance(c, Column)])
+        return fn(self, *cols, **kwargs)
+    return call
+
+
 def _install_spark_names() -> None:
     for name in (*_OPERATORS, *_UNARY):
         if hasattr(Column, name):
@@ -1044,7 +1078,7 @@ def _alias_marked(fn: Any) -> Any:
             out._fd_struct = vars(self)["_fd_struct"]
             out._fd_struct_alias = names[0] if names else None
             out._fd_struct_named = vars(self).get("_fd_name")
-        out._fd_alias_of = _spark_text(self)  # Spark writes it "x AS name" inside another name
+        out._fd_alias_of = self  # Spark writes it "x AS name" inside update_fields' name (spark_struct_fields)
         return cast(Column, out)
     alias.__doc__ = fn.__doc__
     return alias
@@ -1260,6 +1294,89 @@ def _global_select(fn: Any) -> Any:
     return select
 
 
+# ``a."*"``: what DuckDB's col("a.*") writes; each name before the star plain or double-quoted.
+_STAR_REF = re.compile(r'^((?:"(?:[^"]|"")*"|[^."()\s]+)(?:\.(?:"(?:[^"]|"")*"|[^."()\s]+))*)\."\*"$')
+_STAR_PART = re.compile(r'"((?:[^"]|"")*)"|([^."]+)')
+
+
+def _star_prefix(c: Any) -> list[str] | None:
+    """The names before ``.*`` when ``c`` is ``"a.*"`` or ``col("a.*")`` (a DataFrame alias's columns, or a
+    struct's fields), else None. A backquoted name (```a.b`.*``) is one name, as in Spark."""
+    if isinstance(c, str):
+        if not c.endswith(".*") or c == ".*":
+            return None
+        text = c[:-2]
+        parts, i = [], 0
+        while i < len(text):
+            if text[i] == "`":
+                end = text.find("`", i + 1)
+                if end < 0:
+                    return None
+                parts.append(text[i + 1:end])
+                i = end + 1
+            else:
+                end = text.find(".", i)
+                end = len(text) if end < 0 else end
+                parts.append(text[i:end])
+                i = end
+            if i < len(text):
+                if text[i] != ".":
+                    return None
+                i += 1
+        return parts if parts and all(parts) else None
+    if isinstance(c, Column):
+        m = _STAR_REF.match(str(c.expr))
+        if m is None:
+            return None
+        names = [p.group(1).replace('""', '"') if p.group(1) is not None else p.group(2)
+                 for p in _STAR_PART.finditer(m.group(1))]
+        whole = ".".join(names)
+        if len(whole) > 1 and whole[0] == whole[-1] == "`":  # col("`a.b`.*"): DuckDB split the quoted name
+            return [whole[1:-1]]
+        return names
+    return None
+
+
+def _star_expr(df: DataFrame, star: list[str]) -> Column:
+    """The columns ``x.*`` stands for: every column of the DataFrame aliased x, or every field of the struct
+    x names (``s.*``, ``s.i.*``, ``a.s.*``), each name double-quoted. Spark's error when x is neither, or
+    names a column that isn't a struct."""
+    from duckdb.experimental.spark.errors import AnalysisException
+    path = ".".join('"' + p.replace('"', '""') + '"' for p in star)
+    name = ".".join(star)
+    if len(star) == 1:  # a DataFrame alias first, as Spark resolves it, then a struct column
+        try:
+            df.relation.project(f"{path}.*")
+            return Column(duckdb.SQLExpression(f"{path}.*"))
+        except duckdb.Error:  # silent-ok: not an alias or a struct; which error Spark gives is found below
+            pass
+    try:
+        kind = str(df.relation.project(path).types[0])
+    except duckdb.Error:  # not a column or field either
+        raise AnalysisException(message=f"[CANNOT_RESOLVE_STAR_EXPAND] Cannot resolve `{name}`.* given input "
+                                        f"columns {', '.join(f'`{x}`' for x in df.columns)}. Please check that the "
+                                        "specified table or struct exists and is accessible in the input "
+                                        "columns.") from None
+    if not kind.upper().startswith("STRUCT"):
+        raise AnalysisException(message="Can only star expand struct data types. Attribute: "
+                                        f"`ArrayBuffer({', '.join(star)})`.")
+    return Column(duckdb.SQLExpression(f"unnest({path})"))  # DuckDB writes s.i.* as unnest: its .* takes one name
+
+
+def _star_select(fn: Any) -> Any:
+    """``select("a.*")`` and ``select(col("a.*"))``: every column of the DataFrame aliased ``a`` (after
+    ``df.alias("a").join(...)``) or every field of struct ``a`` (also a nested one, ``s.i.*``), as in Spark;
+    DuckDB's col reads ``*`` as a column name."""
+    def select(self: DataFrame, *cols: Any) -> DataFrame:
+        flat = list(cols[0]) if len(cols) == 1 and isinstance(cols[0], list) else list(cols)
+        stars = [_star_prefix(c) for c in flat]
+        if not any(stars):
+            return fn(self, *cols)
+        return fn(self, *[_star_expr(self, star) if star else c for c, star in zip(flat, stars, strict=True)])
+    select.__doc__ = fn.__doc__
+    return select
+
+
 def _select_expr(self: DataFrame, *exprs: str) -> DataFrame:
     return self.select(*[expr(e) for e in _flat(exprs)])
 
@@ -1470,24 +1587,94 @@ def _stats(self: DataFrame, names: list[str], stats: Any) -> DataFrame:
     return _frame(self, out)
 
 
-def _drop_cols(fn: Any) -> Any:
-    """``df.drop("ID")`` drops ``id``: Spark resolves names ignoring case (a name that isn't there is skipped).
+# A column reference as DuckDB writes it: names, each plain or double-quoted, joined by dots.
+_REF_PART = r'(?:"(?:[^"]|"")*"|[^."()\s]+)'
+_REFERENCE = re.compile(rf"^{_REF_PART}(?:\.{_REF_PART})*$")
+_PART = re.compile(r'"((?:[^"]|"")*)"|([^."]+)')
+
+
+def _ref_parts(column: Column) -> list[str] | None:
+    """The names in ``column`` when it is a plain column reference (``col("x")``, ``df.x``,
+    ``col("t.x")``), else None."""
+    text = str(column.expr)
+    if not _REFERENCE.match(text):
+        return None
+    return [m.group(1).replace('""', '"') if m.group(1) is not None else m.group(2) for m in _PART.finditer(text)]
+
+
+def _ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _drop_cols(fn: Any) -> Any:  # noqa: ARG001 - DuckDB's drop is replaced; kept for the wrapper's shape
+    """``df.drop`` as Spark 3.5's: checked against Apache Spark 3.5.3.
+
+    - A name drops every column called that, whatever its case, and is a whole name: ``drop("a.b.c")``
+      drops the column named ``a.b.c``; a name that isn't there is skipped.
+    - A column drops that column: after ``df.join(df2, ...)``, ``drop(df2.name)`` drops df2's name and
+      keeps df's. ``col("name")`` that two columns answer to is Spark's AMBIGUOUS_REFERENCE error, and
+      a column the frame doesn't have, or an expression that isn't a column, is skipped.
+    - Once the frame was selected or changed after the join, this PC no longer knows which DataFrame
+      a column came from, so ``drop(df2.name)`` drops the one column called name, as before; with
+      two columns of that name it is refused by name rather than guessing. (Spark would also keep a
+      column of that name that came from another DataFrame; this PC drops it.)
+
     Dropping every column is refused: Spark keeps a frame with no columns, which DuckDB can't hold."""
     def drop(self: DataFrame, *cols: Any) -> DataFrame:
-        by_lower = {c.lower(): c for c in self.columns}
-
-        def resolve(c: Any) -> Any:  # F.col("ID") names the column too; another expression is left as given
-            name = c if isinstance(c, str) else c.expr.get_name() if isinstance(c, Column) else None
-            if isinstance(c, Column) and name is not None and len(name) > 1 and name[0] == name[-1] == "`":
-                name = name[1:-1]
-            return by_lower.get(name.lower(), c) if name is not None else c
-        cols = tuple(resolve(c) for c in cols)
-        gone = {c if isinstance(c, str) else c.expr.get_name() for c in cols if isinstance(c, (str, Column))}
-        if self.columns and not set(self.columns) - gone:
+        from duckdb.experimental.spark.errors import AnalysisException
+        names = [c.lower() for c in self.columns]
+        excluded: list[str] = []
+        left = list(self.columns)
+        for c in cols:
+            if isinstance(c, str):
+                if c.lower() in names:
+                    excluded.append(_ident(c))
+                    left = [x for x in left if x.lower() != c.lower()]
+                continue
+            if not isinstance(c, Column):
+                raise TypeError(f"drop() takes column names or Columns, not {type(c).__name__}.")
+            parts = _ref_parts(c)
+            if parts is None:
+                continue  # an expression, not a column: Spark leaves the frame as it is
+            whole = ".".join(parts)
+            if len(whole) > 1 and whole[0] == whole[-1] == "`":  # col("`a.b`"): the column named a.b
+                parts = [whole[1:-1]]
+            name = parts[-1]
+            matches = names.count(name.lower())
+            if not matches:
+                continue
+            ref = ".".join(_ident(p) for p in parts)
+            if len(parts) > 1:
+                try:
+                    self.relation.project(f"* EXCLUDE ({ref})")
+                except duckdb.BinderException:  # the Column's DataFrame isn't one this frame was joined from
+                    parts = [name]
+                    if matches > 1:
+                        raise NotImplementedError(
+                            f"drop() of another DataFrame's column {name}: this frame has {matches} columns named "
+                            f"{name} and this PC can't tell which one that Column is (they were selected or renamed "
+                            "after the join). Drop it before the select, or rename one side first.") from None
+            if len(parts) == 1:
+                if matches > 1:
+                    raise AnalysisException(message=f"[AMBIGUOUS_REFERENCE] Reference `{name}` is ambiguous, could "
+                                                    f"be: [{', '.join(f'`{x}`' for x in self.columns if x.lower() == name.lower())}].")
+                excluded.append(_ident(name))
+                left = [x for x in left if x.lower() != name.lower()]
+                continue
+            kept = self.relation.project(f"* EXCLUDE ({ref})").columns
+            excluded.append(ref)
+            removed = list(self.columns)
+            for x in kept:
+                removed.remove(x)
+            for x in removed:
+                left.remove(x)
+        if not excluded:
+            return self
+        if self.columns and not left:
             raise ValueError(f"drop would leave no columns ({', '.join(self.columns)}). Spark keeps an empty "
                              "frame here, but this PC's engine can't hold one; keep at least one column.")
-        return fn(self, *cols)
-    drop.__doc__ = fn.__doc__
+        return DataFrame(self.relation.project(f"* EXCLUDE ({', '.join(dict.fromkeys(excluded))})"), self.session)
+    drop.__doc__ = DataFrame.drop.__doc__
     return drop
 
 
@@ -1575,10 +1762,21 @@ def _unpivot(self: DataFrame, ids: Any, values: Any, variableColumnName: str, va
 
 
 def _same_self(fn: Any) -> Any:
-    """A join of a DataFrame with itself: DuckDB needs the two sides named apart."""
+    """A join of a DataFrame with itself: DuckDB needs the two sides named apart. A join with no
+    condition pairs every row with every row, as in Spark (``df.join(df2)``, any ``how``), and
+    ``how="cross"`` is an inner join: DuckDB knows neither."""
     def join(self: DataFrame, other: DataFrame, *args: Any, **kwargs: Any) -> DataFrame:
         if other.relation.alias == self.relation.alias:
             other = DataFrame(other.relation.set_alias(f"fd_right_{next(_ids)}"), other.session)
+        if fn.__name__ == "join":
+            names = ("on", "how")
+            given = dict(zip(names, args, strict=False))
+            given.update({k: kwargs.pop(k) for k in names if k in kwargs})
+            if isinstance(given.get("how"), str) and given["how"].lower() == "cross":
+                given["how"] = "inner"
+            if given.get("on") is None and given.get("how") is None:
+                given["how"] = "inner"  # DuckDB's join needs a condition; with a how it joins on true
+            return fn(self, other, given.get("on"), given.get("how"), *args[2:], **kwargs)
         return fn(self, other, *args, **kwargs)
     join.__doc__ = fn.__doc__
     return join
@@ -2006,10 +2204,22 @@ def _int_cast(original: Any) -> Any:
     return cast
 
 
+def _constant(value: Any) -> duckdb.Expression:
+    """DuckDB's ConstantExpression, with NaN and the infinities kept: DuckDB 1.5 reads a float NaN given to
+    ConstantExpression as NULL (its nan_as_null for imported data), so lit(float("nan")) and col == nan
+    were NULL where Spark has NaN, true or false."""
+    if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+        return duckdb.SQLExpression(f"CAST('{value!r}' AS DOUBLE)")
+    return duckdb.ConstantExpression(value)
+
+
 def install() -> None:
     """Add the calls above to DuckDB's Spark API (once per process)."""
     if getattr(DataFrame, "_fd_compat", False):
         return
+    from duckdb.experimental.spark.sql import column as column_module
+    for module in (column_module, F):
+        vars(module)["ConstantExpression"] = _constant  # lit(x) and col == x build their constants with it
     for name, fn in FUNCTIONS.items():
         if name in ("count", "substring", "concat", "initcap", "first", "last", "slice", "add_months",
                     "months_between", "element_at", "to_date", "to_timestamp", "ln", "log2", "pow", "factorial",
@@ -2040,6 +2250,9 @@ def install() -> None:
     Column.cast = _int_cast(Column.cast)  # type: ignore[method-assign]
     for name in _ORDERS:
         setattr(Column, name, _ordered(name, getattr(Column, name)))
+    for name, at in _TEXT_ARGS.items():
+        if hasattr(F, name):
+            setattr(F, name, _text_argument(name, at, getattr(F, name)))
     _install_spark_names()  # after every other Column patch, so it names what they give
     DataFrame.agg = _agg  # type: ignore[attr-defined]
     DataFrame.show = _show  # type: ignore[method-assign,assignment]
@@ -2071,6 +2284,7 @@ def install() -> None:
     DataFrame.unpivot = DataFrame.melt = _unpivot  # type: ignore[attr-defined]
     DataFrame.join = _same_self(DataFrame.join)  # type: ignore[method-assign]
     DataFrame.crossJoin = _same_self(DataFrame.crossJoin)  # type: ignore[method-assign]
+    DataFrame.select = _star_select(DataFrame.select)  # type: ignore[method-assign]  # under _naming, below
     for name in ("repartition", "repartitionByRange", "coalesce", "persist", "unpersist", "checkpoint",
                  "localCheckpoint", "hint"):
         if not hasattr(DataFrame, name):
@@ -2083,4 +2297,8 @@ def install() -> None:
     for name in ("max", "min", "sum", "avg", "mean"):
         setattr(GroupedData, name, _numeric_aggregate(name))
     # spark.conf is spark_api.LocalRuntimeConfig, set on each session (spark_local).
+    for owner, names in ((DataFrame, ("groupBy", "groupby", "orderBy", "sort", "agg")), (GroupedData, ("agg",))):
+        for name in names:
+            if hasattr(owner, name):
+                setattr(owner, name, _refusing_struct_edits(getattr(owner, name)))
     DataFrame._fd_compat = True  # type: ignore[attr-defined]

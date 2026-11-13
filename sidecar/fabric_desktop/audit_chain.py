@@ -30,6 +30,8 @@ from . import jsonfile
 
 GENESIS = "0" * 64
 HEAD = "head.json"  # the newest hash and line count, checked by verify()
+CLOCK_NOTE_SECONDS = 5 * 60  # a line this much earlier than the one before it is noted: the clock was set back
+MAX_NOTES = 20
 _TAIL = 64 * 1024  # bytes read from the end of a file at a time, looking for its last line
 
 
@@ -126,10 +128,17 @@ def _head(folder: Path) -> dict[str, Any]:
 
 
 def write(folder: Path, entry: dict[str, Any], line: str) -> None:
-    """Appends a sealed line to its month's file and moves the head on. Call it holding the chain's lock."""
+    """Appends a sealed line to its month's file and moves the head on. Call it holding the chain's lock.
+    A line whose time is in an earlier month than the newest file (this PC's clock was set back across
+    the start of a month) goes in the newest file, so the files stay in trail order and ``verify()``
+    doesn't take the line for one moved; its ``at`` still says what the clock said."""
     folder = Path(folder)
     head = _head(folder)
-    with (folder / f"audit-{str(entry['at'])[:7]}.jsonl").open("a", encoding="utf-8") as f:
+    name = f"audit-{str(entry['at'])[:7]}.jsonl"
+    newest = files(folder)
+    if newest and newest[-1].name > name:
+        name = newest[-1].name
+    with (folder / name).open("a", encoding="utf-8") as f:
         f.write(line + "\n")
     new = {"hash": entry["hash"]}
     if head.get("hash") == entry["prev"] and isinstance(head.get("lines"), int):
@@ -155,7 +164,9 @@ def append(folder: Path, entry: dict[str, Any]) -> dict[str, Any]:
 def verify(folder: Path) -> dict[str, Any]:
     """Walks the chain: every line's hash must match its content and the line before it."""
     prev, count, problems = GENESIS, 0, []
+    notes: list[str] = []
     seen: dict[int, str] = {}  # line number across the trail -> its hash
+    last_at: dt.datetime | None = None
     for path in files(folder):
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if not line.strip():
@@ -173,12 +184,29 @@ def verify(folder: Path) -> dict[str, Any]:
                 problems.append(f"{path.name} line {number}: this line was changed")
             prev = stored
             seen[count] = stored
+            at = _moment(str(entry.get("at", "")))
+            if at is not None and last_at is not None and (last_at - at).total_seconds() > CLOCK_NOTE_SECONDS \
+                    and len(notes) < MAX_NOTES:
+                notes.append(f"{path.name} line {number}: its time is {_span(last_at - at)} earlier than the line "
+                             "before it, so this PC's clock was changed (the chain itself is intact)")
+            last_at = at if at is not None and (last_at is None or at > last_at) else last_at
     head = _head(folder)
     for name, mark in (("newest line recorded", head), ("line recorded before lines went missing", head.get("lost") or {})):
         lines, want = mark.get("lines"), mark.get("hash")
         if want and isinstance(lines, int) and seen.get(lines) != want:
             problems.append(f"{HEAD}: the trail ends before the {name} (line {lines}); lines were deleted from the end")
-    return {"lines": count, "ok": not problems, "problems": problems}
+    result: dict[str, Any] = {"lines": count, "ok": not problems, "problems": problems}
+    if notes:  # only when the clock went back: the usual result keeps its shape
+        result["notes"] = notes
+    return result
+
+
+def _span(delta: dt.timedelta) -> str:
+    minutes = round(delta.total_seconds() / 60)
+    if minutes < 120:
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    hours = round(minutes / 60)
+    return f"{hours} hours" if hours < 48 else f"{round(hours / 24)} days"
 
 
 # ---------------------------------------------------------------- exports IT can check on their own

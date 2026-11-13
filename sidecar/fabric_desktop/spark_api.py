@@ -455,8 +455,8 @@ class _Stat:
 
 
 def _rdd(self: DataFrame, *_a: Any, **_kw: Any) -> Any:
-    raise NotImplementedError("RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in "
-                              "Fabric. On this PC, use DataFrame methods, SQL or toPandas().")
+    raise NotImplementedError("RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), "
+                              "or foreach, foreachPartition and mapInPandas, which run here.")
 
 
 ADDED: dict[str, Any] = {

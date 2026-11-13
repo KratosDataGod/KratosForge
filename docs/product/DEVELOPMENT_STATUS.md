@@ -3,10 +3,17 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-13 11:42 UTC, main 6cab0dc3.** Covers the PRs merged from #135 to #2573.
+**Product check of 2026-11-13 23:42 UTC, main af7d786b.** Covers the PRs merged from #135 to #2609.
 
 ## Summary
 
+- Evening check, 2026-11-13: 39 PRs merged after 6cab0dc3. 3 were product data and operations PRs, and the other 36
+  were linked. Notebooks now run in a process of their own by default (PB-136, now In progress; its Windows trial
+  results are still to be recorded). Settings has a color mode IT can set, and audit trails and receipts take an IT
+  time limit (PB-061; the Group Policy templates are left). The SQL editor gained run-at-cursor, hover help, Excel and
+  JSON export and Open in SSMS (PB-106). Notebooks export as PDF and render Markdown tables and math (PB-103). The
+  optimization engine assesses a workspace for duplicate work (PB-104, Preview), skins choose their look from fixed
+  choices (PB-102, Preview), and the engine can live in an admin-only folder by policy (PB-124, Preview).
 - Acceptance, 2026-11-13: the product owner accepted PB-073 (notebook cell time and memory limits) with documented
   limitations. Notebooks still share the in-engine kernel unless **Run notebooks in their own process** is on; making
   it the default is PB-136, which waits on a clean Windows trial and the product owner's go. The 19 feature request
@@ -217,7 +224,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 124 items (7 P0, 33 P1, 60 P2, 24 P3). 15 are Proposed, 30 In progress, 2 In review and 77 Accepted.
+- Backlog: 124 items (7 P0, 33 P1, 60 P2, 24 P3). 14 are Proposed, 31 In progress, 2 In review and 77 Accepted.
 - PB-125 (Learn ranks and profile pictures) and PB-126 (Learn curriculum content batches) are new and Proposed, from the
   product owner's ask of 2026-11-02; they build once the rank ladder is approved.
 - PB-124 (new, In progress, P0 like PB-101): the enterprise audit's EA remediation backlog (docs/audits/), tracked as its own item.

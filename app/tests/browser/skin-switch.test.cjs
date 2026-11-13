@@ -197,3 +197,27 @@ test("a brand header fills the bar with the skin's accent and keeps its text rea
   assert.strictEqual((await bar()).bg, "rgb(255, 255, 255)");
   assert.deepStrictEqual(await name(), [true, false]);
 });
+
+test("a skin draws its tabs and notebook cells, and an edited cell keeps its orange edge", { skip }, async () => {
+  const look = (skin) => page().evaluate(async (skin) => {
+    state.settings.ui_skin = { ...(state.settings.ui_skin || {}), value: skin };
+    applySkin();
+    loadIntoState({ name: "Orders", cells: [{ type: "code", cell_id: "c1", source: "a = 1", meta: {} }] });
+    state.ribbonTab = "home"; go("notebook");
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const tab = getComputedStyle(document.querySelector(".ribbon-tabs .tab.active"));
+    const box = getComputedStyle(document.querySelector(".cell .cell-box"));
+    return { tabRadius: tab.borderTopLeftRadius, cellRadius: box.borderTopLeftRadius };
+  }, skin);
+  // Round corners make --r-lg 12 px; rounded cells use it.
+  assert.deepStrictEqual(await look("snowflake"), { tabRadius: "999px", cellRadius: "12px" });
+  assert.deepStrictEqual(await look("databricks"), { tabRadius: "2px", cellRadius: "2px" });
+  assert.deepStrictEqual(await look("kratosforge"), { tabRadius: "0px", cellRadius: "6px" });
+  const edge = await page().evaluate(async () => {
+    state.settings.ui_skin.value = "fabric"; applySkin();
+    document.querySelector(".cell").classList.add("selected"); document.querySelector(".cells").classList.add("editing");
+    return getComputedStyle(document.querySelector(".cell .cell-box")).boxShadow;
+  });
+  assert.match(edge, /inset/, "the edited cell keeps its orange edge in a card skin");
+  assert.deepStrictEqual(app.errors, []);
+});

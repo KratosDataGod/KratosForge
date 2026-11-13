@@ -69,3 +69,15 @@ def test_progress_that_rounds_to_nothing_is_not_reported(monkeypatch, raw, shown
 
     monkeypatch.setattr(spark_local, "_session", Session())
     assert spark_local.progress() == shown
+
+
+def test_a_cancel_that_leaves_a_result_unread_shows_no_progress_after_it():
+    """A Cancel that lands after DuckDB ran the query, before Python read it, leaves the result open
+    on spark's connection; query_progress would keep reporting it under the next cell."""
+    k = Kernel()
+    assert k.run("spark.conn.execute('CREATE OR REPLACE TABLE unread AS SELECT range AS a FROM range(1000000)')")["status"] == "ok"
+    out = k.run("spark.conn.execute('SELECT a % 7 AS k, count(*) FROM unread GROUP BY 1')\n"
+                "raise KeyboardInterrupt")
+    assert out["status"] == "cancelled"
+    assert spark_local.progress() is None
+    k.run("spark.conn.execute('DROP TABLE unread')")

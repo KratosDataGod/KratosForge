@@ -516,7 +516,7 @@ NOT_HERE = {
     "mapInPandas": "runs in Fabric", "mapInArrow": "runs in Fabric",
     "withWatermark": "streaming runs in Fabric", "dropDuplicatesWithinWatermark": "streaming runs in Fabric",
     "streams": "streaming runs in Fabric",
-    "udf": "Python UDFs run in Fabric", "udtf": "Python UDTFs run in Fabric", "pandas_api": "pandas-on-Spark runs in Fabric; use toPandas()",
+    "udtf": "Python UDTFs run in Fabric", "pandas_api": "pandas-on-Spark runs in Fabric; use toPandas()",
 }
 
 # Fabric-only until this PC's streaming (spark_stream.py) adds them; then they're counted as they work.

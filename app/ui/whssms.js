@@ -86,7 +86,7 @@ function ssmsNotFound(ref, conn, query = null) {
       const folder = await attempt(() => invoke("pick_folder", { start: whSsmsFolder() }), "Couldn't open the folder dialog");
       if (!folder) return;
       const exe = await attempt(() => invoke("ssms_find", { chosen: folder }), "Couldn't look for SSMS");
-      if (!exe) { problem.textContent = `There's no SSMS.exe signed by Microsoft in ${folder}. Choose the folder that holds it (…\\Common7\\IDE).`; problem.hidden = false; return; }
+      if (!exe) { problem.textContent = `There's no SSMS.exe signed by Microsoft in ${folder}. Choose the folder of SSMS 21 or later that holds it (…\\Common7\\IDE).`; problem.hidden = false; return; }
       whSsmsRememberFolder(folder);
       closeDialog();
       await whSsmsLaunch(ref, conn, query);

@@ -2652,7 +2652,7 @@ fn open_in_ssms(chosen: Option<String>, server: String, database: String, user: 
         Some(q) if q.len() > ssms_link::QUERY_MAX => return Err("The query is too long to hand to SSMS.".into()),
         Some(q) => {
             let dir = data_dir().join("ssms");
-            std::fs::create_dir_all(&dir).map_err(|e| format!("Could not save the query for SSMS: {e}"))?;
+            std::fs::create_dir_all(&dir).map_err(|e| format!("Couldn't save the query for SSMS: {e}"))?;
             let day = std::time::Duration::from_secs(24 * 3600);
             for old in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
                 let stale = old.metadata().and_then(|m| m.modified()).ok()
@@ -2663,12 +2663,12 @@ fn open_in_ssms(chosen: Option<String>, server: String, database: String, user: 
             }
             let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
             let path = dir.join(ssms_link::query_file_name(&database, stamp));
-            std::fs::write(&path, q).map_err(|e| format!("Could not save the query for SSMS: {e}"))?;
+            std::fs::write(&path, q).map_err(|e| format!("Couldn't save the query for SSMS: {e}"))?;
             Some(path)
         }
     };
     let args = ssms_link::args(&server, &database, &user, file.as_deref())?;
-    Command::new(&program).args(&args).spawn().map(|_| ()).map_err(|e| format!("Could not open SSMS: {e}"))
+    Command::new(&program).args(&args).spawn().map(|_| ()).map_err(|e| format!("Couldn't open SSMS: {e}"))
 }
 
 /// "Open in VS Code (MSSQL extension)" on the Warehouse page: VS Code's MSSQL extension, connected

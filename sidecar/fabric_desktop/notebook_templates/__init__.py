@@ -103,8 +103,8 @@ def _parameters(source: str) -> tuple[dict[str, Any], list[str]]:
             try:
                 values[node.targets[0].id] = ast.literal_eval(node.value)
                 continue
-            except ValueError:
-                pass
+            except (ValueError, TypeError, MemoryError, RecursionError):  # silent-ok: reported just below
+                pass  # not a plain value ({[]: 1} is a TypeError): listed as code, not a crash
         problems.append(f"The Parameters cell has code on line {node.lineno}; it may only set values")
     return values, problems
 
@@ -277,7 +277,8 @@ def accept(nb: dict[str, Any], by: str, record: dict[str, Any]) -> dict[str, Any
 
 
 def record_version(allow_change: bool = False) -> dict[str, dict[str, str]]:
-    """For template maintainers: add the current VERSION's standard-cell hashes to standards.json.
+    """For template maintainers only, from a source checkout (it rewrites standards.json in the package
+    folder, so never run it from an installed engine): add the current VERSION's standard-cell hashes.
 
     A released version's hashes never change, or notebooks built from it would stop conforming: after editing a
     standard cell, raise VERSION (and the version in every marker) first. ``allow_change`` is only for a version

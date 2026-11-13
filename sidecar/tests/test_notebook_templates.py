@@ -156,6 +156,13 @@ def test_added_code_and_code_in_parameters_make_it_domain_owned():
     assert any("Parameters cell has code" in c for c in changes)
 
 
+def test_a_parameter_value_python_cannot_read_as_a_value_is_listed_not_a_crash():
+    nb = nt.load("fabric", "silver")
+    _cell(nb, "parameters")["source"].append("\nbad = {[]: 1}\n")  # literal_eval raises TypeError (unhashable)
+    changes = nt.check(nb)["changes"]
+    assert any("Parameters cell has code" in c and "may only set values" in c for c in changes)
+
+
 def test_markdown_notes_and_parameter_values_keep_it_conforming():
     nb = nt.load("snowflake", "gold_dim_type2")
     nb["cells"].insert(2, {"cell_type": "markdown", "metadata": {}, "source": ["Owned by the Sales domain."]})

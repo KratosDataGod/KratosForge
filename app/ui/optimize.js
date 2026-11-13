@@ -4,7 +4,9 @@
 
 const optimizePage = { tab: "overview", closed: false, localDismissed: false };
 
-const OPTIMIZE_TABS = [["overview", "Overview"], ["opportunities", "Opportunities"], ["cost", "Cost and savings"], ["settings", "Settings history"]];
+const OPTIMIZE_TABS = [["overview", "Overview"], ["opportunities", "Opportunities"], ["assessment", "Assessment"], ["cost", "Cost and savings"], ["settings", "Settings history"]];
+// Tabs that read neither the shared lakehouse nor its status: they draw themselves.
+const OPTIMIZE_OWN_TABS = ["assessment", "cost", "settings"];
 
 // A recommendation's state as people say it, and the moves offered from it (shared.TRANSITIONS).
 const REC_STATE = { open: "Open", accepted: "Accepted", applied: "Applied", dismissed: "Dismissed", verified: "Verified", superseded: "Superseded" };
@@ -18,7 +20,7 @@ const REC_MOVES = {
 };
 
 async function renderOptimize() {
-  if (!OPTIMIZE_TABS.some(([id]) => id === optimizePage.tab)) optimizePage.tab = "overview";
+  if (!OPTIMIZE_TABS.some(([id]) => id === optimizePage.tab) || (optimizePage.tab === "assessment" && !previewShown())) optimizePage.tab = "overview";
   // The page layout every tabbed page shares (docs/ui-guidelines.md): which lakehouse results are shared
   // through is the line under the title, setting one up is the page's buttons, then the tabs and Refresh.
   const band = h("p", { class: "sub optimize-band" }, "Reading Optimize's settings...");
@@ -30,7 +32,7 @@ async function renderOptimize() {
       h("h1", {}, "Optimize ", previewTag()), band, sync,
       pageIntro("What your Fabric estate could do better, what was fixed and what it could save, shared with everyone on your optimization lakehouse. ",
         learnMore("optimize-preview"))), actions),
-    h("div", { class: "subtabs", role: "tablist", "aria-label": "Optimize views" }, OPTIMIZE_TABS.map(([id, label]) =>
+    h("div", { class: "subtabs", role: "tablist", "aria-label": "Optimize views" }, OPTIMIZE_TABS.filter(([id]) => id !== "assessment" || previewShown()).map(([id, label]) =>
       h("button", { class: `tab${optimizePage.tab === id ? " active" : ""}`, role: "tab", "aria-selected": optimizePage.tab === id ? "true" : "false",
         onclick: () => { optimizePage.tab = id; render(); } }, label))),
     h("div", { class: "row mesh-view-row" }, h("span", { class: "spacer" }), btn("Refresh", "sync", () => render(), "tool outline")),
@@ -39,6 +41,8 @@ async function renderOptimize() {
   if (optimizePage.tab === "cost") body.append(costPanel(), previewShown() ? databricksCostSection() : "");
   // Settings history reads the central lakehouse's fdcap_ and fdten_ tables itself.
   if (optimizePage.tab === "settings") body.append(settingsHistoryPanel());
+  // Assessment reads a workspace or capacity straight from Fabric (optimize-assess.js), no lakehouse needed.
+  if (optimizePage.tab === "assessment") optimizeAssessPanel(body);
   const status = await rpc("optimize_status").catch(() => null);
   if (state.view !== "optimize" || !band.isConnected) return;
   const [line, buttons] = optimizeBand(status);
@@ -48,7 +52,7 @@ async function renderOptimize() {
   sync.replaceChildren(...(synced || []));
   actions.replaceChildren(...buttons);
   actions.classList.toggle("optimize-setup", !!status?.allowed && !status.active);
-  if (optimizePage.tab === "cost" || optimizePage.tab === "settings") return;
+  if (OPTIMIZE_OWN_TABS.includes(optimizePage.tab)) return;
   if (!status?.active) {
     const note = h("p", { class: "muted-text" }, status && !status.allowed
       ? "Your organization has turned off shared optimization lakehouses."

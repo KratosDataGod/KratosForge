@@ -154,6 +154,10 @@ test("with Outputs ticked it finds text in outputs, marks it, opens a traceback,
   await bar.getByRole("button", { name: "Replace all" }).click();
   await page().locator("#toast").getByText(/2 in outputs were left as they are/).waitFor();
   await bar.getByRole("button", { name: "Undo replace all" }).click();
+  await bar.getByLabel("Find in notebook").fill("NameError");  // only in an output
+  await bar.getByRole("button", { name: "Replace all" }).click();
+  await page().locator("#toast").getByText("The 1 match is in outputs, which Replace leaves as it is, so nothing was changed.").waitFor();
+  assert.deepStrictEqual(await sources(), before);
   await bar.locator("label.nb-find-out input").uncheck();
   assert.strictEqual(await page().evaluate(() => CSS.highlights.get("nb-find-out").size), 0);
 });

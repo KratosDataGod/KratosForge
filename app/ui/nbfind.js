@@ -309,7 +309,11 @@ function replaceAll() {
     byCell.get(m.cell).push({ from: m.from, to: m.to, insert: findReplacement(m, nbFind.q, nbFind.with, findOpts()) });
   }
   if (!byCell.size) {
-    if (frozen || outputs) toast("Nothing was changed: the matches are in frozen cells or in outputs, which Replace leaves as they are.");
+    if (frozen || outputs) {
+      const all = frozen + outputs;
+      const where = !frozen ? "in outputs" : !outputs ? "in frozen cells" : `in frozen cells (${frozen}) or outputs (${outputs})`;
+      toast(`${all === 1 ? "The 1 match is" : `All ${all} matches are`} ${where}, which Replace leaves as ${all === 1 ? "it is" : "they are"}, so nothing was changed.`);
+    }
     return;
   }
   // Undo puts back each cell's text from before, but only while the cell still has the replaced text.

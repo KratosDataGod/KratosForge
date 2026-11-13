@@ -606,7 +606,7 @@ async function sqlHoverCard(target, dialect, provider) {
     return [
       head(target.kind === "alias" ? `${target.name} → ${sqlTableLabel(target.table)}` : sqlTableLabel(target.table), "table"),
       shown.length ? h("div", { class: "nb-intel-doc sql-intel-cols" }, ...shown.map((c) => h("div", {}, h("code", {}, c.name), " ", h("span", { class: "nb-intel-kind" }, c.type || "")))) : null,
-      cols.length > shown.length ? h("div", { class: "nb-intel-value" }, `${cols.length - shown.length} more columns`) : null,
+      cols.length > shown.length ? h("div", { class: "nb-intel-value" }, `${cols.length - shown.length} more column${cols.length - shown.length === 1 ? "" : "s"}`) : null,
     ];
   }
   if (target.kind === "column") {

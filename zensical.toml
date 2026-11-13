@@ -91,6 +91,7 @@ nav = [
     { "Where to run a notebook" = "finops/placement-advice.md" },
     { "Optimize lakehouse" = "optimize/README.md" },
     { "Optimize security and retention" = "optimize/security.md" },
+    { "Optimization engine" = "optimize/engine.md" },
     { "Metadata framework" = "metadata-guide.md" },
     { "Semantic model best practices" = "semantic-model-best-practices.md" },
     { "Source control" = "source-control.md" },
@@ -144,6 +145,7 @@ nav = [
     { "Multiple workers design" = "workloads/multi-worker.md" },
     { "FinOps program plan" = "finops/plan.md" },
     { "Optimize program plan" = "optimize/plan.md" },
+    { "Optimization engine plan" = "optimize/engine-plan.md" },
     { "Writing a Learn lesson" = "learn/writing-lessons.md" },
     { "Academy plan" = [
       { "Overview" = "academy/README.md" },
@@ -191,9 +193,11 @@ nav = [
       { "Implementation review" = "product/IMPLEMENTATION_REVIEW_PROCESS.md" },
       { "Review template" = "product/reviews/TEMPLATE.md" },
       { "Competitive capability matrix" = "product/COMPETITIVE_CAPABILITY_MATRIX.md" },
+      { "Notebook and SQL editor parity" = "product/editor-parity.md" },
       { "Development status" = "product/DEVELOPMENT_STATUS.md" },
       { "Development operations" = "product/operations/README.md" },
       { "12-week roadmap" = "product/operations/roadmap.md" },
+      { "Execution plan, week of 11-16" = "product/operations/execution-plan-2026-11-16.md" },
     ] },
   ] },
   { "Contributing" = [

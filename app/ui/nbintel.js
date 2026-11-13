@@ -82,7 +82,7 @@ async function intelShowHover(view, x, y) {
   const line = view.state.doc.lineAt(pos);
   let info = null;
   try {
-    info = await rpc("kernel_inspect", { code: line.text, cursor: pos - line.from });
+    info = await rpc("kernel_inspect", { code: line.text, cursor: pos - line.from, notebook: state.notebook?.name });
   } catch {
     return;  // the engine is busy or stopped: no card
   }
@@ -115,7 +115,7 @@ async function intelShowSignature(view) {
   const seq = ++intelSigSeq;
   let help = null;
   try {
-    help = await rpc("kernel_inspect", { code, call: true });
+    help = await rpc("kernel_inspect", { code, call: true, notebook: state.notebook?.name });
   } catch {
     help = null;
   }
@@ -138,7 +138,7 @@ function intelCompletionInfo(base, label) {
     const code = `${base}${label}`;
     let info = null;
     try {
-      info = await rpc("kernel_inspect", { code, cursor: code.length });
+      info = await rpc("kernel_inspect", { code, cursor: code.length, notebook: state.notebook?.name });
     } catch {
       return null;
     }

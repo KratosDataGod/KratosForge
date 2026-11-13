@@ -18,17 +18,42 @@ function currentSkin() {
   return list.find((s) => s.id === id) || list.find((s) => s.id === "kratosforge") || null;
 }
 
-// Sets the skin's light tokens on <html> (the KratosForge skin's are styles.css's own, so it sets none)
-// and marks <body> with its id. Only what the previous skin set is removed.
+// Light or dark (ui_color_mode): "skin" follows the skin's own mode, which is light for KratosForge.
+// A value set by policy always applies; a user's own choice only while Preview features are shown,
+// since the choice itself is Preview.
+function colorMode(skin) {
+  const set = state.settings?.ui_color_mode;
+  const pick = set?.source === "policy" || previewShown() ? set?.value || "skin" : "skin";
+  const mode = pick === "skin" ? skin?.appearance?.color_mode : pick;
+  return mode === "dark" ? "dark" : "light";
+}
+
+// Sets the skin's tokens for the color mode on <html> (the KratosForge skin's are styles.css's own, so it
+// sets none), marks <html> with the mode and <body> with the skin's id. Only what the previous skin set is
+// removed. In dark, a skin without dark tokens draws with KratosForge's dark.
 function applySkin() {
   const skin = currentSkin();
+  const mode = colorMode(skin);
   const root = document.documentElement.style;
   for (const name of skinState.applied?.tokens || []) root.removeProperty(name);
-  const tokens = skin && skin.id !== "kratosforge" ? skin.appearance?.tokens?.light || {} : {};
+  document.documentElement.dataset.colorMode = mode;
+  const tokens = skin && skin.id !== "kratosforge" ? skin.appearance?.tokens?.[mode] || {} : {};
   for (const [name, value] of Object.entries(tokens)) root.setProperty(name, value);
   skinState.applied = { id: skin?.id || "kratosforge", tokens: Object.keys(tokens) };
   document.body.dataset.skin = skinState.applied.id;
+  // The skin's look (appearance.style), one attribute per part, e.g. data-skin-rail="inline". The engine
+  // checked each value against its fixed choices; styles.css draws them. A part the skin leaves out is
+  // KratosForge's own. The look is Preview: with Preview features hidden, every part is the default.
+  const style = PREVIEW_FEATURES.skins && previewShown() ? skin?.appearance?.style || {} : {};
+  for (const [part, own] of Object.entries(SKIN_STYLE_DEFAULTS)) {
+    document.body.dataset[`skin${part[0].toUpperCase()}${part.slice(1)}`] = style[part] || own;
+  }
 }
+
+// KratosForge's own look, part by part: the first choice of each in the engine's STYLE (test_skins.py
+// keeps the two equal).
+const SKIN_STYLE_DEFAULTS = { font: "segoe-variable", header: "light", rail: "stacked", corners: "soft",
+  tabs: "underline", cells: "bordered", icons: "regular" };
 
 // The rail's order under the skin: pages it names come first, in its order; the rest keep theirs after.
 function skinRailSort(list) {

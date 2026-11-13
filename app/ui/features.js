@@ -190,6 +190,9 @@ function withHowItWorks(main, panel) {
 // explanation (pageIntro) open as a drawer from the title bar's info button, and a Preview dot keeps
 // the tag's words for screen readers and as its tooltip.
 const LAYOUT_CHOICES = {
+  // Shown under Skin in Appearance (settings.js), not with the layout choices.
+  ui_color_mode: ["Color mode (Preview)", "Light or dark. Follow the skin uses the skin's own mode, which is light for KratosForge. Your organization can set it for everyone.",
+    [["skin", "Follow the skin"], ["light", "Light"], ["dark", "Dark"]]],
   ui_explanations: ["Explanations", "Each page's one-line explanation and How this works panel: what it reads, what it changes and where results go.",
     [["beside", "Beside the page"], ["on_request", "On request"]]],
   ui_preview_marks: ["Preview marks", "How features still in preview are marked. Page titles keep the full tag.",

@@ -160,6 +160,85 @@ test("F5 runs the selection or the whole query, as in SSMS, and never reloads th
   assert.match(await run.getAttribute("title"), /F5/);
 });
 
+test("the results pane maximizes, hides with Ctrl+R wherever focus is, and comes back on a run", { skip }, async () => {
+  await page().evaluate(() => { window.__notReloaded = true; });
+  const card = page().locator(".sql-card");
+  await setDoc("SELECT 10 AS j");
+  await page().getByRole("button", { name: "Maximize", exact: true }).click();
+  assert.match(await card.getAttribute("class"), /sql-pane-max/);
+  assert.ok(!(await page().locator(".sql-edit").isVisible()), "the editor is hidden");
+  assert.ok(await page().locator(".sql-grid").isVisible());
+  await page().getByRole("button", { name: "Restore", exact: true }).click();
+  assert.ok(await page().locator(".sql-edit").isVisible());
+  const gridBox = await page().locator(".sql-edit").boundingBox();
+  await page().evaluate(() => sqlPage.editor.focus());
+  await page().keyboard.press("Control+r");
+  assert.match(await card.getAttribute("class"), /sql-pane-hidden/);
+  assert.ok(!(await page().locator(".sql-grid").isVisible()), "the results are hidden");
+  assert.ok((await page().locator(".sql-edit").boundingBox()).height > gridBox.height, "the editor takes the room");
+  assert.ok(await page().getByRole("button", { name: "Show results", exact: true }).isVisible());
+  await page().evaluate(() => { document.activeElement?.blur(); document.body.focus(); });
+  await page().keyboard.press("Control+r");
+  assert.doesNotMatch(await card.getAttribute("class"), /sql-pane-hidden/, "Ctrl+R outside the editor shows them again");
+  await page().evaluate(() => sqlPage.editor.focus());
+  await page().keyboard.press("Control+r");
+  await page().keyboard.press("F5");
+  await page().waitForFunction(() => document.querySelector(".sql-pill")?.textContent === "Succeeded");
+  assert.doesNotMatch(await card.getAttribute("class"), /sql-pane-hidden/, "a run shows the results");
+  assert.ok(await page().locator(".sql-grid").isVisible());
+  assert.strictEqual(await page().evaluate(() => window.__notReloaded), true, "Ctrl+R never reloads the window");
+});
+
+test("Ctrl+Shift+U and Ctrl+Shift+L change case, and Ctrl+G goes to a line", { skip }, async () => {
+  await setDoc("select a\nfrom Sales\nwhere x = 1", 0);
+  await select(0, 6);
+  await page().keyboard.press("Control+Shift+U");
+  assert.strictEqual(await docText(), "SELECT a\nfrom Sales\nwhere x = 1");
+  await page().evaluate(() => { sqlPage.editor.view.dispatch({ selection: { anchor: 15 } }); sqlPage.editor.focus(); });  // in "Sales"
+  await page().keyboard.press("Control+Shift+L");
+  assert.strictEqual(await docText(), "SELECT a\nfrom sales\nwhere x = 1", "the word at the cursor");
+  await page().keyboard.press("Control+z");
+  assert.strictEqual(await docText(), "SELECT a\nfrom Sales\nwhere x = 1", "one undo step");
+  // Two cursors in one word, and a selection inside it: the word changes once.
+  await setDoc("select Sales", 0);
+  await page().evaluate(() => {
+    const v = sqlPage.editor.view;
+    const ES = v.state.selection.constructor;  // EditorSelection
+    v.dispatch({ selection: ES.create([ES.cursor(8), ES.cursor(10), ES.range(9, 11)]) });
+    v.focus();
+  });
+  await page().keyboard.press("Control+Shift+U");
+  assert.strictEqual(await docText(), "select SALES");
+  await setDoc("SELECT a\nfrom Sales\nwhere x = 1", 0);
+  await page().keyboard.press("Control+g");
+  const box = page().locator(".sql-edit .cm-gotoLine input");
+  await box.waitFor();
+  await box.fill("3");
+  await box.press("Enter");
+  const line = await page().evaluate(() => { const v = sqlPage.editor.view; return v.state.doc.lineAt(v.state.selection.main.head).number; });
+  assert.strictEqual(line, 3);
+  assert.strictEqual(await docText(), "SELECT a\nfrom Sales\nwhere x = 1");
+});
+
+test("Ctrl+Shift+Enter runs only the statement at the cursor, or the selection", { skip }, async () => {
+  const text = "SELECT 7 AS g;\n\nSELECT 8 AS h\nFROM sales;\nSELECT 9 AS i";
+  await setDoc(text, text.indexOf("FROM"));
+  await page().keyboard.press("Control+Shift+Enter");
+  await page().waitForFunction(() => document.querySelector(".sql-pill")?.textContent === "Succeeded");
+  assert.strictEqual(runs.at(-1).query, "SELECT 8 AS h\nFROM sales");
+  await setDoc(text, "SELECT 7 AS g;".length);  // just after the semicolon: the statement it ends
+  await page().keyboard.press("Control+Shift+Enter");
+  await page().waitForFunction(() => document.querySelector(".sql-pill")?.textContent === "Succeeded");
+  assert.strictEqual(runs.at(-1).query, "SELECT 7 AS g");
+  await select(text.indexOf("SELECT 9"), text.indexOf("SELECT 9") + "SELECT 9".length);
+  await page().keyboard.press("Control+Shift+Enter");
+  await page().waitForFunction(() => document.querySelector(".sql-pill")?.textContent === "Succeeded");
+  assert.strictEqual(runs.at(-1).query, "SELECT 9");
+  assert.strictEqual(await docText(), text, "nothing in the editor changed");
+  const run = page().getByRole("button", { name: "Run", exact: true });
+  assert.match(await run.getAttribute("title"), /Ctrl\+Shift\+Enter/);
+});
+
 test("SQL errors stay visible under the editor", { skip }, async () => {
   await setDoc("SELECT boom");
   await page().keyboard.press("Control+Enter");

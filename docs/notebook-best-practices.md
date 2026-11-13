@@ -37,14 +37,17 @@ built, and the panel says so. The panel doesn't check NB004 and NB008, which are
 | NB010 | Warning | Table written inside a loop | Collect the rows and write once |
 | NB011 | Info | `count()` called three or more times on one DataFrame | Keep the count in a variable, or cache |
 | NB012 | Warning | Error caught and ignored (`except ...: pass`) | Log the error, or let it fail |
+| NB014 | Warning | Row-by-row pandas loop (`iterrows()`, `itertuples()`, `apply(..., axis=1)`) | Write a column expression, or use Polars or DuckDB |
+| NB015 | Info | Polars `read_csv` or `read_parquet` followed by `.filter()` | `scan_csv` or `scan_parquet`, then `.filter()` and `.collect()` |
+| NB017 | Info | `print()` for logging in a scheduled notebook | The `logging` module, or a table of run facts |
 | NB018 | Info | Python UDF in Spark code (`udf`, `@udf`, `spark.udf.register`) | Use a built-in function, or a `pandas_udf` |
 | NB019 | Warning | Spark reads straight from an `http(s)` address | Copy the file into the lakehouse's `Files` first |
 | NB020 | Warning | `VACUUM` keeps less than 7 days (168 hours) of history | Keep the default retention |
 
-NB013 to NB017 are kept for rules the Learn plan names next. NB018 to NB020 are based on guidance in
+NB013 and NB016 are kept for rules the Learn plan names next. NB018 to NB020 are based on guidance in
 Microsoft's [skills-for-fabric](https://github.com/microsoft/skills-for-fabric) (MIT), written in our own words.
 
-Secrets are found with the same patterns the Git page uses before a commit. Rules NB004 and NB008
+Secrets are found with the same patterns the Git page uses before a commit. Rules NB004, NB008 and NB017
 apply only when the check is told the notebook runs on a schedule. A cell that doesn't parse is
 still checked for secrets, ids in paths and `%pip` lines; the editor already underlines its syntax
 error. Scala, R and other `%%` cells are skipped, except `%%sql`.
@@ -125,6 +128,8 @@ sample = df.limit(1000).toPandas()                              # or take a samp
 ```
 
 When it's fine: the DataFrame is already small by construction, such as the result of an aggregation.
+A Polars lazy query's `.collect()` (after `pl.scan_parquet` or `.lazy()`) runs the query on this PC and
+isn't reported, also when the lazy frame is kept in a name first (`lf = pl.scan_parquet(...)`, then `lf.collect()`).
 
 Principle: Move the work to the data, not all the data to one machine.
 
@@ -322,6 +327,76 @@ Principle: Fail loudly, or handle only the errors you expect and say that you di
 Impact: Reliability. The run reports success while a table is wrong or missing.
 
 How to check: Make the expected error happen once (a missing file, for example) and see the message. Any other error still fails the run.
+
+### NB014
+
+**Row-by-row pandas loop** · Warning · Performance · Recommended
+
+Why: `iterrows()`, `itertuples()` and `apply(..., axis=1)` call Python once for every row. On a table
+of a million rows that's a million calls, where a column expression runs once in compiled code.
+
+```python
+# Before
+df["net"] = df.apply(lambda r: r["gross"] - r["tax"], axis=1)
+# After
+df["net"] = df["gross"] - df["tax"]
+```
+
+When it's fine: the table has a few hundred rows, or each row calls something outside pandas (an API,
+a file) that has no column form.
+
+Principle: Say what happens to a column, not to each row.
+
+Impact: Performance. Time grows with every row.
+
+How to check: Both forms give the same column, and the cell runs faster on the same data on this PC.
+
+### NB015
+
+**Polars reads the whole file, then filters** · Info · Performance · Educational
+
+Why: `pl.read_csv` and `pl.read_parquet` load every row into memory before `.filter()` drops the
+rows you don't need. A lazy scan may push the filter into the read, so less is read and kept.
+
+```python
+# Before
+eu = pl.read_parquet("Files/sales.parquet").filter(pl.col("region") == "EU")
+# After
+eu = pl.scan_parquet("Files/sales.parquet").filter(pl.col("region") == "EU").collect()
+```
+
+When it's fine: the file is small, or you need every row in memory for later steps anyway.
+
+Principle: Tell the reader what you need before it reads.
+
+Impact: Memory and performance. The whole file is loaded first.
+
+How to check: Both forms return the same rows, and the scan uses less memory on this PC.
+
+### NB017
+
+**`print()` used for logging in a scheduled notebook** · Info · Maintenance · Educational
+
+Why: when a notebook runs on a schedule, nobody reads its printed output, and a printed line has no
+time, level or source. When a run goes wrong, the facts you need aren't kept anywhere you can search.
+
+```python
+# Before
+print("loaded", row_count)
+# After
+import logging
+log = logging.getLogger("load_sales")
+log.info("loaded %s rows", row_count)
+```
+
+When it's fine: the print is for a person running the notebook by hand. This rule only applies when
+the check is told the notebook runs on a schedule.
+
+Principle: A scheduled run writes facts somewhere they're kept.
+
+Impact: Operations. A failed run leaves less to go on.
+
+How to check: The run's facts appear in the log or table after a scheduled run.
 
 ### NB018
 

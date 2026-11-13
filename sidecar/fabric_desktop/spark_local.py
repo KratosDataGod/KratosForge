@@ -1857,6 +1857,19 @@ def watch_connections(ident: int, connections: Any) -> None:
     _cell_connections[ident] = connections
 
 
+def release_cancelled() -> None:
+    """Release a result that a Cancel left unread on ``spark``'s connection. A Cancel that lands after
+    DuckDB has run a query but before Python has read its result leaves that result open: it holds
+    its memory, and query_progress keeps reporting its last figure under the next cell. A no-op
+    query releases it. A connection with nothing open is left alone."""
+    if progress() is None:
+        return
+    try:
+        _session.conn.execute("SELECT 1").fetchall()  # type: ignore[union-attr]
+    except Exception:  # noqa: BLE001  # silent-ok: best-effort release; a closed connection holds nothing
+        pass
+
+
 def interrupt(connections: Any = ()) -> None:
     """Stop a running DuckDB query, for Cancel: on ``spark``, DuckDB's default connection and
     ``connections`` (those the notebook opened)."""

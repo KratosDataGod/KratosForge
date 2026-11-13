@@ -294,3 +294,54 @@ def test_the_kratosforge_skin_places_no_commands():
 def test_the_databricks_and_snowflake_skins_mark_the_active_page_in_their_accent(skin_id):
     for mode, tokens in skins.BUILT_IN[skin_id]["appearance"]["tokens"].items():
         assert tokens["--rail-active"] == tokens["--accent"], mode
+
+
+# ---------- look and feel (appearance.style; mockup "skin look and feel") ----------
+
+def _style(skin_id="custom", **style):
+    m = _skin(appearance={"style": style})
+    m["id"] = skin_id
+    return m
+
+
+def test_a_skin_chooses_its_look_from_fixed_choices():
+    m = _style(font="inter", header="none", rail="inline", corners="round", tabs="pill", cells="rounded",
+               icons="regular")
+    assert skins.parse(skins.dump(m), skins.BASE) == m
+
+
+@pytest.mark.parametrize("style, problem", [
+    ({"font": "Comic Sans"}, "appearance style font must be one of segoe-variable, segoe, dm-sans, inter"),
+    ({"corners": "12px"}, "appearance style corners must be one of soft, square, round"),
+    ({"tabs": {"css": "x"}}, "appearance style tabs must be one of underline, boxed, pill"),
+    ({"css": "body{}"}, "appearance style has keys a skin can't hold: css"),
+    ({"header": "hero"}, "appearance style header must be one of light, brand, none"),
+    ({"buttons": "forge"}, "appearance style has keys a skin can't hold: buttons"),
+])
+def test_a_look_outside_the_choices_is_refused(style, problem):
+    assert problem in _problems(_style(**style))
+
+
+def test_style_must_be_an_object():
+    assert "appearance style must be an object of part: choice" in _problems(_skin(appearance={"style": "dark"}))
+
+
+@pytest.mark.parametrize("skin_id, font, header, rail, tabs", [
+    ("fabric", "segoe", "brand", "stacked", "underline"),
+    ("databricks", "dm-sans", "light", "inline", "boxed"),
+    ("snowflake", "inter", "none", "inline", "pill"),
+])
+def test_the_platform_skins_look_as_drawn(skin_id, font, header, rail, tabs):
+    style = skins.BUILT_IN[skin_id]["appearance"]["style"]
+    assert (style["font"], style["header"], style["rail"], style["tabs"]) == (font, header, rail, tabs)
+
+
+def test_the_kratosforge_skin_keeps_todays_look():
+    assert "style" not in skins.KRATOSFORGE["appearance"]
+
+
+def test_the_apps_default_look_is_the_first_choice_of_each_part():
+    js = (UI / "skins.js").read_text(encoding="utf-8")
+    block = re.search(r"const SKIN_STYLE_DEFAULTS = \{(.*?)\};", js, re.S).group(1)
+    app = dict(re.findall(r'(\w+): "([^"]+)"', block))
+    assert app == {part: choices[0] for part, choices in skins.STYLE.items()}

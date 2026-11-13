@@ -433,6 +433,7 @@ function updateResults(cell) {
   if (!el) return;
   el.querySelector(".cell-results")?.replaceChildren(...cellResults(cell));
   if (cell.type === "code") el.querySelector(".gutter")?.replaceWith(renderGutter(cell));
+  if (typeof findOutputsChanged === "function") findOutputsChanged();  // nbfind.js: matches in outputs
 }
 
 function cellMenu(cell) {

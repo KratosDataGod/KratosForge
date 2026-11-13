@@ -190,6 +190,7 @@ nav = [
       { "Implementation review" = "product/IMPLEMENTATION_REVIEW_PROCESS.md" },
       { "Review template" = "product/reviews/TEMPLATE.md" },
       { "Competitive capability matrix" = "product/COMPETITIVE_CAPABILITY_MATRIX.md" },
+      { "Notebook and SQL editor parity" = "product/editor-parity.md" },
       { "Development status" = "product/DEVELOPMENT_STATUS.md" },
       { "Development operations" = "product/operations/README.md" },
       { "12-week roadmap" = "product/operations/roadmap.md" },

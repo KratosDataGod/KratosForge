@@ -70,7 +70,7 @@ SQLite refuses ATTACH and DETACH, so a cell can't create or open another databas
 reads the files a cell names with read_parquet or read_csv, and never writes one.
 
 The Python engine uses the notebook's own session (the same process **Stop** ends), so it needs
-**Run notebooks in their own process** turned on in Settings. With it off every notebook shares one
+**Run notebooks in their own process** (on by default in Settings). With it off every notebook shares one
 kernel, and a notebook sharing another notebook's session shares its process too; in both cases the
 engine says what to change instead of running.
 

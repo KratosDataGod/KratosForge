@@ -243,7 +243,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Learn | Lessons, practice labs on this PC and the best-practice rules, opened from Academy > Practice ([learn.md](learn.md)) |
 | App Studio | Create > Applications: build an app from a template, preview it on sample data on this PC, and keep every version ([app-studio.md](app-studio.md)) |
 
-Two notebook settings are also in Preview: **Run notebooks in their own process**, and the **notebook cell time and memory limits** that need it (both in Settings > Preview features).
+Notebooks run in a process of their own by default (**Run notebooks in their own process**, Settings > Advanced), which the **notebook cell time and memory limits** need.
 
 **Local data projects** (Preview) run on your PC and don't call Fabric. Their tests use real files, DuckDB and Delta tables on every build; there are no screens for them yet ([local-data.md](local-data.md)).
 

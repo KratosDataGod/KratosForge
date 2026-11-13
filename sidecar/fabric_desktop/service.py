@@ -842,9 +842,10 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def kernel_complete(self, code: str, cursor: int | None = None, notebook: str | None = None) -> dict[str, Any]:
         return self.sessions.kernel(notebook).complete(code, cursor)
 
-    def kernel_inspect(self, code: str, cursor: int | None = None, call: bool = False) -> dict[str, Any] | None:
+    def kernel_inspect(self, code: str, cursor: int | None = None, call: bool = False,
+                       notebook: str | None = None) -> dict[str, Any] | None:
         """Hover docs or signature help for the notebook editor (intellisense.py); runs no code."""
-        return self.kernel.inspect(code, cursor, bool(call))
+        return self.sessions.kernel(notebook).inspect(code, cursor, bool(call))
 
     def notebook_syntax(self, source: str) -> list[dict[str, Any]]:
         """The first Python syntax error in a cell, for the editor's red underline."""
@@ -874,46 +875,61 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         from .notebook_practices import rules
         return rules()
 
-    def kernel_variable_detail(self, name: str) -> dict[str, Any]:
-        return self.kernel.variable_detail(str(name))
+    def kernel_variable_detail(self, name: str, notebook: str | None = None) -> dict[str, Any]:
+        session = self.sessions.session(notebook, create=False)
+        if session is None:
+            return {"name": str(name), "missing": True}
+        return session.kernel.variable_detail(str(name))
 
     # ---- the result viewer behind a cell's table output (frames.py)
 
+    def _frame_kernel(self, notebook: str | None) -> Any:
+        """The kernel holding a cell's result: the notebook's own session when the app names it (with a
+        process per notebook, the open one may be another), else the open notebook's. A notebook with
+        no session holds no results."""
+        if notebook is None:
+            return self.kernel
+        session = self.sessions.session(notebook, create=False)
+        if session is None:
+            raise FrameGone(GONE)
+        return session.kernel
+
     def notebook_frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
-                            desc: bool = False, q: str = "") -> dict[str, Any]:
+                            desc: bool = False, q: str = "", notebook: str | None = None) -> dict[str, Any]:
         """A page of a cell's whole result, searched and sorted over every row."""
         try:
-            return self.kernel.frame_page(frame=frame, offset=offset, limit=limit, sort=sort, desc=desc, q=q)
+            return self._frame_kernel(notebook).frame_page(frame=frame, offset=offset, limit=limit, sort=sort, desc=desc, q=q)
         except (FrameGone, RuntimeError) as exc:
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
 
     def notebook_frame_chart(self, frame: str, kind: str = "bar", x: int | None = None, y: int | None = None,
-                             agg: str = "sum", series: int | None = None, bins: int = 20) -> dict[str, Any]:
+                             agg: str = "sum", series: int | None = None, bins: int = 20,
+                             notebook: str | None = None) -> dict[str, Any]:
         """The Chart view's numbers, aggregated over every row of a cell's result."""
         try:
-            return self.kernel.frame_chart(frame=frame, kind=kind, x=x, y=y, agg=agg, series=series, bins=bins)
+            return self._frame_kernel(notebook).frame_chart(frame=frame, kind=kind, x=x, y=y, agg=agg, series=series, bins=bins)
         except (FrameGone, RuntimeError) as exc:
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
 
-    def notebook_frame_profile(self, frame: str) -> dict[str, Any]:
+    def notebook_frame_profile(self, frame: str, notebook: str | None = None) -> dict[str, Any]:
         """Inspect: a profile of every row of a cell's result (display(df, summary=True))."""
         try:
-            return self.kernel.frame_profile(frame=frame)
+            return self._frame_kernel(notebook).frame_profile(frame=frame)
         except (FrameGone, RuntimeError) as exc:
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
 
-    def notebook_frame_query_profile(self, frame: str) -> dict[str, Any]:
+    def notebook_frame_query_profile(self, frame: str, notebook: str | None = None) -> dict[str, Any]:
         """Query profile: the query behind a cell's spark or %%sql result, run again under DuckDB's
         profiler, step by step (rows, time, share of the total). Reads only. ``notes`` are what the
         profile measured that a best-practice rule explains (learn/evidence.py, GD-04)."""
         try:
-            profile = self.kernel.frame_query_profile(frame=frame)
+            profile = self._frame_kernel(notebook).frame_query_profile(frame=frame)
             if not profile.get("gone"):
                 profile["notes"] = evidence.notes(profile)
             return profile
@@ -922,11 +938,12 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
 
-    def notebook_frame_wrangle(self, frame: str, steps: list[dict[str, Any]] | None = None, name: str = "df") -> dict[str, Any]:
+    def notebook_frame_wrangle(self, frame: str, steps: list[dict[str, Any]] | None = None, name: str = "df",
+                              notebook: str | None = None) -> dict[str, Any]:
         """Data Wrangler: Polars code for the cleaning steps and a preview of it on a cell's result.
         Reads only; the notebook changes when the person adds the code as a cell and runs it."""
         try:
-            return self.kernel.frame_wrangle(frame=frame, steps=list(steps or []), name=name)
+            return self._frame_kernel(notebook).frame_wrangle(frame=frame, steps=list(steps or []), name=name)
         except (FrameGone, RuntimeError) as exc:
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}
@@ -944,7 +961,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             return {"gone": True, "message": WIDGET_GONE}
         return session.kernel.ipywidget_event(model=str(model), event=dict(event or {}), root=root)
 
-    def notebook_frame_download(self, frame: str, format: str = "csv", name: str = "") -> dict[str, Any]:
+    def notebook_frame_download(self, frame: str, format: str = "csv", name: str = "",
+                                notebook: str | None = None) -> dict[str, Any]:
         """Write a cell's whole result to a new file in Downloads (CSV, Excel or Parquet); never replaces a file."""
         if format not in DOWNLOAD_FORMATS:
             raise ValueError(f"Download as {', '.join(DOWNLOAD_FORMATS)}.")
@@ -953,7 +971,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         base = f"{file_stem(name or 'notebook')} result {time.strftime('%Y-%m-%d %H%M%S')}"
         path = sql_exec._reserve(folder, base, "." + format)
         try:
-            return self.kernel.frame_download(frame=frame, format=format, path=str(path))
+            return self._frame_kernel(notebook).frame_download(frame=frame, format=format, path=str(path))
         except BaseException as exc:
             sql_exec._discard(path.with_name(path.name + ".partial"), path)
             if isinstance(exc, FrameGone) or str(exc) == GONE:

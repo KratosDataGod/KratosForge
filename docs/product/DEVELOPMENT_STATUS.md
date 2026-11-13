@@ -7,6 +7,10 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
 
 ## Summary
 
+- Acceptance, 2026-11-13: the product owner accepted PB-073 (notebook cell time and memory limits) with documented
+  limitations. Notebooks still share the in-engine kernel unless **Run notebooks in their own process** is on; making
+  it the default is PB-136, which waits on a clean Windows trial and the product owner's go. The 19 feature request
+  issues moved to a roadmap label, so open issues now track bugs only.
 - Morning check, 2026-11-13: 8 PRs merged after 36844275. 2 were product data and docs audit PRs, and the other 6
   were linked. The policy key docs now match what the app reads, with a test to keep them in step (PB-061). Agent
   schedules that are edited or removed in agent.toml run once, as configured now (PB-124). No item changed state;
@@ -213,7 +217,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 124 items (7 P0, 33 P1, 60 P2, 24 P3). 15 are Proposed, 30 In progress, 3 In review and 76 Accepted.
+- Backlog: 124 items (7 P0, 33 P1, 60 P2, 24 P3). 15 are Proposed, 30 In progress, 2 In review and 77 Accepted.
 - PB-125 (Learn ranks and profile pictures) and PB-126 (Learn curriculum content batches) are new and Proposed, from the
   product owner's ask of 2026-11-02; they build once the rank ladder is approved.
 - PB-124 (new, In progress, P0 like PB-101): the enterprise audit's EA remediation backlog (docs/audits/), tracked as its own item.
@@ -240,7 +244,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 3 In review items (PB-024, PB-045, PB-073), a tenant run of
+two release gates. Also waiting: acceptance of the 2 In review items (PB-024, PB-045), a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

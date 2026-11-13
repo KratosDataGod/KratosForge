@@ -2605,7 +2605,8 @@
         "app_settings.py key list",
         "docs/enterprise-install.md",
         "The three remaining allow_ switches fail closed, and a test keeps every allow_ key in RESTRICTED (#1150) on main at 0c96c9ce. The policy keys FD-105 lists (approved endpoints, execution location, updates, retention, telemetry) are still to decide",
-        "Policy key docs match what the app reads, and a test keeps them in step (#2569) on main at 6cab0dc3"
+        "Policy key docs match what the app reads, and a test keeps them in step (#2569) on main at 6cab0dc3",
+        "The product owner settled the open policy-key decisions on 2026-11-13: no general allowed_hosts filter and no \"Fabric only\" compute key (IT keeps the per-feature keys and the proxy host list); ui_color_mode gets applied through the platform skins work after a mockup. Still to land before review: ui_color_mode applied, and the audit and receipt retention keys with #2258 and #2305, which wait on the product owner's go"
       ],
       "features": [
         "FEAT-SHL-08"
@@ -3258,7 +3259,8 @@
       "evidence": [
         "kernel_proc.py",
         "Settings > Preview",
-        "Implementation review docs/product/reviews/PB-073-kernel-limits.md recommends Accept with documented limitations: cell time and memory limits shipped and tested (#115, #996, #1084; 53 kernel tests passed on main at 47416473); the default flip waits on a clean Windows trial rerun and Chris's go (#896 closed 2026-11-02) and moves to PB-136"
+        "Implementation review docs/product/reviews/PB-073-kernel-limits.md recommends Accept with documented limitations: cell time and memory limits shipped and tested (#115, #996, #1084; 53 kernel tests passed on main at 47416473); the default flip waits on a clean Windows trial rerun and Chris's go (#896 closed 2026-11-02) and moves to PB-136",
+        "Accepted with documented limitations by the product owner: Chris chose 'Accept with limits' on the decision card, 2026-11-13 12:39 UTC (project message cmsg_018T4o2pQdpbLBNhHpgVNNGp3ZUBsK6r4QNz6DBouE86Ey). The default flip is PB-136"
       ],
       "features": [
         "FEAT-NB-03"
@@ -3282,7 +3284,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "external_dependencies": [
         "Overlaps HD-012 kernel environment allowlist; HD-037 stop kills the whole process tree (Prove) (Codebase audit and hardening backlog, PB-101)"
       ],

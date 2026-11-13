@@ -15,6 +15,9 @@ It also includes third-party software under its own licenses:
   that folder).
 - markdown-it, markdown-it-texmath, KaTeX and the packages their build includes,
   in app/ui/vendor/markdown, with their license texts in LICENSES.md there.
+- The Inter and DM Sans typefaces (latin files from Fontsource), in
+  app/ui/vendor/fonts, under the SIL Open Font License 1.1 (LICENSE-inter and
+  LICENSE-dm-sans in that folder).
 - The Windows to IANA time zone map from Unicode CLDR, in
   sidecar/fabric_desktop/orchestration/windows_zones.py, under the Unicode
   License v3 (its text is at the top of that file).

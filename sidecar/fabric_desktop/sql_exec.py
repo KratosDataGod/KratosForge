@@ -54,7 +54,10 @@ warehouse for a warehouse run). Never the SQL, the error text, the token or any 
 
 from __future__ import annotations
 
+import base64
 import bisect
+import datetime as dt
+import decimal
 import itertools
 import json
 import os
@@ -74,12 +77,13 @@ from sqlglot import exp
 
 from . import app_settings, free_memory, jsonfile, sql, sql_policy, warehouse
 from .filenames import file_stem
+from .frames import EXCEL_MAX_ROWS, write_xlsx_batches
 from . import known_folders
 
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
 FINISHED = ("completed", "failed", "cancelled", "timed_out")
 MAX_KEPT = 20  # finished runs whose snapshots are kept, newest first
-EXPORT_FORMATS = ("csv", "parquet")
+EXPORT_FORMATS = ("csv", "parquet", "xlsx", "json")
 EXPORT_BATCH_ROWS = 65_536
 LOCAL_BATCH_ROWS = 65_536
 # What each target may ever allow. A local run allows all of its classes unless the caller narrows it.
@@ -739,10 +743,13 @@ class SqlExecutions:
     def export(self, run_id: str, fmt: str = "csv", name: str = "") -> dict[str, Any]:
         """Stream a completed run's snapshot to a new file in Downloads; never replaces a file."""
         if fmt not in EXPORT_FORMATS:
-            raise ValueError(f"Export as {' or '.join(EXPORT_FORMATS)}.")
+            raise ValueError(f"Export as {', '.join(EXPORT_FORMATS[:-1])} or {EXPORT_FORMATS[-1]}.")
         run = self._get(run_id)
         if run.state != "completed":
             raise ValueError(f"The query is {run.state.replace('_', ' ')}, so there is no result to export.")
+        if fmt == "xlsx" and run.rows > EXCEL_MAX_ROWS:
+            raise ValueError(f"Excel holds at most {EXCEL_MAX_ROWS:,} rows and this result has "
+                             f"{run.rows:,}. Export it as CSV or Parquet instead.")
         if not run.snapshot.exists():
             return {"rerun_needed": True, "message": "This result was cleaned up. Run the query again to export it."}
         folder = self._downloads()
@@ -776,31 +783,72 @@ class SqlExecutions:
             with pa.memory_map(str(run.snapshot)) as source:
                 reader = pa.ipc.open_file(source)
                 schema = reader.schema
-                if export.format == "parquet":
+                if export.format in ("parquet", "json"):
                     schema = _unique_names(schema)
                 with open(partial, "xb") as sink:
-                    writer = _writer(export.format, sink, schema)
-                    try:
-                        for i in range(reader.num_record_batches):
-                            if export.cancel.is_set():
-                                raise _Stopped()
-                            batch = reader.get_batch(i)
-                            if export.format == "parquet":
-                                batch = pa.RecordBatch.from_arrays(batch.columns, schema=schema)
-                            writer.write_batch(batch)
-                            export.rows += batch.num_rows
-                    finally:
-                        writer.close()
-            if export.cancel.is_set():
-                raise _Stopped()
-            jsonfile.replace(partial, export.path)  # over the empty file that reserved the name
-            export.state = "completed"
+                    if export.format in ("xlsx", "json"):
+                        self._write_rows(export, reader, schema, sink)
+                    else:
+                        self._write_batches(export, reader, schema, sink)
+            # After the file is closed: Windows can't rename a file that is still open.
+            self._done(export, partial)
         except _Stopped:
             _discard(partial, export.path)  # before the state changes: a finished export leaves no files
             export.state = "cancelled"
         except Exception as exc:  # noqa: BLE001 - shown on the page
             _discard(partial, export.path)
             export.state, export.error = "failed", str(exc) or type(exc).__name__
+
+    @staticmethod
+    def _write_batches(export: Export, reader: Any, schema: pa.Schema, sink: Any) -> None:
+        """CSV or Parquet, through Arrow's own writers."""
+        writer = _writer(export.format, sink, schema)
+        try:
+            for i in range(reader.num_record_batches):
+                if export.cancel.is_set():
+                    raise _Stopped()
+                batch = reader.get_batch(i)
+                if export.format == "parquet":
+                    batch = pa.RecordBatch.from_arrays(batch.columns, schema=schema)
+                writer.write_batch(batch)
+                export.rows += batch.num_rows
+        finally:
+            writer.close()
+
+    @staticmethod
+    def _done(export: Export, partial: Path) -> None:
+        if export.cancel.is_set():
+            raise _Stopped()
+        jsonfile.replace(partial, export.path)  # over the empty file that reserved the name
+        export.state = "completed"
+
+    @staticmethod
+    def _write_rows(export: Export, reader: Any, schema: pa.Schema, sink: Any) -> None:
+        """Excel (one sheet, as the notebook's download writes it) or JSON (an array of objects, one per
+        row, keyed by the column names made unique), a batch at a time with Cancel between batches."""
+        def batches() -> Any:
+            for i in range(reader.num_record_batches):
+                if export.cancel.is_set():
+                    raise _Stopped()
+                yield reader.get_batch(i)
+
+        def counted(n: int) -> None:
+            export.rows += n
+
+        if export.format == "xlsx":
+            write_xlsx_batches(reader.schema.names, batches(), sink, counted)
+            return
+        names = schema.names
+        sink.write(b"[")
+        first = True
+        for batch in batches():
+            cols = [c.to_pylist() for c in batch.columns]
+            for i in range(batch.num_rows):
+                row = {name: _json_cell(col[i]) for name, col in zip(names, cols, strict=True)}
+                sink.write((b"\n" if first else b",\n") + json.dumps(row, ensure_ascii=False, default=str).encode("utf-8"))
+                first = False
+            counted(batch.num_rows)
+        sink.write(b"\n]\n" if not first else b"]\n")
 
     # ---- clean-up
 
@@ -970,6 +1018,27 @@ def local_refusal_message(stop: sql_policy.Verdict, allow: tuple[str, ...] = TAR
 def _refusal(stop: sql_policy.Verdict) -> dict[str, Any]:
     return {"permission": stop.kind, "statement": stop.statement, "label": sql_policy.LABELS.get(stop.kind, ""),
             "reason": stop.reason, "confirm_required": stop.confirm}
+
+
+def _json_cell(v: Any) -> Any:
+    """A value JSON can hold as it is: NaN and infinity become null, bytes base64, dates and times
+    ISO 8601, decimals text (so no digits are lost), lists and objects value by value."""
+    if isinstance(v, float) and (v != v or v in (float("inf"), float("-inf"))):
+        return None
+    if isinstance(v, (bytes, bytearray)):
+        return base64.b64encode(bytes(v)).decode("ascii")
+    if isinstance(v, (dt.datetime, dt.date, dt.time)):
+        return v.isoformat()
+    if isinstance(v, decimal.Decimal):
+        return str(v)
+    if isinstance(v, dict):
+        return {str(k): _json_cell(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        # A map column comes back as (key, value) pairs.
+        return [_json_cell(x) for x in v]
+    if isinstance(v, dt.timedelta):
+        return v.total_seconds()
+    return v
 
 
 def _writer(fmt: str, sink: Any, schema: pa.Schema) -> Any:

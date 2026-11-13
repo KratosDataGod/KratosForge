@@ -295,7 +295,8 @@ def test_the_definition_lists_every_function_or_fabric_refuses_it():
     # The shape Fabric's own getDefinition returns: schema 1.1.0 and a libraries block (probe, 2026-11-03)
     body = json.loads(parts["definition.json"])
     assert body["$schema"].endswith("/definition/1.1.0/schema.json")
-    assert body["libraries"] == {"public": [], "private": []}
+    assert body["libraries"] == {"public": [{"name": "fabric-user-data-functions", "type": "PYPI", "version": "1.0.0"}],
+                                 "private": []}, "updateDefinition refuses a definition without Fabric's library"
     key_table = next(f for f in described if f["name"] == "ensure_key_table")
     assert [(b["type"], b["name"]) for b in key_table["bindings"]] == [
         ("HttpTrigger", "req"), ("FabricItem", "sqlDB"), ("UserDataFunctionContext", "ctx")]

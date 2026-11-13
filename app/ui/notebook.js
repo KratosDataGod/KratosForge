@@ -377,7 +377,7 @@ function renderCell(cell) {
     if (cell.editing && !meta.frozen) {
       body = h("div", { class: "md-edit" }, editorFor(cell).dom);
     } else {
-      body = h("div", { class: "md-view", ondblclick: () => enterEditMode(cell) }, markdown(cell.source));
+      body = h("div", { class: "md-view", ondblclick: () => enterEditMode(cell) }, markdown(cell.source, { attachments: cell.attachments }));
     }
     node.append(h("div", { class: "gutter" }, cellGrip(cell), sectionToggle(cell)), h("div", { class: "cell-box" }, head, body, sectionHiddenBar(cell)));
     return node;
@@ -433,6 +433,7 @@ function updateResults(cell) {
   if (!el) return;
   el.querySelector(".cell-results")?.replaceChildren(...cellResults(cell));
   if (cell.type === "code") el.querySelector(".gutter")?.replaceWith(renderGutter(cell));
+  if (typeof findOutputsChanged === "function") findOutputsChanged();  // nbfind.js: matches in outputs
 }
 
 function cellMenu(cell) {

@@ -39,6 +39,7 @@ from .schedule_service import ScheduleMixin
 from .side_by_side_service import SideBySideMixin
 from .prove_service import ProveMixin
 from .xray_service import XRayMixin
+from .opportunities_service import OpportunitiesMixin
 from .preview_service import PreviewMixin
 from .central.service import PlatformMixin
 from .central.governance_service import GovernanceMixin
@@ -86,6 +87,7 @@ from .sql_templates_service import SqlTemplatesMixin
 from .sql_queries_service import SqlQueriesMixin
 from .warehouse_project_service import WarehouseProjectMixin
 from .warehouse_monitoring_service import WarehouseMonitoringMixin
+from .warehouse_ssms_service import WarehouseSsmsMixin
 from .notebook_versions_service import NotebookVersionsMixin
 from . import notebook_versions
 from .progress_service import ProgressMixin
@@ -139,7 +141,7 @@ ENDORSED_FILTER_REASON = (
     "admin who is also a Fabric administrator chooses Scan now there), or in Fabric's own catalog (Open Fabric's catalog on OneLake > Catalog).")
 
 
-class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
+class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, OpportunitiesMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, WarehouseSsmsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -302,8 +304,9 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
     def _start_retention_sweep(self) -> None:
         """From the engine's first call, in the background and then once a day while it runs: delete local
-        copies of lakehouse data unused for longer than the organization allows (retention.py). An app
-        left open for weeks is swept too, each time under the policy as it is then."""
+        copies of lakehouse data unused for longer than the organization allows (retention.py). Audit trails and
+        receipts past their limits go in the same pass (_prune_records). An app left open for weeks is
+        swept too, each time under the policy as it is then."""
         if getattr(self, "_swept", False):
             return
         self._swept = True
@@ -325,11 +328,41 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                     self._pn_tidy()  # closed Teams notices: their bell details now, ledger keys after a year
                 except Exception:  # noqa: BLE001 - nor a notice ledger cleanup
                     logging.getLogger(__name__).exception("Notice ledger cleanup failed")
+                try:
+                    self._prune_records()  # audit trails and receipts past IT's limits, if any
+                except Exception:  # noqa: BLE001 - e.g. the policy can't be read: tried again tomorrow
+                    logging.getLogger(__name__).exception("Audit trail and receipt cleanup failed")
                 if stop.wait(SWEEP_EVERY):
                     return
 
         self._sweeper = threading.Thread(target=run, name="retention-sweep", daemon=True)
         self._sweeper.start()
+
+    def _prune_records(self) -> None:
+        """The audit trails and run receipts past the organization's limits (audit_retention_days,
+        receipt_retention_days; both keep everything by default). Each cleanup is recorded in this
+        PC's audit trail first; when that line can't be written, nothing is deleted."""
+        import logging
+
+        from . import retention
+        log = logging.getLogger(__name__)
+
+        def record(action: str, params: dict[str, Any]) -> None:
+            self.audit.record(action, "ok", 0.0, params)
+        audit_days = int(app_settings.value("audit_retention_days") or 0)
+        for trail, folder in (("app", self.audit.folder), ("integrations", self.root / "integrations" / "audit")):
+            try:
+                gone = retention.prune_audit(folder, audit_days, record, trail)
+                if gone["files"]:
+                    log.info("Deleted %d audit lines (%s trail, through %s)", gone["lines"], trail, gone["through"])
+            except Exception:  # noqa: BLE001 - never stops the app; nothing went without its record
+                log.exception("Audit trail cleanup failed (%s)", trail)
+        try:
+            gone = retention.prune_receipts(self.root / "receipts", int(app_settings.value("receipt_retention_days") or 0), record)
+            if gone["removed"]:
+                log.info("Deleted %d run receipts", gone["removed"])
+        except Exception:  # noqa: BLE001 - a receipt cleanup never stops the app either
+            log.exception("Receipt cleanup failed")
 
     def _start_usage_send(self) -> None:
         """Once per engine start, in the background: send finished days of usage data, if it's on."""

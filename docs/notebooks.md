@@ -311,6 +311,7 @@ A bundle also lists what it can't promise: cells that hadn't run, ran in a diffe
 - Drag a table or file from **Explorer > Data items** into a cell, or right-click it to load it with Polars, Spark, SQL or pandas. See [Drag tables and files into a notebook](notebook-editor/load-data-items.md).
 - **Shift+click** or **Shift+Down** selects several cells to run, copy, merge, freeze or delete together, and **Ctrl+Shift+Enter** runs just the selected text. See [Select several cells and run part of a notebook](notebook-editor/select-and-run-parts.md).
 - Each cell has a language picker (Python, Spark SQL, HTML, Markdown) and **...** for more actions.
+- **Markdown cells** show CommonMark with GitHub tables, numbered and nested lists, code blocks, quotes, strikethrough and bare web addresses as links, and LaTeX math between `$...$` (inline) or `$$...$$` (its own line), drawn on this PC with nothing to download. A link opens in your browser (https and mailto only); `[text](#a-heading)` jumps to that heading. Images show when the notebook holds them: pictures pasted in Jupyter or VS Code (`attachment:`) or written as `data:image/...`. A picture from a web address or a file on this PC isn't loaded; its description shows instead. HTML typed into a Markdown cell shows as text.
 - Hide a cell's code or output from its toolbar or the **View** tab.
 - **Command mode** (press **Esc**): **A** and **B** add a cell above or below, **DD** deletes, **Z** undoes a delete, **M** and **Y** switch between Markdown and code, **C**, **X** and **V** copy, cut and paste cells, **O** hides output, **Shift+L** toggles line numbers, **Tab** moves on to the next cell (a cell's buttons come just before its editor in Tab order, so Tab from the cell above reaches them), and **Enter** goes back to editing.
 
@@ -422,7 +423,7 @@ The SQL query tab works like Fabric's. Open it with **SQL query** on a lakehouse
 | --- | --- |
 | **Format SQL** | Lays out the selection, or the whole query: one clause per line, nested queries and CTEs indented, keywords in capitals. See [Format SQL](#format-sql). |
 | **Copy** | Copies the rows on the current page, tab-separated, for pasting into Excel |
-| **Export ▾** | Saves the full result as CSV or Parquet in your Downloads folder, streamed with progress and **Cancel**; never replaces a file. See [Export](sql-execution.md#export) |
+| **Export ▾** | Saves the full result as CSV, Parquet, Excel or JSON in your Downloads folder, streamed with progress and **Cancel**; never replaces a file. See [Export](sql-execution.md#export) |
 | **Save as table** | Writes the full result to the lakehouse as a Delta table you name. If the table already exists, it asks before replacing it |
 | **Open in notebook** | Turns the query into `lakehouse.sql(...)` in a new notebook (Spark SQL only) |
 | **+** or **New SQL query** | Adds a query tab. Double-click a tab to rename it. **×**, or **Delete** on the tab, closes it, asking first when the query has SQL of its own. |
@@ -453,7 +454,8 @@ As you type, the query is checked against the engine picked in the dialect list,
 - **Suggestions** as you type, or **Ctrl+Space**: keywords and functions for the dialect, the lakehouse's schemas and tables, and the columns of the tables the statement names. After `s.` where `s` is an alias or a table, you get that table's columns. Names that need it are quoted for the dialect (`` `Region Name` ``, `[Region Name]` or `"Region Name"`). Tables come from the list the Explorer already loaded, and a table's columns are read once, the first time a statement names it, so typing doesn't call Fabric. **Refresh** reads them again.
 - **Hover** a table, alias or column to see its columns or type, or a function to see its forms and what it does. While you type a function's arguments, its form shows above the cursor with the argument you're on in bold. Spark SQL shows Spark 3.5's own description, T-SQL a summary from Microsoft's T-SQL reference, and DuckDB the DuckDB catalog of the engine that runs here. It's all read on this PC; nothing runs.
 - **Ctrl+Enter** or **F5** runs the selection, or everything. **Ctrl+Shift+Enter** runs only the statement the cursor is in, from the `;` before it to the `;` after it (a `;` inside a string or comment doesn't count); with the cursor just after a `;` it runs the statement that `;` ends. With text selected it runs the selection. **Ctrl+S** saves the query tabs (they are also saved as you type). **Shift+Alt+F** formats.
-- **Ctrl+F** finds, with replace. **Ctrl+/** comments or uncomments lines. **Tab** and **Shift+Tab** indent. **Ctrl+Z** and **Ctrl+Y** undo and redo.
+- **Ctrl+R** hides the results pane so the editor gets the room, and shows it again (a run shows it too); **Maximize** beside **Export** gives the results the whole page. **Ctrl+Shift+U** and **Ctrl+Shift+L** make the selection, or the word at the cursor, upper or lower case. **Ctrl+G** goes to a line.
+- **Ctrl+F** finds, with replace (**F3** and **Shift+F3** go to the next and previous match). **Ctrl+/** comments or uncomments lines. **Tab** and **Shift+Tab** indent. **Ctrl+Z** and **Ctrl+Y** undo and redo.
 - More than one cursor: **Ctrl+D** selects the next match of the selection, **Ctrl+click** adds a cursor, and **Alt+drag** selects a rectangle.
 
 ### Format SQL

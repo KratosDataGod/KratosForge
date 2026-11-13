@@ -64,28 +64,6 @@ test("no two page scripts declare the same top-level name", () => {
   assert.deepStrictEqual(clashes, []);
 });
 
-// esc and inlineMd from app.js, without the rest of the page.
-function markdownHelpers() {
-  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  const code = src.match(/function esc\([\s\S]*?\n}\n/)[0] + src.match(/function inlineMd\([\s\S]*?\n}\n/)[0];
-  const ctx = {};
-  vm.runInNewContext(`${code}; this.esc = esc; this.inlineMd = inlineMd;`, ctx);
-  return ctx;
-}
-
-test("a Markdown link can't add attributes or handlers", () => {
-  const { inlineMd } = markdownHelpers();
-  const html = inlineMd('[x](a" style="position:fixed" onmouseover="alert(1)) and [y](b\' onclick=\'z)');
-  assert.ok(!/"\s+on\w+=|'\s+on\w+=|" style=/.test(html), html);
-  assert.match(html, /title="a&quot; style=&quot;/);
-});
-
-test("Markdown still formats", () => {
-  const { inlineMd } = markdownHelpers();
-  assert.strictEqual(inlineMd("**b** *i* `c` [ok](https://x.y) <b>"),
-    '<strong>b</strong> <em>i</em> <code>c</code> <u title="https://x.y">ok</u> &lt;b&gt;');
-});
-
 test("a run says where it ran: Fabric, an agent or this PC", () => {
   const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
   const ctx = {};
@@ -1779,15 +1757,13 @@ test("the access cache view flags what's worth a look and asks before setting an
 test("no raw HTML sinks in app/ui outside the reviewed list", () => {
   const sink = /\.(?:innerHTML|outerHTML)\b|\binsertAdjacentHTML\b|\bdocument\.write(?:ln)?\b|\bcreateContextualFragment\b|\bDOMParser\b|\b(?:set|parse)HTMLUnsafe\b|\bsrcdoc\b|\beval\s*\(|\bnew Function\b|\bFunction\s*\(/;
   const allowed = new Set([
-    // markdown(): a fixed placeholder string, no data.
-    `app.js: wrap.innerHTML = '<p class="placeholder">Empty Markdown cell. Double-click to edit.</p>';`,
-    // markdown(): every piece of cell text goes through inlineMd(), which esc()apes &<>"' before adding
-    // <code>, <strong>, <em> and <u title>; headings and lists add only fixed tags. See the two
-    // Markdown tests at the top of this file.
-    `app.js: wrap.innerHTML = html.join("");`,
     // sqlParsePlan(): Fabric's showplan parsed as XML ("application/xml" runs no script and loads nothing);
     // the document is never put on the page, only attribute values are read and drawn as text with h().
     `sqlplan.js: const doc = new DOMParser().parseFromString(String(xml || ""), "application/xml");`,
+    // nbfPrintNodes(): the engine's web page export (notebook_formats.to_html escapes every text and
+    // leaves HTML outputs out), parsed inert; script, style, frames, svg and every attribute but class,
+    // alt and a picture data: src are removed before its body's nodes are shown for printing.
+    `notebook-formats.js: const doc = new DOMParser().parseFromString(String(html || ""), "text/html");`,
     // Data mesh map links: path coordinates are numbers from getBoundingClientRect, and the only data
     // (project and product ids in <title>) goes through esc().
     `meshmap.js: svg.innerHTML = \`<defs><marker id="mesh-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z"/></marker></defs>\${paths.join("")}\`;`
@@ -1821,6 +1797,9 @@ test("no URL sinks built from data in app/ui outside the reviewed list", () => {
   const allowed = new Set([
     // Image output: only the picture types imageOutputOk() accepts, with base64 data, and <img> never runs script.
     "notebook.js: return h(\"div\", { class: \"output\" }, h(\"img\", { class: \"out-img\", alt: \"Chart from this cell\", src: `data:${o.mime};base64,${o.data}` }));",
+    // Markdown images (#2579): only a data: URL mdImageData() built from a picture type in MD_IMAGE_TYPES and
+    // base64 it checked, from the cell's own attachments or a data:image URL; never a file or web address.
+    "app.js: if (data) return h(\"img\", { class: \"md-img\", src: data, alt });",
     // HTML output frame: the shell's fixed frame URL, no data (HD-020).
     "notebook.js: src: window.__TAURI__.core.convertFileSrc(\"frame\", \"nbout\") });",
     // Profile picture (PB-125): only a base64 PNG data URL passes profilePicture()'s test; the engine checks it is a
@@ -1873,6 +1852,8 @@ test("the app has a strict CSP and notebook HTML output stays off the app's orig
   const scripts = directives["script-src"] || directives["default-src"] || [];
   assert.ok(scripts.length && !scripts.some((s) => /unsafe-inline|\*|^https?:$|^data:$|^blob:$/.test(s)), `script-src: ${scripts}`);
   assert.deepStrictEqual(directives["object-src"], ["'none'"]);
+  // The skins' fonts ship in vendor/fonts: the app's own origin only, never a font host or data: URL.
+  assert.deepStrictEqual(directives["font-src"], ["'self'"]);
   assert.ok(!(directives["frame-src"] || []).includes("'self'"), "notebook output must not be framed from the app's origin");
 
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
@@ -2578,7 +2559,7 @@ test("Forge animations in the notebook: runs of several cells use the wolf track
 test("Motion & effects settings: four levels, family switches, reduced-motion choice, lockable, applied at once; CSS honours them", () => {
   const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const card = s.match(/function motionSettingsCard\([\s\S]*?\n}\n/)[0];
-  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n(?:\s+.*skinChooser\(locked\).*\n)?\s+h\("h3", \{\}, "Layout"\)[\s\S]*Object\.keys\(LAYOUT_CHOICES\)\.map\(choice\),\n\s+h\("h3", \{\}, "Living Experience"\)/);
+  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n(?:\s+.*skinChooser\(locked\).*\n)?(?:\s+.*choice\("ui_color_mode"\).*\n)?\s+h\("h3", \{\}, "Layout"\)[\s\S]*Object\.keys\(LAYOUT_CHOICES\)\.filter\(\(key\) => key !== "ui_color_mode"\)\.map\(choice\),\n\s+h\("h3", \{\}, "Living Experience"\)/);
   assert.match(card, /type: "radio", name: "motion_level"/);
   assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
   assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
@@ -3340,6 +3321,9 @@ test("friendlyError checks the engine first, then files on this PC, then Fabric'
     ["The Python sidecar stopped. It will restart on the next action. 404", /local engine stopped while doing this/],
     ["The Python sidecar stopped. It will restart on the next action.\nmemory allocation of 6834176 bytes failed\n2026-11-09T18:11:57Z The engine stopped after 40 seconds: it crashed with a failed security check (fail fast) (exit code 0xC0000409).", /ran out of memory, so the local engine stopped/],
     ["The Python sidecar stopped. It will restart on the next action.\n2026-11-09T18:11:57Z The engine stopped after 40 seconds: it crashed with running out of memory (exit code 0xC0000017).", /ran out of memory, so the local engine stopped/],
+    ["The Python sidecar stopped. It will restart on the next action.\nWindows fatal exception: access violation\n2026-11-11T17:48:44Z The engine stopped after 20447 seconds: KratosForge ended it (Stop or an update).\nFull log: C:\\x\\sidecar.log", /^KratosForge stopped the local engine on purpose \(Stop was pressed, or it restarted to install an update\)/],
+    ["The Python sidecar stopped. It will restart on the next action.\n2026-11-11T17:48:44Z The engine stopped after 20447 seconds: KratosForge ended it (Stop or an update).\nWindows fatal exception: access violation\n2026-11-11T18:02:10Z The engine stopped after 30 seconds: it crashed with an access violation (exit code 0xC0000005).\nFull log: C:\\x\\sidecar.log", /^The local engine stopped while doing this/],
+    ["The Python sidecar stopped. It will restart on the next action.\n2026-11-11T17:48:44Z The engine stopped after 20447 seconds: KratosForge ended it (Stop or an update).", /^KratosForge stopped the local engine on purpose/],
     ["The engine keeps stopping as it starts, so KratosForge has stopped starting it for now. The last time: 403 Forbidden", /keeps stopping as it starts, so KratosForge has stopped starting it for a few minutes/],
     ["PermissionError: [WinError 4551] Application Control policy has blocked this file", /Windows blocked part of the local engine/],
     ["FileNotFoundError: [Errno 2] No such file or directory: 'C:\\\\data\\\\sales.csv'", /^There is no file or folder at C:\\data\\sales\.csv on this PC\./],
@@ -4009,6 +3993,15 @@ test("notebook find matches every cell with case, whole word and regex, and repl
   assert.strictEqual(findMatches(cells, "a.e").matches.length, 0);  // not a regex unless asked
   assert.strictEqual(findMatches(cells, "x*", { regex: true }).matches.length, 0);  // empty matches skipped
   assert.match(findMatches(cells, "(", { regex: true }).error, /isn't a valid regular expression/);
+  // Outputs are searched only when asked: text, errors with their traceback, table rows; not images.
+  const ran = [{ type: "code", source: "print(total)", outputs: [
+    { type: "stream", text: "total 42\n" }, { type: "error", ename: "KeyError", evalue: "'total'", traceback: "line 1 in total" },
+    { type: "table", columns: ["region", "total"], rows: [["east", 1], ["west", null]] }, { type: "image", mime: "image/png", data: "total" }] }];
+  assert.strictEqual(findMatches(ran, "total").matches.length, 1);
+  const inOut = findMatches(ran, "total", { outputs: true }).matches;
+  assert.deepStrictEqual([...inOut.map((x) => x.output ?? "src")], ["src", 0, 1, 1, 2]);
+  assert.strictEqual(findMatches(ran, "west", { outputs: true }).matches[0].output, 2);
+  assert.strictEqual(findMatches([{ type: "markdown", source: "", outputs: [{ type: "text", text: "x" }] }], "x", { outputs: true }).matches.length, 0);
   const [m] = findMatches(cells, "(s)ales", { regex: true, matchCase: true }).matches;
   assert.strictEqual(findReplacement(m, "(s)ales", "$1old", { regex: true, matchCase: true }), "sold");
   assert.strictEqual(findReplacement(m, "x", "$1", {}), "$1");  // plain text replacement is literal
@@ -4188,7 +4181,7 @@ this.payload = nbfExportPayload; this.menu = nbfExportMenu; this.b64 = nbfBase64
   const items = ctx.menu();
   assert.match(items[0].info, /new file in your Downloads folder\. A file already there is never replaced/);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(items.slice(1).map((i) => i.label))), ["Jupyter notebook (.ipynb)", "Jupyter notebook with outputs (.ipynb)",
-    "Fabric source (.py)", "Databricks source (.py)", "Web page (.html)"]);
+    "Fabric source (.py)", "Databricks source (.py)", "Web page (.html)", "PDF (print to PDF)"]);
   const bytes = new Uint8Array(70000).map((_, i) => i % 251);
   assert.strictEqual(ctx.b64(bytes.buffer), Buffer.from(bytes).toString("base64"));
   assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /ribbonMenu\("Share", [^\n]*btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\),[^\n]*nbfExportButton\(menu\)\]/);
@@ -5721,7 +5714,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
-    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands"],
+    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
     validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],
@@ -5762,6 +5755,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
     "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
     "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
+    "Keep the engine in a folder only administrators can write": ["docs/enterprise-install.md", /a setting in the policy file, not a screen/],
   };
   const idOf = new Map(Object.entries(BY_ID).flatMap(([id, names]) => names.map((n) => [n, id])));
   for (const id of Object.keys(BY_ID)) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);
@@ -5980,9 +5974,10 @@ test("a developer Python missing a package says the command that installs it", (
 // mode changes it in one place. Colors still written into rules may only go down; lower LITERAL_COLORS
 // when a change moves more of them onto tokens.
 test("styles.css writes no more colors outside its tokens than it did", () => {
-  const LITERAL_COLORS = 50;
+  const LITERAL_COLORS = 28;
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
-  const rules = css.slice(css.indexOf("}") + 1);  // after the :root block
+  // After the :root block, and without the dark tokens (html[data-color-mode="dark"]), which are tokens too.
+  const rules = css.slice(css.indexOf("}") + 1).replace(/html\[data-color-mode="dark"\] \{[^}]*\}/, "");
   const found = (rules.match(/#[0-9a-fA-F]{3,8}\b/g) || []).length;
   assert.ok(found <= LITERAL_COLORS, `styles.css has ${found} color literals outside :root (limit ${LITERAL_COLORS}): use a token from :root, or add one there`);
 });

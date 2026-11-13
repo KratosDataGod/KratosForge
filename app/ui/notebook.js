@@ -377,7 +377,7 @@ function renderCell(cell) {
     if (cell.editing && !meta.frozen) {
       body = h("div", { class: "md-edit" }, editorFor(cell).dom);
     } else {
-      body = h("div", { class: "md-view", ondblclick: () => enterEditMode(cell) }, markdown(cell.source));
+      body = h("div", { class: "md-view", ondblclick: () => enterEditMode(cell) }, markdown(cell.source, { attachments: cell.attachments }));
     }
     node.append(h("div", { class: "gutter" }, cellGrip(cell), sectionToggle(cell)), h("div", { class: "cell-box" }, head, body, sectionHiddenBar(cell)));
     return node;

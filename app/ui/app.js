@@ -2187,7 +2187,8 @@ function newCellId() {
 // A notebook saved on Windows can hold \r\n line ends. The editor counts \n as one character, so a
 // cell keeps \n only: cursor positions (split, run selection) then line up with its text.
 function cellFrom(c) {
-  return { id: nextCellId++, cell_id: c.cell_id || newCellId(), type: c.type, source: (c.source || "").replace(/\r\n?/g, "\n"), meta: c.meta || {}, outputs: [], status: null, count: null, editing: !c.source };
+  return { id: nextCellId++, cell_id: c.cell_id || newCellId(), type: c.type, source: (c.source || "").replace(/\r\n?/g, "\n"), meta: c.meta || {}, outputs: [], status: null, count: null, editing: !c.source,
+    attachments: c.attachments || null };
 }
 
 function loadIntoState(nb) {
@@ -2889,36 +2890,117 @@ function esc(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-function inlineMd(text) {
-  return esc(text)
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<u title="$2">$1</u>');
+// Markdown cells, Markdown outputs and Learn pages (#2579, N20 to N22): CommonMark with GitHub tables,
+// strikethrough and bare links, and $...$ / $$...$$ math, from vendor/markdown (markdown-it and KaTeX).
+// The page is built from markdown-it's tokens with h(), so text never becomes markup: raw HTML in a cell
+// stays text (html: false), only the tags below are made, and no attribute comes from the cell except
+// a list's start number, a table cell's alignment (as a class) and an image's alt text.
+const MD_TAGS = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "table", "thead",
+  "tbody", "tr", "th", "td", "strong", "em", "s", "hr", "br"]);
+// Images a cell may show: only data the notebook itself holds (pasted attachments, data: URIs), never a
+// file or a web address, so opening a notebook fetches nothing. SVG is shown with <img>, which runs no script.
+const MD_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"]);
+const MD_IMAGE_MAX = 10 * 1024 * 1024;  // base64 characters
+
+function mdSlug(text) {
+  return String(text).trim().toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, "").replace(/\s+/g, "-");
 }
 
-function markdown(src) {
+// A link opens in the browser through open_link (https and mailto only, as everywhere in the app); it
+// has no href, so nothing can navigate the app's own window. #heading jumps to that heading on the page.
+function mdLink(href) {
+  const go = (fn) => ({ role: "link", tabindex: "0", onclick: (e) => { e.preventDefault(); fn(e); },
+    onkeydown: (e) => { if (e.key === "Enter") { e.preventDefault(); fn(e); } } });
+  if (href.startsWith("#") && href.length > 1) {
+    const want = mdSlug(decodeURIComponent(href.slice(1)));
+    return h("a", { class: "md-link", title: `Go to ${href.slice(1)}`, ...go((e) => {
+      const page = e.target.closest(".scroll, .notebook, main") || document;
+      const hit = [...page.querySelectorAll(".md-view h1, .md-view h2, .md-view h3, .md-view h4, .md-view h5, .md-view h6")]
+        .find((x) => mdSlug(x.textContent) === want);
+      hit?.scrollIntoView({ block: "start" });
+    }) });
+  }
+  let url = null;
+  try { url = new URL(href); } catch { /* a relative link: nothing to open */ }
+  if (url && (url.protocol === "https:" || url.protocol === "mailto:") && MD.validLink(href)) {
+    return h("a", { class: "md-link", title: url.href, ...go(() => openLink(url.href)) });
+  }
+  return h("span", { class: "md-link-off", title: href + ": only https and mailto links open" });
+}
+
+// The data: URL for an image the notebook holds, or null.
+function mdImageData(src, attachments) {
+  let mime = null;
+  let b64 = null;
+  if (src.startsWith("attachment:")) {
+    let name = src.slice(11);
+    try { name = decodeURIComponent(name); } catch { /* keep it as written */ }
+    const att = attachments && Object.prototype.hasOwnProperty.call(attachments, name) ? attachments[name] : null;
+    mime = att && typeof att === "object" ? Object.keys(att).find((m) => MD_IMAGE_TYPES.has(m)) : null;
+    b64 = mime ? att[mime] : null;
+    if (Array.isArray(b64)) b64 = b64.join("");
+  } else {
+    const m = /^data:(image\/(?:png|jpeg|gif|webp));base64,(.*)$/s.exec(src);
+    if (m) [mime, b64] = [m[1], m[2]];
+  }
+  if (!mime || typeof b64 !== "string" || b64.length > MD_IMAGE_MAX) return null;
+  b64 = b64.replace(/\s+/g, "");
+  return /^[A-Za-z0-9+/]*={0,2}$/.test(b64) ? `data:${mime};base64,${b64}` : null;
+}
+
+function mdImage(t, attachments) {
+  const alt = (t.children || []).map((c) => c.content).join("");
+  const src = t.attrGet("src") || "";
+  const data = mdImageData(src, attachments);
+  if (data) return h("img", { class: "md-img", src: data, alt });
+  return h("span", { class: "md-img-off", title: src },
+    `[${alt || "image"}] `, h("span", { class: "muted-text" }, "Only images saved in the notebook are shown."));
+}
+
+function mdMath(t) {
+  const display = t.type !== "math_inline";
+  const el = h(t.block ? "div" : "span", { class: display ? "md-math block" : "md-math" });
+  try { MD.math(t.content, el, display); } catch { el.replaceChildren(t.content); }
+  if (t.type === "math_block_eqno" && t.info) el.append(h("span", { class: "md-eqno" }, `(${t.info})`));
+  return el;
+}
+
+function mdBuild(tokens, parent, attachments) {
+  const stack = [parent];
+  for (const t of tokens) {
+    const top = stack[stack.length - 1];
+    if (t.type === "inline") mdBuild(t.children || [], top, attachments);
+    else if (t.type === "text" || t.type === "html_inline" || t.type === "html_block") top.append(t.content);
+    else if (t.type === "softbreak") top.append("\n");
+    else if (t.type === "hardbreak") top.append(h("br"));
+    else if (t.type === "code_inline") top.append(h("code", {}, t.content));
+    else if (t.type === "fence" || t.type === "code_block") top.append(h("pre", { class: "md-code" }, h("code", {}, t.content)));
+    else if (t.type === "image") top.append(mdImage(t, attachments));
+    else if (t.type.startsWith("math_")) top.append(mdMath(t));
+    else if (t.type === "link_open") { const a = mdLink(t.attrGet("href") || ""); top.append(a); stack.push(a); }
+    else if (t.hidden) { /* a tight list item's paragraph: its text goes straight into the <li> */ }
+    else if (t.nesting === -1) { if (stack.length > 1) stack.pop(); }
+    else if (MD_TAGS.has(t.tag)) {
+      const start = t.tag === "ol" ? Number.parseInt(t.attrGet("start"), 10) : NaN;
+      const align = /text-align:(left|right|center)/.exec(t.attrGet("style") || "")?.[1];
+      const el = h(t.tag, { start: Number.isFinite(start) && start >= 0 ? String(start) : null, class: align ? `md-${align}` : null });
+      top.append(el);
+      if (t.nesting === 1) stack.push(el);
+    }
+  }
+}
+
+function markdown(src, { attachments = null } = {}) {
   const wrap = h("div");
-  if (!src.trim()) {
-    wrap.innerHTML = '<p class="placeholder">Empty Markdown cell. Double-click to edit.</p>';
+  if (!String(src || "").trim()) {
+    wrap.append(h("p", { class: "placeholder" }, "Empty Markdown cell. Double-click to edit."));
     return wrap;
   }
-  const html = [];
-  let list = null;
-  let para = [];
-  const flushPara = () => { if (para.length) { html.push(`<p>${inlineMd(para.join(" "))}</p>`); para = []; } };
-  const flushList = () => { if (list) { html.push(`<ul>${list.map((li) => `<li>${inlineMd(li)}</li>`).join("")}</ul>`); list = null; } };
-  for (const line of src.split("\n")) {
-    const heading = line.match(/^(#{1,3})\s+(.*)$/);
-    const item = line.match(/^\s*[-*]\s+(.*)$/);
-    if (heading) { flushPara(); flushList(); html.push(`<h${heading[1].length}>${inlineMd(heading[2])}</h${heading[1].length}>`); }
-    else if (item) { flushPara(); (list ||= []).push(item[1]); }
-    else if (!line.trim()) { flushPara(); flushList(); }
-    else { flushList(); para.push(line.trim()); }
+  if (typeof MD === "undefined") {  // the bundle didn't load: show the source rather than nothing
+    wrap.append(h("pre", { class: "md-code" }, src));
+    return wrap;
   }
-  flushPara();
-  flushList();
-  wrap.innerHTML = html.join("");
+  mdBuild(MD.parse(src), wrap, attachments);
   return wrap;
 }
 

@@ -227,3 +227,28 @@ Wave 1 closes 24 Gap rows and 11 Partial rows. Afterwards: 94.5 of 99 rows, **95
   the table under [Where we stand](#where-we-stand). A row only moves when the code is on main.
 - Already owned elsewhere and counted, not duplicated: the Format code button (its own thread) and F5
   runs the query (#2406).
+
+## Fabric notebooks: 100%
+
+Chris asked on 2026-11-13 for 100% parity with Fabric notebooks specifically. That goes beyond this
+page's editor rows into what this PC's Spark runs. The Notebook parity thread owns it, in this order,
+each its own PR and Preview until used for real:
+
+| # | Item | Mockup |
+| --- | --- | --- |
+| F1 | Python UDFs: `F.udf`, `@udf`, `spark.udf.register` (usable from `%%sql`), `pandas_udf` | No |
+| F2 | `mapInPandas`, `mapInArrow`, `groupBy().applyInPandas`, `foreach`, `foreachPartition` | No |
+| F3 | DataFrame leftovers: `freqItems`, `inputFiles`, `to(schema)`, `withMetadata`, `writeTo(...)` | No |
+| F4 | `spark.catalog.listTables`, `listDatabases`, `listFunctions` from the attached lakehouse | No |
+| F5 | MERGE with schema evolution and dynamic partition overwrite, under the write lease | No |
+| F6 | `OPTIMIZE`, `VACUUM`, `RESTORE` and `DeltaTable` maintenance from code, behind the app's guards | No |
+| F7 | `notebookutils` writes: `lakehouse.loadTable`, `create`, `update`; `notebook.create`, `update`, `updateDefinition` | No |
+| F8 | Rich-text Markdown editing (N23), after the Markdown renderer | Yes |
+| F9 | Editor display settings (N17, Wave 1 item 16) | Yes |
+| F10 | Dark mode applied (N60), only with Chris's go | Yes |
+
+What can't run on a PC stays a one-click hand-off to Fabric rather than a silent failure: real Spark
+executors and Scala, R and .NET cells, `rdd` and pandas-on-Spark, continuous streaming and watermarks,
+Python UDTFs, `fs.mount` of other storage, managed private endpoints and workspace identity, the Spark
+UI (query progress and profile run locally instead), co-editing and sharing, and Copilot (out by
+policy). 100% means every Fabric row is done on main or is one of these hand-offs with a working path.

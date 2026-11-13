@@ -28,6 +28,8 @@ Column names that repeat (`SELECT id, id FROM ...`), `NULL`s and column types ar
 
 - **CSV**, with a header row. `NULL`s are written as empty fields.
 - **Parquet**, with the result's column types. Parquet files can't hold two columns with the same name, so a repeated name gets a number: the second `id` becomes `id_2`.
+- **Excel** (.xlsx), one sheet with a bold header row that stays in view, up to 1,048,575 rows (a sheet's limit; a bigger result is refused before anything is written). Values that look like formulas (`=...`) are saved as text, so opening the file never runs them.
+- **JSON**, an array with one object per row, keyed by column name (a repeated name gets a number, as in Parquet). `NULL`s and values that aren't numbers (NaN, infinity) are `null`, dates and times are ISO 8601 text, decimals are text so no digit is lost, and binary values are base64.
 
 The export streams from the snapshot, so a large result is never loaded whole. The band shows its progress, and **Cancel** stops it. The file is written as `<name>.partial` and renamed when it's complete, so you never see half a file; a stopped or failed export leaves nothing behind. An existing file is never replaced: a name that is taken gets `(2)`, `(3)` and so on.
 

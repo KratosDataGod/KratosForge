@@ -412,7 +412,7 @@ function renderQuery() {
     sqlPage.redraw?.();
   }
 
-  // Export ▾ CSV or Parquet: streamed from the run's snapshot to a new file in Downloads.
+  // Export ▾ CSV, Parquet, Excel or JSON: streamed from the run's snapshot to a new file in Downloads.
   async function exportResult(format) {
     if (!tab.exec || tab.exporting) return;
     const out = await attempt(() => rpc("sql_export", { execution: tab.exec.id, format, name: tab.name }), "Could not export");
@@ -591,7 +591,9 @@ function renderQuery() {
         onclick: (e) => { if (!r || x) e.preventDefault(); } }, "Export ▾"),
       h("div", { class: "sql-export-menu", role: "menu" },
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("csv"); } }, "CSV"),
-        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("parquet"); } }, "Parquet")));
+        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("parquet"); } }, "Parquet"),
+        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("xlsx"); } }, "Excel"),
+        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("json"); } }, "JSON")));
     // Messages and Chart are Preview: on the Warehouse page the whole page already is, so they carry no
     // tag of their own there; elsewhere they carry one and go when preview features are hidden.
     const extra = [...(wh || previewShown() ? ["messages", "chart"] : []), ...(wh ? ["plan"] : [])];
@@ -609,7 +611,7 @@ function renderQuery() {
       tab.ranNotice && r && !busy ? h("span", { class: "sql-local-note", role: "note" }, tab.ranNotice) : null,
       h("span", { class: "spacer" }),
       x ? h("span", { class: "muted-text sql-export-progress", role: "status" },
-        `Exporting ${x.format.toUpperCase()}: ${x.rows.toLocaleString()} of ${x.total.toLocaleString()} rows`) : null,
+        `Exporting ${x.format === "xlsx" ? "Excel" : x.format.toUpperCase()}: ${x.rows.toLocaleString()} of ${x.total.toLocaleString()} rows`) : null,
       x ? btn("Cancel", null, () => rpc("sql_export_cancel", { export: x.id }).catch(() => {}), "tool small") : null,
       r && (r.has_previous || r.has_next) ? btn("‹ Previous", null, () => goPage(r.offset - r.limit), "tool small",
         { disabled: !r.has_previous || tab.paging, "aria-label": "Previous page" }) : null,

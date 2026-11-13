@@ -1980,7 +1980,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-070](#pb-070) | UI tests for the notebook editor and command bar | P2 | Master product (unassigned) | M | Accepted |
 | [PB-071](#pb-071) | Run the Rust tests in CI | P1 | Codebase audit and hardening | S | Accepted |
 | [PB-072](#pb-072) | Long engine calls stop blocking the app | P1 | Master product (unassigned) | L | Accepted |
-| [PB-073](#pb-073) | Process kernel by default with limits | P2 | Prove | M | In review |
+| [PB-073](#pb-073) | Process kernel by default with limits | P2 | Prove | M | Accepted |
 | [PB-074](#pb-074) | Release pipeline hardening | P1 | Enterprise readiness | S | Accepted |
 | [PB-076](#pb-076) | Retire side by side into Prove | P2 | Prove | S | Proposed |
 | [PB-103](#pb-103) | Engineering quality program | P0 | Engineering quality review | XL | In progress |
@@ -2119,11 +2119,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-073
 
-**Process kernel by default with limits** · P2 (score 1.86) · M · confidence Medium · In review
+**Process kernel by default with limits** · P2 (score 1.86) · M · confidence Medium · Accepted
 
 - **Problem:** The in-engine kernel restarts the whole engine on Stop; the process kernel is opt-in with no limits.
 - **Proposed capability:** Process kernel default after a Windows trial, with time and memory limits.
-- **Current-state evidence:** kernel_proc.py; Settings > Preview; Implementation review docs/product/reviews/PB-073-kernel-limits.md recommends Accept with documented limitations: cell time and memory limits shipped and tested (#115, #996, #1084; 53 kernel tests passed on main at 47416473); the default flip waits on a clean Windows trial rerun and Chris's go (#896 closed 2026-11-02) and moves to PB-136
+- **Current-state evidence:** kernel_proc.py; Settings > Preview; Implementation review docs/product/reviews/PB-073-kernel-limits.md recommends Accept with documented limitations: cell time and memory limits shipped and tested (#115, #996, #1084; 53 kernel tests passed on main at 47416473); the default flip waits on a clean Windows trial rerun and Chris's go (#896 closed 2026-11-02) and moves to PB-136; Accepted with documented limitations by the product owner: Chris chose 'Accept with limits' on the decision card, 2026-11-13 12:39 UTC (project message cmsg_018T4o2pQdpbLBNhHpgVNNGp3ZUBsK6r4QNz6DBouE86Ey). The default flip is PB-136
 - **Inventory features:** [FEAT-NB-03](FEATURE_INVENTORY.md#feat-nb-03)
 - **Dependencies:** Overlaps HD-012 kernel environment allowlist; HD-037 stop kills the whole process tree (Prove) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Prove (FD-110)

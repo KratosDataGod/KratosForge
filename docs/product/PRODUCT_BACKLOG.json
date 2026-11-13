@@ -3258,7 +3258,8 @@
       "evidence": [
         "kernel_proc.py",
         "Settings > Preview",
-        "Implementation review docs/product/reviews/PB-073-kernel-limits.md recommends Accept with documented limitations: cell time and memory limits shipped and tested (#115, #996, #1084; 53 kernel tests passed on main at 47416473); the default flip waits on a clean Windows trial rerun and Chris's go (#896 closed 2026-11-02) and moves to PB-136"
+        "Implementation review docs/product/reviews/PB-073-kernel-limits.md recommends Accept with documented limitations: cell time and memory limits shipped and tested (#115, #996, #1084; 53 kernel tests passed on main at 47416473); the default flip waits on a clean Windows trial rerun and Chris's go (#896 closed 2026-11-02) and moves to PB-136",
+        "Accepted with documented limitations by the product owner: Chris chose 'Accept with limits' on the decision card, 2026-11-13 12:39 UTC (project message cmsg_018T4o2pQdpbLBNhHpgVNNGp3ZUBsK6r4QNz6DBouE86Ey). The default flip is PB-136"
       ],
       "features": [
         "FEAT-NB-03"
@@ -3282,7 +3283,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "external_dependencies": [
         "Overlaps HD-012 kernel environment allowlist; HD-037 stop kills the whole process tree (Prove) (Codebase audit and hardening backlog, PB-101)"
       ],

@@ -12,11 +12,12 @@ One page to follow when you roll KratosForge out to a pilot group, from first do
 
 - [ ] Pick an update model. Self-updating is the default. Managed means `"auto_update": false`, and you deploy each build ([update models](enterprise-install.md#pick-an-update-model)).
 - [ ] Download `kratosforge.exe` from the Stable release and check it ([deploy](enterprise-install.md#deploy), [check a download](install.md#check-a-download-yourself)).
+- [ ] Or assign `kratosforge.msi` per user, with the silent install, uninstall and detection values in [Silent install, uninstall and detection](enterprise-install.md#silent-install-uninstall-and-detection).
 - [ ] Package it per user as a Win32 app (Intune) or an application (Configuration Manager). No administrator rights are needed at run time, and the engine goes to `%LOCALAPPDATA%\FabricDesktop\engine` for each Windows user ([what you are deploying](enterprise-install.md#what-you-are-deploying)).
 
 ## Policy file
 
-- [ ] Push `%ProgramData%\FabricDesktop\policy.json` as SYSTEM, so only administrators can change it ([deploy, step 4](enterprise-install.md#deploy)).
+- [ ] Push `%ProgramData%\FabricDesktop\policy.json` as SYSTEM, so only administrators can change it ([deploy, step 4](enterprise-install.md#deploy)). Save it as UTF-8: settings come only from this file, not from the registry.
 - [ ] Choose its keys ([all keys](azure-setup.md#4-push-settings-to-everyone)). The ones most pilots set:
     - `auto_update` and `channel` pin the update model and the release channel.
     - `allowed_tenants` restricts sign-in to your tenant's ids.
@@ -47,11 +48,11 @@ One page to follow when you roll KratosForge out to a pilot group, from first do
 
 - [ ] Point people at [Troubleshooting](troubleshooting.md#still-stuck).
 - [ ] The engine's log is `%LOCALAPPDATA%\FabricDesktop\sidecar.log`. The audit trail is `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl` ([where things are kept](install.md#where-things-are-kept-on-your-pc), [audit trail](user-guide.md#audit-trail)).
-- [ ] When support asks for logs, ask for a support bundle instead of the raw log. `fabric-desktop support-bundle --out <folder>` saves a zip with tokens, email addresses, user names and ids taken out. `--preview` shows what it would hold.
+- [ ] When support asks for logs, ask for a support bundle instead of the raw log. `fabric-desktop support-bundle --out <folder>` saves a zip with tokens, email addresses, user names and ids taken out. `--preview` shows what it would hold. Its about.json has the policy file's SHA-256, so you can check from the bundle alone that the PC has the file you shipped.
 
 ## Not ready yet
 
-These are the gaps the [enterprise readiness scorecard](audits/ENTERPRISE_READINESS.md#enterprise-deployment-10-20) lists for enterprise deployment. Plan your pilot around them:
+These are the gaps the [enterprise readiness scorecard](audits/ENTERPRISE_READINESS.md#enterprise-deployment-10) lists for enterprise deployment. Plan your pilot around them:
 
 <!-- Kept the same as "What's missing" under Enterprise deployment in audits/ENTERPRISE_READINESS.md; the test checks. -->
 - The builds are unsigned.

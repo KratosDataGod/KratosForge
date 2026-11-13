@@ -43,6 +43,7 @@
     {"level": "secrets", "in": ["model key sk-", "ant-api03-", "abcdefghijklmnopqrstuvwxyz012345 end"], "out": "model key [removed] end"},
     {"level": "secrets", "in": ["openai sk-", "proj-", "abcdefghijklmnopqrstuvwxyz0123456789AB end"], "out": "openai [removed] end"},
     {"level": "secrets", "in": ["gemini AI", "za", "SyA0123456789abcdefghijklmnopqrstuv end"], "out": "gemini [removed] end"},
+    {"level": "secrets", "in": ["short key sk-", "abcdefghijklmnopqrstuv end"], "out": "short key [removed] end"},
     {"level": "secrets", "in": "risk-assessment-for-the-quarterly-planning-cycle stays", "out": "risk-assessment-for-the-quarterly-planning-cycle stays"},
     {"level": "secrets", "in": ["Databricks said 401 for dapi", "0123456789abcdef0123456789abcdef-2 today"], "out": "Databricks said 401 for [removed] today"},
     {"level": "secrets", "in": "see https://dev.azure.com/contoso and ann@contoso.com", "out": "see https://dev.azure.com/contoso and ann@contoso.com"},
@@ -89,6 +90,23 @@
     {"level": "secrets", "in": "GET /callback?code=0.AXEA-abc_123&state=s1 302", "out": "GET /callback?code=[removed]&state=s1 302"},
     {"level": "secrets", "in": "exit code=1 and error code=500 stay; fdt_short stays", "out": "exit code=1 and error code=500 stay; fdt_short stays"},
     {"level": "secrets", "in": "headers={'Cookie': 'sess=XYZ; theme=dark', 'Accept': 'json'}", "out": "headers={'Cookie': '[removed]', 'Accept': 'json'}"},
-    {"level": "secrets", "in": "{\"Set-Cookie\": \"SID=31d4d96e; Path=/\", \"status\": 200}", "out": "{\"Set-Cookie\": \"[removed]\", \"status\": 200}"}
+    {"level": "secrets", "in": "{\"Set-Cookie\": \"SID=31d4d96e; Path=/\", \"status\": 200}", "out": "{\"Set-Cookie\": \"[removed]\", \"status\": 200}"},
+    {"level": "secrets", "in": ["fatal: unable to access 'https://", "ghp_", "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", "@github.com/a/b.git/'"], "out": "fatal: unable to access 'https://[removed]@github.com/a/b.git/'"},
+    {"level": "secrets", "in": "clone ssh://git@ssh.dev.azure.com/v3/org/p/r", "out": "clone ssh://[removed]@ssh.dev.azure.com/v3/org/p/r"},
+    {"level": "secrets", "in": "SECRET_KEY = \"abcd1234efgh\" and secret-key=xyz9876", "out": "SECRET_KEY = \"[removed]\" and secret-key=[removed]"},
+    {"level": "secrets", "in": "read abfss://Sales@onelake.dfs.fabric.microsoft.com/lh.Lakehouse/Tables/t and wasbs://raw@acct.blob.core.windows.net/x", "out": "read abfss://Sales@onelake.dfs.fabric.microsoft.com/lh.Lakehouse/Tables/t and wasbs://raw@acct.blob.core.windows.net/x"},
+    {"level": "secrets", "in": "abfss://token1@github.com/x and wasbs://u@evil.example/y", "out": "abfss://[removed]@github.com/x and wasbs://[removed]@evil.example/y"},
+    {"level": "secrets", "in": "abfss://token1@onelake.dfs.fabric.microsoft.com.evil.com/x and abfss://token1@x.dfs.core.windows.net.evil.com/y", "out": "abfss://[removed]@onelake.dfs.fabric.microsoft.com.evil.com/x and abfss://[removed]@x.dfs.core.windows.net.evil.com/y"},
+    {"level": "secrets", "in": ["push failed with token glpat-", "aB3dE5fG7hJ9kL1mN2pQ at line 3"], "out": "push failed with token [removed] at line 3"},
+    {"level": "secrets", "in": ["//registry.npmjs.org/:_authToken=npm_A", "1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"], "out": "//registry.npmjs.org/:_authToken=[removed]"},
+    {"level": "secrets", "in": ["posted npm_A", "1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8 done"], "out": "posted [removed] done"},
+    {"level": "secrets", "in": ["Couldn't post to https://hooks.slack.com/services/T0", "123ABCD/B0456EFGH/aBcDeFgHiJkLmNoPqRsTuVwX (404)"], "out": "Couldn't post to [removed] (404)"},
+    {"level": "secrets", "in": "see https://api.slack.com/messaging/webhooks and npm_modules/ and glpat-short", "out": "see https://api.slack.com/messaging/webhooks and npm_modules/ and glpat-short"},
+    {"level": "secrets", "in": ["token glpat-", "aB3dE5fG7hJ9kL1mN2pQ.01.abcdefgh. Next"], "out": "token [removed]. Next"},
+    {"level": "secrets", "in": ["webhook: hooks.slack.com/services/T0", "123ABCD/B0456EFGH/aBcDeFgHiJkLmNoPqRsTuVwX"], "out": "webhook: [removed]"},
+    {"level": "secrets", "in": ["embed H4sI", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "==", " end"], "out": "embed [removed] end"},
+    {"level": "secrets", "in": "H4sI is how gzip in base64 starts", "out": "H4sI is how gzip in base64 starts"},
+    {"level": "secrets", "in": ["Ocp-Apim-Subscription-Key: ", "0123456789abcdef", "0123456789abcdef", "\nnext"], "out": "Ocp-Apim-Subscription-Key: [removed]\nnext"},
+    {"level": "secrets", "in": ["{\"subscription_key\": \"", "0123456789abcdef", "0123456789abcdef", "\"}"], "out": "{\"subscription_key\": \"[removed]\"}"}
   ]
 }

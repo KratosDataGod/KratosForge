@@ -12,13 +12,13 @@ import datetime as dt
 import hashlib
 import json
 import logging
-from typing import Any
+import time
+from typing import Any, Callable
 
 import polars as pl
 import pyarrow as pa
-import pyarrow.compute  # noqa: F401 - pa.compute
 
-from . import http_session
+from . import http_session, retrying
 from .meta import Engine, impact
 from .meta import compare as compare_mod
 from .meta import diff as diff_mod
@@ -41,7 +41,9 @@ def _rows_in(table: Any) -> int:
     """Rows in a Delta table from its log's file statistics, or by counting the files when a writer left them out."""
     actions = pa.table(table.get_add_actions(flatten=True))
     if "num_records" in actions.column_names and actions.column("num_records").null_count == 0:
-        return int(pa.compute.sum(actions.column("num_records")).as_py() or 0)
+        import pyarrow.compute as pc  # here, not at the top: it adds about 30 ms to every engine start
+
+        return int(pc.sum(actions.column("num_records")).as_py() or 0)
     return table.to_pyarrow_dataset().count_rows()
 
 
@@ -53,13 +55,13 @@ class DataOpsMixin:
 
     # ---- compare
 
-    def _table(self, project: Any, name: str, env: str, version: int | None) -> pl.DataFrame | None:
+    def _table(self, project: Any, name: str, env: str, version: int | str | None) -> pl.DataFrame | None:
         e = project.entities[name]
         store = self._store(project, env)  # type: ignore[attr-defined]
         return store.read(project.layer(e.layer).lakehouse, e.schema, e.table,
                           None if version in (None, "") else int(version))
 
-    def _delta(self, project: Any, name: str, env: str, version: int | None) -> Any:
+    def _delta(self, project: Any, name: str, env: str, version: int | str | None) -> Any:
         """The table's Delta log (no data) at ``version``, default the latest; None when there's none."""
         e = project.entities[name]
         store = self._store(project, env)  # type: ignore[attr-defined]
@@ -98,7 +100,7 @@ class DataOpsMixin:
         project = self._project()  # type: ignore[attr-defined]
         try:
             log = self._store(project, target).meta("run_log")  # type: ignore[attr-defined]
-        except Exception as exc:  # the target isn't set up or can't be read: say so, don't block
+        except Exception as exc:  # noqa: BLE001 - the target isn't set up or can't be read: say so, don't block
             return {"source": source, "target": target, "tables": [], "problem": str(exc)}
         ok = log.filter(pl.col("status") == "ok")
         last = {r["entity"]: r for r in ok.iter_rows(named=True)}  # sorted by time, so the last one wins
@@ -127,17 +129,18 @@ class DataOpsMixin:
     def _deployed_entities(self, project: Any, env: str) -> dict[str, str] | None:
         """{name: config text} as promote last copied them to ``env``; None if it never was."""
         store = self._store(project, env)  # type: ignore[attr-defined]
-        deps = store.meta("deployments").filter(pl.col("env") == env)
+        deps = store.meta_where("deployments", pl.col("env") == env)
         if not deps.height:
             return None
         version = deps["version"][-1]
-        rows = store.meta("entities").filter(pl.col("version") == version)
+        rows = store.meta_where("entities", pl.col("version") == version)
         return {r["name"]: r["config"] for r in rows.iter_rows(named=True)}
 
     def meta_diff(self, against: str = "head") -> dict[str, Any]:
         """What the project's tables change by meaning, against the last Git commit ("head") or
         the version last promoted to an environment ("test", "prod")."""
         project = self._project()  # type: ignore[attr-defined]
+        base: dict[str, str] | None
         if against == "head":
             files = release.committed(project.root, "metadata/entities", ".toml")
             if files is None:
@@ -185,13 +188,13 @@ class DataOpsMixin:
                 source = Engine(project, store, source_options=self._source_options).read_source_table(src["table"])  # type: ignore[attr-defined]
                 if source is None:
                     problem = f"the source table {src.get('from') or src['table']} doesn't exist"
-        except Exception as exc:  # the config side is still useful
+        except Exception as exc:  # noqa: BLE001 - the config side is still useful
             problem = str(exc)
         history = []
         try:
-            h = store.meta("schema_history").filter(pl.col("entity") == name).reverse()
+            h = store.meta_where("schema_history", pl.col("entity") == name).reverse()
             history = _rows(h, 10)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - schema history is optional; logged
             _log.info("No schema history for this entity: %s", describe(exc))
         return drift_mod.detect(project, e, source) | {"env": env, "problem": problem, "history": history}
 
@@ -220,7 +223,7 @@ class DataOpsMixin:
             # Rows held before ids existed get one from their values, not their position: Delta
             # returns rows in no fixed order, so a position could point at another row next time.
             values = q.drop([c for c in ("_qid",) if c in q.columns])
-            ids = pl.Series([f"old-{hashlib.sha1(line.encode()).hexdigest()[:16]}"
+            ids = pl.Series([f"old-{hashlib.sha1(line.encode(), usedforsecurity=False).hexdigest()[:16]}"
                              for line in values.write_ndjson().splitlines()], dtype=pl.String)
             q = q.with_columns(pl.col("_qid").fill_null(ids) if "_qid" in q.columns else ids.alias("_qid"))
         return store, lh, table, q, version
@@ -230,18 +233,18 @@ class DataOpsMixin:
         """Remove rows by id (and add ``add``), committed against the version read, so rows a run
         quarantines meanwhile are kept: on a conflict it reads the table again and retries."""
         from deltalake.exceptions import CommitFailedError
-        for attempt in range(5):
+
+        def once() -> None:
             store, lh, table, q, version = self._quarantine_at(project, name, env)
             if q is None:
                 return
             rest = q.filter(~pl.col("_qid").is_in(list(ids)))
             out = pl.concat([rest, add], how="diagonal_relaxed") if add is not None else rest
-            try:
-                store.write(lh, "quarantine", table, out, mode="overwrite", read_version=version)
-                return
-            except CommitFailedError:
-                if attempt == 4:
-                    raise
+            store.write(lh, "quarantine", table, out, mode="overwrite", read_version=version)
+
+        # A lost commit race is tried again at once (5 tries), against a fresh read each time.
+        retrying.retry_call(once, lambda exc: isinstance(exc, CommitFailedError), 5, lambda n: 0.0,
+                            sleep=lambda s: None)
 
     def meta_quarantine(self, name: str, env: str = "dev", limit: int = 500) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
@@ -311,7 +314,7 @@ class DataOpsMixin:
             project = self._project()  # type: ignore[attr-defined]
         except NoMetadataProject:
             return {"items": [], "unavailable": {}, "alerts": alerts, "alerts_unreadable": unreadable}
-        except Exception as exc:  # a broken project is not "nothing late": say why nothing was checked
+        except Exception as exc:  # noqa: BLE001 - a broken project is not "nothing late": say why nothing was checked
             _log.warning("Couldn't read the metadata project to check freshness: %s", describe(exc))
             return {"items": [], "unavailable": {}, "alerts": alerts, "alerts_unreadable": unreadable,
                     "project_error": describe(exc)}
@@ -359,12 +362,21 @@ def teams_card(title: str, lines: list[str]) -> dict[str, Any]:
                         "version": "1.4", "body": body}}]}
 
 
-def post_teams(url: str, title: str, lines: list[str]) -> None:
+# Teams posts happen in the agent's loop and in app requests, so one card never holds them long: a
+# webhook that doesn't answer gives up after TEAMS_TIMEOUT, and throttling is waited out at most
+# TEAMS_ATTEMPTS - 1 times for TEAMS_WAIT_CAP each. The caller's outbox keeps the card for later.
+TEAMS_TIMEOUT = (5, 15)  # seconds to connect, then to each read
+TEAMS_ATTEMPTS = 3
+TEAMS_WAIT_CAP = 10.0
+
+
+def post_teams(url: str, title: str, lines: list[str], sleep: Callable[[float], None] = time.sleep) -> None:
     """Post one card. A write: only Teams' throttling (429, refused unread) is sent again, as
-    Retry-After says; after a 5xx or a dropped connection the card may have been posted, so the
-    caller's outbox decides whether to send it again."""
+    Retry-After says (capped); after a 5xx or a dropped connection the card may have been posted,
+    so the caller's outbox decides whether to send it again."""
     http = http_session.session()
-    r = send_with_retry(lambda: http.post(url, json=teams_card(title, lines), timeout=15), "POST")
+    r = send_with_retry(lambda: http.post(url, json=teams_card(title, lines), timeout=TEAMS_TIMEOUT), "POST",
+                        sleep=sleep, attempts=TEAMS_ATTEMPTS, wait_cap=TEAMS_WAIT_CAP)
     if r.status_code >= 300:
         raise RuntimeError(f"Teams answered {r.status_code}{_teams_error(r)}")
 

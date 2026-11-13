@@ -3,25 +3,27 @@
 from __future__ import annotations
 
 import json
+import sys
 import logging
 import os
 import math
 import platform
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FutureTimeout
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
 import pyarrow.csv as pa_csv
+import requests
 
 from .audit import AuditLog
 from .redact import describe
 from .telemetry import Telemetry
-from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator
+from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator, cached_account
 from .fabric_api import FabricClient
-from . import app_settings, jsonfile, lakehouse, schema_cache, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
+from . import app_settings, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
 from .learn import evidence
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
@@ -99,9 +101,11 @@ from .debugger import check_breakpoints
 from .notebook import WIDGET_GONE, Kernel, NotebookShelf, check_notebook_name, check_watches
 from .onelake import FileStore, TableCatalog
 from .publish import run_job
+from . import known_folders
 
 _log = logging.getLogger(__name__)
 MAX_ITEM_PINS = 50  # items pinned to Home
+SWEEP_EVERY = 86400.0  # seconds between local-copy sweeps while the engine runs (retention.py)
 
 # How long a cell start waits for an external tool's run that holds the attached lakehouse.
 ATTACH_WAIT_SECONDS = 10.0
@@ -120,6 +124,14 @@ def _lakehouse_key(ref: Any) -> Any:
     return ref or None
 
 
+# Seconds a failed sign-in setup (offline, or the proxy blocks Microsoft's sign-in) answers at once
+# before it is tried again.
+AUTH_RETRY_SECONDS = 60
+# Seconds a call waits for the sign-in setup's first answer from Microsoft before it says so and
+# the setup carries on in the background (a healthy network answers in a second or two).
+AUTH_WAIT_SECONDS = 15
+AUTH_HOST = "login.microsoftonline.com"
+
 # Why OneLake > Catalog's Endorsed items filter is off (docs/troubleshooting.md says the same).
 ENDORSED_FILTER_REASON = (
     "Not available here: KratosForge reads endorsement only through Fabric's admin tenant scan, and it "
@@ -134,6 +146,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         self.root = root or data_dir()
         self._auth: Authenticator | None = None
         self._auth_lock = threading.Lock()
+        self._auth_failed: tuple[BaseException, str, float] | None = None  # see auth
+        self._auth_building: tuple[str, Future] | None = None
         self.sessions = KernelSessions(self._new_kernel, lambda: bool(app_settings.value("kernel_process")),
                                        max_sessions=lambda: int(app_settings.value("kernel_max_sessions") or 0),
                                        idle_minutes=lambda: float(app_settings.value("kernel_idle_minutes") or 0),
@@ -150,9 +164,43 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         # Built once: building it asks Microsoft for its sign-in endpoints (and on Windows starts the
         # sign-in broker), so calls arriving together, as a tool's do, must not each build one.
         with self._auth_lock:
-            if self._auth is None or getattr(self._auth, "client_id", client_id) != client_id:
-                self._auth = Authenticator(client_id, interactive=not self.headless)
-            return self._auth
+            if self._auth is not None and getattr(self._auth, "client_id", client_id) == client_id:
+                return self._auth
+            # Offline, a build fails or waits out its timeout. The calls queued behind it (a page's
+            # loads) get the same answer at once for a while, instead of a wait each.
+            failed = self._auth_failed
+            if failed and failed[1] == client_id and time.monotonic() < failed[2]:
+                raise failed[0].with_traceback(None)
+            building = self._auth_building
+            if building is None or building[0] != client_id:
+                building = self._auth_building = (client_id, Future())
+                threading.Thread(target=self._build_auth, args=building, daemon=True, name="sign-in-setup").start()
+        try:
+            # A network that drops the traffic can take minutes to give up. The app waits a little,
+            # then gets on with its other calls (local work queues behind this one) while it finishes.
+            return building[1].result(timeout=None if self.headless else AUTH_WAIT_SECONDS)
+        except FutureTimeout:
+            raise requests.exceptions.ConnectTimeout(
+                f"Microsoft's sign-in ({AUTH_HOST}) didn't answer within {AUTH_WAIT_SECONDS} seconds") from None
+
+    def _build_auth(self, client_id: str, done: Future) -> None:
+        try:
+            made = Authenticator(client_id, interactive=not self.headless)
+        except Exception as exc:  # noqa: BLE001 - handed to every caller waiting for it
+            with self._auth_lock:
+                if net_trust.explain(exc):
+                    self._auth_failed = (exc, client_id, time.monotonic() + AUTH_RETRY_SECONDS)
+                self._auth_built(done)
+            done.set_exception(exc)
+            return
+        with self._auth_lock:
+            self._auth, self._auth_failed = made, None
+            self._auth_built(done)
+        done.set_result(made)
+
+    def _auth_built(self, done: Future) -> None:
+        if self._auth_building is not None and self._auth_building[1] is done:  # not a newer app ID's
+            self._auth_building = None
 
     @property
     def audit(self) -> AuditLog:
@@ -174,6 +222,42 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
     def telemetry_new_install_id(self) -> dict[str, Any]:
         return {"install_id": self.telemetry.new_install_id()}
+
+    # Settings > Help and about > Save support bundle (PB-062). Nothing is sent: the zip is written
+    # to a folder the user picks and they decide who gets it. Every file is redacted (support_bundle).
+    def _bundle_agent_home(self) -> Path | None:
+        """The agent's folder when this PC runs the agent and it has written a log; else None."""
+        from .agent_config import default_home
+        home = default_home()
+        return home if (home / "logs" / "agent.log").is_file() else None
+
+    def support_bundle_preview(self) -> dict[str, Any]:
+        from . import support_bundle
+        shown = support_bundle.preview(self.root, self._bundle_agent_home())
+        return shown | {"folder": str(known_folders.downloads())}
+
+    def support_bundle_save(self, folder: str = "") -> dict[str, Any]:
+        from . import support_bundle
+        target = Path(folder) if folder else known_folders.downloads()
+        if not target.is_absolute():
+            raise ValueError("Choose a full folder path, such as C:\\Users\\you\\Downloads.")
+        try:
+            path = support_bundle.create(target, self.root, self._bundle_agent_home())
+        except OSError as exc:
+            reason = "access denied" if isinstance(exc, PermissionError) else (exc.strerror or str(exc))
+            raise PermissionError(f"KratosForge couldn't write to {target}: {reason}. "
+                                  "Choose another folder and try again. Nothing was saved.") from exc
+        return {"path": str(path), "name": path.name, "folder": str(target)}
+
+    def support_bundle_reveal(self, path: str) -> dict[str, Any]:
+        """Show a saved bundle in Explorer. Only a support bundle's own file name is accepted."""
+        from . import support_bundle
+        from .notebook_resources_service import _reveal
+        target = Path(path)
+        if not target.is_absolute() or not support_bundle.NAME.fullmatch(target.name) or not target.is_file():
+            raise FileNotFoundError("That support bundle isn't there any more.")
+        _reveal(target, select=True)
+        return {"shown": str(target)}
 
     def audit_log(self, limit: int = 200, action: str = "") -> dict[str, Any]:
         """The newest audit lines, newest first, and whether the chain is intact."""
@@ -202,34 +286,50 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def environment(self) -> dict[str, Any]:
         self._start_retention_sweep()
         self._start_usage_send()
-        user = tenant = None
+        account = self._saved_account()
+        home = account.get("home_account_id") or ""
+        return {"python": platform.python_version(), "user": account.get("username"),
+                "tenant": home.split(".", 1)[1] if "." in home else None}
+
+    def _saved_account(self) -> dict[str, Any]:
+        """The signed-in account from the saved sign-in, read without the network, so the app starts
+        signed in offline or behind a proxy that blocks Microsoft's sign-in. {} when there is none."""
         try:
-            user = self.auth.signed_in_user()
-            tenant = self.auth.signed_in_tenant()
-        except Exception as exc:  # no client ID yet, or offline: the UI offers sign-in
+            return cached_account(self._auth.cache_path if self._auth else None) or {}
+        except Exception as exc:  # noqa: BLE001 - an unreadable cache: the UI offers sign-in
             _log.info("Not signed in: %s", describe(exc))
-        return {"python": platform.python_version(), "user": user, "tenant": tenant}
+            return {}
 
     def _start_retention_sweep(self) -> None:
-        """Once per engine start, in the background: delete local copies of lakehouse data unused for
-        longer than the organization allows (retention.py)."""
+        """From the engine's first call, in the background and then once a day while it runs: delete local
+        copies of lakehouse data unused for longer than the organization allows (retention.py). An app
+        left open for weeks is swept too, each time under the policy as it is then."""
         if getattr(self, "_swept", False):
             return
         self._swept = True
+        stop = self._sweep_stop = threading.Event()
 
         def run() -> None:
             import logging
 
             from . import retention
-            try:
-                result = retention.sweep(self.root, app_settings.value("local_retention_days"))
-                if result["removed"]:
-                    logging.getLogger(__name__).info("Deleted %d local copies (%d bytes) unused for %d days",
-                                                     len(result["removed"]), result["bytes"], result["days"])
-            except Exception:  # noqa: BLE001 - a cache sweep must never stop the app
-                logging.getLogger(__name__).exception("Local copy cleanup failed")
+            while True:
+                try:
+                    result = retention.sweep(self.root, app_settings.value("local_retention_days"))
+                    if result["removed"]:
+                        logging.getLogger(__name__).info("Deleted %d local copies (%d bytes) unused for %d days",
+                                                         len(result["removed"]), result["bytes"], result["days"])
+                except Exception:  # noqa: BLE001 - a cache sweep must never stop the app
+                    logging.getLogger(__name__).exception("Local copy cleanup failed")
+                try:
+                    self._pn_tidy()  # closed Teams notices: their bell details now, ledger keys after a year
+                except Exception:  # noqa: BLE001 - nor a notice ledger cleanup
+                    logging.getLogger(__name__).exception("Notice ledger cleanup failed")
+                if stop.wait(SWEEP_EVERY):
+                    return
 
-        threading.Thread(target=run, name="retention-sweep", daemon=True).start()
+        self._sweeper = threading.Thread(target=run, name="retention-sweep", daemon=True)
+        self._sweeper.start()
 
     def _start_usage_send(self) -> None:
         """Once per engine start, in the background: send finished days of usage data, if it's on."""
@@ -249,7 +349,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def _checks(self, name: str | None) -> dict[str, Any]:
         """What compute_check (and Prove's and Validate's checks) need to follow the code that
         notebook ``name`` runs: the other notebooks by name, and its resources folder for %run -b."""
-        return {"load": self._notebook_of, "resources": self._resources_dir(name) or None}  # type: ignore[attr-defined]
+        return {"load": self._notebook_of, "resources": self._resources_dir(name) or None}
 
     def _notebook_of(self, name: str) -> dict[str, Any]:
         """Another notebook by name, for compute_check: its cells and its own lakehouse."""
@@ -377,6 +477,11 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         return {"user": None}
 
     def sign_in(self) -> dict[str, Any]:
+        with self._auth_lock:
+            self._auth_failed = None  # chosen by the person: try Microsoft again now, back online or not
+        retry = getattr(self.auth, "retry_sign_in", None)
+        if callable(retry):  # chosen by the person: a window even after a Conditional Access refusal
+            retry()
         self.auth.fabric_token()
         self.auth.storage_token()
         return {"user": self.auth.signed_in_user(), "tenant": self.auth.signed_in_tenant()}
@@ -384,13 +489,21 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def readiness_check(self) -> list[dict[str, Any]]:
         """Home's Ready to work list. Reads only, and never opens a sign-in window."""
         from . import readiness
-        try:
-            user = self.auth.signed_in_user()
-        except Exception:  # noqa: BLE001 - no client ID yet: shown as not signed in
-            user = None
-        fabric = self._quiet_fabric() if user else None  # type: ignore[attr-defined]
-        if user and fabric is None:
+        user = self._saved_account().get("username")
+        offline = None
+        if user:
+            try:
+                self.auth  # noqa: B018 - building it is the first call to Microsoft's sign-in
+            except Exception as exc:  # noqa: BLE001 - no client ID yet: shown as not signed in
+                offline = net_trust.explain(exc)  # still signed in; Fabric's row says why it can't answer
+                if not offline:
+                    user = None
+        fabric = self._quiet_fabric() if user and not offline else None
+        if user and not offline and fabric is None:
             user = None  # the saved sign-in has expired: the row offers Sign in
+
+        def unreachable() -> list[dict[str, Any]]:
+            raise ConnectionError(offline)
 
         def capacities() -> list[dict[str, Any]]:
             token = self.auth.silent_token(CAPACITY_SCOPES)
@@ -398,7 +511,10 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 raise PermissionError("not consented")
             return FabricClient(lambda: token).list_capacities()
 
-        return readiness.checks(user, fabric.list_workspaces if fabric else list, capacities, self.app_settings())
+        from .http_session import clock_offset
+        return readiness.checks(user, fabric.list_workspaces if fabric else unreachable if offline else list,
+                                capacities, self.app_settings(),
+                                clock=clock_offset, folder=self.root)
 
     def readiness_write_test(self, workspace_id: str, lakehouse_id: str, workspace_name: str) -> dict[str, Any]:
         """Write, read back and delete one small file in a lakehouse's Files area (asked for first)."""
@@ -441,7 +557,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 if all_types:
                     return ws, client.list_items(ws["id"])
                 return ws, [lh | {"type": "Lakehouse"} for lh in client.list_lakehouses(ws["id"])]
-            except Exception:  # e.g. a paused capacity; list the rest
+            except Exception:  # noqa: BLE001 - e.g. a paused capacity; list the rest
                 return ws, None
 
         items, skipped = [], []
@@ -799,7 +915,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """Write a cell's whole result to a new file in Downloads (CSV, Excel or Parquet); never replaces a file."""
         if format not in DOWNLOAD_FORMATS:
             raise ValueError(f"Download as {', '.join(DOWNLOAD_FORMATS)}.")
-        folder = Path.home() / "Downloads"
+        folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name or 'notebook')} result {time.strftime('%Y-%m-%d %H%M%S')}"
         path = sql_exec._reserve(folder, base, "." + format)
@@ -890,7 +1006,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
         Never replaces a file: a name that is taken gets a number."""
         report = sqlcompat.analyze(query, target)
-        folder = Path.home() / "Downloads"
+        folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name)} compatibility {report['target']['id']} {time.strftime('%Y-%m-%d %H%M%S')}"
         text = sqlcompat.report_json(report, query)
@@ -919,11 +1035,21 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 resolve_warehouse=lambda ref: warehouse.resolve(self.fabric, ref))
         return self._sql_runs
 
-    def _audit_sql_run(self, action: str, outcome: str, seconds: float, params: dict[str, Any]) -> None:
+    def _audit_sql_run(self, action: str, outcome: str, seconds: float, params: dict[str, Any],
+                       reason: str = "") -> None:
         auth = getattr(self, "_auth", None)  # only an account already signed in; never sign in here
         who = (auth.signed_in_user() or "") if auth is not None else ""
         tenant = (auth.signed_in_tenant() or "") if auth is not None else ""
-        self.audit.record(action, outcome, seconds, params, who=who, tenant=tenant)
+        self.audit.record(action, outcome, seconds, params, who=who, tenant=tenant, reason=reason)
+
+    def _audit_finished(self, action: str, reason: str, seconds: float, params: dict[str, Any]) -> None:
+        """The line for work that ended after the call that started it had returned (a pipeline run on
+        this PC, a job in Fabric): ``ok`` when ``reason`` is "", else ``error`` with that reason
+        ("failed", "cancelled", "refused"). Never fails the work."""
+        try:
+            self._audit_sql_run(action, "error" if reason else "ok", seconds, params, reason=reason)
+        except Exception as exc:  # noqa: BLE001 - the run has ended either way; stderr says the line is missing
+            print(f"audit: could not record {action}: {type(exc).__name__}: {exc}", file=sys.stderr)
 
     def sql_start(self, query: str, lakehouse_ref: dict[str, Any] | None = None, dialect: str = "spark",
                   allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
@@ -998,7 +1124,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def export_sql_csv(self, query: str, lakehouse_ref: dict[str, str], dialect: str = "spark") -> dict[str, Any]:
         """Write the full result to the Downloads folder, a batch at a time (sql.Stream)."""
         self._attach(lakehouse_ref)
-        folder = Path.home() / "Downloads"
+        folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         # The lakehouse name is cleaned as sql_compat_export cleans its name, so it can't leave the
         # folder (HD-038, finding EN-11), and an existing file is never replaced.

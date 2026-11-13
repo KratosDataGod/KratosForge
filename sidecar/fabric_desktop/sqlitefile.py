@@ -2,13 +2,17 @@
 SQLite can't read (EA-028).
 
 ``connect`` is a connection for one read or change, closed after it: one kept per thread was never
-closed when its thread ended, and on Windows an open handle keeps the file locked.
+closed when its thread ended, and on Windows an open handle keeps the file locked. ``transaction`` is
+the same for a group of changes that land together or not at all.
 
 ``open_store`` runs a store's first open (its schema, its pragmas) after ``check`` has read the whole
 file. When the file is damaged or isn't a database it is moved aside to ``<name>.corrupt-<time>``,
 with its -wal and -shm, and the store starts empty, or, for a store whose rows the person can't get
 back by starting again, the open is refused with a message that says what to do. Each store says
 which in a comment where it opens. A busy or locked file (OperationalError) is never moved.
+
+``busy_message`` is what the app says when a call gives up waiting for a SQLite file another
+connection holds: SQLite's own "database is locked" says nothing about why or what to do.
 """
 
 from __future__ import annotations
@@ -28,6 +32,36 @@ def connect(path: Path, timeout: float = 30) -> Iterator[sqlite3.Connection]:
         yield db
     finally:
         db.close()
+
+
+@contextmanager
+def transaction(path: Path, timeout: float = 30, *, rows: bool = False) -> Iterator[sqlite3.Connection]:
+    """A connection whose changes commit when the block ends and roll back when it raises; closed
+    either way. ``with sqlite3.connect(...)`` alone commits or rolls back but leaves the connection
+    open. ``rows``: rows by name (sqlite3.Row) instead of tuples."""
+    db = sqlite3.connect(path, timeout=timeout)
+    try:
+        if rows:
+            db.row_factory = sqlite3.Row
+        with db:
+            yield db
+    finally:
+        db.close()
+
+
+def busy_message(exc: BaseException) -> str | None:
+    """The message for a call that gave up waiting on a SQLite file another connection held (SQLITE_BUSY,
+    worded "database is locked"), or None when ``exc`` is something else."""
+    seen: set[int] = set()
+    e: BaseException | None = exc
+    while e is not None and id(e) not in seen:
+        seen.add(id(e))
+        if isinstance(e, sqlite3.OperationalError) and str(e).strip().lower() == "database is locked":
+            return ("A database file stayed busy with another change for too long, so this didn't finish. "
+                    "Try again in a moment. If it keeps happening, a scheduled run or the agent may "
+                    "be in the middle of a long change, or antivirus or backup software may be holding the file.")
+        e = e.__cause__ or e.__context__
+    return None
 
 
 def check(db: sqlite3.Connection) -> None:

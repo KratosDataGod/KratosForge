@@ -10,6 +10,7 @@ SQLite only; no tenant calls."""
 
 import datetime as dt
 import json
+import re
 import shutil
 import sqlite3
 
@@ -30,7 +31,6 @@ LH = "bbbbbbbb-0000-0000-0000-000000000002"
 WS = "aaaaaaaa-0000-0000-0000-000000000001"
 SM = "dddddddd-0000-0000-0000-000000000004"
 GID = "cccccccc-0000-0000-0000-000000000003"
-TERM_URL = "https://purview.microsoft.com/glossary/term/1"
 POLICY = {"id": "table-names", "name": "Table names are snake_case", "category": "naming", "severity": "medium",
           "enforcement": "warn", "rule": "table_name_pattern",
           "params": {"pattern": {"value": "^[a-z][a-z0-9_]*$", "stricter": "fixed"}}}
@@ -110,7 +110,6 @@ def seed(path):
     as_(REQUESTER, "request", kind="key_table", target="supplier", reason="Supplier dimension")
     access = as_(MEMBER, "request", kind="access", target="crm/c360", project="ledger", reason="Churn")
     as_(PRODUCT_OWNER, "decide_request", id=access["id"], approve=True)
-    p.call("add_product_term", product_id="crm/c360", term="Customer", url=TERM_URL)
     p.call("add_product_item", product_id="crm/c360", item={"item_type": "SemanticModel", "item_id": SM,
                                                             "workspace_id": WS, "item_name": "SM"})
     p.call("link_entra_group", domain="sales", role="readers", env="prod", group_id=GID)
@@ -185,8 +184,6 @@ ROLE_WRITES = [
                                                 "reason": "on purpose"}),
     ("withdraw_shortcut_risk", ADMIN, lambda db: {"shortcut_id": _shortcut(db), "kind": "cross_env"}),
     ("record_endorsements", ADMIN, lambda db: {"items": [{"item_id": SM, "endorsement": "Certified"}]}),
-    ("add_product_term", PRODUCT_OWNER, lambda db: {"product_id": "crm/c360", "term": "Churn", "url": TERM_URL}),
-    ("remove_product_term", PRODUCT_OWNER, lambda db: {"product_id": "crm/c360", "term": "Customer"}),
     ("add_product_item", PRODUCT_OWNER, lambda db: {"product_id": "crm/c360", "item": {
         "item_type": "Report", "item_id": GID, "workspace_id": WS, "item_name": "Churn"}}),
     ("remove_product_item", PRODUCT_OWNER, lambda db: {"product_id": "crm/c360", "item_id": SM}),
@@ -221,9 +218,14 @@ def _copy(seeded, tmp_path):
 
 
 def _dump(path):
+    """The platform file's contents, less the "refused <op>" rows a refusal adds (and the audit table's
+    id counter they move): those are the one thing a refused change leaves, checked on their own."""
     conn = sqlite3.connect(path)
     try:
-        return list(conn.iterdump())
+        return [line for line in conn.iterdump()
+                if not re.match(r"""INSERT INTO "catalog__audit" VALUES\(\d+,'[^']*','[^']*','refused """, line)
+                and not line.startswith("""INSERT INTO "sqlite_sequence" VALUES('catalog__audit',""")
+                and not line.startswith("""UPDATE "sqlite_sequence" SET seq""")]
     finally:
         conn.close()
 
@@ -379,7 +381,7 @@ OPEN_READS = {
 def test_open_reads_answer_anyone_signed_in_in_full(seeded, tmp_path):
     path = _copy(seeded, tmp_path)
     LocalPlatform(path, lambda: ADMIN).call("issue_keys", name="customer", business_keys=["C-1", "C-2"])
-    answers = {user: {op: LocalPlatform(path, lambda: user).call(op, **args) for op, args in OPEN_READS.items()}
+    answers = {user: {op: LocalPlatform(path, lambda user=user: user).call(op, **args) for op, args in OPEN_READS.items()}
                for user in (ADMIN, NOBODY)}
     assert answers[NOBODY] == answers[ADMIN]
     seen = answers[NOBODY]

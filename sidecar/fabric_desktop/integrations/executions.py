@@ -38,6 +38,7 @@ Approved code runs as the person on this PC (see docs/product/ai-integration-sec
 
 from __future__ import annotations
 
+import builtins
 import json
 import secrets
 import threading
@@ -46,7 +47,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .core import CallContext, IntegrationError, redact_result, redact_secrets
-from .. import jsonfile
+from .. import jsonfile, notebook_cells
 
 STATES = ("queued", "running", "succeeded", "failed", "cancelled", "timed_out")
 FINISHED = ("succeeded", "failed", "cancelled", "timed_out")
@@ -109,7 +110,7 @@ def interrupt_until_stopped(con: Any, stopped: threading.Event, seconds: float =
                 return
             try:
                 con.interrupt()
-            except Exception:  # silent-ok: the connection closed as the query ended
+            except Exception:  # noqa: BLE001  # silent-ok: the connection closed as the query ended
                 return
         stopped.wait(0.05)
 
@@ -363,7 +364,7 @@ class ExecutionManager:
                                          "timeout_seconds.", retryable=True)
         return IntegrationError("cancelled", "The query was cancelled.")
 
-    def run_cells(self, run: Execution, cells: list[str], lakehouse_ref: dict[str, str] | None,
+    def run_cells(self, run: Execution, cells: builtins.list[str], lakehouse_ref: dict[str, str] | None,
                   notebook: str = "", skipped: str = "") -> dict[str, Any]:
         """Run code cells in order in a fresh process kernel, then end it. ``skipped`` says what
         the run left out, in its log and result."""
@@ -391,12 +392,7 @@ class ExecutionManager:
                 with self._attach_lock:
                     self.service._attach(lakehouse_ref)
                     snap = kernel.start(code)
-                version, outputs = -1, snap.get("outputs") or []
-                while snap["status"] == "running":
-                    snap = kernel.poll(version, 0.5)
-                    version = snap.get("version", version)
-                    if snap.get("outputs") is not None:
-                        outputs = snap["outputs"]
+                snap, outputs = notebook_cells.wait(kernel, snap)
                 done.append({"cell": n, "status": snap["status"], "seconds": snap.get("seconds"),
                              "outputs": shape_outputs(outputs, budget)})
                 if snap["status"] != "ok":

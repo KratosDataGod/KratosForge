@@ -48,6 +48,8 @@ def test_events_are_checked_against_governances_shape():
            ({"to": {"roles": ["admins"]}}, "to.roles"),
            ({"to": {}}, "at least one"),
            ({"open": {"view": "platform", "tab": "health"}}, "open is"),
+           ({"open": {"view": ["platform"], "tab": "requests"}}, "open is"),
+           ({"open": "platform"}, "open is"),
            ({"at": "yesterday"}, "ISO 8601"),
            ({"severity": "critical"}, "severity"),
            ({"title": ""}, "title is required")]
@@ -105,7 +107,8 @@ def test_a_decision_closes_the_wait_and_a_new_wait_makes_the_next_decision_news(
     assert len(posts) == 4
 
 
-def test_unreachable_teams_queues_and_quiet_hours_hold_until_they_end(tmp_path):
+def test_unreachable_teams_queues_and_quiet_hours_hold_until_they_end(tmp_path, monkeypatch):
+    monkeypatch.setattr("fabric_desktop.workloads.notify.BACKOFF_FIRST", 0.0)  # retries here aren't about the rest between tries
     routing, outbox, ledger = setup(tmp_path)
     out = send([event()], routing, outbox, ledger, Posts(fail=[HOOK]), now=NOON)
     assert out["queued"] == 1 and out["events"][0]["result"] == "queued" and "ConnectionError" in out["error"]
@@ -248,3 +251,95 @@ def test_one_damaged_notice_row_doesnt_hide_the_rest(svc):
     shown = {n["kind"]: n["open"] for n in svc.platform_notify_open()["open"]}
     assert shown == {"request.waiting": {"view": "platform", "tab": "requests"},
                      "shortcut.broken": {"view": "shortcuts", "tab": "health"}}
+
+
+# ---- the remaining error paths and bounds
+
+def test_events_of_the_wrong_shape_are_refused_with_what_is_wrong():
+    with pytest.raises(ValueError, match="an event is an object"):
+        validate(["request.waiting"])
+    with pytest.raises(ValueError, match="to is an object"):
+        event(to=["ana@contoso.com"])
+    with pytest.raises(ValueError, match="to.people is a list of strings"):
+        event(to={"people": "ana@contoso.com"})
+    assert event(to={"people": [" ana@contoso.com ", "  "]})["to"]["people"] == ["ana@contoso.com"]
+
+
+def test_an_event_no_route_takes_is_skipped_and_says_why(tmp_path):
+    routing, outbox, ledger = setup(tmp_path, PlatformRoute("shortcuts", HOOK, kinds=("shortcut.broken",)))
+    posts = Posts()
+    out = send([event()], routing, outbox, ledger, posts, NOON)
+    assert posts == [] and out["events"] == [{"dedupe": "request.waiting:r1", "result": "skipped",
+                                                "reason": "no route matches and no default route is set"}]
+
+
+def test_a_notice_waiting_longer_than_it_keeps_trying_is_dropped_not_sent(tmp_path):
+    from fabric_desktop.workloads.notify import KEEP_TRYING
+    t = [NOON.timestamp()]
+    routing, ledger = PlatformRouting([PlatformRoute("default", HOOK)]), Ledger(tmp_path / "o.sqlite")
+    outbox = Outbox(tmp_path / "o.sqlite", clock=lambda: t[0])
+    outbox.add("old", ["x"], "Teams didn't answer")
+    t[0] += KEEP_TRYING + 1
+    posts = Posts()
+    send([], routing, outbox, ledger, posts, NOON)
+    assert posts == [] and outbox.pending() == []
+
+
+def _notice_keys(svc):
+    import sqlite3
+    with sqlite3.connect(svc.root / "platform_outbox.sqlite") as db:
+        return [r[0] for r in db.execute("SELECT key FROM notice ORDER BY key")]
+
+
+def test_a_closed_notices_bell_details_are_deleted_and_an_open_ones_kept(svc):
+    svc.platform_notify_save([{"name": "default", "url": HOOK}])
+    svc.platform_notify([raw(), dict(raw(kind="shortcut.broken", id="s1", title="Customers_Silver",
+                                         detail="Its target folder no longer exists"),
+                                     open={"view": "shortcuts", "tab": "health"}, dedupe="shortcut.broken:s1")])
+    assert _notice_keys(svc) == ["request.waiting:r1", "shortcut.broken:s1"]
+    svc.platform_notify([dict(raw(kind="request.decided"), dedupe="request.decided:r1")])
+    assert _notice_keys(svc) == ["shortcut.broken:s1"]  # its title and who it waited on are gone
+    assert "ana@contoso.com" not in str(_notice_keys(svc)) and len(svc.platform_notify_open()["open"]) == 1
+
+
+def test_closed_and_one_off_keys_go_after_a_year_and_open_ones_never(tmp_path):
+    routing, outbox, ledger = setup(tmp_path)
+    posts = Posts()
+    now = [1_000_000_000.0]
+    ledger.clock = lambda: now[0]
+    send([event(), event("request.decided", to={"roles": ["requester"]}), event("shortcut.broken", "s1")],
+         routing, outbox, ledger, posts, now=NOON)
+    now[0] += pns.SENT_KEEP_SECONDS - 60
+    assert ledger.prune(pns.SENT_KEEP_SECONDS) == 0  # not a year yet
+    now[0] += 120
+    assert ledger.prune(pns.SENT_KEEP_SECONDS) == 2  # the closed wait and the one-off decision
+    assert [k["key"] for k in ledger.open_keys()] == ["shortcut.broken:s1"]
+    again = send([event("shortcut.broken", "s1")], routing, outbox, ledger, posts, now=NOON)
+    assert again["events"][0]["reason"] == "already posted and still open"  # an open break is never posted twice
+
+
+def test_the_daily_sweep_tidies_the_ledger_and_never_makes_the_file(svc):
+    svc._pn_tidy()
+    assert not (svc.root / "platform_outbox.sqlite").exists()
+
+
+def test_the_daily_sweep_runs_the_ledger_tidy_even_when_nothing_is_sent(svc, monkeypatch):
+    """A PC that sends no notices for a year still prunes its ledger: the daily sweep tidies it, and a
+    tidy that fails is logged without stopping the sweep."""
+    import threading
+
+    from fabric_desktop import retention
+    tidied = threading.Event()
+
+    def tidy():
+        tidied.set()
+        raise OSError("the ledger is locked")
+    monkeypatch.setattr(retention, "sweep", lambda root, days: {"removed": [], "bytes": 0, "days": days})
+    monkeypatch.setattr(svc, "_pn_tidy", tidy)
+    svc._start_retention_sweep()
+    try:
+        assert tidied.wait(10)
+    finally:
+        svc._sweep_stop.set()
+    svc._sweeper.join(10)
+    assert not svc._sweeper.is_alive()

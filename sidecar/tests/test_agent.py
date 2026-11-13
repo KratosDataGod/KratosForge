@@ -324,23 +324,29 @@ def test_one_failed_heartbeat_doesnt_let_the_lease_lapse(setup):
     agent = Agent(dataclasses.replace(setup, job_lease_seconds=0.3))
     agent.queue.enqueue("meta", {"env": "dev"})
     job = agent.queue.claim(setup.name, 0.3)
-    real, calls = agent.queue.heartbeat, []
+    real, calls, renewed = agent.queue.heartbeat, [], []
 
     def flaky(*a, **k):
         calls.append(1)
         if len(calls) == 1:
             raise sqlite3.OperationalError("database is locked")
-        return real(*a, **k)
+        ok = real(*a, **k)
+        renewed.append(ok)
+        return ok
     agent.queue.heartbeat = flaky
     done, lost = threading.Event(), threading.Event()
     beat = threading.Thread(target=agent._heartbeat, args=(job, done, lost))
     beat.start()
     try:
-        deadline = time.monotonic() + 10
-        while len(calls) < 4 and time.monotonic() < deadline:
+        # Longer than the queue file's 30 s busy wait: a renewal can block on a locked file (Windows
+        # runners, a scanner) and still succeed, since heartbeat extends the lease whenever the job is ours.
+        deadline = time.monotonic() + 45
+        while len(renewed) < 3 and time.monotonic() < deadline:
             time.sleep(0.05)
-        assert beat.is_alive() and len(calls) >= 4 and not lost.is_set()
-        assert agent.queue.recover() == []  # renewed: not put back
+        # The beats after the failed one renewed the lease. (Asserting recover() == [] against the
+        # wall clock failed on a slow runner whenever one beat came late: a 0.3 s lease has no slack.)
+        assert renewed[:3] == [True, True, True] and beat.is_alive() and not lost.is_set()
+        assert agent.queue.get(job["id"])["lease_until"] > job["lease_until"]
     finally:
         done.set()
         beat.join(5)
@@ -503,6 +509,22 @@ def test_leases_block_a_second_writer_until_released_or_expired(tmp_path):
     with pytest.raises(LeaseBusy, match="agent-b"):
         with a.hold("LH_Silver/dbo.orders"):
             pass
+
+
+def test_a_lease_change_windows_keeps_refusing_leaves_the_lease_and_no_temporary_file(tmp_path, monkeypatch):
+    from fabric_desktop import leases
+    backend = LocalBackend(tmp_path / "leases")
+    etag = backend.create("LH_Silver/dbo.orders", b"agent-a")
+
+    def refused(src, dst):
+        raise PermissionError("[WinError 32] The process cannot access the file")
+    monkeypatch.setattr(leases.os, "replace", refused)
+    monkeypatch.setattr(leases.time, "sleep", lambda s: None)
+    with pytest.raises(PermissionError):
+        backend.replace("LH_Silver/dbo.orders", b"agent-a renewed", etag)
+    monkeypatch.undo()
+    assert not [p.name for p in (tmp_path / "leases").rglob("*.tmp")]
+    assert backend.read("LH_Silver/dbo.orders").data == b"agent-a"
 
 
 def test_hold_waits_for_the_lease_and_releases_it(tmp_path):
@@ -670,7 +692,7 @@ def test_a_busy_table_is_retried_for_just_the_tables_that_did_not_run(setup, mon
     agent.step()
     finish(agent)
     again = agent.queue.get(job["id"])
-    assert again["state"] == "queued" and "LeaseBusy" in again["error"] and "someone-else" in again["error"]
+    assert again["state"] == "queued" and "is being written by someone-else" in again["error"]
     assert again["payload"]["entities"] == ["gold.fact_sales"]
 
 
@@ -789,6 +811,53 @@ def test_agent_prunes_at_start_and_then_daily(setup):
     assert q.get(later["id"]) is None
 
 
+def test_agent_sweeps_old_local_copies_in_its_home_at_start_and_then_daily(setup):
+    import os
+    clock = Clock()
+    agent = Agent(setup, queue=JobQueue(setup.home / "queue.sqlite3", clock=clock, backoff_seconds=0), clock=clock)
+    old = time.time() - 40 * 86400
+    data = agent.runtime.root  # <home>/data: where the agent's runs keep the download cache and staging
+    assert data == setup.home / "data"
+    copy = data / "onelake-cache" / "test" / "LH_Landing" / "Files" / "x.json"
+    staged = data / "staging" / "orders" / "part-0.parquet"
+    spill = data / "staging" / "_writes" / "left-over.parquet"
+    kept = [setup.home / "audit" / "audit-2020-01.jsonl", setup.home / "logs" / "agent.log.3",
+            # This PC data of a project kept under the data folder: a LocalStore's tables, never a cache
+            data / "project" / ".local" / "dev" / "silver" / "orders" / "part-0.parquet",
+            data / "local-data" / "p1" / "data.duckdb"]
+    for path in (copy, staged, spill, *kept):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x")
+        os.utime(path, (old, old))
+    agent.step()
+    assert not copy.exists() and not staged.exists() and not spill.exists()  # local_retention_days (30); a day for spills
+    assert all(p.exists() for p in kept)  # the audit trail, logs, queue and This PC data are never the sweep's
+    again = data / "files" / "lh" / "a.csv"
+    again.parent.mkdir(parents=True, exist_ok=True)
+    again.write_text("x")
+    os.utime(again, (old, old))
+    clock.t += 3600
+    agent.step()  # swept an hour ago: not yet
+    assert again.exists()
+    clock.t += 86400
+    agent.step()
+    assert not again.exists()
+
+
+def test_a_sweep_that_fails_is_logged_and_the_pass_goes_on(setup, monkeypatch, caplog):
+    from fabric_desktop import retention
+    clock = Clock()
+    agent = Agent(setup, queue=JobQueue(setup.home / "queue.sqlite3", clock=clock, backoff_seconds=0), clock=clock)
+
+    def broken(*_a, **_k):
+        raise OSError("disk full")
+    monkeypatch.setattr(retention, "sweep", broken)
+    with caplog.at_level("WARNING", logger="fabric_desktop.agent"):
+        agent.step()
+    assert any("couldn't clean up local copies" in r.getMessage() for r in caplog.records)
+    assert agent._policy_at is not None  # the rest of the pass ran
+
+
 def test_cli_requeue_and_prune(setup, capsys):
     clock = Clock()
     q = JobQueue(setup.home / "queue.sqlite3", clock=clock, backoff_seconds=0)
@@ -862,15 +931,17 @@ def test_a_writer_that_commits_in_between_is_never_overwritten(setup, monkeypatc
     assert Engine(project, store).run("bronze.orders").status == "ok"
     e = project.entities["bronze.orders"]
     lh = project.layer(e.layer).lakehouse
-    real_read, raced = store.read_at, []
+    # A full load replaces every row, so it reads only the table's schema and version (schema_at).
+    real_read, raced = store.schema_at, []
     first = real_read(lh, e.schema, e.table)[1]
 
     def read_then_other_writer_commits(lakehouse, schema, table):
         out = real_read(lakehouse, schema, table)
         if table == e.table and not raced:
             raced.append(True)
-            other = out[0].head(1).with_columns(pl.lit("other-writer").alias("_run_id"))
-            store.write(lakehouse, schema, table, pl.concat([out[0], other], how="diagonal_relaxed"))
+            rows = store.read(lakehouse, schema, table)
+            other = rows.head(1).with_columns(pl.lit("other-writer").alias("_run_id"))
+            store.write(lakehouse, schema, table, pl.concat([rows, other], how="diagonal_relaxed"))
         return out
     real_write, outcomes = store.write, []
 
@@ -883,7 +954,7 @@ def test_a_writer_that_commits_in_between_is_never_overwritten(setup, monkeypatc
         if table == e.table and "read_version" in kw:
             outcomes.append(("ok", kw["read_version"], v))
         return v
-    monkeypatch.setattr(store, "read_at", read_then_other_writer_commits)
+    monkeypatch.setattr(store, "schema_at", read_then_other_writer_commits)
     monkeypatch.setattr(store, "write", write)
     monkeypatch.setattr("fabric_desktop.meta.engine.time.sleep", lambda s: None)
     res = Engine(project, store).run("bronze.orders")
@@ -933,3 +1004,48 @@ def test_job_ids_made_in_the_same_second_carry_48_random_bits(tmp_path):
     ids = [q.enqueue("meta", {"i": i})["id"] for i in range(200)]
     assert len(set(ids)) == 200
     assert all(re.fullmatch(r"job-\d{8}-\d{6}-[0-9a-f]{12}", i) for i in ids), ids[:3]
+
+
+# ---- the policy file (#1670's follow-up): the agent records a change in its own audit log
+
+def test_agent_records_the_policy_file_at_start_and_a_change_at_its_next_check(setup, monkeypatch, tmp_path):
+    from fabric_desktop import agent as agent_mod
+    monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
+    policy = tmp_path / "pd" / "FabricDesktop" / "policy.json"
+    policy.parent.mkdir(parents=True)
+    policy.write_text(json.dumps({"show_preview": False}), encoding="utf-8")
+    clock = Clock()
+    agent = Agent(setup, queue=JobQueue(setup.home / "queue.sqlite3", clock=clock), clock=clock)
+    seen = lambda: [(e["action"], e["target"]["state"]) for e in agent.audit.entries()  # noqa: E731
+                    if e["action"].startswith("policy_file_")]
+    agent.step()
+    assert seen() == [("policy_file_seen", "applied")]
+    assert (setup.home / "policy-seen.json").exists()  # in the agent's home, apart from the desktop app's
+    policy.write_text(json.dumps({"show_preview": True}), encoding="utf-8")
+    clock.t += agent_mod.POLICY_CHECK_SECONDS - 1
+    agent.step()
+    assert len(seen()) == 1  # not time to look again yet
+    clock.t += 1
+    agent.step()
+    assert seen() == [("policy_file_seen", "applied"), ("policy_file_changed", "applied")]
+    clock.t += agent_mod.POLICY_CHECK_SECONDS
+    agent.step()
+    assert len(seen()) == 2  # unchanged: nothing new
+    policy.unlink()
+    clock.t += agent_mod.POLICY_CHECK_SECONDS
+    agent.step()
+    assert seen()[-1] == ("policy_file_changed", "none")
+
+
+def test_a_policy_check_that_fails_is_logged_and_the_loop_carries_on(setup, monkeypatch, caplog):
+    from fabric_desktop import policy_watch
+    def broken(*_):
+        raise OSError("disk gone")
+    monkeypatch.setattr(policy_watch, "check", broken)
+    clock = Clock()
+    q = JobQueue(setup.home / "queue.sqlite3", clock=clock, backoff_seconds=0)
+    agent = Agent(setup, queue=q, clock=clock)
+    with caplog.at_level("WARNING", logger="fabric_desktop.agent"):
+        agent.step()
+    assert "couldn't check the policy file" in caplog.text
+    assert agent._pruned_at is not None  # the rest of the pass ran

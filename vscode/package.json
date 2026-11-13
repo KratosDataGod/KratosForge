@@ -10,7 +10,8 @@
   "engines": { "vscode": "^1.95.0" },
   "categories": ["Notebooks", "Data Science"],
   "keywords": ["fabric", "notebook", "lakehouse", "spark", "kratosforge"],
-  "capabilities": { "untrustedWorkspaces": { "supported": false } },
+  "capabilities": { "untrustedWorkspaces": { "supported": false }, "virtualWorkspaces": false },
+  "extensionKind": ["ui"],
   "activationEvents": ["onNotebook:jupyter-notebook"],
   "main": "./out/extension.js",
   "contributes": {
@@ -23,7 +24,7 @@
   "scripts": {
     "compile": "tsc -p .",
     "test": "tsc -p . && node --test test/*.test.cjs",
-    "package": "tsc -p . && vsce package --no-dependencies --skip-license -o kratosforge.vsix"
+    "package": "tsc -p . && node scripts/package.cjs"
   },
   "devDependencies": {
     "@types/node": "22.10.2",

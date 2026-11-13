@@ -31,7 +31,7 @@ import os
 import re
 import uuid
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, cast
 from xml.sax.saxutils import escape
 
 from . import jsonfile, warehouse_compare
@@ -303,15 +303,9 @@ class WarehouseProjectMixin:
 
     @staticmethod
     def _wh_write(f: Path, text: str) -> None:
-        """Replaces or creates ``f`` in one step, through a fresh temp file beside it."""
-        tmp = f.with_name(f"{f.name}.{uuid.uuid4().hex[:8]}.tmp")
-        try:
-            with open(tmp, "x", encoding="utf-8", newline="\n") as out:
-                out.write(text)
-            jsonfile.replace(tmp, f)
-        except BaseException:
-            tmp.unlink(missing_ok=True)  # a locked file (Windows) mustn't leave a .tmp for Git to show
-            raise
+        """Replaces or creates ``f`` in one step, through a fresh temp file beside it. LF endings on every
+        OS, and a locked file (Windows) leaves no temporary file for Git to show."""
+        jsonfile.write_text(f, text, newline="\n")
 
     def _wh_mkdirs(self, project: Path, f: Path) -> None:
         f.parent.mkdir(parents=True, exist_ok=True)
@@ -401,11 +395,13 @@ class WarehouseProjectMixin:
                     raise ValueError(FABRIC_OWN)
                 if len(text.encode("utf-8")) > MAX_FILE:
                     raise ValueError(f"Its script is larger than {MAX_FILE // 1024} KB.")
-                rel = where.get(_key(kind, schema, name))
-                if rel is None:
+                known = where.get(_key(kind, schema, name))
+                if known is None:
                     rel = default_path(kind, schema, name)
                     if kind in folders:
                         rel = f"{schema}/{folders[kind]}/{name}.sql"
+                else:
+                    rel = known
                 row["path"] = rel
                 owner = taken.setdefault(rel.lower(), _key(kind, schema, name))
                 if owner != _key(kind, schema, name) and where.get(_key(kind, schema, name)) != rel:
@@ -414,17 +410,17 @@ class WarehouseProjectMixin:
                         raise ValueError(f"Its file would be {rel}, which already defines {other}.")
                     raise ValueError(f"Its file would be {rel}, which is {other}'s file apart from letter case, and "
                                      "Windows keeps only one of them. Rename one of the two objects.")
-                f = self._wh_file(project, rel) if project is not None else None
-                if f is None or not f.is_file():
-                    if not dry_run:
-                        self._wh_mkdirs(project, f)
-                        self._wh_write(f, text)
+                target = self._wh_file(project, rel) if project is not None else None
+                if target is None or not target.is_file():
+                    if not dry_run:  # not a dry run, so the project was made above and target is set
+                        self._wh_mkdirs(cast(Path, project), cast(Path, target))
+                        self._wh_write(cast(Path, target), text)
                     result["added"].append(row)
-                elif _normal(f.read_text(encoding="utf-8-sig")) == text:
+                elif _normal(target.read_text(encoding="utf-8-sig")) == text:
                     result["same"].append(row)
                 else:
                     if replace and not dry_run:
-                        self._wh_write(f, text)
+                        self._wh_write(target, text)
                     result["changed"].append({**row, "replaced": "yes" if replace else "no"})
             except (OSError, ValueError) as exc:
                 result["skipped"].append({**row, "why": str(exc) if isinstance(exc, ValueError) else "It couldn't be written."})

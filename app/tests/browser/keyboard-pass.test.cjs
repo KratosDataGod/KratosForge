@@ -8,12 +8,15 @@
 //   every Tab stop shows a focus ring; this walk covers the whole window and both directions.
 // - No page is left out: the rail pages walked are exactly the features with a rail entry (features.js),
 //   so a new page is in the pass the day it is registered, and one the pass skips fails the guard.
-// - The dialogs the rail pages open from a button of their own, beyond the shared ones that
+// - The dialogs the rail pages open from a button of their own (axe checks each while it's open, #1673), beyond the shared ones that
 //   dialog-keyboard.test.cjs opens by code: Enter opens each one with focus inside, Escape closes it and
 //   focus goes back to the button. Opening and closing them sends no write to the engine.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
-const { playwright, openApp, animationsDone } = require("./harness.cjs");
+const { playwright, openApp, animationsDone, axeSource, axeFindings } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: app.js:pickWorkspace, git.js:gitPathDialog, notebook-formats.js:nbfImportDialog
+// axe covers dialogs: pipelines.js:pipelineOpenDialog, platform.js:newRequestDialog
 
 let app;
 const skip = !playwright && "Playwright is not installed";
@@ -222,6 +225,8 @@ for (const [view, button, title] of DIALOGS) {
     await settle();
     assert.ok(await page().evaluate(() => document.getElementById("dialog-root").contains(document.activeElement)),
       "focus didn't move into the dialog");
+    // #1673: axe on the dialog while it's open (when axe-core is installed, as in CI).
+    if (axeSource) assert.deepStrictEqual(await axeFindings(page(), "#dialog-root .dialog"), [], `axe on ${title}`);
     await page().keyboard.press("Escape");
     await dialog.waitFor({ state: "detached", timeout: 3000 }).catch(() => assert.fail("Escape didn't close the dialog"));
     await page().waitForTimeout(100);
@@ -237,6 +242,57 @@ for (const [view, button, title] of DIALOGS) {
     assert.deepStrictEqual(app.errors, []);
   });
 }
+
+// EA-030 (docs/ux/narrator-checklist.md section 2): choosing a page on the rail with Enter moves focus to
+// the new page's heading, so a screen reader reads it. The rail is redrawn on every page change, so focus
+// would otherwise drop to the window. Read from Chromium's accessibility tree, which is what Narrator reads:
+// the focused node is the page's level 1 heading, or, on a page whose heading isn't drawn yet, the page
+// itself with the page's name in the polite status region.
+test("Enter on a rail page moves focus to that page's heading, so a screen reader reads the new page", { skip }, async (t) => {
+  const rail = await page().evaluate(() => [...railFeatures(), ...railFeatures(true)]
+    .map((f) => ({ name: f.rail.label, view: Object.keys(f.views || {})[0] })));
+  for (const r of rail) {
+    await t.test(r.name, async () => {
+      await page().evaluate((v) => { closeDialog(); go(v === "home" ? "settings" : "home"); }, r.view);
+      await settle();
+      await page().locator("#rail .rail-item").filter({ hasText: r.name }).first().focus();
+      await page().keyboard.press("Enter");
+      await page().waitForTimeout(150);  // announce() writes its text a moment later, so a repeat is read again
+      const cdp = await page().context().newCDPSession(page());
+      const { nodes } = await cdp.send("Accessibility.getFullAXTree");
+      await cdp.detach();
+      const focused = nodes.find((n) => !n.ignored && n.role?.value !== "RootWebArea" && n.properties?.some((p) => p.name === "focused" && p.value.value));
+      const level = focused?.properties?.find((p) => p.name === "level")?.value?.value;
+      const announced = await page().evaluate(() => document.getElementById("announce")?.textContent || "");
+      const heard = focused?.role?.value === "heading" && level === 1 ? `heading ${focused.name?.value}`
+        : focused?.role?.value === "main" ? `main, announced "${announced}"` : `${focused?.role?.value || "nothing"} ${focused?.name?.value || ""}`;
+      assert.ok(heard.startsWith("heading ") || heard === `main, announced "${r.name}"`, `${r.name}: focus is on ${heard}`);
+    });
+  }
+  assert.deepStrictEqual(app.errors, []);
+});
+
+// EA-030 (docs/ux/narrator-checklist.md section 2): a screen reader user finds where they are by the page's
+// level 1 heading (Narrator's H key), so every rail page has exactly one, and so does each OneLake tab.
+// Read from Chromium's accessibility tree, which is what Narrator reads, so a hidden heading counts.
+test("every rail page, and each OneLake tab, has exactly one level 1 heading", { skip }, async (t) => {
+  const rail = await page().evaluate(() => [...railFeatures(), ...railFeatures(true)]
+    .map((f) => ({ name: f.rail.label, view: Object.keys(f.views || {})[0], open: `go("${Object.keys(f.views || {})[0]}")` })));
+  const tabs = ["catalog", "shortcuts", "access"].map((tab) => ({ name: `OneLake: ${tab}`, open: `catalogPage.tab = "${tab}"; go("onelake")` }));
+  for (const r of [...rail, ...tabs]) {
+    await t.test(r.name, async () => {
+      await page().evaluate((open) => { closeDialog(); go("home"); (0, eval)(open); }, r.open);
+      await settle();
+      const cdp = await page().context().newCDPSession(page());
+      const { nodes } = await cdp.send("Accessibility.getFullAXTree");
+      await cdp.detach();
+      const h1 = nodes.filter((n) => !n.ignored && n.role?.value === "heading"
+        && n.properties?.some((p) => p.name === "level" && p.value.value === 1)).map((n) => n.name?.value);
+      assert.strictEqual(h1.length, 1, `${r.name}: level 1 headings ${JSON.stringify(h1)}`);
+    });
+  }
+  assert.deepStrictEqual(app.errors, []);
+});
 
 test("the whole pass sent no write to the engine", { skip }, async () => {
   assert.deepStrictEqual(app.calls.map((c) => c.method).filter(looksLikeWrite), []);

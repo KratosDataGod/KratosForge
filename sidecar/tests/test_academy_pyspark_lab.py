@@ -129,13 +129,13 @@ def test_the_result_label_is_honest():
 
 # ---- the learner package (Security read, 2026-11-03)
 
-def test_the_package_is_its_sources_with_only_the_shims_parent_imports_changed(tmp_path):
+def test_the_package_is_its_sources_with_only_parent_imports_changed(tmp_path):
     learner_pkg.build(tmp_path)
     pkg = tmp_path / learner_pkg.PACKAGE
     assert sorted(p.name for p in pkg.glob("*.py")) == sorted(["__init__.py", *learner_pkg.SOURCES])
     for name, src in learner_pkg.SOURCES.items():
         built, original = (pkg / name).read_text(encoding="utf-8"), src.read_text(encoding="utf-8")
-        if name == "pyspark_shim.py":
+        if name in learner_pkg.REWRITES:
             assert "from .." not in built and built.count("\n") == original.count("\n")
         else:
             assert built == original
@@ -243,6 +243,17 @@ def test_the_session_sets_nothing_after_it_connects(monkeypatch, tmp_path):
     spark = pyspark_shim.AcademySession(tmp_path)
     assert spark.read.table("bronze.t").collect()[0][0] == 1
     assert spark.conn.execute("SELECT current_setting('default_null_order')").fetchone()[0].lower() == "nulls_first_on_asc_last_on_desc"
+
+
+def test_a_join_on_a_text_key_runs(tmp_path):
+    """delta-rs reads text as string_view, and DuckDB pushes a join's key filter into the Arrow scan as
+    is_in, which pyarrow can't run on string_view: the session reads plain strings instead."""
+    pyspark_lab.prepare(tmp_path, "CREATE SCHEMA b; CREATE TABLE b.o AS SELECT * FROM (VALUES (1, 'P1'), (2, 'P2'), "
+                                  "(3, 'P9')) t(id, p); CREATE TABLE b.p AS SELECT * FROM (VALUES ('P1', 'x'), ('P2', 'y')) t(p, c)")
+    spark = pyspark_shim.AcademySession(tmp_path)
+    joined = spark.read.table("b.o").join(spark.read.table("b.p"), on="p", how="inner")
+    assert sorted(r[0] for r in joined.select("id").collect()) == [1, 2]
+    assert str(pyspark_shim.read_delta(pyspark_shim.table_path(tmp_path, "b.p")).schema.field("p").type) == "string"
 
 
 # ---- reading what the answer left: checked before the engine opens it
@@ -362,3 +373,58 @@ def test_a_pyspark_run_never_asks_for_the_appcontainer(tmp_path, monkeypatch):
     (tmp_path / "w").mkdir()
     pyspark_lab.run_learner(tmp_path / "w", "print('hi')", data_root=tmp_path / "data")
     assert asked == [False]
+
+
+def test_a_run_that_dies_without_a_message_reports_its_exit_code(tmp_path):
+    # A native crash (seen once on Windows CI) leaves no Python traceback: the exit code is the clue.
+    pyspark_lab.prepare(tmp_path, "CREATE SCHEMA s; CREATE TABLE s.t AS SELECT 1 AS id;")
+    run = pyspark_lab.run_reference(tmp_path, "import os\nos._exit(3)\n")
+    assert run["status"] == "error" and run["exit_code"] == 3
+    assert pyspark_lab._error(run) == "Your code stopped without an error message (exit code 3)."
+    windows = {"status": "error", "exit_code": 0xC0000005, "stderr": ""}   # an access violation as Windows reports it
+    assert pyspark_lab._error(windows) == "Your code stopped without an error message (exit code 0xC0000005)."
+    posix = {"status": "error", "exit_code": -11, "stderr": ""}
+    assert pyspark_lab._error(posix) == "Your code stopped without an error message (signal 11)."
+    assert pyspark_lab._error({"status": "error", "stderr": "Traceback\nValueError: bad"}) == \
+        "Your code stopped with an error: ValueError: bad"
+    assert pyspark_lab._lower_first("Your code crashed: x (exit code 0xC0000005).") == \
+        "your code crashed: x (exit code 0xC0000005)."
+
+
+def test_a_real_native_crash_reports_the_fatal_error_line_and_exit_code(tmp_path):
+    # A genuine crash in native code: faulthandler's dump must not hide the cause behind its last frame.
+    pyspark_lab.prepare(tmp_path, "CREATE SCHEMA s; CREATE TABLE s.t AS SELECT 1 AS id;")
+    run = pyspark_lab.run_reference(tmp_path, "import ctypes\nctypes.string_at(0)\n")
+    assert run["status"] == "error" and run["exit_code"]
+    msg = pyspark_lab._error(run)
+    assert msg.startswith("Your code crashed: "), msg
+    assert "Fatal Python error:" in msg or "Windows fatal exception:" in msg, msg
+    assert "signal" in msg or "exit code" in msg, msg
+    # A failing reference solution also says where it crashed: the innermost Python frames, by file name.
+    frames = pyspark_lab._crash_frames(run)
+    assert "in string_at" in frames and "answer.py:2 in <module>" in frames, run["stderr"]
+
+
+def test_a_crash_dump_gives_the_crashing_threads_innermost_frames_and_no_paths():
+    windows = """Windows fatal exception: access violation
+
+Thread 0x00001a2c (most recent call first):
+  File "C:\\py\\Lib\\threading.py", line 359 in wait
+
+Current thread 0x00000b18 (most recent call first):
+  File "C:\\py\\Lib\\site-packages\\deltalake\\table.py", line 1201 in merge
+  File "C:\\Temp\\kf-learner-x\\kf_learner\\pyspark_delta.py", line 88 in execute
+  File "answer.py", line 14 in <module>
+  File "<string>", line 9 in <module>
+  File "<string>", line 1 in <module>
+
+Extension modules: duckdb, deltalake (total: 2)
+"""
+    frames = pyspark_lab._crash_frames({"stderr": windows})
+    assert frames == (" Innermost frames: table.py:1201 in merge; pyspark_delta.py:88 in execute; answer.py:14 in <module>; "
+                      "<string>:9 in <module>.")
+    assert "C:" not in frames and "Temp" not in frames
+    # A plain Python error, or a crash with no frames, adds nothing.
+    assert pyspark_lab._crash_frames({"stderr": "Traceback\nValueError: bad"}) == ""
+    assert pyspark_lab._crash_frames({"stderr": "Fatal Python error: Aborted\n"}) == ""
+    assert pyspark_lab._crash_frames({}) == ""

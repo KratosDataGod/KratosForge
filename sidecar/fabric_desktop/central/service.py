@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -534,11 +535,9 @@ class PlatformMixin:
         return self._catalog().call("list_admins")
 
     def _each_platform(self, op: str, **kwargs: Any) -> list[dict[str, Any]]:
-        """Run one change on every environment's platform (admins and key tables live in each).
-        The catalog's goes first, so a refusal there stops the rest."""
+        """Run one change on every environment's platform (key tables live in each), reporting each.
+        The catalog's goes first, so a refusal there stops the rest. Admins: _admin_change."""
         envs = sorted(self._distinct_platforms(), key=lambda e: e[0] != CATALOG_ENV)
-        if self._keys_config().get("shared") and op != "ensure_key_table":
-            envs.append(("keys", self._shared_keys()))  # admins of the shared keys database too
         done = []
         for i, (env, client) in enumerate(envs):
             try:
@@ -549,16 +548,45 @@ class PlatformMixin:
                 done.append({"env": env, "ok": False, "message": str(exc)})
         return done
 
+    def _admin_change(self, op: str, **kwargs: Any) -> None:
+        """Claim, add or remove a platform admin in every environment's platform (each keeps its own
+        admins), the catalog's first. A refusal there stops it with nothing changed. A platform that
+        doesn't take the change afterwards is said, never passed over: the admins list shows the
+        catalog's, so someone removed there could stay an admin of Prod unseen. A platform where the
+        person is already not an admin counts as done, so running the removal again reaches the rest."""
+        envs = sorted(self._distinct_platforms(), key=lambda e: e[0] != CATALOG_ENV)
+        if self._keys_config().get("shared"):
+            envs.append(("keys", self._shared_keys()))  # admins of the shared keys database too
+        changed: list[str] = []
+        already: list[Exception] = []
+        failed: list[str] = []
+        for i, (env, client) in enumerate(envs):
+            try:
+                client.call(op, **kwargs)
+                changed.append(env.title())
+            except Exception as exc:  # noqa: BLE001 - every platform is tried; the ones that failed are said
+                if op == "remove_admin" and "isn't a platform admin" in str(exc):
+                    already.append(exc)
+                elif i == 0 and not already:
+                    raise
+                else:
+                    failed.append(f"{env.title()} ({exc})")
+        if failed:
+            done = f"Done in {', '.join(changed)}, but not" if changed else "Not done"
+            raise RuntimeError(f"{done} in {'; '.join(failed)}. Do it again once that platform answers.")
+        if already and not changed:
+            raise already[0]  # an admin nowhere
+
     def platform_claim_admin(self) -> dict[str, Any]:
-        self._each_platform("claim_admin")
+        self._admin_change("claim_admin")
         return self.platform_whoami()
 
     def platform_add_admin(self, user: str) -> list[dict[str, Any]]:
-        self._each_platform("add_admin", user=user)
+        self._admin_change("add_admin", user=user)
         return self.platform_admins()
 
     def platform_remove_admin(self, user: str) -> list[dict[str, Any]]:
-        self._each_platform("remove_admin", user=user)
+        self._admin_change("remove_admin", user=user)
         return self.platform_admins()
 
     def platform_key_tables(self, env: str = "dev") -> dict[str, Any]:
@@ -868,7 +896,7 @@ class PlatformMixin:
                 try:
                     client.call("ensure_key_table", name=out["target"], business_key=d.get("business_key", ""),
                                 description=d.get("description", "") or out.get("reason", ""))
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001 - one environment's failure is listed in problems
                     out.setdefault("problems", []).append(f"{env.title()}: {exc}")
         self._notify_request(out, notices.request_closed)
         return out
@@ -906,11 +934,11 @@ class PlatformMixin:
         requests = catalog.call("list_requests", status="waiting")
         try:
             keys = self._keys_platform(env).call("list_key_tables")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - an unreadable key table is listed in problems
             keys, problems = [], problems + [str(exc)]
         try:
             landing = self.platform_landing(env)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - an unreadable landing area is shown as its problem
             landing = {"sources": [], "problem": str(exc)}
         status = self.platform_status()
         return {"env": env, "me": me, "status": status,
@@ -964,7 +992,7 @@ class PlatformMixin:
         elif view == "oncall":
             landing = read("Landing zone", lambda: self.platform_landing("prod"))
             shortcuts = read("Shortcuts", lambda: catalog.call("list_seen_shortcuts"))
-            coverage = (read("Owners", self.platform_owner_coverage)  # type: ignore[attr-defined]
+            coverage = (read("Owners", self.platform_owner_coverage)
                         if "owner_coverage" in core.OPERATIONS else None)
             out["oncall"] = home.oncall(reach, landing, shortcuts, coverage)
         else:
@@ -1248,7 +1276,7 @@ class PlatformMixin:
         # deprecation notice just named don't hear about the deprecation twice; other followers do.
         changes = (out.get("changes") or []) if isinstance(out, dict) else []
         if env == "prod" and changes:
-            me = (self._user() or "").lower()  # type: ignore[attr-defined]
+            me = (self._user() or "").lower()
             followers = [f for f in out.get("followers") or [] if isinstance(f, str) and f.lower() != me]  # the promoter knows
             rest = [c for c in changes if not str(c).startswith("Deprecated")]
             for people, said, suffix in (([f for f in followers if f.lower() not in told], changes, ""),
@@ -1370,7 +1398,7 @@ class PlatformMixin:
         (project.root / "metadata" / "links" / f"{alias}.toml").unlink(missing_ok=True)
         return self.mesh_overview()
 
-    def _link_table(self, project: Any, env: str):
+    def _link_table(self, project: Any, env: str) -> Callable[[str], str]:
         """For the engine: a link's alias to the OneLake address it reads in ``env``."""
         def resolve(alias: str) -> str:
             link = project.links.get(alias)
@@ -1393,7 +1421,7 @@ class PlatformMixin:
         for link in project.links.values():
             try:
                 out.append({"alias": link.alias, "table": resolve(link.alias), "ok": True})
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - one link's failure is shown on that link
                 out.append({"alias": link.alias, "ok": False, "message": str(exc)})
         return out
 
@@ -1407,7 +1435,7 @@ class PlatformMixin:
         try:
             saved = self._catalog().call("enrichment", project=mesh.project_name(project))
             glossary = [t["term"] for t in self._catalog().call("list_glossary")]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - an unreadable glossary is shown as the problem
             saved, glossary, problem = {}, [], str(exc)
         return mesh.merged_catalog(project, e, saved) | {
             "entity": name, "products": mesh.products_of(project, name), "owner": e.spec.get("owner", ""),
@@ -1497,9 +1525,9 @@ class PlatformMixin:
                 if top.get("next", 1) > have.get("next", 1):
                     newer.append(f"{kt.name} (keys {have['next']} to {top['next'] - 1})")
             if newer:
-                raise GateError("save", [f"The platform issued keys after the move that LH_Keys doesn't have: "
+                raise GateError("save", [(f"The platform issued keys after the move that LH_Keys doesn't have: "
                                          f"{', '.join(newer)}. Going back would reuse those numbers, so keys stay "
-                                         "in the platform."])
+                                         "in the platform.")])
         envs = {k: dict(v) for k, v in project.environments.items()}
         envs.setdefault(env, {})["keys"] = "lakehouse"
         envs[env].pop("keys_moved_at", None)

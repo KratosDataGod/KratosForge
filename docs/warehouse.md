@@ -95,6 +95,14 @@ The left side lists the warehouse's schemas, and in each its **Tables**, **Views
 - **With the keyboard:** Tab reaches the tree, the up and down arrows move, right opens a row (or goes into it), left closes it (or goes to its parent), Home and End jump to the first and last row, and Enter does what a click does. Shift+F10 or the menu key opens **Script as** on an object.
 - The editor completes table, view and column names from the same list, without asking Fabric again.
 
+### Table detail (Preview)
+
+**Table detail** on a table's **⋯** menu shows its columns, and three ways to look after it:
+
+- **Profile** counts, for each column, how many values are empty (NULL), how many distinct values there are (Fabric's estimate, `APPROX_COUNT_DISTINCT`) and the smallest and largest value. It's one query that reads, over every row, in Fabric, so it uses capacity; up to 50 columns are profiled. Binary and `(max)` columns show only how many are empty.
+- **See it as it was** opens a query tab that reads the table at a past time you pick, in your time zone, sent to Fabric as UTC with `OPTION (FOR TIMESTAMP AS OF '...')`. Fabric keeps past versions for its retention period. It reads only: a query with that hint is checked like any read.
+- **Clone** writes `CREATE TABLE ... AS CLONE OF ...` (optionally `AT` a past time) into a new tab. A clone shares the table's files, so it takes seconds and no extra storage until either table changes. The script runs only through **Allow changes**, after the usual preview and confirm, and in Prod after you type the warehouse's name.
+
 A SQL analytics endpoint is found through its lakehouse, which Fabric gives the same name in the same workspace. If the lakehouse isn't in the list, the row has no **SQL query** button; use **Open in Fabric**.
 
 ## SQL from a template
@@ -117,7 +125,7 @@ Pick a template, fill in its fields (schema, table, columns and the like) and wa
 - **Fields are checked for what they hold.** A name can't contain `]` or a line break and is written inside `[ ]`; a column list becomes `[a], [b]`; text is written inside quotes with `'` doubled; numbers, types (`varchar(50)`, `decimal(18,2)`) and dates (`yyyy-mm-ddThh:mm:ss`) must look like one. Until every field is fine, **Open in a new tab** stays off, so a half-filled script never reaches the editor.
 - **Search** finds a template by its title, description or group.
 - **On a SQL analytics endpoint**, which only reads, the gallery offers only the templates that work there: views, functions, procedures, security and data quality checks.
-- **Only a query that reads runs on this page.** Most templates create or change objects or data, which the page refuses until warehouse writes ship (a later stage, waiting on its own decision). For now, copy those scripts into Fabric's SQL editor.
+- **A template that changes the warehouse runs only through Allow changes.** Most templates create or change objects or data. Run refuses them until you tick **Allow changes**, then shows what the script changes and asks you to confirm (typing the warehouse's name in Prod). See [Changing the warehouse](#changing-the-warehouse).
 - Every template is checked against the Fabric Warehouse rules of the [compatibility check](sql-compatibility.md) by the app's tests. Two say *Review* (Truncate and reload, Dynamic data masking) and two *Not verified* (time travel's `OPTION (FOR TIMESTAMP AS OF ...)` and `CREATE SECURITY POLICY`, which the checker can't read).
 
 ### Your own templates
@@ -266,6 +274,7 @@ Still not checked on a tenant:
 | WH-12 | Compare the project with the warehouse, object by object | Done |
 | WH-13 | Deploy the project to the warehouse after a preview: create, CREATE OR ALTER, add NULL columns, drops never ticked; Test and Prod from Git only | This release |
 | WH-09 | Estimated plan: Fabric's showplan as a tree of operators with rows and cost, without running the query | This release |
+| WH-16 | Table detail: profile, a query at a past time, a clone script | Preview |
 | WH-19 | Monitoring: Fabric's workspace monitoring for the warehouse, and its monitoring views built in Fabric as a KQL queryset | Preview |
 
-Phase 3 (WH-09 to WH-13) is complete. Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.
+Phase 3 (WH-09 to WH-13) is complete. Phase 4 (load and manage data) is proposed: load data (WH-15), table detail (WH-16), copies on this PC (WH-17, WH-14) and restore points (WH-18). Later stages (loading and managing data, Snowflake) follow the same pattern: a mockup first, then one change per feature.

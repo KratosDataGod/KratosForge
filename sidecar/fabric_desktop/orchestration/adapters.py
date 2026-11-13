@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import keyword
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Protocol, cast
 
 from .definition import Activity
 from .evaluate import MAX_ITEMS, ExpressionError, Scope, evaluate
@@ -76,7 +76,7 @@ class LocalAdapter(StaticAdapter):
     can_execute = True
     container = False   # containers don't take one of the run's parallel slots
 
-    def execute(self, activity: Activity, ctx: ActivityContext) -> Any:  # type: ignore[override]
+    def execute(self, activity: Activity, ctx: ActivityContext) -> Any:
         raise NotImplementedError
 
 
@@ -85,7 +85,8 @@ class SetVariable(LocalAdapter):
         tp = activity.type_properties
         if tp.get("setSystemVariable"):
             # Fabric's pipeline return value: a list of {key, value: {type, content}}.
-            entries = tp.get("value") if isinstance(tp.get("value"), list) else []
+            given = tp.get("value")
+            entries = given if isinstance(given, list) else []
             out = {}
             for entry in entries:
                 if isinstance(entry, dict) and isinstance(entry.get("key"), str):
@@ -94,7 +95,7 @@ class SetVariable(LocalAdapter):
                     out[entry["key"]] = _eval(content, ctx.scope, f"return value {entry['key']}")
                     ctx.set_return_value(entry["key"], out[entry["key"]])
             return {"name": tp.get("variableName", "pipelineReturnValue"), "value": out}
-        name = tp.get("variableName")
+        name = cast(str, tp.get("variableName"))  # validate refuses a pipeline that leaves it out
         value = _eval(tp.get("value"), ctx.scope, f"value of {name}")
         ctx.set_variable(name, value)
         return {"name": name, "value": value}
@@ -103,7 +104,7 @@ class SetVariable(LocalAdapter):
 class AppendVariable(LocalAdapter):
     def execute(self, activity: Activity, ctx: ActivityContext) -> Any:
         tp = activity.type_properties
-        name = tp.get("variableName")
+        name = cast(str, tp.get("variableName"))  # validate refuses a pipeline that leaves it out
         ctx.set_variable(name, _eval(tp.get("value"), ctx.scope, f"value for {name}"), append=True)
         return {}
 
@@ -175,7 +176,8 @@ class Until(LocalAdapter):
     def execute(self, activity: Activity, ctx: ActivityContext) -> Any:
         tp = activity.type_properties
         inner = activity.children.get("activities", [])
-        timeout = _timespan(tp.get("timeout")) if isinstance(tp.get("timeout"), str) else UNTIL_DEFAULT_TIMEOUT
+        given = tp.get("timeout")
+        timeout = _timespan(given) if isinstance(given, str) else UNTIL_DEFAULT_TIMEOUT
         deadline = ctx.clock() + timeout   # timeouts are real time; wait_scale shortens waits only
         for i in range(self.max_iterations):
             scope = ctx.scope.layer()
@@ -243,7 +245,8 @@ def child_key(activity: Activity) -> str:
     ref = tp.get("pipeline")
     if isinstance(ref, dict) and isinstance(ref.get("referenceName"), str):
         return ref["referenceName"]
-    return tp.get("pipelineId") if isinstance(tp.get("pipelineId"), str) else ""
+    pipeline_id = tp.get("pipelineId")
+    return pipeline_id if isinstance(pipeline_id, str) else ""
 
 
 def notebook_key(activity: Activity) -> str:
@@ -301,7 +304,7 @@ class ReadData(LocalAdapter):
 
     def execute(self, activity: Activity, ctx: ActivityContext) -> Any:
         tp = activity.type_properties
-        props = {k: _eval(tp.get(k), ctx.scope, k) for k in ("datasetSettings", "source", "firstRowOnly", "fieldList",
+        props: dict[str, Any] = {k: _eval(tp.get(k), ctx.scope, k) for k in ("datasetSettings", "source", "firstRowOnly", "fieldList",
                                                              "scripts", "scriptBlockExecutionTimeout") if k in tp}
         if "linkedService" in activity.raw:   # Script names its connection on the activity itself
             props["linkedService"] = _eval(activity.raw["linkedService"], ctx.scope, "linkedService")

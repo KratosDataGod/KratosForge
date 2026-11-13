@@ -67,8 +67,8 @@ def test_an_overwrite_never_keeps_rows_appended_during_its_upload(tmp_path):
 
     def batches():
         yield pa.record_batch({"id": [10]}, schema=schema)
-        subprocess.run([sys.executable, "-c", "import pyarrow as pa, sys; from deltalake import write_deltalake as w; "
-                        "w(sys.argv[1], pa.table({'id': [99]}), mode='append')", ref.uri], check=True)
+        subprocess.run([sys.executable, "-c", ("import pyarrow as pa, sys; from deltalake import write_deltalake as w; "
+                        "w(sys.argv[1], pa.table({'id': [99]}), mode='append')"), ref.uri], check=True)
         yield pa.record_batch({"id": [11]}, schema=schema)
 
     try:
@@ -80,19 +80,36 @@ def test_an_overwrite_never_keeps_rows_appended_during_its_upload(tmp_path):
 
 
 # EA-006: a commit that succeeded must not be reported as failed because a lease renewal failed.
+def _lapse_during_upload(monkeypatch):
+    """Leases short enough to lapse in a test, and ``lapse()``: from inside the upload (after the
+    commit check passed), make every renewal fail and wait until each held lease has lapsed. Waiting
+    for the lapse itself, not a fixed sleep, keeps a slow runner from failing the check before the
+    upload (the lease's whole length is there to get to it) or finishing before the lapse."""
+    monkeypatch.setattr(leases, "TABLE_LEASE_TTL", 3.0)
+    held, start = [], leases.Held.start
+    monkeypatch.setattr(leases.Held, "start", lambda self: (held.append(self), start(self))[1])
+
+    def lapse():
+        def flaky(self, *a):
+            raise OSError("renewal request timed out")
+        monkeypatch.setattr(leases.LocalBackend, "replace", flaky)
+        import time
+        current = [h for h in held if not h._stop.is_set()]  # this write's leases, not an earlier one's
+        deadline = time.monotonic() + 60
+        while not all(h.lost for h in current) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert current and all(h.lost for h in current), "the lease never lapsed"
+    return lapse
+
+
 def test_a_lease_lost_after_the_commit_reports_the_committed_write(tmp_path, monkeypatch):
-    monkeypatch.setattr(leases, "TABLE_LEASE_TTL", 0.9)
+    lapse = _lapse_during_upload(monkeypatch)
     ref = Ref((tmp_path / "t").as_posix())
     publish.publish(pa.table({"id": [1]}), ref, "overwrite", "tok")
     schema = pa.schema([("id", pa.int64())])
 
-    def flaky(self, *a):
-        raise OSError("renewal request timed out")
-
     def slow_upload():
-        monkeypatch.setattr(leases.LocalBackend, "replace", flaky)
-        import time
-        time.sleep(1.5)
+        lapse()
         yield pa.record_batch({"id": [2]}, schema=schema)
 
     publish.publish(pa.RecordBatchReader.from_batches(schema, slow_upload()), ref, "append", "tok")  # must not raise
@@ -152,14 +169,12 @@ def test_an_overwrite_that_replaces_the_schema_still_writes(tmp_path):
 
 
 def test_the_committed_write_says_its_lease_lapsed(tmp_path, monkeypatch):
-    monkeypatch.setattr(leases, "TABLE_LEASE_TTL", 0.9)
+    lapse = _lapse_during_upload(monkeypatch)
     ref = Ref((tmp_path / "t").as_posix())
     schema = pa.schema([("id", pa.int64())])
 
     def slow_upload():
-        monkeypatch.setattr(leases.LocalBackend, "replace", lambda self, *a: (_ for _ in ()).throw(OSError("timed out")))
-        import time
-        time.sleep(1.5)
+        lapse()
         yield pa.record_batch({"id": [1]}, schema=schema)
 
     table = publish.publish(pa.RecordBatchReader.from_batches(schema, slow_upload()), ref, "overwrite", "tok")

@@ -20,6 +20,7 @@ notebook or script is executed, and nothing calls Fabric.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
 import base64
 import binascii
 import copy
@@ -95,7 +96,7 @@ class Activity:
     def inactive(self) -> bool:
         return self.raw.get("state") == "Inactive"
 
-    def walk(self):
+    def walk(self) -> Iterator[Activity]:
         yield self
         for kids in self.children.values():
             for kid in kids:
@@ -223,7 +224,7 @@ def _unrecognized(p: Pipeline, limit: int = 200) -> list[dict[str, str]]:
 
 # ---- reading
 
-def _object_pairs(duplicates: list[str]):
+def _object_pairs(duplicates: list[str]) -> Callable[[list[tuple[str, Any]]], dict[str, Any]]:
     def hook(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         out: dict[str, Any] = {}
         for k, v in pairs:
@@ -247,7 +248,8 @@ def _parse(text: str, what: str, duplicates: list[str]) -> Any:
 
 
 def _parts(wrapper: dict[str, Any]) -> list[Any]:
-    definition = wrapper.get("definition") if isinstance(wrapper.get("definition"), dict) else wrapper
+    got = wrapper.get("definition")
+    definition: dict[str, Any] = got if isinstance(got, dict) else wrapper
     parts = definition.get("parts")
     return parts if isinstance(parts, list) else []
 
@@ -382,8 +384,9 @@ def _activities(items: list[Any], path: str, container: str | None, branch: str 
         if not isinstance(raw, dict):
             problems.append(DefinitionError("An activity must be a JSON object.", "invalid_activity", apath))
             continue
-        name = raw.get("name") if isinstance(raw.get("name"), str) else ""
-        typ = raw.get("type") if isinstance(raw.get("type"), str) else ""
+        got_name, got_type = raw.get("name"), raw.get("type")
+        name = got_name if isinstance(got_name, str) else ""
+        typ = got_type if isinstance(got_type, str) else ""
         act = Activity(name, typ, apath, raw, container, branch)
         deps = raw.get("dependsOn", [])
         if isinstance(deps, list):

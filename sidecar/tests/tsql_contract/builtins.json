@@ -1,0 +1,864 @@
+[
+ {
+  "name": "ASCII",
+  "group": "String"
+ },
+ {
+  "name": "CHAR",
+  "group": "String"
+ },
+ {
+  "name": "CHARINDEX",
+  "group": "String"
+ },
+ {
+  "name": "CONCAT",
+  "group": "String",
+  "probe": "SELECT CONCAT('a', 'b')"
+ },
+ {
+  "name": "CONCAT_WS",
+  "group": "String",
+  "probe": "SELECT CONCAT_WS(',', 'a', 'b')"
+ },
+ {
+  "name": "DATALENGTH",
+  "group": "String"
+ },
+ {
+  "name": "DIFFERENCE",
+  "group": "String"
+ },
+ {
+  "name": "FORMAT",
+  "group": "String",
+  "probe": "SELECT FORMAT(1234.5, 'N2')"
+ },
+ {
+  "name": "LEFT",
+  "group": "String"
+ },
+ {
+  "name": "LEN",
+  "group": "String"
+ },
+ {
+  "name": "LOWER",
+  "group": "String"
+ },
+ {
+  "name": "LTRIM",
+  "group": "String"
+ },
+ {
+  "name": "NCHAR",
+  "group": "String"
+ },
+ {
+  "name": "PATINDEX",
+  "group": "String"
+ },
+ {
+  "name": "QUOTENAME",
+  "group": "String"
+ },
+ {
+  "name": "REPLACE",
+  "group": "String"
+ },
+ {
+  "name": "REPLICATE",
+  "group": "String"
+ },
+ {
+  "name": "REVERSE",
+  "group": "String"
+ },
+ {
+  "name": "RIGHT",
+  "group": "String"
+ },
+ {
+  "name": "RTRIM",
+  "group": "String"
+ },
+ {
+  "name": "SOUNDEX",
+  "group": "String"
+ },
+ {
+  "name": "SPACE",
+  "group": "String"
+ },
+ {
+  "name": "STR",
+  "group": "String"
+ },
+ {
+  "name": "STRING_ESCAPE",
+  "group": "String",
+  "probe": "SELECT STRING_ESCAPE('a\"b', 'json')"
+ },
+ {
+  "name": "STUFF",
+  "group": "String"
+ },
+ {
+  "name": "SUBSTRING",
+  "group": "String"
+ },
+ {
+  "name": "TRANSLATE",
+  "group": "String"
+ },
+ {
+  "name": "TRIM",
+  "group": "String"
+ },
+ {
+  "name": "UNICODE",
+  "group": "String"
+ },
+ {
+  "name": "UPPER",
+  "group": "String"
+ },
+ {
+  "name": "ABS",
+  "group": "Math"
+ },
+ {
+  "name": "ACOS",
+  "group": "Math"
+ },
+ {
+  "name": "ASIN",
+  "group": "Math"
+ },
+ {
+  "name": "ATAN",
+  "group": "Math"
+ },
+ {
+  "name": "ATN2",
+  "group": "Math"
+ },
+ {
+  "name": "CEILING",
+  "group": "Math"
+ },
+ {
+  "name": "COS",
+  "group": "Math"
+ },
+ {
+  "name": "COT",
+  "group": "Math"
+ },
+ {
+  "name": "DEGREES",
+  "group": "Math"
+ },
+ {
+  "name": "EXP",
+  "group": "Math"
+ },
+ {
+  "name": "FLOOR",
+  "group": "Math"
+ },
+ {
+  "name": "LOG",
+  "group": "Math"
+ },
+ {
+  "name": "LOG10",
+  "group": "Math"
+ },
+ {
+  "name": "PI",
+  "group": "Math",
+  "probe": "SELECT PI()"
+ },
+ {
+  "name": "POWER",
+  "group": "Math"
+ },
+ {
+  "name": "RADIANS",
+  "group": "Math"
+ },
+ {
+  "name": "RAND",
+  "group": "Math",
+  "probe": "SELECT RAND()"
+ },
+ {
+  "name": "ROUND",
+  "group": "Math"
+ },
+ {
+  "name": "SIGN",
+  "group": "Math"
+ },
+ {
+  "name": "SIN",
+  "group": "Math"
+ },
+ {
+  "name": "SQRT",
+  "group": "Math"
+ },
+ {
+  "name": "SQUARE",
+  "group": "Math"
+ },
+ {
+  "name": "TAN",
+  "group": "Math"
+ },
+ {
+  "name": "CURRENT_TIMESTAMP",
+  "group": "Date and time",
+  "probe": "SELECT CURRENT_TIMESTAMP"
+ },
+ {
+  "name": "DATE_BUCKET",
+  "group": "Date and time",
+  "probe": "SELECT DATE_BUCKET(week, 1, CAST('2024-03-06' AS date))"
+ },
+ {
+  "name": "DATEADD",
+  "group": "Date and time",
+  "probe": "SELECT DATEADD(month, 1, CAST('2024-01-31' AS date))"
+ },
+ {
+  "name": "DATEDIFF",
+  "group": "Date and time",
+  "probe": "SELECT DATEDIFF(month, '2024-01-31', '2024-02-01')"
+ },
+ {
+  "name": "DATEDIFF_BIG",
+  "group": "Date and time",
+  "probe": "SELECT DATEDIFF_BIG(second, '2024-01-01', '2024-01-02')"
+ },
+ {
+  "name": "DATEFROMPARTS",
+  "group": "Date and time"
+ },
+ {
+  "name": "DATENAME",
+  "group": "Date and time",
+  "probe": "SELECT DATENAME(weekday, CAST('2024-03-06' AS date))"
+ },
+ {
+  "name": "DATEPART",
+  "group": "Date and time",
+  "probe": "SELECT DATEPART(year, CAST('2024-03-06' AS date))"
+ },
+ {
+  "name": "DATETIME2FROMPARTS",
+  "group": "Date and time",
+  "probe": "SELECT DATETIME2FROMPARTS(2024, 3, 6, 13, 45, 30, 0, 0)"
+ },
+ {
+  "name": "DATETIMEFROMPARTS",
+  "group": "Date and time",
+  "probe": "SELECT DATETIMEFROMPARTS(2024, 3, 6, 13, 45, 30, 0)"
+ },
+ {
+  "name": "DATETRUNC",
+  "group": "Date and time",
+  "probe": "SELECT DATETRUNC(year, CAST('2024-03-06' AS date))"
+ },
+ {
+  "name": "DAY",
+  "group": "Date and time"
+ },
+ {
+  "name": "EOMONTH",
+  "group": "Date and time"
+ },
+ {
+  "name": "GETDATE",
+  "group": "Date and time",
+  "probe": "SELECT GETDATE()"
+ },
+ {
+  "name": "GETUTCDATE",
+  "group": "Date and time",
+  "probe": "SELECT GETUTCDATE()"
+ },
+ {
+  "name": "ISDATE",
+  "group": "Date and time"
+ },
+ {
+  "name": "MONTH",
+  "group": "Date and time"
+ },
+ {
+  "name": "SMALLDATETIMEFROMPARTS",
+  "group": "Date and time",
+  "probe": "SELECT SMALLDATETIMEFROMPARTS(2024, 3, 6, 13, 45)"
+ },
+ {
+  "name": "SWITCHOFFSET",
+  "group": "Date and time",
+  "probe": "SELECT SWITCHOFFSET(SYSDATETIMEOFFSET(), '+01:00')"
+ },
+ {
+  "name": "SYSDATETIME",
+  "group": "Date and time",
+  "probe": "SELECT SYSDATETIME()"
+ },
+ {
+  "name": "SYSDATETIMEOFFSET",
+  "group": "Date and time",
+  "probe": "SELECT SYSDATETIMEOFFSET()"
+ },
+ {
+  "name": "SYSUTCDATETIME",
+  "group": "Date and time",
+  "probe": "SELECT SYSUTCDATETIME()"
+ },
+ {
+  "name": "TIMEFROMPARTS",
+  "group": "Date and time",
+  "probe": "SELECT TIMEFROMPARTS(13, 45, 30, 0, 0)"
+ },
+ {
+  "name": "TODATETIMEOFFSET",
+  "group": "Date and time",
+  "probe": "SELECT TODATETIMEOFFSET(CAST('2024-03-06' AS datetime2), '+01:00')"
+ },
+ {
+  "name": "YEAR",
+  "group": "Date and time"
+ },
+ {
+  "name": "CAST",
+  "group": "Conversion",
+  "probe": "SELECT CAST('42' AS int)"
+ },
+ {
+  "name": "CONVERT",
+  "group": "Conversion",
+  "probe": "SELECT CONVERT(int, '42')"
+ },
+ {
+  "name": "PARSE",
+  "group": "Conversion",
+  "probe": "SELECT PARSE('42' AS int)"
+ },
+ {
+  "name": "TRY_CAST",
+  "group": "Conversion",
+  "probe": "SELECT TRY_CAST('x' AS int)"
+ },
+ {
+  "name": "TRY_CONVERT",
+  "group": "Conversion",
+  "probe": "SELECT TRY_CONVERT(int, 'x')"
+ },
+ {
+  "name": "TRY_PARSE",
+  "group": "Conversion",
+  "probe": "SELECT TRY_PARSE('42' AS int)"
+ },
+ {
+  "name": "CHOOSE",
+  "group": "Logical and NULLs"
+ },
+ {
+  "name": "COALESCE",
+  "group": "Logical and NULLs",
+  "probe": "SELECT COALESCE(NULL, 1)"
+ },
+ {
+  "name": "GREATEST",
+  "group": "Logical and NULLs"
+ },
+ {
+  "name": "IIF",
+  "group": "Logical and NULLs",
+  "probe": "SELECT IIF(1 > 0, 'y', 'n')"
+ },
+ {
+  "name": "ISNULL",
+  "group": "Logical and NULLs"
+ },
+ {
+  "name": "LEAST",
+  "group": "Logical and NULLs"
+ },
+ {
+  "name": "NULLIF",
+  "group": "Logical and NULLs"
+ },
+ {
+  "name": "APPROX_COUNT_DISTINCT",
+  "group": "Aggregate"
+ },
+ {
+  "name": "APPROX_PERCENTILE_CONT",
+  "group": "Aggregate",
+  "probe": "SELECT APPROX_PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY a) FROM dbo.t"
+ },
+ {
+  "name": "APPROX_PERCENTILE_DISC",
+  "group": "Aggregate",
+  "probe": "SELECT APPROX_PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY a) FROM dbo.t"
+ },
+ {
+  "name": "AVG",
+  "group": "Aggregate"
+ },
+ {
+  "name": "CHECKSUM_AGG",
+  "group": "Aggregate",
+  "probe": "SELECT CHECKSUM_AGG(a) FROM dbo.t"
+ },
+ {
+  "name": "COUNT",
+  "group": "Aggregate",
+  "probe": "SELECT COUNT(*) FROM dbo.t"
+ },
+ {
+  "name": "COUNT_BIG",
+  "group": "Aggregate",
+  "probe": "SELECT COUNT_BIG(*) FROM dbo.t"
+ },
+ {
+  "name": "GROUPING",
+  "group": "Aggregate",
+  "probe": "SELECT a, GROUPING(a) FROM dbo.t GROUP BY ROLLUP(a)"
+ },
+ {
+  "name": "GROUPING_ID",
+  "group": "Aggregate",
+  "probe": "SELECT a, GROUPING_ID(a) FROM dbo.t GROUP BY ROLLUP(a)"
+ },
+ {
+  "name": "MAX",
+  "group": "Aggregate"
+ },
+ {
+  "name": "MIN",
+  "group": "Aggregate"
+ },
+ {
+  "name": "STDEV",
+  "group": "Aggregate"
+ },
+ {
+  "name": "STDEVP",
+  "group": "Aggregate"
+ },
+ {
+  "name": "STRING_AGG",
+  "group": "Aggregate",
+  "probe": "SELECT STRING_AGG(s, ',') WITHIN GROUP (ORDER BY s) FROM dbo.t"
+ },
+ {
+  "name": "SUM",
+  "group": "Aggregate"
+ },
+ {
+  "name": "VAR",
+  "group": "Aggregate"
+ },
+ {
+  "name": "VARP",
+  "group": "Aggregate"
+ },
+ {
+  "name": "CUME_DIST",
+  "group": "Window"
+ },
+ {
+  "name": "DENSE_RANK",
+  "group": "Window"
+ },
+ {
+  "name": "FIRST_VALUE",
+  "group": "Window",
+  "probe": "SELECT FIRST_VALUE(a) OVER (ORDER BY a) FROM dbo.t"
+ },
+ {
+  "name": "LAG",
+  "group": "Window",
+  "probe": "SELECT LAG(a) OVER (ORDER BY a) FROM dbo.t"
+ },
+ {
+  "name": "LAST_VALUE",
+  "group": "Window",
+  "probe": "SELECT LAST_VALUE(a) OVER (ORDER BY a) FROM dbo.t"
+ },
+ {
+  "name": "LEAD",
+  "group": "Window",
+  "probe": "SELECT LEAD(a) OVER (ORDER BY a) FROM dbo.t"
+ },
+ {
+  "name": "NTILE",
+  "group": "Window",
+  "probe": "SELECT NTILE(2) OVER (ORDER BY a) FROM dbo.t"
+ },
+ {
+  "name": "PERCENT_RANK",
+  "group": "Window"
+ },
+ {
+  "name": "PERCENTILE_CONT",
+  "group": "Window",
+  "probe": "SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY a) OVER () FROM dbo.t"
+ },
+ {
+  "name": "PERCENTILE_DISC",
+  "group": "Window",
+  "probe": "SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY a) OVER () FROM dbo.t"
+ },
+ {
+  "name": "RANK",
+  "group": "Window"
+ },
+ {
+  "name": "ROW_NUMBER",
+  "group": "Window"
+ },
+ {
+  "name": "ISJSON",
+  "group": "JSON",
+  "probe": "SELECT ISJSON('{\"a\": 1}')"
+ },
+ {
+  "name": "JSON_ARRAY",
+  "group": "JSON",
+  "probe": "SELECT JSON_ARRAY(1, 2)"
+ },
+ {
+  "name": "JSON_MODIFY",
+  "group": "JSON",
+  "probe": "SELECT JSON_MODIFY('{\"a\": 1}', '$.a', 2)"
+ },
+ {
+  "name": "JSON_OBJECT",
+  "group": "JSON",
+  "probe": "SELECT JSON_OBJECT('a': 1)"
+ },
+ {
+  "name": "JSON_QUERY",
+  "group": "JSON",
+  "probe": "SELECT JSON_QUERY('{\"a\": [1]}', '$.a')"
+ },
+ {
+  "name": "JSON_VALUE",
+  "group": "JSON",
+  "probe": "SELECT JSON_VALUE('{\"a\": 1}', '$.a')"
+ },
+ {
+  "name": "OPENJSON",
+  "group": "JSON",
+  "probe": "SELECT [key], value FROM OPENJSON('{\"a\": 1}')"
+ },
+ {
+  "name": "BINARY_CHECKSUM",
+  "group": "Other",
+  "probe": "SELECT BINARY_CHECKSUM(a) FROM dbo.t"
+ },
+ {
+  "name": "CHECKSUM",
+  "group": "Other"
+ },
+ {
+  "name": "HASHBYTES",
+  "group": "Other",
+  "probe": "SELECT HASHBYTES('SHA2_256', 'abc')"
+ },
+ {
+  "name": "ISNUMERIC",
+  "group": "Other"
+ },
+ {
+  "name": "NEWID",
+  "group": "Other",
+  "probe": "SELECT NEWID()"
+ },
+ {
+  "name": "TOP",
+  "group": "Statements and operators",
+  "probe": "SELECT TOP 1 a FROM dbo.t ORDER BY a",
+  "match": "\\bTOP\\s+\\(?\\d"
+ },
+ {
+  "name": "TOP ... WITH TIES",
+  "group": "Statements and operators",
+  "probe": "SELECT TOP 1 WITH TIES a FROM dbo.t ORDER BY b",
+  "match": "\\bWITH TIES\\b"
+ },
+ {
+  "name": "TOP ... PERCENT",
+  "group": "Statements and operators",
+  "probe": "SELECT TOP 50 PERCENT a FROM dbo.t ORDER BY a",
+  "match": "\\bPERCENT\\b"
+ },
+ {
+  "name": "OFFSET ... FETCH",
+  "group": "Statements and operators",
+  "probe": "SELECT a FROM dbo.t ORDER BY a OFFSET 1 ROWS FETCH NEXT 1 ROWS ONLY",
+  "match": "\\bFETCH NEXT\\b"
+ },
+ {
+  "name": "WITH (common table expression)",
+  "group": "Statements and operators",
+  "probe": "WITH c AS (SELECT a FROM dbo.t) SELECT a FROM c",
+  "match": "^\\s*WITH\\b"
+ },
+ {
+  "name": "CASE",
+  "group": "Statements and operators",
+  "probe": "SELECT CASE WHEN a = 1 THEN 'one' ELSE 'other' END FROM dbo.t",
+  "match": "\\bCASE WHEN\\b"
+ },
+ {
+  "name": "LIKE",
+  "group": "Statements and operators",
+  "probe": "SELECT a FROM dbo.t WHERE s LIKE 'x%'",
+  "match": "\\bLIKE\\b"
+ },
+ {
+  "name": "LIKE with [ ] ranges",
+  "group": "Statements and operators",
+  "probe": "SELECT a FROM dbo.t WHERE s LIKE '[a-y]%'",
+  "match": "LIKE '[^']*\\["
+ },
+ {
+  "name": "+ on text",
+  "group": "Statements and operators",
+  "probe": "SELECT s + 'z' FROM dbo.t",
+  "match": "'\\w*' \\+ '"
+ },
+ {
+  "name": "/ on integers",
+  "group": "Statements and operators",
+  "probe": "SELECT a / 2 FROM dbo.t",
+  "match": "\\b\\d+ / \\d+\\b"
+ },
+ {
+  "name": "% (modulo)",
+  "group": "Statements and operators",
+  "probe": "SELECT a % 2 FROM dbo.t",
+  "match": "\\w %\\s*\\d"
+ },
+ {
+  "name": "CROSS APPLY",
+  "group": "Statements and operators",
+  "probe": "SELECT t.a, v.n FROM dbo.t t CROSS APPLY (SELECT t.b AS n) v",
+  "match": "\\bCROSS APPLY\\b"
+ },
+ {
+  "name": "OUTER APPLY",
+  "group": "Statements and operators",
+  "probe": "SELECT t.a, v.n FROM dbo.t t OUTER APPLY (SELECT t.b AS n) v",
+  "match": "\\bOUTER APPLY\\b"
+ },
+ {
+  "name": "PIVOT",
+  "group": "Statements and operators",
+  "probe": "SELECT * FROM (SELECT a, b FROM dbo.t) s PIVOT (SUM(b) FOR a IN ([1], [2])) p",
+  "match": "\\bPIVOT\\b"
+ },
+ {
+  "name": "UNPIVOT",
+  "group": "Statements and operators",
+  "probe": "SELECT a, k, v FROM dbo.t UNPIVOT (v FOR k IN (b)) u",
+  "match": "\\bUNPIVOT\\b"
+ },
+ {
+  "name": "GROUP BY ROLLUP",
+  "group": "Statements and operators",
+  "probe": "SELECT a, SUM(b) FROM dbo.t GROUP BY ROLLUP(a)",
+  "match": "\\bROLLUP\\b"
+ },
+ {
+  "name": "GROUP BY CUBE",
+  "group": "Statements and operators",
+  "probe": "SELECT a, SUM(b) FROM dbo.t GROUP BY CUBE(a)",
+  "match": "\\bCUBE\\b"
+ },
+ {
+  "name": "GROUPING SETS",
+  "group": "Statements and operators",
+  "probe": "SELECT a, SUM(b) FROM dbo.t GROUP BY GROUPING SETS ((a), ())",
+  "match": "\\bGROUPING SETS\\b"
+ },
+ {
+  "name": "UNION, EXCEPT, INTERSECT",
+  "group": "Statements and operators",
+  "probe": "SELECT a FROM dbo.t EXCEPT SELECT 9",
+  "match": "\\b(UNION|EXCEPT|INTERSECT)\\b"
+ },
+ {
+  "name": "AT TIME ZONE",
+  "group": "Statements and operators",
+  "probe": "SELECT CAST('2024-03-06' AS datetime2) AT TIME ZONE 'UTC'",
+  "match": "\\bAT TIME ZONE\\b"
+ },
+ {
+  "name": "QUALIFY",
+  "group": "Statements and operators",
+  "probe": "SELECT a FROM dbo.t QUALIFY ROW_NUMBER() OVER (ORDER BY a) = 1",
+  "match": "\\bQUALIFY\\b"
+ },
+ {
+  "name": "SELECT ... INTO",
+  "group": "Statements and operators",
+  "probe": "SELECT a INTO dbo.t_copy FROM dbo.t",
+  "match": "\\bINTO dbo\\."
+ },
+ {
+  "name": "Temporary tables (#t)",
+  "group": "Statements and operators",
+  "probe": "CREATE TABLE #tmp (a INT)",
+  "match": "#\\w"
+ },
+ {
+  "name": "CREATE TABLE",
+  "group": "Statements and operators",
+  "probe": "CREATE TABLE dbo.t2 (a INT)",
+  "match": "^\\s*CREATE TABLE\\b"
+ },
+ {
+  "name": "CREATE TABLE AS SELECT",
+  "group": "Statements and operators",
+  "probe": "CREATE TABLE dbo.t3 AS SELECT a FROM dbo.t",
+  "match": "CREATE TABLE \\S+ AS SELECT"
+ },
+ {
+  "name": "CREATE VIEW",
+  "group": "Statements and operators",
+  "probe": "CREATE VIEW dbo.v AS SELECT a FROM dbo.t",
+  "match": "\\bCREATE VIEW\\b"
+ },
+ {
+  "name": "INSERT",
+  "group": "Statements and operators",
+  "probe": "INSERT INTO dbo.t (a, b, s) VALUES (9, 9, 'q')",
+  "match": "^\\s*INSERT\\b"
+ },
+ {
+  "name": "UPDATE",
+  "group": "Statements and operators",
+  "probe": "UPDATE dbo.t SET b = b WHERE a = 9",
+  "match": "^\\s*UPDATE\\b"
+ },
+ {
+  "name": "DELETE",
+  "group": "Statements and operators",
+  "probe": "DELETE FROM dbo.t WHERE a = 9",
+  "match": "^\\s*DELETE\\b"
+ },
+ {
+  "name": "TRUNCATE TABLE",
+  "group": "Statements and operators",
+  "probe": "TRUNCATE TABLE dbo.t",
+  "match": "\\bTRUNCATE TABLE\\b"
+ },
+ {
+  "name": "MERGE",
+  "group": "Statements and operators",
+  "probe": "MERGE dbo.t AS d USING (SELECT 1 AS a) AS s ON d.a = s.a WHEN MATCHED THEN UPDATE SET b = d.b;",
+  "match": "^\\s*MERGE\\b"
+ },
+ {
+  "name": "DROP TABLE",
+  "group": "Statements and operators",
+  "probe": "DROP TABLE IF EXISTS dbo.t3",
+  "match": "\\bDROP TABLE\\b"
+ },
+ {
+  "name": "DECLARE and variables",
+  "group": "Statements and operators",
+  "probe": "DECLARE @n INT = 1",
+  "match": "@"
+ },
+ {
+  "name": "IF ... ELSE",
+  "group": "Statements and operators",
+  "probe": "IF 1 = 1 SELECT 1",
+  "match": "^\\s*IF\\b"
+ },
+ {
+  "name": "WHILE",
+  "group": "Statements and operators",
+  "probe": "WHILE 1 = 0 SELECT 1",
+  "match": "^\\s*WHILE\\b"
+ },
+ {
+  "name": "BEGIN ... END",
+  "group": "Statements and operators",
+  "probe": "BEGIN SELECT 1 END",
+  "match": "^\\s*BEGIN\\s+SELECT"
+ },
+ {
+  "name": "TRY ... CATCH",
+  "group": "Statements and operators",
+  "probe": "BEGIN TRY SELECT 1 END TRY BEGIN CATCH SELECT 2 END CATCH",
+  "match": "\\bBEGIN TRY\\b"
+ },
+ {
+  "name": "Transactions",
+  "group": "Statements and operators",
+  "probe": "BEGIN TRANSACTION",
+  "match": "\\bTRANSACTION\\b"
+ },
+ {
+  "name": "EXEC",
+  "group": "Statements and operators",
+  "probe": "EXEC dbo.load_orders",
+  "match": "^\\s*EXEC\\b"
+ },
+ {
+  "name": "PRINT",
+  "group": "Statements and operators",
+  "probe": "PRINT 'hi'",
+  "match": "^\\s*PRINT\\b"
+ },
+ {
+  "name": "CREATE PROCEDURE",
+  "group": "Statements and operators",
+  "probe": "CREATE PROCEDURE dbo.p AS SELECT 1",
+  "match": "\\bCREATE PROC"
+ },
+ {
+  "name": "CREATE FUNCTION",
+  "group": "Statements and operators",
+  "probe": "CREATE FUNCTION dbo.f() RETURNS INT AS BEGIN RETURN 1 END",
+  "match": "\\bCREATE FUNCTION\\b"
+ },
+ {
+  "name": "USE",
+  "group": "Statements and operators",
+  "probe": "USE sales",
+  "match": "^\\s*USE\\b"
+ },
+ {
+  "name": "FOR JSON",
+  "group": "Statements and operators",
+  "probe": "SELECT a FROM dbo.t FOR JSON PATH",
+  "match": "\\bFOR JSON\\b"
+ },
+ {
+  "name": "OPTION (...)",
+  "group": "Statements and operators",
+  "probe": "SELECT a FROM dbo.t OPTION (MAXDOP 1)",
+  "match": "\\bOPTION\\s*\\("
+ },
+ {
+  "name": "SET options",
+  "group": "Statements and operators",
+  "probe": "SET NOCOUNT ON; SELECT 1",
+  "match": "^\\s*SET\\s+[A-Z]"
+ }
+]

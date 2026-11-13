@@ -205,7 +205,7 @@ def _run_cell(tmp_path, monkeypatch, pip_code=0, bpa=None):
     compiled = compile(code, "check", "exec")  # outside the try: a cell that doesn't compile fails the test
     try:
         exec(compiled, scope)
-    except Exception as exc:  # the cell fails the run after saving
+    except Exception as exc:  # noqa: BLE001 - the cell fails the run after saving
         raised = exc
     else:
         raised = None
@@ -230,6 +230,20 @@ def test_the_check_cell_scrubs_secrets_from_the_error_it_saves(tmp_path, monkeyp
     saved = json.dumps(record["error"])
     for secret in ("abc.def-123", jwt, "SECRETSIG", "hunter2"):
         assert secret not in saved
+
+
+def test_the_check_cell_redacts_with_the_apps_own_patterns(tmp_path, monkeypatch):
+    # The notebook can't import the app, so it carries a copy of redact.secrets' patterns: what it saves
+    # matches what the app's redactor gives, for shapes the old short list didn't know.
+    from fabric_desktop import redact
+    message = ("push " + "".join(["gh", "p_", "A" * 36]) + " key " + "".join(["AK", "IA", "ABCDEFGHIJKLMNOP"])
+               + " Password=" + "".join(["Sup3r", "Secret"]) + "; https://contoso.webhook.office.com/webhookb2/"
+               + "".join(["abc", "def123", "/IncomingWebhook/xyz"]))
+    def boom(**k):
+        raise ValueError(message)
+    _, record = _run_cell(tmp_path, monkeypatch, bpa=boom)
+    assert record["error"]["message"] == redact.secrets(message)
+    assert record["error"]["message"] != message
 
 
 def test_a_saved_error_is_redacted_and_capped_again_when_read():

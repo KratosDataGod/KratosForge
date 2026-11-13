@@ -6,27 +6,59 @@ reach a folder outside that one. Changes from Design are patch operations saved 
 Redo, versions, Save As, Clone, Export and Import are the project file's own. The preview uses sample
 numbers made here (appstudio/sample.py).
 
-Nothing here calls a model, reads OneLake or writes to Fabric: model connections and publishing come in
-later App Studio updates, behind an IT policy and a typed approval.
+Model connections (AS-05/06) are the person's own AI model and key reference, kept in
+``<data>/appstudio/connections.json`` with no secrets. The organization's policy (appstudio/policy.py) is
+checked on every save, test and use: it can turn connections off, limit the providers and the hosts a
+chosen address may reach, and refuse sample rows. Testing a connection lists the models its key can see
+(no tokens are spent); nothing here sends application context to a model yet.
+
+Publishing (AS-13) is the one Fabric write: appstudio_publish_check reads the bound semantic model, the
+workspace's items and its name, and says what would happen; appstudio_publish makes the report only for the
+check the person saw (its fingerprint), with the workspace's name typed, and with ``replace`` when a report of
+that name is already there. Nothing here reads OneLake.
 """
 
 from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
+import json
+import re
+import threading
+import time
+import uuid
 from pathlib import Path
 from typing import Any
 
-from . import sql_exec
+from . import http_session, redact, sql_exec
 from .jsonfile import write_bytes
+from .appstudio import discovery, edit, generate
+from .appstudio import policy as as_policy
 from .appstudio import project, sample, templates
+from .appstudio import publish as publishing
+from .appstudio import providers as prov
 from .appstudio import spec as specs
+from . import known_folders
 
 METHODS = {"appstudio_home", "appstudio_create", "appstudio_open", "appstudio_change", "appstudio_undo",
            "appstudio_redo", "appstudio_history", "appstudio_versions", "appstudio_save_version",
            "appstudio_restore_version", "appstudio_save_as", "appstudio_export", "appstudio_import",
-           "appstudio_preview"}
+           "appstudio_preview", "appstudio_connections", "appstudio_connection_save", "appstudio_connection_delete",
+           "appstudio_connection_test", "appstudio_plan", "appstudio_create_from_plan",
+           "appstudio_change_plan", "appstudio_apply_change", "appstudio_publish_check", "appstudio_publish"}
 SOURCES_FROM_UI = {"visual", "manual"}  # an AI change arrives through its own method, after its checks
+MAX_DESCRIPTION = 4000
+MAX_PLANS = 20  # plans waiting for approval, kept in memory only
+PLAN_MINUTES = 60
+_PLANS_LOCK = threading.Lock()  # guards every service's plan store, made once
+_WRITE_LOCK = threading.Lock()  # one project write at a time, so an approved change is checked and saved together
+_PUBLISH_LOCK = threading.Lock()  # one publish at a time from this PC
+_GUID = re.compile(r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$")
+
+
+def _digest(spec: Any) -> str:
+    return hashlib.sha256(json.dumps(spec, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 class AppStudioMixin:
@@ -92,17 +124,20 @@ class AppStudioMixin:
         if source not in SOURCES_FROM_UI:
             raise ValueError("source must be visual or manual.")
         folder = self._appstudio_project(project_name)
-        project.change(folder, ops, note=str(note), source=source)
+        with _WRITE_LOCK:
+            project.change(folder, ops, note=str(note), source=source)
         return self._appstudio_opened(folder)
 
     def appstudio_undo(self, project_name: str) -> dict[str, Any]:
         folder = self._appstudio_project(project_name)
-        project.undo(folder)
+        with _WRITE_LOCK:
+            project.undo(folder)
         return self._appstudio_opened(folder)
 
     def appstudio_redo(self, project_name: str) -> dict[str, Any]:
         folder = self._appstudio_project(project_name)
-        project.redo(folder)
+        with _WRITE_LOCK:
+            project.redo(folder)
         return self._appstudio_opened(folder)
 
     def appstudio_history(self, project_name: str, limit: int = 100) -> list[dict[str, Any]]:
@@ -117,7 +152,8 @@ class AppStudioMixin:
     def appstudio_restore_version(self, project_name: str, version: int) -> dict[str, Any]:
         """Restore a version. What was current is kept as a new version first."""
         folder = self._appstudio_project(project_name)
-        kept = project.restore_version(folder, version)["kept_as"]
+        with _WRITE_LOCK:
+            kept = project.restore_version(folder, version)["kept_as"]
         return {**self._appstudio_opened(folder), "kept_as": kept}
 
     def appstudio_save_as(self, project_name: str, name: str, clone: bool = False) -> dict[str, Any]:
@@ -129,7 +165,7 @@ class AppStudioMixin:
         """The project as a new .zip in Downloads; never replaces a file."""
         folder = self._appstudio_project(project_name)
         data = project.export(folder)
-        out = Path.home() / "Downloads"
+        out = known_folders.downloads()
         out.mkdir(parents=True, exist_ok=True)
         path = sql_exec._reserve(out, folder.name[:-len(project.SUFFIX)] + " (App Studio)", ".zip")
         write_bytes(path, data)  # swapped in over the empty name reserved for it
@@ -152,3 +188,311 @@ class AppStudioMixin:
         if not got["valid"]:
             raise specs.SpecError(got["problems"])
         return sample.preview(got["spec"], str(page), selection)
+
+    # ---------------------------------------------------------------- model connections (AS-05/06)
+
+    def _appstudio_store(self) -> prov.ConnectionStore:
+        return prov.ConnectionStore(Path(self.root) / "appstudio")  # type: ignore[attr-defined]
+
+    def _appstudio_model(self, conn_id: str = "") -> dict[str, Any]:
+        """A saved connection the organization's policy allows now; the default when no id is given.
+        Every use of a model goes through here, so a policy change applies at once."""
+        conn = self._appstudio_store().get(str(conn_id))
+        as_policy.check(conn)
+        return conn
+
+    def appstudio_connections(self) -> dict[str, Any]:
+        """The organization's policy, the providers it allows, and every saved connection with this month's
+        usage and why the policy stops it, if it does. Key references only: no key is read."""
+        pol = as_policy.current()
+        store = self._appstudio_store()
+        listed = store.list()
+        conns = [{**c, "usage": store.usage(c["id"]), "refused": as_policy.refusals(c, pol)} for c in listed["connections"]]
+        catalog = [{"id": k, "label": v["label"], "endpoint": v["endpoint"], "key": v["key"],
+                    "capabilities": dict(v["capabilities"]),
+                    "allowed": pol["enabled"] and (pol["providers"] is None or k in pol["providers"])}
+                   for k, v in prov.PROVIDERS.items()]
+        return {"policy": {k: pol[k] for k in ("enabled", "providers", "hosts", "sample_rows", "problems")},
+                "providers": catalog, "connections": conns, "default": listed["default"], "key_ref_help": prov.KEY_REF_HELP}
+
+    def appstudio_connection_save(self, connection: dict[str, Any], make_default: bool = False) -> dict[str, Any]:
+        """Add or change a connection. Refused when it has problems or the policy doesn't allow it."""
+        clean = prov.normalize({k: v for k, v in connection.items() if k not in ("capabilities", "usage", "refused")})
+        as_policy.check(clean)
+        saved = self._appstudio_store().save(clean, make_default=make_default)
+        return {**saved, "capabilities": prov.capabilities(saved)}
+
+    def appstudio_connection_delete(self, conn_id: str) -> dict[str, Any]:
+        """Remove a connection from this PC. Its key stays where it is (Credential Manager or the variable)."""
+        store = self._appstudio_store()
+        store.get(str(conn_id))  # a connection that isn't there says so
+        store.delete(str(conn_id))
+        return {"deleted": str(conn_id)}
+
+    def appstudio_connection_test(self, conn_id: str = "") -> dict[str, Any]:
+        """Check a connection works: read its key and list the models the key can see. Spends no tokens and
+        sends no application context."""
+        return prov.validate(self._appstudio_model(conn_id), http_session.session())
+
+    # ---------------------------------------------------------------- generation (AS-10)
+
+    def _appstudio_plan_store(self) -> dict[str, dict[str, Any]]:
+        with _PLANS_LOCK:
+            if getattr(self, "_appstudio_plans", None) is None:
+                self._appstudio_plans: dict[str, dict[str, Any]] = {}
+            return self._appstudio_plans
+
+    def _appstudio_metadata(self, source: dict[str, Any] | None, include_expressions: bool) -> tuple[dict[str, Any], dict[str, Any]]:
+        """(metadata, spec source) for a plan: a semantic model's sanitized metadata, or the sample fields."""
+        if not source:
+            return generate.sample_metadata(), {"kind": "sample", "name": "Sample data"}
+        ws, item = str(source.get("workspace_id", "")), str(source.get("item_id", ""))
+        if not (_GUID.fullmatch(ws) and _GUID.fullmatch(item)):
+            raise ValueError("Choose a semantic model: its workspace id and item id.")
+        name = redact_name(source.get("name")) or "Semantic model"
+        bim = self._model_bim(ws, {"id": item, "displayName": name})  # type: ignore[attr-defined]
+        meta = discovery.from_bim(bim, include_expressions=include_expressions)
+        return meta, {"kind": "semantic-model", "name": name, "workspace_id": ws, "item_id": item}
+
+    def appstudio_plan(self, description: str, target: str = "powerbi-report", source: dict[str, Any] | None = None,
+                       conn_id: str = "", include_expressions: bool = False) -> dict[str, Any]:
+        """Ask the person's model for a plan. Sends the description and sanitized metadata only (no rows); measure
+        formulas only with ``include_expressions``. The plan is checked against the metadata and kept here,
+        in memory, until it is approved (appstudio_create_from_plan) or an hour passes. Nothing is saved."""
+        text = " ".join(str(description).split())
+        if not text:
+            raise ValueError("Describe the application first.")
+        if len(text) > MAX_DESCRIPTION:
+            raise ValueError(f"Keep the description under {MAX_DESCRIPTION} characters.")
+        if target not in specs.TARGETS:
+            raise ValueError(f"target must be one of: {', '.join(sorted(specs.TARGETS))}.")
+        conn = self._appstudio_model(conn_id)  # the organization's policy, every time
+        if not conn["consent"]["context"]:  # before the semantic model is even read
+            raise prov.ConsentError("Agree to send application context to this model first (App Studio > Model connections).")
+        meta, spec_source = self._appstudio_metadata(source, bool(include_expressions))
+        got = prov.complete(conn, self._appstudio_store(), http_session.session(), generate.instruction(target), text,
+                            generate.PLAN_SCHEMA, generate.context(meta))
+        checked = generate.check_plan(got["result"], meta, target)
+        plans = self._appstudio_plan_store()
+        plan_id = str(uuid.uuid4())
+        now = time.monotonic()
+        with _PLANS_LOCK:
+            for k in [k for k, v in plans.items() if now - v["at"] > PLAN_MINUTES * 60]:
+                del plans[k]
+            while len(plans) >= MAX_PLANS:
+                del plans[min(plans, key=lambda k: plans[k]["at"])]
+            plans[plan_id] = {"metadata": meta, "target": target, "source": spec_source, "at": now}
+        return {"plan_id": plan_id, "plan": checked["plan"], "left_out": checked["left_out"],
+                "sent": {**generate.summary(meta), "description_chars": len(text)},
+                "connection": {"name": conn["name"], "provider": conn["provider"], "model": conn["model"]},
+                "usage": got["usage"], "warning": got["warning"]}
+
+    def appstudio_create_from_plan(self, plan_id: str, plan: dict[str, Any], name: str = "") -> dict[str, Any]:
+        """Approve a plan: check it again against the same metadata (the person may have edited it), make the
+        specification here and save it as a new project. The plan can be used once."""
+        plans = self._appstudio_plan_store()
+        with _PLANS_LOCK:  # taken out at once, so two approvals of the same plan can't both use it
+            kept = plans.pop(str(plan_id), None)
+        if kept is None or kept.get("kind") == "change" or time.monotonic() - kept["at"] > PLAN_MINUTES * 60:
+            if kept is not None and kept.get("kind") == "change":
+                with _PLANS_LOCK:
+                    plans.setdefault(str(plan_id), kept)
+            raise ValueError("That plan has expired. Ask for a new one.")
+        try:
+            checked = generate.check_plan(plan, kept["metadata"], kept["target"])
+            doc = generate.to_spec(checked["plan"], kept["metadata"], kept["target"], kept["source"],
+                                   " ".join(str(name).split())[:120])
+            folder = project.create(self._appstudio_root(), doc["name"], doc)
+        except Exception:
+            with _PLANS_LOCK:  # nothing was made: the plan can be fixed and approved again
+                plans.setdefault(str(plan_id), kept)
+            raise
+        return {**self._appstudio_opened(folder), "left_out": checked["left_out"]}
+
+
+    # ---------------------------------------------------------------- conversational edits (AS-11)
+
+    def _appstudio_project_metadata(self, spec: dict[str, Any], include_expressions: bool) -> dict[str, Any]:
+        """The metadata an edit may use: the app's semantic model, or the sample fields."""
+        src = next((s for s in spec["sources"] if s.get("kind") == "semantic-model"), None)
+        if src is None:
+            return generate.sample_metadata()
+        return self._appstudio_metadata({"workspace_id": src.get("workspace_id", ""), "item_id": src.get("item_id", ""),
+                                         "name": src.get("name", "")}, include_expressions)[0]
+
+    def appstudio_change_plan(self, project_name: str, request: str, conn_id: str = "",
+                              include_expressions: bool = False) -> dict[str, Any]:
+        """Ask the person's model how to make a change, and show the result without saving it. The model sees the
+        app's pages and components (ids, types, titles, measure names, fields) and the source's sanitized
+        metadata; never rows, and formulas only with ``include_expressions``. Its answer becomes patch operations
+        here, applied to a copy that must validate. Approve with appstudio_apply_change."""
+        text = " ".join(str(request).split())
+        if not text:
+            raise ValueError("Say what to change first.")
+        if len(text) > MAX_DESCRIPTION:
+            raise ValueError(f"Keep the request under {MAX_DESCRIPTION} characters.")
+        folder = self._appstudio_project(project_name)
+        got = project.open_project(folder)
+        if not got["valid"]:
+            raise specs.SpecError(got["problems"])
+        spec = got["spec"]
+        conn = self._appstudio_model(conn_id)
+        if not conn["consent"]["context"]:
+            raise prov.ConsentError("Agree to send application context to this model first (App Studio > Model connections).")
+        meta = self._appstudio_project_metadata(spec, bool(include_expressions))
+        answer = prov.complete(conn, self._appstudio_store(), http_session.session(), edit.instruction(spec["target"]),
+                               text, edit.CHANGE_SCHEMA, edit.context(spec, meta))
+        made = edit.to_ops(answer["result"], spec, meta)
+        result = edit.preview(spec, made["ops"])
+        plans = self._appstudio_plan_store()
+        change_id = str(uuid.uuid4())
+        now = time.monotonic()
+        with _PLANS_LOCK:
+            for k in [k for k, v in plans.items() if now - v["at"] > PLAN_MINUTES * 60]:
+                del plans[k]
+            while len(plans) >= MAX_PLANS:
+                del plans[min(plans, key=lambda k: plans[k]["at"])]
+            plans[change_id] = {"kind": "change", "project": folder.name, "ops": made["ops"], "base": _digest(spec),
+                                "note": made["summary"], "at": now}
+        return {"change_id": change_id, "summary": made["summary"], "done": made["done"], "left_out": made["left_out"],
+                "questions": made["questions"], "changed": result["changed"], "spec": result["spec"],
+                "sent": {**generate.summary(meta), "app_components": sum(len(p["components"]) for p in spec["pages"]),
+                         "request_chars": len(text)},
+                "connection": {"name": conn["name"], "provider": conn["provider"], "model": conn["model"]},
+                "usage": answer["usage"], "warning": answer["warning"]}
+
+    def appstudio_apply_change(self, project_name: str, change_id: str) -> dict[str, Any]:
+        """Save an approved change as one step with its inverse (Undo takes it back). Refused when the app changed
+        since the plan was made; a change can be applied once."""
+        folder = self._appstudio_project(project_name)
+        plans = self._appstudio_plan_store()
+        with _PLANS_LOCK:
+            kept = plans.pop(str(change_id), None)
+        if (kept is None or kept.get("kind") != "change" or kept["project"] != folder.name
+                or time.monotonic() - kept["at"] > PLAN_MINUTES * 60):
+            if kept is not None and (kept.get("kind") != "change" or kept["project"] != folder.name):
+                with _PLANS_LOCK:  # not this change's to use up: a create plan, or another app's change
+                    plans.setdefault(str(change_id), kept)
+            raise ValueError("That change has expired. Ask again.")
+        with _WRITE_LOCK:  # checked and saved together, so no edit lands in between
+            if _digest(project.open_project(folder)["spec"]) != kept["base"]:
+                raise ValueError("The app changed since this was planned. Ask again so the change fits what's there now.")
+            try:
+                project.change(folder, kept["ops"], note=kept["note"], source="ai")
+            except Exception:
+                with _PLANS_LOCK:
+                    plans.setdefault(str(change_id), kept)
+                raise
+        return self._appstudio_opened(folder)
+
+    # ---------------------------------------------------------------- publish (AS-13)
+
+    def _appstudio_publish_state(self, folder: Path, workspace_id: str, name: str) -> dict[str, Any]:
+        """Everything a publish depends on, read again each time: the check, the workspace and any report there
+        under this name. Reads only."""
+        got = project.open_project(folder)
+        if not got["valid"]:
+            raise specs.SpecError(got["problems"])
+        spec = got["spec"]
+        source = publishing.model_source(spec)
+        model_id = str((source or {}).get("item_id", ""))
+        ws = str(workspace_id or (source or {}).get("workspace_id", ""))
+        report = publishing.report_name(name, spec["name"])
+        metadata = None
+        if source is not None:
+            if not (_GUID.fullmatch(model_id) and _GUID.fullmatch(str(source.get("workspace_id", "")))):
+                raise ValueError("The app's semantic model isn't named by its ids. Connect it again.")
+            bim = self._model_bim(str(source["workspace_id"]), {"id": model_id, "displayName": source.get("name") or ""})  # type: ignore[attr-defined]
+            metadata = discovery.from_bim(bim)
+        checked = publishing.check(spec, metadata, model_id)
+        out: dict[str, Any] = {"project": folder.name, "name": report, "model": {"id": model_id, "name": (source or {}).get("name", "")},
+                               "ready": checked["ready"], "problems": checked["problems"], "warnings": checked["warnings"],
+                               "parts": sorted(checked["parts"]), "workspace_id": ws, "workspace_name": "", "conflict": None,
+                               "unfinished": None, "fingerprint": ""}
+        history = project.publish_history(folder)
+        left = publishing.unfinished(history)
+        if left:
+            out["unfinished"] = {"at": left.get("at", ""), "workspace_id": left.get("workspace_id", ""), "name": left.get("name", "")}
+        if not checked["ready"]:
+            return {**out, "_parts": {}}
+        if not _GUID.fullmatch(ws):
+            raise ValueError("Choose the workspace to publish to.")
+        workspace = self.fabric.get_workspace(ws) or {}  # type: ignore[attr-defined]
+        out["workspace_name"] = str(workspace.get("displayName") or "")
+        if not out["workspace_name"]:
+            raise RuntimeError("Fabric didn't say what the workspace is called. Try again.")
+        items = self.fabric.list_items(ws)  # type: ignore[attr-defined]
+        out["conflict"] = publishing.conflict(items, report, publishing.published_ids(history, ws))
+        out["fingerprint"] = publishing.fingerprint(spec, ws, model_id, report, checked["parts"], out["conflict"])
+        return {**out, "_parts": checked["parts"]}
+
+    def _appstudio_record(self, folder: Path, state: str, ws: str, report_id: str, report: str, replaced: bool = False,
+                          note: str = "") -> None:
+        with _WRITE_LOCK:  # history.jsonl numbers its entries; a change saved at the same moment would share a number
+            project.record_publish(folder, state, ws, report_id, report, replaced=replaced, note=note)
+
+    def _appstudio_left_behind(self, ws: str, report: str) -> str:
+        """The id of a report a failed create may have left in the workspace, or "" (also when the lookup fails:
+        the publish's own failure is what the person needs to see)."""
+        try:
+            return str((self.fabric.find_item(ws, publishing.REPORT_TYPE, report) or {}).get("id") or "")  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001  # silent-ok: only a hint after the real failure, which is raised and recorded
+            return ""
+
+    def appstudio_publish_check(self, project_name: str, workspace_id: str = "", name: str = "") -> dict[str, Any]:
+        """What publishing would do, and what stops it. Reads the semantic model, the workspace's name and its
+        items; writes nothing. ``confirm_text`` is what the person types to publish."""
+        got = self._appstudio_publish_state(self._appstudio_project(project_name), workspace_id, name)
+        got.pop("_parts")
+        return {**got, "confirm_text": got["workspace_name"]}
+
+    def appstudio_publish(self, project_name: str, fingerprint: str, confirm_name: str = "", workspace_id: str = "",
+                          name: str = "", replace: bool = False) -> dict[str, Any]:
+        """Publish the app as a Power BI report, for the check the person saw. Everything is read again first;
+        nothing is written unless the fingerprint still matches, the workspace's name is typed exactly, and
+        ``replace`` is given when a report of that name is already there. Otherwise it returns what's missing:
+        ``stale``, ``needs_replace`` or ``needs_confirm``. The attempt is kept in the project's history."""
+        folder = self._appstudio_project(project_name)
+        if not _PUBLISH_LOCK.acquire(blocking=False):
+            raise RuntimeError("A publish is already running. Wait for it to finish.")
+        try:
+            state = self._appstudio_publish_state(folder, workspace_id, name)
+            parts = state.pop("_parts")
+            base = {**state, "confirm_text": state["workspace_name"], "done": False}
+            if not state["ready"]:
+                raise specs.SpecError(state["problems"])
+            if not fingerprint or fingerprint != state["fingerprint"]:
+                return {**base, "stale": True}
+            existing = state["conflict"]
+            if existing and not replace:
+                return {**base, "needs_replace": True}
+            if confirm_name != state["workspace_name"]:
+                return {**base, "needs_confirm": True}
+            ws, report = state["workspace_id"], state["name"]
+            definition = publishing.definition(parts)
+            self._appstudio_record(folder, "started", ws, (existing or {}).get("id", ""), report, replaced=bool(existing))
+            try:
+                if existing:
+                    self.fabric.update_item_definition(ws, existing["id"], definition)  # type: ignore[attr-defined]
+                    report_id = existing["id"]
+                else:
+                    made = self.fabric.create_item(ws, publishing.REPORT_TYPE, report, definition)  # type: ignore[attr-defined]
+                    report_id = str(made.get("id") or "") or self._appstudio_left_behind(ws, report)
+            except Exception as exc:
+                found = existing["id"] if existing else self._appstudio_left_behind(ws, report)
+                why = redact.one_line(f"{type(exc).__name__}: {exc}", 300)
+                self._appstudio_record(folder, "failed", ws, found, report, replaced=bool(existing), note=why)
+                left = (f" A report named {report} is in the workspace now; publishing again replaces it." if found and not existing
+                        else " The report in Fabric may be half updated; publishing again replaces it." if existing else "")
+                raise RuntimeError(f"Publishing didn't finish ({why}).{left}") from exc
+            self._appstudio_record(folder, "done", ws, report_id, report, replaced=bool(existing),
+                                   note="" if report_id else "Fabric didn't return the report's id; find it by name in the workspace.")
+            return {**base, "done": True, "report_id": report_id, "replaced": bool(existing),
+                    "url": f"https://app.powerbi.com/groups/{ws}/reports/{report_id}" if _GUID.fullmatch(report_id) else ""}
+        finally:
+            _PUBLISH_LOCK.release()
+
+
+def redact_name(value: Any) -> str:
+    from .redact import one_line
+    return one_line(value, 120) if isinstance(value, str) else ""

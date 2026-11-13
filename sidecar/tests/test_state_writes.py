@@ -24,6 +24,7 @@ PACKAGE = Path(fabric_desktop.__file__).parent
 IN_PLACE = {
     "backup.py:restore": "the safety copy of a file being replaced goes to a new folder; the restored file itself is "
                          "written aside, checked against its hash and swapped in",
+    "backup.py:_write": "the backup zip, written whole as <name>.part, flushed, and swapped in by create() once done",
     "benchmark.py:write": "writes the example benchmark notebooks into the repository (examples/benchmark)",
     "central/entra_service.py:_entra_script": "a generated script the person downloads",
     "dbx_livetest.py:_finish": "the report of a finished live test, written once to its own new folder",
@@ -41,6 +42,8 @@ IN_PLACE = {
     "shortcut_service.py:shortcut_export": "an export the person asked for, to a new file in Downloads",
     "notebook_batch_service.py:notebook_batch_stop": "a stop marker: only whether it exists is read",
     "notebookutils_local.py:_write": "notebookutils.fs.put from the person's own notebook code, as on Fabric",
+    "academy/notebookutils_lab.py:put": "notebookutils.fs.put from a learner's exercise code, in the exercise's "
+                                         "Files/ folder, as on Fabric",
     "onelake.py:download": "a downloaded file, streamed as it arrives; the caller owns where it goes",
     "proof_runtime.py:save": "runs in the notebook's kernel (on Fabric or this PC) and writes a proof side's log once",
     "prove_service.py:replay_bundle_open": "named by the hash of its own bytes, so writing it again writes the same file",
@@ -93,6 +96,8 @@ def _in_place() -> list[str]:
     for path in sorted(PACKAGE.rglob("*.py")):
         if path.name == "jsonfile.py":
             continue
+        if path.relative_to(PACKAGE).as_posix().startswith("academy/packs/"):
+            continue   # exercise content: a learner's starter or a grader's model answer, run in a learner process on its own workspace, never engine state
         finder = _Finder(path.relative_to(PACKAGE).as_posix())
         finder.visit(ast.parse(path.read_text(encoding="utf-8")))
         found |= finder.found
@@ -127,3 +132,8 @@ def test_a_live_test_ledger_save_cut_short_keeps_the_last_ledger(tmp_path, write
         ledger.add(type="Notebook", id="nb-1")
     assert ledger.path.read_bytes() == before.encode("utf-8")
     assert Ledger.load(ledger.path).created == [{"type": "Lakehouse", "id": "lh-1"}]
+
+
+def test_academy_packs_hold_no_importable_engine_code():
+    """The check above skips academy/packs/ as exercise content; a package there could hide engine code."""
+    assert not list((PACKAGE / "academy" / "packs").rglob("__init__.py"))

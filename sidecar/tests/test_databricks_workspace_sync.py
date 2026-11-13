@@ -226,7 +226,7 @@ def test_pull_never_writes_through_a_planted_link(folder, tmp_path):
     out = sync.pull(client(ws), p, ["load_orders.py"])
     assert out["done"] == [{"file": "load_orders.py", "action": "pulled"}]
     assert victim.read_text() == "keep me" and "from dbx" in (folder / "load_orders.py").read_text()
-    assert not [x for x in folder.iterdir() if x.name.startswith(".kf-pull-") and not x.is_symlink()]
+    assert not [x for x in folder.iterdir() if x.name.endswith(".tmp") and not x.is_symlink()]
     # The notebook itself swapped for a link: left alone, nothing written through it.
     (folder / "load_orders.py").unlink()
     os.symlink(victim, folder / "load_orders.py")
@@ -261,3 +261,21 @@ def test_pull_brings_a_workspace_change_only_when_unchanged_here(folder):
     (folder / "load_orders.py").write_text("changed here too")
     ws.objects["load_orders"]["modified_at"] = 10000
     assert sync.pull(client(ws), p | {"files": out["files"]}, ["load_orders.py"])["done"] == []
+
+
+def test_a_pull_the_swap_refuses_keeps_the_file_and_leaves_no_temporary_file(folder, monkeypatch):
+    from fabric_desktop import jsonfile
+    ws = FakeWorkspace(exists=False)
+    p = pair(folder)
+    p["files"] = sync.push(client(ws), p, ["load_orders.py"])["files"]
+    before = (folder / "load_orders.py").read_bytes()
+    names = sorted(x.name for x in folder.iterdir())
+    ws.objects["load_orders"] |= {"modified_at": 9999, "content": "# Databricks notebook source\nprint('from dbx')\n"}
+
+    def refused(src, dst):
+        raise PermissionError("the notebook is open in another program")
+    monkeypatch.setattr(jsonfile, "replace", refused)
+    with pytest.raises(PermissionError):
+        sync.pull(client(ws), p, ["load_orders.py"])
+    assert (folder / "load_orders.py").read_bytes() == before
+    assert sorted(x.name for x in folder.iterdir()) == names

@@ -37,17 +37,29 @@ Open an exercise from Home, Path or Practice and choose **Start the exercise**. 
 it under this PC's KratosForge data (`academy/<certification>/<exercise>`) with the exercise's
 generated data and your answer, which is saved as you type and kept after a restart.
 
-- **Run** (Ctrl+Enter) runs your SQL and shows the first rows. Changes are undone after each run.
+- **Run** (Ctrl+Enter or F5) runs your SQL and shows the first rows. Changes are undone after each run.
 - **Check my work** runs the exercise's checks on a fresh copy of its data. A pass is recorded in
-  Profile for the exercise's objectives, with how many hints you used.
+  Profile for the exercise's objectives, with how many hints you used. An answer over 1 MB isn't run.
 - **Hints** go from a nudge to nearly the answer. A challenge passed with more than one hint, or after
-  opening the explanation, doesn't count as independent.
+  opening the explanation, doesn't count as independent. Neither does a quiz passed after changing an answer
+  that was already checked.
 - **…** has **Compare with the expected result** and **Reset the exercise**, which asks first because it
-  throws your answer away.
+  throws your answer away. Reset keeps the hints you used, the explanation you opened and the quiz answers you
+  changed, so a pass after Reset still isn't independent, until the exercise gets a new version.
 
 The panel beside the editor has **Task** (the scenario, requirements, how it's checked and the
 lesson), **Hints** and **Check** (each check's result, what it proves and doesn't, the explanation once
 you've passed, and what was recorded).
+
+## Where your exercise code runs
+
+Your exercise code runs on this PC in its own limited process, with time, memory and output limits, and it can
+see only the exercise's folder. On Windows, exercise scripts also run in a Windows AppContainer by default (Delta and PySpark exercises use the limited process only).
+To allow that, KratosForge gives its own exercise sandbox read access to the engine's Python. **Settings > Advanced
+> Exercise sandbox** shows whether the AppContainer is on and how many folders hold that permission.
+**Remove exercise permissions** takes the permission away after asking; it can't run while an exercise is running,
+and the next exercise you run adds it back. How the sandbox works is in
+[Grading sandbox](academy/grading-sandbox.md).
 
 ## Readiness is an estimate
 

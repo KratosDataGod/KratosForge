@@ -18,6 +18,16 @@ Python and Delta exercises (``python_lab``, ``delta_lab``) keep the learner's sc
 builds ``check/`` fresh from the exercise's files and the saved script every time, runs it, and grades
 what it leaves (academy/pylab.py), so nothing an earlier run left behind can make an answer pass.
 
+Settings exercises (``config_model``) keep the learner's settings document (the starter, such as
+``settings.json``) and ``state.json`` in the exercise folder. Nothing runs: Run lists the settings the
+document holds, and Check reads it as data against the exercise's rules (academy/configlab.py). Git
+exercises (``git_lab``) keep the learner's session (the starter, such as ``session.git``): Run and Check
+each replay it with real Git in a fresh repository built from the exercise's history (academy/gitlab.py).
+Database-project exercises (``sqlproj_lab``) keep the learner's change set (such as ``changes.sql``); Run and
+Check apply it to the exercise's project as text and build it in memory (academy/sqlprojlab.py). A quiz
+(``quiz``) keeps the learner's picks in ``answers.json``; its questions and answer key stay in the pack's
+``grading/`` folder and the screen gets the questions only (academy/quizlab.py).
+
 Learner code writes in its workspace (ACD-005), so every file the engine reads or writes
 there goes through academy/workspace.py: the path stays inside the folder and no part of it may be a
 link, junction or hard link; reads are size-capped; writes go to a temporary file in the folder and
@@ -27,6 +37,7 @@ replace the target, which is checked first.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -37,10 +48,13 @@ from typing import Any
 import duckdb
 
 from .. import jsonfile
+from ..git import ops as git_ops
 from ..learn import checks
 from ..learn import labs as learn_labs
-from . import dbsql_lab, exercises, pylab, registry, sandbox
+from . import configlab, dbsql_lab, exercises, gitlab, pylab, quizlab, registry, sandbox, sqlprojlab
 from . import workspace as ws
+
+_log = logging.getLogger(__name__)
 
 DB_FILE = "lab.duckdb"
 ANSWER_FILE = "answer.sql"
@@ -48,7 +62,11 @@ STATE_FILE = "state.json"
 RUN_DIR = "run"        # python_lab: where Run runs the script
 CHECK_DIR = "check"    # python_lab: made fresh for every Check
 # Adapters with a workspace on this PC (lab.start and the rest).
-LAB_ADAPTERS = (*exercises.SQL_ADAPTERS, *pylab.ADAPTERS)
+LAB_ADAPTERS = (*exercises.SQL_ADAPTERS, *pylab.ADAPTERS, configlab.ADAPTER, quizlab.ADAPTER, gitlab.ADAPTER,
+                sqlprojlab.ADAPTER)
+# Adapters whose answer is the exercise's own starter file (a script, a settings document, a Git session or a
+# database project's change set), not answer.sql.
+STARTER_ADAPTERS = (*pylab.ADAPTERS, configlab.ADAPTER, gitlab.ADAPTER, sqlprojlab.ADAPTER)
 
 
 MAX_ANSWER_BYTES = 1024 * 1024
@@ -103,7 +121,9 @@ def _lab_exercise(pack_id: str, exercise_id: str) -> dict[str, Any]:
 
 
 def _answer_file(ex: dict[str, Any]) -> str:
-    return str(ex["starter"]) if ex["adapter"] in pylab.ADAPTERS else ANSWER_FILE
+    if ex["adapter"] == quizlab.ADAPTER:
+        return quizlab.ANSWER_FILE
+    return str(ex["starter"]) if ex["adapter"] in STARTER_ADAPTERS else ANSWER_FILE
 
 
 def _fresh_dir(folder: Path, name: str) -> Path:
@@ -118,6 +138,10 @@ def _fresh_dir(folder: Path, name: str) -> Path:
 
 def _exercise_folder(pack_id: str, exercise_id: str) -> Path:
     return registry.ROOT / pack_id / "exercises" / exercise_id
+
+
+def _grading_folder(pack_id: str, exercise_id: str) -> Path:
+    return registry.ROOT / pack_id / "grading" / exercise_id
 
 
 def _state(folder: Path) -> dict[str, Any]:
@@ -140,6 +164,12 @@ def start(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
         if not _exists(folder, ex["starter"]):
             _write(folder, ex["starter"], starter)
         pylab.prepare(_fresh_dir(folder, RUN_DIR), _exercise_folder(pack_id, exercise_id), ex, starter)
+    elif ex["adapter"] == quizlab.ADAPTER:
+        if not _exists(folder, quizlab.ANSWER_FILE):
+            _write(folder, quizlab.ANSWER_FILE, "{}")
+    elif ex["adapter"] in (configlab.ADAPTER, gitlab.ADAPTER, sqlprojlab.ADAPTER):
+        if not _exists(folder, ex["starter"]):
+            _write(folder, ex["starter"], exercises.file_text(pack_id, exercise_id, ex["starter"]))
     else:
         ref = exercises.reference(pack_id, exercise_id)
         con = duckdb.connect(_db_path(folder, must_exist=False))
@@ -186,8 +216,26 @@ def run(root: Path, pack_id: str, exercise_id: str, sql: str, limit: int = 200) 
     """The first ``limit`` rows of the learner's SQL, run in the workspace and rolled back. For a Python
     exercise, ``sql`` is the script: it runs in the learner process in ``run/`` (what it wrote there
     stays until Reset), and the result is its status, output and how long it took."""
-    if exercises.get(pack_id, exercise_id)["adapter"] in pylab.ADAPTERS:
+    adapter = exercises.get(pack_id, exercise_id)["adapter"]
+    sql = str(sql)
+    if adapter not in pylab.ADAPTERS and adapter != gitlab.ADAPTER and len(sql.encode("utf-8")) > MAX_ANSWER_BYTES:
+        raise ValueError("That answer is over 1 MB, so it wasn't run; an exercise answer is much smaller.")
+    if adapter in pylab.ADAPTERS:
         return _run_python(root, pack_id, exercise_id, sql)
+    if adapter == quizlab.ADAPTER:
+        raise ValueError("A quiz has nothing to run; answer the questions and check your work.")
+    if adapter == configlab.ADAPTER:   # nothing runs: the settings the checks will read, as rows
+        _started(root, pack_id, exercise_id)
+        began = time.perf_counter()
+        return {**configlab.outline(str(sql), min(max(1, int(limit)), 1000)), "ms": round((time.perf_counter() - began) * 1000)}
+    if adapter == gitlab.ADAPTER:   # the session replayed in a fresh repository in run/, removed afterwards
+        return _run_git(root, pack_id, exercise_id, str(sql), limit)
+    if adapter == sqlprojlab.ADAPTER:   # the project after the change set, built in memory; nothing on disk
+        ex = _lab_exercise(pack_id, exercise_id)
+        _started(root, pack_id, exercise_id)
+        began = time.perf_counter()
+        got = sqlprojlab.run(_exercise_folder(pack_id, exercise_id), ex, str(sql), min(max(1, int(limit)), 1000))
+        return {**got, "ms": round((time.perf_counter() - began) * 1000)}
     ex = _duckdb_exercise(pack_id, exercise_id)
     folder = _started(root, pack_id, exercise_id)
     limit = min(max(1, int(limit)), 1000)
@@ -233,6 +281,27 @@ def _run_python(root: Path, pack_id: str, exercise_id: str, code: str) -> dict[s
             "ms": round(got["seconds"] * 1000)}
 
 
+def _run_git(root: Path, pack_id: str, exercise_id: str, text: str, limit: int) -> dict[str, Any]:
+    ex = _lab_exercise(pack_id, exercise_id)
+    folder = _started(root, pack_id, exercise_id)
+    if len(text.encode("utf-8")) > MAX_ANSWER_BYTES:
+        raise ValueError("That session is over 1 MB; an exercise answer is much smaller.")
+    began = time.perf_counter()
+    left = ws.inside(folder, RUN_DIR, must_exist=False)
+    if os.path.lexists(left):   # what an earlier run couldn't remove; refused when it is a link
+        ws.inside(folder, RUN_DIR)
+        git_ops.remove_clone(left)
+    work = _fresh_dir(folder, RUN_DIR)
+    try:
+        got = gitlab.run(work, _exercise_folder(pack_id, exercise_id), ex, text, min(max(1, int(limit)), 1000))
+    finally:
+        try:   # Git keeps its objects read-only, which Windows won't delete as they are
+            git_ops.remove_clone(work)
+        except OSError as exc:   # a locked file: keep Run's own result; the next Run clears what's left
+            _log.warning("The exercise's run folder couldn't be removed yet: %s", exc)
+    return {**got, "ms": round((time.perf_counter() - began) * 1000)}
+
+
 def _check_python(root: Path, pack_id: str, exercise_id: str, ex: dict[str, Any], answer: str) -> list[dict[str, Any]]:
     """Every check of a Python exercise on ``answer``: a fresh ``check/`` from the exercise's files, the
     script run there in the learner process, then the checks on what it left. Removed afterwards."""
@@ -243,10 +312,19 @@ def _check_python(root: Path, pack_id: str, exercise_id: str, ex: dict[str, Any]
         got = pylab.grade(work, ex["starter"], ex["validation"], Path(root), appcontainer_ok=pylab.appcontainer_ok(ex))
     finally:
         shutil.rmtree(work, ignore_errors=True)
-    by_kind = {c["kind"]: c for c in ex["validation"]}
+    return _with_messages(ex, got["results"])
+
+
+def _with_messages(ex: dict[str, Any], results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each result with its check's own ``pass`` or ``fail`` sentence, when the exercise gives one. Results
+    that line up one for one with the checks are paired by position, so two checks of the same kind keep
+    their own sentences; otherwise by kind."""
+    checks_ = ex["validation"]
+    paired = len(results) == len(checks_) and all(r["kind"] == c["kind"] for r, c in zip(results, checks_, strict=False))
+    by_kind = {c["kind"]: c for c in checks_}
     out = []
-    for r in got["results"]:
-        c = by_kind.get(r["kind"], {})
+    for n, r in enumerate(results):
+        c = checks_[n] if paired else by_kind.get(r["kind"], {})
         message = c.get("pass") if r["passed"] else c.get("fail")
         out.append({**r, "message": message} if message else r)
     return out
@@ -316,6 +394,16 @@ def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = No
         raise ValueError("That answer is over 1 MB; an exercise answer is much smaller.")
     if ex["adapter"] in pylab.ADAPTERS:
         results = _check_python(root, pack_id, exercise_id, ex, answer)
+    elif ex["adapter"] == configlab.ADAPTER:
+        results = _with_messages(ex, configlab.grade(answer, ex)["results"])
+    elif ex["adapter"] == gitlab.ADAPTER:   # replayed in a fresh repository of its own, outside the workspace
+        results = _with_messages(ex, gitlab.grade(answer, _exercise_folder(pack_id, exercise_id), ex)["results"])
+    elif ex["adapter"] == sqlprojlab.ADAPTER:   # read as text and built in memory against the reference
+        results = _with_messages(ex, sqlprojlab.grade(answer, _exercise_folder(pack_id, exercise_id),
+                                                      _grading_folder(pack_id, exercise_id), ex)["results"])
+    elif ex["adapter"] == quizlab.ADAPTER:
+        questions = quizlab.load(_grading_folder(pack_id, exercise_id))
+        results = _with_messages(ex, quizlab.grade(answer, ex, questions)["results"])
     elif ex["adapter"] == "dbsql_lab":
         results = dbsql_lab.check_all(ex, dbsql_lab.reference(pack_id, exercise_id), answer,
                                       connect_to=lambda setup: dbsql_lab.connect(setup, learn_labs.MEMORY_LIMIT),
@@ -324,11 +412,20 @@ def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = No
         results = _check_duckdb(ex, exercises.reference(pack_id, exercise_id), answer)
     st = _state(folder)
     passed = all(r["passed"] for r in results)
+    if ex["adapter"] == quizlab.ADAPTER:   # answers changed after a failed check: the pass isn't independent
+        picks = quizlab.parse(answer)[0] or {}
+        raw = st.get("quiz_checked")
+        checked: dict[str, list[str]] = dict(raw) if isinstance(raw, dict) else {}
+        if quizlab.changed(questions, checked, picks):
+            st["answers_changed"] = True
+        if not passed:
+            st["quiz_checked"] = {**checked, **{k: v for k, v in picks.items() if v}}
     st["last"] = {"passed": passed, "checks": [{"kind": r["kind"], "passed": r["passed"]} for r in results]}
     _write_state(folder, st)
     return {"pack": pack_id, "exercise": exercise_id, "version": ex["version"], "passed": passed, "results": results,
             "verification": exercises.label(ex), "hints_used": int(st.get("hints_used") or 0),
-            "explanation_seen": bool(st.get("explanation_seen"))}
+            "explanation_seen": bool(st.get("explanation_seen")),
+            "answers_changed": bool(st.get("answers_changed"))}
 
 
 def hint(root: Path, pack_id: str, exercise_id: str, level: int) -> dict[str, Any]:
@@ -353,14 +450,36 @@ def explanation(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
     if not (st.get("last") or {}).get("passed"):
         st["explanation_seen"] = True
         _write_state(folder, st)
-    return {"text": ex["explanation"], "remediation": list(ex.get("remediation") or [])}
+    out = {"text": ex["explanation"], "remediation": list(ex.get("remediation") or [])}
+    if ex["adapter"] == quizlab.ADAPTER:   # each question's answer, why and its page
+        out["questions"] = quizlab.review(quizlab.load(_grading_folder(pack_id, exercise_id)))
+    return out
+
+
+# What a pass records about the help it had. Reset keeps these for the same exercise version, so Reset
+# can't wash out a hint, an opened explanation or a probed quiz before an "independent" pass.
+_KEPT_ON_RESET = ("hints_used", "explanation_seen", "answers_changed", "quiz_checked")
 
 
 def reset(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
-    """Throw the workspace away, answer included, and start it again."""
+    """Throw the workspace away, answer included, and start it again. The help already used on this
+    version of the exercise (hints, the explanation, changed quiz answers) is kept."""
     folder = workspace(root, pack_id, exercise_id)
+    kept: dict[str, Any] = {}
     if os.path.lexists(folder):
         ws.inside(folder, ".")   # refused when the folder itself is a link or junction
+        try:
+            old = _state(folder)
+        except (ws.Refused, OSError, ValueError):
+            old = {}   # an unreadable state keeps nothing; the reset still happens
+        if old.get("version") == exercises.get(pack_id, exercise_id)["version"]:
+            kept = {k: old[k] for k in _KEPT_ON_RESET if old.get(k)}
         shutil.rmtree(folder)
-    return start(root, pack_id, exercise_id)
+    fresh = start(root, pack_id, exercise_id)
+    if kept:
+        st = _state(folder)
+        st.update(kept)
+        _write_state(folder, st)
+        fresh = state(root, pack_id, exercise_id)
+    return fresh
 

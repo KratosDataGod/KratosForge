@@ -1,0 +1,101 @@
+{
+  "runner": "GitHub Actions windows-2025-vs2026 (Windows Server 2025, 4 CPUs), median of 10 green Performance runs on main",
+  "recorded": "2026-11-09",
+  "commit": "12f1c566ea84668a4c440bd78718518d47956c16",
+  "machine": {
+    "python": "3.12.10",
+    "system": "Windows-2025Server-10.0.26100-SP0",
+    "cpus": 4
+  },
+  "settings": {
+    "runs": 5,
+    "warmup": 1,
+    "rows": 1000000
+  },
+  "medians": {
+    "startup": 939.2,
+    "notebook first cell": 654.3,
+    "notebook first spark cell": 656.3,
+    "SQL first query on a new project": 1.9,
+    "SQL count": 1.9,
+    "SQL group by": 8.9,
+    "SQL filter": 5.7,
+    "SQL t-sql top": 13.4
+  },
+  "from_runs": [
+    {
+      "run": 42663686030,
+      "commit": "12f1c566e"
+    },
+    {
+      "run": 42655114402,
+      "commit": "ae9eb1e2b"
+    },
+    {
+      "run": 42648332108,
+      "commit": "e018c4540"
+    },
+    {
+      "run": 42637946810,
+      "commit": "2dd8cb556"
+    },
+    {
+      "run": 42629857433,
+      "commit": "a85536b53"
+    },
+    {
+      "run": 42623580584,
+      "commit": "bddb5b273"
+    },
+    {
+      "run": 42617495321,
+      "commit": "9a8f0c47c"
+    },
+    {
+      "run": 42608936265,
+      "commit": "2bf8ea1b7"
+    },
+    {
+      "run": 42602031606,
+      "commit": "95d3fa355"
+    },
+    {
+      "run": 42596742256,
+      "commit": "76351db34"
+    }
+  ],
+  "spread": {
+    "startup": {
+      "min": 549.4,
+      "max": 1019.9
+    },
+    "notebook first cell": {
+      "min": 382.3,
+      "max": 730.0
+    },
+    "notebook first spark cell": {
+      "min": 384.3,
+      "max": 732.1
+    },
+    "SQL first query on a new project": {
+      "min": 1.2,
+      "max": 2.4
+    },
+    "SQL count": {
+      "min": 1.1,
+      "max": 2.6
+    },
+    "SQL group by": {
+      "min": 4.4,
+      "max": 10.2
+    },
+    "SQL filter": {
+      "min": 3.1,
+      "max": 6.8
+    },
+    "SQL t-sql top": {
+      "min": 7.1,
+      "max": 15.7
+    }
+  }
+}

@@ -22,23 +22,68 @@ from typing import Any
 import sqlglot
 from sqlglot import exp
 
-# PyYAML is needed only here and in the vendored converter. Without it (an engine installed before the converter
-# needed it, or a package removed by hand) Export to Ossie and Import from Ossie say what's missing, and the rest
-# of the engine still starts: service.py imports this module on every start.
-try:
-    import yaml
+from . import sql_dialects
 
-    from ._vendor.ossie_microsoft import (
-        OSSIE_VERSION,
-        ConversionError,
-        convert_ossie_to_semantic_model,
-        convert_semantic_model_to_ossie,
-    )
-except ImportError as exc:  # narrow: a missing or broken package; the reason is kept in MISSING and shown
-    yaml = None  # type: ignore[assignment]
-    MISSING = {"yaml": "PyYAML"}.get((exc.name or "").partition(".")[0], exc.name or "") or str(exc)
-else:
-    MISSING = ""
+# PyYAML is needed only here and in the vendored converter. Both load on first use, not at engine start (they add
+# about 25 ms to every start, and service.py imports this module on every start). Without PyYAML (an engine installed
+# before the converter needed it, or a package removed by hand) Export to Ossie and Import from Ossie say what's
+# missing, and the rest of the engine still works. These names are set by _load(); reading model_ossie.MISSING or
+# model_ossie.OSSIE_VERSION from outside loads them first (see __getattr__ below).
+yaml: Any
+OSSIE_VERSION: str
+ConversionError: type[Exception]
+convert_ossie_to_semantic_model: Any
+convert_semantic_model_to_ossie: Any
+_NoAliasLoader: Any
+MISSING: str
+_LOAD_LOCK = threading.Lock()
+
+
+def _load() -> None:
+    """Import PyYAML and the converter once, setting MISSING to "" or to the package that is missing."""
+    global yaml, OSSIE_VERSION, ConversionError, convert_ossie_to_semantic_model, convert_semantic_model_to_ossie
+    global _NoAliasLoader, MISSING
+    with _LOAD_LOCK:
+        if "MISSING" in globals():
+            return
+        try:
+            import yaml as _yaml
+
+            from ._vendor.ossie_microsoft import (
+                OSSIE_VERSION as _version,
+                ConversionError as _error,
+                convert_ossie_to_semantic_model as _to_model,
+                convert_semantic_model_to_ossie as _to_ossie,
+            )
+        except ImportError as exc:  # narrow: a missing or broken package; the reason is kept in MISSING and shown
+            MISSING = {"yaml": "PyYAML"}.get((exc.name or "").partition(".")[0], exc.name or "") or str(exc)
+            return
+
+        class _NoAlias(_yaml.SafeLoader):
+            """YAML without anchors and aliases (``*name``). Ossie files don't need them, and nested aliases let a
+            few hundred bytes expand into a model of gigabytes once it is written out as JSON."""
+
+            def compose_node(self, parent: Any, index: Any) -> Any:
+                if self.check_event(_yaml.AliasEvent):
+                    event = self.peek_event()
+                    raise ValueError(f"This file repeats parts of itself with YAML aliases (line {event.start_mark.line + 1}); "
+                                     "write them out in full")
+                return super().compose_node(parent, index)
+
+        yaml, OSSIE_VERSION, ConversionError = _yaml, _version, _error
+        convert_ossie_to_semantic_model, convert_semantic_model_to_ossie = _to_model, _to_ossie
+        _NoAliasLoader = _NoAlias
+        MISSING = ""  # last: its presence means the names above are set
+
+
+def __getattr__(name: str) -> Any:
+    """``model_ossie.MISSING``, ``model_ossie.OSSIE_VERSION`` and the other loaded names, loading them first."""
+    if name in __annotations__ and name not in globals():
+        _load()
+        if name in globals():
+            return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 PLACEHOLDER_ANNOTATION = "OssieExpression"  # the converter keeps the Ossie expression here, translated or not
 _MODEL_KEPT = ("roles", "perspectives", "cultures", "expressions", "dataSources", "queryGroups", "annotations")
@@ -50,6 +95,7 @@ MAX_CHARS = 20_000_000
 
 def unavailable() -> str:
     """Why Export to Ossie and Import from Ossie can't run on this engine, or "" when they can."""
+    _load()
     if not MISSING:
         return ""
     return (f"Export to Ossie and Import from Ossie need the Python package {MISSING}, which this engine doesn't have. "
@@ -62,19 +108,6 @@ def require() -> None:
     reason = unavailable()
     if reason:
         raise RuntimeError(reason)
-
-
-if yaml is not None:
-    class _NoAliasLoader(yaml.SafeLoader):
-        """YAML without anchors and aliases (``*name``). Ossie files don't need them, and nested aliases let a
-        few hundred bytes expand into a model of gigabytes once it is written out as JSON."""
-
-        def compose_node(self, parent: Any, index: Any) -> Any:
-            if self.check_event(yaml.AliasEvent):
-                event = self.peek_event()
-                raise ValueError(f"This file repeats parts of itself with YAML aliases (line {event.start_mark.line + 1}); "
-                                 "write them out in full")
-            return super().compose_node(parent, index)
 
 
 def _convert(fn: Any, *args: Any, **kwargs: Any) -> tuple[Any, list[dict[str, str]]]:
@@ -140,7 +173,7 @@ _SQL_DIALECTS = {"ANSI_SQL": None, "OSSIE_SQL_2026": None, "SNOWFLAKE": "snowfla
 
 def _qualified(expression: str, dataset: str, dialect: str | None) -> str:
     """A dataset-scoped SQL metric's unqualified field references written as ``dataset.field``."""
-    tree = sqlglot.parse_one(expression, read=dialect)
+    tree = sql_dialects.parse_one(expression, read=dialect)
     for col in tree.find_all(exp.Column):
         if not col.table:
             col.set("table", exp.to_identifier(dataset))

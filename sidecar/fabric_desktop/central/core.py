@@ -39,8 +39,6 @@ Tables (T-SQL schema.table; SQLite schema__table):
     catalog.shortcut_risk   risks a platform admin accepted on a shortcut (Dev reading Prod), and why
     catalog.endorsement  each data product item's endorsement (Certified, Promoted, Master data) as Fabric's
                          admin tenant scan last read it, so everyone sees it (Preview)
-    catalog.product_term business terms on a data product: a name and a link to the term in Microsoft
-                         Purview, typed by the product's owner; nothing reads Purview (Preview)
     catalog.product_item a data product's semantic models and reports: the Fabric item's id, type, workspace id
                          and display name, picked by the product's owner; nothing in Fabric changes (Preview)
     catalog.call         each change the app sent with a call id (call_once) and its answer, kept 7 days, so a
@@ -52,11 +50,11 @@ Who may change what (the caller is always who Fabric says it is, see udf.py):
     shortcut inventory   anyone records a new or a broken shortcut; a removal, a repoint or a healthy mark
                          comes from a platform admin or a member of a project with a product in that lakehouse
     platform admins      domains, key tables, copying keys in, source systems, landing zones, glossary, admins,
-                         shortcut rules, accepted shortcut risks, policy exceptions, endorsement scans, every product's
-                         business terms, and every request
+                         shortcut rules, accepted shortcut risks, policy exceptions, endorsement scans, and every
+                         request
     domain owners        glossary terms of their domain, certifying catalog entries of their domain's projects
-    product owners       access requests to their product, their product's business terms, and the semantic
-                         models and reports grouped under it
+    product owners       access requests to their product, and the semantic models and reports grouped
+                         under it
     project members      their project's catalog text (descriptions, tags, terms, steward)
     everyone             reading, issuing keys from existing key tables, products, links, requests
 """
@@ -67,10 +65,10 @@ import datetime as dt
 import json
 import math
 import re
+import threading
 import time
 import uuid
 from typing import Any, Callable, cast
-from urllib.parse import urlsplit
 
 SCHEMA_VERSION = 5
 UNKNOWN_KEY = -1
@@ -214,8 +212,6 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
                       ("target", "long"), ("accepted_by", "text"), ("accepted_at", "text")],
     "endorsement": [("item_id", "key"), ("workspace_id", "text"), ("item_type", "text"), ("item_name", "text"),
                     ("endorsement", "text"), ("certified_by", "text"), ("scanned_at", "text"), ("scanned_by", "text")],
-    "product_term": [("id", "key"), ("product_id", "text"), ("term", "text"), ("url", "long"), ("added_by", "text"),
-                     ("added_at", "text")],
     # When someone last used the platform from the app, to tell an owner who has gone quiet.
     "person": [("user_name", "key"), ("last_seen", "text")],
 
@@ -442,12 +438,13 @@ def clear_keys(db: Db, by: str = "") -> dict[str, Any]:
     return {"cleared": names}
 
 
-def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
+def issue_keys(db: Db, name: str, business_keys: list[Any], by: str = "") -> dict[str, Any]:
     """The surrogate key of every business key given, issuing the next keys for new ones.
 
     New keys are inserted in business key order inside one transaction, under a lock on the
     range they would go in, so two runs asking at the same time never get two keys for one
-    business key. Returns {"keys": {bk: sk}, "inserted": n}."""
+    business key. Returns {"keys": {bk: sk}, "inserted": n}. A call that issued new keys adds one
+    "issue keys" audit row (who, the table, how many); a call that only looked keys up adds none."""
     name = key_name(name)
     bks = _clean_bks(business_keys)
     _require_open(db)
@@ -468,9 +465,12 @@ def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
             "COMMIT TRANSACTION; "
             f"SELECT k.{name}_bk AS bk, k.{name}_sk AS sk, @inserted AS inserted FROM {t} k JOIN @in i ON i.bk = k.{name}_bk;",
             (json.dumps(bks),))
-        found = cur.fetchall()
+        issued = cur.fetchall()
+        inserted = int(issued[0][2]) if issued else 0
+        if inserted:
+            _audit(db, by, "issue keys", f"keys:{name}", {"count": inserted})
         db.commit()
-        return {"keys": {r[0]: int(r[1]) for r in found}, "inserted": int(found[0][2]) if found else 0}
+        return {"keys": {r[0]: int(r[1]) for r in issued}, "inserted": inserted}
     def found() -> dict[str, int]:
         out: dict[str, int] = {}
         for i in range(0, len(bks), 500):
@@ -486,6 +486,8 @@ def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
     new = [(b, _now()) for b in bks if b not in have]
     db.conn.executemany(f"INSERT INTO {t} ({name}_bk, create_date) VALUES (?, ?)", new)
     out = found() if new else have
+    if new:
+        _audit(db, by, "issue keys", f"keys:{name}", {"count": len(new)})
     db.commit()
     return {"keys": out, "inserted": len(new)}
 
@@ -596,7 +598,7 @@ def save_domain(db: Db, domain: dict[str, Any], by: str = "") -> dict[str, Any]:
             raise PlatformError("A domain can't be its own parent")
     current = _row(db, "domain", "id", did)
     linked = (current or {}).get("fabric_domain") or ""
-    if linked and (name != current["name"] or (parent or None) != (current.get("parent_id") or None)):
+    if linked and current is not None and (name != current["name"] or (parent or None) != (current.get("parent_id") or None)):
         raise PlatformError(f"{current['name']} comes from Fabric: rename or move it in Fabric (Admin portal > "
                             "Domains), then choose Import from Fabric")
     row = {"id": did, "name": name, "parent_id": parent, "description": str(domain.get("description") or ""),
@@ -1324,7 +1326,7 @@ def register_link(db: Db, consumer: str, alias: str, product_id: str, port: str,
            "port": port, "reads": json.dumps(reads), "updated_at": _now(), "updated_by": by,
            "accepts": accepts or None, "columns": json.dumps(columns) if columns else None}
     _upsert(db, "catalog", "link", "id", row)
-    _audit(db, by, "link", row["id"], {"product": product_id, "port": port, "reads": reads, "accepts": accepts,
+    _audit(db, by, "link", lid, {"product": product_id, "port": port, "reads": reads, "accepts": accepts,
                                        "columns": sorted(columns)})
     db.commit()
     return row
@@ -1488,6 +1490,65 @@ def save_term(db: Db, term: dict[str, Any], by: str = "") -> dict[str, Any]:
     return row
 
 
+# A change the platform refused leaves a "refused <operation>" row, so a refusal is on the platform's own
+# audit even when the caller wasn't the app (a script, another tool with Execute rights). The row says
+# who (the platform's resolved identity) and which operation, never its arguments or the refusal's
+# words, which can quote them. Every row is a write the capacity pays for, so a person and operation get
+# at most one row a minute, with how many refusals it stands for; a caller at most REFUSAL_PERSON_CAP
+# rows an hour and the platform REFUSAL_CAP. Past either, one "refusals not recorded" row marks the gap.
+REFUSAL_EVERY = 60
+REFUSAL_CAP = 300
+REFUSAL_PERSON_CAP = 30  # one caller's share of the hour, so one can't use up everyone's
+NOT_RECORDED = "refusals not recorded"
+_REFUSALS: dict[tuple[str, str], int] = {}  # refusals this process saw since its last row, per (who, op)
+_REFUSALS_LOCK = threading.Lock()
+
+
+def refused_operation(op: str, kwargs: dict[str, Any]) -> str:
+    """The change a refused call was for, by its fixed name: call_once's own operation when it carried
+    one; "" for a read, which leaves no row. Never a name taken from the caller as it is."""
+    if op == "call_once" and str(kwargs.get("operation") or "") in OPERATIONS:
+        op = str(kwargs["operation"])
+    if op not in OPERATIONS or op in READ_OPERATIONS:
+        return ""
+    return op
+
+
+def record_refusal(db: Db, by: str, op: str) -> bool:
+    """Write the "refused <op>" row in a transaction of its own, after the refused change was rolled
+    back; True when a row was written. Callers raise the refusal unchanged whatever happens here."""
+    who, action = str(by or "").strip(), f"refused {op}"
+    with _REFUSALS_LOCK:
+        if len(_REFUSALS) > 10_000:  # a long-lived process: start the counts again rather than grow
+            _REFUSALS.clear()
+        _REFUSALS[(who, op)] = _REFUSALS.get((who, op), 0) + 1
+    now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+    minute = (now - dt.timedelta(seconds=REFUSAL_EVERY)).isoformat()
+    hour = (now - dt.timedelta(hours=1)).isoformat()
+    if db.rows(f"SELECT 1 AS x FROM {db.t('catalog', 'audit')} WHERE action = ? AND by_user = ? AND at > ?", (action, who, minute)):
+        return False
+    everyone = db.rows(f"SELECT COUNT(*) AS n FROM {db.t('catalog', 'audit')} WHERE action LIKE 'refused %' AND at > ?",
+                       (hour,))[0]["n"]
+    theirs = db.rows(f"SELECT COUNT(*) AS n FROM {db.t('catalog', 'audit')} WHERE action LIKE 'refused %' "
+                     "AND by_user = ? AND at > ?", (who, hour))[0]["n"]
+    if everyone >= REFUSAL_CAP or theirs >= REFUSAL_PERSON_CAP:
+        # Past a cap: one marker an hour (per person, or for the platform) says refusals from here on
+        # aren't recorded, so the gap shows on the audit itself. They're still refused.
+        cap, marker_by = ("platform", "") if everyone >= REFUSAL_CAP else ("person", who)
+        if not db.rows(f"SELECT 1 AS x FROM {db.t('catalog', 'audit')} WHERE action = ? AND by_user = ? AND at > ?",
+                       (NOT_RECORDED, marker_by, hour)):
+            with _REFUSALS_LOCK:
+                count = _REFUSALS.pop((who, op), 1)
+            _audit(db, marker_by, NOT_RECORDED, "", {"count": count, "cap": cap})
+            db.commit()
+        return False
+    with _REFUSALS_LOCK:
+        count = _REFUSALS.pop((who, op), 1)
+    _audit(db, who, action, "", {"count": count})
+    db.commit()
+    return True
+
+
 def audit(db: Db, limit: int = 100) -> list[dict[str, Any]]:
     top = f"TOP ({int(limit)}) " if db.tsql else ""
     tail = "" if db.tsql else f" LIMIT {int(limit)}"
@@ -1521,7 +1582,7 @@ def log_workload_action(db: Db, workload: str, action: str, status: str, entry: 
 # --------------------------------------------------------------------------- who may change what
 
 
-def _who(by: str) -> str:
+def _who(by: str | None) -> str:
     return str(by or "").strip().lower()
 
 
@@ -3060,19 +3121,14 @@ def withdraw_shortcut_risk(db: Db, shortcut_id: str, kind: str, by: str = "") ->
 # read it, through Power BI's admin tenant scan. A platform admin who is also a Fabric administrator
 # scans (central/trust_service.py); what the scan read is kept here, so everyone sees the last scan's
 # badge. Nothing here sets endorsement in Fabric, and an item no scan has read stays unknown.
-# Business terms are typed by a product's owner with a link to the term in Microsoft Purview; nothing
-# here reads Purview.
 
-PURVIEW_HOSTS = ("purview.microsoft.com", "web.purview.azure.com")
-MAX_TERM = 200
-MAX_URL = 2000
 _ENDORSEMENT_LABELS = {"certified": "Certified", "promoted": "Promoted", "masterdata": "Master data", "none": "None"}
-_TRUST_TABLES = ("endorsement", "product_term")
+_TRUST_TABLES = ("endorsement",)
 _SPACES = re.compile(r"\s+")
 
 
 def ensure_trust_badges(db: Db) -> list[str]:
-    """Give a platform made before trust badges catalog.endorsement and catalog.product_term.
+    """Give a platform made before trust badges catalog.endorsement.
     Additive only, and safe to run again; the operations that use them call it, so a platform in
     Fabric gets them on first use."""
     added = []
@@ -3114,27 +3170,6 @@ def product_items(product: dict[str, Any]) -> list[dict[str, Any]]:
     return sorted(items.values(), key=lambda i: (i["item_name"], i["item_id"]))
 
 
-def purview_url(value: Any) -> str:
-    """A link to a term in Microsoft Purview: https on purview.microsoft.com or web.purview.azure.com
-    (or a host under them), with no sign-in name or other port in it. Anything else is refused."""
-    text = str(value or "").strip()
-    problem = PlatformError("Paste the term's address from Purview: an https link on purview.microsoft.com "
-                            "or web.purview.azure.com")
-    if not text or len(text) > MAX_URL or "\\" in text or any(ord(ch) <= 0x20 or ord(ch) == 0x7F for ch in text):
-        raise problem
-    try:
-        parts = urlsplit(text)
-        port = parts.port
-    except ValueError:
-        raise problem from None
-    host = (parts.hostname or "").lower()
-    if parts.scheme.lower() != "https" or "@" in parts.netloc or port not in (None, 443):
-        raise problem
-    if not any(host == h or host.endswith(f".{h}") for h in PURVIEW_HOSTS):
-        raise problem
-    return text
-
-
 def _product(db: Db, product_id: str) -> dict[str, Any]:
     product = _row(db, "product", "id", str(product_id or ""))
     if product is None:
@@ -3142,24 +3177,13 @@ def _product(db: Db, product_id: str) -> dict[str, Any]:
     return product
 
 
-def _can_edit_terms(db: Db, product: dict[str, Any], by: str) -> bool:
+def _can_edit_product(db: Db, product: dict[str, Any], by: str) -> bool:
     return is_admin(db, by) or _who(by) in _product_owners(product)
-
-
-def _term_key(product_id: str, term: Any) -> str:
-    return f"{product_id}|{_SPACES.sub(' ', str(term or '')).strip().lower()}"
-
-
-def list_product_terms(db: Db, product_id: str) -> list[dict[str, Any]]:
-    ensure_trust_badges(db)
-    rows = db.rows(f"SELECT * FROM {db.t('catalog', 'product_term')} WHERE product_id = ?", (str(product_id),))
-    return sorted(({"term": r["term"], "url": r["url"], "added_by": r.get("added_by") or "",
-                    "added_at": r.get("added_at") or ""} for r in rows), key=lambda t: t["term"].lower())
 
 
 def product_trust(db: Db, product_id: str, by: str = "") -> dict[str, Any]:
     """A product's trust badges: each Fabric item behind it with the endorsement the last tenant scan
-    read (None when no scan has read it: unknown, never guessed), and its business terms."""
+    read (None when no scan has read it: unknown, never guessed)."""
     ensure_trust_badges(db)
     product = _product(db, product_id)
     ports = db.rows(f"SELECT * FROM {db.t('catalog', 'port')} WHERE product_id = ?", (product["id"],))
@@ -3169,8 +3193,7 @@ def product_trust(db: Db, product_id: str, by: str = "") -> dict[str, Any]:
         items.append(item | {"endorsement": seen.get("endorsement") or None, "certified_by": seen.get("certified_by") or "",
                              "scanned_at": seen.get("scanned_at") or "", "scanned_by": seen.get("scanned_by") or ""})
     return {"product_id": product["id"], "name": product.get("name") or "", "owner": product.get("owner") or "",
-            "items": items, "terms": list_product_terms(db, product["id"]), "admin": is_admin(db, by),
-            "can_edit_terms": _can_edit_terms(db, product, by)}
+            "items": items, "admin": is_admin(db, by), "can_edit": _can_edit_product(db, product, by)}
 
 
 def record_endorsements(db: Db, items: list[dict[str, Any]], by: str = "",
@@ -3180,7 +3203,8 @@ def record_endorsements(db: Db, items: list[dict[str, Any]], by: str = "",
     scan looked for but didn't confirm: their last reading goes, so they show unknown, never an old badge."""
     require_admin(db, by, "save endorsement from Fabric's tenant scan")
     ensure_trust_badges(db)
-    at, counts = _now(), {}
+    at = _now()
+    counts: dict[str, int] = {}
     gone = 0
     for cid in cleared or []:
         cid = str(cid or "").strip().lower()
@@ -3203,40 +3227,6 @@ def record_endorsements(db: Db, items: list[dict[str, Any]], by: str = "",
            {"items": sum(counts.values()), "endorsement": counts, "cleared": gone})
     db.commit()
     return {"recorded": sum(counts.values()), "cleared": gone, "scanned_at": at}
-
-
-def add_product_term(db: Db, product_id: str, term: str, url: str, by: str = "") -> list[dict[str, Any]]:
-    """Put a business term on a product, with a link to the term in Microsoft Purview. The product's
-    owner or a platform admin. The same term again changes its link."""
-    ensure_trust_badges(db)
-    product = _product(db, product_id)
-    if not _can_edit_terms(db, product, by):
-        raise PlatformError("Only the product's owner or a platform admin can add business terms")
-    name = _SPACES.sub(" ", str(term or "")).strip()
-    if not name or len(name) > MAX_TERM:
-        raise PlatformError(f"A business term needs a name of up to {MAX_TERM} characters")
-    link = purview_url(url)
-    row = {"id": _term_key(product["id"], name), "product_id": product["id"], "term": name, "url": link,
-           "added_by": _who(by), "added_at": _now()}
-    _upsert(db, "catalog", "product_term", "id", row)
-    _audit(db, by, "add product term", product["id"], {"term": name, "url": link})
-    db.commit()
-    return list_product_terms(db, product["id"])
-
-
-def remove_product_term(db: Db, product_id: str, term: str, by: str = "") -> list[dict[str, Any]]:
-    """Take a business term off a product; the term stays in Purview. The product's owner or a platform admin."""
-    ensure_trust_badges(db)
-    product = _product(db, product_id)
-    if not _can_edit_terms(db, product, by):
-        raise PlatformError("Only the product's owner or a platform admin can remove business terms")
-    key = _term_key(product["id"], term)
-    if _row(db, "product_term", "id", key) is None:
-        raise PlatformError(f"{term} isn't a business term on {product['id']}")
-    db.run(f"DELETE FROM {db.t('catalog', 'product_term')} WHERE id = ?", (key,))
-    _audit(db, by, "remove product term", product["id"], {"term": _SPACES.sub(" ", str(term or "")).strip()})
-    db.commit()
-    return list_product_terms(db, product["id"])
 
 
 # --------------------------------------------------------------------------- product groups (Preview)
@@ -3291,7 +3281,7 @@ def add_product_item(db: Db, product_id: str, item: dict[str, Any], by: str = ""
     same item again updates its name."""
     ensure_product_items(db)
     product = _product(db, product_id)
-    if not _can_edit_terms(db, product, by):
+    if not _can_edit_product(db, product, by):
         raise PlatformError("Only the product's owner or a platform admin can add semantic models and reports")
     item = dict(item or {})
     kind = str(item.get("item_type") or "").strip()
@@ -3315,7 +3305,7 @@ def remove_product_item(db: Db, product_id: str, item_id: str, by: str = "") -> 
     """Take a semantic model or report off a product; the item stays in Fabric. The product's owner or a platform admin."""
     ensure_product_items(db)
     product = _product(db, product_id)
-    if not _can_edit_terms(db, product, by):
+    if not _can_edit_product(db, product, by):
         raise PlatformError("Only the product's owner or a platform admin can remove semantic models and reports")
     iid = str(item_id or "").strip().lower()
     found = _row(db, "product_item", "id", f"{product['id']}|{iid}")
@@ -3433,7 +3423,6 @@ OPERATIONS = {
     "list_shortcut_risks": list_shortcut_risks, "accept_shortcut_risk": accept_shortcut_risk,
     "withdraw_shortcut_risk": withdraw_shortcut_risk,
     "product_trust": product_trust, "record_endorsements": record_endorsements,
-    "add_product_term": add_product_term, "remove_product_term": remove_product_term,
     "note_seen": note_seen, "owner_coverage": owner_coverage,
     "access_reviews": access_reviews, "confirm_access": confirm_access,
     "list_project_members": list_project_members, "set_project_member": set_project_member,

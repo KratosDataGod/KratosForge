@@ -18,7 +18,7 @@ def promote_checks(project: Project, source: Store, target_env: str, today: dt.d
     errors = validate(project, today)
     version = project.version
     if source.env != "dev":
-        deps = source.meta("deployments").filter(pl.col("env") == source.env)
+        deps = source.meta_where("deployments", pl.col("env") == source.env)
         if not deps.height or deps["version"][-1] != version:
             errors.append(f"{source.env} is not on metadata {version}; promote it to {source.env} first")
     log = source.meta("run_log")
@@ -95,7 +95,7 @@ def rollback(project: Project, target: Store, version: str, by: str | None = Non
     elif not earlier["kept"]:
         errors.append(f"{target.env.title()} doesn't keep the files of {version}; it was promoted before "
                       "releases kept them, so promote it again instead.")
-    if errors:
+    if errors or earlier is None:  # earlier is None always added an error; this says so to the type check
         raise GateError("rollback", errors)
     released = snapshot.restore(project, target, version)  # proves the files add up before anything is written
     body = release_mod.rollback_record(released, target.env, version, current, earlier, by, object_id)

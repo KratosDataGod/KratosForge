@@ -25,6 +25,7 @@ results as MCP over stdio. No endpoint can change settings, permissions or appro
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
@@ -52,6 +53,9 @@ RATE_PER_SECOND = 5.0      # sustained requests per tool
 RATE_BURST = 30
 MAX_CONCURRENT = 4         # calls running at once in this server
 QUEUE_WAIT_SECONDS = 10.0
+MAX_CONNECTIONS = 32       # open connections; past this a request gets 503 (uvicorn's limit_concurrency)
+HEADER_SECONDS = 10.0      # a connection's request line and headers must all arrive within this
+IDLE_SECONDS = 5           # between requests on a kept-alive connection
 OPEN_PATHS = {"/api/v1/health", "/api/v1/openapi.json"}
 
 STATUS = {"invalid_input": 400, "not_found": 404, "permission_denied": 403, "approval_denied": 403,
@@ -357,17 +361,65 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
 
 # ---- running it
 
+def _protocol() -> type:
+    """uvicorn's h11 protocol, plus a deadline for each request's headers.
+
+    uvicorn times a connection out only between requests, so a program that connects and sends
+    nothing, or a byte at a time, would hold its connection (and, with MAX_CONNECTIONS, a slot) for
+    as long as it liked. Here the request line and headers must all arrive within HEADER_SECONDS of
+    the connection opening, or of the last response. A request that is running is never cut off.
+    """
+    from uvicorn.protocols.http.h11_impl import H11Protocol
+
+    class Protocol(H11Protocol):
+        _deadline: asyncio.TimerHandle | None = None
+
+        def connection_made(self, transport: asyncio.Transport) -> None:  # type: ignore[override]
+            super().connection_made(transport)
+            self._arm()
+
+        def on_response_complete(self) -> None:
+            super().on_response_complete()
+            self._arm()
+
+        def connection_lost(self, exc: Exception | None) -> None:
+            if self._deadline is not None:
+                self._deadline.cancel()
+            super().connection_lost(exc)
+
+        def _arm(self) -> None:
+            if self._deadline is not None:
+                self._deadline.cancel()
+            self._deadline = self.loop.call_later(HEADER_SECONDS, self._headers_late)
+
+        def _headers_late(self) -> None:
+            if (self.cycle is None or self.cycle.response_complete) and not self.transport.is_closing():
+                self.transport.close()
+
+    return Protocol
+
+
+def server_config(app: ASGIApp, port: int) -> Any:
+    """The local API's uvicorn settings: loopback only, a cap on open connections, and deadlines."""
+    import uvicorn
+
+    return uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", access_log=False,
+                          timeout_graceful_shutdown=10, server_header=False, http=_protocol(),
+                          # uvicorn counts the new connection too, and refuses at the limit
+                          limit_concurrency=MAX_CONNECTIONS + 1, timeout_keep_alive=IDLE_SECONDS)
+
+
 def _parent_alive(pid: int) -> bool:
     if pid <= 0:
         return True
     if os.name == "nt":
         import ctypes
-        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # type: ignore[attr-defined]  # Windows-only; PROCESS_QUERY_LIMITED_INFORMATION
         if not handle:
             return False
         code = ctypes.c_ulong()
-        ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
-        ctypes.windll.kernel32.CloseHandle(handle)
+        ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))  # type: ignore[attr-defined]  # Windows-only
+        ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]  # Windows-only
         return code.value == 259  # STILL_ACTIVE
     try:
         os.kill(pid, 0)
@@ -400,7 +452,9 @@ def serve(port: int, parent_pid: int = 0) -> int:
     if peer.checked() and peer.listener_is_other_user(port):
         print(f"Another Windows account's program is listening on port {port} on this PC (or Windows wouldn't say "
               "who is), so the local API didn't start: your tools would be sending their requests, and their tokens, "
-              "to that program. Ask your IT team to check this PC.", file=sys.stderr)
+              "to that program. On a shared PC or a multi-session host (Azure Virtual Desktop, Citrix) that is usually "
+              "another person's KratosForge, which got the port first: add your tools as MCP tools instead, which "
+              "need no port. Otherwise ask your IT team to check this PC.", file=sys.stderr)
         return 2
     registry = default_registry()
     registry.authorizer = PermissionAuthorizer(store)
@@ -408,8 +462,7 @@ def serve(port: int, parent_pid: int = 0) -> int:
     extensions = ExtensionHost(registry, store)
     extensions.sync()
     app = build_app(registry, store, port, _engine_service, refresh=extensions.sync)
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", access_log=False,
-                                           timeout_graceful_shutdown=10, server_header=False))
+    server = uvicorn.Server(server_config(app, port))
     state = root / "integrations" / "http.json"
 
     def watch() -> None:

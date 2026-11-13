@@ -86,6 +86,44 @@ def no_lakehouse_left_attached(monkeypatch):
     monkeypatch.setattr(lakehouse, "_attached", None)
 
 
+@pytest.fixture(autouse=True)
+def no_databricks_tokens_refused_by_earlier_tests(monkeypatch):
+    """Tokens a workspace refused are remembered for the process (databricks_auth._REFUSED); each test
+    starts with none, so a stand-in token one test refused can't be withheld in the next."""
+    from fabric_desktop.engines import databricks_auth
+    monkeypatch.setattr(databricks_auth, "_REFUSED", {})
+
+
+@pytest.fixture(autouse=True)
+def runtime_grants_on_record_once_per_worker(request, monkeypatch, tmp_path_factory):
+    """Windows only. The exercise runtime's grants are persistent ACEs on this machine's Python
+    install, and grant_runtime skips re-granting when the data folder's grants record already
+    lists them. Each test has its own tmp data folder, so without this every box start re-granted
+    about 116 paths with icacls (14.5 s a time on the CI runner, 70% of the Academy files' time).
+    Here each test's data folder starts with this worker's record. Within a worker the first
+    grant is still a real one, and a later one trusts the record only after grant_runtime has
+    checked the interpreter's own ACE (or granted in this process). Paths the record doesn't list
+    yet are granted as before. Tests marked machine_wide_grants (they remove
+    the grants, run on their own, and check a cold grant and its record) keep their own records."""
+    if sys.platform != "win32" or request.node.get_closest_marker("machine_wide_grants"):
+        return
+    import shutil
+
+    from fabric_desktop.academy import appcontainer
+    shared = tmp_path_factory.getbasetemp() / "shared-runtime-grants.json"
+    real = appcontainer.grant_runtime
+
+    def grant_runtime(api, cap_string, lib_roots=None, data_root=None):
+        record = appcontainer._grants_file(data_root) if data_root else None
+        if record is not None and shared.exists() and not record.exists():
+            record.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(shared, record)
+        real(api, cap_string, lib_roots, data_root)
+        if record is not None and record.exists():
+            shutil.copyfile(record, shared)
+    monkeypatch.setattr(appcontainer, "grant_runtime", grant_runtime)
+
+
 # A test that hangs would otherwise hold CI until the job's 6-hour limit, with no output (logs only
 # come back once the job ends). After TEST_TIME_LIMIT seconds, print which test it was and every
 # thread's stack, then end pytest so the job fails with that in its log.
@@ -117,3 +155,26 @@ def pytest_runtest_protocol(item, nextitem):
     finally:
         timer.cancel()
         faulthandler.cancel_dump_traceback_later()
+
+
+def pytest_terminal_summary(terminalreporter, config):
+    """With --durations, also list the test files that take longest in all (setup, call and teardown
+    of every test in them), so a slow fixture shows even when no single test is in the slowest list.
+    Under pytest-xdist the times are each worker's, added up."""
+    if not config.getoption("durations", None):
+        return
+    files: dict[str, list[float]] = {}
+    for reports in terminalreporter.stats.values():
+        for report in reports:
+            when, nodeid = getattr(report, "when", None), getattr(report, "nodeid", "")
+            if when not in ("setup", "call", "teardown") or not nodeid:
+                continue
+            spent = files.setdefault(nodeid.split("::")[0], [0.0, 0.0, 0])
+            spent[0 if when == "setup" else 1] += float(getattr(report, "duration", 0.0) or 0.0)
+            spent[2] += when == "call"
+    if not files:
+        return
+    total = sum(s[0] + s[1] for s in files.values())
+    terminalreporter.write_sep("=", f"slowest {min(25, len(files))} test files of {len(files)} ({total:.0f}s of test time in all)")
+    for path, (setup, rest, count) in sorted(files.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))[:25]:
+        terminalreporter.write_line(f"{setup + rest:8.1f}s  setup {setup:7.1f}s  {count:4d} tests  {path}")

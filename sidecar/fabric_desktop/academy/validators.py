@@ -76,7 +76,7 @@ def schema_matches(con: duckdb.DuckDBPyConnection, table: str, columns: list[dic
         if typ and not got[1].startswith(str(typ).upper()):
             return _no(kind, f"{table}.{got[0]} is {got[1]}; it should be {str(typ).upper()}.")
         if col.get("nullable") is False and got[2]:
-            nulls = one_row(con.execute(f"SELECT count(*) FROM {_ident(table)} WHERE {_ident(got[0])} IS NULL"))[0]  # type: ignore[index]
+            nulls = one_row(con.execute(f"SELECT count(*) FROM {_ident(table)} WHERE {_ident(got[0])} IS NULL"))[0]
             if nulls:
                 return _no(kind, f"{table}.{got[0]} must never be empty; {nulls:,} rows are NULL.")
     wanted = [str(c["name"]).lower() for c in columns]
@@ -95,7 +95,7 @@ def schema_matches(con: duckdb.DuckDBPyConnection, table: str, columns: list[dic
             return _no(kind, f"{table} has no column {missing[0]} for its key.")
         cols = ", ".join(_ident(have[k.lower()][0]) for k in key)
         dupes = one_row(con.execute(
-            f"SELECT count(*) FROM (SELECT {cols} FROM {_ident(table)} GROUP BY ALL HAVING count(*) > 1)"))[0]  # type: ignore[index]
+            f"SELECT count(*) FROM (SELECT {cols} FROM {_ident(table)} GROUP BY ALL HAVING count(*) > 1)"))[0]
         if dupes:
             return _no(kind, f"{dupes:,} values of the key {', '.join(key)} appear more than once in {table}.")
     return _ok(kind, f"{table} has the columns{', types' if any(c.get('type') for c in columns) else ''}"
@@ -115,11 +115,11 @@ def _rule_count(con: duckdb.DuckDBPyConnection, table: str, rule: dict[str, Any]
             raise ValueError(f"{table} has no column {c}.")
     q = [_ident(have[c.lower()][0]) for c in cols]
     if name == "unique":
-        n = one_row(con.execute(f"SELECT count(*) FROM (SELECT {', '.join(q)} FROM {t} GROUP BY ALL HAVING count(*) > 1)"))[0]  # type: ignore[index]
+        n = one_row(con.execute(f"SELECT count(*) FROM (SELECT {', '.join(q)} FROM {t} GROUP BY ALL HAVING count(*) > 1)"))[0]
         return int(n), f"{n:,} values of {', '.join(cols)} appear more than once"
     if name == "not_null":
         cond = " OR ".join(f"{c} IS NULL" for c in q)
-        n = one_row(con.execute(f"SELECT count(*) FROM {t} WHERE {cond}"))[0]  # type: ignore[index]
+        n = one_row(con.execute(f"SELECT count(*) FROM {t} WHERE {cond}"))[0]
         return int(n), f"{n:,} rows have an empty (NULL) {' or '.join(cols)}"
     if name == "range":
         lo, hi = rule.get("min"), rule.get("max")
@@ -132,7 +132,7 @@ def _rule_count(con: duckdb.DuckDBPyConnection, table: str, rule: dict[str, Any]
             args.append(hi)
         if not parts:
             raise ValueError("A range rule needs min or max.")
-        n = one_row(con.execute(f"SELECT count(*) FROM {t} WHERE {' OR '.join(parts)}", args))[0]  # type: ignore[index]
+        n = one_row(con.execute(f"SELECT count(*) FROM {t} WHERE {' OR '.join(parts)}", args))[0]
         bounds = " and ".join(x for x in (f"at least {lo}" if lo is not None else "", f"at most {hi}" if hi is not None else "") if x)
         return int(n), f"{n:,} rows have a {cols[0]} outside the range ({bounds})"
     if name == "accepted":
@@ -140,17 +140,17 @@ def _rule_count(con: duckdb.DuckDBPyConnection, table: str, rule: dict[str, Any]
         if not values:
             raise ValueError("An accepted rule needs values.")
         marks = ", ".join("?" for _ in values)
-        n = one_row(con.execute(f"SELECT count(*) FROM {t} WHERE {q[0]} IS NOT NULL AND {q[0]} NOT IN ({marks})", values))[0]  # type: ignore[index]
+        n = one_row(con.execute(f"SELECT count(*) FROM {t} WHERE {q[0]} IS NOT NULL AND {q[0]} NOT IN ({marks})", values))[0]
         return int(n), f"{n:,} rows have a {cols[0]} that isn't one of {', '.join(map(str, values))}"
     if name == "references":
         parent = str(rule["parent"])
         pc = str(rule.get("parent_column") or cols[0])
         n = one_row(con.execute(
             f"SELECT count(*) FROM {t} c WHERE c.{q[0]} IS NOT NULL AND NOT EXISTS "
-            f"(SELECT 1 FROM {_ident(parent)} p WHERE p.{_ident(pc)} = c.{q[0]})"))[0]  # type: ignore[index]
+            f"(SELECT 1 FROM {_ident(parent)} p WHERE p.{_ident(pc)} = c.{q[0]})"))[0]
         return int(n), f"{n:,} rows have a {cols[0]} that {parent} doesn't have"
     if name == "row_count":
-        n = int(one_row(con.execute(f"SELECT count(*) FROM {t}"))[0])  # type: ignore[index]
+        n = int(one_row(con.execute(f"SELECT count(*) FROM {t}"))[0])
         lo, hi = rule.get("min"), rule.get("max")
         if rule.get("equals") is not None and n != int(rule["equals"]):
             return 1, f"it has {n:,} rows; the answer has {int(rule['equals']):,}"
@@ -206,16 +206,45 @@ def _say(value: Any) -> str:
     if isinstance(value, str) and len(value) <= 40 and not _SECRETISH.search(value) and value.isprintable():
         return json.dumps(value, ensure_ascii=False)
     if isinstance(value, list):
+        shown = [_say(v) for v in value] if len(value) <= 8 and all(
+            v is None or isinstance(v, (bool, int, float, str)) for v in value) else []
+        if shown and "a different value" not in shown:   # short plain words only, as above
+            return "[" + ", ".join(shown) + "]"
         return f"a list of {len(value)}"
     if isinstance(value, dict):
         return "an object"
     return "a different value"
 
 
+def _same(a: Any, b: Any) -> bool:
+    """Equal as JSON values: true is never 1 and false never 0, as Python's == would have it."""
+    return a == b and isinstance(a, bool) == isinstance(b, bool)
+
+
+def _count_problem(path: str, value: Any, rule: dict[str, Any]) -> str | None:
+    """``count``, ``count_min``, ``count_max`` on a list: how many entries match ``where`` (all of its
+    fields equal; every entry when there's no ``where``). Order in the list never matters."""
+    if not isinstance(value, list):
+        return f"{path} is {_say(value)}; it should be a list."
+    where = rule.get("where") or {}
+    n = sum(1 for item in value if all(isinstance(item, dict) and _same(item.get(k, _MISSING), want)
+                                       for k, want in where.items()))
+    which = (" with " + " and ".join(f"{k} {_say(w)}" for k, w in where.items())) if where else ""
+    things = "entry" if n == 1 else "entries"
+    if "count" in rule and n != rule["count"]:
+        return f"{path} has {n} {things}{which}; it should have exactly {rule['count']}."
+    if "count_min" in rule and n < rule["count_min"]:
+        return f"{path} has {n} {things}{which}; it should have at least {rule['count_min']}."
+    if "count_max" in rule and n > rule["count_max"]:
+        return f"{path} has {n} {things}{which}; it should have at most {rule['count_max']}."
+    return None
+
+
 def config_matches(doc: Any, rules: list[dict[str, Any]]) -> dict[str, Any]:
     """Rules on a parsed settings document. Each rule has ``path`` and one of ``equals``, ``one_of``,
-    ``absent``, ``present``, ``min``/``max``, ``contains``, ``not_contains``; ``why`` is said when it fails
-    (the reason the setting matters, such as least privilege)."""
+    ``absent``, ``present``, ``min``/``max``, ``contains``, ``not_contains``, or ``count``/``count_min``/
+    ``count_max`` (entries of a list, optionally only those matching ``where``); ``why`` is said when it
+    fails (the reason the setting matters, such as least privilege)."""
     kind = "config_matches"
     for rule in rules:
         path = str(rule["path"])
@@ -227,9 +256,14 @@ def config_matches(doc: Any, rules: list[dict[str, Any]]) -> dict[str, Any]:
             continue
         if value is _MISSING:
             return _no(kind, f"{path} isn't set.{why}")
-        if "equals" in rule and value != rule["equals"]:
+        if any(k in rule for k in ("count", "count_min", "count_max")):
+            said = _count_problem(path, value, rule)
+            if said:
+                return _no(kind, f"{said}{why}")
+            continue
+        if "equals" in rule and not _same(value, rule["equals"]):
             return _no(kind, f"{path} is {_say(value)}; it should be {_say(rule['equals'])}.{why}")
-        if "one_of" in rule and value not in rule["one_of"]:
+        if "one_of" in rule and not any(_same(value, o) for o in rule["one_of"]):
             return _no(kind, f"{path} is {_say(value)}; it should be one of {', '.join(map(_say, rule['one_of']))}.{why}")
         for bound, bad in (("min", lambda v, b: v < b), ("max", lambda v, b: v > b)):
             if bound in rule:
@@ -494,7 +528,7 @@ def snapshot(con: duckdb.DuckDBPyConnection, tables: list[str]) -> dict[str, tup
         if not _columns(con, table):
             out[table] = None
             continue
-        n, fp = one_row(con.execute(f"SELECT count(*), coalesce(sum(hash(t)::HUGEINT), 0) FROM {_ident(table)} t"))  # type: ignore[misc]
+        n, fp = one_row(con.execute(f"SELECT count(*), coalesce(sum(hash(t)::HUGEINT), 0) FROM {_ident(table)} t"))
         out[table] = (int(n), int(fp))
     return out
 

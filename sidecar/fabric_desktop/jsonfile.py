@@ -30,7 +30,7 @@ REPLACE_BACKOFF = 0.05
 KEEP_SET_ASIDE = 5
 
 
-def write_json(path: Path, data: Any, indent: int = 2) -> None:
+def write_json(path: Path, data: Any, indent: int | None = 2) -> None:
     write_text(path, json.dumps(data, indent=indent))
 
 
@@ -83,8 +83,7 @@ def set_aside(path: Path, then: str = "it is being started again empty", keep: b
     """Move an unreadable file to ``<name>.corrupt-<timestamp>`` and say so (``then``: what happens next).
 
     ``keep`` copies it there instead, leaving the original in place until the caller replaces it."""
-    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    dest = path.with_name(f"{path.name}.corrupt-{stamp}")
+    dest = path.with_name(f"{path.name}.corrupt-{_next_stamp(path):%Y%m%dT%H%M%S%fZ}")
     if keep:
         shutil.copy2(path, dest)
     else:
@@ -92,6 +91,37 @@ def set_aside(path: Path, then: str = "it is being started again empty", keep: b
     _log.warning("%s could not be read and was %s to %s; %s.", path, "copied" if keep else "moved", dest.name, then)
     _prune_set_aside(path, dest)
     return dest
+
+
+def _next_stamp(path: Path) -> dt.datetime:
+    """The time for a new set-aside copy of ``path``: now, or just after its newest copy when that is
+    already at or past now. Windows' clock can give two set-asides the same time, and a copy with the
+    same name would replace the one kept before it; a copy stamped before the newest would be the first
+    one pruned. Stamps that aren't a date, or are more than a day ahead (renamed by hand, not ours),
+    are left out of the ordering."""
+    now = dt.datetime.now(dt.timezone.utc)
+    own = re.compile(re.escape(path.name) + r"\.corrupt-(\d{8}T\d{12})Z")
+    newest: dt.datetime | None = None
+    for p in path.parent.glob(f"{path.name}.corrupt-*"):
+        m = own.fullmatch(p.name)
+        if m is None:
+            continue
+        try:
+            when = dt.datetime.strptime(m.group(1), "%Y%m%dT%H%M%S%f").replace(tzinfo=dt.timezone.utc)
+        except ValueError:  # digits that aren't a date
+            _log.info("Ignoring %s when naming the next set-aside copy: its stamp isn't a date.", p.name)
+            continue
+        if when - now > _SET_ASIDE_AHEAD:
+            _log.info("Ignoring %s when naming the next set-aside copy: its stamp is in the future.", p.name)
+            continue
+        if newest is None or when > newest:
+            newest = when
+    if newest is not None and newest >= now:
+        return newest + dt.timedelta(microseconds=1)
+    return now
+
+
+_SET_ASIDE_AHEAD = dt.timedelta(days=1)  # a clock stepped back by more than this restarts the ordering
 
 
 def _prune_set_aside(path: Path, dest: Path) -> None:

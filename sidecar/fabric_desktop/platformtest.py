@@ -100,7 +100,7 @@ class PlatformTest:
     def __init__(self, workspace_id: str, fabric: Any, execute_token: Callable[[], str], out_dir: Path,
                  client: Callable[[str, str], Any], setup: Callable[..., dict[str, Any]] = setup_mod.setup,
                  user: Callable[[], str] = lambda: "", run_id: str = "", protected_ids: set[str] | None = None,
-                 upgrade: bool = False, keep: bool = False, pause: Callable[[str], None] | None = None,
+                 upgrade: bool = False, keep: bool = False, pause: Callable[[str], object] | None = None,
                  restrict: Callable[[], str] | None = None):
         self.workspace_id = workspace_id
         self.fabric, self.execute_token, self.client_for, self.setup = fabric, execute_token, client, setup
@@ -112,8 +112,8 @@ class PlatformTest:
         self.name = f"fdlt_{self.run_id}"
         self.checks: list[Check] = []
         self.config: dict[str, Any] = {}
-        self.ledger: list[dict[str, str]] = []
-        self.left_behind: list[dict[str, str]] = []
+        self.ledger: list[dict[str, Any]] = []  # name, id, and deleted once it's gone
+        self.left_behind: list[dict[str, Any]] = []
         self.refused: list[str] = []
 
     def plan(self) -> list[str]:
@@ -122,8 +122,8 @@ class PlatformTest:
                  "check it holds no platform, then run Finish or repair once from empty: it creates "
                  + ", ".join(ITEMS))
         return [
-            f"Flows 11-12: in workspace {self.workspace_id}, {start}; then run it again, which must keep everything. "
-            "Creating items and calling UDF_Platform uses capacity.",
+            (f"Flows 11-12: in workspace {self.workspace_id}, {start}; then run it again, which must keep everything. "
+            "Creating items and calling UDF_Platform uses capacity."),
             f"If {setup_mod.FUNCTIONS} has no connection to {setup_mod.SQL} yet, stop and ask a person to add it in Fabric.",
             f"Flow 13: register project {self.name} and data product {self.name}_product.",
             f"Flow 14: create key table {self.name}, issue keys for two business keys, look one up and issue them again.",
@@ -142,7 +142,7 @@ class PlatformTest:
             check.status = "passed"
         except Skip as why:
             check.detail = str(why)
-        except Exception as exc:  # every failure is a result, not a crash
+        except Exception as exc:  # noqa: BLE001 - every failure is a result, not a crash
             check.status = "failed"
             check.detail = livetest.scrub(f"{type(exc).__name__}: {exc}")
         self.checks.append(check)

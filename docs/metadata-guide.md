@@ -308,6 +308,10 @@ Criticality sets the rate when `success_rate` is left out: critical 99 %, high 9
 
 - In **Test and Prod**, **Optimize** runs Fabric's table maintenance job on the workspace's capacity: OPTIMIZE with V-Order (what Direct Lake and the SQL endpoint read fastest), then VACUUM keeping the layer's history days. Tables written from a PC have no V-Order until it runs, so by default every table a Test or Prod run writes is optimized right after the run. Untick **Optimize every table a run writes** to stop that.
 - In **Dev on this PC**, **Compact** does the same with delta-rs, without V-Order.
+  - If a write on this PC stops part way, for example because the app was closed, it can leave files that no commit names. Table health lists them.
+  - Compact removes unfinished files after an hour, and data files that no commit names once they're older than the layer's history days.
+  - Compact only touches files named the way Delta names them. Anything else in the folder stays, such as a note or a CSV someone put there. Compact never goes into a linked folder (a symbolic link or a junction).
+  - The project's own meta tables on this PC (the run log, watermarks and the rest) are compacted by themselves at every 100th commit, so runs don't slow down as they add up.
 
 ## 7. Environments and promote
 
@@ -361,7 +365,7 @@ Rows written before this existed have these columns empty.
 - records the rollback as a new release in `meta.deployments`, with a release record of its own whose `rollback` section names the release it replaced and the one it went back to
 - uploads the earlier files for Fabric runs when the environment runs in Fabric
 
-Tables keep their rows. A table whose logic changes asks whether to rebuild on its next run; to put its rows back now, restore it from **History**. Rolling back checks your workspace roles there, as a promote does. It doesn't apply `separate_promoter`, because it only goes back to a release that was already promoted. Releases promoted before this version can't be rolled back to: promote them again instead.
+Tables keep their rows. A table whose logic changes asks whether to rebuild on its next run; to put its rows back now, restore it from **History**. Rolling back checks your workspace roles there, as a promote does, and in Test and Prod so does a restore. It doesn't apply `separate_promoter`, because it only goes back to a release that was already promoted. Releases promoted before this version can't be rolled back to: promote them again instead.
 
 Each promote card shows the **Last release** to its target: the metadata version, the commit and whether it was pushed, the engine, who promoted it and when, and whether the stored record still matches its id (**checks out**). **Copy record** copies the whole record.
 

@@ -21,7 +21,7 @@ import csv
 import io
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from . import core
 
@@ -64,7 +64,7 @@ ROLES = (
     Role("viewers", "Report viewers", ("prod",), "Business users of {domain} reports",
          "Viewer on {domain} {env} workspaces, or the audience of its app", ("workspace", "Viewer")),
     Role("stewards", "Data stewards", (), "People who keep {domain}'s glossary terms and descriptions",
-         "No Fabric role: {domain}'s glossary in KratosForge, and Purview data curator if you use it"),
+         "No Fabric role: {domain}'s glossary in KratosForge"),
 )
 BY_KEY = {r.key: r for r in ROLES}
 assert set(BY_KEY) == set(core.ENTRA_ROLES)
@@ -84,8 +84,8 @@ def group_name(naming: dict[str, Any], role: str, domain: dict[str, Any], parent
     """The suggested group name for a role of a domain (a subdomain names its parent as {DOMAIN})."""
     key = "name" if naming.get("domain_part") == "name" else "id"
     top, sub = (parent, domain) if parent else (domain, None)
-    values = {"PREFIX": naming.get("prefix") or "", "DOMAIN": _part(top.get(key) or top.get("id")),
-              "SUBDOMAIN": _part(sub.get(key) or sub.get("id")) if sub else "",
+    values = {"PREFIX": naming.get("prefix") or "", "DOMAIN": _part(top.get(key) or top.get("id") or ""),
+              "SUBDOMAIN": _part(sub.get(key) or sub.get("id") or "") if sub else "",
               "ROLE": naming["words"].get(role) or role, "ENV": ENV_NAMES.get(env, "") if env else ""}
     name = re.sub(r"\{(PREFIX|DOMAIN|SUBDOMAIN|ROLE|ENV)\}", lambda m: values[m.group(1)], naming["pattern"])
     # A part left empty (no prefix, a top-level domain, a role that spans environments) takes its separator with it.
@@ -258,8 +258,8 @@ MANUAL_STEPS = (
     "1. In the Microsoft Entra admin center, open Groups > All groups > New group.",
     "2. Group type Security, the name and description from the file, membership type Assigned.",
     "3. Add the owners from the file, then the members (or let the owners add them).",
-    "4. Then give each group its Fabric role: Fabric's Admin portal > Domains for domain owners and contributors, "
-    "each workspace's Manage access for workspace roles, and the lakehouse's Manage OneLake data access for readers.",
+    ("4. Then give each group its Fabric role: Fabric's Admin portal > Domains for domain owners and contributors, "
+    "each workspace's Manage access for workspace roles, and the lakehouse's Manage OneLake data access for readers."),
 )
 
 
@@ -328,4 +328,4 @@ def roles(rows: list[dict[str, Any]], workspaces: dict[str, list[dict[str, str]]
     return "\n".join(lines) + "\n"
 
 
-KINDS = {"powershell": ("ps1", powershell), "az": ("sh", az), "csv": ("csv", table), "roles": ("ps1", roles)}
+KINDS: dict[str, tuple[str, Callable[..., str]]] = {"powershell": ("ps1", powershell), "az": ("sh", az), "csv": ("csv", table), "roles": ("ps1", roles)}

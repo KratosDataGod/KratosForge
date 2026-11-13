@@ -117,21 +117,27 @@ function redactReport(text, level = "support") {
     .replace(/(\b(?:set-)?cookie\s*:(?![ \t]*\[removed\])[ \t]*)[^\r\n]+/gi, "$1[removed]")
     .replace(/([?&#]code=)[^&\s"'<>#]+/gi, "$1[removed]")
     .replace(/(\b[a-z][a-z0-9+.\-]*:\/\/)[^/\s:@"'<>]+:[^@/\s"'<>]+@/gi, "$1[removed]@")
+    .replace(/\b(?!(?:abfss?|wasbs?):\/\/[^/\s:@"'<>]+@(?:onelake\.(?:dfs|blob)\.fabric\.microsoft\.com(?=[/:?#\s"'<>]|$)|[a-z0-9\-]+\.(?:dfs|blob)\.core\.windows\.net(?=[/:?#\s"'<>]|$)))([a-z][a-z0-9+.\-]*:\/\/)[^/\s:@"'<>]+@/gi, "$1[removed]@")
     .replace(/https:\/\/(?:[A-Za-z0-9.\-]+\.webhook\.office\.com\/|outlook\.office(?:365)?\.com\/webhook(?:b2)?\/)[^\s"'<>]+/gi, "[removed]")
     .replace(/\/webhook(?:b2)?\/[^\s"'<>/]+@[^\s"'<>/]+\/IncomingWebhook\/[^\s"'<>]+/gi, "[removed]")
     .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b/g, "[removed]")
     .replace(/(?<![A-Za-z0-9_~.\-])[A-Za-z0-9_~.\-]{3}\dQ~[A-Za-z0-9_~.\-]{31,34}(?![A-Za-z0-9_~.\-])/g, "[removed]")
     .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[removed]")
-    .replace(/\b(?:sk-ant-[A-Za-z0-9_\-]{20,}|sk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_\-]{32,}|AIza[0-9A-Za-z_\-]{35})/g, "[removed]")
+    .replace(/(?<![A-Za-z0-9_\-])(?:sk-[A-Za-z0-9_\-]{20,}|AIza[0-9A-Za-z_\-]{35})/g, "[removed]")
     .replace(/\bdapi[0-9a-f]{32}(?:-\d+)?\b/g, "[removed]")
     .replace(/\bdose[0-9a-f]{32}\b/g, "[removed]")
+    .replace(/\bglpat-[A-Za-z0-9_\-]{20,}(?:\.[A-Za-z0-9_\-]+)*/g, "[removed]")
+    .replace(/\bnpm_[A-Za-z0-9]{36}\b/g, "[removed]")
+    .replace(/(?:https?:\/\/)?\bhooks\.slack\.com\/(?:services|workflows|triggers)\/[^\s"'<>]+/gi, "[removed]")
+    .replace(/\bH4sI[A-Za-z0-9+/_\-]{40,}={0,2}/g, "[removed]")
+    .replace(/(\b(?:ocp-apim-)?subscription[_-]?key"?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1[removed]")
     .replace(/-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)/g, "[removed]")
-    .replace(/("(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)"\s*:\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
-    .replace(/('(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)/gi, "$1[removed]")
-    .replace(/\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\s*[=:]\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
-    .replace(/\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\s*[=:]\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)/gi, "$1[removed]")
+    .replace(/("(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)"\s*:\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
+    .replace(/('(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)/gi, "$1[removed]")
+    .replace(/\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
+    .replace(/\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)/gi, "$1[removed]")
     .replace(/\bxox[abposr]-[A-Za-z0-9\-]{10,}\b/g, "[removed]")
-    .replace(/\b(client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
+    .replace(/\b(client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
   if (level !== "support") return out;
   return out
     .replace(/[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+/g, "[email]")
@@ -184,6 +190,93 @@ function reportProblem() {
       : "Send copies all of this and opens a new issue on GitHub. Paste it there.")),
   [btn("Copy only", null, () => copyText(report(), "Report"), "tool outline"), h("span", { class: "spacer" }),
     btn("Cancel", null, closeDialog, "tool outline"), btn("Send", null, send, "tool primary")]);
+}
+
+// ---------- Save support bundle (PB-062) ----------
+
+// A zip for whoever is helping: the engine writes it (support_bundle.py) with every file redacted, to a
+// folder the person picks. Nothing is sent from the app.
+const BUNDLE_FILES = {
+  "about.json": "App and engine build, Python, Windows version, and where each setting comes from",
+  "sidecar.log": "The last 2,000 lines of the engine's log",
+  "sidecar.prev.log": "The last 2,000 lines of the engine's log from the run before",
+  "agent.log": "The last 2,000 lines of the agent's log, on this server",
+  "CONTENTS.txt": "What is in the zip and what was taken out",
+};
+const BUNDLE_MISSING = {
+  "sidecar.log": "The engine hasn't written a log yet. CONTENTS.txt says so.",
+};
+
+function bundleRows(shown) {
+  const rows = shown.files.map((f) => ({ name: f.name, what: BUNDLE_FILES[f.name] || "", size: sizeText(f.bytes) }));
+  for (const name of shown.missing || []) {
+    rows.push({ name, missing: true, what: BUNDLE_MISSING[name] || "Not on this PC. CONTENTS.txt says so.", size: "–" });
+  }
+  // CONTENTS.txt last, as drawn.
+  return [...rows.filter((r) => r.name !== "CONTENTS.txt"), ...rows.filter((r) => r.name === "CONTENTS.txt")];
+}
+
+async function saveSupportBundle() {
+  const shown = await attempt(() => rpc("support_bundle_preview"), "Couldn't read what a support bundle would hold");
+  if (!shown) return;
+  const rows = bundleRows(shown);
+  const folder = h("input", { id: "sb-folder", class: "mono grow", readonly: true, value: shown.folder });
+  const choose = btn("Choose folder…", "folderOpen", async () => {
+    choose.disabled = true;  // one dialog at a time
+    const chosen = await invoke("pick_folder", { start: folder.value || null })
+      .catch((e) => { toast(friendlyError(e).text, true); return null; })
+      .finally(() => { choose.disabled = false; });
+    if (chosen) { folder.value = chosen; problem.replaceChildren(); problem.hidden = true; }
+  }, "tool outline", { type: "button" });
+  const contents = h("pre", { class: "mono small", hidden: true }, shown.contents);
+  const toggle = btn("Show CONTENTS.txt", null, () => {
+    contents.hidden = !contents.hidden;
+    toggle.setAttribute("aria-expanded", String(!contents.hidden));
+    toggle.textContent = contents.hidden ? "Show CONTENTS.txt" : "Hide CONTENTS.txt";
+  }, "tool outline", { type: "button", "aria-expanded": "false" });
+  const problem = h("div", { class: "callout git-warn small", role: "alert", hidden: true });
+  const save = btn("Save", null, async () => {
+    save.disabled = true;
+    try {
+      const res = await rpc("support_bundle_save", { folder: folder.value });
+      closeDialog();
+      toast(`Saved ${res.name} in ${res.folder}.`, false, {
+        log: true, title: `Support bundle saved to ${res.folder}`, action: { label: "Show in folder", run: () => rpc("support_bundle_reveal", { path: res.path }).catch((e) => toast(friendlyError(e).text, true)) },
+      });
+    } catch (e) {
+      problem.replaceChildren(h("span", { class: "pill-s fail" }, "Not saved"), " ", friendlyError(e).text);
+      problem.hidden = false;
+      save.disabled = false;
+    }
+  }, "tool primary");
+  const anyMissing = rows.some((r) => r.missing);
+  showDialog("Save support bundle", h("div", { class: "setup bundle" },
+    h("p", {}, "A zip for whoever is helping you with a problem. Nothing is sent from KratosForge: you choose where it's saved and who gets it."),
+    h("h3", {}, "What's in it"),
+    h("table", { class: "vars bundle-files" },
+      h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "File"), h("th", { scope: "col" }, "What it is"), h("th", { scope: "col", class: "num" }, "Size"))),
+      h("tbody", {}, rows.map((r) => h("tr", {},
+        h("td", { class: "name" }, r.name),
+        h("td", {}, r.missing ? [h("span", { class: "pill-s wrn" }, "Not on this PC"), " "] : null, r.what),
+        h("td", { class: "num" }, r.size))))),
+    h("p", { class: "muted-text small" }, anyMissing
+      ? "Save still works: about.json and CONTENTS.txt are always there. Other settings show their values, with the same details taken out."
+      : "Other settings show their values, with the same details taken out."),
+    h("h3", {}, "Taken out of every file"),
+    h("ul", {},
+      h("li", {}, "Tokens, keys and passwords"),
+      h("li", {}, "Email addresses and user names in paths"),
+      h("li", {}, "Tenant, workspace and item ids"),
+      h("li", {}, "Settings that hold a secret, such as a connection string, show only whether they're set")),
+    h("p", { class: "muted-text small" }, "No table data, notebook contents or sign-in cache is read."),
+    h("div", {}, toggle), contents,
+    h("h3", {}, "Where it's saved"),
+    h("label", { class: "field", for: "sb-folder" }, "Folder"),
+    h("div", { class: "row" }, folder, window.__TAURI__?.core ? choose : null),
+    h("p", { class: "muted-text small" }, "Saved as ", h("span", { class: "mono" }, "fabric-desktop-support-….zip"),
+      ". Read it before you send it on: logs can name your notebooks and warehouses."),
+    problem),
+  [btn("Cancel", null, closeDialog, "tool outline"), save]);
 }
 
 // The policy file's SHA-256 and its last change (policy_watch.py, #1670), for IT to compare with the
@@ -255,7 +348,8 @@ async function checkForUpdates() {
     install.disabled = true;
     later.disabled = true;
     try {
-      if (await installUpdate(latest.commit, (label) => { install.lastChild.textContent = label; })) return;
+      if (await installUpdate(latest.commit, (label) => { install.lastChild.textContent = label; },
+        (note) => { text.textContent = note; })) return;
       install.lastChild.textContent = "Install and restart";
     } catch (err) {
       text.className = "error-text";
@@ -268,13 +362,20 @@ async function checkForUpdates() {
   show([facts, text, note], [manual, h("span", { class: "spacer" }), later, install]);
 }
 
+// update_app's log line when the channel moved on since the person agreed to a build: the build
+// they saw, then the one installed instead.
+const REPLACED_BUILD = /^Build (\w{7}) was replaced on the update channel by build (\w{7})/;
+
 // Saves the open notebook, then downloads the build and hands over to it, the same checked
 // download as at startup (update_app). False when the notebook wasn't saved; throws when the
-// update failed. setLabel shows how far the download is.
-async function installUpdate(commit, setLabel) {
+// update failed. setLabel shows how far the download is; setNote, when given, says when a newer
+// build replaced the one shown.
+async function installUpdate(commit, setLabel, setNote) {
   if (state.notebook?.dirty && !(await saveNotebook())) return false;
   setLabel("Downloading…");
   const unlisten = await window.__TAURI__.event.listen("component-log", (e) => {
+    const moved = REPLACED_BUILD.exec(e.payload);
+    if (moved && setNote) setNote(`Installing build ${moved[2]}, which replaced build ${moved[1]} on the channel.`);
     const m = /^progress (\d+)/.exec(e.payload);
     if (m) setLabel(m[1] === "100" ? "Restarting…" : `Downloading… ${m[1]}%`);
   });
@@ -365,7 +466,8 @@ function renderUpdateBanner() {
     const restart = btn("Restart to update", "arrowDownload", async () => {
       restart.disabled = true;
       try {
-        if (await installUpdate(n.commit, (label) => { restart.lastChild.textContent = label; })) return;
+        if (await installUpdate(n.commit, (label) => { restart.lastChild.textContent = label; },
+          (note) => { text.replaceChildren(h("b", {}, note)); })) return;
         restart.lastChild.textContent = "Restart to update";
       } catch (err) {
         text.replaceChildren(h("b", { class: "error-text" }, `Update to build ${n.commit.slice(0, 7)} failed: ${err}`),
@@ -421,7 +523,7 @@ function showWhatsNew(asked = false) {
 
 // The full-window forge: the emblem strikes the anvil, sparks fly, embers rise behind the
 // lettering. The new name and each update use it. Button, Escape or Enter closes it. It follows
-// Motion & effects when it opens: Off, Minimal or Windows' reduced motion show it still, and with
+// Living Experience when it opens: Professional, Subtle or Windows' reduced motion show it still, and with
 // Forge sparks off no sparks fly and no embers rise. Returns the button so the caller can focus it
 // once it is on screen.
 function forgeSplash({ kicker, tag, body, link, extra, done }) {
@@ -547,17 +649,17 @@ function whatsNewItems(notes, history) {
 
 // ---------- Settings page ----------
 
-const MOTION_LEVEL_HELP = ["No animation at all. Progress, results and errors still show.",
-  "Quick page and panel transitions only. No branded effects.",
-  "Subtle sparks, embers and the wolf on real progress. Recommended.",
+const MOTION_LEVEL_HELP = ["No decorative effects. Progress, results and errors still show as text and bars.",
+  "Quick page and panel transitions, and a short reveal when you earn an achievement. Everyday work stays plain. Recommended.",
+  "Adds the wolf on your runs, sparks when work succeeds and the forge strike on deploy.",
   "The same moments with more character: extra sparks, halftone and offset rings."];
 const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival, the Wolf Run after long work, and the navy wolf on work in Fabric or with a remote."],
   ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment or promote, the ember when something fails."],
   ["motion_ambient", "Running indicators", "The glow on a running cell, the flow into a running pipeline step, the ring when work starts."]];
-// Achievement celebrations (off by default, #361) shows only while Profile (a Preview feature) can
+// Achievement celebrations (on by default) shows only while Profile (a Preview feature) can
 // award something; a switch that does nothing would only confuse.
 const MOTION_ACHIEVEMENTS = ["motion_achievements", "Achievement celebrations",
-  "A short reveal on the message when Profile awards you an achievement. Off unless you turn it on."];
+  "A short reveal on the message when Profile awards you an achievement. On unless you turn it off."];
 const motionFamilies = () => (previewShown() ? [...MOTION_FAMILIES, MOTION_ACHIEVEMENTS] : MOTION_FAMILIES);
 
 function motionSettingsCard(s, locked) {
@@ -567,7 +669,7 @@ function motionSettingsCard(s, locked) {
   const levelRow = (n) => h("label", { class: `choice-row${level === n ? " selected" : ""}` },
     h("input", { type: "radio", name: "motion_level", value: String(n), checked: level === n ? true : null,
       disabled: locked("motion_level") ? true : null, onchange: () => save({ motion_level: n }) }),
-    h("span", {}, h("b", {}, `${n} ${MOTION_LEVELS[n]}`), h("span", { class: "muted-text small" }, MOTION_LEVEL_HELP[n])));
+    h("span", {}, h("b", {}, `${MOTION_LEVELS[n]}${n === 1 ? " (default)" : ""}`), h("span", { class: "muted-text small" }, MOTION_LEVEL_HELP[n])));
   const toggle = (key, label, on, disabled) => h("label", { class: "switch" },
     h("input", { type: "checkbox", checked: on ? true : null, disabled: disabled || locked(key) ? true : null, "aria-label": label,
       onchange: (e) => save({ [key]: e.target.checked }) }),
@@ -585,20 +687,23 @@ function motionSettingsCard(s, locked) {
     h("h3", {}, "Layout"),
     h("p", { class: "muted-text small" }, "How much every page shows. Nothing is removed: what you tuck away is one click from where it was."),
     Object.keys(LAYOUT_CHOICES).map(choice),
-    h("h3", {}, "Motion & effects"),
-    h("p", { class: "muted-text small" }, "Effects only follow real work as it finishes; they never delay a run, take focus or cover your code. ",
-      reduced ? h("b", {}, "Off now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),
-    h("div", { class: "choices motion-levels", role: "radiogroup", "aria-label": "Visual intensity" }, [0, 1, 2, 3].map(levelRow)),
+    h("h3", {}, "Living Experience"),
+    h("p", { class: "muted-text small" }, "Quiet while you work, epic when you achieve. Effects only follow real work as it finishes; they never delay a run, take focus or cover your code. ",
+      reduced ? h("b", {}, "Still now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),
+    h("div", { class: "choices motion-levels", role: "radiogroup", "aria-label": "Experience mode" }, [0, 1, 2, 3].map(levelRow)),
     source("motion_level") ? h("div", { class: "setting-source" }, SOURCE_TEXT.policy) : null,
-    motionFamilies().map(([key, label, help]) => settingRow(label, level < 2 ? `${help} Plays at Refined and Expressive.` : help,
-      toggle(key, label, s[key]?.value ?? key !== "motion_achievements", level < 2), source(key))),
+    motionFamilies().map(([key, label, help]) => {
+      const from = key === "motion_achievements" ? 1 : 2;  // achievements play from Subtle, the rest from Heroic
+      return settingRow(label, level < from ? `${help} ${from === 1 ? "Plays at Subtle and above." : "Plays at Heroic and Legendary."}` : help,
+        toggle(key, label, s[key]?.value ?? true, level < from), source(key));
+    }),
     settingRow("Respect Windows' reduced-motion setting",
       "When Windows' Animation effects are off, KratosForge shows no motion. Untick to keep the level you chose anyway.",
       toggle("motion_follow_system", "Respect Windows' reduced-motion setting", s.motion_follow_system?.value !== false), source("motion_follow_system")),
     h("div", { class: "row" }, btn("Preview effects", "play", showMotionGallery, "tool outline")));
 }
 
-// Settings > Motion & effects > Preview effects: each effect on a sample, at the level and switches
+// Settings > Living Experience > Preview effects: each effect on a sample, at the level and switches
 // in force now, and Energy Flow on a real three-step pipeline run on this PC.
 function showMotionGallery() {
   const stats = h("p", { class: "muted-text small", "aria-live": "polite" });
@@ -674,7 +779,7 @@ function showMotionGallery() {
     h("div", { class: "motion-target" }, flowNote), btn("Run sample on this PC", "play", runPipeline, "tool small")),
     flowHost, stats);
   showStats();
-  showDialog("Motion & effects", body, [btn("Done", null, closeDialog, "primary")]);
+  showDialog("Living Experience", body, [btn("Done", null, closeDialog, "primary")]);
 }
 
 // Three activities that only wait and set a variable: nothing is read, written or sent.
@@ -761,11 +866,11 @@ async function renderSettings() {
           renderUpdateBanner();
           render();
         } }), h("span", {}, updateWatchOn() ? "On" : "Off")))),
-    h("div", { class: "row" }, btn("Check for updates", "sync", checkForUpdates, "tool link small"),
+    h("div", { class: "row wrap" }, btn("Check for updates", "sync", checkForUpdates, "tool link small"),
       btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small"),
       btn("Show the update splash", "rocket", () => showUpdateSplash(true), "tool link small")));
 
-  // Appearance > Motion & effects (motion.js, docs/forge-animations.md)
+  // Appearance > Living Experience (motion.js, docs/forge-animations.md)
   const display = s.motion_level ? motionSettingsCard(s, locked) : null;
 
   // Preview features
@@ -791,7 +896,8 @@ async function renderSettings() {
   // Advanced (UX-006): what most people never change, folded until opened once.
   const advanced = advancedSection(s, locked, limitRow);
 
-  // Usage data (FD-137): off unless this person turns it on; telemetry.py in the engine.
+  // Usage data (FD-137): off unless this person turns it on; telemetry.py in the engine. Hidden for now
+  // (USAGE_DATA_SHOWN), except while it's on, as a policy file can set it.
   const usage = await usageSection(s);
 
   // Notifications
@@ -806,6 +912,7 @@ async function renderSettings() {
       btn("User guide", "help", () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}), "tool outline"),
       btn("Keyboard shortcuts", "help", shortcutsDialog, "tool outline"),
       btn("Report a problem", "bug", reportProblem, "tool outline"),
+      btn("Save support bundle", "save", saveSupportBundle, "tool outline"),
       btn("Guide for IT admins", "shield", () => invoke("open_doc", { page: "permissions.md" }).catch(() => {}), "tool outline")),
     h("dl", { class: "about" },
       h("dt", {}, "Build"), h("dd", {}, state.build || "unknown"),
@@ -917,7 +1024,7 @@ function exerciseSandboxSection() {
   const folders = (n) => `${n.toLocaleString()} folder${n === 1 ? "" : "s"}`;
   const load = () => rpc("academy_sandbox_status").then((st) => {
     const on = st.enabled && st.available;
-    const why = on ? "" : st.why_not || (st.available ? "Turned off on this PC while the AppContainer is in Preview." : "");
+    const why = on ? "" : st.why_not || (st.available ? "Turned off on this PC." : "");
     side.replaceChildren(...[
       h("div", { class: on ? "sandbox-on" : "" }, on ? [icon("ok", 16), " On: exercises run in an AppContainer"]
         : "Off: exercises run in a limited process on this PC"),
@@ -1090,11 +1197,21 @@ function sqlSettingsSection(s, locked) {
 
 // ---------- Usage data ----------
 
+// The Usage data card is hidden until there's a need for it: this build has nowhere to send usage data.
+// Set to true to bring the card back. The engine (telemetry.py), the setting and its off default are
+// unchanged. While usage data is on (a policy file can turn it on for everyone) the card shows anyway,
+// so nobody sends it without seeing that it's on and what's sent. A policy-set value stays locked (only the
+// organization changes it); otherwise the switch can always turn it off.
+const USAGE_DATA_SHOWN = false;
+
 const USAGE_WHERE = { kratosbi: "KratosBI's Application Insights", organization: "your organization's Application Insights" };
 
 async function usageSection(s) {
   const u = await rpc("telemetry_status").catch(() => null);
-  if (!u) return null;
+  // Status unreadable while the setting says on: still say it's on, rather than hide it.
+  if (!u) return s.telemetry?.value ? h("section", { class: "card pad" }, h("h2", {}, "Usage data ", previewTag()),
+    h("p", { class: "muted-text" }, "Usage data is on, but its status couldn't be read. Open Settings again to retry.")) : null;
+  if (!USAGE_DATA_SHOWN && !u.on) return null;
   const locked = s.telemetry?.source === "policy";
   const today = u.waiting.find((w) => w.day === u.today);
   const actions = today ? Object.values(today.features).reduce((n, f) => n + f.count, 0) : 0;
@@ -1103,7 +1220,7 @@ async function usageSection(s) {
     ? `${u.waiting.length} day${u.waiting.length === 1 ? "" : "s"}${today ? `; today so far ${actions} action${actions === 1 ? "" : "s"}, ${failures} failed` : ""}`
     : "Nothing yet";
   const toggle = h("label", { class: "switch" }, h("input", { type: "checkbox", checked: u.on ? true : null,
-    disabled: locked || !u.available ? true : null,
+    disabled: locked || (!u.available && !u.on) ? true : null,  // turning it off is always allowed
     onchange: async (e) => { if (await saveSettings({ telemetry: e.target.checked })) { toast(e.target.checked ? "Usage data on" : "Usage data off; nothing waiting is sent"); render(); } } }),
   h("span", {}, u.on ? "On" : "Off"));
   return h("section", { class: "card pad" }, h("h2", {}, "Usage data ", previewTag()),
@@ -1135,7 +1252,7 @@ function usageDialog(u) {
       ? `This is the exact text waiting to go to ${USAGE_WHERE[u.destination] || "nowhere"}. A day is sent once it's over.`
       : "Nothing is waiting. This is an example of one day, in the exact shape that's sent."),
     h("p", { class: "muted-text small" }, "Actions are the app's own names for them. A failure carries only its kind, never its message."),
-    h("textarea", { rows: 16, class: "mono", readonly: true }, text)),
+    h("textarea", { rows: 16, class: "mono", readonly: true, "aria-label": "Usage data" }, text)),
   [btn("Copy", null, () => copyText(text, "Usage data"), "tool outline"), h("span", { class: "spacer" }),
     btn("Close", null, closeDialog, "tool primary")]);
 }
@@ -1259,7 +1376,7 @@ function readinessCard() {
     box.replaceChildren(head, withHowItWorks(
       h("ol", {}, rows.map((r) => readinessRow(r, run)), readinessRow(write, run, tester)),
       howItWorks("home.ready", {
-        reads: "Your saved sign-in, the workspaces and capacities Fabric lists for you, and your organization's policy file on this PC. It reads when Home opens and when you press Check again, and no check opens a sign-in window.",
+        reads: "Your saved sign-in, the workspaces and capacities Fabric lists for you, your organization's policy file on this PC, and how much room the drive with your data folder has and whether it is a network share. It reads when Home opens and when you press Check again, and no check opens a sign-in window.",
         changes: "Nothing, unless you choose Test a write. That asks you first, then writes one small file, Files/_fabric_desktop_check/write-test.txt, to the lakehouse you pick, reads it back and deletes the folder. Workspaces named Prod are refused, and no table is touched.",
         results: "Only on this PC. A passed write test is remembered here for 7 days for the same account and lakehouse, and is forgotten when a test fails or you sign out. Nothing is sent anywhere.",
         anchor: "ready-to-work",

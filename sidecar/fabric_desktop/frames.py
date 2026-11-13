@@ -28,7 +28,7 @@ import uuid
 import zipfile
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from xml.sax.saxutils import escape
 
 import pyarrow as pa
@@ -72,7 +72,7 @@ def full_table(value: Any) -> pa.Table:
         if hasattr(value, "collect"):
             value = value.collect()
         return value.to_arrow()
-    if module.startswith("duckdb"):
+    if module.startswith(("duckdb", "_duckdb")):  # DuckDBPyRelation is in _duckdb
         return (getattr(value, "to_arrow_table", None) or value.arrow)()
     if module.startswith("pandas"):
         return pandas_table(value)
@@ -373,7 +373,7 @@ class Frames:
             """Refused here with a plain message, not as a DuckDB binder error."""
             if c is None:
                 return
-            f = table.schema.field(int(i))
+            f = table.schema.field(int(cast(int, i)))  # a column name came with its index
             if _kind(f.type) != "number" and not (boolean and _kind(f.type) == "boolean"):
                 raise ValueError(f"{f.name!r} isn't a number column. Pick a number column for {what}"
                                  + (", or count rows." if what == "Values" and boolean else "."))
@@ -423,7 +423,7 @@ class Frames:
                 out.update(boxes=[{"x": k, "min": a, "q1": b, "median": c, "q3": d, "max": e, "n": n} for k, a, b, c, d, e, n in got])
                 return out
             # A true/false column charts as 1 and 0: sum counts the trues, avg is their share.
-            ynum = f"{cy}::INTEGER" if cy is not None and pa.types.is_boolean(table.schema.field(int(y)).type) else cy
+            ynum = f"{cy}::INTEGER" if cy is not None and pa.types.is_boolean(table.schema.field(int(cast(int, y))).type) else cy
             value = "count(*)" if agg == "count" or cy is None else f"{agg}({ynum})::DOUBLE"
             where = f"WHERE {_finite(cy)}" if cy is not None and agg != "count" else ""
             skey = f"CAST({cs} AS VARCHAR)" if cs else "NULL"
@@ -445,7 +445,7 @@ class Frames:
                 if len(top) > CHART_SERIES:
                     names.append(OTHER)
             index = {_chart_key(k): i for i, k in enumerate(keys)}
-            values = {n: [None] * len(keys) for n in names}
+            values: dict[str | None, list[float | int | None]] = {n: [None] * len(keys) for n in names}
             fold = (f"CASE WHEN {skey} IN (SELECT unnest(?)) THEN {skey} ELSE '{OTHER}' END" if cs and OTHER in names else skey)
             params = [[n for n in names if n not in (OTHER, None)]] if cs and OTHER in names else []
             # A join, not IN: it matches NULL keys too, and DuckDB needs pytz for IN over time zone timestamps.

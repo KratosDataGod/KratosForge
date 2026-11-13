@@ -74,33 +74,76 @@ def should_retry(method: str, status: int, safe: bool | None = None) -> bool:
 
 
 def send_with_retry(send: Callable[[], Any], method: str, sleep: Callable[[float], None] = time.sleep,
-                    attempts: int = 5, default_wait: float = 2.0, safe: bool | None = None) -> Any:
+                    attempts: int = 5, default_wait: float = 2.0, safe: bool | None = None,
+                    wait_cap: float = RETRY_AFTER_CAP, deadline: float | None = None,
+                    clock: Callable[[], float] = time.monotonic) -> Any:
     """Call ``send`` (one HTTP request) until it gets a response not worth repeating, at most
     ``attempts`` times, waiting as the server's ``Retry-After`` says (capped). A read is also repeated
     after a dropped connection or timeout; a write never is, since it may have reached the server.
     The last response is returned whatever its status; the caller decides what an error means.
-    ``safe`` is as for should_retry."""
+    ``safe`` is as for should_retry. ``wait_cap`` caps each wait, for a caller that mustn't stall long.
+    ``deadline`` (on ``clock``) is when trying again stops: a wait that would end at or after it isn't
+    started, and the answer in hand is returned (or the error raised) instead."""
     import requests
 
     if safe is None:
         safe = method.upper() in SAFE_METHODS
+
+    def no_time_for(wait: float) -> bool:
+        return deadline is not None and clock() + wait >= deadline
 
     for attempt in range(attempts):
         last = attempt == attempts - 1
         try:
             resp = send()
         except (requests.ConnectionError, requests.Timeout):
-            if last or not safe:
+            wait = min(default_wait * (2 ** attempt), wait_cap)
+            if last or not safe or no_time_for(wait):
                 raise
-            sleep(min(default_wait * (2 ** attempt), RETRY_AFTER_CAP))
+            sleep(wait)
             continue
         if last or not should_retry(method, resp.status_code, safe):
             return resp
-        sleep(retry_after(getattr(resp, "headers", None), default_wait))
+        wait = retry_after(getattr(resp, "headers", None), default_wait, cap=wait_cap)
+        if no_time_for(wait):
+            return resp
         close = getattr(resp, "close", None)
         if callable(close):
-            close()  # a streamed response holds its connection until closed
+            close()  # a streamed response holds its connection until closed: let it go before waiting
+        sleep(wait)
     raise AssertionError("unreachable")
+
+
+R = TypeVar("R")
+
+
+class PollTimedOut(Exception):
+    """A long-running operation still unfinished at its deadline. ``last`` is the last thing fetched."""
+
+    def __init__(self, last: Any):
+        super().__init__("the operation didn't finish in time")
+        self.last = last
+
+
+def poll_until(fetch: Callable[[], tuple[R, Mapping[str, Any] | None]], finished: Callable[[R], bool],
+               timeout: float, headers: Mapping[str, Any] | None, sleep: Callable[[float], None] = time.sleep,
+               clock: Callable[[], float] = time.monotonic, default_wait: float = 2.0,
+               cap: float = RETRY_AFTER_CAP) -> R:
+    """Follow a long-running operation until ``finished`` says its state is final, and return that state.
+
+    Before each look it waits as the last answer's ``Retry-After`` says (``headers``: first the answer
+    that started the operation, then each ``fetch``'s), else ``default_wait``, capped at ``cap``.
+    ``fetch`` makes one request and returns (state, its headers); it is never sent again within one
+    look, so a failed look raises as it is. Once ``timeout`` seconds (on ``clock``) have passed and the
+    state isn't final, PollTimedOut is raised with the last state: the operation may still finish."""
+    deadline = clock() + timeout
+    while True:
+        sleep(retry_after(headers, default_wait, cap=cap))
+        state, headers = fetch()
+        if finished(state):
+            return state
+        if clock() > deadline:
+            raise PollTimedOut(state)
 
 
 # The statuses a remote engine call (Databricks SQL, Fabric Spark over Livy) tries again: throttled,
@@ -169,6 +212,18 @@ def windows_log_race(exc: BaseException) -> bool:
     return isinstance(exc, OSError) and "_delta_log" in text and ("os error 5)" in text or "os error 32)" in text)
 
 
+_STAGED_COMMIT = re.compile(r"\d{20}\.json#\d+")
+
+
+def staged_commit_race(exc: BaseException) -> bool:
+    """Windows: two writers committing the same next version both stage it under one temporary name,
+    ``_delta_log/NNN.json#1``, and the one that loses can't open it (os error 5). Elsewhere that
+    loser is told the version exists and delta-rs makes its commit on the next one. Nothing was
+    committed, so an append is safe to send again."""
+    text = str(exc)
+    return windows_log_race(exc) and "Unable to open file" in text and bool(_STAGED_COMMIT.search(text))
+
+
 _DROPPED = ("error sending request", "timed out", "connection reset", "connection closed", "broken pipe",
             "status code: 500", "status code: 502", "status code: 503", "status code: 504", "status code: 408",
             "status code: 429")
@@ -185,7 +240,43 @@ def data_upload_dropped(exc: BaseException) -> bool:
             and any(d in low for d in _DROPPED))
 
 
+def log_commit_dropped(exc: BaseException) -> bool:
+    """A table write that failed writing its Delta log entry on a dropped connection, a timeout or a
+    5xx: the commit may have gone in. It is never written again by itself (an append would be in the
+    table twice); the error says to check the table's history first."""
+    text = str(exc)
+    return "Error performing PUT" in text and "_delta_log" in text and any(d in text.lower() for d in _DROPPED)
+
+
+_TOKEN_REFUSED = ("status code: 401", "invalidauthenticationinfo", "token is expired", "lifetime validation failed")
+
+
+def write_token_refused(exc: BaseException) -> bool:
+    """A table write that OneLake stopped because its sign-in token ran out partway through (401, or
+    Azure's expired-token answer). delta-rs is given one token for the whole write, and a long write
+    can outlast it (HD-034). The refused request wrote nothing; the caller checks the table's version
+    before writing again, since the error's wording can't say whether the commit went in."""
+    low = str(exc).lower()
+    return "error performing" in low and any(m in low for m in _TOKEN_REFUSED)
+
+
 T = TypeVar("T")
+
+
+def retry_call(fn: Callable[[], T], retry_on: Callable[[BaseException], bool], attempts: int,
+               wait: Callable[[int], float], sleep: Callable[[float], None] = time.sleep) -> T:
+    """Call ``fn`` at most ``attempts`` times. After an error ``retry_on`` accepts, sleep
+    ``wait(n)`` seconds (n is 1 before the second try, 2 before the third, ...) and call it again.
+    Any other error, or the last try's, is raised as it is. Callers keep their own policy (what to
+    retry, how many times, how long to wait); this is the one loop they share (EA-028)."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except Exception as exc:
+            if attempt == attempts or not retry_on(exc):
+                raise
+            sleep(wait(attempt))
+    raise ValueError("attempts must be at least 1")
 
 
 def local_retry(fn: Callable[[], T], attempts: int = 6, backoff: float = 0.05) -> T:

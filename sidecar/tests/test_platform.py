@@ -964,12 +964,8 @@ def test_moving_sources_to_the_platform_keeps_their_ids_and_reports_clashes(plat
     again = platform.call("adopt_sources", systems=[{"id": 3, "code": "CRM"}])
     assert again["moved"] == [] and again["conflicts"] == ["CRM is id 2 in the platform but 3 in this project"]
     # Only platform admins move sources.
-    db = platform._db().__enter__()
-    try:
-        with pytest.raises(core.PlatformError, match="Only platform admins"):
-            core.adopt_sources(db, [{"id": 9, "code": "X"}], by="ana@example.com")
-    finally:
-        db.conn.close()
+    with platform._db() as db, pytest.raises(core.PlatformError, match="Only platform admins"):
+        core.adopt_sources(db, [{"id": 9, "code": "X"}], by="ana@example.com")
 
 
 def test_a_project_reads_platform_sources_with_the_platform_ids(svc):
@@ -1557,6 +1553,20 @@ def test_a_parameter_with_an_underscore_is_refused_as_fabric_did():
     code = files["function_app.py"].replace("businessKeys: list", "business_keys: list")
     with pytest.raises(FabricError, match=r"Function 'issue_keys' \(line \d+\): input parameter 'business_keys' "
                        r"cannot contain an underscore") as err:
+        check_item("UserDataFunction", {**files, "function_app.py": code})
+    assert err.value.code == "MetadataValidationError"
+
+
+def test_a_default_on_a_dict_parameter_is_refused_as_fabric_did():
+    from fabric_desktop.fabric_api import FabricError
+    from tests.fabric_refusals import check_item
+    files = udf.definition("ws", "sql")
+    check_item("UserDataFunction", files)  # what the app sends now is accepted
+    code = files["function_app.py"].replace("operation: str,\n              args: dict)",
+                                            "operation: str,\n              args: dict = None)")
+    assert code != files["function_app.py"]
+    with pytest.raises(FabricError, match=r"Function 'call_once' \(line \d+\): Default values are not allowed for "
+                       r"'dict' type parameters") as err:
         check_item("UserDataFunction", {**files, "function_app.py": code})
     assert err.value.code == "MetadataValidationError"
 

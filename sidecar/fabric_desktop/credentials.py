@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -23,7 +24,8 @@ from typing import Any, Protocol
 
 import msal
 
-from .auth import AUTHORITY, FABRIC_SCOPES, STORAGE_SCOPES, default_scope, resource_of  # noqa: F401  (re-exported)
+from .auth import AUTHORITY, FABRIC_SCOPES, REFUSED_WAIT, STORAGE_SCOPES, SignInRequired, default_scope, resource_of  # noqa: F401  (re-exported)
+from . import http_session
 from .redact import describe
 
 _log = logging.getLogger(__name__)
@@ -50,6 +52,7 @@ class _AppCredential:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()  # MSAL apps aren't safe to call from several threads at once
+        self._refused: tuple[float, str] | None = None  # (when, message): Entra refused the credential itself
 
     def _acquire(self, resource_scope: str) -> dict[str, Any]:
         raise NotImplementedError
@@ -58,10 +61,18 @@ class _AppCredential:
         scope = default_scope(scopes)
         try:
             with self._lock:
+                refused = self._refused
+                if refused and time.monotonic() - refused[0] < REFUSED_WAIT:
+                    raise SignInRequired(refused[1])  # asked again only after REFUSED_WAIT, or a restart
                 result = self._acquire(scope)
-            if "access_token" not in result:
-                raise RuntimeError(f"{self.name} couldn't get a token for {scope}: "
-                                   f"{result.get('error')}: {result.get('error_description')}")
+                if "access_token" not in result:
+                    message = refusal(self.name, result)
+                    if message:
+                        self._refused = (time.monotonic(), message)
+                        raise SignInRequired(message)
+                    raise RuntimeError(f"{self.name} couldn't get a token for {scope}: "
+                                       f"{result.get('error')}: {result.get('error_description')}")
+                self._refused = None
         except Exception as exc:
             self.last_token_error = (time.time(), f"{type(exc).__name__}: {exc}")
             raise
@@ -77,7 +88,7 @@ class _AppCredential:
     def silent_token(self, scopes: list[str]) -> str | None:
         try:
             return self._token(scopes)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - no token is a state the agent reports, not a crash
             _log.info("No token for the agent's credential: %s", describe(exc))
             return None
 
@@ -86,6 +97,53 @@ class _AppCredential:
 
     def signed_in_tenant(self) -> str | None:
         return self.tenant_id
+
+
+# Entra's codes for an app identity whose credential itself was refused, and what to do about each. These
+# don't pass with time: the agent stops asking (REFUSED_WAIT) and says what to change.
+_REFUSED = {
+    "AADSTS7000222": "its client secret has expired. Create a new secret for the app registration and set it "
+                     "in the agent's environment",
+    "AADSTS7000215": "its client secret is wrong or was deleted. Set the app registration's current secret in "
+                     "the agent's environment",
+    "AADSTS700027": "its certificate isn't one the app registration accepts (expired, removed or replaced). "
+                    "Upload the agent's current certificate to the app registration, or point "
+                    "auth.certificate_path at the one it holds",
+    "AADSTS700024": "its certificate's assertion is outside its valid time. Check the machine's clock and the "
+                    "certificate's expiry date",
+    "AADSTS7000112": "the app registration is disabled in your tenant. Ask an Entra admin to enable it",
+    "AADSTS700016": "the app registration isn't in this tenant any more. Check auth.client_id and auth.tenant_id",
+    "AADSTS7000229": "the app registration has no service principal in this tenant. Ask an Entra admin to "
+                     "create one",
+}
+
+
+def refusal(name: str, result: dict[str, Any]) -> str:
+    """The message for an app identity's credential that Entra refused for good; "" for any other
+    failure (throttling, an outage), which is tried again as usual."""
+    codes = re.findall(r"\bAADSTS\d+\b", str(result.get("error_description") or ""))
+    for code, what in _REFUSED.items():
+        if code in codes:
+            return (f"Microsoft Entra refused the agent's sign-in as {name} ({code}): {what}. Then restart the "
+                    f"agent; until then it doesn't ask Entra again for {REFUSED_WAIT // 60} minutes at a time.")
+    return ""
+
+
+def key_file_open(auth: dict[str, Any]) -> bool:
+    """Whether the service principal's key file (``auth.certificate_path``) can be read by every account on
+    this machine. The agent docs set it to 640; this is a warning, not a refusal, because a container's
+    secret mount is often 0444 or 0644 and holds only the agent's account. Windows ACLs aren't modes: False."""
+    path = auth.get("certificate_path") if auth.get("type") == "service_principal" else ""
+    if not path or os.name == "nt":
+        return False
+    try:
+        return bool(Path(path).stat().st_mode & 0o004)
+    except (OSError, ValueError):
+        return False
+
+
+KEY_FILE_OPEN = ("auth.certificate_path can be read by every account on this machine, and it holds the agent's "
+                 "private key: chmod 640 it, owned by root and the agent's group (docs/agent.md)")
 
 
 def _certificate(path: Path, password: str | None) -> dict[str, Any]:
@@ -134,7 +192,8 @@ class ServicePrincipal(_AppCredential):
         else:
             raise ValueError("A service principal needs certificate_path or client_secret_env")
         authority = AUTHORITY.rsplit("/", 1)[0] + "/" + tenant_id
-        self.app = msal.ConfidentialClientApplication(client_id, authority=authority, client_credential=credential)
+        self.app = msal.ConfidentialClientApplication(client_id, authority=authority, client_credential=credential,
+                                                      timeout=http_session.DEFAULT_TIMEOUT)
 
     def _acquire(self, resource_scope: str) -> dict[str, Any]:
         return self.app.acquire_token_for_client(scopes=[resource_scope])
@@ -150,10 +209,10 @@ class ManagedIdentity(_AppCredential):
         if client is not None:  # tests
             self.client = client
             return
-        import requests
         identity = msal.UserAssignedManagedIdentity(client_id=client_id) if client_id \
             else msal.SystemAssignedManagedIdentity()
-        self.client = msal.ManagedIdentityClient(identity, http_client=requests.Session())
+        # A session with a timeout: the machine's identity endpoint that doesn't answer fails, not hangs.
+        self.client = msal.ManagedIdentityClient(identity, http_client=http_session.new())
 
     def _acquire(self, resource_scope: str) -> dict[str, Any]:
         return self.client.acquire_token_for_client(resource=resource_scope.removesuffix("/.default"))

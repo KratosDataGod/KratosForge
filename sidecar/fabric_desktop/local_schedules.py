@@ -24,7 +24,8 @@ from xml.sax.saxutils import escape
 
 from . import signed_out_tasks
 from .fabric_run import WEEKDAYS, describe_schedule, schedule_configuration
-from .jsonfile import read_json, read_text, write_json, write_text
+from .jsonfile import read_json, read_text, write_json
+from .winexe import system32
 
 TASK_FOLDER = "FabricDesktop"
 RUNS_FILE = "schedule_runs.jsonl"
@@ -88,6 +89,19 @@ def local_configuration(schedule: dict[str, Any]) -> dict[str, Any]:
     return config
 
 
+TASK_MAX_MINUTES = 31 * 24 * 60  # the longest repetition Task Scheduler takes
+
+
+def task_configuration(schedule: dict[str, Any]) -> dict[str, Any]:
+    """``local_configuration`` for a schedule Task Scheduler starts, which repeats at most every 31 days:
+    a longer interval is refused here in words, not by schtasks as a value out of range."""
+    config = local_configuration(schedule)
+    if config["type"] == "Cron" and config["interval"] > TASK_MAX_MINUTES:
+        raise ValueError(f"A schedule on this PC runs at least every 31 days ({TASK_MAX_MINUTES} minutes); "
+                         "Task Scheduler repeats no less often")
+    return config
+
+
 def next_run(config: dict[str, Any], now: dt.datetime | None = None) -> dt.datetime | None:
     """When the schedule fires next, in local time (what Task Scheduler does with these triggers)."""
     now = (now or dt.datetime.now()).replace(second=0, microsecond=0)
@@ -97,7 +111,16 @@ def next_run(config: dict[str, Any], now: dt.datetime | None = None) -> dt.datet
         step = dt.timedelta(minutes=int(config["interval"]))
         if start > now:
             return start
-        return start + step * ((now - start) // step + 1)
+        nxt = start + step * ((now - start) // step + 1)
+        # When the clocks go back an hour the wall clock repeats it, so a wall time in that hour names
+        # two moments (fold 0 and 1). Stepping by wall time alone skipped the repeated hour, or from
+        # inside it named a moment already past. The next run is the first grid time, at either
+        # moment, that is still to come.
+        if now.fold or nxt.timestamp() - now.timestamp() > step.total_seconds():
+            span = int(dt.timedelta(hours=1) / step) + 1
+            grid = [(nxt + k * step).replace(fold=f) for k in range(-span, span + 1) for f in (0, 1)]
+            nxt = min((g for g in grid if g.timestamp() > now.timestamp()), key=lambda g: g.timestamp())
+        return nxt
     times = sorted(config.get("times") or [])
     days = set(range(7)) if kind == "Daily" else {WEEKDAYS.index(d) for d in config.get("weekdays") or []}
     if not times or not days:
@@ -197,7 +220,7 @@ class TaskScheduler:
         try:
             # schtasks answers in a second; one that doesn't (a hung Task Scheduler service) would
             # otherwise hold every page's engine calls behind it, with no Stop to reach.
-            res = subprocess.run(["schtasks", *args], capture_output=True, text=True, creationflags=flags,
+            res = subprocess.run([system32("schtasks.exe"), *args], capture_output=True, text=True, errors="replace", creationflags=flags,
                                  timeout=SCHTASKS_SECONDS)
         except subprocess.TimeoutExpired:
             raise RuntimeError(f"Task Scheduler didn't answer in {SCHTASKS_SECONDS} seconds. Check that the "
@@ -317,7 +340,7 @@ class LocalSchedules:
         return found
 
     def add(self, target: dict[str, Any], schedule: dict[str, Any], signed_out: bool = False) -> dict[str, Any]:
-        item = {"id": uuid.uuid4().hex[:12], "target": check_target(target), "config": local_configuration(schedule),
+        item = {"id": uuid.uuid4().hex[:12], "target": check_target(target), "config": task_configuration(schedule),
                 "enabled": True, "created": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
         if signed_out:
             item["signed_out"] = True
@@ -349,7 +372,7 @@ class LocalSchedules:
         history stays, and a paused schedule stays paused. ``signed_out`` (when given) turns running while
         signed out on or off in the same save, so Windows asks for the password at most once and a closed
         prompt leaves both the times and the setting as they were."""
-        config = local_configuration(schedule)  # checks the times before anything changes
+        config = task_configuration(schedule)  # checks the times before anything changes
         data = self._load()
         for s in data["schedules"]:
             if s["id"] == schedule_id:
@@ -439,21 +462,9 @@ class LocalSchedules:
         return out[::-1]
 
     def log_run(self, row: dict[str, Any]) -> None:
-        from .leases import _file_lock  # scheduled runs and the app append at once: trimming waits its turn
+        from . import runlog
         self.root.mkdir(parents=True, exist_ok=True)
-        with _file_lock(self.runs_file.with_name(RUNS_FILE + ".lock")):
-            with self.runs_file.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(row, default=str) + "\n")
-            if self.runs_file.stat().st_size > RUNS_TRIM_BYTES:
-                lines = self.runs_file.read_text(encoding="utf-8").splitlines(keepends=True)
-                kept: list[str] = []
-                size = 0
-                for line in reversed(lines[-RUNS_KEEP:]):
-                    size += len(line.encode("utf-8"))
-                    if size > RUNS_KEEP_BYTES and kept:
-                        break
-                    kept.append(line)
-                write_text(self.runs_file, "".join(reversed(kept)))
+        runlog.append(self.runs_file, row, RUNS_TRIM_BYTES, RUNS_KEEP, RUNS_KEEP_BYTES)
 
     def listing(self, now: dt.datetime | None = None) -> list[dict[str, Any]]:
         """Every schedule with its next run and its latest result."""

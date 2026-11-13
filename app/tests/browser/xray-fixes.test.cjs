@@ -11,6 +11,8 @@
 const { test, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert");
 const { playwright, openApp, startupReads, axeSource, axeFindings } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: xray.js:adoptDialog, xray.js:optimizeDialog, xray.js:vacuumDialog
 
 let app;
 const skip = !playwright && "Playwright is not installed";
@@ -58,6 +60,7 @@ const RISK = {
 };
 
 let scan, risk, preview, plan;
+const tableRisk = {};  // a table -> its own risk check for Vacuum, else the shared one
 const fail = {};  // method -> the engine's error text; for xray_vacuum, a table -> error map
 const copy = (x) => JSON.parse(JSON.stringify(x));
 const runRecord = (p, name) => ({ status: "NotStarted", started_at: "2026-11-01T09:00:00+00:00", finished_at: null, message: "",
@@ -74,8 +77,8 @@ const mocks = {
   xray_optimize_check: () => { refuse("xray_optimize_check"); return { keep_days: 7, why: "Fabric's default", risk: copy(risk) }; },
   // XrayService.xray_optimize: the run record _log_fabric_run keeps
   xray_optimize: (p) => { refuse("xray_optimize"); return runRecord(p, `${p.lakehouse_name} ${p.table}`); },
-  // XrayService.xray_vacuum_preview: {files, bytes, keep_days, why}
-  xray_vacuum_preview: () => { refuse("xray_vacuum_preview"); return copy(preview); },
+  // XrayService.xray_vacuum_preview: {files, bytes, keep_days, why, risk}
+  xray_vacuum_preview: (p) => { refuse("xray_vacuum_preview"); return { ...copy(preview), risk: copy(tableRisk[p.table] || risk) }; },
   // XrayService.xray_vacuum: the run record with keep_days and why
   xray_vacuum: (p) => {
     const why = typeof fail.xray_vacuum === "object" ? fail.xray_vacuum[p.table] : fail.xray_vacuum;
@@ -125,6 +128,7 @@ beforeEach(async () => {
     { schema: null, table: "returns", ok: false, columns: ["id"], keys: ["id"], name: "bronze.returns", exists: false, why: "Already adopted as bronze.returns" },
   ] };
   for (const k of Object.keys(fail)) delete fail[k];
+  for (const k of Object.keys(tableRisk)) delete tableRisk[k];
   await page().evaluate(() => {
     closeDialog(); const t = document.getElementById("toast"); t.hidden = true; t.textContent = "";
     xrayPage.kind = "all"; xrayPage.showAll = false; xrayPage.folded = false;
@@ -229,14 +233,16 @@ test("Optimize past warnings that need the box ticked stops until it is ticked",
   assert.deepStrictEqual(writes(from), [{ method: "xray_optimize", params: { ...argsOf(byTable("lines")), risk_id: "r-wrn" } }]);
 });
 
-test("Vacuum shows its dry run before anything runs, is drawn as destructive, and sends exactly the table picked", { skip }, async () => {
+test("Vacuum shows its dry run and risk check before anything runs, is drawn as destructive, and sends exactly the table picked", { skip }, async () => {
   await openXray();
   const from = app.calls.length;
   await fixButton("events has never been vacuumed (40 versions)", "Vacuum").click();
   await page().waitForFunction(() => /Vacuum deletes/.test(document.querySelector("#dialog-root .dialog")?.textContent || ""));
   const f = byTable("events");
-  const { workspace_id, lakehouse_id, table, schema, lakehouse_name } = f;
-  assert.deepStrictEqual(called(from, "xray_vacuum_preview"), [{ workspace_id, lakehouse_id, table, schema, lakehouse_name }]);
+  const { workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name } = f;
+  assert.deepStrictEqual(called(from, "xray_vacuum_preview"),
+    [{ workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name, refresh: false }]);
+  await dialog().locator(".risk-panel").waitFor();
   assert.deepStrictEqual(writes(from), []);
   const text = await dialog().innerText();
   assert.match(text, /Vacuum deletes 1,234 old files \(2\.0 MB\) that no version in the last 30 days reads\./);
@@ -247,7 +253,28 @@ test("Vacuum shows its dry run before anything runs, is drawn as destructive, an
   if (axeSource) assert.deepStrictEqual(await axeFindings(page(), "#dialog-root .dialog"), []);
   await go.click();
   await waitToast(/Vacuuming events in Fabric, keeping 30 days of history/);
-  assert.deepStrictEqual(writes(from), [{ method: "xray_vacuum", params: argsOf(f) }]);
+  assert.deepStrictEqual(writes(from), [{ method: "xray_vacuum", params: { ...argsOf(f), risk_id: "r-pass" } }]);
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("Vacuum blocked by the risk check can't start; past warnings it needs the box ticked and sends the id seen", { skip }, async () => {
+  risk = RISK.blocked;
+  await openXray();
+  const from = app.calls.length;
+  await fixButton("events has never been vacuumed (40 versions)", "Vacuum").click();
+  await dialog().locator(".risk-panel").waitFor();
+  assert.ok(await dialogButton("Vacuum").isDisabled(), "blocked: no Vacuum");
+  await dialogButton("Cancel").click();
+  risk = { ...RISK.warning, needs_acknowledgement: true };
+  await fixButton("events has never been vacuumed (40 versions)", "Vacuum").click();
+  await dialog().locator(".risk-panel").waitFor();
+  await dialogButton("Vacuum").click();
+  await waitToast(/Tick "I've looked at these" first/);
+  assert.deepStrictEqual(writes(from), [], "nothing starts until the warnings are looked at");
+  await dialog().getByRole("checkbox", { name: /I've looked at these/ }).check();
+  await dialogButton("Vacuum").click();
+  await waitToast(/Vacuuming events in Fabric/);
+  assert.deepStrictEqual(writes(from), [{ method: "xray_vacuum", params: { ...argsOf(byTable("events")), risk_id: "r-wrn" } }]);
   assert.deepStrictEqual(app.errors, []);
 });
 
@@ -269,7 +296,7 @@ test("Vacuum with nothing to delete can't start, and Cancel sends nothing", { sk
   assert.deepStrictEqual(writes(from), []);
 });
 
-test("Vacuum all asks first, starts one job per finding shown, and names the tables not started", { skip }, async () => {
+test("Vacuum all checks each table's risk first, starts one job per finding that passes, and names the tables not started", { skip }, async () => {
   await openXray();
   await page().locator(`${card} .xray-chips`).getByRole("button", { name: /Needs vacuum/ }).click();
   const from = app.calls.length;
@@ -277,7 +304,10 @@ test("Vacuum all asks first, starts one job per finding shown, and names the tab
   await dialog().waitFor();
   assert.strictEqual(await dialog().getAttribute("aria-label"), "Vacuum 3 tables");
   assert.match(await dialog().innerText(), /its own table maintenance job/);
-  assert.match(await dialogButton("Vacuum 3").getAttribute("class"), /\bdanger-solid\b/);
+  const go = dialogButton("Vacuum 3");
+  await page().waitForFunction(() => [...document.querySelectorAll("#dialog-root .dialog button")].some((b) => b.textContent === "Vacuum 3" && !b.disabled));
+  assert.match(await go.getAttribute("class"), /\bdanger-solid\b/);
+  assert.deepStrictEqual(called(from, "xray_vacuum_preview").map((p) => p.table), ["events", "clicks", "views"], "each table's risk check");
   assert.deepStrictEqual(writes(from), [], "asks before starting any");
   await dialogButton("Cancel").click();
   assert.deepStrictEqual(writes(from), [], "Cancel sends nothing");
@@ -285,8 +315,19 @@ test("Vacuum all asks first, starts one job per finding shown, and names the tab
   await page().locator(card).getByRole("button", { name: "Vacuum all 3" }).click();
   await dialogButton("Vacuum 3").click();
   assert.strictEqual(await waitToast(/Not started/), "Started 2 vacuums. Not started: clicks");
-  const shown = ["events", "clicks", "views"].map((t) => ({ method: "xray_vacuum", params: argsOf(byTable(t)) }));
+  const shown = ["events", "clicks", "views"].map((t) => ({ method: "xray_vacuum", params: { ...argsOf(byTable(t)), risk_id: "r-pass" } }));
   assert.deepStrictEqual(writes(from), shown, "one per finding shown, each its own table");
+  // A table with warnings or a block doesn't start from here: its own Vacuum shows the check.
+  delete fail.xray_vacuum;
+  tableRisk.clicks = RISK.warning;
+  tableRisk.views = RISK.blocked;
+  const later = app.calls.length;
+  await page().locator(card).getByRole("button", { name: "Vacuum all 3" }).click();
+  await page().waitForFunction(() => /Not started here/.test(document.querySelector("#dialog-root .dialog")?.textContent || ""));
+  assert.match(await dialog().innerText(), /clicks \(has warnings\), views \(blocked\)/);
+  await dialogButton("Vacuum 1").click();
+  await waitToast(/Started 1 vacuums/);
+  assert.deepStrictEqual(writes(later), [{ method: "xray_vacuum", params: { ...argsOf(byTable("events")), risk_id: "r-pass" } }]);
   assert.deepStrictEqual(app.errors, []);
 });
 

@@ -25,7 +25,7 @@ SEPARATORS = ["# COMMAND ----------", "-- COMMAND ----------", "// COMMAND -----
               "# PARAMETERS CELL ********************", "# MARKDOWN ********************",
               "# METADATA ********************", "# META {", "# MAGIC %md", "# DBTITLE 1,Title",
               "# Databricks notebook source", "# Fabric notebook source", "# %%", "# %% [markdown]"]
-WORDS = ["sales", "région", "東京", "naïve", "Ωmega", "emoji 🚀", "tab\there", "x", "SELECT", "café", "zero​width"]
+WORDS = ["sales", "région", "東京", "naïve", "Ωmega", "emoji 🚀", "tab\there", "x", "SELECT", "café", "zero\u200bwidth"]
 
 
 def _word(rng):

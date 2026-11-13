@@ -488,7 +488,7 @@ class Repository:
             if b is None:
                 raise GitError("Choose the commit to compare with.", kind="invalid")
             args = ["diff", f"-U{context}", "--no-ext-diff", "-M", a, b, "--", rel]
-            sides = (f"{a}:{rel}", f"{b}:{rel}")
+            sides: tuple[str | None, str] = (f"{a}:{rel}", f"{b}:{rel}")
         elif staged:
             args = ["diff", "--cached", f"-U{context}", "--no-ext-diff", "--", rel]
             sides = (f"HEAD:{rel}" if self.head() else None, f":{rel}")
@@ -538,7 +538,8 @@ class Repository:
         fmt = "%(refname)%00%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track)%00" \
               "%(committerdate:iso-strict)%00%(subject)%00%(HEAD)"
         raw = self.git("for-each-ref", f"--format={fmt}", "refs/heads", "refs/remotes", read_only=True)
-        local, remote = [], []
+        local: list[dict[str, Any]] = []
+        remote: list[dict[str, Any]] = []
         current = self.branch()
         for line in raw.splitlines():
             f = line.split("\0")
@@ -733,7 +734,8 @@ def conflict_view(data: bytes | None) -> dict[str, Any]:
     if data is None or not _is_text(data):
         return {"view": "conflict", "binary": data is not None, "hunks": [], "added": 0, "removed": 0,
                 "truncated": False, "conflicts": 0}
-    lines, side, blocks, truncated = [], None, 0, False
+    lines: list[dict[str, Any]] = []
+    side, blocks, truncated = None, 0, False
     for n, text in enumerate(data.decode("utf-8", "replace").splitlines(), 1):
         if len(lines) >= MAX_DIFF_LINES:
             truncated = True

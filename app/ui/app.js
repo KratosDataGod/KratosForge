@@ -224,6 +224,7 @@ function showDialog(title, body, actions = [], onClose = null) {
         h("button", { class: "tool small", "aria-label": "Close", onclick: closeDialog }, icon("dismiss", 16))),
       body,
       actions.length ? h("div", { class: "dialog-actions" }, actions) : null));
+  describeDialog(overlay.querySelector(".dialog"), body);
   const previous = dialogOnClose;
   dialogOnClose = onClose;
   document.getElementById("dialog-root").replaceChildren(overlay);
@@ -237,6 +238,20 @@ function showDialog(title, body, actions = [], onClose = null) {
   previous?.();
   overlay.querySelector("input, select")?.focus();
   return overlay;
+}
+
+// A screen reader reads a dialog's name, then the control that has focus. The sentence that says what the
+// dialog is about (a confirm's "Its files are removed from OneLake") is read too only when the dialog
+// names it with aria-describedby. That sentence is the body's lead paragraph: its first element, going
+// down through plain wrappers, when that is a paragraph. A form that starts with a field has none.
+let dialogDescribed = 0;
+function describeDialog(dialog, body) {
+  const is = (el, sel) => typeof el?.matches === "function" && el.matches(sel);
+  let lead = body;
+  while (is(lead, "div:not([role]):not(.text)")) lead = lead.firstElementChild;
+  if (!is(lead, "p, .text") || is(lead, ".error-text") || lead.hidden || !dialog) return;
+  lead.id ||= `dialog-desc-${++dialogDescribed}`;
+  dialog.setAttribute("aria-describedby", lead.id);
 }
 
 // check(value) returns why the value can't be used, or "": the dialog says so and stays open.
@@ -442,6 +457,7 @@ const NAV_FIELDS = {
   lakehouse: () => [[state, "lakehouseView"], [state, "openWorkspace"]],
   entity: () => [[state.meta, "entity"]],
   workload: () => [[wlPage, "id"]],
+  embedstudio: () => [[pbiStudio, "item"]],
   incident: () => [[incPage, "id"], [incPage, "env_of"]],
   agent: () => [[agPage, "name"]],
 };
@@ -521,8 +537,10 @@ function navMove(step) {
   const entry = nav.stack[i];
   navFields(entry.view).forEach(([o, k], n) => { if (o) o[k] = entry.values[n]; });
   closeMenu();
+  const from = state.view;
   state.view = entry.view;
   render();
+  if (entry.view !== from) focusPage();
   return true;
 }
 function navBack() { return navMove(-1); }
@@ -584,8 +602,32 @@ function go(view) {
   if (POP_OUT && view === "fabric") { popOutOpenInFabric(fabricPage.page); return; }
   closeMenu();
   navPush(view);
+  const from = state.view;
   state.view = view;
   render();
+  if (view !== from) focusPage();
+}
+
+// After a page change a screen reader hears the new page (EA-030): focus goes to the page's heading,
+// which it reads, unless the page already put focus somewhere of its own (a notebook's cell) or a
+// dialog or the command bar is open. A page whose heading isn't drawn yet takes focus itself and its
+// rail name is announced. The rail is redrawn on every page change, so without this focus was lost.
+// Pages redraw when their data arrives; setView keeps focus on the new heading while it was on the old.
+function focusPage() {
+  const view = document.getElementById("view");
+  if (!view?.querySelector || view.contains(document.activeElement)) return;
+  if (document.getElementById("dialog-root")?.childElementCount || document.getElementById("palette")) return;
+  if (focusHeading(view)) return;
+  view.focus({ preventScroll: true });
+  const name = document.querySelector("#rail .rail-item[aria-current=page]")?.textContent.trim();
+  if (name) announce(name);
+}
+function focusHeading(view) {
+  const heading = view.querySelector("h1");
+  if (!heading) return false;
+  heading.tabIndex = -1;
+  heading.focus({ preventScroll: true });
+  return true;
 }
 
 function renderChrome() {
@@ -602,14 +644,15 @@ function renderChrome() {
   account.title = state.user ? `Signed in as ${state.user}` : "Sign in";
   account.setAttribute("aria-label", account.title);
 
-  document.getElementById("rail-main").replaceChildren(...railFeatures().map(railItem));
+  const railMain = railFeatures();  // skins.js adds the "KratosForge" label in a platform skin
+  document.getElementById("rail-main").replaceChildren(...(typeof skinRailChildren === "function" ? skinRailChildren(railMain, railItem) : railMain.map(railItem)));
   document.getElementById("rail-bottom").replaceChildren(...railFeatures(true).map(railItem));
   syncSearchBox();
   // Items opened recently, each with a close button.
   const open = [];
   const recent = (view, iconName, label, onOpen, onClose) => h("div", { class: "rail-open-item" },
     h("button", { class: `rail-item${state.view === view ? " active" : ""}`, "aria-current": state.view === view ? "page" : null,
-      onclick: onOpen }, icon(iconName, 22), label),
+      title: label, onclick: onOpen }, icon(iconName, 22), h("span", { class: "rail-label" }, label)),
     h("button", { class: "rail-close", title: `Close ${label}`, "aria-label": `Close ${label}`,
       onclick: async (e) => {
         e.stopPropagation();
@@ -684,8 +727,11 @@ function render() {
 function setView(...children) {
   document.body.classList.remove("fabric-full");  // only the Fabric portal tab fills the window
   const view = document.getElementById("view");
+  const at = document.activeElement;
+  const onPage = at === view || (at?.tagName === "H1" && view.contains(at));  // where focusPage put it
   view.replaceChildren(...children);
   viewTransition(view);  // motion.js: only when the page itself changed
+  if (onPage && (!document.activeElement || document.activeElement === document.body)) focusHeading(view) || view.focus({ preventScroll: true });
 }
 
 // The shared look for a part of a page that is still being read (UX-020): a small spinner and the
@@ -789,8 +835,12 @@ async function renderHome() {
   const stamp = h("span", { class: "muted-text small" }, "Updated just now");
   // Continue opens the notebook changed last; it appears once the list is read and there is one.
   const resume = h("span", { class: "home-continue" });
-  const start = h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"), resume,
-    btn("New notebook", "notebook", newNotebook, "tool outline"),
+  // Living Experience (home-hero.js, Preview): the welcome and the primary actions (Continue, New
+  // notebook) sit in the hero's text-safe left side; Start something keeps the rest.
+  // Only while Home has header art: with no Home pool (RPG art is for progression pages), Home is the flat page.
+  const living = typeof homeHero === "function" && homeLivingOn() && !!heroArtPick("home");
+  const newNb = btn("New notebook", "notebook", newNotebook, living ? "tool hero-outline" : "tool outline");
+  const start = h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"), living ? null : resume, living ? null : newNb,
     btn("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"),
     btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
     btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline"));
@@ -798,9 +848,13 @@ async function renderHome() {
     btn("All notebooks", "notebook", () => go("notebooks"), "tool link small")));
   const ready = readinessCard();
   const started = gettingStarted();
-  const page = h("div", { class: "page home" },
+  // The hero band and the progression panel beside the page.
+  const welcome = name ? `Welcome back, ${name}` : "Welcome to KratosForge";
+  const hero = living ? homeHero({ welcome, actions: [resume, newNb] }) : null;
+  const main = h("div", { class: "home-main" },
     h("div", { class: "row home-head" },
-      h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to KratosForge"),
+      hero ? h("span", { class: "grow" }) : h("h1", { class: "grow" }, welcome),
+      living ? homeShowPanelLink() : null,
       stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small"), learnMore("home")),
     summary,
     // What people come to Home for first (AF-2, docs/ux/action-first.md): pick up the last notebook or
@@ -820,6 +874,10 @@ async function renderHome() {
     meshMapCard(),
     envSection,
     xray);
+  // Without the hero, Home is the same flat page it always was.
+  const panel = hero ? homeProgressPanel() : null;
+  if (!hero) main.className = "page home";
+  const page = hero ? h("div", { class: "page home living" }, hero, h("div", { class: "home-body with-aside" }, main, panel.el)) : main;
   Object.assign(homeCache, { page, key: homeKey(), at: Date.now(), stamp, done: false });
   setView(page);
   const onHome = () => state.view === "home" && homeCache.page === page;
@@ -841,10 +899,18 @@ async function renderHome() {
     const shown = (notebooks || []).filter((n) => matches(n.name)).slice(0, 8);
     // Each notebook's workspace, lakehouse, Runs on and last run, and Run several (home-notebooks.js).
     const recentList = shown.length ? homeRecentList(shown) : null;
-    list.replaceWith(recentList ? recentList.el : h("p", { class: "muted-text" },
-      notebooks === null ? "Couldn't list notebooks." : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
+    // With Preview off, Home keeps its one plain line (Start something already has New notebook).
+    list.replaceWith(recentList ? recentList.el : notebooks && !notebooks.length && !state.query && previewShown()
+      ? livingEmpty({ spot: "forge", fallbackIcon: "notebook", title: "The forge is cold", plainTitle: "No notebooks yet",
+        text: "Create your first notebook and run it on this PC. Nothing goes to Fabric until you publish.",
+        action: btn("New notebook", "notebook", newNotebook, "tool primary") })
+      : h("p", { class: "muted-text" }, notebooks === null ? "Couldn't list notebooks."
+        : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
     return recentList?.done;
   });
+  // The progression panel asks for Profile (local and quick) right after the notebooks, ahead of the
+  // Fabric calls below: the engine answers one call at a time, so behind them it would sit empty.
+  if (panel) panel.load();
   const projectCall = rpc("meta_project").catch(() => null);
   const cloudCall = rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => null);
   const pcCall = rpc("pc_schedules_for", { kind: "all" }).catch(() => []);
@@ -1086,7 +1152,8 @@ async function renderMonitor() {
       seg("env", "Environment", [["all", "All"], ...Object.entries(ENV_LABEL)]),
       seg("where", "Where it ran", [["any", "Anywhere"], ["local", "This PC"], ["fabric", "Fabric"]]),
       h("label", { class: "check" }, h("input", { type: "checkbox", checked: monitorPage.problemsFirst ? true : null,
-        onchange: (e) => { monitorPage.problemsFirst = e.target.checked; render(); } }), "Problems first")],
+        onchange: (e) => { monitorPage.problemsFirst = e.target.checked; render(); } }), "Problems first"),
+      forgeViewShown() ? forgeViewToggle() : null],
     op ? h("select", { class: "group-select", "aria-label": "Operations view", title: "Which Operations view to show",
       onchange: (e) => show(e.target.value)() }, ops.map((o) => h("option", { value: o.panel, selected: o === op }, o.label))) : null,
     monitorSlots.views, h("span", { class: "spacer" }), monitorSlots.tools,
@@ -1097,15 +1164,19 @@ async function renderMonitor() {
     : hub ? (fabricOut ? null : popOutButton("fabric", "Pop out hub")) : runsOut ? null : popOutButton("runs", "Pop out runs");
   // The runs window holds the KratosForge tab (Runs, Schedules, Operations); the Fabric tab stays here.
   const runsBand = source === "kratosforge" && runsOut && !POP_OUT;
+  // Run progress (forge-activity.js, Preview): today's counts in the header, the panel above the table.
+  const forge = monitorPage.panel === "runs" && !runsBand && forgeViewShown();
+  const forgeStripSlot = forge ? h("div", { class: "forge-strip-slot" }) : null;
+  const forgeBandSlot = forge && forgeViewOn() ? h("div", { class: "forge-slot" }) : null;
   setView(h("div", { class: `page monitor${hubShown ? "" : " no-fabric"}` },
     POP_OUT ? null : h("div", { class: "page-head" },
       h("div", {}, h("h1", {}, "Monitor"), h("p", { class: "sub monitor-context" }, monitorAbout(...about))),
-      h("div", { class: "head-actions" }, popOutHere)),
+      forgeStripSlot, h("div", { class: "head-actions" }, popOutHere)),
     tabs, runsBand ? null : viewRow,
     hub ? (fabricOut ? poppedOutBand("fabric", "Fabric's Monitoring hub", "monitor-fabric")
       : h("section", { class: "card monitor-fabric" }, slot))
       : runsBand ? poppedOutBand("runs", "From KratosForge", "monitor-local")
-        : [note, h("section", { class: "card monitor-local" }, local)]));
+        : [forgeBandSlot, note, h("section", { class: "card monitor-local" }, local)]));
   if (hubShown) dockFabricView(slot, "monitor", "monitor");
   else if (!POP_OUT) invoke("fabric_view_hide").catch(() => {});
   if (hub || runsBand) return;
@@ -1150,7 +1221,7 @@ async function renderMonitor() {
     }, 2500);
   };
   if (fabricPipelines?.pending) waitForScan();
-  const rows = [
+  const all = [
     ...(meta.runs || []).map((r) => ({
       at: r.started_at, status: r.status, activity: r.entity, kind: `Metadata run${r.backfill ? ` · backfill ${r.backfill}` : ""}`,
       env: r.env, where: r.compute || "local", ranOn: ranOn(r), seconds: r.seconds, rows: r.rows_written,
@@ -1177,7 +1248,9 @@ async function renderMonitor() {
       at: r.finished_at, status: "ok", activity: r.job, kind: historyKind(r), env: "", where: "local",
       seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})`, reason: "",
     })),
-  ].filter((r) => (monitorPage.env === "all" || r.env === monitorPage.env)
+  ];
+  if (forge) forgeActivityFill(forgeStripSlot, forgeBandSlot, all);
+  const rows = all.filter((r) => (monitorPage.env === "all" || r.env === monitorPage.env)
       && (monitorPage.where === "any" || r.where === monitorPage.where)
       && matches(`${r.activity} ${r.kind} ${r.note} ${r.reason}`))
     .sort((a, b) => String(b.at).localeCompare(String(a.at)));
@@ -1350,7 +1423,9 @@ async function renderWorkspaces() {
         h("td", {}, h("span", { class: "item" }, itemIcon(it.type),
           whRef && whOpensHere()
             ? h("button", { class: "name-link", title: "Open on the Warehouse page", onclick: stop(() => openWarehouseQuery(whRef)) }, it.displayName)
-            : h("button", { class: "name-link", title: "Open in Fabric", onclick: stop(() => openInFabric(fabricItemLink(r))) }, it.displayName))),
+            : pbiEmbeddable(it.type)
+              ? h("button", { class: "name-link", title: "Open in Embed Studio", onclick: stop(() => openEmbedStudio(target.item)) }, it.displayName)
+              : h("button", { class: "name-link", title: "Open in Fabric", onclick: stop(() => openInFabric(fabricItemLink(r))) }, it.displayName))),
         h("td", { class: "ws-type" }, typeLabel(it.type)),
         PREVIEW_FEATURES.itemPins && previewShown() ? h("td", { class: "tick" }, itemPinButton({ kind: it.type, id: it.id,
           name: it.displayName, workspace_id: ws.id, workspace_name: ws.displayName }, () => draw())) : null,
@@ -1359,6 +1434,7 @@ async function renderWorkspaces() {
           lh ? btn("SQL query", null, stop(() => openSqlQuery(lh)), "tool small link") : null,
           whRef && !whOpensHere() ? preview("warehouse", btn("SQL query", null, stop(() => openWarehouseQuery(whRef)), "tool small link",
             { title: "Query it with T-SQL in Fabric (uses capacity)" })) : null,
+          pbiEmbeddable(it.type) ? btn("Open in Embed Studio", null, stop(() => openEmbedStudio(target.item)), "tool small link") : null,
           btn("Open in Fabric", "open", stop(() => openInFabric(fabricItemLink(r))), "tool small link")));
     };
     // A big workspace draws its first rows at once and the rest as you scroll near the end, so opening
@@ -1438,14 +1514,16 @@ function openInFabric(page) {
   }
 }
 
-// Workspaces has two tabs: your workspaces in the app, and Fabric's own portal.
+// Workspaces has two tabs: your workspaces in the app, and Fabric's own portal; with preview features shown,
+// a third lists Power BI content for Embed Studio (powerbi.js).
 function workspacesTabs(active) {
+  const tabs = [["workspaces", "Your workspaces"], ["fabric", "Fabric portal"]];
+  if (previewShown()) tabs.push(["powerbi", "Power BI"]);
   return h("div", { class: "subtabs", role: "tablist", "aria-label": "Workspaces views" },
     // Databricks (dbx-sync.js) is Preview: folders on this PC synced with a Databricks workspace.
-    [["workspaces", "Your workspaces"], ["fabric", "Fabric portal"], previewShown() ? ["databricks_sync", "Databricks"] : null].filter(Boolean)
-      .map(([view, label]) =>
-        h("button", { class: `tab${active === view ? " active" : ""}`, role: "tab", "aria-selected": active === view ? "true" : "false",
-          onclick: () => go(view) }, label, view === "databricks_sync" ? previewTag() : null)));
+    (previewShown() ? [...tabs, ["databricks_sync", "Databricks"]] : tabs).map(([view, label]) =>
+      h("button", { class: `tab${active === view ? " active" : ""}`, role: "tab", "aria-selected": active === view ? "true" : "false",
+        onclick: () => go(view) }, label, view === "databricks_sync" || view === "powerbi" ? previewTag() : null)));
 }
 
 // Opening a warehouse or SQL analytics endpoint by its name: the Warehouse page unless Settings says
@@ -1643,15 +1721,18 @@ document.addEventListener("mousedown", (e) => {
 const TYPE_GROUP_LABEL = { ...Object.fromEntries(TYPE_GROUPS.map(([id, label]) => [id, label])), other: "Other types" };
 
 // The OneLake page's tabs: the catalog here; Shortcuts and Access are in estate.js.
-function onelakeTabs() {
+// hasHeading: the tab draws its own level 1 heading (Access), so the hidden page name is left out.
+function onelakeTabs(hasHeading = false) {
   const tab = (id, label) => h("button", { class: `tab${catalogPage.tab === id ? " active" : ""}`, role: "tab",
     "aria-selected": String(catalogPage.tab === id), onclick: () => { catalogPage.tab = id; render(); } }, label);
   // The tablist holds only this page's tabs (#961). Data products moved to Data mesh > Products: it
   // looks like a tab but opens that page, so it sits after the list, where arrows don't reach it.
+  // The page's name for screen readers (EA-030): each tab draws its own h2, and the rail already shows "OneLake".
   return h("div", { class: "subtabs onelake-tabs" }, h("div", { class: "tab-group", role: "tablist", "aria-label": "OneLake" },
     tab("catalog", "Catalog"), preview("shortcuts", tab("shortcuts", "Shortcuts")), preview("access", tab("access", "Access"))),
     preview("mesh", h("button", { class: "tab tab-jump", title: "Opens Data mesh > Products", onclick: () => openProducts() }, "Data products")),
-    h("span", { class: "spacer" }), learnMore("onelake"));
+    h("span", { class: "spacer" }), learnMore("onelake"),
+    hasHeading ? null : h("h1", { class: "sr-only" }, "OneLake"));
 }
 
 async function renderOneLake() {
@@ -1870,7 +1951,9 @@ async function renderOneLake() {
           r.type === "Warehouse" && whOpensHere()
             ? h("button", { class: "name-link", title: "Open on the Warehouse page",
               onclick: () => openWarehouseQuery({ kind: "warehouse", workspace_id: r.workspace_id, workspace_name: r.workspace_name, item_id: r.item_id, name: r.name }) }, r.name)
-            : h("button", { class: "name-link", title: "Open in Fabric", onclick: () => openInFabric(fabricItemLink(r)) }, r.name))),
+            : pbiEmbeddable(r.type)
+              ? h("button", { class: "name-link", title: "Open in Embed Studio", onclick: () => openEmbedStudio(r) }, r.name)
+              : h("button", { class: "name-link", title: "Open in Fabric", onclick: () => openInFabric(fabricItemLink(r)) }, r.name))),
         h("td", {}, typeLabel(r.type)),
         h("td", {}, h("button", { class: "name-link", title: "Open the workspace in Fabric",
           onclick: () => openInFabric(fabricItemLink({ workspace_id: r.workspace_id })) }, r.workspace_name),
@@ -1878,6 +1961,7 @@ async function renderOneLake() {
         h("td", {}, e ? h("span", { class: `pill-s ${e === "Certified" ? "pass" : "info"}` }, e) : ""),
         h("td", {}, (isLh && cp.layers[r.name]) || ""),
         h("td", { class: "actions" },
+          pbiEmbeddable(r.type) ? btn("Open in Embed Studio", null, () => openEmbedStudio(r), "tool small link") : null,
           btn("Show in Fabric", null, () => openInFabric(fabricItemLink(r)), "tool small link"),
           isLh ? btn("SQL query", null, () => openSqlQuery(r), "tool small link") : null,
           isLh ? btn("Open in notebook", null, () => newNotebook(r), "tool small link") : null)));
@@ -2853,7 +2937,7 @@ registerFeature({
   ],
 });
 registerFeature({
-  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric", "databricks_sync"] },
+  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric", "databricks_sync", "powerbi", "embedstudio"] },
   views: { workspaces: renderWorkspaces, workspace: renderWorkspace, lakehouse: renderLakehouse, query: renderQuery,
     databricks_sync: () => renderDatabricksSync() },
 });
@@ -2908,6 +2992,16 @@ document.addEventListener("keydown", (e) => {
   }
 });
 document.addEventListener("keydown", navKey);
+// F5 never reloads the window (that loses open work); on the SQL query page it runs the query, as in
+// SSMS, wherever focus is. The editor and the lesson boxes handle it themselves first (defaultPrevented).
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "F5") return;
+  const handled = e.defaultPrevented;
+  e.preventDefault();
+  if (handled || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  if (state.view === "query" && !document.getElementById("dialog-root")?.childElementCount
+      && !document.getElementById("palette")) sqlPage.runQuery?.();
+});
 document.getElementById("nav-back").addEventListener("click", navBack);
 document.getElementById("nav-forward").addEventListener("click", navForward);
 // Listed in the Keyboard shortcuts dialog while a notebook is open (handled just below).
@@ -3025,9 +3119,15 @@ async function checkComponents(afterInstall = false) {
   else {
     // A newer build is installed straight away, so nobody keeps running an old one.
     set("app", "busy", `Updating to build ${short(latest.commit)}…`);
+    let target = short(latest.commit);
     const unlisten = await listen((line) => {
+      const moved = REPLACED_BUILD.exec(line);
+      if (moved) {
+        target = moved[2];
+        set("app", "busy", `Installing build ${moved[2]}, which replaced ${moved[1]}…`);
+      }
       const m = /^progress (\d+)/.exec(line);
-      if (m) set("app", "busy", `Downloading build ${short(latest.commit)}… ${m[1]}%`);
+      if (m) set("app", "busy", `Downloading build ${target}… ${m[1]}%`);
     });
     try {
       await invoke("update_app", { commit: latest.commit });
@@ -3133,6 +3233,8 @@ function startMain() {
     render();
     attempt(async () => {
       const env = await rpc("environment");
+      // The engine answered, so this build works: after an update, the previous one can go (EA-024).
+      invoke("confirm_started").catch(() => {});
       state.python = env.python;
       state.user = env.user;
       state.tenant = env.tenant;

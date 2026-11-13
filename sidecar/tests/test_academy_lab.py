@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import sys
 
+import duckdb
 import pytest
 
 from fabric_desktop import audit, progress, server
@@ -90,7 +91,7 @@ def test_a_run_is_rolled_back_and_has_no_file_access(svc, tmp_path):
     (tmp_path / "secret.csv").write_text("a\n1\n", encoding="utf-8")
     for sql in (f"SELECT * FROM read_csv('{(tmp_path / 'secret.csv').as_posix()}')",
                 "SET enable_external_access = true", "BEGIN; DELETE FROM silver_orders; COMMIT;"):
-        with pytest.raises(Exception):
+        with pytest.raises((duckdb.Error, ValueError)):
             svc.academy_run(PACK, "E37", sql)
     out = svc.academy_run(PACK, "E37", "SELECT * FROM range(5000)")
     assert len(out["rows"]) == 200 and out["more"]
@@ -148,9 +149,37 @@ def test_reset_puts_the_starter_back_and_touches_nothing_else(svc, tmp_path):
     svc.academy_hint(PACK, "E37", 1)
     (tmp_path / "academy" / "keep.txt").write_text("x", encoding="utf-8")
     st = svc.academy_reset(PACK, "E37")
-    assert st["answer"] == exercises.reference(PACK, "E37")["starter"] and st["hints_used"] == 0
+    # The hint already seen stays used: Reset starts the answer again, not the help.
+    assert st["answer"] == exercises.reference(PACK, "E37")["starter"] and st["hints_used"] == 1
     assert (tmp_path / "academy" / "keep.txt").exists()
     assert svc.academy_exercise(PACK, "E36")["workspace"]["started"]
+
+
+def test_reset_keeps_the_explanation_seen_so_a_reset_pass_isnt_independent(svc):
+    svc.academy_start(PACK, "E36")
+    svc.academy_explanation(PACK, "E36")
+    st = svc.academy_reset(PACK, "E36")
+    assert st["explanation_seen"]
+    out = svc.academy_validate(PACK, "E36", _solution("E36"))
+    assert out["passed"] and out["explanation_seen"] and svc.rows[-1]["detail"]["explanation_seen"] is True
+
+
+def test_a_new_exercise_version_starts_the_help_again(svc, tmp_path):
+    svc.academy_start(PACK, "E37")
+    svc.academy_hint(PACK, "E37", 1)
+    svc.academy_explanation(PACK, "E37")
+    st = lab._state(_folder(tmp_path))
+    st["version"] = "an older version"
+    lab._write_state(_folder(tmp_path), st)
+    st = svc.academy_reset(PACK, "E37")
+    assert st["hints_used"] == 0 and not st["explanation_seen"]
+
+
+def test_an_unreadable_state_still_resets(svc, tmp_path):
+    svc.academy_start(PACK, "E37")
+    (_folder(tmp_path) / "state.json").write_text("{not json", encoding="utf-8")
+    st = svc.academy_reset(PACK, "E37")
+    assert st["answer"] == exercises.reference(PACK, "E37")["starter"] and st["hints_used"] == 0
 
 
 def test_readiness_reads_the_profile(svc):
@@ -277,10 +306,24 @@ def test_an_oversized_answer_to_check_is_refused(svc):
         svc.academy_validate(PACK, "E37", "x" * (lab.MAX_ANSWER_BYTES + 1))
 
 
+@pytest.mark.parametrize("eid", ("E37", "E53"))   # a SQL exercise and a settings exercise
+def test_an_oversized_answer_to_run_is_refused_before_it_runs(svc, eid):
+    svc.academy_start(PACK, eid)
+    with pytest.raises(ValueError, match="over 1 MB, so it wasn't run"):
+        svc.academy_run(PACK, eid, "x" * (lab.MAX_ANSWER_BYTES + 1))
+
+
+def test_an_answer_of_exactly_1_mb_still_runs(svc):
+    svc.academy_start(PACK, "E37")
+    sql = "SELECT 1 AS n -- "
+    sql += "x" * (lab.MAX_ANSWER_BYTES - len(sql))
+    assert svc.academy_run(PACK, "E37", sql)["rows"] == [[1]]
+
+
 def test_sandbox_status_counts_the_runtime_grants_on_record(svc, tmp_path):
     from fabric_desktop import jsonfile
     got = svc.academy_sandbox_status()
-    assert got["granted"] == 0 and got["enabled"] is False and "available" in got and "why_not" in got
+    assert got["granted"] == 0 and got["enabled"] is True and "available" in got and "why_not" in got
     real = tmp_path / "py"
     real.mkdir()
     record = tmp_path / "academy" / "appcontainer-grants.json"

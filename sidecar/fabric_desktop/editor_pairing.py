@@ -15,10 +15,12 @@ program can't pile requests up. Settings > Integrations lists the paired windows
 
 from __future__ import annotations
 
+import builtins
 import hashlib
 import secrets
 import threading
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any, Callable
 
@@ -58,14 +60,18 @@ class Pairings:
     # ---- requests from VS Code
 
     def request(self, window: Any, client: Any) -> dict[str, Any]:
-        """A window asks to pair. Returns the request's id and the code both sides show."""
+        """A window asks to pair. Returns the request's id and the code both sides show. ``window`` is the
+        folder it pairs from, checked by the caller (editor_service.py) and kept whole: it bounds what
+        the window can reach, so it is never cut or altered to show it."""
+        if not isinstance(window, str) or not window or any(unicodedata.category(c) == "Cc" for c in window):
+            raise PermissionError("Pair from a folder whose path has no control characters.")
         with self._lock:
             self._drop_old()
             waiting = [r for r in self._requests.values() if r["state"] == "waiting"]
             if len(waiting) >= MAX_WAITING:
                 raise PermissionError("Too many VS Code windows are waiting to pair. Answer them in KratosForge first.")
             rid = "pq_" + secrets.token_hex(8)
-            self._requests[rid] = {"id": rid, "code": new_code(), "window": _text(window, 300) or "(no folder)",
+            self._requests[rid] = {"id": rid, "code": new_code(), "window": window,
                                    "client": _text(client, 80) or "An unnamed VS Code extension",
                                    "at": self.clock(), "state": "waiting", "token": None, "keep": None}
             return {"id": rid, "code": self._requests[rid]["code"], "expires_in": REQUEST_SECONDS}
@@ -105,10 +111,11 @@ class Pairings:
                 return {"paired": False}
             token = TOKEN_PREFIX + secrets.token_urlsafe(32)
             now = self.clock()
+            ttl = KEEP[keep]
             record = {"id": "pw_" + secrets.token_hex(8), "hash": _hash(token), "window": req["window"],
                       "client": req["client"], "created": now, "keep": keep,
-                      "expires": None if KEEP[keep] is None else now + KEEP[keep]}
-            if KEEP[keep] is None:
+                      "expires": None if ttl is None else now + ttl}
+            if ttl is None:
                 self._session[record["hash"]] = record
             else:
                 saved = [r for r in self._saved() if not self._expired(r)]
@@ -161,7 +168,7 @@ class Pairings:
 
     # ----
 
-    def _saved(self) -> list[dict[str, Any]]:
+    def _saved(self) -> builtins.list[dict[str, Any]]:
         rows = read_json(self.path, [])
         return [r for r in rows if isinstance(r, dict) and isinstance(r.get("hash"), str)] if isinstance(rows, list) else []
 

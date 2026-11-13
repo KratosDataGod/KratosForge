@@ -19,11 +19,11 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 354 |
+| Runs | 402 |
 | Differs | 0 |
-| Refused | 31 |
-| Fails | 3 |
-| Not checked | 50 |
+| Refused | 21 |
+| Fails | 0 |
+| Not checked | 15 |
 | **All** | **438** |
 
 ## Aggregate
@@ -40,7 +40,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `bit_or` | Runs | `SELECT bit_or(col) FROM VALUES (3), (5) AS tab(col)` |  |
 | `bit_xor` | Runs | `SELECT bit_xor(col) FROM VALUES (3), (5) AS tab(col)` |  |
 | `bitmap_construct_agg` | Runs | `SELECT substring(hex(bitmap_construct_agg(bitmap_bit_position(col))), 0, 6) FROM VALUES (1), (2), (3) AS tab(col)` |  |
-| `bitmap_or_agg` | Fails | `SELECT substring(hex(bitmap_or_agg(col)), 0, 6) FROM VALUES (X '10'), (X '20'), (X '40') AS tab(col)` | Could not read the query: Expecting ). Line 1, Col: 67. |
+| `bitmap_or_agg` | Runs | `SELECT substring(hex(bitmap_or_agg(col)), 0, 6) FROM VALUES (X '10'), (X '20'), (X '40') AS tab(col)` |  |
 | `bool_and` | Runs | `SELECT bool_and(col) FROM VALUES (true), (true), (true) AS tab(col)` |  |
 | `bool_or` | Runs | `SELECT bool_or(col) FROM VALUES (true), (false), (false) AS tab(col)` |  |
 | `collect_list` | Runs | `SELECT collect_list(col) FROM VALUES (1), (2), (1) AS tab(col)` |  |
@@ -118,7 +118,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `flatten` | Runs | `SELECT flatten(array(array(1, 2), array(3, 4)))` |  |
 | `get` | Runs | `SELECT get(array(1, 2, 3), 0)` |  |
 | `sequence` | Runs | `SELECT sequence(1, 5)` |  |
-| `shuffle` | Not checked | `SELECT shuffle(array(1, 20, 3, 5))` |  |
+| `shuffle` | Runs | `SELECT array_sort(shuffle(array(1, 20, 3, 5))), size(shuffle(array(1, 20, NULL, 5))), shuffle(NULL)` |  |
 | `slice` | Runs | `SELECT slice(array(1, 2, 3, 4), 2, 2)` |  |
 | `sort_array` | Runs | `SELECT sort_array(array('b', 'd', null, 'c', 'a'), true)` |  |
 
@@ -163,19 +163,19 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `bigint` | Not checked |  |  |
-| `binary` | Not checked |  |  |
-| `boolean` | Not checked |  |  |
+| `bigint` | Runs | `SELECT bigint('12'), bigint(3.9), bigint(-3.9)` |  |
+| `binary` | Runs | `SELECT binary('Spark')` |  |
+| `boolean` | Runs | `SELECT boolean('true'), boolean(0), boolean('no')` |  |
 | `cast` | Runs | `SELECT cast('10' as int)` |  |
-| `date` | Not checked |  |  |
-| `decimal` | Not checked |  |  |
-| `double` | Not checked |  |  |
-| `float` | Not checked |  |  |
-| `int` | Not checked |  |  |
-| `smallint` | Not checked |  |  |
-| `string` | Not checked |  |  |
-| `timestamp` | Not checked |  |  |
-| `tinyint` | Not checked |  |  |
+| `date` | Runs | `SELECT date('2026-01-31'), date(TIMESTAMP '2026-01-31 23:59:59')` |  |
+| `decimal` | Runs | `SELECT decimal('12.345'), decimal(7)` |  |
+| `double` | Runs | `SELECT double('1.5'), double(2)` |  |
+| `float` | Runs | `SELECT float('1.5'), float(2)` |  |
+| `int` | Runs | `SELECT int('12'), int(3.9), int(-3.9)` |  |
+| `smallint` | Runs | `SELECT smallint('12'), smallint(3.9)` |  |
+| `string` | Runs | `SELECT string(12), string(1.50), string(true), string(DATE '2026-01-31')` |  |
+| `timestamp` | Runs | `SELECT timestamp('2026-01-31 10:30:00'), timestamp(DATE '2026-01-31')` |  |
+| `tinyint` | Runs | `SELECT tinyint('12'), tinyint(3.9)` |  |
 
 ## CSV
 
@@ -191,10 +191,10 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | --- | --- | --- | --- |
 | `add_months` | Runs | `SELECT add_months('2016-08-31', 1)` |  |
 | `convert_timezone` | Runs | `SELECT convert_timezone('Europe/Brussels', 'America/Los_Angeles', timestamp_ntz'2021-12-06 00:00:00')` |  |
-| `curdate` | Not checked | `SELECT curdate()` |  |
-| `current_date` | Not checked | `SELECT current_date()` |  |
-| `current_timestamp` | Not checked | `SELECT current_timestamp()` |  |
-| `current_timezone` | Not checked | `SELECT current_timezone()` |  |
+| `curdate` | Runs | `SELECT curdate() = current_date(), typeof(curdate())` |  |
+| `current_date` | Runs | `SELECT current_date() = to_date(current_timestamp()), typeof(current_date())` |  |
+| `current_timestamp` | Runs | `SELECT current_timestamp() = now(), typeof(current_timestamp())` |  |
+| `current_timezone` | Runs | `SELECT current_timezone()` |  |
 | `date_add` | Runs | `SELECT date_add('2016-07-30', 1)` |  |
 | `date_diff` | Runs | `SELECT date_diff('2009-07-31', '2009-07-30')` |  |
 | `date_format` | Runs | `SELECT date_format('2016-04-08', 'y')` |  |
@@ -209,15 +209,15 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `dayofmonth` | Runs | `SELECT dayofmonth('2009-07-30')` |  |
 | `dayofweek` | Runs | `SELECT dayofweek('2009-07-30')` |  |
 | `dayofyear` | Runs | `SELECT dayofyear('2016-04-09')` |  |
-| `extract` | Refused | `SELECT extract(YEAR FROM TIMESTAMP '2019-08-12 01:00:00.123456')` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: EXTRACT from TIMESTAMPTZ / TIMESTAMPLTZ may produce different results due to  |
+| `extract` | Runs | `SELECT extract(YEAR FROM TIMESTAMP '2019-08-12 01:00:00.123456')` |  |
 | `from_unixtime` | Runs | `SELECT from_unixtime(0, 'yyyy-MM-dd HH:mm:ss')` |  |
 | `from_utc_timestamp` | Runs | `SELECT from_utc_timestamp('2016-08-31', 'Asia/Seoul')` |  |
 | `hour` | Runs | `SELECT hour('2009-07-30 12:58:59')` |  |
 | `last_day` | Runs | `SELECT last_day('2009-01-12')` |  |
-| `localtimestamp` | Not checked | `SELECT localtimestamp()` |  |
+| `localtimestamp` | Runs | `SELECT typeof(localtimestamp())` |  |
 | `make_date` | Runs | `SELECT make_date(2013, 7, 15)` |  |
 | `make_dt_interval` | Runs | `SELECT make_dt_interval(1, 12, 30, 01.001001)` |  |
-| `make_interval` | Not checked | `SELECT make_interval(100, 11, 1, 1, 12, 30, 01.001001)` |  |
+| `make_interval` | Runs | `SELECT TIMESTAMP '2026-01-31 00:00:00' + make_interval(1, 2, 0, 3, 4, 5, 6.5)` |  |
 | `make_timestamp` | Runs | `SELECT make_timestamp(2014, 12, 28, 6, 30, 45.887)` |  |
 | `make_timestamp_ltz` | Runs | `SELECT make_timestamp_ltz(2014, 12, 28, 6, 30, 45.887)` |  |
 | `make_timestamp_ntz` | Runs | `SELECT make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)` |  |
@@ -226,10 +226,10 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `month` | Runs | `SELECT month('2016-07-30')` |  |
 | `months_between` | Runs | `SELECT months_between('1997-02-28 10:30:00', '1996-10-30')` |  |
 | `next_day` | Runs | `SELECT next_day('2015-01-14', 'TU')` |  |
-| `now` | Not checked | `SELECT now()` |  |
+| `now` | Runs | `SELECT now() = current_timestamp(), typeof(now())` |  |
 | `quarter` | Runs | `SELECT quarter('2016-08-31')` |  |
 | `second` | Runs | `SELECT second('2009-07-30 12:58:59')` |  |
-| `session_window` | Refused | `SELECT a, session_window.start, session_window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:10:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, session_window(b, '5 minutes') ORDER BY a, start` | session_window() can't run on this PC the way it runs in Fabric, so nothing ran: time windows (window, session_window) run in Fabric only. Run the cell in Fabri |
+| `session_window` | Refused | `SELECT a, session_window.start, session_window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:10:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, session_window(b, '5 minutes') ORDER BY a, start` | session_window() can't run on this PC the way it runs in Fabric, so nothing ran: session windows run in Fabric only. Run the cell in Fabric. |
 | `timestamp_micros` | Runs | `SELECT timestamp_micros(1230219000123123)` |  |
 | `timestamp_millis` | Runs | `SELECT timestamp_millis(1230219000123)` |  |
 | `timestamp_seconds` | Runs | `SELECT timestamp_seconds(1230219000)` |  |
@@ -237,7 +237,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `to_timestamp` | Runs | `SELECT to_timestamp('2016-12-31 00:12:00')` |  |
 | `to_timestamp_ltz` | Runs | `SELECT to_timestamp_ltz('2016-12-31 00:12:00')` |  |
 | `to_timestamp_ntz` | Runs | `SELECT to_timestamp_ntz('2016-12-31 00:12:00')` |  |
-| `to_unix_timestamp` | Refused | `SELECT to_unix_timestamp('2016-04-08', 'yyyy-MM-dd')` | unix_timestamp can't read part of its format (yyyy-MM-dd) on this PC. Use pattern letters such as yyyy, MM, dd, HH, mm, ss and SSS. |
+| `to_unix_timestamp` | Runs | `SELECT to_unix_timestamp('2016-04-08', 'yyyy-MM-dd')` |  |
 | `to_utc_timestamp` | Runs | `SELECT to_utc_timestamp('2016-08-31', 'Asia/Seoul')` |  |
 | `trunc` | Runs | `SELECT trunc('2019-08-04', 'week')` |  |
 | `try_to_timestamp` | Runs | `SELECT try_to_timestamp('2016-12-31 00:12:00')` |  |
@@ -245,11 +245,11 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `unix_micros` | Runs | `SELECT unix_micros(TIMESTAMP('1970-01-01 00:00:01Z'))` |  |
 | `unix_millis` | Runs | `SELECT unix_millis(TIMESTAMP('1970-01-01 00:00:01Z'))` |  |
 | `unix_seconds` | Runs | `SELECT unix_seconds(TIMESTAMP('1970-01-01 00:00:01Z'))` |  |
-| `unix_timestamp` | Not checked | `SELECT unix_timestamp()` |  |
+| `unix_timestamp` | Runs | `SELECT unix_timestamp('2016-04-08', 'yyyy-MM-dd'), unix_timestamp(TIMESTAMP '2016-04-08 10:00:00')` |  |
 | `weekday` | Runs | `SELECT weekday('2009-07-30')` |  |
 | `weekofyear` | Runs | `SELECT weekofyear('2008-02-20')` |  |
-| `window` | Fails | `SELECT a, window.start, window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, start` | Parser Error: syntax error at or near "(" |
-| `window_time` | Refused | `SELECT a, window.start as start, window.end as end, window_time(window), cnt FROM (SELECT a, window, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, window.start)` | window_time() can't run on this PC the way it runs in Fabric, so nothing ran: time windows (window, session_window) run in Fabric only. Run the cell in Fabric. |
+| `window` | Runs | `SELECT a, window.start, window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, start` |  |
+| `window_time` | Runs | `SELECT a, window.start as start, window.end as end, window_time(window), cnt FROM (SELECT a, window, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, window.start)` |  |
 | `year` | Runs | `SELECT year('2016-07-30')` |  |
 
 ## Generator
@@ -269,12 +269,12 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
 | `crc32` | Runs | `SELECT crc32('Spark')` |  |
-| `hash` | Refused | `SELECT hash('Spark', array(123), 2)` | hash() can't run on this PC the way it runs in Fabric, so nothing ran: Spark's hash gives a different number from the hash this PC has. Run it in Fabric, or use |
+| `hash` | Runs | `SELECT hash('Spark', array(123), 2)` |  |
 | `md5` | Runs | `SELECT md5('Spark')` |  |
 | `sha` | Runs | `SELECT sha('Spark')` |  |
 | `sha1` | Runs | `SELECT sha1('Spark')` |  |
 | `sha2` | Runs | `SELECT sha2('Spark', 256)` |  |
-| `xxhash64` | Refused | `SELECT xxhash64('Spark', array(123), 2)` | xxhash64() can't run on this PC the way it runs in Fabric, so nothing ran: Spark's xxhash64 gives a different number from the hash this PC has. Run it in Fabric |
+| `xxhash64` | Runs | `SELECT xxhash64('Spark', array(123), 2)` |  |
 
 ## JSON
 
@@ -372,9 +372,9 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `pow` | Runs | `SELECT pow(2, 3)` |  |
 | `power` | Runs | `SELECT power(2, 3)` |  |
 | `radians` | Runs | `SELECT radians(180)` |  |
-| `rand` | Not checked | `SELECT rand()` |  |
-| `randn` | Not checked | `SELECT randn()` |  |
-| `random` | Not checked | `SELECT random()` |  |
+| `rand` | Runs | `SELECT rand() >= 0 AND rand() < 1, typeof(rand())` |  |
+| `randn` | Runs | `SELECT typeof(randn()), randn() IS NOT NULL` |  |
+| `random` | Runs | `SELECT random() >= 0 AND random() < 1, typeof(random())` |  |
 | `rint` | Runs | `SELECT rint(12.3456)` |  |
 | `round` | Runs | `SELECT round(2.5, 0)` |  |
 | `sec` | Runs | `SELECT sec(0)` |  |
@@ -402,8 +402,8 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `assert_true` | Runs | `SELECT assert_true(0 < 1)` |  |
 | `bitmap_bit_position` | Runs | `SELECT bitmap_bit_position(1)` |  |
 | `bitmap_bucket_number` | Runs | `SELECT bitmap_bucket_number(123)` |  |
-| `bitmap_count` | Fails | `SELECT bitmap_count(X '1010')` | Could not read the query: Expecting ). Line 1, Col: 28. |
-| `current_catalog` | Not checked | `SELECT current_catalog()` |  |
+| `bitmap_count` | Runs | `SELECT bitmap_count(X '1010')` |  |
+| `current_catalog` | Runs | `SELECT current_catalog()` |  |
 | `current_database` | Not checked | `SELECT current_database()` |  |
 | `current_schema` | Not checked | `SELECT current_schema()` |  |
 | `current_user` | Not checked | `SELECT current_user()` |  |
@@ -421,20 +421,20 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `try_aes_decrypt` | Refused | `SELECT try_aes_decrypt(unhex('6E7CA17BBB468D3084B5744BCA729FB7B2B7BCB8E4472847D02670489D95FA97DBBA7D3210'), '0000111122223333', 'GCM')` | try_aes_decrypt() can't run on this PC the way it runs in Fabric, so nothing ran: AES isn't available in the engine on this PC. Run the cell in Fabric. |
 | `typeof` | Runs | `SELECT typeof(1)` |  |
 | `user` | Not checked | `SELECT user()` |  |
-| `uuid` | Not checked | `SELECT uuid()` |  |
+| `uuid` | Runs | `SELECT length(uuid()), uuid() RLIKE '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', uuid() = uuid()` |  |
 | `version` | Not checked | `SELECT version()` |  |
 
 ## Operators and other
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `!=` | Not checked |  |  |
-| `<>` | Not checked |  |  |
-| `between` | Not checked |  |  |
-| `case` | Not checked |  |  |
-| `range` | Not checked |  |  |
+| `!=` | Runs | `SELECT 1 != 2, 'a' != 'a', NULL != 1` |  |
+| `<>` | Runs | `SELECT 1 <> 2, 'a' <> 'a', NULL <> 1` |  |
+| `between` | Runs | `SELECT 2 BETWEEN 1 AND 3, 4 BETWEEN 1 AND 3, 'b' BETWEEN 'a' AND 'c'` |  |
+| `case` | Runs | `SELECT CASE WHEN 1 > 0 THEN 'a' ELSE 'b' END, CASE 2 WHEN 1 THEN 'x' END` |  |
+| `range` | Runs | `SELECT * FROM range(1, 7, 2)` |  |
 | `sql_keywords` | Not checked |  |  |
-| `\|\|` | Not checked |  |  |
+| `\|\|` | Runs | `SELECT 'Spark' \|\| 'SQL', 'a' \|\| NULL` |  |
 
 ## Predicate
 
@@ -457,9 +457,9 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `like` | Runs | `SELECT like('Spark', '_park')` |  |
 | `not` | Runs | `SELECT not true` |  |
 | `or` | Runs | `SELECT true or false` |  |
-| `regexp` | Not checked | `SELECT regexp('%SystemDrive%\Users\John', '%SystemDrive%\\Users.*')` |  |
-| `regexp_like` | Not checked | `SELECT regexp_like('%SystemDrive%\Users\John', '%SystemDrive%\\Users.*')` |  |
-| `rlike` | Not checked | `SELECT rlike('%SystemDrive%\Users\John', '%SystemDrive%\\Users.*')` |  |
+| `regexp` | Runs | `SELECT regexp('Steven', 'Ste(v\|ph)en'), regexp('Stefan', 'Ste(v\|ph)en')` |  |
+| `regexp_like` | Runs | `SELECT regexp_like('Steven', 'Ste(v\|ph)en'), regexp_like('Stefan', 'Ste(v\|ph)en')` |  |
+| `rlike` | Runs | `SELECT rlike('Steven', 'Ste(v\|ph)en'), rlike('Stefan', 'Ste(v\|ph)en')` |  |
 
 ## String
 
@@ -520,13 +520,13 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `substring` | Runs | `SELECT substring('Spark SQL', 5)` |  |
 | `substring_index` | Runs | `SELECT substring_index('www.apache.org', '.', 2)` |  |
 | `to_binary` | Runs | `SELECT to_binary('abc', 'utf-8')` |  |
-| `to_char` | Refused | `SELECT to_char(454, '999')` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: Argument 'format' is not supported for expression 'ToChar' when targeting KfD |
-| `to_number` | Refused | `SELECT to_number('454', '999')` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: Unsupported TO_NUMBER function Run it in Fabric, or rewrite that part. |
-| `to_varchar` | Refused | `SELECT to_varchar(454, '999')` | to_varchar() can't run on this PC the way it runs in Fabric, so nothing ran: number format patterns ('999', '$99.99') aren't read here. Run the cell in Fabric,  |
+| `to_char` | Runs | `SELECT to_char(454, '999')` |  |
+| `to_number` | Runs | `SELECT to_number('454', '999')` |  |
+| `to_varchar` | Runs | `SELECT to_varchar(454, '999')` |  |
 | `translate` | Runs | `SELECT translate('AaBbCc', 'abc', '123')` |  |
 | `trim` | Runs | `SELECT trim(' SparkSQL ')` |  |
 | `try_to_binary` | Runs | `SELECT try_to_binary('abc', 'utf-8')` |  |
-| `try_to_number` | Refused | `SELECT try_to_number('454', '999')` | try_to_number() can't run on this PC the way it runs in Fabric, so nothing ran: number format patterns ('999', '$99.99') aren't read here. Run the cell in Fabri |
+| `try_to_number` | Runs | `SELECT try_to_number('454', '999')` |  |
 | `ucase` | Runs | `SELECT ucase('SparkSql')` |  |
 | `unbase64` | Runs | `SELECT unbase64('U3BhcmsgU1FM')` |  |
 | `upper` | Runs | `SELECT upper('SparkSql')` |  |
@@ -542,7 +542,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `parse_url` | Refused | `SELECT parse_url('http://spark.apache.org/path?query=1', 'HOST')` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: PARSE_URL is not supported in DuckDB Run it in Fabric, or rewrite that part. |
+| `parse_url` | Runs | `SELECT parse_url('http://spark.apache.org/path?query=1', 'HOST')` |  |
 | `url_decode` | Runs | `SELECT url_decode('https%3A%2F%2Fspark.apache.org')` |  |
 | `url_encode` | Runs | `SELECT url_encode('https://spark.apache.org')` |  |
 

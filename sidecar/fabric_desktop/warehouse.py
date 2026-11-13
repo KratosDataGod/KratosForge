@@ -48,9 +48,8 @@ import struct
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
-import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ErrorLevel, ParseError
 
@@ -152,6 +151,14 @@ def batches(query: str) -> list[str]:
     return [b.strip("\n") for b in _GO.split(query.replace("\r\n", "\n")) if b.strip()]
 
 
+# A read at a past time (time travel): Fabric's query hint OPTION (FOR TIMESTAMP AS OF '<UTC time>') at
+# the end of a SELECT. sqlglot can't read it, so the check reads the query without it; the hint only
+# picks which version of the tables is read, and the query is sent with it as written. A change's
+# batches are read the same way, so a past-time read still runs with Allow changes ticked.
+_AS_OF = re.compile(r"\s*\bOPTION\s*\(\s*FOR\s+TIMESTAMP\s+AS\s+OF\s+'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?'\s*\)"
+                    r"\s*;?\s*$", re.IGNORECASE)
+
+
 def verdicts(query: str, writes: bool = False) -> list[sql_policy.Verdict]:
     """What each statement of ``query`` is. Without ``writes`` only a single statement that reads
     is read_only. With ``writes`` each statement of each batch is read_only, warehouse_write, or
@@ -159,7 +166,9 @@ def verdicts(query: str, writes: bool = False) -> list[sql_policy.Verdict]:
     if writes:
         return _change_verdicts(query)
     try:
-        statements = [s for s in sqlglot.parse(query, read="tsql", error_level=ErrorLevel.RAISE) if s is not None]
+        statements = [cast(exp.Expression, s)  # sqlglot types parse as its Expr base
+                      for s in sql_dialects.parse(_AS_OF.sub("", query), read="tsql", error_level=ErrorLevel.RAISE)
+                      if s is not None]
     except ParseError as exc:
         raise ValueError("The query couldn't be read as T-SQL, so it can't be shown to only read: "
                          + sql_dialects.parse_problem(exc)) from None
@@ -225,7 +234,9 @@ def _change_verdicts(query: str) -> list[sql_policy.Verdict]:
                                           .rstrip()))
             continue
         try:
-            statements = [st for st in sqlglot.parse(batch, read="tsql", error_level=ErrorLevel.RAISE) if st is not None]
+            statements = [cast(exp.Expression, st)  # sqlglot types parse as its Expr base
+                          for st in sql_dialects.parse(_AS_OF.sub("", batch), read="tsql", error_level=ErrorLevel.RAISE)
+                          if st is not None]
         except ParseError:
             out.append(sql_policy.Verdict(n, "fabric_mutation", "it couldn't be read as T-SQL, so it can't be checked; "
                                                                  "a procedure or function definition can be"))

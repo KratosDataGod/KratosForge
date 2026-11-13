@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import builtins
 import contextlib
 import ctypes
 import hashlib
@@ -39,17 +40,20 @@ import uuid
 import warnings
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import TYPE_CHECKING, Any, Callable, Iterator, NoReturn, cast
 
 import pyarrow as pa
 
-from . import chart_output, jsonfile, notebook_cells
+from . import app_control, chart_output, disk_full, jsonfile, notebook_cells
 from . import notebook_resources
 from . import magics
 from . import history
 from . import write_queue
 from .frames import Frames, pandas_table, type_name
 from .redact import describe
+
+if TYPE_CHECKING:
+    from .proof_runtime import ProofRuntime  # annotations only; bind_proof imports it when a proof starts
 
 # Charts are drawn off screen and shown as images in the cell.
 os.environ.setdefault("MPLBACKEND", "Agg")
@@ -61,6 +65,9 @@ PREVIEW_ROWS = 1000
 # and rich outputs (tables, charts, HTML) past RICH_CHARS are dropped, each with one line saying so.
 STREAM_CHARS = 1_000_000
 RICH_CHARS = 16_000_000
+# An error always shows, past RICH_CHARS too, so its message and traceback are each kept to this:
+# the start of the message, and the end of the traceback, where the error itself is.
+ERROR_CHARS = 200_000
 _CELL_FILE = "<cell>"
 # Proxy and certificate settings the engine's own HTTP calls (with your Fabric token) read.
 _ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
@@ -123,7 +130,7 @@ def clear_spill_dir(folder: Path) -> None:
             path.unlink()
 
 
-def _no_input(*_args, **_kwargs):
+def _no_input(*_args: Any, **_kwargs: Any) -> NoReturn:
     raise RuntimeError("input() is not supported in notebook cells.")
 
 
@@ -150,7 +157,7 @@ def as_table(value: Any) -> pa.Table | None:
         if hasattr(value, "collect"):
             value = value.head(PREVIEW_ROWS + 1).collect()
         return value.to_arrow() if hasattr(value, "to_arrow") else None
-    if module.startswith("duckdb") and hasattr(value, "limit"):
+    if module.startswith(("duckdb", "_duckdb")) and hasattr(value, "limit"):  # DuckDBPyRelation is in _duckdb
         rel = value.limit(PREVIEW_ROWS + 1)
         return (getattr(rel, "to_arrow_table", None) or rel.arrow)()
     if module.startswith("pandas") and hasattr(value, "columns"):
@@ -160,7 +167,7 @@ def as_table(value: Any) -> pa.Table | None:
 
 def _total_rows(value: Any, table: pa.Table) -> int | None:
     """All rows, when that is cheap to know; None means "more than the preview"."""
-    if type(value).__module__.startswith("duckdb.experimental.spark"):
+    if type(value).__module__.startswith(("duckdb", "_duckdb")):  # counting would run the whole query again
         return table.num_rows if table.num_rows <= PREVIEW_ROWS else None
     total = getattr(value, "height", None)
     if total is None and not hasattr(value, "collect"):
@@ -214,9 +221,9 @@ def display(value: Any) -> dict[str, Any]:
     if not isinstance(value, type):
         bundle = _mime_bundle(value)
         if bundle:
-            out = _from_bundle(bundle)
-            if out is not None:
-                return out
+            shown = _from_bundle(bundle)
+            if shown is not None:
+                return shown
     return {"type": "text", "text": repr(value)}
 
 
@@ -251,7 +258,7 @@ def _mime_bundle(value: Any) -> dict[str, Any]:
             continue
         try:
             rendered = fn()
-        except Exception as exc:  # noqa: BLE001 - as above
+        except Exception as exc:  # noqa: BLE001 - a broken view falls back to the other views
             _log.info("%s failed: %s", method, describe(exc))
             continue
         if isinstance(rendered, tuple):
@@ -333,8 +340,9 @@ class _Run:
             self.version += 1
 
     def _reset(self) -> None:
-        if getattr(self, "spill", None) is not None:
-            _drop_spill(self.spill, self.spill_file)
+        spill = getattr(self, "spill", None)
+        if spill is not None:
+            _drop_spill(spill, self.spill_file)
         self._outputs, self._tail, self.clear_pending = [], [], False
         self.stream_chars = self.rich_chars = self.spill_chars = 0
         self.spill: Path | None = None
@@ -422,6 +430,8 @@ class _Run:
             self.spill_file = None
 
     def add(self, output: dict[str, Any]) -> None:
+        if output.get("type") == "error":
+            output = capped_error(output)
         size = len(json.dumps(output, default=str))
         with self.lock:
             if self.clear_pending:
@@ -513,6 +523,19 @@ class _OutputSink:
         self.out.clear_output(wait)
 
 
+def capped_error(output: dict[str, Any]) -> dict[str, Any]:
+    """An error output with its message and traceback each kept to ERROR_CHARS, saying so where cut."""
+    evalue, tb = output.get("evalue"), output.get("traceback")
+    if isinstance(tb, list):
+        tb = "".join(str(t) for t in tb)
+    cut = dict(output)
+    if isinstance(evalue, str) and len(evalue) > ERROR_CHARS:
+        cut["evalue"] = evalue[:ERROR_CHARS] + f"\n[KratosForge kept the first {ERROR_CHARS:,} of this message's {len(evalue):,} characters.]"
+    if isinstance(tb, str) and len(tb) > ERROR_CHARS:
+        cut["traceback"] = f"[KratosForge kept the last {ERROR_CHARS:,} of this traceback's {len(tb):,} characters.]\n" + tb[-ERROR_CHARS:]
+    return cut
+
+
 def _replace_capped(outputs: list[dict[str, Any]], hits: list[int], output: dict[str, Any],
                     rich: int) -> tuple[int, dict[str, Any]]:
     """The rich count after outputs[hits] become ``output``, and what they become: ``output``, or a
@@ -583,7 +606,7 @@ def _routers() -> tuple[_Router, _Router]:
         sys.stdout = _Router(sys.stdout)
     if not isinstance(sys.stderr, _Router):
         sys.stderr = _Router(sys.stderr)
-    return sys.stdout, sys.stderr  # type: ignore[return-value]
+    return sys.stdout, sys.stderr
 
 
 def _to_running_cell(output: dict[str, Any]) -> bool:
@@ -699,9 +722,9 @@ class Kernel:
             from .dbutils_local import RestartPython
             raise RestartPython()
         # Fabric's session.restartPython and stop: on this PC both restart Python after the cell.
-        utils.session = types.SimpleNamespace(
+        vars(utils).update(session=types.SimpleNamespace(
             restartPython=restart_python, stop=restart_python,
-            help=lambda *_a: print("notebookutils.session on this PC: restartPython, stop (both restart Python)"))
+            help=lambda *_a: print("notebookutils.session on this PC: restartPython, stop (both restart Python)")))
         sys.modules["notebookutils"] = utils
         sys.modules["mssparkutils"] = utils
         dbutils = dbutils_local.build(host, utils)
@@ -811,7 +834,7 @@ class Kernel:
             thread.start()
             thread.join(WIDGET_SECONDS)
             if thread.is_alive():
-                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(thread.ident), ctypes.py_object(KeyboardInterrupt))
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(cast(int, thread.ident)), ctypes.py_object(KeyboardInterrupt))
                 thread.join(2.0)
                 if thread.is_alive():  # stuck in native code (a sleep, a query): stop waiting for it
                     status["value"] = "cancelled"
@@ -889,7 +912,7 @@ class Kernel:
                 out = {**out, "display_id": did}
             if run is None:
                 print(out.get("text", out))
-            elif update:
+            elif update and did is not None:
                 for sink in {id(x): x for x in [run, *self._display_sinks.get(did, [])]}.values():
                     sink.replace(did, out)
             else:
@@ -983,7 +1006,7 @@ class Kernel:
         with run.cancel_lock:
             run.cancel_requested = True
             if run.armed:
-                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(run.thread.ident), ctypes.py_object(KeyboardInterrupt))
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(cast(int, run.thread.ident)), ctypes.py_object(KeyboardInterrupt))
         run.done.wait(2.0)
         return {"interrupted": True, "stopped": run.done.is_set()}
 
@@ -1181,17 +1204,20 @@ class Kernel:
                 tree = ast.parse(code, _CELL_FILE)
                 if self.resources_dir and os.path.isdir(self.resources_dir):  # a notebook with resources
                     tree = ast.fix_missing_locations(_BuiltinPaths(self.resources_dir).visit(tree))
-                last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
+                end = tree.body[-1] if tree.body else None
+                last = end if isinstance(end, ast.Expr) else None
+                if last is not None:
+                    tree.body.pop()
                 body = compile(tree, _CELL_FILE, "exec")
                 tail = compile(ast.Expression(last.value), _CELL_FILE, "eval") if last is not None else None
                 if debugger is not None:
                     debugger.add(body)
                     if tail is not None:
                         debugger.add(tail)
-                exec(body, namespace)
+                exec(body, namespace)  # noqa: S102 - the person's own cell
                 value = None
                 if tail is not None:
-                    value = eval(tail, namespace)
+                    value = eval(tail, namespace)  # noqa: S307 - the cell's last expression
                 if value is not None:
                     self._emit(run, self._show(value))  # shown first, as IPython does, so Out isn't in itself
                     if namespace is self.namespace and not getattr(self._local, "depth", 0):
@@ -1203,7 +1229,7 @@ class Kernel:
                 print(f"Notebook exited with value: {done.value}")
                 namespace["__fd_exit__"] = done.value
             raise
-        except (Exception, SystemExit) as exc:  # a cell must never take the kernel down
+        except (Exception, SystemExit) as exc:  # noqa: BLE001 - a cell must never take the kernel down
             self._emit(run, self._error(exc))
             return "error"
         return "ok"
@@ -1211,7 +1237,7 @@ class Kernel:
     def _guarded(self, run: _Run | None, fn: Callable[[], Any]) -> str:
         try:
             fn()
-        except (Exception, SystemExit) as exc:  # a cell must never take the kernel down
+        except (Exception, SystemExit) as exc:  # noqa: BLE001 - a cell must never take the kernel down
             self._emit(run, self._error(exc))
             return "error"
         return "ok"
@@ -1264,13 +1290,15 @@ class Kernel:
         SQL database. That engine is in Fabric, so here the cell is checked against its rules
         (sqlcompat, nothing sent anywhere) and stops, as a Scala cell does."""
         from . import sqlcompat
-        kind = (re.search(r"-type\s+(\w+)", cell.args) or [None, "Warehouse"])[1].lower()
+        typed = re.search(r"-type\s+(\w+)", cell.args)
+        kind = (typed[1] if typed else "Warehouse").lower()
         target = {"warehouse": "warehouse", "lakehouse": "endpoint", "sqlanalyticsendpoint": "endpoint",
                   "sqldatabase": "sqldb", "sqldb": "sqldb"}.get(kind, "warehouse")
         report = sqlcompat.analyze(cell.body, target)
         found = [f"- line {d['line']}: {d['title']}. {d.get('action') or ''}".rstrip()
                  for d in report["diagnostics"] if d["severity"] in ("error", "warning")]
-        artifact = (re.search(r"-artifact\s+(\"[^\"]+\"|\S+)", cell.args) or [None, "the item named in -artifact"])[1].strip('"')
+        named = re.search(r"-artifact\s+(\"[^\"]+\"|\S+)", cell.args)
+        artifact = (named[1] if named else "the item named in -artifact").strip('"')
         print(f"Checked against {report['target']['label']} rules: {report['outcome']['text']}"
               + ("\n" + "\n".join(found) if found else ""))
         self._emit(run, {"type": "error", "ename": "RunsInFabric", "traceback": "", "evalue":
@@ -1355,7 +1383,7 @@ class Kernel:
                 if current is not None:
                     self._flush_figures(current)
             show._fabric_desktop = True  # type: ignore[attr-defined]
-            plt.show = show
+            vars(plt).update(show=show)
 
     @staticmethod
     def _flush_figures(run: _Run) -> None:
@@ -1387,7 +1415,7 @@ class Kernel:
                     namespace["_sqldf"] = result
                 self._emit(run, self._show(result))
             return "ok"
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - a cell must never take the kernel down
             self._emit(run, self._error(exc))
             return "error"
 
@@ -1423,14 +1451,15 @@ class Kernel:
         if name == "time":
             started = time.monotonic()
             try:
-                value = eval(compile(line, _CELL_FILE, "eval"), self.namespace) if line.strip() else None
+                value = eval(compile(line, _CELL_FILE, "eval"), self.namespace) if line.strip() else None  # noqa: S307 - the person's %time line
             except SyntaxError:  # a statement, such as x = f()
-                exec(compile(line, _CELL_FILE, "exec"), self.namespace)
+                exec(compile(line, _CELL_FILE, "exec"), self.namespace)  # noqa: S102 - the person's %time line
                 value = None
             print(f"Wall time: {_duration(time.monotonic() - started)}")
             return value
         if name == "timeit":
-            m = re.match(r"((?:\s*-(?:[nr]\s*\d+|[A-Za-z])(?=\s|$))*)\s*(.*)$", line)  # options lead, as in IPython
+            # options lead, as in IPython; every line matches (both parts can be empty)
+            m = cast(re.Match[str], re.match(r"((?:\s*-(?:[nr]\s*\d+|[A-Za-z])(?=\s|$))*)\s*(.*)$", line))
             return self._timeit(m.group(1), m.group(2), self.namespace)
         if name == "lsmagic":
             print(self._line_magic_help())
@@ -1609,16 +1638,19 @@ class Kernel:
     def bind_proof(self, config: dict[str, Any], side: str, root: str, options: Callable[[], dict[str, str]]) -> None:
         from . import lakehouse
         from .proof_runtime import ProofRuntime
-        self._proof = ProofRuntime(config, side).bind(root, options)
+        self._proof: ProofRuntime | None = ProofRuntime(config, side).bind(root, options)
         lakehouse.proof = self._proof
 
     def unbind_proof(self) -> None:
         from . import lakehouse
         lakehouse.proof = None
-        if getattr(self, "_proof", None) is not None:
-            self._proof.restore()
+        proof: ProofRuntime | None = getattr(self, "_proof", None)
+        if proof is not None:
+            proof.restore()
 
     def finish_proof(self, modules: list[str]) -> dict[str, Any]:
+        if self._proof is None:
+            raise RuntimeError("No proof is running in this session.")
         log = self._proof.finish(modules)
         self._proof = None
         return log
@@ -1786,8 +1818,35 @@ class Kernel:
         frames = [f for f in traceback.extract_tb(exc.__traceback__)
                   if f.filename not in (__file__, _WIDGETS_FILE) and not f.filename.endswith(("notebookutils_local.py",))]
         lines = traceback.format_list(frames) + traceback.format_exception_only(type(exc), exc)
-        return {"type": "error", "ename": type(exc).__name__, "evalue": str(exc),
+        return {"type": "error", "ename": type(exc).__name__, "evalue": plain_error(exc),
                 "traceback": "Traceback (most recent call last):\n" + "".join(lines)}
+
+
+def plain_error(exc: BaseException) -> str:
+    """A cell's error as the user reads it. A full disk and running out of memory say so first, as
+    delta-rs words a full disk as a parse or copy error and a MemoryError often has no text at all;
+    the raw error stays in the traceback. A package or program application control blocked says
+    that, rather than "DLL load failed"."""
+    raw = str(exc)
+    if blocked := app_control.explain(exc):
+        plain = blocked
+    elif disk_full.is_disk_full(exc):
+        plain = disk_full.message(None, "A Delta table write that failed changed nothing.")
+    elif any(isinstance(e, MemoryError) for e in _chain(exc)):
+        plain = ("This PC ran out of memory in this cell. Variables from earlier cells are kept. "
+                 "Close other apps, or work on less data at once, and run it again.")
+    else:
+        return raw
+    return f"{plain} ({raw})" if raw else plain
+
+
+def _chain(exc: BaseException) -> list[BaseException]:
+    seen: list[BaseException] = []
+    cur: BaseException | None = exc
+    while cur is not None and cur not in seen and len(seen) < 20:
+        seen.append(cur)
+        cur = cur.__cause__ or cur.__context__
+    return seen
 
 
 _MISSING = object()
@@ -1806,7 +1865,7 @@ class RunTimeout(TimeoutError):
 
 
 @contextlib.contextmanager
-def _deadline(seconds: float | None, message: str):
+def _deadline(seconds: float | None, message: str) -> Iterator[threading.Event]:
     """Raise RunTimeout in this thread if the block runs longer than ``seconds`` (None or 0: no limit).
 
     Like Cancel, it lands between Python steps: a long DuckDB query is asked to stop too. The
@@ -1894,7 +1953,7 @@ class _BuiltinPaths(ast.NodeTransformer):
         return (self._parents or {}).get(id(node))
 
     @staticmethod
-    def _call_name(node: ast.AST) -> str:
+    def _call_name(node: ast.AST | None) -> str:
         if not isinstance(node, ast.Call):
             return ""
         return node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
@@ -2077,6 +2136,9 @@ def _fs_magic(fs: Any, line: str) -> Any:
         raise ValueError("%fs needs a command: ls, head, cp, mv, rm, mkdirs or put.")
     command, flags = words[0], {w for w in words[1:] if w in ("-r", "-f")}
     args = [w for w in words[1:] if w not in ("-r", "-f")]
+    from .dbutils_local import fs_magic_path
+    for path in args[:1] if command in ("put", "head") else args:
+        fs_magic_path(path)  # /mnt/..., /tmp/... and dbfs:/ are Databricks storage, as in dbutils.fs
     usage = {"ls": 1, "head": 1, "cp": 2, "mv": 2, "rm": 1, "mkdirs": 1, "put": 2}
     if command not in usage:
         raise ValueError(f"%fs {command} isn't a command here. Use ls, head, cp, mv, rm, mkdirs or put.")
@@ -2391,7 +2453,8 @@ def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
     title = (md.get(_DATABRICKS_CELL) or {}).get("title") if isinstance(md.get(_DATABRICKS_CELL), dict) else None
     if isinstance(title, str) and title.strip():
         meta["title"] = title.strip()
-    own = md.get("fabric_desktop") if isinstance(md.get("fabric_desktop"), dict) else {}
+    own_md = md.get("fabric_desktop")
+    own = own_md if isinstance(own_md, dict) else {}
     chart = _chart_meta(own.get("chart"))
     if chart:
         meta["chart"] = chart
@@ -2433,7 +2496,7 @@ def assign_cell_ids(cells: list[dict[str, Any]], make: Callable[[int, dict[str, 
 def _derived_id(i: int, c: dict[str, Any]) -> str:
     """An id for a cell that was never saved (cells added for publishing): the same every time."""
     import hashlib
-    return "fd-" + hashlib.sha1(f"{i}:{c.get('type')}:{c.get('source', '')}".encode()).hexdigest()[:12]
+    return "fd-" + hashlib.sha1(f"{i}:{c.get('type')}:{c.get('source', '')}".encode(), usedforsecurity=False).hexdigest()[:12]
 
 
 # Notebook and cell metadata Fabric Desktop writes. Anything else in a notebook (written by
@@ -2443,44 +2506,168 @@ _OWN_FD_KEYS = ("compute", "workspace", "lakehouse")
 
 
 def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
-    keep = {k: v for k, v in before.items() if k not in ("tags", "editable", "deletable", _HEADING_COLLAPSED)}
-    if isinstance(keep.get(_DATABRICKS_CELL), dict):  # the title is ours; Databricks' other keys aren't
-        keep[_DATABRICKS_CELL] = {k: v for k, v in keep[_DATABRICKS_CELL].items() if k != "title"}
-    if isinstance(keep.get("jupyter"), dict):
-        rest = {k: v for k, v in keep["jupyter"].items() if k not in ("source_hidden", "outputs_hidden")}
-        keep["jupyter"] = rest
-    if isinstance(keep.get("run_control"), dict):
-        keep["run_control"] = {k: v for k, v in keep["run_control"].items() if k != "frozen"}
-    if isinstance(keep.get("fabric_desktop"), dict):
-        keep["fabric_desktop"] = {k: v for k, v in keep["fabric_desktop"].items() if k not in ("chart", "charts", "run_on")}
-    for k in ("jupyter", "run_control", _DATABRICKS_CELL, "fabric_desktop"):
-        if k in keep and not keep[k]:
+    """``ours`` (the cell's settings as the app writes them) over the cell's metadata in the file.
+    A setting the app reads is taken from ``ours`` when it's on; when the file has it off (an empty
+    tag list, ``outputs_hidden: false``, ``editable: true``), it stays as the file has it."""
+    def on(value: Any) -> bool:
+        return value is True or (isinstance(value, str) and bool(value.strip()))
+
+    keep = dict(before)
+    if isinstance(keep.get("tags"), list) and any(isinstance(t, str) for t in keep["tags"]):
+        del keep["tags"]
+    for k in ("editable", "deletable"):
+        if keep.get(k) is False:
             del keep[k]
+    if keep.get(_HEADING_COLLAPSED) is True:
+        del keep[_HEADING_COLLAPSED]
+    owned = {_DATABRICKS_CELL: ("title",), "jupyter": ("source_hidden", "outputs_hidden"), "run_control": ("frozen",)}
+    for key, names in owned.items():
+        if isinstance(keep.get(key), dict) and keep[key]:
+            rest = {k: v for k, v in keep[key].items() if not (k in names and on(v))}
+            if rest:
+                keep[key] = rest
+            else:
+                del keep[key]
+    if isinstance(keep.get("fabric_desktop"), dict) and keep["fabric_desktop"]:
+        rest = {k: v for k, v in keep["fabric_desktop"].items() if k not in ("chart", "charts", "run_on")}
+        if rest:
+            keep["fabric_desktop"] = rest
+        else:
+            del keep["fabric_desktop"]
     for k, v in ours.items():
         keep[k] = keep[k] | v if isinstance(v, dict) and isinstance(keep.get(k), dict) else v
     return keep
 
 
+def _attachments_used(attachments: Any, source: str) -> dict[str, Any] | None:
+    """The attachments (images pasted into a Markdown cell) its source still shows."""
+    if not isinstance(attachments, dict):
+        return None
+    used = {k: v for k, v in attachments.items() if f"attachment:{k}" in source}
+    return used or None
+
+
 def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
-    """``new`` (from to_ipynb) with the metadata Fabric Desktop doesn't own carried over from the
-    notebook as it was on disk: notebook-level keys, other tools' ``fabric_desktop`` keys and
-    ``dependencies`` such as a Fabric environment, and each cell's other metadata, by cell id."""
-    old_meta = before.get("metadata") if isinstance(before.get("metadata"), dict) else {}
-    meta = {k: v for k, v in old_meta.items() if k not in _OWN_NOTEBOOK_KEYS + ("fabric_desktop", "dependencies")}
-    old_fd = {k: v for k, v in (old_meta.get("fabric_desktop") or {}).items() if k not in _OWN_FD_KEYS}
-    old_deps = {k: v for k, v in (old_meta.get("dependencies") or {}).items() if k != "lakehouse"}
-    meta.update(new["metadata"])
+    """``new`` (from to_ipynb) with what Fabric Desktop doesn't own carried over from the notebook
+    as it was on disk: notebook-level keys (its kernel and language among them), other tools'
+    ``fabric_desktop`` keys and ``dependencies`` such as a Fabric environment, and per cell, by cell
+    id (or, in a file written without ids, the id the app gave the cell when it read it):
+
+    - a cell whose type, source and settings didn't change is kept exactly as it was in the file,
+      its outputs, execution count, attachments and every other tool's metadata with it;
+    - a changed cell keeps the other tools' metadata and the attachments its source still shows.
+      Its outputs and execution count are dropped: they came from code that isn't there any more."""
+    saved_meta = before.get("metadata")
+    old_meta = saved_meta if isinstance(saved_meta, dict) else {}
+    meta = dict(old_meta)  # the file's keys stay in the file's order; a key set again keeps its place
+    got_fd = old_meta.get("fabric_desktop")
+    old_fd_all: dict[str, Any] = got_fd if isinstance(got_fd, dict) else {}
+    old_fd = {k: v for k, v in old_fd_all.items() if k not in _OWN_FD_KEYS}
+    got_deps = old_meta.get("dependencies")
+    old_deps_all: dict[str, Any] = got_deps if isinstance(got_deps, dict) else {}
+    old_deps = {k: v for k, v in old_deps_all.items() if k != "lakehouse"}
+    for k, v in new["metadata"].items():
+        if k in _OWN_NOTEBOOK_KEYS:
+            continue  # the file's own kernel and language (Fabric's synapse_pyspark, a version) stay, or stay unset
+        if k not in ("fabric_desktop", "dependencies"):
+            meta[k] = v
     fd = old_fd | new["metadata"].get("fabric_desktop", {})
     if fd:
         meta["fabric_desktop"] = fd
+    else:
+        meta.pop("fabric_desktop", None)
     deps = old_deps | new["metadata"].get("dependencies", {})
-    if deps:
+    old_lh = old_deps_all.get("lakehouse")
+    new_lh = deps.get("lakehouse")
+    if isinstance(old_lh, dict) and isinstance(new_lh, dict) and old_lh.get("default_lakehouse") == new_lh.get("default_lakehouse"):
+        deps["lakehouse"] = old_lh | new_lh  # the same lakehouse: Fabric's other keys (known_lakehouses) stay
+    elif "lakehouse" in old_deps_all and new_lh is None and not old_fd_all.get("lakehouse"):
+        deps["lakehouse"] = old_lh  # Fabric's default lakehouse, which this app never set or changed
+    if deps or "dependencies" in old_meta:
         meta["dependencies"] = deps
-    old_cells = {c.get("id"): c.get("metadata") or {} for c in before.get("cells", []) if isinstance(c, dict) and c.get("id")}
+    else:
+        meta.pop("dependencies", None)
+    raw_cells = [c for c in before.get("cells", []) if isinstance(c, dict)] if isinstance(before.get("cells"), list) else []
+    read_ids = [c["cell_id"] for c in from_ipynb({"cells": raw_cells})["cells"]]
+    old_cells = dict(zip(read_ids, raw_cells, strict=True))
+    cells = []
     for cell in new["cells"]:
-        if cell["id"] in old_cells:
-            cell["metadata"] = _merge_cell_metadata(cell["metadata"], old_cells[cell["id"]])
-    return new | {"metadata": meta}
+        old = old_cells.get(cell["id"])
+        if old is None:
+            cells.append(cell)
+            continue
+        old_md = old.get("metadata") if isinstance(old.get("metadata"), dict) else {}
+        old_src = old.get("source", "")
+        old_src = "".join(old_src) if isinstance(old_src, list) else old_src
+        same = (cell["cell_type"] == ("markdown" if old.get("cell_type") == "markdown" else "code")
+                and "".join(cell["source"]) == old_src
+                # the file's settings as the app would write them (a long title cut to 200, say)
+                and _cell_meta(cell["metadata"]) == _cell_meta(_cell_metadata(_cell_meta(old_md))))
+        if same:
+            cells.append(old | {"id": cell["id"]})
+            continue
+        cell["metadata"] = _merge_cell_metadata(cell["metadata"], old_md)
+        if cell["cell_type"] == "markdown":
+            used = _attachments_used(old.get("attachments"), "".join(cell["source"]))
+            if used:
+                cell["attachments"] = used
+        cells.append(cell)
+    minor = before.get("nbformat_minor")
+    # Keys of the file's own beyond the format's (Fabric writes "notebookName"), in the file's order.
+    out = {k: v for k, v in before.items() if k not in new} | new | {"metadata": meta, "cells": cells}
+    if isinstance(minor, int) and minor > out["nbformat_minor"]:
+        out["nbformat_minor"] = minor
+    return out
+
+
+def unchanged(nb: dict[str, Any], before: dict[str, Any]) -> bool:
+    """Whether ``nb`` (merge_saved's) says nothing ``before`` didn't: the same notebook, but for the
+    cell ids and format version the app gives a file whose ids are missing, empty or repeated (it
+    reads the same ids back from the file each time, so they needn't be written to be kept)."""
+    if not isinstance(before.get("cells"), list) or len(nb["cells"]) != len(before["cells"]):
+        return False
+    for mine, theirs in zip(nb["cells"], before["cells"], strict=True):
+        if not isinstance(theirs, dict):
+            return False
+        if {k: v for k, v in mine.items() if k != "id"} != {k: v for k, v in theirs.items() if k != "id"}:
+            return False
+    rest = {k: v for k, v in nb.items() if k not in ("cells", "nbformat_minor")}
+    return rest == {k: v for k, v in before.items() if k not in ("cells", "nbformat_minor")}
+
+
+def dumps_like(nb: dict[str, Any], raw: bytes | None) -> str:
+    """The notebook as JSON written the way the file it replaces was (``raw``), so a change shows in
+    Git as the lines that changed: its indent (or all on one line), key order, non-ASCII written as
+    is or escaped, line ending and final newline. A new file is written as this app always has (indent 1, the system's
+    line ending)."""
+    if not raw:
+        return json.dumps(nb, indent=1).replace("\n", os.linesep)
+    text = raw.decode("utf-8", errors="replace")
+    crlf = "\r\n" in text
+    lines = text.splitlines()
+    indent: int | str = 1
+    if len(lines) > 1:
+        lead = lines[1][:len(lines[1]) - len(lines[1].lstrip(" \t"))]
+        indent = lead or 1  # spaces or tabs, as the file has them
+    try:
+        first = list(json.loads(text))
+    except ValueError:
+        first = []
+    if first and first == sorted(first):
+        # Written with sorted keys (as Jupyter writes): the notebook's and each cell's own keys are put
+        # in that order. Deeper down, the file's order stays as it is, which a full sort would change.
+        nb = {k: nb[k] for k in sorted(nb)}
+        if isinstance(nb.get("cells"), list):
+            nb["cells"] = [{k: c[k] for k in sorted(c)} if isinstance(c, dict) else c for c in nb["cells"]]
+    ascii_only = not any(ord(ch) > 127 for ch in text)
+    escaped = "\\u" in text
+    if len(lines) == 1:  # all on one line, as Fabric writes a notebook's definition
+        out = json.dumps(nb, ensure_ascii=ascii_only and escaped, separators=(",", ":"))
+    else:
+        out = json.dumps(nb, indent=indent, ensure_ascii=ascii_only and escaped)
+    if text.endswith(("\n", "\r")):
+        out += "\n"
+    return out.replace("\n", "\r\n") if crlf else out
 
 
 def to_ipynb(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
@@ -2553,7 +2740,7 @@ def _write_atomic(path: Path, text: str) -> None:
     has it open, so a refused replace is waited out by the shared jsonfile.replace."""
     tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
+        with open(tmp, "w", encoding="utf-8", newline="") as f:  # the line endings are the text's own
             f.write(text)
             f.flush()
             os.fsync(f.fileno())  # on disk before the swap: a power cut leaves the old or the new notebook
@@ -2588,7 +2775,7 @@ class NotebookStore:
     def path(self, name: str) -> Path:
         return self.folder / f"{check_notebook_name(name)}.ipynb"
 
-    def list(self) -> list[dict[str, Any]]:
+    def list(self) -> builtins.list[dict[str, Any]]:
         files = sorted(notebook_files(self.folder), key=lambda f: f[1].stat().st_mtime, reverse=True)
         return [{"name": name, "modified": p.stat().st_mtime} for name, p in files]
 
@@ -2596,7 +2783,7 @@ class NotebookStore:
         nb = json.loads(self.path(name).read_text(encoding="utf-8"))
         return {"name": name, **from_ipynb(nb), "disk_stamp": disk_stamp(nb)}
 
-    def save(self, name: str, cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None = None,
+    def save(self, name: str, cells: builtins.list[dict[str, Any]], lakehouse: dict[str, Any] | None = None,
              compute: str | None = None, workspace: dict[str, Any] | None = None,
              expected_stamp: str | None = None) -> dict[str, Any]:
         """Save the notebook. ``compute`` is where Run all runs it: "local" (this PC), "fabric",
@@ -2613,7 +2800,7 @@ class NotebookStore:
         with self._write_lock:
             return self._save(name, cells, lakehouse, compute, workspace, expected_stamp)
 
-    def _save(self, name: str, cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
+    def _save(self, name: str, cells: builtins.list[dict[str, Any]], lakehouse: dict[str, Any] | None,
               compute: str | None, workspace: dict[str, Any] | None,
               expected_stamp: str | None = None) -> dict[str, Any]:
         path = self.path(name)
@@ -2644,8 +2831,10 @@ class NotebookStore:
         ids = assign_cell_ids(cells)
         nb = merge_saved(to_ipynb(cells, lakehouse, compute, workspace), before) if before else \
             to_ipynb(cells, lakehouse, compute, workspace)
+        if before and unchanged(nb, before):  # nothing to save: the file stays byte for byte as it is
+            return {"name": name, "cell_ids": ids, "disk_stamp": disk_stamp(before)}
         path.parent.mkdir(parents=True, exist_ok=True)
-        _write_atomic(path, json.dumps(nb, indent=1))
+        _write_atomic(path, dumps_like(nb, raw if parsed else None))
         return {"name": name, "cell_ids": ids, "disk_stamp": disk_stamp(nb)}
 
     def extra(self, name: str, key: str) -> Any:
@@ -2667,14 +2856,15 @@ class NotebookStore:
             raise ValueError(f"{key} is saved with the notebook, not set on its own.")
         with self._write_lock:
             path = self.path(name)
-            nb = json.loads(path.read_text(encoding="utf-8"))
+            raw = path.read_bytes()
+            nb = json.loads(raw.decode("utf-8"))
             fd = nb.setdefault("metadata", {}).setdefault("fabric_desktop", {})
             value = change(fd.get(key), nb)
             if value is None:
                 fd.pop(key, None)
             else:
                 fd[key] = value
-            _write_atomic(path, json.dumps(nb, indent=1))
+            _write_atomic(path, dumps_like(nb, raw))
             return value
 
     def new(self, prefix: str = "Notebook") -> dict[str, Any]:
@@ -2828,12 +3018,12 @@ class NotebookShelf(NotebookStore):
             dest.unlink(missing_ok=True)
             raise OSError(f"Couldn't copy {name}'s resources to {where} ({e}). The notebook is still where it was.") from None
         src.unlink()
-        out = {"name": name, "place": self.place_of(name), "moved": True}
+        result: dict[str, Any] = {"name": name, "place": self.place_of(name), "moved": True}
         try:
             notebook_resources.remove_folder(res_src)
         except OSError as e:  # a file held open: the moved copy is whole, the old folder stays
-            out["note"] = f"The resources were copied, but the old folder {res_src} couldn't be removed ({e}). Delete it by hand."
-        return out
+            result["note"] = f"The resources were copied, but the old folder {res_src} couldn't be removed ({e}). Delete it by hand."
+        return result
 
 
 def _rename_with_resources(src: Path, dest: Path, new_name: str) -> dict[str, Any]:

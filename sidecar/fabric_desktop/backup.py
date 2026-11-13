@@ -4,7 +4,8 @@ A backup is a zip of the app's folder (``%LOCALAPPDATA%\\FabricDesktop``): setti
 schedules on this PC, run history, receipts and the local databases. With ``agent_home`` it also
 holds a headless agent's queue and alert databases. It never holds:
 
-- sign-in tokens (``msal_cache.bin``, the embedded Fabric pages' saved sign-in),
+- sign-in tokens (``msal_cache.bin``, the embedded Fabric pages' saved sign-in) and the running
+  app's link token (``link-port``), which a restore would write over the live one,
 - the engine, caches, logs and lock files, which the app rebuilds,
 - a Teams webhook address, which lets anyone post to that channel (set it again after a restore),
 - anything credential-shaped inside a text file (``redact.secrets``); the manifest names each
@@ -23,6 +24,9 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
+import os
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -34,11 +38,19 @@ from typing import Any
 from .redact import secrets
 from . import jsonfile
 
+_log = logging.getLogger(__name__)
+
 SCHEMA = "fabric-desktop-backup@1"
 MANIFEST = "manifest.json"
 SAFETY = "restore-safety"  # where restore keeps the files it replaced
-SKIP_DIRS = {"engine", "onelake-cache", "EBWebView", "logs", "schedule_locks", "_leases", SAFETY}  # top level only
-SKIP_FILES = {"msal_cache.bin", "fabric-view-signin.bin"}
+# Restores whose replaced files are kept in SAFETY: the newest ones. Each holds full copies of the
+# databases and settings it replaced, so years of restores can't keep every old copy on the PC.
+KEEP_SAFETY = 5
+_STAMP = re.compile(r"\d{8}-\d{6}")
+# Top level only. fabric-view: the Fabric view's browser profile, whose cookies are its sign-in.
+SKIP_DIRS = {"engine", "onelake-cache", "EBWebView", "fabric-view", "logs", "schedule_locks", "_leases", SAFETY}
+# link-port and editor-port: this run's link listener token and VS Code pairing hello.
+SKIP_FILES = {"msal_cache.bin", "fabric-view-signin.bin", "link-port", "editor-port"}
 SKIP_SUFFIXES = {".log", ".tmp", ".lock", ".pyc"}
 SQLITE_SUFFIXES = {".sqlite", ".sqlite3", ".db"}
 SQLITE_HEADER = b"SQLite format 3\x00"
@@ -46,6 +58,7 @@ SQLITE_COMPANIONS = ("-wal", "-shm", "-journal")  # SQLite replays these onto th
 TEXT_SUFFIXES = {".json", ".jsonl", ".toml", ".ipynb", ".sql", ".py", ".md", ".txt", ".csv", ".yaml", ".yml"}
 SECRET_KEYS = {"teams_webhook", "platform_notify"}  # platform_notify holds webhook addresses
 AGENT_FILES = ("queue.sqlite3", "alerts.sqlite3")
+DB_WAIT = 10.0  # seconds a backup waits for a database another program is writing to
 
 
 class BackupError(ValueError):
@@ -56,24 +69,49 @@ def _skipped(rel: PurePosixPath) -> str | None:
     if (len(rel.parts) > 1 and rel.parts[0] in SKIP_DIRS) or "__pycache__" in rel.parts:
         return "rebuilt by the app"
     if rel.name in SKIP_FILES:
-        return "sign-in tokens are never backed up"
+        return "tokens are never backed up"
     if rel.suffix.lower() in SKIP_SUFFIXES or rel.name.endswith(SQLITE_COMPANIONS):
         return "rebuilt by the app"
     return None
 
 
 def _sqlite_bytes(path: Path) -> bytes:
-    """A consistent copy of a database that may be open, through SQLite's own backup."""
+    """A consistent copy of a database that may be open, through SQLite's own backup. The read lock
+    is taken first, waiting at most ``DB_WAIT``: Python's ``backup`` would otherwise wait for ever
+    on a database another program holds a write lock on."""
     with tempfile.TemporaryDirectory() as tmp:
         copy = Path(tmp) / "copy.sqlite"
-        src = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+        src = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=DB_WAIT, isolation_level=None)
         dst = sqlite3.connect(copy)
         try:
+            src.execute("BEGIN")
+            src.execute("SELECT count(*) FROM sqlite_master").fetchall()  # the read lock, held through the copy
             src.backup(dst)
         finally:
             src.close()
             dst.close()
         return copy.read_bytes()
+
+
+def _database_copy(name: str, path: Path) -> bytes:
+    """The database's consistent copy. A file SQLite can't read as a database goes in as it is
+    (#1674); one that stays locked, or can't be read for another reason, stops the backup rather
+    than going in half written."""
+    try:
+        return _sqlite_bytes(path)
+    except sqlite3.Error as exc:
+        if getattr(exc, "sqlite_errorcode", None) in _DAMAGED:
+            return path.read_bytes()
+        if getattr(exc, "sqlite_errorcode", None) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+            raise BackupError(f"No backup was saved: {name} was being written to for more than {DB_WAIT:g} "
+                              "seconds. Try again in a moment, or close KratosForge and stop the agent first.") from None
+        raise BackupError(f"No backup was saved: {name} couldn't be read ({exc}).") from None
+
+
+def _whole_lines(data: bytes) -> bytes:
+    """A ``.jsonl`` file without a last line still being appended when it was read."""
+    cut = data.rfind(b"\n") + 1
+    return data[:cut] if cut else data
 
 
 def _clean_text(rel: PurePosixPath, data: bytes) -> tuple[bytes, list[str]]:
@@ -119,7 +157,7 @@ def _collect(data_dir: Path, agent_home: Path | None) -> tuple[list[tuple[str, P
             rel = PurePosixPath(path.relative_to(data_dir).as_posix())
             reason = _skipped(rel)
             if reason:
-                if reason.startswith("sign-in"):
+                if reason.startswith("tokens"):
                     skipped.append({"path": f"app/{rel}", "reason": reason})
                 continue
             files.append((f"app/{rel}", path))
@@ -134,30 +172,68 @@ def create(out_dir: Path, data_dir: Path, agent_home: Path | None = None, now: d
     """Writes a backup zip into ``out_dir`` and returns its path and manifest."""
     now = now or datetime.now(timezone.utc)
     files, skipped = _collect(data_dir, agent_home)
-    entries, cleaned = [], []
+    entries: list[dict[str, Any]] = []
+    cleaned: list[dict[str, str]] = []
     out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / f"fabric-desktop-backup-{now.strftime('%Y%m%d-%H%M%S')}.zip"
-    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as z:
-        for name, path in files:
-            rel = PurePosixPath(name)
-            data = path.read_bytes()
-            if rel.suffix.lower() in SQLITE_SUFFIXES:
-                try:
-                    data = _sqlite_bytes(path)
-                except sqlite3.Error:
-                    pass  # not a database after all: the file as it is
-            if name == "app/schedules.json":
-                data = _forget_engine(data)
-            if rel.suffix.lower() in TEXT_SUFFIXES:
-                data, removed = _clean_text(rel, data)
-                if removed:
-                    cleaned.append({"path": name, "removed": ", ".join(removed)})
-            z.writestr(name, data)
-            entries.append({"path": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
-        manifest = {"schema": SCHEMA, "created": now.isoformat(timespec="seconds"), "files": entries,
-                    "cleaned": cleaned, "not_included": skipped}
-        z.writestr(MANIFEST, json.dumps(manifest, indent=2))
+    # Written as .part and renamed once whole, so a backup that stops part way leaves no zip behind.
+    part = target.with_name(target.name + ".part")
+    try:
+        _write(part, files, skipped, entries, cleaned, now)
+        jsonfile.replace(part, target)
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
     return {"path": str(target), "files": len(entries), "cleaned": cleaned}
+
+
+def _write(part: Path, files: list[tuple[str, Path]], skipped: list[dict[str, str]], entries: list[dict[str, Any]],
+           cleaned: list[dict[str, str]], now: datetime) -> None:
+    with open(part, "wb") as f:
+        with zipfile.ZipFile(f, "w", zipfile.ZIP_DEFLATED) as z:
+            _fill(z, files, skipped, entries, cleaned, now)
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def _fill(z: zipfile.ZipFile, files: list[tuple[str, Path]], skipped: list[dict[str, str]],
+          entries: list[dict[str, Any]], cleaned: list[dict[str, str]], now: datetime) -> None:
+    for name, path in files:
+        rel = PurePosixPath(name)
+        if rel.suffix.lower() in SQLITE_SUFFIXES or _has_sqlite_header(path):
+            data = _database_copy(name, path)
+        else:
+            data = path.read_bytes()
+        if rel.suffix.lower() == ".jsonl":
+            data = _whole_lines(data)
+        if name == "app/schedules.json":
+            data = _forget_engine(data)
+        if rel.suffix.lower() in TEXT_SUFFIXES:
+            data, removed = _clean_text(rel, data)
+            if removed:
+                cleaned.append({"path": name, "removed": ", ".join(removed)})
+        z.writestr(name, data)
+        entries.append({"path": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+    manifest = {"schema": SCHEMA, "created": now.isoformat(timespec="seconds"), "files": entries,
+                "cleaned": cleaned, "not_included": skipped}
+    z.writestr(MANIFEST, json.dumps(manifest, indent=2))
+
+
+def _has_sqlite_header(path: Path) -> bool:
+    try:
+        with path.open("rb") as f:
+            return f.read(len(SQLITE_HEADER)) == SQLITE_HEADER
+    except OSError:
+        return False
+
+
+# Files older backups carry that are now left out: restored by no one and quietly passed over.
+NO_LONGER_BACKED_UP = {"app/link-port", "app/editor-port"}
+NO_LONGER_BACKED_UP_DIRS = ("app/fabric-view/",)
+
+
+def _no_longer(name: str) -> bool:
+    return name in NO_LONGER_BACKED_UP or name.startswith(NO_LONGER_BACKED_UP_DIRS)
 
 
 def _safe(name: str) -> bool:
@@ -181,21 +257,45 @@ def validate(zip_path: Path) -> tuple[dict[str, Any], list[str]]:
         if not isinstance(manifest, dict) or manifest.get("schema") != SCHEMA:
             return {}, [f"It isn't a {SCHEMA} backup."]
         problems = []
-        listed = {}
+        listed: dict[str, Any] = {}
+        kept = []
         for entry in manifest.get("files") or []:
             name = str(entry.get("path", ""))
+            if _no_longer(name):
+                continue
+            kept.append(entry)
             if not _safe(name):
                 problems.append(f"{name!r} would be written outside the app's folders or is never restored")
+            if name.lower() in {n.lower() for n in listed}:  # Windows paths ignore case
+                problems.append(f"{name} is listed twice in its manifest")
             listed[name] = entry
-        names = set(z.namelist()) - {MANIFEST}
+        manifest = dict(manifest, files=kept)
+        all_names = z.namelist()
+        names = {n for n in all_names if not _no_longer(n)} - {MANIFEST}
+        problems += [f"{name} is in the zip twice" for name in sorted({n for n in all_names if all_names.count(n) > 1})]
         for name in sorted(names - listed.keys()):
             problems.append(f"{name} is in the zip but not in its manifest")
         for name, entry in sorted(listed.items()):
             if name not in names:
                 problems.append(f"{name} is in the manifest but missing from the zip")
-            elif hashlib.sha256(z.read(name)).hexdigest() != entry.get("sha256"):
+            elif z.getinfo(name).file_size != entry.get("size"):  # checked before anything is read
                 problems.append(f"{name} has changed since the backup was made")
+            else:
+                try:
+                    if _zip_sha256(z, name) != entry.get("sha256"):
+                        problems.append(f"{name} has changed since the backup was made")
+                except (OSError, zipfile.BadZipFile, EOFError, ValueError) as exc:  # damaged data, a bad CRC
+                    problems.append(f"{name} can't be read from the zip: {exc}")
         return manifest, problems
+
+
+def _zip_sha256(z: zipfile.ZipFile, name: str) -> str:
+    digest = hashlib.sha256()
+    with z.open(name) as src:
+        for block in iter(lambda: src.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
 
 
 def _sha256(path: Path) -> str:
@@ -252,7 +352,12 @@ def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, appl
             now: datetime | None = None) -> dict[str, Any]:
     """What restoring ``zip_path`` writes; with ``apply`` it writes it, after copying each file it
     replaces, and moving a replaced database's ``-wal``/``-shm``/``-journal``, into
-    ``restore-safety``. Without ``apply`` nothing changes."""
+    ``restore-safety``. Without ``apply`` nothing changes.
+
+    Every file is written beside its target and checked before any file here changes, and a restore
+    that stops part way (a refused swap, a full disk) puts back the files it already swapped, so the
+    folder is as it was or as the backup has it. If the PC itself stops part way, the files it had
+    replaced are in ``restore-safety``."""
     manifest, problems = validate(zip_path)
     if problems:
         raise BackupError("This backup can't be restored:\n- " + "\n- ".join(problems))
@@ -262,7 +367,7 @@ def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, appl
         top, rest = name.split("/", 1)
         if top == "agent" and not agent_home:
             continue
-        dest = (agent_home if top == "agent" else data_dir) / rest  # type: ignore[operator]
+        dest = (agent_home if top == "agent" else data_dir) / rest
         plan.append({"path": name, "to": str(dest), "replaces": dest.exists()})
     result: dict[str, Any] = {"created": manifest["created"], "files": plan, "applied": False,
                               "cleaned": manifest.get("cleaned", [])}
@@ -279,31 +384,91 @@ def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, appl
                               + "\n- ".join(busy) + "\nClose KratosForge and stop the agent, "
                               "then run the restore again.")
         moved = False
-        for item in plan:
-            dest = Path(item["to"])
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            tmp = dest.with_name(dest.name + ".restoring")
-            with z.open(item["path"]) as src:
-                tmp.write_bytes(src.read())
-            if _sha256(tmp) != hashes[item["path"]]:
-                tmp.unlink()
-                raise BackupError(f"{item['path']} didn't write correctly to {dest}; the restore stopped there. "
-                                  f"Files it already replaced are in {safety}.")
-            keep = safety / item["path"]
-            if item["replaces"]:
-                keep.parent.mkdir(parents=True, exist_ok=True)
-                keep.write_bytes(dest.read_bytes())
-            if item["path"] in databases:  # a stale WAL would bring back what the backup doesn't hold
-                for suffix in SQLITE_COMPANIONS:
-                    companion = dest.with_name(dest.name + suffix)
-                    if companion.exists():
-                        keep.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.move(companion, keep.with_name(keep.name + suffix))
-                        moved = True
-            jsonfile.replace(tmp, dest)
+        staged: list[Path] = []
+        swapped: list[tuple[Path, Path | None, list[tuple[Path, Path]]]] = []
+        try:
+            # 1. Every file written beside its target and checked, before any file here changes.
+            for item in plan:
+                dest = Path(item["to"])
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                tmp = dest.with_name(dest.name + ".restoring")
+                staged.append(tmp)
+                with z.open(item["path"]) as src, open(tmp, "wb") as out:
+                    shutil.copyfileobj(src, out, 1 << 20)  # streamed: a member's size is the backup's to claim
+                    out.flush()
+                    os.fsync(out.fileno())
+                if _sha256(tmp) != hashes[item["path"]]:
+                    raise BackupError(f"{item['path']} didn't write correctly to {dest}; nothing was changed.")
+            # 2. A copy of every file it replaces, kept in restore-safety.
+            for item in plan:
+                if item["replaces"]:
+                    keep = safety / item["path"]
+                    keep.parent.mkdir(parents=True, exist_ok=True)
+                    with open(item["to"], "rb") as src, open(keep, "wb") as out:
+                        shutil.copyfileobj(src, out, 1 << 20)
+                        out.flush()
+                        os.fsync(out.fileno())
+            # 3. The swaps. If one fails, the files already swapped are put back as they were.
+            for item, tmp in zip(plan, staged, strict=True):
+                dest, keep = Path(item["to"]), safety / item["path"]
+                aside: list[tuple[Path, Path]] = []
+                swapped.append((dest, keep if item["replaces"] else None, aside))
+                if item["path"] in databases:  # a stale WAL would bring back what the backup doesn't hold
+                    for suffix in SQLITE_COMPANIONS:
+                        companion = dest.with_name(dest.name + suffix)
+                        if companion.exists():
+                            keep.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.move(companion, keep.with_name(keep.name + suffix))
+                            aside.append((companion, keep.with_name(keep.name + suffix)))
+                            moved = True
+                jsonfile.replace(tmp, dest)
+        except BaseException:
+            _put_back(swapped, staged)
+            raise
     kept = moved or any(i["replaces"] for i in plan)
-    result.update(applied=True, safety=str(safety) if kept else None)
+    result.update(applied=True, safety=str(safety) if kept else None, pruned=_prune_safety(data_dir / SAFETY, KEEP_SAFETY))
     return result
+
+
+def _prune_safety(folder: Path, keep: int = KEEP_SAFETY) -> list[str]:
+    """Delete all but the newest ``keep`` restores' copies in ``folder``, after a restore that worked.
+    Only plain folders named as restore names them: restore never makes a link there, so one (a symbolic
+    link or junction) is left alone rather than followed."""
+    if not folder.is_dir():
+        return []
+    stamps = sorted((d for d in folder.iterdir() if _STAMP.fullmatch(d.name) and d.is_dir()
+                     and not d.is_symlink() and not d.is_junction()), key=lambda d: d.name)
+    gone = []
+    for old in stamps[:-keep] if keep > 0 else stamps:
+        try:
+            shutil.rmtree(old)
+            gone.append(old.name)
+        except OSError:
+            _log.warning("restore: couldn't remove the old copies in %s", old, exc_info=True)
+    return gone
+
+
+def _put_back(swapped: list[tuple[Path, Path | None, list[tuple[Path, Path]]]], staged: list[Path]) -> None:
+    """Undo a restore that stopped part way: each file it swapped in goes back to its copy in
+    restore-safety (or away, if the restore added it), with any database companions it moved, and no
+    ``.restoring`` file is left. The copies stay in restore-safety."""
+    for dest, keep, aside in reversed(swapped):
+        try:
+            if dest.with_name(dest.name + ".restoring").exists():
+                pass  # not swapped yet: only its companions moved
+            elif keep is not None:
+                jsonfile.write_bytes(dest, keep.read_bytes())
+            else:
+                dest.unlink(missing_ok=True)
+            for companion, kept in aside:
+                shutil.move(kept, companion)
+        except OSError:
+            _log.warning("restore: couldn't put %s back; its copy is in restore-safety", dest, exc_info=True)
+    for tmp in staged:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:  # the error that stopped the restore is the one to raise, not this
+            _log.warning("restore: couldn't remove %s", tmp, exc_info=True)
 
 
 def describe(result: dict[str, Any]) -> str:

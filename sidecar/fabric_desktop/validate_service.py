@@ -30,6 +30,7 @@ from typing import Any
 from . import cleanup, envprofile, jsonfile, lakehouse, notebook_cells, receipts, redact, validate
 from .kernel_proc import ProcessKernel
 from .proof_runtime import PROOF_ROOT
+from . import known_folders
 
 METHODS = {"notebook_validate_check", "notebook_validate_start", "notebook_validate_status",
            "notebook_validate_cancel", "notebook_validate_list", "notebook_validate_save",
@@ -181,7 +182,7 @@ class ValidateMixin:
         if format not in ("markdown", "json"):
             raise ValueError("format is markdown or json")
         text = validate.to_markdown(record) if format == "markdown" else json.dumps(record, indent=1)
-        folder = Path.home() / "Downloads"
+        folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         stem = re.sub(r"[^\w.-]+", "-", f"validate-{record['name']}-{record['id'][9:24]}").strip("-")
         ext = "md" if format == "markdown" else "json"
@@ -199,7 +200,7 @@ class ValidateMixin:
 
     def _validate_kernel(self, lakehouse_ref: dict[str, str] | None) -> ProcessKernel:
         from .service import _apply_limits
-        schemas = bool(lakehouse_ref) and self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined]
+        schemas = bool(lakehouse_ref) and self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined, index]  # not indexed when None
         kernel = _CleanKernel(lakehouse_ref, schemas, Path(self.root),  # type: ignore[attr-defined]
                               token=self._token_for,  # type: ignore[attr-defined]
                               load_notebook=lambda nb: self.notebooks.load(nb)["cells"],  # type: ignore[attr-defined]
@@ -233,26 +234,17 @@ class ValidateMixin:
                 record["cell"] = n
                 row = {"cell": n, "cell_id": c.get("cell_id"), "status": "running", "seconds": 0}
                 record["cells"].append(row)
-                snap = kernel.start(c["source"])
-                version, outputs = -1, snap.get("outputs") or []
-                while snap["status"] == "running":
-                    if record["_cancel"]:
-                        # Cancel may come while the process is still starting, before there is one to stop.
-                        if kernel.alive():
-                            kernel.stop()
-                        snap = {"status": "cancelled", "seconds": row["seconds"]}
-                        break
-                    snap = kernel.poll(version, 0.5)
-                    version = snap.get("version", version)
-                    row["seconds"] = snap.get("seconds", row["seconds"])
-                    if snap.get("outputs") is not None:
-                        outputs = snap["outputs"]
+                def progress(s: dict[str, Any], row: dict[str, Any] = row) -> None:
+                    row["seconds"] = s.get("seconds", row["seconds"])
+                snap, outputs = notebook_cells.wait(kernel, kernel.start(c["source"]), lambda: record["_cancel"], progress)
+                if snap["status"] == "cancelled" and snap.get("seconds") is None:
+                    snap["seconds"] = row["seconds"]
                 row.update(status=snap["status"], seconds=snap.get("seconds"))
                 if snap["status"] != "ok":
                     status = "cancelled" if record["_cancel"] else "failed"
                     if status == "failed":
                         run["failed_cell"] = n
-                        run["error"] = _error(snap.get("outputs") or outputs)
+                        run["error"] = _error(outputs)
                         if kernel.limit_hit:
                             run["stopped_by"] = LIMIT_NAMES.get(kernel.limit_hit, f"the {kernel.limit_hit} limit")
                     break

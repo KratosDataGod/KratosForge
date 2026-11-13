@@ -24,7 +24,8 @@ for older callers. The rough scenario's plain numbers are called ``scenario_cu_h
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
 from . import calibration
 from . import measurement as ms
@@ -116,7 +117,7 @@ def activities(meta_runs: list[dict[str, Any]], fabric_runs: list[dict[str, Any]
 
     for r in meta_runs:
         fabric = r.get("compute") == "fabric"
-        ids = {"run_id": r.get("run_id") or None}
+        ids: dict[str, Any] = {"run_id": r.get("run_id") or None}
         secs = r.get("seconds")
         secs = float(secs) if isinstance(secs, (int, float)) and not isinstance(secs, bool) and secs >= 0 else None
         at = r.get("started_at")
@@ -155,7 +156,7 @@ def activities(meta_runs: list[dict[str, Any]], fabric_runs: list[dict[str, Any]
                           "its end, so it includes queueing and session start.", ids, r.get("started_at"),
                           "Fabric job API"), None)
     for r in notebook_writes:
-        ids: dict[str, Any] = {}
+        ids = {}
         secs = r.get("seconds")
         secs = float(secs) if isinstance(secs, (int, float)) and not isinstance(secs, bool) and secs >= 0 else None
         at = r.get("finished_at")
@@ -282,7 +283,7 @@ def report(rows: list[dict[str, Any]], cfg: dict[str, Any], days: int, now: dt.d
         """What a group avoided in Fabric, only when estimated from Fabric runs; unknown counts as 0."""
         return g["evidence"]["avoided_cost"]["value"] or 0.0
 
-    def grouped(key) -> list[dict[str, Any]]:
+    def grouped(key: Callable[[dict[str, Any]], Any]) -> list[dict[str, Any]]:
         groups: dict[Any, list[dict[str, Any]]] = {}
         for r in kept:
             groups.setdefault(key(r), []).append(r)
@@ -298,7 +299,7 @@ def report(rows: list[dict[str, Any]], cfg: dict[str, Any], days: int, now: dt.d
         cap = (capacities or {}).get(env) or {}
         by_env.append({"env": env, "capacity": cap.get("name"), "sku": cap.get("sku")}
                       | capacity_share(g["evidence"]["fabric_job_cu"], cap, days, since, now) | g)
-    by_day = sorted(({"day": g.pop("key")} | g for g in grouped(lambda r: _parse(r["at"]).date().isoformat())),
+    by_day = sorted(({"day": g.pop("key")} | g for g in grouped(lambda r: cast(dt.datetime, _parse(r["at"])).date().isoformat())),
                     key=lambda g: g["day"])
     return {"days": days, "since": since.isoformat(timespec="seconds"), "settings": cfg, "total": total(kept),
             "by_env": by_env, "by_item": by_item, "by_day": by_day}
@@ -309,7 +310,7 @@ def capacity_share(cu: dict[str, Any], cap: dict[str, Any], days: int, since: dt
     """What percent of a capacity's CU over the period the runs used: ``capacity_share`` (the plain
     number, None when not known) and ``capacity_share_evidence`` (its measurement)."""
     cus = sku_cu(cap.get("sku"))
-    ids = {"capacity_id": cap.get("id") or None}
+    ids: dict[str, Any] = {"capacity_id": cap.get("id") or None}
     if not cus or cu["value"] is None:
         why = ("The capacity's size isn't known: sign in with capacity access, or the workspace isn't on an F or P SKU."
                if not cus else "The runs' CU use isn't known.")

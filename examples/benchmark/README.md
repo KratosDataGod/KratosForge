@@ -25,4 +25,23 @@ These files are generated from `sidecar/fabric_desktop/benchmark.py`. After chan
 
 [startup_and_sql.py](startup_and_sql.py) times the engine starting, a notebook starting and local SQL queries over a generated table, with median and p95 over several runs. Run it from `sidecar/`: `python ../examples/benchmark/startup_and_sql.py` (`--runs 10 --json bench.json` for more runs and a file). What it measures and the recorded baseline: [Performance benchmark](../../docs/performance.md).
 
+### In CI, and refreshing the baseline
+
+The **Performance** workflow runs this on each runner image in its matrix and compares it with that
+image's baseline in [baselines/](baselines) using [compare.py](compare.py). It fails on two runs in a row
+past the margin; the rules are in [Performance benchmark](../../docs/performance.md#in-ci).
+
+Refresh a baseline when a change makes things faster or slower on purpose, or when GitHub changes the
+runner image. Do it from a run on that image, never from your own PC, and only in a pull request (the
+workflow never writes one). For a new image, add it to the workflow's matrix with its baseline file.
+
+1. Run the **Performance** workflow on main (Actions, then **Run workflow**), or open the latest run.
+2. Download its `benchmark-<commit>` artifact (`bench.json`), or copy the JSON from the **Show the result** step.
+3. From `sidecar/`: `python ../examples/benchmark/compare.py bench.json --write-baseline ../examples/benchmark/baselines/<image>.json --runner "GitHub Actions <image>" --commit <commit>`
+4. Commit the new file in a pull request that says why the numbers moved.
+
+## Memory soak
+
+[memory_soak.py](memory_soak.py) loops notebook cells, kernel restarts, local SQL and Delta writes, and checks that memory, handles, threads, child processes and temp files level off. Run it from `sidecar/`: `python ../examples/benchmark/memory_soak.py --minutes 20`. The **Memory soak** workflow runs it nightly on Linux and Windows and only warns for now. What counts as growth: [Memory soak](../../docs/performance.md#memory-soak).
+
 These runs follow TPC-H's data and queries but are not audited TPC-H results. TPC-H is a trademark of the Transaction Processing Performance Council.

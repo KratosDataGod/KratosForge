@@ -130,6 +130,41 @@ def test_acknowledge_assign_and_note_are_kept_with_who_and_when(backend):
         log.acknowledge(i, "chris@contoso.com")
 
 
+def test_assign_strips_the_owner_unassigns_with_empty_and_records_before_and_after(backend):
+    # Characterizes assign as it is: no state check (a resolved incident can still be reassigned),
+    # the owner is stripped, empty means nobody, and each change is a note and an event.
+    log = IncidentLog(backend, "prod", Clock())
+    [c] = log.sync(failed(), evaluated=True, by="a")
+    i = c["incident"]["id"]
+    log.assign(i, "  dana@contoso.com ", "chris@contoso.com")
+    inc = log.assign(i, "", "dana@contoso.com")
+    assert inc["owner"] == "" and inc["state"] == "open"  # assigning doesn't acknowledge
+    assert [n["text"] for n in inc["notes"]] == ["Assigned: nobody → dana@contoso.com",
+                                                "Assigned: dana@contoso.com → nobody"]
+    assert [(e["what"], e["by"], e["text"]) for e in inc["events"] if e["what"] == "assigned"] == [
+        ("assigned", "chris@contoso.com", "nobody → dana@contoso.com"),
+        ("assigned", "dana@contoso.com", "dana@contoso.com → nobody")]
+    log.resolve(i, "dana@contoso.com")
+    assert log.assign(i, "lee@contoso.com", "chris@contoso.com")["owner"] == "lee@contoso.com"
+    with pytest.raises(LookupError):
+        log.assign("inc-nope", "x", "y")
+
+
+def test_a_long_note_is_cut_and_the_event_list_keeps_the_first_and_the_newest(backend):
+    from fabric_desktop.workloads.incidents import KEEP_EVENTS
+    log = IncidentLog(backend, "prod", Clock())
+    [c] = log.sync(failed(), evaluated=True, by="a")
+    i = c["incident"]["id"]
+    first = c["incident"]["events"][0]
+    inc = log.note(i, "x" * 5000, "chris@contoso.com")
+    assert len(inc["notes"][-1]["text"]) == 2000 and len(inc["events"][-1]["text"]) == 2000
+    for n in range(KEEP_EVENTS + 5):
+        inc = log.note(i, f"note {n}", "chris@contoso.com")
+    assert len(inc["events"]) == KEEP_EVENTS
+    assert inc["events"][0] == first and inc["events"][-1]["text"] == f"note {KEEP_EVENTS + 4}"
+    assert len(inc["notes"]) == KEEP_EVENTS + 6  # notes aren't trimmed
+
+
 def test_resolved_incidents_are_trimmed_to_the_newest(backend, monkeypatch):
     from fabric_desktop.workloads import incidents
     monkeypatch.setattr(incidents, "KEEP_RESOLVED", 3)
@@ -163,6 +198,37 @@ def test_a_missed_freshness_promise_is_a_late_signal():
     [s] = evaluate.signals("sales", {"a": spec}, [old], "prod", now=now)
     assert s["kind"] == "late" and s["evidence"]["source"] == "freshness promise"
     assert evaluate.signals("sales", {"a": spec}, [old], "test", now=now) == []  # not promised in Test
+
+
+def test_a_product_promise_broken_by_lateness_or_rejected_rows_is_one_promise_signal():
+    now = dt.datetime(2026, 10, 16, 9, 0).astimezone()
+    old = run("a", "ok", "r1", started=(now - dt.timedelta(days=3)).isoformat()) | {"rows_read": 1000, "quarantined": 50}
+    promises = {"a": [{"product": "Sales", "envs": ["prod"], "within_hours": 24},
+                      {"product": "Finance", "envs": ["prod"], "max_rejected_pct": 2},
+                      {"product": "Ops", "envs": ["test"], "within_hours": 1}]}  # not promised in Prod
+    [s] = evaluate.signals("sales", {"a": {}}, [old], "prod", now=now, promises=promises)
+    assert s["kind"] == "promise" and s["evidence"]["products"] == ["Sales", "Finance"]
+    assert s["title"] == "Sales, Finance broke their promise in Prod (a)"
+    late, rejected = s["evidence_id"].split("|")
+    assert late.startswith("late:2026-10-13") and rejected == "rejected:r1"
+    assert any("5.0 % of rows rejected in the newest load, promised under 2 %" in r for r in s["evidence"]["reasons"])
+    # within the limit, and a load that read nothing, say nothing
+    fine = old | {"quarantined": 10}
+    assert evaluate.promise_signal("a", promises["a"][1:2], [fine], "prod", now) is None
+    assert evaluate.promise_signal("a", promises["a"][1:2], [old | {"rows_read": 0}], "prod", now) is None
+    [one] = [evaluate.promise_signal("a", promises["a"][1:2], [old], "prod", now)]
+    assert one["title"] == "Finance broke its promise in Prod (a)"
+
+
+def test_a_table_late_on_its_own_promise_names_the_products_it_lets_down_once():
+    now = dt.datetime(2026, 10, 16, 9, 0).astimezone()
+    old = run("a", "ok", "r1", started=(now - dt.timedelta(days=3)).isoformat())
+    spec = {"freshness": {"within_hours": 26, "envs": ["prod"]}}
+    promises = {"a": [{"product": "Sales", "envs": ["prod"], "within_hours": 24},
+                      {"product": "Weekly", "envs": ["prod"], "within_hours": 24 * 7}]}  # not late for this one
+    got = evaluate.signals("sales", {"a": spec}, [old], "prod", now=now, promises=promises)
+    assert [s["kind"] for s in got] == ["late"]  # one cause, one incident: no second "promise" signal
+    assert got[0]["evidence"]["promise_products"] == ["Sales"]
 
 
 # ---------------------------------------------------------------------------- objectives
@@ -222,7 +288,32 @@ def test_many_changes_at_once_become_one_digest():
     assert title == "5 new problems, 2 recovered (agent etl-01)" and len(lines) == 7
 
 
-def test_teams_unreachable_queues_and_the_next_try_sends_them_marked_delayed(tmp_path):
+def test_a_digest_counts_escalations_and_no_changes_send_nothing():
+    assert messages([], "agent etl-01") == []
+    [(title, lines)] = messages([change() for _ in range(5)] + [change("escalated")], "agent etl-01")
+    assert title == "5 new problems, 1 escalated (agent etl-01)" and len(lines) == 6
+
+
+def test_waiting_messages_keep_their_place_when_their_route_is_gone_or_down(tmp_path):
+    clock = Clock()
+    outbox = Outbox(tmp_path / "alerts.sqlite3", clock)
+    outbox.add("old team", ["x"], "down", route="team-a")
+    outbox.add("first", ["x"], "down", route="team-b")
+    outbox.add("second", ["x"], "down", route="team-b")
+    tries = []
+
+    def post(url, title, lines):
+        tries.append(title)
+        raise ConnectionError("no network")
+    # team-a was removed and there's no default: its message waits for one; team-b is down, so after
+    # its first message fails the second isn't tried this time
+    out = send([], Routing([Route("team-b", "https://b.example/hook")]), outbox, "agent etl-01", post)
+    assert tries == ["Delayed: first"] and out["sent"] == 0
+    assert [(i["title"], i["attempts"]) for i in outbox.pending()] == [("old team", 1), ("first", 2), ("second", 1)]
+
+
+def test_teams_unreachable_queues_and_the_next_try_sends_them_marked_delayed(tmp_path, monkeypatch):
+    monkeypatch.setattr("fabric_desktop.workloads.notify.BACKOFF_FIRST", 0.0)  # retries here aren't about the rest between tries
     clock = Clock()
     outbox = Outbox(tmp_path / "alerts.sqlite3", clock)
     posted = []
@@ -384,6 +475,12 @@ def test_the_app_and_the_agent_share_one_incident_list(tmp_path, monkeypatch):
     assert svc.incidents_list("dev", include_resolved=False)["incidents"] == []
     with pytest.raises(ValueError):
         svc.incident_note("dev", inc["id"], "  ")
+    # who did it is the signed-in person, and a note is kept without its outer spaces
+    assigned = svc.incident_assign("dev", inc["id"], "dana@contoso.com")
+    assert assigned["owner"] == "dana@contoso.com" and assigned["events"][-1]["by"] == "chris@contoso.com"
+    assert svc.incident_note("dev", inc["id"], "  Source was late  ")["notes"][-1]["text"] == "Source was late"
+    with pytest.raises(LookupError):
+        svc.incident_assign("dev", "inc-nope", "dana@contoso.com")
     with pytest.raises(ValueError):
         svc.incidents_list("staging")
 
@@ -683,6 +780,7 @@ def test_an_agents_failed_job_alert_logs_no_webhook_signature(tmp_path, monkeypa
 
 
 def test_a_job_alert_teams_didnt_take_goes_out_later_marked_delayed(tmp_path, monkeypatch):
+    monkeypatch.setattr("fabric_desktop.workloads.notify.BACKOFF_FIRST", 0.0)  # retries here aren't about the rest between tries
     # QA-021: the "job didn't finish" alert went straight to Teams, once; a network blip lost it.
     posted, up = [], {"ok": False}
 
@@ -701,19 +799,29 @@ def test_a_job_alert_teams_didnt_take_goes_out_later_marked_delayed(tmp_path, mo
     agent.step()  # the next status round sends it
     [(title, lines)] = posted
     assert title == "Delayed: KratosForge agent etl-01: a Prod job didn't finish"
-    assert lines[0].startswith("From ") and lines[1:] == ["Job j1 (schedule)", "boom"]
+    assert lines[0].startswith("From ") and lines[1:] == ["Job j1 (schedule)", "boom",
+                                                          "Fix the cause, then run: fabric-desktop agent requeue j1"]
     assert agent._alert_outbox().pending() == []
     agent.send_waiting_alerts()
     assert len(posted) == 1  # sent once
 
 
+def test_a_job_alert_says_how_to_run_the_job_again(tmp_path, monkeypatch):
+    posted = []
+    monkeypatch.setattr("fabric_desktop.agent.post_teams", lambda url, title, lines: posted.append(lines))
+    agent, _ = _alerting_agent(tmp_path, monkeypatch, "https://x.webhook.office.com/workflows/a/invoke?sig=S")
+    agent._alert(JOB | {"dedupe_key": "pipeline:run-1"}, "boom")
+    assert posted[-1] == ["Job j1 (schedule)", "boom", "Fix the cause, then submit the request again from the pipeline."]
+
+
 def test_waiting_job_alerts_go_before_a_new_one(tmp_path, monkeypatch):
+    monkeypatch.setattr("fabric_desktop.workloads.notify.BACKOFF_FIRST", 0.0)  # retries here aren't about the rest between tries
     posted, up = [], {"ok": False}
 
     def teams(url, title, lines):
         if not up["ok"]:
             raise ConnectionError("down")
-        posted.append(lines[-1])
+        posted.append(lines[-2])  # the error; the last line is what to do next
     monkeypatch.setattr("fabric_desktop.agent.post_teams", teams)
     agent, _ = _alerting_agent(tmp_path, monkeypatch, "https://x.webhook.office.com/workflows/a/invoke?sig=S")
     agent._alert(JOB, "first")
@@ -733,7 +841,8 @@ def test_a_legacy_connector_webhook_stays_out_of_a_waiting_job_alert(tmp_path, m
         assert secret not in item["error"] and secret not in str(logged)  # the webhook isn't, however it's masked
 
 
-def test_a_credential_in_a_run_message_reaches_neither_teams_nor_the_outbox(tmp_path):
+def test_a_credential_in_a_run_message_reaches_neither_teams_nor_the_outbox(tmp_path, monkeypatch):
+    monkeypatch.setattr("fabric_desktop.workloads.notify.BACKOFF_FIRST", 0.0)  # retries here aren't about the rest between tries
     secret = "Login failed: password=hunter2\nAuthorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcDEF123 " + "x" * 2000
     c = {"change": "opened", "incident": {"kind": "run_failed", "name": "silver.orders", "env": "prod",
                                           "title": "silver.orders failed in Prod\n" + secret, "text": secret, "owner": ""}}

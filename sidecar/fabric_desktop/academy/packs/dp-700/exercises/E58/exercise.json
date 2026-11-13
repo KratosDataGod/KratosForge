@@ -1,0 +1,96 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E58",
+  "version": 1,
+  "status": "draft",
+  "title": "Broken: a retried pipeline doubled a table",
+  "objectives": [
+    "2.2.9",
+    "3.2.1"
+  ],
+  "objective_text": "Use a pipeline's run history to find the rows a failed-then-retried run left behind, remove exactly those, and replace the append with a load that's safe to retry.",
+  "scenario": "Yesterday's sales load failed after writing its rows, the pipeline's retry policy ran it again, and the run history shows success. Today revenue for batch b2 is double. The load step is the SQL in your workspace, and load_log is the pipeline's run history.",
+  "prerequisites": [
+    "E37"
+  ],
+  "minutes": 20,
+  "mode": "troubleshoot",
+  "class": "local_verified",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "load_sales.sql",
+  "verifies": [
+    "Your repair and your new load ran on this PC with DuckDB: the failed run's rows are gone, the load ran twice for batch b3 without doubling, and load_log is untouched."
+  ],
+  "does_not_verify": [
+    "A Fabric pipeline's retry settings or its monitoring view: the run history here is a recorded table, not the monitoring hub.",
+    "Delta MERGE in a lakehouse, which has the same shape but runs in Spark (see E22)."
+  ],
+  "datasets": [],
+  "fault": {
+    "summary": "The load step appends with INSERT, and the pipeline retries a failed run. Run r2 wrote batch b2 and then failed; retry r3 wrote b2 again.",
+    "planted": [
+      {
+        "where": "silver_sales",
+        "what": "rows from failed run r2 duplicate the rows of retry r3"
+      },
+      {
+        "where": "load_sales.sql",
+        "what": "INSERT appends whatever it is given, so any retry doubles a batch"
+      }
+    ],
+    "symptom": "Sales 3 and 4 appear twice in silver_sales; revenue for b2 is doubled."
+  },
+  "expected": {
+    "tables": {
+      "silver_sales": {
+        "unique": [
+          "sale_id"
+        ]
+      }
+    },
+    "result": "The starter's final SELECT over silver_sales, ordered by sale_id."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "One row per sale, with b3's corrections applied.",
+      "fail": "Look at run_id in silver_sales next to load_log's status."
+    },
+    {
+      "kind": "table_shape",
+      "table": "silver_sales",
+      "unique": [
+        "sale_id"
+      ],
+      "pass": "No sale is doubled.",
+      "fail": "A sale appears twice."
+    },
+    {
+      "kind": "unchanged",
+      "tables": [
+        "load_log",
+        "stg_batch_b3"
+      ],
+      "pass": "The run history and the batch are untouched.",
+      "fail": "Your answer changed the run history or the staged batch."
+    }
+  ],
+  "hints": [
+    "Join silver_sales to load_log on run_id. Which run's rows should never have survived?",
+    "DELETE the rows of failed runs. SELECT DISTINCT won't help: the copies differ in run_id.",
+    "Replace INSERT with MERGE on sale_id: update the row when it's there, insert it when it isn't. Then run it twice for b3."
+  ],
+  "explanation": "Pipelines retry failed activities, so every load step must be idempotent: running it twice must leave the same table as running it once. Appending isn't; MERGE on the business key is. To repair the damage, use the lineage you have: each row's run_id and the run history tell you exactly which rows came from a run that failed. Deleting by run is precise, while a blanket DISTINCT or 'keep the latest' rebuild can also remove legitimate rows.",
+  "remediation": [
+    "LAB-04",
+    "LAB-11",
+    "LM-21",
+    "https://learn.microsoft.com/fabric/data-factory/activity-overview"
+  ],
+  "reset": "Reset restores silver_sales, load_log, stg_batch_b3 and the original load_sales.sql.",
+  "parity": null
+}

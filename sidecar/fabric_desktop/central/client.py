@@ -6,12 +6,13 @@ because both run the same code (core.py). The Fabric one invokes a User Data Fun
 
 from __future__ import annotations
 
-import sqlite3
+import sys
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 import requests
 
@@ -52,29 +53,38 @@ class LocalPlatform:
             if not core.list_admins(db) and self._user():
                 core.claim_admin(db, self._user())
 
-    def _db(self) -> "_Open":
-        return _Open(self.path)
+    @contextmanager
+    def _db(self) -> Iterator[core.Db]:
+        """The platform file for one call: what the call changes lands together or not at all, and
+        the connection is closed either way (an open handle keeps the file locked on Windows)."""
+        with sqlitefile.transaction(self.path) as conn:
+            yield core.Db(conn, "sqlite")
 
     def call(self, op: str, **kwargs: Any) -> Any:
         if op not in core.OPERATIONS:
             raise ValueError(f"the platform has no operation {op!r}")
-        fn = core.OPERATIONS[op]
+        fn: Any = core.OPERATIONS[op]  # a mix of signatures; called with the caller's own kwargs
         if "by" in fn.__code__.co_varnames[:fn.__code__.co_argcount]:
             kwargs["by"] = self._user()
-        with self._lock, self._db() as db:
-            return fn(db, **kwargs)
+        with self._lock:
+            try:
+                with self._db() as db:
+                    return fn(db, **kwargs)
+            except core.PlatformError:
+                self._refused(op, kwargs)
+                raise
 
-
-class _Open:
-    def __init__(self, path: Path):
-        self.path = path
-
-    def __enter__(self) -> core.Db:
-        self.conn = sqlite3.connect(self.path, timeout=30)
-        return core.Db(self.conn, "sqlite")
-
-    def __exit__(self, *exc: Any) -> None:
-        self.conn.close()
+    def _refused(self, op: str, kwargs: dict[str, Any]) -> None:
+        """The platform's "refused <op>" row, after the refused change was rolled back (the block above);
+        the refusal is raised as it was even when the row can't be written."""
+        change = core.refused_operation(op, kwargs)
+        if not change:
+            return
+        try:
+            with self._db() as db:
+                core.record_refusal(db, self._user(), change)
+        except Exception as exc:  # noqa: BLE001 - the refusal stands either way
+            print(f"platform: could not record a refused {change}: {type(exc).__name__}", file=sys.stderr)
 
 
 class FabricPlatform:
@@ -111,6 +121,11 @@ class FabricPlatform:
         # The functions' parameters are named without underscores (udf.fabric_name); call_once's args
         # go on to the operation as they are.
         params = {udf.fabric_name(k): v for k, v in kwargs.items()}
+        # A dict or list parameter has no default in UDF_Platform (Fabric refuses one), so one left out
+        # is sent empty, which the function takes as not given.
+        for name, empty in udf.left_out_as_empty().get(op, {}).items():
+            if params.get(name) is None:
+                params[name] = type(empty)()
         if op in core.READ_OPERATIONS or op in core.REPEATABLE_OPERATIONS:
             return self._answer(op, self._send(op, params, safe=True))
         if self._once is not False:
@@ -226,7 +241,8 @@ class PlatformKeys:
         return self.client.call("lookup_key", name=name, value=value)
 
     def export(self, name: str) -> list[list[Any]]:
-        rows, after = [], core.UNKNOWN_KEY - 1
+        rows: list[list[Any]] = []
+        after = core.UNKNOWN_KEY - 1
         while True:
             page = self.client.call("export_keys", name=name, after=after)
             if not page:

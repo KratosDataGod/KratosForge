@@ -105,6 +105,7 @@ def test_approvals_are_recorded_as_the_person_decided(store):
         for _ in range(250):
             pending = store.approvals("pending")
             if pending:
+                time.sleep(0.05)  # a person takes time to decide; longer than Windows' ~16 ms clock tick
                 store.decide(pending[0]["id"], approve)
                 return
             time.sleep(0.02)

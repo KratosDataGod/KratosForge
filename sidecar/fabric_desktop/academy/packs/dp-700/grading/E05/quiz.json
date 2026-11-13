@@ -1,0 +1,117 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "stem": "A team already writes its orchestration as Python DAGs and wants Fabric to run them as a managed service. Another team wants to orchestrate without writing code. Which pairing fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Pipelines for the Python DAGs, and an Apache Airflow job for the team that wants no code"
+        },
+        {
+          "id": "b",
+          "text": "An Apache Airflow job for the Python DAGs, and pipelines for the team that wants no code"
+        },
+        {
+          "id": "c",
+          "text": "An Apache Airflow job for both teams, since the job converts DAGs into a drag-and-drop canvas"
+        },
+        {
+          "id": "d",
+          "text": "A Spark job definition for the Python DAGs, and a Dataflow Gen2 for the team that wants no code"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Apache Airflow jobs build and run Python-based DAGs as a managed service, for people who prefer writing code. If you'd rather not write code, pipelines offer a no-code way to handle orchestration.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-concepts"
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "stem": "An Apache Airflow job created on Airflow 2.10.5 must move to a newer Airflow version. What's the supported way?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Turn on autoscale, which upgrades the job to the newest Airflow version when it scales"
+        },
+        {
+          "id": "b",
+          "text": "Install the newer Airflow as a private package requirement in the existing job"
+        },
+        {
+          "id": "c",
+          "text": "Change the version in the existing job's settings; it restarts on the new version"
+        },
+        {
+          "id": "d",
+          "text": "Create a new Apache Airflow job with the version you want, and move the DAGs to it"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Changing the Apache Airflow version within an existing job isn't supported: create a new job with the version you want.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-concepts"
+    },
+    {
+      "id": "q3",
+      "type": "multiple",
+      "stem": "Which two of these does an Apache Airflow job support, according to its feature list?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Running the DAGs as a Dataflow Gen2 refresh on a schedule"
+        },
+        {
+          "id": "b",
+          "text": "Installing a private package as a requirement"
+        },
+        {
+          "id": "c",
+          "text": "Converting each DAG into a pipeline item in the workspace"
+        },
+        {
+          "id": "d",
+          "text": "Git sync, so the job's DAGs come from a Git repository"
+        }
+      ],
+      "answer": [
+        "b",
+        "d"
+      ],
+      "explanation": "The feature list includes Git sync, installing a private package as a requirement, pause and resume time to live, autoscale and high availability.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-concepts"
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "stem": "Nobody runs DAGs at night, and the team wants the Airflow environment to stop using compute when idle. Which feature is meant for that?",
+      "options": [
+        {
+          "id": "a",
+          "text": "High availability, which moves the job to a standby"
+        },
+        {
+          "id": "b",
+          "text": "Git sync, which pulls DAGs only when they change"
+        },
+        {
+          "id": "c",
+          "text": "Pause and resume with a time to live (TTL)"
+        },
+        {
+          "id": "d",
+          "text": "Autoscale, which grows the workers during production spikes"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The feature list names pause and resume time to live (TTL); autoscale handles execution spikes and high availability handles outages.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-concepts"
+    }
+  ]
+}

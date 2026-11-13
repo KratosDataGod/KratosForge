@@ -30,8 +30,8 @@ def _call(name: str, data: bytes, purpose: bytes = ENTROPY) -> bytes:
         buf = ctypes.create_string_buffer(raw, len(raw))
         return Blob(len(raw), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char))), buf
 
-    crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)  # type: ignore[attr-defined]  # Windows-only
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]  # Windows-only
     fn = getattr(crypt32, name)
     fn.argtypes = [ctypes.POINTER(Blob), ctypes.c_void_p, ctypes.POINTER(Blob), ctypes.c_void_p,
                    ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(Blob)]
@@ -42,7 +42,7 @@ def _call(name: str, data: bytes, purpose: bytes = ENTROPY) -> bytes:
     entropy, _keep_entropy = blob(purpose)
     out = Blob()
     if not fn(ctypes.byref(data_in), None, ctypes.byref(entropy), None, None, _UI_FORBIDDEN, ctypes.byref(out)):
-        raise OSError(ctypes.get_last_error(), f"{name} failed")
+        raise OSError(ctypes.get_last_error(), f"{name} failed")  # type: ignore[attr-defined]  # Windows-only
     try:
         return ctypes.string_at(out.pbData, out.cbData)
     finally:

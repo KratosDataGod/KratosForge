@@ -35,7 +35,7 @@ Baseline: `main` at `b75dcf5`, 2026-11-02.
 - **Complexity:** S to M.
 - **Regression risk:** medium. Some appends that "worked" will now stop, and the release note must say so.
 
-### EA-002: Notebook Parquet and CSV file writes ignored the save mode (P1, DEFECT, confirmed, fix in review)
+### EA-002: Notebook Parquet and CSV file writes ignored the save mode (P1, DEFECT, confirmed, fixed in #1572)
 
 - **Category:** data integrity and interoperability.
 - **Evidence:** `df.write.parquet(p)`, then `df2.write.mode("append").parquet(p)`, then reading `p` back gives only `df2`'s rows. The default mode and `ignore` also overwrote a file that was already there.
@@ -151,7 +151,7 @@ Baseline: `main` at `b75dcf5`, 2026-11-02.
 | EA-016 | P2 | DEFECT (audit script) | Cancel interrupts the session's DuckDB and the default connection, but not a `duckdb.connect()` the user opened, or Polars. engines.md says "Native" | `spark_local.py` cancel, `docs/engines.md` | Parity, then docs |
 | EA-017 | P2 | DEFECT (audit script) | `hash()` returns a 64-bit DuckDB hash, where Spark returns a 32-bit Murmur3, so values differ silently | translation | Parity |
 | EA-018 | P3 | DEFECT | CONTRIBUTING.md says "Python 3.11 or later"; `pyproject.toml` requires 3.12 | `CONTRIBUTING.md` | This audit (docs PR) |
-| EA-019 | P3 | DEFECT, fixed in review | `test_fabric_environment` failed whenever the test's Python had `rich` installed | `tests/test_fabric_environment.py` | This audit |
+| EA-019 | P3 | DEFECT, fixed in #1572 | `test_fabric_environment` failed whenever the test's Python had `rich` installed | `tests/test_fabric_environment.py` | This audit |
 | EA-020 | P2 | GAP | Supply chain hardening: check the embedded Python with SHA-256 instead of MD5; install engine wheels with `--require-hashes`; gate the Preview `latest` publish with an environment; the legacy non-bundled engine update installs a commit-pinned source archive over HTTPS, without checking a content hash (SHA-256); planned fix: pin a SHA-256 for the archive | `ci.yml`, `updater.py` | Release management (workflow changes need maintainer review) |
 | EA-021 | P3 | RISK | `sidecar.log` and `schedule_runs.jsonl` have no size bound, and the support bundle reads a whole file to keep its last 2,000 lines | `main.rs`, `local_schedules.py`, `support_bundle.py` | Enterprise readiness |
 | EA-022 | P3 | RISK, power loss UNVERIFIED | Notebook saves and the token cache are replaced without `fsync`. Only `jsonfile.write_text` and receipts flush | `notebook.py` `_write_atomic`, `auth.py` | Codebase audit |
@@ -174,40 +174,40 @@ Four further P3 security hardening items are tracked privately and have been rou
 
 ## Progress
 
-As of 2026-11-02 07:00 UTC. "Open PR" means the PR is up and in review; a draft is still being written.
+Checked row by row against `main` at `5ec9d05` on 2026-11-12: each PR below is on `main`. Earlier check: 2026-11-05 at `1ca71e3`, where the audit's 17 repro tests for EA-001, EA-003 to EA-007 and EA-012 to EA-017 all pass on this commit.
 
 | Id | State | PR |
 | --- | --- | --- |
-| EA-001 | Part merged (notebook and job appends); metadata runs and published notebooks open | #1576 merged, #1600 open |
-| EA-002, EA-019 | Open PR | #1572 |
-| EA-003 | Merged | #1579. Related local T-SQL casts: #1586 merged; #1588, #1591, #1598, #1599 open |
-| EA-004 | Draft, part 1 (sums as `bigint`) | #1595. Decimal result types still to do |
-| EA-005 | Open PR | #1582 |
-| EA-006 | Open PRs | #1585, #1605 |
-| EA-007 | Open PRs | #1594, #1604 |
-| EA-008 | Merged; follow-up open | #1574 merged, #1617 open |
+| EA-001 | Merged | #1576, #1600 |
+| EA-002, EA-019 | Merged | #1572 |
+| EA-003 | Merged | #1579. Related local T-SQL casts: #1586, #1588, #1591, #1598, #1599 merged |
+| EA-004 | Merged | #1645, #1646, #1647 |
+| EA-005 | Merged | #1582 |
+| EA-006 | Merged | #1585, #1605 |
+| EA-007 | Merged | #1594, #1604 |
+| EA-008 | Merged | #1574, #1617 |
 | EA-009 | Blocked on the maintainer (signing identity check, live harness run) | |
-| EA-010 | Open PR | #1575 |
-| EA-011 | Open PR | #1578 |
-| EA-012 | Open PR | #1601 |
-| EA-013 | Draft | #1626 |
-| EA-014 | Draft | #1609 |
-| EA-015 | Draft | #1607 |
-| EA-016 | Draft | #1624 |
-| EA-017 | Open PR | #1625 |
+| EA-010 | Merged | #1575 |
+| EA-011 | Merged | #1578 |
+| EA-012 | Merged | #1601 |
+| EA-013 | Merged | #1626 |
+| EA-014 | Merged | #1609 |
+| EA-015 | Merged | #1607 |
+| EA-016 | Merged for DuckDB connections a notebook opens; Polars and other native code still finish first, and [engines](../engines.md) lists the Python engine's Cancel as Partial | #1624 |
+| EA-017 | Merged | #1625 |
 | EA-018 | Done | #1571 |
-| EA-020 | Part merged (embedded Python SHA-256, Preview environment) | #1573 merged. #1637 (legacy archive hash) open, Quality passed. Hash-locked engine wheels are queued |
-| EA-021 | Part merged (schedule log bound, log tails); engine log cap open | #1581 merged; #1584 open, #1589 draft |
-| EA-022 | Part merged (notebook saves, sign-in cache flushed) | #1590, #1593 merged; #1592 open |
-| EA-023 | Draft | #1580 |
-| EA-024 | Draft | #1596 |
-| EA-025 | Open PRs | #1613, #1614, #1615 |
+| EA-020 | Merged | #1573, #1636, #1637. Related: CI test, lint and nightly tools also install from hashed locks (#2517, #2525) |
+| EA-021 | Merged | #1581, #1584, #1589 |
+| EA-022 | Merged | #1590, #1592, #1593 |
+| EA-023 | Merged | #1580 |
+| EA-024 | Merged | #1596 |
+| EA-025 | Merged | #1613, #1614, #1615 |
 | EA-026 | Withdrawn: already covered by `test_server_lanes.py` | |
-| EA-027 | Open PR (first slice) | #1597 |
-| EA-028 | Open PRs (callers moved one at a time) | #1602, #1606, #1627, #1630 |
-| EA-029 | Open PR | #1608 |
-| EA-030 | Parked: needs a Windows PC | |
+| EA-027 | Merged: bugbear (B) and blind-except (BLE) are on, each reviewed broad handler marked with its reason | #1597, #2341 |
+| EA-028 | Under way: callers move one at a time | Atomic writes: #1602, #1630, #1883, #1885, #1893, #1909. Redaction: #1606, #1627, #1956. Retry loops through `retrying.py`, with an inventory test: #2330, #2342. Damaged SQLite stores set aside or refused, through one shared `sqlitefile.open_store`: #1580, #1689, #1698, #1710, #1733 |
+| EA-029 | Merged | #1608 |
+| EA-030 | Parked: needs a Windows PC. A keyboard-only browser pass is merged (#1690); Narrator is still to do | |
 
-The scorecard stays at 54 until EA-001, EA-002 and EA-004 are all merged; see the trend table in [Enterprise readiness](ENTERPRISE_READINESS.md).
+The scorecard is now 64; see the trend table in [Enterprise readiness](ENTERPRISE_READINESS.md).
 
 The private security items: three are fixed, and one is waiting on a step from the maintainer.

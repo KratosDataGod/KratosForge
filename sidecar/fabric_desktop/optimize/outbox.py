@@ -104,12 +104,14 @@ class Outbox:
         db.execute("insert or ignore into outbox_state (lakehouse_id) values (?)", (lakehouse_id,))
 
     def _trim(self, db: sqlite3.Connection, lakehouse_id: str, now: float) -> None:
-        """Drop what is too old, then the oldest past the cap, counting each one dropped."""
+        """Drop what is too old, then the oldest past the cap, counting each one dropped. Items added
+        in the same clock tick (Windows' clock is coarse) are ordered by when they were added (rowid),
+        never by their random id."""
         old = db.execute("delete from outbox where lakehouse_id = ? and created_at < ?",
                          (lakehouse_id, now - self.max_age)).rowcount
         over = db.execute(
             "delete from outbox where id in (select id from outbox where lakehouse_id = ? "
-            "order by created_at desc, id desc limit -1 offset ?)", (lakehouse_id, self.max_items)).rowcount
+            "order by created_at desc, rowid desc limit -1 offset ?)", (lakehouse_id, self.max_items)).rowcount
         if old + over:
             self._state(db, lakehouse_id)
             db.execute("update outbox_state set dropped = dropped + ? where lakehouse_id = ?",
@@ -167,7 +169,7 @@ class Outbox:
         with self._tx() as db:
             self._trim(db, lakehouse_id, now)
             rows = db.execute("select * from outbox where lakehouse_id = ? and (? or next_at <= ?) "
-                              "order by created_at, id", (lakehouse_id, int(include_waiting), now)).fetchall()
+                              "order by created_at, rowid", (lakehouse_id, int(include_waiting), now)).fetchall()
         return [{"id": r["id"], "kind": r["kind"], "payload": json.loads(r["payload"]), "rows": r["rows"],
                  "attempts": r["attempts"]} for r in rows]
 

@@ -152,4 +152,11 @@ def test_a_repair_stopped_at_any_statement_finishes_when_run_again(tmp_path, mon
         _repair(path)
         _check(path, rows)
     assert done, "a repair has 500 or more schema statements: raise the limit"
-    assert shape is SHAPES["shapes"][-1] or stops > 0  # every older shape has statements to stop at
+    # Every older shape has statements to stop at, unless it already holds all of today's tables and
+    # columns (a later release only stopped making a table, which a repair leaves in place).
+    assert shape is SHAPES["shapes"][-1] or stops > 0 or _holds_today(shape)
+
+
+def _holds_today(shape):
+    held = {SHAPES["tables"][i][0]: {c[0] for c in SHAPES["tables"][i][1]} for i in shape["tables"]}
+    return all(set(cols) <= held.get(t, set()) for t, cols in TODAY.items())

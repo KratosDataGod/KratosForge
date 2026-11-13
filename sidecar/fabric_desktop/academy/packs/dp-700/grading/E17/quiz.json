@@ -1,0 +1,144 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "stem": "Harbourline is moving several petabytes of files from an on-premises data lake into a lakehouse. The team wants no code and no transformation beyond a light column rename. What fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Dataflow Gen2 with one Power Query query for every source folder in the lake"
+        },
+        {
+          "id": "b",
+          "text": "A Spark notebook that reads every file with PySpark and writes it to the lakehouse"
+        },
+        {
+          "id": "c",
+          "text": "A pipeline with a copy activity, built in the copy wizard or on the canvas"
+        },
+        {
+          "id": "d",
+          "text": "A Spark job definition that runs a Scala program to copy the files in batches"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The decision guide calls the copy activity the best low-code and no-code choice to move petabytes of data to lakehouses and warehouses, with light transformation.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark"
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "stem": "The returns team has to parse nested JSON, apply rules that change by country and write three Delta tables. Its engineers write Python every day. What fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A pipeline copy activity with a column mapping for each nested field in the JSON"
+        },
+        {
+          "id": "b",
+          "text": "An eventstream with a filter operator for each country's rule set"
+        },
+        {
+          "id": "c",
+          "text": "A Spark notebook, where the extract and transformation logic is written as code"
+        },
+        {
+          "id": "d",
+          "text": "A Copy job set to incremental copy from the source folder into the lakehouse"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Spark is the code option, for data engineers who write Spark (Python, Scala, Spark SQL or R), and it covers ingestion, transformation and processing. The guide's Spark scenario picks it to build the extract and transformation logic.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark"
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "stem": "A business analyst needs a few tables copied from a database into Fabric every day, picking up only the new rows, with no code. What does the decision guide suggest?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Copy job, which covers ingestion, incremental copy and replication with no code"
+        },
+        {
+          "id": "b",
+          "text": "A pipeline that runs a notebook which copies each table in turn"
+        },
+        {
+          "id": "c",
+          "text": "A Spark notebook that keeps its own watermark table and merges the new rows"
+        },
+        {
+          "id": "d",
+          "text": "A Spark job definition with a retry policy that runs once a day"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The Copy job is listed for data ingestion, incremental copy and replication, for business analysts, data integrators and data engineers, with no code or low code.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark"
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "stem": "A parent notebook must run three notebooks: two load notebooks at the same time, then a merge notebook only after both finish. Which call does this from the parent notebook?",
+      "options": [
+        {
+          "id": "a",
+          "text": "notebookutils.notebook.runMultiple with a DAG whose merge activity lists the two loads in dependencies"
+        },
+        {
+          "id": "b",
+          "text": "notebookutils.notebook.validateDAG, which runs every notebook listed in the DAG it is given"
+        },
+        {
+          "id": "c",
+          "text": "notebookutils.notebook.run three times in a row, each one with a timeout of 90 seconds"
+        },
+        {
+          "id": "d",
+          "text": "notebookutils.notebook.exit in the parent notebook, once for each child notebook to start"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "runMultiple runs several notebooks concurrently with dependency relationships: each activity can list the names of the activities that must complete before it starts. validateDAG only checks the DAG.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/notebookutils/notebookutils-notebook-run"
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "stem": "A streaming notebook works in development and now has to run all the time in production, restarting after a failure. What does the guidance say to use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Dataflow Gen2 with its refresh schedule set to the shortest interval"
+        },
+        {
+          "id": "b",
+          "text": "The same notebook, opened in a browser tab that is left open overnight"
+        },
+        {
+          "id": "c",
+          "text": "A Spark job definition with a retry policy that restarts the job after a failure"
+        },
+        {
+          "id": "d",
+          "text": "A pipeline copy activity scheduled to run every minute against the stream"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Notebooks suit developing and testing streaming logic; for production workloads that run continuously, use Spark job definitions, whose retry policy sets how many times to restart and how long to wait.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data"
+    }
+  ]
+}

@@ -14,7 +14,6 @@ import contextlib
 import os
 import queue
 import re
-import shutil
 import signal
 import subprocess
 import sys
@@ -22,6 +21,9 @@ import tempfile
 import threading
 from pathlib import Path
 from typing import Any, Callable
+
+from .engines.runtimes import PATH_HINT, trusted_cli
+from .winexe import system32
 
 
 class ShellError(Exception):
@@ -49,39 +51,55 @@ def expand(command: str, namespace: dict[str, Any]) -> str:
 
 def system(command: str, echo: Callable[[str], None] | None = None) -> tuple[int, list[str]]:
     """Run one command line in the system shell; returns the exit code and the output lines."""
-    return _run(command, shell=True, echo=echo)
+    return _run(command, shell=True, echo=echo)  # noqa: S604 - the command line the person typed, for their shell
 
 
 def script(kind: str, body: str, echo: Callable[[str], None] | None = None) -> int:
     """Run a cell's body as a script: kind is sh, bash, cmd or powershell. Returns the exit code."""
     if kind in ("sh", "bash"):
-        exe = shutil.which(kind) or shutil.which("bash") or shutil.which("sh")
+        exe = trusted_cli(kind) or trusted_cli("bash") or trusted_cli("sh")
         if exe is None:
             raise FileNotFoundError(f"%%{kind} needs bash or sh, and this PC has neither on its PATH. "
-                                    "Git for Windows installs one; or run the commands with %%cmd, %%powershell or !command.")
+                                    "Git for Windows installs one; or run the commands with %%cmd, %%powershell or !command. "
+                                    + PATH_HINT)
         return _run([exe, "-s"], stdin=body, echo=echo)[0]
     if kind == "powershell":
-        exe = shutil.which("pwsh") or shutil.which("powershell")
+        exe = trusted_cli("pwsh") or trusted_cli("powershell")
         if exe is None:
-            raise FileNotFoundError("%%powershell needs PowerShell, which this PC doesn't have on its PATH.")
+            raise FileNotFoundError("%%powershell needs PowerShell, which this PC doesn't have on its PATH. " + PATH_HINT)
         return _run([exe, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "-"], stdin=body, echo=echo)[0]
     if kind == "cmd":
         if os.name != "nt":
             raise OSError("%%cmd runs in Windows' command prompt, which this computer doesn't have. Use %%sh.")
         fd, name = tempfile.mkstemp(suffix=".cmd", prefix="kratosforge-cell-")
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
                 f.write("@echo off\r\n" + body.replace("\r\n", "\n").replace("\n", "\r\n"))
-            return _run(["cmd.exe", "/d", "/c", name], echo=echo)[0]
+            code, out = _run([system32("cmd.exe"), "/d", "/c", name], echo=echo)
+            if hint := cmd_blocked_hint(code, out):
+                (echo or sys.stdout.write)(hint + "\n")
+            return code
         finally:
             Path(name).unlink(missing_ok=True)
     raise ValueError(f"Unknown shell {kind!r}")
 
 
+CMD_BLOCKED = ("%%cmd runs its commands from a script file in your Temp folder, and your organization's "
+               "application control blocks scripts there. Run them with %%powershell or !command instead; "
+               "IT can see the enterprise install guide (Application control).")
+
+
+def cmd_blocked_hint(code: int, out: list[str]) -> str | None:
+    """The line to add when cmd.exe refused the cell's script file because policy blocks it."""
+    if code and any("blocked by group policy" in line.lower() for line in out):
+        return CMD_BLOCKED
+    return None
+
+
 def _run(args: str | list[str], shell: bool = False, stdin: str | None = None,
          echo: Callable[[str], None] | None = None) -> tuple[int, list[str]]:
-    echo = echo or sys.stdout.write
-    flags: dict[str, Any] = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+    write: Callable[[str], Any] = echo or sys.stdout.write
+    flags: dict[str, Any] = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"  # type: ignore[attr-defined]  # Windows-only
                              else {"start_new_session": True})
     proc = subprocess.Popen(args, shell=shell, stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,  # noqa: S602 - the person's own command
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
@@ -108,7 +126,7 @@ def _run(args: str | list[str], shell: bool = False, stdin: str | None = None,
         # Short waits, so Cancel (an exception raised in this thread) lands between them.
         while (line := _next(lines)) is not None:
             out.append(line.rstrip("\r\n"))
-            echo(line)
+            write(line)
         return proc.wait(), out
     except BaseException:
         end(proc)
@@ -132,7 +150,7 @@ def end(proc: subprocess.Popen[str]) -> bool:
         return True
     if os.name == "nt":
         try:
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, check=False,
+            subprocess.run([system32("taskkill.exe"), "/F", "/T", "/PID", str(proc.pid)], capture_output=True, check=False,
                            timeout=TASKKILL_SECONDS)
         except subprocess.TimeoutExpired:  # a stuck taskkill mustn't hold the caller, or leave the command running
             with contextlib.suppress(OSError):  # silent-ok: it ended meanwhile

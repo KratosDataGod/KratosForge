@@ -237,7 +237,7 @@ def test_spark_timestamps_read_in_utc_as_in_fabric_whatever_this_pcs_zone(dialec
 @pytest.mark.parametrize("engine", ["local-duckdb", "local-sqlite"])
 def test_cancel_stops_a_long_statement(engine):
     s = registry.adapter(engine).open_session(SessionConfig("nb"))
-    long = ("SELECT count(*) FROM range(10000000000) a" if engine == "local-duckdb" else
+    long = ("SELECT sum(hash(a.range)) FROM range(10000000000) a" if engine == "local-duckdb" else
             "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c")
     result: list[CellResult] = []
     t = threading.Thread(target=lambda: result.append(s.execute(sql(long))))
@@ -552,6 +552,18 @@ def test_duckdb_refusal_names_the_statement_and_plan_refuses_too(tmp_path):
         from fabric_desktop.engines.local_sql import OutsideSession
         with pytest.raises(OutsideSession):
             s.plan("INSTALL httpfs")
+    finally:
+        s.close()
+
+
+def test_duckdb_runs_a_cell_ending_in_comment_lines_and_still_refuses_copy_before_them(tmp_path):
+    s = registry.adapter("local-duckdb").open_session(SessionConfig("nb"))
+    try:
+        r = s.execute(sql("-- first\n-- second\nSELECT 1 AS x;\n-- notes\n-- more notes"))
+        assert r.status == "ok", r.outputs
+        r = s.execute(sql(f"COPY (SELECT 1) TO '{tmp_path.as_posix()}/o.csv';\n-- notes"))
+        assert r.outputs[0]["ename"] == "OutsideSession" and "COPY" in r.outputs[0]["evalue"]
+        assert list(tmp_path.iterdir()) == []
     finally:
         s.close()
 

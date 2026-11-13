@@ -78,7 +78,7 @@ class WorkloadMixin:
     def _wl_token(self, scopes: list[str]) -> str | None:
         try:
             return self.auth.silent_token(scopes)  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - no silent token is a state, not a crash; logged
             _log.info("No silent token: %s", describe(exc))
             return None
 
@@ -94,9 +94,7 @@ class WorkloadMixin:
         key = f"meta:{pname}:{env}"
         cached = self.workload_store.cache_get(key)
         if not local:
-            age = None
-            if cached:
-                age = (model.now() - model.parse_time(cached["collected_at"])).total_seconds()
+            age = _age_s(cached["collected_at"]) if cached else None
             if cached and not refresh and age is not None and age < REMOTE_RUNS_MAX_AGE:
                 return {"configured": True, **cached["payload"],
                         "observation": model.observation(source, "cached", cached["collected_at"],
@@ -170,7 +168,7 @@ class WorkloadMixin:
             return [], None
         source = "Pipelines on this PC"
         try:
-            listed = self.pipeline_list()  # type: ignore[attr-defined]
+            listed = self.pipeline_list()
             runs = self.pipeline_runs(limit=PIPELINE_LIST_LIMIT)["runs"]  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - one source that can't be read hides nothing else
             return [], model.observation(source, "error", None, detail=describe(exc)[:300])
@@ -201,8 +199,9 @@ class WorkloadMixin:
         errors = payload.get("errors") or []
         detail = (f"{len(errors)} of {payload.get('workspaces', 0)} workspaces couldn't be read: "
                   + "; ".join(f"{e['workspace']}: {e['message']}" for e in errors[:3])) if errors else ""
+        age = _age_s(cached["collected_at"])
         fresh_now = scan and not scan.get("pending") and scan.get("collected_at") == cached["collected_at"] \
-            and (model.now() - model.parse_time(cached["collected_at"])).total_seconds() < REMOTE_RUNS_MAX_AGE
+            and age is not None and age < REMOTE_RUNS_MAX_AGE
         state = "partial" if errors else ("live" if fresh_now else "cached")
         obs = model.observation(source, state, cached["collected_at"], max_age_s=ITEMS_STALE_AFTER, detail=detail)
         return payload.get("items") or [], obs, scanning
@@ -232,7 +231,7 @@ class WorkloadMixin:
         items: list[dict[str, Any]] = []
         try:
             workspaces = self._schedule_workspaces(False, token)  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - any scan failure is classified and shown in its state
             state, message = model.classify_error(exc)
             with self._wl_scan_lock:
                 self._wl_scan = {"pending": False, "error": message, "state": state}
@@ -377,7 +376,7 @@ class WorkloadMixin:
             return list(w["runs"]), model.observation(source, "signed_out", None, detail="Sign in to read its runs.")
         try:
             jobs = FabricClient(lambda: token).list_job_instances(d["workspace_id"], d["item_id"])
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - any read failure is classified and shown as the source's observation
             state, message = model.classify_error(exc)
             return list(w["runs"]), model.observation(source, state, None, detail=message)
         runs = [inventory.fabric_job(j, d.get("workspace_name", "")) for j in jobs[:50]]
@@ -626,6 +625,9 @@ class WorkloadMixin:
                 outcome = self.run_pc_schedule_now(schedule_id)  # type: ignore[attr-defined]
                 record = store.update_action(record["id"], ref={"schedule_id": schedule_id})
             elif action == "cancel":
+                # Only a run this workload shows as running: an empty or old job id went to Fabric as asked
+                if not any(a["action"] == action and a.get("job_id") == job_id for a in self._wl_available(w)):
+                    raise PermissionError(f"That isn't a running job of {w['name']}.")
                 loc = next(x for x in w["deployments"] if x["location"]["kind"] == "fabric")["location"]
                 outcome = self.cancel_fabric_run(loc["workspace_id"], loc["item_id"], job_id)  # type: ignore[attr-defined]
                 record = store.update_action(record["id"], ref={"job_id": job_id},
@@ -696,7 +698,7 @@ class WorkloadMixin:
             entry = {k: secrets(str(v)) for k, v in entry.items() if v not in (None, "")}
             entry.setdefault("at", model.iso(model.now()))
             self.workload_store.audit_queue(key or uuid.uuid4().hex, wid, action, status, entry)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - an audit line is best effort here; logged
             _log.warning("Couldn't keep a workload audit line: %s", describe(exc))
             return
         self._wl_audit_send()
@@ -734,7 +736,7 @@ class WorkloadMixin:
             if not waiting:
                 return 0
             platform = self._wl_audit_platform()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - an unreachable platform means no audit lines; logged
             _log.warning("Couldn't reach the platform for workload audit lines: %s", describe(exc))
             return 0
         if platform is None:
@@ -782,10 +784,16 @@ def _audit_problem(exc: BaseException) -> str:
     return text
 
 
+def _age_s(collected_at: Any) -> float | None:
+    """Seconds since a cached read, or None when its time can't be read, so it never counts as fresh."""
+    collected = model.parse_time(collected_at)
+    return (model.now() - collected).total_seconds() if collected else None
+
+
 def _rows(df: Any) -> list[dict[str, Any]]:
     try:
         return [{k: (v.isoformat() if isinstance(v, (dt.date, dt.datetime)) else v) for k, v in r.items()}
                 for r in df.to_dicts()]
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - rows that can't be converted leave the view empty; logged
         _log.warning("Couldn't convert rows for the workload view: %s", describe(exc))
         return []

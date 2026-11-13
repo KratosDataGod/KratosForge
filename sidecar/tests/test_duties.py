@@ -25,8 +25,8 @@ def test_a_write_role_passes():
 
 def test_a_direct_viewer_is_told_what_is_missing_and_whom_to_ask():
     errors, notes = duties.role_problems("Prod workspace Sales", [assignment(ME, "Viewer"), ADMIN], {ME})
-    assert errors == ["You're a Viewer in Prod workspace Sales; promoting writes tables there, which needs "
-                      "Contributor or higher. Ask one of its Admins (user 2222) to make you a Contributor."]
+    assert errors == [("You're a Viewer in Prod workspace Sales; promoting writes tables there, which needs "
+                      "Contributor or higher. Ask one of its Admins (user 2222) to make you a Contributor.")]
     assert notes == []
 
 
@@ -157,3 +157,29 @@ def test_promote_checks_roles_in_every_target_workspace(svc, monkeypatch):
     errors, notes = svc._duties_gate(svc._project(), "test", "prod")
     assert errors == [] and len(notes) == 2
     assert svc._duties_gate(svc._project(), "dev", "test") == ([], [])  # Test is on this PC
+
+
+def test_restoring_a_prod_table_checks_the_same_roles_as_a_rollback(svc, monkeypatch):
+    from fabric_desktop import estate_service
+    project = svc._project()
+    envs = {k: dict(v) for k, v in project.environments.items()}
+    envs["prod"] = {"target": "onelake", "workspace_id": "ws-prod", "workspace_name": "Sales - Prod"}
+    svc._write_environments(project, envs)
+    svc._auth = _Auth()
+    fabric = _Fabric([assignment(ME, "Viewer"), ADMIN])
+    monkeypatch.setattr(Service, "fabric", property(lambda s: fabric))
+    touched = []
+
+    def table(self, *args):
+        touched.append(args)
+        raise LookupError("past the role check")
+    monkeypatch.setattr(Service, "_entity_uri", table)
+    monkeypatch.setattr(estate_service.restore_mod, "restore", lambda *a, **k: touched.append(a))
+    with pytest.raises(GateError, match="You're a Viewer in Prod workspace Sales - Prod"):
+        svc.meta_restore("silver.customers", "prod", 1, reason="bad load")
+    assert touched == []  # refused before the table was read or restored
+
+    fabric.assignments = [assignment(ME, "Contributor"), ADMIN]
+    with pytest.raises(LookupError, match="past the role check"):
+        svc.meta_restore("silver.customers", "prod", 1)
+    assert len(touched) == 1

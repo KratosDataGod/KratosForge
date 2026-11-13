@@ -2,7 +2,7 @@
 
 **Preview.** KratosForge keeps your organization's governance standards in one place, the platform's catalog, so they are defined once and every project is checked against the same thing. This page covers the policy registry (GOV-001): writing, publishing and assigning policies, and how a project's policies are worked out. [Best practices: checks and templates](#best-practices-checks-and-templates-preview) adds reusable policy templates and **Check now**, which checks a project against its policies on your PC. A policy set to **Block** stops a promote ([Block stops promote](#block-stops-promote)). Blocking deployment and the later governance features build on it. For a walk-through with worked examples, and what can and can't be enforced today, see the [governance guide](governance-guide.md).
 
-It complements Microsoft Fabric and Microsoft Purview rather than repeating them: Purview stays the place for sensitivity labels, data maps and tenant-wide classification, and Fabric keeps workspace roles and domains. The registry holds the engineering standards a development team works to on its own PC (naming, schemas, quality, ownership, contracts, deployment readiness) so they can be checked before anything reaches Fabric.
+It complements Microsoft Fabric rather than repeating it: sensitivity labels and tenant-wide classification stay with your tenant's own tools, and Fabric keeps workspace roles and domains. The registry holds the engineering standards a development team works to on its own PC (naming, schemas, quality, ownership, contracts, deployment readiness) so they can be checked before anything reaches Fabric.
 
 Everything here runs against the platform you already have: `SQL_Platform` through `UDF_Platform` in Fabric, or the SQLite platform on your PC before the platform is in Fabric ([The platform](platform.md)). Working out which policies apply runs on your PC: no Fabric job runs and no OneLake data is read. With the platform in Fabric, reading the policies is one call to `UDF_Platform` (and its `SQL_Platform` database), which uses a little capacity; with the SQLite platform it uses none.
 
@@ -21,7 +21,7 @@ Everything here runs against the platform you already have: `SQL_Platform` throu
 | **Applies to** | Optional: only some layers or environments. |
 | **In force** | Optional dates it takes effect and expires. |
 | **Exceptions** | Whether people may ask for an exception (with a reason, an approver and an expiry, as in `exceptions.toml`). |
-| **Checked by** | The ids of the rules that check it, separated by commas, like `contract.freshness, contract.terms_linked`. Check now runs these rules ([the rules](#the-rules)). A policy with none is listed as not checked. |
+| **Checked by** | The ids of the rules that check it, separated by commas, like `contract.freshness, contract.row_count`. Check now runs these rules ([the rules](#the-rules)). A policy with none is listed as not checked. |
 | **Parameters** | Named values the rule uses, like `max_length = 60`. Each says which way is **stricter**: higher, lower, more items, fewer items, on, or fixed (can't change under a mandatory assignment). |
 | **How to fix** | What a developer does when the policy flags something. |
 | **Status** | Draft, Published, Deprecated or Retired. |
@@ -121,7 +121,7 @@ An older `UDF_Platform` without the end operation says so: a platform admin runs
 | Table names | Naming | Gold tables are snake_case and start `dim_` or `fact_` | `naming.table_name` | `pattern` (a regular expression, fixed), `layers` (more is stricter) |
 | Every product has an owner | Ownership | A published product names an owner and a steward | `ownership.product_owner` | `steward_required` |
 | Sensitive columns are labelled | Classification | Columns marked PII or PHI carry a sensitivity label | `classification.sensitive_columns` | `markers` (the column tags that mark sensitive data), `labels` (classifications that count as a label) |
-| Data contract | Data contract | Fresh within N hours, row count checked, business terms linked | `contract.freshness`, `contract.row_count`, `contract.terms_linked` | `within_hours` (lower is stricter), `min_rows` |
+| Data contract | Data contract | Fresh within N hours, row count checked | `contract.freshness`, `contract.row_count` | `within_hours` (lower is stricter), `min_rows` |
 
 - **Use** makes a new policy draft from a template (a policy id and name, then the usual draft, publish and assign). It needs a platform admin, as every new policy does.
 - **Save as template**, on a policy's page, copies the policy's current published definition (its draft if it was never published) into a new template.
@@ -165,10 +165,10 @@ Each finding names its policy and what's wrong. Where a safe fix exists in the a
 | `naming.table_name` | The entity's name |
 | `ownership.product_owner` | `owner` and `steward` in `metadata/products/<name>.toml` (the product form has a **Steward** field) |
 | `ownership.entity_owner` | `owner` in the entity's file |
-| `classification.sensitive_columns` | A column is marked by `tags` (like `tags = ["pii"]`) or `pii = true` / `phi = true` in `[catalog.columns.<name>]`, or by tags saved in the catalog. Its label is its classification, the catalog's own (Public, Internal, Confidential, Restricted), not a Purview sensitivity label |
+| `classification.sensitive_columns` | A column is marked by `tags` (like `tags = ["pii"]`) or `pii = true` / `phi = true` in `[catalog.columns.<name>]`, or by tags saved in the catalog. Its label is its classification, the catalog's own (Public, Internal, Confidential, Restricted), not a Fabric sensitivity label |
 | `classification.required` | The entity's classification |
 | `contract.freshness`, `contract.row_count` | The run logs: the last successful run of each of the product's port entities, in the highest environment where all of them ran. Row count is the rows that run recorded writing |
-| `contract.terms_linked`, `contract.endorsed` | `catalog.product_term` and `catalog.endorsement` ([endorsement and business terms](data-mesh.md#endorsement-and-business-terms)) |
+| `contract.endorsed` | `catalog.endorsement` ([endorsement](data-mesh.md#endorsement)) |
 | `contract.description` | The product's description |
 
 `contract.endorsed` passes only when every one of the product's items is endorsed with an accepted value; a finding names the ones that aren't. Its items are the lakehouses the product's ports live in. Semantic models and reports grouped under a product (`catalog.product_item`, [Tables, semantic models and reports](data-mesh.md#tables-semantic-models-and-reports-preview)) show their own badges on its page and don't change this check.
@@ -301,11 +301,31 @@ offline too.
   sit beside rule ids in the same **Checked by** (`learn.guidance, NB003`), and Check now has nothing
   to check for it: a policy that only sets a level shows as not checked, never as passing.
 
+#### Team notes
+
+The same policy can carry the team's own guidance: a `notes` parameter, a fixed value that maps a
+rule's or a decision pattern's id to a note in plain text, like
+`{"SQ002": "Our fact tables are partitioned by order_date_key, so filter on it.", "DP-02": "We use DuckDB up to 50 GB."}`.
+A note sits beside the built-in guide and never replaces it, and it never changes a check.
+
+- **Owned, versioned and hashed like the policy.** Each note comes with its policy's name, owner,
+  version and SHA-256, so a reader knows who wrote it and which published version it's from. Changing
+  a note is publishing a new version, with the policy's usual history.
+- **Offline.** The notes travel in the project's [policy package](#offline-policy-packages). When the
+  platform can't be reached, `learn_team_notes` reads the latest package on this PC, verified first: a
+  package changed after it was taken is never used.
+- **Every team's note is kept.** Two policies with a note for one rule both show, in policy name order.
+- **What's ignored, and said:** a note for an id with no guide or decision pattern, one that isn't text,
+  and anything past 200 notes in one policy. A note is cut at 2,000 characters.
+
+The engine method `learn_team_notes` returns `{notes: {id: [{text, policy, owner, version, sha256}]},
+problems, package, note}`. The app doesn't show the notes yet: that waits on a mockup.
+
 | Field | Example |
 | --- | --- |
 | Name | New starters |
 | Checked by | `learn.guidance` |
-| Parameters | `level` = `guided` (fixed), `sql` = `professional` (fixed) |
+| Parameters | `level` = `guided` (fixed), `sql` = `professional` (fixed), `notes` = `{"SQ002": "..."}` (fixed) |
 
 ## What isn't built yet
 

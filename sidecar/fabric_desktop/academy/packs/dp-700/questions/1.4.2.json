@@ -9,11 +9,11 @@
       "options": [
         {
           "id": "a",
-          "text": "A deployment rule"
+          "text": "A deployment rule on the storage account folder"
         },
         {
           "id": "b",
-          "text": "A schedule every minute"
+          "text": "A schedule that runs every minute"
         },
         {
           "id": "c",
@@ -21,7 +21,7 @@
         },
         {
           "id": "d",
-          "text": "A Git webhook"
+          "text": "A Git webhook on the workspace's repository"
         }
       ],
       "answer": [
@@ -29,9 +29,9 @@
       ],
       "explanation": "Event-based triggers start a pipeline when events such as a file being created occur, so it runs as soon as the file arrives instead of polling.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-runs",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.4.2-q2",
@@ -40,7 +40,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Nothing; triggers can't filter"
+          "text": "Nothing; event triggers can't filter, so they fire for every file in the storage account"
         },
         {
           "id": "b",
@@ -48,11 +48,11 @@
         },
         {
           "id": "c",
-          "text": "A ForEach activity that ignores other files"
+          "text": "A ForEach activity in the pipeline that skips every file not ending in .csv"
         },
         {
           "id": "d",
-          "text": "A second pipeline to delete other files"
+          "text": "A second pipeline that deletes other files before the trigger fires"
         }
       ],
       "answer": [
@@ -60,9 +60,9 @@
       ],
       "explanation": "Event triggers can filter events by folder name, file name, file type and container through the Subject field, so only matching files start the pipeline.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-runs",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.4.2-q3",
@@ -71,7 +71,7 @@
       "options": [
         {
           "id": "a",
-          "text": "In the Git panel"
+          "text": "In the Git panel of the workspace"
         },
         {
           "id": "b",
@@ -79,7 +79,7 @@
         },
         {
           "id": "c",
-          "text": "In the lakehouse settings"
+          "text": "In the default lakehouse's settings"
         },
         {
           "id": "d",
@@ -91,9 +91,9 @@
       ],
       "explanation": "Each pipeline has a schedule with a frequency, start time and time zone.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-runs",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.4.2-q4",
@@ -131,6 +131,200 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.4.2-q5",
+      "type": "single",
+      "stem": "A pipeline must run at 06:00 every weekday and also every hour on Saturdays. What do you set up?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Two pipelines with one schedule each"
+        },
+        {
+          "id": "b",
+          "text": "Two schedules on the same pipeline"
+        },
+        {
+          "id": "c",
+          "text": "An event trigger with a time filter"
+        },
+        {
+          "id": "d",
+          "text": "One schedule every hour, with an If Condition to skip weekday hours"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A pipeline can have up to 20 schedules, each with its own frequency and start and end times.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-runs",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.2-q6",
+      "type": "single",
+      "stem": "You schedule a pipeline that must keep running daily for years. The schedule asks for an end date. What do you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Leave the end date empty for an open-ended schedule"
+        },
+        {
+          "id": "b",
+          "text": "Set the end date far in the future, such as 01/01/2099"
+        },
+        {
+          "id": "c",
+          "text": "Use an event trigger instead"
+        },
+        {
+          "id": "d",
+          "text": "Re-create the schedule every month"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Schedules need both a start and end date. To run long-term, set the end date far in the future.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-runs",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.2-q7",
+      "type": "single",
+      "stem": "You set email notifications for pipeline failures. A developer runs the pipeline on demand and it fails, but no email arrives. Why?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Notifications are sent only after three failures"
+        },
+        {
+          "id": "b",
+          "text": "Notifications are sent only for failed scheduled runs"
+        },
+        {
+          "id": "c",
+          "text": "Notifications go only to workspace Admins"
+        },
+        {
+          "id": "d",
+          "text": "Notifications need an event trigger"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Failure notifications apply to scheduled runs. On-demand runs don't send them.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-runs",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.2-q8",
+      "type": "single",
+      "stem": "A pipeline started by a storage event trigger uses @pipeline().TriggerEvent.FileName. When you test it manually, the expression fails. Which expression handles this?",
+      "options": [
+        {
+          "id": "a",
+          "text": "@pipeline().parameters.FileName"
+        },
+        {
+          "id": "b",
+          "text": "@pipeline()?.TriggerEvent?.FileName"
+        },
+        {
+          "id": "c",
+          "text": "@@pipeline().TriggerEvent.FileName"
+        },
+        {
+          "id": "d",
+          "text": "@trigger().outputs.body.fileName"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "During manual tests the trigger's file and folder parameters aren't set and return NULL. The ? operator handles the NULL values.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-runs",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.2-q9",
+      "type": "single",
+      "stem": "A schedule passes a value for a parameter named region, but the pipeline defines the parameter as Region. What happens at run time?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The value is matched without regard to case"
+        },
+        {
+          "id": "b",
+          "text": "The schedule is disabled"
+        },
+        {
+          "id": "c",
+          "text": "The pipeline fails before it starts"
+        },
+        {
+          "id": "d",
+          "text": "The mismatched parameter is ignored"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Schedule parameter names must exactly match the pipeline's parameter names. Mismatched names are ignored at run time.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-runs",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.2-q10",
+      "type": "order",
+      "stem": "Put the steps to create a storage event trigger from a pipeline's canvas in order.",
+      "options": [
+        {
+          "id": "a",
+          "text": "In the Set alert panel, choose the source, such as OneLake events or Azure Blob events"
+        },
+        {
+          "id": "b",
+          "text": "Choose the event types and filter them with the Subject field"
+        },
+        {
+          "id": "c",
+          "text": "Choose the workspace to store the trigger and name it as a Reflex item"
+        },
+        {
+          "id": "d",
+          "text": "Select Trigger on the Home ribbon of the pipeline canvas"
+        },
+        {
+          "id": "e",
+          "text": "Select Create"
+        }
+      ],
+      "answer": [
+        "d",
+        "a",
+        "b",
+        "c",
+        "e"
+      ],
+      "explanation": "You open the trigger from the canvas, pick the event source, narrow the events, choose where the Reflex item is stored, and create it.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-storage-event-triggers",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

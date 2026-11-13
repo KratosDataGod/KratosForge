@@ -7,8 +7,10 @@ wrappers) and expect every reach outside the exercise folder to fail."""
 from __future__ import annotations
 
 import json
+import os
 import socket
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -21,7 +23,7 @@ pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="AppContainers a
 
 @pytest.fixture(autouse=True)
 def appcontainer_available(monkeypatch):
-    monkeypatch.setattr(sandbox, "USE_APPCONTAINER", True)   # off by default for now
+    monkeypatch.setattr(sandbox, "USE_APPCONTAINER", True)   # the default; set so KRATOSFORGE_ACADEMY_APPCONTAINER=0 can't skip these
     if not appcontainer.status()["available"]:
         pytest.skip(f"AppContainers aren't available here: {appcontainer.status()['why_not']}")
 
@@ -292,6 +294,7 @@ def test_the_token_cache_in_the_data_folder_is_refused(tmp_path):
     assert "PermissionError" in err
 
 
+@pytest.mark.machine_wide_grants
 def test_grants_are_recorded_checked_and_removed(tmp_path):
     from fabric_desktop import jsonfile
     work = tmp_path / "w"
@@ -310,6 +313,7 @@ def test_grants_are_recorded_checked_and_removed(tmp_path):
     assert got["status"] == "ok" and got["runs_as"] == appcontainer.RUNS_AS, got["stderr"]
 
 
+@pytest.mark.machine_wide_grants
 def test_settings_shows_the_grants_and_removes_them(tmp_path, monkeypatch):
     # What Settings > Advanced > Exercise sandbox calls, end to end on Windows: a run in the
     # AppContainer leaves grants on record, Remove takes them all off, and the count goes to 0.
@@ -330,6 +334,7 @@ def test_settings_shows_the_grants_and_removes_them(tmp_path, monkeypatch):
     assert not appcontainer._has_grant(Path(sys.base_prefix), appcontainer.capability_sid(appcontainer._api())[1])
 
 
+@pytest.mark.machine_wide_grants
 def test_nothing_is_removed_while_an_exercise_runs(tmp_path):
     work = tmp_path / "w"
     work.mkdir()
@@ -345,6 +350,7 @@ def test_nothing_is_removed_while_an_exercise_runs(tmp_path):
     assert appcontainer.revoke_runtime(tmp_path)["removed"] >= 1
 
 
+@pytest.mark.machine_wide_grants
 def test_a_box_whose_profile_wont_close_still_lets_remove_run(tmp_path, monkeypatch):
     work = tmp_path / "w"
     work.mkdir()
@@ -408,8 +414,12 @@ def test_a_refused_copy_back_leaves_the_workspace_as_it_was(tmp_path, monkeypatc
 def test_profiles_left_by_a_crash_are_swept(tmp_path, monkeypatch):
     api = appcontainer._api()
     left = appcontainer.Profile(api)   # never closed: as after a crash
+    # Aged by its folder's time, not by ORPHAN_AGE=0: a folder Windows stamps a few ms after
+    # time.time() read as not yet old and was skipped (flaky on Windows CI), and an age of 0 would
+    # also sweep the live profiles of exercises other test workers are running.
+    old = time.time() - 2 * appcontainer.ORPHAN_AGE
+    os.utime(left.folder, (old, old))
     monkeypatch.setattr(appcontainer, "_swept", False)
-    monkeypatch.setattr(appcontainer, "ORPHAN_AGE", 0.0)
     assert appcontainer.sweep(api) >= 1
     assert not left.folder.exists()
     monkeypatch.setattr(appcontainer, "_swept", False)
@@ -422,6 +432,7 @@ def test_profiles_left_by_a_crash_are_swept(tmp_path, monkeypatch):
         fresh.close()
 
 
+@pytest.mark.machine_wide_grants
 def test_a_tampered_grants_record_only_ever_removes_the_capabilitys_own_ace(tmp_path, monkeypatch):
     """The record is the person's to write (a v1 learner process could too): its SID is never used,
     and option-like or relative paths in it are skipped."""

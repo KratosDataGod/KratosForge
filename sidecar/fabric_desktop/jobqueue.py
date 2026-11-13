@@ -14,6 +14,7 @@ A person can :meth:`JobQueue.requeue` a ``dead`` or ``failed`` job once they've 
 
 from __future__ import annotations
 
+import builtins
 import json
 import sqlite3
 import time
@@ -25,6 +26,9 @@ from typing import Any, Callable, Iterator
 STATES = ("queued", "running", "succeeded", "failed", "dead", "cancelled")
 ACTIVE = ("queued", "running")
 PRUNABLE = ("succeeded", "failed", "cancelled")  # dead jobs stay until a person requeues them
+# How far past its own longest wait a lease or retry may end before it counts as set before the
+# clock went back. Small steps (an NTP correction of seconds) never count; only real jumps do.
+CLOCK_MARGIN = 300.0
 
 _SCHEMA = """
 create table if not exists jobs (
@@ -51,6 +55,15 @@ create table if not exists schedule_state (
     next_at real not null
 );
 """
+
+
+class QueueFull(Exception):
+    """The queue already holds ``limit`` queued jobs, so a new one wasn't added (agent.max_queued)."""
+
+    def __init__(self, waiting: int, limit: int):
+        super().__init__(f"the agent's queue is full: {waiting} jobs are waiting (agent.max_queued = {limit}); "
+                         "nothing was queued")
+        self.waiting, self.limit = waiting, limit
 
 
 class JobQueue:
@@ -86,6 +99,19 @@ class JobQueue:
                     db.execute(f"alter table jobs add column {col} text")
                 except sqlite3.OperationalError as exc:
                     if "duplicate column" not in str(exc):  # another process added it first
+                        raise
+            # wall: the local time a schedule's next run was worked out for (from before: none, so it is
+            # read as the time it was set for)
+            # spec: the schedule's timing as configured when next_at was worked out, so an edited schedule
+            # is worked out again instead of firing once at the old time (from before: none, read as unchanged)
+            have = {r["name"] for r in db.execute("pragma table_info(schedule_state)")}
+            for col in ("wall", "spec"):
+                if col in have:
+                    continue
+                try:
+                    db.execute(f"alter table schedule_state add column {col} text")
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column" not in str(exc):
                         raise
 
     @contextmanager
@@ -131,9 +157,11 @@ class JobQueue:
     # ---- adding work
 
     def enqueue(self, kind: str, payload: dict[str, Any], source: str = "", max_attempts: int = 3,
-                dedupe_key: str | None = None, delay: float = 0) -> dict[str, Any]:
+                dedupe_key: str | None = None, delay: float = 0, limit: int | None = None) -> dict[str, Any]:
         """Add a job. With ``dedupe_key``, a job with the same key that is still queued or running is
-        returned instead, so a schedule that fires while its last run is going doesn't pile up."""
+        returned instead, so a schedule that fires while its last run is going doesn't pile up. With
+        ``limit``, a new job is refused (QueueFull) while that many are already queued; nothing already
+        in the queue is removed to make room."""
         now = self.clock()
         with self._tx() as db:
             if dedupe_key:
@@ -141,6 +169,10 @@ class JobQueue:
                                   (dedupe_key,)).fetchone()
                 if same:
                     return self._row(same) | {"deduplicated": True}  # type: ignore[operator]
+            if limit is not None:
+                waiting = db.execute("select count(*) from jobs where state = 'queued'").fetchone()[0]
+                if waiting >= limit:
+                    raise QueueFull(waiting, limit)
             # 48 random bits: ids made in the same second must never meet (6 hex digits did, ~1 in 800 for 200 jobs).
             job_id = f"job-{time.strftime('%Y%m%d-%H%M%S', time.gmtime(now))}-{uuid.uuid4().hex[:12]}"
             db.execute("insert into jobs (id, kind, payload, state, source, dedupe_key, max_attempts, next_at, created_at)"
@@ -158,8 +190,10 @@ class JobQueue:
             # The time is read once this claim holds the write lock: read before, a job another
             # thread or process added while this one waited would look not yet due.
             now = self.clock()
-            row = db.execute("select id from jobs where state = 'queued' and next_at <= ? order by next_at, created_at limit 1",
-                             (now,)).fetchone()
+            # A retry further off than the longest backoff was scheduled before the clock went back: it is due.
+            row = db.execute("select id from jobs where state = 'queued'"
+                             " and (next_at <= ? or (attempts > 0 and next_at > ?)) order by next_at, created_at limit 1",
+                             (now, now + self.max_backoff_seconds + CLOCK_MARGIN)).fetchone()
             if row is None:
                 return None
             db.execute("update jobs set state = 'running', owner = ?, lease_until = ?, attempts = attempts + 1,"
@@ -213,12 +247,17 @@ class JobQueue:
         db.execute("update jobs set state = 'queued', owner = null, lease_until = null, next_at = ?, error = ? where id = ?",
                    (now + wait, error, job["id"]))
 
-    def recover(self) -> list[str]:
+    def recover(self, max_lease: float | None = None) -> list[str]:
         """Running jobs whose worker stopped renewing (it crashed or was killed) go back in the queue,
-        counting the lost run as an attempt. Returns their ids."""
+        counting the lost run as an attempt. Returns their ids. With ``max_lease`` (the longest lease
+        any worker takes), a lease ending further off than that was renewed before the clock went
+        back (by more than CLOCK_MARGIN), so it counts as run out too: a dead worker's job isn't stuck
+        for as long as the jump, and a live one isn't taken back for a small correction."""
         now = self.clock()
+        far = now + max_lease + CLOCK_MARGIN if max_lease is not None else float("inf")
         with self._tx() as db:
-            stale = db.execute("select * from jobs where state = 'running' and lease_until < ?", (now,)).fetchall()
+            stale = db.execute("select * from jobs where state = 'running' and (lease_until < ? or lease_until > ?)",
+                               (now, far)).fetchall()
             for job in stale:
                 self._requeue(db, job, f"{job['owner']} stopped while running it", now)
             return [j["id"] for j in stale]
@@ -285,7 +324,8 @@ class JobQueue:
                                      (dedupe_key,)))
 
     def list(self, limit: int = 50, state: str | None = None) -> list[dict[str, Any]]:
-        sql, args = "select * from jobs", ()
+        sql = "select * from jobs"
+        args: tuple[Any, ...] = ()
         if state:
             sql, args = sql + " where state = ?", (state,)
         rows = self._rows(sql + " order by created_at desc limit ?", (*args, limit))
@@ -293,13 +333,14 @@ class JobQueue:
 
     def counts(self, env: str | None = None) -> dict[str, int]:
         """Jobs in each state; with ``env``, only that environment's."""
-        sql, args = "select state, count(*) as n from jobs", ()
+        sql = "select state, count(*) as n from jobs"
+        args: tuple[Any, ...] = ()
         if env is not None:
             sql, args = sql + " where json_extract(payload, '$.env') = ?", (env,)
         rows = self._rows(sql + " group by state", args)
         return {s: 0 for s in STATES} | {r["state"]: r["n"] for r in rows}
 
-    def for_env(self, env: str, limit: int = 200) -> list[dict[str, Any]]:
+    def for_env(self, env: str, limit: int = 200) -> builtins.list[dict[str, Any]]:
         """An environment's newest jobs, plus every one still queued or running."""
         rows = self._rows(
             "select * from jobs where json_extract(payload, '$.env') = ? and (state in ('queued', 'running') or id in"
@@ -313,10 +354,39 @@ class JobQueue:
         row = self._one("select next_at from schedule_state where id = ?", (schedule_id,))
         return row["next_at"] if row else None
 
-    def set_schedule_next(self, schedule_id: str, next_at: float) -> None:
+    def schedule_wall(self, schedule_id: str) -> str | None:
+        """The local time (``YYYY-MM-DDTHH:MM``, with ``+fold`` for the second of a repeated hour) the
+        next run was worked out for, or None when it wasn't kept (a shared schedule, or an older file)."""
+        row = self._one("select wall from schedule_state where id = ?", (schedule_id,))
+        return row["wall"] if row else None
+
+    def set_schedule_next(self, schedule_id: str, next_at: float, wall: str | None = None,
+                          spec: str | None = None) -> None:
+        """Keep a schedule's next run; ``spec`` (its timing as configured) is kept when given."""
         with self._tx() as db:
-            db.execute("insert into schedule_state (id, next_at) values (?, ?)"
-                       " on conflict(id) do update set next_at = excluded.next_at", (schedule_id, next_at))
+            db.execute("insert into schedule_state (id, next_at, wall, spec) values (?, ?, ?, ?)"
+                       " on conflict(id) do update set next_at = excluded.next_at, wall = excluded.wall,"
+                       " spec = coalesce(excluded.spec, schedule_state.spec)",
+                       (schedule_id, next_at, wall, spec))
+
+    def schedule_specs(self) -> dict[str, str | None]:
+        """Each schedule id with a kept next run, and the timing it was worked out for (None: not kept)."""
+        return {r["id"]: r["spec"] for r in self._rows("select id, spec from schedule_state")}
+
+    def set_schedule_spec(self, schedule_id: str, spec: str) -> None:
+        with self._tx() as db:
+            db.execute("update schedule_state set spec = ? where id = ?", (spec, schedule_id))
+
+    def forget_schedule(self, schedule_id: str) -> None:
+        """Drop a schedule's kept next run: it is worked out again from now, and nothing fires for it."""
+        with self._tx() as db:
+            db.execute("delete from schedule_state where id = ?", (schedule_id,))
+
+    def queued_with_key(self, dedupe_key: str) -> builtins.list[dict[str, Any]]:
+        """Jobs with ``dedupe_key`` still waiting to start or to retry."""
+        rows = self._rows("select * from jobs where dedupe_key = ? and state = 'queued' order by created_at",
+                          (dedupe_key,))
+        return [self._row(r) for r in rows]  # type: ignore[misc]
 
     def close(self) -> None:
         """Nothing stays open between calls; kept for callers that close the queue when they're done."""

@@ -23,8 +23,9 @@ from typing import Any
 from . import credman, sealed_settings
 from .dataops_service import post_teams
 from .redact import secrets
+from .sqlitefile import transaction
 from .workloads import deliver
-from .workloads.notify import Outbox, transaction
+from .workloads.notify import Outbox
 from .workloads.platform_notify import OPENS, VIEWS, Ledger, PlatformRouting, recipients, send, validate
 
 METHODS = {"platform_notify", "platform_notify_settings", "platform_notify_save", "platform_notify_open",
@@ -33,6 +34,8 @@ SETTING = "platform_notify"
 MAIL = "mail_server"
 _log = logging.getLogger(__name__)
 # What the bell shows for each notice still open, beside the ledger in platform_outbox.sqlite.
+# Closed and one-off keys are kept this long for dedupe, then deleted (open ones are kept until they close).
+SENT_KEEP_SECONDS = 365 * 86400
 _NOTICE = ("CREATE TABLE IF NOT EXISTS notice (key TEXT PRIMARY KEY, kind TEXT, title TEXT, whom TEXT, "
            "domain TEXT, env TEXT, detail TEXT, open TEXT)")
 
@@ -66,7 +69,20 @@ class PlatformNotifyMixin:
         outbox, ledger = self._pn_paths()
         out = send(checked, routing, outbox, ledger, self._notice_post())
         self._pn_remember([e for e, r in zip(checked, out["events"], strict=True) if r["result"] != "skipped"])
+        self._pn_tidy()
         return out
+
+    def _pn_tidy(self) -> None:
+        """The bell's details of notices that have closed (titles and who they waited on) are deleted,
+        and closed and one-off ledger keys older than SENT_KEEP_SECONDS. Never creates the file."""
+        path = self.root / "platform_outbox.sqlite"
+        if not path.exists():
+            return
+        ledger = Ledger(path)
+        with transaction(path) as db:
+            db.execute(_NOTICE)
+            db.execute("DELETE FROM notice WHERE key NOT IN (SELECT key FROM sent WHERE open = 1)")
+        ledger.prune(SENT_KEEP_SECONDS)
 
     def _mail_server(self) -> deliver.MailServer | None:
         """The company mail server, or None when none is set or what's saved can't be used."""

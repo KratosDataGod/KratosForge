@@ -2,7 +2,7 @@
 
 The profile stores **evidence rows**, one per verified accomplishment, each a reference to a record
 the app already keeps: a Validate result (its id and the notebook's code revision), a proof's run
-receipt, a Learn exercise whose checks all passed on this PC (the lesson's id and content version;
+receipt or side-by-side run (rules v5), a Learn exercise whose checks all passed on this PC (the lesson's id and content version;
 rules v2), or a best-practice fix applied after Compare found the same rows (GD-06, rules v3). It
 never copies code, cell outputs, table names or rows, tokens or connection strings. Everything else
 (XP, level, achievements, skill coverage, the professional report) is worked out from the rows and
@@ -27,8 +27,9 @@ from typing import Any
 from . import jsonfile
 
 SCHEMA = "kratosforge/profile@1"
-RULES_VERSION = 4   # v2 (LX-07): Learn exercises and lessons, and five Learn achievements; v3 (GD-06): fixes checked;
-#                     v4 (ACD-006): Academy exercises, as evidence for their exam objectives (no XP yet)
+RULES_VERSION = 5   # v2 (LX-07): Learn exercises and lessons, and five Learn achievements; v3 (GD-06): fixes checked;
+#                     v4 (ACD-006): Academy exercises, as evidence for their exam objectives (no XP yet);
+#                     v5: a side-by-side run whose tables all matched counts as a proof, as a Prove run does
 LEVEL_CURVE = "v1"
 
 PASSED = ("ready", "ready_with_warnings")
@@ -63,9 +64,9 @@ ACHIEVEMENTS = {
                     "evidence": "Five Validate results, one per notebook."},
     "proof-forged": {"name": "Proof Forged", "xp": 150, "badge": "proof",
                      "description": "A notebook proven to give the same results on this PC and in Fabric.",
-                     "criteria": "A Prove run finishes and its verification finds every table the same on this PC and "
-                                 "in Fabric. It runs the notebook in Fabric too, so it is never needed to level up.",
-                     "evidence": "One run receipt (its SHA-256 id) with the verification."},
+                     "criteria": "A Prove or Side by side run finishes and finds every table the same on this PC and "
+                                 "in Fabric. Both run the notebook in Fabric too, so it is never needed to level up.",
+                     "evidence": "One run receipt (its SHA-256 id) or side-by-side run, with the verification."},
     # Learn (rules v2). Each needs an exercise whose checks all passed on this PC, in a published lesson.
     "first-spark": {"name": "The First Spark", "xp": 50, "badge": "spark",
                     "description": "Your first Learn exercise passed on this PC.",
@@ -207,6 +208,32 @@ def from_proof(record: dict[str, Any], receipt_id: str | None, origin: str = "li
             "rules_version": RULES_VERSION, "recorded_at": _now(), "origin": origin, "contribution": None}
 
 
+def from_side_by_side(record: dict[str, Any], origin: str = "live") -> dict[str, Any] | None:
+    """The evidence row for a finished side-by-side run (side_by_side_service), or None unless both runs
+    finished and every table either wrote matched: the same columns, rows and checksum (rules v5). It is
+    a prove.match row with the id a proof of the same code would have, so proving it again adds nothing.
+    Times are the measured ones the run kept; nothing estimated is kept."""
+    tables = record.get("tables") or []
+    revision, name = record.get("code_revision"), record.get("name")
+    local, fabric = record.get("local") or {}, record.get("fabric") or {}
+    if (record.get("state") != "done" or (record.get("verdict") or {}).get("same") is not True or not revision
+            or not name or local.get("status") != "ok" or fabric.get("status") != "ok" or not tables
+            or any(t.get("result") != "match" for t in tables)):
+        return None
+    measured = {"pc_seconds": local.get("seconds") if _num(local.get("seconds")) else None,
+                "fabric_seconds": fabric.get("total_seconds") if _num(fabric.get("total_seconds")) else None}
+    return {"id": evidence_id("prove.match", name, revision), "type": "prove.match",
+            "at": record.get("finished_at") or _now(),
+            "artifact": {"kind": "notebook", "name": name},
+            "ref": {"source": "side_by_side", "id": record.get("id"), "revision": revision},
+            "status": "verified", "verdict": "same",
+            "detail": {"level": "checksum", "tables": len(tables), "how": "side_by_side"},
+            "measurement": {**measured, "kind": "measured", "source": "side-by-side run"}
+            if any(v is not None for v in measured.values()) else None,
+            "dimensions": list(EVENT_DIMENSIONS["prove.match"]),
+            "rules_version": RULES_VERSION, "recorded_at": _now(), "origin": origin, "contribution": None}
+
+
 def from_lab(result: dict[str, Any], module: dict[str, Any], origin: str = "live") -> dict[str, Any] | None:
     """The evidence row for a Learn exercise whose checks all passed, or None. Only published lessons
     count: a draft may still change. The row keeps the lesson's id, exercise and content version, the
@@ -249,11 +276,12 @@ def from_fix(rule_id: str, area: str, compared: dict[str, Any], runs: dict[str, 
 
 
 def from_academy(result: dict[str, Any], exercise: dict[str, Any], certification: dict[str, Any], hints_used: int = 0,
-                 explanation_seen: bool = False, origin: str = "live") -> dict[str, Any] | None:
+                 explanation_seen: bool = False, origin: str = "live", answers_changed: bool = False) -> dict[str, Any] | None:
     """The evidence row for an Academy exercise whose validation all passed (ACD-006, rules v4), or None.
     Only published exercises count. The row keeps the certification and the version of its study guide,
     the objectives, the exercise's verification class and mode, hints used and whether the explanation was
-    open; never the answer or the data. Passing again on the same day adds nothing; on a later day it adds
+    open, and for a quiz whether checked answers were changed before the pass; never the answer or the data.
+    Passing again on the same day adds nothing; on a later day it adds
     a row, which is what retention reads. Rows are never changed when a new study guide version comes out."""
     if not result.get("passed") or exercise.get("status") != "live" or not result.get("results"):
         return None
@@ -267,7 +295,8 @@ def from_academy(result: dict[str, Any], exercise: dict[str, Any], certification
             "detail": {"certification": pack, "certification_version": certification["version"],
                        "objectives": [str(o) for o in exercise.get("objectives") or []], "class": exercise["class"],
                        "mode": exercise["mode"], "hints_used": max(0, int(hints_used)),
-                       "explanation_seen": bool(explanation_seen), "checks": kinds},
+                       "explanation_seen": bool(explanation_seen), "checks": kinds,
+                       **({"answers_changed": True} if answers_changed else {})},
             "measurement": None, "dimensions": list(EVENT_DIMENSIONS["academy.exercise"]),
             "rules_version": RULES_VERSION, "recorded_at": _now(), "origin": origin, "contribution": None}
 
@@ -349,7 +378,8 @@ def progression(profile: dict[str, Any]) -> dict[str, Any]:
                          "progress": f"{notebooks} of {STEADY_HAND_NOTEBOOKS} different notebooks"})
     if "proof-forged" not in got:
         upcoming.append({"id": "proof-forged", "name": ACHIEVEMENTS["proof-forged"]["name"], "xp": ACHIEVEMENTS["proof-forged"]["xp"],
-                         "progress": "Prove a notebook gives the same results on this PC and in Fabric (optional: it runs in Fabric)"})
+                         "progress": "Prove or run side by side a notebook that gives the same results on this PC and in Fabric "
+                                     "(optional: it runs in Fabric)"})
     exercises = sum(k.startswith("lab.pass|") for k in learned)
     if "first-spark" not in got:
         upcoming.append({"id": "first-spark", "name": ACHIEVEMENTS["first-spark"]["name"], "xp": ACHIEVEMENTS["first-spark"]["xp"],
@@ -552,8 +582,8 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
         (f"Proved {m} notebook{'s' if m != 1 else ''} gave the same results on a workstation and in Microsoft Fabric."
          if m else "")) if x)
     lines = ["# Engineering accomplishments", "", f"{md(name)}{' · ' + md(who['role']) if who.get('role') else ''} · {period}", "",
-          "Each statement is marked Verified (with its evidence reference), Entered by you, Generated summary "
-          "(worded from verified evidence) or Not measured.", "", "## Executive summary", ""]
+          ("Each statement is marked Verified (with its evidence reference), Entered by you, Generated summary "
+          "(worded from verified evidence) or Not measured."), "", "## Executive summary", ""]
     if entered:
         lines.append(f"{entered} *(Entered by you)*")
     elif generated:
@@ -585,7 +615,7 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
                      "each run from the top in a fresh process with table writes kept in a sandbox. *(Verified)*")
     if proved:
         lines.append(f"{len(proved)} proof{'s' if len(proved) != 1 else ''} whose results matched in Microsoft Fabric, "
-                     "each with a run receipt. *(Verified)*")
+                     "each with a run receipt or side-by-side comparison. *(Verified)*")
     fixed = [r for r in rows if r["type"] == "fix.checked"]
     if fixed:
         rules = sorted({r["artifact"]["name"] for r in fixed})
@@ -648,8 +678,8 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
     if include_achievements:
         p = progression(profile)
         lines += ["", "## KratosForge achievements", "",
-               f"Level {p['level']}, {p['xp']} XP. Levels and achievements are motivational and are "
-               "not a skill rating."]
+               (f"Level {p['level']}, {p['xp']} XP. Levels and achievements are motivational and are "
+               "not a skill rating.")]
         lines += [f"- {a['name']}: {a['description']}" for a in p["achievements"]]
     lines += ["", "## Evidence appendix", ""]
     for r in rows:
@@ -663,6 +693,7 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
                          f"{md(ref.get('revision') or '')} and {md(ref.get('id') or '')} · {r['verdict']}")
             continue
         source = (f"Run receipt {ref.get('id')} (SHA-256)" if ref.get("source") == "receipt"
+                  else f"Side by side run {ref.get('id')}" if ref.get("source") == "side_by_side"
                   else f"Validate {ref.get('id')}")
         lines.append(f"- {refs[r['id']]} · {r.get('at', '')[:10]} · {source} · code revision "
                   f"{(ref.get('revision') or '')[:12]} · {r['verdict']}")

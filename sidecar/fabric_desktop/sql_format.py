@@ -23,6 +23,8 @@ from typing import Any
 import sqlglot
 from sqlglot.dialects.tsql import TSQL
 from sqlglot.errors import ParseError, SqlglotError
+from sqlglot.generators.tsql import TSQLGenerator
+from sqlglot.parsers.tsql import TSQLParser
 from sqlglot.tokens import Token, TokenType
 
 from . import sql_dialects
@@ -41,14 +43,14 @@ _ROW_LIMITS = (TokenType.LIMIT, TokenType.TOP, TokenType.FETCH)
 class _TSQLLayout(TSQL):
     """T-SQL for formatting: DATENAME stays DATENAME (sqlglot reads it as FORMAT(..., 'MMMM'))."""
 
-    class Parser(TSQL.Parser):
-        FUNCTIONS = {k: v for k, v in TSQL.Parser.FUNCTIONS.items() if k != "DATENAME"}
+    class Parser(TSQLParser):  # the class TSQL.Parser names, imported so type checkers see a class
+        FUNCTIONS = {k: v for k, v in TSQLParser.FUNCTIONS.items() if k != "DATENAME"}
 
 
 class _TSQLLayoutLimit(_TSQLLayout):
     """For SQL that says LIMIT and never TOP: print LIMIT back rather than TOP."""
 
-    class Generator(_TSQLLayout.Generator):
+    class Generator(TSQLGenerator):  # _TSQLLayout keeps T-SQL's generator
         LIMIT_IS_TOP = False
         LIMIT_FETCH = "LIMIT"
 
@@ -70,7 +72,7 @@ def format_sql(query: str, dialect: str | None = None) -> dict[str, Any]:
     if not query.strip():
         return {"sql": query, "changed": False, "warning": ""}
     try:
-        statements = [s for s in sqlglot.parse(query, read=name) if s is not None]
+        statements = [s for s in sql_dialects.parse(query, read=name) if s is not None]
     except (ParseError, SqlglotError) as exc:
         return unchanged(f"Format SQL left the query as it was: it couldn't be read as "
                          f"{sql_dialects.get(dialect)['label']}. {_first_line(exc)}")
@@ -104,8 +106,8 @@ def _first_line(exc: Exception) -> str:
 def _difference(before: str, after: str, dialect: Any) -> str:
     """What formatting changed besides layout and case, in words; empty when nothing did."""
     try:
-        old = [s for s in sqlglot.parse(before, read=dialect) if s is not None]
-        new = [s for s in sqlglot.parse(after, read=dialect) if s is not None]
+        old = [s for s in sql_dialects.parse(before, read=dialect) if s is not None]
+        new = [s for s in sql_dialects.parse(after, read=dialect) if s is not None]
     except (ParseError, SqlglotError):
         return "produce SQL that doesn't parse"
     if old != new:  # sqlglot compares trees by meaning, ignoring layout and comments
@@ -125,7 +127,7 @@ def _difference(before: str, after: str, dialect: Any) -> str:
 def _parts(query: str, dialect: Any) -> dict[str, Counter]:
     """The identifiers, literals, function names, comments and row-limit keywords of ``query``, as multisets."""
     tokens: list[Token] = sqlglot.Dialect.get_or_raise(dialect).tokenize(query)
-    parts = {k: Counter() for k in ("identifier", "literal", "function", "comment", "row limit")}
+    parts: dict[str, Counter] = {k: Counter() for k in ("identifier", "literal", "function", "comment", "row limit")}
     for i, tok in enumerate(tokens):
         parts["comment"].update(c.strip() for c in tok.comments)
         if tok.token_type in _ROW_LIMITS:

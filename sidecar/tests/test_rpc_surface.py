@@ -30,7 +30,7 @@ _BPA = "best practices check of a semantic model: engine first, screens wait on 
 _QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
 _FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item support view comes with the Deploy work (docs/git-integration-plan.md)"
-_EMBED = "Embed Studio (Preview): engine first, the screen waits on its mockup (PBE-06, docs/architecture/power-bi-embedding.md)"
+_AS_MODELS = "App Studio model requests (AS-10/11): engine first, the Describe and Ask screens come next (docs/architecture/app-studio.md)"
 
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
 # calling it or when it leaves METHODS; the test below fails until you do.
@@ -66,13 +66,17 @@ NO_UI_CALLER: dict[str, str] = {
     # Engine features whose screens come later.
     "incidents_history": _INCIDENTS,
     "incidents_history_sync": _INCIDENTS,
+    "incidents_measures": _INCIDENTS,
     "platform_notify": _NOTIFY,
     "optimize_share_local_runs": _LOCAL_RUNS,
+    "learn_team_notes": _NO_SCREEN,  # GD-09 team notes: shown beside Explain after the mockup is approved
     "meta_preflight": _NO_SCREEN,  # the PB-067 run dialog (#915, after a mockup) shows its estimate
-    "pbi_embed_token": _EMBED,
-    "pbi_embed_content": _EMBED,
     "fabric_item_support": _FABRIC_GIT,
     "fabric_git_links": _FABRIC_GIT,  # the tab reads links through fabric_git_overview
+    "appstudio_plan": _AS_MODELS,
+    "appstudio_create_from_plan": _AS_MODELS,
+    "appstudio_change_plan": _AS_MODELS,
+    "appstudio_apply_change": _AS_MODELS,
     # Listed by QA-017 as having no screen.
     "platform_sources": _QA017,
 }

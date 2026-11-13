@@ -300,7 +300,7 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName) || t.isContentEditable) return;
-  if (!t.closest?.(".cells") && t !== document.body) return;
+  if (!t.closest?.(".cells") && t !== document.body && t.id !== "view") return;
   const key = e.key;
   const ctrl = e.ctrlKey || e.metaKey;
   let handled = true;

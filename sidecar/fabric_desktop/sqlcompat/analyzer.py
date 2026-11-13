@@ -9,13 +9,14 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, SqlglotError, TokenError
 from sqlglot.tokens import TokenType
 
+from .. import sql_dialects
 from .profiles import RULE_VERSION, doc, profile
 
 SEVERITIES = ("error", "warning", "information", "unverified")
@@ -93,7 +94,7 @@ def split(query: str, target: str) -> tuple[list[Stmt], str]:
             statements.append([])
         else:
             statements[-1].append(t)
-    out = []
+    out: list[Stmt] = []
     for group in statements:
         if not group:
             continue
@@ -148,8 +149,8 @@ def parse(stmt: Stmt, dialect: str) -> None:
     level = _log.level
     _log.setLevel(logging.ERROR)  # sqlglot's warnings quote the SQL, which can hold secrets; keep it out of logs
     try:
-        trees = [t for t in sqlglot.parse(text, read=dialect, error_level=sqlglot.ErrorLevel.RAISE) if t is not None]
-        stmt.ast = trees[0] if trees else None
+        trees = [t for t in sql_dialects.parse(text, read=dialect, error_level=sqlglot.ErrorLevel.RAISE) if t is not None]
+        stmt.ast = cast(exp.Expression, trees[0]) if trees else None  # sqlglot types parse as its Expr base
     except (ParseError, TokenError, SqlglotError, RecursionError, ValueError) as exc:
         if stmt.toks and stmt.toks[0].kw in COMMANDS.get(dialect, ()):
             return
@@ -174,8 +175,8 @@ def analyze(query: str, target: str | None = None) -> dict[str, Any]:
         "target": {"id": p["id"], "label": p["label"], "engine": p["engine"], "runs_here": p["runs_here"]},
         "statements": 0, "diagnostics": [], "truncated": False,
         "notes": ["Static analysis: the SQL was read, not run, and nothing was sent to Fabric.",
-                  "No findings means no known problem, not proof that the query runs or gives the same results in "
-                  f"{p['short']}.",
+                  ("No findings means no known problem, not proof that the query runs or gives the same results in "
+                  f"{p['short']}."),
                   "A warning marks a risk or a difference; it doesn't mean the query is wrong."],
     }
     if len(query) > MAX_QUERY:

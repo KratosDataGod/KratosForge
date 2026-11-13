@@ -49,8 +49,9 @@ def test_every_function_marked_as_running_has_a_value_check_that_passes(rows):
 
 def test_a_refusal_is_told_from_a_failure(rows):
     status = {r["name"]: r["status"] for r in rows}
-    assert status["hash"] == "refused" and status["xxhash64"] == "refused"  # EA-017: refused by name
-    assert status["abs"] == "runs" and status["rand"] == "not checked"
+    assert status["count_min_sketch"] == "refused" and status["hll_sketch_agg"] == "refused"  # refused by name
+    assert status["hash"] == "runs" and status["xxhash64"] == "runs"  # EA-017: Spark's own numbers (spark_hash.py)
+    assert status["abs"] == "runs" and status["rand"] == "runs" and status["version"] == "not checked"
 
 
 def _pinned_duckdb() -> str:

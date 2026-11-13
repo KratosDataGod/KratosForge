@@ -13,7 +13,9 @@ use serde_json::{json, Value};
 use tauri::webview::{NewWindowResponse, WebviewBuilder};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
+mod crash;
 mod deep_link;
+mod disk_space;
 mod engine_patch;
 mod exe_name;
 mod folder_pick;
@@ -24,6 +26,7 @@ mod signature;
 mod update_guard;
 mod vscode_link;
 mod watchdog;
+mod win_proxy;
 use watchdog::Reply;
 
 const SIDECAR_EXITED: &str = "The Python sidecar stopped. It will restart on the next action.";
@@ -284,11 +287,74 @@ fn missing_release_file(err: &str) -> bool {
     err.contains("returned error: 404")
 }
 
+/// The host the engine comes from: IT's own folder (engine_download_url) or GitHub.
+fn download_host() -> String {
+    engine_mirror()
+        .and_then(|folder| Url::parse(&folder).ok()?.host_str().map(str::to_string))
+        .unwrap_or_else(|| "github.com".into())
+}
+
+/// Whether a failed download means the network didn't let curl through (offline, a host or proxy
+/// that couldn't be reached, a timeout, a certificate or proxy refusal), as opposed to the server
+/// answering with an error or a file that failed its checks.
+fn network_failure(err: &str) -> bool {
+    ["(5)", "(6)", "(7)", "(28)", "(35)", "(56)", "(60)", "(97)"].iter().any(|code| err.contains(&format!("curl: {code}")))
+}
+
+/// A failed engine download, after one line that says what to do when the network was the cause.
+/// The original line stays in brackets for IT.
+fn explain_download(err: &str, host: &str) -> String {
+    let hint = if (err.contains("curl: (60)") || err.contains("curl: (35)")) && certificate_dates(err) {
+        format!("HTTPS to {host} was refused because its certificate isn't valid at this PC's date and time. Check \
+                 that Windows' date, time and time zone are right (Settings > Time & language > Set time automatically).")
+    } else if err.contains("curl: (60)") {
+        format!("HTTPS to {host} was refused because its certificate isn't trusted on this PC. If your network \
+                 inspects HTTPS, ask IT to add its root certificate to Windows.")
+    } else if err.contains("curl: (35)") {
+        // A failed TLS handshake. On Windows this is often a certificate revocation check that can't
+        // reach its list through the network, rather than an untrusted certificate.
+        format!("HTTPS to {host} couldn't be set up: the certificate or its revocation check failed. If your \
+                 network inspects HTTPS or blocks certificate revocation lists, ask IT to allow them.")
+    } else if err.contains("curl: (5)") || err.contains("curl: (56)") || err.contains("curl: (97)") {
+        "The proxy server refused the connection or couldn't be reached. KratosForge uses the proxy Windows is \
+         set to, or HTTPS_PROXY; a proxy that asks for a Windows sign-in of its own (407) isn't supported."
+            .into()
+    } else if err.contains("curl: (28)") {
+        format!("{host} didn't answer in time. If your network uses a proxy or a firewall, check that it allows \
+                 {host}, then choose Retry.")
+    } else if network_failure(err) {
+        format!("This PC couldn't reach {host}. If it's offline, connect and choose Retry. If your network blocks \
+                 {host}, ask IT to allow it, or to keep the engine on a server of your own (engine_download_url \
+                 in the policy file).")
+    } else {
+        return err.to_string();
+    };
+    format!("{hint} ({err})")
+}
+
+/// Whether curl refused a certificate for its dates (expired or not valid yet), which a wrong PC clock
+/// causes too: OpenSSL's words, and Schannel's codes and words on Windows.
+fn certificate_dates(err: &str) -> bool {
+    let low = err.to_ascii_lowercase();
+    ["certificate has expired", "certificate is not yet valid", "not within its validity period", "sec_e_cert_expired",
+     "cert_e_expired", "0x80090328", "0x800b0101"]
+        .iter()
+        .any(|t| low.contains(t))
+}
+
 fn release_file(tag: &str, file: &str) -> String {
     match engine_mirror() {
         Some(folder) => format!("{folder}/{file}"),
         None => format!("https://github.com/KratosDataGod/KratosForge/releases/download/{tag}/{file}"),
     }
+}
+
+/// curl's last arguments for downloading `url`: the proxy Windows is set to, when no proxy
+/// variable is (win_proxy.rs), then the address with a cache-busting query.
+fn download_args(url: &str, nocache: impl std::fmt::Display) -> Vec<String> {
+    let mut args = win_proxy::curl_args(url);
+    args.push(format!("{url}?nocache={nocache}"));
+    args
 }
 
 /// One of Windows' own tools (curl.exe, tar.exe, rundll32.exe) by its full path. By bare name,
@@ -443,11 +509,15 @@ fn run_schedule(id: &str) -> i32 {
     let mut cmd = Command::new(if pythonw.exists() { pythonw.into_os_string() } else { python.into() });
     cmd.args(["-m", "fabric_desktop.cli", "run-schedule", id])
         .env("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", BUILTIN_CLIENT_ID)
+        .envs(win_proxy::engine_env().iter().cloned())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     hide_window(&mut cmd);
-    cmd.status().ok().and_then(|s| s.code()).unwrap_or(1)
+    match cmd.status() {
+        Ok(status) => status.code().unwrap_or(1),
+        Err(e) => schedule_start_failed(e.raw_os_error()),
+    }
 }
 
 fn hide_window(cmd: &mut Command) {
@@ -499,13 +569,77 @@ fn apply_release_rule(latest: &mut Value) {
     let tag = latest["tag"].as_str().unwrap_or(release_tag()).to_string();
     let path = update_state();
     match update_guard::check_manifest(latest, update_guard::load_seen(&path, &tag).as_ref(), unix_now()) {
-        Ok(seen) => {
-            let _ = update_guard::remember(&path, &tag, Some(&seen));
-        }
+        Ok(seen) => match update_guard::refused_as_failed(&seen.commit, &update_guard::failed_builds(&path)) {
+            None => {
+                let _ = update_guard::remember(&path, &tag, Some(&seen));
+            }
+            Some(reason) => {
+                let _ = update_guard::remember(&path, &tag, None);
+                latest["refused"] = json!(reason);
+            }
+        },
         Err(reason) => {
             let _ = update_guard::remember(&path, &tag, None);
             latest["refused"] = json!(reason);
         }
+    }
+}
+
+/// Windows' answers when application control refuses to start a program: AppLocker or Software
+/// Restriction Policies (ERROR_ACCESS_DISABLED_BY_POLICY), App Control for Business / WDAC
+/// (ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION), and an unsigned file under a signing policy
+/// (ERROR_INVALID_IMAGE_HASH).
+const APP_CONTROL_BLOCKED: [i32; 3] = [1260, 4551, 577];
+
+/// Why the engine's Python didn't start, in words that say what to do: application control is
+/// named with the folder IT allows, and a missing file isn't called blocked (or the reverse).
+fn python_failed(e: &std::io::Error) -> String {
+    let folder = python().ok().and_then(|p| PathBuf::from(p).parent().map(|d| d.display().to_string()))
+        .unwrap_or_else(|| engine_root().display().to_string());
+    python_failed_text(e.raw_os_error(), &e.to_string(), &folder)
+}
+
+/// Why the engine didn't start. Application control's line stands on its own; anything else keeps
+/// saying it was the engine.
+fn engine_start_failed(e: &std::io::Error) -> String {
+    engine_start_text(e.raw_os_error(), python_failed(e))
+}
+
+fn engine_start_text(code: Option<i32>, why: String) -> String {
+    match code {
+        Some(c) if APP_CONTROL_BLOCKED.contains(&c) => why,
+        _ => format!("Could not start the Python sidecar: {why}"),
+    }
+}
+
+/// A scheduled run's exit code when its engine couldn't be started: application control's own code,
+/// so Task Scheduler's "Last Run Result" shows why (0x000004EC is AppLocker), and 1 for anything else.
+fn schedule_start_failed(code: Option<i32>) -> i32 {
+    match code {
+        Some(c) if APP_CONTROL_BLOCKED.contains(&c) => c,
+        _ => 1,
+    }
+}
+
+fn python_failed_text(code: Option<i32>, error: &str, folder: &str) -> String {
+    match code {
+        // 577 also means a file that changed after it was signed: a fresh engine comes first, so a
+        // hash rule never allows a changed file. A restart alone doesn't replace it (the startup
+        // check runs on the same Python), so the folder is deleted and the next start downloads it.
+        Some(577) => format!(
+            "Windows couldn't verify the signature on the engine's Python, so KratosForge can't start it. A file \
+             may have been changed: close KratosForge, delete the folder {folder}, and start KratosForge again to \
+             download a fresh engine. If it's still blocked, your organization's application control (App Control \
+             for Business, also called WDAC) is refusing it: ask IT to allow the engine's files in {folder}; the \
+             enterprise install guide lists the rules (Application control). ({error})"
+        ),
+        Some(c) if APP_CONTROL_BLOCKED.contains(&c) => format!(
+            "Your organization's application control (AppLocker, or App Control for Business, also called \
+             WDAC) blocked the engine's Python, so KratosForge can't start it. Ask IT to allow the engine's files in {folder}; \
+             the enterprise install guide lists the rules (Application control). ({error})"
+        ),
+        Some(2 | 3) => format!("Python was not found ({error})."),
+        _ => format!("Python could not be started ({error})."),
     }
 }
 
@@ -514,6 +648,7 @@ fn updater(args: &[&str]) -> Result<Command, String> {
     // folder can shadow a standard library module.
     let mut cmd = Command::new(python()?);
     cmd.args(["-u", "-c", UPDATER]).args(args).current_dir(data_dir()).stdin(Stdio::null());
+    cmd.envs(win_proxy::engine_env().iter().cloned()); // the proxy Windows uses, when Python can't read it itself
     hide_window(&mut cmd);
     Ok(cmd)
 }
@@ -526,7 +661,7 @@ fn stream(app: &tauri::AppHandle, mut cmd: Command) -> Result<(), String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Could not run Python: {e}"))?;
+        .map_err(|e| python_failed(&e))?;
     let mut tail = VecDeque::new();
     for line in BufReader::new(child.stdout.take().expect("updater stdout")).lines() {
         let line = line.unwrap_or_default();
@@ -559,6 +694,13 @@ struct Sidecar {
     pending: Arc<Mutex<replies::Pending<String>>>,
     next_id: AtomicU64,
     log: PathBuf,
+    started: std::time::Instant,
+    /// Ended on purpose (Stop, an update): not a crash, so it doesn't count toward a crash loop.
+    stopped: std::sync::atomic::AtomicBool,
+    /// Whether how it ended has been added to its log, which happens once whatever number of calls hear it.
+    noted: std::sync::atomic::AtomicBool,
+    /// Whether its end has been counted toward a crash loop: once, however many calls were waiting.
+    counted: std::sync::atomic::AtomicBool,
 }
 
 /// Reads the engine's reply lines and hands each to the call that sent its id. A reply nobody
@@ -643,6 +785,9 @@ impl Sidecar {
         let mut cmd = Command::new(python);
         cmd.args(["-m", "fabric_desktop.server"])
             .env("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", BUILTIN_CLIENT_ID)
+            // The proxy Windows uses (PAC, WPAD, or one set for the whole PC), which the engine,
+            // pip, delta-rs and gRPC can't read themselves (win_proxy.rs).
+            .envs(win_proxy::engine_env().iter().cloned())
             // So a schedule that also runs while signed out can run this exe (run_schedule_arg).
             .env("FABRIC_DESKTOP_APP_EXE", std::env::current_exe().unwrap_or_default())
             // So Settings > Help and about can say why IT's engine folder isn't used (app_settings).
@@ -661,7 +806,17 @@ impl Sidecar {
         let child = Arc::new(Mutex::new(child));
         let (watched, weak) = (log.clone(), Arc::downgrade(&child));
         std::thread::Builder::new().name("engine-log".into()).spawn(move || watch_sidecar_log(watched, weak))?;
-        Ok(Self { child, stdin, pending, next_id: AtomicU64::new(1), log })
+        Ok(Self {
+            child,
+            stdin,
+            pending,
+            next_id: AtomicU64::new(1),
+            log,
+            started: std::time::Instant::now(),
+            stopped: Default::default(),
+            noted: Default::default(),
+            counted: Default::default(),
+        })
     }
 
     fn forget(&self, id: u64) {
@@ -670,9 +825,37 @@ impl Sidecar {
         }
     }
 
+    /// Once the engine has ended, adds when and how to its log: a native crash prints nothing of its
+    /// own, and its exit code is then the only reason there is. Ended on purpose, it says so instead.
+    fn note_exit(&self) {
+        if self.noted.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let mut code = None;
+        for _ in 0..20 {
+            // Its output closes a moment before the process is gone.
+            match self.child.lock().map(|mut c| c.try_wait()) {
+                Ok(Ok(Some(status))) => {
+                    code = Some(status.code());
+                    break;
+                }
+                Ok(Ok(None)) => std::thread::sleep(std::time::Duration::from_millis(100)),
+                _ => break,
+            }
+        }
+        let how = if self.stopped.load(Ordering::SeqCst) {
+            "KratosForge ended it (Stop or an update)".to_string()
+        } else {
+            code.map_or_else(|| "it was still ending".to_string(), crash::exit_reason)
+        };
+        let line = format!("{} The engine stopped after {} seconds: {how}.", crash::utc_stamp(unix_now()), self.started.elapsed().as_secs());
+        let _ = crash::append(&self.log, u64::MAX, &line);
+    }
+
     /// The exit message plus the last thing the sidecar wrote to its log, which is
     /// usually the Python error that stopped it.
     fn exited(&self) -> String {
+        self.note_exit();
         let text = std::fs::read_to_string(&self.log).unwrap_or_default();
         let tail: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
         let tail = tail[tail.len().saturating_sub(3)..].join("\n");
@@ -702,6 +885,7 @@ impl Sidecar {
             Reply::Line(line) => line,
             Reply::Closed => return Err(self.exited()),
             Reply::TimedOut => {
+                self.stopped.store(true, Ordering::SeqCst); // the watchdog ended it: not a crash
                 self.forget(id);
                 return Err(format!(
                     "{SIDECAR_STUCK} {method} had no answer after {} seconds. Notebook variables were cleared; \
@@ -730,13 +914,17 @@ struct SidecarState {
     /// since installing removes the old engine's folder and that engine would run on without its
     /// files (its certificates among them, so every sign-in failed).
     installing: std::sync::atomic::AtomicBool,
+    /// Engines that ended soon after starting, so a crash at start isn't followed by a start for every call.
+    crash_loop: Mutex<crash::CrashLoop>,
 }
 
 impl SidecarState {
-    /// Starts the engine into an empty slot, as the first call after startup does.
+    /// Starts the engine into an empty slot, as the first call after startup does. Not while a crash
+    /// loop is being waited out: the call gets the safe-mode message instead.
     fn start_into(&self, guard: &mut Option<Arc<Sidecar>>) -> Result<(), String> {
         if guard.is_none() {
-            let sidecar = Sidecar::start().map_err(|e| format!("Could not start the Python sidecar: {e}"))?;
+            self.crash_loop.lock().map_err(|e| e.to_string())?.may_start(std::time::Instant::now(), &data_dir())?;
+            let sidecar = Sidecar::start().map_err(|e| engine_start_failed(&e))?;
             *self.child.lock().map_err(|e| e.to_string())? = Some(sidecar.child.clone());
             *guard = Some(Arc::new(sidecar));
         }
@@ -753,6 +941,9 @@ impl SidecarState {
     fn shut_down(&self, grace: std::time::Duration) -> Result<bool, String> {
         let sidecar = self.sidecar.lock().unwrap_or_else(|p| p.into_inner()).take();
         let child = self.child.lock().unwrap_or_else(|p| p.into_inner()).take();
+        if let Some(engine) = &sidecar {
+            engine.stopped.store(true, Ordering::SeqCst);
+        }
         let Some(child) = sidecar.as_ref().map(|s| s.child.clone()).or(child) else { return Ok(false) };
         let deadline = std::time::Instant::now() + grace;
         if let Some(mut engine) = sidecar {
@@ -791,6 +982,53 @@ impl SidecarState {
     }
 }
 
+/// The origins of the app's own page (http/https on Windows, tauri:// elsewhere).
+const APP_ORIGINS: [&str; 3] = ["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"];
+
+/// Whether a call to one of the app's commands may come from this Origin header. Every command
+/// goes through it (`guarded`, wrapped around the whole handler), not only `rpc`. Frames inside the
+/// app (the notebook output frame, the Power BI host page) are served from their own `*.localhost`
+/// protocols, which Tauri counts as local, so its capability rules alone would let them call.
+/// Only the app's own page may: the whole origin must match exactly, never by prefix. A missing
+/// header is the postMessage route, which WebView2 delivers only from the top page of a webview,
+/// not from its frames. The frames also can't reach the IPC protocol at all: their policies allow
+/// no connections (tests notebook_output_frame_has_no_network_and_only_opens_in_the_app and
+/// the_embed_host_page_allows_no_connections). Loosening either policy needs a security read.
+///
+/// The window matters too: a pop-out window draws one section from the engine the main window started
+/// (popout.js, startPopOut), so the commands that check, update or start the app, or hand over a
+/// kratosforge:// link, answer the main window only.
+fn invoke_allowed(command: &str, origin: Option<&str>, webview: &str) -> bool {
+    origin.is_none_or(|o| APP_ORIGINS.contains(&o)) && (webview == "main" || !MAIN_WINDOW_ONLY.contains(&command))
+}
+
+/// The same rule again inside each of those commands, so it holds whatever calls them.
+fn from_main_window<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> bool {
+    webview.label() == "main"
+}
+
+fn main_window_only<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<(), String> {
+    if from_main_window(webview) { Ok(()) } else { Err("Only the main window can do this.".into()) }
+}
+
+const MAIN_WINDOW_ONLY: [&str; 6] = ["check_components", "confirm_started", "check_for_update", "update_sidecar", "update_app", "take_pending_link"];
+
+const INVOKE_REFUSED: &str = "Only KratosForge's own page can use the app's commands.";
+
+/// The app's command handler with the origin check in front: a refused call never reaches a command.
+fn guarded<R: tauri::Runtime>(
+    commands: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
+) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    move |invoke| {
+        let origin = invoke.message.headers().get(tauri::http::header::ORIGIN).map(|v| v.to_str().unwrap_or("not text"));
+        if !invoke_allowed(invoke.message.command(), origin, invoke.message.webview_ref().label()) {
+            invoke.resolver.reject(INVOKE_REFUSED);
+            return true;
+        }
+        commands(invoke)
+    }
+}
+
 #[tauri::command]
 async fn rpc(
     state: tauri::State<'_, SidecarState>,
@@ -819,6 +1057,20 @@ async fn rpc(
         .await
         .map_err(|e| e.to_string())?;
     let ended = matches!(&result, Err(e) if e.starts_with(SIDECAR_STUCK) || e.starts_with(SIDECAR_EXITED));
+    if let Ok(mut crash_loop) = state.crash_loop.lock() {
+        match &result {
+            // Counted once, however many calls were waiting on the engine that ended.
+            Err(e) if e.starts_with(SIDECAR_EXITED) && !sidecar.stopped.load(Ordering::SeqCst) => {
+                if !sidecar.counted.swap(true, Ordering::SeqCst) {
+                    let why: Vec<&str> = e.lines().skip(1).filter(|l| !l.starts_with("Full log: ")).collect();
+                    let why = if why.is_empty() { "nothing was written to its log".to_string() } else { why.join(" | ") };
+                    crash_loop.ended(sidecar.started.elapsed(), std::time::Instant::now(), &why);
+                }
+            }
+            _ if !ended && sidecar.started.elapsed() >= crash::SOON => crash_loop.settled(),
+            _ => {}
+        }
+    }
     if ended {
         // Ended by the time limit, Stop or a crash: the next call starts a fresh one, unless
         // another call already did.
@@ -839,6 +1091,9 @@ async fn rpc(
 /// `rpc` call then returns an error and the next call starts a fresh sidecar.
 #[tauri::command]
 fn stop_kernel(state: tauri::State<'_, SidecarState>) -> Result<(), String> {
+    if let Some(engine) = state.sidecar.lock().map_err(|e| e.to_string())?.as_ref() {
+        engine.stopped.store(true, Ordering::SeqCst); // ended on purpose, not a crash
+    }
     if let Some(child) = state.child.lock().map_err(|e| e.to_string())?.take() {
         let _ = child.lock().map_err(|e| e.to_string())?.kill();
     }
@@ -883,36 +1138,108 @@ fn rename_to_kratosforge(exe: &std::path::Path) {
     let _ = exe;
 }
 
+/// Set once this exe's engine has answered (confirm_started).
+static START_CONFIRMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static WATCHING_START: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// How long a new build has, after its window is up, for its engine to answer. Time spent downloading
+/// or installing the engine doesn't count, for up to two hours in all (update_guard::StartClock); its first start does, which is
+/// slow while Windows scans each new file.
+const CONFIRM_LIMIT: std::time::Duration = std::time::Duration::from_secs(20 * 60);
+
+/// The UI calls this once the engine has answered its first call: this build works, so the
+/// previous one (exe.old) can go. It goes once its process has exited. Not when this is the wrong
+/// build: the exe that started it is putting itself back.
+#[tauri::command]
+fn confirm_started(webview: tauri::Webview) {
+    if !from_main_window(&webview) {
+        return;
+    }
+    if START_CONFIRMED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let updated_to = updated_to_arg();
+    if updated_to.as_deref().is_some_and(|to| to != BUILD_COMMIT) {
+        return;
+    }
+    let after_update = updated_to.is_some();
+    std::thread::spawn(move || {
+        let Ok(exe) = app_exe() else { return };
+        let old = exe.with_extension("exe.old");
+        for _ in 0..120 {
+            if !old.exists() || std::fs::remove_file(&old).is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        // The previous exe has exited and gone, so nothing else holds this file's name: a copy
+        // still called fabric-desktop.exe becomes kratosforge.exe. Only after an update this PC
+        // takes itself; a managed PC's file stays where IT put it.
+        if after_update && !old.exists() && bundled() && auto_update_allowed() {
+            rename_to_kratosforge(&exe);
+        }
+    });
+}
+
+/// After an update, puts the previous build back when this one's engine hasn't answered within
+/// CONFIRM_LIMIT of its window coming up (EA-024): the previous exe has already exited by then, so
+/// this exe does it itself. Once per build (update_guard::rolls_back), and the build is remembered
+/// so this PC doesn't install it again.
+fn watch_start(app: tauri::AppHandle) {
+    let mut clock = update_guard::StartClock::default();
+    let mut last = std::time::Instant::now();
+    loop {
+        if START_CONFIRMED.load(Ordering::SeqCst) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let now = std::time::Instant::now();
+        let installing = app.state::<SidecarState>().installing.load(Ordering::SeqCst);
+        if clock.tick(now - last, installing, CONFIRM_LIMIT) {
+            break;
+        }
+        last = now;
+    }
+    let state_file = update_state();
+    let failed_before = update_guard::failed_builds(&state_file).iter().any(|c| c.eq_ignore_ascii_case(BUILD_COMMIT));
+    if !update_guard::rolls_back(updated_to_arg().as_deref(), BUILD_COMMIT, START_CONFIRMED.load(Ordering::SeqCst), failed_before) {
+        return;
+    }
+    let Ok(exe) = app_exe() else { return };
+    let old = exe.with_extension("exe.old");
+    if !old.exists() {
+        return; // nothing to put back (removed by hand, say): keep running
+    }
+    let state = app.state::<SidecarState>();
+    state.updating.store(true, Ordering::SeqCst); // so nothing starts the engine again meanwhile
+    let _ = state.shut_down(std::time::Duration::from_secs(10));
+    if let Err(e) = update_guard::restore_previous(&exe, &old) {
+        eprintln!("could not put the previous build back: {e}");
+        state.updating.store(false, Ordering::SeqCst);
+        return;
+    }
+    // Only once it is back: a build that stays because the restore failed can still be installed again.
+    let _ = update_guard::record_failed(&state_file, BUILD_COMMIT);
+    INSTANCE.release(); // so the previous build claims it straight away
+    if let Err(e) = Command::new(&exe).spawn() {
+        eprintln!("put the previous build back but could not start it: {e}");
+    }
+    app.exit(0);
+}
+
 /// Reports this exe's build, the Python and sidecar it will use, and the
 /// latest release. Fails only when Python itself cannot run.
 #[tauri::command]
-async fn check_components() -> Result<Value, String> {
+async fn check_components(app: tauri::AppHandle, webview: tauri::Webview) -> Result<Value, String> {
+    main_window_only(&webview)?;
     let updated_to = updated_to_arg();
     // The window is up and the UI has asked for this check, so this exe started. After an update,
-    // the exe that started this one waits for this marker, then exits.
+    // the exe that started this one waits for this marker, then exits. From here this exe watches
+    // its own start: until its engine answers (confirm_started), the previous build stays as exe.old.
     if updated_to.is_some() {
         let _ = update_guard::mark_started(&start_marker(), BUILD_COMMIT);
-    }
-    // The previous exe (exe.old) is kept until now so it can be put back; it goes once its process
-    // has exited. Not when this is the wrong build: the exe that started it is putting itself back.
-    if updated_to.as_deref().is_none_or(|to| to == BUILD_COMMIT) {
-        let after_update = updated_to.is_some();
-        std::thread::spawn(move || {
-            let Ok(exe) = app_exe() else { return };
-            let old = exe.with_extension("exe.old");
-            for _ in 0..120 {
-                if !old.exists() || std::fs::remove_file(&old).is_ok() {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(500));
-            }
-            // The previous exe has exited and gone, so nothing else holds this file's name: a copy
-            // still called fabric-desktop.exe becomes kratosforge.exe. Only after an update this PC
-            // takes itself; a managed PC's file stays where IT put it.
-            if after_update && !old.exists() && bundled() && auto_update_allowed() {
-                rename_to_kratosforge(&exe);
-            }
-        });
+        if updated_to.as_deref() == Some(BUILD_COMMIT) && !WATCHING_START.swap(true, Ordering::SeqCst) {
+            std::thread::spawn(move || watch_start(app));
+        }
     }
     let mut report = if bundled() && engine_python().is_none() {
         // Nothing to run the check with until the engine is installed; the UI installs
@@ -923,9 +1250,7 @@ async fn check_components() -> Result<Value, String> {
             "latest": { "commit": null, "error": null },
         })
     } else {
-        let out = updater(&["check"])?
-            .output()
-            .map_err(|e| format!("Python was not found ({e})."))?;
+        let out = updater(&["check"])?.output().map_err(|e| python_failed(&e))?;
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr);
             return Err(format!("Python could not run the startup check. {}", stderr.trim()));
@@ -948,7 +1273,7 @@ async fn check_components() -> Result<Value, String> {
 /// The channel's newest build (updater.py latest), put through the release rule, which also
 /// makes it the build update_app may install.
 fn channel_latest() -> Result<Value, String> {
-    let out = updater(&["latest"])?.output().map_err(|e| format!("Python was not found ({e})."))?;
+    let out = updater(&["latest"])?.output().map_err(|e| python_failed(&e))?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         return Err(format!("Python could not run the update check. {}", stderr.trim()));
@@ -979,7 +1304,8 @@ fn offered_now() -> Result<String, String> {
 /// release rule as the startup check, so update_app will install it. Leaves the engine alone: the
 /// new build's startup check updates it.
 #[tauri::command]
-async fn check_for_update() -> Result<Value, String> {
+async fn check_for_update(webview: tauri::Webview) -> Result<Value, String> {
+    main_window_only(&webview)?;
     let latest = channel_latest()?;
     Ok(json!({
         "commit": if BUILD_COMMIT.is_empty() { Value::Null } else { json!(BUILD_COMMIT) },
@@ -993,7 +1319,8 @@ async fn check_for_update() -> Result<Value, String> {
 /// engine's build, which can be newer than this exe when the release has moved on (never with
 /// `"auto_update": false`, which installs only this build's engine).
 #[tauri::command]
-async fn update_sidecar(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>) -> Result<Value, String> {
+async fn update_sidecar(app: tauri::AppHandle, webview: tauri::Webview, state: tauri::State<'_, SidecarState>) -> Result<Value, String> {
+    main_window_only(&webview)?;
     if BUILD_COMMIT.is_empty() {
         return Err("This is a local build, so it cannot pick a sidecar version. Install it with pip.".into());
     }
@@ -1035,6 +1362,11 @@ fn run_tool(mut cmd: Command, what: &str) -> Result<(), String> {
 /// engine already has the release's Python and packages, only the engine's own code is
 /// downloaded (engine_patch.rs); the whole engine is the fallback.
 fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
+    // A full or read-only profile disk (shared and virtual desktops) is said plainly (disk_space.rs).
+    install_engine_into(app).map_err(|e| disk_space::explain(&e, &engine_root()))
+}
+
+fn install_engine_into(app: &tauri::AppHandle) -> Result<String, String> {
     let say = |line: &str| {
         let _ = app.emit("component-log", line);
     };
@@ -1050,11 +1382,16 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
         Ok(None) => {}
         Err(e) => {
             let _ = std::fs::remove_dir_all(&staging);
+            if network_failure(&e) {
+                // The whole engine comes from the same host: trying it would only wait again.
+                return Err(explain_download(&e, &download_host()));
+            }
             say(&format!("{e} Downloading the whole engine instead."));
         }
     }
 
-    say("Downloading the engine (Python and its packages, about 150 MB)…");
+    disk_space::check_room(&root, disk_space::free_bytes(&root))?;
+    say("Downloading the engine (Python and its packages, about 330 MB)…");
     let mut result = Err(String::new());
     let mut release = Value::Null;
     let mut release_tag_used = "";
@@ -1068,7 +1405,7 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
         curl.args(["--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
                    "--retry", "2", "-H", "Cache-Control: no-cache", "-o"])
             .arg(&zip)
-            .arg(format!("{}?nocache={nocache}", release_file(tag, "fabric-desktop-engine.zip")));
+            .args(download_args(&release_file(tag, "fabric-desktop-engine.zip"), nocache));
         result = run_tool(curl, "download the engine");
         if result.as_ref().is_err_and(|e| !missing_release_file(e)) {
             break;
@@ -1081,7 +1418,7 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
             curl.args(["--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
                        "Cache-Control: no-cache", "-o"])
                 .arg(&release_json)
-                .arg(format!("{}?nocache={nocache}", release_file(tag, "version.json")));
+                .args(download_args(&release_file(tag, "version.json"), nocache));
             result = run_tool(curl, "read the engine's checksum");
             release = std::fs::read_to_string(&release_json)
                 .ok()
@@ -1118,7 +1455,7 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
                 BUILD_COMMIT.get(..7).unwrap_or(BUILD_COMMIT)
             ));
         }
-        return Err(e);
+        return Err(explain_download(&e, &download_host()));
     }
     // An out-of-date version.json would install an older engine than the channel last offered.
     let state = update_state();
@@ -1204,7 +1541,7 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
         curl.args(["--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
                    "Cache-Control: no-cache", "-o"])
             .arg(&release_json)
-            .arg(format!("{}?nocache={nocache}", release_file(tag, "version.json")));
+            .args(download_args(&release_file(tag, "version.json"), nocache));
         match run_tool(curl, "read the engine's release") {
             Ok(()) => {
                 tag_used = tag.as_str();
@@ -1247,7 +1584,7 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
     curl.args(["--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
                "--retry", "2", "-H", "Cache-Control: no-cache", "-o"])
         .arg(&zip)
-        .arg(format!("{}?nocache={nocache}", release_file(tag_used, engine_patch::UPDATE_ZIP)));
+        .args(download_args(&release_file(tag_used, engine_patch::UPDATE_ZIP), nocache));
     let checked = run_tool(curl, "download the engine update")
         .and_then(|()| sha256_file(&zip))
         .and_then(|sha| {
@@ -1366,7 +1703,8 @@ impl update_guard::Handover for ExeHandover<'_> {
 /// on (a newer Preview was published since), or moves during the download, the build it names
 /// now is installed instead, so an update never chases a build the release no longer holds.
 #[tauri::command]
-async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>, commit: String) -> Result<(), String> {
+async fn update_app(app: tauri::AppHandle, webview: tauri::Webview, state: tauri::State<'_, SidecarState>, commit: String) -> Result<(), String> {
+    main_window_only(&webview)?;
     if !update_guard::is_commit(&commit) {
         return Err(format!("{commit} is not a build commit"));
     }
@@ -1377,7 +1715,28 @@ async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>
     let new = exe.with_extension("exe.new");
     let old = exe.with_extension("exe.old");
     let dest = new.to_string_lossy().into_owned();
-    let mut target = commit.to_ascii_lowercase();
+    let target = download_offered(&app, commit.to_ascii_lowercase(), &dest);
+    let target = match target {
+        Ok(t) => t,
+        Err(e) => {
+            let _ = std::fs::remove_file(&new); // a partial or unchecked download is never left behind
+            return Err(e);
+        }
+    };
+    // A signed build takes only an update its own publisher signed (signature.rs): the checksum
+    // the download was checked against comes from the same release as the file.
+    if let Err(why) = signature::update_allowed(&signature::signer(&exe), &signature::signer(&new)) {
+        let _ = std::fs::remove_file(&new);
+        return Err(why);
+    }
+    update_guard::hand_over(&mut ExeHandover {
+        app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &target, child: None,
+    })
+}
+
+/// Downloads the build the channel offers now to `dest`, following it once if it moves on during
+/// the download (update_app). Returns the build downloaded.
+fn download_offered(app: &tauri::AppHandle, mut target: String, dest: &str) -> Result<String, String> {
     for attempt in 0..2 {
         let offered = offered_now()?;
         if offered != target {
@@ -1394,14 +1753,13 @@ async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>
         }
         // The download runs the updater with its own Python, not the engine, so the engine keeps
         // running until the file is here and checked.
-        match stream(&app, updater(&["download-app", &dest, &target])?) {
-            Ok(()) => break,
+        match stream(app, updater(&["download-app", dest, &target])?) {
+            Ok(()) => return Ok(target),
             Err(out) => {
                 let last = out.lines().last().unwrap_or_default().trim().to_string();
                 if last.starts_with("moved ") && attempt == 0 {
                     continue; // republished meanwhile: check the channel again
                 }
-                let _ = std::fs::remove_file(&new);
                 return Err(if last.starts_with("moved ") {
                     "The update channel is being republished. Try again in a few minutes.".into()
                 } else if last.is_empty() {
@@ -1412,15 +1770,7 @@ async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>
             }
         }
     }
-    // A signed build takes only an update its own publisher signed (signature.rs): the checksum
-    // the download was checked against comes from the same release as the file.
-    if let Err(why) = signature::update_allowed(&signature::signer(&exe), &signature::signer(&new)) {
-        let _ = std::fs::remove_file(&new);
-        return Err(why);
-    }
-    update_guard::hand_over(&mut ExeHandover {
-        app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &target, child: None,
-    })
+    Err("The update channel is being republished. Try again in a few minutes.".into())
 }
 
 // ---- Fabric's own pages (the Monitoring hub, the OneLake catalog), shown in one second webview
@@ -1553,7 +1903,9 @@ static FABRIC_SHOWN: Mutex<BTreeMap<&'static str, String>> = Mutex::new(BTreeMap
 
 /// Shows the calling window's Fabric view over the page's placeholder, creating it the first time.
 /// Coordinates are CSS pixels inside the window, which are Tauri's logical pixels.
+// Each argument is a field the page sends by name; one struct would change the call the page makes.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn fabric_view_show(
     app: tauri::AppHandle,
     window: tauri::Window,
@@ -1581,6 +1933,8 @@ async fn fabric_view_show(
         }
         return view.show().map_err(|e| e.to_string());
     }
+    // A sign-out whose profile delete was held up finishes before any view uses the profile.
+    signin::finish_forget()?;
     // Start blank: the saved sign-in goes in before the first Fabric request.
     let blank = Url::parse("about:blank").map_err(|e| e.to_string())?;
     // The organization's identity provider hosts, read once for this view.
@@ -1713,18 +2067,74 @@ mod signin {
     pub fn forget(app: &tauri::AppHandle) {
         let _ = std::fs::remove_file(file());
         *LAST.lock().unwrap() = Vec::new();
-        // The pop-out's view shares the profile, so this signs it out too; its window closes.
-        if let Some(window) = app.get_window(&super::pop_out_label("fabric")) {
-            let _ = window.close();
+        let views: Vec<_> = [super::FABRIC_VIEW, super::FABRIC_POP_OUT_VIEW]
+            .into_iter()
+            .filter_map(|label| app.get_webview(label))
+            .collect();
+        if views.is_empty() {
+            // No view is open, but the profile on disk still holds the cookies that signed it in, so
+            // it goes whole. The marker goes first: if WebView2's browser process still holds the
+            // profile (a view closed moments ago), the next view deletes it before it starts.
+            let _ = std::fs::write(forget_marker(), b"");
+            let _ = clear_profile();
         }
-        if let Some(view) = app.get_webview(super::FABRIC_VIEW) {
+        // Both views share the profile, so either one's cookies are the sign-in.
+        if let Some(view) = views.first() {
             for cookie in view.cookies().unwrap_or_default() {
                 if cookie.domain().is_some_and(super::fabric_host) {
                     let _ = view.delete_cookie(cookie);
                 }
             }
+        }
+        // The pop-out's window closes; the main view hides.
+        if let Some(window) = app.get_window(&super::pop_out_label("fabric")) {
+            let _ = window.close();
+        }
+        if let Some(view) = app.get_webview(super::FABRIC_VIEW) {
             let _ = view.hide();
         }
+    }
+
+    fn profile() -> PathBuf {
+        super::data_dir().join("fabric-view")
+    }
+
+    /// Says the Fabric view's profile must be deleted before a view uses it again: a sign-out asked
+    /// for it while something still held the profile open.
+    fn forget_marker() -> PathBuf {
+        super::data_dir().join("fabric-view.forget")
+    }
+
+    /// Deletes the Fabric view's profile, trying three times over about a second (WebView2's browser
+    /// process can hold it briefly after its last view closes), then the marker. False when the
+    /// profile is still there.
+    fn clear_profile() -> bool {
+        for attempt in 0..3 {
+            if attempt > 0 {
+                std::thread::sleep(Duration::from_millis(400));
+            }
+            match std::fs::remove_dir_all(profile()) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => continue,
+                _ if profile().exists() => continue,
+                _ => {
+                    let _ = std::fs::remove_file(forget_marker());
+                    return true;
+                }
+            }
+        }
+        eprintln!("Fabric view: the signed-out profile is still in use; it is deleted before the view opens again");
+        false
+    }
+
+    /// Before a Fabric view starts: a sign-out that couldn't delete the profile is finished now, and
+    /// the view doesn't open on a profile that still holds the old sign-in.
+    pub fn finish_forget() -> Result<(), String> {
+        if !forget_marker().exists() || clear_profile() {
+            return Ok(());
+        }
+        Err("The Fabric view is still finishing your sign-out. Close KratosForge and open it again, then \
+             open Fabric."
+            .into())
     }
 
     pub fn load() -> Vec<Cookie<'static>> {
@@ -2028,7 +2438,8 @@ fn is_app_page(url: &Url) -> bool {
         && matches!((url.scheme(), url.host_str()), ("tauri", Some("localhost")) | ("http" | "https", Some("tauri.localhost")))
 }
 
-/// A pop-out window stays on the app's own pages; a web link opens in the default browser.
+/// The main window and the pop-out windows stay on the app's own pages; a web link opens in the
+/// default browser.
 fn app_page(url: &Url) -> bool {
     if is_app_page(url) {
         return true;
@@ -2037,6 +2448,33 @@ fn app_page(url: &Url) -> bool {
         let _ = open_in_browser(url);
     }
     false
+}
+
+/// A new window asked for by the app's own page (a link opened with Ctrl or Shift, window.open):
+/// always denied. An https link opens in the default browser, and nothing opens inside the app. Without this, WebView2
+/// would open a window of its own, with no navigation filter.
+fn app_new_window(url: Url, _features: tauri::webview::NewWindowFeatures) -> NewWindowResponse<tauri::Wry> {
+    if new_window_opens_in_browser(&url) {
+        let _ = open_in_browser(&url);
+    }
+    NewWindowResponse::Deny
+}
+
+/// The same rule as open_link: https only.
+fn new_window_opens_in_browser(url: &Url) -> bool {
+    url.scheme() == "https" && !is_app_page(url)
+}
+
+/// The main window, from tauri.conf.json (where it has "create": false), with the same filters as
+/// the pop-out windows: the config file can't give a window a navigation or new-window filter.
+fn build_main_window(app: &tauri::App) -> tauri::Result<()> {
+    let config = app.config().app.windows.iter().find(|w| w.label == "main").cloned()
+        .expect("tauri.conf.json has the main window");
+    tauri::WebviewWindowBuilder::from_config(app, &config)?
+        .on_navigation(app_page)
+        .on_new_window(app_new_window)
+        .build()
+        .map(|_| ())
 }
 
 /// Opens a section in its own window, or brings its window forward if it is open already.
@@ -2055,7 +2493,8 @@ async fn pop_out_open(app: tauri::AppHandle, section: String, on_top: Option<boo
         .min_inner_size(360.0, 260.0)
         .zoom_hotkeys_enabled(true)  // Ctrl+= / Ctrl+- / Ctrl+0, as in the main window (tauri.conf.json)
         .always_on_top(on_top.unwrap_or(false))
-        .on_navigation(app_page);
+        .on_navigation(app_page)
+        .on_new_window(app_new_window);
     let screens: Vec<_> = app.available_monitors().unwrap_or_default().iter()
         .map(|m| (m.position().x as f64, m.position().y as f64, m.size().width as f64, m.size().height as f64, m.scale_factor()))
         .collect();
@@ -2304,7 +2743,10 @@ fn embed_host(webview: &str, path: &str) -> tauri::http::Response<Vec<u8>> {
 struct PendingLink(Mutex<Option<String>>);
 
 #[tauri::command]
-fn take_pending_link(state: tauri::State<'_, PendingLink>) -> Option<String> {
+fn take_pending_link(webview: tauri::Webview, state: tauri::State<'_, PendingLink>) -> Option<String> {
+    if !from_main_window(&webview) {
+        return None;
+    }
     state.0.lock().ok().and_then(|mut l| l.take())
 }
 
@@ -2363,9 +2805,11 @@ fn claim_single_instance(url: Option<&str>, updating: bool) -> Option<Option<std
 }
 
 fn main() {
+    crash::log_panics(data_dir().join("app-crash.log"), BUILD_COMMIT);
     if let Some(id) = run_schedule_arg(&std::env::args().collect::<Vec<_>>()) {
         std::process::exit(run_schedule(id));
     }
+    win_proxy::warm_up(); // WPAD can take seconds: worked out while the window opens
     // A link is read before anything else. One that doesn't read as a link is never handed on:
     // the app only says it wasn't opened (and why, when this copy is the one that runs).
     // An organization that turned links off (register_link_scheme: false) gets none: no listener on
@@ -2390,24 +2834,32 @@ fn main() {
     tauri::Builder::default()
         .manage(PendingLink(Mutex::new(pending)))
         .setup(move |app| {
+            build_main_window(app)?;
             let handle = app.handle().clone();
             if !links_on {
                 deep_link::forget_port(&data_dir());
             } else if let Err(e) = deep_link::listen(&data_dir(), move |link| show_link(&handle, link)) {
+                deep_link::forget_port(&data_dir()); // an earlier run's port: nothing of this copy's listens there
                 eprintln!("kratosforge:// links from other copies won't arrive: {e}");
             }
             register_link_scheme();
             Ok(())
         })
-        .manage(SidecarState { sidecar: Mutex::new(None), child: Mutex::new(None), updating: Default::default(), installing: Default::default() })
+        .manage(SidecarState {
+            sidecar: Mutex::new(None),
+            child: Mutex::new(None),
+            updating: Default::default(),
+            installing: Default::default(),
+            crash_loop: Default::default(),
+        })
         .register_uri_scheme_protocol(OUTPUT_SCHEME, |ctx, _| output_frame(ctx.webview_label()))
         .register_uri_scheme_protocol(EMBED_SCHEME, |ctx, request| embed_host(ctx.webview_label(), request.uri().path()))
         .on_window_event(on_window_event)
-        .invoke_handler(tauri::generate_handler![
-            rpc, stop_kernel, check_components, check_for_update, update_sidecar, update_app,
+        .invoke_handler(guarded(tauri::generate_handler![
+            rpc, stop_kernel, check_components, confirm_started, check_for_update, update_sidecar, update_app,
             fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link, pick_folder,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
-        ])
+        ]))
         .run(tauri::generate_context!())
         .expect("error while running KratosForge");
 }
@@ -2552,6 +3004,61 @@ mod integrity_tests {
             "Could not download the engine: curl: (7) Failed to connect to github.com port 443",
         ] {
             assert!(!missing_release_file(err), "{err}");
+        }
+    }
+
+    #[test]
+    fn a_python_that_application_control_blocks_says_so_and_names_the_folder() {
+        let folder = r"C:\Users\a\AppData\Local\FabricDesktop\engine\abc";
+        for code in [1260, 4551, 577] {
+            let text = python_failed_text(Some(code), "This program is blocked by group policy. (os error 1260)", folder);
+            assert!(text.contains("application control (") && text.contains("WDAC") && text.contains(folder), "{text}");
+            assert!(text.ends_with("(This program is blocked by group policy. (os error 1260))"));
+            // The engine's start says only that, not "Could not start the Python sidecar" before it.
+            assert_eq!(engine_start_text(Some(code), text.clone()), text);
+            assert_eq!(schedule_start_failed(Some(code)), code); // Task Scheduler shows the policy's code
+        }
+        assert!(engine_start_text(Some(2), "Python was not found (x).".into()).starts_with("Could not start the Python sidecar: "));
+        assert_eq!(schedule_start_failed(Some(2)), 1);
+        assert_eq!(schedule_start_failed(None), 1);
+        let changed = python_failed_text(Some(577), "Windows cannot verify the digital signature for this file. (os error 577)", folder);
+        assert!(changed.starts_with("Windows couldn't verify the signature on the engine's Python"), "{changed}");
+        assert!(changed.contains(&format!("close KratosForge, delete the folder {folder}, and start KratosForge again")), "{changed}");
+        assert!(changed.contains("If it's still blocked, your organization's application control (App Control"), "{changed}");
+        assert!(!python_failed_text(Some(1260), "x", folder).contains("may have been changed"));
+        assert_eq!(python_failed_text(Some(2), "not found", folder), "Python was not found (not found).");
+        assert_eq!(python_failed_text(Some(5), "Access is denied", folder), "Python could not be started (Access is denied).");
+    }
+
+    #[test]
+    fn a_certificate_refused_for_its_dates_asks_to_check_the_clock() {
+        for err in ["curl: (60) SSL certificate problem: certificate has expired",
+                    "curl: (60) SSL certificate problem: certificate is not yet valid",
+                    "curl: (60) schannel: SEC_E_CERT_EXPIRED (0x80090328) - The received certificate has expired."] {
+            let text = explain_download(err, "github.com");
+            assert!(text.contains("this PC's date and time"), "{text}");
+            assert!(!text.contains("root certificate"), "{text}");
+        }
+        assert!(explain_download("curl: (60) SSL certificate problem: unable to get local issuer certificate", "github.com")
+            .contains("root certificate"));
+    }
+
+    #[test]
+    fn a_download_the_network_stopped_says_what_to_do() {
+        let offline = explain_download("Could not download the engine: curl: (6) Could not resolve host: github.com", "github.com");
+        assert!(offline.starts_with("This PC couldn't reach github.com. If it's offline"), "{offline}");
+        assert!(offline.contains("engine_download_url") && offline.ends_with("(Could not download the engine: curl: (6) Could not resolve host: github.com)"));
+        let refused = explain_download("Could not download the engine: curl: (7) Failed to connect to files.contoso.com port 443", "files.contoso.com");
+        assert!(refused.starts_with("This PC couldn't reach files.contoso.com."), "{refused}");
+        assert!(explain_download("curl: (28) Operation too slow", "github.com").starts_with("github.com didn't answer in time"));
+        assert!(explain_download("curl: (60) SSL certificate problem: unable to get local issuer certificate", "github.com")
+            .starts_with("HTTPS to github.com was refused because its certificate"));
+        assert!(explain_download("curl: (35) schannel: next InitializeSecurityContext failed: CRYPT_E_NO_REVOCATION_CHECK", "github.com")
+            .starts_with("HTTPS to github.com couldn't be set up: the certificate or its revocation check failed."));
+        assert!(explain_download("curl: (56) CONNECT tunnel failed, response 407", "github.com").starts_with("The proxy server refused"));
+        for other in ["curl: (22) The requested URL returned error: 503", "The engine's checksum doesn't match."] {
+            assert_eq!(explain_download(other, "github.com"), other);
+            assert!(!network_failure(other));
         }
     }
 
@@ -2785,6 +3292,90 @@ mod embed_host_tests {
     }
 
     #[test]
+    fn the_embed_host_page_allows_no_connections() {
+        assert!(EMBED_CSP.contains("connect-src 'none'"), "{EMBED_CSP}");
+        assert!(!EMBED_CSP.contains('*'), "{EMBED_CSP}");
+    }
+
+    #[test]
+    fn only_the_apps_own_page_can_use_the_apps_commands() {
+        let main_rs = include_str!("main.rs");
+        let list = main_rs.split("invoke_handler(guarded(tauri::generate_handler![").nth(1).expect("the handler is guarded")
+            .split("]").next().unwrap();
+        let commands: Vec<&str> = list.split(',').map(str::trim).filter(|c| !c.is_empty()).collect();
+        assert!(commands.len() >= 22 && commands.contains(&"rpc") && commands.contains(&"update_app") && commands.contains(&"open_link"), "{commands:?}");
+        for command in &commands {
+            for ok in [None, Some("http://tauri.localhost"), Some("https://tauri.localhost"), Some("tauri://localhost")] {
+                assert!(invoke_allowed(command, ok, "main"), "{command} {ok:?}");
+            }
+            for bad in ["null", "http://nbout.localhost", "http://pbiembed.localhost", "http://tauri.localhost.evil",
+                    "http://tauri.localhost.evil.com", "http://tauri.localhost:8080", "http://evil.tauri.localhost",
+                    "https://app.fabric.microsoft.com", "http://localhost", "HTTP://TAURI.LOCALHOST", "",
+                    "http://tauri.localhost/", "not text"] {
+                assert!(!invoke_allowed(command, Some(bad), "main"), "{command} {bad}");
+            }
+        }
+        // A pop-out window has the same page, less what checks, updates or starts the app.
+        for command in MAIN_WINDOW_ONLY {
+            assert!(commands.contains(&command), "{command} is a command");
+            for view in ["pop-out-runs", "pop-out-fabric", "fabric", ""] {
+                assert!(!invoke_allowed(command, Some("http://tauri.localhost"), view), "{command} from {view}");
+            }
+        }
+        // And inside each of them, by the calling webview's label.
+        for command in MAIN_WINDOW_ONLY {
+            let body = main_rs.split(&format!("fn {command}(")).nth(1).expect("the command").split("\n\u{7d}").next().unwrap();
+            let check = body.find("main_window_only(&webview)?").or_else(|| body.find("if !from_main_window(&webview)"));
+            assert!(check.is_some_and(|at| at < 400), "{command} checks its window first");
+        }
+        for command in ["rpc", "open_link", "open_doc", "pop_out_close", "pop_out_on_top", "pop_out_open_in_fabric", "fabric_view_show"] {
+            assert!(invoke_allowed(command, Some("http://tauri.localhost"), "pop-out-runs"), "{command}");
+        }
+    }
+
+    #[test]
+    fn every_window_of_the_apps_own_page_keeps_to_it_and_sends_web_links_to_the_browser() {
+        // The main window is built in code so it can have the filters (build_main_window).
+        let conf: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let windows = conf["app"]["windows"].as_array().unwrap();
+        assert_eq!(windows.len(), 1);
+        assert_eq!((windows[0]["label"].as_str(), windows[0]["create"].as_bool()), (Some("main"), Some(false)));
+        // Every window the shell builds sets both filters.
+        let main_rs = include_str!("main.rs");
+        let (new, from_config) = (["WebviewWindowBuilder::", "new("].concat(), ["WebviewWindowBuilder::", "from_config("].concat());
+        let builders = main_rs.split(new.as_str()).skip(1).chain(main_rs.split(from_config.as_str()).skip(1));
+        let mut n = 0;
+        for rest in builders {
+            let chain = rest.split(".build()").next().unwrap();
+            assert!(chain.contains(".on_navigation(") && chain.contains(".on_new_window("), "{chain}");
+            n += 1;
+        }
+        assert_eq!(n, 3, "the main window, the pop-out windows and the Fabric view's pop-ups");
+        // A new-window request always gets Deny; only a web link that isn't the app's own page goes to the browser.
+        assert!(main_rs.split("fn app_new_window(").nth(1).unwrap().split("\n\u{7d}").next().unwrap().ends_with("NewWindowResponse::Deny"));
+        let browser = |u: &str| new_window_opens_in_browser(&Url::parse(u).unwrap());
+        assert!(browser("https://learn.microsoft.com/fabric/"));
+        for page in ["http://example.com/", "tauri://localhost/index.html", "http://tauri.localhost/#", "https://tauri.localhost/index.html?popout=runs",
+                     "javascript:alert(1)", "file:///C:/x.ipynb", "about:blank", "nbout://frame", "ms-settings:privacy"] {
+            assert!(!browser(page), "{page}");
+        }
+    }
+
+    #[test]
+    fn the_main_windows_policy_allows_no_eval_wildcard_or_remote_connection() {
+        let conf: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let csp = conf["app"]["security"]["csp"].as_object().unwrap();
+        assert_eq!(csp["default-src"], "'none'");
+        assert_eq!(csp["connect-src"], "ipc: http://ipc.localhost");
+        for (name, value) in csp {
+            let value = value.as_str().unwrap();
+            assert!(!value.contains("unsafe-") && !value.contains('*'), "{name}: {value}");
+            assert!(!value.split_whitespace().any(|s| matches!(s, "https:" | "http:" | "data:" | "blob:") && name != "img-src"), "{name}: {value}");
+        }
+        assert!(conf["app"]["security"].get("dangerousDisableAssetCspModification").is_none());
+    }
+
+    #[test]
     fn other_webviews_and_other_paths_get_nothing() {
         for view in ["fabric", "fabric-pop-out", "pop-out-runs", "pop-out-fabric", ""] {
             let r = embed_host(view, "/host.html");
@@ -2813,6 +3404,41 @@ mod embed_host_tests {
         assert!(frames.split_whitespace().any(|s| s == "http://pbiembed.localhost"));
         assert!(!frames.contains("powerbi.com"), "{frames}");
         assert!(!frames.contains("https://*") && !frames.split_whitespace().any(|s| s == "https:" || s == "*"));
+    }
+
+    #[test]
+    fn the_apps_pages_get_only_the_tauri_permissions_they_use() {
+        // The pages use the Tauri bridge for exactly this; everything else is one of the app's own commands.
+        let cap: Value = serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        let perms: Vec<&str> = cap["permissions"].as_array().unwrap().iter().map(|p| p.as_str().expect("a plain permission name")).collect();
+        assert_eq!(perms, ["core:event:allow-listen", "core:event:allow-unlisten"]);
+        assert!(cap.get("remote").is_none(), "no remote pages");
+        let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui");
+        let mut used = std::collections::BTreeSet::new();
+        let (mut folders, mut scripts) = (vec![ui], Vec::new());
+        while let Some(folder) = folders.pop() {
+            for entry in std::fs::read_dir(&folder).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    folders.push(path);
+                } else if path.extension().is_some_and(|e| e == "js") {
+                    scripts.push(path);
+                }
+            }
+        }
+        assert!(scripts.len() > 10, "the pages' scripts were found");
+        for path in scripts {
+            {
+                let src = std::fs::read_to_string(&path).unwrap();
+                for (i, _) in src.match_indices("__TAURI__") {
+                    let rest: String = src[i + "__TAURI__".len()..].chars().take_while(|c| c.is_alphanumeric() || *c == '.' || *c == '?').collect();
+                    used.insert(rest.replace('?', ""));
+                }
+            }
+        }
+        // core.invoke reaches only the app's commands; convertFileSrc builds a URL in the page; event.listen is the one permission.
+        let known: std::collections::BTreeSet<String> = ["", ".core", ".core.invoke", ".core.convertFileSrc", ".event", ".event.listen"].iter().map(|s| s.to_string()).collect();
+        assert!(used.is_subset(&known), "a page uses more of the Tauri bridge than the capability grants: {used:?}");
     }
 }
 

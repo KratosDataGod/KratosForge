@@ -21,9 +21,11 @@ from __future__ import annotations
 import os
 import runpy
 import tomllib
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import duckdb
 import pyarrow as pa
@@ -79,7 +81,7 @@ class Job:
 
 
 @contextmanager
-def _cwd(path: Path):
+def _cwd(path: Path) -> Iterator[None]:
     old = Path.cwd()
     os.chdir(path)
     try:
@@ -96,10 +98,10 @@ def run_local(job: Job) -> pa.Table:
                 # UTC like Fabric, not this PC. SET (not connect's config) uses the built-in ICU;
                 # config makes DuckDB try to download it, which fails offline and on locked-down PCs.
                 con.execute("SET TimeZone = 'UTC'")
-                rel = con.sql(job.sql)
+                rel = con.sql(cast(str, job.sql))  # Job requires sql for duckdb
                 # to_arrow_table replaced fetch_arrow_table in newer DuckDB releases.
                 return (getattr(rel, "to_arrow_table", None) or rel.fetch_arrow_table)()
-        namespace = runpy.run_path(str(job.base_dir / job.script))
+        namespace = runpy.run_path(str(job.base_dir / cast(str, job.script)))  # and a script for polars
         if "transform" not in namespace:
             raise ValueError(f"{job.script} must define transform()")
         result = namespace["transform"]()

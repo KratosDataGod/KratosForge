@@ -81,12 +81,13 @@ async function serveWithCsp(page) {
 // Use csp for a test that reloads the page and reads localStorage back: from file://, Chromium
 // sometimes loses the page's localStorage across a reload under load (back-forward.test.cjs).
 // search: added to the page's address, as the shell opens a pop-out window with ?popout=<section>.
+// video: a folder to record the session into as a .webm (the skins demo); saved when close() ends it.
 // Shell commands (anything but rpc) are recorded in window.__fdShellCalls; window.__fdEmit(event, payload)
 // delivers an event to the page's listeners, as the shell's emit does.
 async function openApp({ mocks = {}, engine = [], storage = {}, viewport = { width: 1440, height: 940 }, holdCheck = false,
-  csp = false, search = "" } = {}) {
+  csp = false, search = "", video = null } = {}) {
   const browser = await playwright.chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
-  const page = await browser.newPage({ viewport });
+  const page = await browser.newPage(video ? { viewport, recordVideo: { dir: video, size: viewport } } : { viewport });
   const calls = [];
   mocks = { environment: () => ({ python: "Python 3 (test)", user: null }), ...mocks };
   const real = engine.length ? startEngine() : null;
@@ -209,13 +210,14 @@ async function settleForAxe(page) {
 
 // The serious and critical axe findings in `scope` (a CSS selector), as "rule @ targets" lines.
 // It settles the page first (settleForAxe).
-async function axeFindings(page, scope, { tags = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } = {}) {
+async function axeFindings(page, scope, { tags = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"], off = [] } = {}) {
   await settleForAxe(page);
   if (!(await page.evaluate(() => typeof window.axe === "object"))) await page.addScriptTag({ content: axeSource });
-  return page.evaluate(async ([scope, tags]) => {
-    const r = await window.axe.run(document.querySelector(scope), { runOnly: tags });
+  return page.evaluate(async ([scope, tags, off]) => {
+    const rules = Object.fromEntries(off.map((id) => [id, { enabled: false }]));  // e.g. contrast, which a contrast theme sets
+    const r = await window.axe.run(document.querySelector(scope), { runOnly: tags, rules });
     return r.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => `${v.id} @ ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
-  }, [scope, tags]);
+  }, [scope, tags, off]);
 }
 
 module.exports = { playwright, openApp, sqlRunMocks, startupReads, axeSource, axeFindings, animationsDone, settleForAxe };

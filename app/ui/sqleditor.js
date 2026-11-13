@@ -1,5 +1,5 @@
 // The SQL editor on the SQL query page: CodeMirror 6 (vendor/codemirror, window.CM) with a dialect
-// per query tab, completion from a metadata provider, and the page's keys (Ctrl+Enter, Ctrl+S).
+// per query tab, completion from a metadata provider, and the page's keys (F5 or Ctrl+Enter, Ctrl+S).
 //
 // A completion provider says which names exist. The SQL page passes one built from the lakehouse
 // (lakehouseSqlProvider in app.js); a Warehouse or SQL database provider can be added later with
@@ -449,6 +449,8 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
   const language = () => [CM.sql({ dialect: sqlCmDialect(current), upperCaseKeywords: true }),
     CM.autocompletion({ override: [sqlCompletionSource(provider, () => current)], activateOnTypingDelay: 120 })];
   const keys = [
+    // F5 runs, as in SSMS: the selection when there is one, otherwise the whole query (on.run reads it).
+    { key: "F5", run: () => { on.run(); return true; } },
     { key: "Mod-Enter", run: () => { on.run(); return true; } },
     { key: "Mod-s", run: () => { on.save(); return true; }, preventDefault: true },
     { key: "Shift-Alt-f", run: () => { on.format(); return true; } },
@@ -468,9 +470,9 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
         CM.Prec.highest(CM.keymap.of(keys)),
         CM.keymap.of([...CM.closeBracketsKeymap, ...CM.defaultKeymap, ...CM.searchKeymap, ...CM.historyKeymap,
           ...CM.foldKeymap, ...CM.completionKeymap, CM.indentWithTab]),
-        CM.placeholder("Write SQL. Ctrl+Enter runs it, Ctrl+Space suggests names."),
+        CM.placeholder("Write SQL. F5 or Ctrl+Enter runs it, Ctrl+Space suggests names."),
         CM.EditorView.updateListener.of((u) => { if (u.docChanged) on.change(u.state.doc.toString()); }),
-        CM.EditorView.contentAttributes.of({ "aria-label": "SQL query" }),
+        CM.EditorView.contentAttributes.of({ "aria-label": "SQL query", tabindex: "0" }),  // as notebook.js's editors
         sqlTheme,
         check ? [CM.linter(async (v) => {
           const text = v.state.doc.toString();

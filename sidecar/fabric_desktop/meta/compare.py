@@ -14,16 +14,18 @@ can't say which keys differ.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 import pyarrow as pa
-import pyarrow.dataset as pads
 
 from .. import side_by_side
 from ..verify import DEFAULTS
 from .project import SCD2_COLUMNS, SYSTEM_COLUMNS, Entity
 from ..duckdb_rows import one_row
+
+if TYPE_CHECKING:  # pyarrow.dataset (and the pandas it loads) costs about 0.2 s at engine start
+    import pyarrow.dataset as pads
 
 SAMPLE = 20
 # Above this many rows on either side, compare counts, totals and a checksum instead of every row.
@@ -88,7 +90,7 @@ def compare(e: Entity, left: pl.DataFrame | None, right: pl.DataFrame | None) ->
             continue
         if left.schema[c].is_numeric() and right.schema[c].is_numeric():
             a, b = left[c].sum(), right[c].sum()
-            out["totals"].append({"column": c, "left": a, "right": b, "diff": (b or 0) - (a or 0)})
+            out["totals"].append({"column": c, "left": a, "right": b, "diff": _minus(b, a)})
 
     keys = [k for k in e.keys if k in common]
     if not keys or len(keys) != len(e.keys):
@@ -133,6 +135,8 @@ def _projected(data: pads.Dataset, columns: list[str]) -> pa.RecordBatchReader:
 
 def _current_rows(data: pads.Dataset) -> Any:
     """The dataset filter for current rows (Type 2 tables keep old versions), or None for all rows."""
+    import pyarrow.dataset as pads
+
     return pads.field("is_current") == True if "is_current" in data.schema.names else None  # noqa: E712
 
 
@@ -166,10 +170,20 @@ FLOAT_TOLERANCE = 1e-9
 FLOAT_FLOOR = 1e-9  # and an absolute one, for sums near zero
 
 
+def _minus(right: Any, left: Any) -> Any:
+    """``right - left`` for two column totals, None as 0. A column that is a decimal on one side
+    and a float on the other (its type changed) sums to a Decimal and a float, which don't
+    subtract, so those two are taken as floats."""
+    r, lt = right or 0, left or 0
+    if isinstance(r, float) or isinstance(lt, float):
+        return float(r) - float(lt)
+    return r - lt
+
+
 def _diff(left: Any, right: Any) -> Any:
     """How a total moved; 0 for two float sums equal within FLOAT_TOLERANCE."""
-    d = (right or 0) - (left or 0)
-    if isinstance(d, float) and abs(d) <= max(FLOAT_TOLERANCE * max(abs(left or 0), abs(right or 0)), FLOAT_FLOOR):
+    d = _minus(right, left)
+    if isinstance(d, float) and abs(d) <= max(FLOAT_TOLERANCE * max(abs(float(left or 0)), abs(float(right or 0))), FLOAT_FLOOR):
         return 0.0
     return d
 

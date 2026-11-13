@@ -215,20 +215,17 @@ class LocalNotebooks:
 
     def _cell(self, kernel: Any, source: str, cancelled: Callable[[], bool], deadline: float | None,
               name: str, n: int) -> list[dict[str, Any]]:
-        snap = kernel.start(source)
-        version, outputs = -1, snap.get("outputs") or []
-        while snap["status"] == "running":
-            if cancelled() or (deadline is not None and time.monotonic() > deadline):
-                if kernel.alive():
-                    kernel.stop()
-                if cancelled():
-                    raise ActivityFailed("Cancelled.", "LocalCancelled")
-                raise ActivityFailed("The activity reached its policy timeout.", "LocalActivityTimeout")
-            snap = kernel.poll(version, 0.5)
-            version = snap.get("version", version)
-            if snap.get("outputs") is not None:
-                outputs = snap["outputs"]
-        outputs = snap.get("outputs") or outputs
+        stopped = [""]  # why the wait stopped the cell, if it did
+
+        def stop() -> bool:
+            stopped[0] = "cancelled" if cancelled() else (
+                "timeout" if deadline is not None and time.monotonic() > deadline else "")
+            return bool(stopped[0])
+        snap, outputs = notebook_cells.wait(kernel, kernel.start(source), stop)
+        if stopped[0] == "cancelled":
+            raise ActivityFailed("Cancelled.", "LocalCancelled")
+        if stopped[0] == "timeout":
+            raise ActivityFailed("The activity reached its policy timeout.", "LocalActivityTimeout")
         if snap["status"] != "ok":
             err = next((o for o in reversed(outputs) if o.get("type") == "error"), None) or {}
             why = f"{err.get('ename') or snap['status']}: {err.get('evalue') or ''}".strip().rstrip(":")
@@ -282,10 +279,10 @@ class LocalNotebooks:
         if not ran and not lakes:
             return list(self._after)
         if not lakes:
-            return [f"Ran on this PC; {ran} notebook step{'s' if ran != 1 else ''} ran in a fresh local kernel with no "
-                    "lakehouse. No Fabric call was made."] + self._after
+            return [(f"Ran on this PC; {ran} notebook step{'s' if ran != 1 else ''} ran in a fresh local kernel with no "
+                    "lakehouse. No Fabric call was made.")] + self._after
         names = ", ".join(sorted(lake["ref"].get("name") or lake["ref"]["lakehouse_id"] for lake in lakes))
         where = (f"kept in {self.folder}" if self.keep_outputs else f"in {self.folder}, deleted when the run ended")
-        return [f"Ran on this PC; no Fabric job was started. Notebook steps read tables in {names} at the versions they "
+        return [(f"Ran on this PC; no Fabric job was started. Notebook steps read tables in {names} at the versions they "
                 "had when the first step started, which uses some capacity, and wrote only to the run's own folder "
-                f"({where}), never to the lakehouse's tables."] + self._after
+                f"({where}), never to the lakehouse's tables.")] + self._after

@@ -1,5 +1,6 @@
 """Backup and restore: what goes in, what never does, and checks before anything is written."""
 
+import hashlib
 import json
 import sqlite3
 import zipfile
@@ -27,6 +28,10 @@ def app(tmp_path):
     (root / "schedules.json").write_text(json.dumps({"engine": "C:/old/python.exe", "schedules": [{"id": "s1"}]}))
     (root / "msal_cache.bin").write_bytes(b"tokens")
     (root / "fabric-view-signin.bin").write_bytes(b"tokens")
+    (root / "link-port").write_text("51234 " + "ab" * 16)  # the running app's link listener and its token
+    (root / "editor-port").write_text("51235 " + "cd" * 16)  # the VS Code pairing hello
+    (root / "fabric-view" / "EBWebView" / "Default" / "Network").mkdir(parents=True)  # the Fabric view's profile
+    (root / "fabric-view" / "EBWebView" / "Default" / "Network" / "Cookies").write_bytes(b"ESTSAUTH session cookie")
     (root / "sidecar.log").write_text("log")
     (root / "engine" / "python").mkdir(parents=True)
     (root / "engine" / "python" / "python.exe").write_bytes(b"exe")
@@ -52,7 +57,8 @@ def test_backup_leaves_out_tokens_engine_logs_and_webhooks(app, tmp_path):
     assert settings == {"cost": {"price": 0.18}}
     assert JWT not in history and "[removed]" in history
     assert {c["path"] for c in manifest["cleaned"]} == {"app/settings.json", "app/history.jsonl"}
-    assert {s["path"] for s in manifest["not_included"]} == {"app/msal_cache.bin", "app/fabric-view-signin.bin"}
+    assert {s["path"] for s in manifest["not_included"]} == {"app/msal_cache.bin", "app/fabric-view-signin.bin",
+                                                                  "app/link-port", "app/editor-port"}
     assert result["path"].endswith("fabric-desktop-backup-20261017-120000.zip")
 
 
@@ -180,7 +186,6 @@ def test_a_changed_or_unsafe_backup_is_refused_before_writing(app, tmp_path):
         backup.restore(changed, app, apply=True)
     assert json.loads((app / "app-settings.json").read_text()) == {"channel": "preview"}
 
-    import hashlib
     evil = b"x"
     entry = {"path": "app/../../evil.txt", "size": 1, "sha256": hashlib.sha256(evil).hexdigest()}
     unsafe = _tamper(zip_path, tmp_path, "app/../../evil.txt", evil, entry)
@@ -219,3 +224,33 @@ def test_cli(app, tmp_path, monkeypatch, capsys):
     with pytest.raises(SystemExit):
         main(["restore", str(zip_path)])
     assert "Nothing was changed" in capsys.readouterr().out
+
+
+def test_a_damaged_database_is_backed_up_as_it_is_and_doesnt_stop_the_backup(app, tmp_path):
+    """#1674 (EA-028): backup.py doesn't open a store for use, it copies one. A file SQLite can't read
+    goes into the zip byte for byte, so the person can still hand it to support, and every other file
+    is backed up as usual. A restore then replaces it (test_restore_replaces_a_damaged_database...)."""
+    damaged = b"SQLite format 3\x00" + b"\xff" * 4080
+    (app / "integrations.sqlite").write_bytes(damaged)
+    result = backup.create(tmp_path / "out", app, now=NOW)
+    with zipfile.ZipFile(result["path"]) as z:
+        assert z.read("app/integrations.sqlite") == damaged
+        assert "app/workloads.sqlite" in z.namelist()
+        manifest = json.loads(z.read("manifest.json"))
+    assert {e["path"] for e in manifest["files"]} >= {"app/integrations.sqlite", "app/workloads.sqlite"}
+    with closing(sqlite3.connect(app / "workloads.sqlite")) as db:  # the healthy one is untouched
+        assert db.execute("select name from w").fetchall() == [("orders",)]
+
+
+@pytest.mark.parametrize("rel", ["link-port", "editor-port", "fabric-view/EBWebView/Default/Network/Cookies"])
+def test_a_backup_from_before_a_token_file_was_left_out_still_restores_and_skips_it(app, tmp_path, rel):
+    zip_path = backup.create(tmp_path / "out", app, now=NOW)["path"]
+    stale = b"40000 " + b"cd" * 16
+    entry = {"path": f"app/{rel}", "size": len(stale), "sha256": hashlib.sha256(stale).hexdigest()}
+    older = _tamper(zip_path, tmp_path, f"app/{rel}", stale, entry)  # as backups made before carried it
+    live = (app / rel).read_bytes()
+    manifest, problems = backup.validate(older)
+    assert problems == [] and f"app/{rel}" not in {f["path"] for f in manifest["files"]}
+    result = backup.restore(older, app, apply=True)
+    assert result["applied"] and f"app/{rel}" not in {f["path"] for f in result["files"]}
+    assert (app / rel).read_bytes() == live  # the running app's token or sign-in is left alone

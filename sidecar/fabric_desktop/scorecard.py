@@ -68,8 +68,8 @@ def fabric_cost(job_seconds: float | None, engine: str, cfg: dict[str, Any], *, 
             "classification": ms.ESTIMATED,
             "assumptions": [
                 timing,
-                f"Priced at {cfg['price_per_cu_hour']} {cfg['currency']} per CU hour (pay-as-you-go). On a reserved "
-                "or already-running capacity this is a share of capacity you pay for anyway, not an added charge.",
+                (f"Priced at {cfg['price_per_cu_hour']} {cfg['currency']} per CU hour (pay-as-you-go). On a reserved "
+                "or already-running capacity this is a share of capacity you pay for anyway, not an added charge."),
                 billed],
             "measurement": ms.make(ms.ESTIMATED, "fabric_job_cu", ms.CU_SECONDS, job_seconds * cu,
                                    source="Fabric job API", method="run time x configured CUs", period_start=at,
@@ -81,7 +81,7 @@ def _pc_cost(record: dict[str, Any]) -> dict[str, Any]:
     reads and writes still use capacity and aren't measured, so its total is not available."""
     out = {"kind": "not available", "text": PC_CAPACITY}
     at = record.get("finished_at") or record.get("started_at")
-    ids = {"run_id": record.get("id")} if record.get("id") else {}
+    ids: dict[str, Any] = {"run_id": record.get("id")} if record.get("id") else {}
     if not at:
         why = "The proof record has no run time."
         return out | {"measurement": ms.unknown("fabric_job_cu", ms.CU_SECONDS, why, **ids)}

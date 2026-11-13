@@ -6,12 +6,13 @@ This page lists the automated checks every change passes, what each one enforces
 
 | Job | What it enforces | Blocks merge |
 | --- | --- | --- |
-| `sidecar` | The engine test suite, about 8,700 tests, on the pinned packages. The SQL tests also run at both ends of the sqlglot range, and the engine suite on DuckDB 2.0 | Yes |
+| `sidecar` | The engine test suite, about 8,700 tests, on the pinned packages. The SQL tests also run at both ends of the sqlglot range, and the engine suite on DuckDB 2.0: on every main push, nightly (`compat-nightly.yml`), and on a pull request that changes package versions or engine code that imports duckdb or sqlglot | Yes |
 | `ui` | `node --test app/tests/ui.test.cjs`, including the raw-HTML-sink check | Yes |
-| `lint` | `ruff check` (rules E9, F) and the mypy ratchet: new type errors fail, against `mypy-baseline.json` | Yes |
+| `lint` | `ruff check` (rules E9, F, B, BLE) and the mypy ratchet: new type errors fail, against `sidecar/mypy-baseline/` (one file per module) | Yes |
 | `ui-browser` | Real UI in headless Chromium, with the engine for SQL and Optimize, plus the axe accessibility audit | Yes |
 | `vscode-extension` | Build and tests of the VS Code extension | Yes |
-| `audit` | `pip-audit` on `constraints.txt` and `cargo audit` on `Cargo.lock`. The CI tools' own advisories are informational only | Yes |
+| `audit` | `pip-audit` on `constraints.txt`, `engine-requirements.txt` and the Databricks Connect locks; `npm audit` on the UI vendor and VS Code lock files (high and critical fail); `cargo audit` on `Cargo.lock`. The CI tools' own advisories are informational only | Yes |
+| `secrets` | detect-secrets, through `.github/scripts/secret_scan.py`, on a pull request's changed files (every tracked file on main). A finding that `.secrets.baseline` doesn't list as reviewed fails | Yes |
 | `engine`, `shell` | Windows build of the engine zip and the exe; Rust tests (`cargo test --release --locked`) | Yes |
 | `sbom-app`, `release` | SBOMs, provenance attestations, and the Preview publish (main only) | Main only |
 | `docs.yml` | `zensical build --strict`, which fails on broken links | Yes |
@@ -43,11 +44,11 @@ Install with `-c constraints.txt` so you test what users get.
 
 ## Release criteria
 
-| Gate | Criterion | State at `b75dcf5` |
+| Gate | Criterion | State at `b75dcf5`, R3 updated at `1ca71e3` (2026-11-05) |
 | --- | --- | --- |
 | R1 Green CI | Every job above passes on the release commit | Met on `aed09ee2` |
 | R2 No open P0 | No P0 in the [backlog](REMEDIATION_BACKLOG.md) or the private security list | Met |
-| R3 No open P1 data-integrity defect | EA-001, EA-002 and EA-004 closed | **Not met** |
+| R3 No open P1 data-integrity defect | EA-001, EA-002 and EA-004 closed | Met on 2026-11-05 (#1572, #1576, #1600, #1645, #1646, #1647) |
 | R4 Signed builds | The exe and engine are Authenticode-signed, and CI fails an unsigned main build | **Blocked** (Trusted Signing identity check) |
 | R5 Live verification | The FD-101 harness passes on the non-production test workspace, with the result recorded | **Not run** |
 | R6 Stable promotion | A build tried on Preview, then promoted with the maintainer's approval in the `stable` environment | In place (`promote.yml`) |

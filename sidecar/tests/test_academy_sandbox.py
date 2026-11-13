@@ -18,6 +18,12 @@ from fabric_desktop.academy import sandbox
 from fabric_desktop.academy import workspace as ws
 
 
+@pytest.fixture(autouse=True)
+def _v1(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These test the v1 learner process; test_academy_appcontainer tests the AppContainer on top.
+    monkeypatch.setattr(sandbox, "USE_APPCONTAINER", False)
+
+
 @pytest.fixture
 def lab(tmp_path: Path) -> tuple[Path, Path]:
     root = tmp_path / "data"
@@ -233,6 +239,16 @@ def test_the_environment_is_built_from_scratch(tmp_path: Path) -> None:
     assert env["PATH"] == "/bin" and env["SystemRoot"] == "C:\\Windows"
     assert not {"AZURE_TENANT_ID", "FABRIC_DESKTOP_DATA", "HTTP_PROXY", "PYTHONPATH"} & set(env)
     assert env["TEMP"] == str(tmp_path / ".tmp")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the address-space limit (RLIMIT_DATA) is Linux and macOS only")
+def test_pyarrow_reserves_no_gigabyte_under_the_memory_limit(lab: tuple[Path, Path]) -> None:
+    """pyarrow's mimalloc pool reserves 1 GiB on its first allocation, which RLIMIT_DATA counts; delta-rs
+    and Polars then failed to allocate and the script aborted. The learner's pyarrow uses the system pool."""
+    pytest.importorskip("pyarrow")
+    res = run(lab, "import pyarrow as pa\npa.array(range(1000))\nprint(pa.default_memory_pool().backend_name)\n")
+    assert res["status"] == "ok", res["stderr"]
+    assert res["stdout"].strip() == "system"
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Job Objects are Windows only")

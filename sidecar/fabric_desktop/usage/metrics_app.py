@@ -92,7 +92,9 @@ class MetricsApp(Provider):
                 return "Ends before it starts"
             p_start, p_end = start, end or start
         else:
-            p_start, p_end = ctx.period
+            if ctx.period[0] is None or ctx.period[1] is None:  # import() asks for the period before reading rows
+                return "Enter the period this file covers"
+            p_start, p_end = ctx.period[0], ctx.period[1]
         op_id = cells.get("operation_id", "").strip()
         kind = cells.get("item_kind", "")
         if layout.timed:

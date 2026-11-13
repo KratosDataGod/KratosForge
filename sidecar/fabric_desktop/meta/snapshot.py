@@ -32,7 +32,7 @@ _log = logging.getLogger(__name__)
 def files(project: Project) -> dict[str, bytes]:
     """Every file in the metadata version, by project-relative path (the set ``Project.version`` reads)."""
     out = {}
-    for p in sorted(project.root.rglob("*")):
+    for p in sorted(project.versioned_files()):
         rel = p.relative_to(project.root)
         if p.is_file() and not (set(rel.parts) & _IGNORED) and p.suffix != ".pyc" \
                 and rel.as_posix() not in _UNVERSIONED:
@@ -65,7 +65,7 @@ def restore(project: Project, store: Store, version: str) -> Project:
     dest = project.local_data / "releases" / store.env / version
     if dest.is_dir() and _matches(project, dest, version):
         return Project(dest, local_data=project.local_data)
-    df = store.meta("release_files").filter(pl.col("version") == version)
+    df = store.meta_where("release_files", pl.col("version") == version)
     if not df.height:
         raise LookupError(f"{store.env.title()} doesn't keep the files of release {version}; "
                           "it was promoted before releases kept them.")

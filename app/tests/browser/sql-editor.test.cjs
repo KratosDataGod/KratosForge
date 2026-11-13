@@ -137,6 +137,29 @@ test("Ctrl+Enter runs only the selected SQL", { skip }, async () => {
   assert.strictEqual(await page().locator(".sql-grid td.null").first().textContent(), "NULL");
 });
 
+test("F5 runs the selection or the whole query, as in SSMS, and never reloads the window", { skip }, async () => {
+  await page().evaluate(() => { window.__notReloaded = true; });
+  await setDoc("SELECT 4 AS d;\nSELECT 5 AS e;");
+  await select(15, 29);
+  await page().keyboard.press("F5");
+  await page().waitForFunction(() => document.querySelector(".sql-pill")?.textContent === "Succeeded");
+  assert.strictEqual(runs.at(-1).query, "SELECT 5 AS e;");
+  await setDoc("SELECT 6 AS f");
+  await page().keyboard.press("F5");
+  await page().waitForFunction(() => document.querySelector(".sql-pill")?.textContent === "Succeeded");
+  assert.strictEqual(runs.at(-1).query, "SELECT 6 AS f");
+  // Focus outside the editor: F5 still runs this tab's query.
+  const before = runs.length;
+  await page().evaluate(() => { document.activeElement?.blur(); document.body.focus(); });
+  await page().keyboard.press("F5");
+  for (let i = 0; i < 50 && runs.length === before; i++) await page().waitForTimeout(100);
+  await page().waitForFunction(() => document.querySelector(".sql-pill")?.textContent === "Succeeded");
+  assert.ok(runs.length > before, "F5 outside the editor runs the query");
+  assert.strictEqual(await page().evaluate(() => window.__notReloaded), true, "the window did not reload");
+  const run = page().getByRole("button", { name: "Run", exact: true });
+  assert.match(await run.getAttribute("title"), /F5/);
+});
+
 test("SQL errors stay visible under the editor", { skip }, async () => {
   await setDoc("SELECT boom");
   await page().keyboard.press("Control+Enter");

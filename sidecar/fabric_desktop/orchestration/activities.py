@@ -11,6 +11,7 @@ docs/orchestration/activity-registry.md with every change here.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import re
 from functools import lru_cache
 from typing import Any
@@ -32,6 +33,8 @@ def _is_expression(value: Any) -> bool:
         return value.get("type") == "Expression"
     return isinstance(value, str) and value.startswith("@") and not value.startswith("@@")
 
+
+Check = Callable[[Activity, CheckContext], list[Diagnostic]]
 
 def _diag(a: Activity, code: str, severity: str, message: str, key: str, hint: str = "") -> Diagnostic:
     return Diagnostic(code, severity, message, f"{a.path}.typeProperties.{key}", a.name, hint)
@@ -113,13 +116,14 @@ def _delete(a: Activity, ctx: CheckContext) -> list[Diagnostic]:
 
 # ---- entries
 
-def _static(type_: str, title: str, required: tuple[str, ...] = (), check=None, **kw: Any) -> ActivitySupport:
+def _static(type_: str, title: str, required: tuple[str, ...] = (), check: Check | None = None,
+            **kw: Any) -> ActivitySupport:
     props = {k: CHECKED for k in required} | kw.pop("properties", {})
     return ActivitySupport(type_, title, "static", "unit_tests", adapter=StaticAdapter(required, check),
                            properties=props, **kw)
 
 
-def _local(type_: str, title: str, adapter: type, required: tuple[str, ...] = (), check=None,
+def _local(type_: str, title: str, adapter: type, required: tuple[str, ...] = (), check: Check | None = None,
            **kw: Any) -> ActivitySupport:
     props = {k: CHECKED for k in required} | kw.pop("properties", {})
     kw.setdefault("fabric_capacity", "metered_in_fabric")
@@ -156,12 +160,12 @@ ENTRIES: tuple[ActivitySupport, ...] = (
            properties={"ifTrueActivities": CONTROL, "ifFalseActivities": CONTROL}),
     _local("Switch", "Switch", A.Switch, ("on",), _switch, container=True,
            properties={"cases": CHECKED, "defaultActivities": CONTROL},
-           limitations=("Case values are compared exactly, including upper and lower case; not compared with "
-                        "Fabric.",)),
+           limitations=(("Case values are compared exactly, including upper and lower case; not compared with "
+                        "Fabric."),)),
     _local("ForEach", "ForEach", A.ForEach, ("items", "activities"), _foreach, container=True,
            properties={"activities": CONTROL, "batchCount": CHECKED, "isSequential": CHECKED},
-           limitations=("Iterations run in parallel up to batchCount (20 when it is left out), as Data Factory "
-                        "documents.",)),
+           limitations=(("Iterations run in parallel up to batchCount (20 when it is left out), as Data Factory "
+                        "documents."),)),
     _local("Until", "Until", A.Until, ("expression", "activities"), _until, container=True,
            properties={"activities": CONTROL, "timeout": CHECKED},
            limitations=("Stops after 10,000 iterations as well as at its timeout (7 days when left out).",)),
@@ -188,11 +192,11 @@ ENTRIES: tuple[ActivitySupport, ...] = (
                        "sessionTag": P("unsupported_locally", "High-concurrency session sharing is a Fabric Spark "
                                        "feature."),
                        "configuration": P("unsupported_locally", "Spark pool settings apply to Fabric only.")},
-           limitations=("Runs the notebook's copy on this PC in a fresh Python kernel, not Fabric Spark; results can "
-                        "differ. Spark notebooks still need a mock.",
-                        "Tables are read at the version they had when the step started and written to the run's own "
+           limitations=(("Runs the notebook's copy on this PC in a fresh Python kernel, not Fabric Spark; results can "
+                        "differ. Spark notebooks still need a mock."),
+                        ("Tables are read at the version they had when the step started and written to the run's own "
                         "folder in the lakehouse (Files/_fabric_desktop/proofs/pipeline-<run>/), never to its tables. "
-                        "Reading and writing OneLake uses some capacity; no Fabric job is started.",
+                        "Reading and writing OneLake uses some capacity; no Fabric job is started."),
                         "The output's result.exitValue is the value given to notebookutils.notebook.exit, as text.")),
     _cloud("SparkJobDefinition", "Spark job definition", ("sparkJobDefinitionId",), type_name_verified=False,
            auth=("fabric", "workspace_role"), side_effects=("runs_code", "starts_fabric_job", "writes_onelake"),
@@ -201,24 +205,24 @@ ENTRIES: tuple[ActivitySupport, ...] = (
     _local("Lookup", "Lookup", A.ReadData, ("source",), auth=("fabric",), side_effects=("reads_onelake",),
            external_dependencies=("its lakehouse",),
            properties={"firstRowOnly": CHECKED, "datasetSettings": CHECKED},
-           limitations=(DATA_LIMIT, "Reads a whole lakehouse table (LakehouseTable dataset); queries and other "
-                        "connections need a mock. At most 5,000 rows, and an output over 4 MB fails, as in Fabric.")),
+           limitations=(DATA_LIMIT, ("Reads a whole lakehouse table (LakehouseTable dataset); queries and other "
+                        "connections need a mock. At most 5,000 rows, and an output over 4 MB fails, as in Fabric."))),
     _local("GetMetadata", "Get Metadata", A.ReadData, ("fieldList",), auth=("fabric",), side_effects=("reads_onelake",),
            external_dependencies=("its lakehouse",),
            properties={"datasetSettings": CHECKED, "storeSettings": CARRIED, "formatSettings": CARRIED},
-           limitations=(DATA_LIMIT, "A lakehouse table gives exists, itemName, structure and columnCount; a file or "
+           limitations=(DATA_LIMIT, ("A lakehouse table gives exists, itemName, structure and columnCount; a file or "
                         "folder under Files gives exists, itemName, itemType, size, lastModified and childItems. "
-                        "Files are read as they are now, not pinned; other fields and connections need a mock.")),
+                        "Files are read as they are now, not pinned; other fields and connections need a mock."))),
     _local("Script", "Script", A.ReadData, ("scripts",), auth=("fabric",), side_effects=("runs_code", "reads_onelake"),
            external_dependencies=("its lakehouse, or a local data project named for it",),
            properties={"scripts": CHECKED, "scriptBlockExecutionTimeout": CHECKED,
                        "logSettings": P("unsupported_locally", "Script logs aren't written on this PC.")},
-           limitations=("Runs each script through the SQL page's runner, with its policy, Stop and limits. On a "
+           limitations=(("Runs each script through the SQL page's runner, with its policy, Stop and limits. On a "
                         "lakehouse (with lakehouse reads on) T-SQL runs read-only against its tables as they are now; "
                         "in a local data project named for it, it may change the project's own tables, but DROP, "
-                        "TRUNCATE and DELETE or UPDATE without WHERE are refused.",
-                        "Warehouse and other connections, and script parameters, need a mock. Query results keep at "
-                        "most 5,000 rows each (outputTruncated). recordsAffected isn't reported.")),
+                        "TRUNCATE and DELETE or UPDATE without WHERE are refused."),
+                        ("Warehouse and other connections, and script parameters, need a mock. Query results keep at "
+                        "most 5,000 rows each (outputTruncated). recordsAffected isn't reported."))),
     _static("SqlServerStoredProcedure", "Stored procedure", ("storedProcedureName",), fabric_capacity="metered_in_fabric",
             auth=("connection",), side_effects=("runs_code", "writes_external"),
             external_dependencies=("database connection", "the stored procedure"),

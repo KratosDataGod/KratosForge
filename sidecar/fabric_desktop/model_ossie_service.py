@@ -14,7 +14,7 @@ import os
 import re
 import stat
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, cast
 
 from . import model_ossie, tmdl
 from .jsonfile import write_text
@@ -194,7 +194,7 @@ class ModelOssieMixin:
         if mode != "new" and existing is None:
             raise LookupError(f"There's no semantic model named {name} to {mode}; pick New model to create it")
         current = self._model_bim(cfg["workspace_id"], existing) if existing else None
-        final = model_ossie.merge(current, incoming, remove) if mode == "update" else incoming
+        final = model_ossie.merge(cast(dict[str, Any], current), incoming, remove) if mode == "update" else incoming
         final["name"] = name
         return {"final": final, "existing": existing, "cfg": cfg, "name": name, "report": report,
                 "changes": model_ossie.plan(current, final),

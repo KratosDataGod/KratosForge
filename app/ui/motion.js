@@ -5,24 +5,26 @@
 // FORGE_EVENTS says which effect, if any, that is. Other features add an event and a kind here and
 // its CSS, rather than animating on their own.
 //
-// Visual intensity (Settings > Appearance > Motion & effects, engine setting motion_level):
-//   0 Off         no motion at all
-//   1 Minimal     functional transitions only: page changes, progress easing. No branded effects.
-//   2 Refined     subtle branded effects (the default)
-//   3 Expressive  the same moments with more character: extra sparks, halftone and offset rings
+// Experience mode (Settings > Appearance > Living Experience, engine setting motion_level). The
+// stored values are unchanged; only the names are new (they were Off, Minimal, Refined, Expressive):
+//   0 Professional  no decorative motion at all
+//   1 Subtle        functional transitions, and the Achievement Reveal (the default)
+//   2 Heroic        branded effects on everyday work too: sparks, the wolf, the forge strike
+//   3 Legendary     the same moments with more character: extra sparks, halftone and offset rings
 // Windows' reduced-motion setting means level 0 unless the person unticked "Respect Windows'
-// reduced-motion setting". Each kind also belongs to a family the person can switch off on its own;
-// achievements are off unless turned on.
-const MOTION_LEVELS = ["Off", "Minimal", "Refined", "Expressive"];
+// reduced-motion setting". Each kind also belongs to a family the person can switch off on its own.
+// Subtle is the default: art and celebration belong to achievements and progression, so everyday
+// work stays plain unless the person picks Heroic or Legendary (Chris, 2026-11-09).
+const MOTION_LEVELS = ["Professional", "Subtle", "Heroic", "Legendary"];
 const MOTION = {
   spark: { ms: 400, gap: 300, level: 2, family: "sparks" },      // a cell succeeded
   fail: { ms: 450, gap: 300, level: 2, family: "sparks" },       // something failed: an ember goes out
   arrive: { ms: 550, level: 2, family: "wolf" },                 // the wolf reached the end of its track
   pulse: { ms: 350, gap: 1000, level: 2, family: "ambient" },    // work started: one ring off the button
   settle: { ms: 450, level: 2, family: "ambient" },              // a pipeline activity finished
-  strike: { ms: 650, gap: 1500, level: 2, family: "sparks", build: anvilParts },  // a deployment succeeded
-  wolfrun: { ms: 900, gap: 5000, level: 2, family: "wolf", build: wolfRunParts },  // long work finished
-  achieve: { ms: 900, gap: 3000, level: 2, family: "achievements" },  // for the developer profile (#327)
+  strike: { ms: 650, gap: 1500, level: 2, family: "sparks", build: anvilParts, celebrate: true },  // a deployment succeeded
+  wolfrun: { ms: 900, gap: 5000, level: 2, family: "wolf", build: wolfRunParts, celebrate: true },  // long work finished
+  achieve: { ms: 900, gap: 3000, level: 1, family: "achievements", celebrate: true },  // for the developer profile (#327)
   cool: { ms: 500, gap: 300, level: 2, family: "sparks" },       // a check passed: the badge glows orange and cools
 };
 // What happened -> the effect it plays. Only finished, real state changes are listed; nothing here
@@ -50,6 +52,10 @@ const FORGE_EVENTS = {
   "promote.failed": "fail",
   "xray.scan.finished": "arrive",
   "xray.scan.failed": "fail",
+  // Optimize (OPT-012): a scan whose findings reached the shared lakehouse, and a recommendation
+  // marked applied once the lakehouse has it. Savings get an effect only once a Measured one exists.
+  "optimize.analysis.finished": "arrive",
+  "optimize.recommendation.applied": "settle",
   "model.built": "spark",
   "model.build.failed": "fail",
   "git.op.succeeded": "spark",
@@ -76,6 +82,12 @@ const MAX_LIVE_FX = 3;
 const LOAD_WINDOW_MS = 5000;
 const LOAD_BUDGET_MS = 500;
 const LOAD_COOLDOWN_MS = 30000;
+// Deep work: while someone is typing in an editor or a field, celebrations (kinds marked celebrate)
+// don't play; small status effects still do. Typing means a key pressed in the last DEEP_PAUSE_MS, or
+// DEEP_KEYS keys within DEEP_WINDOW_MS. Only when keys were pressed is kept, never which keys.
+const DEEP_PAUSE_MS = 2000;
+const DEEP_WINDOW_MS = 10000;
+const DEEP_KEYS = 8;
 // The wolf's head from the Wolf Forge emblem (docs/brand/wolf-forge-emblem-2048.png), traced to
 // one 24px path with the eye cut out.
 const WOLF_PATH = "M1.70 8.48 3.15 5.33 5.33 0.24 5.70 3.64 7.76 6.79 10.91 9.45 14.55 11.64 15.52 13.58 16.73 15.52 "
@@ -86,10 +98,43 @@ const WOLF_PATH = "M1.70 8.48 3.15 5.33 5.33 0.24 5.70 3.64 7.76 6.79 10.91 9.45
 const ANVIL_PATH = "M1 7h15.5c2.5 0 5 .8 6.5 2.5h-6.2c-.6 1.6-2 2.7-3.6 3.1V15h2.3l1.5 3H5l1.5-3h2.3v-2.4C5.5 12 3 10.2 1 7Z"
   + "M4 19.5h14V22H4Z";
 const motionLast = {};
-// What the effects did, for Settings > Motion & effects > Preview and for tests.
+// What the effects did, for Settings > Living Experience > Preview and for tests.
 const motionStats = { played: {}, skipped: {}, events: {}, live: 0, loadMs: 0, drop: 0 };
 let loadTasks = [];
 let dropUntil = 0;
+let typedAt = [];
+// An Achievement Reveal that came while the person was typing: the latest one waits for the pause.
+let heldAchieve = null;
+
+// A key pressed where text is written: a field, a text area, an editable region or a code editor.
+function noteTyping(e) {
+  const el = e.target;
+  if (!(el instanceof Element) || !(el.isContentEditable || el.matches("input, textarea, select") || el.closest(".cm-editor, .monaco-editor"))) return;
+  const now = Date.now();
+  typedAt = typedAt.filter((t) => now - t < DEEP_WINDOW_MS).concat(now);
+}
+
+// The person is in the middle of writing: celebrations hold off until they pause.
+function deepWork() {
+  const now = Date.now();
+  const recent = typedAt.filter((t) => now - t < DEEP_WINDOW_MS);
+  return recent.length >= DEEP_KEYS || (recent.length > 0 && now - recent[recent.length - 1] < DEEP_PAUSE_MS);
+}
+
+// Hold one Achievement Reveal until typing pauses, then play it through fx(), which checks again that
+// the message is still shown and the level and switch still allow it. A timer runs only while one waits.
+function holdAchieve(anchor) {
+  const first = !heldAchieve;
+  heldAchieve = anchor;
+  if (!first) return;
+  const retry = () => {
+    if (deepWork()) return setTimeout(retry, DEEP_PAUSE_MS / 4);
+    const held = heldAchieve;
+    heldAchieve = null;
+    fx(held, "achieve");
+  };
+  setTimeout(retry, DEEP_PAUSE_MS / 4);
+}
 
 function reducedMotion() {
   return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -104,7 +149,7 @@ function motionSetting(key, fallback) {
 // The level the person chose, before reduced motion and load. Older settings had one switch,
 // forge_animations; off there still means Off.
 function chosenMotionLevel() {
-  const level = motionSetting("motion_level", motionSetting("forge_animations", true) === false ? 0 : 2);
+  const level = motionSetting("motion_level", motionSetting("forge_animations", true) === false ? 0 : 1);
   return Math.max(0, Math.min(3, Number(level) || 0));
 }
 
@@ -122,10 +167,10 @@ function motionLevel() {
   return level;
 }
 
-// Decorative (branded) motion is wanted: level 2 or 3, and the window can be seen.
+// Decorative (branded) motion is wanted: level 2 or 3 (achievements from 1), and the window can be seen.
 function motionOn(family) {
-  if (motionLevel() < 2 || document.hidden) return false;
-  return !family || motionSetting(`motion_${family}`, family !== "achievements") === true;
+  if (motionLevel() < (family === "achievements" ? 1 : 2) || document.hidden) return false;
+  return !family || motionSetting(`motion_${family}`, true) === true;
 }
 
 // The setting, Windows' preference and the family switches, as attributes on <html>, so CSS also
@@ -156,6 +201,10 @@ function fx(anchor, kind) {
   if (!anchor || !m) return null;
   if (motionLevel() < m.level || document.hidden) return skipFx("level");
   if (!motionOn(m.family)) return skipFx("family");
+  if (m.celebrate && deepWork()) {
+    if (kind === "achieve") holdAchieve(anchor);
+    return skipFx("deepwork");
+  }
   if (!anchor.isConnected) return skipFx("gone");
   if (anchor.querySelector(":scope > .fx")) return skipFx("busy");
   if (motionStats.live >= MAX_LIVE_FX) return skipFx("budget");
@@ -362,6 +411,7 @@ const motionLoadWatch = typeof PerformanceObserver === "function" && Performance
     }
   }) : null;
 motionLoadWatch?.observe({ type: "longtask", buffered: false });
+document.addEventListener("keydown", noteTyping, { capture: true, passive: true });
 if (typeof matchMedia === "function") matchMedia("(prefers-reduced-motion: reduce)").addEventListener?.("change", applyMotion);
 // Ambient loops (the embers behind the wolf, the running cell's glow) pause while the app isn't in front.
 const motionPause = () => { document.documentElement.dataset.motionPaused = document.hidden || !document.hasFocus() ? "on" : "off"; };

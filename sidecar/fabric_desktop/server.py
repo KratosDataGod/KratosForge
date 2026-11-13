@@ -8,6 +8,7 @@ Replies can arrive in a different order from the requests (see QUICK); the shell
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import math
@@ -20,9 +21,9 @@ import time
 from pathlib import Path
 from typing import IO, Any, Callable
 
-from . import audit, net_trust, rpc_params
+from . import app_control, audit, disk_full, net_trust, rpc_params, sqlitefile
 from .redact import secrets
-from .service import Service
+from .service import Service, data_dir
 
 METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "skins_list", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
            "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark", "item_pins", "set_item_pin",
@@ -37,7 +38,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "platform_delete_source", "platform_landing", "platform_landing_files", "platform_landing_setup",
            "platform_create_landing_zone", "platform_delete_landing_zone", "platform_switch_landing_reads", "platform_requests", "platform_request",
            "platform_decide", "platform_withdraw", "platform_revoke", "platform_owner_coverage", "platform_note_seen", "platform_access_reviews", "platform_confirm_access", "platform_overview", "platform_products",
-           "platform_product_trust", "platform_scan_endorsement", "platform_add_product_term", "platform_remove_product_term", "platform_follow",
+           "platform_product_trust", "platform_scan_endorsement", "platform_follow",
            "platform_product_items", "platform_add_product_item", "platform_remove_product_item",
            "platform_entra_groups", "platform_entra_script", "platform_entra_save", "platform_entra_link", "platform_entra_unlink",
            "platform_entra_naming_save", "platform_entra_find", "platform_entra_check",
@@ -75,7 +76,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_publish_varlib", "add_pc_schedule", "pc_schedules_for", "delete_pc_schedule",
            "set_pc_schedule_enabled", "update_pc_schedule", "set_pc_schedule_signed_out", "run_pc_schedule_now", "sync_pc_schedules", "pc_schedule_runs", "notebook_runs", "all_schedules",
            "set_fabric_schedule_enabled", "update_fabric_schedule", "time_zones", "delete_fabric_schedule", "run_fabric_item_now",
-           "xray", "xray_pause", "xray_optimize", "xray_optimize_check", "xray_vacuum", "xray_vacuum_preview", "xray_staging_preview", "xray_remove_staging",
+           "xray", "xray_pause", "xray_dismiss", "xray_optimize", "xray_optimize_check", "xray_vacuum", "xray_vacuum_preview", "xray_staging_preview", "xray_remove_staging",
            "xray_adopt_plan", "xray_adopt",
            "preview_table", "preview_file", "preview_notebook",
            "side_by_side_start", "side_by_side_status", "side_by_side_list", "side_by_side_cancel", "benchmark_notebooks",
@@ -83,7 +84,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "workload_preflight", "workload_act", "workload_capacity_use",
            "agents_list", "queue_list", "run_as_list", "incidents_list", "incidents_summary", "incidents_watch", "incidents_evaluate", "incident_acknowledge", "incident_assign", "incident_note",
            "incident_resolve",
-           "incidents_board", "incidents_for_me", "incident_sla_policy", "incident_report", "incident_set_priority", "incidents_history_sync", "incidents_history",
+           "incidents_board", "incidents_for_me", "incident_sla_policy", "incident_report", "incident_set_priority", "incidents_history_sync", "incidents_history", "incidents_measures",
            "incident_impact", "incident_tell_impacted",
            "receipt_get", "receipt_redactions",
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
@@ -111,7 +112,8 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "workspace_pipelines", "workspace_pipeline_definition", "fabric_connections",
            "workspace_dataflows", "workspace_dataflow_definition", "fabric_dataflow_refreshes",
            "workspace_copy_jobs", "workspace_copy_job_definition", "fabric_copy_job_runs",
-           "telemetry_status", "telemetry_new_install_id"}
+           "telemetry_status", "telemetry_new_install_id",
+           "support_bundle_preview", "support_bundle_save", "support_bundle_reveal"}
 
 
 # Settings > Integrations: only the app reaches these (integrations/app_service.py).
@@ -281,10 +283,12 @@ QUICK = frozenset({
 
 
 def handle(service: Service, line: str) -> dict:
+    if _NOT_UTF8.search(line):  # a byte _rpc_stdin couldn't read: refused, never run with a changed value
+        return {"id": None, "error": "invalid request: the line isn't UTF-8"}
     try:
         req = json.loads(line)
-    except json.JSONDecodeError as exc:
-        return {"id": None, "error": f"invalid JSON: {exc}"}
+    except (ValueError, RecursionError) as exc:  # bad JSON, a number too long for Python, or nesting too deep
+        return {"id": None, "error": _short(f"invalid JSON: {_unparsable(exc)}")}
     if not isinstance(req, dict):  # a list or a bare value has no id to answer, but the shell still gets a line
         return {"id": None, "error": "invalid request: expected an object with id, method and params"}
     req_id, method = req.get("id"), req.get("method")
@@ -295,15 +299,21 @@ def handle(service: Service, line: str) -> dict:
     try:
         call = getattr(service, method)
         rpc_params.check(method, call, params)
+        if audit.audited(method) and audit.fails_closed(method, params):
+            _audit_started(service, method, params)  # raises when the line can't be written: nothing runs
         reply = {"id": req_id, "result": call(**params)}
-    except Exception as exc:  # report every failure to the UI rather than dying
+    except Exception as exc:  # noqa: BLE001 - report every failure to the UI rather than dying
         # Errors can quote a request (a URL with a signature, a header): never pass a token on.
         if hasattr(exc, "errors"):  # a gate: its message already lists every reason
             reply = {"id": req_id, "error": _short(_home(secrets(str(exc))))}
         else:
             text = f"{type(exc).__name__}: {exc}"
-            if net_trust.certificate_refused(exc):  # one line that says what to do, then the detail
-                text = f"{net_trust.HINT} ({text})"
+            # A certificate, proxy or timeout, a full or read-only profile disk, a store file another
+            # process held too long, or a program application control blocked: one line that says what to do.
+            hint = (app_control.explain(exc) or net_trust.explain(exc) or disk_full.data_folder_message(data_dir(), exc)
+                    or sqlitefile.busy_message(exc))
+            if hint:
+                text = f"{hint} ({text})"
             reply = {"id": req_id, "error": _short(_home(secrets(text)))}
     if audit.audited(method):
         seconds = time.monotonic() - started
@@ -333,18 +343,37 @@ def _short(message: str) -> str:
     return message if len(message) <= ERROR_CHARS else message[:ERROR_CHARS] + f"… ({len(message) - ERROR_CHARS} more characters)"
 
 
+def _who(service: Service) -> tuple[str, str]:
+    auth = getattr(service, "_auth", None)  # only an account already signed in; never sign in here
+    if auth is None:
+        return "", ""
+    return auth.signed_in_user() or "", auth.signed_in_tenant() or ""
+
+
+def _audit_started(service: Service, method: str, params: dict) -> None:
+    """The line before a call that must not run unrecorded (audit.FAIL_CLOSED, or one given a
+    confirmation, approval, typed name or risk acknowledgement). A line that can't be
+    written refuses the call, and nothing was started."""
+    log = getattr(service, "audit", None)
+    if log is None:
+        return
+    try:
+        who, tenant = _who(service)
+        log.record(method, "started", 0.0, params if isinstance(params, dict) else {}, who=who, tenant=tenant)
+    except Exception as exc:  # noqa: BLE001 - any failure to write refuses the call
+        raise PermissionError(audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {exc}")) from exc
+
+
 def _audit(service: Service, method: str, params: dict, reply: dict, seconds: float) -> None:
     """One audit line per call that changes or runs something. Never fails the call itself."""
     try:
         log = getattr(service, "audit", None)
         if log is None:
             return
-        auth = getattr(service, "_auth", None)  # only an account already signed in; never sign in here
-        who = tenant = ""
-        if auth is not None:
-            who, tenant = auth.signed_in_user() or "", auth.signed_in_tenant() or ""
-        log.record(method, "error" if "error" in reply else "ok", seconds, params if isinstance(params, dict) else {},
-                   who=who, tenant=tenant, error=str(reply.get("error") or ""))
+        who, tenant = _who(service)
+        result, reason = ("error", "") if "error" in reply else audit.outcome(reply.get("result"))
+        log.record(method, result, seconds, params if isinstance(params, dict) else {},
+                   who=who, tenant=tenant, error=str(reply.get("error") or ""), reason=reason)
     except Exception as exc:  # noqa: BLE001 - an audit problem is logged, the user's call goes on
         print(f"audit: could not record {method}: {type(exc).__name__}: {exc}", file=sys.stderr)
 
@@ -409,12 +438,31 @@ def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO
         worker.join()
 
 
+def _unparsable(exc: BaseException) -> str:
+    if isinstance(exc, RecursionError):
+        return "it's nested too deeply to read"
+    return str(exc)
+
+
+_NOT_UTF8 = re.compile("[\udc80-\udcff]")  # what surrogateescape makes of a byte that isn't UTF-8
+
+
+def _rpc_stdin(stream: Any) -> Any:
+    """The shell's request stream, read as UTF-8 whatever the Windows code page. A byte that isn't
+    UTF-8 is kept as a lone surrogate, so handle refuses that request instead of the read ending the engine."""
+    stream.reconfigure(encoding="utf-8", errors="surrogateescape")
+    return stream
+
+
 def _method(line: str) -> object:
+    # The reading loop sorts every line by this. A line that can't be read here must not end the
+    # loop (and the engine with it): handle answers it with the reason.
     try:
         req = json.loads(line)
-    except json.JSONDecodeError:
+    except (ValueError, RecursionError):
         return None
-    return req.get("method") if isinstance(req, dict) else None
+    method = req.get("method") if isinstance(req, dict) else None
+    return method if isinstance(method, str) else None  # a list or object can't be looked up in QUICK
 
 
 def _lane(requests: queue.Queue, answer: Callable[[str], None]) -> None:
@@ -436,6 +484,53 @@ class _SafeFormatter(logging.Formatter):
         return secrets(super().format(record))
 
 
+class _RedactedStream(io.TextIOBase):
+    """The engine's stderr, which the shell keeps in sidecar.log: every line passes through
+    ``redact.secrets`` first. Log records already do; this covers what doesn't go through them:
+    tracebacks, ``warnings``, third-party loggers' last-resort handler and anything a library prints.
+    Writes are held until a newline, so a credential split across writes (``print("Bearer", token)``)
+    is redacted whole; ``flush`` writes out a part line, and a line past ``HOLD`` characters goes out
+    as it is. Native code writing to the file descriptor directly isn't seen here."""
+
+    HOLD = 64 * 1024
+
+    def __init__(self, stream: IO[str]):
+        self.stream = stream
+        self._part = ""
+        self._lock = threading.Lock()
+
+    def writable(self) -> bool:
+        return True
+
+    @property
+    def encoding(self) -> str:  # type: ignore[override]
+        return getattr(self.stream, "encoding", None) or "utf-8"
+
+    def fileno(self) -> int:
+        return self.stream.fileno()
+
+    def isatty(self) -> bool:
+        return False
+
+    def write(self, text: str) -> int:
+        with self._lock:
+            held = self._part + text
+            cut = held.rfind("\n") + 1
+            if len(held) - cut > self.HOLD:
+                cut = len(held)
+            self._part = held[cut:]
+            if cut:
+                self.stream.write(secrets(held[:cut]))
+        return len(text)
+
+    def flush(self) -> None:
+        with self._lock:
+            part, self._part = self._part, ""
+            if part:
+                self.stream.write(secrets(part))
+        self.stream.flush()
+
+
 def _log_to_stderr() -> None:
     """The engine's ``fabric_desktop.*`` log lines (INFO and up) go to stderr, which the shell keeps
     in sidecar.log, with anything credential-shaped removed. Without a handler they went nowhere."""
@@ -448,6 +543,18 @@ def _log_to_stderr() -> None:
     logger.setLevel(logging.INFO)
 
 
+def _report_native_crashes(log: IO[str]) -> None:
+    """A crash in native code (DuckDB, Polars, delta-rs: an access violation, say) ends the process
+    without a Python traceback. ``faulthandler`` writes one to the engine's log first, for every thread:
+    file names, function names and line numbers only, never a value. It writes to the file itself,
+    which the redacting stream can't sit in front of; the support bundle redacts it with the rest."""
+    import faulthandler
+    try:
+        faulthandler.enable(file=log, all_threads=True)
+    except (AttributeError, OSError, ValueError) as exc:  # a stream without a real file: no report, the engine still runs
+        print(f"engine: native crashes won't be reported: {exc}", file=log)
+
+
 def main() -> None:
     # Started from a windowed app, Python can have no stderr at all (sys.stderr is
     # None). Log to a file then, rather than failing on the first write.
@@ -457,9 +564,28 @@ def main() -> None:
     # anything a notebook cell or a native library prints cannot corrupt the protocol.
     rpc_out = os.fdopen(os.dup(sys.stdout.fileno()), "w", encoding="utf-8", newline="\n")
     os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+    _report_native_crashes(sys.stderr)
+    sys.stderr = _RedactedStream(sys.stderr)
     sys.stdout = sys.stderr
-    sys.stdin.reconfigure(encoding="utf-8")  # the shell sends UTF-8 whatever the Windows code page
+    sys.stdin = _rpc_stdin(sys.stdin)
     _log_to_stderr()
+    from . import data_format
+    try:
+        data_format.check(data_dir())
+    except data_format.NewerData as exc:
+        # Every call gets the reason, so the app says it, and nothing opens a store.
+        print(f"engine: {exc}", file=sys.stderr)
+        serve(_Refused(exc), stdin=sys.stdin, stdout=rpc_out)  # type: ignore[arg-type]
+        return
+    except OSError as exc:
+        # A full or read-only profile disk (a new profile on a shared or virtual desktop): the
+        # engine can't save anything, so every call says why rather than the engine ending unexplained.
+        reason = OSError(disk_full.data_folder_message(data_dir(), exc, "so KratosForge can't open its data",
+                                                    "restart KratosForge")
+                         or f"KratosForge can't write to its data folder ({data_dir()}): {exc}. Restart KratosForge once that's fixed.")
+        print(f"engine: {reason}", file=sys.stderr)
+        serve(_Refused(reason), stdin=sys.stdin, stdout=rpc_out)  # type: ignore[arg-type]
+        return
     _refresh_integration_launcher()
     from . import notebook
     notebook.sweep_spills()  # output files a closed notebook session left behind
@@ -477,6 +603,19 @@ def main() -> None:
             engines.close_all()  # end engine sessions (and remote sessions in Fabric) with the app
 
 
+class _Refused:
+    """The engine's stand-in when the data folder is a newer build's: every method raises why."""
+
+    audit = None  # nothing is recorded: no call runs
+    telemetry = None
+
+    def __init__(self, reason: Exception):
+        self._reason = reason
+
+    def __getattr__(self, name: str) -> object:
+        raise self._reason
+
+
 def _start_integration_http(service: Service) -> None:
     """If the person switched the local API on, start it with the engine (it stops with it)."""
     try:
@@ -485,7 +624,7 @@ def _start_integration_http(service: Service) -> None:
         print(f"integrations: local API not started: {exc}", file=sys.stderr)
     try:
         service.editor_sync()  # the editor channel, if VS Code may run notebooks
-    except Exception as exc:  # noqa: BLE001 - likewise
+    except Exception as exc:  # noqa: BLE001 - the app works without the editor channel; Settings shows why
         print(f"integrations: editor channel not started: {exc}", file=sys.stderr)
 
 
@@ -493,7 +632,6 @@ def _refresh_integration_launcher() -> None:
     """After an update the engine is in a new folder: point the AI tools' and the CLI's launchers at it."""
     try:
         from .integrations.config import launcher_path, write_cli_launcher, write_launcher
-        from .service import data_dir
         if launcher_path(data_dir()).exists():
             write_launcher(data_dir())
         write_cli_launcher(data_dir())  # VS Code's Validate task runs it on every developer's PC

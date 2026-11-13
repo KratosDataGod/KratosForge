@@ -126,7 +126,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [local-data-engine-plan.md](local-data-engine-plan.md) | Contributors, platform owners | The local data engine program FD-LDE-001 to 020: audit, implementation matrix, owners, PR plan |
 | [scale-and-operations-plan.md](scale-and-operations-plan.md) | Platform owners | Staged plan for large tables, ingestion, releases, pipelines, lineage and monitoring |
 | [quality/README.md](quality/README.md) | Contributors, release managers | Engineering quality baseline: scorecard, [findings](quality/findings.md) (QA-nnn), [architecture standards](quality/architecture.md), [remediation plan](quality/remediation.md), [PR quality gate](quality/pr-review.md) |
-| [audits/EXECUTIVE_SUMMARY.md](audits/EXECUTIVE_SUMMARY.md) | Maintainers, enterprise reviewers | Enterprise engineering audit: [scorecard](audits/ENTERPRISE_READINESS.md), [security and data integrity](audits/SECURITY_AND_DATA_INTEGRITY.md), [engine compatibility](audits/ENGINE_COMPATIBILITY.md), [quality gates](audits/QUALITY_GATES.md), [remediation backlog](audits/REMEDIATION_BACKLOG.md) (EA-nnn), [architecture decisions](audits/ARCHITECTURE_DECISIONS.md) |
+| [audits/EXECUTIVE_SUMMARY.md](audits/EXECUTIVE_SUMMARY.md) | Maintainers, enterprise reviewers | Enterprise engineering audit: [scorecard](audits/ENTERPRISE_READINESS.md), [security and data integrity](audits/SECURITY_AND_DATA_INTEGRITY.md), [engine compatibility](audits/ENGINE_COMPATIBILITY.md), [quality gates](audits/QUALITY_GATES.md), [remediation backlog](audits/REMEDIATION_BACKLOG.md) (EA-nnn), [architecture decisions](audits/ARCHITECTURE_DECISIONS.md), [authorization matrix](audits/AUTHORIZATION_MATRIX.md) |
 | [git-integration-plan.md](git-integration-plan.md) | Contributors | The Git integration program: assessment, Phase 1 (Git foundation, done), Fabric workspace Git, deployment and extensions |
 | [prove/plan.md](prove/plan.md) | Contributors | The Prove this notebook program: what exists, the stages, and all 100 backlog items ([continuation note](prove/continuation.md)) |
 | [orchestration/plan.md](orchestration/plan.md) | Contributors | Fabric pipelines on this PC, ORCH-001 to ORCH-010: definitions, compatibility registry, local execution ([continuation note](orchestration/continuation.md)) |
@@ -178,6 +178,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Pipelines | Create > Pipeline ([user-guide.md](user-guide.md#pipelines-preview)) |
 | Pop-out windows | Monitor > Pop out on From KratosForge and In Fabric ([user-guide.md](user-guide.md#pop-out-windows-preview)) |
 | Pipeline runs in Monitor | Monitor > Runs, pipeline runs on this PC and in Fabric with their activities ([user-guide.md](user-guide.md#pipeline-runs-in-monitor-preview)) |
+| Run progress in Monitor | Monitor > Runs, today's counts and a lane for each running run ([user-guide.md](user-guide.md#run-progress-in-monitor-preview)) |
 | Cancel a Fabric run | Monitor > Runs and the bell, Cancel on a running Fabric job this app started ([user-guide.md](user-guide.md#cancel-a-fabric-run-preview)) |
 | Publishing notebooks from folders | All notebooks > Move to folder; Publish names the item without its folder ([notebook-folders.md](notebook-folders.md)) |
 | New notebook wizard | Create > Notebook from a template |
@@ -207,7 +208,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Data mesh | Data mesh > Domains, Data mesh > Products, Home, entity page (domains from Fabric, products, links, glossary, About, the map on Home, data products for everyone, following a product) |
 | Platform | Platform, Settings, Data mesh > Surrogate keys (admins, landing zone, business keys, requests) |
 | Workspace, domain and exception requests | Data mesh > Requests > New request: a new workspace, access to a workspace, a domain, an exception to a policy, data from another team; Data mesh > Products > Ask for data ([platform.md](platform.md#requests)) |
-| Endorsement and business terms | Data mesh > Products, open a product: its endorsement from Fabric's admin tenant scan, and business terms linked to Purview ([data-mesh.md](data-mesh.md#endorsement-and-business-terms)) |
+| Endorsement | Data mesh > Products, open a product: its endorsement from Fabric's admin tenant scan ([data-mesh.md](data-mesh.md#endorsement)) |
 | Best practices: checks and templates | Platform > Governance > Templates and Check this project; Data mesh > Products, open a product: its checklist ([governance.md](governance.md#best-practices-checks-and-templates-preview)) |
 | Source control | Source control |
 | Workloads | Monitor > KratosForge > Operations > Workloads, Home (inventory, health, ownership, the workload page, Your workloads) |
@@ -236,6 +237,7 @@ KratosForge is new, and it's honest about what has been proven.
 | New build banner | Below the top bar while KratosForge is open; Settings > Updates ([user-guide.md](user-guide.md#a-new-build-while-the-app-is-open-preview)) |
 | Quarantine replay | Entity page, quarantined rows (always shown) |
 | Risk check before a run | Before a run in Workloads, Notebook > Run in Fabric and Data mesh ([risk-check.md](finops/risk-check.md); always shown) |
+| Embed Studio (Power BI) | Workspaces > Power BI tab and Embed Studio ([embed-studio.md](embed-studio.md)) |
 | VS Code pairing | Settings > Integrations > VS Code ([vscode.md](vscode.md); always shown, so a pairing that is on can always be turned off) |
 | Academy | Academy at the bottom of the left rail: certification prep for DP-700 with exercises on this PC, readiness by objective ([academy-guide.md](academy-guide.md)) |
 | Learn | Lessons, practice labs on this PC and the best-practice rules, opened from Academy > Practice ([learn.md](learn.md)) |

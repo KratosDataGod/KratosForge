@@ -154,6 +154,8 @@ def test_the_fabric_skin_is_light_and_orders_the_rail_without_hiding_a_page():
     fabric = skins.BUILT_IN["fabric"]
     assert fabric["targets"][0]["platform"] == "fabric" and fabric["appearance"]["color_mode"] == "light"
     assert set(fabric["workflow"]["rail"]) == set(skins.KRATOSFORGE["workflow"]["rail"])  # reordered, nothing removed
+    # Fabric's own order, which docs/parity.md's workflow cells for Fabric rely on.
+    assert fabric["workflow"]["rail"][:5] == ["home", "create", "workspaces", "onelake", "monitor"]
     assert skins.contrast(fabric["appearance"]["tokens"]["light"]["--accent"], "#ffffff") >= skins.CONTRAST_MIN
 
 
@@ -161,4 +163,134 @@ def test_skins_list_answers_from_the_server_and_is_read_only():
     from fabric_desktop import audit, server
     assert "skins_list" in server.METHODS and "skins_list" in audit.READ_ONLY
     listing = skins.listing()
-    assert [s["id"] for s in listing["skins"]][:2] == ["kratosforge", "fabric"] and listing["schema"] == skins.SCHEMA
+    assert [s["id"] for s in listing["skins"]] == ["kratosforge", "fabric", "databricks", "snowflake"]
+    assert listing["schema"] == skins.SCHEMA
+
+
+@pytest.mark.parametrize("skin_id, first", [("databricks", ["workspaces", "home", "create", "onelake"]),
+                                            ("snowflake", ["home", "onelake", "create", "monitor"])])
+def test_the_databricks_and_snowflake_skins_lead_with_their_platforms_pages(skin_id, first):
+    skin = skins.BUILT_IN[skin_id]
+    assert skins.validate(skin, skins.BASE) is skin and skin in skins.listing()["skins"]
+    assert skin["targets"][0]["platform"] == skin_id and skin["appearance"]["color_mode"] == "light"
+    rail = skin["workflow"]["rail"]
+    assert rail[:len(first)] == first
+    assert set(rail) == set(skins.KRATOSFORGE["workflow"]["rail"])  # reordered, nothing removed
+    assert rail[-3:] == ["platform", "optimize", "metadata"]  # KratosForge's own pages last (#1847)
+    assert "density" not in skin["appearance"]  # not applied yet
+    assert set(skin["workflow"].get("labels", {})) <= set(rail)
+    assert skins.contrast(skin["appearance"]["tokens"]["light"]["--accent"], "#ffffff") >= skins.CONTRAST_MIN
+
+
+def test_the_databricks_skins_dark_set_is_complete_and_readable():
+    dark = skins.BUILT_IN["databricks"]["appearance"]["tokens"]["dark"]
+    for fg, bg in skins.CONTRAST_PAIRS:  # no built-in dark base yet, so the skin sets both sides
+        assert fg in dark and bg in dark and skins.contrast(dark[fg], dark[bg]) >= skins.CONTRAST_MIN
+
+
+# ---------- command placement (workflow.commands; mockup "skin command placement") ----------
+
+UI = STYLES.parent
+
+
+def _app_notebook_actions() -> dict[str, str]:
+    """Every notebook action the app defines (actions.js defineAction), with its definition's text."""
+    found = {}
+    for js in sorted(UI.glob("*.js")):
+        text = js.read_text(encoding="utf-8")
+        for m in re.finditer(r'defineAction\(\{ id: "([^"]+)"(.*?)\n(?=\S|\Z)', text, re.S):
+            if '"notebook"' in m.group(2) and "contexts:" in m.group(2):
+                found[m.group(1)] = m.group(2)
+    return found
+
+
+def test_the_notebook_commands_a_skin_can_place_are_the_apps_own():
+    app = _app_notebook_actions()
+    assert set(skins.NOTEBOOK_COMMANDS) == set(app) and len(app) == 9
+    for cmd, why in skins.NOTEBOOK_COMMANDS.items():
+        # A skin may rename only a low or moderate command that stays on this PC.
+        fixed = "spendsCapacity: true" in app[cmd] or 'risk: "high"' in app[cmd] or 'where: "fabric"' in app[cmd]
+        assert bool(why) == fixed, cmd
+    assert skins.NOTEBOOK_COMMANDS["notebook.run_in_fabric"] == "it uses capacity"
+    assert skins.NOTEBOOK_COMMANDS["notebook.publish"] == "it writes to Fabric"
+
+
+def test_the_engine_knows_each_notebook_commands_own_label():
+    app = _app_notebook_actions()
+    own = {cmd: re.search(r'label: "([^"]+)"', text).group(1) for cmd, text in app.items()}
+    assert skins.NOTEBOOK_LABELS == own
+
+
+def _commands(**notebook):
+    return _skin(workflow={"rail": ["home"], "commands": {"notebook": notebook}})
+
+
+def test_a_skin_places_a_primary_up_to_three_more_and_renames_them():
+    m = _commands(primary="notebook.run_all", bar=["notebook.run_cell", "notebook.restart_run_all", "notebook.publish"],
+                  labels={"notebook.run_cell": "Run cell", "notebook.restart_run_all": "Clear state and run all"})
+    assert skins.parse(skins.dump(m), skins.BASE) == m
+
+
+def test_a_skin_that_breaks_the_command_rules_is_refused_with_every_reason():
+    problems = _problems(_commands(primary="notebook.run_all",
+                                   bar=["notebook.export", "notebook.run_cell", "notebook.save", "notebook.pin", "notebook.validate"],
+                                   labels={"notebook.run_in_fabric": "Go"}))
+    assert "commands.notebook.bar has 5 commands; at most 3" in problems
+    assert "commands.notebook.bar names notebook.export, which isn't a notebook command" in problems
+    assert "commands.notebook.labels can't rename notebook.run_in_fabric: it uses capacity" in problems
+
+
+def test_publish_keeps_its_own_name():
+    assert "commands.notebook.labels can't rename notebook.publish: it writes to Fabric" in _problems(
+        _commands(primary="notebook.run_all", labels={"notebook.publish": "Save"}))
+
+
+@pytest.mark.parametrize("labels, problem", [
+    # Another command's own name, in any case: Save would read as Publish.
+    ({"notebook.save": "publish to onelake"}, "commands.notebook.labels notebook.save can't take notebook.publish's name"),
+    ({"notebook.run_cell": "Run all"}, "commands.notebook.labels notebook.run_cell can't take notebook.run_all's name"),
+    ({"notebook.run_cell": "Go", "notebook.save": "GO"}, "commands.notebook.labels gives notebook.run_cell and notebook.save the same name"),
+])
+def test_a_label_cant_make_one_command_read_as_another(labels, problem):
+    assert problem in _problems(_commands(primary="notebook.run_all", labels=labels))
+
+
+def test_a_command_may_keep_its_own_name():
+    m = _commands(primary="notebook.run_all", labels={"notebook.save": "Save the notebook"})
+    assert skins.parse(skins.dump(m), skins.BASE) == m
+
+
+@pytest.mark.parametrize("notebook, problem", [
+    ({"bar": ["notebook.run_cell"]}, "commands.notebook needs a primary command"),
+    ({"primary": "notebook.run_all", "bar": ["notebook.run_all"]}, "commands.notebook places a command twice"),
+    ({"primary": "notebook.run_all", "labels": {"notebook.save": "x" * 41}}, "commands.notebook.labels notebook.save is longer than 40 characters"),
+    ({"primary": "notebook.run_all", "labels": {"notebook.save": "<b>Save</b>"}}, "commands.notebook.labels notebook.save can't hold control characters, < > { } or \\"),
+    ({"primary": "notebook.run_all", "hide": ["notebook.publish"]}, "commands.notebook has keys a skin can't hold: hide"),
+])
+def test_command_placement_rules(notebook, problem):
+    assert problem in _problems(_commands(**notebook))
+
+
+def test_commands_only_for_known_views():
+    assert "commands has keys a skin can't hold: sql" in _problems(
+        _skin(workflow={"commands": {"sql": {"primary": "notebook.run_all"}}}))
+
+
+@pytest.mark.parametrize("skin_id, primary, bar", [
+    ("fabric", "notebook.run_all", ["notebook.run_cell", "notebook.save"]),
+    ("databricks", "notebook.run_all", ["notebook.run_cell", "notebook.restart_run_all", "notebook.publish"]),
+    ("snowflake", "notebook.run_all", ["notebook.run_cell", "notebook.save"]),
+])
+def test_the_built_in_skins_place_the_notebook_commands_as_drawn(skin_id, primary, bar):
+    placed = skins.BUILT_IN[skin_id]["workflow"]["commands"]["notebook"]
+    assert (placed["primary"], placed["bar"]) == (primary, bar)
+
+
+def test_the_kratosforge_skin_places_no_commands():
+    assert "commands" not in skins.KRATOSFORGE["workflow"]
+
+
+@pytest.mark.parametrize("skin_id", ["databricks", "snowflake"])
+def test_the_databricks_and_snowflake_skins_mark_the_active_page_in_their_accent(skin_id):
+    for mode, tokens in skins.BUILT_IN[skin_id]["appearance"]["tokens"].items():
+        assert tokens["--rail-active"] == tokens["--accent"], mode

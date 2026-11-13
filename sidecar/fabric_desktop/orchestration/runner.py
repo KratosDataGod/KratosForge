@@ -74,9 +74,21 @@ class NotebookRunner(Protocol):
         ended and before the run reports its final state; calling it again does nothing."""
         ...
 
+    def lakehouses(self, activities: list[Activity]) -> Any:
+        """The lakehouses these activities' notebooks use; empty (falsy) when they use none."""
+        ...
+
+    def stop(self) -> None:
+        """Stop the notebook that is running, when the run is cancelled."""
+        ...
+
 
 class DataReader(Protocol):
     """Runs a pipeline's Lookup and Get Metadata activities on this PC (the engine's pipeline_data.py)."""
+
+    def lakehouses(self, activities: list[Activity]) -> Any:
+        """Whether these activities read a lakehouse (truthy when they do)."""
+        ...
 
     def check(self, activity: Activity) -> list[dict[str, Any]]:
         """Why this activity can't read its dataset here; empty when it can. Reads nothing."""
@@ -437,7 +449,8 @@ class PipelineRun:
         adapter = self.registry.get(a.type).adapter
         leaf = mock is not None or not getattr(adapter, "container", False)
         rec["executed_by"] = "mock" if mock is not None else "adapter"
-        policy = a.raw.get("policy") if isinstance(a.raw.get("policy"), dict) else {}
+        got = a.raw.get("policy")
+        policy: dict[str, Any] = got if isinstance(got, dict) else {}
         retries = policy.get("retry", 0) if leaf and isinstance(policy.get("retry"), int) else 0
         interval = policy.get("retryIntervalInSeconds", 30) if isinstance(policy.get("retryIntervalInSeconds"), int) else 30
         # An Execute Pipeline's timeout bounds its child pipeline's run (#1370).

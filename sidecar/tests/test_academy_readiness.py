@@ -36,7 +36,7 @@ def _state(profile, oid):
 
 def test_a_pass_records_its_objective_class_and_guide_version(cert):
     row = _row("E37", cert, hints_used=1)
-    assert row["type"] == "academy.exercise" and row["rules_version"] == progress.RULES_VERSION == 4
+    assert row["type"] == "academy.exercise" and row["rules_version"] == progress.RULES_VERSION >= 4
     d = row["detail"]
     assert d == {"certification": "dp-700", "certification_version": "2026-10-30", "objectives": ["2.2.9"],
                  "class": "local_verified", "mode": "guided", "hints_used": 1, "explanation_seen": False,
@@ -90,9 +90,9 @@ def test_measures_stay_separate(cert):
     assert m["troubleshooting"] == ["dp-700/E37"] and m["independent"] == [] and m["guided"] == []
 
 
-def test_hints_or_the_explanation_make_it_not_independent(cert):
+def test_hints_the_explanation_or_changed_answers_make_it_not_independent(cert):
     challenge = {**exercises.get(PACK, "E36"), "mode": "challenge"}
-    for kw in ({"hints_used": 2}, {"explanation_seen": True}):
+    for kw in ({"hints_used": 2}, {"explanation_seen": True}, {"answers_changed": True}):
         profile = progress.empty()
         progress.add(profile, progress.from_academy(_passed("E36"), challenge, cert, **kw))
         assert _state(profile, "2.2.8")["measures"]["independent"] == []

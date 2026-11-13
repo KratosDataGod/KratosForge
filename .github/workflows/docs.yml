@@ -5,9 +5,9 @@ name: Docs
 on:
   push:
     branches: [main]
-    paths: ["docs/**", "zensical.toml", ".github/workflows/docs.yml"]
+    paths: ["docs/**", "zensical.toml", ".github/workflows/docs.yml", ".github/requirements/zensical.txt"]
   pull_request:
-    paths: ["docs/**", "zensical.toml", ".github/workflows/docs.yml"]
+    paths: ["docs/**", "zensical.toml", ".github/workflows/docs.yml", ".github/requirements/zensical.txt"]
   workflow_dispatch:
 
 # Only the deploy job, which runs on main, can publish (SH-8): pull request builds get read access only.
@@ -20,13 +20,13 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
-      - run: pip install zensical==0.0.71
+      - run: "pip install --only-binary=:all: --require-hashes -r .github/requirements/zensical.txt"
       # strict = true in zensical.toml: a broken link or anchor fails the build.
       - run: zensical build --clean
       # The product data's generated tables must match its JSON, so render never reverts a hand edit.
@@ -41,7 +41,7 @@ jobs:
   deploy:
     if: github.event_name != 'pull_request'
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       pages: write
       id-token: write

@@ -8,12 +8,14 @@ Every request passes the same checks before anything else: it comes from 127.0.0
 running as the Windows account KratosForge runs as (integrations/peer.py, as the local API checks:
 on a shared PC everyone has 127.0.0.1), its ``Host``
 names this port on a loopback name, it has no browser ``Origin`` (so a web page can't call it,
-and DNS rebinding can't either), and its body is at most 1 MiB of JSON. Asking to pair needs
+and DNS rebinding can't either), and its body is at most 1 MiB of JSON. At most 16
+connections are open at once, and one that sends nothing for 5 seconds is closed. Asking to pair needs
 ``X-KratosForge-Hello`` (only programs that can read this user's data folder have it); everything
 else needs ``Authorization: Bearer <token>`` from a pairing (editor_pairing.py).
 
-    GET    /v1/hello?nonce=         {"proof"}: HMAC-SHA256(hello, nonce), so a window can tell it's
-                                    KratosForge before it sends the hello or a token
+    GET    /v1/hello?nonce=&api=    {"proof", "api"}: HMAC-SHA256(hello, nonce), so a window can tell
+                                    it's KratosForge before it sends the hello or a token, and the
+                                    channel's API version, so either side can say which to update
     POST   /v1/pair                 {"window", "client"}  ->  {"id", "code", "expires_in"}
     GET    /v1/pair/<id>            {"state": waiting | paired | denied | expired, "token" once}
     DELETE /v1/pair                 ends this window's pairing
@@ -33,8 +35,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import secrets
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -44,15 +48,60 @@ from . import __version__, jsonfile
 from .integrations import peer
 from .redact import secrets as redact_secrets
 
+DISCARD_BYTES = 64 << 10  # a refused request's body read and dropped, so Windows doesn't reset the answer
+DISCARD_SECONDS = 2.0  # at most this long, however slowly the body comes
 MAX_BODY_BYTES = 1024 * 1024
+MAX_CONNECTIONS = 16  # open at once; each holds an engine thread until it ends
 MAX_WAIT_SECONDS = 25.0
 PORT_FILE = "editor-port"
+API_VERSION = 1  # the channel's routes and replies; raised when an extension must change to keep working
+OLDEST_CLIENT_API = 1  # an extension that speaks an older API is told to update
 
 
 class Refused(Exception):
     def __init__(self, status: int, code: str, message: str):
         super().__init__(message)
         self.status, self.code, self.message = status, code, message
+
+
+# "busy" means only this: refused when the connection was accepted, before its request was read.
+# The extension retries a call refused as busy (vscode/src/channel.ts), which is safe only because
+# nothing ran. Don't use the code for any other refusal.
+BUSY = (b"HTTP/1.0 503 Service Unavailable\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+        b'{"ok": false, "error": {"code": "busy", "message": "Too many connections to the editor channel. Try again."}}')
+
+
+class _Server(ThreadingHTTPServer):
+    """At most MAX_CONNECTIONS connections are served at once; the rest get 503 and are closed
+    on the listening thread, before a thread is started for them."""
+
+    daemon_threads = True
+    request_queue_size = MAX_CONNECTIONS * 2  # a burst waits in the backlog, not in connect retries
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        self._slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        if not self._slots.acquire(blocking=False):
+            try:
+                request.setblocking(False)
+                request.send(BUSY)
+            except OSError:
+                pass
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
 
 
 class Channel:
@@ -62,7 +111,7 @@ class Channel:
         self.service = service
         self.data_dir = Path(data_dir)
         self.hello = secrets.token_urlsafe(24)
-        self._server: ThreadingHTTPServer | None = None
+        self._server: _Server | None = None
         self._thread: threading.Thread | None = None
 
     @property
@@ -77,8 +126,7 @@ class Channel:
         class Handler(_Handler):
             owner = channel
 
-        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        server.daemon_threads = True
+        server = _Server(("127.0.0.1", 0), Handler)
         self._server = server
         self._thread = threading.Thread(target=server.serve_forever, daemon=True, name="editor-channel")
         self._thread.start()
@@ -117,12 +165,27 @@ class Channel:
             nonce = _field(query, "nonce", limit=128)
             if len(nonce) < 16:
                 raise Refused(400, "invalid_input", "nonce should be at least 16 characters.")
-            return {"proof": hmac.new(self.hello.encode("utf-8"), nonce.encode("utf-8"), hashlib.sha256).hexdigest()}
+            # An extension from before the version was sent speaks API 1, and is told to update once that's too old.
+            raw_api = query.get("api")
+            if raw_api is None:
+                client_api = 1
+            elif isinstance(raw_api, str) and raw_api.isascii() and raw_api.isdigit() and len(raw_api) <= 6:
+                client_api = int(raw_api)
+            else:
+                raise Refused(400, "invalid_input", "api should be the channel API version the extension speaks, a whole number.")
+            if client_api < OLDEST_CLIENT_API:
+                raise Refused(426, "extension_too_old", "This KratosForge extension for VS Code is too old for this "
+                              "KratosForge. Install kratosforge.vsix from KratosForge's latest release.")
+            return {"proof": hmac.new(self.hello.encode("utf-8"), nonce.encode("utf-8"), hashlib.sha256).hexdigest(),
+                    "api": API_VERSION}
         if method == "POST" and path == "/v1/pair":
             return svc.editor_channel_pair(_field(body, "window", required=False), _field(body, "client", required=False))
         if method == "GET" and path.startswith("/v1/pair/"):
             return svc.editor_channel_collect(path[len("/v1/pair/"):])
-        assert pairing is not None  # authorize() let only the two calls above through without one
+        if pairing is None:  # authorize() lets only the calls above through without one. Checked here
+            # as well, and not with assert, which python -O removes.
+            raise Refused(401, "not_paired", "This VS Code window isn't paired with KratosForge, or its pairing ended. "
+                          "Pick KratosForge as the kernel again to pair it.")
         if method == "DELETE" and path == "/v1/pair":
             return svc.editor_channel_unpair(pairing)
         if method == "GET" and path == "/v1/status":
@@ -171,16 +234,17 @@ def _int(value: Any, default: int) -> int:
 
 def _float(value: Any, default: float) -> float:
     try:
-        return float(value)
+        number = float(value)
     except (TypeError, ValueError):
         return default
+    return number if math.isfinite(number) else default  # "nan" and "inf" are floats too
 
 
 class _Handler(BaseHTTPRequestHandler):
     owner: Channel
     server_version = "KratosForge-editor"
     sys_version = ""
-    timeout = 30  # seconds a connection may sit without sending
+    timeout = 5  # seconds a connection may sit without sending (a long poll's wait isn't reading)
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - BaseHTTPRequestHandler's name
         pass  # no request lines on the engine's stderr
@@ -195,6 +259,7 @@ class _Handler(BaseHTTPRequestHandler):
         self._serve("DELETE")
 
     def _serve(self, method: str) -> None:
+        self._body_read = False
         try:
             self._guard()
             url = urlsplit(self.path)
@@ -239,12 +304,38 @@ class _Handler(BaseHTTPRequestHandler):
             raise Refused(413, "too_large", "Requests are at most 1 MiB.")
         if "application/json" not in (self.headers.get("Content-Type") or ""):
             raise Refused(415, "invalid_input", "Send JSON (Content-Type: application/json).")
+        self._body_read = True
         try:
             return json.loads(self.rfile.read(length) or b"{}")
         except ValueError:
             raise Refused(400, "invalid_input", "The body isn't JSON.") from None
+        except RecursionError:
+            raise Refused(400, "invalid_input", "The body's JSON is nested too deeply.") from None
+
+    def _discard_body(self) -> None:
+        """Read a refused request's small body before answering. On Windows, closing a connection with
+        bytes still unread sends a reset, which can drop the answer before the window reads it."""
+        if getattr(self, "_body_read", True) or "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+            return
+        self._body_read = True
+        try:
+            left = int(self.headers.get("Content-Length") or 0)
+            if not 0 < left <= DISCARD_BYTES:
+                return
+            deadline = time.monotonic() + DISCARD_SECONDS  # one byte every few seconds can't hold the thread
+            while left > 0 and (wait := deadline - time.monotonic()) > 0:
+                self.connection.settimeout(wait)
+                chunk = self.rfile.read1(left)
+                if not chunk:
+                    break
+                left -= len(chunk)
+        except (ValueError, OSError):
+            pass  # silent-ok: the answer is sent either way; only its delivery on Windows is at stake
+        finally:
+            self.connection.settimeout(self.timeout)  # the answer is written with the usual timeout
 
     def _reply(self, status: int, payload: dict[str, Any]) -> None:
+        self._discard_body()
         data = json.dumps(payload, default=str).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")

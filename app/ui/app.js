@@ -2986,7 +2986,7 @@ function mdBuild(tokens, parent, attachments) {
       const el = h(t.tag, { start: Number.isFinite(start) && start >= 0 ? String(start) : null, class: align ? `md-${align}` : null });
       top.append(el);
       if (t.nesting === 1) stack.push(el);
-    }
+    } else if (t.nesting === 1) stack.push(top);  // a tag not made: its content goes where it is, and its close pops this
   }
 }
 

@@ -223,7 +223,7 @@ def test_a_body_that_isnt_json_isnt_shown():
     with pytest.raises(FabricError) as exc:
         c._request("GET", "/workspaces")
     assert str(exc.value) == ("GET /workspaces failed with 502: Fabric had a problem on its side. Try again, "
-                              "and give the request id to support if it keeps happening.")
+                              "and contact support if it keeps happening.")
 
 
 def test_a_lakehouse_created_without_a_result_is_looked_up_by_name():

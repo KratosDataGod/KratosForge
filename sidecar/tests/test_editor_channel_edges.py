@@ -129,3 +129,18 @@ def test_an_optional_field_left_out_is_none():
     assert ec._field({}, "window", required=False) is None
     with pytest.raises(ec.Refused):
         ec._field({"window": 5}, "window", required=False)
+
+
+@pytest.mark.parametrize("method, path", [("GET", "/v1/status"), ("DELETE", "/v1/pair"), ("POST", "/v1/run")])
+def test_a_call_that_reached_its_route_unpaired_is_still_refused(tmp_path, method, path):
+    """authorize() stops these first; route() refuses them too, with no assert that python -O would remove."""
+    channel = ec.Channel(SimpleNamespace(), tmp_path)
+    with pytest.raises(ec.Refused) as err:
+        channel.route(method, path, {}, None, {})
+    assert (err.value.status, err.value.code) == (401, "not_paired")
+
+
+def test_the_channel_checks_nothing_with_assert():
+    import ast
+    tree = ast.parse(open(ec.__file__, encoding="utf-8").read())
+    assert not [n.lineno for n in ast.walk(tree) if isinstance(n, ast.Assert)]

@@ -195,7 +195,7 @@ def test_an_error_body_that_isnt_an_object_gives_the_status_and_hint_only():
     with pytest.raises(FabricError) as exc:
         c.get_workspace("ws1")
     assert str(exc.value) == ("GET /workspaces/ws1 failed with 500: Fabric had a problem on its side. Try again, and "
-                              "give the request id to support if it keeps happening.")
+                              "contact support if it keeps happening.")
     assert len(s.calls) == 5  # a read is tried again, at most five times
 
 

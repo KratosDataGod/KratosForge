@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 109 |
+| Runs | 117 |
 | Differs | 3 |
-| Refused | 16 |
-| Fails | 35 |
+| Refused | 15 |
+| Fails | 28 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -39,20 +39,20 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `coalesce` | Refused | `df.coalesce(1).rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `colRegex` | Runs |  |
 | `collect` | Runs |  |
-| `columns` | Fails | `for col_name in df.columns: df = df.withColumn(col_name, ...`: BinderException: Binder Error: No function matches the given name and argument types 'upper(BIGINT)'. You might need to add explicit type casts. |
+| `columns` | Runs |  |
 | `corr` | Runs |  |
 | `count` | Runs |  |
 | `cov` | Runs |  |
-| `createGlobalTempView` | Refused | `df.createGlobalTempView("people")`: NotImplementedError |
-| `createOrReplaceGlobalTempView` | Fails | `df3 = spark.sql("SELECT * FROM global_temp.people")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
-| `createOrReplaceTempView` | Fails | `spark.catalog.dropTempView("people")`: AttributeError: 'Catalog' object has no attribute 'dropTempView' |
-| `createTempView` | Fails | `df.createTempView("people")`: ValueError: Temporary view 'people' already exists. Use createOrReplaceTempView. |
+| `createGlobalTempView` | Runs |  |
+| `createOrReplaceGlobalTempView` | Runs |  |
+| `createOrReplaceTempView` | Runs |  |
+| `createTempView` | Runs |  |
 | `crossJoin` | Runs |  |
 | `crosstab` | Runs |  |
 | `cube` | Runs |  |
 | `describe` | Runs |  |
 | `distinct` | Runs |  |
-| `drop` | Fails | `df3 = df.join(df2)`: TypeError: join(): incompatible function arguments. The following argument types are supported: |
+| `drop` | Runs |  |
 | `dropDuplicates` | Runs |  |
 | `dropDuplicatesWithinWatermark` | Not checked |  |
 | `drop_duplicates` | Not checked |  |
@@ -73,7 +73,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `inputFiles` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a single...`: AttributeError: 'LakehouseWriter' object has no attribute 'json' |
 | `intersect` | Runs |  |
 | `intersectAll` | Runs |  |
-| `isEmpty` | Fails | `df_non_empty = spark.createDataFrame(["a"], 'STRING')`: PySparkValueError: Provided column names and number of columns in the DataFrame don't match |
+| `isEmpty` | Runs |  |
 | `isLocal` | Runs |  |
 | `isStreaming` | Fails | `df = spark.readStream.format("rate").load()`: ValueError: readStream.load needs a path. |
 | `join` | Runs |  |
@@ -91,7 +91,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `printSchema` | Runs |  |
 | `randomSplit` | Differs | `splits[0].count()`: {"value": 2} here, {"value": 1} in Spark |
 | `rdd` | Refused | `type(df.rdd)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
-| `registerTempTable` | Fails | `spark.catalog.dropTempView("people")`: AttributeError: 'Catalog' object has no attribute 'dropTempView' |
+| `registerTempTable` | Runs |  |
 | `repartition` | Refused | `df.repartition(10).rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `repartitionByRange` | Refused | `df.repartitionByRange(2, "age").rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `replace` | Runs |  |

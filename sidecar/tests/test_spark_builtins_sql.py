@@ -210,7 +210,7 @@ def test_generators_give_sparks_rows_and_column_names():
 
 def test_a_selected_call_keeps_the_name_spark_gives_it():
     assert sql.run("SELECT isnull(1), substring_index('a.b', '.', 1)").column_names == [
-        "isnull(1)", "substring_index('a.b', '.', 1)"]
+        "(1 IS NULL)", "substring_index(a.b, ., 1)"]  # Spark 3.5.3's names
 
 
 @pytest.mark.parametrize("query, match", [
@@ -373,7 +373,7 @@ def test_to_char_of_another_type_is_refused_by_name():
 
 
 def test_to_char_is_named_as_spark_names_it():
-    assert sql.run("SELECT to_char(454, '999')").column_names == ["to_char(454, '999')"]
+    assert sql.run("SELECT to_char(454, '999')").column_names == ["to_char(454, 999)"]  # Spark 3.5.3's name
 
 
 def test_a_format_written_as_joined_literals_is_read_as_spark_joins_them():

@@ -22,6 +22,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from ..winexe import system32
 from . import cli
 from .cli import GitError
 from .remote import check_url, repo_name
@@ -289,7 +290,7 @@ def _kill(proc: subprocess.Popen) -> None:
         return
     try:
         if _WINDOWS:
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=15,
+            subprocess.run([system32("taskkill.exe"), "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=15,
                            creationflags=cli._NO_WINDOW)
         else:
             import os

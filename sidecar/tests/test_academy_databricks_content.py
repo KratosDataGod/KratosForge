@@ -56,7 +56,7 @@ def test_the_packs_python_has_no_undefined_names_or_syntax_errors():
     assert p.returncode == 0, p.stdout + p.stderr
 
 
-@pytest.mark.parametrize("eid", ("E02", "E14", "E15", "E46", "E48"))
+@pytest.mark.parametrize("eid", ("E02", "E14", "E15", "E46", "E48", "E49", "E50"))
 def test_the_api_bundle_and_ci_exercises_pass_their_reference_and_fail_each_wrong_answer(eid):
     result = exercises.self_test(PACK, eid)
     assert result["solution"]["passed"], result["solution"]
@@ -83,3 +83,32 @@ def test_an_exercise_that_writes_delta_runs_outside_the_appcontainer():
     """delta-rs is denied a call it needs inside an AppContainer, so a Delta-writing script runs as delta_lab."""
     from fabric_desktop.academy import pylab
     assert not pylab.appcontainer_ok(exercises.get(PACK, "E14"))
+
+
+def test_the_unit_test_exercise_starts_short_of_the_three_releases(tmp_path):
+    from fabric_desktop.academy import pylab, workspace
+    ex = exercises.get(PACK, "E49")
+    folder = exercises.registry.ROOT / PACK / "exercises" / "E49"
+    work = workspace.workspace_dir(tmp_path, "starter", "E49")
+    work.mkdir(parents=True)
+    pylab.prepare(work, folder, ex, (folder / ex["starter"]).read_text(encoding="utf-8"))
+    res = pylab.grade(work, ex["starter"], ex["validation"], tmp_path, appcontainer_ok=pylab.appcontainer_ok(ex))
+    assert not res["passed"]
+    assert res["results"][1]["passed"]   # the starter's one test is right; it just catches nothing
+
+
+def test_each_rolled_back_release_differs_from_today_in_one_function():
+    folder = exercises.registry.ROOT / PACK / "exercises" / "E49"
+    today = (folder / "transforms.py").read_text(encoding="utf-8").splitlines()[1:]
+    for v in ("v41", "v42", "v43"):
+        bad = (folder / f"transforms_{v}.py").read_text(encoding="utf-8").splitlines()[1:]
+        assert len(bad) == len(today) and sum(a != b for a, b in zip(bad, today, strict=True)) == 1, v
+
+
+def test_the_broken_bundle_starter_is_a_planted_wrong_answer():
+    from fabric_desktop.academy import configlab
+    ex = exercises.get(PACK, "E50")
+    starter = exercises.file_text(PACK, "E50", ex["starter"])
+    grading = exercises.registry.ROOT / PACK / "grading" / "E50"
+    assert ex["mode"] == "troubleshoot" and not configlab.grade(starter, ex)["passed"]
+    assert (grading / "wrong-unchanged.json").read_text(encoding="utf-8") == starter

@@ -46,7 +46,8 @@ MAX_REFUSED = 256
 
 
 def _fingerprint(host: str, token: str) -> str:
-    return hashlib.sha256(f"{host}\n{token}".encode()).hexdigest()
+    """One workspace however its address is spelled (case, a trailing slash)."""
+    return hashlib.sha256(f"{host.strip().rstrip('/').lower()}\n{token}".encode()).hexdigest()
 
 
 def was_refused(host: str, token: str) -> bool:
@@ -187,7 +188,8 @@ class TokenProvider:
                     raise DatabricksAuthError("Databricks gave no access token.")
                 if was_refused(self.host, token):  # the same token again: renewing it is the person's step
                     raise TokenRefused(f"Databricks refused this sign-in earlier, so it isn't sent again. "
-                                       f"{self.sign_in_again or 'Sign in again.'}")
+                                       f"{self.sign_in_again or 'Sign in again.'} If you're sure the token is still valid, "
+                                       "restart KratosForge to try it again.")
                 self._token, self._expires = token, expires
             return self._token
 

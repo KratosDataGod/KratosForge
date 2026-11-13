@@ -148,6 +148,11 @@ def drop_ref_variable(env: dict[str, str], ref: str) -> dict[str, str]:
     return {k: v for k, v in env.items() if k.upper() != name.upper()}
 
 
+# Said wherever trusted_cli finds nothing, so a tool IT put on a network share isn't reported as missing.
+PATH_HINT = ("Programs are found only in PATH folders on this PC's own drives, not on a network share "
+             "or in the current folder.")
+
+
 def trusted_cli(name: str, environ: Mapping[str, str] | None = None) -> str | None:
     """A platform CLI from PATH's absolute folders only. ``shutil.which`` also looks in the current
     folder on Windows, where a planted ``<name>.exe`` would then get the person's sign-in. On Windows

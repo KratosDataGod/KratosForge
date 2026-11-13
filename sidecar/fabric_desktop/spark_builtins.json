@@ -1224,10 +1224,11 @@
  {
   "name": "curdate",
   "group": "datetime_funcs",
-  "example": "SELECT curdate()",
+  "example": "SELECT curdate() = current_date(), typeof(curdate())",
   "value": [
    [
-    "date:2026-11-03"
+    true,
+    "date"
    ]
   ]
  },
@@ -1254,10 +1255,11 @@
  {
   "name": "current_date",
   "group": "datetime_funcs",
-  "example": "SELECT current_date()",
+  "example": "SELECT current_date() = to_date(current_timestamp()), typeof(current_date())",
   "value": [
    [
-    "date:2026-11-03"
+    true,
+    "date"
    ]
   ]
  },
@@ -1274,10 +1276,11 @@
  {
   "name": "current_timestamp",
   "group": "datetime_funcs",
-  "example": "SELECT current_timestamp()",
+  "example": "SELECT current_timestamp() = now(), typeof(current_timestamp())",
   "value": [
    [
-    "timestamp:2026-11-03T01:47:58.532878"
+    true,
+    "timestamp"
    ]
   ]
  },
@@ -2480,10 +2483,10 @@
  {
   "name": "localtimestamp",
   "group": "datetime_funcs",
-  "example": "SELECT localtimestamp()",
+  "example": "SELECT typeof(localtimestamp())",
   "value": [
    [
-    "timestamp:2026-11-03T01:48:05.702992"
+    "timestamp_ntz"
    ]
   ]
  },
@@ -3056,10 +3059,11 @@
  {
   "name": "now",
   "group": "datetime_funcs",
-  "example": "SELECT now()",
+  "example": "SELECT now() = current_timestamp(), typeof(now())",
   "value": [
    [
-    "timestamp:2026-11-03T01:48:08.779034"
+    true,
+    "timestamp"
    ]
   ]
  },
@@ -3369,30 +3373,33 @@
  {
   "name": "rand",
   "group": "math_funcs",
-  "example": "SELECT rand()",
+  "example": "SELECT rand() >= 0 AND rand() < 1, typeof(rand())",
   "value": [
    [
-    "float:0.359324489484"
+    true,
+    "double"
    ]
   ]
  },
  {
   "name": "randn",
   "group": "math_funcs",
-  "example": "SELECT randn()",
+  "example": "SELECT typeof(randn()), randn() IS NOT NULL",
   "value": [
    [
-    "float:-0.821827638225"
+    "double",
+    true
    ]
   ]
  },
  {
   "name": "random",
   "group": "math_funcs",
-  "example": "SELECT random()",
+  "example": "SELECT random() >= 0 AND random() < 1, typeof(random())",
   "value": [
    [
-    "float:0.452496257571"
+    true,
+    "double"
    ]
   ]
  },
@@ -3915,15 +3922,17 @@
  {
   "name": "shuffle",
   "group": "array_funcs",
-  "example": "SELECT shuffle(array(1, 20, 3, 5))",
+  "example": "SELECT array_sort(shuffle(array(1, 20, 3, 5))), size(shuffle(array(1, 20, NULL, 5))), shuffle(NULL)",
   "value": [
    [
     [
-     20,
-     3,
      1,
-     5
-    ]
+     3,
+     5,
+     20
+    ],
+    4,
+    null
    ]
   ]
  },
@@ -4753,10 +4762,11 @@
  {
   "name": "unix_timestamp",
   "group": "datetime_funcs",
-  "example": "SELECT unix_timestamp()",
+  "example": "SELECT unix_timestamp('2016-04-08', 'yyyy-MM-dd'), unix_timestamp(TIMESTAMP '2016-04-08 10:00:00')",
   "value": [
    [
-    1793670498
+    1460073600,
+    1460109600
    ]
   ]
  },
@@ -4803,10 +4813,12 @@
  {
   "name": "uuid",
   "group": "misc_funcs",
-  "example": "SELECT uuid()",
+  "example": "SELECT length(uuid()), uuid() RLIKE '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', uuid() = uuid()",
   "value": [
    [
-    "0d5b197e-b5fe-4149-be93-c042e2c0abd7"
+    36,
+    true,
+    false
    ]
   ]
  },

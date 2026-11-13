@@ -85,7 +85,7 @@ Preview. This needs the KratosForge extension for VS Code, which adds **KratosFo
 2. In VS Code, pick KratosForge as the notebook's kernel. KratosForge asks **Let VS Code run notebooks on this PC?** with the window's folder and a pairing code. Check VS Code shows the same code, choose how long to keep the pairing, and **Pair this window**.
 ![Let VS Code run notebooks on this PC?, with the window's folder, the pairing code and what it may do](images/editor-pairing.png)
 
-3. Cells you run in that window run in the notebook's own session here: the same variables, `spark`, default lakehouse and limits as running them in KratosForge. Stop in VS Code stops the cell, even one pressed before the cell reached KratosForge: a cell stopped while the window is still pairing isn't sent at all.
+3. Cells you run in that window run in the notebook's own session here: the same variables, `spark`, default lakehouse and limits as running them in KratosForge. Stop in VS Code stops the cell, even one pressed before the cell reached KratosForge: a cell stopped while the window is still pairing isn't sent at all, and says it was stopped before it ran.
 
 What a paired window can and can't do:
 

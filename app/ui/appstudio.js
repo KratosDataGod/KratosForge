@@ -2,14 +2,16 @@
 // from a template, opens one or imports an export; the workspace shows the app's pages, a local preview on
 // sample numbers, Design (the visual editor), the specification and its history. Every change is a patch the
 // engine saves with its inverse (appstudio_service.py), so Undo, Redo and versions work the same for every
-// edit. Nothing here calls a model, reads OneLake or writes to Fabric: "Ask for a change" and Publish say
-// what they will do, and come in later App Studio updates.
+// edit. Describe (AS-10) and Ask for a change (AS-11) send names, never rows, to the person's own model and
+// show its answer as the engine checked it; nothing is made or changed until the person says so. Model connections (AS-06) keep where the person's own AI key is, never the key. Publish (AS-13) checks
+// first and writes one Power BI report only after the person types the workspace's name; replacing a report
+// already there needs its own tick. Nothing here reads OneLake.
 
-const appStudio = { project: null, opened: null, tab: "preview", page: null, selection: {}, busy: false };
+const appStudio = { project: null, opened: null, tab: "preview", page: null, selection: {}, busy: false, connections: false, editing: null, tested: null, plan: null, change: null, description: "" };
 const AS_TABS = [["preview", "Preview"], ["design", "Design"], ["spec", "Spec"], ["history", "History"]];
 const AS_TYPES = { card: "Card", bar: "Bar", column: "Column", line: "Line", area: "Area", pie: "Pie", donut: "Donut",
   table: "Table", matrix: "Matrix", slicer: "Slicer", text: "Text", waterfall: "Waterfall", scatter: "Scatter", map: "Map" };
-const AS_LOCAL = "Projects are folders on this PC. Nothing here reads OneLake, calls a model or publishes to Fabric.";
+const AS_LOCAL = "Projects are folders on this PC. Nothing here reads OneLake. Only Publish writes to Fabric, after you confirm it.";
 const AS_CHART_TYPES = new Set(["bar", "column", "line", "area", "waterfall", "scatter"]);
 // Shapes the local preview draws; the rest show their title and that they aren't drawn here.
 const AS_DRAWN = new Set(["card", "slicer", "text", "table", "matrix", "pie", "donut", ...AS_CHART_TYPES]);
@@ -20,11 +22,12 @@ function appStudioOpen(name = null) {
 }
 
 function appStudioLeave() {
-  Object.assign(appStudio, { project: null, opened: null, page: null, selection: {} });
+  Object.assign(appStudio, { project: null, opened: null, page: null, selection: {}, connections: false, editing: null, tested: null, plan: null, change: null });
   render();
 }
 
 async function renderAppStudio() {
+  if (appStudio.connections) return renderAppStudioConnections();
   if (appStudio.project) return renderAppStudioWorkspace();
   const body = h("div", { class: "as-body" }, h("p", { class: "muted-text" }, "Reading your App Studio projects..."));
   setView(h("div", { class: "page appstudio" },
@@ -32,15 +35,20 @@ async function renderAppStudio() {
       h("h1", {}, "App Studio ", previewTag()),
       pageIntro("Describe an application, build it from a template, preview it on this PC and keep every version. ",
         docLink("app-studio.md", "Learn more"))),
-    h("div", { class: "head-actions" }, btn("Import…", "arrowUpload", appStudioImport, "tool outline"))),
+    h("div", { class: "head-actions" },
+      btn("Model connections", "plugConnected", () => { appStudio.connections = true; render(); }, "tool outline"),
+      btn("Import…", "arrowUpload", appStudioImport, "tool outline"))),
     withHowItWorks(body, howItWorks("appStudio", {
       reads: "Your App Studio project folders on this PC.",
-      changes: "Create, Save As, Clone and Import make a new project folder under this PC's KratosForge data (appstudio/projects). Export writes a new .zip in Downloads. Nothing in Fabric or OneLake changes.",
+      changes: "Create, Save As, Clone and Import make a new project folder under this PC's KratosForge data (appstudio/projects). Export writes a new .zip in Downloads. Only Publish changes Fabric: one report, after you type the workspace's name.",
       results: "This page. Each project keeps its specification, its history and its versions in its own folder.",
     }))));
-  const home = await rpc("appstudio_home").catch((err) => { if (body.isConnected) fill(body, h("p", { class: "muted-text" }, friendlyError(err).text)); return null; });
+  const [home, conns] = await Promise.all([
+    rpc("appstudio_home").catch((err) => { if (body.isConnected) fill(body, h("p", { class: "muted-text" }, friendlyError(err).text)); return null; }),
+    appStudioModels()]);
   if (!home || state.view !== "appStudio" || appStudio.project || !body.isConnected) return;
-  fill(body, appStudioCreateCard(home), appStudioProjectList(home.projects), h("p", { class: "muted-text small" }, AS_LOCAL));
+  if (appStudio.plan) { fill(body, appStudioPlanView(appStudio.plan)); return; }
+  fill(body, appStudioDescribeCard(home, conns), appStudioCreateCard(home), appStudioProjectList(home.projects), h("p", { class: "muted-text small" }, AS_LOCAL));
 }
 
 function appStudioCreateCard(home) {
@@ -153,7 +161,7 @@ async function renderAppStudioWorkspace() {
       onclick: () => { appStudio.tab = id; render(); } }, label)));
   const center = h("div", { class: "as-center" });
   setView(h("div", { class: "page appstudio as-workspace" }, head, tabs,
-    h("div", { class: "as-split" }, appStudioPagesRail(pages, got.valid), center, appStudioAskPanel())));
+    h("div", { class: "as-split" }, appStudioPagesRail(pages, got.valid), center, appStudioAskPanel(got))));
   if (!got.valid && appStudio.tab !== "spec" && appStudio.tab !== "history") {
     fill(center, h("div", { class: "callout warn" }, icon("warning", 20),
       h("span", {}, "This app's specification has problems, so it can't be previewed or changed until they are fixed. Spec lists them; History can restore a version.")));
@@ -179,14 +187,6 @@ function appStudioPagesRail(pages, valid) {
       onclick: () => { appStudio.page = p.id; appStudio.selection = {}; render(); } }, p.title,
       h("span", { class: "muted-text small" }, ` ${(p.components || []).length}`))),
     valid ? btn("Add page", "add", addPage, "tool small outline") : null);
-}
-
-function appStudioAskPanel() {
-  return h("aside", { class: "card pad as-ask", "aria-label": "Ask for a change" },
-    h("h2", {}, "Ask for a change"),
-    h("textarea", { rows: 4, disabled: true, "aria-label": "Describe a change", placeholder: "Make the region chart a column chart and add a profit card" }),
-    h("p", { class: "muted-text small" }, "Asking your own AI model for a change comes in the next App Studio update, once your organization's model policy is in place. Its plan shows here first, and nothing changes until you apply it."),
-    h("p", { class: "muted-text small" }, "Until then, change the app in Design. Every change can be undone."));
 }
 
 // A new id no entry in the specification has, like pg_3 or c_7.
@@ -360,7 +360,8 @@ async function appStudioHistory(center) {
     const got = await appStudioApply("appstudio_restore_version", { version: v.version }, "Could not restore the version");
     if (got) toast(`Restored version ${v.version}. The app as it was is version ${got.kept_as}.`);
   };
-  const KIND = { change: "Changed", undo: "Undid", redo: "Redid", restore: "Restored" };
+  const KIND = { change: "Changed", undo: "Undid", redo: "Redid", restore: "Restored", publish: "Publish" };
+  const PUBLISHED = { started: "started", done: "done", failed: "didn't finish" };
   fill(center,
     h("section", { class: "card pad" }, h("h2", {}, "Versions"),
       versions.length ? h("table", { class: "list" }, h("tbody", {}, versions.map((v) => h("tr", {},
@@ -370,7 +371,9 @@ async function appStudioHistory(center) {
     h("section", { class: "card pad" }, h("h2", {}, "Changes"),
       changes.length ? h("ol", { class: "as-changes" }, changes.map((c) => h("li", {},
         h("b", {}, KIND[c.kind] || c.kind), " ",
-        c.kind === "restore" ? `version ${c.version}` : c.note || (c.changed || []).join(", "),
+        c.kind === "restore" ? `version ${c.version}`
+          : c.kind === "publish" ? `${PUBLISHED[c.state] || c.state}: ${c.name}${c.replaced ? " (replaced)" : ""}${c.note ? ` · ${c.note}` : ""}`
+            : c.note || (c.changed || []).join(", "),
         h("span", { class: "muted-text small" }, ` · ${c.source === "visual" ? "Design" : c.source || ""} ${c.at ? dateTimeText(c.at) : ""}`))))
         : h("p", { class: "muted-text" }, "No changes yet.")));
 }
@@ -394,31 +397,467 @@ async function appStudioExport() {
   if (got) toast(`Exported to ${got.path}`);
 }
 
-// ---------- Publish ----------
+// ---------- Describe an app (AS-10) ----------
 
-// What publishing would do, from the specification. Publishing itself comes in a later update and asks for
-// approval before its first write to Fabric; this dialog changes nothing.
-function appStudioPublishDialog(got) {
-  const spec = got.spec || {};
-  const pages = spec.pages || [];
-  const visuals = pages.reduce((n, p) => n + (p.components || []).length, 0);
-  const sample = (spec.sources || []).filter((s) => s.kind === "sample");
-  const ready = [
-    [got.valid, got.valid ? "The specification is valid." : "Fix the specification's problems first (Spec lists them)."],
-    [!sample.length && (spec.sources || []).length > 0, sample.length ? "It reads sample data. Connect a semantic model before publishing." : (spec.sources || []).length ? "It reads a semantic model." : "It has no source yet."],
-    [false, "Publishing from App Studio comes in a later update. Its first write to Fabric asks for your approval."],
-  ];
-  const where = spec.target === "kratosforge-app" ? "A KratosForge app, kept with this project" : "A Power BI report in a Fabric workspace you choose";
-  showDialog("Publish", h("div", { class: "as-publish" },
-    h("dl", { class: "as-facts" },
-      h("dt", {}, "Where"), h("dd", {}, where),
-      h("dt", {}, "Creates"), h("dd", {}, `${spec.name}: ${pages.length} page${pages.length === 1 ? "" : "s"}, ${visuals} visual${visuals === 1 ? "" : "s"}`),
-      h("dt", {}, "If it exists"), h("dd", {}, "Nothing is replaced without your approval."),
-      h("dt", {}, "Capacity"), h("dd", {}, "Creating a report starts no Fabric job; viewing it uses the workspace's capacity."),
-      h("dt", {}, "Undo"), h("dd", {}, "This project keeps every version. A published report is removed in Fabric.")),
-    h("h3", {}, "Ready to publish?"),
-    h("ul", { class: "as-ready" }, ready.map(([ok, text]) => h("li", { class: ok ? "ok" : "todo" }, icon(ok ? "ok" : "warning", 14), text)))),
-  [btn("Close", null, closeDialog, "tool outline"), btn("Publish", "publish", null, "tool primary", { disabled: true, title: "Comes in a later update" })]);
+// The person's description and the chosen source's names (never rows) go to their own model, which answers
+// with a plan. The engine keeps only what the data and the target support; the plan is shown here, and an app
+// is made only when the person says Build it. Formulas (DAX) go only when ticked for this request.
+async function appStudioModels() {
+  return rpc("appstudio_connections").catch(() => null);
+}
+
+// The model picker: the default first. "" means the default.
+function appStudioModelPicker(conns) {
+  const usable = (conns?.connections || []).filter((c) => !(c.refused || []).length);
+  return h("select", { "aria-label": "Model" }, usable.map((c) =>
+    h("option", { value: c.id, selected: c.id === conns.default }, `${c.name}${c.id === conns.default ? " (default)" : ""}`)));
+}
+
+function appStudioNoModel(conns) {
+  const off = conns && !conns.policy?.enabled;
+  return h("div", { class: "callout", role: "status" }, icon("info", 20), h("span", {},
+    off ? "Your organization's policy turns off AI model connections in App Studio. Templates and Design still work."
+      : "Add your own AI model to describe apps and ask for changes. ",
+    off ? null : h("a", { href: "#", onclick: (e) => { e.preventDefault(); appStudio.connections = true; render(); } }, "Model connections")));
+}
+
+function appStudioDescribeCard(home, conns) {
+  const usable = (conns?.connections || []).filter((c) => !(c.refused || []).length);
+  const card = h("section", { class: "card pad as-describe", "aria-label": "Describe an app" }, h("h2", {}, "Describe an app"));
+  if (!usable.length) { card.append(appStudioNoModel(conns)); return card; }
+  const text = h("textarea", { rows: 4, maxlength: 4000, "aria-label": "Describe what the app should do",
+    placeholder: "An executive sales dashboard: revenue, margin and retention, revenue by region and by month, and a customers page." });
+  text.value = appStudio.description || "";
+  const model = appStudioModelPicker(conns);
+  const target = h("select", { "aria-label": "Where it will run" }, home.targets.map((t) => h("option", { value: t.id }, t.label)));
+  const data = h("select", { "aria-label": "Data" }, h("option", { value: "sample" }, "Sample data"), h("option", { value: "model" }, "A semantic model…"));
+  const ws = h("select", { "aria-label": "Workspace" });
+  const sm = h("select", { "aria-label": "Semantic model" });
+  const modelRow = h("div", { class: "as-conn-grid" }, h("label", { class: "field" }, "Workspace", ws), h("label", { class: "field" }, "Semantic model", sm));
+  modelRow.hidden = true;
+  const dax = h("input", { type: "checkbox" });
+  const daxRow = h("label", { class: "check" }, dax, h("span", {}, "Also send measure formulas (DAX) this time. A formula can hold literal business values, such as a customer name or a price."));
+  daxRow.hidden = true;
+  const note = h("p", { class: "muted-text small" });
+  const sync = () => {
+    const c = usable.find((x) => x.id === model.value) || usable[0];
+    const what = data.value === "model" ? "the semantic model's table, column and measure names, types and descriptions" : "the sample data's field names";
+    note.textContent = `Sends your description and ${what} to ${c.name}. Never rows.${dax.checked && data.value === "model" ? " Measure formulas too." : ""}`;
+  };
+  const loadModels = async () => {
+    fill(sm, h("option", { value: "" }, "Reading…"));
+    const items = await attempt(() => rpc("list_items", { workspace_id: ws.value }), "Could not list the semantic models") || [];
+    const models = items.filter((i) => i.type === "SemanticModel");
+    fill(sm, models.length ? models.map((m) => h("option", { value: m.id }, m.displayName)) : h("option", { value: "" }, "No semantic models here"));
+  };
+  data.addEventListener("change", async () => {
+    modelRow.hidden = daxRow.hidden = data.value !== "model";
+    sync();
+    if (data.value === "model" && !ws.options.length) {
+      const list = await loadWorkspaces();
+      fill(ws, list.map((w) => h("option", { value: w.id }, w.displayName)));
+      if (list.length) await loadModels();
+    }
+  });
+  ws.addEventListener("change", loadModels);
+  [model, dax].forEach((el) => el.addEventListener("change", sync));
+  sync();
+  const planBtn = btn("Make a plan", null, async () => {
+    const description = text.value.trim();
+    if (!description) { text.focus(); return; }
+    appStudio.description = description;
+    let source = null;
+    if (data.value === "model") {
+      if (!sm.value) { toast("Choose a semantic model first.", true); return; }
+      source = { workspace_id: ws.value, item_id: sm.value, name: sm.selectedOptions[0]?.textContent || "" };
+    }
+    planBtn.disabled = true;
+    fill(planBtn, "Asking your model…");
+    const got = await attempt(() => rpc("appstudio_plan", { description, target: target.value, source, conn_id: model.value,
+      include_expressions: data.value === "model" && dax.checked }), "Could not make a plan");
+    planBtn.disabled = false;
+    fill(planBtn, "Make a plan");
+    if (got) { appStudio.plan = got; render(); }
+  }, "tool primary");
+  card.append(h("label", { class: "field" }, "What should the app do?", text),
+    h("div", { class: "as-conn-grid" }, h("label", { class: "field" }, "Model", model), h("label", { class: "field" }, "Data", data),
+      h("label", { class: "field" }, "Where it will run", target)),
+    modelRow, daxRow, h("div", { class: "row as-describe-go" }, planBtn, note));
+  return card;
+}
+
+// "Revenue (card)", or "Revenue by region (bar): Revenue by Sales[Region]" when the measure or field adds something.
+function AS_COMPONENT_LINE(c) {
+  const kind = AS_TYPES[c.type] || c.type;
+  const what = [c.measure && c.measure !== c.title ? c.measure : "", c.field ? `by ${c.field}` : ""].filter(Boolean).join(" ");
+  return `${c.title || kind} (${kind.toLowerCase()})${what ? `: ${what}` : ""}`;
+}
+
+// Token counts are estimates the provider reports; show them rounded ("About 1,000 tokens").
+function appStudioAboutTokens(usage) {
+  const n = (usage?.input_tokens || 0) + (usage?.output_tokens || 0);
+  const step = n < 100 ? 1 : 10 ** (Math.floor(Math.log10(n)) - 1);
+  return `About ${(Math.round(n / step) * step).toLocaleString("en-US")} token${n === 1 ? "" : "s"}.`;
+}
+
+const AS_THINGS = (n) => `${n} thing${n === 1 ? "" : "s"} left out`;
+
+// The plan the model answered, as the engine kept it. Build it makes the app; nothing is saved before that.
+function appStudioPlanView(got) {
+  const plan = got.plan;
+  const name = h("input", { value: plan.name, maxlength: 120, "aria-label": "App name" });
+  const build = btn("Build it", "add", async () => {
+    build.disabled = true;
+    const made = await attempt(() => rpc("appstudio_create_from_plan", { plan_id: got.plan_id, plan, name: name.value.trim() }), "Could not build the app");
+    build.disabled = false;
+    if (!made) return;
+    appStudio.plan = null;
+    if (made.left_out?.length) toast(`Built ${made.spec.name}. ${made.left_out.length} thing${made.left_out.length === 1 ? " was" : "s were"} left out; the plan listed them.`);
+    Object.assign(appStudio, { project: made.project, opened: made, tab: "preview", page: null, selection: {} });
+    go("appStudio");
+  }, "tool primary");
+  const sent = got.sent || {};
+  return h("section", { class: "card pad as-plan", "aria-label": "Plan" },
+    h("h2", {}, `Plan: ${plan.name}`),
+    plan.purpose ? h("p", {}, h("b", {}, "Purpose: "), plan.purpose) : null,
+    plan.audience?.length ? h("p", {}, h("b", {}, "Audience: "), plan.audience.join(", ")) : null,
+    h("label", { class: "field as-plan-name" }, "App name", name),
+    h("div", { class: "as-plan-pages" }, plan.pages.map((p) => h("div", {},
+      h("h3", {}, p.title), h("ul", {}, p.components.map((c) => h("li", {}, AS_COMPONENT_LINE(c))))))),
+    got.left_out?.length ? h("details", { class: "as-warnings", open: true }, h("summary", {}, AS_THINGS(got.left_out.length)),
+      h("ul", {}, got.left_out.map((t) => h("li", {}, t)))) : null,
+    plan.questions?.length ? h("div", {}, h("h3", {}, "Your model asks"), h("ul", {}, plan.questions.map((q) => h("li", {}, q))),
+      h("p", { class: "muted-text small" }, "Answer in the description, then make the plan again. Your description is kept.")) : null,
+    h("p", { class: "muted-text small" }, `Sent to ${got.connection.name} (${got.connection.model}): your description and ${sent.tables} table, ${sent.columns} column and ${sent.measures} measure names${sent.expressions ? ", with formulas" : ""}. No rows. ` +
+      appStudioAboutTokens(got.usage)),
+    got.warning ? h("p", { class: "muted-text small" }, got.warning) : null,
+    h("div", { class: "row" }, build, btn("Change the description", null, () => { appStudio.plan = null; render(); }, "tool outline")));
+}
+
+// ---------- Ask for a change (AS-11) ----------
+
+// The person's request and the app's pages and components (ids, types, titles, measure names, fields) go to
+// their model; the engine turns its answer into changes it checks, and shows them. Apply saves them as one
+// step Undo takes back; Discard drops them. Nothing changes before Apply.
+function appStudioAskPanel(got) {
+  const panel = h("aside", { class: "card pad as-ask", "aria-label": "Ask for a change" }, h("h2", {}, "Ask for a change"));
+  const body = h("div", { class: "as-ask-body" }, h("p", { class: "muted-text small" }, "Reading your model connections…"));
+  panel.append(body);
+  appStudioModels().then((conns) => {
+    if (!body.isConnected) return;
+    const usable = (conns?.connections || []).filter((c) => !(c.refused || []).length);
+    if (!usable.length) { fill(body, appStudioNoModel(conns), h("p", { class: "muted-text small" }, "Until then, change the app in Design. Every change can be undone.")); return; }
+    if (!got.valid) { fill(body, h("p", { class: "muted-text small" }, "Fix the specification's problems first.")); return; }
+    const model = appStudioModelPicker(conns);
+    const text = h("textarea", { rows: 3, maxlength: 4000, "aria-label": "What should change?", placeholder: "Make the region chart a column chart and add a profit card" });
+    const fromModel = (got.spec?.sources || []).some((s) => s.kind === "semantic-model");
+    const dax = h("input", { type: "checkbox" });
+    const result = h("div", { class: "as-ask-result" });
+    const pending = appStudio.change && appStudio.change.project === appStudio.project ? appStudio.change : null;
+    const ask = btn("Plan the change", null, async () => {
+      const request = text.value.trim();
+      if (!request) { text.focus(); return; }
+      ask.disabled = true;
+      fill(ask, "Asking your model…");
+      const r = await attempt(() => rpc("appstudio_change_plan", { project_name: appStudio.project, request, conn_id: model.value,
+        include_expressions: fromModel && dax.checked }), "Could not plan the change");
+      ask.disabled = false;
+      fill(ask, "Plan the change");
+      if (!r) return;
+      appStudio.change = { ...r, project: appStudio.project, request };
+      fill(result, appStudioChangeView(appStudio.change));
+    }, "tool primary small");
+    fill(body,
+      h("label", { class: "field" }, "Model", model),
+      result,
+      h("label", { class: "field" }, "What should change?", text),
+      fromModel ? h("label", { class: "check small" }, dax, h("span", {}, "Also send measure formulas (DAX)")) : null,
+      h("p", { class: "muted-text small" }, "Sends your request, the app's page and component names, and the data's names and types. Never rows."),
+      h("div", { class: "row" }, ask));
+    if (pending) fill(result, appStudioChangeView(pending));
+  });
+  return panel;
+}
+
+// The engine names components and pages by id ("Show c_4 as a column"); people know them by title.
+function appStudioTitled(text) {
+  const names = {};
+  for (const p of appStudio.opened?.spec?.pages || []) {
+    names[p.id] = p.title;
+    for (const c of p.components || []) names[c.id] = c.title || AS_TYPES[c.type] || c.id;
+  }
+  return String(text).replace(/\b(?:c|pg)_\d+\b/g, (id) => (names[id] ? `"${names[id]}"` : id));
+}
+
+function appStudioChangeView(ch) {
+  const apply = btn("Apply", null, async () => {
+    apply.disabled = true;
+    const got = await appStudioApply("appstudio_apply_change", { change_id: ch.change_id }, "Could not apply the change");
+    if (got) { appStudio.change = null; toast("Applied. Undo puts it back."); render(); } else apply.disabled = false;
+  }, "tool primary small");
+  const discard = btn("Discard", null, () => { appStudio.change = null; render(); }, "tool outline small");
+  return h("div", { class: "as-change", role: "status" },
+    h("div", { class: "as-ask-request" }, ch.request),
+    h("b", {}, "Change plan"),
+    ch.summary ? h("p", {}, appStudioTitled(ch.summary)) : null,
+    h("ul", {}, ch.done.map((d) => h("li", {}, appStudioTitled(d)))),
+    h("p", { class: "muted-text small" }, `Changes ${ch.changed.length} item${ch.changed.length === 1 ? "" : "s"}. Nothing else is touched. Nothing is saved until you apply it.`),
+    ch.left_out?.length ? h("details", { class: "as-warnings" }, h("summary", {}, AS_THINGS(ch.left_out.length)), h("ul", {}, ch.left_out.map((t) => h("li", {}, appStudioTitled(t))))) : null,
+    ch.questions?.length ? h("ul", { class: "muted-text small" }, ch.questions.map((q) => h("li", {}, appStudioTitled(q)))) : null,
+    h("div", { class: "row" }, apply, discard));
+}
+
+// ---------- Model connections (AS-06) ----------
+
+// The person's own AI models. A connection keeps where its key is (Credential Manager or an environment
+// variable), never the key; what may be sent to it is the person's consent, and the organization's policy can
+// turn connections off or narrow them. Test lists the models the key can see and spends no tokens.
+async function renderAppStudioConnections() {
+  const body = h("div", { class: "as-body" }, h("p", { class: "muted-text" }, "Reading your model connections..."));
+  setView(h("div", { class: "page appstudio" },
+    h("div", { class: "page-head" }, h("div", {},
+      h("a", { href: "#", class: "small", onclick: (e) => { e.preventDefault(); appStudioLeave(); } }, "App Studio"),
+      h("h1", {}, "Model connections ", previewTag()),
+      pageIntro("Your own AI model, for describing an app and asking for changes. KratosForge keeps where the key is, never the key. ",
+        docLink("app-studio.md", "Learn more")))),
+    withHowItWorks(body, howItWorks("appStudioConnections", {
+      reads: "Your connections on this PC. Test reads the connection's key from Credential Manager or the environment variable and lists the models it can see.",
+      changes: "Save and Remove change appstudio/connections.json under this PC's KratosForge data. The key itself stays where you keep it.",
+      results: "This page. Test spends no tokens and sends no app or data.",
+    }))));
+  const got = await rpc("appstudio_connections").catch((err) => { if (body.isConnected) fill(body, h("p", { class: "muted-text" }, friendlyError(err).text)); return null; });
+  if (!got || state.view !== "appStudio" || !appStudio.connections || !body.isConnected) return;
+  const split = h("div", { class: "as-conn-split" }, appStudioConnectionList(got), appStudioConnectionForm(got));
+  fill(body, got.policy.enabled ? null : h("div", { class: "callout warn", role: "status" }, icon("warning", 20),
+    h("span", {}, "Your organization's policy turns off AI model connections in App Studio. Templates and Design still work.")), split);
+}
+
+const AS_KEYLESS = new Set(["ollama"]);
+
+// A key reference as people read it: where the key is, in words.
+function appStudioKeyText(ref) {
+  if (!ref) return "none needed";
+  if (ref.startsWith("env:")) return `environment variable ${ref.slice(4)}`;
+  return `Windows Credential Manager (${ref.replace(/^credman:/, "")})`;
+}
+
+function appStudioProviderLabel(got, id) {
+  return got.providers.find((p) => p.id === id)?.label || id;
+}
+
+function appStudioConnectionList(got) {
+  const test = async (c) => {
+    const r = await attempt(() => rpc("appstudio_connection_test", { conn_id: c.id }), `Could not test ${c.name}`);
+    if (!r) return;
+    appStudio.tested = { id: c.id, models: r.models || [] };
+    toast(r.model_found ? `${c.name} works: its key can see ${r.models.length} model${r.models.length === 1 ? "" : "s"}, including ${c.model}. No tokens were spent.`
+      : `${c.name}'s key works, but it can't see ${c.model}. Edit the connection and choose one of the ${r.models.length} it can see.`, !r.model_found);
+  };
+  const remove = async (c) => {
+    if (!(await confirmDialog(`Remove ${c.name}?`, "App Studio stops using this connection. Its key stays where you keep it (Credential Manager or the environment variable).", "Remove", { danger: true }))) return;
+    if (await attempt(() => rpc("appstudio_connection_delete", { conn_id: c.id }), "Could not remove the connection")) render();
+  };
+  const makeDefault = async (c) => {
+    if (await attempt(() => rpc("appstudio_connection_save", { connection: c, make_default: true }), "Could not make it the default")) render();
+  };
+  const row = (c) => {
+    const refused = (c.refused || []).length > 0;
+    const isDefault = c.id === got.default;
+    const sends = [c.consent?.context ? "app context allowed" : "sends nothing until you allow app context",
+      c.consent?.sample_rows ? "sample rows allowed" : null].filter(Boolean).join(" · ");
+    return h("li", { class: "card pad as-conn" },
+      h("div", { class: "as-conn-name" }, h("b", {}, c.name),
+        refused ? h("span", { class: "as-chip warn" }, "Policy stops it") : isDefault ? h("span", { class: "as-chip ok" }, "Default") : null),
+      h("div", { class: "small" }, `${appStudioProviderLabel(got, c.provider)} · ${c.model}`),
+      h("div", { class: "muted-text small" }, sends),
+      h("div", { class: "muted-text small" }, `Key: ${appStudioKeyText(c.key_ref)}`),
+      c.usage?.requests ? h("div", { class: "muted-text small" }, `This month: ${c.usage.requests} request${c.usage.requests === 1 ? "" : "s"}, ${(c.usage.input_tokens + c.usage.output_tokens).toLocaleString()} tokens`) : null,
+      refused ? h("ul", { class: "as-ready" }, c.refused.map((t) => h("li", { class: "todo" }, icon("warning", 14), t))) : null,
+      h("div", { class: "row" },
+        btn("Test", null, () => test(c), "tool small outline", { disabled: refused, "aria-label": `Test ${c.name}` }),
+        btn("Edit", null, () => { appStudio.editing = c.id; render(); }, "tool small outline", { "aria-label": `Edit ${c.name}` }),
+        isDefault || refused ? null : btn("Make default", null, () => makeDefault(c), "tool small outline", { "aria-label": `Make ${c.name} the default` }),
+        btn("Remove…", "delete", () => remove(c), "tool small outline danger", { "aria-label": `Remove ${c.name}` })));
+  };
+  return h("section", { class: "as-conn-list", "aria-label": "Your connections" }, h("h2", {}, "Your connections"),
+    got.connections.length ? h("ul", { class: "as-conn-rows" }, got.connections.map(row))
+      : h("p", { class: "muted-text" }, "No model connections yet. Add one to describe apps and ask for changes in your own words."),
+    appStudio.editing ? btn("Add a model connection", "add", () => { appStudio.editing = null; render(); }, "tool outline") : null);
+}
+
+// A key reference as App Studio keeps it: credman:KratosForge/<name> or env:<NAME>.
+function appStudioKeyRef(kind, name) {
+  const n = name.trim();
+  if (!n) return "";
+  return kind === "env" ? `env:${n.toUpperCase()}` : `credman:KratosForge/${n.replace(/^KratosForge\//i, "")}`;
+}
+
+function appStudioConnectionForm(got) {
+  const editing = got.connections.find((c) => c.id === appStudio.editing) || null;
+  const allowed = got.providers.filter((p) => p.allowed);
+  const c = editing || { provider: allowed[0]?.id || "anthropic", consent: { context: false, sample_rows: false }, limits: {} };
+  const name = h("input", { value: editing?.name || "", maxlength: 80, placeholder: "My Claude", "aria-label": "Connection name" });
+  const provider = h("select", { "aria-label": "Provider" }, got.providers.map((p) =>
+    h("option", { value: p.id, disabled: !p.allowed, selected: p.id === c.provider }, p.allowed ? p.label : `${p.label} (not allowed by your organization)`)));
+  const tested = editing && appStudio.tested?.id === editing.id ? appStudio.tested.models : [];
+  const models = h("datalist", { id: "as-models" }, tested.map((m) => h("option", { value: m })));
+  const model = h("input", { value: editing?.model || "", maxlength: 128, list: "as-models", placeholder: "claude-sonnet-5-5", "aria-label": "Model" });
+  const endpoint = h("input", { value: editing?.endpoint || "", placeholder: "https://", "aria-label": "Address" });
+  const deployment = h("input", { value: editing?.deployment || "", maxlength: 64, "aria-label": "Deployment name" });
+  const ref = editing?.key_ref || "";
+  const keyKind = h("select", { "aria-label": "Where the key is kept" },
+    h("option", { value: "credman", selected: !ref.startsWith("env:") }, "Windows Credential Manager"),
+    h("option", { value: "env", selected: ref.startsWith("env:") }, "Environment variable"));
+  const keyName = h("input", { value: ref.replace(/^credman:KratosForge\//, "").replace(/^env:/, ""), maxlength: 180, "aria-label": "Key name",
+    placeholder: "my-claude" });
+  const keyHelp = h("p", { class: "muted-text small" });
+  const context = h("input", { type: "checkbox", checked: !!c.consent?.context });
+  const rows = h("input", { type: "checkbox", checked: !!c.consent?.sample_rows && got.policy.sample_rows, disabled: !got.policy.sample_rows });
+  const limit = h("input", { type: "number", min: 0, step: "any", value: c.limits?.monthly_limit ?? "", "aria-label": "Monthly spend limit" });
+  const inPrice = h("input", { type: "number", min: 0, step: "any", value: c.limits?.input_price_per_million ?? "", "aria-label": "Price per million input tokens" });
+  const outPrice = h("input", { type: "number", min: 0, step: "any", value: c.limits?.output_price_per_million ?? "", "aria-label": "Price per million output tokens" });
+  const makeDefault = h("input", { type: "checkbox", checked: !got.connections.length || editing?.id === got.default });
+  const endpointField = h("label", { class: "field" }, "Address", endpoint);
+  const deploymentField = h("label", { class: "field" }, "Deployment", deployment);
+  const keyFields = h("div", { class: "as-conn-grid" }, h("label", { class: "field" }, "Where the key is kept", keyKind), h("label", { class: "field" }, "Key name", keyName));
+  const sync = () => {
+    const info = got.providers.find((p) => p.id === provider.value) || {};
+    endpointField.hidden = !!info.endpoint && provider.value !== "ollama";
+    if (!endpoint.value && info.endpoint) endpoint.placeholder = info.endpoint;
+    deploymentField.hidden = provider.value !== "azure-openai";
+    keyFields.hidden = AS_KEYLESS.has(provider.value);
+    const r = appStudioKeyRef(keyKind.value, keyName.value);
+    const where = r ? appStudioKeyText(r) : keyKind.value === "env" ? "an environment variable" : "Windows Credential Manager";
+    keyHelp.textContent = AS_KEYLESS.has(provider.value) ? "Ollama on this PC doesn't use a key."
+      : `App Studio keeps only where the key is, never the key: ${where}. ` + (keyKind.value === "env"
+        ? "The variable's name must start KRATOSFORGE_ or be the provider's own, such as ANTHROPIC_API_KEY."
+        : `Add the key in Windows Credential Manager as a Generic credential, address KratosForge/${keyName.value.trim() || "<name>"}, with the key as its password.`);
+  };
+  [provider, keyKind].forEach((el) => el.addEventListener("change", sync));
+  keyName.addEventListener("input", sync);
+  sync();
+  const save = async () => {
+    const num = (el) => (el.value === "" ? undefined : Number(el.value));
+    const limits = Object.fromEntries(Object.entries({ monthly_limit: num(limit), input_price_per_million: num(inPrice), output_price_per_million: num(outPrice) })
+      .filter(([, v]) => v !== undefined));
+    const conn = { name: name.value.trim(), provider: provider.value, model: model.value.trim(), limits,
+      key_ref: AS_KEYLESS.has(provider.value) ? "" : appStudioKeyRef(keyKind.value, keyName.value),
+      consent: { context: context.checked, sample_rows: rows.checked && !rows.disabled } };
+    if (editing) conn.id = editing.id;
+    if (!endpointField.hidden && endpoint.value.trim()) conn.endpoint = endpoint.value.trim();
+    if (!deploymentField.hidden) conn.deployment = deployment.value.trim();
+    const saved = await attempt(() => rpc("appstudio_connection_save", { connection: conn, make_default: makeDefault.checked }), "Could not save the connection");
+    if (saved) { appStudio.editing = saved.id; toast(`Saved ${saved.name}. Test it to check the key works.`); render(); }
+  };
+  const off = !got.policy.enabled;
+  return h("section", { class: "card pad as-conn-form", "aria-label": editing ? `Edit ${editing.name}` : "Add a model connection" },
+    h("h2", {}, editing ? `Edit ${editing.name}` : "Add a model connection"),
+    h("div", { class: "as-conn-grid" },
+      h("label", { class: "field" }, "Name", name),
+      h("label", { class: "field" }, "Provider", provider),
+      h("label", { class: "field" }, "Model", model, models),
+      endpointField, deploymentField),
+    keyFields, keyHelp,
+    h("fieldset", { class: "as-consent" }, h("legend", {}, "What this model may be sent"),
+      h("label", { class: "check" }, context, h("span", {}, "App context: your descriptions, the app's pages and components, and the semantic model's table, column and measure names, types and descriptions. Emails, tenant and site names and ids are taken out first. ", h("b", {}, "Never rows."))),
+      h("p", { class: "muted-text small" }, "Measure formulas (DAX) are sent only when you tick them for one request, because a formula can hold literal business values such as a customer name or a price."),
+      h("label", { class: "check" }, rows, h("span", {}, got.policy.sample_rows ? "Sample rows, when you ask for them." : "Sample rows: off by your organization's policy."))),
+    h("details", { class: "as-limits" }, h("summary", {}, "Spend limit"),
+      h("div", { class: "as-conn-grid" },
+        h("label", { class: "field" }, "Monthly limit", limit),
+        h("label", { class: "field" }, "Input price per million tokens", inPrice),
+        h("label", { class: "field" }, "Output price per million tokens", outPrice)),
+      h("p", { class: "muted-text small" }, "With prices set, a request that would pass the limit is refused, and you're warned at 80 %.")),
+    h("label", { class: "check" }, makeDefault, h("span", {}, "Use for new requests (default)")),
+    h("div", { class: "row" }, btn(editing ? "Save changes" : "Save connection", "save", save, "tool primary", { disabled: off })));
+}
+
+// ---------- Publish (AS-13) ----------
+
+// The check reads the app's semantic model, the workspace's name and its reports, and writes nothing. Publish
+// sends that check's fingerprint back: if the app, the workspace or a report there changed, the engine says
+// so and nothing is written. One report is created, or replaced only with its own tick.
+async function appStudioPublishDialog(got) {
+  if (!got.valid) {
+    showDialog("Publish", h("div", {}, h("p", { class: "text" }, "Fix the specification's problems first. Spec lists them; History can restore a version.")),
+      [btn("Close", null, closeDialog, "tool outline")]);
+    return;
+  }
+  const sample = !(got.spec?.sources || []).some((s) => s.kind === "semantic-model");
+  if (!sample && !(await ensureSignedIn())) return;
+  const pane = h("div", { class: "as-publish" }, h("p", { class: "muted-text" }, "Checking what publishing would do..."));
+  const closeBtn = btn("Cancel", null, closeDialog, "tool outline");
+  const act = btn("Publish", "publish", null, "tool primary", { disabled: true });
+  showDialog("Publish to Power BI", pane, [closeBtn, act]);
+  const opts = { workspace_id: "", name: got.spec?.name || "", replace: false };
+  const workspaces = sample ? [] : await loadWorkspaces();
+  const check = async () => {
+    act.disabled = true;
+    const c = await rpc("appstudio_publish_check", { project_name: appStudio.project, workspace_id: opts.workspace_id, name: opts.name })
+      .catch((err) => { if (pane.isConnected) fill(pane, h("div", { class: "callout warn", role: "alert" }, icon("warning", 20), h("span", {}, friendlyError(err).text))); return null; });
+    if (c && pane.isConnected) draw(c);
+  };
+  const draw = (c, note = "") => {
+    opts.workspace_id = c.workspace_id || opts.workspace_id;
+    const ws = h("select", { "aria-label": "Workspace", onchange: (e) => { opts.workspace_id = e.target.value; opts.replace = false; check(); } },
+      (workspaces.length ? workspaces : [{ id: c.workspace_id, displayName: c.workspace_name || c.workspace_id }]).filter((w) => w.id).map((w) =>
+        h("option", { value: w.id, selected: w.id === c.workspace_id }, w.displayName + (w.id === (got.spec?.sources || [])[0]?.workspace_id ? " (the model's workspace)" : ""))));
+    const name = h("input", { value: c.name || opts.name, maxlength: 256, "aria-label": "Report name",
+      onchange: (e) => { opts.name = e.target.value; opts.replace = false; check(); } });
+    const confirm = h("input", { autocomplete: "off", spellcheck: "false", "aria-label": `Type ${c.confirm_text} to publish` });
+    const replace = h("input", { type: "checkbox", checked: opts.replace, onchange: (e) => { opts.replace = e.target.checked; ready(); } });
+    const ready = () => { act.disabled = !c.ready || confirm.value !== c.confirm_text || (!!c.conflict && !replace.checked); };
+    confirm.addEventListener("input", ready);
+    const conflict = c.conflict ? h("div", { class: "callout warn" }, icon("warning", 20), h("div", {},
+      h("b", {}, `A report called "${c.name}" is already in ${c.workspace_name}.`),
+      h("p", {}, c.conflict.ours ? "This project published it. Publishing replaces its pages with this app's."
+        : "This project didn't publish it, so it may be someone else's. Replacing it changes its pages for everyone who uses it."),
+      h("label", { class: "check" }, replace, h("span", {}, "Replace that report")))) : null;
+    fill(pane,
+      note ? h("div", { class: "callout", role: "status" }, icon("info", 20), h("span", {}, note)) : null,
+      h("dl", { class: "as-facts" },
+        h("dt", {}, "Workspace"), h("dd", { class: "field" }, c.ready ? ws : c.workspace_name || "—"),
+        h("dt", {}, "Report name"), h("dd", { class: "field" }, name),
+        h("dt", {}, "Bound to"), h("dd", {}, c.model?.name ? `${c.model.name} (semantic model)` : "No semantic model yet"),
+        h("dt", {}, "Writes"), h("dd", {}, c.conflict ? "Replaces one report's definition. Nothing else in Fabric changes." : "One new report. Nothing else in Fabric changes.")),
+      c.problems.length ? h("div", { class: "callout error", role: "alert" }, icon("error", 20), h("div", {}, h("b", {}, "Can't publish yet"),
+        h("ul", {}, c.problems.slice(0, 20).map((p) => h("li", {}, p))), h("p", {}, "Fix it in Design, then check again."))) : null,
+      c.warnings.length ? h("details", { class: "as-warnings" }, h("summary", {}, `${c.warnings.length} thing${c.warnings.length === 1 ? "" : "s"} Power BI shows differently`),
+        h("ul", {}, c.warnings.map((w) => h("li", {}, w)))) : null,
+      c.unfinished ? h("div", { class: "callout warn", role: "status" }, icon("warning", 20),
+        h("span", {}, `The last publish (${c.unfinished.at ? dateTimeText(c.unfinished.at) : "earlier"}) didn't finish. Check the workspace; a report it left behind is listed as this project's, so publishing again replaces it.`)) : null,
+      conflict,
+      c.ready ? h("label", { class: "field" }, `Type the workspace's name to publish: ${c.confirm_text}`, confirm) : null,
+      h("p", { class: "muted-text small" }, "Publishing writes to Fabric. Building and previewing here use no capacity; viewing the report uses the workspace's capacity."));
+    act.textContent = "";
+    act.append(icon("publish", 16), c.ready ? (c.conflict ? "Replace and publish" : "Publish") : "Check again");
+    act.className = c.conflict ? "tool danger-solid" : "tool primary";
+    act.onclick = c.ready ? () => publish(c, confirm.value) : check;
+    ready();
+    if (!c.ready) act.disabled = false;
+  };
+  const publish = async (c, typed) => {
+    act.disabled = true;
+    fill(act, icon("publish", 16), "Publishing...");
+    const r = await attempt(() => rpc("appstudio_publish", { project_name: appStudio.project, fingerprint: c.fingerprint, confirm_name: typed,
+      workspace_id: c.workspace_id, name: c.name, replace: !!c.conflict && opts.replace }), "Could not publish");
+    if (!pane.isConnected) return;
+    if (!r) return check();
+    if (r.stale) return draw(r, "Something changed since the check (the app, the workspace or a report there). Look again, then publish.");
+    if (!r.done) return draw(r, r.needs_replace ? "Tick Replace that report to replace it." : "Type the workspace's name exactly to publish.");
+    fill(pane, h("div", { class: "callout ok", role: "status" }, icon("ok", 20), h("div", {},
+      h("b", {}, `${r.replaced ? "Replaced" : "Published"} ${r.name} in ${r.workspace_name}.`),
+      h("p", {}, "Recorded in this app's History."),
+      h("div", { class: "row" },
+        r.url ? btn("Open in Power BI", "open", () => openLink(r.url), "tool small outline") : null,
+        r.report_id && typeof openEmbedStudio === "function" && previewShown()
+          ? btn("Open in Embed Studio", null, () => { closeDialog(); openEmbedStudio({ workspace_id: r.workspace_id, workspace_name: r.workspace_name, item_id: r.report_id, type: "Report", name: r.name }); }, "tool small outline")
+          : null))));
+    act.remove();
+    fill(closeBtn, "Close");
+    if (appStudio.tab === "history") render();
+  };
+  await check();
 }
 
 registerFeature({

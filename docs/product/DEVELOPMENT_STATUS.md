@@ -3,10 +3,43 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-10 23:42 UTC, main 17e7ea06.** Covers the PRs merged from #135 to #2421.
+**Product check of 2026-11-13 11:42 UTC, main 6cab0dc3.** Covers the PRs merged from #135 to #2573.
 
 ## Summary
 
+- Acceptance, 2026-11-13: the product owner accepted PB-073 (notebook cell time and memory limits) with documented
+  limitations. Notebooks still share the in-engine kernel unless **Run notebooks in their own process** is on; making
+  it the default is PB-136, which waits on a clean Windows trial and the product owner's go. The 19 feature request
+  issues moved to a roadmap label, so open issues now track bugs only.
+- Morning check, 2026-11-13: 8 PRs merged after 36844275. 2 were product data and docs audit PRs, and the other 6
+  were linked. The policy key docs now match what the app reads, with a test to keep them in step (PB-061). Agent
+  schedules that are edited or removed in agent.toml run once, as configured now (PB-124). No item changed state;
+  PB-073's acceptance waits on the product owner.
+- Evening check, 2026-11-12: 16 PRs merged after 7c3dbd0e. 1 was a product data PR, and the other 15 were linked.
+  Mutation testing reached batch 10, covering the policy and approval gates, SQL translation and local PySpark
+  (PB-101). Spark on this PC handles extract on text, NaN literals and read.csv's default comma, and SQL cells that
+  end in comments run (PB-103). Set-aside copies made in the same instant no longer replace each other (PB-124). No
+  item changed state; PB-073's acceptance waits on the product owner.
+- Morning check, 2026-11-12: 18 PRs merged after 86c07814. 1 was a product data PR, and the other 17 were linked.
+  Spark SQL's session, clock and random functions answer as in Fabric, and unnamed columns are named as Spark names
+  them (PB-103). A failed Delta write no longer leaves the next query stuck (PB-099). Blocked files name AppLocker or
+  WDAC, Windows FIPS mode is explained, and errors cite a request id only when one was sent (PB-124). Mutation
+  testing now pins the write, commit and clear-up paths. No item changed state; PB-073's acceptance waits on the
+  product owner.
+- Evening check, 2026-11-11: 19 PRs merged after 47416473. 2 were product data and docs audit PRs, and the other 17
+  were linked. App Studio gained its Model connections screen and a working Publish dialog (PB-127, Preview). Local
+  data projects read Delta tables under folders with spaces or non-ASCII names and refuse a write Windows can't read
+  back (PB-099). CI installs from hashed lock files, workflows pin their actions, and the shell's Rust crates are
+  gated by clippy and cargo-deny (PB-124). No item changed state; PB-073's acceptance waits on the product owner.
+- Morning check, 2026-11-11: 72 PRs merged after 17e7ea06. 2 were product data and docs audit PRs, and the other 70
+  were linked. Incidents gained their measures (time to acknowledge, time to resolve, SLAs met) in the engine
+  (PB-105); what's left there is the reports screen, which needs a mockup, and service desk tickets, which need the
+  product owner's go. Estate X-ray Optimizes ticked small-files findings together (PB-104). Sign-in survives a
+  damaged saved sign-in and an unreachable Microsoft sign-in, the app follows the Windows proxy, and tools start by
+  full path (PB-124). Runs that ended mid-write list their leftover files (PB-067), and support bundles are proven to
+  carry no secrets (PB-062). PB-073 moved to In review: its cell time and memory limits shipped, and the review
+  recommends Accept with documented limitations. The default flip moves to the new PB-136, waiting on a clean Windows
+  trial and the product owner's go.
 - Evening check, 2026-11-10: 21 PRs merged after 5d2fc045. 3 were product data PRs, and the other 18 were linked.
   The secret scan no longer flags commit ids and warns reviewers about changes to its own filters, the agent's crash
   log tells a crash from a handled fault, and expired local copies are swept daily (PB-124). VS Code says when a cell
@@ -184,7 +217,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 121 items (7 P0, 33 P1, 60 P2, 21 P3). 14 are Proposed, 32 In progress, 2 In review and 73 Accepted.
+- Backlog: 124 items (7 P0, 33 P1, 60 P2, 24 P3). 15 are Proposed, 30 In progress, 2 In review and 77 Accepted.
 - PB-125 (Learn ranks and profile pictures) and PB-126 (Learn curriculum content batches) are new and Proposed, from the
   product owner's ask of 2026-11-02; they build once the rank ladder is approved.
 - PB-124 (new, In progress, P0 like PB-101): the enterprise audit's EA remediation backlog (docs/audits/), tracked as its own item.

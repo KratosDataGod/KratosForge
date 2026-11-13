@@ -72,7 +72,7 @@ def full_table(value: Any) -> pa.Table:
         if hasattr(value, "collect"):
             value = value.collect()
         return value.to_arrow()
-    if module.startswith("duckdb"):
+    if module.startswith(("duckdb", "_duckdb")):  # DuckDBPyRelation is in _duckdb
         return (getattr(value, "to_arrow_table", None) or value.arrow)()
     if module.startswith("pandas"):
         return pandas_table(value)

@@ -20,16 +20,32 @@ Projects are folders under this PC's KratosForge data (`appstudio/projects/<name
 - **History** lists the versions you saved and every change. **Restore** keeps what's there now as a new version first.
 - **Undo** and **Redo** step through changes. **Save version** keeps the app as it is. **More** has Save As (with history), Clone (without) and Export to Downloads.
 
-## What comes next
+## Model connections
 
-- **Describe an app** (the engine is ready; its screen comes after the mockup): your model gets your description and the semantic model's names, types and descriptions, never rows. Emails, tenant and site names and ids are taken out of descriptions first. Measure formulas (DAX) are sent only if you ask, because a formula can hold literal business values such as a customer name or a price. The model answers with a plan (pages and what each shows). KratosForge keeps only what the data and the target support, lists what it left out, and makes the app from the plan you approve. The model never writes the app itself.
-- **Ask for a change** (engine ready, screen after its mockup): your model sees the app's pages and components (ids, types, titles, measure names and fields) and the same metadata, and answers with named changes such as "show this as a column chart" or "add a card". KratosForge turns them into changes it checks against the data and the target, shows the result before anything is saved, and saves your approval as one step that Undo takes back. Anything the request didn't name stays exactly as it was.
+**Model connections** (on App Studio's first page) is where you add your own AI model: Anthropic, OpenAI, Azure OpenAI, Gemini, Ollama on this PC, or an OpenAI-compatible server.
 
-A model connection holds a reference to your key (`credman:KratosForge/<name>` in Windows Credential Manager, or an environment variable such as `env:KRATOSFORGE_<NAME>`), never the key itself. Nothing is sent until you agree to send app context to that model. Your organization can turn connections off, limit the providers and the addresses they reach, and stop sample rows being sent (the `appstudio_*` keys in the [policy file](azure-setup.md)).
-- **Publish…** shows what publishing would create today, and what is missing. Publishing a Power BI report is ready in the engine; its button turns on after the dialog's mockup. When it does:
-  - The check reads the app's semantic model, the workspace's name and the reports in it, and writes nothing. It stops on anything the model doesn't have (a measure or a column), and on an app that still reads sample data.
-  - Publishing makes one report, bound to that semantic model, in the workspace you choose (the model's own by default). You type the workspace's name to confirm. If a report with the same name is already there, you are told whether this project published it, and it is replaced only if you say so.
-  - If the app, the workspace or the report there changed after the check, you are asked to check again.
-  - Each attempt goes in the project's history with the workspace and report ids, never the definition or a token. If a publish fails part way, the history says so, and the report it left behind (if any) is found and offered for replacing on the next try.
+- A connection keeps where your key is, never the key: a Windows Credential Manager entry (`credman:KratosForge/<name>`, a Generic credential with the key as its password) or an environment variable (`env:KRATOSFORGE_<NAME>`, or the provider's own name such as `env:ANTHROPIC_API_KEY`). Ollama needs no key.
+- **What this model may be sent** is your consent. Nothing is sent until you allow app context: your descriptions, the app's pages and components, and the semantic model's names, types and descriptions, with emails, tenant and site names and ids taken out first. Never rows. Measure formulas (DAX) go only when you tick them for one request, because a formula can hold literal business values such as a customer name or a price.
+- **Spend limit**: with a monthly limit and prices set, a request that would pass the limit is refused, and you're warned at 80 %.
+- **Test** reads the key and lists the models it can see. It spends no tokens and sends no app or data.
+- Your organization can turn connections off, limit the providers and the addresses they reach, and stop sample rows being sent (the `appstudio_*` keys in the [policy file](azure-setup.md)). A connection the policy stops says why.
 
-App Studio writes nothing to Fabric until you publish. Testing a model connection only lists the models its key can see.
+## Publish
+
+**Publish…** makes the app a Power BI report in a Fabric workspace.
+
+- It checks first, and the check writes nothing. It reads the app's semantic model, the workspace's name and the reports in it, and stops on anything the model doesn't have (a measure or a column), and on an app that still reads sample data. Anything Power BI will show differently (visual titles and theme colours aren't carried over yet) is listed.
+- You choose the workspace (the model's own by default) and the report's name, then type the workspace's name to publish. One report is made, bound to that semantic model. Nothing else in Fabric changes.
+- If a report with that name is already there, you're told whether this project published it, and it's replaced only when you tick **Replace that report**.
+- If the app, the workspace or a report there changed after the check, you're shown the new check and asked again.
+- Each attempt goes in the app's **History** with the workspace and report ids, never the definition or a token. If a publish fails part way, History says so, and a report it left behind is found and offered for replacing next time.
+- When it's done, **Open in Power BI** or **Open in Embed Studio** shows the report.
+
+Building and previewing use no capacity; viewing the published report uses the workspace's.
+
+## Describe an app and ask for a change
+
+With a model connection, App Studio's first page has **Describe an app**, and the workspace has **Ask for a change**.
+
+- **Describe an app**: write what the app should do, choose your model, the data (sample data, or a semantic model in a workspace) and where it will run, then **Make a plan**. The page says exactly what is sent: your description and the data's names, types and descriptions, never rows. Emails, tenant and site names and ids are taken out first. Measure formulas (DAX) go only if you tick them for this request. Your model answers with a plan; KratosForge keeps only what the data and the target support and lists what it left out. Nothing is made until you press **Build it**, and you can rename the app first.
+- **Ask for a change**: say what should change. Your model sees the app's pages and components and the same names, and answers with named changes. KratosForge checks them and shows the change plan, with anything it left out. **Apply** saves it as one step that Undo takes back; **Discard** drops it. Anything the request didn't name stays exactly as it was, and a change planned before the app changed is refused.

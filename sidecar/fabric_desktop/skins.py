@@ -40,6 +40,19 @@ MAX_BYTES = 64 * 1024
 PLATFORMS = ("kratosforge", "fabric", "databricks", "snowflake")
 COLOR_MODES = ("light", "dark")
 DENSITIES = ("comfortable", "compact")
+# appearance.style: how the app is drawn, as fixed choices only (mockup "skin look and feel"). The app
+# maps each choice to its own CSS and bundled fonts, so a skin never carries CSS, fonts or images. The
+# first choice of each is the KratosForge look today, used when a skin doesn't say. The choices are plain
+# platform looks: no art or game styling on controls, the rail, the app bar or type.
+STYLE: dict[str, tuple[str, ...]] = {
+    "font": ("segoe-variable", "segoe", "dm-sans", "inter"),
+    "header": ("light", "brand", "none"),
+    "rail": ("stacked", "inline"),
+    "corners": ("soft", "square", "round"),
+    "tabs": ("underline", "boxed", "pill"),
+    "cells": ("bordered", "card", "flat", "rounded"),
+    "icons": ("regular", "light", "bold"),
+}
 
 # The tokens on styles.css's :root a skin may set (test_skins.py keeps this list inside that file's).
 TOKENS = (
@@ -67,7 +80,7 @@ _TEXT_BAD = re.compile(r"[\x00-\x1f\x7f<>{}\\]")
 
 KEYS = {"schema", "id", "name", "version", "description", "targets", "appearance", "workflow"}
 TARGET_KEYS = {"platform", "reviewed", "basis"}
-APPEARANCE_KEYS = {"color_mode", "density", "tokens"}
+APPEARANCE_KEYS = {"color_mode", "density", "tokens", "style"}
 WORKFLOW_KEYS = {"rail", "labels", "commands"}
 MAX_RAIL = 12  # the app still shows at most 8 main pages (features.js RAIL_LIMIT); the rest go below
 # The notebook's commands a skin may place (workflow.commands.notebook), as actions.js defines them
@@ -218,6 +231,20 @@ def _commands(commands: Any, problems: list[str]) -> None:
             taken.setdefault(key, cmd)
 
 
+def _style(style: Any, problems: list[str]) -> None:
+    """appearance.style: each key from STYLE, each value one of its fixed choices."""
+    if not isinstance(style, dict):
+        problems.append("appearance style must be an object of part: choice")
+        return
+    _unknown(style, set(STYLE), "appearance style", problems)
+    for part, choices in STYLE.items():
+        if part not in style:
+            continue
+        value = style[part]
+        if value not in choices:
+            problems.append(f"appearance style {part} must be one of {', '.join(choices)}")
+
+
 def validate(manifest: Any, base: dict[str, dict[str, str]] | None = None) -> dict[str, Any]:
     """The manifest, checked; raises SkinError listing every problem. ``base`` holds each color mode's
     token values the skin builds on (the KratosForge skin's), so contrast is checked on what will show."""
@@ -263,6 +290,8 @@ def validate(manifest: Any, base: dict[str, dict[str, str]] | None = None) -> di
         problems.append(f"appearance color_mode must be one of {', '.join(COLOR_MODES)}")
     if appearance.get("density", "comfortable") not in DENSITIES:
         problems.append(f"appearance density must be one of {', '.join(DENSITIES)}")
+    if "style" in appearance:
+        _style(appearance["style"], problems)
     tokens = appearance.get("tokens", {})
     if not isinstance(tokens, dict):
         problems.append("appearance tokens must be an object with light and dark")
@@ -352,7 +381,9 @@ FABRIC: dict[str, Any] = {
     "description": "Light, workspace-first: Create, Workspaces and OneLake at the top, as Fabric developers expect.",
     "targets": [{"platform": "fabric", "reviewed": "2026-11-03",
                  "basis": "Microsoft Fabric documentation (workspaces, lakehouse explorer, task flows), November 2026"}],
-    "appearance": {"color_mode": "light", "tokens": {"light": {
+    "appearance": {"color_mode": "light",
+                   "style": {"font": "segoe", "header": "brand", "rail": "stacked", "corners": "soft", "tabs": "underline", "cells": "card", "icons": "light"},
+                   "tokens": {"light": {
         "--accent": "#0f6c5c", "--accent-dark": "#0a4d42", "--accent-soft": "#e6f2ef", "--accent-soft-2": "#edf5f3",
         "--canvas": "#f5f5f5", "--border": "#e1e1e1",
     }}},
@@ -370,7 +401,9 @@ DATABRICKS: dict[str, Any] = {
     "description": "Workspace first, then Recents, New, Catalog and Jobs and pipelines, as Databricks developers expect.",
     "targets": [{"platform": "databricks", "reviewed": "2026-11-05",
                  "basis": "Azure Databricks documentation (workspace browser, Catalog Explorer, Jobs and pipelines), November 2026"}],
-    "appearance": {"color_mode": "light", "tokens": {
+    "appearance": {"color_mode": "light",
+                   "style": {"font": "dm-sans", "header": "light", "rail": "inline", "corners": "square", "tabs": "boxed", "cells": "flat", "icons": "bold"},
+                   "tokens": {
         "light": {"--accent": "#3b63b0", "--accent-dark": "#2f569c", "--accent-soft": "#e8eef8",
                   "--accent-soft-2": "#eef2f9", "--rail-active": "#3b63b0", "--canvas": "#f4f5f7",
                   "--border": "#dde1e6"},
@@ -396,7 +429,9 @@ SNOWFLAKE: dict[str, Any] = {
     "description": "Light, worksheet-first: Worksheets, Data and Monitoring at the top, as Snowflake developers expect.",
     "targets": [{"platform": "snowflake", "reviewed": "2026-11-05",
                  "basis": "Snowflake documentation (Snowsight worksheets, data, monitoring), November 2026"}],
-    "appearance": {"color_mode": "light", "tokens": {"light": {
+    "appearance": {"color_mode": "light",
+                   "style": {"font": "inter", "header": "none", "rail": "inline", "corners": "round", "tabs": "pill", "cells": "rounded", "icons": "regular"},
+                   "tokens": {"light": {
         "--accent": "#1660a8", "--accent-dark": "#0e4479", "--accent-soft": "#e6f0fa", "--accent-soft-2": "#eef4fb",
         "--rail-active": "#1660a8", "--canvas": "#f4f7fb", "--border": "#dbe4ee", "--border-input": "#c6d3e1",
     }}},

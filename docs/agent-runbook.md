@@ -128,6 +128,19 @@ A stop before the agent's own log starts is also kept in `<home>/logs/agent-star
 
 **Recover.** Stop the agent the message names, or give this agent a different environment. Then start it again. Deleting `agent.lock` doesn't help: the lock is on the open file, not on the file being there.
 
+### The agent's queue is full
+
+- **Message** (`agent.py`, log): `schedule deferred: the agent's queue is full; it runs once there is room`
+- **Message** (`mailbox.py`, log): `pipeline request waiting: the agent's queue is full`
+- **Message** (`agent.py`, log): `not queued: the agent's queue is full`
+- **Message** (`jobqueue.py`, `agent enqueue`): `the agent's queue is full: <n> jobs are waiting (agent.max_queued = <limit>); nothing was queued`
+
+**Means.** `agent.max_queued` jobs (default 1000) are already waiting, so new work is held back rather than added. Nothing is dropped and nothing queued is removed: a schedule keeps its due time and is queued once there is room (logged once per due time, counted in the status record's `schedules_deferred`), a pipeline request waits with `waiting` in its status, and `agent enqueue` exits 1 with the reason. The queue fills when jobs arrive faster than they finish: runs failing slowly and retrying, a paused or throttled capacity, `agent.concurrency` too low for the schedules, or a pipeline flooding requests.
+
+**Check first.** Run `fabric-desktop agent status`: are jobs running at all? If none run, look for a job that keeps failing ([A job didn't finish](#a-job-didnt-finish)) or a capacity problem. If they run but slowly, compare how long a run takes with how often its schedule fires.
+
+**Recover.** Fix what holds the jobs back, and the queue drains on its own; held-back schedules and requests then queue once each. Raise `agent.max_queued` only when the machine can really work through more, since a longer queue only makes work wait longer.
+
 ### The job queue file couldn't be read
 
 - **Message** (`agent.py`, log): `the job queue file couldn't be read; started with an empty queue`

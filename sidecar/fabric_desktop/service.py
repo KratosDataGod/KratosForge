@@ -10,19 +10,20 @@ import math
 import platform
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FutureTimeout
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
 import pyarrow.csv as pa_csv
+import requests
 
 from .audit import AuditLog
 from .redact import describe
 from .telemetry import Telemetry
-from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator
+from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator, cached_account
 from .fabric_api import FabricClient
-from . import app_settings, jsonfile, lakehouse, schema_cache, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
+from . import app_settings, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
 from .learn import evidence
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
@@ -123,6 +124,14 @@ def _lakehouse_key(ref: Any) -> Any:
     return ref or None
 
 
+# Seconds a failed sign-in setup (offline, or the proxy blocks Microsoft's sign-in) answers at once
+# before it is tried again.
+AUTH_RETRY_SECONDS = 60
+# Seconds a call waits for the sign-in setup's first answer from Microsoft before it says so and
+# the setup carries on in the background (a healthy network answers in a second or two).
+AUTH_WAIT_SECONDS = 15
+AUTH_HOST = "login.microsoftonline.com"
+
 # Why OneLake > Catalog's Endorsed items filter is off (docs/troubleshooting.md says the same).
 ENDORSED_FILTER_REASON = (
     "Not available here: KratosForge reads endorsement only through Fabric's admin tenant scan, and it "
@@ -137,6 +146,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         self.root = root or data_dir()
         self._auth: Authenticator | None = None
         self._auth_lock = threading.Lock()
+        self._auth_failed: tuple[BaseException, str, float] | None = None  # see auth
+        self._auth_building: tuple[str, Future] | None = None
         self.sessions = KernelSessions(self._new_kernel, lambda: bool(app_settings.value("kernel_process")),
                                        max_sessions=lambda: int(app_settings.value("kernel_max_sessions") or 0),
                                        idle_minutes=lambda: float(app_settings.value("kernel_idle_minutes") or 0),
@@ -153,9 +164,43 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         # Built once: building it asks Microsoft for its sign-in endpoints (and on Windows starts the
         # sign-in broker), so calls arriving together, as a tool's do, must not each build one.
         with self._auth_lock:
-            if self._auth is None or getattr(self._auth, "client_id", client_id) != client_id:
-                self._auth = Authenticator(client_id, interactive=not self.headless)
-            return self._auth
+            if self._auth is not None and getattr(self._auth, "client_id", client_id) == client_id:
+                return self._auth
+            # Offline, a build fails or waits out its timeout. The calls queued behind it (a page's
+            # loads) get the same answer at once for a while, instead of a wait each.
+            failed = self._auth_failed
+            if failed and failed[1] == client_id and time.monotonic() < failed[2]:
+                raise failed[0].with_traceback(None)
+            building = self._auth_building
+            if building is None or building[0] != client_id:
+                building = self._auth_building = (client_id, Future())
+                threading.Thread(target=self._build_auth, args=building, daemon=True, name="sign-in-setup").start()
+        try:
+            # A network that drops the traffic can take minutes to give up. The app waits a little,
+            # then gets on with its other calls (local work queues behind this one) while it finishes.
+            return building[1].result(timeout=None if self.headless else AUTH_WAIT_SECONDS)
+        except FutureTimeout:
+            raise requests.exceptions.ConnectTimeout(
+                f"Microsoft's sign-in ({AUTH_HOST}) didn't answer within {AUTH_WAIT_SECONDS} seconds") from None
+
+    def _build_auth(self, client_id: str, done: Future) -> None:
+        try:
+            made = Authenticator(client_id, interactive=not self.headless)
+        except Exception as exc:  # noqa: BLE001 - handed to every caller waiting for it
+            with self._auth_lock:
+                if net_trust.explain(exc):
+                    self._auth_failed = (exc, client_id, time.monotonic() + AUTH_RETRY_SECONDS)
+                self._auth_built(done)
+            done.set_exception(exc)
+            return
+        with self._auth_lock:
+            self._auth, self._auth_failed = made, None
+            self._auth_built(done)
+        done.set_result(made)
+
+    def _auth_built(self, done: Future) -> None:
+        if self._auth_building is not None and self._auth_building[1] is done:  # not a newer app ID's
+            self._auth_building = None
 
     @property
     def audit(self) -> AuditLog:
@@ -241,13 +286,19 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def environment(self) -> dict[str, Any]:
         self._start_retention_sweep()
         self._start_usage_send()
-        user = tenant = None
+        account = self._saved_account()
+        home = account.get("home_account_id") or ""
+        return {"python": platform.python_version(), "user": account.get("username"),
+                "tenant": home.split(".", 1)[1] if "." in home else None}
+
+    def _saved_account(self) -> dict[str, Any]:
+        """The signed-in account from the saved sign-in, read without the network, so the app starts
+        signed in offline or behind a proxy that blocks Microsoft's sign-in. {} when there is none."""
         try:
-            user = self.auth.signed_in_user()
-            tenant = self.auth.signed_in_tenant()
-        except Exception as exc:  # noqa: BLE001 - no client ID yet, or offline: the UI offers sign-in
+            return cached_account(self._auth.cache_path if self._auth else None) or {}
+        except Exception as exc:  # noqa: BLE001 - an unreadable cache: the UI offers sign-in
             _log.info("Not signed in: %s", describe(exc))
-        return {"python": platform.python_version(), "user": user, "tenant": tenant}
+            return {}
 
     def _start_retention_sweep(self) -> None:
         """From the engine's first call, in the background and then once a day while it runs: delete local
@@ -270,6 +321,10 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                                                          len(result["removed"]), result["bytes"], result["days"])
                 except Exception:  # noqa: BLE001 - a cache sweep must never stop the app
                     logging.getLogger(__name__).exception("Local copy cleanup failed")
+                try:
+                    self._pn_tidy()  # closed Teams notices: their bell details now, ledger keys after a year
+                except Exception:  # noqa: BLE001 - nor a notice ledger cleanup
+                    logging.getLogger(__name__).exception("Notice ledger cleanup failed")
                 if stop.wait(SWEEP_EVERY):
                     return
 
@@ -422,6 +477,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         return {"user": None}
 
     def sign_in(self) -> dict[str, Any]:
+        with self._auth_lock:
+            self._auth_failed = None  # chosen by the person: try Microsoft again now, back online or not
         retry = getattr(self.auth, "retry_sign_in", None)
         if callable(retry):  # chosen by the person: a window even after a Conditional Access refusal
             retry()
@@ -432,13 +489,21 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def readiness_check(self) -> list[dict[str, Any]]:
         """Home's Ready to work list. Reads only, and never opens a sign-in window."""
         from . import readiness
-        try:
-            user = self.auth.signed_in_user()
-        except Exception:  # noqa: BLE001 - no client ID yet: shown as not signed in
-            user = None
-        fabric = self._quiet_fabric() if user else None
-        if user and fabric is None:
+        user = self._saved_account().get("username")
+        offline = None
+        if user:
+            try:
+                self.auth  # noqa: B018 - building it is the first call to Microsoft's sign-in
+            except Exception as exc:  # noqa: BLE001 - no client ID yet: shown as not signed in
+                offline = net_trust.explain(exc)  # still signed in; Fabric's row says why it can't answer
+                if not offline:
+                    user = None
+        fabric = self._quiet_fabric() if user and not offline else None
+        if user and not offline and fabric is None:
             user = None  # the saved sign-in has expired: the row offers Sign in
+
+        def unreachable() -> list[dict[str, Any]]:
+            raise ConnectionError(offline)
 
         def capacities() -> list[dict[str, Any]]:
             token = self.auth.silent_token(CAPACITY_SCOPES)
@@ -446,7 +511,10 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 raise PermissionError("not consented")
             return FabricClient(lambda: token).list_capacities()
 
-        return readiness.checks(user, fabric.list_workspaces if fabric else list, capacities, self.app_settings())
+        from .http_session import clock_offset
+        return readiness.checks(user, fabric.list_workspaces if fabric else unreachable if offline else list,
+                                capacities, self.app_settings(),
+                                clock=clock_offset, folder=self.root)
 
     def readiness_write_test(self, workspace_id: str, lakehouse_id: str, workspace_name: str) -> dict[str, Any]:
         """Write, read back and delete one small file in a lakehouse's Files area (asked for first)."""

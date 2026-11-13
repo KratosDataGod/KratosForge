@@ -151,6 +151,59 @@ def test_calls_waiting_on_a_sign_in_share_its_window(tmp_path):
     assert got == ["new"] * 4 and entra.calls.count("window") == 1
 
 
+def test_a_refusal_that_arrives_after_a_new_sign_in_keeps_the_new_tokens(tmp_path):
+    """A refresh of the old token that is still out when another call's window signs in: its refusal
+    is for the old sign-in, so it mustn't drop the new tokens (and open a second window)."""
+    a, entra = signed_in(tmp_path, refuse=REVOKED, cached="")
+    out, back = threading.Event(), threading.Event()
+    real = entra.acquire_token_silent_with_error
+
+    def slow_first(scopes, account, force_refresh=False):
+        result = real(scopes, account, force_refresh)
+        if threading.current_thread().name == "slow" and not out.is_set():
+            out.set()
+            back.wait(10)  # held until the window below has signed in
+        return result
+    entra.acquire_token_silent_with_error = slow_first
+    got: list[str] = []
+    slow = threading.Thread(target=lambda: got.append(a.fabric_token()), name="slow")
+    slow.start()
+    assert out.wait(10)
+    assert a.fabric_token() == "new"  # this call's refusal ends the old sign-in and opens the window
+    back.set()
+    slow.join(10)
+    assert got == ["new"] and entra.calls.count("window") == 1
+    assert _tokens(a, a.cache.CredentialType.REFRESH_TOKEN)
+
+
+def test_a_refusal_of_a_refresh_sent_while_the_window_was_open_keeps_what_it_brought(tmp_path):
+    """A window opened for a claims step, with the old tokens still saved: a refresh that went out while
+    it was open and is refused after it signed in is for the old sign-in too."""
+    a, entra = signed_in(tmp_path)
+    out, back = threading.Event(), threading.Event()
+    real_lookup, real_window = entra.acquire_token_silent_with_error, entra.acquire_token_interactive
+
+    def lookup(scopes, account, force_refresh=False):
+        if threading.current_thread().name != "slow":
+            return real_lookup(scopes, account, force_refresh)
+        out.set()
+        back.wait(10)  # held until the window has signed in
+        return REVOKED
+
+    def window(scopes, **kw):
+        threading.Thread(target=lambda: a._silent(scopes, entra.get_accounts()[0], force_refresh=True),
+                         name="slow").start()
+        assert out.wait(10)
+        return real_window(scopes, **kw)
+    entra.acquire_token_silent_with_error, entra.acquire_token_interactive = lookup, window
+    assert a._sign_in(auth.FABRIC_SCOPES, refused="old", claims="mfa")["access_token"] == "new"
+    back.set()
+    for t in threading.enumerate():
+        if t.name == "slow":
+            t.join(10)
+    assert not a._ended() and _tokens(a, a.cache.CredentialType.REFRESH_TOKEN)
+
+
 def test_a_refusal_for_one_new_scope_doesnt_end_the_sign_in(tmp_path):
     a, entra = signed_in(tmp_path, interactive=False, refuse=CONSENT, cached="")
     with pytest.raises(auth.SignInRequired):
@@ -254,16 +307,70 @@ def test_a_databricks_sign_in_renewed_with_the_cli_is_used_at_once(monkeypatch):
 def test_a_revoked_personal_access_token_is_sent_once_and_says_to_make_a_new_one(tmp_path):
     cfg = tmp_path / ".databrickscfg"
     cfg.write_text("[work]\nhost = https://adb-1.azuredatabricks.net\ntoken = dapi-revoked\n", encoding="utf-8")
-    provider = dba.provider_for({"platform": "databricks", "host": "https://adb-1.azuredatabricks.net",
-                                 "credential": {"method": "cli-profile", "profile": "work"}}, cfg_path=cfg, http=object())
+    connection = {"platform": "databricks", "host": "https://adb-1.azuredatabricks.net",
+                  "credential": {"method": "cli-profile", "profile": "work"}}
+    ws = Workspace(set())
+    client = dbsql.Client(dba.provider_for(connection, cfg_path=cfg, http=object()), ws, sleep=lambda s: None)
+    with pytest.raises(dbsql.DatabricksError, match="personal access token in the CLI profile 'work' has expired"
+                                                    " or was revoked") as err:
+        client._call("POST", "/api/2.0/sql/statements", json={})
+    assert "dapi-revoked" not in str(err.value)
+    later = dbsql.Client(dba.provider_for(connection, cfg_path=cfg, http=object()), ws, sleep=lambda s: None)
+    for c in (client, later, client):  # this action, a later one, and a new session for the same profile
+        with pytest.raises(dba.DatabricksAuthError, match="isn't sent again. The personal access token in the CLI "
+                                                          "profile 'work' has expired") as err:
+            c._call("POST", "/api/2.0/sql/statements", json={})
+        assert "dapi-revoked" not in str(err.value)
+    assert ws.sent == [("POST", "dapi-revoked")]  # sent once, never again
+    cfg.write_text("[work]\nhost = https://adb-1.azuredatabricks.net\ntoken = dapi-new\n", encoding="utf-8")
+    ws.good.add("dapi-new")
+    renewed = dbsql.Client(dba.provider_for(connection, cfg_path=cfg, http=object()), ws, sleep=lambda s: None)
+    assert renewed._call("POST", "/api/2.0/sql/statements", json={}) == {"id": "1"}  # a new token works at once
+
+
+def test_a_cli_that_hands_back_the_refused_token_gets_one_sign_in_again_message():
+    provider = dba.TokenProvider("https://adb-1.azuredatabricks.net", lambda: ("cached", time.time() + 3000),
+                                 "oauth-u2m", sign_in_again="Sign in again with: databricks auth login --host h")
     ws = Workspace(set())
     client = dbsql.Client(provider, ws, sleep=lambda s: None)
-    for _ in range(3):
-        with pytest.raises(dbsql.DatabricksError, match="personal access token in the CLI profile 'work' has expired"
-                                                        " or was revoked") as err:
-            client._call("POST", "/api/2.0/sql/statements", json={})
-        assert "dapi-revoked" not in str(err.value)
-    assert ws.sent == [("POST", "dapi-revoked")] * 3  # once per action: never resent with the same token
+    with pytest.raises(dbsql.DatabricksError, match=r"refused the sign-in \(HTTP 401\)\. Sign in again with"):
+        client._call("GET", "/api/2.0/sql/warehouses/abc")
+    with pytest.raises(dba.DatabricksAuthError, match="isn't sent again. Sign in again with: databricks auth login"):
+        client._call("GET", "/api/2.0/sql/warehouses/abc")
+    assert ws.sent == [("GET", "cached")]
+
+
+def test_a_service_principal_whose_token_was_refused_gets_a_new_one_never_the_old():
+    tokens = iter([("m2m-1", time.time() + 3000), ("m2m-1", time.time() + 3000), ("m2m-2", time.time() + 3600)])
+    provider = dba.TokenProvider("https://adb-1.azuredatabricks.net", lambda: next(tokens), "oauth-m2m",
+                                 sign_in_again=dba.M2M_REFUSED)
+    ws = Workspace({"m2m-2"})
+    client = dbsql.Client(provider, ws, sleep=lambda s: None)
+    with pytest.raises(dbsql.DatabricksError, match="service principal's sign-in was refused"):
+        client._call("GET", "/api/2.0/sql/warehouses/abc")  # the endpoint handed back the refused token
+    assert client._call("GET", "/api/2.0/sql/warehouses/abc") == {"id": "1"}  # its next token is new
+    assert ws.sent == [("GET", "m2m-1"), ("GET", "m2m-2")]
+
+
+def test_a_token_refused_by_one_workspace_is_still_sent_to_another():
+    for host in ("https://adb-1.azuredatabricks.net", "https://adb-2.azuredatabricks.net"):
+        provider = dba.TokenProvider(host, lambda: ("shared", None), "pat", sign_in_again="Renew it.")
+        if host.startswith("https://adb-1"):
+            provider.drop("shared")
+            with pytest.raises(dba.DatabricksAuthError, match="Renew it."):
+                provider.token()
+        else:
+            assert provider.token() == "shared"
+
+
+def test_the_refused_list_keeps_fingerprints_and_stays_small():
+    provider = dba.TokenProvider("https://adb-1.azuredatabricks.net", lambda: ("x", None), "pat")
+    for i in range(dba.MAX_REFUSED + 10):
+        provider.drop(f"secret-{i}")
+    assert len(dba._REFUSED) == dba.MAX_REFUSED
+    assert not any("secret" in k for k in dba._REFUSED)
+    assert dba.was_refused(provider.host, f"secret-{dba.MAX_REFUSED + 9}")
+    assert not dba.was_refused(provider.host, "secret-0")  # the oldest made room
 
 
 def test_a_databricks_cli_that_can_no_longer_refresh_says_how_to_sign_in_again():
@@ -295,3 +402,10 @@ def test_an_embed_whose_sign_in_was_revoked_says_sign_in_again_after_one_new_tok
     with pytest.raises(auth.SignInRequired, match="Sign in again"):
         embed.content("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002", "Report")
     assert sent == ["Bearer old", "Bearer new"]
+
+
+def test_a_refusal_holds_however_the_workspace_address_is_spelled():
+    dba.TokenProvider("https://adb-1.azuredatabricks.net", lambda: ("t", None), "pat").drop("t")
+    other = dba.TokenProvider("HTTPS://ADB-1.azuredatabricks.net/", lambda: ("t", None), "pat", sign_in_again="Renew it.")
+    with pytest.raises(dba.TokenRefused, match="Renew it. If you're sure the token is still valid, restart KratosForge"):
+        other.token()

@@ -19,11 +19,11 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 389 |
+| Runs | 402 |
 | Differs | 0 |
 | Refused | 21 |
 | Fails | 0 |
-| Not checked | 28 |
+| Not checked | 15 |
 | **All** | **438** |
 
 ## Aggregate
@@ -118,7 +118,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `flatten` | Runs | `SELECT flatten(array(array(1, 2), array(3, 4)))` |  |
 | `get` | Runs | `SELECT get(array(1, 2, 3), 0)` |  |
 | `sequence` | Runs | `SELECT sequence(1, 5)` |  |
-| `shuffle` | Not checked | `SELECT shuffle(array(1, 20, 3, 5))` |  |
+| `shuffle` | Runs | `SELECT array_sort(shuffle(array(1, 20, 3, 5))), size(shuffle(array(1, 20, NULL, 5))), shuffle(NULL)` |  |
 | `slice` | Runs | `SELECT slice(array(1, 2, 3, 4), 2, 2)` |  |
 | `sort_array` | Runs | `SELECT sort_array(array('b', 'd', null, 'c', 'a'), true)` |  |
 
@@ -191,10 +191,10 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | --- | --- | --- | --- |
 | `add_months` | Runs | `SELECT add_months('2016-08-31', 1)` |  |
 | `convert_timezone` | Runs | `SELECT convert_timezone('Europe/Brussels', 'America/Los_Angeles', timestamp_ntz'2021-12-06 00:00:00')` |  |
-| `curdate` | Not checked | `SELECT curdate()` |  |
-| `current_date` | Not checked | `SELECT current_date()` |  |
-| `current_timestamp` | Not checked | `SELECT current_timestamp()` |  |
-| `current_timezone` | Not checked | `SELECT current_timezone()` |  |
+| `curdate` | Runs | `SELECT curdate() = current_date(), typeof(curdate())` |  |
+| `current_date` | Runs | `SELECT current_date() = to_date(current_timestamp()), typeof(current_date())` |  |
+| `current_timestamp` | Runs | `SELECT current_timestamp() = now(), typeof(current_timestamp())` |  |
+| `current_timezone` | Runs | `SELECT current_timezone()` |  |
 | `date_add` | Runs | `SELECT date_add('2016-07-30', 1)` |  |
 | `date_diff` | Runs | `SELECT date_diff('2009-07-31', '2009-07-30')` |  |
 | `date_format` | Runs | `SELECT date_format('2016-04-08', 'y')` |  |
@@ -214,7 +214,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `from_utc_timestamp` | Runs | `SELECT from_utc_timestamp('2016-08-31', 'Asia/Seoul')` |  |
 | `hour` | Runs | `SELECT hour('2009-07-30 12:58:59')` |  |
 | `last_day` | Runs | `SELECT last_day('2009-01-12')` |  |
-| `localtimestamp` | Not checked | `SELECT localtimestamp()` |  |
+| `localtimestamp` | Runs | `SELECT typeof(localtimestamp())` |  |
 | `make_date` | Runs | `SELECT make_date(2013, 7, 15)` |  |
 | `make_dt_interval` | Runs | `SELECT make_dt_interval(1, 12, 30, 01.001001)` |  |
 | `make_interval` | Runs | `SELECT TIMESTAMP '2026-01-31 00:00:00' + make_interval(1, 2, 0, 3, 4, 5, 6.5)` |  |
@@ -226,7 +226,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `month` | Runs | `SELECT month('2016-07-30')` |  |
 | `months_between` | Runs | `SELECT months_between('1997-02-28 10:30:00', '1996-10-30')` |  |
 | `next_day` | Runs | `SELECT next_day('2015-01-14', 'TU')` |  |
-| `now` | Not checked | `SELECT now()` |  |
+| `now` | Runs | `SELECT now() = current_timestamp(), typeof(now())` |  |
 | `quarter` | Runs | `SELECT quarter('2016-08-31')` |  |
 | `second` | Runs | `SELECT second('2009-07-30 12:58:59')` |  |
 | `session_window` | Refused | `SELECT a, session_window.start, session_window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:10:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, session_window(b, '5 minutes') ORDER BY a, start` | session_window() can't run on this PC the way it runs in Fabric, so nothing ran: session windows run in Fabric only. Run the cell in Fabric. |
@@ -245,7 +245,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `unix_micros` | Runs | `SELECT unix_micros(TIMESTAMP('1970-01-01 00:00:01Z'))` |  |
 | `unix_millis` | Runs | `SELECT unix_millis(TIMESTAMP('1970-01-01 00:00:01Z'))` |  |
 | `unix_seconds` | Runs | `SELECT unix_seconds(TIMESTAMP('1970-01-01 00:00:01Z'))` |  |
-| `unix_timestamp` | Not checked | `SELECT unix_timestamp()` |  |
+| `unix_timestamp` | Runs | `SELECT unix_timestamp('2016-04-08', 'yyyy-MM-dd'), unix_timestamp(TIMESTAMP '2016-04-08 10:00:00')` |  |
 | `weekday` | Runs | `SELECT weekday('2009-07-30')` |  |
 | `weekofyear` | Runs | `SELECT weekofyear('2008-02-20')` |  |
 | `window` | Runs | `SELECT a, window.start, window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, start` |  |
@@ -372,9 +372,9 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `pow` | Runs | `SELECT pow(2, 3)` |  |
 | `power` | Runs | `SELECT power(2, 3)` |  |
 | `radians` | Runs | `SELECT radians(180)` |  |
-| `rand` | Not checked | `SELECT rand()` |  |
-| `randn` | Not checked | `SELECT randn()` |  |
-| `random` | Not checked | `SELECT random()` |  |
+| `rand` | Runs | `SELECT rand() >= 0 AND rand() < 1, typeof(rand())` |  |
+| `randn` | Runs | `SELECT typeof(randn()), randn() IS NOT NULL` |  |
+| `random` | Runs | `SELECT random() >= 0 AND random() < 1, typeof(random())` |  |
 | `rint` | Runs | `SELECT rint(12.3456)` |  |
 | `round` | Runs | `SELECT round(2.5, 0)` |  |
 | `sec` | Runs | `SELECT sec(0)` |  |
@@ -403,7 +403,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `bitmap_bit_position` | Runs | `SELECT bitmap_bit_position(1)` |  |
 | `bitmap_bucket_number` | Runs | `SELECT bitmap_bucket_number(123)` |  |
 | `bitmap_count` | Runs | `SELECT bitmap_count(X '1010')` |  |
-| `current_catalog` | Not checked | `SELECT current_catalog()` |  |
+| `current_catalog` | Runs | `SELECT current_catalog()` |  |
 | `current_database` | Not checked | `SELECT current_database()` |  |
 | `current_schema` | Not checked | `SELECT current_schema()` |  |
 | `current_user` | Not checked | `SELECT current_user()` |  |
@@ -421,7 +421,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `try_aes_decrypt` | Refused | `SELECT try_aes_decrypt(unhex('6E7CA17BBB468D3084B5744BCA729FB7B2B7BCB8E4472847D02670489D95FA97DBBA7D3210'), '0000111122223333', 'GCM')` | try_aes_decrypt() can't run on this PC the way it runs in Fabric, so nothing ran: AES isn't available in the engine on this PC. Run the cell in Fabric. |
 | `typeof` | Runs | `SELECT typeof(1)` |  |
 | `user` | Not checked | `SELECT user()` |  |
-| `uuid` | Not checked | `SELECT uuid()` |  |
+| `uuid` | Runs | `SELECT length(uuid()), uuid() RLIKE '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', uuid() = uuid()` |  |
 | `version` | Not checked | `SELECT version()` |  |
 
 ## Operators and other

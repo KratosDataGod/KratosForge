@@ -65,7 +65,6 @@ const JUDGED = [
   [/^report-problem: color-contrast @ \.mono$/, "Pass: the diagnostics are #424242 on #fafafa, 9.6:1."],
   [/^entity: color-contrast @ #entity-toml$/, "Pass: the entity file's text is #242424 on #fafafa, 14.9:1 (axe sees the box as partly covered)."],
   [/^engine-choose: color-contrast @ (p:nth-child\(\d+\)( > u:nth-child\(\d+\))?|u\[title="[\w.#-]+"\]|\.scroll > b|\.scroll > \.row > (\.tool\.small|\.muted-text(\.small)?))$/, "Pass: in both runs the decision pattern's text, links, headings and Copy example are #242424 on the dialog's white, 15.5:1, and the note beside Copy example is #616161, 6.2:1 (axe sees lines that scroll under the dialog's buttons as partly covered)."],
-  [/^monitor: color-contrast @ (\.forge-(title|title > span|sub)|\.forge-more)$/, "Pass: on the Forge band's navy gradient (#000f22 to #0a2a4b, lightest taken), the title is #ffffff, 14.5:1, its state word at least 6.6:1 (#f8991c active, #7fd99b done 8.5:1, #ff9e9e failed 7.4:1, #c9d6ea quiet 9.9:1), the line under it #e6ecf5, 12.2:1, and the link to the table #ffcf8a, 10.1:1 (axe can't measure text on a gradient)."],
   [/^shortcuts: color-contrast @ \.text:nth-child\(\d+\) > \.learn-more\[href="#"\]$/, "Pass: in both runs the notebook guide link is #1b3664 on the dialog's white, 12.0:1 (axe sees the list's last lines, which scroll under the dialog's buttons, as partly covered)."],
 ];
 const judged = (key) => JUDGED.find(([re]) => re.test(key))?.[1];

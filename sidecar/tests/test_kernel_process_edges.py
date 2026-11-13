@@ -310,7 +310,7 @@ def test_without_proc_the_parent_links_come_from_ps(monkeypatch):
     monkeypatch.setattr(kernel_proc, "subprocess", SimpleNamespace(run=run, SubprocessError=subprocess.SubprocessError))
     assert kernel_proc._parents() == [(1, 0), (42, 1), (43, 42)]
     assert kernel_proc._descendants(1) == [42, 43]
-    assert ran[0] == ["ps", "-A", "-o", "pid=,ppid="]
+    assert ran[0] == ["/bin/ps", "-A", "-o", "pid=,ppid="]
 
     def missing(args, **kw):
         raise FileNotFoundError("ps")

@@ -93,15 +93,6 @@
   --accent-border: #c7d3e8;
   --custom-soft: #efe6fa;
   --surface-warm: #faf9f8;
-  --forge-band: linear-gradient(180deg, #000f22 0%, #011c37 35%, #0a2a4b 100%);  /* Monitor's Forge view (forge-activity.js): the banner's own navy */
-  --forge-band-edge: #0a2a4b;
-  --forge-ink: #ffffff;
-  --forge-line: #e6ecf5;
-  --forge-active: #f8991c;
-  --forge-done: #7fd99b;
-  --forge-failed: #ff9e9e;
-  --forge-quiet: #c9d6ea;
-  --forge-link: #ffcf8a;
   --muted-3: #707070;
   --code-ref: #1d4f2f;
   --code-comment: #5f6b5f;
@@ -3009,6 +3000,32 @@ table.bundle-files .num { text-align: right; white-space: nowrap; color: inherit
 .as-ready li { display: flex; gap: 6px; align-items: flex-start; }
 .as-ready li.ok { color: var(--ok-3); }
 .as-ready li.todo { color: var(--warn); }
+.as-conn-split { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(0, 2fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .as-conn-split { grid-template-columns: 1fr; } }
+.as-conn-list h2, .as-conn-form h2 { margin-top: 0; }
+.as-conn-rows { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.as-conn { display: flex; flex-direction: column; gap: 4px; }
+.as-conn-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.as-conn .row { flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.as-conn-form { display: flex; flex-direction: column; gap: 12px; }
+.as-conn-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.as-conn-grid[hidden], .as-conn-grid .field[hidden] { display: none; }
+.as-consent { border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.as-consent legend { font-weight: 600; padding: 0 6px; }
+.as-consent .check, .as-conn-form > .check { align-items: flex-start; }
+.as-consent .check input, .as-conn-form > .check input { margin-top: 3px; }
+.as-limits summary { cursor: pointer; font-weight: 600; }
+.as-limits .as-conn-grid { margin-top: 8px; }
+.as-publish { display: flex; flex-direction: column; gap: 12px; max-width: 560px; }
+.as-publish .callout { margin-bottom: 0; align-items: flex-start; }
+.as-publish .callout p, .as-publish .callout ul { margin: 4px 0 0; }
+.as-publish .callout.warn { background: var(--warn-soft-9); color: var(--warn-ink-2); }
+.as-publish .callout.error { background: var(--danger-soft); color: var(--danger-ink); }
+.as-publish .callout.ok { background: var(--ok-soft); color: var(--ok-3); }
+.as-publish .as-facts dd.field { display: block; }
+.as-publish .as-facts dd input, .as-publish .as-facts dd select { width: 100%; box-sizing: border-box; }
+.as-warnings summary { cursor: pointer; }
+.as-warnings ul { margin: 6px 0 0; padding-left: 20px; }
 
 /* Academy (academy.js, ACD-007/008). Colors come from the tokens on :root; status is never color alone. */
 .academy-body { display: flex; flex-direction: column; gap: 16px; }
@@ -3275,10 +3292,8 @@ tr.fg-conflict { background: var(--danger-soft); }
 .embed-studio .pbi-stage-bar { padding: 2px 10px; }
 .embed-studio .pbi-frame-wrap { min-height: 360px; }
 
-/* Monitor > Runs: the Forge Activity view (forge-activity.js, LX-05). The strip in the page head, then a
-   band with up to three lanes beside a small forge scene. Text and bars show at every level; the
-   scene's loops, the wolf and the sheen only where motion.js allows them (data-motion, the ambient
-   and wolf families), and nothing moves while Windows reduces motion. */
+/* Monitor > Runs: run progress (forge-activity.js, LX-05). The strip in the page head, then a plain
+   panel with up to three lanes. A data panel: the app's own surface, type and colours, no art or effects. */
 .forge-strip { display: flex; flex-wrap: wrap; min-height: 48px; max-width: 100%; box-sizing: border-box; background: var(--surface);
   border: 1px solid var(--border); border-radius: 8px; }
 .forge-stat { display: flex; flex-direction: column; justify-content: center; padding: 6px 14px; }
@@ -3288,72 +3303,28 @@ tr.fg-conflict { background: var(--danger-soft); }
 .forge-stat.bad b { color: var(--danger); }
 .forge-strip-slot { margin-left: auto; max-width: 100%; min-width: 0; }
 .forge-toggle { margin-left: 4px; }
-.forge-band { position: relative; flex: none; display: grid; grid-template-columns: minmax(360px, 1fr) minmax(0, 750px); align-items: start;
-  margin-bottom: 12px; border-radius: 10px; overflow: hidden; background: var(--forge-band); border: 1px solid var(--forge-band-edge); color: var(--text); }
-.forge-side { position: relative; grid-column: 1; grid-row: 1; min-width: 0; box-sizing: border-box; padding: 14px 18px; display: flex; flex-direction: column; gap: 8px; }
-.forge-title { margin: 0; font: italic 800 26px/1 "Bahnschrift", "Arial Narrow", system-ui, sans-serif; font-stretch: condensed; color: var(--forge-ink); letter-spacing: .01em; }
-.forge-band.active .forge-title span, .forge-band.waiting .forge-title span { color: var(--forge-active); }
-.forge-band.done .forge-title span { color: var(--forge-done); }
-.forge-band.failed .forge-title span { color: var(--forge-failed); }
-.forge-band.idle .forge-title span { color: var(--forge-quiet); }
-.forge-sub { margin: 0; color: var(--forge-line); }
+.forge-band { flex: none; display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; padding: 12px 14px; box-sizing: border-box;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text); }
+.forge-title { margin: 0; font-size: 14px; font-weight: 600; }
+.forge-sub { margin: 0; color: var(--muted); }
 .forge-lanes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .forge-lane { display: grid; grid-template-columns: minmax(120px, 160px) 1fr 72px; align-items: center; gap: 12px; padding: 8px 12px;
-  background: var(--surface); border: 1px solid var(--warn-border); border-radius: 8px; }
-.forge-lane.fabric { border-color: var(--accent-soft-2); }
-.forge-band.done .forge-lane { border-color: var(--ok-soft); }
-.forge-band.failed .forge-lane { border-color: var(--danger-border); }
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
 .forge-who, .forge-what, .forge-time { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .forge-who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .forge-time { text-align: right; }
-.forge-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--warn-ink); }
+.forge-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); }
 .forge-lane.fabric .forge-status { color: var(--accent); }
 .forge-band.done .forge-status { color: var(--ok); }
 .forge-band.failed .forge-status { color: var(--danger-ink); }
 .forge-bar { display: block; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
-.forge-fill { display: block; height: 100%; border-radius: 3px; background: var(--brand-orange); transition: width .3s ease-out; }
+.forge-fill { display: block; height: 100%; border-radius: 3px; background: var(--accent); transition: width .3s ease-out; }
 .forge-band.done .forge-fill { background: var(--ok); }
 .forge-band.failed .forge-fill { background: var(--danger); }
 .forge-ring { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--accent); border-right-color: transparent; box-sizing: border-box; }
-.forge-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand-orange); }
-.forge-wolf { display: none; width: 18px; height: 16px; color: var(--accent); }
-.forge-wolf svg { width: 16px; height: 16px; }
-.page .forge-more { font-weight: 600; color: var(--forge-link); }
-/* The scene, on the right: the whole banner at its 3:1 ratio, never cropped or stretched, its empty left
-   sky faded into the band's navy. The glow, sparks and the strike's anchor sit on the anvil's fire. */
-.forge-scene { position: relative; grid-column: 2; grid-row: 1; align-self: end; width: 100%; aspect-ratio: 2172 / 724; pointer-events: none; }
-.forge-art { display: block; width: 100%; height: auto; aspect-ratio: 2172 / 724;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0, var(--lx-mask) 25%); mask-image: linear-gradient(90deg, transparent 0, var(--lx-mask) 25%); }
-.forge-anvil { position: absolute; left: 96.5%; top: 57%; width: 24px; height: 24px; margin: -12px 0 0 -12px; }
-.forge-glow { position: absolute; left: 96.5%; top: 57%; width: 80px; height: 60px; margin: -30px 0 0 -40px; border-radius: 50%;
-  background: radial-gradient(closest-side, rgba(255,190,90,.7), rgba(248,153,28,.3) 45%, rgba(248,153,28,0)); opacity: 0; mix-blend-mode: screen; }
-.forge-band:is(.active, .waiting) .forge-glow { opacity: .6; }
-.forge-sparks i { position: absolute; left: 96.5%; top: 57%; width: 4px; height: 4px; border-radius: 50%; background: var(--fx-ember);
-  box-shadow: 0 0 6px 2px rgba(248,153,28,.8); opacity: 0; }
-html[data-motion="on"][data-fx-wolf="on"] .forge-wolf { display: inline-flex; }
-html[data-motion="on"][data-fx-wolf="on"] .forge-wolf svg { animation: forge-run 1s ease-in-out infinite; }
-html[data-motion="on"][data-fx-ambient="on"] .forge-fill.sheen {
-  background-image: linear-gradient(90deg, rgba(255,255,255,0) 0, rgba(255,255,255,.55) 30px, rgba(255,255,255,0) 60px);
-  background-repeat: no-repeat; animation: forge-sheen 1.8s linear infinite; }
-html[data-motion="on"][data-fx-ambient="on"] .forge-dot { animation: forge-pulse 1.4s ease-in-out infinite; }
-html[data-motion="on"][data-fx-ambient="on"] .forge-band:is(.active, .waiting) .forge-glow { animation: forge-glow 1.6s ease-in-out infinite; }
-html[data-motion="on"][data-fx-sparks="on"] .forge-band.active .forge-sparks i { animation: forge-spark .9s ease-out infinite; }
-.forge-sparks i:nth-child(2) { --dx: 38px; --dy: -52px; }
-.forge-sparks i:nth-child(3) { --dx: 60px; --dy: -14px; }
-html[data-motion="on"] .forge-band.active .forge-sparks i:nth-child(2) { animation-delay: .3s; }
-html[data-motion="on"] .forge-band.active .forge-sparks i:nth-child(3) { animation-delay: .6s; }
-html[data-motion-paused="on"] :is(.forge-wolf svg, .forge-fill.sheen, .forge-dot, .forge-glow, .forge-sparks i) { animation-play-state: paused; }
-@keyframes forge-run { 0%, 100% { transform: translateX(-2px); } 50% { transform: translateX(2px) translateY(-1px); } }
-@keyframes forge-sheen { from { background-position: -60px 0; } to { background-position: 260px 0; } }
-@keyframes forge-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
-@keyframes forge-glow { 0%, 100% { opacity: .5; transform: scale(1); } 50% { opacity: .85; transform: scale(1.08); } }
-@keyframes forge-spark { 0% { opacity: 0; transform: translate(0, 0) scale(1); } 10% { opacity: 1; }
-  100% { opacity: 0; transform: translate(var(--dx, -46px), var(--dy, -40px)) scale(.3); } }
-@media (prefers-reduced-motion: reduce) {
-  html:not([data-motion-override]) :is(.forge-wolf svg, .forge-fill, .forge-dot, .forge-glow, .forge-sparks i) { animation: none; transition: none; }
-  html:not([data-motion-override]) .forge-sparks { display: none; }
-}
-@media (max-width: 900px) { .forge-band { grid-template-columns: 1fr; } .forge-scene { display: none; } }
+.forge-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.page .forge-more { font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { html:not([data-motion-override]) .forge-fill { transition: none; } }
 /* Narrow windows: the counts go two by two and a lane stacks its time under its status. */
 @media (max-width: 600px) {
   .forge-stat { flex: 1 1 45%; }
@@ -3361,7 +3332,7 @@ html[data-motion-paused="on"] :is(.forge-wolf svg, .forge-fill.sheen, .forge-dot
   .forge-lane { grid-template-columns: 1fr; gap: 4px; }
   .forge-time { flex-direction: row; gap: 6px; text-align: left; }
 }
-@media (forced-colors: active) { .forge-band { background: Canvas; border-color: CanvasText; } .forge-art, .forge-glow, .forge-sparks { display: none; } }
+@media (forced-colors: active) { .forge-band, .forge-lane { border-color: CanvasText; } }
 /* A short window (under 640 px tall, such as 1280x940 at 200% zoom): the rail shows icons only, closer together,
    so every item fits without scrolling. Each name stays the button's text (its accessible name) and its tooltip;
    the active stripe and the focus ring are unchanged. Home's hero becomes one strip: the welcome and its actions. */
@@ -3379,3 +3350,12 @@ html[data-motion-paused="on"] :is(.forge-wolf svg, .forge-fill.sheen, .forge-dot
   .page .home-hero-welcome { margin: 0; }
   .home-hero-actions { margin-top: 0; }
 }
+
+/* Estate X-ray: ticking findings to Optimize together, and the batch's progress */
+.xray-item .xray-pick, .xray-pickbar .xray-pick { width: 16px; height: 16px; margin: 0; flex: none; }
+.xray-pickbar { padding: 6px 2px; }
+.xray-batch { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--border-warm); border-radius: 6px; }
+.xray-batch-list { display: flex; flex-direction: column; max-height: 240px; overflow-y: auto; }
+.xray-batch-item { display: flex; align-items: flex-start; gap: 10px; padding: 5px 0; border-top: 1px solid var(--border-warm); }
+.xray-batch-item .pill-s { min-width: 120px; text-align: center; }
+.xray-batch-names { max-height: 200px; overflow-y: auto; padding: 6px 8px; border: 1px solid var(--border-warm); border-radius: 6px; }

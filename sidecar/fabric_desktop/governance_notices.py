@@ -191,7 +191,7 @@ def incident_impact(inc: dict[str, Any], found: dict[str, Any]) -> dict[str, Any
             "detail": secrets(f"Data products affected: {products}." if products else ""),
             "to": {"people": upns, "roles": []},
             "open": {"view": "incident", "tab": "detail", "target": inc["id"]},
-            "dedupe": f"incident.impact:{inc['id']}:{hashlib.sha1('|'.join(upns).encode()).hexdigest()[:12]}"}
+            "dedupe": f"incident.impact:{inc['id']}:{hashlib.sha1('|'.join(upns).encode(), usedforsecurity=False).hexdigest()[:12]}"}
 
 
 def exception_ending(exc: dict[str, Any], days_left: int) -> dict[str, Any] | None:

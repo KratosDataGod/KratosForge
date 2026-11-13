@@ -82,10 +82,8 @@ fn copy_runtime(src: &Path, dst: &Path, rel: &Path) -> Result<(), String> {
         let kind = entry.file_type().map_err(|e| format!("Could not copy the engine: {e}"))?;
         if kind.is_dir() {
             copy_runtime(src, dst, &rel)?;
-        } else if kind.is_file() {
-            if std::fs::hard_link(src.join(&rel), dst.join(&rel)).is_err() {
-                std::fs::copy(src.join(&rel), dst.join(&rel)).map_err(|e| format!("Could not copy the engine: {e}"))?;
-            }
+        } else if kind.is_file() && std::fs::hard_link(src.join(&rel), dst.join(&rel)).is_err() {
+            std::fs::copy(src.join(&rel), dst.join(&rel)).map_err(|e| format!("Could not copy the engine: {e}"))?;
         }
     }
     Ok(())

@@ -1,6 +1,6 @@
-// Monitor > Runs, the Forge Activity view (Preview, forge-activity.js, LX-05): today's counts in the
-// header, a lane for each of the three most recent running runs with only real progress, the band
-// on by default from Heroic, the outcome of a finished run once, and nothing animating in Professional.
+// Monitor > Runs, run progress (Preview, forge-activity.js, LX-05): today's counts in the header, a
+// plain panel with a lane for each of the three most recent running runs with only real progress, on
+// by default at every motion level, with no art and nothing animating.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
@@ -54,7 +54,7 @@ async function open() {
   await page().locator(".forge-strip").waitFor({ timeout: 10000 });
 }
 
-test("the strip counts today's runs and the band is on by default at Heroic, with lanes for the three newest", { skip }, async () => {
+test("the strip counts today's runs and the panel is on by default, with lanes for the three newest and no art", { skip }, async () => {
   meta = [...RUNNING_META, ...DONE_META];
   cloud = FABRIC_RUNNING;
   await open();
@@ -63,10 +63,12 @@ test("the strip counts today's runs and the band is on by default at Heroic, wit
   assert.match(strip, /Succeeded today\s*1/);
   assert.match(strip, /Failed today\s*1/);
   assert.match(strip, /Ran on this PC \(24 h\)\s*5 of 6/);
-  assert.ok(await page().getByRole("checkbox", { name: "Forge view" }).isChecked());
+  assert.ok(await page().getByRole("checkbox", { name: "Run progress" }).isChecked());
   const band = page().locator(".forge-band");
   assert.strictEqual(await band.getAttribute("data-state"), "active");
-  assert.match(await band.locator(".forge-title").innerText(), /THE FORGE IS ACTIVE/);
+  assert.strictEqual(await band.locator(".forge-title").innerText(), "Running");
+  // A data panel: no picture, no forge scene, nothing laid over it.
+  assert.strictEqual(await band.locator("img, .forge-scene, .forge-anvil, .forge-glow, .forge-sparks, .forge-wolf").count(), 0);
   const lanes = band.locator(".forge-lane");
   assert.strictEqual(await lanes.count(), 3);
   assert.match(await lanes.nth(0).innerText(), /bronze\.orders[\s\S]*Running, total not known yet/);
@@ -81,7 +83,7 @@ test("the strip counts today's runs and the band is on by default at Heroic, wit
   assert.deepStrictEqual(app.errors, []);
 });
 
-test("Run all on this PC shows cell N of M with a bar that follows the cells, and the wolf at Heroic", { skip }, async () => {
+test("Run all on this PC shows cell N of M with a bar that follows the cells, and how it ended", { skip }, async () => {
   meta = [];
   cloud = [];
   await page().evaluate(() => {
@@ -93,55 +95,50 @@ test("Run all on this PC shows cell N of M with a bar that follows the cells, an
   const bar = lane.getByRole("progressbar");
   assert.strictEqual(await bar.getAttribute("aria-valuenow"), "3");
   assert.strictEqual(await bar.getAttribute("aria-valuemax"), "6");
-  assert.ok(await lane.locator(".forge-wolf").isVisible(), "no wolf at Heroic");
   await page().evaluate(() => { openNotebooks.get("TPC-H data").forgeRun.done = 4; });
   await page().waitForFunction(() => /cell 5 of 6/.test(document.querySelector(".forge-lane.steps").textContent));
   assert.strictEqual(await bar.getAttribute("aria-valuenow"), "4");
   assert.match(await page().locator(".forge-strip").innerText(), /Running now\s*1/);
-  // It finishes: the band shows the outcome and the anvil strikes once.
+  // It finishes: the panel shows the outcome in words.
   await page().evaluate(() => Object.assign(openNotebooks.get("TPC-H data").forgeRun, { done: 6, result: "ok", ended: Date.now() }));
   await page().waitForFunction(() => document.querySelector(".forge-band")?.dataset.state === "done");
-  assert.match(await page().locator(".forge-band").innerText(), /FORGED CLEAN[\s\S]*Succeeded, 6 cells/);
-  await page().waitForFunction(() => (motionDiagnostics().events["forge.run.succeeded"] || 0) === 1);
-  await open();  // drawn again: it doesn't strike twice
-  assert.strictEqual(await page().evaluate(() => motionDiagnostics().events["forge.run.succeeded"]), 1);
+  assert.match(await page().locator(".forge-band").innerText(), /Last run succeeded[\s\S]*Succeeded, 6 cells/);
   await page().evaluate(() => openNotebooks.delete("TPC-H data"));
-  // A Run all seen running that fails at cell 3 of 4: its bar stops where it did, and the ember plays once.
+  // A Run all that fails at cell 3 of 4: its bar stops where it did.
   await page().evaluate(() => openNotebooks.set("Gold", { name: "Gold", cells: [], forgeRun: { done: 1, total: 4, started: Date.now() - 5000, result: null, ended: null } }));
   await open();
   await page().evaluate(() => Object.assign(openNotebooks.get("Gold").forgeRun, { done: 2, result: "failed", ended: Date.now() }));
   await page().waitForFunction(() => document.querySelector(".forge-band")?.dataset.state === "failed");
   assert.match(await page().locator(".forge-band").innerText(), /Failed at cell 3 of 4/);
   assert.strictEqual(await page().locator(".forge-band .forge-fill").getAttribute("style"), "width: 50%;");
-  await page().waitForFunction(() => (motionDiagnostics().events["forge.run.failed"] || 0) === 1);
   await page().evaluate(() => openNotebooks.delete("Gold"));
   assert.deepStrictEqual(app.errors, []);
 });
 
-test("a failure cools the forge without a made-up bar, never replays on opening, and is quiet with nothing recent", { skip }, async () => {
+test("a failure shows without a made-up bar, plays no effect, and nothing running says so", { skip }, async () => {
   meta = [{ ...DONE_META[1], started_at: ago(2) }, { ...DONE_META[0], run_id: "d0", started_at: ago(6), seconds: 30 }];
   cloud = [];
   const before = await page().evaluate(() => ({ ...motionDiagnostics().events }));
   await open();
   assert.strictEqual(await page().locator(".forge-band").getAttribute("data-state"), "failed");
-  assert.match(await page().locator(".forge-band").innerText(), /THE FORGE COOLED[\s\S]*Failed: table not found/);
+  assert.match(await page().locator(".forge-band").innerText(), /Last run failed[\s\S]*Failed: table not found/);
   assert.strictEqual(await page().locator(".forge-band .forge-bar").count(), 0, "a failed run with no count drew a bar");
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "forge-activity-failed.png") });
-  // Both ended before this session saw them running: opening Monitor plays nothing.
+  // Run outcomes play no motion effect here.
   await page().evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   const after = await page().evaluate(() => ({ ...motionDiagnostics().events }));
-  for (const name of ["forge.run.failed", "forge.run.succeeded"]) assert.strictEqual(after[name] || 0, before[name] || 0, `${name} replayed`);
-  // The forge is at rest: nothing ticks.
-  assert.strictEqual(await page().evaluate(() => forgeActivity.timer), 0, "the band ticks at rest");
+  assert.deepStrictEqual(after, before, "showing a run outcome played a motion effect");
+  // Nothing runs: nothing ticks.
+  assert.strictEqual(await page().evaluate(() => forgeActivity.timer), 0, "the panel ticks at rest");
   meta = [{ ...DONE_META[0], started_at: ago(30) }];  // finished half an hour ago, whatever the hour
   await open();
   assert.strictEqual(await page().locator(".forge-band").getAttribute("data-state"), "idle");
-  assert.match(await page().locator(".forge-band").innerText(), /THE FORGE IS QUIET[\s\S]*Nothing is running/);
+  assert.match(await page().locator(".forge-band").innerText(), /Nothing running[\s\S]*Nothing is running/);
 });
 
-test("the switch hides the band for the session, and the strip stays", { skip }, async () => {
+test("the switch hides the panel for the session, and the strip stays", { skip }, async () => {
   await open();
-  await page().getByRole("checkbox", { name: "Forge view" }).uncheck();
+  await page().getByRole("checkbox", { name: "Run progress" }).uncheck();
   await page().waitForFunction(() => !document.querySelector(".forge-band"));
   await open();
   assert.strictEqual(await page().locator(".forge-band").count(), 0);
@@ -149,7 +146,7 @@ test("the switch hides the band for the session, and the strip stays", { skip },
   await page().evaluate(() => { forgeActivity.on = null; });
 });
 
-test("Professional keeps the text and the bar, without the wolf or any animation, and the band is off by default", { skip }, async () => {
+test("Professional shows the same panel, on by default, with the text and the bar and nothing animating", { skip }, async () => {
   level = 0;
   await page().evaluate(async () => { await loadSettings(); applyMotion(); });
   meta = [];
@@ -157,15 +154,12 @@ test("Professional keeps the text and the bar, without the wolf or any animation
     openNotebooks.set("Quiet", { name: "Quiet", cells: [], forgeRun: { done: 1, total: 4, started: Date.now(), result: null, ended: null } });
   });
   await open();
-  assert.strictEqual(await page().locator(".forge-band").count(), 0, "the band was on below Heroic");
-  await page().getByRole("checkbox", { name: "Forge view" }).check();
   const lane = page().locator(".forge-lane.steps");
   await lane.waitFor();
   assert.match(await lane.innerText(), /Running, cell 2 of 4/);
   assert.ok(await lane.getByRole("progressbar").isVisible());
-  assert.strictEqual(await lane.locator(".forge-wolf").isVisible(), false, "the wolf ran in Professional");
   const moving = await page().evaluate(() => document.getAnimations().filter((a) => a.effect?.target?.closest?.(".forge-band")).length);
-  assert.strictEqual(moving, 0, "something in the band animates in Professional");
+  assert.strictEqual(moving, 0, "something in the panel animates in Professional");
   level = 2;
   await page().evaluate(async () => { openNotebooks.delete("Quiet"); forgeActivity.on = null; await loadSettings(); applyMotion(); });
 });
@@ -176,6 +170,7 @@ test("fifty running runs still draw three lanes; the rest are in the table only"
   await open();
   assert.strictEqual(await page().locator(".forge-lane").count(), 3);
   assert.match(await page().locator(".forge-more").innerText(), /47 more running/);
-  const moving = await page().evaluate(() => new Set(document.getAnimations().map((a) => a.effect?.target?.closest?.(".forge-lane")).filter(Boolean)).size);
-  assert.ok(moving <= 3, `${moving} lanes animate`);
+  // Heroic, the most effects there are: still nothing in the panel animates.
+  const moving = await page().evaluate(() => document.getAnimations().filter((a) => a.effect?.target?.closest?.(".forge-band")).length);
+  assert.strictEqual(moving, 0, `${moving} animations in the panel at Heroic`);
 });

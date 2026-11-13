@@ -1,0 +1,114 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E02",
+  "version": 1,
+  "status": "draft",
+  "title": "Delta Lake under the hood: read a table's log, history and an earlier version",
+  "objectives": [
+    "1.1"
+  ],
+  "objective_text": "Use a Delta table's transaction log and history to find a bad change, read an earlier version, and repair the table without losing the changes that were right.",
+  "scenario": "Someone ran a bulk UPDATE meant for one product on the whole products table, so every price is 100 times too high. Since then the discontinued Teapot was deleted on purpose. Finance wants the old prices back today, and the Teapot must stay deleted.",
+  "minutes": 20,
+  "mode": "guided",
+  "class": "local_verified",
+  "adapter": "delta_lab",
+  "engine_label": "Python with delta-rs on this PC",
+  "lesson": "lesson.md",
+  "starter": "fix_prices.py",
+  "files": [
+    "products.csv"
+  ],
+  "prerequisites": [
+    "E01"
+  ],
+  "verifies": [
+    "Your script ran on this PC, found the bad version in the Delta table's history, read the version before it, and repaired the prices as a new write that keeps the delete. The table, its log and its history are real Delta Lake."
+  ],
+  "does_not_verify": [
+    "Running DESCRIBE HISTORY, VERSION AS OF or RESTORE TABLE in Databricks SQL: this used delta-rs, which reads and writes the same Delta format.",
+    "Unity Catalog managed tables and permissions, VACUUM retention on a workspace, deletion vectors or Photon."
+  ],
+  "datasets": [],
+  "expected": {
+    "table": "tables/products",
+    "rows": 4
+  },
+  "validation": [
+    {
+      "kind": "notebook_ran",
+      "pass": "Your script ran to the end.",
+      "fail": "Your script stopped with an error; read its output."
+    },
+    {
+      "kind": "config_matches",
+      "path": "out/report.json",
+      "rules": [
+        {
+          "path": "bad_version",
+          "equals": 1,
+          "why": "The history lists the UPDATE that multiplied every price."
+        },
+        {
+          "path": "operations",
+          "equals": ["WRITE", "UPDATE", "DELETE"],
+          "why": "The operations of versions 0, 1 and 2, oldest first, as the history names them."
+        },
+        {
+          "path": "versions_before_fix",
+          "equals": 3
+        }
+      ],
+      "pass": "Your report matches the table's history.",
+      "fail": "Fill the report from history(): the versions, their operations and which one went wrong."
+    },
+    {
+      "kind": "delta_table",
+      "path": "tables/products",
+      "versions_min": 4,
+      "operations": ["WRITE", "UPDATE", "DELETE", "WRITE"],
+      "operations_in_order": true,
+      "pass": "The fix is a new write after the delete, so the history shows the mistake and the repair.",
+      "fail": "Check the table's history: read the old prices from the version before the UPDATE and write them as a new version after the DELETE, not with RESTORE or another UPDATE."
+    },
+    {
+      "kind": "data_quality",
+      "path": "out/products.parquet",
+      "format": "parquet",
+      "rules": [
+        {
+          "rule": "row_count",
+          "equals": 4
+        },
+        {
+          "rule": "unique",
+          "column": "id"
+        },
+        {
+          "rule": "range",
+          "column": "price",
+          "min": 1,
+          "max": 100
+        },
+        {
+          "rule": "accepted",
+          "column": "name",
+          "values": ["Kettle", "Toaster", "Mug", "Grinder"]
+        }
+      ],
+      "pass": "Four products, the Teapot still gone, prices back to what they were.",
+      "fail": "Look at the snapshot: the Teapot should stay deleted and no price should be 100 times too high."
+    }
+  ],
+  "hints": [
+    "history() lists versions newest first. Each entry has version and operation; reverse it for oldest first.",
+    "read(deltalake.DeltaTable(TABLE, version=bad_version - 1)) gives the table as it was just before the bad UPDATE.",
+    "RESTORE would bring the Teapot back. Join the current rows to the old prices by id instead, and write the result with mode='overwrite'."
+  ],
+  "explanation": "Each change to a Delta table is one numbered commit in _delta_log, and history() (DESCRIBE HISTORY in Databricks) lists them: WRITE, then the UPDATE that went wrong, then the DELETE. Version 0 still holds the old prices, because time travel reads an earlier version from the log. Restoring version 0 would also undo the delete, so the repair takes the current rows, puts back the prices from version 0 by id, and overwrites the table as a new version. The history then reads WRITE, UPDATE, DELETE, WRITE: the mistake and its fix, with the good delete kept.",
+  "remediation": [
+    "https://docs.databricks.com/aws/en/delta/history",
+    "https://docs.databricks.com/aws/en/delta/"
+  ],
+  "reset": "Reset removes the table and the out folder and puts the starter script back; the next run rebuilds the table's three versions."
+}

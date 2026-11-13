@@ -974,6 +974,7 @@ h2.flush { margin: 0; }
 .compute-row .seg button { min-height: 28px; padding: 0 12px; }
 .env-card .compute-row > .muted-text { min-width: 56px; }
 .seg button:disabled { color: var(--muted); cursor: not-allowed; }
+.seg button.on:disabled { color: var(--on-accent); }  /* a choice set by policy still reads as chosen */
 
 /* Status and activity: environment in the top bar, the activity tray, runs shown one way */
 .env-slot { display: flex; align-items: center; gap: 8px; }
@@ -2834,6 +2835,7 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
   .pill, .pill-s, .badge, .preview-tag, .cell-head .tag { border: 1px solid CanvasText; }
   :focus-visible, .search:focus-within, .palette-input:focus-within { outline: 2px solid Highlight; }
   .avatar { border: 1px solid CanvasText; }
+  .seg button.on:disabled { color: HighlightText; }  /* a locked choice: outranks the normal-mode rule */
 }
 
 /* Home > Recent notebooks: details, Run several and items pinned to Home (home-notebooks.js) */

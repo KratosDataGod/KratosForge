@@ -2605,7 +2605,8 @@
         "app_settings.py key list",
         "docs/enterprise-install.md",
         "The three remaining allow_ switches fail closed, and a test keeps every allow_ key in RESTRICTED (#1150) on main at 0c96c9ce. The policy keys FD-105 lists (approved endpoints, execution location, updates, retention, telemetry) are still to decide",
-        "Policy key docs match what the app reads, and a test keeps them in step (#2569) on main at 6cab0dc3"
+        "Policy key docs match what the app reads, and a test keeps them in step (#2569) on main at 6cab0dc3",
+        "The product owner settled the open policy-key decisions on 2026-11-13: no general allowed_hosts filter and no \"Fabric only\" compute key (IT keeps the per-feature keys and the proxy host list); ui_color_mode gets applied through the platform skins work after a mockup. Still to land before review: ui_color_mode applied, and the audit and receipt retention keys with #2258 and #2305, which wait on the product owner's go"
       ],
       "features": [
         "FEAT-SHL-08"

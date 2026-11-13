@@ -83,7 +83,7 @@ def test_free_text_and_evidence_lose_anything_credential_shaped():
     o = r["opportunities"][0]
     o["title"] = o["title"] + " password=hunter2"
     o["recommendation"] = "Use AccountKey=abc123def456ghi789 to read it"
-    o["evidence"][0]["text"] = "sig=deadbeefdeadbeefdeadbeef&x=1 Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc"
+    o["evidence"][0]["text"] = "sig=deadbeefdeadbeefdeadbeef&x=1 Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc"  # pragma: allowlist secret (a made-up token the test checks is removed)
     rows = share.analysis_rows(r)
     blob = json.dumps(rows)
     for secret in ("hunter2", "abc123def456ghi789", "deadbeefdeadbeefdeadbeef", "eyJhbGciOiJIUzI1NiJ9"):

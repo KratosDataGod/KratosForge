@@ -59,6 +59,8 @@ New threads are started by the coordinator, one branch per thread. **Bundle** me
 | 15 | Data observability: freshness, volume and anomaly alerts (#2358) | Engine first, screen second | *Workload mgmt* | B | Bundled go; mockup for the screen |
 | 16 | Hardening without a go: mutation batches, failure paths, Windows paths, flakes | As today | *Coverage*, *Codebase*, *Warehouse*, *Enterprise readiness*, *Workload* | All | Nothing more |
 | 17 | Academy exercises and follow-ups | As today | *Academy-2* | All | Mockups as already agreed |
+| 18 | Best Practice Analyzer: bring the parked drafts #2435, #2438 and #2461 up to date, cover PB-115, prepare the live semantic-model check in kf_tenant_test | One PR per draft | *Best Practice Analyzer* | 0 to A | Chris's go given 2026-11-13. The live check needs his typed "yes, run it" |
+| 19 | TMDL to and from Apache Ossie, a full two-way conversion (PB-110) | Engine first, screen second | *TMDL and OSI conversion* | 0 to B | Chris's go given 2026-11-13; mockup for any screen; Security read on parsing model files |
 
 Dark mode (parity N60) stays out of this week unless Chris says otherwise, because it touches the standing light-shell design rule. Wave 2 rows that write to tables or open new connections (edit rows in the grid, connect to Azure SQL Database) also stay out: they need Chris's decision and a Security read first.
 
@@ -117,7 +119,8 @@ Everything that needs Chris goes on the twice-daily card roundup (09:00 and 22:0
 
 New features need Chris's **typed** go; a card tap only counts for merges and decisions. This plan asks for that go **once**, for the whole list below, with a one-paragraph scope each in its issue.
 
-- **The list:** #2360, #2362, #2361, #2363, #2359, #2358, and parity wave 1 (already approved). Each ships under Preview and passes every gate above.
+- **Already approved on 2026-11-13, so not on this list:** editor parity wave 1, the Best Practice Analyzer (row 18) and TMDL to and from Ossie (row 19).
+- **The list:** #2360, #2362, #2361, #2363, #2359, #2358. Each ships under Preview and passes every gate above.
 - **Reply wanted:** a single typed reply such as "go on the week plan list", or the list minus any item he wants to leave out.
 - **When:** Monday 17:00 roundup.
 

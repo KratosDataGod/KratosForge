@@ -366,7 +366,7 @@ function renderCell(cell) {
     h("span", { class: "spacer" }),
     // One click formats this cell, as Shift+Alt+F and Format cell in ... do (nbformat.js).
     cell.type === "code" ? h("button", { class: "tool small", title: "Format this cell (Shift+Alt+F)", "data-format-cell": true,
-      onclick: () => formatCells([cell]) }, icon("code", 14), "Format") : null,
+      onclick: () => formatCells([cell]) }, icon("braces", 14), "Format") : null,
     cell.type === "code" ? h("button", { class: "tool small", title: meta.source_hidden ? "Show code" : "Hide code",
       "aria-label": meta.source_hidden ? "Show code" : "Hide code", onclick: () => setMeta(cell, "source_hidden", !meta.source_hidden) },
     icon("code", 14)) : null,

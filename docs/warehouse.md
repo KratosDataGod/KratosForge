@@ -217,6 +217,24 @@ A queryset counts as the app's only when its description is the one the app writ
 
 Monitoring sent to another workspace's Eventhouse isn't found yet: the tab looks only in the warehouse's own workspace. Not yet checked on a tenant: whether Microsoft's sign-in app gets a Kusto token (see [Permissions](permissions.md)), and the claim in `Identity` that names a person (the views try `upn`, then `unique_name`, then the object id).
 
+## Open in SSMS
+
+**Open in SSMS** in the page's toolbar starts SQL Server Management Studio on this warehouse (or SQL analytics endpoint), signed in as you with Microsoft Entra. The app reads the warehouse's SQL connection from Fabric (the same check every query uses: the server must end in `.datawarehouse.fabric.microsoft.com`) and starts SSMS with:
+
+`ssms.exe [query.sql] -S <server> -d <database> -A ActiveDirectoryInteractive [-U <you>] -nosplash`
+
+KratosForge passes SSMS no password or token: SSMS signs in on its own, and may ask you to pick your account. `-U` is your sign-in name, when the app knows it, so SSMS's sign-in box starts with it. Every value is checked before it goes on the command line, and none may start with `-`, so a warehouse name can't become another SSMS switch. Nothing in Fabric changes and no capacity is used until you run something in SSMS.
+
+The arrow beside it has more:
+
+| Item | What it does |
+| --- | --- |
+| **Open in SSMS with this query** | Writes the editor's text to a `.sql` file in the app's data folder (`ssms\`) and opens it in SSMS's query window. Files there older than a day are removed the next time. |
+| **Copy server name** | Copies the warehouse's server name (its SQL connection string), to connect from any tool by hand |
+| **Open in VS Code (MSSQL extension)** | Opens VS Code's [MSSQL extension](https://learn.microsoft.com/sql/tools/visual-studio-code-extensions/mssql/mssql-extension-visual-studio-code) connected to the warehouse with Microsoft Entra MFA (a `vscode://ms-mssql.mssql/connect` link) |
+
+The app looks for SSMS 22, then SSMS 21, where they install by default (`C:\Program Files\Microsoft SQL Server Management Studio 22\Release\Common7\IDE\SSMS.exe`). When neither is there, **SSMS isn't on this PC** shows the server name to copy, with **Get SSMS** and **Choose SSMS's folder…**: pick the folder that holds `SSMS.exe` and the app remembers it on this PC. SSMS 20 and before don't take `-A`, so choose SSMS 21 or later.
+
 ## Estimated plan
 
 **Estimated plan** in the editor's toolbar shows how Fabric would run the query, without running it. It works on a warehouse or SQL analytics endpoint, for one statement that reads (the same check as a run that reads); a change has no plan here.

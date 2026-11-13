@@ -23,6 +23,7 @@ mod policy_file;
 mod policy_trust;
 mod replies;
 mod signature;
+mod ssms_link;
 mod update_guard;
 mod vscode_link;
 mod watchdog;
@@ -2611,6 +2612,63 @@ fn open_in_vscode(path: String, insiders: bool) -> Result<(), String> {
     open_with_handler(&link, if insiders { "VS Code Insiders. Is it installed?" } else { "VS Code. Is it installed?" })
 }
 
+/// Open in SSMS on the Warehouse page: where SSMS is. `chosen` is a folder or ssms.exe the person
+/// picked earlier ("Choose SSMS's folder…"), used when it still holds SSMS; otherwise SSMS 22, then
+/// 21, where they install by default. None when neither is found.
+#[tauri::command]
+fn ssms_find(chosen: Option<String>) -> Option<String> {
+    if let Some(c) = chosen.filter(|c| vscode_link::may_look_at(c)) {
+        let p = PathBuf::from(&c);
+        let exe = if p.is_dir() { p.join("SSMS.exe") } else { p };
+        if ssms_link::named_ssms(&exe) && exe.is_file() {
+            return exe.to_str().map(String::from);
+        }
+    }
+    let pf = std::env::var_os("ProgramFiles").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Program Files"));
+    ssms_link::candidates(&pf).into_iter().find(|p| p.is_file()).and_then(|p| p.to_str().map(String::from))
+}
+
+/// Opens SSMS on a warehouse, signed in with Microsoft Entra (ssms_link.rs). `exe` must be an
+/// ssms.exe on a drive of this PC; `query`, when given, is written to a .sql file in the app's data
+/// folder (ssms\) and opened in a query window. Files there older than a day are removed first.
+#[tauri::command]
+fn open_in_ssms(exe: String, server: String, database: String, user: String, query: Option<String>) -> Result<(), String> {
+    let program = PathBuf::from(&exe);
+    if !vscode_link::may_look_at(&exe) || !ssms_link::named_ssms(&program) || !program.is_file() {
+        return Err(format!("Not SSMS on this PC: {exe}"));
+    }
+    let file = match query.filter(|q| !q.trim().is_empty()) {
+        None => None,
+        Some(q) if q.len() > ssms_link::QUERY_MAX => return Err("The query is too long to hand to SSMS.".into()),
+        Some(q) => {
+            let dir = data_dir().join("ssms");
+            std::fs::create_dir_all(&dir).map_err(|e| format!("Could not save the query for SSMS: {e}"))?;
+            let day = std::time::Duration::from_secs(24 * 3600);
+            for old in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let stale = old.metadata().and_then(|m| m.modified()).ok()
+                    .and_then(|t| t.elapsed().ok()).is_some_and(|age| age > day);
+                if stale && old.path().extension().is_some_and(|e| e == "sql") {
+                    let _ = std::fs::remove_file(old.path());
+                }
+            }
+            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+            let path = dir.join(ssms_link::query_file_name(&database, stamp));
+            std::fs::write(&path, q).map_err(|e| format!("Could not save the query for SSMS: {e}"))?;
+            Some(path)
+        }
+    };
+    let args = ssms_link::args(&server, &database, &user, file.as_deref())?;
+    Command::new(&program).args(&args).spawn().map(|_| ()).map_err(|e| format!("Could not open SSMS: {e}"))
+}
+
+/// "Open in VS Code (MSSQL extension)" on the Warehouse page: VS Code's MSSQL extension, connected
+/// to the warehouse with Microsoft Entra (ssms_link::mssql_link).
+#[tauri::command]
+fn open_in_mssql(server: String, database: String, user: String) -> Result<(), String> {
+    let link = ssms_link::mssql_link(&server, &database, &user)?;
+    open_with_handler(&link, "VS Code. Is it installed, with the MSSQL extension?")
+}
+
 /// The folders Open in VS Code may open: the app's notebooks folder and the repositories opened
 /// in Source control (git_repos.json, as git_service.py keeps it).
 fn notebook_folders() -> Vec<PathBuf> {
@@ -2857,7 +2915,7 @@ fn main() {
         .on_window_event(on_window_event)
         .invoke_handler(guarded(tauri::generate_handler![
             rpc, stop_kernel, check_components, confirm_started, check_for_update, update_sidecar, update_app,
-            fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link, pick_folder,
+            fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, ssms_find, open_in_ssms, open_in_mssql, take_pending_link, pick_folder,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ]))
         .run(tauri::generate_context!())

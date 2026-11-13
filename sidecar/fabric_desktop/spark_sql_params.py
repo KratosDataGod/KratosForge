@@ -26,7 +26,8 @@ from typing import Any, Callable
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # A character right before ':' that makes it part of a path or cast (col:field, x::int), not a marker.
 _PATH_BEFORE = re.compile(r"[A-Za-z0-9_`\])\"'.:]")
-_PLAIN_COLUMN = re.compile(r'^(?:[A-Za-z_]\w*\.)?([A-Za-z_]\w*|"(?:[^"]|"")+")$')
+_COLUMN_PART = r'(?:[A-Za-z_]\w*|"(?:[^"]|"")+")'
+_PLAIN_COLUMN = re.compile(rf'^(?:{_COLUMN_PART}\.)*({_COLUMN_PART})$')  # DuckDB may quote the relation: "unnamed_relation_1"."c"
 
 
 def literal(value: Any, where: str) -> str:

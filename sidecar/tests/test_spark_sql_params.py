@@ -86,3 +86,13 @@ def test_a_parameter_that_cant_be_bound_is_a_plain_error(spark, query, args, mes
                                    "SELECT \"x:y\""])
 def test_paths_casts_and_quoted_names_are_not_markers(query):
     assert spark_sql_params._markers(query) == []
+
+
+@pytest.mark.parametrize("text, name", [
+    ('"unnamed_relation_1a2b"."region"', "region"), ("t.region", "region"), ('"we""ird"', 'we"ird')])
+def test_a_qualified_column_kwarg_is_its_name_however_duckdb_writes_it(text, name):
+    class Col:
+        expr = text
+    written = spark_sql_params.format_query("SELECT {c}", {"c": Col()}, lambda df, view: None,
+                                            lambda v: False, lambda v: isinstance(v, Col))
+    assert written == f"SELECT `{name}`"

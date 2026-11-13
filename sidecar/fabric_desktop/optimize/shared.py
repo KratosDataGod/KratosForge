@@ -98,6 +98,11 @@ def _after(previous: str | None) -> str:
     return timestamp(at)
 
 
+def _clean(text: Any) -> Any:
+    """Free text as everyone who reads the lakehouse will see it: anything credential-shaped removed."""
+    return redact.secrets(text) if isinstance(text, str) and text else text
+
+
 def recommendation_id(fp: str, kind: str) -> str:
     return record_id("recommendation", fp, kind)
 
@@ -174,8 +179,8 @@ class Shared:
                 raise ValueError(f"Severity must be one of {', '.join(SEVERITIES)}, not {severity}.")
             found.append({"record_id": record_id("observation", fp, run_key), "fingerprint": fp,
                           "rule_id": f["rule_id"], "rule_version": f.get("rule_version"), "artifact_key": key,
-                          "target": f.get("target") or "", "severity": severity, "title": f.get("title"),
-                          "detail": f.get("detail"), "evidence": f.get("evidence"), "run_id": run_key,
+                          "target": f.get("target") or "", "severity": severity, "title": _clean(f.get("title")),
+                          "detail": _clean(f.get("detail")), "evidence": _clean(f.get("evidence")), "run_id": run_key,
                           "observed_at": observed})
         fps = {r["fingerprint"] for r in found}
         recs = []
@@ -191,8 +196,8 @@ class Shared:
             # One "opened" event per recommendation, whichever PC sees it first; seeing it again,
             # even after it was dismissed, adds nothing.
             recs.append({"record_id": record_id("recommendation-opened", rid), "recommendation_id": rid,
-                         "fingerprint": fp, "kind": kind, "state": OPEN, "reason": r.get("reason"),
-                         "impact": r.get("impact"), "effort": r.get("effort"), "confidence": r.get("confidence"),
+                         "fingerprint": fp, "kind": kind, "state": OPEN, "reason": _clean(r.get("reason")),
+                         "impact": _clean(r.get("impact")), "effort": r.get("effort"), "confidence": r.get("confidence"),
                          "at": observed})
         self._write("artifacts", arts)
         self._write("findings", found)

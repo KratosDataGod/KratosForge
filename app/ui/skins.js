@@ -98,24 +98,29 @@ function skinRailLabel(f) {
   return currentSkin()?.workflow?.labels?.[f.id] || f.rail.label;
 }
 
-// Settings > Appearance > Skin: one radio per skin, as a card with a small picture of its colors.
+// Settings > Appearance > Skin: one radio per skin, as a card with a small picture of its look: its
+// colors, and its header, rail, corners, tabs, cells and typeface (appearance.style, the same fixed
+// choices styles.css draws on the page).
 function skinChooser(locked) {
   const list = skinState.list || [];
   if (list.length < 2 || !PREVIEW_FEATURES.skins) return null;
   const now = currentSkin()?.id;
   const card = (skin) => {
     const t = { ...SKIN_PREVIEW_BASE, ...(skin.appearance?.tokens?.light || {}) };
+    const look = { ...SKIN_STYLE_DEFAULTS, ...(skin.appearance?.style || {}) };
     const on = skin.id === now;
     // Colors go in through style.setProperty, one checked value at a time, never as CSS text.
-    const paint = (el, props) => { for (const [prop, token] of props) el.style.setProperty(prop, t[token]); return el; };
-    return h("label", { class: `skin-card${on ? " selected" : ""}` },
-      paint(h("span", { class: "skin-thumb", "aria-hidden": "true" },
-        paint(h("span", { class: "skin-thumb-rail" }), [["background-color", "--surface"], ["border-color", "--border"]]),
+    const thumb = h("span", { class: "skin-thumb", "aria-hidden": "true" },
+      h("span", { class: "skin-thumb-head" }, h("span", { class: "skin-thumb-type" }, "Aa")),
+      h("span", { class: "skin-thumb-main" },
+        h("span", { class: "skin-thumb-rail" }, h("i", {}), h("i", { class: "on" }), h("i", {})),
         h("span", { class: "skin-thumb-body" },
-          paint(h("span", { class: "skin-thumb-bar" }), [["background-color", "--accent"]]),
-          paint(h("span", { class: "skin-thumb-line" }), [["background-color", "--border"]]),
-          paint(h("span", { class: "skin-thumb-line" }), [["background-color", "--border"]]))),
-        [["background-color", "--canvas"], ["border-color", "--border"]]),
+          h("span", { class: "skin-thumb-tabs" }, h("i", { class: "on" }), h("i", {}), h("i", {})),
+          h("span", { class: "skin-thumb-cell" }, h("i", {}), h("i", {})))));
+    for (const name of ["--canvas", "--surface", "--border", "--accent", "--on-accent"]) thumb.style.setProperty(`--thumb${name.slice(1)}`, t[name]);
+    for (const part of ["font", "header", "rail", "corners", "tabs", "cells"]) thumb.dataset[part] = look[part];
+    return h("label", { class: `skin-card${on ? " selected" : ""}` },
+      thumb,
       h("span", { class: "skin-name" },
         h("input", { type: "radio", name: "ui_skin", value: skin.id, checked: on ? true : null, disabled: locked("ui_skin") ? true : null,
           // Redraw either way: after a failed save the radios go back to the skin still in force.
@@ -130,4 +135,5 @@ function skinChooser(locked) {
 }
 
 // The KratosForge skin's colors, for the pictures of skins that set only some tokens.
-const SKIN_PREVIEW_BASE = { "--canvas": "#f3f2f1", "--surface": "#ffffff", "--border": "#e0e0e0", "--accent": "#1b3664" };
+const SKIN_PREVIEW_BASE = { "--canvas": "#f3f2f1", "--surface": "#ffffff", "--border": "#e0e0e0", "--accent": "#1b3664",
+  "--on-accent": "#ffffff" };

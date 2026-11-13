@@ -120,6 +120,9 @@ What each choice draws so far:
   always shows the header bar. `rounded` uses large corners and a soft ring. In every style, a cell being edited
   keeps KratosForge's orange edge, so edit and command mode still look different.
 
+In Settings > Appearance, each skin's card shows a small picture of its look: its colors, header, rail,
+corners, tabs, cells and typeface, drawn from the same choices.
+
 The look is Preview: with Preview features hidden in Settings, every skin draws the app's own look.
 
 The choices are plain platform looks. None adds art or game styling to controls, the rail, the app bar,

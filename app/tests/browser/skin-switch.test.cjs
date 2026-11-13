@@ -69,6 +69,31 @@ test("the skin cards have no serious axe findings", { skip: skip || (!axeSource 
   assert.deepStrictEqual(await axeFindings(page(), ".skin-chooser"), []);
 });
 
+test("each skin card's picture draws that skin's own look: header, rail, corners, tabs, cells and type", { skip }, async () => {
+  const thumbs = () => page().evaluate(() => Object.fromEntries([...document.querySelectorAll(".skin-card")].map((card) => {
+    const t = card.querySelector(".skin-thumb");
+    const cs = (sel) => getComputedStyle(t.querySelector(sel));
+    return [card.querySelector("input").value, { ...t.dataset, head: cs(".skin-thumb-head").backgroundColor,
+      railW: Math.round(t.querySelector(".skin-thumb-rail").getBoundingClientRect().width), type: cs(".skin-thumb-type").fontFamily.split(",")[0].replace(/"/g, "") }];
+  })));
+  await page().evaluate(() => go("settings"));
+  await chooser().getByRole("radio", { name: "KratosForge" }).waitFor();
+  const all = await thumbs();
+  const look = (id) => { const { font, header, rail, corners, tabs, cells } = all[id]; return [font, header, rail, corners, tabs, cells]; };
+  assert.deepStrictEqual(look("kratosforge"), ["segoe-variable", "light", "stacked", "soft", "underline", "bordered"]);
+  assert.deepStrictEqual(look("databricks"), ["dm-sans", "light", "inline", "square", "boxed", "flat"]);
+  assert.deepStrictEqual(look("snowflake"), ["inter", "none", "inline", "round", "pill", "rounded"]);
+  assert.deepStrictEqual(look("fabric"), ["segoe", "brand", "stacked", "soft", "underline", "card"]);
+  // Drawn, not only marked: Fabric's brand header is its accent, a wide rail is wider, and the type is the skin's.
+  assert.strictEqual(all.fabric.head, "rgb(15, 108, 92)");
+  assert.strictEqual(all.kratosforge.head, "rgb(255, 255, 255)");
+  assert.ok(all.databricks.railW > all.kratosforge.railW * 2, `${all.databricks.railW} vs ${all.kratosforge.railW}`);
+  assert.strictEqual(all.databricks.type, "DM Sans");
+  assert.strictEqual(all.snowflake.type, "Inter");
+  if (SHOTS) await page().locator(".skin-chooser").screenshot({ path: path.join(SHOTS, "skin-picker.png") });
+  assert.deepStrictEqual(app.errors, []);
+});
+
 test("a save that fails leaves the skin in force checked", { skip }, async () => {
   await page().evaluate(() => { window.__realSave = saveSettings; saveSettings = async () => false; });
   await chooser().getByRole("radio", { name: "KratosForge" }).click();

@@ -77,6 +77,12 @@ def test_unreadable_text_colors_are_refused():
     assert any("--muted on --surface" in p for p in _problems(_skin(appearance={"tokens": {"light": {"--surface": "#888888"}}})))
 
 
+def test_a_brand_bar_search_box_must_stay_readable():
+    # A brand header puts --on-accent text on --accent-dark (the search box), so that pair is checked too.
+    probs = _problems(_skin(appearance={"tokens": {"light": {"--accent-dark": "#d0d0d0"}}}))
+    assert any("--on-accent on --accent-dark has contrast" in p for p in probs)
+
+
 def test_contrast_matches_wcag():
     assert round(skins.contrast("#000", "#fff"), 1) == 21.0
     assert round(skins.contrast("#767676", "#ffffff"), 2) == 4.54

@@ -196,6 +196,10 @@ function reportProblem() {
 
 // A zip for whoever is helping: the engine writes it (support_bundle.py) with every file redacted, to a
 // folder the person picks. Nothing is sent from the app.
+// What a bundle keeps on purpose, and where it should go (Chris, 2026-11-13): the same sentence is in
+// CONTENTS.txt (support_bundle.KEPT), kept in step by a test.
+const BUNDLE_KEPT = "Workspace, lakehouse, warehouse, table and notebook names, and the SQL that ran. "
+  + "Send the bundle to your IT or support contact, not to a public forum or GitHub issue.";
 const BUNDLE_FILES = {
   "about.json": "App and engine build, Python, Windows version, and where each setting comes from",
   "sidecar.log": "The last 2,000 lines of the engine's log",
@@ -269,12 +273,14 @@ async function saveSupportBundle() {
       h("li", {}, "Tenant, workspace and item ids"),
       h("li", {}, "Settings that hold a secret, such as a connection string, show only whether they're set")),
     h("p", { class: "muted-text small" }, "No table data, notebook contents or sign-in cache is read."),
+    h("h3", {}, "Kept, so whoever helps can find the problem"),
+    h("p", {}, BUNDLE_KEPT),
     h("div", {}, toggle), contents,
     h("h3", {}, "Where it's saved"),
     h("label", { class: "field", for: "sb-folder" }, "Folder"),
     h("div", { class: "row" }, folder, window.__TAURI__?.core ? choose : null),
     h("p", { class: "muted-text small" }, "Saved as ", h("span", { class: "mono" }, "fabric-desktop-support-….zip"),
-      ". Read it before you send it on: logs can name your notebooks and warehouses."),
+      "."),
     problem),
   [btn("Cancel", null, closeDialog, "tool outline"), save]);
 }

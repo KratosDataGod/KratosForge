@@ -105,18 +105,23 @@ What each choice draws so far:
   makes them 2, 3 and 4 px, and `round` makes them 6, 8 and 12 px. Pills stay pills.
 - **icons:** the app's icons are filled shapes. `bold` traces their edge so they read heavier. `regular`
   and `light` draw them as they are.
-
 - **rail:** `stacked` is KratosForge's narrow rail. `inline` is a wide rail, 208 px, with each label beside
   its icon. In a window narrower than 1000 px, such as when zoomed in, it draws as stacked so the page keeps
   its room, and in a window shorter than 640 px it shows icons only, like the app's own rail.
 - **header:** `light` is KratosForge's white bar. `brand` fills the bar with the skin's accent. The bar's
   text and buttons turn to `--on-accent`, and the search box sits on `--accent-dark`. The brand lettering
-  image is never recolored, so the bar shows the name as text instead. `none`
-  blends the bar into the canvas, without its line. The bar keeps search, the breadcrumb, Activity and
+  image is never recolored, so the bar shows the name as text instead. `none` blends the bar into the
+  canvas, without its line. The bar keeps search, the breadcrumb, Activity and
   the account in every skin.
+- **tabs:** `underline` is KratosForge's. `boxed` raises the chosen tab like a file tab on the line below
+  it. `pill` fills the chosen tab as a pill, with no line under the row.
+- **cells:** `bordered` is KratosForge's, with an accent edge on the chosen cell. `card` gives cells a
+  soft border, larger corners and an accent ring when chosen. `flat` uses the skin's smallest corners and
+  always shows the header bar. `rounded` uses large corners and a soft ring. In every style, a cell being edited
+  keeps KratosForge's orange edge, so edit and command mode still look different.
 
-The other parts (tabs, cells) are marked on the page but not drawn yet. They come in the next Preview
-changes.
+In Settings > Appearance, each skin's card shows a small picture of its look: its colors, header, rail,
+corners, tabs, cells and typeface, drawn from the same choices.
 
 The look is Preview: with Preview features hidden in Settings, every skin draws the app's own look.
 

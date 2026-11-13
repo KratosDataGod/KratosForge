@@ -81,6 +81,11 @@ Keys:
                      (replay.py), so a bundle never holds lakehouse data (default true)
     allowed_tenants  IT only: Microsoft Entra tenant ids people may sign in to; any other account is
                      signed out again (default: any)
+    audit_retention_days  IT only: days the audit trails on this PC (the app's, external AI tools' and
+                     an agent's) are kept; whole months older than this are deleted, each cleanup
+                     recorded first. 0 (default) keeps them; otherwise at least 30
+    receipt_retention_days  IT only: days run receipts are kept; 0 (default) keeps them; otherwise
+                     at least 30
     local_retention_days  IT only: local copies of lakehouse data (file previews, staged writes, the
                      metadata framework's download cache, replay bundle copies) are deleted after this
                      many days unused;
@@ -160,6 +165,7 @@ CHANNELS = ("stable", "preview")
 DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable", "show_preview": True, "support_url": "",
                             "platform": {}, "kernel_process": False, "auto_update": True, "allow_fabric_runs": True,
                             "allow_replay_samples": True, "allowed_tenants": [], "local_retention_days": 30, "telemetry": False,
+                            "audit_retention_days": 0, "receipt_retention_days": 0,
                             "telemetry_connection_string": "",
                             "cell_time_limit_minutes": 0, "kernel_memory_limit_gb": 0,
                             "kernel_max_sessions": 5, "kernel_idle_minutes": 0,
@@ -170,6 +176,7 @@ TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "
                                             "allow_fabric_runs": bool, "allow_replay_samples": bool,
                                             "allowed_tenants": list,
                                             "local_retention_days": int, "telemetry": bool,
+                                            "audit_retention_days": int, "receipt_retention_days": int,
                                             "telemetry_connection_string": str,
                                             "cell_time_limit_minutes": (int, float), "kernel_memory_limit_gb": (int, float),
                                             "kernel_max_sessions": (int, float), "kernel_idle_minutes": (int, float),
@@ -270,7 +277,7 @@ INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integration
                     "integrations_editors", "receipt_redactions")
 # Read only by the shell (main.rs), which applies them itself; listed so the file has one list of
 # settings and policy_problems() can say what the shell will skip.
-SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_download_url")
+SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_download_url", "engine_folder")
 # Read by appstudio/policy.py: what App Studio may send to AI models (connections, providers, hosts, sample rows).
 APPSTUDIO_KEYS = ("appstudio_models", "appstudio_providers", "appstudio_hosts", "appstudio_sample_rows")
 POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *APPSTUDIO_KEYS, *SHELL_KEYS)
@@ -450,6 +457,8 @@ def policy_problems() -> list[str]:
             problems.extend(_sign_in_host_problems(value))
         elif key == "engine_download_url":
             problems.extend(_engine_url_problems(value, data.get("auto_update")))
+        elif key == "engine_folder":
+            problems.extend(_engine_folder_problems(value, data.get("auto_update")))
         elif key == "notebook_package_folder" and isinstance(value, str) and value:
             why = package_folder_problem(value)
             if why:
@@ -475,6 +484,8 @@ def policy_problems() -> list[str]:
             problems.append("client_id isn't an app (client) ID")
         elif key == "ui_skin" and not _skin_id(value):
             problems.append("ui_skin must be a skin id: lower-case letters, digits or hyphens")
+        elif key in ("audit_retention_days", "receipt_retention_days") and value != 0 and value < 30:
+            problems.append(f"{key} is 0 (keep them) or at least 30 days")
         elif key == "local_retention_days" and value < 0:
             problems.append("local_retention_days can't be negative (0 keeps local copies)")
         elif key in LIMITS and not 0 <= value <= LIMITS[key]:
@@ -543,6 +554,21 @@ def _engine_url_problems(value: Any, auto_update: Any) -> list[str]:
     return []
 
 
+def _engine_folder_problems(value: Any, auto_update: Any) -> list[str]:
+    """What the shell refuses in engine_folder (Preview; it reads the key and checks the folder's
+    permissions itself, engine_folder.rs). The app then doesn't start its engine, so say why here too."""
+    text = value.strip() if isinstance(value, str) else ""
+    parts = text.split("\\")
+    if not (len(text) >= 3 and text[0].isascii() and text[0].isalpha() and text[1:3] == ":\\"
+            and "/" not in text and not any(p in (".", "..") for p in parts)
+            and not any(ord(c) < 32 or ord(c) == 127 for c in text)):
+        return [(f"engine_folder: {json.dumps(value)} isn't a full folder path on this PC like "
+                 "C:\\Program Files\\KratosForge\\engine, so the engine can't start until it's fixed")]
+    if auto_update is not False:
+        return ['engine_folder is used only with "auto_update": false, so the engine can\'t start until that is set']
+    return []
+
+
 def user_can_change(path: Path) -> bool:
     """Whether the account running the app can change or replace ``path``: write it, delete it, or
     take over its permissions or its folder's (the folder's owner can do all of these). An
@@ -602,6 +628,8 @@ def _typed(key: str, value: Any) -> bool:
 def _in_range(key: str, value: Any) -> bool:
     if key == "local_retention_days":
         return value >= 0
+    if key in ("audit_retention_days", "receipt_retention_days"):
+        return value == 0 or value >= 30
     if key in LIMITS:
         return 0 <= value <= LIMITS[key]
     if key == "motion_level":

@@ -570,7 +570,7 @@ function sqlEditorHelpers() {
   const code = src.slice(0, src.indexOf("// ---------- the editor ----------"));
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { SQL_DIALECTS, SQL_WORDS, sqlDialect, sqlQuoteIdent, sqlTableName,
-    sqlMask, sqlStatementAt, sqlTableRefs, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
+    sqlMask, sqlStatementAt, sqlRunnableStatementAt, sqlTableRefs, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
     sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics });`, ctx);
   return ctx;
 }
@@ -612,6 +612,25 @@ test("strings and comments are not SQL to complete in", () => {
   assert.ok(sqlMask("SELECT 'abc", 11).inert, "an unclosed string");
   assert.strictEqual(sqlStatementAt(text, 24).text, "SELECT 'a;b' -- c;d\nFROM t");
   assert.strictEqual(sqlStatementAt(text, 30).text, " SELECT 2 /* x; */");
+});
+
+test("Ctrl+Shift+Enter finds the statement at the cursor, or the nearest one when the cursor is between statements", () => {
+  const { sqlRunnableStatementAt } = sqlEditorHelpers();
+  const text = "SELECT 1;\n\n  SELECT 'a;b' -- c;d\n  FROM t ;\n-- only a note;\nSELECT 3";
+  const at = (pos) => sqlRunnableStatementAt(text, pos)?.text;
+  assert.strictEqual(at(3), "SELECT 1");
+  assert.strictEqual(at(9), "SELECT 1", "right after the semicolon");
+  assert.strictEqual(at(11), "SELECT 'a;b' -- c;d\n  FROM t", "in the blank line before the next statement");
+  assert.strictEqual(at(text.indexOf("'a;b'") + 2), "SELECT 'a;b' -- c;d\n  FROM t", "a ; inside a string doesn't end it");
+  assert.strictEqual(at(text.indexOf("FROM t") + 8), "SELECT 'a;b' -- c;d\n  FROM t", "after the space before ;");
+  assert.strictEqual(at(text.indexOf("only")), "-- only a note;\nSELECT 3", "a ; inside a comment doesn't end it either");
+  assert.strictEqual(sqlRunnableStatementAt("SELECT 1;\n/* note */;\nSELECT 2", 13).text, "SELECT 1", "a statement that is only a comment");
+  assert.strictEqual(at(text.length), "-- only a note;\nSELECT 3", "a comment before a statement is part of it");
+  const r = sqlRunnableStatementAt(text, 3);
+  assert.deepStrictEqual([r.from, r.to], [0, 8]);
+  assert.strictEqual(sqlRunnableStatementAt("  ;\n -- x\n", 2), null);
+  assert.strictEqual(sqlRunnableStatementAt("", 0), null);
+  assert.strictEqual(sqlRunnableStatementAt(";;\nSELECT 9", 0).text, "SELECT 9", "falls forward when nothing is before");
 });
 
 test("table references are found with their aliases, across joins, comma lists, subqueries and CTEs", () => {
@@ -1730,6 +1749,10 @@ test("no raw HTML sinks in app/ui outside the reviewed list", () => {
     // sqlParsePlan(): Fabric's showplan parsed as XML ("application/xml" runs no script and loads nothing);
     // the document is never put on the page, only attribute values are read and drawn as text with h().
     `sqlplan.js: const doc = new DOMParser().parseFromString(String(xml || ""), "application/xml");`,
+    // nbfPrintNodes(): the engine's web page export (notebook_formats.to_html escapes every text and
+    // leaves HTML outputs out), parsed inert; script, style, frames, svg and every attribute but class,
+    // alt and a picture data: src are removed before its body's nodes are shown for printing.
+    `notebook-formats.js: const doc = new DOMParser().parseFromString(String(html || ""), "text/html");`,
     // Data mesh map links: path coordinates are numbers from getBoundingClientRect, and the only data
     // (project and product ids in <title>) goes through esc().
     `meshmap.js: svg.innerHTML = \`<defs><marker id="mesh-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z"/></marker></defs>\${paths.join("")}\`;`
@@ -3284,6 +3307,9 @@ test("friendlyError checks the engine first, then files on this PC, then Fabric'
     ["The Python sidecar stopped. It will restart on the next action. 404", /local engine stopped while doing this/],
     ["The Python sidecar stopped. It will restart on the next action.\nmemory allocation of 6834176 bytes failed\n2026-11-09T18:11:57Z The engine stopped after 40 seconds: it crashed with a failed security check (fail fast) (exit code 0xC0000409).", /ran out of memory, so the local engine stopped/],
     ["The Python sidecar stopped. It will restart on the next action.\n2026-11-09T18:11:57Z The engine stopped after 40 seconds: it crashed with running out of memory (exit code 0xC0000017).", /ran out of memory, so the local engine stopped/],
+    ["The Python sidecar stopped. It will restart on the next action.\nWindows fatal exception: access violation\n2026-11-11T17:48:44Z The engine stopped after 20447 seconds: KratosForge ended it (Stop or an update).\nFull log: C:\\x\\sidecar.log", /^KratosForge stopped the local engine on purpose \(Stop was pressed, or it restarted to install an update\)/],
+    ["The Python sidecar stopped. It will restart on the next action.\n2026-11-11T17:48:44Z The engine stopped after 20447 seconds: KratosForge ended it (Stop or an update).\nWindows fatal exception: access violation\n2026-11-11T18:02:10Z The engine stopped after 30 seconds: it crashed with an access violation (exit code 0xC0000005).\nFull log: C:\\x\\sidecar.log", /^The local engine stopped while doing this/],
+    ["The Python sidecar stopped. It will restart on the next action.\n2026-11-11T17:48:44Z The engine stopped after 20447 seconds: KratosForge ended it (Stop or an update).", /^KratosForge stopped the local engine on purpose/],
     ["The engine keeps stopping as it starts, so KratosForge has stopped starting it for now. The last time: 403 Forbidden", /keeps stopping as it starts, so KratosForge has stopped starting it for a few minutes/],
     ["PermissionError: [WinError 4551] Application Control policy has blocked this file", /Windows blocked part of the local engine/],
     ["FileNotFoundError: [Errno 2] No such file or directory: 'C:\\\\data\\\\sales.csv'", /^There is no file or folder at C:\\data\\sales\.csv on this PC\./],
@@ -3953,6 +3979,15 @@ test("notebook find matches every cell with case, whole word and regex, and repl
   assert.strictEqual(findMatches(cells, "a.e").matches.length, 0);  // not a regex unless asked
   assert.strictEqual(findMatches(cells, "x*", { regex: true }).matches.length, 0);  // empty matches skipped
   assert.match(findMatches(cells, "(", { regex: true }).error, /isn't a valid regular expression/);
+  // Outputs are searched only when asked: text, errors with their traceback, table rows; not images.
+  const ran = [{ type: "code", source: "print(total)", outputs: [
+    { type: "stream", text: "total 42\n" }, { type: "error", ename: "KeyError", evalue: "'total'", traceback: "line 1 in total" },
+    { type: "table", columns: ["region", "total"], rows: [["east", 1], ["west", null]] }, { type: "image", mime: "image/png", data: "total" }] }];
+  assert.strictEqual(findMatches(ran, "total").matches.length, 1);
+  const inOut = findMatches(ran, "total", { outputs: true }).matches;
+  assert.deepStrictEqual([...inOut.map((x) => x.output ?? "src")], ["src", 0, 1, 1, 2]);
+  assert.strictEqual(findMatches(ran, "west", { outputs: true }).matches[0].output, 2);
+  assert.strictEqual(findMatches([{ type: "markdown", source: "", outputs: [{ type: "text", text: "x" }] }], "x", { outputs: true }).matches.length, 0);
   const [m] = findMatches(cells, "(s)ales", { regex: true, matchCase: true }).matches;
   assert.strictEqual(findReplacement(m, "(s)ales", "$1old", { regex: true, matchCase: true }), "sold");
   assert.strictEqual(findReplacement(m, "x", "$1", {}), "$1");  // plain text replacement is literal
@@ -4132,7 +4167,7 @@ this.payload = nbfExportPayload; this.menu = nbfExportMenu; this.b64 = nbfBase64
   const items = ctx.menu();
   assert.match(items[0].info, /new file in your Downloads folder\. A file already there is never replaced/);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(items.slice(1).map((i) => i.label))), ["Jupyter notebook (.ipynb)", "Jupyter notebook with outputs (.ipynb)",
-    "Fabric source (.py)", "Databricks source (.py)", "Web page (.html)"]);
+    "Fabric source (.py)", "Databricks source (.py)", "Web page (.html)", "PDF (print to PDF)"]);
   const bytes = new Uint8Array(70000).map((_, i) => i % 251);
   assert.strictEqual(ctx.b64(bytes.buffer), Buffer.from(bytes).toString("base64"));
   assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /ribbonMenu\("Share", [^\n]*btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\),[^\n]*nbfExportButton\(menu\)\]/);
@@ -5706,6 +5741,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
     "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
     "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
+    "Keep the engine in a folder only administrators can write": ["docs/enterprise-install.md", /a setting in the policy file, not a screen/],
   };
   const idOf = new Map(Object.entries(BY_ID).flatMap(([id, names]) => names.map((n) => [n, id])));
   for (const id of Object.keys(BY_ID)) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);

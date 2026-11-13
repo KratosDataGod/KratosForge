@@ -43,7 +43,9 @@ Projects are folders under this PC's KratosForge data (`appstudio/projects/<name
 
 Building and previewing use no capacity; viewing the published report uses the workspace's.
 
-## What comes next
+## Describe an app and ask for a change
 
-- **Describe an app** (the engine is ready; its screen comes next): your model gets your description and the semantic model's names, types and descriptions, never rows, and answers with a plan (pages and what each shows). KratosForge keeps only what the data and the target support, lists what it left out, and makes the app from the plan you approve. The model never writes the app itself.
-- **Ask for a change** (engine ready, screen next): your model sees the app's pages and components and the same metadata, and answers with named changes such as "show this as a column chart" or "add a card". KratosForge checks them against the data and the target, shows the result before anything is saved, and saves your approval as one step that Undo takes back.
+With a model connection, App Studio's first page has **Describe an app**, and the workspace has **Ask for a change**.
+
+- **Describe an app**: write what the app should do, choose your model, the data (sample data, or a semantic model in a workspace) and where it will run, then **Make a plan**. The page says exactly what is sent: your description and the data's names, types and descriptions, never rows. Emails, tenant and site names and ids are taken out first. Measure formulas (DAX) go only if you tick them for this request. Your model answers with a plan; KratosForge keeps only what the data and the target support and lists what it left out. Nothing is made until you press **Build it**, and you can rename the app first.
+- **Ask for a change**: say what should change. Your model sees the app's pages and components and the same names, and answers with named changes. KratosForge checks them and shows the change plan, with anything it left out. **Apply** saves it as one step that Undo takes back; **Discard** drops it. Anything the request didn't name stays exactly as it was, and a change planned before the app changed is refused.

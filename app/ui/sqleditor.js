@@ -188,6 +188,28 @@ function sqlStatementAt(text, pos) {
   return { from, to, text: text.slice(from, to), masked: masked.slice(from, to) };
 }
 
+// The statement to run for Ctrl+Shift+Enter: the one around `pos`. A cursor just after a `;` on its line
+// (spaces between are fine) runs the statement that `;` ends; one in a blank stretch, or in a statement that is
+// only comments, runs the nearest statement before it, then after it. Leading and trailing whitespace is left
+// out; null when the text has no statement at all.
+function sqlRunnableStatementAt(text, pos) {
+  const has = (st) => !!st.masked.trim();
+  const masked = sqlMask(text).text;
+  let back = pos;
+  while (back > 0 && (masked[back - 1] === " " || masked[back - 1] === "\t")) back--;
+  let stmt = sqlStatementAt(text, back > 0 && masked[back - 1] === ";" ? back - 1 : pos);
+  const start = stmt;
+  // Back one statement at a time. From 1 or less there is nothing before (a lone ";" at most).
+  while (!has(stmt) && stmt.from > 1) stmt = sqlStatementAt(text, stmt.from - 1);
+  if (!has(stmt)) stmt = start;
+  while (!has(stmt) && stmt.to < text.length) stmt = sqlStatementAt(text, stmt.to + 1);
+  if (!has(stmt)) return null;
+  const lead = stmt.text.length - stmt.text.trimStart().length;
+  const from = stmt.from + lead;
+  const to = stmt.from + stmt.text.trimEnd().length;
+  return { from, to, text: text.slice(from, to) };
+}
+
 const SQL_TOKEN = /`[^`]*`|\[[^\]]*\]|"[^"]*"|[A-Za-z_@#][\w$#@]*|\d+(?:\.\d+)?|\S/g;
 
 // The tables a statement reads or writes, with their aliases, and the CTEs it defines.
@@ -428,6 +450,31 @@ function sqlCompletionSource(provider, getDialect) {
   };
 }
 
+// Ctrl+Shift+U / Ctrl+Shift+L: each selection, or the word at a bare cursor, in upper or lower case, as one undo step.
+function sqlChangeCase(view, to) {
+  const { state } = view;
+  // Bare cursors grow to their word; ranges that then overlap or touch (two cursors in one word) are merged,
+  // so no text is changed twice.
+  const ranges = [];
+  for (const r of state.selection.ranges.map((r) => (r.empty ? state.wordAt(r.head) : r)).filter(Boolean).sort((a, b) => a.from - b.from)) {
+    const last = ranges[ranges.length - 1];
+    if (last && r.from <= last.to) last.to = Math.max(last.to, r.to);
+    else ranges.push({ from: r.from, to: r.to });
+  }
+  const changes = ranges.map((r) => {
+    const text = state.sliceDoc(r.from, r.to);
+    return { from: r.from, to: r.to, insert: to === "upper" ? text.toUpperCase() : text.toLowerCase() };
+  }).filter((c) => c.insert !== state.sliceDoc(c.from, c.to));
+  if (changes.length) view.dispatch({ changes, userEvent: "input.case" });
+  return true;
+}
+
+// Ctrl+G: CodeMirror's go-to-line box, which the search keys bind to Ctrl+Alt+G.
+function sqlGotoLine(view) {
+  const binding = CM.searchKeymap.find((k) => k.key === "Mod-Alt-g");
+  return binding ? binding.run(view) : false;
+}
+
 // CodeMirror puts its styles in a <style> element, which the CSP (style-src 'self') allows only
 // with the nonce the shell gives each page load: Tauri sets it on index.html's empty <style> and
 // adds it to the policy. Without a CSP (the browser tests) there is none and none is needed.
@@ -452,9 +499,17 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
     // F5 runs, as in SSMS: the selection when there is one, otherwise the whole query (on.run reads it).
     { key: "F5", run: () => { on.run(); return true; } },
     { key: "Mod-Enter", run: () => { on.run(); return true; } },
+    // Ctrl+Shift+Enter runs only the statement the cursor is in (the selection when there is one), as in DataGrip and Snowsight.
+    { key: "Shift-Mod-Enter", run: () => { on.runStatement?.(); return true; } },
     { key: "Mod-s", run: () => { on.save(); return true; }, preventDefault: true },
     { key: "Shift-Alt-f", run: () => { on.format(); return true; } },
     { key: "Mod-/", run: CM.toggleComment },
+    // SSMS's keys: Ctrl+R hides or shows the results, Ctrl+Shift+U and Ctrl+Shift+L change case, Ctrl+G goes to a
+    // line (CodeMirror's own go-to-line box; F3 and Shift+F3 still find the next and previous match).
+    { key: "Mod-r", run: () => { on.togglePane?.(); return true; }, preventDefault: true },
+    { key: "Shift-Mod-u", run: (v) => sqlChangeCase(v, "upper"), preventDefault: true },
+    { key: "Shift-Mod-l", run: (v) => sqlChangeCase(v, "lower"), preventDefault: true },
+    { key: "Mod-g", run: (v) => sqlGotoLine(v), preventDefault: true },
   ];
   const view = new CM.EditorView({
     state: CM.EditorState.create({
@@ -501,6 +556,12 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
     chosen: () => {
       const { from, to } = view.state.selection.main;
       return sqlChosenText(view.state.doc.toString(), from, to);
+    },
+    // The selection when there is one, otherwise the statement the cursor is in ("" when there is none).
+    statement: () => {
+      const { from, to, head } = view.state.selection.main;
+      if (to > from) return view.state.sliceDoc(from, to);
+      return sqlRunnableStatementAt(view.state.doc.toString(), head)?.text || "";
     },
     selection: () => view.state.selection.main,
     // Replace the selection with `text` and leave the cursor after it.

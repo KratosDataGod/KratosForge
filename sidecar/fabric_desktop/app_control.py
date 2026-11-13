@@ -106,10 +106,12 @@ def explain(exc: BaseException) -> str | None:
             if code == 577 or "verify the digital signature" in text.lower():
                 # Also a file that changed after it was signed: a fresh copy comes first, so a hash rule
                 # never allows a changed file. A restart alone doesn't replace the engine's files.
+                fresh = ("close KratosForge, delete the engine folder (FabricDesktop\\engine in your AppData\\Local "
+                         "folder) and start KratosForge again to download a fresh engine" if _own_engine() else
+                         "ask IT to copy this build's engine into your organization's engine folder again")
                 return (f"Windows couldn't verify the signature on {what}, so this can't run. The file may have "
-                        "been changed: close KratosForge, delete the engine folder (FabricDesktop\\engine in your "
-                        "AppData\\Local folder) and start KratosForge again to download a fresh engine, or "
-                        "reinstall the package if it's in an environment. If it's still blocked, your "
+                        f"been changed: {fresh}, or reinstall the package if it's in an environment. If it's "
+                        "still blocked, your "
                         "organization's application control (App Control for Business, also called WDAC) is "
                         "refusing it: ask IT to allow KratosForge's engine files by hash or publisher; the "
                         "enterprise install guide lists the rules (Application control).")
@@ -118,3 +120,18 @@ def explain(exc: BaseException) -> str | None:
                     "guide lists the rules (Application control).")
         cur = cur.__cause__ or cur.__context__
     return None
+
+
+def _own_engine(prefix: str | None = None) -> bool:
+    """Whether this engine is one the person can delete for a fresh copy, rather than one IT keeps in
+    the folder the engine_folder policy names, which only IT can replace."""
+    from . import app_settings  # here, not at the top: app_settings is heavier and this runs on errors only
+
+    folder = app_settings.read_policy()[0].get("engine_folder")
+    if not isinstance(folder, str) or not folder.strip():
+        return True
+    try:
+        Path(prefix or sys.prefix).resolve().relative_to(Path(folder).resolve())
+    except ValueError:
+        return True
+    return False

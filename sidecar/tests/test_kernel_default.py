@@ -17,7 +17,8 @@ pytestmark = pytest.mark.real_kernel_default
 CELLS = [
     "x = 2",
     "print(x * 21)",
-    "import duckdb\nprint(duckdb.sql('SELECT sum(range) FROM range(10)').fetchone()[0])",
+    # fetchall: DuckDB 2.0 relations have no fetchone, and CI also runs the suite on 2.0 (compat_tests.sh)
+    "import duckdb\nprint(duckdb.sql('SELECT sum(range) FROM range(10)').fetchall()[0][0])",
     "import polars as pl\ndf = pl.DataFrame({'a': [1, 2, 3]})\nprint(df['a'].sum())",
     "def f(n):\n    return n + x\nprint(f(40))",
     "1 / 0",

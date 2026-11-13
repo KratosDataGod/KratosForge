@@ -101,10 +101,10 @@ function sqlPlanView(plan) {
 function sqlLocalPlanView(plan, { busy = false, ask }) {
   const head = h("div", { class: "sql-plan-head" }, h("b", {}, "Plan"),
     h("span", { class: "muted-text" }, plan?.steps
-      ? `How DuckDB on this PC would run the query, worked out at ${timeText(plan.at)}. Nothing ran; rows are estimates.`
-      : "How DuckDB on this PC would run the query (or the selection), without running it. Profile runs it and times each step."),
+      ? `How DuckDB on this PC would run the query, worked out at ${timeText(plan.at)}. Nothing ran; rows are estimates. Opening the tables read OneLake, which uses a little capacity.`
+      : "How DuckDB on this PC would run the query (or the selection), without running it. Profile runs it and times each step. Opening the tables reads OneLake, which uses a little capacity."),
     h("span", { class: "spacer" }),
-    btn(busy ? "Working it out..." : plan?.steps ? "Show it again" : "Show the plan", "flowchart", ask, "tool small", { disabled: busy }));
+    btn(busy ? "Working it out..." : plan?.steps ? "Show the plan again" : "Show the plan", "flowchart", ask, "tool small", { disabled: busy }));
   if (!plan || busy) return h("div", { class: "sql-plan" }, head);
   if (plan.error) return h("div", { class: "sql-plan" }, head, h("div", { class: "output error" }, h("pre", {}, plan.error)));
   const ops = plan.steps.map((s) => {

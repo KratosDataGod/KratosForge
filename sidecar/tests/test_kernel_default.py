@@ -40,9 +40,10 @@ def _run(svc, notebook: str) -> list[tuple[str, str, list[str]]]:
     got = []
     for code in CELLS:
         call(svc, "start_cell", code=code, notebook=notebook)
-        snap = finish(svc, notebook)
+        snap = finish(svc, notebook, timeout=120)  # a loaded CI runner starts processes and imports slowly
         errors = [f"{o.get('ename')}: {o.get('evalue')}" for o in snap.get("outputs") or [] if o.get("type") == "error"]
         got.append((snap["status"], out(snap).strip(), errors))
+        assert snap["status"] != "running", (code, snap)
     return got
 
 
@@ -58,9 +59,10 @@ def test_a_notebook_runs_the_same_in_its_own_process_as_inside_the_engine(svc):
     call(svc, "save_app_settings", changes={"kernel_process": False})
     inside = _run(svc, "nb")
     assert not isinstance(svc.sessions.kernel("nb"), ProcessKernel)
-    assert own == inside
-    assert [o for _s, o, _e in own[1:5]] == ["42", "45", "6", "42"]
+    # Whole tuples (status, output, errors), so a failure shows what each cell did.
+    assert own[:5] == [("ok", "", []), ("ok", "42", []), ("ok", "45", []), ("ok", "6", []), ("ok", "42", [])]
     assert own[5][0] == "error" and own[5][2] == ["ZeroDivisionError: division by zero"]
+    assert inside == own
 
 
 def test_someone_who_turned_it_off_keeps_it_off(svc):

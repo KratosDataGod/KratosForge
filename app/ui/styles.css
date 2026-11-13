@@ -3482,6 +3482,52 @@ body[data-skin-corners="square"] { --r-sm: 2px; --r-md: 3px; --r-lg: 4px; }
 body[data-skin-corners="round"] { --r-sm: 6px; --r-md: 8px; --r-lg: 12px; }
 /* Icons are filled shapes: bold traces their edge, regular and light draw them as they are. */
 body[data-skin-icons="bold"] .icon { stroke: currentColor; stroke-width: 0.6px; stroke-linejoin: round; }
+/* Rail: stacked is KratosForge's narrow rail (icon above label). Inline is a wide rail with the icon beside
+   the label. It doesn't assume a light rail: it keeps the rail's own --surface, --text-2 and --rail-active. */
+body[data-skin-rail="inline"] .rail { flex: none; width: 208px; align-items: stretch; padding: 8px; }
+body[data-skin-rail="inline"] .rail-group, body[data-skin-rail="inline"] #rail-open { align-items: stretch; gap: 2px; }
+body[data-skin-rail="inline"] .rail-item { flex-direction: row; justify-content: flex-start; gap: 10px; width: auto; min-height: 34px;
+  padding: 0 10px; font-size: 13px; text-align: left; overflow-wrap: normal; }
+body[data-skin-rail="inline"] .rail-item svg { width: 18px; height: 18px; }
+body[data-skin-rail="inline"] .rail-divider { width: auto; margin: 6px 4px; }
+body[data-skin-rail="inline"] .rail-group-label { width: auto; padding-left: 10px; text-align: left; text-transform: uppercase; letter-spacing: .04em; }
+body[data-skin-rail="inline"] .rail-close { top: 8px; right: 6px; }
+body[data-skin-rail="inline"] .rail-open-item { display: flex; flex-direction: column; }  /* an open item's row fills the rail too */
+/* Zoomed in or in a narrow window, the wide rail gives its room back and draws as stacked. */
+@media (max-width: 1000px) {
+  body[data-skin-rail="inline"] .rail { width: 72px; align-items: center; padding: 8px 0; }
+  body[data-skin-rail="inline"] .rail-group, body[data-skin-rail="inline"] #rail-open { align-items: center; gap: 4px; }
+  body[data-skin-rail="inline"] .rail-item { flex-direction: column; justify-content: center; gap: 4px; width: 68px; min-height: 56px;
+    padding: 8px 0; font-size: 11px; text-align: center; overflow-wrap: anywhere; }
+  body[data-skin-rail="inline"] .rail-item svg { width: 22px; height: 22px; }
+  body[data-skin-rail="inline"] .rail-group-label { width: 68px; padding-left: 0; text-align: center; text-transform: none; letter-spacing: 0; }
+}
+/* In a short window the app's rail shows icons only (see the max-height rule above); a wide rail does the same. */
+@media (max-height: 640px) {
+  body[data-skin-rail="inline"] .rail { width: 52px; align-items: center; padding: 4px 0; }
+  body[data-skin-rail="inline"] .rail-group, body[data-skin-rail="inline"] #rail-open { align-items: center; gap: 2px; }
+  body[data-skin-rail="inline"] .rail-item { flex-direction: column; justify-content: center; gap: 0; width: 44px; min-height: 0; padding: 3px 0; }
+  body[data-skin-rail="inline"] .rail-divider { width: 28px; margin: 2px 0; }
+  body[data-skin-rail="inline"] .rail-group-label { width: 36px; padding-left: 0; }
+  body[data-skin-rail="inline"] .rail-close { top: 0; right: 0; }
+}
+/* Header: light is KratosForge's white bar. Brand fills the bar with the skin's accent; its own text and
+   buttons turn to --on-accent, and the search box sits on --accent-dark. None blends the bar into the
+   canvas, without its line, so the page reads as one surface. */
+body[data-skin-header="brand"] .topbar { background: var(--accent); border-bottom-color: var(--accent-dark); color: var(--on-accent); }
+body[data-skin-header="brand"] .topbar :is(.breadcrumb, .breadcrumb .crumb, .breadcrumb .current, .nav-btn, .bell, .env-label) { color: var(--on-accent); }
+body[data-skin-header="brand"] .topbar :is(.breadcrumb .crumb, .breadcrumb .current, .nav-btn, .bell):hover { background: var(--accent-dark); color: var(--on-accent); }
+body[data-skin-header="brand"] .topbar .search { background: var(--accent-dark); border-color: var(--accent-dark); color: var(--on-accent); }
+body[data-skin-header="brand"] .topbar .search input { color: var(--on-accent); }
+body[data-skin-header="brand"] .topbar .search input::placeholder { color: var(--on-accent); opacity: .85; }
+body[data-skin-header="brand"] .topbar .search kbd { background: transparent; border-color: var(--on-accent); color: var(--on-accent); }
+body[data-skin-header="brand"] .topbar .avatar { background: var(--surface); color: var(--accent-dark); }
+/* The brand lettering is never recolored: on a brand bar the name shows as text instead. */
+body[data-skin-header="brand"] .topbar .brand-name { display: none; }
+body[data-skin-header="brand"] .topbar .brand-text { display: inline; color: var(--on-accent); }
+@media (max-width: 860px) { body[data-skin-header="brand"] .topbar .brand-text { display: none; } }  /* as the lettering does when zoomed */
+body[data-skin-header="none"] .topbar { background: var(--canvas); border-bottom-color: transparent; }
+body[data-skin-header="none"] .topbar .search { background: var(--surface); }
 
 /* Estate X-ray: ticking findings to Optimize together, and the batch's progress */
 .xray-item .xray-pick, .xray-pickbar .xray-pick { width: 16px; height: 16px; margin: 0; flex: none; }

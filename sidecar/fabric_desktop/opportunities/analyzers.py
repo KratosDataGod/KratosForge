@@ -180,8 +180,8 @@ def _duplicate(same: list[dict[str, Any]], fp: str, reads: list[str], writes: li
                                  reads=reads, writes=writes))
     ev += _run_evidence(same)
     validation = ["Check nothing else calls the copies by name (pipelines, notebookutils.notebook.run, schedules).",
-                  "Run the kept notebook once and compare its output tables with the last run of each copy "
-                  "(row counts and content)."]
+                  ("Run the kept notebook once and compare its output tables with the last run of each copy "
+                   "(row counts and content).")]
     if unread:
         validation.append("Read the run history of " + ", ".join(w["name"] for w in unread) + "; it couldn't be read.")
     if running:
@@ -316,8 +316,8 @@ def _copy_opportunity(hits: list[tuple[dict[str, Any], dict[str, Any]]], src: st
         "The Copy is one step of a larger pipeline; its share of the pipeline's run isn't measured yet. "
         "Read the pipeline's activity runs (Monitor > Pipeline runs) to measure it.")
     removed = [w for w in rest if w["runs"]["read"] and (w["runs"]["runs"] or 0) > 0]
-    validation = ["Check the copies run at times that let one serve both (the later reader needs the data no "
-                  "older than it gets today)."]
+    validation = [("Check the copies run at times that let one serve both (the later reader needs the data no "
+                   "older than it gets today).")]
     if dynamic:
         validation.insert(0, "The source uses expressions (@...): check they resolve to the same table or query at run time.")
     if same_sink:
@@ -402,8 +402,8 @@ def full_refreshes(workloads: list[dict[str, Any]], ctx: Context) -> list[dict[s
                           "Run it less often if consumers don't need every refresh."],
             effort="medium", risk="medium", confidence="medium",
             validation=["Check the source has a reliable change column (modified time, increasing key) or change feed.",
-                        "Run the incremental version beside the full one and compare the target tables "
-                        "(row counts and content) before switching.",
+                        ("Run the incremental version beside the full one and compare the target tables "
+                         "(row counts and content) before switching."),
                         "Measure both runs' time and CU (before and after) to record the real saving."],
             rollback="Switch the schedule back to the full-load version; a full load rebuilds the table.",
             source="full refresh analyzer (OE-001)",

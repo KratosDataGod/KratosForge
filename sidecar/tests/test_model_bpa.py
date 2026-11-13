@@ -205,7 +205,7 @@ def _run_cell(tmp_path, monkeypatch, pip_code=0, bpa=None):
     compiled = compile(code, "check", "exec")  # outside the try: a cell that doesn't compile fails the test
     try:
         exec(compiled, scope)
-    except Exception as exc:  # the cell fails the run after saving
+    except Exception as exc:  # noqa: BLE001 - the cell fails the run after saving
         raised = exc
     else:
         raised = None

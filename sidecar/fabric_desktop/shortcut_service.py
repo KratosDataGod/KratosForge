@@ -61,7 +61,7 @@ class ShortcutMixin:
             for env, cfg in self._platform_config().items():  # type: ignore[attr-defined]
                 if cfg.get("workspace_id") and env in ENVIRONMENTS:
                     known.setdefault(cfg["workspace_id"], env)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - no platform configuration falls back to workspace names; logged
             _log.info("No platform configuration; workspace names decide the environment: %s", describe(exc))
         return known
 
@@ -325,7 +325,7 @@ class ShortcutMixin:
                     out = self._sc_readers(s, api, cache)
                     out.pop("readers", None)
                     items[s["id"]] = out
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001 - one shortcut's failure is shown on that shortcut
                     items[s["id"]] = {"mode": center.exposure(s), "text": str(exc), "gap": None}
             with lock:
                 self._sc_access = {"pending": False, "items": items}
@@ -338,7 +338,7 @@ class ShortcutMixin:
     def _sc_admin(self) -> bool:
         try:
             return bool(self._catalog().call("whoami").get("admin"))  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - an admin check that fails means not an admin; logged
             _log.info("Couldn't ask the shortcut catalog whether this user is an admin: %s", describe(exc))
             return False
 
@@ -412,9 +412,9 @@ class ShortcutMixin:
         # call means the rules are unknown, not that there are none: block until they can be read.
         try:
             rules = self._catalog().call("shortcut_rules")  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001
-            return {"blocked": [f"The platform's shortcut rules couldn't be read, so nothing can be checked: {exc}. "
-                                "Try again once the platform answers."], "warnings": [], "unchecked": True}
+        except Exception as exc:  # noqa: BLE001 - rules that can't be read block the change instead of skipping the check
+            return {"blocked": [(f"The platform's shortcut rules couldn't be read, so nothing can be checked: {exc}. "
+                                "Try again once the platform answers.")], "warnings": [], "unchecked": True}
         return center.check_rules(rules, self._sc_new(workspace_id, workspace_name, source, target_workspace_name),
                                   self._sc_admin())
 
@@ -468,7 +468,7 @@ class ShortcutMixin:
         before = self._sc_def(workspace_id, item_id, path, name, current["rest_target"])
         try:
             api.create_shortcut(workspace_id, item_id, path, name, new)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - any failure puts the shortcut back as it was before re-raising
             try:
                 api.create_shortcut(workspace_id, item_id, path, name, current["rest_target"])
                 again = "It was put back as it was."
@@ -528,7 +528,7 @@ class ShortcutMixin:
                 api.delete_shortcut(b["workspace_id"], b["lakehouse_id"], b["path"], b["name"])
             try:
                 api.create_shortcut(b["workspace_id"], b["lakehouse_id"], b["path"], b["name"], b["target"])
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - any failure puts the shortcut back as it was before re-raising
                 if current is not None:
                     api.create_shortcut(b["workspace_id"], b["lakehouse_id"], b["path"], b["name"], current["rest_target"])
                 self._all_shortcuts = None
@@ -607,9 +607,9 @@ class ShortcutMixin:
                     self._sc_progress(req, found=not ours)
                     others = self._sc_make_twins(req, why)
                     out = super().platform_decide(id, approve, note)  # type: ignore[misc]
-                    return out | {"next": [*(out.get("next") or []), f"{d['name']} was already in "
+                    return out | {"next": [*(out.get("next") or []), (f"{d['name']} was already in "
                                            f"{d.get('lakehouse_name') or 'the lakehouse'}, pointing where this request "
-                                           "asks, so it was kept", *others]}
+                                           "asks, so it was kept"), *others]}
                 self._sc_progress(req)
                 others = self._sc_make_twins(req, why)
                 out = super().platform_decide(id, approve, note)  # type: ignore[misc]

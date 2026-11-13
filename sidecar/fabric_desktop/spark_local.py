@@ -22,7 +22,7 @@ import sys
 import tempfile
 import threading
 import weakref
-from typing import Any
+from typing import Any, Callable, NoReturn
 
 import duckdb
 import pyarrow as pa
@@ -32,7 +32,7 @@ from duckdb.experimental.spark.sql import session as _session_module
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.session import SparkSession
 
-from . import lakehouse, spark_api, spark_compat, spark_infer, sql as _sql
+from . import lakehouse, spark_api, spark_compat, spark_infer, sql as _sql, sql_dialects
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
 from .duckdb_rows import first_row, keep_try_cast
 from .spark_decimals import spark_decimal_types
@@ -371,7 +371,7 @@ def change_runs_here(query: str, lakehouse_name: str | None = None) -> bool:
     if not lakehouse._setting("show_preview", True) or not delta_dml.looks_like(query):
         return False
     try:
-        trees = [t for t in sqlglot.parse(query, read="spark") if t is not None]
+        trees = [t for t in sql_dialects.parse(query, read="spark") if t is not None]
         if len(trees) != 1 or not isinstance(trees[0], (exp.Merge, exp.Update, exp.Delete)):
             return False
         _in_attached(trees[0], lakehouse_name)
@@ -399,6 +399,9 @@ CHECKED_REFUSALS = {
     "forPath": "DeltaTable.forPath of a literal path outside Tables/ (REFUSED_CODE)",
     "_in_fabric": "restoreToVersion, restoreToTimestamp, vacuum or optimize on a DeltaTable (DELTA_CHANGES)",
     "withSchemaEvolution": "withSchemaEvolution() on a MERGE (REFUSED_CODE)",
+    "_catalog_call_in_fabric": ("spark.catalog.listTables, listDatabases, listCatalogs or listFunctions (REFUSED_CODE). "
+                                "currentDatabase is refused only with no lakehouse or one with schemas, which the "
+                                "check doesn't know, so it isn't flagged"),
     "_refusal": ("a CSV, JSON or Parquet read option this PC doesn't take, a non-UTF-8 encoding, a CSV mode "
                  "without a schema, a JSON mode it has no match for, or a Parquet rebase mode other than CORRECTED "
                  "(read_option_refusal)"),
@@ -412,6 +415,8 @@ REFUSED_CODE: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"""\bDeltaTable\.forPath\(\s*[^,()]+,\s*[rRuU]?["'](?![^"']*Tables/)"""),
      "opens DeltaTable.forPath outside the lakehouse's Tables/, which this PC's Spark refuses (use DeltaTable.forName)"),
     (re.compile(r"\.withSchemaEvolution\("), _IN_FABRIC_TEXT.format("merges with schema evolution (withSchemaEvolution)")),
+    (re.compile(r"\bcatalog\.(listTables|listDatabases|listCatalogs|listFunctions)\("),
+     _IN_FABRIC_TEXT.format("lists the catalog with spark.catalog (_catalog_calls)")),
 ]
 # DeltaTable methods that change the table, which this PC refuses (LocalDeltaTable._in_fabric).
 DELTA_CHANGES = ("restoreToVersion", "restoreToTimestamp", "vacuum", "optimize")
@@ -460,7 +465,7 @@ def sql_refusal(query: str) -> tuple[str, str] | None:
     if _SCHEMA_EVOLUTION.match(head):
         return "blocked", _IN_FABRIC_TEXT.format("merges WITH SCHEMA EVOLUTION")
     try:
-        trees = [t for t in sqlglot.parse(query, read="spark") if t is not None]
+        trees = [t for t in sql_dialects.parse(query, read="spark") if t is not None]
     except sqlglot.errors.SqlglotError:
         return None
     if len(trees) > 1 and any(isinstance(t, (exp.Merge, exp.Update, exp.Delete)) for t in trees):
@@ -500,6 +505,98 @@ def _in_attached(tree: Any, name: str | None = None) -> None:
     elif current is not None and not target.catalog and target.db and target.db.lower() == name.lower() \
             and not current.schemas_enabled():
         target.set("db", None)
+
+
+def _use(statement: Any) -> None:
+    """USE CATALOG, USE SCHEMA, USE DATABASE and USE name. On this PC a table name resolves in the attached
+    lakehouse (its dbo schema when it has schemas), and that can't be changed. So USE runs only when it
+    names where names already resolve, and changes nothing; any other catalog or schema is refused by
+    name, so an unqualified table is never read from or written to a place the cell didn't mean."""
+    kind = str(statement.args.get("kind") or "").upper()
+    target = statement.this
+    parts = [p for p in (target.catalog, target.db, target.name) if p] if hasattr(target, "catalog") else [target.name]
+    _use_parts(kind, parts)
+
+
+def _use_parts(kind: str, parts: list[str], call: str = "") -> None:
+    """_use for ``parts`` (catalog and schema names); ``call`` names the call in the message when it isn't
+    USE itself (spark.catalog.setCurrentCatalog('main'))."""
+    lh = lakehouse._attached
+    home = lh.name.lower() if lh is not None else None
+    catalogs = {"spark_catalog", *([home] if home else [])}
+    schemas = {"dbo", *([home] if home else [])}  # USE Sales: Fabric's database is the lakehouse
+    if kind == "CATALOG":
+        ok = len(parts) == 1 and parts[0].lower() in catalogs
+    else:
+        *catalog, schema = parts
+        ok = len(parts) <= 2 and schema.lower() in schemas and all(c.lower() in catalogs for c in catalog)
+    if ok:
+        return
+    named = ".".join(parts)
+    where = f"the attached lakehouse ({lh.name})" if lh is not None else "the attached lakehouse"
+    said = call or f"USE {kind + ' ' if kind else ''}{named}"
+    if kind == "CATALOG" or len(parts) == 2 and parts[0].lower() not in catalogs:
+        raise ValueError(f"{said}: the catalog {parts[0]} (such as a Unity Catalog "
+                         f"catalog) isn't on this PC, so nothing changed. Tables here are in {where}. "
+                         "Run the cell where that catalog is, or name tables as table or schema.table.")
+    raise ValueError(f"{said}: on this PC an unqualified table name always resolves "
+                     f"in {where}, schema dbo, so USE can't point it at {parts[-1]} and nothing changed. "
+                     f"Name the schema in each table instead ({parts[-1]}.table).")
+
+
+def _catalog_call_in_fabric(call: str, why: str) -> NoReturn:
+    raise NotImplementedError(f"spark.catalog.{call} runs in Fabric. {why}")
+
+
+def _catalog_calls(session: LocalSparkSession) -> dict[str, Any]:
+    """spark.catalog on this PC. DuckDB's Catalog answers about its own connection (its databases memory,
+    system and temp; its own tables), which isn't what a notebook asks, so each call answers about the
+    attached lakehouse and this session's temp views, or is refused by name."""
+    from duckdb.experimental.spark.sql.catalog import Column
+
+    def refuse(call: str, why: str) -> Callable[..., Any]:
+        return lambda *_a, **_kw: _catalog_call_in_fabric(call, why)
+
+    def list_columns(tableName: str, dbName: str | None = None) -> list[Column]:  # noqa: N803
+        name = f"{dbName}.{tableName}" if dbName else tableName
+        frame = session.table(name)
+        # A lakehouse table's partition columns are in its Delta log (a table Fabric wrote partitioned); a
+        # temp view has none.
+        local = "." not in name and session._is_local(name)
+        parts = set() if local else {c.lower() for c in lakehouse.open_table(name).metadata().partition_columns}
+        return [Column(name=f.name, description=None, dataType=f.dataType.simpleString(), nullable=f.nullable,
+                       isPartition=f.name.lower() in parts, isBucket=False) for f in frame.schema.fields]
+
+    def current_database() -> str:
+        lh = lakehouse._attached
+        if lh is None or lh.schemas_enabled():
+            _catalog_call_in_fabric("currentDatabase", "On this PC unqualified table names resolve in the attached "
+                                                       "lakehouse, schema dbo.")
+        return lh.name  # Fabric's database is the default lakehouse
+
+    def set_catalog(catalogName: str) -> None:  # noqa: N803
+        _use_parts("CATALOG", [catalogName], f"spark.catalog.setCurrentCatalog({catalogName!r})")
+
+    def set_database(dbName: str) -> None:  # noqa: N803
+        _use_parts("SCHEMA", lakehouse.name_parts(dbName), f"spark.catalog.setCurrentDatabase({dbName!r})")
+
+    lists = ("On this PC it would list DuckDB's own objects, not the lakehouse's. The Explorer lists the attached "
+             "lakehouse's tables, and notebookutils.lakehouse.listTables() reads them.")
+    return {
+        "tableExists": lambda tableName, dbName=None: spark_api.table_exists(session, tableName, dbName),  # noqa: N803
+        "dropTempView": lambda viewName: spark_api.drop_view(session, viewName),  # noqa: N803
+        "dropGlobalTempView": lambda viewName: spark_api.drop_view(session, spark_api.GLOBAL_PREFIX + viewName),  # noqa: N803
+        "listColumns": list_columns,
+        "currentCatalog": lambda: "spark_catalog",
+        "setCurrentCatalog": set_catalog,
+        "setCurrentDatabase": set_database,
+        "listTables": refuse("listTables", lists),
+        "listDatabases": refuse("listDatabases", lists),
+        "listCatalogs": refuse("listCatalogs", "On this PC a notebook has one catalog: the attached lakehouse."),
+        "listFunctions": refuse("listFunctions", "docs/spark-functions.md lists every Spark function and how it "
+                                                 "runs on this PC."),
+        "currentDatabase": current_database,
+    }
 
 
 def _refuse_auto_merge(session: Any) -> None:
@@ -785,9 +882,8 @@ class LakehouseReader:
         self.options(**{k: v for k, v in opts.items() if v is not None})
         given = self._options
         self._refusal("csv")
-        extra: dict[str, Any] = {}
-        if given.get("sep", given.get("delimiter")):
-            extra["sep"] = str(given.get("sep", given.get("delimiter")))
+        # A comma unless sep or delimiter says otherwise, as in Spark: DuckDB would guess one from the file.
+        extra: dict[str, Any] = {"sep": str(given.get("sep") or given.get("delimiter") or ",")}
         if not _true(given.get("inferschema", False)) or getattr(self, "_schema", None):
             extra["all_varchar"] = True
         if given.get("nullvalue") not in (None, ""):
@@ -796,7 +892,10 @@ class LakehouseReader:
             if given.get(name) not in (None, ""):
                 extra[arg] = str(given[name])
         mode = str(given.get("mode", "PERMISSIVE")).upper()
-        rel = self._session.conn.read_csv(self._local(path), header=_true(given.get("header", False)), **extra)
+        header = _true(given.get("header", False))
+        rel = self._session.conn.read_csv(self._local(path), header=header, **extra)
+        if not header:  # Spark names a file's columns _c0, _c1... (DuckDB: column0, column1...)
+            rel = rel.project(", ".join(f'"{c.replace(chr(34), chr(34) * 2)}" AS "_c{i}"' for i, c in enumerate(rel.columns)))
         return self._apply(DataFrame(rel, self._session), by_position=True, mode=mode)
 
     def _given(self, fmt: str, opts: dict[str, Any]) -> dict[str, Any]:
@@ -858,8 +957,7 @@ class LocalSparkSession(SparkSession):
         self._conf = spark_api.LocalRuntimeConfig(self)  # type: ignore[assignment]  # spark.conf (spark_compat's RuntimeConfig patches don't apply)
         self._local_context = spark_api.LocalSparkContext(self)
         catalog = self.catalog
-        vars(catalog).update(  # DuckDB's Catalog has no tableExists
-            tableExists=lambda tableName, dbName=None: spark_api.table_exists(self, tableName, dbName))  # noqa: N803
+        vars(catalog).update(_catalog_calls(self))
 
     @property
     def sparkContext(self) -> spark_api.LocalSparkContext:  # type: ignore[override]  # noqa: N802
@@ -893,6 +991,7 @@ class LocalSparkSession(SparkSession):
         versions that no DataFrame or temp view still reads, so a notebook that writes and reads a
         table many times doesn't keep every version's view on the connection."""
         views = self._bound()
+        self._global_temp(statement)
         _sql.bind_tables(statement, self.conn, views, self._is_local)
         old = _sql.superseded(views)
         if not old:
@@ -909,6 +1008,22 @@ class LocalSparkSession(SparkSession):
             if not re.search(rf"\b{view}\b", text):
                 self.conn.unregister(view)
                 del views[key]
+
+    def _global_temp(self, statement: Any) -> None:
+        """Point global_temp.name at the global temp view createGlobalTempView made, as Spark reads it;
+        one that isn't there is Spark's TABLE_OR_VIEW_NOT_FOUND, not a lakehouse lookup."""
+        from duckdb.experimental.spark.errors import AnalysisException
+        from sqlglot import exp
+        for table in list(statement.find_all(exp.Table)):
+            if table.catalog or not table.db or table.db.lower() != spark_api.GLOBAL_TEMP:
+                continue
+            view = spark_api.GLOBAL_PREFIX + table.name
+            if not self._is_view(view) and not isinstance(statement, exp.Drop):
+                raise AnalysisException(message=f"[TABLE_OR_VIEW_NOT_FOUND] The table or view `{table.db}`.`{table.name}` "
+                                                "cannot be found. Verify the spelling and correctness of the schema "
+                                                "and catalog.")
+            alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier(table.name))
+            table.replace(exp.Table(this=exp.to_identifier(view), alias=None if isinstance(statement, exp.Drop) else alias))
 
     def _is_view(self, name: str) -> bool:
         return bool(self.conn.execute("SELECT 1 FROM duckdb_views() WHERE lower(view_name) = lower(?)", [name]).fetchall())
@@ -951,6 +1066,9 @@ class LocalSparkSession(SparkSession):
 
     def _statement(self, statement: Any) -> DataFrame | None:
         from sqlglot import exp
+        if isinstance(statement, exp.Use):
+            _use(statement)
+            return None
         statement = _sql.history_query(statement, self.conn, self._bound())  # DESCRIBE HISTORY t
         if isinstance(statement, exp.Merge):
             return self._merge(statement)
@@ -960,8 +1078,8 @@ class LocalSparkSession(SparkSession):
         if isinstance(statement, exp.TruncateTable) or (
                 isinstance(statement, exp.Drop) and str(statement.args.get("kind", "")).upper() == "TABLE"):
             tables = statement.expressions if isinstance(statement, exp.TruncateTable) else statement.args.get("tables") or []
-            names = [".".join(p for p in (t.db, t.name) if p) for t in tables
-                     if t.db or not self._is_local(t.name)]
+            names = [_sql.table_name(t) for t in tables  # with its catalog: DROP TABLE IF EXISTS main.dbo.t is refused
+                     if t.db or t.catalog or not self._is_local(t.name)]
             if names:
                 if isinstance(statement, exp.Drop) and statement.args.get("exists") \
                         and not any(lakehouse.table_exists(n) for n in names):
@@ -982,7 +1100,7 @@ class LocalSparkSession(SparkSession):
             is_view = isinstance(statement, exp.Create) and str(statement.args.get("kind", "")).upper() == "VIEW"
             temporary = statement.args.get("properties") and "TEMPORARY" in statement.args["properties"].sql().upper()
             if isinstance(target, exp.Table) and not is_view and not temporary:
-                name = f"{target.db}.{target.name}" if target.db else target.name
+                name = _sql.table_name(target)  # with its catalog: main.dbo.t is refused, never written to dbo.t
                 query = statement.expression.copy()
                 self._bind(query)
                 data = self.conn.sql(_sql.duckdb_sql(spark_decimal_types(query, self.conn)))
@@ -1115,6 +1233,7 @@ class LocalSparkSession(SparkSession):
         if module.startswith(("polars", "pyarrow")):
             arrow = data.to_arrow() if module.startswith("polars") else data
             return DataFrame(self.conn.from_arrow(arrow), self)
+        data, schema = _atomic_schema(data, schema)
         if isinstance(schema, str) and _DDL.search(schema):  # "id int, name string", as in PySpark
             schema = ddl_schema(schema)
         if schema is None and isinstance(data, (list, tuple)) and data:
@@ -1153,6 +1272,33 @@ class LocalSparkSession(SparkSession):
             changed |= wanted != text
             exprs.append(f"CAST({quoted} AS {wanted}) AS {quoted}" if wanted != text else quoted)
         return DataFrame(rel.project(", ".join(exprs)), self) if changed else df
+
+
+def _atomic_schema(data: Any, schema: Any) -> tuple[Any, Any]:
+    """createDataFrame(["a"], "string") or (data, IntegerType()): Spark makes one column, value, of
+    that type, each item one row. A type string that's a whole struct is that struct."""
+    from duckdb.experimental.spark.sql import types as T
+    kind = None
+    if isinstance(schema, str):
+        try:
+            kind = _ddl_type(schema)
+        except ValueError:  # silent-ok: not one type ("id int, name string"), read below as before
+            return data, schema
+    elif isinstance(schema, T.DataType) and not isinstance(schema, T.StructType):
+        kind = schema
+    if kind is None:
+        return data, schema
+    if isinstance(kind, T.StructType):
+        return data, kind
+    rows = list(data) if isinstance(data, (list, tuple)) else data
+    if isinstance(rows, list):
+        for item in rows:
+            if isinstance(item, (tuple, list, dict)) and not isinstance(kind, (T.ArrayType, T.MapType)):
+                raise ValueError(f"createDataFrame with the type {kind.simpleString()} makes each item one value, "
+                                 f"and {item!r} isn't one: Spark would store its Java object's name. Give plain "
+                                 "values, or a schema such as \"value string\" for rows.")
+        rows = [(item,) for item in rows]
+    return rows, T.StructType([T.StructField("value", kind, True)])
 
 
 def _nan(value: Any) -> bool:
@@ -1564,8 +1710,9 @@ def install(namespace: dict[str, Any]) -> None:
     spark_api.install()
     _alias_pyspark()
     _alias_delta()
-    from . import spark_stream
+    from . import spark_df_extras, spark_stream
     spark_stream.install()
+    spark_df_extras.install()
     namespace["spark"] = session()
 
 

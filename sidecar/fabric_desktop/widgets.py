@@ -662,8 +662,10 @@ class Output(DOMWidget):
                                                   f"{STREAM_CHARS:,} characters. clear_output() starts it again."})
 
     def _add(self, output: dict[str, Any]) -> None:
-        from .notebook import RICH_CHARS
-        if output.get("type") != "error":  # an error always shows
+        from .notebook import RICH_CHARS, capped_error
+        if output.get("type") == "error":  # an error always shows, kept to ERROR_CHARS
+            output = capped_error(output)
+        else:
             if "rich" in self._cut:
                 return
             size = len(json.dumps(output, default=str))

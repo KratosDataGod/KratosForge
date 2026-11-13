@@ -8,6 +8,7 @@ import json
 import sys
 import threading
 import time
+import uuid
 from types import SimpleNamespace
 
 import pytest
@@ -147,7 +148,8 @@ def make(tmp_path, ws=None, cluster="", connect=None, **kw):
     ws = ws or Workspace()
     tokens = dba.TokenProvider(HOST, lambda: (TOKEN, None), "databricks-cli")
     client = dbsql.Client(tokens, ws)
-    bad = dbsql.Client(dba.TokenProvider(HOST, lambda: ("not-a-token", None), "test"), ws)
+    bad_token = f"not-a-token-{uuid.uuid4().hex}"  # a refused one is never sent again, so each run has its own
+    bad = dbsql.Client(dba.TokenProvider(HOST, lambda: (bad_token, None), "test"), ws)
     adapter = dbsql.DatabricksSqlAdapter(client_for=lambda conn: dbsql.Client(tokens, ws), sleep=lambda s: None)
     test = dl.DatabricksLiveTest(CONN, "wh1", tokens, client, adapter, tmp_path, cluster_id=cluster,
                                  connect_adapter=connect, bad_token_client=bad, run_id="r1",

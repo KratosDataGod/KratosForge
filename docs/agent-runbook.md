@@ -107,6 +107,16 @@ A stop before the agent's own log starts is also kept in `<home>/logs/agent-star
 
 **Recover.** Fix what the entry names, then let Task Scheduler start it again or start the task by hand. Send `agent-start.log` with `agent.log` when you report a crash.
 
+### The agent ended with no log line
+
+- **Message** (`logs.py`, log): `native crashes won't be reported: <reason>`
+
+**Means.** A crash in native code (DuckDB, Polars or delta-rs, say) ends the agent at once, with no `agent.log` line and no `agent-start.log` entry; Task Scheduler shows only an exit code such as `0xC0000005`. So the agent first has Python write where such a crash happened to `<home>/logs/agent-crash.log`, for every thread: file names, function names and line numbers, never a value. Each start adds a line, `<time> agent started, pid <pid>`, and only a crash writes anything else; past 1 MB at a start the file becomes `agent-crash.prev.log`. It is never sent anywhere. The message above means the file couldn't be opened, so a crash would leave nothing; the agent runs anyway. When `PYTHONFAULTHANDLER` is set, Python already writes crashes to the agent's stdout, and the agent leaves that as it is.
+
+**Check first.** Open `agent-crash.log` and read its newest block, which starts `Windows fatal exception` (or `Fatal Python error`): the thread marked `Current thread` shows the function that crashed. A block followed by a start line was a crash: the agent stopped and Task Scheduler started it again. A block with no start line after it, while `agent.log` kept getting lines after it was written, was a fault the native library handled itself (on Windows, faulthandler sees those too), not a crash. The support bundle includes the file only when it holds more than start lines. For the message above, check that the agent's account can write to `<home>/logs`.
+
+**Recover.** Task Scheduler starts the agent again. When you report the crash, run `fabric-desktop support-bundle --agent-home <home>`: the bundle includes `agent-crash.log`, redacted.
+
 ### Another agent is using the control folder
 
 - **Message** (`mailbox.py`, at start): `The control folder <folder> is already in use by <agent>. Only one agent can work in a local control folder: two would take each other's requests. Stop that agent first, or give this one a different environment.`
@@ -117,6 +127,19 @@ A stop before the agent's own log starts is also kept in `<home>/logs/agent-star
 **Check first.** Is a second copy of the agent running on this PC, for example one started by hand while the service runs? Do two `agent.toml` files name the same project and environment?
 
 **Recover.** Stop the agent the message names, or give this agent a different environment. Then start it again. Deleting `agent.lock` doesn't help: the lock is on the open file, not on the file being there.
+
+### The agent's queue is full
+
+- **Message** (`agent.py`, log): `schedule deferred: the agent's queue is full; it runs once there is room`
+- **Message** (`mailbox.py`, log): `pipeline request waiting: the agent's queue is full`
+- **Message** (`agent.py`, log): `not queued: the agent's queue is full`
+- **Message** (`jobqueue.py`, `agent enqueue`): `the agent's queue is full: <n> jobs are waiting (agent.max_queued = <limit>); nothing was queued`
+
+**Means.** `agent.max_queued` jobs (default 1000) are already waiting, so new work is held back rather than added. Nothing is dropped and nothing queued is removed: a schedule keeps its due time and is queued once there is room (logged once per due time, counted in the status record's `schedules_deferred`), a pipeline request waits with `waiting` in its status, and `agent enqueue` exits 1 with the reason. The queue fills when jobs arrive faster than they finish: runs failing slowly and retrying, a paused or throttled capacity, `agent.concurrency` too low for the schedules, or a pipeline flooding requests.
+
+**Check first.** Run `fabric-desktop agent status`: are jobs running at all? If none run, look for a job that keeps failing ([A job didn't finish](#a-job-didnt-finish)) or a capacity problem. If they run but slowly, compare how long a run takes with how often its schedule fires.
+
+**Recover.** Fix what holds the jobs back, and the queue drains on its own; held-back schedules and requests then queue once each. Raise `agent.max_queued` only when the machine can really work through more, since a longer queue only makes work wait longer.
 
 ### The job queue file couldn't be read
 

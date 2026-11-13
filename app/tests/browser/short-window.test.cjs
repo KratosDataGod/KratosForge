@@ -2,7 +2,7 @@
 // the mock engine (see harness.cjs for how to run it):
 // - The left rail shows icons only and every item fits without scrolling. Each keeps its name as its accessible
 //   name and its tooltip, and the current page keeps its stripe.
-// - Home's hero is one strip: the welcome and its actions, without the kicker, the title or the art.
+// - Home keeps its plain heading (it has no header art) with New notebook in reach.
 // - The SQL page's Explorer collapses to a strip with an expand button. The choice is remembered; with none
 //   made, a window under 900 px wide starts with it collapsed.
 const { test, before, after } = require("node:test");
@@ -73,23 +73,15 @@ test("in a short window the rail shows icons only and every item fits", { skip }
   assert.strictEqual(tall.labelShown, true, "the names are hidden in a tall window");
 });
 
-test("in a short window Home's hero is one strip with the welcome and its actions", { skip }, async () => {
+test("in a short window Home keeps its plain heading and New notebook", { skip }, async () => {
+  // Home has no header art (RPG art only on progression pages), so there is no hero band to shrink.
   await page().evaluate(() => { state.settings.show_preview.value = true; state.settings.motion_level.value = 2; });
   await page().setViewportSize(SHORT);
   await page().evaluate(() => { homeCache.done = false; go("home"); });
-  await page().locator(".home-hero").waitFor();
-  const hero = await page().evaluate(() => {
-    const shown = (sel) => { const el = document.querySelector(sel); return !!el && el.getBoundingClientRect().height > 0; };
-    return { height: document.querySelector(".home-hero").getBoundingClientRect().height, kicker: shown(".home-hero-kicker"),
-      title: shown(".home-hero-title"), art: shown(".home-hero-img"), welcome: shown(".home-hero h1") };
-  });
-  assert.deepStrictEqual({ kicker: hero.kicker, title: hero.title, art: hero.art, welcome: hero.welcome },
-    { kicker: false, title: false, art: false, welcome: true });
-  assert.ok(hero.height <= 110, `the hero is ${hero.height} px tall`);
-  assert.ok(await page().locator(".home-hero-actions").getByRole("button", { name: "New notebook" }).isVisible());
-
+  await page().locator(".home-head h1").waitFor();
+  assert.strictEqual(await page().locator(".home-hero").count(), 0);
+  assert.ok(await page().locator(".home-start").getByRole("button", { name: "New notebook" }).isVisible());
   await page().setViewportSize(TALL);
-  assert.ok(await page().locator(".home-hero-title").isVisible(), "the title is gone in a tall window");
 });
 
 test("the SQL page's Explorer collapses, expands and remembers the choice", { skip }, async () => {

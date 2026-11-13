@@ -21,9 +21,9 @@ import time
 from pathlib import Path
 from typing import IO, Any, Callable
 
-from . import audit, net_trust, rpc_params
+from . import app_control, audit, disk_full, net_trust, rpc_params, sqlitefile
 from .redact import secrets
-from .service import Service
+from .service import Service, data_dir
 
 METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "skins_list", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
            "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark", "item_pins", "set_item_pin",
@@ -84,7 +84,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "workload_preflight", "workload_act", "workload_capacity_use",
            "agents_list", "queue_list", "run_as_list", "incidents_list", "incidents_summary", "incidents_watch", "incidents_evaluate", "incident_acknowledge", "incident_assign", "incident_note",
            "incident_resolve",
-           "incidents_board", "incidents_for_me", "incident_sla_policy", "incident_report", "incident_set_priority", "incidents_history_sync", "incidents_history",
+           "incidents_board", "incidents_for_me", "incident_sla_policy", "incident_report", "incident_set_priority", "incidents_history_sync", "incidents_history", "incidents_measures",
            "incident_impact", "incident_tell_impacted",
            "receipt_get", "receipt_redactions",
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
@@ -283,10 +283,12 @@ QUICK = frozenset({
 
 
 def handle(service: Service, line: str) -> dict:
+    if _NOT_UTF8.search(line):  # a byte _rpc_stdin couldn't read: refused, never run with a changed value
+        return {"id": None, "error": "invalid request: the line isn't UTF-8"}
     try:
         req = json.loads(line)
-    except json.JSONDecodeError as exc:
-        return {"id": None, "error": f"invalid JSON: {exc}"}
+    except (ValueError, RecursionError) as exc:  # bad JSON, a number too long for Python, or nesting too deep
+        return {"id": None, "error": _short(f"invalid JSON: {_unparsable(exc)}")}
     if not isinstance(req, dict):  # a list or a bare value has no id to answer, but the shell still gets a line
         return {"id": None, "error": "invalid request: expected an object with id, method and params"}
     req_id, method = req.get("id"), req.get("method")
@@ -300,13 +302,16 @@ def handle(service: Service, line: str) -> dict:
         if audit.audited(method) and audit.fails_closed(method, params):
             _audit_started(service, method, params)  # raises when the line can't be written: nothing runs
         reply = {"id": req_id, "result": call(**params)}
-    except Exception as exc:  # report every failure to the UI rather than dying
+    except Exception as exc:  # noqa: BLE001 - report every failure to the UI rather than dying
         # Errors can quote a request (a URL with a signature, a header): never pass a token on.
         if hasattr(exc, "errors"):  # a gate: its message already lists every reason
             reply = {"id": req_id, "error": _short(_home(secrets(str(exc))))}
         else:
             text = f"{type(exc).__name__}: {exc}"
-            hint = net_trust.explain(exc)  # a certificate, proxy or timeout: one line that says what to do
+            # A certificate, proxy or timeout, a full or read-only profile disk, a store file another
+            # process held too long, or a program application control blocked: one line that says what to do.
+            hint = (app_control.explain(exc) or net_trust.explain(exc) or disk_full.data_folder_message(data_dir(), exc)
+                    or sqlitefile.busy_message(exc))
             if hint:
                 text = f"{hint} ({text})"
             reply = {"id": req_id, "error": _short(_home(secrets(text)))}
@@ -433,12 +438,31 @@ def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO
         worker.join()
 
 
+def _unparsable(exc: BaseException) -> str:
+    if isinstance(exc, RecursionError):
+        return "it's nested too deeply to read"
+    return str(exc)
+
+
+_NOT_UTF8 = re.compile("[\udc80-\udcff]")  # what surrogateescape makes of a byte that isn't UTF-8
+
+
+def _rpc_stdin(stream: Any) -> Any:
+    """The shell's request stream, read as UTF-8 whatever the Windows code page. A byte that isn't
+    UTF-8 is kept as a lone surrogate, so handle refuses that request instead of the read ending the engine."""
+    stream.reconfigure(encoding="utf-8", errors="surrogateescape")
+    return stream
+
+
 def _method(line: str) -> object:
+    # The reading loop sorts every line by this. A line that can't be read here must not end the
+    # loop (and the engine with it): handle answers it with the reason.
     try:
         req = json.loads(line)
-    except json.JSONDecodeError:
+    except (ValueError, RecursionError):
         return None
-    return req.get("method") if isinstance(req, dict) else None
+    method = req.get("method") if isinstance(req, dict) else None
+    return method if isinstance(method, str) else None  # a list or object can't be looked up in QUICK
 
 
 def _lane(requests: queue.Queue, answer: Callable[[str], None]) -> None:
@@ -543,16 +567,24 @@ def main() -> None:
     _report_native_crashes(sys.stderr)
     sys.stderr = _RedactedStream(sys.stderr)
     sys.stdout = sys.stderr
-    sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[union-attr]  # a TextIOWrapper here; the shell sends UTF-8 whatever the Windows code page
+    sys.stdin = _rpc_stdin(sys.stdin)
     _log_to_stderr()
     from . import data_format
-    from .service import data_dir
     try:
         data_format.check(data_dir())
     except data_format.NewerData as exc:
         # Every call gets the reason, so the app says it, and nothing opens a store.
         print(f"engine: {exc}", file=sys.stderr)
         serve(_Refused(exc), stdin=sys.stdin, stdout=rpc_out)  # type: ignore[arg-type]
+        return
+    except OSError as exc:
+        # A full or read-only profile disk (a new profile on a shared or virtual desktop): the
+        # engine can't save anything, so every call says why rather than the engine ending unexplained.
+        reason = OSError(disk_full.data_folder_message(data_dir(), exc, "so KratosForge can't open its data",
+                                                    "restart KratosForge")
+                         or f"KratosForge can't write to its data folder ({data_dir()}): {exc}. Restart KratosForge once that's fixed.")
+        print(f"engine: {reason}", file=sys.stderr)
+        serve(_Refused(reason), stdin=sys.stdin, stdout=rpc_out)  # type: ignore[arg-type]
         return
     _refresh_integration_launcher()
     from . import notebook
@@ -592,7 +624,7 @@ def _start_integration_http(service: Service) -> None:
         print(f"integrations: local API not started: {exc}", file=sys.stderr)
     try:
         service.editor_sync()  # the editor channel, if VS Code may run notebooks
-    except Exception as exc:  # noqa: BLE001 - likewise
+    except Exception as exc:  # noqa: BLE001 - the app works without the editor channel; Settings shows why
         print(f"integrations: editor channel not started: {exc}", file=sys.stderr)
 
 
@@ -600,7 +632,6 @@ def _refresh_integration_launcher() -> None:
     """After an update the engine is in a new folder: point the AI tools' and the CLI's launchers at it."""
     try:
         from .integrations.config import launcher_path, write_cli_launcher, write_launcher
-        from .service import data_dir
         if launcher_path(data_dir()).exists():
             write_launcher(data_dir())
         write_cli_launcher(data_dir())  # VS Code's Validate task runs it on every developer's PC

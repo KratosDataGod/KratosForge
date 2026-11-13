@@ -38,7 +38,7 @@ def test_every_function_marked_as_running_has_a_value_check_that_passes(rows):
 
 def test_a_refusal_a_difference_and_a_failure_are_told_apart(rows):
     status = {r["name"]: r["status"] for r in rows}
-    assert status["abs"] == "runs" and status["rand"] == "not checked"
+    assert status["abs"] == "runs" and status["rand"] == "runs" and status["version"] == "not checked"
     assert status["hll_sketch_agg"] == "refused" and status["xpath"] == "refused"  # refused by name
     assert status["bitmap_count"] == "runs"  # X '1010' reads in Databricks SQL as in Spark SQL
     assert status["named_struct"] == "runs" and status["map_entries"] == "runs"  # a struct isn't a map
@@ -95,7 +95,8 @@ def test_databricks_own_functions_are_listed_once_and_not_spark_ones():
 
 def test_a_databricks_function_with_no_check_is_probed(rows):
     status = {r["name"]: r["status"] for r in rows}
-    assert status["iff"] == "not checked"  # DuckDB accepts it; no value check yet
+    assert status["session_user"] == "not checked"  # DuckDB accepts it; its value is the session's
+    assert status["iff"] == "runs"  # Databricks' own example, value checked
     notes = {r["name"]: r["note"] for r in rows}
     assert status["vector_norm"] == "runs" and "FLOAT in Databricks" in notes["vector_norm"]  # its listed note
     assert status["vector_avg"] == "refused"  # no element-wise aggregate here, said by name
@@ -122,8 +123,9 @@ def test_a_sketch_name_in_spark_sql_is_left_alone():
 
 def test_a_function_with_its_own_syntax_is_probed_in_that_syntax(rows):
     status = {r["name"]: r["status"] for r in rows}
-    for name in ("try_cast", "cube", "percentile_cont", "percentile_disc", "timestampdiff", "timestampadd"):
-        assert status[name] == "not checked", name  # runs here; no value check yet
+    assert status["cube"] == "not checked"  # runs here; no value check yet
+    for name in ("try_cast", "percentile_cont", "percentile_disc", "timestampdiff", "timestampadd"):
+        assert status[name] == "runs", name  # Databricks' own example, value checked
     assert status["collate"] == "runs"  # UTF8_LCASE is DuckDB's NOCASE
 
 
@@ -454,8 +456,8 @@ def test_the_engine_session_has_the_ip_functions():
     ("SELECT url_decode(NULL)", None),
     ("SELECT hex(hmac('key', 'message'))", "6E9EF29B75FFFC5B7ABAE527D58FDADB2FE42E7219011976917343065F58ED4A"),
     ("SELECT hex(hmac('key', 'message', 'SHA-512'))",
-     "E477384D7CA229DD1426E64B63EBF2D36EBD6D7E669A6735424E72EA6C01D3F8B56EB39C36D8232F5427999B8D1A3F9CD1128FC69F4D"
-     "75B434216810FA367E98"),
+     ("E477384D7CA229DD1426E64B63EBF2D36EBD6D7E669A6735424E72EA6C01D3F8B56EB39C36D8232F5427999B8D1A3F9CD1128FC69F4D"
+     "75B434216810FA367E98")),
     ("SELECT hex(hmac(hmac('key', 'message'), 'message2'))",
      "28042756E0362D954B61661BB4DEC9FF9F6C970D346CAEB6DB36ED7B735AB38C"),
     ("SELECT hmac(CAST(NULL AS BINARY), 'message')", None),
@@ -546,21 +548,21 @@ _STORE = "parse_json('{\"key\": 123, \"data\": [4, {\"a\": \"hello\"}, \"str\"]}
     ("SELECT * FROM variant_explode(parse_json('[1, \"a\", {\"b\": \"hello\"}]'))",
      [[0, None, "1"], [1, None, '"a"'], [2, None, '{"b":"hello"}']]),
     ("SELECT * FROM variant_explode(parse_json('{\"foo\":1,\"bar\":\"hello\"}'))", [[0, "bar", '"hello"'], [1, "foo", "1"]]),
-    ("SELECT t.value AS outer, u.value AS inner FROM variant_explode(parse_json('[[1, 2], [3, 4]]')) AS t, "
-     "LATERAL variant_explode(t.value) AS u", [["[1,2]", "1"], ["[1,2]", "2"], ["[3,4]", "3"], ["[3,4]", "4"]]),
-    ("SELECT s.id, e.pos, e.key, e.value FROM VALUES (1, parse_json('[{\"a\":1},{\"b\":2}]')), (2, parse_json('[]')), "
-     "(3, parse_json('{\"x\":10,\"y\":20}')) AS s(id, v), LATERAL variant_explode(s.v) AS e",
+    (("SELECT t.value AS outer, u.value AS inner FROM variant_explode(parse_json('[[1, 2], [3, 4]]')) AS t, "
+     "LATERAL variant_explode(t.value) AS u"), [["[1,2]", "1"], ["[1,2]", "2"], ["[3,4]", "3"], ["[3,4]", "4"]]),
+    (("SELECT s.id, e.pos, e.key, e.value FROM VALUES (1, parse_json('[{\"a\":1},{\"b\":2}]')), (2, parse_json('[]')), "
+     "(3, parse_json('{\"x\":10,\"y\":20}')) AS s(id, v), LATERAL variant_explode(s.v) AS e"),
      [[1, 0, None, '{"a":1}'], [1, 1, None, '{"b":2}'], [3, 0, "x", "10"], [3, 1, "y", "20"]]),
     ("SELECT * FROM variant_explode_outer(parse_json('[1, \"a\", {\"b\": \"hello\"}]'))",
      [[0, None, "1"], [1, None, '"a"'], [2, None, '{"b":"hello"}']]),
     ("SELECT value FROM variant_explode_outer(null) AS t(pos, key, value)", [[None]]),
     ("SELECT value FROM variant_explode_outer(parse_json('123')) AS t(pos, key, value)", [[None]]),
-    ("SELECT t.value AS outer, u.value AS inner FROM variant_explode_outer(parse_json('[[1, 2], [3, 4]]')) AS t, "
-     "LATERAL variant_explode(t.value) AS u", [["[1,2]", "1"], ["[1,2]", "2"], ["[3,4]", "3"], ["[3,4]", "4"]]),
+    (("SELECT t.value AS outer, u.value AS inner FROM variant_explode_outer(parse_json('[[1, 2], [3, 4]]')) AS t, "
+     "LATERAL variant_explode(t.value) AS u"), [["[1,2]", "1"], ["[1,2]", "2"], ["[3,4]", "3"], ["[3,4]", "4"]]),
     ("SELECT PARSE_JSON('{ \"price\": 5 }'):price, PARSE_JSON('{ \"price\": 5 }'):price::decimal(5,2)",
      [["5", "decimal:5.00"]]),
-    ("SELECT parse_json(NULL) IS NULL, parse_json('null') IS NULL, parse_json('{ \"field_a\": null }'):field_a IS NULL, "
-     "parse_json('{ \"field_a\": null }'):missing IS NULL", [[True, False, False, True]]),
+    (("SELECT parse_json(NULL) IS NULL, parse_json('null') IS NULL, parse_json('{ \"field_a\": null }'):field_a IS NULL, "
+     "parse_json('{ \"field_a\": null }'):missing IS NULL"), [[True, False, False, True]]),
 ])
 def test_databricks_variant_examples_give_its_values(code, want):
     assert _one(code) == want
@@ -709,19 +711,19 @@ _COUNTER = ("('http_requests', TIMESTAMP '2026-01-01T00:00:00', 100), ('http_req
     (f"SELECT m, t, counter_diff(c) OVER (PARTITION BY m ORDER BY t) FROM VALUES {_COUNTER} AS tab(m, t, c)",
      [["http_requests", "timestamp:2026-01-01T00:00:00", None], ["http_requests", "timestamp:2026-01-01T00:01:00", 100],
       ["http_requests", "timestamp:2026-01-01T00:02:00", 200]]),
-    (f"SELECT t, counter_diff(c) OVER (PARTITION BY m ORDER BY t) FROM VALUES {_COUNTER}, "
-     "('http_requests', TIMESTAMP '2026-01-01T00:04:00', 50) AS tab(m, t, c)",
+    ((f"SELECT t, counter_diff(c) OVER (PARTITION BY m ORDER BY t) FROM VALUES {_COUNTER}, "
+     "('http_requests', TIMESTAMP '2026-01-01T00:04:00', 50) AS tab(m, t, c)"),
      [["timestamp:2026-01-01T00:00:00", None], ["timestamp:2026-01-01T00:01:00", 100],
       ["timestamp:2026-01-01T00:02:00", 200], ["timestamp:2026-01-01T00:04:00", None]]),
-    ("SELECT t, counter_diff(c, st) OVER (PARTITION BY m ORDER BY t) FROM VALUES "
+    (("SELECT t, counter_diff(c, st) OVER (PARTITION BY m ORDER BY t) FROM VALUES "
      "('h', TIMESTAMP '2026-01-01T00:01:00', TIMESTAMP '2026-01-01T00:00:00', 100), "
      "('h', TIMESTAMP '2026-01-01T00:02:00', TIMESTAMP '2026-01-01T00:00:00', 200), "
-     "('h', TIMESTAMP '2026-01-01T00:04:00', TIMESTAMP '2026-01-01T00:02:31', 400) AS tab(m, t, st, c)",
+     "('h', TIMESTAMP '2026-01-01T00:04:00', TIMESTAMP '2026-01-01T00:02:31', 400) AS tab(m, t, st, c)"),
      [["timestamp:2026-01-01T00:01:00", None], ["timestamp:2026-01-01T00:02:00", 100],
       ["timestamp:2026-01-01T00:04:00", None]]),
     # a NULL value gives NULL and is skipped; a NULL start_time doesn't reset
-    ("SELECT t, counter_diff(c, st) OVER (ORDER BY t) FROM VALUES (1, 10, TIMESTAMP '2026-01-01'), (2, NULL, NULL), "
-     "(3, 15, NULL), (4, 18, TIMESTAMP '2026-01-01') AS tab(t, c, st)", [[1, None], [2, None], [3, 5], [4, 3]]),
+    (("SELECT t, counter_diff(c, st) OVER (ORDER BY t) FROM VALUES (1, 10, TIMESTAMP '2026-01-01'), (2, NULL, NULL), "
+     "(3, 15, NULL), (4, 18, TIMESTAMP '2026-01-01') AS tab(t, c, st)"), [[1, None], [2, None], [3, 5], [4, 3]]),
 ])
 def test_databricks_time_bitmap_and_counter_examples_give_its_values(code, want):
     assert _one(code) == want
@@ -729,8 +731,8 @@ def test_databricks_time_bitmap_and_counter_examples_give_its_values(code, want)
 
 @pytest.mark.parametrize(("code", "error"), [
     ("SELECT counter_diff(c) OVER (ORDER BY t) FROM VALUES (1, -1) AS tab(t, c)", "[COUNTER_DIFF_NEGATIVE_COUNTER_VALUE]"),
-    ("SELECT counter_diff(c, st) OVER (ORDER BY t) FROM VALUES (1, 1, TIMESTAMP '2026-01-02'), "
-     "(2, 2, TIMESTAMP '2026-01-01') AS tab(t, c, st)", "[COUNTER_DIFF_START_TIME_DECREASED]"),
+    (("SELECT counter_diff(c, st) OVER (ORDER BY t) FROM VALUES (1, 1, TIMESTAMP '2026-01-02'), "
+     "(2, 2, TIMESTAMP '2026-01-01') AS tab(t, c, st)"), "[COUNTER_DIFF_START_TIME_DECREASED]"),
 ])
 def test_counter_diff_stops_with_databricks_error_class(code, error):
     with pytest.raises(duckdb.Error, match=re.escape(error)):
@@ -774,3 +776,21 @@ def test_unix_nanos_says_when_a_timestamp_is_past_its_range():
         [None, "decimal:2000000000", None]]
     with pytest.raises(duckdb.Error, match="past the nanoseconds"):
         _one("SELECT unix_nanos(TIMESTAMP'2262-04-12')")
+
+
+@pytest.mark.parametrize(("code", "want"), [
+    # Databricks' reference examples: short English day and month names (run() sorts the rows)
+    ("SELECT dayname(DATE'2024-11-01' + CAST(offset AS INT)) AS days FROM range(8) AS t(offset)",
+     [["Fri"], ["Fri"], ["Mon"], ["Sat"], ["Sun"], ["Thu"], ["Tue"], ["Wed"]]),
+    ("SELECT monthname(DATE'2024-11-01'), monthname(NULL)", [["Nov", None]]),
+    # listagg and string_agg join with no delimiter unless given one, and skip NULLs
+    ("SELECT listagg(col) FROM VALUES ('a'), (NULL), ('c') AS tab(col)", [["ac"]]),
+    ("SELECT string_agg(DISTINCT col) WITHIN GROUP (ORDER BY col) FROM VALUES ('a'), ('a'), ('b') AS tab(col)",
+     [["ab"]]),
+    ("SELECT listagg(col, ', ') WITHIN GROUP (ORDER BY col) FROM VALUES ('b'), ('a'), ('c') AS tab(col)",
+     [["a, b, c"]]),
+    # time() from a string and from a timestamp's time of day
+    ("SELECT time('10:30:00'), time(TIMESTAMP'2026-10-29 16:45:30')", [["time:10:30:00", "time:16:45:30"]]),
+])
+def test_databricks_names_aggregates_and_time_give_its_values(code, want):
+    assert _one(code) == want

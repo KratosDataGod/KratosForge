@@ -1,0 +1,107 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E17",
+  "version": 1,
+  "status": "draft",
+  "title": "Nested JSON to Delta: struct fields and explode",
+  "objectives": [
+    "2.7"
+  ],
+  "objective_text": "Ingest nested JSON into Delta: schemas, struct access, explode and semi-structured types.",
+  "scenario": "Sensors post JSON events that Auto Loader lands in bronze.device_events with the schema it inferred: device is a struct holding a site struct, and readings is an array of structs. The operations team wants silver.readings with one row per reading, and a silent-device report that needs every device that sent nothing to still show up. The feed retries, so some events arrive twice.",
+  "difficulty": 2,
+  "minutes": 25,
+  "mode": "guided",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "lesson": "lesson.md",
+  "datasets": [
+    {
+      "name": "bronze.device_events",
+      "rows": 6,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    }
+  ],
+  "starting_environment": "A Delta table bronze.device_events (6 rows, nested struct and array columns) in the exercise folder, and a starter answer.py.",
+  "required": [
+    "One row per event_id before flattening: a retried event counts once.",
+    "One row per reading.",
+    "An event with an empty or missing readings array keeps one row, with metric and value NULL.",
+    "device_id and site_code come from the device struct (device.id and device.site.code).",
+    "Write silver.readings with event_id, device_id, site_code, metric, value, so that running the code again leaves the same table."
+  ],
+  "expected": {
+    "description": "silver.readings has 8 rows: 2 for event 1, 1 for event 2, 3 for event 4, and one row each with no reading for events 3 and 5."
+  },
+  "verifies": [
+    "Your PySpark reads nested struct fields and flattens an array of structs, keeping events with no readings, on the exercise data and on rows you haven't seen, on this PC.",
+    "Running it again leaves the same table."
+  ],
+  "does_not_verify": [
+    "It doesn't run Auto Loader or Lakeflow Connect, read raw JSON files or infer a schema: the table starts with the nested schema already inferred.",
+    "It doesn't run on Apache Spark or in a Databricks workspace."
+  ],
+  "validation": [
+    {
+      "kind": "result_matches",
+      "table": "silver.readings",
+      "data": "practice",
+      "weight": 2,
+      "required": true
+    },
+    {
+      "kind": "result_matches",
+      "table": "silver.readings",
+      "data": "hidden",
+      "weight": 2,
+      "required": true
+    },
+    {
+      "kind": "table_shape",
+      "table": "silver.readings",
+      "columns": {
+        "event_id": "",
+        "device_id": "",
+        "site_code": "",
+        "metric": "",
+        "value": ""
+      },
+      "not_null": [
+        "event_id",
+        "device_id",
+        "site_code"
+      ],
+      "weight": 1,
+      "required": true
+    },
+    {
+      "kind": "idempotent",
+      "table": "silver.readings",
+      "weight": 1,
+      "required": true
+    }
+  ],
+  "hints": [
+    "events.printSchema() shows the nesting. F.col(\"device.site.code\") reads a field inside a struct inside a struct.",
+    "dropDuplicates([\"event_id\"]) before flattening keeps a retried event from doubling its readings.",
+    "F.explode drops a row whose array is empty or NULL. F.explode_outer keeps it once, with the element NULL.",
+    "Write with mode(\"overwrite\") so a rerun replaces the table."
+  ],
+  "explanation": "Drop duplicate event_ids first, because a retried event would otherwise double every one of its readings. Then explode_outer the readings array: it gives one row per element and, unlike explode, keeps one row with NULLs for an empty or missing array, which is what the silent-device report needs. Read device.id and device.site.code with dot paths, take metric and value from the reading struct, and overwrite silver.readings so a rerun can't double it.",
+  "troubleshooting": [
+    "Events 3 and 5 are missing: explode drops empty and NULL arrays; use explode_outer.",
+    "Event 2's reading appears twice: drop duplicate event_ids before flattening.",
+    "Event 4 has one row, not three: readings[0] reads only the first element; explode the array.",
+    "site_code shows GB or FR: that's device.site.country; the code is device.site.code."
+  ],
+  "remediation": [
+    "https://docs.databricks.com/aws/en/query/formats/json",
+    "https://docs.databricks.com/aws/en/semi-structured/complex-types"
+  ],
+  "reset": "Reset rebuilds bronze.device_events from setup.sql, removes silver.readings and puts the starter back.",
+  "cleanup": "Everything lives in this exercise's folder on this PC; Reset or removing the exercise deletes it. Nothing is created in any workspace."
+}

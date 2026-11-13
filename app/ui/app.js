@@ -837,7 +837,8 @@ async function renderHome() {
   const resume = h("span", { class: "home-continue" });
   // Living Experience (home-hero.js, Preview): the welcome and the primary actions (Continue, New
   // notebook) sit in the hero's text-safe left side; Start something keeps the rest.
-  const living = typeof homeHero === "function" && homeLivingOn();
+  // Only while Home has header art: with no Home pool (RPG art is for progression pages), Home is the flat page.
+  const living = typeof homeHero === "function" && homeLivingOn() && !!heroArtPick("home");
   const newNb = btn("New notebook", "notebook", newNotebook, living ? "tool hero-outline" : "tool outline");
   const start = h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"), living ? null : resume, living ? null : newNb,
     btn("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"),
@@ -1163,7 +1164,7 @@ async function renderMonitor() {
     : hub ? (fabricOut ? null : popOutButton("fabric", "Pop out hub")) : runsOut ? null : popOutButton("runs", "Pop out runs");
   // The runs window holds the KratosForge tab (Runs, Schedules, Operations); the Fabric tab stays here.
   const runsBand = source === "kratosforge" && runsOut && !POP_OUT;
-  // The Forge Activity view (forge-activity.js, Preview): today's counts in the header, the band above the table.
+  // Run progress (forge-activity.js, Preview): today's counts in the header, the panel above the table.
   const forge = monitorPage.panel === "runs" && !runsBand && forgeViewShown();
   const forgeStripSlot = forge ? h("div", { class: "forge-strip-slot" }) : null;
   const forgeBandSlot = forge && forgeViewOn() ? h("div", { class: "forge-slot" }) : null;
@@ -2991,6 +2992,16 @@ document.addEventListener("keydown", (e) => {
   }
 });
 document.addEventListener("keydown", navKey);
+// F5 never reloads the window (that loses open work); on the SQL query page it runs the query, as in
+// SSMS, wherever focus is. The editor and the lesson boxes handle it themselves first (defaultPrevented).
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "F5") return;
+  const handled = e.defaultPrevented;
+  e.preventDefault();
+  if (handled || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  if (state.view === "query" && !document.getElementById("dialog-root")?.childElementCount
+      && !document.getElementById("palette")) sqlPage.runQuery?.();
+});
 document.getElementById("nav-back").addEventListener("click", navBack);
 document.getElementById("nav-forward").addEventListener("click", navForward);
 // Listed in the Keyboard shortcuts dialog while a notebook is open (handled just below).

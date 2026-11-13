@@ -10,7 +10,7 @@
   Run from an elevated PowerShell in the repository root. See docs/agent.md, "Windows".
 
   Anyone may create C:\ProgramData\FabricDesktop before the install, so it changes nothing while
-  anything there is a link (junction or symbolic link) or was created by someone other than an
+  anything there is a link (junction, symbolic link, or a file with more than one name) or was created by someone other than an
   administrator; it names those, for IT to check and remove.
 
 .EXAMPLE
@@ -54,6 +54,18 @@ function Assert-PlainAndAdminOwned {
     foreach ($item in Get-EverythingUnder $DataDir) {
         if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
             throw "$($item.FullName) is a link (junction or symbolic link). Nothing was changed. Remove it, then run this again."
+        }
+        # A file with a second name elsewhere (a hard link) is refused like any other link.
+        # If fsutil can't list the names, the file is refused too: the check never passes by failing.
+        if (-not $item.PSIsContainer) {
+            $names, $code = @(), -1
+            try { $names = @(fsutil hardlink list $item.FullName 2>$null); $code = $LASTEXITCODE } catch { $code = -1 }
+            if ($code -ne 0 -or $names.Count -lt 1) {
+                throw "Couldn't check whether $($item.FullName) has other names. Nothing was changed. Close anything using it, or remove it, then run this again."
+            }
+            if ($names.Count -gt 1) {
+                throw "$($item.FullName) has more than one name (a hard link). Nothing was changed. Remove it, then run this again."
+            }
         }
         $owner = (Get-Acl -LiteralPath $item.FullName).GetOwner([System.Security.Principal.SecurityIdentifier]).Value
         $mine = $owner -eq $agentSid -and $item.FullName.StartsWith($agentHome, [StringComparison]::OrdinalIgnoreCase)

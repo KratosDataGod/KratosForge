@@ -104,8 +104,8 @@ The choices are plain platform looks. None adds art or game styling to controls,
 type or data panels; the KratosForge skin keeps its light shell.
 
 Two settings choose the skin: `ui_skin` (its id, `kratosforge` by default) and `ui_color_mode`
-(`skin` follows the skin's own mode, or `light` or `dark`). See
-[the settings file](azure-setup.md).
+(`skin` follows the skin's own mode, or `light` or `dark`). The app saves `ui_color_mode` but doesn't
+apply it yet: it always uses the skin's light colors. See [the settings file](azure-setup.md).
 
 ## Notebook commands (Preview)
 

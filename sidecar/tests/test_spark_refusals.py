@@ -37,8 +37,8 @@ BLOCKED = {
     "_check_options": ("df.write.option('someOption', 'x').saveAsTable('dbo.t')", "saveAsTable doesn't take"),
     "_refuse_dynamic_overwrite": ("spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'dynamic')",
                                   "dynamic partitionOverwriteMode"),
-    "_refuse_auto_merge": ("spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')\n"
-                           "spark.sql('MERGE INTO dbo.t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET *')",
+    "_refuse_auto_merge": (("spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')\n"
+                           "spark.sql('MERGE INTO dbo.t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET *')"),
                            "autoMerge"),
     "schema": ("df = spark.read.schema('a INT, b STRING').csv('Files/x.csv')", "DDL string"),
     "_no_schema": ("df = spark.read.schema(my_schema).table('dbo.t')", "read.schema() to a read of a table"),
@@ -51,6 +51,7 @@ BLOCKED = {
     "withSchemaEvolution": ("t.merge(s, 'a = b').withSchemaEvolution().whenMatchedUpdateAll().execute()",
                             "withSchemaEvolution"),
     "_refusal": ("df = spark.read.option('ignoreLeadingWhiteSpace', 'true').csv('Files/x.csv')", "ignoreLeadingWhiteSpace"),
+    "_catalog_call_in_fabric": ("tables = [t.name for t in spark.catalog.listTables()]", "lists the catalog"),
 }
 
 
@@ -83,6 +84,7 @@ def test_code_this_pcs_spark_refuses_is_blocked_on_this_pc(site):
     "import scipy.optimize\nresult = model.optimize(x)",  # not a DeltaTable
     "spark.sql('INSERT INTO dbo.t SELECT * FROM s')",
     "spark.sql('DROP VIEW IF EXISTS v')",
+    "cols = spark.catalog.listColumns('dbo.t')\nspark.catalog.tableExists('dbo.t')",
 ])
 def test_what_this_pcs_spark_takes_stays_ok(source):
     out = check(source)["local"]

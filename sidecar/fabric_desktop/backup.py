@@ -47,8 +47,10 @@ SAFETY = "restore-safety"  # where restore keeps the files it replaced
 # databases and settings it replaced, so years of restores can't keep every old copy on the PC.
 KEEP_SAFETY = 5
 _STAMP = re.compile(r"\d{8}-\d{6}")
-SKIP_DIRS = {"engine", "onelake-cache", "EBWebView", "logs", "schedule_locks", "_leases", SAFETY}  # top level only
-SKIP_FILES = {"msal_cache.bin", "fabric-view-signin.bin", "link-port"}  # link-port: this run's link listener token
+# Top level only. fabric-view: the Fabric view's browser profile, whose cookies are its sign-in.
+SKIP_DIRS = {"engine", "onelake-cache", "EBWebView", "fabric-view", "logs", "schedule_locks", "_leases", SAFETY}
+# link-port and editor-port: this run's link listener token and VS Code pairing hello.
+SKIP_FILES = {"msal_cache.bin", "fabric-view-signin.bin", "link-port", "editor-port"}
 SKIP_SUFFIXES = {".log", ".tmp", ".lock", ".pyc"}
 SQLITE_SUFFIXES = {".sqlite", ".sqlite3", ".db"}
 SQLITE_HEADER = b"SQLite format 3\x00"
@@ -226,7 +228,12 @@ def _has_sqlite_header(path: Path) -> bool:
 
 
 # Files older backups carry that are now left out: restored by no one and quietly passed over.
-NO_LONGER_BACKED_UP = {"app/link-port"}
+NO_LONGER_BACKED_UP = {"app/link-port", "app/editor-port"}
+NO_LONGER_BACKED_UP_DIRS = ("app/fabric-view/",)
+
+
+def _no_longer(name: str) -> bool:
+    return name in NO_LONGER_BACKED_UP or name.startswith(NO_LONGER_BACKED_UP_DIRS)
 
 
 def _safe(name: str) -> bool:
@@ -254,7 +261,7 @@ def validate(zip_path: Path) -> tuple[dict[str, Any], list[str]]:
         kept = []
         for entry in manifest.get("files") or []:
             name = str(entry.get("path", ""))
-            if name in NO_LONGER_BACKED_UP:
+            if _no_longer(name):
                 continue
             kept.append(entry)
             if not _safe(name):
@@ -264,7 +271,7 @@ def validate(zip_path: Path) -> tuple[dict[str, Any], list[str]]:
             listed[name] = entry
         manifest = dict(manifest, files=kept)
         all_names = z.namelist()
-        names = set(all_names) - {MANIFEST} - NO_LONGER_BACKED_UP
+        names = {n for n in all_names if not _no_longer(n)} - {MANIFEST}
         problems += [f"{name} is in the zip twice" for name in sorted({n for n in all_names if all_names.count(n) > 1})]
         for name in sorted(names - listed.keys()):
             problems.append(f"{name} is in the zip but not in its manifest")

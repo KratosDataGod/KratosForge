@@ -217,6 +217,13 @@ class Ledger:
         with self._db() as db:
             db.execute("DELETE FROM sent WHERE key = ?", (key,))
 
+    def prune(self, older_than: float) -> int:
+        """Delete closed and one-off keys last marked more than ``older_than`` seconds ago. Open keys (a
+        request still waiting, a shortcut still broken) are never deleted, so they're never posted twice.
+        The same one-off event reported again after that long is posted again."""
+        with self._db() as db:
+            return db.execute("DELETE FROM sent WHERE open = 0 AND at < ?", (self.clock() - older_than,)).rowcount
+
     def open_keys(self) -> list[dict[str, Any]]:
         with self._db() as db:
             rows = db.execute("SELECT key, kind, at FROM sent WHERE open = 1 ORDER BY at").fetchall()
@@ -281,7 +288,7 @@ def send(events: list[dict[str, Any]], routing: PlatformRouting, outbox: Outbox,
                     sent += 1
                     outbox.route_ok(r.name)
                     continue
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001 - a route that can't be sent to is kept in the outbox and marked down
                     down[r.name] = failed[r.name] = failure(exc)
                     outbox.route_failed(r.name, r.url, down[r.name])
             outbox.add(title, lines, down[r.name], route=r.name)

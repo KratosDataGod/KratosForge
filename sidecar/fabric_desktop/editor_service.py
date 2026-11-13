@@ -21,6 +21,7 @@ import os
 import secrets
 import threading
 import time
+import unicodedata
 from typing import Any
 
 from .editor_channel import Channel
@@ -46,6 +47,27 @@ def _absolute(folder: str) -> bool:
     """A full path (Windows' form too, so a test on another OS can stand in for a PC), never one
     relative to wherever the engine happens to run."""
     return os.path.isabs(folder) or ntpath.isabs(folder)
+
+
+# Characters that would make a folder's path show differently from the folder itself: control
+# characters, and the marks that change the direction text is shown in.
+_DIRECTION_MARKS = frozenset("\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
+
+
+def _folder_problem(folder: Any) -> str | None:
+    """Why a VS Code window can't pair from ``folder``, in words for the person, or None when it can.
+    A folder that can pair is kept and compared whole, never cut or altered to show it."""
+    if not isinstance(folder, str) or not _absolute(folder) or _is_root(folder):
+        return ("Pair from a folder with notebooks in it, not a whole drive or no folder: "
+                "open the notebooks folder or repository in VS Code first.")
+    if folder.replace("/", "\\").startswith("\\\\"):
+        return (f"{folder} is a network folder. KratosForge runs notebooks from folders on this PC's drives: "
+                "clone or copy the notebooks to this PC, or open them from the drive letter the share is mapped to.")
+    odd = next((c for c in folder if unicodedata.category(c) == "Cc" or c in _DIRECTION_MARKS), None)
+    if odd is not None:
+        return (f"This folder's path has a control or text-direction character (U+{ord(odd):04X}), so it would show "
+                "differently from the folder itself. Rename the folder, then pair again.")
+    return None
 
 
 def _is_root(folder: str) -> bool:
@@ -187,11 +209,11 @@ class EditorMixin:
     def editor_channel_pair(self, window: str | None, client: str | None) -> dict[str, Any]:
         if not self._editor_enabled():
             raise PermissionError("VS Code can't run notebooks in KratosForge: it's switched off in Settings > Integrations.")
-        if not isinstance(window, str) or not _absolute(window) or _is_root(window):
-            raise PermissionError("Pair from a folder with notebooks in it, not a whole drive or no folder: "
-                                  "open the notebooks folder or repository in VS Code first.")
+        problem = _folder_problem(window)
+        if problem:
+            raise PermissionError(problem)
         out = self.editor_pairings.request(window, client)
-        self._editor_audit("editor_pair_request", {"window": window or ""}, {"result": out})
+        self._editor_audit("editor_pair_request", {"window": window}, {"result": out})
         return out
 
     def editor_channel_collect(self, request_id: str) -> dict[str, Any]:
@@ -208,7 +230,10 @@ class EditorMixin:
         if not _inside(path, pairing.get("window") or ""):
             raise PermissionError(f"{path} isn't in {pairing.get('window')}, the folder this VS Code window was paired "
                                   "from. Pair the window that has it open.")
-        name = self.notebook_name_for_path(path)["name"]  # type: ignore[attr-defined]
+        found = self.notebook_name_for_path(path)  # type: ignore[attr-defined]
+        name = found["name"]
+        if name is None and found.get("why"):
+            raise LookupError(f"{path}: {found['why']}")
         if name is None:
             raise LookupError(f"{path} isn't in KratosForge's notebooks folder or a notebooks repository it has open. "
                               "Open the repository in Source control, or import the notebook.")

@@ -456,6 +456,7 @@ As you type, the query is checked against the engine picked in the dialect list,
 - **Ctrl+Enter** or **F5** runs the selection, or everything. **Ctrl+Shift+Enter** runs only the statement the cursor is in, from the `;` before it to the `;` after it (a `;` inside a string or comment doesn't count); with the cursor just after a `;` it runs the statement that `;` ends. With text selected it runs the selection. **Ctrl+S** saves the query tabs (they are also saved as you type). **Shift+Alt+F** formats.
 - **Ctrl+R** hides the results pane so the editor gets the room, and shows it again (a run shows it too); **Maximize** beside **Export** gives the results the whole page. **Ctrl+Shift+U** and **Ctrl+Shift+L** make the selection, or the word at the cursor, upper or lower case. **Ctrl+G** goes to a line.
 - **Ctrl+F** finds, with replace (**F3** and **Shift+F3** go to the next and previous match). **Ctrl+/** comments or uncomments lines. **Tab** and **Shift+Tab** indent. **Ctrl+Z** and **Ctrl+Y** undo and redo.
+- **F12** shows the table under the cursor in the Explorer, with its columns open: put the cursor on a table's name, an alias or one of its columns. On the Warehouse page it opens the tree down to the object (list the objects first); **⋯** on it scripts it.
 - More than one cursor: **Ctrl+D** selects the next match of the selection, **Ctrl+click** adds a cursor, and **Alt+drag** selects a rectangle.
 
 ### Format SQL

@@ -256,6 +256,7 @@ function renderQuery() {
         if (stmt.trim()) run(stmt);
       },
       togglePane: () => togglePane(),
+      definition: () => goToDefinition(),
       save: () => {
         if (tab.proj) { whProjectSave(tab).then((ok) => { if (ok) { saveQueryTabs(); p.whProjectView?.refresh(); } }); return; }
         const ok = saveQueryTabs();
@@ -531,6 +532,47 @@ function renderQuery() {
       if (!cols.length && !p.cols[name]?.length) { p.open[name] = false; delete p.cols[name]; delete p.pending[name]; }
     }
     if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) editor.refresh(); }
+  }
+  // S08: F12 shows the table under the cursor, or an alias's or a column's table, in the Explorer: on a
+  // lakehouse its row with its columns open; on a warehouse its object in the tree, opened down to it.
+  async function goToDefinition() {
+    const text = editor.text();
+    const target = sqlHoverTarget(text, editor.selection().head, tab.dialect, provider.tables(), (t) => provider.cachedColumns(t));
+    const table = await sqlTargetTable(target, provider);
+    if (!table) {
+      toast(target?.kind === "function" ? `${target.name} is built in: hover it to see its forms.`
+        : "F12 goes to a table or view: put the cursor on its name, an alias or one of its columns.");
+      return;
+    }
+    const row = wh ? await revealWarehouseObject(table) : await revealLakehouseTable(table);
+    if (!row) return;
+    row.scrollIntoView({ block: "nearest" });
+    row.focus();
+    row.classList.add("sql-revealed");
+    setTimeout(() => row.classList.remove("sql-revealed"), 1600);
+  }
+  async function revealLakehouseTable(t) {
+    if (!sqlPage.explorerOpen && !document.querySelector(".sql-explorer:not([hidden])")) setSqlExplorerOpen(true);
+    const name = sqlTableName(t.schema, t.name);
+    p.open[name] = true;
+    drawTables();
+    await provider.columns(t).catch(() => []);
+    if (!(state.view === "query" && p.ref === ref)) return null;
+    drawTables();
+    return [...tablesBox.querySelectorAll(".sql-table-row .tree-row:not(.chev)")].find((b) => b.title === `Query ${name}`) || null;
+  }
+  async function revealWarehouseObject(t) {
+    const cat = p.catalog?.key === sqlRefKey(ref) && p.catalog.state === "done" ? p.catalog : null;
+    const o = cat?.objects.find((x) => x.schema === t.schema && x.name === t.name);
+    if (!o) { toast("List the warehouse's objects first: Explorer › List objects."); return null; }
+    const open = p.whOpen ||= new Set();
+    open.delete(`s:${o.schema}`);  // schemas and the Tables group start open: in the set means closed
+    if (o.type === "U") open.delete(`g:${o.schema}.U`); else open.add(`g:${o.schema}.${o.type}`);
+    open.add(`o:${o.schema}.${o.name}`);
+    p.whFilter = "";
+    p.whFocus = `o:${o.schema}.${o.name}`;
+    if (p.whAside && p.whAside !== "explorer") { p.whAside = "explorer"; renderQuery(); } else whTree.draw();
+    return document.querySelector(`.wh-tree [data-tid="${CSS.escape(p.whFocus)}"]`);
   }
   function loadTables() {
     drawTables();
@@ -1153,6 +1195,7 @@ registerShortcuts("SQL query", [
   { keys: ["Ctrl+R"], label: "Hide or show the results pane", when: () => state.view === "query" },
   { keys: ["Ctrl+Shift+U", "Ctrl+Shift+L"], label: "In the editor: make the selection (or the word at the cursor) upper or lower case", when: () => state.view === "query" },
   { keys: ["Ctrl+G"], label: "In the editor: go to a line", when: () => state.view === "query" },
+  { keys: ["F12"], label: "In the editor: show the table under the cursor (or an alias's or column's table) in the Explorer", when: () => state.view === "query" },
   { keys: ["Delete"], label: "On a query tab: close it (asks first when it has SQL of its own)", when: () => !!document.querySelector(".sql-tabs") },
 ]);
 

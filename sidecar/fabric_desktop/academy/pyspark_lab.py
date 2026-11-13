@@ -58,7 +58,12 @@ HIDDEN_FAILED = "On data you haven't seen, your code didn't finish. Check it han
 Runner = Callable[[Path, str], dict[str, Any]]
 
 # The process's first code: put kf_learner first on the path, make spark, run answer.py, exit at once
-# (os._exit, so no interpreter shutdown can hang on a worker thread after the answer finished).
+# (so no interpreter shutdown can hang on a worker thread after the answer finished). On Windows it ends
+# with TerminateProcess, not os._exit: os._exit is ExitProcess, which stops delta-rs's and DuckDB's worker
+# threads wherever they are and then runs each library's shutdown code, and that code can crash on what
+# a stopped thread left behind. C1's reference crashed that way on Windows CI three times (access
+# violation 0xC0000005 with faulthandler's frame on the os._exit line, after the answer had finished);
+# sql_worker._end_now ends the same way for the same reason. Nothing is lost: output is flushed first.
 BOOTSTRAP = """
 import faulthandler, os, sys, traceback
 faulthandler.enable()   # a crash in native code (DuckDB, delta-rs) still leaves a trace on stderr
@@ -75,7 +80,13 @@ except BaseException:
     traceback.print_exc(limit=3)
     rc = 1
 sys.stdout.flush(); sys.stderr.flush()
-os._exit(rc)
+if sys.platform == "win32":
+    import ctypes
+    k = ctypes.windll.kernel32
+    k.GetCurrentProcess.restype = ctypes.c_void_p
+    k.TerminateProcess.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+    k.TerminateProcess(k.GetCurrentProcess(), rc)
+os._exit(rc)   # elsewhere, or if TerminateProcess returned
 """
 
 

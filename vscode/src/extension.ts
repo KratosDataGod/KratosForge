@@ -10,6 +10,7 @@ import { convert, failed, Output } from "./outputs";
 import { remoteKind, remoteMessage } from "./remote";
 
 const SECRET = "kratosforge.pairing";
+export const STOPPED_BEFORE = "Stopped before it ran: KratosForge didn't run this cell.";
 
 // A pairing is bound to the folder it paired from, so each folder has its own channel and token.
 const channels = new Map<string, Channel>();
@@ -116,13 +117,22 @@ async function execute(context: vscode.ExtensionContext, controller: vscode.Note
     const run = controller.createNotebookCellExecution(cell);
     run.start(Date.now());
     run.clearOutput();
-    let stopped = false;
+    // VS Code tells a listener added to an already-cancelled token later (on a timer), so ask it directly too.
+    let stopped = run.token.isCancellationRequested;
     let started = false; // the app has said the cell started, so Stop interrupts it there
-    run.token.onCancellationRequested(() => {
+    const listening = run.token.onCancellationRequested(() => {
       stopped = true;
       if (started) channel.interrupt(notebook.uri.fsPath).catch(() => undefined);
     });
+    const stoppedBefore = () => {
+      run.replaceOutput(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.text(STOPPED_BEFORE, "text/plain")]));
+      run.end(false, Date.now());
+    };
     try {
+      if (stopped) { // Stop pressed before anything was asked of KratosForge (Run all stopped while queued)
+        stoppedBefore();
+        return;
+      }
       await ensurePaired(context, folder);
       const show = (snap: Snapshot) => {
         started = true;
@@ -130,6 +140,10 @@ async function execute(context: vscode.ExtensionContext, controller: vscode.Note
         if (Array.isArray(snap.outputs)) run.replaceOutput(snap.outputs.map((o) => toOutput(convert(o))));
       };
       const last = await channel.run(notebook.uri.fsPath, cell.document.getText(), show, () => stopped);
+      if (last.status === "cancelled" && !started) {
+        stoppedBefore();
+        return;
+      }
       run.end(!failed(last.status, last.outputs ?? []) && last.status !== "cancelled", Date.now());
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -143,6 +157,8 @@ async function execute(context: vscode.ExtensionContext, controller: vscode.Note
         });
       }
       return; // the cells after it don't run, as Run all stops at an error
+    } finally {
+      listening?.dispose();
     }
     if (stopped) return;
   }

@@ -222,6 +222,10 @@ The app reads these from the PC's environment. None is needed for a normal rollo
 
 The [headless agent](agent.md) reads its own: `FABRIC_DESKTOP_HOME`, `FABRIC_DESKTOP_AGENT_CONFIG`, and the variables `agent.toml` names for secrets.
 
+### FIPS mode
+
+The app runs on a PC with Windows' FIPS policy turned on ("System cryptography: Use FIPS compliant algorithms"). Windows applies the policy to its own TLS (Schannel), which the app window, Windows sign-in and the engine download (`curl.exe`) use. Those connect with FIPS-approved cipher suites, which Microsoft's and GitHub's servers offer. The engine's Python doesn't read the policy: its OpenSSL has no FIPS module, so its TLS and hashes behave as on any other PC. Everything the app uses to protect data is FIPS-approved: SHA-256 for checksums, receipts, the audit chain and tokens; HMAC-SHA256 for the editor and link handshakes; DPAPI for the saved sign-in. MD5 and SHA-1 are used only for ids, change checks and a query that asks for them (Databricks SQL's `hmac()`), and each says so (`usedforsecurity=False`), so they also work where Python's OpenSSL is in FIPS mode, such as the agent on a Linux host with FIPS turned on. The engine's lint (ruff's S324 rule) refuses one that doesn't, and `sidecar/tests/test_fips.py` runs them as a FIPS-only OpenSSL would. The engine's own libraries (DuckDB, Polars, delta-rs) don't use FIPS-validated modules. They aren't blocked by the policy, but if your rules require validated modules for all data in transit, check with your security team. **UNVERIFIED** on a Windows PC with the policy turned on.
+
 ## Application control
 
 This covers AppLocker and App Control for Business (WDAC). It comes from reading the code and hasn't yet been tested on a PC with either enforced, so run it in audit mode on a pilot PC first.
@@ -245,7 +249,7 @@ What we suggest until signing lands:
 - Run shell commands with `%%powershell` or `!command` rather than `%%cmd`; don't allow `%TEMP%`.
 - Under script enforcement PowerShell runs in Constrained Language Mode, so "also run while signed out" on a schedule can't be saved. Ordinary schedules are unaffected.
 
-When something is blocked, the app says so. It names the engine folder when the engine's Python is blocked, names the packages when engine or notebook-environment files are blocked, and suggests `%%powershell` when a `%%cmd` cell is blocked.
+When something is blocked, the app says so. It names the engine folder when the engine's Python is blocked, names the packages when engine or notebook-environment files are blocked, and suggests `%%powershell` when a `%%cmd` cell is blocked. A notebook's own Python process, a SQL worker or the local API that the policy refuses, or a package file a cell imports, gets the same kind of line, naming AppLocker or App Control (WDAC), rather than `[WinError 1260]` or "DLL load failed". A scheduled run whose engine is blocked ends with the policy's own code, so Task Scheduler's **Last Run Result** shows it (`0x000004EC` for AppLocker). These messages are tested with Windows' error codes simulated, and are UNVERIFIED on a PC with a real policy.
 
 ## What the support bundle collects
 

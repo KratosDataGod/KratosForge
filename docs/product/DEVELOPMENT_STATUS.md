@@ -3,10 +3,30 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-11 11:42 UTC, main 47416473.** Covers the PRs merged from #135 to #2500.
+**Product check of 2026-11-13 11:42 UTC, main 6cab0dc3.** Covers the PRs merged from #135 to #2573.
 
 ## Summary
 
+- Morning check, 2026-11-13: 8 PRs merged after 36844275. 2 were product data and docs audit PRs, and the other 6
+  were linked. The policy key docs now match what the app reads, with a test to keep them in step (PB-061). Agent
+  schedules that are edited or removed in agent.toml run once, as configured now (PB-124). No item changed state;
+  PB-073's acceptance waits on the product owner.
+- Evening check, 2026-11-12: 16 PRs merged after 7c3dbd0e. 1 was a product data PR, and the other 15 were linked.
+  Mutation testing reached batch 10, covering the policy and approval gates, SQL translation and local PySpark
+  (PB-101). Spark on this PC handles extract on text, NaN literals and read.csv's default comma, and SQL cells that
+  end in comments run (PB-103). Set-aside copies made in the same instant no longer replace each other (PB-124). No
+  item changed state; PB-073's acceptance waits on the product owner.
+- Morning check, 2026-11-12: 18 PRs merged after 86c07814. 1 was a product data PR, and the other 17 were linked.
+  Spark SQL's session, clock and random functions answer as in Fabric, and unnamed columns are named as Spark names
+  them (PB-103). A failed Delta write no longer leaves the next query stuck (PB-099). Blocked files name AppLocker or
+  WDAC, Windows FIPS mode is explained, and errors cite a request id only when one was sent (PB-124). Mutation
+  testing now pins the write, commit and clear-up paths. No item changed state; PB-073's acceptance waits on the
+  product owner.
+- Evening check, 2026-11-11: 19 PRs merged after 47416473. 2 were product data and docs audit PRs, and the other 17
+  were linked. App Studio gained its Model connections screen and a working Publish dialog (PB-127, Preview). Local
+  data projects read Delta tables under folders with spaces or non-ASCII names and refuse a write Windows can't read
+  back (PB-099). CI installs from hashed lock files, workflows pin their actions, and the shell's Rust crates are
+  gated by clippy and cargo-deny (PB-124). No item changed state; PB-073's acceptance waits on the product owner.
 - Morning check, 2026-11-11: 72 PRs merged after 17e7ea06. 2 were product data and docs audit PRs, and the other 70
   were linked. Incidents gained their measures (time to acknowledge, time to resolve, SLAs met) in the engine
   (PB-105); what's left there is the reports screen, which needs a mockup, and service desk tickets, which need the

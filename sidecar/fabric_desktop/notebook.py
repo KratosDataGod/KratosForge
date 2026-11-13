@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator, NoReturn, cast
 
 import pyarrow as pa
 
-from . import chart_output, disk_full, jsonfile, notebook_cells
+from . import app_control, chart_output, disk_full, jsonfile, notebook_cells
 from . import notebook_resources
 from . import magics
 from . import history
@@ -1825,9 +1825,12 @@ class Kernel:
 def plain_error(exc: BaseException) -> str:
     """A cell's error as the user reads it. A full disk and running out of memory say so first, as
     delta-rs words a full disk as a parse or copy error and a MemoryError often has no text at all;
-    the raw error stays in the traceback."""
+    the raw error stays in the traceback. A package or program application control blocked says
+    that, rather than "DLL load failed"."""
     raw = str(exc)
-    if disk_full.is_disk_full(exc):
+    if blocked := app_control.explain(exc):
+        plain = blocked
+    elif disk_full.is_disk_full(exc):
         plain = disk_full.message(None, "A Delta table write that failed changed nothing.")
     elif any(isinstance(e, MemoryError) for e in _chain(exc)):
         plain = ("This PC ran out of memory in this cell. Variables from earlier cells are kept. "

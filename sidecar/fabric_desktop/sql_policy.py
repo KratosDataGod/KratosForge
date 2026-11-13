@@ -181,6 +181,9 @@ def _name(node: exp.Expression | None) -> str:
 
 
 def _one(st: exp.Expression, made: set[str]) -> tuple[str, str]:
+    # comments after the last ";" (sqlglot keeps them as a statement with no parts); one with parts is refused below
+    if isinstance(st, exp.Semicolon) and not any(st.args.values()):
+        return "read_only", "only comments"
     if isinstance(st, _READS) and not any(isinstance(n, _WRITES + (exp.Create, exp.Command)) for n in st.walk()):
         return "read_only", "reads tables"
     if isinstance(st, exp.Create):

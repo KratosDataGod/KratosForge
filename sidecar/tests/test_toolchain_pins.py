@@ -40,7 +40,9 @@ def test_ci_tools_install_from_hashed_files():
         for line in workflow.read_text(encoding="utf-8").splitlines():
             if "pip install" not in line or "-c constraints.txt" in line or "--target" in line:
                 continue
-            if "--require-hashes -r .github" not in line:
+            if "--no-deps --no-build-isolation -e ." in line:   # the engine itself, after its hashed packages
+                continue
+            if not re.search(r'--require-hashes -r "?(\.\./)?\.github', line):
                 loose.append(f"{workflow.name}: {line.strip()}")
     assert not loose, loose
     for path in (ROOT / ".github" / "requirements").glob("*.txt"):
@@ -65,3 +67,42 @@ def test_the_shells_crates_are_linted_and_gated_on_licence_and_source():
     assert deny["sources"]["allow-registry"] == ["https://github.com/rust-lang/crates.io-index"]
     assert deny["bans"]["wildcards"] == "deny"
     assert not any(lic.startswith(("GPL", "LGPL", "AGPL")) for lic in deny["licenses"]["allow"])
+
+
+def _pins(path: Path) -> dict[str, str]:
+    """{normalised name: version} of a requirements or constraints file."""
+    found = re.findall(r"^([A-Za-z0-9_.-]+)==([^\s;\\]+)", path.read_text(encoding="utf-8"), re.M)
+    return {re.sub(r"[-_.]+", "-", name).lower(): version for name, version in found}
+
+
+def test_ci_installs_the_engines_packages_from_hashed_locks_at_constraints_versions():
+    """The sidecar, lint, vscode-extension and ui-browser jobs install the engine's packages and test
+    tools from hashed lock files (.github/requirements/test-<os>.txt, lint.txt), not from PyPI by
+    constraints.txt's versions alone. The locks must say what constraints.txt says: a version bumped
+    there and not regenerated here fails, with the command in each lock's header."""
+    requirements = ROOT / ".github" / "requirements"
+    constraints = _pins(ROOT / "sidecar" / "constraints.txt")
+    ci_tools = _pins(ROOT / "sidecar" / "ci-constraints.txt")
+    build = _pins(requirements / "engine-build.txt")
+    locks = {name: _pins(requirements / f"{name}.txt") for name in ("test-linux", "test-windows", "lint")}
+    for name, pins in locks.items():
+        wrong = {p: (v, constraints.get(p, ci_tools.get(p))) for p, v in pins.items()
+                 if v != constraints.get(p, ci_tools.get(p, build.get(p)))}
+        # colorama comes with pytest on Windows only and constraints.txt (made on Linux) doesn't list it.
+        wrong.pop("colorama", None)
+        assert not wrong, f"{name}.txt doesn't match constraints.txt (lock, constraints): {wrong}; regenerate it"
+        assert pins["setuptools"] == build["setuptools"], f"{name}.txt's setuptools isn't engine-build.txt's"
+    missing = set(constraints) - set(locks["test-linux"]) - set(locks["test-windows"]) - {"pip"}
+    assert not missing, f"constraints.txt pins {sorted(missing)}, which neither test lock installs; regenerate them"
+    assert set(locks["test-windows"]) - set(locks["test-linux"]) <= {"colorama", "pymsalruntime", "pywin32"}
+    assert set(ci_tools) <= set(locks["lint"])
+    # No workflow installs anything by constraints alone any more; the editable engine adds no packages.
+    for workflow in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        assert "-c constraints.txt" not in workflow.read_text(encoding="utf-8"), workflow.name
+    assert "--require-hashes -r ../.github/requirements/test-linux.txt -r ../.github/requirements/tsql-live.txt" in (
+        ROOT / ".github" / "workflows" / "tsql-contract-live.yml"
+    ).read_text(encoding="utf-8")
+    assert CI.count("--require-hashes -r ../.github/requirements/test-linux.txt") == 2
+    assert '--require-hashes -r "../.github/requirements/$lock"' in CI and "lock=test-windows.txt" in CI
+    assert "--require-hashes -r ../.github/requirements/lint.txt" in CI
+    assert CI.count("python -m pip install --no-deps --no-build-isolation -e .") == 4

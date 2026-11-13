@@ -104,6 +104,22 @@ def _part(value: Any) -> str:
     return redact.one_line(value or "", _PART_MAX).rstrip(".")
 
 
+# The same steps when Fabric sent no request id: they point at the id only when there is one to give.
+_WITHOUT_REQUEST_ID = {
+    "Try again, and give the request id to support if it keeps happening":
+        "Try again, and contact support if it keeps happening",
+    ", or give the request id to support": "",
+}
+
+
+def _step(hint: str, request_id: str) -> str:
+    """A next step that mentions the request id only when Fabric sent one."""
+    if not request_id:
+        for with_id, without in _WITHOUT_REQUEST_ID.items():
+            hint = hint.replace(with_id, without)
+    return hint
+
+
 def _request_id(value: Any) -> str:
     text = str(value or "")
     return text if _REQUEST_ID.fullmatch(text) else ""
@@ -145,6 +161,7 @@ def _error(method: str, url: str, resp: requests.Response, safe: bool | None = N
     read = method.upper() in SAFE_METHODS if safe is None else safe
     if (status >= 500 or status == 408) and not read:
         hint = _UNSURE  # a write that got a 5xx may have happened (HD-053): it isn't sent again
+    hint = _step(hint, request_id)
     parts = [p for p in parts if p] + ([hint] if hint else [])
     text = f"{method} {path} failed with {status}" + (f" {code}" if code else "")
     text += (": " + ". ".join(parts) + "." if parts else ".") + (f" Request id {request_id}." if request_id else "")
@@ -163,10 +180,11 @@ def _operation_failed(operation: str, state: dict[str, Any]) -> FabricError:
     hint = _HINTS.get(code or "", _OPERATION_NEXT_STEP)
     if code == "CapacityNotActive":
         message, hint = _CAPACITY_NOT_ACTIVE, ""
+    request_id = _request_id(error.get("requestId"))
+    hint = _step(hint, request_id)
     text = f"Fabric's operation {operation} {'failed' if state.get('status') == 'Failed' else 'ended in an unknown state'}"
     text += f": {message}" if message else " and gave no reason"
     text += "".join(f". {d}" for d in details[:3]) + (f" ({code})" if code else "") + (f". {hint}" if hint else "")
-    request_id = _request_id(error.get("requestId"))
     return FabricError(text + (f". Request id {request_id}." if request_id else "."), code, request_id=request_id)
 
 

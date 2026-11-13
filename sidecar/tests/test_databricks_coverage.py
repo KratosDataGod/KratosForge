@@ -38,7 +38,7 @@ def test_every_function_marked_as_running_has_a_value_check_that_passes(rows):
 
 def test_a_refusal_a_difference_and_a_failure_are_told_apart(rows):
     status = {r["name"]: r["status"] for r in rows}
-    assert status["abs"] == "runs" and status["rand"] == "not checked"
+    assert status["abs"] == "runs" and status["rand"] == "runs" and status["version"] == "not checked"
     assert status["hll_sketch_agg"] == "refused" and status["xpath"] == "refused"  # refused by name
     assert status["bitmap_count"] == "runs"  # X '1010' reads in Databricks SQL as in Spark SQL
     assert status["named_struct"] == "runs" and status["map_entries"] == "runs"  # a struct isn't a map

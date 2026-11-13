@@ -599,6 +599,21 @@ def test_lakehouse_refusals_are_unchanged_by_the_local_class():
         sql_policy.classify([], "elsewhere")
 
 
+def test_comment_lines_after_the_last_semicolon_are_read_only_in_every_dialect():
+    for dialect in ("spark", "duckdb"):
+        for target in ("lakehouse", "local"):
+            verdicts = sql_policy.classify(sql.parse("SELECT 1;\n-- notes\n-- more", dialect), target)
+            assert [v.kind for v in verdicts] == ["read_only", "read_only"]
+    # comments don't hide what comes before them
+    verdicts = sql_policy.classify(sql.parse("DROP TABLE sales; -- notes", "spark"))
+    assert verdicts[0].kind == "onelake_write"
+    # a Semicolon that ever carries parts isn't read as comments only
+    from sqlglot import exp
+    odd = exp.Semicolon()
+    odd.set("this", exp.to_identifier("x"))
+    assert sql_policy.classify([odd])[0].kind == "fabric_mutation"
+
+
 def test_a_lakehouse_run_can_never_allow_project_writes(runs, lake):
     with pytest.raises(PermissionError):
         runs.start("DROP TABLE sales", lake, allow=["local_project_write"])

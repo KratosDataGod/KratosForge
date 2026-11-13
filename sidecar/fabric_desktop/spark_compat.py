@@ -26,7 +26,7 @@ from duckdb.experimental.spark.sql.column import Column
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.group import GroupedData
 from sqlglot import exp
-from . import spark_builtins_sql
+from . import spark_builtins_sql, spark_sql_names, sql_dialects
 from . import sql as spark_sql
 from .duckdb_rows import one_row
 
@@ -55,7 +55,7 @@ def spark_expr(text: str) -> str:
 
 def _parse(text: str) -> exp.Expression:
     """One Spark SQL expression as sqlglot reads it (it types the result as its base Expr)."""
-    return cast(exp.Expression, sqlglot.parse_one(text, read="spark"))
+    return cast(exp.Expression, sql_dialects.parse_one(text, read="spark"))
 
 
 def _literal(text: str) -> Callable[[re.Match[str]], str]:
@@ -389,6 +389,9 @@ def expr(text: str) -> Column:
     col = _sql(spark_sql.duckdb_sql(body))
     if isinstance(read, (exp.Column, exp.Star)):
         return col
+    named = spark_sql_names.column_name(read)
+    if named is not None:
+        return _named(col, named)
     shown = read.copy()  # Spark's name drops a string literal's quotes
     for literal in list(shown.find_all(exp.Literal)):
         if literal.is_string:
@@ -2201,10 +2204,22 @@ def _int_cast(original: Any) -> Any:
     return cast
 
 
+def _constant(value: Any) -> duckdb.Expression:
+    """DuckDB's ConstantExpression, with NaN and the infinities kept: DuckDB 1.5 reads a float NaN given to
+    ConstantExpression as NULL (its nan_as_null for imported data), so lit(float("nan")) and col == nan
+    were NULL where Spark has NaN, true or false."""
+    if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+        return duckdb.SQLExpression(f"CAST('{value!r}' AS DOUBLE)")
+    return duckdb.ConstantExpression(value)
+
+
 def install() -> None:
     """Add the calls above to DuckDB's Spark API (once per process)."""
     if getattr(DataFrame, "_fd_compat", False):
         return
+    from duckdb.experimental.spark.sql import column as column_module
+    for module in (column_module, F):
+        vars(module)["ConstantExpression"] = _constant  # lit(x) and col == x build their constants with it
     for name, fn in FUNCTIONS.items():
         if name in ("count", "substring", "concat", "initcap", "first", "last", "slice", "add_months",
                     "months_between", "element_at", "to_date", "to_timestamp", "ln", "log2", "pow", "factorial",

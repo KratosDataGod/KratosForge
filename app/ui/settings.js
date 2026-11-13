@@ -989,8 +989,8 @@ function advancedSection(s, locked, limitRow) {
         if (await saveSettings({ client_id: "" })) { toast("Saved. Sign in again to use it."); render(); }
       }, "tool outline small") : null) : null);
   const kernel = s.kernel_process ? h("div", { class: "advanced-group" }, h("h3", {}, "Notebooks"),
-    settingRow("Run notebooks in their own process (Preview)",
-      "Cells run in a Python process of their own instead of inside the app's engine. Stop and a crash then end only that process, and the rest of the app keeps working. Variables are cleared when you switch.",
+    settingRow("Run notebooks in their own process",
+      "Cells run in a Python process of their own instead of inside the app's engine. Stop and a crash then end only that process, and the rest of the app keeps working. On by default; you or your organization can turn it off. Variables are cleared when you switch.",
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.kernel_process.value ? true : null, disabled: locked("kernel_process") ? true : null,
         onchange: async (e) => { await saveSettings({ kernel_process: e.target.checked }); render(); } }),
       h("span", {}, s.kernel_process.value ? "On" : "Off")),

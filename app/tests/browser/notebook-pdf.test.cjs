@@ -27,12 +27,10 @@ before(async () => {
     window.printed = 0;
     window.print = () => { window.printed += 1; };
     go("notebook");
-    window.__TAURI__.core.convertFileSrc = () => "about:blank";  // the shell's output frame, for the HTML output
     const [, c1, c2] = state.notebook.cells;
     c1.outputs = [{ type: "stream", text: "42\n" }];
     c1.count = 1;
-    c2.outputs = [{ type: "table", columns: ["region", "total"], rows: [["east", 10], ["<b>west</b>", 32]], total_rows: 2 },
-      { type: "html", html: "<script>parent.hacked = 1</script>" }];
+    c2.outputs = [{ type: "table", columns: ["region", "total"], rows: [["east", 10], ["<b>west</b>", 32]], total_rows: 2 }];
     c2.count = 2;
   }, CELLS);
 });
@@ -49,7 +47,6 @@ test("Export > PDF prints the notebook's page alone, escaped, and removes it aft
   assert.strictEqual(await root.locator(".nbfp-cell").count(), 3);
   assert.strictEqual(await root.locator("td", { hasText: "<b>west</b>" }).count(), 1);  // shown as text
   assert.strictEqual(await root.locator("script, style, b").count(), 0);
-  assert.match(await root.textContent(), /HTML output isn't included/);
   assert.strictEqual(await page().evaluate(() => window.hacked), undefined);
 
   await page().emulateMedia({ media: "print" });
@@ -68,6 +65,18 @@ test("Export > PDF prints the notebook's page alone, escaped, and removes it aft
   assert.strictEqual(await root.count(), 0);
   assert.strictEqual(await page().evaluate(() => document.body.classList.contains("nbf-printing")), false);
   assert.deepStrictEqual(app.errors, []);
+});
+
+test("an HTML output never reaches the page to print (checked on the engine's page, not drawn in a cell)", { skip }, async () => {
+  const nodes = await page().evaluate(async () => {
+    const out = await rpc("notebook_print_page", { name: "x", cells: [{ type: "code", source: "1", outputs: [
+      { type: "html", html: "<script>parent.hacked = 1</script><img src=x onerror=\"parent.hacked = 2\">" }] }] });
+    const root = h("div", {}, ...nbfPrintNodes(out.html));
+    return { text: root.textContent, risky: root.querySelectorAll("script, img, template, [onerror]").length };
+  });
+  assert.match(nodes.text, /HTML output isn't included/);
+  assert.strictEqual(nodes.risky, 0);
+  assert.strictEqual(await page().evaluate(() => window.hacked), undefined);
 });
 
 test("the PDF item is in the Export menu", { skip }, async () => {

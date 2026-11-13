@@ -58,7 +58,7 @@ async function nbfExport(format) {
 // for printing (styles.css, @media print) and removed after.
 function nbfPrintNodes(html) {
   const doc = new DOMParser().parseFromString(String(html || ""), "text/html");
-  doc.body.querySelectorAll("script, style, link, meta, iframe, frame, object, embed, base, form, svg, math").forEach((el) => el.remove());
+  doc.body.querySelectorAll("script, style, link, meta, iframe, frame, object, embed, base, form, svg, math, template").forEach((el) => el.remove());
   doc.body.querySelectorAll("*").forEach((el) => {
     for (const a of [...el.attributes]) {
       const keep = a.name === "class" || a.name === "alt" || (a.name === "src" && el.tagName === "IMG" && /^data:image\/(png|jpeg|gif|svg\+xml);base64,/.test(a.value));

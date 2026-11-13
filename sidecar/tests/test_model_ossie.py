@@ -428,13 +428,22 @@ def test_an_ossie_file_becomes_tmdl_in_the_project_with_no_fabric_call(svc, monk
     preview = svc.meta_model_ossie_to_tmdl(_ossie())
     assert set(preview) == {"confirm"}
     plan = preview["confirm"]
+    assert len(plan["token"]) == 64
     assert plan["folder"] == "semantic/orders.SemanticModel" and plan["exists"] is True
     assert plan["removed"] == ["semantic/orders.SemanticModel/definition/tables/gone.tmdl"]
     assert "semantic/orders.SemanticModel/definition/tables/fact_sales.tmdl" in plan["files"]
     assert "semantic/orders.SemanticModel/definition.pbism" in plan["files"]
     assert stale.exists() and not (root / "semantic" / "orders.SemanticModel" / "definition.pbism").exists()
-    out = svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True)
-    assert out == plan
+    with pytest.raises(ValueError, match="changed since the preview"):
+        svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True)
+    other = root / "semantic" / "orders.SemanticModel" / "definition" / "other.tmdl"
+    other.write_text("table other\n", encoding="utf-8")  # a stale file the preview didn't list
+    with pytest.raises(ValueError, match="changed since the preview"):
+        svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token=plan["token"])
+    assert stale.exists() and other.exists()
+    other.unlink()
+    out = svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token=plan["token"])
+    assert out == {k: v for k, v in plan.items() if k != "token"}
     assert not stale.exists() and keep.read_text(encoding="utf-8") == "mine"
     back = svc.meta_model_ossie_export_folder("semantic/orders.SemanticModel")
     assert back["counts"]["datasets"] == 2 and back["counts"]["relationships"] == 1
@@ -474,7 +483,8 @@ def test_links_and_junctions_on_the_way_are_refused_and_never_followed(svc, tmp_
     assert (outside / "tables" / "victim.tmdl").read_text(encoding="utf-8") == "table victim\n"
     (model / "definition" / "tables" / "fact_sales.tmdl").unlink()
     (model / "definition" / "tables" / "old").symlink_to(outside / "tables", target_is_directory=True)
-    out = svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True)
+    token = svc.meta_model_ossie_to_tmdl(_ossie())["confirm"]["token"]
+    out = svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token=token)
     assert out["removed"] == [] and (outside / "tables" / "victim.tmdl").exists()  # never removed through a link
     # A junction isn't a symlink to pathlib: _is_link sees its reparse tag.
     real = model_ossie_service._is_link

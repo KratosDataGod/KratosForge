@@ -9,6 +9,8 @@ TMDL are saved in the metadata project's folder, so they go to Git with the rest
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -285,14 +287,17 @@ class ModelOssieMixin:
                 removed.append(old.relative_to(project.root).as_posix())
         return {"folder": folder.relative_to(project.root).as_posix(), "files": len(written), "removed": removed}
 
-    def meta_model_ossie_to_tmdl(self, text: str = "", name: str = "", confirmed: bool = False) -> dict[str, Any]:
+    def meta_model_ossie_to_tmdl(self, text: str = "", name: str = "", confirmed: bool = False,
+                                 token: str = "") -> dict[str, Any]:
         """An Ossie document saved as TMDL under semantic/<name>.SemanticModel/ in the project's folder (the Power BI
         project layout), converted on this PC with no Fabric call (Preview, PB-110).
 
         Without ``confirmed`` nothing is written: the answer lists the files, the TMDL files that would be removed
         because this model no longer has them, and the report of anything that can't make the trip, by name. With
-        it, every file is written whole (temporary file, then swapped in), and only regular .tmdl files under
-        definition/ that this write didn't produce are removed. Links and junctions are never followed."""
+        it and the preview's ``token``, every file is written whole (temporary file, then swapped in), and only
+        regular .tmdl files under definition/ that this write didn't produce are removed. The token binds the
+        confirm to what the preview showed: if the files or the removals changed since, nothing is written.
+        Links and junctions are never followed."""
         model_ossie.require()
         project = self._project()  # type: ignore[attr-defined]
         name = (name or str(model_ossie.parse(text)["name"])).strip()
@@ -315,12 +320,15 @@ class ModelOssieMixin:
         out = {"name": name, "folder": folder.relative_to(root).as_posix(), "exists": _real(folder, stat.S_ISDIR),
                "files": sorted(p.relative_to(root).as_posix() for p in targets),
                "removed": [p.relative_to(root).as_posix() for p in stale], "report": report}
+        digest = hashlib.sha256(json.dumps([out["folder"], out["removed"], sorted(
+            (p.relative_to(root).as_posix(), c) for p, c in targets.items())], ensure_ascii=False).encode()).hexdigest()
         if not confirmed:
-            return {"confirm": out}
+            return {"confirm": out | {"token": digest}}
+        if not hmac.compare_digest(token, digest):
+            raise ValueError("The folder or the Ossie file changed since the preview; nothing was written. Preview again.")
         for path, content in targets.items():
             write_text(path, content, newline="\n")
         for old in stale:
             if _real(old, stat.S_ISREG) and old.suffix == ".tmdl":
                 old.unlink()
         return out
-

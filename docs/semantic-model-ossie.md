@@ -105,7 +105,7 @@ see the preview and confirm.
 | --- | --- | --- |
 | `meta_model_ossie_models` | Models in the environment's workspace | Nothing |
 | `meta_model_ossie_export` | A model as Ossie YAML, with counts and the report | Nothing |
-| `meta_model_ossie_to_tmdl` | An Ossie file as TMDL in `semantic/<model>.SemanticModel/`, on this PC with no Fabric call (Preview). It shows the files, removals and report first, and writes only when confirmed | Files |
+| `meta_model_ossie_to_tmdl` | An Ossie file as TMDL in `semantic/<model>.SemanticModel/`, on this PC with no Fabric call (Preview). It shows the files, removals and report first, and writes only when confirmed with the preview's token, so a confirm never removes files the preview didn't list | Files |
 | `meta_model_ossie_save` | Saves an Ossie file under the project's folder | The file |
 | `meta_model_ossie_read` | Reads an Ossie file from the project's folder | Nothing |
 | `meta_model_ossie_preview` | What an import changes, and what it can't carry | Nothing |

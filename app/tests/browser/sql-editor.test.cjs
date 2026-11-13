@@ -220,6 +220,25 @@ test("Ctrl+Shift+U and Ctrl+Shift+L change case, and Ctrl+G goes to a line", { s
   assert.strictEqual(await docText(), "SELECT a\nfrom Sales\nwhere x = 1");
 });
 
+test("Ctrl+Shift+Enter runs only the statement at the cursor, or the selection", { skip }, async () => {
+  const text = "SELECT 7 AS g;\n\nSELECT 8 AS h\nFROM sales;\nSELECT 9 AS i";
+  await setDoc(text, text.indexOf("FROM"));
+  await page().keyboard.press("Control+Shift+Enter");
+  await page().waitForFunction(() => document.querySelector(".sql-pill")?.textContent === "Succeeded");
+  assert.strictEqual(runs.at(-1).query, "SELECT 8 AS h\nFROM sales");
+  await setDoc(text, "SELECT 7 AS g;".length);  // just after the semicolon: the statement it ends
+  await page().keyboard.press("Control+Shift+Enter");
+  await page().waitForFunction(() => document.querySelector(".sql-pill")?.textContent === "Succeeded");
+  assert.strictEqual(runs.at(-1).query, "SELECT 7 AS g");
+  await select(text.indexOf("SELECT 9"), text.indexOf("SELECT 9") + "SELECT 9".length);
+  await page().keyboard.press("Control+Shift+Enter");
+  await page().waitForFunction(() => document.querySelector(".sql-pill")?.textContent === "Succeeded");
+  assert.strictEqual(runs.at(-1).query, "SELECT 9");
+  assert.strictEqual(await docText(), text, "nothing in the editor changed");
+  const run = page().getByRole("button", { name: "Run", exact: true });
+  assert.match(await run.getAttribute("title"), /Ctrl\+Shift\+Enter/);
+});
+
 test("SQL errors stay visible under the editor", { skip }, async () => {
   await setDoc("SELECT boom");
   await page().keyboard.press("Control+Enter");

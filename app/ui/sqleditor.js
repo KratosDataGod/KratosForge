@@ -188,6 +188,28 @@ function sqlStatementAt(text, pos) {
   return { from, to, text: text.slice(from, to), masked: masked.slice(from, to) };
 }
 
+// The statement to run for Ctrl+Shift+Enter: the one around `pos`. A cursor just after a `;` on its line
+// (spaces between are fine) runs the statement that `;` ends; one in a blank stretch, or in a statement that is
+// only comments, runs the nearest statement before it, then after it. Leading and trailing whitespace is left
+// out; null when the text has no statement at all.
+function sqlRunnableStatementAt(text, pos) {
+  const has = (st) => !!st.masked.trim();
+  const masked = sqlMask(text).text;
+  let back = pos;
+  while (back > 0 && (masked[back - 1] === " " || masked[back - 1] === "\t")) back--;
+  let stmt = sqlStatementAt(text, back > 0 && masked[back - 1] === ";" ? back - 1 : pos);
+  const start = stmt;
+  // Back one statement at a time. From 1 or less there is nothing before (a lone ";" at most).
+  while (!has(stmt) && stmt.from > 1) stmt = sqlStatementAt(text, stmt.from - 1);
+  if (!has(stmt)) stmt = start;
+  while (!has(stmt) && stmt.to < text.length) stmt = sqlStatementAt(text, stmt.to + 1);
+  if (!has(stmt)) return null;
+  const lead = stmt.text.length - stmt.text.trimStart().length;
+  const from = stmt.from + lead;
+  const to = stmt.from + stmt.text.trimEnd().length;
+  return { from, to, text: text.slice(from, to) };
+}
+
 const SQL_TOKEN = /`[^`]*`|\[[^\]]*\]|"[^"]*"|[A-Za-z_@#][\w$#@]*|\d+(?:\.\d+)?|\S/g;
 
 // The tables a statement reads or writes, with their aliases, and the CTEs it defines.
@@ -477,6 +499,8 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
     // F5 runs, as in SSMS: the selection when there is one, otherwise the whole query (on.run reads it).
     { key: "F5", run: () => { on.run(); return true; } },
     { key: "Mod-Enter", run: () => { on.run(); return true; } },
+    // Ctrl+Shift+Enter runs only the statement the cursor is in (the selection when there is one), as in DataGrip and Snowsight.
+    { key: "Shift-Mod-Enter", run: () => { on.runStatement?.(); return true; } },
     { key: "Mod-s", run: () => { on.save(); return true; }, preventDefault: true },
     { key: "Shift-Alt-f", run: () => { on.format(); return true; } },
     { key: "Mod-/", run: CM.toggleComment },
@@ -532,6 +556,12 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
     chosen: () => {
       const { from, to } = view.state.selection.main;
       return sqlChosenText(view.state.doc.toString(), from, to);
+    },
+    // The selection when there is one, otherwise the statement the cursor is in ("" when there is none).
+    statement: () => {
+      const { from, to, head } = view.state.selection.main;
+      if (to > from) return view.state.sliceDoc(from, to);
+      return sqlRunnableStatementAt(view.state.doc.toString(), head)?.text || "";
     },
     selection: () => view.state.selection.main,
     // Replace the selection with `text` and leave the cursor after it.

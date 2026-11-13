@@ -276,6 +276,26 @@ test("hovering a column, a table or a function shows what it is, and typing a ca
   await setDoc("SELECT 1");
 });
 
+test("F12 shows the table under the cursor, an alias's or a column's, in the Explorer", { skip }, async () => {
+  const text = "SELECT c.region, registered_at FROM customers c";
+  await setDoc(text, text.indexOf("c.region"));  // on the alias
+  await page().keyboard.press("F12");
+  const row = page().locator(".sql-table-row .tree-row[title='Query customers']");
+  await page().waitForFunction(() => document.activeElement?.title === "Query customers");
+  assert.ok(await page().locator(".tree-row.sql-col", { hasText: "registered_at" }).isVisible(), "its columns are open");
+  assert.match(await row.getAttribute("class"), /sql-revealed/);
+  const collapse = () => page().locator(".sql-table-row", { hasText: "customers" }).locator(".chev").click();
+  await collapse();
+  await setDoc(text, text.indexOf("registered_at") + 3);  // on a bare column
+  await page().keyboard.press("F12");
+  await page().waitForFunction(() => document.activeElement?.title === "Query customers");
+  await setDoc(text, text.indexOf("SELECT") + 2);  // on a keyword: nothing to go to
+  await page().keyboard.press("F12");
+  await page().waitForFunction(() => /F12 goes to a table or view/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.strictEqual(await page().evaluate(() => document.activeElement?.getAttribute("aria-label")), "SQL query", "focus stays in the editor");
+  await collapse();
+});
+
 test("SQL errors stay visible under the editor", { skip }, async () => {
   await setDoc("SELECT boom");
   await page().keyboard.press("Control+Enter");

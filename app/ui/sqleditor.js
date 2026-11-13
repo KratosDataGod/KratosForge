@@ -586,6 +586,18 @@ function sqlFunctionHelp(dialect, name) {
 
 const sqlTableLabel = (t) => (t.schema && t.schema !== "dbo" ? `${t.schema}.${t.name}` : t.name);
 
+// The table a hover target stands for (a table, an alias's, a column's), reading the statement's columns when
+// a bare column's table isn't known yet. Null for a function, or a name that isn't one of the tables.
+async function sqlTargetTable(target, provider) {
+  if (!target || target.kind === "function") return null;
+  if (target.table) return target.table;
+  for (const t of target.unread || []) {
+    const cols = await provider.columns(t).catch(() => []);
+    if (cols.some((c) => c.name.toLowerCase() === target.name.toLowerCase())) return t;
+  }
+  return null;
+}
+
 // The hover card for a target from sqlHoverTarget, as nodes for intelFloat (nbintel.js), or null.
 async function sqlHoverCard(target, dialect, provider) {
   const head = (name, kind) => h("div", { class: "nb-intel-head" }, h("code", {}, h("b", {}, name)), h("span", { class: "nb-intel-kind" }, kind));
@@ -760,6 +772,8 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
     { key: "Shift-Mod-u", run: (v) => sqlChangeCase(v, "upper"), preventDefault: true },
     { key: "Shift-Mod-l", run: (v) => sqlChangeCase(v, "lower"), preventDefault: true },
     { key: "Mod-g", run: (v) => sqlGotoLine(v), preventDefault: true },
+    // F12, as in SSMS and VS Code: the table under the cursor (or an alias's or a column's) in the Explorer.
+    { key: "F12", run: () => { on.definition?.(); return true; }, preventDefault: true },
   ];
   const view = new CM.EditorView({
     state: CM.EditorState.create({

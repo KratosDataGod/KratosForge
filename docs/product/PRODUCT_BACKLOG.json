@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-12",
+  "updated": "2026-11-13",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -2604,7 +2604,8 @@
       "evidence": [
         "app_settings.py key list",
         "docs/enterprise-install.md",
-        "The three remaining allow_ switches fail closed, and a test keeps every allow_ key in RESTRICTED (#1150) on main at 0c96c9ce. The policy keys FD-105 lists (approved endpoints, execution location, updates, retention, telemetry) are still to decide"
+        "The three remaining allow_ switches fail closed, and a test keeps every allow_ key in RESTRICTED (#1150) on main at 0c96c9ce. The policy keys FD-105 lists (approved endpoints, execution location, updates, retention, telemetry) are still to decide",
+        "Policy key docs match what the app reads, and a test keeps them in step (#2569) on main at 6cab0dc3"
       ],
       "features": [
         "FEAT-SHL-08"
@@ -2642,7 +2643,8 @@
         960
       ],
       "prs": [
-        1150
+        1150,
+        2569
       ]
     },
     {
@@ -5000,7 +5002,10 @@
         2562,
         2563,
         2564,
-        2565
+        2565,
+        2568,
+        2570,
+        2571
       ],
       "issues": [
         910,
@@ -6838,7 +6843,8 @@
         2538,
         2547,
         2548,
-        2558
+        2558,
+        2567
       ],
       "issues": [],
       "computed": {
@@ -7497,7 +7503,8 @@
         2463,
         2513,
         2529,
-        2541
+        2541,
+        2566
       ],
       "problem": "People preparing for the Databricks Data Engineer Associate exam can't practise every objective yet: 7 of its 33 objectives name exercises that aren't built and have no recorded gap.",
       "capability": "The Databricks Data Engineer Associate pack in Academy (packs/dbx-de-associate) on the same exam engine, graders and sandbox as DP-700, with an exercise or a recorded gap for every objective (docs/academy/databricks/).",

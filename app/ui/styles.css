@@ -2835,6 +2835,7 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
   .pill, .pill-s, .badge, .preview-tag, .cell-head .tag { border: 1px solid CanvasText; }
   :focus-visible, .search:focus-within, .palette-input:focus-within { outline: 2px solid Highlight; }
   .avatar { border: 1px solid CanvasText; }
+  .seg button.on:disabled { color: HighlightText; }  /* a locked choice: outranks the normal-mode rule */
 }
 
 /* Home > Recent notebooks: details, Run several and items pinned to Home (home-notebooks.js) */

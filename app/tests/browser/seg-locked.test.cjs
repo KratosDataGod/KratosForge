@@ -25,3 +25,20 @@ test("a policy-locked segmented choice keeps its chosen option readable", { skip
   assert.strictEqual(drawn.on, drawn.onAccent, "the chosen option keeps its on-accent text");
   assert.strictEqual(drawn.off, drawn.muted, "the other options still look unavailable");
 });
+
+test("in Windows high contrast, a locked chosen option draws in HighlightText on Highlight", { skip }, async () => {
+  await app.page.emulateMedia({ forcedColors: "active" });
+  const drawn = await app.page.evaluate(() => {
+    // --on-accent is white like the default HighlightText, so give it a value of its own to tell them apart.
+    const seg = h("div", { class: "seg", style: "--on-accent: rgb(1, 2, 3)" }, h("button", { class: "on", disabled: true }, "Comfortable"));
+    document.body.append(seg);
+    const probe = document.createElement("span");
+    probe.style.cssText = "forced-color-adjust: none; color: HighlightText";
+    document.body.append(probe);
+    const out = { on: getComputedStyle(seg.firstChild).color, want: getComputedStyle(probe).color };
+    seg.remove(); probe.remove();
+    return out;
+  });
+  await app.page.emulateMedia({ forcedColors: "none" });
+  assert.strictEqual(drawn.on, drawn.want);
+});

@@ -13,6 +13,7 @@ const COLUMNS = {
   "finance.budget": [{ name: "year", type: "int" }, { name: "target", type: "double" }],
 };
 const runs = [];
+const explains = [];
 
 let app;
 const skip = !playwright && "Playwright is not installed";
@@ -26,7 +27,18 @@ before(async () => {
     mocks: {
       list_tables: () => ({ dbo: ["sales", "customers"], finance: ["budget"] }),
       table_columns: ({ table }) => COLUMNS[table] || [],
-      ...sqlRunMocks(({ query, dialect }) => {
+      ...sqlRunMocks((params) => {
+        const { query, dialect } = params;
+        if (params.estimated_plan || params.profile) {
+          explains.push({ query, dialect, mode: params.estimated_plan ? "plan" : "profile" });
+          const answer = params.estimated_plan
+            ? { steps: [{ depth: 0, name: "PROJECTION", rows: null, details: { Projections: "x" } },
+              { depth: 1, name: "SEQ_SCAN", rows: 3, details: { Table: "sales", Filters: "amount>10" } }], more_steps: 0 }
+            : { seconds: 0.012, rows: 2, rows_scanned: 3, peak_memory: 1024, more_steps: 0,
+              steps: [{ depth: 0, name: "HASH_GROUP_BY", rows: 2, seconds: 0.004, share: 0.33, details: {} },
+                { depth: 1, name: "SEQ_SCAN", rows: 3, seconds: 0.008, share: 0.67, details: { Table: "sales" } }] };
+          return { columns: [{ name: params.estimated_plan ? "plan" : "profile", type: "string" }], rows: [[JSON.stringify(answer)]] };
+        }
         runs.push({ query, dialect });
         if (/boom/i.test(query)) throw new Error("Could not read the query: Invalid expression / Unexpected token. Line 1, Col: 8.");
         return { columns: [{ name: "x", type: "int64" }], rows: [[1], [null]] };
@@ -239,6 +251,24 @@ test("Ctrl+Shift+Enter runs only the statement at the cursor, or the selection",
   assert.match(await run.getAttribute("title"), /Ctrl\+Shift\+Enter/);
 });
 
+test("Plan shows DuckDB's plan without running the query, and Profile times each step", { skip }, async () => {
+  await setDoc("SELECT x FROM sales WHERE amount > 10");
+  const before = runs.length;
+  await page().getByRole("tab", { name: /^Plan/ }).click();
+  await page().getByRole("button", { name: "Show the plan" }).click();
+  await page().waitForSelector(".sql-plan-tree");
+  assert.deepStrictEqual(explains.at(-1), { query: "SELECT x FROM sales WHERE amount > 10", dialect: "spark", mode: "plan" });
+  assert.deepStrictEqual(await page().locator(".sql-plan-op .sql-plan-name").allTextContents(), ["Select columns", "Level 2: Read table"]);
+  assert.match(await page().locator(".sql-plan-op").nth(1).innerText(), /sales[\s\S]*3 rows/);
+  await page().getByRole("tab", { name: /^Profile/ }).click();
+  await page().getByRole("button", { name: "Profile the query" }).click();
+  await page().waitForSelector(".qprofile table");
+  assert.strictEqual(explains.at(-1).mode, "profile");
+  assert.match(await page().locator(".qprofile").innerText(), /Group by[\s\S]*Read table/);
+  assert.strictEqual(runs.length, before, "neither counted as a run of the query");
+  await page().getByRole("tab", { name: "Results", exact: true }).click();
+});
+
 test("SQL errors stay visible under the editor", { skip }, async () => {
   await setDoc("SELECT boom");
   await page().keyboard.press("Control+Enter");
@@ -325,9 +355,9 @@ test("T-SQL is formatted but not run on this PC, and the dialect is kept with th
   await page().locator("select.sql-dialect").selectOption("spark");
 });
 
-test("Messages and Chart carry the Preview tag on a lakehouse page and go when preview features are hidden", { skip }, async () => {
+test("Messages, Chart, Plan and Profile carry the Preview tag on a lakehouse page and go when preview features are hidden", { skip }, async () => {
   const views = () => page().locator(".sql-views [role=tab]").allTextContents();
-  assert.deepStrictEqual(await views(), ["Results", "MessagesPreview", "ChartPreview"]);
+  assert.deepStrictEqual(await views(), ["Results", "MessagesPreview", "ChartPreview", "PlanPreview", "ProfilePreview"]);
   await page().evaluate(() => { state.settings = { ...state.settings, show_preview: { value: false } }; sqlPage.redraw(); });
   assert.deepStrictEqual(await views(), ["Results"]);
   await page().evaluate(() => { state.settings.show_preview = { value: true }; sqlPage.redraw(); });

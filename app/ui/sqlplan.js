@@ -94,3 +94,32 @@ function sqlPlanView(plan) {
   if (!parsed.statements.length) parts.push(h("p", { class: "muted-text wh-note" }, "Fabric returned a plan with no statements."));
   return h("div", { class: "sql-plan" }, ...parts);
 }
+
+// The Plan view on a lakehouse's SQL page (editor parity S39): DuckDB's plan for the query, from sql_start
+// estimated_plan, as { steps: [{ depth, name, rows (estimated, or null), details }], more_steps }. Nothing runs.
+// Step names and details read as the notebook's Query profile reads them (qprofile.js).
+function sqlLocalPlanView(plan, { busy = false, ask }) {
+  const head = h("div", { class: "sql-plan-head" }, h("b", {}, "Plan"),
+    h("span", { class: "muted-text" }, plan?.steps
+      ? `How DuckDB on this PC would run the query, worked out at ${timeText(plan.at)}. Nothing ran; rows are estimates.`
+      : "How DuckDB on this PC would run the query (or the selection), without running it. Profile runs it and times each step."),
+    h("span", { class: "spacer" }),
+    btn(busy ? "Working it out..." : plan?.steps ? "Show it again" : "Show the plan", "flowchart", ask, "tool small", { disabled: busy }));
+  if (!plan || busy) return h("div", { class: "sql-plan" }, head);
+  if (plan.error) return h("div", { class: "sql-plan" }, head, h("div", { class: "output error" }, h("pre", {}, plan.error)));
+  const ops = plan.steps.map((s) => {
+    const detail = qprofileDetail(s);
+    const full = Object.entries(s.details || {}).map(([k, v]) => `${k}: ${v}`).join("\n");
+    return h("div", { class: "sql-plan-op", role: "listitem", style: `padding-left:${12 + s.depth * 18}px`, title: full || null },
+      h("span", { class: "sql-plan-name" }, s.depth ? h("span", { class: "sr-only" }, `Level ${s.depth + 1}: `) : null, qprofileName(s.name)),
+      h("span", { class: "sql-plan-object", title: detail || null }, detail),
+      h("span", { class: "sql-plan-warn" }, ""),
+      h("span", { class: "sql-plan-rows", title: "Estimated rows" }, s.rows === null ? "" : `${sqlPlanNumber(s.rows)} rows`),
+      h("span", { class: "sql-plan-cost" }, ""));
+  });
+  return h("div", { class: "sql-plan" }, head,
+    ops.length ? h("div", { class: "sql-plan-tree", role: "list", "aria-label": "Plan" }, ops)
+      : h("p", { class: "muted-text wh-note" }, "DuckDB returned a plan with no steps."),
+    plan.more_steps ? h("p", { class: "muted-text wh-note" }, `${plan.more_steps} more steps aren't listed.`) : null,
+    h("p", { class: "muted-text wh-note" }, "Steps are DuckDB's, the engine that runs the query on this PC, so they won't match Fabric's plan one for one. Hover a step for its details."));
+}

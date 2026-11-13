@@ -1088,7 +1088,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                   allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
                   confirm: bool = False, dry_run: bool = False,
                   warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
-                  estimated_plan: bool = False, precondition: dict[str, Any] | None = None) -> dict[str, Any]:
+                  estimated_plan: bool = False, precondition: dict[str, Any] | None = None,
+                  profile: bool = False) -> dict[str, Any]:
         """Queue a query on this PC. ``allow`` adds "local_mutation" after the person confirmed it;
         lakehouse writes and Fabric changes are never allowed here (sql_policy.py).
 
@@ -1101,10 +1102,13 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         (a deploy change's, from wh_project_deploy_plan) only if that object is still as the preview saw it.
 
         ``dry_run`` only says what each statement would do; nothing runs. ``estimated_plan`` (warehouse,
-        a query that reads) returns Fabric's estimated plan as showplan XML instead of running it."""
+        a query that reads) returns Fabric's estimated plan as showplan XML instead of running it; on a
+        lakehouse, DuckDB's plan for one query that reads, as JSON, with nothing run. ``profile`` (a
+        lakehouse query that reads) runs it under DuckDB's profiler and returns its steps as JSON."""
         return self.sql_runs.start(query, lakehouse_ref, dialect, allow, target=target, project=project,
                                    confirm=confirm, dry_run=dry_run, warehouse_ref=warehouse_ref,
-                                   confirm_name=confirm_name, estimated_plan=estimated_plan, precondition=precondition)
+                                   confirm_name=confirm_name, estimated_plan=estimated_plan, precondition=precondition,
+                                   profile=profile)
 
     def sql_status(self, execution: str) -> dict[str, Any]:
         return self.sql_runs.status(execution)

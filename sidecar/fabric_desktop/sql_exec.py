@@ -159,7 +159,8 @@ class Execution:
     warehouse: dict[str, Any] = field(default_factory=dict)  # warehouse target: the item, its server and database
     confirm_name: str = ""  # warehouse change: the warehouse the person confirmed, checked against Fabric's name
     affected: int = 0  # warehouse change: rows its statements changed
-    plan: bool = False  # warehouse target: the estimated plan, not the rows (WH-09)
+    plan: bool = False  # warehouse or lakehouse target: the estimated plan, not the rows (WH-09, S39)
+    profile: bool = False  # lakehouse target: the query run under DuckDB's profiler, its steps not its rows (S40)
     precondition: dict[str, Any] | None = None  # a deploy change: the object as its preview saw it (#947)
     committed: bool = False
 
@@ -182,6 +183,7 @@ class Execution:
                 **({"change": True, "affected": self.affected, "committed": self.committed}
                    if "warehouse_write" in self.allow else {}),
                 **({"plan": True} if self.plan else {}),
+                **({"profile": True} if self.profile else {}),
                 "snapshot": self.state == "completed" and self.snapshot.exists()}
 
 
@@ -245,7 +247,8 @@ class SqlExecutions:
               allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
               confirm: bool = False, dry_run: bool = False, timeout: float | None = None,
               warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
-              estimated_plan: bool = False, precondition: dict[str, Any] | None = None) -> dict[str, Any]:
+              estimated_plan: bool = False, precondition: dict[str, Any] | None = None,
+              profile: bool = False) -> dict[str, Any]:
         """Queue a run. ``target="local"`` runs it in local data project ``project`` instead of
         against ``lakehouse_ref``; ``confirm`` lets its DROP, TRUNCATE and DELETE or UPDATE without
         WHERE run; ``timeout`` (seconds, local only) replaces the SQL page's time limit, except that a
@@ -257,7 +260,12 @@ class SqlExecutions:
         ``confirm_name``, the warehouse's name as the person confirmed it. With ``estimated_plan``
         (WH-09) a query that reads isn't run: Fabric returns how it would run it, as showplan XML. A change
         with ``precondition`` (warehouse.precondition_problem) runs only if that object is still as a
-        deploy's preview saw it; otherwise nothing is sent (#947)."""
+        deploy's preview saw it; otherwise nothing is sent (#947).
+
+        On a lakehouse (editor parity S39, S40), ``estimated_plan`` returns how DuckDB would run one
+        query that reads, without running it (EXPLAIN), and ``profile`` runs it under DuckDB's profiler
+        (EXPLAIN ANALYZE) and returns each step's rows and time instead of the rows. Both answer with one
+        row of JSON, read with ``page`` as any result."""
         if not isinstance(query, str) or not query.strip():
             raise ValueError("The query is empty.")
         if target not in TARGET_ALLOWS:
@@ -293,8 +301,12 @@ class SqlExecutions:
                                       "nothing else is allowed.")
             raise PermissionError("The SQL page can only read tables and change a run's own session on this PC.")
         change = target == "warehouse" and "warehouse_write" in allowed
-        if estimated_plan and (target != "warehouse" or change):
-            raise ValueError("An estimated plan is for a warehouse query that reads.")
+        if estimated_plan and (target == "local" or change):
+            raise ValueError("An estimated plan is for a lakehouse or warehouse query that reads.")
+        if profile and (target != "lakehouse" or estimated_plan):
+            raise ValueError("A query profile is for a lakehouse query, and isn't an estimated plan.")
+        if (estimated_plan or profile) and target == "lakehouse" and tuple(allowed) != ("read_only",):
+            raise ValueError("A plan or profile is for a query that only reads.")
         if precondition is not None:
             if not change:
                 raise ValueError("A precondition is for a warehouse change.")
@@ -329,6 +341,8 @@ class SqlExecutions:
                 return self._refuse(run, stop)
             if self._resolve_warehouse is None:
                 raise ValueError("Warehouse queries aren't available here.")
+        if target == "lakehouse":
+            run.plan, run.profile = bool(estimated_plan), bool(profile)
         if engine is not None:
             run.project, run.project_name = engine.project.id, engine.project.name
         with self._lock:
@@ -464,6 +478,8 @@ class SqlExecutions:
                    "lakehouse": {k: lh[k] for k in ("workspace_id", "lakehouse_id", "name", "workspace_name") if k in lh},
                    "work_dir": str(self.root), "out": str(run.snapshot), "temp_dir": str(run.folder / "spill"),
                    "threads": run_threads(limits)}
+            if run.plan or run.profile:
+                job["explain"] = "plan" if run.plan else "profile"
             memory = self._memory_budget(int(limits["sql_memory_limit_percent"]))
             job.update(memory_mb=memory["duckdb_mb"], memory_cap_mb=memory["cap_mb"],
                        memory_bound=memory["bound"], free_mb=memory["free_mb"])
@@ -683,6 +699,8 @@ class SqlExecutions:
                              "permission": run.permission or "", "rows": run.rows, "target": run.target,
                              "workspace_id": lh.get("workspace_id", ""), "lakehouse_id": lh.get("lakehouse_id", ""),
                              "lakehouse": lh.get("name", ""), "project": run.project_name,
+                             **({"plan": True} if run.plan and run.target == "lakehouse" else {}),
+                             **({"profile": True} if run.profile else {}),
                              **({"workspace_id": run.warehouse.get("workspace_id", ""),
                                  "warehouse_id": run.warehouse.get("item_id", ""),
                                  "warehouse": run.warehouse.get("database", ""),

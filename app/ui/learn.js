@@ -256,9 +256,37 @@ async function learnLineHash(text) {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// Team notes (GD-09, learn/team.py): a team's own words beside a rule's or a decision pattern's guide,
+// from a learn.guidance policy in force for the open project (offline, from its policy package). Read
+// once per open project. Shown as plain text, never Markdown or HTML: a policy's author wrote them.
+let learnTeamNotes = {};          // id -> [{text, policy, owner, version, sha256}]
+let learnTeamPackage = null;      // the policy package they came from when the platform couldn't be reached
+let learnTeamNotesFor = null;     // the project they were read for
+let learnTeamNotesLoad = null;
+function learnTeamNotesCached() {
+  const project = state.meta?.project?.path || "";
+  if (learnTeamNotesFor !== project) { learnTeamNotesFor = project; learnTeamNotesLoad = null; }
+  return (learnTeamNotesLoad ||= rpc("learn_team_notes")
+    .then((r) => { learnTeamNotes = r?.notes || {}; learnTeamPackage = r?.package || null; return r; })
+    .catch(() => { learnTeamNotesLoad = null; learnTeamNotes = {}; learnTeamPackage = null; return null; }));
+}
+
+// "Your team's note" boxes for one rule or pattern id, or null when its team has none.
+function learnTeamNoteBlock(id) {
+  const notes = learnTeamNotes[id] || [];
+  if (!notes.length) return null;
+  const hash = (s) => (s && s.length > 8 ? `${s.slice(0, 4)}…${s.slice(-4)}` : s || "");
+  return notes.map((n) => h("div", { class: "learn-team-notes" },
+    h("b", {}, "Your team's note"),
+    h("p", { class: "learn-team-text" }, n.text),
+    h("span", { class: "muted-text small" }, [`From the policy ${n.policy}`, n.version ? `version ${n.version}` : null,
+      n.owner ? `owned by ${n.owner}` : null].filter(Boolean).join(", ") + (n.sha256 ? `. SHA-256 ${hash(n.sha256)}.` : ".")),
+    learnTeamPackage ? h("span", { class: "muted-text small" }, (learnTeamPackage.age ? `From the project's policy package taken ${learnTeamPackage.age} ago: the platform couldn't be reached.` : "From the project's policy package, taken earlier, while the platform couldn't be reached.")) : null));
+}
+
 // Gives each finding its line_hash (lineOf: the finding's line of code), and reads the dismissals.
 async function learnPrepareFindings(rows, lineOf) {
-  await learnDismissalsCached();
+  await Promise.all([learnDismissalsCached(), learnTeamNotesCached()]);
   await Promise.all((rows || []).map(async (f) => { f.line_hash = await learnLineHash(lineOf(f)); }));
   return rows;
 }
@@ -344,7 +372,9 @@ function learnFindingActions(f, ctx) {
   }
   const lesson = guided ? learnFindingLink(f.rule_id, ctx.subject) : null;
   if (lesson) row.append(lesson);
-  if (ctx.required(f.rule_id)) {
+  if (ctx.noDismiss) {
+    // Check now lists what the project's policies require: nothing there is dismissed.
+  } else if (ctx.required(f.rule_id)) {
     row.append(h("span", { class: "muted-text small" }, "Your organization requires this rule."));
   } else {
     const menu = h("div", { class: "learn-dismiss-menu", hidden: true },
@@ -379,6 +409,7 @@ function learnFindingActions(f, ctx) {
       guide.instead || guide.principle ? [h("b", {}, "What to do"), markdown(guide.instead || guide.principle)] : null,
       guide.fine ? [h("b", {}, "When it's fine"), markdown(guide.fine)] : null,
       guide.check ? [h("b", {}, "How to check"), markdown(guide.check)] : null,
+      learnTeamNoteBlock(f.rule_id),
       h("span", { class: "muted-text small" }, (guide.importance ? "Importance is the guide's view. The severity and your organization's policies decide what's flagged and required. " : "")
         + "From the best-practices guide that ships with KratosForge. Nothing is sent anywhere."))
     : h("div", { class: "learn-detail" }, h("b", {}, "Before"), h("pre", { class: "learn-code before" }, guide.before),
@@ -395,14 +426,15 @@ function learnFindingActions(f, ctx) {
 // works and fails, cost and reliability, and an example that runs on this PC. From the docs that ship
 // with the app (learn/patterns.py), so it works offline. Copy example copies only; nothing runs.
 async function learnPatternDialog(id) {
-  const all = await attempt(() => rpc("learn_patterns"), "Couldn't read the decision patterns");
+  const [all] = await Promise.all([attempt(() => rpc("learn_patterns"), "Couldn't read the decision patterns"), learnTeamNotesCached()]);
   const p = all?.[id];
   if (!p) return;
   const body = h("div", { class: "scroll learn-pattern" }, markdown(p.body),
     p.example ? [h("b", {}, "Try it on this PC"), h("pre", { class: "learn-code", tabindex: "0", role: "region", "aria-label": "Example code" }, p.example),
       h("div", { class: "row" }, btn("Copy example", null, () => navigator.clipboard.writeText(p.example)
         .then(() => toast("Copied the example."), () => toast("Couldn't copy it.", true)), "tool small"),
-      h("span", { class: "muted-text small" }, "Paste it into a Python cell on this PC. It reads nothing from Fabric."))] : null);
+      h("span", { class: "muted-text small" }, "Paste it into a Python cell on this PC. It reads nothing from Fabric."))] : null,
+    learnTeamNoteBlock(id));
   showDialog(p.title, body, [docLink(`decision-patterns.md#${id.toLowerCase()}`, "Open in the guide"),
     btn("Close", null, closeDialog, "tool primary")]);
 }

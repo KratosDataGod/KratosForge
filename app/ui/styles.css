@@ -2922,6 +2922,9 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .learn-dismissed-list { list-style: none; margin: 0; padding: 0; width: 100%; }
 .learn-dismissed-list li { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 6px 0; border-top: 1px solid var(--border); }
 .learn-why { margin: 4px 0 0; }
+.learn-team-notes { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; padding: 10px 12px; border-radius: 6px; background: var(--surface); border: 1px solid var(--accent-border); }
+.learn-team-notes > b { color: var(--accent); }
+.learn-team-notes p { margin: 0; white-space: pre-line; }
 .learn-fix .learn-code { padding-left: 8px; border-left: 3px solid var(--border); }
 .learn-fix .learn-code.before { border-left-color: var(--danger); }
 .learn-fix .learn-code.after { border-left-color: var(--success, var(--ok-2)); }

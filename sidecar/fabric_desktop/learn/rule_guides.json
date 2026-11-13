@@ -1,4 +1,17 @@
 {
+ "DM002": {
+  "importance": "Critical",
+  "area": "Reliability",
+  "why": "`ROW_NUMBER()` numbers the rows in the order of that run. When a customer is added or removed, every number after it moves, and the facts that stored the old numbers now point at other customers. Nothing fails; the report is just wrong. The check looks for `ROW_NUMBER()` named `..._key` or `..._sk` in a statement that stores its rows (`INSERT`, `MERGE`, `SELECT ... INTO` or `CREATE TABLE ... AS`). In KratosForge, the keys database (LH_Keys) gives each business key its number once.",
+  "fine": "The facts are rebuilt from the same numbering in the same load, every time.",
+  "instead": "",
+  "principle": "A key, once given, never changes.",
+  "impact": "Data quality. Facts join to the wrong dimension rows without an error.",
+  "check": "Load twice with one new customer in between; every existing customer keeps its key.",
+  "language": "sql",
+  "before": "INSERT INTO dbo.dim_customer (customer_key, customer_id, name)\nSELECT ROW_NUMBER() OVER (ORDER BY customer_id) AS customer_key, customer_id, name FROM stg.customer;",
+  "after": "-- keep the numbers already given, and number only new business keys\nINSERT INTO dbo.dim_customer (customer_key, customer_id, name)\nSELECT k.max_key + ROW_NUMBER() OVER (ORDER BY s.customer_id), s.customer_id, s.name\nFROM stg.customer AS s\nCROSS JOIN (SELECT COALESCE(MAX(customer_key), 0) AS max_key FROM dbo.dim_customer) AS k\nWHERE NOT EXISTS (SELECT 1 FROM dbo.dim_customer AS d WHERE d.customer_id = s.customer_id);"
+ },
  "FOREACH": {
   "importance": "Recommended",
   "area": "Pipelines",
@@ -46,7 +59,7 @@
   "importance": "Recommended",
   "area": "Performance",
   "why": "Both bring every row to the driver, one machine. A table that fits today can run the driver out of memory next month.",
-  "fine": "The DataFrame is already small by construction, such as the result of an aggregation.",
+  "fine": "The DataFrame is already small by construction, such as the result of an aggregation. A Polars lazy query's `.collect()` (after `pl.scan_parquet` or `.lazy()`) runs the query on this PC and isn't reported, also when the lazy frame is kept in a name first (`lf = pl.scan_parquet(...)`, then `lf.collect()`).",
   "instead": "",
   "principle": "Move the work to the data, not all the data to one machine.",
   "impact": "Reliability. The driver can run out of memory as the table grows, and the run fails.",
@@ -171,6 +184,45 @@
   "language": "python",
   "before": "try:\n    load_day(day)\nexcept Exception:\n    pass",
   "after": "try:\n    load_day(day)\nexcept FileNotFoundError:\n    print(f\"No file for {day}; skipped\")   # catch only what you expect, and say so"
+ },
+ "NB014": {
+  "importance": "Recommended",
+  "area": "Performance",
+  "why": "`iterrows()`, `itertuples()` and `apply(..., axis=1)` call Python once for every row. On a table of a million rows that's a million calls, where a column expression runs once in compiled code.",
+  "fine": "The table has a few hundred rows, or each row calls something outside pandas (an API, a file) that has no column form.",
+  "instead": "",
+  "principle": "Say what happens to a column, not to each row.",
+  "impact": "Performance. Time grows with every row.",
+  "check": "Both forms give the same column, and the cell runs faster on the same data on this PC.",
+  "language": "python",
+  "before": "df[\"net\"] = df.apply(lambda r: r[\"gross\"] - r[\"tax\"], axis=1)",
+  "after": "df[\"net\"] = df[\"gross\"] - df[\"tax\"]"
+ },
+ "NB015": {
+  "importance": "Educational",
+  "area": "Performance",
+  "why": "`pl.read_csv` and `pl.read_parquet` load every row into memory before `.filter()` drops the rows you don't need. A lazy scan may push the filter into the read, so less is read and kept.",
+  "fine": "The file is small, or you need every row in memory for later steps anyway.",
+  "instead": "",
+  "principle": "Tell the reader what you need before it reads.",
+  "impact": "Memory and performance. The whole file is loaded first.",
+  "check": "Both forms return the same rows, and the scan uses less memory on this PC.",
+  "language": "python",
+  "before": "eu = pl.read_parquet(\"Files/sales.parquet\").filter(pl.col(\"region\") == \"EU\")",
+  "after": "eu = pl.scan_parquet(\"Files/sales.parquet\").filter(pl.col(\"region\") == \"EU\").collect()"
+ },
+ "NB017": {
+  "importance": "Educational",
+  "area": "Maintenance",
+  "why": "When a notebook runs on a schedule, nobody reads its printed output, and a printed line has no time, level or source. When a run goes wrong, the facts you need aren't kept anywhere you can search.",
+  "fine": "The print is for a person running the notebook by hand. This rule only applies when the check is told the notebook runs on a schedule.",
+  "instead": "",
+  "principle": "A scheduled run writes facts somewhere they're kept.",
+  "impact": "Operations. A failed run leaves less to go on.",
+  "check": "The run's facts appear in the log or table after a scheduled run.",
+  "language": "python",
+  "before": "print(\"loaded\", row_count)",
+  "after": "import logging\nlog = logging.getLogger(\"load_sales\")\nlog.info(\"loaded %s rows\", row_count)"
  },
  "NB018": {
   "importance": "Advanced",
@@ -372,6 +424,19 @@
   "codes": [
    "global_parameter_array_or_object"
   ]
+ },
+ "SE001": {
+  "importance": "Critical",
+  "area": "Security",
+  "why": "A script with a password in it ends up in Git, deployment history and logs, where anyone who can read them can use it. The check uses the same patterns as the secret check before a commit, and the finding never shows the secret.",
+  "fine": "",
+  "instead": "Sign in with Microsoft Entra ID, or read the secret from Key Vault when the script runs. A placeholder such as `'<from Key Vault>'` isn't reported.",
+  "principle": "Code never holds a secret.",
+  "impact": "Security. Anyone who can read the script can use the account.",
+  "check": "The script runs with Entra sign-in, and the secret check before a commit finds nothing.",
+  "language": "sql",
+  "before": "CREATE LOGIN etl_loader WITH PASSWORD = 'Summer2026!';",
+  "after": "CREATE USER [etl-loader@contoso.com] FROM EXTERNAL PROVIDER;"
  },
  "SM001": {
   "importance": "Critical",
@@ -593,5 +658,57 @@
   "language": "sql",
   "before": "INSERT INTO dbo.sales_archive SELECT * FROM dbo.sales;",
   "after": "INSERT INTO dbo.sales_archive (order_id, order_date, amount)\nSELECT order_id, order_date, amount FROM dbo.sales;"
+ },
+ "SQ012": {
+  "importance": "Critical",
+  "area": "Reliability",
+  "why": "When the subquery returns even one `NULL`, `a NOT IN (...)` is never true, so the query returns no rows and no error. It works in testing and then stops returning rows the day a `NULL` arrives.",
+  "fine": "The subquery's column can never be `NULL` (it is the table's key, or declared `NOT NULL`). Adding `WHERE o.customer_id IS NOT NULL` to the subquery says so, and the finding goes away.",
+  "instead": "",
+  "principle": "Write anti-joins so a missing value can't empty the result.",
+  "impact": "Data quality. A report silently returns no rows.",
+  "check": "Insert a row with a `NULL` key into the subquery's table on a copy; the query still returns the rows it should.",
+  "language": "sql",
+  "before": "SELECT c.customer_id FROM dbo.customers AS c\nWHERE c.customer_id NOT IN (SELECT o.customer_id FROM dbo.orders AS o);",
+  "after": "SELECT c.customer_id FROM dbo.customers AS c\nWHERE NOT EXISTS (SELECT 1 FROM dbo.orders AS o WHERE o.customer_id = c.customer_id);"
+ },
+ "SQ015": {
+  "importance": "Advanced",
+  "area": "Performance",
+  "why": "A subquery in the `SELECT` list that reads the outer row may run once for every row. A `JOIN` to an aggregate, or a window function, may read the table once. Some engines rewrite it for you, so this is advice, not a rule.",
+  "fine": "The outer query returns a few rows, or the query plan already shows a join.",
+  "instead": "",
+  "principle": "Read each table once, then combine.",
+  "impact": "Performance. It may grow with the number of outer rows.",
+  "check": "Both forms return the same rows, and the rewritten one reads the inner table once in the query plan.",
+  "language": "sql",
+  "before": "SELECT o.order_id,\n       (SELECT SUM(p.amount) FROM dbo.payments AS p WHERE p.order_id = o.order_id) AS paid\nFROM dbo.orders AS o;",
+  "after": "SELECT o.order_id, p.paid\nFROM dbo.orders AS o\nLEFT JOIN (SELECT order_id, SUM(amount) AS paid FROM dbo.payments GROUP BY order_id) AS p\n  ON p.order_id = o.order_id;"
+ },
+ "SQ016": {
+  "importance": "Educational",
+  "area": "Performance",
+  "why": "`LIKE '%son'` can't use the column's order or its statistics to skip data, so every value is read and compared. `LIKE 'Jo%'` can.",
+  "fine": "The table is small, or a search inside the value is what's needed and it runs rarely.",
+  "instead": "",
+  "principle": "Filter on the start of a value, or on a column made for the search.",
+  "impact": "Performance. Every row of the table is read.",
+  "check": "The rewritten filter returns the same rows, and reads less data in the query plan.",
+  "language": "sql",
+  "before": "SELECT customer_id FROM dbo.customers WHERE email LIKE '%@contoso.com';",
+  "after": "SELECT customer_id FROM dbo.customers WHERE email_domain = 'contoso.com';"
+ },
+ "WH001": {
+  "importance": "Advanced",
+  "area": "Performance",
+  "why": "The table is emptied and every row loaded again on each run, even when only a few changed. When the source has a modified date or an increasing id, an incremental load may move much less data. The check can't see the source's columns, so this is advice.",
+  "fine": "The table is small, the source has no reliable change column, or rows can be deleted at the source and a full reload is how deletes are caught.",
+  "instead": "",
+  "principle": "Move only what changed.",
+  "impact": "Performance and capacity. Every run reads and writes the whole table.",
+  "check": "Three incremental loads give the same table as one full load, and a rerun adds nothing.",
+  "language": "sql",
+  "before": "TRUNCATE TABLE dbo.sales;\nINSERT INTO dbo.sales (order_id, amount, modified_at) SELECT order_id, amount, modified_at FROM stg.sales;",
+  "after": "-- load only what changed since the last load\nINSERT INTO dbo.sales (order_id, amount, modified_at)\nSELECT order_id, amount, modified_at FROM stg.sales\nWHERE modified_at > (SELECT COALESCE(MAX(modified_at), '1900-01-01') FROM dbo.sales);"
  }
 }

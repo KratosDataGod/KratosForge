@@ -131,6 +131,11 @@ from .optimize_service import METHODS as OPTIMIZE_METHODS  # noqa: E402
 
 METHODS |= OPTIMIZE_METHODS
 
+# The optimization engine's assessment (opportunities_service.py, engine only).
+from .opportunities_service import METHODS as OPPORTUNITY_METHODS  # noqa: E402
+
+METHODS |= OPPORTUNITY_METHODS
+
 from .tenant_history_service import METHODS as TENANT_HISTORY_METHODS  # noqa: E402
 from .capacity_history_service import METHODS as CAPACITY_HISTORY_METHODS  # noqa: E402
 
@@ -225,6 +230,10 @@ METHODS |= WH_PROJECT_METHODS
 from .warehouse_monitoring_service import METHODS as WH_MONITORING_METHODS  # noqa: E402
 
 METHODS |= WH_MONITORING_METHODS
+# Open in SSMS: a warehouse's server and database (warehouse_ssms_service.py).
+from .warehouse_ssms_service import METHODS as WH_SSMS_METHODS  # noqa: E402
+
+METHODS |= WH_SSMS_METHODS
 
 # Folders for notebooks (notebook_folders_service.py): new, rename, delete when empty, move into one.
 from .notebook_folders_service import METHODS as NOTEBOOK_FOLDERS_METHODS  # noqa: E402

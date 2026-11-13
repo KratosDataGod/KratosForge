@@ -255,6 +255,7 @@ function renderQuery() {
         const stmt = editor.statement();
         if (stmt.trim()) run(stmt);
       },
+      togglePane: () => togglePane(),
       save: () => {
         if (tab.proj) { whProjectSave(tab).then((ok) => { if (ok) { saveQueryTabs(); p.whProjectView?.refresh(); } }); return; }
         const ok = saveQueryTabs();
@@ -312,6 +313,7 @@ function renderQuery() {
   // same managed run sends one query that reads to the warehouse (sql_start target "warehouse").
   async function run(query = editor.chosen(), allow = []) {
     if (!query.trim() || tab.running) return;
+    if (p.pane === "hidden") p.pane = null;  // a run shows its results, as in SSMS
     if (!runsHere()) {
       toast(`${SQL_DIALECTS[tab.dialect].label} can't run on this PC. Pick Spark SQL or DuckDB to run here.`, true);
       return;
@@ -416,7 +418,7 @@ function renderQuery() {
     sqlPage.redraw?.();
   }
 
-  // Export ▾ CSV or Parquet: streamed from the run's snapshot to a new file in Downloads.
+  // Export ▾ CSV, Parquet, Excel or JSON: streamed from the run's snapshot to a new file in Downloads.
   async function exportResult(format) {
     if (!tab.exec || tab.exporting) return;
     const out = await attempt(() => rpc("sql_export", { execution: tab.exec.id, format, name: tab.name }), "Could not export");
@@ -595,7 +597,9 @@ function renderQuery() {
         onclick: (e) => { if (!r || x) e.preventDefault(); } }, "Export ▾"),
       h("div", { class: "sql-export-menu", role: "menu" },
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("csv"); } }, "CSV"),
-        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("parquet"); } }, "Parquet")));
+        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("parquet"); } }, "Parquet"),
+        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("xlsx"); } }, "Excel"),
+        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("json"); } }, "JSON")));
     // Messages and Chart are Preview: on the Warehouse page the whole page already is, so they carry no
     // tag of their own there; elsewhere they carry one and go when preview features are hidden.
     const extra = [...(wh || previewShown() ? ["messages", "chart"] : []), ...(wh ? ["plan"] : [])];
@@ -613,14 +617,21 @@ function renderQuery() {
       tab.ranNotice && r && !busy ? h("span", { class: "sql-local-note", role: "note" }, tab.ranNotice) : null,
       h("span", { class: "spacer" }),
       x ? h("span", { class: "muted-text sql-export-progress", role: "status" },
-        `Exporting ${x.format.toUpperCase()}: ${x.rows.toLocaleString()} of ${x.total.toLocaleString()} rows`) : null,
+        `Exporting ${x.format === "xlsx" ? "Excel" : x.format.toUpperCase()}: ${x.rows.toLocaleString()} of ${x.total.toLocaleString()} rows`) : null,
       x ? btn("Cancel", null, () => rpc("sql_export_cancel", { export: x.id }).catch(() => {}), "tool small") : null,
       r && (r.has_previous || r.has_next) ? btn("‹ Previous", null, () => goPage(r.offset - r.limit), "tool small",
         { disabled: !r.has_previous || tab.paging, "aria-label": "Previous page" }) : null,
       r && (r.has_previous || r.has_next) ? btn("Next ›", null, () => goPage(r.offset + r.limit), "tool small",
         { disabled: !r.has_next || tab.paging, "aria-label": "Next page" }) : null,
       btn("Copy", null, copyRows, "tool small", { disabled: !r, title: "Copy the rows on this page" }),
-      exportMenu].filter(Boolean));
+      exportMenu,
+      h("span", { class: "sql-sep", "aria-hidden": "true" }),
+      btn(p.pane === "max" ? "Restore" : "Maximize", null, () => setPane(p.pane === "max" ? null : "max"), "tool small sql-pane-max",
+        { title: p.pane === "max" ? "Show the editor again" : "Give the results the whole page, hiding the editor" }),
+      btn(p.pane === "hidden" ? "Show results" : "Hide results", null, togglePane, "tool small sql-pane-hide",
+        { "aria-keyshortcuts": "Control+R",
+          title: p.pane === "hidden" ? "Show the results pane (Ctrl+R)" : "Hide the results pane and give the editor the room (Ctrl+R)" })].filter(Boolean));
+    applyPane();
     if (view === "plan") {
       grid.replaceChildren(tab.planning ? h("p", { class: "muted-text", style: "padding:12px 16px" }, "Asking Fabric for the estimated plan...")
         : sqlPlanView(tab.plan));
@@ -649,6 +660,20 @@ function renderQuery() {
     }
   }
   sqlPage.redraw = () => { if (here()) drawResults(); };
+  // The results pane: as it is, maximized (the editor hidden) or hidden (the editor gets the room), as
+  // SSMS's Ctrl+R. Kept for the page's tabs until the page is left; a run shows hidden results again.
+  function applyPane() {
+    const card = grid.parentElement;
+    card?.classList.toggle("sql-pane-max", p.pane === "max");
+    card?.classList.toggle("sql-pane-hidden", p.pane === "hidden");
+  }
+  function setPane(pane) {
+    p.pane = pane || null;
+    drawResults();
+    if (p.pane !== "max") editor.focus();
+  }
+  const togglePane = () => setPane(p.pane === "hidden" ? null : "hidden");
+  p.togglePane = () => { if (here()) togglePane(); };
 
   const nextTabName = () => {
     let n = p.tabs.length + 1;
@@ -1061,6 +1086,7 @@ function renderQuery() {
         : btn("Save query", "save", () => saveQuery(false), "tool", { title: tab.file ? `Save to ${tab.file.name} in ${tab.file.place === "mine" ? "My queries" : tab.file.place_label}` : "Save this tab as a .sql file in My queries or a Git repository" }),
       tab.file && !tab.proj ? btn("Save as new", null, () => saveQuery(true), "tool") : null,
       btn("Open in Fabric", "open", () => openInFabric(fabricLink)),
+      whSsmsButton(ref, () => editor.text()),
       btn("Monitoring", "monitor", () => whMonitorOpen(ref), "tool", { title: "Fabric's workspace monitoring for this warehouse, and its monitoring views (Preview)" }),
       h("span", { class: "spacer" }),
       whChangesSwitch(ref, () => renderQuery()),
@@ -1085,6 +1111,7 @@ function renderQuery() {
           changes: "Nothing, until you tick Allow changes. Then a script that changes the warehouse (DDL, DML, EXEC) runs only after it shows what it changes and you confirm, typing the warehouse's name in Prod; it runs in one transaction, so a failure keeps nothing.",
           results: "A snapshot of the rows on this PC, read a page at a time, with Copy and Export to Downloads. The query text stays on this PC.",
           more: [["Capacity", "The query runs in Fabric, so it uses capacity on the warehouse's workspace."],
+            ["Open in SSMS", "Starts SQL Server Management Studio (or VS Code's MSSQL extension) on this warehouse with its server and database from Fabric. It signs in on its own with Microsoft Entra; the app passes it no password or token. With this query, the editor's text is written to a .sql file in the app's data folder first."],
             ["Your templates", "Saving, importing or deleting a template of your own writes or removes a .sql file in My templates (the app's data folder) or in the sql-templates folder of a Git repository you opened. Export writes a new file in Downloads."],
             ["Saved queries", "Save query writes the tab to a .sql file in My queries (the app's data folder) or in the sql-queries folder of a Git repository you opened; Delete removes that file. Nothing is committed for you."],
             ["Project", "The Project tab reads and writes .sql files in a <warehouse>.Warehouse folder of a Git repository you opened, in Fabric's Git layout. Import from the warehouse and Compare run catalog queries in Fabric. Import writes new files and, only if you tick it, replaces files that differ; Compare writes nothing unless you take the warehouse's version of an object. Nothing is committed and no file is removed. Deploy changes the warehouse: it previews each change and runs only the ones you tick, each as a confirmed change; Test and Prod deploy only committed, pushed files."],
@@ -1123,5 +1150,18 @@ function renderQuery() {
 registerShortcuts("SQL query", [
   { keys: ["F5", "Ctrl+Enter"], label: "Run the selected text, or the whole query when nothing is selected", when: () => state.view === "query" },
   { keys: ["Ctrl+Shift+Enter"], label: "Run only the statement the cursor is in (or the selected text)", when: () => state.view === "query" },
+  { keys: ["Ctrl+R"], label: "Hide or show the results pane", when: () => state.view === "query" },
+  { keys: ["Ctrl+Shift+U", "Ctrl+Shift+L"], label: "In the editor: make the selection (or the word at the cursor) upper or lower case", when: () => state.view === "query" },
+  { keys: ["Ctrl+G"], label: "In the editor: go to a line", when: () => state.view === "query" },
   { keys: ["Delete"], label: "On a query tab: close it (asks first when it has SQL of its own)", when: () => !!document.querySelector(".sql-tabs") },
 ]);
+
+// Ctrl+R on the SQL page hides or shows the results pane wherever focus is (the editor handles it itself
+// first), and never reloads the window, which would lose open work.
+document.addEventListener("keydown", (e) => {
+  if (state.view !== "query" || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "r") return;
+  const handled = e.defaultPrevented;
+  e.preventDefault();
+  if (handled || document.getElementById("dialog-root")?.childElementCount || document.getElementById("palette")) return;
+  sqlPage.togglePane?.();
+});

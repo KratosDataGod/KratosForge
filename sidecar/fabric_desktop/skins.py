@@ -68,7 +68,7 @@ TOKENS = (
 )
 # (text token, the token it sits on): each pair needs CONTRAST_MIN when the mode sets either one.
 CONTRAST_PAIRS = (("--text", "--surface"), ("--text-2", "--surface"), ("--muted", "--surface"),
-                  ("--on-accent", "--accent"), ("--danger", "--surface"))
+                  ("--on-accent", "--accent"), ("--on-accent", "--accent-dark"), ("--danger", "--surface"))
 CONTRAST_MIN = 4.5
 
 # Used with fullmatch: "$" would also let a trailing newline through.

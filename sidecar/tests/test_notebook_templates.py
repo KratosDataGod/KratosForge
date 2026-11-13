@@ -176,8 +176,8 @@ def test_reordered_cells_make_it_domain_owned():
     params = _cell(nb, "parameters")
     nb["cells"].remove(params)
     nb["cells"].append(params)
-    assert nt.check(nb)["changes"] == [f"Cell {len(nb['cells'])}, the Parameters cell, is out of order: "
-                                       "it must come before the standard cells"]
+    assert nt.check(nb)["changes"] == [(f"Cell {len(nb['cells'])}, the Parameters cell, is out of order: "
+                                        "it must come before the standard cells")]
 
 
 def test_removed_cell_and_missing_parameter_are_named():

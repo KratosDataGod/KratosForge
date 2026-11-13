@@ -4539,6 +4539,26 @@ test("Python cells get hover, signature help, syntax errors and completion docs"
   assert.ok(html.indexOf('src="nbintel.js"') > html.indexOf('src="notebook.js"'));
 });
 
+// Go to definition, references and rename (nbsymbols.js): Python cells get F12, Shift+F12 and F2,
+// from the engine's notebook_symbol; a new name is checked here before anything changes.
+test("Python cells get go to definition, find references and rename", () => {
+  const intel = fs.readFileSync(path.join(ui, "nbintel.js"), "utf8");
+  assert.match(intel, /intelLinter\(\), symKeys\(\)\]/);
+  const src = fs.readFileSync(path.join(ui, "nbsymbols.js"), "utf8");
+  assert.match(src, /rpc\("notebook_symbol", \{ cells: symCells\(\), cell: index, offset: view\.state\.selection\.main\.head, name \}\)/);
+  for (const key of ['"F12"', '"Shift-F12"', '"F2"']) assert.ok(src.includes(`key: ${key}`), key);
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(src.slice(src.indexOf("const SYM_KEYWORDS"), src.indexOf("// The notebook's cells")) + "this.f = symNameProblem;", ctx);
+  assert.strictEqual(ctx.f("grand_total"), "");
+  assert.strictEqual(ctx.f("été"), "");
+  assert.match(ctx.f("2x"), /isn't a Python name/);
+  assert.match(ctx.f("a-b"), /isn't a Python name/);
+  assert.match(ctx.f("class"), /is a Python keyword/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbsymbols.js"') > html.indexOf('src="nbfind.js"'));
+});
+
 // Notebook utilities: notebookutils.lakehouse reads on this PC; changes stay in Fabric.
 test("notebookutils.lakehouse and isValidToken are documented", () => {
   const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
@@ -4676,7 +4696,7 @@ test("a workload page says whether its actions reached the platform's audit", ()
 });
 
 test("the notebook, several-cells and find keys are listed in the Keyboard shortcuts dialog", () => {
-  for (const [file, group, key] of [["notebook.js", "Notebook", "Shift+Enter"], ["nbselect.js", "Notebook: several cells", "Shift+M"], ["nbfind.js", "Notebook: find and replace", "Ctrl+H"]]) {
+  for (const [file, group, key] of [["notebook.js", "Notebook", "Shift+Enter"], ["nbselect.js", "Notebook: several cells", "Shift+M"], ["nbfind.js", "Notebook: find and replace", "Ctrl+H"], ["nbsymbols.js", "Notebook: names in Python cells", "F12"]]) {
     const src = fs.readFileSync(path.join(ui, file), "utf8");
     const at = src.indexOf(`registerShortcuts(${JSON.stringify(group)}`);
     assert.ok(at > 0, `${file} registers ${group}`);

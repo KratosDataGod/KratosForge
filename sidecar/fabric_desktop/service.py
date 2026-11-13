@@ -818,6 +818,13 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         from .intellisense import syntax_problems
         return syntax_problems(source)
 
+    def notebook_symbol(self, cells: list[dict[str, Any]], cell: int = 0, offset: int = 0,
+                        name: str | None = None) -> dict[str, Any]:
+        """Where a notebook-level Python name is defined and used across the cells, for go to
+        definition, find references and rename (nbsymbols.py); reads the cells, runs nothing."""
+        from .nbsymbols import find_symbol
+        return find_symbol(cells, int(cell), int(offset), name if isinstance(name, str) and name else None)
+
     def notebook_format(self, sources: list[str]) -> list[dict[str, Any]]:
         """Format cells (Python with ruff, %%sql with the SQL formatter) without running them."""
         from .code_format import format_cells

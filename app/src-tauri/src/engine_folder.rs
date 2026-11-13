@@ -144,7 +144,7 @@ fn engine_paths(folder: &Path, build_dir: &Path) -> Vec<PathBuf> {
 mod tests {
     use super::*;
 
-    const BUILD: &str = "0123456789abcdef0123456789abcdef01234567";
+    const BUILD: &str = "0123456789abcdef0123456789abcdef01234567"; // pragma: allowlist secret
 
     #[test]
     fn the_setting_is_a_plain_local_folder_or_an_error() {

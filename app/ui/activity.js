@@ -98,8 +98,9 @@ function friendlyError(err) {
   const engine = [
     [/^The engine stopped answering/, "The local engine stopped answering, so the app restarted it. Notebook variables were cleared, so run the notebook's cells again. The details below name the request that hung."],
     [/^The engine keeps stopping as it starts/, "The local engine keeps stopping as it starts, so KratosForge has stopped starting it for a few minutes. Your files and settings are untouched. The details below say when it tries again and which files to send IT."],
-    // The app ended the engine itself (Stop, or the hand-over to an update), and its log says so: not a crash.
-    [/^The Python sidecar stopped[\s\S]*KratosForge ended it \(Stop or an update\)/, "KratosForge stopped the local engine on purpose (Stop was pressed, or it restarted to install an update), and that ended this. Nothing was half-written: a table being written keeps its last version. Run it again."],
+    // The app ended the engine itself (Stop, or the hand-over to an update), and its log's last line says so: not a
+    // crash. The log runs on across engines, so an older engine's line further up doesn't count.
+    [/^The Python sidecar stopped[\s\S]*KratosForge ended it \(Stop or an update\)\.(\nFull log:[^\n]*)?$/, "KratosForge stopped the local engine on purpose (Stop was pressed, or it restarted to install an update), so this didn't finish. Nothing was half-written: a table being written keeps its last version. Run it again."],
     // Rust aborts the whole engine when an allocation fails (Polars, delta-rs), and its log says so.
     [/^The Python sidecar stopped[\s\S]*(memory allocation of \d+ bytes failed|running out of memory)/, "This PC ran out of memory, so the local engine stopped. Nothing was half-written: a table being written keeps its last version. Close other apps, or read less at once, then run it again. The engine restarts on your next action."],
     [/^The Python sidecar stopped/, "The local engine stopped while doing this. It restarts on your next action; if it keeps stopping, the details below show why."],

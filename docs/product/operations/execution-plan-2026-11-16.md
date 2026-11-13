@@ -4,7 +4,7 @@ This plan runs from Saturday 2026-11-14 to Saturday 2026-11-21. Chris's ask (202
 
 ## What we can and can't see
 
-We can't see Chris's usage meter, so this page never states a usage percentage as a measured fact. We plan by **how much work runs at once**: build threads, PRs in CI, and reviews. Last week's merge counts on main are measured. The busiest days were 142 and 157 merges (2026-11-06 and 2026-11-07), and the slowest were 37 and 38 (2026-11-10 and 2026-11-12). The slow days came from three things, not from slow CI:
+We can't see Chris's usage meter, so this page never states a usage percentage as a measured fact. We plan by **how much work runs at once**: build threads, PRs in CI, and reviews. Last week's merge counts on main are measured (first-parent commits by commit date, UTC). The busiest days were 142 and 157 merges (2026-11-06 and 2026-11-07), and the slowest were 37 and 38 (2026-11-10 and 2026-11-12). The slow days came from three things, not from slow CI:
 
 - the no-go hardening queue ran dry;
 - work was waiting on typed goes and mockups;
@@ -46,7 +46,7 @@ New threads are started by the coordinator, one branch per thread. **Bundle** me
 | 2 | Markdown rendering: CommonMark, tables, lists, links, images, math (markdown-it, KaTeX) | Parity item 5 | New: *Notebook parity* | 0 | Security read: untrusted Markdown and links |
 | 3 | SQL hover and signature help; plan and profile for local queries | Parity items 6 and 11 | *SQL editor parity* | 0 to A | Nothing more |
 | 4 | Go to definition and rename across cells; find inside outputs; export as PDF | Parity items 12, 17 and 10 | *Notebook parity* | 0 to A | Nothing more |
-| 5 | Transactions on a warehouse as one guarded script | Parity item 13, after #9 | *Warehouse* | B | Security read; Workload sign-off if workloads change |
+| 5 | Transactions on a warehouse as one guarded script | Parity item 13, after row 10 | *Warehouse* | B | Security read; Workload sign-off if workloads change |
 | 6 | Finish PySpark parity: the 15 missing DataFrame methods (#2360) | One PR per 5 methods | *Spark local* | A | Bundled go |
 | 7 | Finish the notebook debugger: breakpoints and step-through (#2362) | One PR | New: *Debugger* | A | Bundled go; mockup only if a panel changes |
 | 8 | Modern Delta profile: V-Order, deletion vectors, column mapping (#2361) | Read first, then write | New: *Delta profile* | A to B | Bundled go; data-integrity tests on every write |

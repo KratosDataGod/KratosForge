@@ -68,7 +68,7 @@ TOKENS = (
 )
 # (text token, the token it sits on): each pair needs CONTRAST_MIN when the mode sets either one.
 CONTRAST_PAIRS = (("--text", "--surface"), ("--text-2", "--surface"), ("--muted", "--surface"),
-                  ("--on-accent", "--accent"), ("--danger", "--surface"))
+                  ("--on-accent", "--accent"), ("--danger", "--surface"), ("--accent", "--surface"))
 CONTRAST_MIN = 4.5
 
 # Used with fullmatch: "$" would also let a trailing newline through.
@@ -353,7 +353,8 @@ def dump(manifest: dict[str, Any]) -> str:
 
 
 # The KratosForge skin: today's look, the base every other skin builds on. Its light tokens are the
-# values on styles.css's :root (test_skins.py keeps them equal). Dark tokens come with dark mode.
+# values on styles.css's :root, and its dark tokens the values under html[data-color-mode="dark"]
+# (test_skins.py keeps both equal).
 KRATOSFORGE: dict[str, Any] = {
     "schema": SCHEMA, "id": "kratosforge", "name": "KratosForge", "version": "1.0.0",
     "description": "The KratosForge look: every engine and platform side by side, local runs up front.",
@@ -370,10 +371,24 @@ KRATOSFORGE: dict[str, Any] = {
         "--warn-soft": "#fff4e5", "--warn-soft-2": "#fff4d6", "--warn-soft-3": "#fff8e6",
         "--info": "#0f548c", "--info-soft": "#e8f1fb",
         "--danger": "#b10e1c", "--danger-soft": "#fdf3f4", "--danger-soft-2": "#fde7e9",
+    }, "dark": {
+        # A neutral charcoal, never navy. The accent turns a light blue so links on --surface and the
+        # primary button's dark text both pass; the orange stays.
+        "--accent": "#8fb4f0", "--accent-dark": "#85acec", "--accent-soft": "#2d3a52", "--accent-soft-2": "#283244",
+        "--brand-orange": "#f8991c", "--brand-orange-soft": "#ffb347", "--rail-active": "#f8991c", "--on-accent": "#0b1420",
+        "--text": "#e6e6e6", "--text-2": "#c8c8c8", "--muted": "#a6a6a6", "--muted-2": "#8f8f8f",
+        "--surface": "#252526", "--surface-2": "#2a2a2b", "--surface-3": "#2f2f30", "--surface-3b": "#2c2c2d",
+        "--canvas": "#1c1c1c", "--hover": "#323233", "--neutral-mark": "#8f8f8f",
+        "--border": "#3c3c3c", "--border-soft": "#313131", "--border-input": "#4a4a4a",
+        "--ok": "#7fd1a0", "--ok-2": "#7fd1a0", "--ok-3": "#7fd1a0", "--ok-soft": "#1f3327",
+        "--warn": "#f3b25b", "--warn-strong": "#f3b25b", "--warn-2": "#f5b968", "--warn-ink": "#f8c98a",
+        "--warn-soft": "#3a2e1c", "--warn-soft-2": "#3a301a", "--warn-soft-3": "#362d1d",
+        "--info": "#8cc4ff", "--info-soft": "#1e2d3f",
+        "--danger": "#ff9a9a", "--danger-soft": "#3a2224", "--danger-soft-2": "#44262a",
     }}},
     "workflow": {"rail": ["home", "create", "workspaces", "onelake", "metadata", "platform", "optimize", "monitor"]},
 }
-BASE: dict[str, dict[str, str]] = {"light": dict(KRATOSFORGE["appearance"]["tokens"]["light"])}
+BASE: dict[str, dict[str, str]] = {mode: dict(t) for mode, t in KRATOSFORGE["appearance"]["tokens"].items()}
 # Fabric-familiar (Preview): light, a teal accent of our own and Fabric's page order (workspaces and
 # OneLake before governance). Patterns only: no Microsoft names, logos or colors beyond a familiar feel.
 FABRIC: dict[str, Any] = {
@@ -407,8 +422,8 @@ DATABRICKS: dict[str, Any] = {
         "light": {"--accent": "#3b63b0", "--accent-dark": "#2f569c", "--accent-soft": "#e8eef8",
                   "--accent-soft-2": "#eef2f9", "--rail-active": "#3b63b0", "--canvas": "#f4f5f7",
                   "--border": "#dde1e6"},
-        "dark": {"--accent": "#3b63b0", "--accent-dark": "#2f569c", "--accent-soft": "#2b3038",
-                 "--accent-soft-2": "#262b32", "--rail-active": "#3b63b0", "--on-accent": "#ffffff",
+        "dark": {"--accent": "#8ab0f2", "--accent-dark": "#7a9fe0", "--accent-soft": "#2b3038",
+                 "--accent-soft-2": "#262b32", "--rail-active": "#8ab0f2", "--on-accent": "#0b1420",
                  "--text": "#e6e8eb", "--text-2": "#c3c8ce", "--muted": "#a9b0b8", "--muted-2": "#8b939c",
                  "--surface": "#23272e", "--surface-2": "#1f2328", "--surface-3": "#2b3038", "--surface-3b": "#262b32",
                  "--canvas": "#1b1e23", "--hover": "#2b3038", "--border": "#3d434b", "--border-soft": "#2e333a",

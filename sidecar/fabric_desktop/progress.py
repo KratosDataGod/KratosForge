@@ -582,8 +582,8 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
         (f"Proved {m} notebook{'s' if m != 1 else ''} gave the same results on a workstation and in Microsoft Fabric."
          if m else "")) if x)
     lines = ["# Engineering accomplishments", "", f"{md(name)}{' · ' + md(who['role']) if who.get('role') else ''} · {period}", "",
-          "Each statement is marked Verified (with its evidence reference), Entered by you, Generated summary "
-          "(worded from verified evidence) or Not measured.", "", "## Executive summary", ""]
+          ("Each statement is marked Verified (with its evidence reference), Entered by you, Generated summary "
+          "(worded from verified evidence) or Not measured."), "", "## Executive summary", ""]
     if entered:
         lines.append(f"{entered} *(Entered by you)*")
     elif generated:
@@ -678,8 +678,8 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
     if include_achievements:
         p = progression(profile)
         lines += ["", "## KratosForge achievements", "",
-               f"Level {p['level']}, {p['xp']} XP. Levels and achievements are motivational and are "
-               "not a skill rating."]
+               (f"Level {p['level']}, {p['xp']} XP. Levels and achievements are motivational and are "
+               "not a skill rating.")]
         lines += [f"- {a['name']}: {a['description']}" for a in p["achievements"]]
     lines += ["", "## Evidence appendix", ""]
     for r in rows:

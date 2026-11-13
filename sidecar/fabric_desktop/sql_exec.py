@@ -108,6 +108,16 @@ def run_threads(limits: dict[str, Any]) -> int:
     return max(1, (os.cpu_count() or 2) // max(1, int(limits["sql_max_concurrent"])))
 
 
+def time_limit_message(source: str, seconds: float) -> str:
+    """The message for a run its time limit stopped, by where the limit came from ("" if unknown).
+
+    Local and lakehouse/warehouse runs share it so the wording can't drift between them."""
+    minutes = f"{seconds / 60:g} minutes"
+    return {"sql": f"Stopped after the time limit ({minutes}, Settings › SQL).",
+            "policy": f"Stopped after your organization's time limit ({minutes}).",
+            "project": f"Stopped after the project's time limit ({minutes}, in the project's settings)."}.get(source, "")
+
+
 class RerunNeeded(Exception):
     """The run's snapshot is gone; the query has to run again."""
 
@@ -136,7 +146,7 @@ class Execution:
     timer: threading.Timer | None = field(default=None, repr=False)
     stop_reason: str = ""  # "cancel" or "timeout" once the engine ended the process
     time_limit_s: float = 0.0
-    time_limit_from: str = ""  # local target: "sql" (Settings › SQL), "caller" or "project" (its own setting)
+    time_limit_from: str = ""  # "sql" (Settings › SQL), "policy" (the organization's); local also "caller" or "project"
     target: str = "lakehouse"  # or "local": a local data project's database
     project: str = ""  # local target: the project's id
     project_name: str = ""
@@ -234,7 +244,8 @@ class SqlExecutions:
               estimated_plan: bool = False, precondition: dict[str, Any] | None = None) -> dict[str, Any]:
         """Queue a run. ``target="local"`` runs it in local data project ``project`` instead of
         against ``lakehouse_ref``; ``confirm`` lets its DROP, TRUNCATE and DELETE or UPDATE without
-        WHERE run; ``timeout`` (seconds, local only) replaces the SQL page's time limit.
+        WHERE run; ``timeout`` (seconds, local only) replaces the SQL page's time limit, except that a
+        limit set by the organization's policy can only be shortened by it.
 
         ``target="warehouse"`` runs one T-SQL query that reads on ``warehouse_ref``
         (``workspace_id``, ``item_id``, ``kind`` "warehouse" or "endpoint"), in Fabric. With
@@ -475,6 +486,7 @@ class SqlExecutions:
         except OSError:
             pass  # the reader sees the process end and reports it
         run.time_limit_s = minutes * 60
+        run.time_limit_from = ("policy" if limits.get("sql_time_limit_by_policy") else "sql") if minutes > 0 else ""
         if minutes > 0:
             run.timer = threading.Timer(minutes * 60, self._time_up, args=(run,))
             run.timer.daemon = True
@@ -557,7 +569,8 @@ class SqlExecutions:
             run.proc = None
             if run.stop_reason == "timeout":
                 run.state, run.error_kind = "timed_out", "timeout"
-                run.error = f"Stopped after the time limit ({run.time_limit_s / 60:g} minutes, Settings › SQL)."
+                run.error = time_limit_message(run.time_limit_from, run.time_limit_s) \
+                    or time_limit_message("sql", run.time_limit_s)
             elif run.stop_reason == "cancel":
                 run.state, run.error = "cancelled", "Stopped."
             elif outcome.get("event") == "done":
@@ -588,8 +601,11 @@ class SqlExecutions:
 
     def _launch_local(self, run: Execution, limits: dict[str, Any]) -> None:
         minutes = float(limits["sql_time_limit_minutes"] or 0)
-        if run.timeout_s is not None:
+        ceiling = minutes * 60 if minutes and limits.get("sql_time_limit_by_policy") else 0.0
+        if run.timeout_s is not None and not (ceiling and not 0 < run.timeout_s <= ceiling):
             run.time_limit_s, run.time_limit_from = run.timeout_s, "caller"
+        elif ceiling:  # the organization's limit: a caller can shorten it, not lengthen or remove it
+            run.time_limit_s, run.time_limit_from = ceiling, "policy"
         elif minutes:
             run.time_limit_s, run.time_limit_from = minutes * 60, "sql"
         else:  # the engine applies the project's own limit; say so in the status
@@ -607,6 +623,7 @@ class SqlExecutions:
         from .localdata import EngineBusy, QueryCancelled
         state, kind, error, refused = "completed", "", "", None
         rows, batches, columns = 0, [], []
+        engine = None
         try:
             verdicts = sql_policy.classify(_policy_statements(run.query, run.dialect), "local")
             stop = sql_policy.refused(verdicts, run.allow, run.confirm)
@@ -633,13 +650,12 @@ class SqlExecutions:
             state, error = "cancelled", "Stopped."
         except TimeoutError as exc:
             state, kind = "timed_out", "timeout"
-            error = {"sql": f"Stopped after the time limit ({run.time_limit_s / 60:g} minutes, Settings › SQL).",
-                     "project": f"Stopped after the project's time limit ({run.time_limit_s / 60:g} minutes, "
-                                "in the project's settings)."}.get(run.time_limit_from, str(exc))
+            error = time_limit_message(run.time_limit_from, run.time_limit_s) or str(exc)
         except EngineBusy as exc:
             state, kind, error = "failed", "engine", str(exc)
         except Exception as exc:  # noqa: BLE001 - the SQL's own error, shown in place of the rows
-            state, kind, error = "failed", "sql", (str(exc).strip() or type(exc).__name__)[:4000]
+            kind, error = local_error(exc, getattr(engine, "project", None), run.snapshot)
+            state, error = "failed", error[:4000]
         with self._lock:
             run.ended = time.time()
             run.state, run.error_kind, run.error, run.refused = state, kind, error, refused
@@ -806,9 +822,33 @@ class SqlExecutions:
             base = self.base()
             for folder in base.glob("*") if base.is_dir() else []:
                 if folder.is_dir() and folder.name not in known and len(folder.name) == 12:
+                    # A worker ends with the engine that started it, so an earlier session's spill
+                    # files are only left there by a crash (DuckDB never removes them): they go now,
+                    # not at the result's retention. Kept: a link (never followed), a spill written in
+                    # the last SPILL_QUIET_S (a live run, should sql_temp_dir be shared), and a file
+                    # still open (Windows won't delete it).
+                    spill = folder / "spill"
+                    if not (_linked(folder) or _linked(spill)) and _quiet(spill, now):
+                        shutil.rmtree(spill, ignore_errors=True)
                     age = now - folder.stat().st_mtime
                     if hours <= 0 or age > hours * 3600:
                         shutil.rmtree(folder, ignore_errors=True)
+
+
+def _linked(path: Path) -> bool:
+    from .maintenance import _linked as linked
+    return linked(path)
+
+
+SPILL_QUIET_S = 600  # an earlier session's spill written more recently than this may be a live run's
+
+
+def _quiet(spill: Path, now: float) -> bool:
+    """True when nothing in ``spill`` was written in the last SPILL_QUIET_S seconds."""
+    try:
+        return all(now - f.stat().st_mtime > SPILL_QUIET_S for f in spill.iterdir())
+    except OSError:  # silent-ok: not there, or can't be read; nothing is deleted
+        return False
 
 
 class _Stopped(Exception):
@@ -893,6 +933,30 @@ def check_local(query: str, dialect: str, confirm: bool = False) -> tuple[list[s
     in the project's engine themselves (``local_query``)."""
     verdicts = sql_policy.classify(_policy_statements(query, dialect), "local")
     return verdicts, sql_policy.refused(verdicts, TARGET_ALLOWS["local"], confirm)
+
+
+def local_error(exc: BaseException, project: Any, snapshot: Path | None) -> tuple[str, str]:
+    """The kind and message of a local data project run that failed: DuckDB's own words, except where
+    they mislead. DuckDB calls temp files that can't grow running out of memory; that is the project's
+    temp file limit when its settings set one, and otherwise the temp folder's drive being full."""
+    from . import disk_full
+    message = str(exc).strip() or type(exc).__name__
+    settings = getattr(project, "settings", None)
+    if disk_full.is_spill_full(message):
+        limit = str(getattr(settings, "max_temp_size", "") or "")
+        if limit:
+            return "disk", (f"Stopped: the query's temp files reached this project's limit ({limit}, in the "
+                            "project's settings). The statement that ran out of room didn't finish. Raise the "
+                            "limit, or narrow the query, and run it again.")
+        where = disk_full.free_space(getattr(project, "temp_dir", None))
+        return "disk", (f"Stopped: the query ran out of room for its temp files, as the temp folder's drive is "
+                        f"full{f' ({where})' if where else ''}. The statement that ran out of room didn't finish. "
+                        "Free some space, or narrow the query, and run it again.")
+    if disk_full.is_disk_full(exc):
+        named = getattr(exc, "filename", None)  # else the project's folder: its database is the usual writer
+        path = named if isinstance(named, (str, Path)) and named else getattr(project, "root", None) or snapshot
+        return "disk", disk_full.message(path, "The statement that ran out of room didn't finish.")
+    return "sql", message
 
 
 def local_refusal_message(stop: sql_policy.Verdict, allow: tuple[str, ...] = TARGET_ALLOWS["local"]) -> str:

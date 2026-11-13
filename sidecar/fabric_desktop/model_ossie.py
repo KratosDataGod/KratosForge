@@ -22,6 +22,8 @@ from typing import Any
 import sqlglot
 from sqlglot import exp
 
+from . import sql_dialects
+
 # PyYAML is needed only here and in the vendored converter. Both load on first use, not at engine start (they add
 # about 25 ms to every start, and service.py imports this module on every start). Without PyYAML (an engine installed
 # before the converter needed it, or a package removed by hand) Export to Ossie and Import from Ossie say what's
@@ -171,7 +173,7 @@ _SQL_DIALECTS = {"ANSI_SQL": None, "OSSIE_SQL_2026": None, "SNOWFLAKE": "snowfla
 
 def _qualified(expression: str, dataset: str, dialect: str | None) -> str:
     """A dataset-scoped SQL metric's unqualified field references written as ``dataset.field``."""
-    tree = sqlglot.parse_one(expression, read=dialect)
+    tree = sql_dialects.parse_one(expression, read=dialect)
     for col in tree.find_all(exp.Column):
         if not col.table:
             col.set("table", exp.to_identifier(dataset))

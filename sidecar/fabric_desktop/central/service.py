@@ -1525,9 +1525,9 @@ class PlatformMixin:
                 if top.get("next", 1) > have.get("next", 1):
                     newer.append(f"{kt.name} (keys {have['next']} to {top['next'] - 1})")
             if newer:
-                raise GateError("save", [f"The platform issued keys after the move that LH_Keys doesn't have: "
+                raise GateError("save", [(f"The platform issued keys after the move that LH_Keys doesn't have: "
                                          f"{', '.join(newer)}. Going back would reuse those numbers, so keys stay "
-                                         "in the platform."])
+                                         "in the platform.")])
         envs = {k: dict(v) for k, v in project.environments.items()}
         envs.setdefault(env, {})["keys"] = "lakehouse"
         envs[env].pop("keys_moved_at", None)

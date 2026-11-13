@@ -134,6 +134,7 @@ def main(argv: list[str] | None = None) -> None:
     trail.add_argument("--limit", type=int, default=50, help="how many of the newest lines to show (default 50)")
     trail.add_argument("--action", default="", help="only this action, such as meta_promote")
     trail.add_argument("--folder", help="the audit folder (default: this PC's, or an agent home's audit folder)")
+    trail.add_argument("--agent-home", help="an agent's FABRIC_DESKTOP_HOME: use its trail (<home>\\audit) instead")
     trail.add_argument("--export", metavar="FILE", help="copy the trail to FILE with a manifest IT can check on its own")
     trail.add_argument("--since", default="", help="with --export: from this date (YYYY-MM-DD) or time on")
     trail.add_argument("--replace", action="store_true", help="with --export: replace an earlier export of that name")
@@ -152,8 +153,8 @@ def main(argv: list[str] | None = None) -> None:
     for name, text in (("validate", "list problems with their JSON paths; exit 1 if there are errors"),
                        ("inspect", "print the activities, dependencies, expressions and diagnostics as JSON"),
                        ("export", "print the definition in another format"),
-                       ("compat", "what this version can do with each activity (classification, capacity, "
-                                  "properties); exit 1 if there are errors")):
+                       ("compat", ("what this version can do with each activity (classification, capacity, "
+                                  "properties); exit 1 if there are errors"))):
         p = pipe_sub.add_parser(name, help=text)
         p.add_argument("path", help="pipeline-content.json, a getDefinition result, or a <name>.DataPipeline folder")
         if name == "export":
@@ -368,7 +369,14 @@ def _agent(args: argparse.Namespace) -> int:
         return 0
     agent = Agent(config)
     if args.agent_command == "enqueue":
-        result: object = agent.enqueue(args.env, args.entities, args.backfill, args.cascade, source="cli")
+        from .jobqueue import QueueFull
+        try:
+            result: object = agent.enqueue(args.env, args.entities, args.backfill, args.cascade, source="cli")
+        except QueueFull as exc:
+            agent.audit.record("agent_enqueue", "error", 0.0, {"env": args.env, "entities": args.entities,
+                                                                "agent": config.name}, reason="refused", error=str(exc))
+            print(f"Not queued: {exc}. Wait for the agent to work through its queue, or raise agent.max_queued.")
+            return 1
         agent.audit.record(
             "agent_enqueue", "ok", 0.0, {"env": args.env, "entities": args.entities, "backfill": args.backfill,
                                          "cascade": args.cascade, "agent": config.name})
@@ -919,9 +927,13 @@ def _audit(args: argparse.Namespace) -> int:
     from .audit import AuditLog
     from .service import data_dir
     from . import audit_chain
-    folder = Path(args.folder) if args.folder else data_dir() / "audit"
+    if args.folder and args.agent_home:
+        print("Give --folder or --agent-home, not both", file=sys.stderr)
+        return 2
+    named = Path(args.agent_home) / "audit" if args.agent_home else Path(args.folder) if args.folder else None
+    folder = named or data_dir() / "audit"
     if args.verify_export:
-        result = audit_chain.verify_export(Path(args.verify_export), folder if args.folder else None)
+        result = audit_chain.verify_export(Path(args.verify_export), named)
         print(json.dumps(result, indent=2))
         return 0 if result["ok"] else 1
     if args.export:

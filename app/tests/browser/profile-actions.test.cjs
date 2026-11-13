@@ -118,7 +118,7 @@ test("Edit profile > Save sends exactly the fields entered, and the page and the
   await dialog.getByRole("textbox", { name: "Preferred technologies" }).fill("");
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await dialog.waitFor({ state: "detached" });
-  await page().locator(".page.profile h1", { hasText: "Chris Moreno" }).waitFor();
+  await page().locator(".page.profile :is(h1, .profile-name)", { hasText: "Chris Moreno" }).waitFor();
   assert.deepStrictEqual(writes(from), [{ method: "profile_save",
     params: { identity: { display_name: "Chris Moreno", role: "Analytics engineer", technologies: "" } } }]);
   assert.match(await page().locator(".page.profile .profile-id .sub").innerText(), /^Analytics engineer · Not signed in/);
@@ -277,7 +277,7 @@ test("confirming Delete sends profile_delete once and the profile starts empty",
   await dialog.getByRole("textbox", { name: "Type DELETE to confirm" }).fill("DELETE");
   await dialog.getByRole("button", { name: "Delete", exact: true }).click();
   assert.strictEqual(await toastNow("deleted"), "Your profile data was deleted");
-  await page().locator(".page.profile h1", { hasText: "Your profile" }).waitFor();
+  await page().locator(".page.profile :is(h1, .profile-name)", { hasText: "Your profile" }).waitFor();
   await page().getByText("Nothing yet. Validate a notebook", { exact: false }).waitFor();
   assert.deepStrictEqual(writes(from), [{ method: "profile_delete", params: {} }]);
   assert.ok(!fs.existsSync(path.dirname(profileFile())), "the profile folder is gone");

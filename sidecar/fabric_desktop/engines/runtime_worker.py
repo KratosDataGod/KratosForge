@@ -148,7 +148,7 @@ class Worker:
                 last = tree.body.pop()  # type: ignore[assignment]  # checked just above
             with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
                 exec(compile(tree, "<cell>", "exec"), self.namespace)  # noqa: S102 - the person's own cell
-                value = eval(compile(ast.Expression(last.value), "<cell>", "eval"), self.namespace) if last else None
+                value = eval(compile(ast.Expression(last.value), "<cell>", "eval"), self.namespace) if last else None  # noqa: S307 - its last expression
             if buf.getvalue():
                 outputs.append({"type": "stream", "text": buf.getvalue()})
             for item in [*self._shown, *([value] if value is not None else [])]:

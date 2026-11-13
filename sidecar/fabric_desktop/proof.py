@@ -160,10 +160,10 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
             add(notes, n, c, "uses your credentials; the proof runs as you on both sides", source, m.start())
     limits = ["This check reads the code; it can't see calls built at run time."]
     if spark:
-        limits += ["In Fabric, Spark reads of a single file under Files/ are checked; files read as a whole folder "
-                   "aren't, so a change to them between the runs isn't found.",
-                   "In Fabric, Spark writes to Azure storage outside OneLake (abfss:// of another account) aren't "
-                   "stopped or compared.",
+        limits += [("In Fabric, Spark reads of a single file under Files/ are checked; files read as a whole folder "
+                   "aren't, so a change to them between the runs isn't found."),
+                   ("In Fabric, Spark writes to Azure storage outside OneLake (abfss:// of another account) aren't "
+                   "stopped or compared."),
                    "In Fabric, the copy needs sqlglot in the notebook's environment to read its SQL; it installs nothing."]
     return {"ok": not blockers, "blockers": blockers, "warnings": warnings, "notes": notes,
             "engine": "spark" if spark else "python", "limits": limits}

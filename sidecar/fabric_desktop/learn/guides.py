@@ -1,10 +1,13 @@
 """Explain and Show example beside a best-practice finding (LX-09): each rule's own section of the
 guide, shipped inside the app so it works offline and sends nothing anywhere.
 
-The guides are the docs (docs/notebook-best-practices.md, docs/sql-best-practices.md): one section
-per rule, ``### NB003``, with a title line ``**Title** · Severity · Area · Importance``, ``Why:``, an
+The guides are the docs (docs/notebook-best-practices.md, docs/sql-best-practices.md, and for GD-07
+docs/semantic-model-rules.md and the pipeline gotchas in docs/orchestration/activity-registry.md): one
+section per rule, ``### NB003``, with a title line ``**Title** · Severity · Area · Importance``, ``Why:``, an
 optional example fenced in code with ``# Before`` and ``# After`` (``--`` in SQL), ``When it's fine:``,
-``Safe to leave:`` or ``Do this instead:``, and ``Principle:``, ``Impact:`` and ``How to check:`` (GD-03).
+``Safe to leave:`` or ``Do this instead:``, and ``Principle:``, ``Impact:`` and ``How to check:`` (GD-03). A pipeline gotcha (``### PG1``) also has
+``Warnings:``, the warning codes a pipeline report gives for it (orchestration/gotchas.py), read into
+``codes``, so a warning finds its guide.
 ``rule_guides.json`` is those sections, read into fields. The docs stay the one place they're
 written: CI fails while the JSON differs from them (tests/test_learn_guides.py), and
 
@@ -22,9 +25,11 @@ from pathlib import Path
 from typing import Any
 
 FILE = Path(__file__).resolve().parent / "rule_guides.json"
-DOCS = ("notebook-best-practices.md", "sql-best-practices.md")
+DOCS = ("notebook-best-practices.md", "sql-best-practices.md", "semantic-model-rules.md",
+        "orchestration/activity-registry.md")
 
-_RULE = re.compile(r"^(NB|SQ|SE|DM|WH)\d{3}$")
+_RULE = re.compile(r"^((NB|SQ|SM|SE|DM|WH)\d{3}|PG\d{1,2}|FOREACH)$")
+_CODES = re.compile(r"`([a-z0-9_]+)`")
 _FIELDS = {"Why:": "why", "When it's fine:": "fine", "Safe to leave:": "fine", "Do this instead:": "instead",
            "Principle:": "principle", "Impact:": "impact", "How to check:": "check", "Source:": None}
 IMPORTANCE = ("Critical", "Recommended", "Educational", "Advanced")
@@ -33,7 +38,7 @@ _MARK = re.compile(r"^\s*(#|--)\s*(Before|After)\b:?\s*(.*)$")  # "# After: copy
 
 def parse(markdown: str) -> dict[str, dict[str, Any]]:
     """{rule id: {importance, area, why, fine, instead, principle, impact, check, language, before, after}}
-    from one best-practices page."""
+    from one best-practices page; a pipeline gotcha's guide also has ``codes``."""
     out: dict[str, dict[str, Any]] = {}
     for section in re.split(r"^### ", markdown, flags=re.M)[1:]:
         head, _, body = section.partition("\n")
@@ -67,6 +72,9 @@ def _section(body: str) -> dict[str, Any]:
             guide["importance"] = tags[2] if len(tags) > 2 and tags[2] in IMPORTANCE else ""
             continue
         if not text or text.startswith("**"):
+            continue
+        if text.startswith("Warnings:"):  # a pipeline gotcha's warning codes
+            guide["codes"], field = _CODES.findall(text), None
             continue
         label = next((k for k in _FIELDS if text.startswith(k)), None)
         if label is not None:
@@ -102,6 +110,11 @@ def build(docs: Path) -> dict[str, dict[str, Any]]:
 def load() -> dict[str, dict[str, Any]]:
     """The shipped guides, by rule id."""
     return json.loads(FILE.read_text(encoding="utf-8"))
+
+
+def for_code(code: str, shipped: dict[str, dict[str, Any]] | None = None) -> str | None:
+    """The id of the guide for a pipeline warning code (``notebook_not_an_item_id`` -> ``PG1``), or None."""
+    return next((rid for rid, g in (shipped if shipped is not None else load()).items() if code in g.get("codes", ())), None)
 
 
 if __name__ == "__main__":

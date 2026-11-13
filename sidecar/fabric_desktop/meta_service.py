@@ -956,8 +956,8 @@ class MetaMixin:
             # One key system: the project uses a key table the platform has, it doesn't make its own.
             central = {t["name"] for t in self._keys_platform(env).call("list_key_tables")}  # type: ignore[attr-defined]
             if name not in central:
-                raise GateError("save", [f"{name} isn't one of the platform's key tables. Request it in "
-                                         "Platform > Set up > Business keys, or pick one from the list."])
+                raise GateError("save", [(f"{name} isn't one of the platform's key tables. Request it in "
+                                         "Platform > Set up > Business keys, or pick one from the list.")])
         owner = ""
         try:
             owner = self.auth.signed_in_user() or ""  # type: ignore[attr-defined]
@@ -1035,9 +1035,9 @@ class MetaMixin:
         if not keys_mod.entity_keys(e):
             raise ValueError(f"{name} has no [[keys]] block, so there is no key MERGE to start its notebook with")
         if db := self._keys_database(project, env):
-            raise GateError("save", [f"{env.title()}'s keys come from {db}, so a notebook that merges into LH_Keys "
+            raise GateError("save", [(f"{env.title()}'s keys come from {db}, so a notebook that merges into LH_Keys "
                                      "would give rows keys the rest of the platform doesn't have. Run "
-                                     f"{name} from Data mesh instead: its run takes the keys from {db}."])
+                                     f"{name} from Data mesh instead: its run takes the keys from {db}.")])
         src = project.entities[e.spec["source"]["entity"]]
         nb_name = f"nb_{src.layer}_to_{e.layer}_{e.table}"
         cells = keys_mod.template_cells(project, e, project.environments.get(env, {}).get("keys_workspace_name", ""))

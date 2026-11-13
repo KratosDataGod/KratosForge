@@ -100,12 +100,12 @@ def _extensions() -> str:
 # path in the repository: (label, what it does, its text)
 FILES: dict[str, tuple[str, str, Any]] = {
     ".vscode/tasks.json": ("Tasks",
-                           "Validate notebook, which lists what it finds in the Problems panel, and Open notebook "
-                           "in KratosForge.",
+                           ("Validate notebook, which lists what it finds in the Problems panel, and Open notebook "
+                           "in KratosForge."),
                            _tasks),
     ".vscode/mcp.json": ("MCP server",
-                         "Connects Copilot agent mode to KratosForge. VS Code asks each developer for their own "
-                         "connection id, so no id is in the file.", _mcp),
+                         ("Connects Copilot agent mode to KratosForge. VS Code asks each developer for their own "
+                         "connection id, so no id is in the file."), _mcp),
     ".vscode/extensions.json": ("Recommended extensions",
                                 "Suggests Jupyter, Python and Copilot Chat when someone opens the repository.",
                                 _extensions),

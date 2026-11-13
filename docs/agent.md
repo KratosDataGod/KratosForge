@@ -197,6 +197,8 @@ For what each alert, log warning and incident means and how to recover, see the 
 
 **Local copies.** Right after pruning, the agent deletes local copies of lakehouse data in its data folder (`<home>\data`, where its runs keep them) that haven't been used for the policy's `local_retention_days` (default 30; `0` keeps them), by the same rules as the app ([Configure Azure and Fabric](azure-setup.md)): files read, staged tables, the download cache and replay bundle copies. A write's left-over spill file goes after a day whatever the setting. The queue, audit trail, logs, settings and a project's This PC data are never touched. A cleanup that fails is logged and tried again the next day.
 
+**Audit trail time limit.** The audit trail is kept until someone deletes it, unless IT sets `audit_retention_days` in the policy (at least 30). Then, right after the local copies, the agent deletes each whole month of `<home>\audit` that ended longer ago than that, never the newest month. It first adds an `audit_pruned` line, and deletes nothing if that line can't be written. `fabric-desktop audit --verify` still checks what is left.
+
 ### The agent's audit trail
 
 The agent writes its own hash-chained audit trail to `<home>\audit` (its `FABRIC_DESKTOP_HOME`), in the same format as the app's ([User guide: audit trail](user-guide.md#audit-trail)). Run these on the agent's server, as an account that can read its home:

@@ -1838,6 +1838,8 @@ test("the app has a strict CSP and notebook HTML output stays off the app's orig
   const scripts = directives["script-src"] || directives["default-src"] || [];
   assert.ok(scripts.length && !scripts.some((s) => /unsafe-inline|\*|^https?:$|^data:$|^blob:$/.test(s)), `script-src: ${scripts}`);
   assert.deepStrictEqual(directives["object-src"], ["'none'"]);
+  // The skins' fonts ship in vendor/fonts: the app's own origin only, never a font host or data: URL.
+  assert.deepStrictEqual(directives["font-src"], ["'self'"]);
   assert.ok(!(directives["frame-src"] || []).includes("'self'"), "notebook output must not be framed from the app's origin");
 
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");

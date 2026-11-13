@@ -124,6 +124,40 @@ test("a regular expression replaces with its groups; a bad one says so", { skip 
   await bar.getByText("That isn't a valid regular expression.").waitFor();
 });
 
+test("with Outputs ticked it finds text in outputs, marks it, opens a traceback, and Replace leaves it", { skip }, async () => {
+  const bar = page().locator(".nb-find");
+  await bar.getByLabel("Use regular expression").click();
+  await bar.getByLabel("Match whole word").click();
+  await bar.getByLabel("Find in notebook").fill("sales");
+  const outputMatches = () => page().evaluate(() => nbFind.matches.filter((m) => m.output != null).length);
+  await page().evaluate(() => {  // what a run of the frozen cell printed (outputs are kept per session, not in the file)
+    const cell = state.notebook.cells[3];
+    cell.outputs = [{ type: "stream", text: "sales has 3 rows\n" },
+      { type: "error", ename: "NameError", evalue: "name 'region' is not defined", traceback: "in <module>\n  print(sales.region)" }];
+    updateResults(cell);
+  });
+  assert.strictEqual(await outputMatches(), 0);
+  await bar.locator("label.nb-find-out input").check();
+  assert.strictEqual(await outputMatches(), 2);
+  const marks = await page().evaluate(() => {
+    findShow(nbFind.matches.findIndex((m) => m.output === 1));  // the match in the traceback
+    return { all: CSS.highlights.get("nb-find-out").size, current: CSS.highlights.get("nb-find-out-current").size,
+      open: document.querySelector('[data-cell] .output.error details').open };
+  });
+  assert.deepStrictEqual(marks, { all: 1, current: 1, open: true });
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "notebook-find-outputs.png") });
+  const before = await sources();
+  await bar.getByLabel("Replace with").fill("orders");
+  await bar.getByRole("button", { name: "Replace", exact: true }).click();  // the current match is in an output
+  await page().locator("#toast").getByText(/in a cell's output, which can't be changed/).waitFor();
+  assert.deepStrictEqual(await sources(), before);
+  await bar.getByRole("button", { name: "Replace all" }).click();
+  await page().locator("#toast").getByText(/2 in outputs were left as they are/).waitFor();
+  await bar.getByRole("button", { name: "Undo replace all" }).click();
+  await bar.locator("label.nb-find-out input").uncheck();
+  assert.strictEqual(await page().evaluate(() => CSS.highlights.get("nb-find-out").size), 0);
+});
+
 test("the bar stays open while the notebook redraws, and Esc closes it", { skip }, async () => {
   await page().evaluate(() => renderNotebook());
   const bar = page().locator(".nb-find");

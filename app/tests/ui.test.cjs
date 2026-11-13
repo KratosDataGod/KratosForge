@@ -3951,6 +3951,15 @@ test("notebook find matches every cell with case, whole word and regex, and repl
   assert.strictEqual(findMatches(cells, "a.e").matches.length, 0);  // not a regex unless asked
   assert.strictEqual(findMatches(cells, "x*", { regex: true }).matches.length, 0);  // empty matches skipped
   assert.match(findMatches(cells, "(", { regex: true }).error, /isn't a valid regular expression/);
+  // Outputs are searched only when asked: text, errors with their traceback, table rows; not images.
+  const ran = [{ type: "code", source: "print(total)", outputs: [
+    { type: "stream", text: "total 42\n" }, { type: "error", ename: "KeyError", evalue: "'total'", traceback: "line 1 in total" },
+    { type: "table", columns: ["region", "total"], rows: [["east", 1], ["west", null]] }, { type: "image", mime: "image/png", data: "total" }] }];
+  assert.strictEqual(findMatches(ran, "total").matches.length, 1);
+  const inOut = findMatches(ran, "total", { outputs: true }).matches;
+  assert.deepStrictEqual([...inOut.map((x) => x.output ?? "src")], ["src", 0, 1, 1, 2]);
+  assert.strictEqual(findMatches(ran, "west", { outputs: true }).matches[0].output, 2);
+  assert.strictEqual(findMatches([{ type: "markdown", source: "", outputs: [{ type: "text", text: "x" }] }], "x", { outputs: true }).matches.length, 0);
   const [m] = findMatches(cells, "(s)ales", { regex: true, matchCase: true }).matches;
   assert.strictEqual(findReplacement(m, "(s)ales", "$1old", { regex: true, matchCase: true }), "sold");
   assert.strictEqual(findReplacement(m, "x", "$1", {}), "$1");  // plain text replacement is literal

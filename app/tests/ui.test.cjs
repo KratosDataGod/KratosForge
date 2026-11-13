@@ -570,7 +570,7 @@ function sqlEditorHelpers() {
   const code = src.slice(0, src.indexOf("// ---------- the editor ----------"));
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { SQL_DIALECTS, SQL_WORDS, sqlDialect, sqlQuoteIdent, sqlTableName,
-    sqlMask, sqlStatementAt, sqlTableRefs, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
+    sqlMask, sqlStatementAt, sqlRunnableStatementAt, sqlTableRefs, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
     sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics });`, ctx);
   return ctx;
 }
@@ -612,6 +612,25 @@ test("strings and comments are not SQL to complete in", () => {
   assert.ok(sqlMask("SELECT 'abc", 11).inert, "an unclosed string");
   assert.strictEqual(sqlStatementAt(text, 24).text, "SELECT 'a;b' -- c;d\nFROM t");
   assert.strictEqual(sqlStatementAt(text, 30).text, " SELECT 2 /* x; */");
+});
+
+test("Ctrl+Shift+Enter finds the statement at the cursor, or the nearest one when the cursor is between statements", () => {
+  const { sqlRunnableStatementAt } = sqlEditorHelpers();
+  const text = "SELECT 1;\n\n  SELECT 'a;b' -- c;d\n  FROM t ;\n-- only a note;\nSELECT 3";
+  const at = (pos) => sqlRunnableStatementAt(text, pos)?.text;
+  assert.strictEqual(at(3), "SELECT 1");
+  assert.strictEqual(at(9), "SELECT 1", "right after the semicolon");
+  assert.strictEqual(at(11), "SELECT 'a;b' -- c;d\n  FROM t", "in the blank line before the next statement");
+  assert.strictEqual(at(text.indexOf("'a;b'") + 2), "SELECT 'a;b' -- c;d\n  FROM t", "a ; inside a string doesn't end it");
+  assert.strictEqual(at(text.indexOf("FROM t") + 8), "SELECT 'a;b' -- c;d\n  FROM t", "after the space before ;");
+  assert.strictEqual(at(text.indexOf("only")), "-- only a note;\nSELECT 3", "a ; inside a comment doesn't end it either");
+  assert.strictEqual(sqlRunnableStatementAt("SELECT 1;\n/* note */;\nSELECT 2", 13).text, "SELECT 1", "a statement that is only a comment");
+  assert.strictEqual(at(text.length), "-- only a note;\nSELECT 3", "a comment before a statement is part of it");
+  const r = sqlRunnableStatementAt(text, 3);
+  assert.deepStrictEqual([r.from, r.to], [0, 8]);
+  assert.strictEqual(sqlRunnableStatementAt("  ;\n -- x\n", 2), null);
+  assert.strictEqual(sqlRunnableStatementAt("", 0), null);
+  assert.strictEqual(sqlRunnableStatementAt(";;\nSELECT 9", 0).text, "SELECT 9", "falls forward when nothing is before");
 });
 
 test("table references are found with their aliases, across joins, comma lists, subqueries and CTEs", () => {

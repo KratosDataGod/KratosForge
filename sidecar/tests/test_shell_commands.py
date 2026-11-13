@@ -42,6 +42,8 @@ ENGINE = None
 NONE: dict[str, tuple[str | None, str]] = {}
 FABRIC = "must be an https app.fabric.microsoft.com page (fabric_page)"
 SECTION = ("pop_out_title(&section)?", "must be one of the fixed pop-out sections")
+SSMS_ARGS = "ssms_link::args(&server, &database, &user, file.as_deref())?"
+MSSQL_LINK = "ssms_link::mssql_link(&server, &database, &user)?"
 COMMANDS: dict[str, dict[str, tuple[str | None, str]]] = {
     "rpc": {"method": (ENGINE, "sent to the engine over its pipe; the engine refuses an unknown method"),
             "params": (ENGINE, "sent to the engine, which checks each method's own arguments")},
@@ -65,6 +67,16 @@ COMMANDS: dict[str, dict[str, tuple[str | None, str]]] = {
                                  "the notebooks folder or an opened repository"))},
     "add_to_vscode": {"client_id": ("vscode_link::install_link(&launcher, &client_id, insiders)?",
                                     "checked by vscode_link; the link uses the app's own launcher path")},
+    "ssms_find": {"chosen": ("ssms_link::named_ssms(&exe) && exe.is_file()",
+                             "a local path (vscode_link::may_look_at) that is, or holds, a file named ssms.exe")},
+    "open_in_ssms": {"exe": ("ssms_link::named_ssms(&program)", "a local file named ssms.exe that exists, started by its full path"),
+                     "server": (SSMS_ARGS, "a Fabric SQL endpoint host name (ssms_link::valid_server)"),
+                     "database": (SSMS_ARGS, "letters, digits, spaces and _-. only, never starting with - (ssms_link::valid_database)"),
+                     "user": (SSMS_ARGS, "empty, or one name@domain that can't start a switch (ssms_link::valid_user)"),
+                     "query": ("q.len() > ssms_link::QUERY_MAX", "at most 1 MiB, written only to a .sql file in the app's data folder")},
+    "open_in_mssql": {"server": (MSSQL_LINK, "checked by ssms_link as for open_in_ssms, then percent-encoded"),
+                      "database": (MSSQL_LINK, "checked by ssms_link as for open_in_ssms, then percent-encoded"),
+                      "user": (MSSQL_LINK, "checked by ssms_link as for open_in_ssms, then percent-encoded")},
     "pick_folder": {"start": ("folder_pick::pick(owner, start)",
                               "only where the dialog opens, and only a local folder (folder_pick.rs)")},
     "take_pending_link": NONE,

@@ -2637,6 +2637,7 @@ fn open_in_ssms(exe: String, server: String, database: String, user: String, que
     if !vscode_link::may_look_at(&exe) || !ssms_link::named_ssms(&program) || !program.is_file() {
         return Err(format!("Not SSMS on this PC: {exe}"));
     }
+    ssms_link::args(&server, &database, &user, None)?;  // the connection is checked before any file is written
     let file = match query.filter(|q| !q.trim().is_empty()) {
         None => None,
         Some(q) if q.len() > ssms_link::QUERY_MAX => return Err("The query is too long to hand to SSMS.".into()),

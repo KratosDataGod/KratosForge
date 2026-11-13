@@ -227,7 +227,7 @@ class Entity:
             part = logic.get(section)
             if isinstance(part, dict) and key in part:
                 logic[section] = {k: v for k, v in part.items() if k != key}
-        return hashlib.sha1(json.dumps(logic, sort_keys=True, default=str).encode()).hexdigest()[:8]
+        return hashlib.sha1(json.dumps(logic, sort_keys=True, default=str).encode(), usedforsecurity=False).hexdigest()[:8]
 
     def sources(self) -> list[str]:
         return as_list(self.spec.get("source", {}).get("entity"))
@@ -366,7 +366,7 @@ class Project:
     @property
     def version(self) -> str:
         """Content hash of every config and code file, so any edit makes a new version."""
-        h = hashlib.sha1()
+        h = hashlib.sha1(usedforsecurity=False)
         for p in sorted(self.versioned_files()):
             rel = p.relative_to(self.root)
             if p.is_file() and not (set(rel.parts) & _IGNORED) and p.suffix not in (".pyc",) \
@@ -386,7 +386,7 @@ class Project:
 
     def fingerprint(self, e: Entity) -> str:
         """The entity's logic plus any Python it runs, so code changes count as logic changes."""
-        h = hashlib.sha1(e.logic_hash().encode())
+        h = hashlib.sha1(e.logic_hash().encode(), usedforsecurity=False)
         if any(True for _ in e.python_refs()):
             for p in sorted((self.root / "transforms").rglob("*.py")):
                 h.update(p.relative_to(self.root).as_posix().encode() + p.read_bytes().replace(b"\r\n", b"\n"))
@@ -526,7 +526,7 @@ def describe_exceptions(project: Project, today: dt.date | None = None,
 def check_expr(expr: str, available: set[str]) -> list[str]:
     try:
         roots = pl.sql_expr(expr).meta.root_names()
-    except Exception as ex:  # noqa: BLE001
+    except Exception as ex:  # noqa: BLE001 - any parse failure is reported as a problem with the expression
         return [f"expression {expr!r} does not parse ({type(ex).__name__})"]
     return [f"uses unknown column {c}" for c in roots if c not in available]
 
@@ -541,7 +541,7 @@ def check_python(ref: str) -> str | None:
         return "must be transforms.<module>:<function>"
     try:
         fn = load_python(ref)
-    except Exception as ex:  # noqa: BLE001
+    except Exception as ex:  # noqa: BLE001 - any import failure is reported as the problem with the module
         return f"cannot be imported ({type(ex).__name__}: {ex})"
     params = list(inspect.signature(fn).parameters)
     if params[:2] != ["df", "ctx"]:

@@ -22,7 +22,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from . import jsonfile
+from . import jsonfile, shell
+from .kernel_proc import ProcessKernel
 from .notebook import check_notebook_name
 from .redact import describe
 
@@ -33,12 +34,42 @@ MAX_NOTEBOOKS = 50
 MAX_PARALLEL = 4
 HEARTBEAT_SECONDS = 10
 LOST_SECONDS = 90  # no heartbeat for this long: the background process is gone
+STOP_CHECK_SECONDS = 1.0  # how often a running notebook looks for Stop
+STOP_GRACE_SECONDS = 30  # a notebook that hasn't ended this long after Stop is ended from outside
 _BATCH_ID = re.compile(r"^[0-9a-f]{12}$")
-DONE = ("ok", "failed", "skipped")
+DONE = ("ok", "failed", "skipped", "stopped")
+STOPPED = "You stopped it while it was running"
 
 
 def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+
+
+def _run_notebook_process(args: list[str], root: Path, stop: Path) -> tuple[str, int | None, bool]:
+    """Run one notebook's process to its end: (its output, its exit code, whether it was ended here).
+    After Stop the process ends its own kernel and reports "stopped"; one still running
+    STOP_GRACE_SECONDS later (a cell stuck in native code, a kernel in the same process) is ended
+    here, with every process it started."""
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    proc = subprocess.Popen(args, cwd=str(root), creationflags=flags, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            encoding="utf-8", errors="replace", start_new_session=os.name != "nt")
+    asked: float | None = None
+    while True:
+        try:
+            out, _ = proc.communicate(timeout=STOP_CHECK_SECONDS)  # retried: no output is lost
+            return out or "", proc.returncode, False
+        except subprocess.TimeoutExpired:
+            pass
+        if asked is None and stop.exists():
+            asked = time.monotonic()
+        if asked is not None and time.monotonic() - asked > STOP_GRACE_SECONDS:
+            shell.end(proc)
+            try:
+                out, _ = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:  # a process it started still holds the output open
+                out = ""
+            return out or "", proc.returncode, True
 
 
 class NotebookBatchMixin:
@@ -131,7 +162,8 @@ class NotebookBatchMixin:
         return batch
 
     def notebook_batch_stop(self, id: str) -> dict[str, Any]:  # noqa: A002
-        """Don't start the notebooks still waiting. Ones already running finish."""
+        """Stop the batch: the notebooks still waiting don't start, and the ones running are ended, with
+        every process their cells started. Each running one ends as "stopped" and is logged so."""
         self.notebook_batch(id)  # a batch that isn't on this PC is refused, not given a stray stop file
         (self._batch_dir() / f"{id}.stop").write_text(_now(), encoding="utf-8")
         return self.notebook_batch(id)
@@ -161,15 +193,18 @@ class NotebookBatchMixin:
                 item |= {"status": "running", "started": _now()}
             save()
             t0 = time.monotonic()
-            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             try:
-                done = subprocess.run([sys.executable, "-m", "fabric_desktop.cli", "run-notebook", id, str(index)],
-                                      cwd=str(self.root), creationflags=flags, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-                                      stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8",
-                                      errors="replace", check=False)
-                lines = [x for x in (done.stdout or "").splitlines() if x.strip().startswith("{")]
-                row = json.loads(lines[-1]) if lines else {
-                    "status": "failed", "message": f"The run stopped without a result (exit code {done.returncode})"}
+                stdout, code, ended = _run_notebook_process(
+                    [sys.executable, "-m", "fabric_desktop.cli", "run-notebook", id, str(index)], self.root, stop)
+                lines = [x for x in stdout.splitlines() if x.strip().startswith("{")]
+                if ended:  # it didn't end on its own after Stop: logged here, as it couldn't log itself
+                    row = {"status": "stopped", "message": f"{STOPPED}; it was ended {STOP_GRACE_SECONDS} s later"}
+                    self.pc_schedules.log_run({  # type: ignore[attr-defined]
+                        "schedule_id": "", "label": item["name"], "trigger": "home", "started": item["started"],
+                        "ended": _now(), "seconds": round(time.monotonic() - t0, 1), **row})
+                else:
+                    row = json.loads(lines[-1]) if lines else {
+                        "status": "failed", "message": f"The run stopped without a result (exit code {code})"}
             except Exception as exc:  # noqa: BLE001 - recorded on the item; the others still run
                 row = {"status": "failed", "message": describe(exc)}
             with lock:
@@ -204,11 +239,30 @@ class NotebookBatchMixin:
         progress = self._batch_dir() / f"{id}.{int(index)}.progress"
         row: dict[str, Any] = {"schedule_id": "", "label": name, "trigger": "home", "started": _now(), "pid": os.getpid()}
         t0 = time.monotonic()
+        stopped, done = threading.Event(), threading.Event()
+        stop = self._batch_dir() / f"{id}.stop"
+
+        def watch() -> None:
+            """Stop, while the notebook runs: end its kernel process and every process its cells started.
+            A kernel in this process can't be ended from here; the batch ends this process instead."""
+            while not done.wait(STOP_CHECK_SECONDS):
+                if stop.exists():
+                    stopped.set()
+                    if isinstance(self.kernel, ProcessKernel):  # type: ignore[attr-defined]
+                        self.kernel.stop()  # type: ignore[attr-defined]
+                    return
+
+        watcher = threading.Thread(target=watch, name="batch-stop", daemon=True)
+        watcher.start()
         try:
             row |= self._run_notebook_here(name, lambda cell, cells: jsonfile.write_text(  # type: ignore[attr-defined]
                 progress, json.dumps({"cell": cell, "cells": cells})))
         except Exception as exc:  # noqa: BLE001 - the run's outcome is the result, not a crash
             row |= {"status": "failed", "message": describe(exc)}
+        finally:
+            done.set()
+        if stopped.is_set() and row.get("status") != "ok":  # one that finished before Stop keeps its result
+            row |= {"status": "stopped", "message": STOPPED}
         row |= {"ended": _now(), "seconds": round(time.monotonic() - t0, 1)}
         self.pc_schedules.log_run(row)  # type: ignore[attr-defined]
         return row

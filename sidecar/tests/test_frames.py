@@ -41,6 +41,21 @@ def test_search_and_sort_cover_every_row_not_just_the_preview():
     assert k.frame_page(out["frame"], q="r_9")["total"] == 0
 
 
+def test_a_duckdb_relation_cell_result_pages_searches_and_downloads_every_row(tmp_path):
+    # DuckDBPyRelation's module is _duckdb, not duckdb: the viewer once said it "isn't a table" (#2474).
+    k = Kernel()
+    (out,) = _run(k, "import duckdb\nduckdb.sql(\"SELECT range AS n, 'r' || range AS s FROM range(3000)\")")
+    assert out["type"] == "table" and len(out["rows"]) == PREVIEW_ROWS
+    page = k.frame_page(out["frame"], offset=2990, limit=10)
+    assert page["total"] == 3000 and page["rows"][-1] == [2999, "r2999"]
+    assert k.frame_page(out["frame"], q="r2999")["rows"] == [[2999, "r2999"]]
+    store = Frames()
+    import duckdb
+    target = tmp_path / "r.csv"
+    target.touch()
+    assert store.download(store.keep(duckdb.sql("SELECT range AS n FROM range(2500)")), "csv", str(target))["rows"] == 2500
+
+
 def test_odd_and_duplicate_column_names_are_safe():
     store = Frames()
     t = pa.table([pa.array([1, None, 3]), pa.array(["a", "b", "c"])], names=['x"; drop', 'x"; drop'])

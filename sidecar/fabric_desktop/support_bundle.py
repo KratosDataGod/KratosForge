@@ -9,6 +9,8 @@
     sidecar.prev.log  the last lines of the run before, when there was one (a crash's log survives the restart)
     app-crash.log   the app's own crashes (a panic: when, which build, where), when there were any
     agent.log       the last lines of the headless agent's log, on a server with an agent
+    agent-crash.log the agent's native crashes (where each happened, by file and function) and its starts,
+                    when it has a crash
     CONTENTS.txt    what is in the zip and what was taken out
 
 Every file passes through :func:`redact.for_support` (no tokens, keys, passwords, email
@@ -45,18 +47,42 @@ TAIL_BYTES = 4 * 1024 * 1024  # LOG_LINES of even long lines; a log of any size 
 
 
 def _tail(path: Path, lines: int = LOG_LINES, max_bytes: int = TAIL_BYTES) -> str | None:
-    """The last ``lines`` lines, reading only the file's last ``max_bytes``."""
+    """The last ``lines`` lines, reading only the file's last ``max_bytes``. A UTF-16 file (one with its
+    byte order mark) is read as UTF-16, and any NUL left over is dropped: redaction matches text, and a
+    token with NULs between its characters would pass it."""
     try:
         with path.open("rb") as f:
+            encoding = _UTF16.get(f.read(2), "utf-8")
             size = f.seek(0, os.SEEK_END)
-            f.seek(max(0, size - max_bytes))
+            start = max(0, size - max_bytes)
+            if encoding != "utf-8":
+                start += start % 2  # a whole UTF-16 code unit
+            f.seek(start)
             data = f.read()
     except OSError:
         return None
-    if size > max_bytes:
-        data = data[data.find(b"\n") + 1:] if b"\n" in data else b""  # drop the line cut in half
-    text = data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")  # as text mode reads it
-    return "".join(text.splitlines(keepends=True)[-lines:])
+    text = data.decode(encoding, errors="replace").lstrip("\ufeff").replace("\x00", "")
+    if start:
+        text = text[text.find("\n") + 1:] if "\n" in text else ""  # drop the line cut in half
+    text = text.replace("\r\n", "\n").replace("\r", "\n")  # as text mode reads it
+    return _without_cut_key("".join(text.splitlines(keepends=True)[-lines:]))
+
+
+_UTF16 = {b"\xff\xfe": "utf-16-le", b"\xfe\xff": "utf-16-be"}
+
+
+_KEY_END = re.compile(r"-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----[^\n]*\n?")
+_KEY_BEGIN = re.compile(r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----")
+
+
+def _without_cut_key(text: str) -> str:
+    """``text`` without the start of a private key whose BEGIN line the tail cut off. Redaction finds a
+    key by its BEGIN line, so a body left on its own would pass as plain text; the lines up to and
+    including its END line are the oldest kept, so they are dropped."""
+    end = _KEY_END.search(text)
+    if end and not _KEY_BEGIN.search(text, 0, end.start()):
+        return "[a private key cut off by the start of this log was removed]\n" + text[end.end():]
+    return text
 
 
 def about(data_dir: Path | None = None) -> dict[str, Any]:
@@ -146,6 +172,12 @@ def policy_record(data_dir: Path) -> dict[str, Any]:
     return record
 
 
+def _has_trace(text: str) -> bool:
+    """Whether faulthandler wrote anything there, beyond the line the agent writes at each start."""
+    from .logs import START_LINE
+    return any(line.strip() and START_LINE not in line for line in text.splitlines())
+
+
 def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
     """Each file of the bundle by name, already redacted: what create() writes and preview() shows."""
     files: dict[str, str] = {"about.json": json.dumps(about(data_dir), indent=2)}
@@ -165,6 +197,9 @@ def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
     crashes = _tail(data_dir / "app-crash.log")  # only there once the app itself has crashed
     if crashes is not None:
         files["app-crash.log"] = crashes
+    agent_crashes = _tail(agent_home / "logs" / "agent-crash.log") if agent_home else None
+    if agent_crashes and _has_trace(agent_crashes):  # start lines alone: the agent never crashed
+        files["agent-crash.log"] = agent_crashes
     contents = ["KratosForge support bundle", "",
                 *[f"{name}" for name in files], *[f"{name} (not found on this PC)" for name in missing], "",
                 "Taken out of every file: tokens, keys, passwords, email addresses (a guest's too), the tenant's",

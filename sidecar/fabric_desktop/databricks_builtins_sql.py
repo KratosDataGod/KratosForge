@@ -543,6 +543,7 @@ def rewrite(statement: exp.Expression) -> exp.Expression:
 
     # innermost first, so a call inside another's arguments is written before the outer one copies them
     for call in reversed(list(statement.find_all(exp.Anonymous, exp.TimeDiff, exp.TimeTrunc, exp.Collate, exp.ParseJSON,
+                                                   exp.Dayname, exp.Monthname, exp.GroupConcat, exp.Time,
                                                    bfs=False))):
         written = _written(call)
         if written is not None:
@@ -562,6 +563,17 @@ def _written(call: exp.Expr) -> exp.Expression | None:
         return _collate(call)
     if isinstance(call, exp.ParseJSON):
         return _parse_json(call.this, safe=bool(call.args.get("safe")))
+    if isinstance(call, (exp.Dayname, exp.Monthname)):  # Databricks' short English names: Fri, Apr
+        return _template(f"strftime(CAST(_a AS DATE), '{'%a' if isinstance(call, exp.Dayname) else '%b'}')",
+                         a=call.this)
+    if isinstance(call, exp.GroupConcat):  # listagg and string_agg join with no delimiter unless given one
+        if call.args.get("separator") is not None:
+            return None
+        joined = call.copy()
+        joined.set("separator", exp.Literal.string(""))
+        return joined
+    if isinstance(call, exp.Time):  # a TIME from a string or a timestamp's time of day (in UTC here)
+        return exp.cast(exp.cast(call.this.copy(), exp.DataType.build("TIMETZ")), exp.DataType.build("TIME"))
     if isinstance(call, exp.Anonymous):
         written = _function(call)
         return None if written is call else written

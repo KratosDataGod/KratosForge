@@ -105,20 +105,19 @@ What each choice draws so far:
   makes them 2, 3 and 4 px, and `round` makes them 6, 8 and 12 px. Pills stay pills.
 - **icons:** the app's icons are filled shapes. `bold` traces their edge so they read heavier. `regular`
   and `light` draw them as they are.
-
 - **rail:** `stacked` is KratosForge's narrow rail. `inline` is a wide rail, 208 px, with each label beside
   its icon. In a window narrower than 1000 px, such as when zoomed in, it draws as stacked so the page keeps
   its room, and in a window shorter than 640 px it shows icons only, like the app's own rail.
 - **header:** `light` is KratosForge's white bar. `brand` fills the bar with the skin's accent. The bar's
-  text, buttons and lettering turn to `--on-accent`, and the search box sits on `--accent-dark`. `none`
-  blends the bar into the canvas, without its line. The bar keeps search, the breadcrumb, Activity and
+  text and buttons turn to `--on-accent`, and the search box sits on `--accent-dark`. The brand lettering
+  image is never recolored, so the bar shows the name as text instead. `none` blends the bar into the
+  canvas, without its line. The bar keeps search, the breadcrumb, Activity and
   the account in every skin.
-
 - **tabs:** `underline` is KratosForge's. `boxed` raises the chosen tab like a file tab on the line below
   it. `pill` fills the chosen tab as a pill, with no line under the row.
 - **cells:** `bordered` is KratosForge's, with an accent edge on the chosen cell. `card` gives cells a
-  soft border, larger corners and an accent ring when chosen. `flat` keeps square cells with their header
-  bar always shown. `rounded` uses large corners and a soft ring. In every style, a cell being edited
+  soft border, larger corners and an accent ring when chosen. `flat` uses the skin's smallest corners and
+  always shows the header bar. `rounded` uses large corners and a soft ring. In every style, a cell being edited
   keeps KratosForge's orange edge, so edit and command mode still look different.
 
 The look is Preview: with Preview features hidden in Settings, every skin draws the app's own look.
@@ -127,8 +126,8 @@ The choices are plain platform looks. None adds art or game styling to controls,
 type or data panels; the KratosForge skin keeps its light shell.
 
 Two settings choose the skin: `ui_skin` (its id, `kratosforge` by default) and `ui_color_mode`
-(`skin` follows the skin's own mode, or `light` or `dark`). See
-[the settings file](azure-setup.md).
+(`skin` follows the skin's own mode, or `light` or `dark`). The app saves `ui_color_mode` but doesn't
+apply it yet: it always uses the skin's light colors. See [the settings file](azure-setup.md).
 
 ## Notebook commands (Preview)
 

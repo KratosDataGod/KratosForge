@@ -90,7 +90,7 @@ def parse(statement: str, dialect: str = "spark") -> Change | None:
     if not looks_like(statement):
         return None
     try:
-        tree = sqlglot.parse_one(statement, read=dialect)
+        tree = sql_dialects.parse_one(statement, read=dialect)
     except sqlglot.errors.ParseError as exc:
         raise ValueError(f"Could not read the statement: {sql_dialects.parse_problem(exc)}") from None
     return parse_tree(cast(exp.Expression, tree))  # sqlglot types parse_one as its Expr base
@@ -145,7 +145,7 @@ def _merge(tree: exp.Merge) -> Change:
     if isinstance(source, exp.Subquery):
         source = source.this
     on = tree.args.get("on")
-    if on is None:
+    if not isinstance(on, exp.Expression):  # sqlglot gives on=False, not None, when ON is left out
         raise ValueError("MERGE INTO needs ON (how a source row finds its row in the table).")
     whens_node = tree.args.get("whens")
     whens: list[When] = []

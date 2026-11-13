@@ -188,9 +188,14 @@ test("a brand header fills the bar with the skin's accent and keeps its text rea
   await page().waitForFunction(() => getComputedStyle(document.querySelector("body > header.topbar")).backgroundColor === "rgb(15, 108, 92)", null, { timeout: 3000 }).catch(() => {});
   assert.deepStrictEqual(await bar(), { bg: "rgb(15, 108, 92)", search: "rgb(255, 255, 255)", n: 1 });
   if (axeSource) assert.deepStrictEqual(await axeFindings(page(), ".topbar"), []);
+  // The brand lettering is never recolored: on the brand bar the name shows as text instead.
+  const name = () => page().evaluate(() => [".brand-name", ".brand-text"].map((s) => getComputedStyle(document.querySelector(s)).display !== "none"));
+  assert.deepStrictEqual(await name(), [false, true]);
+  assert.strictEqual(await page().evaluate(() => getComputedStyle(document.querySelector(".brand-name")).filter), "none");
   await page().evaluate(() => { state.settings.ui_skin.value = "kratosforge"; applySkin(); });
   await page().waitForFunction(() => getComputedStyle(document.querySelector("body > header.topbar")).backgroundColor === "rgb(255, 255, 255)", null, { timeout: 3000 }).catch(() => {});
   assert.strictEqual((await bar()).bg, "rgb(255, 255, 255)");
+  assert.deepStrictEqual(await name(), [true, false]);
 });
 
 test("a skin draws its tabs and notebook cells, and an edited cell keeps its orange edge", { skip }, async () => {

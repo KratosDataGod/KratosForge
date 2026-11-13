@@ -72,8 +72,8 @@ def pc_checks(connection: dict[str, Any], *, environ: Any = None, cfg_path: Path
     found.append((version[:2] >= MIN_PYTHON, f"Python {have} (KratosForge needs {need} or later)."))
     cli = databricks_auth.find_cli(environ)
     if not cli:
-        found.append((False, "The Databricks CLI isn't on PATH. Install it from "
-                             "https://docs.databricks.com/dev-tools/cli/install.html, then open a new terminal."))
+        found.append((False, ("The Databricks CLI isn't on PATH. Install it from "
+                             "https://docs.databricks.com/dev-tools/cli/install.html, then open a new terminal.")))
     else:
         found.append(_cli_version(cli, run))
     credential = connection.get("credential") or {}
@@ -83,8 +83,8 @@ def pc_checks(connection: dict[str, Any], *, environ: Any = None, cfg_path: Path
             section = databricks_auth._cfg_section(profile, cfg_path)
             host = databricks_auth.check_host(section.get("host", ""))
         except databricks_auth.DatabricksAuthError as exc:
-            found.append((False, f"{exc} Sign in with: databricks auth login --host <workspace address> "
-                                 f"--profile {profile}"))
+            found.append((False, (f"{exc} Sign in with: databricks auth login --host <workspace address> "
+                                 f"--profile {profile}")))
         else:
             found.append((True, f"Profile {profile!r} points at {host}."))
     else:
@@ -149,8 +149,10 @@ class DatabricksLiveTest:
         self.tokens, self.client = tokens, client
         self.sql_adapter, self.connect_adapter = sql_adapter, connect_adapter
         self.stop_compute = stop_compute
+        # A new bad token each run: one the workspace already refused is never sent again (databricks_auth).
+        bad = f"not-a-token-{uuid.uuid4().hex}"
         self.bad_token_client = bad_token_client if bad_token_client is not None else \
-            Client(TokenProvider(self.host, lambda: ("not-a-token", None), "live-test"))
+            Client(TokenProvider(self.host, lambda: (bad, None), "live-test"))
         self.run_id = run_id or uuid.uuid4().hex[:12]
         self.dir = Path(out_dir) / self.run_id
         self.by = by
@@ -167,26 +169,26 @@ class DatabricksLiveTest:
         where = self.host or "the workspace in the CLI profile"
         steps = [
             f"Get a token for {where} from the Databricks CLI profile or sign-in named.",
-            f"Read SQL warehouse {self.warehouse_id}: its name, size, state and auto-stop. Refuse it unless it has "
-            f"the {MARKER} tag, auto-stop is on and its name doesn't look like production. Reading never starts it.",
+            (f"Read SQL warehouse {self.warehouse_id}: its name, size, state and auto-stop. Refuse it unless it has "
+            f"the {MARKER} tag, auto-stop is on and its name doesn't look like production. Reading never starts it."),
             "List Unity Catalog catalogs (doesn't start the warehouse).",
-            "Run SELECT statements over range() on the warehouse. A stopped warehouse starts and bills DBUs until "
-            "its auto-stop.",
+            ("Run SELECT statements over range() on the warehouse. A stopped warehouse starts and bills DBUs until "
+            "its auto-stop."),
             "Run a statement on a table that doesn't exist, and check the error comes back as an error.",
             f"Start a long statement ({SLOW_SQL}) and cancel it on the warehouse.",
             "Close the SQL session.",
         ]
         if self.cluster_id:
             steps += [
-                f"Read cluster {self.cluster_id}: its runtime, state and auto-termination. Refuse it on the same "
-                "terms as the warehouse.",
-                "Open a Databricks Connect session to it (databricks-connect for its runtime must already be "
-                "installed from Engines). A terminated cluster starts and bills DBUs until it auto-terminates.",
+                (f"Read cluster {self.cluster_id}: its runtime, state and auto-termination. Refuse it on the same "
+                "terms as the warehouse."),
+                ("Open a Databricks Connect session to it (databricks-connect for its runtime must already be "
+                "installed from Engines). A terminated cluster starts and bills DBUs until it auto-terminates."),
                 "Run a cell that counts spark.range(5) on the cluster, then start a long one and cancel it.",
                 "Close the session and check its process on this PC has ended.",
             ]
-        steps += ["Ask for a warehouse that doesn't exist, and call the workspace with a bad token, to check errors "
-                  "are reported."]
+        steps += [("Ask for a warehouse that doesn't exist, and call the workspace with a bad token, to check errors "
+                  "are reported.")]
         if self.stop_compute:
             steps.append("Stop the warehouse and terminate the cluster, but only those that were stopped when the "
                          "run began.")
@@ -202,7 +204,7 @@ class DatabricksLiveTest:
         try:
             check.detail = fn() or ""
             check.status = "passed"
-        except Exception as exc:  # every failure is a result, not a crash
+        except Exception as exc:  # noqa: BLE001 - every failure is a result, not a crash
             check.status = "failed"
             check.detail = scrub(f"{type(exc).__name__}: {exc}")
         check.seconds = round(self.clock() - start, 3)

@@ -125,7 +125,7 @@ Pick a template, fill in its fields (schema, table, columns and the like) and wa
 - **Fields are checked for what they hold.** A name can't contain `]` or a line break and is written inside `[ ]`; a column list becomes `[a], [b]`; text is written inside quotes with `'` doubled; numbers, types (`varchar(50)`, `decimal(18,2)`) and dates (`yyyy-mm-ddThh:mm:ss`) must look like one. Until every field is fine, **Open in a new tab** stays off, so a half-filled script never reaches the editor.
 - **Search** finds a template by its title, description or group.
 - **On a SQL analytics endpoint**, which only reads, the gallery offers only the templates that work there: views, functions, procedures, security and data quality checks.
-- **Only a query that reads runs on this page.** Most templates create or change objects or data, which the page refuses until warehouse writes ship (a later stage, waiting on its own decision). For now, copy those scripts into Fabric's SQL editor.
+- **A template that changes the warehouse runs only through Allow changes.** Most templates create or change objects or data. Run refuses them until you tick **Allow changes**, then shows what the script changes and asks you to confirm (typing the warehouse's name in Prod). See [Changing the warehouse](#changing-the-warehouse).
 - Every template is checked against the Fabric Warehouse rules of the [compatibility check](sql-compatibility.md) by the app's tests. Two say *Review* (Truncate and reload, Dynamic data masking) and two *Not verified* (time travel's `OPTION (FOR TIMESTAMP AS OF ...)` and `CREATE SECURITY POLICY`, which the checker can't read).
 
 ### Your own templates

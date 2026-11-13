@@ -162,7 +162,7 @@ def run_rule(rule_id: str, items: list[dict[str, Any]], settings: dict[str, Any]
             continue
         try:
             result = checker.check(item, {rule_id: settings})
-        except Exception as exc:  # silent-ok: one rule's bad setting or input is reported as unknown, never aborts Check now
+        except Exception as exc:  # noqa: BLE001  # silent-ok: one rule's bad setting or input is reported as unknown, never aborts Check now
             result = [finding(rule, settings, str(item.get("kind") or ""), str(item.get("id") or ""),
                               f"This rule couldn't run ({type(exc).__name__}: {exc}). Check the policy's settings.",
                               outcome="unknown")]

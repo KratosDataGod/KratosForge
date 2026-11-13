@@ -173,7 +173,7 @@ def spark_decimal_types(statement: exp.Expr, conn: Any) -> exp.Expr:
         if names is None:
             return statement
         root = _retype(statement, targets, schema)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - a type fix only: any failure runs the statement unchanged; logged
         # Only a type fix: a statement sqlglot can't type runs with DuckDB's types, as before, and says so.
         log.info("Spark decimal types not applied: %s: %s", type(exc).__name__, exc)
         return _unmark(statement)
@@ -222,7 +222,7 @@ def spark_decimal_columns(expressions: list[str], columns: list[tuple[str, str]]
             if duckdb_sql(projection) != was:
                 named = isinstance(projection, exp.Alias)
                 out[i] = (duckdb_sql(projection.this if named else projection), projection.alias if named else None)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - a type fix only: any failure runs the statement unchanged; logged
         log.info("Spark decimal types not applied: %s: %s", type(exc).__name__, exc)
         return unchanged
     return out
@@ -302,7 +302,7 @@ def _output_names(statement: exp.Expr, conn: Any, targets: list[Any]
     from .sql import duckdb_sql
     try:
         columns = conn.sql(duckdb_sql(query.copy())).columns  # binds the query; runs nothing
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - a type fix only: unknown column names leave types as they are; logged
         log.info("Spark decimal types not applied: column names unknown: %s: %s", type(exc).__name__, exc)
         return None
     # A star stands for any number of columns: count from the start before the first one and from

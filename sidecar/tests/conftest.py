@@ -87,6 +87,14 @@ def no_lakehouse_left_attached(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_databricks_tokens_refused_by_earlier_tests(monkeypatch):
+    """Tokens a workspace refused are remembered for the process (databricks_auth._REFUSED); each test
+    starts with none, so a stand-in token one test refused can't be withheld in the next."""
+    from fabric_desktop.engines import databricks_auth
+    monkeypatch.setattr(databricks_auth, "_REFUSED", {})
+
+
+@pytest.fixture(autouse=True)
 def runtime_grants_on_record_once_per_worker(request, monkeypatch, tmp_path_factory):
     """Windows only. The exercise runtime's grants are persistent ACEs on this machine's Python
     install, and grant_runtime skips re-granting when the data folder's grants record already

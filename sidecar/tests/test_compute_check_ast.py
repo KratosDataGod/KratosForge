@@ -262,8 +262,8 @@ def test_prove_and_validate_pass_the_loader_on():
 def test_run_multiple_follows_every_named_notebook():
     load = loader({"A": ["x = 1"], "B": ["y = 2", MOUNT]})
     for source in ("import notebookutils as nu\nnu.notebook.runMultiple(['A', 'B'])",
-                   "import notebookutils as nu\nnu.notebook.runMultiple({'activities': [{'name': 'a', 'path': 'A'}, "
-                   "{'name': 'b', 'path': 'Folder/B.ipynb', 'dependencies': ['a']}]})"):
+                   ("import notebookutils as nu\nnu.notebook.runMultiple({'activities': [{'name': 'a', 'path': 'A'}, "
+                   "{'name': 'b', 'path': 'Folder/B.ipynb', 'dependencies': ['a']}]})")):
         out = compute_check(cells(source), LH, load)
         assert [r["text"] for r in out["local"]["reasons"]] == [
             "runs B (notebook.runMultiple), whose cell 2 uses Fabric notebook utilities that need Fabric"], source
@@ -357,8 +357,8 @@ def test_run_b_in_a_notebook_it_runs_reads_this_notebooks_resources(resources):
     *[(f"nu.notebook.run('Child', 90, {{'useRootDefaultLakehouse': {v}}})", "unknown") for v in ('"false"', "0", "None")],
     *[(f"nu.notebook.runMultiple({{'activities': [{{'name': 'c', 'path': 'Child', 'args': {{'useRootDefaultLakehouse': {v}}}}}]}})",
        "unknown") for v in ('"true"', "1", "None")],
-    ("nu.notebook.runMultiple({'activities': [{'name': 'c', 'path': 'Child', 'args': {'useRootDefaultLakehouse': True}},"
-     " {'name': 'd', 'path': 'Child'}]})", "blocked"),
+    (("nu.notebook.runMultiple({'activities': [{'name': 'c', 'path': 'Child', 'args': {'useRootDefaultLakehouse': True}},"
+     " {'name': 'd', 'path': 'Child'}]})"), "blocked"),
 ])
 def test_use_root_default_lakehouse_gives_the_child_this_notebooks_lakehouse(call, status):
     """useRootDefaultLakehouse=True runs the child with the caller's lakehouse, so its own missing one doesn't matter."""

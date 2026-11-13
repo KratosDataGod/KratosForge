@@ -1,0 +1,30 @@
+{
+  "_about": "A model of a CI workflow (like a GitHub Actions file) as JSON. on.push.branches lists the branches that start it. env sets environment variables for every step; ${{ secrets.NAME }} reads a repository secret. steps run in order, each with a name and a run command.",
+  "needs": "On every push to main: check the bundle, run the unit tests, and only then deploy to the prod target, signed in as the service principal with OAuth (client ID and secret kept as repository secrets).",
+  "on": {
+    "push": {
+      "branches": [
+        "main"
+      ]
+    }
+  },
+  "env": {
+    "DATABRICKS_HOST": "https://prod-ws.cloud.databricks.com",
+    "DATABRICKS_CLIENT_ID": "${{ secrets.DATABRICKS_CLIENT_ID }}",
+    "DATABRICKS_CLIENT_SECRET": "${{ secrets.DATABRICKS_CLIENT_SECRET }}"
+  },
+  "steps": [
+    {
+      "name": "Validate",
+      "run": "databricks bundle validate -t prod"
+    },
+    {
+      "name": "Deploy",
+      "run": "databricks bundle deploy -t prod"
+    },
+    {
+      "name": "Unit tests",
+      "run": "pytest tests/"
+    }
+  ]
+}

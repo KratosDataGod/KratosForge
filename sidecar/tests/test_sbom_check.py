@@ -115,8 +115,8 @@ def test_the_ui_sbom_matches_the_vendor_lock_files():
     hashed = next(c for c in sbom["components"] if c.get("hashes"))
     dropped = copy.deepcopy(sbom)
     dropped["components"] = [c for c in dropped["components"] if c["bom-ref"] != hashed["bom-ref"]]
-    assert check.check_ui(dropped) == [f"the UI's SBOM doesn't list {hashed['name']} {hashed['version']} "
-                                       f"from {hashed['properties'][0]['value']}"]
+    assert check.check_ui(dropped) == [(f"the UI's SBOM doesn't list {hashed['name']} {hashed['version']} "
+                                       f"from {hashed['properties'][0]['value']}")]
     changed = copy.deepcopy(sbom)
     next(c for c in changed["components"] if c["bom-ref"] == hashed["bom-ref"])["hashes"] = [{"alg": "SHA-512", "content": "00"}]
     assert check.check_ui(changed)[0].startswith(f"the UI's SBOM hash for {hashed['name']} ")
@@ -182,3 +182,56 @@ def test_main_reports_each_problem_as_a_ci_error(tmp_path, capsys):
     out = capsys.readouterr().out
     assert out.count("::error::") == 2
     assert check.main(["nope"]) == 2
+
+
+def _vsix(tmp_path: Path, files: dict[str, bytes]) -> Path:
+    import zipfile
+    path = tmp_path / "kratosforge.vsix"
+    with zipfile.ZipFile(path, "w") as z:
+        for name, data in files.items():
+            z.writestr(name, data)
+    return path
+
+
+VSIX_FILES = {"extension.vsixmanifest": b"<m/>", "extension/package.json": b'{"version": "0.2.1"}',
+              "extension/out/extension.js": b"exports.x = 1;"}
+
+
+def test_the_vscode_sbom_names_the_vsix_and_every_file_in_it_by_hash(tmp_path, monkeypatch):
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1794227388")
+    vsix = _vsix(tmp_path, VSIX_FILES)
+    out = tmp_path / "sbom.json"
+    assert npm.main(["vscode", str(out), str(vsix)]) == 0
+    sbom = json.loads(out.read_text(encoding="utf-8"))
+    assert check.check_vscode(sbom, vsix) == []
+    head = sbom["metadata"]["component"]
+    assert head["version"] == "0.2.1" and head["purl"] == "pkg:generic/kratosforge-vscode@0.2.1"
+    assert sbom["metadata"]["timestamp"] == "2026-11-09T12:29:48+00:00"
+    assert {c["name"] for c in sbom["components"] if c["type"] == "file"} == set(VSIX_FILES)
+    tools = [c for c in sbom["components"] if c["type"] == "library"]
+    assert {c["name"] for c in tools} == set(json.loads((ROOT / "vscode" / "package.json").read_text(encoding="utf-8"))["devDependencies"])
+    assert all(c["scope"] == "excluded" and c["hashes"][0]["alg"] == "SHA-512" for c in tools)
+    # Reproducible: the same file and commit time make the same SBOM, byte for byte.
+    again = tmp_path / "again.json"
+    assert npm.main(["vscode", str(again), str(vsix)]) == 0
+    assert again.read_bytes() == out.read_bytes()
+
+
+def test_the_vscode_check_catches_a_changed_missing_or_extra_file_and_an_npm_package(tmp_path, monkeypatch):
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "0")
+    vsix = _vsix(tmp_path, VSIX_FILES)
+    sbom = npm.vscode(vsix)
+    (tmp_path / "other").mkdir()
+    changed = _vsix(tmp_path / "other", {**VSIX_FILES, "extension/out/extension.js": b"exports.x = 2;",
+                                         "extension/node_modules/left-pad/index.js": b""})
+    problems = check.check_vscode(sbom, changed)
+    assert any("doesn't name kratosforge.vsix by its SHA-256" in p for p in problems)
+    assert any("hash for extension/out/extension.js isn't the file's" in p for p in problems)
+    assert any("holds extension/node_modules/left-pad/index.js" in p for p in problems)
+    assert any("doesn't list extension/node_modules/left-pad/index.js" in p for p in problems)
+    gone = copy.deepcopy(sbom)
+    gone["components"] = [c for c in gone["components"] if c.get("name") != "typescript"]
+    gone["components"].append({"type": "file", "bom-ref": "file:extra", "name": "extra", "hashes": []})
+    problems = check.check_vscode(gone, vsix)
+    assert any("doesn't list its build tool typescript" in p for p in problems)
+    assert any("lists extra, which isn't in kratosforge.vsix" in p for p in problems)

@@ -25,6 +25,8 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, SqlglotError
 
+from . import sql_dialects
+
 RULES_VERSION = "2026.11.11"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
@@ -84,8 +86,8 @@ class Translation:
         """One line per statement and note, for a cell's output and for exports."""
         words = {"translated": "translated (matches Snowflake's documented behaviour as far as known)",
                  "difference": "runs with a known difference", "not_translatable": "runs only in Snowflake"}
-        lines = [f"Snowflake SQL rewritten for DuckDB on this PC (rules {self.rules_version}). "
-                 "Not checked against a Snowflake account."]
+        lines = [(f"Snowflake SQL rewritten for DuckDB on this PC (rules {self.rules_version}). "
+                 "Not checked against a Snowflake account.")]
         for s in self.statements:
             lines.append(f"Statement {s.statement}: {words[s.verdict]}.")
             lines += [f"  {n.id} {n.title}: {n.reason} {n.action}".rstrip() for n in s.notes]
@@ -180,7 +182,7 @@ def _refuse(id: str, title: str, reason: str, source: str = "") -> Note:
 def parse(code: str) -> list[exp.Expression]:
     """Snowflake SQL statements as sqlglot reads them; ValueError when it can't be read."""
     try:
-        statements = [cast(exp.Expression, s) for s in sqlglot.parse(code, read="snowflake") if s is not None]
+        statements = [cast(exp.Expression, s) for s in sql_dialects.parse(code, read="snowflake") if s is not None]
     except ParseError as exc:
         first = str(exc).splitlines()[0] if str(exc) else "it isn't valid Snowflake SQL"
         raise ValueError(f"Could not read the query: {first}") from None
@@ -192,8 +194,8 @@ def parse(code: str) -> list[exp.Expression]:
 # Statements sqlglot keeps only as a command, by their first words.
 _COMMANDS = {
     "CREATE STREAM": ("SFN-001", "Streams", "A stream tracks changes inside Snowflake; DuckDB has no equivalent."),
-    "CREATE OR REPLACE STREAM": ("SFN-001", "Streams", "A stream tracks changes inside Snowflake; DuckDB has no "
-                                                       "equivalent."),
+    "CREATE OR REPLACE STREAM": ("SFN-001", "Streams", ("A stream tracks changes inside Snowflake; DuckDB has no "
+                                                       "equivalent.")),
     "CREATE TASK": ("SFN-002", "Tasks", "A task is scheduled by Snowflake; DuckDB has no scheduler."),
     "CREATE OR REPLACE TASK": ("SFN-002", "Tasks", "A task is scheduled by Snowflake; DuckDB has no scheduler."),
     "EXECUTE IMMEDIATE": ("SFN-005", "EXECUTE IMMEDIATE", "Dynamic SQL runs in Snowflake Scripting."),
@@ -1458,63 +1460,63 @@ def _differences(statement: exp.Expression) -> list[Note]:
 # Every rule and note id the code above uses, with what it covers. docs/engines.md holds docs_table()
 # word for word (a test checks), so the page can't drift from the code.
 CATALOG = (
-    ("SFX-001", "Rewritten", "LATERAL FLATTEN and TABLE(FLATTEN(...)) become DuckDB's json_each, with Snowflake's "
+    ("SFX-001", "Rewritten", ("LATERAL FLATTEN and TABLE(FLATTEN(...)) become DuckDB's json_each, with Snowflake's "
                 "columns: KEY is NULL for an array element and INDEX for an object field, PATH is written as "
                 "Snowflake writes it (b, b[0], c.d), THIS is the value flattened, OUTER gives one row of NULLs for a value "
                 "with nothing to flatten, and PATH => "
                 "takes plain names and [n]. A scalar has nothing to flatten (no row, or the OUTER row). A key that isn't a plain name is written in PATH as it is, since "
                 "Snowflake's docs don't show how it writes one. SEQ, RECURSIVE and MODE aren't rewritten; "
-                "SFD-005 is retired."),
-    ("SFX-002", "Rewritten", "TO_VARCHAR and TO_CHAR with a date or time format written in the query become "
-                "strftime. Elements with no equivalent (quarter, week) aren't rewritten."),
+                "SFD-005 is retired.")),
+    ("SFX-002", "Rewritten", ("TO_VARCHAR and TO_CHAR with a date or time format written in the query become "
+                "strftime. Elements with no equivalent (quarter, week) aren't rewritten.")),
     ("SFX-003", "Runs only in Snowflake", "TO_VARCHAR and TO_CHAR with a number format."),
-    ("SFX-004", "Rewritten", "OBJECT_CONSTRUCT drops a pair whose value is SQL NULL and keeps JSON null, as "
-                "Snowflake does. OBJECT_CONSTRUCT(*) isn't rewritten."),
-    ("SFX-005", "Rewritten", "A VALUES list in FROM gets Snowflake's column names COLUMN1, COLUMN2..., unless "
-                "its alias names the columns."),
-    ("SFX-006", "Rewritten", "SOUNDEX becomes American Soundex in DuckDB SQL (the first letter and three digits). "
+    ("SFX-004", "Rewritten", ("OBJECT_CONSTRUCT drops a pair whose value is SQL NULL and keeps JSON null, as "
+                "Snowflake does. OBJECT_CONSTRUCT(*) isn't rewritten.")),
+    ("SFX-005", "Rewritten", ("A VALUES list in FROM gets Snowflake's column names COLUMN1, COLUMN2..., unless "
+                "its alias names the columns.")),
+    ("SFX-006", "Rewritten", ("SOUNDEX becomes American Soundex in DuckDB SQL (the first letter and three digits). "
                 "Text that starts with a non-letter comes back as it is, as in Spark; Snowflake doesn't document that "
-                "case."),
-    ("SFX-007", "Rewritten", "RATIO_TO_REPORT(x) OVER (PARTITION BY ...) becomes x divided by the partition's "
+                "case.")),
+    ("SFX-007", "Rewritten", ("RATIO_TO_REPORT(x) OVER (PARTITION BY ...) becomes x divided by the partition's "
                 "sum, null when x is null or the sum is 0. An ORDER BY in its window is dropped, as it doesn't "
                 "change the result. x is worked out twice, which matters only when it isn't deterministic "
-                "(RANDOM(), for example)."),
-    ("SFX-008", "Rewritten", "HAVERSINE becomes the great-circle distance in kilometres on a sphere of radius "
-                "6,371 km."),
-    ("SFX-009", "Rewritten", "TYPEOF gives Snowflake's type names: NULL_VALUE, BOOLEAN, VARCHAR, ARRAY and OBJECT "
+                "(RANDOM(), for example).")),
+    ("SFX-008", "Rewritten", ("HAVERSINE becomes the great-circle distance in kilometres on a sphere of radius "
+                "6,371 km.")),
+    ("SFX-009", "Rewritten", ("TYPEOF gives Snowflake's type names: NULL_VALUE, BOOLEAN, VARCHAR, ARRAY and OBJECT "
                 "for JSON; INTEGER, DECIMAL or DOUBLE for a JSON number by how PARSE_JSON reads it (an exponent "
                 "makes it DOUBLE; otherwise INTEGER or DECIMAL while it fits NUMBER); INTEGER, DECIMAL, DOUBLE, "
                 "VARCHAR, BOOLEAN, DATE, TIME, TIMESTAMP_NTZ, BINARY and ARRAY for other values; SQL NULL for "
                 "SQL NULL. A whole number is always INTEGER here, where Snowflake notes it may say DECIMAL. "
                 "Where the name can't be known, SFD-007 applies. The argument is worked out more than once, "
-                "which matters only when it isn't deterministic."),
-    ("SFX-010", "Rewritten", "a / b stops with Snowflake's \"Division by zero\" error when b is 0, where DuckDB gives "
+                "which matters only when it isn't deterministic.")),
+    ("SFX-010", "Rewritten", ("a / b stops with Snowflake's \"Division by zero\" error when b is 0, where DuckDB gives "
                 "infinity or NULL. DIV0 and DIV0NULL still give 0. A divisor that isn't a column or a number is "
-                "worked out twice, which matters only when it isn't deterministic."),
-    ("SFX-011", "Rewritten", "IS_<type> and AS_<type> (INTEGER, DECIMAL, NUMBER, DOUBLE, REAL, BOOLEAN, CHAR, "
+                "worked out twice, which matters only when it isn't deterministic.")),
+    ("SFX-011", "Rewritten", ("IS_<type> and AS_<type> (INTEGER, DECIMAL, NUMBER, DOUBLE, REAL, BOOLEAN, CHAR, "
                 "VARCHAR, ARRAY, OBJECT, BINARY, DATE, DATE_VALUE, TIME, TIMESTAMP_NTZ) test and read the type a "
                 "VARIANT holds, as Snowflake names it: a PARSE_JSON value by its JSON type, a TO_VARIANT value by "
                 "the type it was made from. AS_<type> gives NULL for any other type. A JSON integer too big for 64 "
-                "bits is DOUBLE here."),
-    ("SFX-012", "Rewritten", "A JSON value cast to text (v:a::string, v['a']::string, TO_VARCHAR(v:a), "
+                "bits is DOUBLE here.")),
+    ("SFX-012", "Rewritten", ("A JSON value cast to text (v:a::string, v['a']::string, TO_VARCHAR(v:a), "
                 "PARSE_JSON(...)::varchar) gives a string without its JSON quotes, and JSON null gives SQL NULL, as "
                 "in Snowflake: DuckDB's cast keeps the quotes and writes 'null'. A table's column whose type the "
-                "statement doesn't show is cast as written."),
-    ("SFX-013", "Rewritten", "[i] on a value read from PARSE_JSON stays 0-based, and [i] with an integer column on "
+                "statement doesn't show is cast as written.")),
+    ("SFX-013", "Rewritten", ("[i] on a value read from PARSE_JSON stays 0-based, and [i] with an integer column on "
                 "an ARRAY becomes 1-based, as DuckDB needs. Where the type can't be told from the statement (a "
-                "table's column), [i] is taken for an ARRAY."),
-    ("SFX-014", "Rewritten", "HLL becomes APPROX_COUNT_DISTINCT, DATASKETCHES_HLL the same estimate as a DOUBLE (its "
+                "table's column), [i] is taken for an ARRAY.")),
+    ("SFX-014", "Rewritten", ("HLL becomes APPROX_COUNT_DISTINCT, DATASKETCHES_HLL the same estimate as a DOUBLE (its "
                 "max_log_k is dropped), and APPROX_PERCENTILE returns a DOUBLE, as in Snowflake. HLL(*) and HLL of "
                 "more than one value aren't rewritten. BITMAP_BUCKET_NUMBER and BITMAP_BIT_POSITION run as "
-                "arithmetic on 32,768-bit buckets."),
-    ("SFX-015", "Rewritten", "OCTET_LENGTH counts bytes (a column is taken for text; a BINARY column stops with "
+                "arithmetic on 32,768-bit buckets.")),
+    ("SFX-015", "Rewritten", ("OCTET_LENGTH counts bytes (a column is taken for text; a BINARY column stops with "
                 "DuckDB's error). MD5_NUMBER_LOWER64 and MD5_NUMBER_UPPER64 read MD5's last and first 64 bits. "
                 "WIDTH_BUCKET gives 0 below min_value, num_buckets + 1 at or above max_value, and NULL when any "
                 "argument is NULL; min_value at or above max_value stops with an error. TRY_BASE64_DECODE_STRING, TRY_BASE64_DECODE_BINARY, TRY_HEX_DECODE_STRING and "
                 "TRY_HEX_DECODE_BINARY give NULL where the text doesn't decode; an alphabet argument isn't "
                 "rewritten. SOUNDEX_P123 keeps the second letter's number (Pfister is P123). Arguments are "
-                "worked out more than once, which matters only when they aren't deterministic."),
-    ("SFX-016", "Rewritten", "OBJECT_DELETE, OBJECT_PICK, OBJECT_INSERT, OBJECT_AGG, TO_OBJECT and ARRAYS_TO_OBJECT run "
+                "worked out more than once, which matters only when they aren't deterministic.")),
+    ("SFX-016", "Rewritten", ("OBJECT_DELETE, OBJECT_PICK, OBJECT_INSERT, OBJECT_AGG, TO_OBJECT and ARRAYS_TO_OBJECT run "
                 "on DuckDB JSON with Snowflake's NULL rules: a SQL NULL key or value is left out and JSON null is "
                 "kept; an existing key in OBJECT_INSERT without updateFlag, a repeated key in OBJECT_AGG and "
                 "arrays of unequal length stop with an error (OBJECT_AGG's text is DuckDB's \"Map keys must be unique\"). "
@@ -1524,19 +1526,19 @@ CATALOG = (
                 "OBJECT_AGG(DISTINCT ...) isn't rewritten. Objects "
                 "keep their keys in order, as Snowflake does, and an object constant ({'a': 1}) reads its keys "
                 "as text. Arguments are worked out more than once, which matters only when they aren't "
-                "deterministic."),
-    ("SFX-017", "Rewritten", "TIME(x) is a cast to TIME, as TO_TIME(x) is: the time of a string or a timestamp. "
+                "deterministic.")),
+    ("SFX-017", "Rewritten", ("TIME(x) is a cast to TIME, as TO_TIME(x) is: the time of a string or a timestamp. "
                 "CURRENT_TIMESTAMP and a cast to TIMESTAMP_TZ or TIMESTAMP_LTZ go through TIMESTAMP, the "
                 "local time; a TIMESTAMP_TZ column stops with DuckDB's cast error, since its type isn't known "
-                "here."),
-    ("SFX-018", "Rewritten", "CONDITIONAL_TRUE_EVENT and CONDITIONAL_CHANGE_EVENT count events from each "
+                "here.")),
+    ("SFX-018", "Rewritten", ("CONDITIONAL_TRUE_EVENT and CONDITIONAL_CHANGE_EVENT count events from each "
                 "partition's first row in ORDER BY order (a NULL is neither true nor a change), and "
                 "INTERPOLATE_FFILL, INTERPOLATE_BFILL and INTERPOLATE_LINEAR fill a NULL from the rows before "
                 "and after it. CONDITIONAL_CHANGE_EVENT, and CONDITIONAL_TRUE_EVENT of a LAG or LEAD, are worked "
                 "out in a subquery over the SELECT's FROM and WHERE, so they are rewritten only in a SELECT from "
                 "one table or subquery without JOIN, GROUP BY, HAVING or an aggregate. A window frame isn't "
                 "allowed, as in Snowflake, and INTERPOLATE_LINEAR needs one ORDER BY expression: a number, DATE "
-                "or timestamp."),
+                "or timestamp.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -1557,33 +1559,33 @@ CATALOG = (
     ("SFN-007", "Runs only in Snowflake", "UNDROP and zero-copy CLONE."),
     ("SFN-008", "Runs only in Snowflake", "Stages: @stage references, COPY INTO, PUT, GET, LIST, REMOVE."),
     ("SFN-009", "Runs only in Snowflake", "USE, SHOW and DESCRIBE."),
-    ("SFN-010", "Runs only in Snowflake", "GRANT, REVOKE, and ALTER of Snowflake settings (policies, tags, "
-                "suspend and resume)."),
-    ("SFN-011", "Runs only in Snowflake", "Snowflake-only objects: stages, pipes, warehouses, roles, users, shares, "
-                "integrations, file formats, sequences, policies, tags."),
+    ("SFN-010", "Runs only in Snowflake", ("GRANT, REVOKE, and ALTER of Snowflake settings (policies, tags, "
+                "suspend and resume).")),
+    ("SFN-011", "Runs only in Snowflake", ("Snowflake-only objects: stages, pipes, warehouses, roles, users, shares, "
+                "integrations, file formats, sequences, policies, tags.")),
     ("SFN-012", "Runs only in Snowflake", "Cortex AI functions."),
-    ("SFN-013", "Runs only in Snowflake", "TIMESTAMP_TZ text with an offset after a space; DuckDB reads it as a "
-                "time zone name."),
-    ("SFN-014", "Runs only in Snowflake", "Context functions about the Snowflake account, session or client: "
+    ("SFN-013", "Runs only in Snowflake", ("TIMESTAMP_TZ text with an offset after a space; DuckDB reads it as a "
+                "time zone name.")),
+    ("SFN-014", "Runs only in Snowflake", ("Context functions about the Snowflake account, session or client: "
                 "CURRENT_ACCOUNT, CURRENT_ACCOUNT_NAME, CURRENT_AVAILABLE_ROLES, CURRENT_CLIENT, CURRENT_IP_ADDRESS, "
                 "CURRENT_ORGANIZATION_NAME, CURRENT_REGION, CURRENT_ROLE_TYPE, CURRENT_SECONDARY_ROLES, "
-                "CURRENT_SESSION, CURRENT_STATEMENT, CURRENT_TRANSACTION, CURRENT_WAREHOUSE and LAST_QUERY_ID."),
-    ("SFN-015", "Runs only in Snowflake", "IS_TIMESTAMP_LTZ, IS_TIMESTAMP_TZ, AS_TIMESTAMP_LTZ and AS_TIMESTAMP_TZ: "
-                "DuckDB keeps one kind of timestamp with a time zone."),
-    ("SFN-016", "Runs only in Snowflake", "Sketch and bitmap states in Snowflake's own format: HLL_ACCUMULATE, "
+                "CURRENT_SESSION, CURRENT_STATEMENT, CURRENT_TRANSACTION, CURRENT_WAREHOUSE and LAST_QUERY_ID.")),
+    ("SFN-015", "Runs only in Snowflake", ("IS_TIMESTAMP_LTZ, IS_TIMESTAMP_TZ, AS_TIMESTAMP_LTZ and AS_TIMESTAMP_TZ: "
+                "DuckDB keeps one kind of timestamp with a time zone.")),
+    ("SFN-016", "Runs only in Snowflake", ("Sketch and bitmap states in Snowflake's own format: HLL_ACCUMULATE, "
                 "HLL_COMBINE, HLL_ESTIMATE, HLL_EXPORT, HLL_IMPORT, the DATASKETCHES_HLL_ACCUMULATE, _COMBINE and "
                 "_ESTIMATE functions, APPROX_TOP_K and its _ACCUMULATE, _COMBINE and _ESTIMATE, the "
                 "APPROX_PERCENTILE_ACCUMULATE, _COMBINE and _ESTIMATE functions, MINHASH, MINHASH_COMBINE, "
                 "APPROXIMATE_SIMILARITY, APPROXIMATE_JACCARD_INDEX, BITMAP_CONSTRUCT_AGG, BITMAP_COUNT and "
-                "BITMAP_OR_AGG."),
-    ("SFN-017", "Runs only in Snowflake", "SEARCH and SEARCH_IP (Snowflake's search analyzers), COLLATE (Snowflake "
+                "BITMAP_OR_AGG.")),
+    ("SFN-017", "Runs only in Snowflake", ("SEARCH and SEARCH_IP (Snowflake's search analyzers), COLLATE (Snowflake "
                 "collation specifications), HASH_AGG (Snowflake's own hash), and XML: CHECK_XML, PARSE_XML, "
-                "XMLGET, TO_XML."),
-    ("SFN-018", "Runs only in Snowflake", "DECFLOAT, TO_DECFLOAT and TRY_TO_DECFLOAT: DuckDB has no decimal "
-                "floating-point type."),
+                "XMLGET, TO_XML.")),
+    ("SFN-018", "Runs only in Snowflake", ("DECFLOAT, TO_DECFLOAT and TRY_TO_DECFLOAT: DuckDB has no decimal "
+                "floating-point type.")),
     ("SFN-019", "Runs only in Snowflake", "MATCH_RECOGNIZE: DuckDB has no row pattern matching."),
-    ("SFN-020", "Runs only in Snowflake", "INSERT OVERWRITE: DuckDB has none, and a DELETE then INSERT wouldn't be "
-                "one statement."),
+    ("SFN-020", "Runs only in Snowflake", ("INSERT OVERWRITE: DuckDB has none, and a DELETE then INSERT wouldn't be "
+                "one statement.")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 

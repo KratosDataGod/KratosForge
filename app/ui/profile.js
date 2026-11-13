@@ -4,7 +4,7 @@
 // Loaded after features.js; everything here runs after startup.
 
 const profilePage = { tab: "overview", data: null, days: 90, achievements: false, report: null };
-const RECORDING_ON = "Recording is on: notebooks that pass Validate or Prove are kept in a private record on this PC. Turn it off in Profile > Settings.";
+const RECORDING_ON = "Recording is on: notebooks that pass Validate, Prove or Side by side are kept in a private record on this PC. Turn it off in Profile > Settings.";
 // Badge glyphs (20x22), from the approved mockup. Locked achievements show the lock.
 const BADGE_GLYPHS = {
   flame: "M10 2c1 4 6 6 6 11a6 6 0 0 1-12 0c0-3 2-4 2-7 2 1 3 3 3 5 1-2 1-5 1-9z",
@@ -40,29 +40,45 @@ function profileTabs(p) {
     tab("report", "Professional report"), tab("settings", "Settings"));
 }
 
+// Living Experience (home-hero.js, Preview): Chris's header art with "Profile" and Edit profile on its
+// sky. Your name, picture and role stay under it, so a long name never runs onto the art. The Ranks
+// tab carries its own banner under the tabs, so there the page keeps its plain heading: one picture per screen.
+function profileHero(actions) {
+  if (profilePage.tab === "ranks") return null;
+  return typeof pageHero === "function" ? pageHero("profile", "Profile ", { tag: previewMarked("profile", h("span")), actions }) : null;
+}
+
+function profilePageView(cls, ...children) {
+  const hero = profileHero();
+  return h("div", { class: hero ? `${cls} living-head` : cls }, hero || h("h1", {}, "Profile"), ...children);
+}
+
 async function renderProfile() {
-  setView(h("div", { class: "page" }, h("h1", {}, "Profile"), h("p", { class: "muted-text" }, "Loading...")));
+  setView(profilePageView("page", h("p", { class: "muted-text" }, "Loading...")));
   const p = await loadProfile();
   if (state.view !== "profile") return;
   if (!p) {
-    setView(h("div", { class: "page" }, h("h1", {}, "Profile"), h("p", { class: "muted-text" }, "Your profile opens once the local engine is running.")));
+    setView(profilePageView("page", h("p", { class: "muted-text" }, "Your profile opens once the local engine is running.")));
     return;
   }
   const who = p.identity;
+  const edit = btn("Edit profile", "person", editProfileIdentity, "tool outline");
+  const hero = profileHero([edit]);
   const head = h("div", { class: "page-head" },
     h("div", { class: "profile-id" },
       profileAvatar(p, "profile-avatar"),
-      h("div", {}, previewMarked("profile", h("h1", {}, who.display_name || "Your profile")),
+      h("div", {}, hero ? h("h2", { class: "profile-name" }, who.display_name || "Your profile")
+        : previewMarked("profile", h("h1", {}, who.display_name || "Your profile")),
         h("p", { class: "sub" }, [who.role, who.technologies, state.user ? `Signed in as ${state.user}` : "Not signed in: this profile is kept for this PC"]
           .filter(Boolean).join(" · "), " ", learnMore("profile-preview")))),
-    btn("Edit profile", "person", editProfileIdentity, "tool outline"));
+    hero ? null : edit);
   // Journey and Achievements are progression: with it off they aren't shown.
   if (!p.settings.progression && ["journey", "ranks", "achievements"].includes(profilePage.tab)) profilePage.tab = "overview";
   const body = { overview: profileOverview, journey: profileJourney, ranks: profileRanks, achievements: profileAchievements, impact: profileImpact, goals: profileGoals, report: profileReport,
     settings: profileSettings }[profilePage.tab](p);
   const notice = p.notice ? h("div", { class: "callout git-warn", role: "alert" }, h("span", { class: "grow" }, p.notice),
     btn("Dismiss", null, () => saveProfile({ dismiss_notice: true }, null), "tool outline small")) : null;
-  setView(h("div", { class: "page profile" }, head, notice, profileTabs(p), body));
+  setView(h("div", { class: hero ? "page profile living-head" : "page profile" }, hero, head, notice, profileTabs(p), body));
 }
 
 function editProfileIdentity() {
@@ -163,7 +179,8 @@ function profileRow(r) {
   const text = proved
     ? `Same results on this PC and in Fabric: ${d.tables || 0} table${d.tables === 1 ? "" : "s"} compared.${times ? ` Measured end to end: ${times}.` : ""}`
     : `Clean run finished ${r.verdict === "ready" ? "Ready" : "Ready with warnings"} on this PC. Reads ${d.reads || 0} lakehouse table${d.reads === 1 ? "" : "s"}, writes ${d.writes || 0} (sandboxed).`;
-  const ref = proved ? `Run receipt ${String(r.ref.id).slice(0, 12)}` : `Validate ${r.ref.id}`;
+  const ref = !proved ? `Validate ${r.ref.id}` : r.ref.source === "side_by_side" ? `Side by side run ${r.ref.id}`
+    : `Run receipt ${String(r.ref.id).slice(0, 12)}`;
   return h("div", { class: `profile-row${r.excluded ? " excluded" : ""}` },
     h("div", { class: "grow" },
       h("div", { class: "row wrap" }, h("b", {}, learned ? learned[0] : `${proved ? "Proved" : "Validated"} notebook ${r.artifact.name}`),
@@ -365,7 +382,7 @@ function profileAchievements(p) {
 
 function profileHowItWorks() {
   return howItWorks("profile", {
-    reads: "Notebooks that pass Validate with a clean run, and proofs whose tables all matched (the results and run receipts already kept on this PC). Nothing else yet.",
+    reads: "Notebooks that pass Validate with a clean run, and proofs and side-by-side runs whose tables all matched (the results, run receipts and comparisons already kept on this PC). Nothing else yet.",
     changes: "Writes one line per verified accomplishment to a file in %LOCALAPPDATA%\\FabricDesktop\\profile\\, for the account you're signed in with: "
       + "what passed, when, and the id of the Validate result or run receipt, plus the goals you set. It never stores code, cell outputs, table rows, passwords or tokens.",
     results: "Only on this PC. Nothing is sent anywhere, no Fabric job is started and no telemetry is added. Reports (Markdown or PDF) and exports go to Downloads as new files.",
@@ -555,7 +572,7 @@ function profileSettings(p) {
     settingRow("Achievement notifications", "Show a short message when you earn an achievement.", toggle("notifications", s.notifications)),
     settingRow("Profile visibility", "Your profile is never shared. There is no leaderboard and no manager view.", h("span", {}, "Private")),
     s.record && !s.backfilled ? settingRow("Include past validations",
-      "Once: add notebooks that passed Validate before you turned recording on, dated when they ran.",
+      "Once: add notebooks that passed Validate, Prove or Side by side before you turned recording on, dated when they ran.",
       btn("Add them", null, async () => {
         const out = await attempt(() => rpc("profile_backfill", {}), "Could not add past validations");
         if (out) { profilePage.data = out; toast(`Added ${out.added} past validation${out.added === 1 ? "" : "s"}`); render(); }
@@ -600,7 +617,7 @@ function profileForget() {
 }
 
 // Called by Validate and Prove when a run earned something; shown after their own message, with the
-// Achievement Reveal on that message when Achievement celebrations is on (motion.js, off by default).
+// Achievement Reveal on that message when Achievement celebrations is on (motion.js, on by default).
 function profileEarned(earned) {
   if (!earned?.length) return;
   const seen = profileCelebrated();

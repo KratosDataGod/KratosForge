@@ -521,7 +521,7 @@ def test_months_between_counts_time_and_rounds_and_element_at_refuses_index_0_as
 def test_sql_names_rewritten_functions_as_spark_and_reads_not_null_in_a_struct(live):
     out = live.sql("SELECT months_between('2024-03-01', '2024-01-31'), substring('abc', 0, 2) AS s, "
                    "slice(array(1, 2), 1, 1), upper('a')")
-    assert out.columns == ["months_between('2024-03-01', '2024-01-31')", "s", "slice(array(1, 2), 1, 1)", "upper('a')"]
+    assert out.columns == ["months_between(2024-03-01, 2024-01-31, true)", "s", "slice(array(1, 2), 1, 1)", "upper(a)"]
     assert rows(out) == [(1.03225806, "ab", [1], "A")]
     grouped = live.sql("SELECT substring(v, 0, 1), count(*) FROM VALUES ('ab'), ('ac') AS t(v) GROUP BY substring(v, 0, 1)")
     assert rows(grouped) == [("a", 2)]

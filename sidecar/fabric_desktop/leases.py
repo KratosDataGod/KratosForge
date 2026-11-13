@@ -47,7 +47,7 @@ import requests
 from . import http_session
 from .onelake import _onelake_error, item_url
 from .redact import describe
-from .retrying import retry_after, send_with_retry
+from .retrying import send_with_retry
 
 _log = logging.getLogger(__name__)
 
@@ -82,18 +82,26 @@ class Backend(Protocol):
 
 
 @contextmanager
-def _file_lock(path: Path) -> Iterator[None]:
-    """An exclusive lock on ``path`` held across processes (the app, scheduled runs, agents)."""
+def _file_lock(path: Path, timeout: float | None = None) -> Iterator[None]:
+    """An exclusive lock on ``path`` held across processes (the app, scheduled runs, agents). With
+    ``timeout``, TimeoutError (an OSError) once that many seconds pass without it: another process
+    that hangs while holding it can't stop this one for good."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = None if timeout is None else time.monotonic() + timeout
     with open(path, "a+b") as f:
         if os.name == "nt":
             import msvcrt
             f.seek(0)
             while True:
                 try:
-                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]  # Windows-only; retries for about 10 s, then raises
+                    # Windows-only; LK_LOCK retries for about 10 s, LK_NBLCK once
+                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK if deadline is None else msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
                     break
                 except OSError:
+                    if deadline is not None:
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError(f"{path.name} is held by another process") from None
+                        time.sleep(0.05)
                     continue
             try:
                 yield
@@ -102,7 +110,14 @@ def _file_lock(path: Path) -> Iterator[None]:
                 msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]  # Windows-only
         else:
             import fcntl
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            while True:
+                try:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX if deadline is None else fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if deadline is None or time.monotonic() >= deadline:
+                        raise TimeoutError(f"{path.name} is held by another process") from None
+                    time.sleep(0.05)
             try:
                 yield
             finally:
@@ -143,7 +158,7 @@ class LocalBackend:
 
     @staticmethod
     def _etag(data: bytes) -> str:
-        return hashlib.sha1(data).hexdigest()
+        return hashlib.sha1(data, usedforsecurity=False).hexdigest()
 
     def create(self, key: str, data: bytes) -> str | None:
         path = self._path(key)
@@ -243,18 +258,8 @@ class OneLakeBackend:
     def _change(self, send: Callable[[], requests.Response], deadline: float) -> requests.Response:
         """Send one request of a lease change; wait out a 429 (OneLake did nothing) while the
         change's deadline allows. Anything else, a 5xx included, is the answer."""
-        for attempt in range(THROTTLE_ATTEMPTS):
-            resp = send()
-            if resp.status_code != 429 or attempt == THROTTLE_ATTEMPTS - 1:
-                return resp
-            wait = min(retry_after(resp.headers, 2.0), THROTTLE_WAIT_CAP)
-            if self._clock() + wait >= deadline:
-                return resp  # no time left in this change: fail while the lease is still held
-            close = getattr(resp, "close", None)
-            if callable(close):
-                close()
-            self._sleep(wait)
-        raise AssertionError("unreachable")
+        return send_with_retry(send, "PUT", sleep=self._sleep, attempts=THROTTLE_ATTEMPTS, safe=False,
+                               wait_cap=THROTTLE_WAIT_CAP, deadline=deadline, clock=self._clock)
 
     def _write(self, key: str, data: bytes, condition: dict[str, str]) -> str | None:
         url = self._url(key)
@@ -400,8 +405,8 @@ class Leases:
         delay = 1.0
         while (etag := self.try_acquire(key, started := self.clock())) is None:
             if self.clock() >= deadline:
-                raise LeaseBusy(f"{key} is being written by {self._holder_and_host(key) or 'another writer'}; "
-                                f"will try again later")
+                raise LeaseBusy(f"{key} is being written by {self._holder_and_host(key) or 'another writer'}, so "
+                                f"nothing was written. Run it again once that write has finished")
             self.sleep(delay)
             delay = min(delay * 2, 15)
         held = Held(self, key, etag, started)
@@ -441,7 +446,7 @@ class Held:
             started = self.leases.clock()
             try:
                 etag = self.leases.backend.replace(self.key, self.leases._body(started), self.etag)
-            except Exception:  # a network blip: try again at the next beat while the lease has time
+            except Exception:  # noqa: BLE001 - a network blip: try again at the next beat while the lease has time
                 if self.leases.clock() - self._renewed >= self.leases.ttl:
                     # Unrenewed past its length: another writer may have taken it over by now.
                     self.lost = True
@@ -458,7 +463,7 @@ class Held:
         if not self.lost:
             try:
                 self.leases.backend.delete(self.key, self.etag)
-            except Exception as exc:  # it expires on its own
+            except Exception as exc:  # noqa: BLE001 - it expires on its own
                 _log.warning("Couldn't release the lease; it expires on its own: %s", describe(exc))
 
 
@@ -467,6 +472,18 @@ def check_held() -> None:
     its own (Held.check). Outside any lease it does nothing."""
     for held in _HELD.get():
         held.check()
+
+
+def holding(key: str) -> bool:
+    """Whether the caller is inside its lease on ``key`` and the lease is still its own (Held.check)."""
+    for held in _HELD.get():
+        if held.key == key:
+            try:
+                held.check()
+            except LeaseLost:  # silent-ok: the answer is no
+                return False
+            return True
+    return False
 
 
 def table_key(lakehouse: str, schema: str, table: str) -> str:

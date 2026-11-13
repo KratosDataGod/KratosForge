@@ -73,7 +73,7 @@ def test_four_writers_at_once_each_write_in_turn(local_ref):
     def write(n):
         try:
             versions.append(publish.publish(pa.table({"id": [n] * 10}), local_ref, "append", "token").version())
-        except Exception as exc:  # pragma: no cover - the test fails on it below
+        except Exception as exc:  # noqa: BLE001 - pragma: no cover - the test fails on it below
             errors.append(exc)
 
     writers = [threading.Thread(target=write, args=(n,)) for n in range(1, 5)]

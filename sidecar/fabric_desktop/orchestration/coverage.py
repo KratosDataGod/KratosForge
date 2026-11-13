@@ -217,18 +217,18 @@ def markdown(cov: dict[str, list[dict[str, Any]]]) -> str:
     out = [
         "# Local pipeline coverage (Preview)",
         "",
-        "This page lists every Data Factory pipeline activity type the local runner knows and every function "
+        ("This page lists every Data Factory pipeline activity type the local runner knows and every function "
         f"in Microsoft's [pipeline expression reference]({REFERENCE}), with what a local run does with each. "
         "It is generated from the runner's activity registry and expression evaluator "
         "(`sidecar/fabric_desktop/orchestration/coverage.py`), and a test fails when it is out of date. "
-        "Nothing here has been compared with a run in Fabric yet.",
+        "Nothing here has been compared with a run in Fabric yet."),
         "",
         "## Activities",
         "",
-        f"{len(acts)} activity types: {count(acts, ('runs locally', 'simulated', 'refused', 'Fabric only'))}. "
+        (f"{len(acts)} activity types: {count(acts, ('runs locally', 'simulated', 'refused', 'Fabric only'))}. "
         "A type the registry doesn't know is refused too: it is kept in the pipeline as it is, but not checked "
         "or run. See [activity compatibility](activity-registry.md) for each type's properties, sign-in and "
-        "side effects.",
+        "side effects."),
         "",
         "- **runs locally:** a tested adapter runs it on this PC.",
         "- **simulated:** it runs against fixtures or a stand-in, with no real side effects.",
@@ -250,12 +250,12 @@ def markdown(cov: dict[str, list[dict[str, Any]]]) -> str:
         "",
         "- **runs:** it gives the reference's value for the reference's own example.",
         "- **differs:** it runs but gives another value for that example, so check results that use it in Fabric.",
-        "- **fails:** the reference's own example stops with an error here, so an expression like it fails the "
-        "activity.",
-        "- **not checked:** it runs, but its value changes from run to run, or it reads the run itself, so there "
-        "is no value to compare.",
-        "- **refused:** the activity stops with `<name>() isn't supported in local runs yet`. Nothing runs with "
-        "a guessed value.",
+        ("- **fails:** the reference's own example stops with an error here, so an expression like it fails the "
+        "activity."),
+        ("- **not checked:** it runs, but its value changes from run to run, or it reads the run itself, so there "
+        "is no value to compare."),
+        ("- **refused:** the activity stops with `<name>() isn't supported in local runs yet`. Nothing runs with "
+        "a guessed value."),
         "",
     ]
     for category in FUNCTIONS:

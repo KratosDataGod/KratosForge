@@ -46,7 +46,7 @@ def bundle_files(project_root: Path, config: dict[str, Any]) -> dict[str, bytes]
 
 
 def bundle_hash(files: dict[str, bytes]) -> str:
-    h = hashlib.sha1()
+    h = hashlib.sha1(usedforsecurity=False)
     for path in sorted(files):
         h.update(path.encode() + b"\0" + files[path] + b"\0")
     return h.hexdigest()[:12]
@@ -102,8 +102,8 @@ def runner_ipynb(workspace_id: str, meta_lakehouse_id: str, meta_lakehouse: str 
                 "default_lakehouse_workspace_id": workspace_id}}},
             "cells": [{"cell_type": "markdown", "metadata": {}, "source": [
                 "# Fabric Desktop runner\n",
-                "Runs the metadata project uploaded by KratosForge to `Files/_fabric_desktop/current` "
-                "of this notebook's lakehouse. Start runs and schedules from **Metadata** in the app.\n"]},
+                ("Runs the metadata project uploaded by KratosForge to `Files/_fabric_desktop/current` "
+                "of this notebook's lakehouse. Start runs and schedules from **Metadata** in the app.\n")]},
                       code(params, ["parameters"]),
                       code(_SETUP % {"mount": MOUNT, "bundle": BUNDLE_DIR}),
                       code(_RUN)]}
@@ -207,5 +207,5 @@ def _optimize(project: Any, config: dict[str, Any], results: list[dict[str, Any]
             fabric.run_table_maintenance(ws, lakehouse_id, e.table, e.schema,
                                          vacuum_retention=fabric_retention(layer.retention_days))
             r["maintenance"] = "queued"
-        except Exception as exc:  # the run itself succeeded; say why the optimize didn't start
+        except Exception as exc:  # noqa: BLE001 - the run itself succeeded; say why the optimize didn't start
             r["maintenance"], r["maintenance_message"] = "Failed", str(exc)

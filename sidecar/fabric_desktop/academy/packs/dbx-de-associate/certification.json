@@ -184,7 +184,7 @@
             "https://docs.databricks.com/aws/en/data-governance/unity-catalog/"
           ],
           "gaps": [],
-          "status": "planned",
+          "status": "covered",
           "earlier_wording": {
             "2026-05-04": "Understand the core components of the Databricks Data Intelligence Platform, such as its architecture, Delta Lake, and Unity Catalog."
           }
@@ -258,7 +258,7 @@
             "https://docs.databricks.com/aws/en/lakehouse/medallion"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "2.2",
@@ -364,7 +364,7 @@
             "https://docs.databricks.com/aws/en/jobs/"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "covered"
         },
         {
           "id": "2.6",
@@ -386,7 +386,7 @@
             "https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "covered"
         },
         {
           "id": "2.7",
@@ -408,7 +408,7 @@
             "https://docs.databricks.com/aws/en/query/formats/json"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "covered"
         }
       ]
     },
@@ -449,7 +449,7 @@
             "https://docs.databricks.com/aws/en/getting-started/dataframes"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "3.2",
@@ -473,7 +473,7 @@
             "https://docs.databricks.com/aws/en/getting-started/dataframes"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "3.3",
@@ -495,7 +495,7 @@
             "https://docs.databricks.com/aws/en/getting-started/dataframes"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "covered"
         },
         {
           "id": "3.4",
@@ -521,7 +521,7 @@
             "https://docs.databricks.com/aws/en/getting-started/dataframes"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "3.5",
@@ -609,7 +609,7 @@
             "https://docs.databricks.com/aws/en/ldp/expectations"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "in_progress"
         }
       ]
     },
@@ -732,7 +732,7 @@
             "https://docs.databricks.com/aws/en/jobs/triggers"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "covered"
         }
       ]
     },
@@ -795,7 +795,7 @@
             "https://docs.databricks.com/aws/en/dev-tools/bundles/variables"
           ],
           "gaps": [],
-          "status": "planned",
+          "status": "in_progress",
           "earlier_wording": {
             "2026-05-04": "Understand environment-specific configuration using Automation Bundle (formerly Databricks Asset Bundles) variables and overrides while promoting the same codebase across dev, test, and prod targets."
           }
@@ -853,7 +853,7 @@
             "https://docs.databricks.com/aws/en/dev-tools/bundles/"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "in_progress"
         }
       ]
     },

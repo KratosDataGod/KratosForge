@@ -18,7 +18,7 @@ on:
 
 jobs:
   approve:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Stable reaches every PC that hasn't chosen Preview, so a promote waits here until a reviewer
     # set on this environment (Settings > Environments > stable > Required reviewers) approves it.
     # This job holds no concurrency group: a job waiting for approval would hold release-assets
@@ -68,7 +68,7 @@ jobs:
 
   promote:
     needs: approve
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Only after approval: waits for a Preview publish in progress, so it never copies a
     # half-replaced release, and a Preview publish waits for it the same way.
     concurrency:
@@ -138,7 +138,7 @@ jobs:
           # The build's software bills of materials, so Stable carries the list of what it ships.
           # A build from before SBOMs were published goes without them.
           SBOMS=()
-          for sbom in sbom-app.cdx.json sbom-engine.cdx.json sbom-ui.cdx.json; do
+          for sbom in sbom-app.cdx.json sbom-engine.cdx.json sbom-ui.cdx.json sbom-vscode.cdx.json; do
             if grep -qx "$sbom" <<< "$ASSETS"; then
               gh release download "$SOURCE" --pattern "$sbom"
               SBOMS+=("$sbom")
@@ -213,7 +213,7 @@ jobs:
             # Nor may an earlier build's SBOM stay beside this build's files.
             STABLE_ASSETS=$(gh release view stable --json assets --jq '.assets[].name') \
               || { echo "::warning::Couldn't list stable's files; check by hand that no earlier SBOM is left."; STABLE_ASSETS=""; }
-            for sbom in sbom-app.cdx.json sbom-engine.cdx.json sbom-ui.cdx.json; do
+            for sbom in sbom-app.cdx.json sbom-engine.cdx.json sbom-ui.cdx.json sbom-vscode.cdx.json; do
               [[ " ${SBOMS[*]} " == *" $sbom "* ]] && continue
               if grep -qx "$sbom" <<< "$STABLE_ASSETS"; then
                 gh release delete-asset stable "$sbom" --yes \

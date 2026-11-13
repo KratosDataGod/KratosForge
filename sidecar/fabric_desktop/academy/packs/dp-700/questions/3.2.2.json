@@ -9,11 +9,11 @@
       "options": [
         {
           "id": "a",
-          "text": "The deployment pipeline"
+          "text": "The deployment pipeline's comparison view"
         },
         {
           "id": "b",
-          "text": "The eventstream runtime logs"
+          "text": "The eventstream runtime logs for the workspace"
         },
         {
           "id": "c",
@@ -21,7 +21,7 @@
         },
         {
           "id": "d",
-          "text": "The warehouse's query insights"
+          "text": "The warehouse's query insights for the destination"
         }
       ],
       "answer": [
@@ -29,9 +29,9 @@
       ],
       "explanation": "Refresh history shows each run, and its details show the status and error for each table or activity.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/dataflows-gen2-monitor",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.2-q2",
@@ -40,15 +40,15 @@
       "options": [
         {
           "id": "a",
-          "text": "V-Order is off"
+          "text": "V-Order is turned off on the destination lakehouse, which on-premises gateways require"
         },
         {
           "id": "b",
-          "text": "The workspace has no Git connection"
+          "text": "The workspace has no Git connection, which on-premises connections require"
         },
         {
           "id": "c",
-          "text": "The lakehouse has too many tables"
+          "text": "The lakehouse destination has too many tables for the gateway to handle"
         },
         {
           "id": "d",
@@ -60,9 +60,9 @@
       ],
       "explanation": "On-premises sources are reached through a gateway. If it is offline, or the connection doesn't use it, the refresh can't reach the source.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/how-to-access-on-premises-data",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.2-q3",
@@ -71,7 +71,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Refresh the dataflow again without changes"
+          "text": "Refresh the dataflow again without changes, since the type mismatch clears on a second run"
         },
         {
           "id": "b",
@@ -79,7 +79,7 @@
         },
         {
           "id": "c",
-          "text": "Turn on high concurrency"
+          "text": "Turn on high concurrency mode in the workspace's Spark settings so the lakehouse write can convert the types"
         },
         {
           "id": "d",
@@ -91,9 +91,9 @@
       ],
       "explanation": "The dataflow's column types must match the destination's. Change the type step or clean the values so they convert.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/dataflow-gen2-data-destinations-and-managed-settings",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.2-q4",
@@ -102,11 +102,11 @@
       "options": [
         {
           "id": "a",
-          "text": "The semantic model's labels"
+          "text": "The sensitivity labels on the semantic model that reads it"
         },
         {
           "id": "b",
-          "text": "The capacity SKU"
+          "text": "The capacity SKU and its current utilization in the metrics app"
         },
         {
           "id": "c",
@@ -114,7 +114,7 @@
         },
         {
           "id": "d",
-          "text": "The workspace's domain"
+          "text": "The workspace's domain and its admin settings"
         }
       ],
       "answer": [
@@ -122,9 +122,200 @@
       ],
       "explanation": "Authentication errors usually come from expired or changed credentials on the connection. Update them in the connection settings.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/dataflows-gen2-monitor",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.2-q5",
+      "type": "single",
+      "stem": "A Dataflow Gen2 query loads, but some cells in the Amount column show Error after a Change type step. What kind of error is this?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A step-level error, which prevents the query from loading"
+        },
+        {
+          "id": "b",
+          "text": "A gateway error, which only affects on-premises sources"
+        },
+        {
+          "id": "c",
+          "text": "A staging error, which only appears in the lakehouse"
+        },
+        {
+          "id": "d",
+          "text": "A cell-level error, which doesn't prevent the query from loading"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Cell-level errors, such as data type conversion errors, show Error in cells but don't stop the query from loading. Step-level errors stop the query and show a yellow pane.",
+      "source": "https://learn.microsoft.com/en-us/power-query/dealing-with-errors",
       "version": 1,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.2-q6",
+      "type": "single",
+      "stem": "A dataflow step fails with `Expression.Error: The column 'CustName' of the table wasn't found.` The source system renamed that column to CustomerName. What is the cause?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The column has values that can't be converted to text in the changed type step"
+        },
+        {
+          "id": "b",
+          "text": "The on-premises data gateway can't reach the source system to read the renamed column"
+        },
+        {
+          "id": "c",
+          "text": "The lakehouse destination table is locked by another write"
+        },
+        {
+          "id": "d",
+          "text": "A step makes a direct reference to a column name that no longer exists in the query"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "This step-level error is triggered when a step references a column name that doesn't exist, which is the case after the source rename. It's not a connectivity or conversion error.",
+      "source": "https://learn.microsoft.com/en-us/power-query/dealing-with-errors",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.2-q7",
+      "type": "single",
+      "stem": "A dataflow fails with DataSource.NotFound when it reads a file share. Which cause matches this error?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The output destination table has more columns than the source query"
+        },
+        {
+          "id": "b",
+          "text": "A column in the source file has mixed data types that the query can't convert"
+        },
+        {
+          "id": "c",
+          "text": "The query has too many applied steps for the engine to evaluate"
+        },
+        {
+          "id": "d",
+          "text": "The source is inaccessible, the user lacks credentials, or the source moved"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "DataSource.NotFound commonly occurs when the source is inaccessible to the user, the credentials are wrong, or the source moved. Data types and step counts don't cause it.",
+      "source": "https://learn.microsoft.com/en-us/power-query/dealing-with-errors",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.2-q8",
+      "type": "single",
+      "stem": "An analyst wants a separate dataflow query that lists only the rows whose OrderDate column has conversion errors, so the source team can fix them. Which Power Query action should they use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Replace errors"
+        },
+        {
+          "id": "b",
+          "text": "Keep errors"
+        },
+        {
+          "id": "c",
+          "text": "Remove errors"
+        },
+        {
+          "id": "d",
+          "text": "Remove duplicates"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Keep errors keeps only the rows with errors, which is useful for auditing. Remove errors drops them and Replace errors swaps in a fixed value, so neither lists the bad rows.",
+      "source": "https://learn.microsoft.com/en-us/power-query/dealing-with-errors",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.2-q9",
+      "type": "single",
+      "stem": "A Dataflow Gen2 refresh is slow and sometimes fails, and the refresh details don't show enough to explain why. You need diagnostics from the Power Query Mashup engine to find slow or failed operations. What should you use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The lakehouse's table maintenance dialog for the destination table"
+        },
+        {
+          "id": "b",
+          "text": "The Capacity Metrics app's Storage page for the workspace"
+        },
+        {
+          "id": "c",
+          "text": "The detailed refresh logs downloaded from the refresh details page"
+        },
+        {
+          "id": "d",
+          "text": "The workspace's Git integration panel and commit history"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Detailed refresh logs record the Mashup engine's operations during a refresh and help find failures and slow operations; you download them from the refresh details page.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/dataflow-gen2-detailed-refresh-logs",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.2-q10",
+      "type": "multiple",
+      "stem": "A dataflow column has some values that can't convert to a number. The good rows must load to the destination, and the error values must not reach it. Which two actions each achieve this? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Keep errors on the column"
+        },
+        {
+          "id": "b",
+          "text": "Remove errors on the column"
+        },
+        {
+          "id": "c",
+          "text": "Replace errors on the column with a fixed value"
+        },
+        {
+          "id": "d",
+          "text": "Increase the refresh timeout"
+        },
+        {
+          "id": "e",
+          "text": "Disable the query's load to the destination"
+        }
+      ],
+      "answer": [
+        "b",
+        "c"
+      ],
+      "explanation": "Remove errors drops rows with errors and Replace errors swaps them for a fixed value, so both let good rows load without error values. Keep errors keeps only the error rows, and disabling load stops all rows.",
+      "source": "https://learn.microsoft.com/en-us/power-query/dealing-with-errors",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

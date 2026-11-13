@@ -17,7 +17,7 @@ In a notebook on this PC, `spark` is DuckDB's PySpark-compatible API wired to th
 
 ## DataFrame methods
 
-Calls that only change how Spark spreads or keeps work across a cluster (`repartition`, `coalesce`, `persist`, `cache`, `checkpoint`, `hint`) are accepted and do nothing, since everything runs in one process here. `spark.catalog.tableExists` checks temp views and the attached lakehouse. The tables below are generated from the code (`spark_api.coverage_markdown()`), and a test fails if they fall out of step.
+Calls that only change how Spark spreads or keeps work across a cluster (`repartition`, `coalesce`, `persist`, `cache`, `checkpoint`, `hint`) are accepted and do nothing, since everything runs in one process here. `spark.catalog` answers about temp views and the attached lakehouse: `tableExists`, `listColumns` (which marks a lakehouse table's partition columns, from its Delta log), `currentDatabase` (the lakehouse's name; refused for a lakehouse with schemas or no lakehouse) and `setCurrentDatabase`. `listTables`, `listDatabases`, `listCatalogs` and `listFunctions` are refused by name, since on this PC they would list DuckDB's own objects; the Explorer and `notebookutils.lakehouse.listTables()` list the lakehouse's tables. In SQL, `current_catalog()` is `spark_catalog` and `current_timezone()` is the session's `spark.sql.session.timeZone`, as in Fabric. `current_database()` and `current_schema()` are refused by name, since a SQL cell here would name DuckDB's own database; use `spark.catalog.currentDatabase()`. The tables below are generated from the code (`spark_api.coverage_markdown()`), and a test fails if they fall out of step.
 
 `spark.createDataFrame` takes a list of column names, a `StructType` or a DDL string such as
 `"id int NOT NULL, name string, tags array<int>, address struct<city:string, zip:string>"`. A `NOT NULL` field
@@ -25,7 +25,10 @@ refuses a row with a null there, as Spark does (also inside structs, and for arr
 non-nullable, with PySpark's
 `[FIELD_NOT_NULLABLE_WITH_NAME]` error; `verifySchema=False` skips the check); a column `COMMENT` is accepted and left out, since it belongs to a
 table's catalog. `df.schema` shows every field as nullable on this PC. A `NaN` in the data stays `NaN`, as in Spark (inside an array or struct it
-becomes NULL with the DuckDB this app ships), and `F.isnan` of a NULL is false.
+becomes NULL with the DuckDB this app ships), and `F.isnan` of a NULL is false. `F.lit(float("nan"))` and `double('NaN')` are `NaN`, and
+`NaN` equals itself and sorts above every number, as in Spark. `spark.read.csv` splits on a comma unless `sep` or `delimiter` says
+otherwise, and a file read without a header names its columns `_c0`, `_c1` and so on, as Spark does. `extract` and `date_part`
+read a text column as a timestamp, giving NULL where the text isn't one.
 
 `sample`, `dropna` and `unpivot` check their arguments as Spark does: a fraction outside 0 to 1, a `how`
 other than `any` or `all`, and an empty list of value columns are errors rather than quietly clamped or widened.
@@ -71,7 +74,83 @@ error, as in Spark. `%g`, `%c`, `%h`, `%t` and the `#`, `(` and `<` flags stop t
 of printing something else. `conv` rewrites a number between bases as Spark's does. `selectExpr` and
 `F.expr` read Spark SQL as `spark.sql` does and name a column as Spark does, such as `(id + 1)`.
 
-### DataFrame: 81 of 102
+`crosstab` (also `df.stat.crosstab`) counts each pair of values as Spark does: values written as Java writes them,
+`null` for NULL, and the columns in sorted order. `colRegex` matches whole column names, ignoring case, with a
+regex that reads Java's syntax. `toJSON` gives each row's JSON text, leaving out a row's or a struct's NULL fields
+(a map keeps them), with `collect`, `first`, `take` and `count`; Spark returns an RDD, which this PC doesn't have.
+`sampleBy` keeps each key's share of rows; a seed gives the same rows each time here, not the rows Spark picks.
+A timestamp in `toJSON` is written as UTC (`...Z`), as Spark writes it in a UTC session.
+
+`describe` and `summary` give each value as Spark writes it as text, with `stddev` to Spark's last digit (Spark's
+running update over the rows in order), and the mean and stddev of a text column taken as numbers. With no column
+named, `groupBy(...).max()`, `min()`, `sum()`, `avg()` and `mean()` take every number column, grouping ones too, and a
+column that isn't a number is an error, as in Spark; the sum of whole numbers is a `bigint`. `printSchema` uses Spark's
+type names (`long`, `integer`, `short`, `byte`) and shows a nested type one part per line, down to the level given.
+`randomSplit` checks the weights as Spark does; its parts never overlap and together hold every row, and a seed gives
+the same split each time, but not the rows Spark picks (Spark's depend on its partitions).
+
+`spark.createDataFrame(rows)` with no types given infers the schema as PySpark does: a tuple, `Row` or namedtuple
+inside a row is a struct (fields `_1`, `_2`, ... when it has no names), a dict inside a row is a map, a dict row's
+keys come in sorted order, unnamed columns are `_1`, `_2`, ..., an int is a `bigint` and a `Decimal` a
+`decimal(38,18)`. Every row's types are merged, and, as in Spark, types that can't merge (`1` and `2.5` in one
+column) or a column with only NULLs is an error. Rows holding a `datetime` still take DuckDB's own inference
+(columns `col0`, `col1`). A dict whose values don't share one type (`{"a": 1, "b": 2.5}`) is refused with
+`CANNOT_INFER_TYPE_FOR_FIELD`; Spark refuses it too, with a field-type error. A struct's field is named `r.b` whether you write `r.getField("b")`, `r.b` or `r["b"]`,
+and a map's key `m[k]`, as in Spark.
+
+`url_decode` and `url_encode` in Spark SQL work as Spark's (Java's): `+` decodes to a space, a `%` that doesn't start
+two hex digits is Spark's `CANNOT_DECODE_URL` error, and encoding keeps only `A-Z a-z 0-9 . - * _` (a space is `+`).
+Decoding to bytes that aren't UTF-8 is refused by name, since Spark puts U+FFFD in their place. A quote or backslash in
+a map key, a struct field name or an unpivoted column's name is read as written.
+
+`withField` and `dropFields` edit a struct column as Spark's do: a field added, replaced or dropped, also in a nested
+struct (`"e.f"`), a field matched whatever its case, a NULL struct left NULL, and the column named
+`update_fields(a, ...)`. The fields a struct has are read from the frame, so an edited struct works as a whole column of
+`select`, `withColumn` or `withColumns`, or as its field (`.c`); inside another function or a filter it's refused by
+name: select it first and use it from there.
+
+A column of `spark.sql`, `selectExpr` or `F.expr` without `AS` is named as Spark names it: a function as it was
+called with the arguments Spark fills in (`char_length(s)`, `locate(b, s, 1)`, `split(s, [.], -1)`), text constants
+without their quotes (`upper(a)`), each operator in parentheses (`(i + 1)`, `(NOT (i = 1))`), a column cast to a
+type after the column (`cast(i AS string)` is `i`), and a window with its frame in full
+(`row_number() OVER (ORDER BY i ASC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)`), so
+`df["upper(a)"]` finds the column it finds in Fabric. A few spellings keep this PC's own name: `+i`, a quoted text
+written in two pieces (`'it''s'`), `assert_true`, and generators that make several columns (`posexplode`, `inline`,
+`stack`, `json_tuple`). `split` with a limit, `replace` with two arguments and `btrim` work in Spark SQL as in
+Spark; `base64` takes text or binary, and any other type is refused by name.
+
+Temp views work as in Spark: `createTempView` refuses a name a view already has (whatever its case) or one with a dot,
+`spark.catalog.dropTempView` and `dropGlobalTempView` say whether they dropped one, and a global temp view
+(`createGlobalTempView`) is read as `global_temp.name` in `spark.sql` and `spark.table`. Text functions take numbers,
+booleans and dates as Spark's implicit cast writes them: `upper(14)` is `'14'` and a double reads as Java writes it
+(`1.0E20`), in the DataFrame API and Spark SQL; a binary, array, map or struct argument is refused by name.
+`spark.createDataFrame(["a"], "string")`, or with a type such as `IntegerType()`, makes one column named `value`.
+
+`drop` works as Spark's: a name drops every column called that (`drop("a.b.c")` drops the column named `a.b.c`), and a
+column drops that column, so after `df.join(df2, df.id == df2.id)`, `drop(df2.id)` keeps df's `id`. `col("id")` that
+two columns answer to is Spark's `AMBIGUOUS_REFERENCE` error. Once the joined frame is selected or changed, this PC no
+longer knows which DataFrame a column came from: `drop(df2.id)` drops the one `id` there is, and with two it's refused
+by name. A join with no condition (`df.join(df2)`) pairs every row with every row, and `how="cross"` is an inner join.
+A join on names (`df.join(df2, "id")`) keeps the left side's column order, where Spark puts the keys first: select the
+columns by name rather than by position.
+
+`select("a.*")` and `select(col("a.*"))` give every column of the DataFrame aliased `a` (after
+`df.alias("a").join(df2.alias("b"), ...)`), and `select("s.*")` every field of struct `s` (also a nested one,
+`s.i.*`), as in Spark. A star that names neither is Spark's `CANNOT_RESOLVE_STAR_EXPAND` error, and one on a column
+that isn't a struct is Spark's "Can only star expand struct data types" error. After a select, the result no longer knows its columns'
+aliases, so `a.id` works within the select but not in a later `sort` or `filter`: use the column's name there.
+
+`persist(StorageLevel.DISK_ONLY)`, `cache()` and `unpersist()` record the level and `df.storageLevel` reads it back,
+printed as Spark prints it; `from pyspark.storagelevel import StorageLevel` has Spark's levels. One PC has no executors
+to keep blocks on, so the level is only recorded: `cache()` runs the query once, as before, and `persist` keeps nothing.
+`sameSemantics` says two DataFrames are the same when their plans are, apart from the names of the output columns, as
+Spark's does; like Spark's it can say False for two that give the same rows (two `createDataFrame` calls with the same
+data). `semanticHash()` is this PC's own number for that plan, not the one Spark gives. `df.observe(Observation(),
+...)` works and `observation.get` gives each metric over every row of the observed DataFrame: it runs one aggregate
+query the first time it's read, where Spark computes it during the first action. `observe` with a name and
+`spark.streams` (listeners, the query manager) are refused by name: they run in Fabric.
+
+### DataFrame: 89 of 102
 
 | Method | On this PC |
 | --- | --- |
@@ -81,7 +160,7 @@ of printing something else. `conv` rewrites a number between bases as Spark's do
 | `cache` | Accepted, does nothing on one PC |
 | `checkpoint` | Accepted, does nothing on one PC |
 | `coalesce` | Accepted, does nothing on one PC |
-| `colRegex` | Not yet on this PC |
+| `colRegex` | Works |
 | `collect` | Works |
 | `columns` | Works |
 | `corr` | Works |
@@ -92,7 +171,7 @@ of printing something else. `conv` rewrites a number between bases as Spark's do
 | `createOrReplaceTempView` | Works |
 | `createTempView` | Works |
 | `crossJoin` | Works |
-| `crosstab` | Not yet on this PC |
+| `crosstab` | Works |
 | `cube` | Works |
 | `describe` | Works |
 | `distinct` | Works |
@@ -126,7 +205,7 @@ of printing something else. `conv` rewrites a number between bases as Spark's do
 | `mapInPandas` | Runs in Fabric: runs in Fabric |
 | `melt` | Works |
 | `na` | Works |
-| `observe` | Not yet on this PC |
+| `observe` | Works |
 | `offset` | Works |
 | `orderBy` | Works |
 | `pandas_api` | Runs in Fabric: pandas-on-Spark runs in Fabric; use toPandas() |
@@ -139,26 +218,26 @@ of printing something else. `conv` rewrites a number between bases as Spark's do
 | `repartitionByRange` | Accepted, does nothing on one PC |
 | `replace` | Works |
 | `rollup` | Works |
-| `sameSemantics` | Not yet on this PC |
+| `sameSemantics` | Works |
 | `sample` | Works |
-| `sampleBy` | Not yet on this PC |
+| `sampleBy` | Works |
 | `schema` | Works |
 | `select` | Works |
 | `selectExpr` | Works |
-| `semanticHash` | Not yet on this PC |
+| `semanticHash` | Works |
 | `show` | Works |
 | `sort` | Works |
 | `sortWithinPartitions` | Works |
 | `sparkSession` | Works |
 | `stat` | Works |
-| `storageLevel` | Not yet on this PC |
+| `storageLevel` | Works |
 | `subtract` | Works |
 | `summary` | Works |
 | `tail` | Works |
 | `take` | Works |
 | `to` | Not yet on this PC |
 | `toDF` | Works |
-| `toJSON` | Not yet on this PC |
+| `toJSON` | Works |
 | `toLocalIterator` | Works |
 | `toPandas` | Works |
 | `transform` | Works |

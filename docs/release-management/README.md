@@ -16,8 +16,8 @@ There is no installer, store or package feed. The product is two files published
 | `fabric-desktop-engine.zip` | python.org's embeddable Python 3.12 plus the `fabric_desktop` engine (`sidecar/`) and every pinned package in `sidecar/constraints.txt` | CI `engine` job on Windows |
 | `fabric-desktop-engine-update.zip` | Only the engine's own files (`fabric_desktop`, its dist-info and launcher, and `engine.json`), a few MB. A PC whose installed engine has the same runtime key (the same Python and packages) updates from this instead of the whole engine (`app/src-tauri/src/engine_patch.rs`) | CI `engine` job on Windows |
 | `version.json` | The build's commit, What's new notes, 30 days of history, the SHA-256 of the exe, engine and engine update, and the engine's runtime key (`.github/scripts/engine_runtime.py`) | CI `release` job |
-| SBOMs | `sbom-app.cdx.json`, `sbom-ui.cdx.json`, `sbom-engine.cdx.json` (CycloneDX) | CI `sbom-app` and `engine` jobs |
-| `kratosforge.vsix` | The KratosForge extension for VS Code (`vscode/`), version `0.1.<run number>` so a newer file updates an installed one. On Preview and each per-build release; its SHA-256 is `vsix_sha256` in `version.json`, and Promote copies it to Stable after checking it | CI `vscode-extension` job, `npm run package` |
+| SBOMs | `sbom-app.cdx.json`, `sbom-ui.cdx.json`, `sbom-engine.cdx.json`, `sbom-vscode.cdx.json` (CycloneDX) | CI `sbom-app`, `engine` and `vscode-extension` jobs |
+| `kratosforge.vsix` | The KratosForge extension for VS Code (`vscode/`), version `0.2.<commit time, UTC, YYYYMMDDHHmm>` (before that `0.1.<run number>`), so a newer file updates an installed one and two builds of one commit are the same file. Built reproducibly: CI builds it twice and fails if the two differ ([vscode.md](../vscode.md#verify-the-vsix-before-you-install-it)). On Preview and each per-build release; its SHA-256 is `vsix_sha256` in `version.json`, and Promote copies it to Stable after checking it | CI `vscode-extension` job, `npm run package` |
 
 The headless agent's Linux image (`deploy/linux/Dockerfile`) is built and started in CI but not published anywhere. The docs site is published to GitHub Pages by `docs.yml` on every merge that touches `docs/`.
 
@@ -75,7 +75,7 @@ Run on every release-management pass. It is safe to repeat: it changes nothing o
 4. **Order the batch.** Smallest blast radius first: docs-only, then single-module fixes, then features; stacked PRs in stack order; PRs whose CI hasn't finished or is unproven last. Nearly every UI PR appends to `app/tests/ui.test.cjs`, so two UI PRs always conflict after the first merges: chain them (each branch merges the previous) so one CI round proves the whole chain.
 5. **Validate the integrated result**, not just each PR. On the trial branch, run what CI runs that can run on Linux:
    - `node --test app/tests/ui.test.cjs`
-   - `node --test --test-concurrency=1 "app/tests/browser/*.test.cjs"` with Playwright 1.56.1 on `NODE_PATH` and the sidecar installed (the `ui-browser` job)
+   - `node --test --test-concurrency=1 "app/tests/browser/*.test.cjs"` with Playwright 1.65.0 on `NODE_PATH` and the sidecar installed (the `ui-browser` job)
    - `cd sidecar && python -m pip install -e ".[dev]" -c constraints.txt && python -m pytest -q`
    Windows-only jobs (engine build, shell build, Windows pytest) are taken from each PR's own CI and are re-proven by the post-merge CI run on `main`.
    A pull request's CI runs only the slower jobs its changed paths need (the `changes` job in ci.yml): a job it doesn't need ends as skipped, not failed. A docs-only PR skips the Windows jobs and the browser tests, and a PR that changes only the shell or UI skips the Linux engine tests. A skipped job is proven only by the run on `main`, which always runs every job.

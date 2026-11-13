@@ -29,10 +29,10 @@ from .git import secrets
 
 SEVERITIES = ("error", "warning", "info")
 LIMITS = ["Code checks read the code; they can't see names or calls built at run time.",
-          "A clean run uses this PC's packages. Spark cells run on this PC's PySpark-compatible engine (DuckDB), "
-          "not Fabric's Spark: what it doesn't have stops the run, and results can differ slightly.",
-          "Outside the lakehouse's tables, a clean run does what the code does (files on this PC, network calls); "
-          "the ones the code checks find are listed before it starts."]
+          ("A clean run uses this PC's packages. Spark cells run on this PC's PySpark-compatible engine (DuckDB), "
+          "not Fabric's Spark: what it doesn't have stops the run, and results can differ slightly."),
+          ("Outside the lakehouse's tables, a clean run does what the code does (files on this PC, network calls); "
+          "the ones the code checks find are listed before it starts.")]
 
 _MAGIC_PIP = re.compile(r"^\s*[%!](pip|conda)\b", re.M)
 _NAME_ERROR = re.compile(r"name '([A-Za-z_]\w*)' is not defined")
@@ -153,6 +153,8 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, runs_on
     # The clock, the network, other notebooks: things a clean run can't make repeatable.
     pr = proof.check(cells, lakehouse, load, resources)
     for w in pr["warnings"]:
+        if w["text"].startswith("may not run on"):
+            continue  # compute_check's Unknown, already said above as runs_on_*_unknown
         title, text = _effect(w["text"])
         out.append(finding("warning", "side_effect", f"Cell {w['cell']} {title}", text, "", w["cell"], cells, w.get("line")))
     for w in pr["notes"]:

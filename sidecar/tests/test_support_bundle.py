@@ -47,16 +47,19 @@ def test_no_planted_secret_reaches_the_zip(tmp_path, pc):
     lines = "\n".join(f"{kind}: {value}" for kind, value in PLANTED.items())
     (pc / "sidecar.log").write_text(f"start\n{lines}\nend\n")
     (pc / "sidecar.prev.log").write_text(f"crashed\n{lines}\n")
+    (pc / "app-crash.log").write_text(f"2026-11-09T01:05:03Z KratosForge abc panicked in thread 'main' at src/main.rs:1: {lines}\n")
     agent = tmp_path / "agent"
     (agent / "logs").mkdir(parents=True)
     (agent / "logs" / "agent.log").write_text(lines + "\n")
+    (agent / "logs" / "agent-crash.log").write_text(f"Fatal Python error: Segmentation fault\n{lines}\n")
     app_settings.policy_path().write_text(json.dumps({
         "allowed_tenants": [TENANT], "support_url": f"https://help.contoso.com/?u={PLANTED['email']}",
         "telemetry_connection_string": f"InstrumentationKey={TENANT};IngestionEndpoint=https://x/;Secret=Hunter2Secret!",
         "dbconnect_index_url": "https://ann.lee:Hunter2Secret!@pkgs.contoso.com/simple"}))
     app_settings.user_path().write_text(json.dumps({"sql_temp_dir": PLANTED["user_path"]}))
     files = _bundle(tmp_path, "--agent-home", str(agent))
-    assert set(files) == {"about.json", "sidecar.log", "sidecar.prev.log", "agent.log", "CONTENTS.txt"}
+    assert set(files) == {"about.json", "sidecar.log", "sidecar.prev.log", "app-crash.log", "agent.log", "agent-crash.log",
+                          "CONTENTS.txt"}
     for name, text in files.items():
         for leaked in LEAKS:
             assert leaked not in text, f"{leaked!r} reached {name}"
@@ -175,3 +178,27 @@ def test_a_policy_hash_that_cant_be_read_still_makes_a_bundle(tmp_path, pc, monk
 def shutil_out(tmp_path):
     import shutil
     shutil.rmtree(tmp_path / "out", ignore_errors=True)
+
+
+def test_the_apps_crash_log_is_included_only_when_the_app_has_crashed(tmp_path, pc):
+    (pc / "sidecar.log").write_text("running\n")
+    first = _bundle(tmp_path)
+    assert "app-crash.log" not in first and "app-crash.log" not in first["CONTENTS.txt"]
+    assert "Nothing is uploaded" in first["CONTENTS.txt"]
+    (pc / "app-crash.log").write_text("2026-11-09T01:05:03Z KratosForge abc panicked in thread 'main' at src/main.rs:1: boom\n")
+    second = _bundle(tmp_path / "again")
+    assert second["app-crash.log"].endswith("panicked in thread 'main' at src/main.rs:1: boom\n")
+    assert "app-crash.log" in second["CONTENTS.txt"]
+
+
+def test_the_agents_crash_log_is_included_only_when_the_agent_has_crashed(tmp_path, pc):
+    (pc / "sidecar.log").write_text("running\n")
+    agent = tmp_path / "agent"
+    (agent / "logs").mkdir(parents=True)
+    (agent / "logs" / "agent.log").write_text("ok\n")
+    (agent / "logs" / "agent-crash.log").write_text("2026-11-10T19:00:00Z agent started, pid 7\n")  # a line per start
+    first = _bundle(tmp_path, "--agent-home", str(agent))
+    assert "agent-crash.log" not in first and "agent-crash.log" not in first["CONTENTS.txt"]
+    (agent / "logs" / "agent-crash.log").write_text('Fatal Python error: Segmentation fault\n  File "x.py", line 1 in run\n')
+    second = _bundle(tmp_path / "again", "--agent-home", str(agent))
+    assert second["agent-crash.log"].startswith("Fatal Python error") and "agent-crash.log" in second["CONTENTS.txt"]

@@ -30,6 +30,7 @@ from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, ran_on
 from .meta.templates import TEMPLATES, describe, entity_text, init_project
 from .redact import describe as describe_error
 from .jsonfile import read_json, write_json, write_text
+from . import known_folders
 
 _log = logging.getLogger(__name__)
 _seal_failed: list[bool] = []  # the warning that settings.json couldn't be sealed was logged
@@ -174,7 +175,7 @@ class MetaMixin:
         try:
             project = self._project()
         except LookupError:
-            return {"path": None, "default_path": str(Path.home() / "Documents" / "FabricDesktop" / "metadata"),
+            return {"path": None, "default_path": str(known_folders.documents() / "FabricDesktop" / "metadata"),
                     **describe()}
         return project.summary() | describe()
 
@@ -182,7 +183,7 @@ class MetaMixin:
         owner = ""
         try:
             owner = (self.auth.signed_in_user() or "").split("@")[0]  # type: ignore[attr-defined]
-        except Exception as exc:  # not signed in: the owner can be filled in later
+        except Exception as exc:  # noqa: BLE001 - not signed in: the owner can be filled in later
             _log.info("Signed-in user unknown; the owner is left blank: %s", describe_error(exc))
         init_project(_project_folder(path), preset, owner, sample)
         self._save_settings(meta_project=str(Path(path)))
@@ -367,7 +368,7 @@ class MetaMixin:
             runs = _json_rows(log.drop("steps"), 10)
             if e.layer in project.layer_names():
                 preview = _preview(store, project.layer(e.layer).lakehouse, e.schema, e.table, 50)
-        except Exception as exc:  # the config is still useful when the environment can't be read
+        except Exception as exc:  # noqa: BLE001 - the config is still useful when the environment can't be read
             runs = [{"status": "unavailable", "message": str(exc)}]
         errors = [x for x in project.summary()["errors"] if x.startswith(name + ":")]
         keys_sql, keys_from = None, self._keys_database(project, env)
@@ -422,12 +423,12 @@ class MetaMixin:
                 where = (Engine(project, store).landing_lakehouse(source) if template == "landing"
                          else project.layer(layer).lakehouse)
                 sample, _ = store.read_files(where, source)
-            except Exception:  # no files yet: the contract starts with a placeholder column
+            except Exception:  # noqa: BLE001 - no files yet: the contract starts with a placeholder column
                 sample = None
         if not owner:
             try:
                 owner = (self.auth.signed_in_user() or "").split("@")[0]  # type: ignore[attr-defined]
-            except Exception:
+            except Exception:  # noqa: BLE001 - no signed-in user leaves the owner blank
                 owner = ""
         text, files = entity_text(project, template, name, owner, source, keys, sample)
         for rel, content in files.items():
@@ -627,7 +628,7 @@ class MetaMixin:
             try:  # so notebooks in the target read its own connections from VL_Sources
                 self._publish_varlib(project, target)  # type: ignore[attr-defined]
                 result["variable_library"] = "updated"
-            except Exception as exc:  # the promote itself worked; publish it from Source systems
+            except Exception as exc:  # noqa: BLE001 - the promote itself worked; publish it from Source systems
                 result["variable_library"] = f"not updated: {exc}"
         if notes:
             result["breaking"] = notes
@@ -643,13 +644,13 @@ class MetaMixin:
                 result["products"] = published["published"]
                 if published.get("problems"):
                     result["product_problems"] = published["problems"]
-            except Exception as exc:  # the promote itself worked; publish again from Data mesh > Products and links > Data products
+            except Exception as exc:  # noqa: BLE001 - the promote itself worked; publish again from Data mesh > Products and links > Data products
                 result["products"] = f"not published: {exc}"
         if self._compute(project, target) == "fabric":  # type: ignore[attr-defined]
             try:  # so scheduled runs in Fabric pick up the promoted version
                 self._fabric_bundle(project, target, target_store)  # type: ignore[attr-defined]
                 result["fabric"] = "synced"
-            except Exception as exc:  # the promote itself worked; the next run uploads again
+            except Exception as exc:  # noqa: BLE001 - the promote itself worked; the next run uploads again
                 result["fabric"] = f"not synced: {exc}"
         return result
 
@@ -708,7 +709,7 @@ class MetaMixin:
             try:  # so scheduled runs in Fabric run the release rolled back to
                 self._fabric_bundle(released, env, store)  # type: ignore[attr-defined]
                 result["fabric"] = "synced"
-            except Exception as exc:  # the rollback itself worked; the next run uploads again
+            except Exception as exc:  # noqa: BLE001 - the rollback itself worked; the next run uploads again
                 result["fabric"] = f"not synced: {exc}"
         return result
 
@@ -843,7 +844,7 @@ class MetaMixin:
             return []
         try:
             published = self._catalog().call("list_products")  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - a failed check is reported as a problem, not a crash
             return [f"couldn't check who reads what's changing for the change window ({exc})"]
         return mesh.change_window_notes(window["window"], project, published, target,
                                         dt.datetime.now(dt.timezone.utc))
@@ -871,13 +872,13 @@ class MetaMixin:
         try:
             store = self._keys_store(project, env)
             tables = [t | keys_mod.key_stats(store, project.key_tables[t["name"]]) for t in tables]
-        except Exception as exc:  # the definitions are still useful when LH_Keys can't be read
+        except Exception as exc:  # noqa: BLE001 - the definitions are still useful when LH_Keys can't be read
             problem = str(exc)
         central = None  # the platform's key tables, when this environment's keys are there
         if self._keys_in_platform(project, env):
             try:
                 central = self._keys_platform(env).call("list_key_tables")  # type: ignore[attr-defined]
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - the first problem is kept and shown
                 problem = problem or str(exc)
         return {"env": env, "local": local, "path": str(project.local_data / f"keys-{env}") if local else None,
                 "workspace_id": cfg.get("keys_workspace_id", ""), "workspace_name": cfg.get("keys_workspace_name", ""),
@@ -955,12 +956,12 @@ class MetaMixin:
             # One key system: the project uses a key table the platform has, it doesn't make its own.
             central = {t["name"] for t in self._keys_platform(env).call("list_key_tables")}  # type: ignore[attr-defined]
             if name not in central:
-                raise GateError("save", [f"{name} isn't one of the platform's key tables. Request it in "
-                                         "Platform > Set up > Business keys, or pick one from the list."])
+                raise GateError("save", [(f"{name} isn't one of the platform's key tables. Request it in "
+                                         "Platform > Set up > Business keys, or pick one from the list.")])
         owner = ""
         try:
             owner = self.auth.signed_in_user() or ""  # type: ignore[attr-defined]
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - no signed-in user leaves the owner blank; logged
             _log.info("Signed-in user unknown; the key table's owner is left blank: %s", describe_error(exc))
         keys_mod.write_key_table(project.root, name, owner, description)
         return self.meta_keys(env)
@@ -1034,9 +1035,9 @@ class MetaMixin:
         if not keys_mod.entity_keys(e):
             raise ValueError(f"{name} has no [[keys]] block, so there is no key MERGE to start its notebook with")
         if db := self._keys_database(project, env):
-            raise GateError("save", [f"{env.title()}'s keys come from {db}, so a notebook that merges into LH_Keys "
+            raise GateError("save", [(f"{env.title()}'s keys come from {db}, so a notebook that merges into LH_Keys "
                                      "would give rows keys the rest of the platform doesn't have. Run "
-                                     f"{name} from Data mesh instead: its run takes the keys from {db}."])
+                                     f"{name} from Data mesh instead: its run takes the keys from {db}.")])
         src = project.entities[e.spec["source"]["entity"]]
         nb_name = f"nb_{src.layer}_to_{e.layer}_{e.table}"
         cells = keys_mod.template_cells(project, e, project.environments.get(env, {}).get("keys_workspace_name", ""))

@@ -73,6 +73,191 @@ Data Factory's [ForEach limitations](https://learn.microsoft.com/en-us/azure/dat
 | `nested_foreach` | Data Factory doesn't allow a ForEach inside another ForEach or an Until, at any depth (through If Condition and Switch branches too). A local run allows it. Use a child pipeline for the inner loop. |
 | `set_variable_in_parallel_foreach` | Data Factory doesn't allow Set Variable inside a ForEach that runs in parallel, because pipeline variables are shared by every iteration. A local run allows it, and the last iteration to finish wins. Make the ForEach sequential, or use Append Variable or a child pipeline. |
 
+### Each gotcha explained
+
+Why each gotcha matters and what to change in the definition. These sections ship inside the app as
+guides, the same as the [notebook](../notebook-best-practices.md), [SQL](../sql-best-practices.md) and
+[semantic model](../semantic-model-rules.md) rules' ([Learn](../learn.md)), so they read offline. Each
+title line ends with how much it matters: **Critical** (it can leak a secret, lose data or put wrong data
+in place), **Recommended**, **Educational** or **Advanced**. **Warnings** names the warning codes a
+report gives for it.
+
+### PG1
+
+**Notebooks must be in Fabric before the pipeline** · Warning · Pipelines · Recommended
+
+Why: a local run finds a notebook by the name you give it. Fabric finds a Notebook activity's notebook by its item id in the workspace, so a name there fails when the pipeline runs.
+
+Do this instead: put the notebook in the Fabric workspace first, then use its item id in `notebookId`.
+
+Principle: Deploy what a pipeline calls before the pipeline that calls it.
+
+Impact: Reliability. The pipeline deploys, then fails at the Notebook activity.
+
+How to check: `fabric-desktop pipeline compat` shows no `notebook_not_an_item_id` warning.
+
+Warnings: `notebook_not_an_item_id`
+
+### PG2
+
+**Notebook activities stop at 12 hours** · Warning · Pipelines · Recommended
+
+Why: Fabric stops a Notebook activity after 12 hours at most. A local run uses the timeout as written, so a long notebook passes here and is stopped there.
+
+Do this instead: use `0.12:00:00` or less. For longer work, use a Spark job definition or split the notebook into steps.
+
+Principle: Keep each step inside the limits of the place it runs.
+
+Impact: Reliability. A long run is stopped part way, and later activities don't run.
+
+How to check: `fabric-desktop pipeline compat` shows no `notebook_timeout_over_12_hours` warning.
+
+Warnings: `notebook_timeout_over_12_hours`
+
+### PG3
+
+**No global parameters** · Warning · Pipelines · Recommended
+
+Why: Fabric pipelines have no `pipeline().globalParameters`, so an expression that reads one gets nothing there. A local run can't read them either.
+
+Do this instead: put the value in a variable library and read it as `pipeline().libraryVariables.<name>`.
+
+Principle: Keep settings that change between environments in one place the pipeline reads at run time.
+
+Impact: Reliability. The value is missing in Fabric, and the activity fails or uses an empty value.
+
+How to check: `fabric-desktop pipeline compat` shows no `global_parameters` warning.
+
+Warnings: `global_parameters`
+
+### PG4
+
+**No dataset items** · Warning · Pipelines · Recommended
+
+Why: Fabric has no dataset items, so an activity that points at a Data Factory dataset has nothing to point at there.
+
+Do this instead: put the dataset's settings (its connection, path or table) in the activity itself.
+
+Principle: An activity carries what it needs to run.
+
+Impact: Reliability. The activity can't be imported or fails when it runs.
+
+How to check: `fabric-desktop pipeline compat` shows no `dataset_reference` warning.
+
+Warnings: `dataset_reference`
+
+### PG5
+
+**Integration runtimes become gateways** · Warning · Pipelines · Recommended
+
+Why: Fabric has no integration runtimes. Data on your own network is reached through an on-premises data gateway connection.
+
+Do this instead: set up a connection through an on-premises data gateway, and use that connection in the activity.
+
+Principle: Name how a pipeline reaches private data in the connection, not in the activity.
+
+Impact: Reliability. The activity can't reach the data in Fabric.
+
+How to check: `fabric-desktop pipeline compat` shows no `integration_runtime` warning.
+
+Warnings: `integration_runtime`
+
+### PG6
+
+**Activities with no Fabric equivalent** · Warning · Pipelines · Recommended
+
+Why: Validation, SSIS, Azure Batch (`Custom`) and HDInsight Hive, Pig and MapReduce activities can't run in Fabric. Each warning's hint says what to use instead.
+
+Do this instead: follow the hint: Get Metadata with an If Condition for Validation, a notebook, a warehouse or a Web activity for the others.
+
+Principle: Move a pipeline's work to what the platform runs, rather than keeping a step it can't run.
+
+Impact: Reliability. The pipeline can't be deployed to Fabric as it is.
+
+How to check: `fabric-desktop pipeline compat` shows no `no_fabric_equivalent` warning.
+
+Warnings: `no_fabric_equivalent`
+
+### PG7
+
+**Child pipelines need their id and workspaceId** · Warning · Pipelines · Recommended
+
+Why: a local run finds a child pipeline by its name. Fabric needs the child's item id and its `workspaceId`, even when it is in the same workspace.
+
+Do this instead: deploy the child pipeline first, then use Invoke pipeline with the child's `pipelineId` and `workspaceId`.
+
+Principle: Refer to another item by its id, which stays the same when it's renamed.
+
+Impact: Reliability. The parent pipeline fails at the activity that starts the child.
+
+How to check: `fabric-desktop pipeline compat` shows no `child_pipeline_by_name` or `child_pipeline_no_workspace` warning.
+
+Warnings: `child_pipeline_by_name`, `child_pipeline_no_workspace`
+
+### PG8
+
+**No Key Vault linked service** · Warning · Pipelines · Critical
+
+Why: Fabric has no linked services, so a Key Vault linked service has nothing to point at. A Web activity that reads a secret without `secureOutput` puts the secret in run history, in Fabric and in a local run.
+
+Do this instead: read the secret with a Web activity that calls Key Vault, with `policy.secureOutput` set to true, and set `secureInput` on the activities that use it.
+
+Principle: A secret is never written where people can read it later.
+
+Impact: Security. Anyone who can see the pipeline's runs can read the secret.
+
+How to check: `fabric-desktop pipeline compat` shows no `key_vault_linked_service` or `secret_in_run_history` warning. A secret that was ever shown in run history should be rotated.
+
+Warnings: `key_vault_linked_service`, `secret_in_run_history`
+
+### PG9
+
+**Array and object global parameters** · Warning · Pipelines · Educational
+
+Why: a variable library holds only text, numbers and true or false. A global parameter that was an array or an object has to be kept as JSON text.
+
+Do this instead: store the value as JSON text in the variable library and read it with `json(...)` in the expression.
+
+Principle: Convert a value once, where it is read, and say so in the expression.
+
+Impact: Reliability. An expression that reads into the value fails until it parses the text.
+
+How to check: `fabric-desktop pipeline compat` shows no `global_parameter_array_or_object` warning.
+
+Warnings: `global_parameter_array_or_object`
+
+### PG10
+
+**The item type is DataPipeline** · Warning · Pipelines · Recommended
+
+Why: Fabric only accepts a pipeline as a `DataPipeline` item. A `.platform` part with another type is refused.
+
+Do this instead: set `"type": "DataPipeline"` in the `.platform` part.
+
+Principle: An item's definition says truthfully what kind of item it is.
+
+Impact: Reliability. Fabric refuses the item when it is deployed or synced from Git.
+
+How to check: `fabric-desktop pipeline compat` shows no `item_type_not_data_pipeline` warning.
+
+Warnings: `item_type_not_data_pipeline`
+
+### FOREACH
+
+**ForEach limits** · Warning · Pipelines · Recommended
+
+Why: Data Factory doesn't allow a ForEach inside another ForEach or an Until, or Set Variable inside a ForEach that runs in parallel. Pipeline variables are shared by every iteration, so the last iteration to finish wins. A local run allows both. Fabric's ForEach page doesn't state these limits, so the warnings say they aren't verified in Fabric yet.
+
+Do this instead: use a child pipeline for the inner loop. Make the ForEach sequential, or use Append Variable or a child pipeline instead of Set Variable.
+
+Principle: Each loop iteration keeps its own state.
+
+Impact: Data. A variable set in a parallel loop can hold any iteration's value.
+
+How to check: `fabric-desktop pipeline compat` shows no `nested_foreach` or `set_variable_in_parallel_foreach` warning.
+
+Warnings: `nested_foreach`, `set_variable_in_parallel_foreach`
+
 ## Using it
 
 ```powershell

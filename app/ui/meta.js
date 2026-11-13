@@ -849,10 +849,10 @@ function renderLayersTab(body, p) {
           h("button", { class: "tool small", title: "Move up", onclick: () => move(i, -1) }, icon("up", 14)),
           h("button", { class: "tool small", title: "Move down", onclick: () => move(i, 1) }, icon("down", 14)),
           h("button", { class: "tool small danger", title: counts[l.name] ? "Has entities" : "Remove layer", disabled: counts[l.name] ? true : null,
-            onclick: () => { if (L.length <= 1) return toast("A project needs at least one layer", true); L.splice(i, 1); rerender(); } }, "Remove"))))))),
+            onclick: () => { if (L.length <= 1) return toast("A project needs at least one layer. Add another layer before you remove this one.", true); L.splice(i, 1); rerender(); } }, "Remove"))))))),
     h("div", { class: "row" },
       btn("Add layer", "add", async () => {
-        if (L.length >= 10) return toast("A project can have at most 10 layers", true);
+        if (L.length >= 10) return toast("A project can have at most 10 layers. Remove one before you add another.", true);
         const name = await askText("Add a layer", "Name (lowercase, like platinum)", "", "Add");
         if (!name) return;
         L.push({ name: name.toLowerCase(), drift: "strict", required_checks: ["key_unique"], reads_from: [], description: "", retention_days: 7 });

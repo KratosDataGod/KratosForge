@@ -25,8 +25,8 @@ def test_a_write_role_passes():
 
 def test_a_direct_viewer_is_told_what_is_missing_and_whom_to_ask():
     errors, notes = duties.role_problems("Prod workspace Sales", [assignment(ME, "Viewer"), ADMIN], {ME})
-    assert errors == ["You're a Viewer in Prod workspace Sales; promoting writes tables there, which needs "
-                      "Contributor or higher. Ask one of its Admins (user 2222) to make you a Contributor."]
+    assert errors == [("You're a Viewer in Prod workspace Sales; promoting writes tables there, which needs "
+                      "Contributor or higher. Ask one of its Admins (user 2222) to make you a Contributor.")]
     assert notes == []
 
 

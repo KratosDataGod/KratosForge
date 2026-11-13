@@ -20,6 +20,7 @@ import hashlib
 import secrets
 import threading
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any, Callable
 
@@ -59,14 +60,18 @@ class Pairings:
     # ---- requests from VS Code
 
     def request(self, window: Any, client: Any) -> dict[str, Any]:
-        """A window asks to pair. Returns the request's id and the code both sides show."""
+        """A window asks to pair. Returns the request's id and the code both sides show. ``window`` is the
+        folder it pairs from, checked by the caller (editor_service.py) and kept whole: it bounds what
+        the window can reach, so it is never cut or altered to show it."""
+        if not isinstance(window, str) or not window or any(unicodedata.category(c) == "Cc" for c in window):
+            raise PermissionError("Pair from a folder whose path has no control characters.")
         with self._lock:
             self._drop_old()
             waiting = [r for r in self._requests.values() if r["state"] == "waiting"]
             if len(waiting) >= MAX_WAITING:
                 raise PermissionError("Too many VS Code windows are waiting to pair. Answer them in KratosForge first.")
             rid = "pq_" + secrets.token_hex(8)
-            self._requests[rid] = {"id": rid, "code": new_code(), "window": _text(window, 300) or "(no folder)",
+            self._requests[rid] = {"id": rid, "code": new_code(), "window": window,
                                    "client": _text(client, 80) or "An unnamed VS Code extension",
                                    "at": self.clock(), "state": "waiting", "token": None, "keep": None}
             return {"id": rid, "code": self._requests[rid]["code"], "expires_in": REQUEST_SECONDS}

@@ -39,7 +39,7 @@ class Settings:
     max_temp_size: str = ""       # how much DuckDB may spill to tmp/; empty: DuckDB's default
     auto_refresh: bool = True     # look for changed files (cheaply) before each query
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         for key in ("memory_limit", "max_temp_size"):
             value = getattr(self, key)
             if value and not _MEMORY.match(value):

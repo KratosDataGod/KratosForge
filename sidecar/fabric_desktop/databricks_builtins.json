@@ -1,0 +1,1083 @@
+[
+ {
+  "name": "approx_top_k",
+  "group": "databricks:aggregate",
+  "probe": "SELECT approx_top_k(a) FROM VALUES (1) AS t(a)"
+ },
+ {
+  "name": "approx_top_k_accumulate",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "approx_top_k_combine",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "approx_top_k_estimate",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "bit_reverse",
+  "group": "databricks:string",
+  "example": "SELECT bit_reverse(-2)",
+  "value": [
+   [
+    2147483647
+   ]
+  ],
+  "note": "BIGINT here for a column of a smaller integer type; a literal or a CAST keeps its type"
+ },
+ {
+  "name": "bitmap_and_agg",
+  "group": "databricks:aggregate",
+  "example": "SELECT substring(hex(bitmap_and_agg(val)), 0, 6) FROM VALUES(x'F0'), (x'70'), (x'30') AS T(val)",
+  "value": [
+   [
+    "300000"
+   ]
+  ],
+  "note": "A plain aggregate here: FILTER and OVER, and a group with no bitmap, stop by name"
+ },
+ {
+  "name": "charindex",
+  "group": "databricks:string",
+  "example": "SELECT charindex('bar', 'abcbarbar', 5)",
+  "value": [
+   [
+    7
+   ]
+  ]
+ },
+ {
+  "name": "collate",
+  "group": "databricks:string",
+  "example": "SELECT 'Caf\u00e9' = 'caf\u00e9' COLLATE UTF8_LCASE",
+  "value": [
+   [
+    true
+   ]
+  ],
+  "note": "UTF8_BINARY and UTF8_LCASE run (UTF8_LCASE as DuckDB's NOCASE, which may lower a few letters such as U+0130 differently from Java); the ICU collations (UNICODE, a language, _CI, _AI, _RTRIM) are refused by name"
+ },
+ {
+  "name": "collation",
+  "group": "databricks:string",
+  "probe": "SELECT collation('a')"
+ },
+ {
+  "name": "counter_diff",
+  "group": "databricks:aggregate",
+  "example": "SELECT counter_diff(c) OVER (ORDER BY t) FROM VALUES (1, 100), (2, 200), (3, 400), (4, 50) AS tab(t, c)",
+  "value": [
+   [
+    100
+   ],
+   [
+    200
+   ],
+   [
+    null
+   ],
+   [
+    null
+   ]
+  ]
+ },
+ {
+  "name": "cube",
+  "group": "databricks:aggregate",
+  "probe": "SELECT a, count(*) FROM VALUES (1), (2) AS t(a) GROUP BY CUBE(a)"
+ },
+ {
+  "name": "current_time",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "dayname",
+  "group": "databricks:datetime",
+  "example": "SELECT dayname(DATE'2024-11-01')",
+  "value": [
+   [
+    "Fri"
+   ]
+  ]
+ },
+ {
+  "name": "from_xml",
+  "group": "databricks:xml"
+ },
+ {
+  "name": "getdate",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "hmac",
+  "group": "databricks:string",
+  "example": "SELECT hex(hmac('key', 'message'))",
+  "value": [
+   [
+    "6E9EF29B75FFFC5B7ABAE527D58FDADB2FE42E7219011976917343065F58ED4A"
+   ]
+  ],
+  "note": "A key written in the SQL is kept in the cell and its query history, as in Databricks: read it from a secret"
+ },
+ {
+  "name": "iff",
+  "group": "databricks:conditional",
+  "example": "SELECT iff(1 < 2, 'a', 'b')",
+  "value": [
+   [
+    "a"
+   ]
+  ]
+ },
+ {
+  "name": "ip_as_binary",
+  "group": "databricks:ip",
+  "example": "SELECT hex(ip_as_binary('192.168.1.1'))",
+  "value": [
+   [
+    "C0A80101"
+   ]
+  ]
+ },
+ {
+  "name": "ip_as_string",
+  "group": "databricks:ip",
+  "example": "SELECT ip_as_string('192.168.1.1')",
+  "value": [
+   [
+    "192.168.1.1"
+   ]
+  ]
+ },
+ {
+  "name": "ip_cidr",
+  "group": "databricks:ip",
+  "example": "SELECT ip_cidr('192.168.1.100/24')",
+  "value": [
+   [
+    "192.168.1.0/24"
+   ]
+  ]
+ },
+ {
+  "name": "ip_cidr_contains",
+  "group": "databricks:ip",
+  "example": "SELECT ip_cidr_contains('192.168.1.0/24', '192.168.2.1')",
+  "value": [
+   [
+    false
+   ]
+  ]
+ },
+ {
+  "name": "ip_host",
+  "group": "databricks:ip",
+  "example": "SELECT ip_host('192.168.1.5')",
+  "value": [
+   [
+    "192.168.1.5"
+   ]
+  ]
+ },
+ {
+  "name": "ip_network",
+  "group": "databricks:ip",
+  "example": "SELECT ip_network('192.168.1.100/24')",
+  "value": [
+   [
+    "192.168.1.0"
+   ]
+  ]
+ },
+ {
+  "name": "ip_network_first",
+  "group": "databricks:ip",
+  "example": "SELECT ip_network_first('192.168.1.100/24')",
+  "value": [
+   [
+    "192.168.1.0"
+   ]
+  ]
+ },
+ {
+  "name": "ip_network_last",
+  "group": "databricks:ip",
+  "example": "SELECT ip_network_last('192.168.1.0/24')",
+  "value": [
+   [
+    "192.168.1.255"
+   ]
+  ]
+ },
+ {
+  "name": "ip_prefix_length",
+  "group": "databricks:ip",
+  "example": "SELECT ip_prefix_length('192.168.1.1/24')",
+  "value": [
+   [
+    24
+   ]
+  ]
+ },
+ {
+  "name": "ip_version",
+  "group": "databricks:ip",
+  "example": "SELECT ip_version('192.168.1.5')",
+  "value": [
+   [
+    4
+   ]
+  ]
+ },
+ {
+  "name": "is_valid_utf8",
+  "group": "databricks:string",
+  "example": "SELECT is_valid_utf8(x'61C262')",
+  "value": [
+   [
+    false
+   ]
+  ]
+ },
+ {
+  "name": "is_variant_null",
+  "group": "databricks:variant",
+  "example": "SELECT is_variant_null(v:key) FROM VALUES(parse_json('{\"key\": null, \"a\": 1}')) AS T(v)",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "jaro_winkler_similarity",
+  "group": "databricks:string",
+  "example": "SELECT jaro_winkler_similarity('MARTHA', 'MARHTA')",
+  "value": [
+   [
+    "float:0.961111111111"
+   ]
+  ]
+ },
+ {
+  "name": "kll_merge_agg_bigint",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_merge_agg_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_merge_agg_float",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_agg_bigint",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_agg_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_agg_float",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_n_bigint",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_n_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_n_float",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_quantile_bigint",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_quantile_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_quantile_float",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_rank_bigint",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_rank_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_rank_float",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_merge_bigint",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_merge_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_merge_float",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_to_string_bigint",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_to_string_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_to_string_float",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "listagg",
+  "group": "databricks:aggregate",
+  "example": "SELECT listagg(col) WITHIN GROUP (ORDER BY col DESC) FROM VALUES ('a'), ('b'), ('c') AS tab(col)",
+  "value": [
+   [
+    "cba"
+   ]
+  ],
+  "note": "Joins with no delimiter unless one is given, as in Databricks"
+ },
+ {
+  "name": "localtime",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "make_time",
+  "group": "databricks:datetime",
+  "example": "SELECT make_time(6, 30, 45.887)",
+  "value": [
+   [
+    "time:06:30:45.887000"
+   ]
+  ]
+ },
+ {
+  "name": "make_valid_utf8",
+  "group": "databricks:string",
+  "example": "SELECT make_valid_utf8(x'61C262')",
+  "value": [
+   [
+    "a\ufffdb"
+   ]
+  ]
+ },
+ {
+  "name": "monthname",
+  "group": "databricks:datetime",
+  "example": "SELECT monthname(TIMESTAMP'2024-04-08 13:08:15')",
+  "value": [
+   [
+    "Apr"
+   ]
+  ]
+ },
+ {
+  "name": "nullifzero",
+  "group": "databricks:conditional",
+  "example": "SELECT nullifzero(0)",
+  "value": [
+   [
+    null
+   ]
+  ]
+ },
+ {
+  "name": "parse_json",
+  "group": "databricks:variant",
+  "example": "SELECT parse_json('{\"key\": 123, \"data\": [4, 5, \"str\"]}')",
+  "value": [
+   [
+    "{\"data\":[4,5,\"str\"],\"key\":123}"
+   ]
+  ],
+  "note": "A VARIANT is JSON text here, written as Databricks prints it; v:key reads it with DuckDB's JSON functions, which keep a number to DOUBLE's 17 digits"
+ },
+ {
+  "name": "parse_timestamp",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "percentile_cont",
+  "group": "databricks:aggregate",
+  "example": "SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY col) FROM VALUES (0), (6), (6), (7), (9), (10) AS tab(col)",
+  "value": [
+   [
+    "float:6.5"
+   ]
+  ]
+ },
+ {
+  "name": "percentile_disc",
+  "group": "databricks:aggregate",
+  "example": "SELECT percentile_disc(0.50) WITHIN GROUP (ORDER BY col) FROM VALUES (0), (6), (6), (7), (9), (10) AS tab(col)",
+  "value": [
+   [
+    6
+   ]
+  ]
+ },
+ {
+  "name": "randstr",
+  "group": "databricks:misc"
+ },
+ {
+  "name": "schema_of_json_agg",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "schema_of_variant",
+  "group": "databricks:variant"
+ },
+ {
+  "name": "schema_of_variant_agg",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "schema_of_xml",
+  "group": "databricks:xml"
+ },
+ {
+  "name": "session_user",
+  "group": "databricks:misc"
+ },
+ {
+  "name": "string_agg",
+  "group": "databricks:aggregate",
+  "example": "SELECT string_agg(col) WITHIN GROUP (ORDER BY col DESC) FROM VALUES ('a'), ('b'), ('c') AS tab(col)",
+  "value": [
+   [
+    "cba"
+   ]
+  ],
+  "note": "Joins with no delimiter unless one is given, as in Databricks"
+ },
+ {
+  "name": "theta_difference",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "theta_intersection",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "theta_intersection_agg",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "theta_sketch_agg",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "theta_sketch_estimate",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "theta_union",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "theta_union_agg",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "time",
+  "group": "databricks:datetime",
+  "example": "SELECT time(TIMESTAMP'2026-10-29 16:45:30')",
+  "value": [
+   [
+    "time:16:45:30"
+   ]
+  ],
+  "note": "A timestamp gives its time of day in UTC, this PC's session time zone"
+ },
+ {
+  "name": "time_bucket",
+  "group": "databricks:datetime",
+  "example": "SELECT time_bucket(INTERVAL '1' HOUR, TIMESTAMP '2024-01-01 11:27:00', TIMESTAMP '1970-01-01 00:05:00')",
+  "value": [
+   [
+    "timestamp:2024-01-01T11:05:00"
+   ]
+  ]
+ },
+ {
+  "name": "time_diff",
+  "group": "databricks:datetime",
+  "example": "SELECT time_diff(HOUR, TIME'08:00:00', TIME'21:30:00')",
+  "value": [
+   [
+    13
+   ]
+  ]
+ },
+ {
+  "name": "time_from_micros",
+  "group": "databricks:datetime",
+  "example": "SELECT time_from_micros(52200500000)",
+  "value": [
+   [
+    "time:14:30:00.500000"
+   ]
+  ]
+ },
+ {
+  "name": "time_from_millis",
+  "group": "databricks:datetime",
+  "example": "SELECT time_from_millis(52200500)",
+  "value": [
+   [
+    "time:14:30:00.500000"
+   ]
+  ]
+ },
+ {
+  "name": "time_from_seconds",
+  "group": "databricks:datetime",
+  "example": "SELECT time_from_seconds(52200.5)",
+  "value": [
+   [
+    "time:14:30:00.500000"
+   ]
+  ]
+ },
+ {
+  "name": "time_to_micros",
+  "group": "databricks:datetime",
+  "example": "SELECT time_to_micros(TIME'14:30:00.5')",
+  "value": [
+   [
+    52200500000
+   ]
+  ]
+ },
+ {
+  "name": "time_to_millis",
+  "group": "databricks:datetime",
+  "example": "SELECT time_to_millis(TIME'14:30:00.5')",
+  "value": [
+   [
+    52200500
+   ]
+  ]
+ },
+ {
+  "name": "time_to_seconds",
+  "group": "databricks:datetime",
+  "example": "SELECT time_to_seconds(TIME'14:30:00.5')",
+  "value": [
+   [
+    "decimal:52200.500000"
+   ]
+  ]
+ },
+ {
+  "name": "time_trunc",
+  "group": "databricks:datetime",
+  "example": "SELECT time_trunc('HOUR', TIME'13:08:15.123')",
+  "value": [
+   [
+    "time:13:00:00"
+   ]
+  ]
+ },
+ {
+  "name": "timediff",
+  "group": "databricks:datetime",
+  "example": "SELECT timediff(MONTH, TIMESTAMP'2021-02-28 12:00:00', TIMESTAMP'2021-03-28 11:59:59')",
+  "value": [
+   [
+    0
+   ]
+  ]
+ },
+ {
+  "name": "timestamp_nanos",
+  "group": "databricks:datetime",
+  "example": "SELECT string(timestamp_nanos(1230219000123456789))",
+  "value": [
+   [
+    "2008-12-25 15:30:00.123456789"
+   ]
+  ],
+  "note": "In UTC (Databricks' page shows 07:30 in a Los Angeles session); a TIMESTAMP_NS here holds about 1677 to 2262"
+ },
+ {
+  "name": "timestampadd",
+  "group": "databricks:datetime",
+  "example": "SELECT timestampadd(MONTH, -1, TIMESTAMP'2022-03-31 00:00:00')",
+  "value": [
+   [
+    "timestamp:2022-02-28T00:00:00"
+   ]
+  ]
+ },
+ {
+  "name": "timestampdiff",
+  "group": "databricks:datetime",
+  "example": "SELECT timestampdiff(YEAR, DATE'2021-01-01', DATE'1900-03-28')",
+  "value": [
+   [
+    -120
+   ]
+  ]
+ },
+ {
+  "name": "to_time",
+  "group": "databricks:datetime",
+  "example": "SELECT to_time('10:30:00')",
+  "value": [
+   [
+    "time:10:30:00"
+   ]
+  ]
+ },
+ {
+  "name": "to_variant_object",
+  "group": "databricks:variant",
+  "example": "SELECT to_variant_object(named_struct('a', 1, 'b', 2))",
+  "value": [
+   [
+    "{\"a\":1,\"b\":2}"
+   ]
+  ],
+  "note": "A STRUCT, MAP or ARRAY of integers, strings and booleans; a DOUBLE, DECIMAL, date or timestamp inside stops by name"
+ },
+ {
+  "name": "to_xml",
+  "group": "databricks:xml"
+ },
+ {
+  "name": "try_cast",
+  "group": "databricks:conditional",
+  "example": "SELECT try_cast('a' AS INT)",
+  "value": [
+   [
+    null
+   ]
+  ]
+ },
+ {
+  "name": "try_ip_as_binary",
+  "group": "databricks:ip",
+  "example": "SELECT hex(try_ip_as_binary('192.168.1.1'))",
+  "value": [
+   [
+    "C0A80101"
+   ]
+  ]
+ },
+ {
+  "name": "try_ip_as_string",
+  "group": "databricks:ip",
+  "example": "SELECT try_ip_as_string('192.168.1.1')",
+  "value": [
+   [
+    "192.168.1.1"
+   ]
+  ]
+ },
+ {
+  "name": "try_ip_cidr",
+  "group": "databricks:ip",
+  "example": "SELECT try_ip_cidr('192.168.1.100/24')",
+  "value": [
+   [
+    "192.168.1.0/24"
+   ]
+  ]
+ },
+ {
+  "name": "try_ip_host",
+  "group": "databricks:ip",
+  "example": "SELECT try_ip_host('192.168.1.5')",
+  "value": [
+   [
+    "192.168.1.5"
+   ]
+  ]
+ },
+ {
+  "name": "try_make_interval",
+  "group": "databricks:datetime",
+  "example": "SELECT try_make_interval(2147483647, 0)",
+  "value": [
+   [
+    null
+   ]
+  ]
+ },
+ {
+  "name": "try_make_timestamp",
+  "group": "databricks:datetime",
+  "example": "SELECT try_make_timestamp(2014, 12, 28, 6, 30, 45.887)",
+  "value": [
+   [
+    "timestamp:2014-12-28T06:30:45.887000"
+   ]
+  ]
+ },
+ {
+  "name": "try_make_timestamp_ltz",
+  "group": "databricks:datetime",
+  "example": "SELECT try_make_timestamp_ltz(DATE'2014-12-28', TIME'06:30:45.887')",
+  "value": [
+   [
+    "timestamp:2014-12-28T06:30:45.887000"
+   ]
+  ]
+ },
+ {
+  "name": "try_make_timestamp_ntz",
+  "group": "databricks:datetime",
+  "example": "SELECT try_make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)",
+  "value": [
+   [
+    "timestamp:2014-12-28T06:30:45.887000"
+   ]
+  ]
+ },
+ {
+  "name": "try_mod",
+  "group": "databricks:conditional",
+  "example": "SELECT try_mod(2, 1.8)",
+  "value": [
+   [
+    "decimal:0.2"
+   ]
+  ]
+ },
+ {
+  "name": "try_parse_json",
+  "group": "databricks:variant",
+  "example": "SELECT try_parse_json('{ bad }')",
+  "value": [
+   [
+    null
+   ]
+  ]
+ },
+ {
+  "name": "try_parse_timestamp",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "try_reflect",
+  "group": "databricks:conditional"
+ },
+ {
+  "name": "try_to_date",
+  "group": "databricks:datetime",
+  "example": "SELECT try_to_date('2016-12-31')",
+  "value": [
+   [
+    "date:2016-12-31"
+   ]
+  ]
+ },
+ {
+  "name": "try_to_time",
+  "group": "databricks:datetime",
+  "example": "SELECT try_to_time('10:30:00')",
+  "value": [
+   [
+    "time:10:30:00"
+   ]
+  ]
+ },
+ {
+  "name": "try_url_decode",
+  "group": "databricks:string",
+  "example": "SELECT try_url_decode('http%3A%2F%2Fspark.apache.org%2Fpath%3Fquery%3D1')",
+  "value": [
+   [
+    "http://spark.apache.org/path?query=1"
+   ]
+  ],
+  "note": "url_decode and try_url_decode follow java.net.URLDecoder: a bad % escape stops url_decode"
+ },
+ {
+  "name": "try_validate_utf8",
+  "group": "databricks:string",
+  "example": "SELECT try_validate_utf8(x'61C262')",
+  "value": [
+   [
+    null
+   ]
+  ]
+ },
+ {
+  "name": "try_variant_get",
+  "group": "databricks:variant",
+  "example": "SELECT try_variant_get(parse_json('{\"key\": 123, \"data\": [4, {\"a\": \"hello\"}, \"str\"]}'), '$.key', 'boolean')",
+  "value": [
+   [
+    null
+   ]
+  ]
+ },
+ {
+  "name": "try_zstd_decompress",
+  "group": "databricks:string"
+ },
+ {
+  "name": "tuple_difference_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_difference_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_difference_theta_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_difference_theta_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_intersection_agg_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_intersection_agg_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_intersection_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_intersection_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_intersection_theta_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_intersection_theta_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_sketch_agg_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_sketch_agg_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_sketch_estimate_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_sketch_estimate_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_sketch_summary_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_sketch_summary_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_sketch_theta_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_sketch_theta_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_union_agg_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_union_agg_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_union_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_union_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_union_theta_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_union_theta_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "uniform",
+  "group": "databricks:misc"
+ },
+ {
+  "name": "unix_nanos",
+  "group": "databricks:datetime",
+  "example": "SELECT unix_nanos(TIMESTAMP'1970-01-01 00:00:01.123456789Z')",
+  "value": [
+   [
+    "decimal:1123456789"
+   ]
+  ]
+ },
+ {
+  "name": "validate_utf8",
+  "group": "databricks:string",
+  "example": "SELECT validate_utf8(x'61')",
+  "value": [
+   [
+    "a"
+   ]
+  ]
+ },
+ {
+  "name": "variant_explode",
+  "group": "databricks:variant",
+  "example": "SELECT * FROM variant_explode(parse_json('{\"foo\":1,\"bar\":\"hello\"}'))",
+  "value": [
+   [
+    0,
+    "bar",
+    "\"hello\""
+   ],
+   [
+    1,
+    "foo",
+    "1"
+   ]
+  ]
+ },
+ {
+  "name": "variant_explode_outer",
+  "group": "databricks:variant",
+  "example": "SELECT value FROM variant_explode_outer(parse_json('123')) AS t(pos, key, value)",
+  "value": [
+   [
+    null
+   ]
+  ]
+ },
+ {
+  "name": "variant_get",
+  "group": "databricks:variant",
+  "example": "SELECT variant_get(parse_json('{\"key\": 123, \"data\": [4, {\"a\": \"hello\"}, \"str\"]}'), '$.data[1].a', 'string')",
+  "value": [
+   [
+    "hello"
+   ]
+  ],
+  "note": "A cast that turns on a number's exact VARIANT type (a STRING, or a DECIMAL with a fraction, to an integer; a date; a STRUCT) stops by name"
+ },
+ {
+  "name": "vector_avg",
+  "group": "databricks:vector"
+ },
+ {
+  "name": "vector_cosine_similarity",
+  "group": "databricks:vector",
+  "example": "SELECT vector_cosine_similarity(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))",
+  "value": [
+   [
+    "float:0.974631846197"
+   ]
+  ],
+  "note": "DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's)"
+ },
+ {
+  "name": "vector_inner_product",
+  "group": "databricks:vector",
+  "example": "SELECT vector_inner_product(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))",
+  "value": [
+   [
+    "float:32"
+   ]
+  ],
+  "note": "DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's)"
+ },
+ {
+  "name": "vector_l2_distance",
+  "group": "databricks:vector",
+  "example": "SELECT vector_l2_distance(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))",
+  "value": [
+   [
+    "float:5.19615242271"
+   ]
+  ],
+  "note": "DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's)"
+ },
+ {
+  "name": "vector_norm",
+  "group": "databricks:vector",
+  "example": "SELECT vector_norm(array(3.0f, 4.0f), 2.0f)",
+  "value": [
+   [
+    "float:5"
+   ]
+  ],
+  "note": "DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's)"
+ },
+ {
+  "name": "vector_normalize",
+  "group": "databricks:vector",
+  "example": "SELECT vector_normalize(array(3.0f, 4.0f), 2.0f)",
+  "value": [
+   [
+    [
+     "float:0.6",
+     "float:0.8"
+    ]
+   ]
+  ],
+  "note": "ARRAY<DOUBLE> here, ARRAY<FLOAT> in Databricks (the documented digits are DOUBLE's)"
+ },
+ {
+  "name": "vector_sum",
+  "group": "databricks:vector"
+ },
+ {
+  "name": "zeroifnull",
+  "group": "databricks:conditional",
+  "example": "SELECT zeroifnull(NULL)",
+  "value": [
+   [
+    0
+   ]
+  ]
+ },
+ {
+  "name": "zstd_compress",
+  "group": "databricks:string"
+ },
+ {
+  "name": "zstd_decompress",
+  "group": "databricks:string"
+ }
+]

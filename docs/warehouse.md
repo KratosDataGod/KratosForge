@@ -11,7 +11,7 @@ From **Workspaces > Fabric portal**, **Open in KratosForge** opens the warehouse
 - **It runs in Fabric and uses capacity.** Unlike a lakehouse query, which runs on this PC, a warehouse query runs on the warehouse. The first run on each warehouse after the app starts asks you to confirm.
 - **It reads until you allow changes.** Until **Allow changes** is ticked, one statement that reads is sent; DDL, DML, `EXEC`, variables and anything that reaches outside the warehouse (`OPENROWSET`) are refused before Fabric is asked anything. With it ticked, a script may change the warehouse after it shows what it changes and you confirm: see [Changing the warehouse](#changing-the-warehouse).
 - **It runs as you.** The app signs in to Azure SQL (`https://database.windows.net`) with your account, the first time you run a warehouse query, and Fabric's permissions on the warehouse apply as they do in Fabric. See [permissions](permissions.md).
-- **Same run controls.** Stop, the time limit in Settings › Advanced › SQL queries, results a page at a time, Copy and Export to CSV or Parquet. The `sql_execution` audit line names the workspace and warehouse, never the SQL.
+- **Same run controls.** Stop, the time limit in Settings › Advanced › SQL queries, results a page at a time, Copy and Export to CSV, Parquet, Excel or JSON. The `sql_execution` audit line names the workspace and warehouse, never the SQL.
 - **No risk check, by design.** The [risk check](finops/risk-check.md) looks at workloads (notebooks, pipelines, Data mesh runs) before a run. A warehouse query isn't a workload: a change shows what it changes before it runs, and the confirm, Stop and the time limit bound what it can use. Query insights on the History tab show what queries cost in time; capacity cost comes later, in Optimize.
 - **Check before you run.** The editor checks T-SQL against Fabric Warehouse (or the SQL analytics endpoint) as you type, from Microsoft's [T-SQL surface area](https://learn.microsoft.com/en-us/fabric/data-warehouse/tsql-surface-area) page. See [SQL compatibility](sql-compatibility.md).
 
@@ -216,6 +216,24 @@ A queryset counts as the app's only when its description is the one the app writ
 **Who runs what** is people data: it lists each person's sign-in name with how many queries they ran, how many failed and their CPU time, as Fabric records them for anyone who can read the monitoring database. The queryset's tab of the same name shows the same to everyone in the workspace who can open it.
 
 Monitoring sent to another workspace's Eventhouse isn't found yet: the tab looks only in the warehouse's own workspace. Not yet checked on a tenant: whether Microsoft's sign-in app gets a Kusto token (see [Permissions](permissions.md)), and the claim in `Identity` that names a person (the views try `upn`, then `unique_name`, then the object id).
+
+## Open in SSMS
+
+**Open in SSMS** in the page's toolbar starts SQL Server Management Studio on this warehouse (or SQL analytics endpoint), signed in as you with Microsoft Entra. The app reads the warehouse's SQL connection from Fabric (the same check every query uses: the server must end in `.datawarehouse.fabric.microsoft.com`) and starts SSMS with:
+
+`ssms.exe [query.sql] -S <server> -d <database> -A ActiveDirectoryInteractive [-U <you>] -nosplash`
+
+KratosForge passes SSMS no password or token: SSMS signs in on its own, and may ask you to pick your account. `-U` is your sign-in name, when the app knows it, so SSMS's sign-in box starts with it. Every value is checked before it goes on the command line, and none may start with `-`, so a warehouse name can't become another SSMS switch. Nothing in Fabric changes and no capacity is used until you run something in SSMS.
+
+The arrow beside it has more:
+
+| Item | What it does |
+| --- | --- |
+| **Open in SSMS with this query** | Writes the editor's text to a `.sql` file in the app's data folder (`ssms\`) and opens it in SSMS's query window. Files there older than a day are removed the next time. |
+| **Copy server name** | Copies the warehouse's server name (its SQL connection string), to connect from any tool by hand |
+| **Open in VS Code (MSSQL extension)** | Opens VS Code's [MSSQL extension](https://learn.microsoft.com/sql/tools/visual-studio-code-extensions/mssql/mssql-extension-visual-studio-code) connected to the warehouse with Microsoft Entra MFA (a `vscode://ms-mssql.mssql/connect` link) |
+
+The app looks for SSMS 22, then SSMS 21, where they install by default (`C:\Program Files\Microsoft SQL Server Management Studio 22\Release\Common7\IDE\SSMS.exe`). When neither is there, **SSMS isn't on this PC** shows the server name to copy, with **Get SSMS** and **Choose SSMS's folder…**: pick the folder that holds `SSMS.exe` and the app remembers it on this PC. The app starts only an `SSMS.exe` whose signature Windows trusts and names Microsoft Corporation, so a file that is merely named `ssms.exe` is never started. The page never names the program: the shell finds SSMS itself each time. SSMS 20 and before don't take `-A`, so choose SSMS 21 or later.
 
 ## Estimated plan
 

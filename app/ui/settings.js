@@ -690,9 +690,10 @@ function motionSettingsCard(s, locked) {
   };
   return h("section", { class: "card pad motion-settings" }, h("h2", {}, "Appearance"),
     typeof skinChooser === "function" && previewShown() ? skinChooser(locked) : null,  // skins.js
+    previewShown() || source("ui_color_mode") ? choice("ui_color_mode") : null,
     h("h3", {}, "Layout"),
     h("p", { class: "muted-text small" }, "How much every page shows. Nothing is removed: what you tuck away is one click from where it was."),
-    Object.keys(LAYOUT_CHOICES).map(choice),
+    Object.keys(LAYOUT_CHOICES).filter((key) => key !== "ui_color_mode").map(choice),
     h("h3", {}, "Living Experience"),
     h("p", { class: "muted-text small" }, "Quiet while you work, epic when you achieve. Effects only follow real work as it finishes; they never delay a run, take focus or cover your code. ",
       reduced ? h("b", {}, "Still now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),
@@ -994,8 +995,8 @@ function advancedSection(s, locked, limitRow) {
         if (await saveSettings({ client_id: "" })) { toast("Saved. Sign in again to use it."); render(); }
       }, "tool outline small") : null) : null);
   const kernel = s.kernel_process ? h("div", { class: "advanced-group" }, h("h3", {}, "Notebooks"),
-    settingRow("Run notebooks in their own process (Preview)",
-      "Cells run in a Python process of their own instead of inside the app's engine. Stop and a crash then end only that process, and the rest of the app keeps working. Variables are cleared when you switch.",
+    settingRow("Run notebooks in their own process",
+      "Cells run in a Python process of their own instead of inside the app's engine. Stop and a crash then end only that process, and the rest of the app keeps working. On by default; you or your organization can turn it off. Variables are cleared when you switch.",
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.kernel_process.value ? true : null, disabled: locked("kernel_process") ? true : null,
         onchange: async (e) => { await saveSettings({ kernel_process: e.target.checked }); render(); } }),
       h("span", {}, s.kernel_process.value ? "On" : "Off")),

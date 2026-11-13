@@ -71,6 +71,8 @@ include = ["fabric_desktop*"]
 "fabric_desktop.engines" = ["dbconnect_locks/*.txt"]
 # Learn lessons and labs (learn/content.py), one folder per module.
 "fabric_desktop.learn" = ["content/*.json", "content/*/*", "rule_guides.json", "patterns.json"]
+# The optimization engine's demonstration fixture (opportunities/fixture.py).
+"fabric_desktop.opportunities" = ["fixtures/*.json"]
 # Academy certification packs (academy/registry.py), one folder per certification.
 "fabric_desktop.academy" = ["packs/*/*.json", "packs/*/*/*", "packs/*/*/*/*"]
 
@@ -138,4 +140,5 @@ testpaths = ["tests"]
 filterwarnings = ["error:Arrow output on a DB-API result:UserWarning"]
 # These take the exercise runtime's access off the shared Python install for the whole machine, so
 # another xdist worker's running exercise would lose its Python. CI runs them in a serial step of their own.
-markers = ["machine_wide_grants: removes the exercise runtime's machine-wide grants; run without xdist"]
+markers = ["machine_wide_grants: removes the exercise runtime's machine-wide grants; run without xdist",
+           "real_kernel_default: runs notebook cells with the real kernel_process default (conftest pins it off for fakes)"]

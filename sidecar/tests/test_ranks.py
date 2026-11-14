@@ -126,6 +126,19 @@ def test_a_new_lesson_never_takes_a_held_rank_away():
     assert ranks.standing(p, LIVE + [module("LM-13"), module("LM-14")])["rank"] == "Iron Forger"
 
 
+def test_lessons_added_after_v1_never_join_the_rank_requirements():
+    # Ladder v1 is frozen: a lesson shipped later (ADDED_AFTER) shows in its Learn path but no rank needs it,
+    # so finishing the v1 Enterprise Architecture list still meets Forge Architect with LM-36 published.
+    planned = {m for v in ranks.PATHS.values() for m in v["modules"]}
+    assert ranks.ADDED_AFTER and not planned & set(ranks.ADDED_AFTER)
+    p = progress.empty()
+    for mid in ranks.PATHS["enterprise-architecture"]["modules"]:
+        finish(p, module(mid, path="enterprise-architecture"))
+    live = LIVE + [module(mid, path=path) for mid, path in ranks.ADDED_AFTER.items() if mid not in {m["id"] for m in LIVE}]
+    architect = next(r for r in ranks.standing(p, live)["ladder"] if r["id"] == "forge-architect")
+    assert architect["checks"][0]["met"] and not architect["coming_soon"]
+
+
 def test_proof_forged_is_never_needed():
     needs = [n for r in ranks.RANKS for n in r["needs"]]
     assert not any("proof-forged" in n.get("achievements", []) for n in needs)

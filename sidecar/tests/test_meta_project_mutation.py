@@ -293,8 +293,10 @@ def test_soft_deletes_refuse_their_columns_in_the_contract(proj):
     assert any('load deletes = "soft" adds is_deleted itself' in p for p in problems(proj, "silver.orders"))
 
 
-@pytest.mark.parametrize("path, bad", [("landing/x/*.csv", False), ("/data/x.csv", True), ("C:x.csv", True)])
-def test_a_source_path_on_this_pc_is_refused(proj, path, bad):
+@pytest.mark.parametrize("path, bad", [("landing/x/*.csv", False), ("<abs>", True), ("C:x.csv", True)])
+def test_a_source_path_on_this_pc_is_refused(proj, tmp_path, path, bad):
+    # tmp_path is absolute on every platform ("/data/x.csv" has no drive, so Windows doesn't call it absolute)
+    path = str(tmp_path / "x.csv") if path == "<abs>" else path
     e = proj.entities["bronze.orders"]
     e.spec["source"] = {"landing": path}
     hit = any("only exists on this PC" in p for p in problems(proj, "bronze.orders"))

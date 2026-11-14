@@ -4579,6 +4579,7 @@ test("Python cells get go to definition, find references and rename", () => {
   const src = fs.readFileSync(path.join(ui, "nbsymbols.js"), "utf8");
   assert.match(src, /rpc\("notebook_symbol", \{ cells: symCells\(\), cell: index, offset: view\.state\.selection\.main\.head, name \}\)/);
   for (const key of ['"F12"', '"Shift-F12"', '"F2"']) assert.ok(src.includes(`key: ${key}`), key);
+  assert.match(src, /const used = Math\.max\(taken\.places\.length, taken\.anywhere \|\| 0\);/);  // a function's own name counts
   const ctx = {};
   vm.createContext(ctx);
   vm.runInContext(src.slice(src.indexOf("const SYM_KEYWORDS"), src.indexOf("// The notebook's cells")) + "this.f = symNameProblem;", ctx);

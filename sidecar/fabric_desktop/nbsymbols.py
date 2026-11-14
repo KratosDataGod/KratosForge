@@ -277,10 +277,36 @@ def _name_at(tree: ast.Module, source: str, offset: int) -> str | None:
     return None
 
 
+def _bound_or_used(tree: ast.Module, name: str) -> int:
+    """How many times ``name`` is written as a name anywhere in the cell, in any scope: an argument,
+    a local, a comprehension variable, a def, class or import. A rename to such a name could be
+    captured by that scope's own binding, so it's refused."""
+    count = 0
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Name):
+            count += n.id == name
+        elif isinstance(n, ast.arg):
+            count += n.arg == name
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            count += n.name == name
+        elif isinstance(n, ast.alias):
+            count += (n.asname or n.name.split(".")[0]) == name
+        elif isinstance(n, (ast.Global, ast.Nonlocal)):
+            count += name in n.names
+        elif isinstance(n, ast.ExceptHandler):
+            count += n.name == name
+        elif isinstance(n, (ast.MatchAs, ast.MatchStar)):
+            count += n.name == name
+        elif isinstance(n, ast.MatchMapping):
+            count += n.rest == name
+    return count
+
+
 def find_symbol(cells: list[dict[str, Any]], cell: int, offset: int, name: str | None = None) -> dict[str, Any]:
     """The module-level name at ``offset`` in cell ``cell`` (or ``name``), with every definition and
     reference in the notebook's Python cells: {"name", "places": [{cell, from, to, kind, line, text}],
-    "skipped": [{cell, why}]}. ``name`` is None when the place isn't on a plain name."""
+    "skipped": [{cell, why}], "anywhere": how often the name is written in any scope, a function's own
+    names included}. ``name`` is None when the place isn't on a plain name."""
     if not isinstance(cells, list) or not all(isinstance(c, dict) for c in cells):
         raise ValueError("cells is a list of cells")
     trees: list[ast.Module | None] = []
@@ -314,7 +340,8 @@ def find_symbol(cells: list[dict[str, Any]], cell: int, offset: int, name: str |
             start = starts[line] + col
             places.append({"cell": i, "from": start, "to": start + len(name), "kind": kind, "line": line,
                            "text": lines[line - 1].strip()[:200]})
-    return {"name": name, "places": places, "skipped": skipped}
+    elsewhere = sum(_bound_or_used(tree, name) for tree in trees if tree is not None)
+    return {"name": name, "places": places, "skipped": skipped, "anywhere": elsewhere}
 
 
 def rename_check(new: str) -> str | None:

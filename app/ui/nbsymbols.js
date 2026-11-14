@@ -154,8 +154,10 @@ async function symApplyRename(view, old, name, why) {
   if (problem) { why.textContent = problem; return; }
   const taken = await symLookup(view, name);
   if (!taken) return;
-  if (taken.places.length) {
-    why.textContent = `${name} is already used in this notebook (${taken.places.length} place${taken.places.length === 1 ? "" : "s"}), so the two would become one. Pick another name.`;
+  const used = Math.max(taken.places.length, taken.anywhere || 0);
+  if (used) {
+    // Anywhere, a function's own argument or a loop variable included: there it would take over the renamed name.
+    why.textContent = `${name} is already used in this notebook (${used} place${used === 1 ? "" : "s"}), so the two would become one. Pick another name.`;
     return;
   }
   const found = await symLookup(view, old);  // again: the cells may have changed while the box was open

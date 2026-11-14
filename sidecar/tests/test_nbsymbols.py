@@ -78,3 +78,17 @@ def test_cells_must_be_a_list_of_cells(cells):
                                       ("class", False), ("", False)])
 def test_rename_check(name, ok):
     assert (rename_check(name) is None) == ok
+
+
+@pytest.mark.parametrize("source", ["def f(y):\n    return x + y", "z = [x for y in range(3)]",
+                                    "g = lambda y: x + y", "class C:\n    def m(self):\n        y = 2\n        return x"])
+def test_a_name_bound_in_any_scope_counts_as_used_so_a_rename_cant_be_captured(source):
+    """Renaming x to y would make these read their own y: anywhere says y is taken."""
+    cells = [code("x = 1"), code(source)]
+    found = find_symbol(cells, 0, 0, "y")
+    assert found["places"] == []  # not the notebook's own y
+    assert found["anywhere"] > 0
+
+
+def test_a_free_name_is_used_nowhere():
+    assert find_symbol([code("x = 1\nprint(x)")], 0, 0, "grand_total")["anywhere"] == 0

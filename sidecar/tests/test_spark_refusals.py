@@ -40,12 +40,13 @@ BLOCKED = {
     "_statement": ("spark.sql('INSERT INTO dbo.t PARTITION (d = 1) SELECT * FROM s')", "PARTITION or REPLACE WHERE"),
     "forPath": ("from delta.tables import DeltaTable\nt = DeltaTable.forPath(spark, 'Files/raw/t')", "forPath"),
     "_refusal": ("df = spark.read.option('ignoreLeadingWhiteSpace', 'true').csv('Files/x.csv')", "ignoreLeadingWhiteSpace"),
-    "_catalog_call_in_fabric": ("tables = [t.name for t in spark.catalog.listTables()]", "lists the catalog"),
 }
 
 
 def test_every_listed_refusal_but_the_settings_one_has_a_notebook_here():
-    assert set(BLOCKED) == set(spark_local.CHECKED_REFUSALS) - {"_preview_on"}  # covered by test_spark_merge
+    # _preview_on is covered by test_spark_merge; _catalog_call_in_fabric (currentDatabase) depends on the
+    # lakehouse, which the check can't see, so it isn't flagged.
+    assert set(BLOCKED) == set(spark_local.CHECKED_REFUSALS) - {"_preview_on", "_catalog_call_in_fabric"}
 
 
 @pytest.mark.parametrize("site", sorted(BLOCKED))

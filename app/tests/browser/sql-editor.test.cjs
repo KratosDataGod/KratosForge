@@ -197,6 +197,11 @@ test("Ctrl+F2 bookmarks lines, F2 and Shift+F2 go between them, and they move wi
   await page().keyboard.type("-- note\n");
   assert.deepStrictEqual(await marked(), [3, 5]);
   assert.strictEqual(await docText(), "-- note\nSELECT a\nFROM t\nWHERE x = 1\nORDER BY a");
+  await goLine(3);  // Enter at the start of a marked line: the mark stays with its text
+  await page().keyboard.press("Enter");
+  assert.deepStrictEqual(await marked(), [4, 6]);
+  await page().keyboard.press("Control+z");
+  assert.deepStrictEqual(await marked(), [3, 5]);
   await goLine(3);
   await page().keyboard.press("Control+F2");
   assert.deepStrictEqual(await marked(), [5], "Ctrl+F2 on a marked line removes it");

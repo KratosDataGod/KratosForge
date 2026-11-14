@@ -760,9 +760,9 @@ const sqlBookmarkLine = CM.Decoration.line({ class: "sql-bookmarked" });
 const sqlBookmarks = CM.ViewPlugin.fromClass(class {
   constructor() { this.marks = []; this.decorations = CM.Decoration.none; }
   update(u) {
-    if (u.docChanged) {
+    if (u.docChanged) {  // text inserted at a mark's line start (Enter there) pushes the mark down with its line
       const doc = u.state.doc;
-      this.marks = [...new Set(this.marks.map((m) => doc.lineAt(u.changes.mapPos(m, -1)).from))].sort((a, b) => a - b);
+      this.marks = [...new Set(this.marks.map((m) => doc.lineAt(u.changes.mapPos(m, 1)).from))].sort((a, b) => a - b);
     }
     const builder = new CM.RangeSetBuilder();
     for (const m of this.marks) builder.add(m, m, sqlBookmarkLine);

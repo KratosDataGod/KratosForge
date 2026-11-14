@@ -2933,6 +2933,7 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
     forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight;
   }
   .tab:not(.active), .sql-view:not(.on) { border-bottom-color: Canvas; }
+  .sql-edit .cm-line.sql-bookmarked { border-left: 3px solid Highlight; }  /* box-shadow and background are dropped */
   .cell.selected .cell-box, .sqlt-card.on, .mesh-node.me, .card.pad.mf-domain.me { border-color: Highlight; outline: 2px solid Highlight; outline-offset: -2px; }
   .pill, .pill-s, .badge, .preview-tag, .cell-head .tag { border: 1px solid CanvasText; }
   :focus-visible, .search:focus-within, .palette-input:focus-within { outline: 2px solid Highlight; }

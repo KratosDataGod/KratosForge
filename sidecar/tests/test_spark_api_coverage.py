@@ -84,3 +84,16 @@ def test_the_docs_page_is_up_to_date(rows):
 
 def test_the_docs_link_the_list():
     assert "spark-dataframe-api.md" in (ROOT / "docs" / "engines.md").read_text(encoding="utf-8")
+
+
+def test_the_readme_counts_match_spark_api_coverage():
+    from collections import Counter
+
+    counts = Counter((r["area"], r["state"]) for r in spark_api.coverage())
+    frame = {state: n for (area, state), n in counts.items() if area == "DataFrame"}
+    session = {state: n for (area, state), n in counts.items() if area == "SparkSession"}
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert (f"Of PySpark's {sum(frame.values())} DataFrame methods, {frame.get('works', 0)} work, "
+            f"{frame.get('no-op', 0)} are accepted and do nothing on one PC (such as `cache` and `repartition`), "
+            f"{frame.get('Fabric', 0)} run only in Fabric and {frame.get('missing', 0)} aren't built yet. "
+            f"{session.get('works', 0)} of SparkSession's {sum(session.values())} work.") in readme

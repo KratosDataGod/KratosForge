@@ -10,13 +10,12 @@ file (open "xb"), so an existing notebook is never replaced.
 
 from __future__ import annotations
 
-import base64
-import binascii
 import json
 import time
 from pathlib import Path
 from typing import Any
 
+from . import b64
 from . import notebook_formats as nbf
 from .filenames import file_stem
 from .notebook import to_ipynb
@@ -36,8 +35,8 @@ def _read(file_name: str, content: str, encoding: str) -> dict[str, Any]:
         if len(content) > nbf.MAX_DBC * 4 // 3 + 4:
             raise ValueError("The archive is larger than 64 MB, so it wasn't read.")
         try:
-            data = base64.b64decode(content, validate=True)
-        except (binascii.Error, ValueError):
+            data = b64.decode_exact(content)
+        except ValueError:
             raise ValueError("The archive didn't arrive whole. Pick it again.") from None
         return {"format": "Databricks archive (.dbc)", "notebooks": nbf.parse_dbc(data)}
     if encoding != "text":

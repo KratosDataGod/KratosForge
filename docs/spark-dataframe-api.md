@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 121 |
-| Differs | 3 |
-| Refused | 15 |
-| Fails | 24 |
+| Runs | 122 |
+| Differs | 5 |
+| Refused | 13 |
+| Fails | 23 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -36,7 +36,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `approxQuantile` | Not checked |  |
 | `cache` | Runs |  |
 | `checkpoint` | Runs |  |
-| `coalesce` | Refused | `df.coalesce(1).rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
+| `coalesce` | Refused | `df.coalesce(1).rdd.getNumPartitions()`: NotImplementedError: RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), or foreach, foreachPartition and mapInPandas, which run here. |
 | `colRegex` | Runs |  |
 | `collect` | Runs |  |
 | `columns` | Runs |  |
@@ -63,8 +63,8 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `fillna` | Runs |  |
 | `filter` | Runs |  |
 | `first` | Runs |  |
-| `foreach` | Refused | `df.foreach(func)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
-| `foreachPartition` | Refused | `df.foreachPartition(func)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
+| `foreach` | Differs | `df.foreach(func)`: {"printed": "Tom\nAlice\nBob"} here, {} in Spark |
+| `foreachPartition` | Differs | `df.foreachPartition(func)`: {"printed": "Tom\nAlice\nBob"} here, {} in Spark |
 | `freqItems` | Runs |  |
 | `groupBy` | Runs |  |
 | `groupby` | Not checked |  |
@@ -90,10 +90,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `persist` | Runs |  |
 | `printSchema` | Runs |  |
 | `randomSplit` | Differs | `splits[0].count()`: {"value": 2} here, {"value": 1} in Spark |
-| `rdd` | Refused | `type(df.rdd)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
+| `rdd` | Refused | `type(df.rdd)`: NotImplementedError: RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), or foreach, foreachPartition and mapInPandas, which run here. |
 | `registerTempTable` | Runs |  |
-| `repartition` | Refused | `df.repartition(10).rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
-| `repartitionByRange` | Refused | `df.repartitionByRange(2, "age").rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
+| `repartition` | Refused | `df.repartition(10).rdd.getNumPartitions()`: NotImplementedError: RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), or foreach, foreachPartition and mapInPandas, which run here. |
+| `repartitionByRange` | Refused | `df.repartitionByRange(2, "age").rdd.getNumPartitions()`: NotImplementedError: RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), or foreach, foreachPartition and mapInPandas, which run here. |
 | `replace` | Runs |  |
 | `rollup` | Runs |  |
 | `sameSemantics` | Runs |  |
@@ -132,7 +132,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `withColumnRenamed` | Runs |  |
 | `withColumns` | Runs |  |
 | `withColumnsRenamed` | Runs |  |
-| `withMetadata` | Fails | `df_meta = df.withMetadata('age', {'foo': 'bar'})`: AttributeError: 'DataFrame' object has no attribute 'withMetadata' |
+| `withMetadata` | Runs |  |
 | `withWatermark` | Not checked |  |
 | `write` | Fails | `_ = spark.sql("DROP TABLE IF EXISTS tab2")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
 | `writeStream` | Not checked |  |

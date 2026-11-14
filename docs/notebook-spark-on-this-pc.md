@@ -31,7 +31,26 @@ since SQL here would call that function, not the UDF: register it under another 
 `PandasUDFType.SCALAR` and `SCALAR_ITER` are taken as the second argument of `pandas_udf`; `GROUPED_MAP`
 points to `applyInPandas`.
 
+## Python over batches and groups
+
+`mapInPandas(func, schema)` and `mapInArrow(func, schema)` hand `func` the DataFrame's rows as pandas
+DataFrames or pyarrow RecordBatches, `spark.sql.execution.arrow.maxRecordsPerBatch` rows at a time
+(10,000 unless set), and make a DataFrame of what it yields with the schema given (a `StructType` or a
+DDL string); columns are matched by name when all are there, else by position.
+`groupBy(...).applyInPandas(func, schema)` calls `func(pdf)` or `func(key, pdf)` once per group; here it
+groups by column names, so add an expression as a column with `withColumn` first.
+`foreach(f)` calls `f` with each `Row`, and `foreachPartition(f)` calls it once with every row, since one
+PC is one partition. They run in the notebook's process, and the output is held in memory before it
+becomes a DataFrame, so a function that turns a large table into a larger one needs the memory for it.
+
 ## DataFrame methods
+
+`freqItems` (and `df.stat.freqItems`) lists, for each column, the values in at least `support` of the
+rows (1% by default); it is exact here, where Spark's may list extra values. `inputFiles` names the files
+a read scans (a Delta table's data files, a folder's files). `to(schema)` picks and casts columns by name
+to a schema. `withMetadata` keeps a column's metadata on the DataFrame, shown in `df.schema`.
+`writeTo(table)` with `create`, `replace`, `createOrReplace` and `append` writes through the same table
+writer as `saveAsTable`; `overwrite(condition)` and `overwritePartitions` run in Fabric.
 
 Calls that only change how Spark spreads or keeps work across a cluster (`repartition`, `coalesce`, `persist`, `cache`, `checkpoint`, `hint`) are accepted and do nothing, since everything runs in one process here. `spark.catalog` answers about temp views and the attached lakehouse: `tableExists`, `listColumns` (which marks a lakehouse table's partition columns, from its Delta log), `currentDatabase` (the lakehouse's name; refused for a lakehouse with schemas or no lakehouse) and `setCurrentDatabase`. `listTables` lists the attached lakehouse's tables (by schema for a lakehouse with schemas), this session's temp views and, for `global_temp`, its global temp views; `listDatabases` lists the lakehouse's schemas (or the lakehouse itself without schemas); `listCatalogs` gives `spark_catalog`; and `listFunctions` lists Spark's built-in functions and this session's Python UDFs. Each takes Spark's `pattern` (`*` and `|`), and none lists DuckDB's own objects. `spark.sql` takes parameters as PySpark 3.5 does: `args` binds `:name` markers (a dict) or `?` markers (a list) as typed values that can't change the query, and keyword arguments fill `{name}` fields, with a DataFrame read through a temporary view, a plain column by its name and text as a quoted string. In SQL, `current_catalog()` is `spark_catalog` and `current_timezone()` is the session's `spark.sql.session.timeZone`, as in Fabric. `current_database()` and `current_schema()` are refused by name, since a SQL cell here would name DuckDB's own database; use `spark.catalog.currentDatabase()`. The tables below are generated from the code (`spark_api.coverage_markdown()`), and a test fails if they fall out of step.
 
@@ -166,7 +185,7 @@ data). `semanticHash()` is this PC's own number for that plan, not the one Spark
 query the first time it's read, where Spark computes it during the first action. `observe` with a name and
 `spark.streams` (listeners, the query manager) are refused by name: they run in Fabric.
 
-### DataFrame: 89 of 102
+### DataFrame: 98 of 102
 
 | Method | On this PC |
 | --- | --- |
@@ -201,14 +220,14 @@ query the first time it's read, where Spark computes it during the first action.
 | `fillna` | Works |
 | `filter` | Works |
 | `first` | Works |
-| `foreach` | Runs in Fabric: row-by-row Python runs in Fabric |
-| `foreachPartition` | Runs in Fabric: runs in Fabric |
-| `freqItems` | Not yet on this PC |
+| `foreach` | Works |
+| `foreachPartition` | Works |
+| `freqItems` | Works |
 | `groupBy` | Works |
 | `groupby` | Works |
 | `head` | Works |
 | `hint` | Accepted, does nothing on one PC |
-| `inputFiles` | Not yet on this PC |
+| `inputFiles` | Works |
 | `intersect` | Works |
 | `intersectAll` | Works |
 | `isEmpty` | Works |
@@ -217,8 +236,8 @@ query the first time it's read, where Spark computes it during the first action.
 | `join` | Works |
 | `limit` | Works |
 | `localCheckpoint` | Accepted, does nothing on one PC |
-| `mapInArrow` | Runs in Fabric: runs in Fabric |
-| `mapInPandas` | Runs in Fabric: runs in Fabric |
+| `mapInArrow` | Works |
+| `mapInPandas` | Works |
 | `melt` | Works |
 | `na` | Works |
 | `observe` | Works |
@@ -251,7 +270,7 @@ query the first time it's read, where Spark computes it during the first action.
 | `summary` | Works |
 | `tail` | Works |
 | `take` | Works |
-| `to` | Not yet on this PC |
+| `to` | Works |
 | `toDF` | Works |
 | `toJSON` | Works |
 | `toLocalIterator` | Works |
@@ -267,11 +286,11 @@ query the first time it's read, where Spark computes it during the first action.
 | `withColumnRenamed` | Works |
 | `withColumns` | Works |
 | `withColumnsRenamed` | Works |
-| `withMetadata` | Not yet on this PC |
+| `withMetadata` | Works |
 | `withWatermark` | Runs in Fabric: streaming runs in Fabric |
 | `write` | Works |
 | `writeStream` | Works |
-| `writeTo` | Not yet on this PC |
+| `writeTo` | Works |
 
 ### SparkSession: 15 of 17
 
@@ -300,4 +319,4 @@ query the first time it's read, where Spark computes it during the first action.
 
 **Runs on** knows what this PC's Spark refuses, from the same list the run uses, so a notebook that uses any of it shows as running in Fabric only before you run it ([where a notebook runs](notebooks.md#where-a-notebook-runs)).
 
-RDDs, Python UDFs, row-by-row Python (`foreach`, `mapInPandas`), pandas-on-Spark, continuous and Kafka or Event Hubs streams ([streaming on this PC](notebooks.md#fabric-notebook-code-on-this-pc) runs as availableNow), Scala and R run in Fabric. A notebook that uses them can still be edited here and run with **Runs on: Fabric** ([where a notebook runs](notebooks.md#where-a-notebook-runs)).
+RDDs, Java UDFs, UDTFs, pandas-on-Spark, continuous and Kafka or Event Hubs streams ([streaming on this PC](notebooks.md#fabric-notebook-code-on-this-pc) runs as availableNow), Scala and R run in Fabric. A notebook that uses them can still be edited here and run with **Runs on: Fabric** ([where a notebook runs](notebooks.md#where-a-notebook-runs)).

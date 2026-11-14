@@ -101,6 +101,7 @@ def test_describe_history_and_delta_tables(lake):
                                   "from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'dbo.sales').restoreToVersion(0)",
                                   "from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'dbo.sales').vacuum()"])
 def test_changes_through_time_travel_are_refused_and_the_table_is_untouched(lake, code):
+    # They run here only when the app allows it (test_spark_maint.py); with no app to ask, nothing changes.
     status, text = run(code)
-    assert status == "error" and "Fabric" in text
+    assert status == "error" and "only inside KratosForge" in text
     assert DeltaTable(str(lake / "dbo" / "sales")).version() == 2

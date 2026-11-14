@@ -294,7 +294,7 @@ def _is_sql(c: dict[str, Any]) -> bool:
 # ---- where a notebook can run
 
 # The notebookutils parts that need Fabric, after "notebookutils." (or "mssparkutils.").
-_UTILS_FABRIC = (r"(fs\.(mount|unmount)|lakehouse\.(create|update|delete|loadTable)|notebook\.(create|update|updateDefinition|delete)\b|"
+_UTILS_FABRIC = (r"(fs\.(mount|unmount)|lakehouse\.(create|update|delete)|notebook\.(create|update|updateDefinition|delete)\b|"
                  r"warehouse|udf|connections)\b")
 _UTILS_TEXT = "uses Fabric notebook utilities that need Fabric"
 
@@ -611,8 +611,9 @@ def _spark_refused(node: ast.Call, values: dict[str, list[ast.expr | None]],
         return
     method, links = node.func.attr, _chain(node)
     names = [n for n, _ in links]
-    if method in sl.DELTA_CHANGES and _is_delta_table(node.func.value, values):
-        out["fabric"].append((line, sl.DELTA_CHANGE_TEXT.format(method)))
+    if method in sl.DELTA_MAINTENANCE and _is_delta_table(node.func.value, values):
+        if not sl.lakehouse._setting("show_preview", True):
+            out["fabric"].append((line, sl.MAINTENANCE_PREVIEW_TEXT.format(f"DeltaTable.{method}")))
         return
     if "write" in names[1:] and method in ("option", "options"):
         keys = [_text(node.args[0]) if node.args else None] if method == "option" else \

@@ -96,6 +96,8 @@ def no_lakehouse_left_attached(monkeypatch):
     depending on which file ran before it."""
     from fabric_desktop import lakehouse
     monkeypatch.setattr(lakehouse, "_attached", None)
+    # Likewise the maintenance guard a Service sets: without the app, OPTIMIZE, VACUUM and RESTORE fail closed.
+    monkeypatch.setattr(lakehouse, "maintenance_guard", None)
 
 
 @pytest.fixture(autouse=True)

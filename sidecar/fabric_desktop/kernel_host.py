@@ -132,6 +132,8 @@ class Host:
                 history_file=Path(context["history_file"]) if context.get("history_file") else None,
                 schemas_enabled=schemas_enabled))
         setattr(lh, "write_guard", (lambda name, schema, table: self.channel.call("write_guard", name, schema, table)) if guard else None)  # noqa: B010 - a module hook
+        # OPTIMIZE, VACUUM and RESTORE ask the engine every time: it knows the workspaces (and refuses when it can't say).
+        setattr(lh, "maintenance_guard", lambda op, workspace_id, table: self.channel.call("maintenance_guard", op, workspace_id, table))  # noqa: B010 - a module hook
         return True
 
     def bind_proof(self, config: dict[str, Any], side: str, root: str) -> bool:

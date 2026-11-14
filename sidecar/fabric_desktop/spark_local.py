@@ -19,10 +19,11 @@ import json
 import os
 import re
 import sys
+import datetime
 import tempfile
 import threading
 import weakref
-from typing import Any, Callable, NoReturn
+from typing import Any, NamedTuple, NoReturn
 
 import duckdb
 import pyarrow as pa
@@ -37,8 +38,6 @@ from . import lakehouse, spark_api, spark_compat, spark_infer, sql as _sql, sql_
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
 from .duckdb_rows import first_row, keep_try_cast
 from .spark_decimals import spark_decimal_types
-
-_RESTORE = re.compile(r"^\s*RESTORE\s+(TABLE\s+)?", re.I)
 
 
 def _arrow(df: DataFrame) -> pa.Table:
@@ -448,10 +447,8 @@ CHECKED_REFUSALS = {
     "_no_schema": "read.schema() on a read of a table or text files (READ_SCHEMA_ON)",
     "_statement": "sql_refusal: INSERT with PARTITION or REPLACE WHERE",
     "forPath": "DeltaTable.forPath of a literal path outside Tables/ (REFUSED_CODE)",
-    "_in_fabric": "restoreToVersion, restoreToTimestamp, vacuum or optimize on a DeltaTable (DELTA_CHANGES)",
-    "_catalog_call_in_fabric": ("spark.catalog.listTables, listDatabases, listCatalogs or listFunctions (REFUSED_CODE). "
-                                "currentDatabase is refused only with no lakehouse or one with schemas, which the "
-                                "check doesn't know, so it isn't flagged"),
+    "_catalog_call_in_fabric": ("spark.catalog.currentDatabase, refused only with no lakehouse or one with schemas, "
+                                "which the check doesn't know, so it isn't flagged"),
     "_refusal": ("a CSV, JSON or Parquet read option this PC doesn't take, a non-UTF-8 encoding, a CSV mode "
                  "without a schema, a JSON mode it has no match for, or a Parquet rebase mode other than CORRECTED "
                  "(read_option_refusal)"),
@@ -462,12 +459,10 @@ _IN_FABRIC_TEXT = "{}, which runs in Fabric (this PC's Spark refuses it)"
 REFUSED_CODE: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"""\bDeltaTable\.forPath\(\s*[^,()]+,\s*[rRuU]?["'](?![^"']*Tables/)"""),
      "opens DeltaTable.forPath outside the lakehouse's Tables/, which this PC's Spark refuses (use DeltaTable.forName)"),
-    (re.compile(r"\bcatalog\.(listTables|listDatabases|listCatalogs|listFunctions)\("),
-     _IN_FABRIC_TEXT.format("lists the catalog with spark.catalog (_catalog_calls)")),
 ]
-# DeltaTable methods that change the table, which this PC refuses (LocalDeltaTable._in_fabric).
-DELTA_CHANGES = ("restoreToVersion", "restoreToTimestamp", "vacuum", "optimize")
-DELTA_CHANGE_TEXT = _IN_FABRIC_TEXT.format("changes a Delta table with DeltaTable.{}")
+# DeltaTable maintenance (spark_maint, Preview): runs on this PC only with Preview features on (_preview_on).
+DELTA_MAINTENANCE = ("restoreToVersion", "restoreToTimestamp", "vacuum", "optimize")
+MAINTENANCE_PREVIEW_TEXT = "runs {}, which this PC runs only with Preview features on"
 # For a cell Python can't read: the refused writer options that only a writer takes (a reader's
 # "path" option is fine, so it isn't here). A cell Python reads goes through writer_option_refusal.
 REFUSED_OPTION_TEXT = re.compile(r"""\.option\(\s*["'](replaceWhere)["']""", re.I)
@@ -503,8 +498,15 @@ def sql_refusal(query: str) -> tuple[str, str] | None:
     from sqlglot import exp
 
     head = delta_dml_comments.sub("", query)
-    if _RESTORE.match(head):
-        return "blocked", _IN_FABRIC_TEXT.format("restores a table to an older version (RESTORE)")
+    from . import spark_maint
+    if (maint := spark_maint.STARTS.match(head)) is not None:
+        if not lakehouse._setting("show_preview", True):
+            return "blocked", MAINTENANCE_PREVIEW_TEXT.format(maint.group(1).upper())
+        try:
+            spark_maint.statement(head)
+        except ValueError as exc:
+            return "blocked", f"runs {str(exc).split('. ')[0]}, which this PC's Spark refuses otherwise"
+        return None
     try:
         trees = [t for t in sql_dialects.parse(query, read="spark") if t is not None]
     except sqlglot.errors.SqlglotError:
@@ -585,6 +587,21 @@ def _use_parts(kind: str, parts: list[str], call: str = "") -> None:
                      f"Name the schema in each table instead ({parts[-1]}.table).")
 
 
+class _CatalogMetadata(NamedTuple):
+    name: str
+    description: str | None
+
+
+def _list_dirs(directory: str) -> list[dict[str, Any]]:
+    """The folders in a lakehouse folder (tables under Tables/, or schemas), not _delta_log or other files."""
+    lh = lakehouse._attached
+    if lh is None:
+        return []
+    from .onelake import FileStore
+    entries = FileStore(lh.storage_token).list(lh.workspace_id, lh.lakehouse_id, directory)
+    return sorted((e for e in entries if e.get("is_dir") and not e["name"].startswith(("_", "."))), key=lambda e: e["name"].lower())
+
+
 def _catalog_call_in_fabric(call: str, why: str) -> NoReturn:
     raise NotImplementedError(f"spark.catalog.{call} runs in Fabric. {why}")
 
@@ -592,11 +609,8 @@ def _catalog_call_in_fabric(call: str, why: str) -> NoReturn:
 def _catalog_calls(session: LocalSparkSession) -> dict[str, Any]:
     """spark.catalog on this PC. DuckDB's Catalog answers about its own connection (its databases memory,
     system and temp; its own tables), which isn't what a notebook asks, so each call answers about the
-    attached lakehouse and this session's temp views, or is refused by name."""
+    attached lakehouse and this session's temp views (currentDatabase is refused when it can't say)."""
     from duckdb.experimental.spark.sql.catalog import Column
-
-    def refuse(call: str, why: str) -> Callable[..., Any]:
-        return lambda *_a, **_kw: _catalog_call_in_fabric(call, why)
 
     def list_columns(tableName: str, dbName: str | None = None) -> list[Column]:  # noqa: N803
         name = f"{dbName}.{tableName}" if dbName else tableName
@@ -621,8 +635,70 @@ def _catalog_calls(session: LocalSparkSession) -> dict[str, Any]:
     def set_database(dbName: str) -> None:  # noqa: N803
         _use_parts("SCHEMA", lakehouse.name_parts(dbName), f"spark.catalog.setCurrentDatabase({dbName!r})")
 
-    lists = ("On this PC it would list DuckDB's own objects, not the lakehouse's. The Explorer lists the attached "
-             "lakehouse's tables, and notebookutils.lakehouse.listTables() reads them.")
+    from duckdb.experimental.spark.sql.catalog import Database, Function, Table
+
+    def temp_views() -> list[str]:
+        """This session's temp views, not the views the session makes for lakehouse tables or its own work."""
+        own = {v.lower() for v in session._bound().values()}
+        rows = session.conn.execute("SELECT view_name FROM duckdb_views() WHERE NOT internal ORDER BY view_name").fetchall()
+        return [name for (name,) in rows if name.lower() not in own and not name.startswith(("__kf_", "fd_", "_fd_"))]
+
+    def lakehouse_tables(schema: str | None) -> list[tuple[str, str]]:
+        """(schema or lakehouse name, table) for each Delta table in the attached lakehouse's Tables folder."""
+        lh = lakehouse._attached
+        if lh is None:
+            return []
+        out = []
+        if lh.schemas_enabled():
+            schemas = [schema] if schema else [e["name"] for e in _list_dirs("Tables")]
+            for sch in schemas:
+                out += [(sch, e["name"]) for e in _list_dirs(f"Tables/{sch}")]
+        else:
+            if schema and schema.lower() != lh.name.lower():
+                return []
+            out = [(lh.name, e["name"]) for e in _list_dirs("Tables")]
+        return out
+
+    def matches(name: str, pattern: str | None) -> bool:
+        """Spark's catalog pattern: * is any text, | separates alternatives, case-insensitive."""
+        if not pattern:
+            return True
+        # Only * is special; anything else (a "(" or "+") is literal text, so no pattern can fail to compile.
+        return any(re.fullmatch(".*".join(re.escape(part) for part in p.strip().split("*")), name, re.I)
+                   for p in str(pattern).split("|"))
+
+    def list_tables(dbName: str | None = None, pattern: str | None = None) -> list[Table]:  # noqa: N803
+        found = [Table(name=t, database=db, description=None, tableType="MANAGED", isTemporary=False)
+                 for db, t in lakehouse_tables(dbName)]
+        if dbName is None or dbName.lower() == spark_api.GLOBAL_TEMP:
+            prefix = spark_api.GLOBAL_PREFIX
+            rows = session.conn.execute("SELECT view_name FROM duckdb_views() WHERE NOT internal").fetchall()
+            if dbName is not None:
+                found = []
+            found += [Table(name=n[len(prefix):], database=spark_api.GLOBAL_TEMP, description=None,
+                            tableType="TEMPORARY", isTemporary=True) for (n,) in sorted(rows) if n.startswith(prefix)]
+        if dbName is None:
+            found += [Table(name=v, database=None, description=None, tableType="TEMPORARY", isTemporary=True)
+                      for v in temp_views()]
+        return [t for t in found if matches(t.name, pattern)]
+
+    def list_databases(pattern: str | None = None) -> list[Database]:
+        lh = lakehouse._attached
+        if lh is None:
+            return []
+        names = [e["name"] for e in _list_dirs("Tables")] if lh.schemas_enabled() else [lh.name]
+        return [Database(name=n, description=None, locationUri=f"Tables/{n}" if lh.schemas_enabled() else "Tables")
+                for n in names if matches(n, pattern)]
+
+    def list_functions(dbName: str | None = None, pattern: str | None = None) -> list[Function]:  # noqa: N803, ARG001
+        from .spark_coverage import load
+        names = {f["name"] for f in load()}
+        out = [Function(name=n, description=None, className="", isTemporary=True) for n in sorted(names)]
+        # This session's Python UDFs, once spark_udf is loaded (it registers them).
+        udfs = getattr(sys.modules.get(f"{__package__}.spark_udf"), "_registered", {})
+        out += [Function(name=n, description=None, className="python", isTemporary=True) for n in sorted(udfs)]
+        return [f for f in out if matches(f.name, pattern)]
+
     return {
         "tableExists": lambda tableName, dbName=None: spark_api.table_exists(session, tableName, dbName),  # noqa: N803
         "dropTempView": lambda viewName: spark_api.drop_view(session, viewName),  # noqa: N803
@@ -631,11 +707,10 @@ def _catalog_calls(session: LocalSparkSession) -> dict[str, Any]:
         "currentCatalog": lambda: "spark_catalog",
         "setCurrentCatalog": set_catalog,
         "setCurrentDatabase": set_database,
-        "listTables": refuse("listTables", lists),
-        "listDatabases": refuse("listDatabases", lists),
-        "listCatalogs": refuse("listCatalogs", "On this PC a notebook has one catalog: the attached lakehouse."),
-        "listFunctions": refuse("listFunctions", "docs/spark-functions.md lists every Spark function and how it "
-                                                 "runs on this PC."),
+        "listTables": list_tables,
+        "listDatabases": list_databases,
+        "listCatalogs": lambda pattern=None: [c for c in [_CatalogMetadata("spark_catalog", None)] if matches(c.name, pattern)],
+        "listFunctions": list_functions,
         "currentDatabase": current_database,
     }
 
@@ -1101,9 +1176,13 @@ class LocalSparkSession(SparkSession):
             key, value = setting["key"], setting["value"].strip().strip("'\"")
             self.conf.set(key, value)
             return self.createDataFrame([(key, value)], ["key", "value"])
-        if _RESTORE.match(head):
-            raise ValueError("RESTORE rewrites a table to an older version, which runs in Fabric. On this PC, read the "
-                             "older version (SELECT * FROM t VERSION AS OF n) and overwrite the table with it if you mean to.")
+        from . import spark_maint
+        spec = spark_maint.statement(head)  # OPTIMIZE, VACUUM, RESTORE (Preview), as the only statement
+        if spec is not None:
+            answer, note = spark_maint.run(spec)
+            if note:
+                print(f"Note: {note}")
+            return self._from_arrow_dataset(answer)
         evolve = bool(_SCHEMA_EVOLUTION.match(head))
         if evolve:  # MERGE WITH SCHEMA EVOLUTION INTO: the MERGE adds the source's new columns (Preview)
             sqlQuery = _SCHEMA_EVOLUTION_WORDS.sub(" ", head, count=1)
@@ -1574,15 +1653,23 @@ class LocalDeltaTable:
                "createdAt": [meta.created_time], "properties": [str(meta.configuration)]}
         return session()._from_arrow_dataset(pa.table(row))
 
-    def _in_fabric(self, what: str) -> Any:
-        raise NotImplementedError(f"DeltaTable.{what} changes the table, which runs in Fabric. On this PC, read "
-                                  "with spark.read and write with df.write.saveAsTable.")
+    def _maintain(self, spec: dict[str, Any]) -> DataFrame:
+        from . import spark_maint
+        answer, note = spark_maint.run({"table": self._name} | spec)
+        if note:
+            print(f"Note: {note}")
+        return session()._from_arrow_dataset(answer)
 
-    def restoreToVersion(self, version: int) -> Any:  # noqa: N802, ARG002
-        return self._in_fabric("restoreToVersion")
+    def restoreToVersion(self, version: int) -> DataFrame:  # noqa: N802
+        """RESTORE to ``version`` (Preview): one new commit that brings back that version's rows."""
+        return self._maintain({"operation": "restore", "version": int(version)})
 
-    def restoreToTimestamp(self, timestamp: str) -> Any:  # noqa: N802, ARG002
-        return self._in_fabric("restoreToTimestamp")
+    def restoreToTimestamp(self, timestamp: Any) -> DataFrame:  # noqa: N802
+        from . import spark_maint
+        when = timestamp if isinstance(timestamp, datetime.datetime) else spark_maint.parse_timestamp(str(timestamp))
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=datetime.timezone.utc)
+        return self._maintain({"operation": "restore", "timestamp": when})
 
     def merge(self, source: Any, condition: Any) -> LocalMergeBuilder:
         _preview_on("DeltaTable.merge")
@@ -1604,11 +1691,38 @@ class LocalDeltaTable:
         where = f" WHERE {_sql_text(condition)}" if condition is not None else ""
         session().sql(f"DELETE FROM {self._name}{f' AS {self._alias}' if self._alias else ''}{where}")
 
-    def vacuum(self, *_a: Any, **_kw: Any) -> Any:
-        return self._in_fabric("vacuum")
+    def vacuum(self, retentionHours: float | None = None) -> DataFrame:  # noqa: N803
+        """VACUUM (Preview), keeping at least 7 days of history, or the table's own retention when longer."""
+        return self._maintain({"operation": "vacuum", "retain_hours": retentionHours})
 
-    def optimize(self, *_a: Any, **_kw: Any) -> Any:
-        return self._in_fabric("optimize")
+    def optimize(self) -> LocalOptimizeBuilder:
+        """OPTIMIZE (Preview): ``.where("part = 'v'")`` then ``executeCompaction()`` or ``executeZOrderBy(cols)``."""
+        return LocalOptimizeBuilder(self)
+
+
+class LocalOptimizeBuilder:
+    """delta-spark's DeltaOptimizeBuilder on this PC."""
+
+    def __init__(self, table: LocalDeltaTable):
+        self._table, self._where = table, ""
+
+    def where(self, partitionFilter: str) -> LocalOptimizeBuilder:  # noqa: N803
+        self._where = f"{self._where} AND ({partitionFilter})" if self._where else str(partitionFilter)
+        return self
+
+    def _run(self, zorder: list[str] | None) -> DataFrame:
+        from . import spark_maint
+        where = spark_maint._partition_filters(self._where.replace("(", "").replace(")", "")) if self._where else None
+        return self._table._maintain({"operation": "optimize", "where": where, "zorder": zorder})
+
+    def executeCompaction(self) -> DataFrame:  # noqa: N802
+        return self._run(None)
+
+    def executeZOrderBy(self, *cols: Any) -> DataFrame:  # noqa: N802
+        names = [c for group in cols for c in (group if isinstance(group, (list, tuple)) else [group])]
+        if not names:
+            raise ValueError("executeZOrderBy needs at least one column.")
+        return self._run([str(c) for c in names])
 
 
 def _sql_text(value: Any) -> str:

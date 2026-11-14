@@ -13,7 +13,7 @@ the session side:
 - ``spark.catalog.tableExists`` against the attached lakehouse (and temp views).
 - DataFrame: isEmpty, tail, explain, createTempView, toLocalIterator, offset, corr / cov /
   approxQuantile / stat, randomSplit, sortWithinPartitions, rdd / isLocal / sparkSession.
-- RDDs, foreach and row-by-row Python raise with a pointer to Fabric.
+- RDDs raise with a pointer to Fabric.
 
 COVERAGE lists PySpark 3.5's DataFrame and SparkSession methods and whether each works here;
 docs/notebook-spark-on-this-pc.md is generated from it (tests keep the two in step).
@@ -455,8 +455,8 @@ class _Stat:
 
 
 def _rdd(self: DataFrame, *_a: Any, **_kw: Any) -> Any:
-    raise NotImplementedError("RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in "
-                              "Fabric. On this PC, use DataFrame methods, SQL or toPandas().")
+    raise NotImplementedError("RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), "
+                              "or foreach, foreachPartition and mapInPandas, which run here.")
 
 
 ADDED: dict[str, Any] = {
@@ -512,8 +512,7 @@ PYSPARK_SESSION = (
 
 # Why a method isn't here, when it isn't.
 NOT_HERE = {
-    "rdd": "RDDs run in Fabric", "foreach": "row-by-row Python runs in Fabric", "foreachPartition": "runs in Fabric",
-    "mapInPandas": "runs in Fabric", "mapInArrow": "runs in Fabric",
+    "rdd": "RDDs run in Fabric",
     "withWatermark": "streaming runs in Fabric", "dropDuplicatesWithinWatermark": "streaming runs in Fabric",
     "streams": "streaming runs in Fabric",
     "udtf": "Python UDTFs run in Fabric", "pandas_api": "pandas-on-Spark runs in Fabric; use toPandas()",
@@ -537,6 +536,8 @@ def coverage() -> list[dict[str, str]]:
     install()
     spark_stream.install()  # readStream, writeStream and isStreaming, as a notebook has them
     spark_df_extras.install()  # persist, storageLevel, sameSemantics, observe
+    from . import spark_map
+    spark_map.install()  # mapInPandas, mapInArrow, foreach, foreachPartition
     rows = []
     for area, names, owner in (("DataFrame", PYSPARK_DATAFRAME, DataFrame), ("SparkSession", PYSPARK_SESSION, LocalSparkSession)):
         for name in names:

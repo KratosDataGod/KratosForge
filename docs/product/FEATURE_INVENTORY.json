@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "6cab0dc397f9c6b358ad0fc0b8fbddd370219260",
+    "commit": "af7d786bfe11fb22b0e0e06237bc19f6d323c960",
     "date": "2026-11-13",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
@@ -58,7 +58,9 @@
       "Product check 2026-11-11 23:42 at 86c07814d99d1cccc600cb9bcbb16636ecd6eab2: 19 PRs merged after 47416473; 2 were product data or docs audit PRs and the other 17 were linked by title; other rows were not re-read.",
       "Product check 2026-11-12 11:42 at 7c3dbd0ecb12dab92e4149d269293f922499cb00: 18 PRs merged after 86c07814; 1 were product data or docs audit PRs and the other 17 were linked by title; other rows were not re-read.",
       "Product check 2026-11-12 23:42 at 36844275c10e87af9085f113a2f7a90e4290fb41: 16 PRs merged after 7c3dbd0e; 1 were product data or docs audit PRs and the other 15 were linked by title; other rows were not re-read.",
-      "Product check 2026-11-13 11:42 at 6cab0dc397f9c6b358ad0fc0b8fbddd370219260: 8 PRs merged after 36844275; 2 were product data or docs audit PRs and the other 6 were linked by title; other rows were not re-read."
+      "Product check 2026-11-13 11:42 at 6cab0dc397f9c6b358ad0fc0b8fbddd370219260: 8 PRs merged after 36844275; 2 were product data or docs audit PRs and the other 6 were linked by title; other rows were not re-read.",
+      "Acceptance of PB-073 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-13 12:39 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp3ZUBsK6r4QNz6DBouE86Ey). PB-136 stays Proposed, waiting on a Windows trial and the product owner's go.",
+      "Product check 2026-11-13 23:42 at af7d786bfe11fb22b0e0e06237bc19f6d323c960: 38 PRs merged after 6cab0dc3; 3 were product data or docs audit PRs and the other 35 were linked by title; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -157,6 +159,7 @@
         2188,
         2191,
         2196,
+        2198,
         2205,
         2207,
         2220,
@@ -238,7 +241,8 @@
         2547,
         2548,
         2558,
-        2567
+        2567,
+        2586
       ]
     },
     {
@@ -433,6 +437,8 @@
         1967,
         2056,
         2201,
+        2202,
+        2203,
         2211,
         2213,
         2215,
@@ -445,7 +451,9 @@
         2290,
         2410,
         2411,
-        2503
+        2503,
+        2600,
+        2602
       ]
     },
     {
@@ -690,7 +698,10 @@
         1441,
         1474,
         1685,
-        2569
+        2305,
+        2569,
+        2577,
+        2585
       ],
       "workstream": "Enterprise readiness (FD-105)",
       "next_action": "Missing keys through the enterprise program (PB-061); #569 closed the ten audit bugs #411 to #420.",
@@ -900,7 +911,8 @@
         1679,
         1870,
         2433,
-        2457
+        2457,
+        2599
       ]
     },
     {
@@ -1386,7 +1398,8 @@
         1871,
         1897,
         2037,
-        2054
+        2054,
+        2524
       ]
     },
     {
@@ -2407,7 +2420,8 @@
         115,
         1209,
         1212,
-        1215
+        1215,
+        2601
       ],
       "workstream": "Prove (FD-110)",
       "next_action": "Make it the default after a Windows trial; add per-cell time and memory limits (Prove FD-110).",
@@ -2600,7 +2614,13 @@
         2539,
         2551,
         2553,
-        2561
+        2561,
+        2581,
+        2584,
+        2589,
+        2594,
+        2597,
+        2608
       ]
     },
     {
@@ -3148,7 +3168,12 @@
         2502,
         2519,
         2528,
-        2542
+        2542,
+        2582,
+        2583,
+        2587,
+        2596,
+        2598
       ],
       "workstream": "SQL development sprint",
       "next_action": "SQL editor rows are tracked by the warehouse program now (WH-08 Messages and Chart merged).",
@@ -5863,9 +5888,12 @@
         2147,
         2163,
         2165,
+        2217,
         2425,
         2428,
-        2468
+        2468,
+        2593,
+        2607
       ],
       "workstream": "Administration and FinOps sprint (FINOPS-001)",
       "next_action": "Calibrate against the Capacity Metrics app and label every number (PB-050)",
@@ -8429,7 +8457,8 @@
         681,
         716,
         758,
-        777
+        777,
+        2592
       ],
       "workstream": "TMDL and OSI semantic model conversion",
       "limitations": [
@@ -8810,7 +8839,9 @@
         2304,
         2318,
         2395,
+        2435,
         2437,
+        2438,
         2441,
         2445,
         2447,

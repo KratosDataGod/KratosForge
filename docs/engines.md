@@ -70,7 +70,7 @@ SQLite refuses ATTACH and DETACH, so a cell can't create or open another databas
 reads the files a cell names with read_parquet or read_csv, and never writes one.
 
 The Python engine uses the notebook's own session (the same process **Stop** ends), so it needs
-**Run notebooks in their own process** turned on in Settings. With it off every notebook shares one
+**Run notebooks in their own process** (on by default in Settings). With it off every notebook shares one
 kernel, and a notebook sharing another notebook's session shares its process too; in both cases the
 engine says what to change instead of running.
 
@@ -250,6 +250,8 @@ shares with Spark 3.5 the same way, each run through a Databricks SQL cell's tra
 current by CI.
 
 Translated Spark SQL and Databricks SQL run with the session time zone set to UTC, the default for Spark sessions in Fabric and Databricks, so a timestamp reads the same here as there whatever this PC's time zone. DuckDB SQL cells keep the session's own zone.
+
+Casts to STRING write a timestamp as Spark does, in the session time zone with no offset (`2026-01-02 03:04:05`), and a double or float as Java writes it (`1.0E20`), in Spark SQL, Databricks SQL and `F.expr`. `Column.cast("string")` writes the timestamp the same way; a double there keeps DuckDB's text (`1e+20`). A timestamp joined to text with `concat` or `||` still gets DuckDB's `+00`: cast it first.
 
 Casts to TINYINT, SMALLINT, INT or BIGINT answer as Spark does, in Spark SQL, Databricks SQL, `F.expr` and `Column.cast`: a fraction is truncated (`CAST(3.7 AS INT)` is 3, not 4), and text is read as Spark reads it (`CAST('1.9' AS INT)` is 1 with ANSI off, NULL for `try_cast`, and stops in Databricks SQL's ANSI `CAST`).
 

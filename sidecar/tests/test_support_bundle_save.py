@@ -97,3 +97,13 @@ def test_reveal_shows_only_a_support_bundle(svc, tmp_path, monkeypatch):
         with pytest.raises(FileNotFoundError):
             svc.support_bundle_reveal(bad)
     assert len(shown) == 1
+
+
+def test_the_bundle_and_the_save_dialog_say_what_is_kept_in_the_same_words(svc):
+    import re
+    src = (Path(__file__).resolve().parents[2] / "app" / "ui" / "settings.js").read_text(encoding="utf-8")
+    parts = re.search(r"const BUNDLE_KEPT = ((?:\"[^\"]*\"\s*\+?\s*)+);", src)
+    assert parts, "settings.js has no BUNDLE_KEPT"
+    assert "".join(re.findall(r"\"([^\"]*)\"", parts.group(1))) == support_bundle.KEPT
+    contents = svc.support_bundle_preview()["contents"]
+    assert " ".join(contents.split()).count(support_bundle.KEPT) == 1

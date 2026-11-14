@@ -23,6 +23,23 @@ const RISKY = { ok: true, target: "prod", digest: "d-risky", destructive: 1, pro
 let app;
 const page = () => app.page;
 const sent = (m) => app.calls.filter((c) => c.method === m).map((c) => c.params);
+// The tab is drawn again ("Reading databricks.yml…", then the same state) whenever the page refreshes,
+// so one read can land mid-redraw. These poll in the page until what's drawn matches, read it in that
+// same step, and fall back to a plain read on timeout so a real failure still shows what was there.
+const settledRows = async (sel, want) => {
+  const got = await page().waitForFunction(([s, w]) => {
+    const rows = [...document.querySelectorAll(s)].map((e) => e.textContent);
+    return JSON.stringify(rows) === w && rows;
+  }, [sel, JSON.stringify(want)], { timeout: 10000 }).catch(() => null);
+  return got ? got.jsonValue() : page().locator(sel).allTextContents();
+};
+const settledText = async (sel, re) => {
+  const got = await page().waitForFunction(([s, src, flags]) => {
+    const text = document.querySelector(s)?.textContent ?? "";
+    return new RegExp(src, flags).test(text) && text;
+  }, [sel, re.source, re.flags], { timeout: 10000 }).catch(() => null);
+  return got ? got.jsonValue() : (await page().locator(sel).first().textContent({ timeout: 1000 }).catch(() => ""));
+};
 
 before(async () => {
   if (skip) return;
@@ -56,12 +73,9 @@ test("the Bundles tab reads the targets; Validate and Plan send no deploy", { sk
   assert.strictEqual(await page().locator('.dbx-bundles select[aria-label="Target"]').inputValue(), "dev");
   assert.ok(await page().locator(".dbx-bundles button", { hasText: "Deploy to dev" }).isDisabled());
   await page().locator(".dbx-bundles button", { hasText: "Validate" }).click();
-  // The tab can be drawn again while a result arrives: wait for the result's text, then read it (as below).
-  await page().locator(".dbx-valid", { hasText: /1 warning.*unknown field/ }).waitFor();
-  assert.match(await page().locator(".dbx-valid").textContent(), /1 warning.*unknown field/);
+  assert.match(await settledText(".dbx-valid", /1 warning.*unknown field/), /1 warning.*unknown field/);
   await page().locator(".dbx-bundles button", { hasText: "Plan" }).click();
-  await page().locator(".dbx-plan tbody tr", { hasText: "nightly_sales" }).waitFor();
-  assert.deepStrictEqual(await page().locator(".dbx-plan tbody tr").allTextContents(), ["Updatejobnightly_sales"]);
+  assert.deepStrictEqual(await settledRows(".dbx-plan tbody tr", ["Updatejobnightly_sales"]), ["Updatejobnightly_sales"]);
   assert.deepStrictEqual(sent("databricks_bundle_plan"), [{ folder: REPO, target: "dev", connection: "cli:dev", allow_commands: "" }]);
   assert.deepStrictEqual(sent("databricks_bundle_deploy"), []);
 });
@@ -78,9 +92,8 @@ test("a safe plan deploys after a plain confirm, with the plan's digest", { skip
 test("a plan that deletes, on production, needs the target typed; Cancel sends nothing", { skip }, async () => {
   await page().locator('.dbx-bundles select[aria-label="Target"]').selectOption("prod");
   await page().locator(".dbx-bundles button", { hasText: "Plan" }).click();
-  // The tab can be drawn again after a deploy ("Reading databricks.yml…"): wait for the plan's warning, then read it.
-  await page().locator(".dbx-bundles", { hasText: /prod is a production target.*deletes or rebuilds 1 resource/ }).waitFor();
-  assert.match(await page().locator(".dbx-bundles").textContent(), /prod is a production target.*deletes or rebuilds 1 resource/);
+  const warn = /prod is a production target.*deletes or rebuilds 1 resource/;
+  assert.match(await settledText(".dbx-bundles", warn), warn);
   await page().locator(".dbx-bundles button", { hasText: "Deploy to prod" }).click();
   const ok = page().locator("#dialog-root button", { hasText: "Deploy to prod" });
   assert.ok(await ok.isDisabled());

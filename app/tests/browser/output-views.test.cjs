@@ -158,7 +158,7 @@ test("Clean sends exactly the steps shown and the displayed variable's name, and
   await showResult("Clean");
   await result().getByText("6 rows before, 6 rows after.").waitFor();
   const wr = () => app.calls.slice(from).filter((c) => c.method === "notebook_frame_wrangle").map((c) => c.params);
-  assert.deepStrictEqual(wr(), [{ frame: "f1", steps: [], name: "sales" }], "opening asks for no steps, on the variable display() showed");
+  assert.deepStrictEqual(wr(), [{ frame: "f1", notebook: "Output views", steps: [], name: "sales" }], "opening asks for no steps, on the variable display() showed");
 
   // Add: Filter rows where region equals West.
   await result().getByRole("combobox", { name: "Add a step" }).selectOption("filter");
@@ -169,7 +169,7 @@ test("Clean sends exactly the steps shown and the displayed variable's name, and
   await form.getByRole("button", { name: "Add step" }).click();
   await result().getByText("6 rows before, 3 rows after.").waitFor();
   const FILTER = { op: "filter", column: "region", test: "eq", value: "West" };
-  assert.deepStrictEqual(wr().at(-1), { frame: "f1", steps: [FILTER], name: "sales" });
+  assert.deepStrictEqual(wr().at(-1), { frame: "f1", notebook: "Output views", steps: [FILTER], name: "sales" });
   // The preview is the engine's answer: row 410 was never in the cell's own output.
   assert.deepStrictEqual(await result().locator(".wrangle-preview tbody tr").allInnerTexts().then((r) => r.map((t) => t.split(/\s+/).join(" "))),
     ["West 340", "West 410", "West 275"]);
@@ -181,7 +181,7 @@ test("Clean sends exactly the steps shown and the displayed variable's name, and
   await form.getByRole("button", { name: "Add step" }).click();
   await result().getByText("Changed columns are marked.").waitFor();
   const RENAME = { op: "rename", column: "amount", to: "revenue" };
-  assert.deepStrictEqual(wr().at(-1), { frame: "f1", steps: [FILTER, RENAME], name: "sales" });
+  assert.deepStrictEqual(wr().at(-1), { frame: "f1", notebook: "Output views", steps: [FILTER, RENAME], name: "sales" });
   const shown = () => result().locator(".wrangle-step > span:first-child").allInnerTexts();
   assert.deepStrictEqual(await shown(), ["Filter rows: 'region'", "Rename column: 'amount'"]);
   assert.match(await result().locator(".wrangle-preview thead").innerText(), /revenue/);
@@ -191,12 +191,12 @@ test("Clean sends exactly the steps shown and the displayed variable's name, and
   await result().getByRole("textbox", { name: "Data frame variable" }).fill("west_sales");
   await result().getByRole("textbox", { name: "Data frame variable" }).press("Enter");
   await result().locator(".wrangle-code").getByText(/west_sales_clean = clean_data\(west_sales\)/).waitFor();
-  assert.deepStrictEqual(wr().slice(n), [{ frame: "f1", steps: [FILTER, RENAME], name: "west_sales" }], "one request, same steps, the new name");
+  assert.deepStrictEqual(wr().slice(n), [{ frame: "f1", notebook: "Output views", steps: [FILTER, RENAME], name: "west_sales" }], "one request, same steps, the new name");
 
   // Remove the first step: only the rename is left, and only it is sent.
   await result().getByRole("button", { name: "Remove step 1" }).click();
   await result().getByText("6 rows before, 6 rows after.").waitFor();
-  assert.deepStrictEqual(wr().at(-1), { frame: "f1", steps: [RENAME], name: "west_sales" });
+  assert.deepStrictEqual(wr().at(-1), { frame: "f1", notebook: "Output views", steps: [RENAME], name: "west_sales" });
   assert.deepStrictEqual(await shown(), ["Rename column: 'amount'"]);
   for (const params of wr()) assert.strictEqual(params.frame, "f1");
   assert.deepStrictEqual(sent("start_cell"), [], "the notebook didn't run anything");
@@ -253,7 +253,7 @@ test("Query profile sends nothing until asked, shows the capacity note, then eac
   assert.deepStrictEqual(app.calls.slice(from).filter((c) => c.method === "notebook_frame_query_profile"), [], "not run before it is asked for");
   await qp.getByRole("button", { name: "Profile the query" }).click();
   await qp.locator("tbody tr").first().waitFor();
-  assert.deepStrictEqual(app.calls.slice(from).filter((c) => c.method === "notebook_frame_query_profile").map((c) => c.params), [{ frame: "f1" }]);
+  assert.deepStrictEqual(app.calls.slice(from).filter((c) => c.method === "notebook_frame_query_profile").map((c) => c.params), [{ frame: "f1", notebook: "Output views" }]);
   const rows = (await qp.locator("tbody tr").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim());
   assert.deepStrictEqual(rows, [
     "Group by · #0 2 0.01 s 30%",

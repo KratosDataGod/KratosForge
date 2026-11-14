@@ -127,6 +127,12 @@ def _attached_schemas() -> bool:
     return bool(a.schemas_enabled())
 
 
+def _maintenance_refusal(operation: str, workspace_id: str, table: str) -> str | None:
+    """A process kernel's OPTIMIZE, VACUUM or RESTORE, checked by the engine's guard; refused when there is none."""
+    guard = lakehouse.maintenance_guard
+    return guard(operation, workspace_id, table) if guard is not None else lakehouse.MAINTENANCE_NEEDS_APP
+
+
 class ProcessKernel:
     def __init__(self, token: Callable[[str], str] | None = None,
                  load_notebook: Callable[[str], list[dict[str, Any]]] | None = None,
@@ -138,6 +144,7 @@ class ProcessKernel:
             "load_notebook": load_notebook or _no("other notebooks"),
             "variable_libraries": variable_libraries or (lambda name: None),
             "write_guard": self._write_refusal,
+            "maintenance_guard": _maintenance_refusal,
             "proof_options": lambda: (self._proof_options or (lambda: {}))(),
             "schemas_enabled": _attached_schemas,
         }

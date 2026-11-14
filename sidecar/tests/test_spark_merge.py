@@ -205,8 +205,9 @@ def test_the_delta_table_merge_builder(lake):
     out, text = run("from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'sales').merge(spark.table('sales'), "
                     "'sales.id = source.id').execute()")
     assert out["status"] == "error" and "no whenMatched or whenNotMatched clause" in text
+    # RESTORE runs here (test_spark_maint.py) only when the app allows it; with no app to ask, nothing changes.
     out, text = run("from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'sales').restoreToVersion(0)")
-    assert out["status"] == "error" and "runs in Fabric" in text
+    assert out["status"] == "error" and "only inside KratosForge" in text
 
 
 NEW = ("spark.createDataFrame([(1, 'EU', 11.0, 'a'), (4, 'APAC', 40.0, 'b')], ['id', 'region', 'amount', 'Extra'])"

@@ -19,6 +19,7 @@ import json
 import os
 import re
 import sys
+import datetime
 import tempfile
 import threading
 import weakref
@@ -37,8 +38,6 @@ from . import lakehouse, spark_api, spark_compat, spark_infer, sql as _sql, sql_
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
 from .duckdb_rows import first_row, keep_try_cast
 from .spark_decimals import spark_decimal_types
-
-_RESTORE = re.compile(r"^\s*RESTORE\s+(TABLE\s+)?", re.I)
 
 
 def _arrow(df: DataFrame) -> pa.Table:
@@ -448,7 +447,6 @@ CHECKED_REFUSALS = {
     "_no_schema": "read.schema() on a read of a table or text files (READ_SCHEMA_ON)",
     "_statement": "sql_refusal: INSERT with PARTITION or REPLACE WHERE",
     "forPath": "DeltaTable.forPath of a literal path outside Tables/ (REFUSED_CODE)",
-    "_in_fabric": "restoreToVersion, restoreToTimestamp, vacuum or optimize on a DeltaTable (DELTA_CHANGES)",
     "_catalog_call_in_fabric": ("spark.catalog.currentDatabase, refused only with no lakehouse or one with schemas, "
                                 "which the check doesn't know, so it isn't flagged"),
     "_refusal": ("a CSV, JSON or Parquet read option this PC doesn't take, a non-UTF-8 encoding, a CSV mode "
@@ -462,9 +460,9 @@ REFUSED_CODE: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"""\bDeltaTable\.forPath\(\s*[^,()]+,\s*[rRuU]?["'](?![^"']*Tables/)"""),
      "opens DeltaTable.forPath outside the lakehouse's Tables/, which this PC's Spark refuses (use DeltaTable.forName)"),
 ]
-# DeltaTable methods that change the table, which this PC refuses (LocalDeltaTable._in_fabric).
-DELTA_CHANGES = ("restoreToVersion", "restoreToTimestamp", "vacuum", "optimize")
-DELTA_CHANGE_TEXT = _IN_FABRIC_TEXT.format("changes a Delta table with DeltaTable.{}")
+# DeltaTable maintenance (spark_maint, Preview): runs on this PC only with Preview features on (_preview_on).
+DELTA_MAINTENANCE = ("restoreToVersion", "restoreToTimestamp", "vacuum", "optimize")
+MAINTENANCE_PREVIEW_TEXT = "runs {}, which this PC runs only with Preview features on"
 # For a cell Python can't read: the refused writer options that only a writer takes (a reader's
 # "path" option is fine, so it isn't here). A cell Python reads goes through writer_option_refusal.
 REFUSED_OPTION_TEXT = re.compile(r"""\.option\(\s*["'](replaceWhere)["']""", re.I)
@@ -500,8 +498,15 @@ def sql_refusal(query: str) -> tuple[str, str] | None:
     from sqlglot import exp
 
     head = delta_dml_comments.sub("", query)
-    if _RESTORE.match(head):
-        return "blocked", _IN_FABRIC_TEXT.format("restores a table to an older version (RESTORE)")
+    from . import spark_maint
+    if (maint := spark_maint.STARTS.match(head)) is not None:
+        if not lakehouse._setting("show_preview", True):
+            return "blocked", MAINTENANCE_PREVIEW_TEXT.format(maint.group(1).upper())
+        try:
+            spark_maint.statement(head)
+        except ValueError as exc:
+            return "blocked", f"runs {str(exc).split('. ')[0]}, which this PC's Spark refuses otherwise"
+        return None
     try:
         trees = [t for t in sql_dialects.parse(query, read="spark") if t is not None]
     except sqlglot.errors.SqlglotError:
@@ -1171,9 +1176,13 @@ class LocalSparkSession(SparkSession):
             key, value = setting["key"], setting["value"].strip().strip("'\"")
             self.conf.set(key, value)
             return self.createDataFrame([(key, value)], ["key", "value"])
-        if _RESTORE.match(head):
-            raise ValueError("RESTORE rewrites a table to an older version, which runs in Fabric. On this PC, read the "
-                             "older version (SELECT * FROM t VERSION AS OF n) and overwrite the table with it if you mean to.")
+        from . import spark_maint
+        spec = spark_maint.statement(head)  # OPTIMIZE, VACUUM, RESTORE (Preview), as the only statement
+        if spec is not None:
+            answer, note = spark_maint.run(spec)
+            if note:
+                print(f"Note: {note}")
+            return self._from_arrow_dataset(answer)
         evolve = bool(_SCHEMA_EVOLUTION.match(head))
         if evolve:  # MERGE WITH SCHEMA EVOLUTION INTO: the MERGE adds the source's new columns (Preview)
             sqlQuery = _SCHEMA_EVOLUTION_WORDS.sub(" ", head, count=1)
@@ -1644,15 +1653,23 @@ class LocalDeltaTable:
                "createdAt": [meta.created_time], "properties": [str(meta.configuration)]}
         return session()._from_arrow_dataset(pa.table(row))
 
-    def _in_fabric(self, what: str) -> Any:
-        raise NotImplementedError(f"DeltaTable.{what} changes the table, which runs in Fabric. On this PC, read "
-                                  "with spark.read and write with df.write.saveAsTable.")
+    def _maintain(self, spec: dict[str, Any]) -> DataFrame:
+        from . import spark_maint
+        answer, note = spark_maint.run({"table": self._name} | spec)
+        if note:
+            print(f"Note: {note}")
+        return session()._from_arrow_dataset(answer)
 
-    def restoreToVersion(self, version: int) -> Any:  # noqa: N802, ARG002
-        return self._in_fabric("restoreToVersion")
+    def restoreToVersion(self, version: int) -> DataFrame:  # noqa: N802
+        """RESTORE to ``version`` (Preview): one new commit that brings back that version's rows."""
+        return self._maintain({"operation": "restore", "version": int(version)})
 
-    def restoreToTimestamp(self, timestamp: str) -> Any:  # noqa: N802, ARG002
-        return self._in_fabric("restoreToTimestamp")
+    def restoreToTimestamp(self, timestamp: Any) -> DataFrame:  # noqa: N802
+        from . import spark_maint
+        when = timestamp if isinstance(timestamp, datetime.datetime) else spark_maint.parse_timestamp(str(timestamp))
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=datetime.timezone.utc)
+        return self._maintain({"operation": "restore", "timestamp": when})
 
     def merge(self, source: Any, condition: Any) -> LocalMergeBuilder:
         _preview_on("DeltaTable.merge")
@@ -1674,11 +1691,38 @@ class LocalDeltaTable:
         where = f" WHERE {_sql_text(condition)}" if condition is not None else ""
         session().sql(f"DELETE FROM {self._name}{f' AS {self._alias}' if self._alias else ''}{where}")
 
-    def vacuum(self, *_a: Any, **_kw: Any) -> Any:
-        return self._in_fabric("vacuum")
+    def vacuum(self, retentionHours: float | None = None) -> DataFrame:  # noqa: N803
+        """VACUUM (Preview), keeping at least 7 days of history, or the table's own retention when longer."""
+        return self._maintain({"operation": "vacuum", "retain_hours": retentionHours})
 
-    def optimize(self, *_a: Any, **_kw: Any) -> Any:
-        return self._in_fabric("optimize")
+    def optimize(self) -> LocalOptimizeBuilder:
+        """OPTIMIZE (Preview): ``.where("part = 'v'")`` then ``executeCompaction()`` or ``executeZOrderBy(cols)``."""
+        return LocalOptimizeBuilder(self)
+
+
+class LocalOptimizeBuilder:
+    """delta-spark's DeltaOptimizeBuilder on this PC."""
+
+    def __init__(self, table: LocalDeltaTable):
+        self._table, self._where = table, ""
+
+    def where(self, partitionFilter: str) -> LocalOptimizeBuilder:  # noqa: N803
+        self._where = f"{self._where} AND ({partitionFilter})" if self._where else str(partitionFilter)
+        return self
+
+    def _run(self, zorder: list[str] | None) -> DataFrame:
+        from . import spark_maint
+        where = spark_maint._partition_filters(self._where.replace("(", "").replace(")", "")) if self._where else None
+        return self._table._maintain({"operation": "optimize", "where": where, "zorder": zorder})
+
+    def executeCompaction(self) -> DataFrame:  # noqa: N802
+        return self._run(None)
+
+    def executeZOrderBy(self, *cols: Any) -> DataFrame:  # noqa: N802
+        names = [c for group in cols for c in (group if isinstance(group, (list, tuple)) else [group])]
+        if not names:
+            raise ValueError("executeZOrderBy needs at least one column.")
+        return self._run([str(c) for c in names])
 
 
 def _sql_text(value: Any) -> str:

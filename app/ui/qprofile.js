@@ -55,7 +55,8 @@ function renderQueryProfile(o) {
   const redraw = () => box.replaceChildren(...draw().filter(Boolean));  // replaceChildren would write a null as "null"
   const run = () => {
     q.busy = true; q.error = null; redraw();
-    rpc("notebook_frame_query_profile", { frame: o.frame, notebook: state.notebook?.name }).then((p) => {
+    // o.fetch, when given, gets the profile another way (the SQL page's, query.js); a notebook result's by default.
+    (o.fetch ? o.fetch() : rpc("notebook_frame_query_profile", { frame: o.frame, notebook: state.notebook?.name })).then((p) => {
       q.busy = false;
       if (p.gone) q.gone = true; else q.data = p;
       redraw();

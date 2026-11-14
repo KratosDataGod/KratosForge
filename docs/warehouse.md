@@ -246,10 +246,12 @@ The app looks for SSMS 22, then SSMS 21, where they install by default (`C:\Prog
 
 ## Results, Messages and Chart
 
-Above the result, three views, on every SQL page (lakehouse, local project and warehouse). Messages and Chart are Preview: on a lakehouse or local project page they carry the Preview tag and go when Settings hides preview features; on the Warehouse page the whole page is already Preview.
+Above the result, three views on every SQL page (lakehouse, local project and warehouse), and on a lakehouse page two more, Plan and Profile. Messages, Chart, Plan and Profile are Preview: on a lakehouse or local project page they carry the Preview tag and go when Settings hides preview features; on the Warehouse page the whole page is already Preview.
 
 - **Results**: the rows a page at a time, with Copy and Export, as before.
 - **Messages**: what the last run did: its target, when it was queued, started and ended, its state, rows and columns, why it was refused or failed, and its time limit. Never the SQL.
+- **Plan** (lakehouse page, Preview): **Show the plan** asks DuckDB on this PC how it would run the query, or the selection, without running it: each step (read table, filter, join, group by, sort) with the table, filter or keys it works on and its estimated rows. Hover a step for all its details. The tables are opened to work it out, so reading OneLake uses a little capacity. One query that only reads.
+- **Profile** (lakehouse page, Preview): **Profile the query** runs it again under DuckDB's profiler and shows each step's rows, time and share of the time, the slowest step marked, with the total time, rows read and peak memory: the same view as a notebook result's Query profile. It reads the tables again, which uses capacity. One query that only reads.
 - **Chart**: a quick bar, stacked bar, line, area, pie, scatter or histogram of the result, with X axis, values, aggregate (sum, average, count, max, min) and series. It reads the rows already on this PC from the run's snapshot, up to the first 50,000, so nothing runs again and no capacity is used. It draws the first 60 X axis values (the note says how many more there are) and up to 7 series (the rest as Other).
 
 A query that returns several result sets isn't possible yet: the page sends one statement at a time. That comes with warehouse writes and scripts, which wait on their own decision.

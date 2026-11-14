@@ -644,7 +644,10 @@ function renderQuery() {
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("json"); } }, "JSON")));
     // Messages and Chart are Preview: on the Warehouse page the whole page already is, so they carry no
     // tag of their own there; elsewhere they carry one and go when preview features are hidden.
-    const extra = [...(wh || previewShown() ? ["messages", "chart"] : []), ...(wh ? ["plan"] : [])];
+    // On a lakehouse, Plan and Profile are DuckDB's (S39, S40), Preview like Messages and Chart.
+    const localExplainOn = !wh && previewShown() && runsHere();
+    const extra = [...(wh || previewShown() ? ["messages", "chart"] : []), ...(wh || localExplainOn ? ["plan"] : []),
+      ...(localExplainOn ? ["profile"] : [])];
     const view = extra.includes(tab.view) ? tab.view : "results";
     const viewTab = (id, label) => {
       const b = h("button", { role: "tab", class: `sql-view${view === id ? " on" : ""}`, "aria-selected": String(view === id),
@@ -653,7 +656,7 @@ function renderQuery() {
     };
     band.replaceChildren(...[h("div", { class: "sql-views", role: "tablist", "aria-label": "Result views" },
       viewTab("results", "Results"), extra.length ? viewTab("messages", "Messages") : null, extra.length ? viewTab("chart", "Chart") : null,
-      wh ? viewTab("plan", "Plan") : null),
+      extra.includes("plan") ? viewTab("plan", "Plan") : null, extra.includes("profile") ? viewTab("profile", "Profile") : null),
       h("span", { class: `sql-pill ${pill[0]}` }, pill[1]), h("span", { class: "muted-text sql-run-msg" }, tab.error ? "" : msg),
       ex && (st === "running" || st === "queued") ? btn("Stop", "stop", stop, "tool small", { title: "Stop this query. Only its own process ends." }) : null,
       tab.ranNotice && r && !busy ? h("span", { class: "sql-local-note", role: "note" }, tab.ranNotice) : null,
@@ -674,7 +677,12 @@ function renderQuery() {
         { "aria-keyshortcuts": "Control+R",
           title: p.pane === "hidden" ? "Show the results pane (Ctrl+R)" : "Hide the results pane and give the editor the room (Ctrl+R)" })].filter(Boolean));
     applyPane();
-    if (view === "plan") {
+    if (view === "plan" && !wh) {
+      grid.replaceChildren(sqlLocalPlanView(tab.localPlan, { busy: tab.planning, ask: () => localExplain("plan") }));
+    } else if (view === "profile") {
+      grid.replaceChildren(renderQueryProfile({ qprofile: tab.localProfile ||= { data: null, busy: false, error: null, gone: false },
+        fetch: () => localExplain("profile") }));
+    } else if (view === "plan") {
       grid.replaceChildren(tab.planning ? h("p", { class: "muted-text", style: "padding:12px 16px" }, "Asking Fabric for the estimated plan...")
         : sqlPlanView(tab.plan));
     } else if (view === "messages") {
@@ -890,6 +898,30 @@ function renderQuery() {
   }
   // WH-09: Fabric's estimated plan for the query (or the selection), without running it. It has a
   // run of its own, so the tab's results stay as they were.
+  // S39, S40: DuckDB's plan for the query (or the selection) on this PC, without running it, or its profile,
+  // which runs it again under the profiler. One query that reads; its JSON answer comes back as one row.
+  async function localExplain(mode, query = editor.chosen()) {
+    if (!query.trim()) throw new Error("Write a query first, or select one.");
+    if (mode === "plan") { tab.planning = true; drawResults(); }
+    try {
+      let status = await rpc("sql_start", { query, lakehouse_ref: ref, dialect: tab.dialect, [mode === "plan" ? "estimated_plan" : "profile"]: true });
+      for (let wait = 150; ["queued", "running", "cancelling"].includes(status.state); wait = Math.min(1000, wait * 1.5)) {
+        await new Promise((r) => setTimeout(r, wait));
+        status = await rpc("sql_status", { execution: status.id });
+      }
+      if (status.state !== "completed") throw new Error(status.error || `The ${mode} ${status.state.replace("_", " ")}.`);
+      const page = await rpc("sql_page", { execution: status.id, offset: 0 });
+      const data = JSON.parse(String(page.rows?.[0]?.[0] ?? "{}"));
+      if (mode === "plan") tab.localPlan = { ...data, at: new Date() };
+      return data;
+    } catch (err) {
+      if (mode !== "plan") throw err;
+      tab.localPlan = { error: String(err).replace(/^Error: /, "") };
+      return null;
+    } finally {
+      if (mode === "plan") { tab.planning = false; sqlPage.redraw?.(); }
+    }
+  }
   async function estimatedPlan(query = editor.chosen()) {
     if (!query.trim() || tab.planning) return;
     if (!(await warehouseRunOk(ref))) return;

@@ -916,3 +916,56 @@ def test_local_and_lakehouse_runs_share_the_time_limit_wording():
     assert "project's settings" in sql_exec.time_limit_message("project", 60)
     assert sql_exec.time_limit_message("caller", 60) == ""
 
+
+# ---- plan and profile on a lakehouse (editor parity S39, S40)
+
+def test_a_lakehouse_plan_lists_duckdb_s_steps_without_running_the_query(runs, lake):
+    status = wait(runs, runs.start("SELECT country, sum(amount) FROM sales WHERE id > 1 GROUP BY country", lake,
+                                   estimated_plan=True)["id"])
+    assert status["state"] == "completed" and status["plan"] is True and status["rows"] == 1
+    plan = json.loads(runs.page(status["id"])["rows"][0][0])
+    names = [s["name"] for s in plan["steps"]]
+    assert any("GROUP_BY" in n for n in names) and plan["more_steps"] == 0
+    assert [s["depth"] for s in plan["steps"]][0] == 0 and max(s["depth"] for s in plan["steps"]) >= 2
+    assert all(set(s) == {"depth", "name", "rows", "details"} for s in plan["steps"])
+    assert runs.audit_lines[-1][3]["plan"] is True and "profile" not in runs.audit_lines[-1][3]
+
+
+def test_a_lakehouse_profile_runs_the_query_under_the_profiler(runs, lake):
+    status = wait(runs, runs.start("SELECT country, sum(amount) FROM sales GROUP BY country", lake, profile=True)["id"])
+    assert status["state"] == "completed" and status["profile"] is True
+    profile = json.loads(runs.page(status["id"])["rows"][0][0])
+    assert {"seconds", "rows", "rows_scanned", "peak_memory", "steps", "more_steps"} <= set(profile)
+    assert profile["rows"] == 3 and profile["steps"] and all(0 <= s["share"] <= 1 for s in profile["steps"])
+    assert runs.audit_lines[-1][3]["profile"] is True
+
+
+@pytest.mark.parametrize("query", ["SELECT 1; SELECT 2", "CREATE TEMP VIEW v AS SELECT 1 x"])
+def test_a_plan_or_profile_is_for_one_query_that_reads(runs, lake, query):
+    for kind in ({"estimated_plan": True}, {"profile": True}):
+        status = wait(runs, runs.start(query, lake, **kind)["id"])
+        assert status["state"] == "failed" and status["error_kind"] in ("plan", "permission"), status
+    with pytest.raises(ValueError, match="only reads"):
+        runs.start("CREATE TEMP VIEW v AS SELECT 1 x", lake, allow=["local_mutation"], profile=True)
+
+
+def test_a_profile_is_only_for_a_lakehouse_and_never_with_a_plan(runs, lake):
+    with pytest.raises(ValueError, match="query profile"):
+        runs.start("SELECT 1", lake, profile=True, estimated_plan=True)
+    with pytest.raises(ValueError, match="query profile"):
+        runs.start("SELECT 1", None, "tsql", target="warehouse", profile=True,
+                   warehouse_ref={"workspace_id": "ws", "item_id": "wh", "kind": "warehouse"})
+
+
+def test_plan_steps_reads_estimates_and_caps_the_list():
+    from fabric_desktop import sql_worker
+    leaf = {"name": "SEQ_SCAN", "extra_info": {"Table": "t", "Projections": ["a", "b"], "Estimated Cardinality": "20"}}
+    got = sql_worker.plan_steps([{"name": "PROJECTION", "extra_info": {"Projections": "a"}, "children": [leaf]}])
+    assert got == {"steps": [{"depth": 0, "name": "PROJECTION", "rows": None, "details": {"Projections": "a"}},
+                             {"depth": 1, "name": "SEQ_SCAN", "rows": 20, "details": {"Table": "t", "Projections": "a, b"}}],
+                   "more_steps": 0}
+    chain: dict = {"name": "LEAF"}
+    for _ in range(sql_worker.PLAN_NODES + 4):
+        chain = {"name": "PROJECTION", "children": [chain]}
+    big = sql_worker.plan_steps([chain])
+    assert len(big["steps"]) == sql_worker.PLAN_NODES and big["more_steps"] == 5

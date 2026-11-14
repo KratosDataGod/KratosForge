@@ -90,7 +90,9 @@ A warehouse run may also **change** the warehouse, when it's started as a change
 
 ### Estimated plan (WH-09)
 
-`estimated_plan = true` on a warehouse run that reads asks Fabric for the plan instead of the rows: the engine runs `SET SHOWPLAN_XML ON`, the query, then `SET SHOWPLAN_XML OFF`, on the same connection and in the same rolled-back transaction, so the query itself doesn't run. The result is the showplan XML, and the status adds `plan: true`. It's refused for a change (`allow`) or a target other than a warehouse: "An estimated plan is for a warehouse query that reads."
+`estimated_plan = true` on a warehouse run that reads asks Fabric for the plan instead of the rows: the engine runs `SET SHOWPLAN_XML ON`, the query, then `SET SHOWPLAN_XML OFF`, on the same connection and in the same rolled-back transaction, so the query itself doesn't run. The result is the showplan XML, and the status adds `plan: true`. It's refused for a change (`allow`) or a local data project: "An estimated plan is for a lakehouse or warehouse query that reads."
+
+On a lakehouse (editor parity S39, S40), `estimated_plan = true` runs `EXPLAIN (FORMAT JSON)` in the run's worker after the tables are bound, so nothing runs, and `profile = true` runs `EXPLAIN ANALYZE` with DuckDB's JSON profiling, which runs the query once more. Each answers with one row of JSON in a column named `plan` or `profile`, read with `sql_page`: the plan as `{steps: [{depth, name, rows, details}], more_steps}` with estimated rows (or null), the profile as a notebook's query profile. Both are for one query that only reads: more than one statement, or one that changes even the run's own session, fails with "A plan or profile is for one query that reads", and `allow` beyond reading is refused before anything starts. Profiling is turned on before the run locks its settings, and writes to a file in the run's own folder, never to the worker's output. A profile isn't for a warehouse, and isn't an estimated plan too. The status adds `plan: true` or `profile: true`, and so does the audit line.
 
 ## Limits
 

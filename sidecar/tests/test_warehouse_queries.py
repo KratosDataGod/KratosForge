@@ -628,7 +628,7 @@ def test_an_estimated_plan_turns_showplan_on_around_the_query_and_returns_its_xm
 
 
 def test_an_estimated_plan_is_only_for_a_warehouse_query_that_reads(runs):
-    with pytest.raises(ValueError, match="estimated plan is for a warehouse query that reads"):
+    with pytest.raises(ValueError, match="estimated plan is for a lakehouse or warehouse query that reads"):
         change(runs, "UPDATE dbo.t SET a = 1", estimated_plan=True)
     refused = start(runs, "UPDATE dbo.t SET a = 1", estimated_plan=True)
     assert refused["state"] == "failed" and refused["error_kind"] == "permission", "still only reads"

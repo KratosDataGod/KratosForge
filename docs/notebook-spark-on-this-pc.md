@@ -26,6 +26,10 @@ struct goes in as a `Row`, a returned value that doesn't fit the type comes out 
 in the function fails the query. The result column is named as in Spark, such as `clean(email)`.
 `asNondeterministic()` makes it run for every row. A grouped-aggregate `pandas_udf` (Series to one
 value), Java UDFs and UDTFs run in Fabric. Registered UDFs are forgotten when the session restarts.
+A name SQL already has as a function (`lower`, `nvl`, `date_add`...) is refused by `spark.udf.register`,
+since SQL here would call that function, not the UDF: register it under another name. Spark 2's
+`PandasUDFType.SCALAR` and `SCALAR_ITER` are taken as the second argument of `pandas_udf`; `GROUPED_MAP`
+points to `applyInPandas`.
 
 ## DataFrame methods
 

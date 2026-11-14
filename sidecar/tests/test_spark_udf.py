@@ -159,3 +159,36 @@ def test_udfs_are_no_longer_flagged_as_fabric_only():
     texts = [why for pattern, why in fabric_run._FABRIC_ONLY if pattern.search("F.pandas_udf('double')\nspark.udf.register('f', g)")]
     assert texts == []
     assert any(p.search("df.rdd.map(f)") for p, _ in fabric_run._FABRIC_ONLY)
+
+
+@pytest.mark.parametrize("name", ["lower", "UPPER", "nvl", "date_add"])
+def test_a_name_sql_already_has_is_refused_since_sql_would_never_call_the_udf(kernel, name):
+    out = kernel.run(f"spark.udf.register({name!r}, lambda s: 'mine', 'string')")
+    assert out["status"] == "error" and "SQL already has a function called" in str(out["outputs"]), out
+    assert run(kernel, "spark.sql(\"SELECT lower('AB') AS v\").first().v") == "'ab'"
+
+
+def test_registering_a_udf_again_under_its_own_name_replaces_it(kernel):
+    assert run(kernel, "spark.udf.register('tag', lambda s: 'one', 'string')\n"
+                       "spark.udf.register('tag', lambda s: 'two', 'string')\n"
+                       "spark.sql(\"SELECT tag('x') AS v\").first().v") == "'two'"
+
+
+def test_an_int_that_doesnt_fit_the_declared_type_is_null(kernel):
+    out = run(kernel, SETUP + "big = F.udf(lambda x: 2 ** 40 if x == 1 else x, 'int')\n"
+                              "[r.v for r in df.orderBy('id').select(big('id').alias('v')).collect()]")
+    assert out == "[None, 2, 3]"
+
+
+def test_spark2_function_types_are_honoured(kernel):
+    out = run(kernel, SETUP + """
+from pyspark.sql.functions import pandas_udf, PandasUDFType
+@pandas_udf("long", PandasUDFType.SCALAR_ITER)
+def plus_one(batches):
+    for s in batches:
+        yield s + 1
+[r.v for r in df.orderBy('id').select(plus_one('id').alias('v')).collect()]""")
+    assert out == "[2, 3, 4]"
+    out = kernel.run("from pyspark.sql.functions import pandas_udf, PandasUDFType\n"
+                     "@pandas_udf('id long', PandasUDFType.GROUPED_MAP)\ndef g(pdf): return pdf")
+    assert out["status"] == "error" and "applyInPandas" in str(out["outputs"])

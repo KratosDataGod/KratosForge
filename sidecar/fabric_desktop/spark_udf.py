@@ -49,7 +49,9 @@ def _fits(value: Any, dt: Any) -> Any:
     if isinstance(dt, T.BooleanType):
         return value if isinstance(value, bool) else None
     if isinstance(dt, (T.ByteType, T.ShortType, T.IntegerType, T.LongType)):
-        return value if isinstance(value, int) and not isinstance(value, bool) else None
+        bits = 8 if isinstance(dt, T.ByteType) else 16 if isinstance(dt, T.ShortType) else 32 if isinstance(dt, T.IntegerType) else 64
+        ok = isinstance(value, int) and not isinstance(value, bool) and -(2 ** (bits - 1)) <= value < 2 ** (bits - 1)
+        return value if ok else None
     if isinstance(dt, (T.FloatType, T.DoubleType)):
         return value if isinstance(value, float) else None
     if isinstance(dt, T.DecimalType):
@@ -264,9 +266,22 @@ def _pandas_kind(func: Callable[..., Any]) -> str:
 
 
 def pandas_udf(f: Any = None, returnType: Any = None, functionType: Any = None) -> Any:  # noqa: N803
-    """``pandas_udf(f, returnType)``, ``@pandas_udf("double")`` or ``@pandas_udf(returnType=...)``."""
+    """``pandas_udf(f, returnType)``, ``@pandas_udf("double")`` or ``@pandas_udf(returnType=...)``, and
+    Spark 2's ``@pandas_udf("double", PandasUDFType.SCALAR)``."""
+    if isinstance(returnType, int) and not isinstance(returnType, bool) and functionType is None \
+            and (f is None or isinstance(f, (str, _types().DataType))):
+        functionType, returnType = returnType, None
     def make(g: Callable[..., Any], rt: Any) -> UserDefinedFunction:
         kind = _pandas_kind(g)
+        if functionType == 201:  # PandasUDFType.GROUPED_MAP, Spark 2's groupBy().apply
+            raise NotImplementedError("A GROUPED_MAP pandas_udf is Spark 2's groupBy().apply. Use "
+                                      "df.groupBy(...).applyInPandas(function, schema) instead.")
+        if functionType == 202:  # PandasUDFType.GROUPED_AGG
+            kind = "aggregate"
+        elif functionType == 204:  # PandasUDFType.SCALAR_ITER
+            kind = "iterator"
+        elif functionType == 200:  # PandasUDFType.SCALAR
+            kind = "scalar"
         if kind == "aggregate":
             raise NotImplementedError(
                 f"{getattr(g, '__name__', 'This pandas_udf')} is a grouped-aggregate pandas_udf (Series to a single value), "
@@ -285,6 +300,9 @@ class UDFRegistration:
     def register(self, name: str, f: Any, returnType: Any = None) -> UserDefinedFunction:  # noqa: N803
         if not isinstance(name, str) or not name.isidentifier():
             raise ValueError(f"A UDF's name is a plain name such as clean_email, not {name!r}.")
+        if _taken(name):
+            raise ValueError(f"SQL already has a function called {name}, and on this PC SQL would call that one, not "
+                             f"your UDF. Register it under another name, such as my_{name.lower()}.")
         if isinstance(f, UserDefinedFunction):
             if returnType is not None:
                 raise TypeError("Register a UDF made with udf() without a returnType; its own return type is used.")
@@ -304,10 +322,15 @@ class UDFRegistration:
 _registered: dict[str, UserDefinedFunction] = {}
 
 
-def reregister(conn: Any) -> None:
-    """After a new connection (a restarted session), the named UDFs are there again."""
-    for name, fn in _registered.items():
-        fn._register(conn, name)
+def _taken(name: str) -> bool:
+    """Whether SQL already has a function called ``name``: DuckDB's own, or a Spark built-in the SQL
+    is translated for. There SQL would call that one, never the UDF, so the name is refused."""
+    from . import spark_coverage
+    key = name.lower()
+    if key in _registered:
+        return False  # registering a UDF again under its own name replaces it, as in Spark
+    rows = _conn().execute("SELECT 1 FROM duckdb_functions() WHERE lower(function_name) = ? LIMIT 1", [key]).fetchall()
+    return bool(rows) or key in {str(f["name"]).lower() for f in spark_coverage.load()}
 
 
 def call_udf(udfName: str, *cols: Any) -> Any:  # noqa: N803

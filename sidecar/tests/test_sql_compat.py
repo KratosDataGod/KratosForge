@@ -81,6 +81,27 @@ def test_the_sql_is_never_changed_and_the_export_says_which_sql_it_was():
     assert exported["sql"] == query and exported["sql_sha256"] == hashlib.sha256(query.encode()).hexdigest()
 
 
+@pytest.mark.parametrize("query", ["SELECT a INTO", "SELECT a INTO;", "SELECT 1 INTO\n"])
+@pytest.mark.parametrize("target", sorted(PROFILES))
+def test_a_select_into_with_no_table_yet_is_not_checked_rather_than_failing(query, target):
+    # sqlglot's T-SQL parser fails on these with AttributeError, not a ParseError
+    report = analyze(query, target)
+    assert "SYN-007" in {d["rule"] for d in report["diagnostics"]}
+    assert report["outcome"]["status"] == "unverified"
+
+
+@pytest.mark.parametrize("target", ["warehouse", "endpoint", "sqldb"])
+def test_a_db_dot_dot_table_name_is_read_as_three_parts(target):
+    def rules(q):
+        return {d["rule"] for d in analyze(q, target)["diagnostics"]}
+    # db..t is db.<default schema>.t: the same findings as the name written out in full
+    assert rules("CREATE TABLE db..t (a nvarchar(10))") == rules("CREATE TABLE db.dbo.t (a nvarchar(10))")
+    assert "DML-007" in rules("CREATE TABLE db..t (a nvarchar(10))")
+    assert "DML-007" in rules("SELECT * FROM db..t")
+    assert "DML-007" not in rules("SELECT * FROM dbo.t")
+    assert "SYN-007" in rules("SELECT * FROM db..")  # nothing after the dots: not a name
+
+
 def test_secrets_in_the_sql_never_reach_a_diagnostic_or_the_log(caplog):
     caplog.set_level(logging.DEBUG)
     query = "CREATE LOGIN app WITH PASSWORD = 'Hunter2!Secret';\nSELECT FROM WHERE 'Hunter2!Secret'"

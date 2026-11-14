@@ -357,6 +357,7 @@ def _check_types(data: pa.Table, table: str, how: str) -> None:
 _MERGE_SOURCES = itertools.count(1)
 _AUTO_MERGE = "spark.databricks.delta.schema.autoMerge.enabled"
 _SCHEMA_EVOLUTION = re.compile(r"\s*MERGE\s+WITH\s+SCHEMA\s+EVOLUTION\b", re.I)
+_SCHEMA_EVOLUTION_WORDS = re.compile(r"\s+WITH\s+SCHEMA\s+EVOLUTION\b", re.I)
 
 
 def change_runs_here(query: str, lakehouse_name: str | None = None) -> bool:
@@ -391,15 +392,12 @@ CHECKED_REFUSALS = {
     "option": "a refused writer option, by its literal name (writer_option_refusal)",
     "_check_options": "an option saveAsTable or insertInto doesn't take, by its literal name (writer_option_refusal)",
     "_refuse_dynamic_overwrite": "spark.conf.set of a dynamic partitionOverwriteMode (REFUSED_CODE)",
-    "_refuse_auto_merge": "spark.conf.set of autoMerge in a notebook that runs a MERGE (AUTO_MERGE_CODE)",
     "_preview_on": "change_runs_here, with Preview features off",
     "schema": "read.schema() given a string (READ_SCHEMA_TEXT)",
     "_no_schema": "read.schema() on a read of a table or text files (READ_SCHEMA_ON)",
-    "sql": "sql_refusal: MERGE WITH SCHEMA EVOLUTION",
     "_statement": "sql_refusal: INSERT with PARTITION or REPLACE WHERE",
     "forPath": "DeltaTable.forPath of a literal path outside Tables/ (REFUSED_CODE)",
     "_in_fabric": "restoreToVersion, restoreToTimestamp, vacuum or optimize on a DeltaTable (DELTA_CHANGES)",
-    "withSchemaEvolution": "withSchemaEvolution() on a MERGE (REFUSED_CODE)",
     "_catalog_call_in_fabric": ("spark.catalog.listTables, listDatabases, listCatalogs or listFunctions (REFUSED_CODE). "
                                 "currentDatabase is refused only with no lakehouse or one with schemas, which the "
                                 "check doesn't know, so it isn't flagged"),
@@ -415,17 +413,12 @@ REFUSED_CODE: list[tuple[re.Pattern[str], str]] = [
      "sets a dynamic partitionOverwriteMode, which this PC's Spark refuses: ignoring it would replace the whole table"),
     (re.compile(r"""\bDeltaTable\.forPath\(\s*[^,()]+,\s*[rRuU]?["'](?![^"']*Tables/)"""),
      "opens DeltaTable.forPath outside the lakehouse's Tables/, which this PC's Spark refuses (use DeltaTable.forName)"),
-    (re.compile(r"\.withSchemaEvolution\("), _IN_FABRIC_TEXT.format("merges with schema evolution (withSchemaEvolution)")),
     (re.compile(r"\bcatalog\.(listTables|listDatabases|listCatalogs|listFunctions)\("),
      _IN_FABRIC_TEXT.format("lists the catalog with spark.catalog (_catalog_calls)")),
 ]
 # DeltaTable methods that change the table, which this PC refuses (LocalDeltaTable._in_fabric).
 DELTA_CHANGES = ("restoreToVersion", "restoreToTimestamp", "vacuum", "optimize")
 DELTA_CHANGE_TEXT = _IN_FABRIC_TEXT.format("changes a Delta table with DeltaTable.{}")
-# Turning on autoMerge only matters to a MERGE, which this PC then refuses (_refuse_auto_merge).
-AUTO_MERGE_CODE = re.compile(r"""["']spark\.databricks\.delta\.schema\.autoMerge\.enabled["']\s*,\s*["']?true""", re.I)
-AUTO_MERGE_TEXT = ("turns on Delta schema autoMerge, so its MERGE would add the source's new columns: schema evolution "
-                   "runs in Fabric (this PC's Spark refuses it)")
 # For a cell Python can't read: the refused writer options that only a writer takes (a reader's
 # "path" option is fine, so it isn't here). A cell Python reads goes through writer_option_refusal.
 REFUSED_OPTION_TEXT = re.compile(r"""\.option\(\s*["'](replaceWhere|partitionOverwriteMode)["']""", re.I)
@@ -463,8 +456,6 @@ def sql_refusal(query: str) -> tuple[str, str] | None:
     head = delta_dml_comments.sub("", query)
     if _RESTORE.match(head):
         return "blocked", _IN_FABRIC_TEXT.format("restores a table to an older version (RESTORE)")
-    if _SCHEMA_EVOLUTION.match(head):
-        return "blocked", _IN_FABRIC_TEXT.format("merges WITH SCHEMA EVOLUTION")
     try:
         trees = [t for t in sql_dialects.parse(query, read="spark") if t is not None]
     except sqlglot.errors.SqlglotError:
@@ -600,18 +591,14 @@ def _catalog_calls(session: LocalSparkSession) -> dict[str, Any]:
     }
 
 
-def _refuse_auto_merge(session: Any) -> None:
-    """With autoMerge on, Fabric's MERGE adds a source's new columns to the table. This PC's MERGE
-    keeps the table's schema, so it would drop them without saying so: refuse it, as
-    withSchemaEvolution is refused."""
+def _auto_merge_on(session: Any) -> bool:
+    """Whether spark.databricks.delta.schema.autoMerge.enabled is on: then a MERGE adds the source's new
+    columns to the table, as WITH SCHEMA EVOLUTION does."""
     try:
         value = session.conf.get(_AUTO_MERGE, "false")
     except (KeyError, NotImplementedError):  # a conf that can't answer has nothing set
-        return
-    if str(value).strip().lower() == "true":
-        raise NotImplementedError(f"{_AUTO_MERGE} is on, so in Fabric this MERGE would add the source's new columns "
-                                  "to the table. Schema evolution in MERGE runs in Fabric. Run the cell in Fabric, or "
-                                  f"turn it off first: spark.conf.unset({_AUTO_MERGE!r}).")
+        return False
+    return str(value).strip().lower() == "true"
 
 
 def _preview_on(what: str) -> None:
@@ -1064,9 +1051,9 @@ class LocalSparkSession(SparkSession):
         if _RESTORE.match(head):
             raise ValueError("RESTORE rewrites a table to an older version, which runs in Fabric. On this PC, read the "
                              "older version (SELECT * FROM t VERSION AS OF n) and overwrite the table with it if you mean to.")
-        if _SCHEMA_EVOLUTION.match(head):
-            raise NotImplementedError("MERGE WITH SCHEMA EVOLUTION adds the source's new columns to the table, which "
-                                      "runs in Fabric. Run the cell in Fabric, or leave out WITH SCHEMA EVOLUTION.")
+        evolve = bool(_SCHEMA_EVOLUTION.match(head))
+        if evolve:  # MERGE WITH SCHEMA EVOLUTION INTO: the MERGE adds the source's new columns (Preview)
+            sqlQuery = _SCHEMA_EVOLUTION_WORDS.sub(" ", head, count=1)
         statements = _sql.parse(sqlQuery)
         from sqlglot import exp
         if len(statements) > 1 and any(isinstance(s, (exp.Merge, exp.Update, exp.Delete)) for s in statements):
@@ -1075,17 +1062,17 @@ class LocalSparkSession(SparkSession):
                              "Nothing ran. Call spark.sql once for each statement.")
         result: DataFrame | None = None
         for statement in statements:
-            result = self._statement(statement)
+            result = self._statement(statement, evolve=evolve)
         return result if result is not None else DataFrame(self.conn.sql("SELECT 1 WHERE false"), self)
 
-    def _statement(self, statement: Any) -> DataFrame | None:
+    def _statement(self, statement: Any, evolve: bool = False) -> DataFrame | None:
         from sqlglot import exp
         if isinstance(statement, exp.Use):
             _use(statement)
             return None
         statement = _sql.history_query(statement, self.conn, self._bound())  # DESCRIBE HISTORY t
         if isinstance(statement, exp.Merge):
-            return self._merge(statement)
+            return self._merge(statement, evolve)
         if isinstance(statement, (exp.Update, exp.Delete)):
             return self._update_or_delete(statement)
         # DROP TABLE and TRUNCATE TABLE on a lakehouse table; a temp view is DuckDB's to drop.
@@ -1155,7 +1142,7 @@ class LocalSparkSession(SparkSession):
         self.conn.execute(text)
         return None
 
-    def _merge(self, tree: Any) -> DataFrame:
+    def _merge(self, tree: Any, evolve: bool = False) -> DataFrame:
         """MERGE INTO a lakehouse table (PB-015, Preview): DuckDB reads the source, delta-rs makes the
         change in one commit (lakehouse.change_table). Returns Spark's counts as a one-row DataFrame."""
         from sqlglot import exp
@@ -1167,7 +1154,6 @@ class LocalSparkSession(SparkSession):
         if change is None or change.source is None:  # parse_tree refuses a MERGE without USING itself
             raise ValueError("MERGE INTO needs USING (the rows to merge).")
         _preview_on("MERGE INTO")
-        _refuse_auto_merge(self)
         if not change.schema and self._is_local(change.table):
             raise ValueError(f"MERGE INTO {change.table}: {change.table} is a temp view on this PC. MERGE changes a "
                              "Delta table of the attached lakehouse.")
@@ -1182,6 +1168,13 @@ class LocalSparkSession(SparkSession):
         # Fabric-safe types, and the table's spelling of each column name (Spark matches them without case).
         cased = {n.lower(): n for n in target}
         safe = local_delta.fabric_schema(source.schema, names=False)
+        change.schema_evolution = evolve or _auto_merge_on(self)
+        if change.schema_evolution:
+            # The source's new columns become the table's: hold them to the same name rules as saveAsTable, before
+            # anything is written, so evolution can't add a column Fabric reads only with column mapping.
+            new = [f for f in safe if f.name.lower() not in cased]
+            if new:
+                local_delta.fabric_schema(pa.schema(new), names=True)
         names = [cased.get(f.name.lower(), f.name) for f in safe]
         source = source.rename_columns(names).cast(pa.schema([pa.field(n, f.type) for n, f in zip(names, safe, strict=True)]))
         self._one_match_each(change, source)
@@ -1588,6 +1581,7 @@ class LocalMergeBuilder:
     def __init__(self, table: LocalDeltaTable, source: Any, condition: Any):
         self._table, self._source, self._on = table, source, _sql_text(condition)
         self._clauses: list[str] = []
+        self._evolve = False
 
     def _add(self, when: str, condition: Any, action: str) -> LocalMergeBuilder:
         cond = f" AND ({_sql_text(condition)})" if condition is not None else ""
@@ -1627,8 +1621,9 @@ class LocalMergeBuilder:
         return self._add("NOT MATCHED BY SOURCE", condition, "DELETE")
 
     def withSchemaEvolution(self) -> LocalMergeBuilder:  # noqa: N802
-        raise NotImplementedError("MERGE with schema evolution runs in Fabric. On this PC, add the new columns "
-                                  "first (write with mergeSchema), then merge.")
+        """UPDATE SET * and INSERT * add the source's new columns to the table, in the MERGE's one commit."""
+        self._evolve = True
+        return self
 
     def execute(self) -> DataFrame:
         if not self._clauses:
@@ -1644,7 +1639,8 @@ class LocalMergeBuilder:
         relation.create_view(view, replace=True)
         try:
             target = self._table._name + (f" AS `{self._table._alias}`" if self._table._alias else "")
-            return spark.sql(f"MERGE INTO {target} USING {view} AS `{source_alias}` ON {self._on} "
+            how = "MERGE WITH SCHEMA EVOLUTION INTO" if self._evolve else "MERGE INTO"
+            return spark.sql(f"{how} {target} USING {view} AS `{source_alias}` ON {self._on} "
                              + " ".join(self._clauses))
         finally:
             spark.conn.execute(f"DROP VIEW IF EXISTS {view}")

@@ -57,6 +57,7 @@ class Change:
     whens: list[When] = field(default_factory=list)
     sets: list[tuple[str, exp.Expression]] = field(default_factory=list)   # UPDATE
     where: exp.Expression | None = None                                     # UPDATE and DELETE
+    schema_evolution: bool = False  # MERGE: UPDATE SET * and INSERT * add the source's new columns
 
     @property
     def name(self) -> str:
@@ -271,7 +272,8 @@ def apply(change: Change, table: Any, source: Any = None, source_names: list[str
         return _result(metrics, updated="num_updated_rows")
     source = _keeping_values(change, source, names, pa.schema(table.schema().to_arrow()))
     merger = table.merge(source, names.render(cast(exp.Expression, change.on)), source_alias=change.source_alias,
-                         target_alias=change.alias, commit_properties=commit_properties)
+                         target_alias=change.alias, merge_schema=change.schema_evolution,
+                         commit_properties=commit_properties)
     for when in change.whens:
         condition = names.render(when.condition) if when.condition is not None else None
         sets = {names.key(col): names.render(value) for col, value in when.sets}

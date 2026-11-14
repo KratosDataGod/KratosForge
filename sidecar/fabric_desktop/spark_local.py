@@ -1061,22 +1061,18 @@ class LocalSparkSession(SparkSession):
             raise ValueError("spark.sql runs MERGE INTO, UPDATE and DELETE only as the only statement in the call. "
                              "Nothing ran. Call spark.sql once for each statement.")
         result: DataFrame | None = None
-        self._evolve = evolve
-        try:
-            for statement in statements:
-                result = self._statement(statement)
-        finally:
-            self._evolve = False
+        for statement in statements:
+            result = self._statement(statement, evolve=evolve)
         return result if result is not None else DataFrame(self.conn.sql("SELECT 1 WHERE false"), self)
 
-    def _statement(self, statement: Any) -> DataFrame | None:
+    def _statement(self, statement: Any, evolve: bool = False) -> DataFrame | None:
         from sqlglot import exp
         if isinstance(statement, exp.Use):
             _use(statement)
             return None
         statement = _sql.history_query(statement, self.conn, self._bound())  # DESCRIBE HISTORY t
         if isinstance(statement, exp.Merge):
-            return self._merge(statement)
+            return self._merge(statement, evolve)
         if isinstance(statement, (exp.Update, exp.Delete)):
             return self._update_or_delete(statement)
         # DROP TABLE and TRUNCATE TABLE on a lakehouse table; a temp view is DuckDB's to drop.
@@ -1146,7 +1142,7 @@ class LocalSparkSession(SparkSession):
         self.conn.execute(text)
         return None
 
-    def _merge(self, tree: Any) -> DataFrame:
+    def _merge(self, tree: Any, evolve: bool = False) -> DataFrame:
         """MERGE INTO a lakehouse table (PB-015, Preview): DuckDB reads the source, delta-rs makes the
         change in one commit (lakehouse.change_table). Returns Spark's counts as a one-row DataFrame."""
         from sqlglot import exp
@@ -1172,10 +1168,16 @@ class LocalSparkSession(SparkSession):
         # Fabric-safe types, and the table's spelling of each column name (Spark matches them without case).
         cased = {n.lower(): n for n in target}
         safe = local_delta.fabric_schema(source.schema, names=False)
+        change.schema_evolution = evolve or _auto_merge_on(self)
+        if change.schema_evolution:
+            # The source's new columns become the table's: hold them to the same name rules as saveAsTable, before
+            # anything is written, so evolution can't add a column Fabric reads only with column mapping.
+            new = [f for f in safe if f.name.lower() not in cased]
+            if new:
+                local_delta.fabric_schema(pa.schema(new), names=True)
         names = [cased.get(f.name.lower(), f.name) for f in safe]
         source = source.rename_columns(names).cast(pa.schema([pa.field(n, f.type) for n, f in zip(names, safe, strict=True)]))
         self._one_match_each(change, source)
-        change.schema_evolution = getattr(self, "_evolve", False) or _auto_merge_on(self)
         result = lakehouse.change_table(change, source)
         affected = result.rows_inserted + result.rows_updated + result.rows_deleted
         return self._from_arrow_dataset(pa.table({

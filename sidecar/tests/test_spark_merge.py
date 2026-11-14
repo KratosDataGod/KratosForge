@@ -236,6 +236,27 @@ def test_merge_with_schema_evolution_adds_the_sources_new_columns_in_one_commit(
     assert DeltaTable(str(lake / "dbo" / "sales")).version() == before + 1
 
 
+BAD_NEW = ("spark.createDataFrame([(4, 'APAC', 40.0, 'b')], ['id', 'region', 'amount', 'Region Name'])"
+           ".createOrReplaceTempView('s')\n")
+EVOLVE = {
+    "sql": "spark.sql('MERGE WITH SCHEMA EVOLUTION INTO sales t USING s ON t.id = s.id WHEN NOT MATCHED THEN INSERT *')",
+    "autoMerge": ("spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')\n"
+                  "spark.sql('MERGE INTO sales t USING s ON t.id = s.id WHEN NOT MATCHED THEN INSERT *')"),
+    "builder": ("from delta.tables import DeltaTable\n"
+                "DeltaTable.forName(spark, 'sales').alias('t').merge(spark.table('s').alias('s'), 't.id = s.id')"
+                ".withSchemaEvolution().whenNotMatchedInsertAll().execute()"),
+}
+
+
+@pytest.mark.parametrize("path", sorted(EVOLVE))
+def test_schema_evolution_refuses_a_new_column_fabric_cant_read_and_writes_nothing(lake, path):
+    # (Two new names that differ only in case can't reach here: DuckDB renames the second, NOTE to NOTE_1.)
+    before = DeltaTable(str(lake / "dbo" / "sales")).version()
+    out, text = run(BAD_NEW + EVOLVE[path])
+    assert out["status"] == "error" and "only reads with column mapping" in text, text
+    assert DeltaTable(str(lake / "dbo" / "sales")).version() == before
+
+
 def test_merge_without_schema_evolution_keeps_the_tables_columns(lake):
     """As in Delta, INSERT * without schema evolution leaves out a source column the table hasn't got."""
     out, text = run(NEW + "spark.sql('MERGE INTO sales t USING s ON t.id = s.id WHEN NOT MATCHED THEN INSERT *')")

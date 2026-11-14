@@ -176,7 +176,7 @@ function intelLinter() {
 
 // What languageFor (notebook.js) adds to a Python cell's editor.
 function intelExtensions() {
-  return [intelHover(), intelSignature(), intelLinter()];
+  return [intelHover(), intelSignature(), intelLinter(), symKeys()];  // symKeys: nbsymbols.js
 }
 
 document.addEventListener("scroll", () => { intelHide(); }, true);

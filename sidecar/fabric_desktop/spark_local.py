@@ -968,6 +968,12 @@ class LocalSparkSession(SparkSession):
     def version(self) -> str:
         return spark_api.SPARK_VERSION
 
+    @property
+    def udf(self) -> Any:
+        """``spark.udf.register(name, f, returnType)``: a Python UDF callable from SQL (spark_udf.py)."""
+        from .spark_udf import UDFRegistration
+        return UDFRegistration()
+
     def range(self, start: int, end: int | None = None, step: int = 1, numPartitions: int | None = None) -> DataFrame:  # noqa: A003, N803, ARG002
         """``spark.range``: one column ``id``, as in Spark."""
         if end is None:
@@ -1712,10 +1718,14 @@ def reset() -> None:
         except Exception:  # noqa: BLE001  # silent-ok: best-effort close of a session being replaced
             pass
     _session = None
+    from . import spark_udf
+    spark_udf._registered.clear()  # a restart forgets registered UDFs, as a new Spark session does
 
 
 def install(namespace: dict[str, Any]) -> None:
     spark_api.install()
+    from . import spark_udf
+    spark_udf.install()
     _alias_pyspark()
     _alias_delta()
     from . import spark_df_extras, spark_stream

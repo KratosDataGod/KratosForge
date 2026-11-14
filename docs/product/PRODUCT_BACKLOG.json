@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-13",
+  "updated": "2026-11-14",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -5019,7 +5019,9 @@
         2591,
         2605,
         2606,
-        2609
+        2609,
+        2613,
+        2614
       ],
       "issues": [
         910,
@@ -5045,7 +5047,8 @@
         "UX audit by the oversight thread, 2026-10-18 (PR #166)",
         "Living Experience, all Preview: the Home hero and progression panel (#2213, #2222), the Forge Activity view on Runs (#2215, #2226), spot illustrations for empty states (#2216), motion modes Professional to Legendary (#2211), and celebrations that are on by default and hold off while you type (#2201, #2225) on main at e5e6bec4",
         "Header art only on Academy and Profile, with a rotating pool (#2246); Monitor run progress is a plain panel (#2411) on main at 47416473",
-        "Skins choose their look from fixed choices: typefaces, corners, icon weight, header, rail, tabs and cells (#2202, #2203, #2600, #2602, Preview) on main at af7d786b"
+        "Skins choose their look from fixed choices: typefaces, corners, icon weight, header, rail, tabs and cells (#2202, #2203, #2600, #2602, Preview) on main at af7d786b",
+        "Each skin card's picture shows that skin's real look, finishing the five-part skin look series (#2603, Preview) on main at 2dc0bc43"
       ],
       "features": [
         "FEAT-SHL-04",
@@ -5137,7 +5140,8 @@
         2411,
         2503,
         2600,
-        2602
+        2602,
+        2603
       ],
       "issues": [
         928,
@@ -5166,7 +5170,8 @@
         "Spark on this PC: storage levels, sameSemantics, Observation, struct stars, drop after a join, temp views and createDataFrame types answer as Spark (#2446, #2454, #2456, #2459, #2477); notebooks keep the .ipynb as other tools wrote it (#2449) on main at 47416473",
         "Spark SQL session, clock and random functions answer as in Fabric (#2535), and columns without AS are named as Spark names them (#2539) on main at 7c3dbd0e",
         "Spark on this PC: extract on text, NaN literals and read.csv's default comma (#2561); SQL cells ending in comments run, and a cell with no statement is done (#2551, #2553) on main at 36844275",
-        "Notebooks: find searches outputs, export as PDF, Markdown cells render tables, math and images, Cancel releases an unread result (#2581, #2584, #2589, #2608); spark.sql args and CAST to STRING as Spark (#2594, #2597) on main at af7d786b"
+        "Notebooks: find searches outputs, export as PDF, Markdown cells render tables, math and images, Cancel releases an unread result (#2581, #2584, #2589, #2608); spark.sql args and CAST to STRING as Spark (#2594, #2597) on main at af7d786b",
+        "Notebook templates for Silver tables and Gold dimensions and facts, with enterprise handover (#2588) on main at 2dc0bc43"
       ],
       "features": [
         "FEAT-NB-04",
@@ -5346,6 +5351,7 @@
         2561,
         2581,
         2584,
+        2588,
         2589,
         2594,
         2597,
@@ -5496,7 +5502,8 @@
         "WH-01/02/03/04/05/04b/08 merged as #636-#641, #645",
         "Local T-SQL answers as T-SQL for text compares, float text, CONVERT and FORMAT styles, LEFT/RIGHT/TRANSLATE errors and CONCAT (#1622, #1632, #1633, #1635, #1852, #1898), the refused list in the docs is checked by a test (#1869), queries about 3x faster (#1900); Warehouse table detail with profile, a read at a past time and a clone script (#755) on main at a7631920",
         "T-SQL functions on this PC: a generated page checked by CI (#1912), TIMEFROMPARTS runs and OPENJSON is refused by name (#1913), math functions keep T-SQL's types (#1939) on main at de881016",
-        "SQL editor: run the statement at the cursor, maximize or hide results, hover cards and signature help (#2582, #2583, #2598); export results as Excel or JSON (#2587); Open in SSMS from the Warehouse page (#2596) on main at af7d786b"
+        "SQL editor: run the statement at the cursor, maximize or hide results, hover cards and signature help (#2582, #2583, #2598); export results as Excel or JSON (#2587); Open in SSMS from the Warehouse page (#2596) on main at af7d786b",
+        "SQL page: Plan and Profile for lakehouse queries (#2604, Preview), Copy as rows, CSV, JSON or INSERT statements (#2616); F12 shows the table under the cursor (#2610) on main at 2dc0bc43"
       ],
       "features": [
         "FEAT-FAB-11",
@@ -5583,7 +5590,10 @@
         2583,
         2587,
         2596,
-        2598
+        2598,
+        2604,
+        2610,
+        2616
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -6623,7 +6633,8 @@
       "effort": "L",
       "prs": [
         1722,
-        2247
+        2247,
+        2612
       ],
       "problem": "Learn v1 covers the first rule catalog and paths only.",
       "capability": "New rule batches, Profile v2 and the professional report (LX-11 to LX-16); the platform comparison lessons moved to PB-126.",

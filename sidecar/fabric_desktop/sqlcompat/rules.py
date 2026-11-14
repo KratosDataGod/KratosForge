@@ -293,10 +293,13 @@ def _name_at(s: Stmt, i: int) -> tuple[list[Tok], int]:
         return [], i
     while i < len(toks) and _is_name(toks[i]):
         parts.append(toks[i])
-        if i + 2 < len(toks) and toks[i + 1].type == TokenType.DOT:
+        if i + 3 < len(toks) and toks[i + 1].type == TokenType.DOT and toks[i + 2].type == TokenType.DOT:
+            # db..table: the schema is left out (the default one); an empty part keeps the name three parts long
+            dot = toks[i + 2]
+            parts.append(Tok(TokenType.VAR, "", "", "", dot.start, dot.start, dot.depth))
+            i += 3
+        elif i + 2 < len(toks) and toks[i + 1].type == TokenType.DOT:
             i += 2
-        elif i + 2 < len(toks) and toks[i + 1].type == TokenType.DOT and toks[i + 2].type == TokenType.DOT:
-            i += 1  # db..table
         else:
             return parts, i + 1
     return parts, i

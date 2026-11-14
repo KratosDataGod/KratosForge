@@ -41,8 +41,6 @@ BLOCKED = {
     "_no_schema": ("df = spark.read.schema(my_schema).table('dbo.t')", "read.schema() to a read of a table"),
     "_statement": ("spark.sql('INSERT INTO dbo.t PARTITION (d = 1) SELECT * FROM s')", "PARTITION or REPLACE WHERE"),
     "forPath": ("from delta.tables import DeltaTable\nt = DeltaTable.forPath(spark, 'Files/raw/t')", "forPath"),
-    "_in_fabric": ("from delta.tables import DeltaTable\nt = DeltaTable.forName(spark, 'dbo.t')\nt.vacuum(168)",
-                   "DeltaTable.vacuum"),
     "_refusal": ("df = spark.read.option('ignoreLeadingWhiteSpace', 'true').csv('Files/x.csv')", "ignoreLeadingWhiteSpace"),
     "_catalog_call_in_fabric": ("tables = [t.name for t in spark.catalog.listTables()]", "lists the catalog"),
 }
@@ -78,6 +76,13 @@ def test_code_this_pcs_spark_refuses_is_blocked_on_this_pc(site):
     "t.merge(s, 'a = b').withSchemaEvolution().whenMatchedUpdateAll().execute()",
     "from delta.tables import DeltaTable\nt = DeltaTable.forPath(spark, 'Tables/dbo/t')\nt.toDF().show()",
     "import scipy.optimize\nresult = model.optimize(x)",  # not a DeltaTable
+    # OPTIMIZE, VACUUM and RESTORE run here (Preview, spark_maint).
+    "from delta.tables import DeltaTable\nt = DeltaTable.forName(spark, 'dbo.t')\nt.vacuum(168)",
+    "from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'dbo.t').optimize().executeCompaction()",
+    "from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'dbo.t').restoreToVersion(2)",
+    "spark.sql('OPTIMIZE dbo.t ZORDER BY (id)')",
+    "spark.sql('VACUUM dbo.t RETAIN 200 HOURS')",
+    "spark.sql('RESTORE TABLE dbo.t TO VERSION AS OF 3')",
     "spark.sql('INSERT INTO dbo.t SELECT * FROM s')",
     "spark.sql('DROP VIEW IF EXISTS v')",
     "cols = spark.catalog.listColumns('dbo.t')\nspark.catalog.tableExists('dbo.t')",
@@ -112,7 +117,7 @@ def test_saving_a_table_as_another_format_is_blocked():
 
 
 def test_sql_cells_and_the_sql_line_magic_read_the_same_refusals():
-    cells = [{"type": "code", "source": "%%sql\nRESTORE TABLE dbo.t TO VERSION AS OF 3", "meta": {}},
+    cells = [{"type": "code", "source": "%%sql\nRESTORE TABLE dbo.t", "meta": {}},  # no version: not a form this PC reads
              {"type": "code", "source": "%%sql\nTRUNCATE TABLE t", "meta": {}},
              {"type": "code", "source": "rows = %sql DROP TABLE dbo.old", "meta": {}}]
     out = compute_check(cells, LH)["local"]

@@ -77,9 +77,9 @@ def test_is_delta_table_takes_a_tables_path_or_a_name(monkeypatch):
     assert seen == ["dbo.sales", "orders"]
 
 
-def test_restore_to_a_time_runs_in_fabric():
-    with pytest.raises(NotImplementedError):
-        sl.LocalDeltaTable("sales").restoreToTimestamp("2026-01-01")
+def test_restore_to_a_time_it_cant_read_is_refused():
+    with pytest.raises(ValueError, match="isn't a date and time RESTORE can read"):
+        sl.LocalDeltaTable("sales").restoreToTimestamp("last tuesday")
 
 
 def test_merge_text_must_be_sql_or_a_column():

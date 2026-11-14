@@ -171,6 +171,21 @@ class MetaMixin:
                         "Point the job at a Dev or scratch workspace.")
         return lakehouse.write_guard(lakehouse_name, schema, table) if lakehouse.write_guard else None
 
+    def _maintenance_refusal(self, operation: str, workspace_id: str, table: str) -> str | None:
+        """Why OPTIMIZE, VACUUM or RESTORE from notebook code may not run on ``table``: a Test or Prod workspace
+        of the open metadata project changes only by promote, and its maintenance runs from X-ray, where Vacuum and
+        Optimize show what they do and are confirmed first. None when it may (no project open, or another workspace)."""
+        try:
+            project = self._project()
+        except LookupError:
+            return None
+        for env in ("test", "prod"):
+            if workspace_id in _env_workspaces(project.environments.get(env, {})):
+                return (f"{operation.upper()} on {table} from notebook code is refused: this workspace is "
+                        f"{env.title()}'s, which changes only by promote. Run Optimize or Vacuum from X-ray, which "
+                        "shows what it does first, or run the cell against a Dev workspace. Nothing was changed.")
+        return None
+
     def meta_project(self) -> dict[str, Any]:
         try:
             project = self._project()

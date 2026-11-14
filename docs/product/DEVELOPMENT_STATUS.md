@@ -3,10 +3,15 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-13 23:42 UTC, main af7d786b.** Covers the PRs merged from #135 to #2609.
+**Product check of 2026-11-14 11:42 UTC, main 2dc0bc43.** Covers the PRs merged from #135 to #2616.
 
 ## Summary
 
+- Morning check, 2026-11-14: 9 PRs merged after af7d786b. 1 was a product data PR, and the other 8 were linked. The
+  SQL page shows Plan and Profile for lakehouse queries (Preview), copies results as CSV, JSON or INSERT statements,
+  and F12 finds the table under the cursor (PB-106). Notebook templates for Silver and Gold tables landed (PB-103),
+  and the skin look series finished with real previews on each skin card (PB-102, Preview). No item changed state;
+  PB-136's acceptance waits on the product owner.
 - Evening check, 2026-11-13: 38 PRs merged after 6cab0dc3. 3 were product data and operations PRs, and the other 35
   were linked. Notebooks now run in a process of their own by default (PB-136, now In review: the Windows trial on
   Python 3.12 passed in every area). Settings has a color mode IT can set, and audit trails and receipts take an IT

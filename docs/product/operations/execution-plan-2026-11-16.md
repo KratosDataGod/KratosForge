@@ -47,7 +47,7 @@ New threads are started by the coordinator, one branch per thread. **Bundle** me
 | 3 | SQL hover and signature help; plan and profile for local queries | Parity items 6 and 11 | *SQL editor parity* | 0 to A | Nothing more |
 | 4 | Go to definition and rename across cells; find inside outputs; export as PDF | Parity items 12, 17 and 10 | *Notebook parity* | 0 to A | Nothing more |
 | 5 | Transactions on a warehouse as one guarded script | Parity item 13, after row 10 | *Warehouse* | B | Security read; Workload sign-off if workloads change |
-| 6 | Finish PySpark parity (#2360): the gap was 5 methods, not 15, and #2626 builds all 5 | Done in #2626 | *Notebook parity* | 0 | Nothing more; out of the bundled go |
+| 6 | Finish PySpark parity (#2360): the gap was 5 methods, not 15, and #2626 (open) builds all 5 | In #2626 (open) | *Notebook parity* | 0 | Its own review; out of the bundled go |
 | 7 | Finish the notebook debugger: breakpoints and step-through (#2362) | One PR | New: *Debugger* | A | Bundled go; mockup only if a panel changes |
 | 8 | Modern Delta profile: V-Order, deletion vectors, column mapping (#2361) | Read first, then write | New: *Delta profile* | A to B | Bundled go; data-integrity tests on every write |
 | 9 | Result grid: sort, filter, resize, value viewer, copy as, statistics | Parity item 8 | *SQL editor parity* | B | Mockup |

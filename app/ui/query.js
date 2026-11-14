@@ -1239,6 +1239,9 @@ registerShortcuts("SQL query", [
   { keys: ["Ctrl+Shift+U", "Ctrl+Shift+L"], label: "In the editor: make the selection (or the word at the cursor) upper or lower case", when: () => state.view === "query" },
   { keys: ["Ctrl+G"], label: "In the editor: go to a line", when: () => state.view === "query" },
   { keys: ["F12"], label: "In the editor: show the table under the cursor (or an alias's or column's table) in the Explorer", when: () => state.view === "query" },
+  { keys: ["Ctrl+F2"], label: "In the editor: bookmark the cursor's line, or remove its bookmark", when: () => state.view === "query" },
+  { keys: ["F2", "Shift+F2"], label: "In the editor: go to the next or previous bookmark", when: () => state.view === "query" },
+  { keys: ["Ctrl+Shift+F2"], label: "In the editor: remove every bookmark", when: () => state.view === "query" },
   { keys: ["Delete"], label: "On a query tab: close it (asks first when it has SQL of its own)", when: () => !!document.querySelector(".sql-tabs") },
 ]);
 

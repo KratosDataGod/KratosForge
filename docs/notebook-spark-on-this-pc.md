@@ -31,6 +31,18 @@ since SQL here would call that function, not the UDF: register it under another 
 `PandasUDFType.SCALAR` and `SCALAR_ITER` are taken as the second argument of `pandas_udf`; `GROUPED_MAP`
 points to `applyInPandas`.
 
+## Python over batches and groups
+
+`mapInPandas(func, schema)` and `mapInArrow(func, schema)` hand `func` the DataFrame's rows as pandas
+DataFrames or pyarrow RecordBatches, `spark.sql.execution.arrow.maxRecordsPerBatch` rows at a time
+(10,000 unless set), and make a DataFrame of what it yields with the schema given (a `StructType` or a
+DDL string); columns are matched by name when all are there, else by position.
+`groupBy(...).applyInPandas(func, schema)` calls `func(pdf)` or `func(key, pdf)` once per group; here it
+groups by column names, so add an expression as a column with `withColumn` first.
+`foreach(f)` calls `f` with each `Row`, and `foreachPartition(f)` calls it once with every row, since one
+PC is one partition. They run in the notebook's process, and the output is held in memory before it
+becomes a DataFrame, so a function that turns a large table into a larger one needs the memory for it.
+
 ## DataFrame methods
 
 `freqItems` (and `df.stat.freqItems`) lists, for each column, the values in at least `support` of the
@@ -173,7 +185,7 @@ data). `semanticHash()` is this PC's own number for that plan, not the one Spark
 query the first time it's read, where Spark computes it during the first action. `observe` with a name and
 `spark.streams` (listeners, the query manager) are refused by name: they run in Fabric.
 
-### DataFrame: 94 of 102
+### DataFrame: 98 of 102
 
 | Method | On this PC |
 | --- | --- |
@@ -208,8 +220,8 @@ query the first time it's read, where Spark computes it during the first action.
 | `fillna` | Works |
 | `filter` | Works |
 | `first` | Works |
-| `foreach` | Runs in Fabric: row-by-row Python runs in Fabric |
-| `foreachPartition` | Runs in Fabric: runs in Fabric |
+| `foreach` | Works |
+| `foreachPartition` | Works |
 | `freqItems` | Works |
 | `groupBy` | Works |
 | `groupby` | Works |
@@ -224,8 +236,8 @@ query the first time it's read, where Spark computes it during the first action.
 | `join` | Works |
 | `limit` | Works |
 | `localCheckpoint` | Accepted, does nothing on one PC |
-| `mapInArrow` | Runs in Fabric: runs in Fabric |
-| `mapInPandas` | Runs in Fabric: runs in Fabric |
+| `mapInArrow` | Works |
+| `mapInPandas` | Works |
 | `melt` | Works |
 | `na` | Works |
 | `observe` | Works |
@@ -307,4 +319,4 @@ query the first time it's read, where Spark computes it during the first action.
 
 **Runs on** knows what this PC's Spark refuses, from the same list the run uses, so a notebook that uses any of it shows as running in Fabric only before you run it ([where a notebook runs](notebooks.md#where-a-notebook-runs)).
 
-RDDs, Python UDFs, row-by-row Python (`foreach`, `mapInPandas`), pandas-on-Spark, continuous and Kafka or Event Hubs streams ([streaming on this PC](notebooks.md#fabric-notebook-code-on-this-pc) runs as availableNow), Scala and R run in Fabric. A notebook that uses them can still be edited here and run with **Runs on: Fabric** ([where a notebook runs](notebooks.md#where-a-notebook-runs)).
+RDDs, Java UDFs, UDTFs, pandas-on-Spark, continuous and Kafka or Event Hubs streams ([streaming on this PC](notebooks.md#fabric-notebook-code-on-this-pc) runs as availableNow), Scala and R run in Fabric. A notebook that uses them can still be edited here and run with **Runs on: Fabric** ([where a notebook runs](notebooks.md#where-a-notebook-runs)).

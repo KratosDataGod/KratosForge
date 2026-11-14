@@ -33,6 +33,13 @@ points to `applyInPandas`.
 
 ## DataFrame methods
 
+`freqItems` (and `df.stat.freqItems`) lists, for each column, the values in at least `support` of the
+rows (1% by default); it is exact here, where Spark's may list extra values. `inputFiles` names the files
+a read scans (a Delta table's data files, a folder's files). `to(schema)` picks and casts columns by name
+to a schema. `withMetadata` keeps a column's metadata on the DataFrame, shown in `df.schema`.
+`writeTo(table)` with `create`, `replace`, `createOrReplace` and `append` writes through the same table
+writer as `saveAsTable`; `overwrite(condition)` and `overwritePartitions` run in Fabric.
+
 Calls that only change how Spark spreads or keeps work across a cluster (`repartition`, `coalesce`, `persist`, `cache`, `checkpoint`, `hint`) are accepted and do nothing, since everything runs in one process here. `spark.catalog` answers about temp views and the attached lakehouse: `tableExists`, `listColumns` (which marks a lakehouse table's partition columns, from its Delta log), `currentDatabase` (the lakehouse's name; refused for a lakehouse with schemas or no lakehouse) and `setCurrentDatabase`. `listTables`, `listDatabases`, `listCatalogs` and `listFunctions` are refused by name, since on this PC they would list DuckDB's own objects; the Explorer and `notebookutils.lakehouse.listTables()` list the lakehouse's tables. `spark.sql` takes parameters as PySpark 3.5 does: `args` binds `:name` markers (a dict) or `?` markers (a list) as typed values that can't change the query, and keyword arguments fill `{name}` fields, with a DataFrame read through a temporary view, a plain column by its name and text as a quoted string. In SQL, `current_catalog()` is `spark_catalog` and `current_timezone()` is the session's `spark.sql.session.timeZone`, as in Fabric. `current_database()` and `current_schema()` are refused by name, since a SQL cell here would name DuckDB's own database; use `spark.catalog.currentDatabase()`. The tables below are generated from the code (`spark_api.coverage_markdown()`), and a test fails if they fall out of step.
 
 `spark.createDataFrame` takes a list of column names, a `StructType` or a DDL string such as
@@ -166,7 +173,7 @@ data). `semanticHash()` is this PC's own number for that plan, not the one Spark
 query the first time it's read, where Spark computes it during the first action. `observe` with a name and
 `spark.streams` (listeners, the query manager) are refused by name: they run in Fabric.
 
-### DataFrame: 89 of 102
+### DataFrame: 94 of 102
 
 | Method | On this PC |
 | --- | --- |
@@ -203,12 +210,12 @@ query the first time it's read, where Spark computes it during the first action.
 | `first` | Works |
 | `foreach` | Runs in Fabric: row-by-row Python runs in Fabric |
 | `foreachPartition` | Runs in Fabric: runs in Fabric |
-| `freqItems` | Not yet on this PC |
+| `freqItems` | Works |
 | `groupBy` | Works |
 | `groupby` | Works |
 | `head` | Works |
 | `hint` | Accepted, does nothing on one PC |
-| `inputFiles` | Not yet on this PC |
+| `inputFiles` | Works |
 | `intersect` | Works |
 | `intersectAll` | Works |
 | `isEmpty` | Works |
@@ -251,7 +258,7 @@ query the first time it's read, where Spark computes it during the first action.
 | `summary` | Works |
 | `tail` | Works |
 | `take` | Works |
-| `to` | Not yet on this PC |
+| `to` | Works |
 | `toDF` | Works |
 | `toJSON` | Works |
 | `toLocalIterator` | Works |
@@ -267,11 +274,11 @@ query the first time it's read, where Spark computes it during the first action.
 | `withColumnRenamed` | Works |
 | `withColumns` | Works |
 | `withColumnsRenamed` | Works |
-| `withMetadata` | Not yet on this PC |
+| `withMetadata` | Works |
 | `withWatermark` | Runs in Fabric: streaming runs in Fabric |
 | `write` | Works |
 | `writeStream` | Works |
-| `writeTo` | Not yet on this PC |
+| `writeTo` | Works |
 
 ### SparkSession: 15 of 17
 

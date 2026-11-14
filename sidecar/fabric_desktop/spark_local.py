@@ -1726,6 +1726,8 @@ def install(namespace: dict[str, Any]) -> None:
     spark_api.install()
     from . import spark_udf
     spark_udf.install()
+    from . import spark_df_more
+    spark_df_more.install()
     _alias_pyspark()
     _alias_delta()
     from . import spark_df_extras, spark_stream

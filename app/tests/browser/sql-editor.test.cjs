@@ -172,6 +172,65 @@ test("F5 runs the selection or the whole query, as in SSMS, and never reloads th
   assert.match(await run.getAttribute("title"), /F5/);
 });
 
+test("Ctrl+F2 bookmarks lines, F2 and Shift+F2 go between them, and they move with the text", { skip }, async () => {
+  await setDoc("SELECT a\nFROM t\nWHERE x = 1\nORDER BY a", 0);
+  const line = () => page().evaluate(() => { const v = sqlPage.editor.view; return v.state.doc.lineAt(v.state.selection.main.head).number; });
+  const marked = () => page().evaluate(() => [...document.querySelectorAll(".sql-edit .cm-line")].map((l, i) => (l.classList.contains("sql-bookmarked") ? i + 1 : 0)).filter(Boolean));
+  const goLine = (n) => page().evaluate((n) => { const v = sqlPage.editor.view; v.dispatch({ selection: { anchor: v.state.doc.line(n).from } }); v.focus(); }, n);
+  await goLine(2);
+  await page().keyboard.press("Control+F2");
+  await goLine(4);
+  await page().keyboard.press("Control+F2");
+  assert.deepStrictEqual(await marked(), [2, 4]);
+  await goLine(1);
+  await page().keyboard.press("F2");
+  assert.strictEqual(await line(), 2);
+  await page().keyboard.press("F2");
+  assert.strictEqual(await line(), 4);
+  await page().keyboard.press("F2");
+  assert.strictEqual(await line(), 2, "wraps around");
+  await page().keyboard.press("Shift+F2");
+  assert.strictEqual(await line(), 4);
+  // A line typed above moves the marks down with their text.
+  await goLine(1);
+  await page().keyboard.press("Home");
+  await page().keyboard.type("-- note\n");
+  assert.deepStrictEqual(await marked(), [3, 5]);
+  assert.strictEqual(await docText(), "-- note\nSELECT a\nFROM t\nWHERE x = 1\nORDER BY a");
+  await goLine(3);  // Enter at the start of a marked line: the mark stays with its text
+  await page().keyboard.press("Enter");
+  assert.deepStrictEqual(await marked(), [4, 6]);
+  await page().keyboard.press("Control+z");
+  assert.deepStrictEqual(await marked(), [3, 5]);
+  await goLine(3);
+  await page().keyboard.press("Control+F2");
+  assert.deepStrictEqual(await marked(), [5], "Ctrl+F2 on a marked line removes it");
+  await page().keyboard.press("Control+Shift+F2");
+  assert.deepStrictEqual(await marked(), []);
+  await page().keyboard.press("F2");
+  assert.strictEqual(await line(), 3, "F2 with no bookmarks stays put");
+});
+
+test("Copy ▾ copies the page as tab-separated rows, CSV, JSON or INSERT statements for the query's table", { skip }, async () => {
+  await page().evaluate(() => { window.__copied = []; Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (t) => { window.__copied.push(t); } } }); });
+  await setDoc("SELECT x FROM sales");
+  await page().keyboard.press("F5");
+  await page().waitForFunction(() => document.querySelector(".sql-pill")?.textContent === "Succeeded");
+  const copyAs = async (label) => {
+    const n = await page().evaluate(() => window.__copied.length);
+    await page().locator(".sql-copy > summary").click();
+    await page().getByRole("menuitem", { name: label, exact: true }).click();
+    await page().waitForFunction((n) => window.__copied.length > n, n);
+    return page().evaluate(() => window.__copied.at(-1));
+  };
+  assert.strictEqual(await copyAs("Rows with headers"), "x\n1\n");
+  assert.match(await toastText(), /Copied the 2 rows on this page$/);
+  assert.strictEqual(await copyAs("CSV"), "x\r\n1\r\n");
+  assert.deepStrictEqual(JSON.parse(await copyAs("JSON")), [{ x: 1 }, { x: null }]);
+  assert.strictEqual(await copyAs("INSERT statements"), "INSERT INTO sales (x) VALUES\n  (1),\n  (NULL);");
+  assert.match(await toastText(), /as INSERT statements$/);
+});
+
 test("the results pane maximizes, hides with Ctrl+R wherever focus is, and comes back on a run", { skip }, async () => {
   await page().evaluate(() => { window.__notReloaded = true; });
   const card = page().locator(".sql-card");

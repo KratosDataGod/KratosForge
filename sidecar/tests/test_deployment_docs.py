@@ -69,7 +69,7 @@ def test_the_engine_starts_with_the_proxy_windows_uses_as_the_page_says():
 
 
 # Policy keys the page says are saved but not applied yet, with the words the row must use.
-NOT_APPLIED = {"ui_color_mode": "not applied yet"}
+NOT_APPLIED: dict[str, str] = {}
 
 
 def test_every_policy_key_is_read_by_the_code_or_its_row_says_it_isnt_applied():

@@ -2204,6 +2204,19 @@ def _int_cast(original: Any) -> Any:
     return cast
 
 
+def _text_cast(original: Any) -> Any:
+    """Column.cast("string") as Spark writes a timestamp (sql.spark_timestamp_text): no '+00' after it.
+    The column keeps the name DuckDB's cast gives it. Written without lambdas, so functions that read
+    a column's SQL back (conv, format_string) still take it; a double keeps DuckDB's text here."""
+    def cast(self: Column, dataType: Any) -> Column:  # noqa: N803 - PySpark's name
+        name = dataType.strip().lower() if isinstance(dataType, str) else type(dataType).__name__
+        if name not in ("string", "StringType"):
+            return original(self, dataType)
+        named = original(self, dataType).expr.get_name()
+        return _sql(spark_sql.spark_timestamp_text(f"({_col_sql(self)})")).alias(named)
+    return cast
+
+
 def _constant(value: Any) -> duckdb.Expression:
     """DuckDB's ConstantExpression, with NaN and the infinities kept: DuckDB 1.5 reads a float NaN given to
     ConstantExpression as NULL (its nan_as_null for imported data), so lit(float("nan")) and col == nan
@@ -2248,6 +2261,7 @@ def install() -> None:
     # Each wraps the other: a whole-number target goes to _int_cast, a date or timestamp to _time_cast.
     Column.cast = _time_cast(Column.cast)  # type: ignore[method-assign]
     Column.cast = _int_cast(Column.cast)  # type: ignore[method-assign]
+    Column.cast = _text_cast(Column.cast)  # type: ignore[method-assign]
     for name in _ORDERS:
         setattr(Column, name, _ordered(name, getattr(Column, name)))
     for name, at in _TEXT_ARGS.items():

@@ -140,13 +140,14 @@ class ProofRuntime:
         return opened if version is None else ReadOnlyTable(opened)
 
     def write_location(self, schema: str | None, table: str, mode: str,
-                       write_delta: Callable[[str, Any], object]) -> str:
+                       write_delta: Callable[[str, Any], object], keeps_rows: bool = False) -> str:
         """The sandbox uri to write ``schema.table`` to. Before the first append to a table that
         existed at the start, the pinned version is copied in with ``write_delta(uri, arrow)``, so
-        the append changes the same starting state on both sides."""
+        the append changes the same starting state on both sides. ``keeps_rows``: an overwrite that
+        replaces only some rows (a dynamic partition overwrite) is seeded the same way."""
         key = self.key(schema, table)
         uri = self.sandbox_table(key)
-        if mode == "append" and key not in self.log["writes"]:
+        if (mode == "append" or keeps_rows) and key not in self.log["writes"]:
             name, version = self._pin(key)
             if name is not None:
                 from deltalake import DeltaTable

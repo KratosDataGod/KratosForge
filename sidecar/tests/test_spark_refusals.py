@@ -35,8 +35,6 @@ def test_every_refusal_in_spark_local_is_listed_with_how_the_check_finds_it():
 BLOCKED = {
     "option": ("df.write.option('replaceWhere', 'd = 1').mode('overwrite').saveAsTable('dbo.t')", "replaceWhere"),
     "_check_options": ("df.write.option('someOption', 'x').saveAsTable('dbo.t')", "saveAsTable doesn't take"),
-    "_refuse_dynamic_overwrite": ("spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'dynamic')",
-                                  "dynamic partitionOverwriteMode"),
     "schema": ("df = spark.read.schema('a INT, b STRING').csv('Files/x.csv')", "DDL string"),
     "_no_schema": ("df = spark.read.schema(my_schema).table('dbo.t')", "read.schema() to a read of a table"),
     "_statement": ("spark.sql('INSERT INTO dbo.t PARTITION (d = 1) SELECT * FROM s')", "PARTITION or REPLACE WHERE"),
@@ -70,6 +68,9 @@ def test_code_this_pcs_spark_refuses_is_blocked_on_this_pc(site):
     "df = spark.read.csv('Files/x.csv', header=True, inferSchema=True, nullValue='NA', multiLine=True)",
     "df = spark.read.schema(my_schema).option('mode', 'DROPMALFORMED').csv('Files/x.csv')",
     "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'static')",
+    "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'dynamic')\ndf.write.mode('overwrite').saveAsTable('dbo.t')",
+    "df.write.option('partitionOverwriteMode', 'dynamic').mode('overwrite').saveAsTable('dbo.t')",
+    "spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')",  # no MERGE in the notebook
     ("spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')\nspark.sql('MERGE INTO dbo.t USING s "
     "ON t.id = s.id WHEN MATCHED THEN UPDATE SET *')"),  # schema evolution runs here (Preview)
     "spark.sql('MERGE WITH SCHEMA EVOLUTION INTO dbo.t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET *')",
@@ -147,7 +148,7 @@ def test_a_clean_run_doesnt_ask_to_confirm_what_the_check_cant_read():
 
 def test_a_refused_option_on_a_writer_held_in_a_variable_is_blocked():
     for source in ("w = df.write\nw.option('replaceWhere', 'd = 1').saveAsTable('dbo.t')",
-                   "w = df.write.mode('overwrite')\nw = w.option('partitionOverwriteMode', 'dynamic')\nw.saveAsTable('dbo.t')"):
+                   "w = df.write.mode('overwrite')\nw = w.option('replaceWhere', 'd = 1')\nw.saveAsTable('dbo.t')"):
         local = check(source)["local"]
         assert local["status"] == "blocked" and "write option" in local["reasons"][0]["text"], source
 

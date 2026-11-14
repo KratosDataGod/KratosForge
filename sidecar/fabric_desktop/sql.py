@@ -715,6 +715,7 @@ _TIMESTAMP_TYPES = "'TIMESTAMP', 'TIMESTAMP WITH TIME ZONE', 'TIMESTAMP_S', 'TIM
 _EPOCH_LIMIT = "9.2e12"  # about the seconds a DuckDB timestamp reaches either side of 1970 (year 294247)
 _TIMESTAMP_CASTS = (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPTZ, exp.DataType.Type.TIMESTAMPLTZ,
                     exp.DataType.Type.TIMESTAMPNTZ)
+_TEXT_CASTS = (exp.DataType.Type.TEXT, exp.DataType.Type.VARCHAR)
 _PLAIN_NUMBER = r"^\s*([+-]?[0-9]+)(\.[0-9]*)?\s*$"
 _WHOLE_NUMBER = r"^\s*([+-]?[0-9]+)\s*$"
 
@@ -812,6 +813,27 @@ def spark_legacy_casts(statement: exp.Expression) -> exp.Expression:
     return _spark_cast_functions(statement, legacy=True)
 
 
+def spark_timestamp_text(value: str) -> str:
+    """CAST(value AS VARCHAR), with a timestamp written as Spark writes it: the session zone's wall time
+    with no offset. No lambdas, so the SQL reads back through sqlglot (Column.cast); ``value`` is
+    evaluated once, since typeof is settled when DuckDB binds the query."""
+    return (f"CASE WHEN typeof({value}) = 'TIMESTAMP WITH TIME ZONE' THEN "
+            f"regexp_replace(CAST({value} AS VARCHAR), '[+-][0-9][0-9](:[0-9][0-9])?$', '') "
+            f"ELSE CAST({value} AS VARCHAR) END")
+
+
+def spark_text_cast(value: str) -> str:
+    """CAST(value AS STRING) as Spark writes it: a timestamp as the session zone's wall time with no
+    offset ('2026-01-02 03:04:05', where DuckDB writes '+00' after it), a double or float as Java
+    writes it ('1.0E20', where DuckDB writes '1e+20'). Every other type casts as DuckDB casts it."""
+    java = spark_builtins_sql.java_double_text
+    return (f"CASE WHEN typeof({value}) = 'TIMESTAMP WITH TIME ZONE' THEN "
+            f"regexp_replace(CAST({value} AS VARCHAR), '[+-][0-9][0-9](:[0-9][0-9])?$', '') "
+            f"WHEN typeof({value}) = 'DOUBLE' THEN {java(f'TRY_CAST({value} AS DOUBLE)')} "
+            f"WHEN typeof({value}) = 'FLOAT' THEN {java(f'TRY_CAST({value} AS FLOAT)')} "
+            f"ELSE CAST({value} AS VARCHAR) END")
+
+
 def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
     """Casts to TINYINT, SMALLINT, INT or BIGINT written out as Spark casts (EA-003, and EA-014 for a
     timestamp): see spark_integer_cast. Casts to a timestamp read a number as seconds (spark_timestamp_cast).
@@ -832,6 +854,8 @@ def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
                                       spark_type=_INT_CASTS[kind][1], mode=mode)
         elif kind in _TIMESTAMP_CASTS and not (isinstance(source, exp.Literal) and source.is_string):
             write = functools.partial(spark_timestamp_cast, duck_type=duckdb_sql(node.to), mode=mode)
+        elif kind in _TEXT_CASTS and not (isinstance(source, exp.Literal) and source.is_string) and not node.to.expressions:
+            write = functools.partial(spark_text_cast)
         else:
             continue
         if isinstance(source, (exp.Column, exp.Literal)):

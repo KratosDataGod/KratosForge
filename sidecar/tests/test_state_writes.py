@@ -32,7 +32,7 @@ IN_PLACE = {
     "environments.py:_install": "the approved folder's pins for pip, rewritten before each install and read only by that install",
     "fabric_compute.py:run_bundle": "runs on Fabric as a stand-alone bundle (no engine package there) and writes "
                                     "its result once to a new file named for the request",
-    "frames.py:write_xlsx": "a member inside a new xlsx export, not a file on disk",
+    "frames.py:write_xlsx_batches": "a member inside a new xlsx export (the sheet, streamed a batch at a time), not a file on disk",
     "learn/guides.py:<module>": "a build script run by hand to regenerate a data file in the repository",
     "learn/patterns.py:<module>": "a build script run by hand to regenerate a data file in the repository",
     "leases.py:create": "written aside and linked into place with os.link, which refuses to replace a file",

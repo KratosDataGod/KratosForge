@@ -23,7 +23,7 @@ from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator, cached_account
 from .fabric_api import FabricClient
-from . import app_settings, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
+from . import app_settings, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_format, sql_function_help, sqlcompat, warehouse
 from .learn import evidence
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
@@ -39,6 +39,7 @@ from .schedule_service import ScheduleMixin
 from .side_by_side_service import SideBySideMixin
 from .prove_service import ProveMixin
 from .xray_service import XRayMixin
+from .opportunities_service import OpportunitiesMixin
 from .preview_service import PreviewMixin
 from .central.service import PlatformMixin
 from .central.governance_service import GovernanceMixin
@@ -86,6 +87,7 @@ from .sql_templates_service import SqlTemplatesMixin
 from .sql_queries_service import SqlQueriesMixin
 from .warehouse_project_service import WarehouseProjectMixin
 from .warehouse_monitoring_service import WarehouseMonitoringMixin
+from .warehouse_ssms_service import WarehouseSsmsMixin
 from .notebook_versions_service import NotebookVersionsMixin
 from . import notebook_versions
 from .progress_service import ProgressMixin
@@ -139,7 +141,7 @@ ENDORSED_FILTER_REASON = (
     "admin who is also a Fabric administrator chooses Scan now there), or in Fabric's own catalog (Open Fabric's catalog on OneLake > Catalog).")
 
 
-class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
+class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, OpportunitiesMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, WarehouseSsmsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -302,8 +304,9 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
     def _start_retention_sweep(self) -> None:
         """From the engine's first call, in the background and then once a day while it runs: delete local
-        copies of lakehouse data unused for longer than the organization allows (retention.py). An app
-        left open for weeks is swept too, each time under the policy as it is then."""
+        copies of lakehouse data unused for longer than the organization allows (retention.py). Audit trails and
+        receipts past their limits go in the same pass (_prune_records). An app left open for weeks is
+        swept too, each time under the policy as it is then."""
         if getattr(self, "_swept", False):
             return
         self._swept = True
@@ -325,11 +328,41 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                     self._pn_tidy()  # closed Teams notices: their bell details now, ledger keys after a year
                 except Exception:  # noqa: BLE001 - nor a notice ledger cleanup
                     logging.getLogger(__name__).exception("Notice ledger cleanup failed")
+                try:
+                    self._prune_records()  # audit trails and receipts past IT's limits, if any
+                except Exception:  # noqa: BLE001 - e.g. the policy can't be read: tried again tomorrow
+                    logging.getLogger(__name__).exception("Audit trail and receipt cleanup failed")
                 if stop.wait(SWEEP_EVERY):
                     return
 
         self._sweeper = threading.Thread(target=run, name="retention-sweep", daemon=True)
         self._sweeper.start()
+
+    def _prune_records(self) -> None:
+        """The audit trails and run receipts past the organization's limits (audit_retention_days,
+        receipt_retention_days; both keep everything by default). Each cleanup is recorded in this
+        PC's audit trail first; when that line can't be written, nothing is deleted."""
+        import logging
+
+        from . import retention
+        log = logging.getLogger(__name__)
+
+        def record(action: str, params: dict[str, Any]) -> None:
+            self.audit.record(action, "ok", 0.0, params)
+        audit_days = int(app_settings.value("audit_retention_days") or 0)
+        for trail, folder in (("app", self.audit.folder), ("integrations", self.root / "integrations" / "audit")):
+            try:
+                gone = retention.prune_audit(folder, audit_days, record, trail)
+                if gone["files"]:
+                    log.info("Deleted %d audit lines (%s trail, through %s)", gone["lines"], trail, gone["through"])
+            except Exception:  # noqa: BLE001 - never stops the app; nothing went without its record
+                log.exception("Audit trail cleanup failed (%s)", trail)
+        try:
+            gone = retention.prune_receipts(self.root / "receipts", int(app_settings.value("receipt_retention_days") or 0), record)
+            if gone["removed"]:
+                log.info("Deleted %d run receipts", gone["removed"])
+        except Exception:  # noqa: BLE001 - a receipt cleanup never stops the app either
+            log.exception("Receipt cleanup failed")
 
     def _start_usage_send(self) -> None:
         """Once per engine start, in the background: send finished days of usage data, if it's on."""
@@ -809,9 +842,10 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def kernel_complete(self, code: str, cursor: int | None = None, notebook: str | None = None) -> dict[str, Any]:
         return self.sessions.kernel(notebook).complete(code, cursor)
 
-    def kernel_inspect(self, code: str, cursor: int | None = None, call: bool = False) -> dict[str, Any] | None:
+    def kernel_inspect(self, code: str, cursor: int | None = None, call: bool = False,
+                       notebook: str | None = None) -> dict[str, Any] | None:
         """Hover docs or signature help for the notebook editor (intellisense.py); runs no code."""
-        return self.kernel.inspect(code, cursor, bool(call))
+        return self.sessions.kernel(notebook).inspect(code, cursor, bool(call))
 
     def notebook_syntax(self, source: str) -> list[dict[str, Any]]:
         """The first Python syntax error in a cell, for the editor's red underline."""
@@ -841,46 +875,61 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         from .notebook_practices import rules
         return rules()
 
-    def kernel_variable_detail(self, name: str) -> dict[str, Any]:
-        return self.kernel.variable_detail(str(name))
+    def kernel_variable_detail(self, name: str, notebook: str | None = None) -> dict[str, Any]:
+        session = self.sessions.session(notebook, create=False)
+        if session is None:
+            return {"name": str(name), "missing": True}
+        return session.kernel.variable_detail(str(name))
 
     # ---- the result viewer behind a cell's table output (frames.py)
 
+    def _frame_kernel(self, notebook: str | None) -> Any:
+        """The kernel holding a cell's result: the notebook's own session when the app names it (with a
+        process per notebook, the open one may be another), else the open notebook's. A notebook with
+        no session holds no results."""
+        if notebook is None:
+            return self.kernel
+        session = self.sessions.session(notebook, create=False)
+        if session is None:
+            raise FrameGone(GONE)
+        return session.kernel
+
     def notebook_frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
-                            desc: bool = False, q: str = "") -> dict[str, Any]:
+                            desc: bool = False, q: str = "", notebook: str | None = None) -> dict[str, Any]:
         """A page of a cell's whole result, searched and sorted over every row."""
         try:
-            return self.kernel.frame_page(frame=frame, offset=offset, limit=limit, sort=sort, desc=desc, q=q)
+            return self._frame_kernel(notebook).frame_page(frame=frame, offset=offset, limit=limit, sort=sort, desc=desc, q=q)
         except (FrameGone, RuntimeError) as exc:
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
 
     def notebook_frame_chart(self, frame: str, kind: str = "bar", x: int | None = None, y: int | None = None,
-                             agg: str = "sum", series: int | None = None, bins: int = 20) -> dict[str, Any]:
+                             agg: str = "sum", series: int | None = None, bins: int = 20,
+                             notebook: str | None = None) -> dict[str, Any]:
         """The Chart view's numbers, aggregated over every row of a cell's result."""
         try:
-            return self.kernel.frame_chart(frame=frame, kind=kind, x=x, y=y, agg=agg, series=series, bins=bins)
+            return self._frame_kernel(notebook).frame_chart(frame=frame, kind=kind, x=x, y=y, agg=agg, series=series, bins=bins)
         except (FrameGone, RuntimeError) as exc:
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
 
-    def notebook_frame_profile(self, frame: str) -> dict[str, Any]:
+    def notebook_frame_profile(self, frame: str, notebook: str | None = None) -> dict[str, Any]:
         """Inspect: a profile of every row of a cell's result (display(df, summary=True))."""
         try:
-            return self.kernel.frame_profile(frame=frame)
+            return self._frame_kernel(notebook).frame_profile(frame=frame)
         except (FrameGone, RuntimeError) as exc:
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
 
-    def notebook_frame_query_profile(self, frame: str) -> dict[str, Any]:
+    def notebook_frame_query_profile(self, frame: str, notebook: str | None = None) -> dict[str, Any]:
         """Query profile: the query behind a cell's spark or %%sql result, run again under DuckDB's
         profiler, step by step (rows, time, share of the total). Reads only. ``notes`` are what the
         profile measured that a best-practice rule explains (learn/evidence.py, GD-04)."""
         try:
-            profile = self.kernel.frame_query_profile(frame=frame)
+            profile = self._frame_kernel(notebook).frame_query_profile(frame=frame)
             if not profile.get("gone"):
                 profile["notes"] = evidence.notes(profile)
             return profile
@@ -889,11 +938,12 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
 
-    def notebook_frame_wrangle(self, frame: str, steps: list[dict[str, Any]] | None = None, name: str = "df") -> dict[str, Any]:
+    def notebook_frame_wrangle(self, frame: str, steps: list[dict[str, Any]] | None = None, name: str = "df",
+                              notebook: str | None = None) -> dict[str, Any]:
         """Data Wrangler: Polars code for the cleaning steps and a preview of it on a cell's result.
         Reads only; the notebook changes when the person adds the code as a cell and runs it."""
         try:
-            return self.kernel.frame_wrangle(frame=frame, steps=list(steps or []), name=name)
+            return self._frame_kernel(notebook).frame_wrangle(frame=frame, steps=list(steps or []), name=name)
         except (FrameGone, RuntimeError) as exc:
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}
@@ -911,7 +961,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             return {"gone": True, "message": WIDGET_GONE}
         return session.kernel.ipywidget_event(model=str(model), event=dict(event or {}), root=root)
 
-    def notebook_frame_download(self, frame: str, format: str = "csv", name: str = "") -> dict[str, Any]:
+    def notebook_frame_download(self, frame: str, format: str = "csv", name: str = "",
+                                notebook: str | None = None) -> dict[str, Any]:
         """Write a cell's whole result to a new file in Downloads (CSV, Excel or Parquet); never replaces a file."""
         if format not in DOWNLOAD_FORMATS:
             raise ValueError(f"Download as {', '.join(DOWNLOAD_FORMATS)}.")
@@ -920,7 +971,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         base = f"{file_stem(name or 'notebook')} result {time.strftime('%Y-%m-%d %H%M%S')}"
         path = sql_exec._reserve(folder, base, "." + format)
         try:
-            return self.kernel.frame_download(frame=frame, format=format, path=str(path))
+            return self._frame_kernel(notebook).frame_download(frame=frame, format=format, path=str(path))
         except BaseException as exc:
             sql_exec._discard(path.with_name(path.name + ".partial"), path)
             if isinstance(exc, FrameGone) or str(exc) == GONE:
@@ -979,6 +1030,11 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def sql_format(self, query: str, dialect: str = "spark") -> dict[str, Any]:
         """Format SQL without running it; the original comes back with a warning when that isn't safe."""
         return sql_format.format_sql(query, dialect)
+
+    def sql_function_help(self, name: str, dialect: str = "spark") -> dict[str, Any] | None:
+        """A function's forms and what it does, for the SQL editor's hover card and signature help.
+        Read on this PC (sql_function_help.py); nothing runs and Fabric isn't called."""
+        return sql_function_help.function_help(dialect, name)
 
     def sql_analyze(self, query: str, target: str = "spark") -> dict[str, Any]:
         """Check SQL against a Fabric engine's documented rules, without running it or calling Fabric."""
@@ -1055,7 +1111,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                   allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
                   confirm: bool = False, dry_run: bool = False,
                   warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
-                  estimated_plan: bool = False, precondition: dict[str, Any] | None = None) -> dict[str, Any]:
+                  estimated_plan: bool = False, precondition: dict[str, Any] | None = None,
+                  profile: bool = False) -> dict[str, Any]:
         """Queue a query on this PC. ``allow`` adds "local_mutation" after the person confirmed it;
         lakehouse writes and Fabric changes are never allowed here (sql_policy.py).
 
@@ -1068,10 +1125,13 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         (a deploy change's, from wh_project_deploy_plan) only if that object is still as the preview saw it.
 
         ``dry_run`` only says what each statement would do; nothing runs. ``estimated_plan`` (warehouse,
-        a query that reads) returns Fabric's estimated plan as showplan XML instead of running it."""
+        a query that reads) returns Fabric's estimated plan as showplan XML instead of running it; on a
+        lakehouse, DuckDB's plan for one query that reads, as JSON, with nothing run. ``profile`` (a
+        lakehouse query that reads) runs it under DuckDB's profiler and returns its steps as JSON."""
         return self.sql_runs.start(query, lakehouse_ref, dialect, allow, target=target, project=project,
                                    confirm=confirm, dry_run=dry_run, warehouse_ref=warehouse_ref,
-                                   confirm_name=confirm_name, estimated_plan=estimated_plan, precondition=precondition)
+                                   confirm_name=confirm_name, estimated_plan=estimated_plan, precondition=precondition,
+                                   profile=profile)
 
     def sql_status(self, execution: str) -> dict[str, Any]:
         return self.sql_runs.status(execution)

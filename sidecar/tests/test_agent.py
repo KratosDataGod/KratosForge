@@ -858,6 +858,41 @@ def test_a_sweep_that_fails_is_logged_and_the_pass_goes_on(setup, monkeypatch, c
     assert agent._policy_at is not None  # the rest of the pass ran
 
 
+def test_agent_prunes_old_months_of_its_audit_trail_only_under_the_policy(setup, monkeypatch):
+    from fabric_desktop import app_settings, audit_chain
+    clock = Clock()
+    agent = Agent(setup, queue=JobQueue(setup.home / "queue.sqlite3", clock=clock, backoff_seconds=0), clock=clock)
+    folder = agent.audit.folder
+    assert folder == setup.home / "audit"
+    audit_chain.append(folder, {"schema": "audit@1", "at": "2020-01-15T12:00:00.000+00:00", "action": "agent_job",
+                                "outcome": "ok", "seconds": 0, "target": {}})
+    agent.audit.record("agent_start", "ok", 0.0, {})  # this month: the newest, never deleted
+    agent.prune_audit_trail()  # default 0: kept
+    assert (folder / "audit-2020-01.jsonl").exists()
+    values = {"audit_retention_days": 365}
+    real = app_settings.value
+    monkeypatch.setattr(app_settings, "value", lambda key: values.get(key, real(key)))
+    agent.prune_audit_trail()
+    assert not (folder / "audit-2020-01.jsonl").exists()
+    actions = [e["action"] for e in agent.audit.entries()]
+    assert actions.count("audit_pruned") == 1 and "agent_job" not in actions
+    assert agent.audit.verify()["ok"]
+
+
+def test_an_audit_cleanup_that_fails_is_logged_and_the_pass_goes_on(setup, monkeypatch, caplog):
+    from fabric_desktop import retention
+    clock = Clock()
+    agent = Agent(setup, queue=JobQueue(setup.home / "queue.sqlite3", clock=clock, backoff_seconds=0), clock=clock)
+
+    def broken(*_a, **_k):
+        raise OSError("disk full")
+    monkeypatch.setattr(retention, "prune_audit", broken)
+    with caplog.at_level("WARNING", logger="fabric_desktop.agent"):
+        agent.step()
+    assert any("couldn't clean up the audit trail" in r.getMessage() for r in caplog.records)
+    assert agent._policy_at is not None
+
+
 def test_cli_requeue_and_prune(setup, capsys):
     clock = Clock()
     q = JobQueue(setup.home / "queue.sqlite3", clock=clock, backoff_seconds=0)

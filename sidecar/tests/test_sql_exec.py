@@ -410,6 +410,58 @@ def test_parquet_export_renames_repeated_columns_so_it_reads_back(runs, lake):
     assert table.column_names == ["id", "amount", "id_2"] and table.column(1).to_pylist() == [1.5, None, 3.25]
 
 
+def test_excel_export_has_a_header_row_and_every_row(runs, lake):
+    import zipfile
+    run = wait(runs, runs.start("SELECT id, country FROM sales ORDER BY id", lake)["id"])
+    status = wait_export(runs, runs.export(run["id"], "xlsx", "sales")["id"])
+    assert status["state"] == "completed" and status["rows"] == 3 and status["path"].endswith(".xlsx")
+    with zipfile.ZipFile(status["path"]) as z:
+        sheet = z.read("xl/worksheets/sheet1.xml").decode()
+    assert sheet.count("<row ") == 4 and ">country<" in sheet and ">NL<" in sheet
+
+
+def test_excel_export_refuses_more_rows_than_a_sheet_holds(runs, lake, monkeypatch):
+    run = wait(runs, runs.start("SELECT id FROM sales", lake)["id"])
+    monkeypatch.setattr(sql_exec, "EXCEL_MAX_ROWS", 2)
+    with pytest.raises(ValueError, match="Excel holds at most 2 rows"):
+        runs.export(run["id"], "xlsx")
+
+
+def test_json_export_is_an_array_of_rows_with_unique_keys(runs, lake):
+    run = wait(runs, runs.start("SELECT id, amount, country, id, DATE '2026-01-02' AS d, CAST('NaN' AS DOUBLE) AS bad, "
+                                "CAST(1.10 AS DECIMAL(5,2)) AS money, unhex('0001') AS raw FROM sales ORDER BY id", lake)["id"])
+    status = wait_export(runs, runs.export(run["id"], "json")["id"])
+    rows = json.loads(Path(status["path"]).read_text(encoding="utf-8"))
+    assert status["rows"] == 3 and len(rows) == 3
+    assert rows[0] == {"id": 1, "amount": 1.5, "country": "NL", "id_2": 1, "d": "2026-01-02", "bad": None,
+                       "money": "1.10", "raw": "AAE="}
+    assert rows[1]["amount"] is None and rows[1]["country"] is None
+
+
+def test_json_export_of_no_rows_is_an_empty_array(runs, lake):
+    run = wait(runs, runs.start("SELECT id FROM sales WHERE id < 0", lake)["id"])
+    status = wait_export(runs, runs.export(run["id"], "json")["id"])
+    assert json.loads(Path(status["path"]).read_text()) == []
+
+
+def test_an_unknown_export_format_is_refused(runs, lake):
+    run = wait(runs, runs.start("SELECT 1 AS a", lake)["id"])
+    with pytest.raises(ValueError, match="Export as csv, parquet, xlsx or json"):
+        runs.export(run["id"], "xml")
+
+
+@pytest.mark.parametrize("fmt", ["xlsx", "json"])
+def test_a_stopped_excel_or_json_export_leaves_no_files(runs, lake, tmp_path, monkeypatch, fmt):
+    run = wait(runs, runs.start("SELECT range FROM range(300000)", lake)["id"])
+    export = sql_exec.Export(id="x", execution=run["id"], format=fmt, path=tmp_path / "Downloads" / f"r.{fmt}", total=0)
+    export.path.parent.mkdir(parents=True)
+    export.path.write_bytes(b"")
+    export.cancel.set()
+    runs._write(runs._get(run["id"]), export)
+    assert export.state == "cancelled"
+    assert list((tmp_path / "Downloads").iterdir()) == []
+
+
 def test_a_stopped_export_leaves_no_files(runs, lake, tmp_path, monkeypatch):
     run = wait(runs, runs.start("SELECT range FROM range(300000)", lake)["id"])
     real = sql_exec._writer
@@ -863,3 +915,57 @@ def test_local_and_lakehouse_runs_share_the_time_limit_wording():
     assert sql_exec.time_limit_message("policy", 90) == "Stopped after your organization's time limit (1.5 minutes)."
     assert "project's settings" in sql_exec.time_limit_message("project", 60)
     assert sql_exec.time_limit_message("caller", 60) == ""
+
+
+# ---- plan and profile on a lakehouse (editor parity S39, S40)
+
+def test_a_lakehouse_plan_lists_duckdb_s_steps_without_running_the_query(runs, lake):
+    status = wait(runs, runs.start("SELECT country, sum(amount) FROM sales WHERE id > 1 GROUP BY country", lake,
+                                   estimated_plan=True)["id"])
+    assert status["state"] == "completed" and status["plan"] is True and status["rows"] == 1
+    plan = json.loads(runs.page(status["id"])["rows"][0][0])
+    names = [s["name"] for s in plan["steps"]]
+    assert any("GROUP_BY" in n for n in names) and plan["more_steps"] == 0
+    assert [s["depth"] for s in plan["steps"]][0] == 0 and max(s["depth"] for s in plan["steps"]) >= 2
+    assert all(set(s) == {"depth", "name", "rows", "details"} for s in plan["steps"])
+    assert runs.audit_lines[-1][3]["plan"] is True and "profile" not in runs.audit_lines[-1][3]
+
+
+def test_a_lakehouse_profile_runs_the_query_under_the_profiler(runs, lake):
+    status = wait(runs, runs.start("SELECT country, sum(amount) FROM sales GROUP BY country", lake, profile=True)["id"])
+    assert status["state"] == "completed" and status["profile"] is True
+    profile = json.loads(runs.page(status["id"])["rows"][0][0])
+    assert {"seconds", "rows", "rows_scanned", "peak_memory", "steps", "more_steps"} <= set(profile)
+    assert profile["rows"] == 3 and profile["steps"] and all(0 <= s["share"] <= 1 for s in profile["steps"])
+    assert runs.audit_lines[-1][3]["profile"] is True
+
+
+@pytest.mark.parametrize("query", ["SELECT 1; SELECT 2", "CREATE TEMP VIEW v AS SELECT 1 x"])
+def test_a_plan_or_profile_is_for_one_query_that_reads(runs, lake, query):
+    for kind in ({"estimated_plan": True}, {"profile": True}):
+        status = wait(runs, runs.start(query, lake, **kind)["id"])
+        assert status["state"] == "failed" and status["error_kind"] in ("plan", "permission"), status
+    with pytest.raises(ValueError, match="only reads"):
+        runs.start("CREATE TEMP VIEW v AS SELECT 1 x", lake, allow=["local_mutation"], profile=True)
+
+
+def test_a_profile_is_only_for_a_lakehouse_and_never_with_a_plan(runs, lake):
+    with pytest.raises(ValueError, match="query profile"):
+        runs.start("SELECT 1", lake, profile=True, estimated_plan=True)
+    with pytest.raises(ValueError, match="query profile"):
+        runs.start("SELECT 1", None, "tsql", target="warehouse", profile=True,
+                   warehouse_ref={"workspace_id": "ws", "item_id": "wh", "kind": "warehouse"})
+
+
+def test_plan_steps_reads_estimates_and_caps_the_list():
+    from fabric_desktop import sql_worker
+    leaf = {"name": "SEQ_SCAN", "extra_info": {"Table": "t", "Projections": ["a", "b"], "Estimated Cardinality": "20"}}
+    got = sql_worker.plan_steps([{"name": "PROJECTION", "extra_info": {"Projections": "a"}, "children": [leaf]}])
+    assert got == {"steps": [{"depth": 0, "name": "PROJECTION", "rows": None, "details": {"Projections": "a"}},
+                             {"depth": 1, "name": "SEQ_SCAN", "rows": 20, "details": {"Table": "t", "Projections": "a, b"}}],
+                   "more_steps": 0}
+    chain: dict = {"name": "LEAF"}
+    for _ in range(sql_worker.PLAN_NODES + 4):
+        chain = {"name": "PROJECTION", "children": [chain]}
+    big = sql_worker.plan_steps([chain])
+    assert len(big["steps"]) == sql_worker.PLAN_NODES and big["more_steps"] == 5

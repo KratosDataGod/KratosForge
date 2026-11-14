@@ -803,8 +803,12 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
         note = "Compacted on this PC without V-Order; Fabric's table maintenance adds V-Order."
     elif operation == "vacuum":
         kept = maintenance.kept_days(t.metadata().configuration)
-        hours = retain_hours if retain_hours is not None else \
-            maintenance.retention_hours(max(kept or maintenance.MIN_RETENTION_DAYS, maintenance.MIN_RETENTION_DAYS))
+        days = max(kept or maintenance.MIN_RETENTION_DAYS, maintenance.MIN_RETENTION_DAYS)
+        if retain_hours is not None and retain_hours < days * 24:
+            raise ValueError(f"{name_} keeps {days} days ({days * 24} hours) of deleted files "
+                             f"(delta.deletedFileRetentionDuration), so VACUUM can't RETAIN {retain_hours:g} hours: "
+                             "Fabric's Spark refuses it too. Nothing was changed.")
+        hours = retain_hours if retain_hours is not None else maintenance.retention_hours(days)
         files = t.vacuum(retention_hours=int(hours), dry_run=dry_run, enforce_retention_duration=False,
                          commit_properties=commit)
         metrics = {"numDeletedFiles": 0 if dry_run else len(files), "retentionHours": int(hours), "dryRun": dry_run}

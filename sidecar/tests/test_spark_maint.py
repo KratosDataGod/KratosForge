@@ -145,7 +145,8 @@ def test_the_engine_refuses_test_and_prod_workspaces_of_the_metadata_project():
 
     envs = {"dev": {"workspace_id": "w-dev"}, "test": {"workspace_id": "w-test"},
             "prod": {"workspace_id": "w-prod", "workspaces": {"gold": {"id": "w-gold"}}}}
-    mixin = SimpleNamespace(_project=lambda: SimpleNamespace(environments=envs))
+    mixin = SimpleNamespace(_project=lambda: SimpleNamespace(environments=envs),
+                            _maintenance_capacity_refusal=lambda *a: None)
     refuse = MetaMixin._maintenance_refusal
     assert refuse(mixin, "vacuum", "w-dev", "dbo.t") is None
     assert "Test's" in refuse(mixin, "optimize", "w-test", "dbo.t")
@@ -153,4 +154,40 @@ def test_the_engine_refuses_test_and_prod_workspaces_of_the_metadata_project():
 
     def none():
         raise LookupError("no project")
-    assert refuse(SimpleNamespace(_project=none), "vacuum", "w-prod", "dbo.t") is None
+    assert refuse(SimpleNamespace(_project=none, _maintenance_capacity_refusal=lambda *a: None),
+                  "vacuum", "w-prod", "dbo.t") is None
+
+
+def test_vacuum_keeps_the_tables_own_longer_retention(table):
+    t = DeltaTable(str(table / "dbo" / "sales"))
+    t.alter.set_table_properties({"delta.deletedFileRetentionDuration": "interval 30 days"})
+    before = version(table)
+    status, text = run("spark.sql('VACUUM dbo.sales RETAIN 200 HOURS')")
+    assert status == "error" and "keeps 30 days (720 hours)" in text, text
+    assert version(table) == before
+    status, text = run("print(spark.sql('VACUUM dbo.sales RETAIN 720 HOURS DRY RUN').count())")
+    assert status == "ok", text
+
+
+def test_the_engine_refuses_when_the_capacity_check_is_blocked():
+    from types import SimpleNamespace
+
+    from fabric_desktop.meta_service import MetaMixin
+
+    def mixin(cap):
+        def read(ws, name, refresh, reads):
+            if isinstance(cap, Exception):
+                raise cap
+            return cap
+        m = SimpleNamespace(_project=lambda: SimpleNamespace(environments={}), _risk_capacity=read)
+        m._maintenance_capacity_refusal = lambda *a: MetaMixin._maintenance_capacity_refusal(m, *a)
+        return m
+
+    refuse = MetaMixin._maintenance_refusal
+    paused = {"access": "ok", "status": "not_running", "capacity": {"name": "F64"}, "age_seconds": 30}
+    assert "Blocked (F64 is paused)" in refuse(mixin(paused), "optimize", "w-dev", "dbo.t")
+    running = {"access": "ok", "status": "running", "capacity": {"name": "F64"}, "age_seconds": 30}
+    assert refuse(mixin(running), "vacuum", "w-dev", "dbo.t") is None
+    assert refuse(mixin(None), "vacuum", "w-dev", "dbo.t") is None  # not read: unknown, allowed
+    assert refuse(mixin(RuntimeError("offline")), "vacuum", "w-dev", "dbo.t") is None
+    assert refuse(mixin(paused), "vacuum", "", "dbo.t") is None  # a lakehouse on this PC only

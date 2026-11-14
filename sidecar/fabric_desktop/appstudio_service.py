@@ -20,8 +20,6 @@ that name is already there. Nothing here reads OneLake.
 
 from __future__ import annotations
 
-import base64
-import binascii
 import hashlib
 import json
 import re
@@ -31,6 +29,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from . import b64
 from . import http_session, redact, sql_exec
 from .jsonfile import write_bytes
 from .appstudio import discovery, edit, generate
@@ -174,8 +173,8 @@ class AppStudioMixin:
     def appstudio_import(self, content: str, name: str = "") -> dict[str, Any]:
         """A project from an exported .zip (base64), checked file by file, as a new project."""
         try:
-            data = base64.b64decode(str(content), validate=True)
-        except (binascii.Error, ValueError):
+            data = b64.decode_exact(str(content))
+        except ValueError:
             raise ValueError("That file isn't an App Studio export.") from None
         if len(data) > project.MAX_EXPORT_BYTES:
             raise ValueError("That file is larger than an App Studio project can be.")

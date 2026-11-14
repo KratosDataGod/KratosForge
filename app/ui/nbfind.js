@@ -3,9 +3,12 @@
 // marked in every cell's editor; Replace and Replace all change cells the way typing would (each
 // editor keeps its own undo), skip frozen cells, and Replace all can be undone from the bar.
 // The one-cell search (CodeMirror's own panel) stays on the cell's "..." menu.
+// With Outputs ticked it also searches the text of cell outputs (printed text, errors and tracebacks,
+// Markdown output, table rows), as JupyterLab and VS Code do. Output matches are marked with the
+// CSS Custom Highlight API, so the rendered output is never changed, and Replace leaves them alone.
 
 const nbFind = { open: false, replace: false, q: "", with: "", matchCase: false, word: false, regex: false,
-  markdown: true, current: -1, matches: [], error: "", undo: null, bar: null };
+  markdown: true, outputs: false, current: -1, matches: [], error: "", undo: null, bar: null };
 
 const findRefresh = CM.StateEffect.define();
 
@@ -14,6 +17,17 @@ const findRefresh = CM.StateEffect.define();
 function findRegex(q, opts = {}, flags = "g") {
   const body = opts.regex ? q : q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(opts.word ? `\\b(?:${body})\\b` : body, `${flags}u${opts.matchCase ? "" : "i"}`);
+}
+
+// The searchable text of one output, or "" for outputs that aren't text (images, charts, HTML, widgets).
+function findOutputText(o) {
+  if (!o) return "";
+  if (o.type === "stream" || o.type === "text" || o.type === "markdown" || o.type === "translation") return String(o.text ?? "");
+  if (o.type === "error") return `${o.ename}: ${o.evalue}` + (o.traceback ? `\n${o.traceback}` : "");
+  if (o.type === "table" && Array.isArray(o.columns) && Array.isArray(o.rows)) {
+    return [o.columns.join("\t"), ...o.rows.map((r) => (Array.isArray(r) ? r : []).map((v) => (v === null ? "" : String(v))).join("\t"))].join("\n");
+  }
+  return "";
 }
 
 function findMatches(cells, q, opts = {}) {
@@ -33,6 +47,18 @@ function findMatches(cells, q, opts = {}) {
       matches.push({ cell, from: m.index, to: m.index + m[0].length, text: m[0] });
       if (matches.length >= 5000) return { matches, error: "", capped: true };
     }
+    if (!opts.outputs || cell.type !== "code" || !Array.isArray(cell.outputs)) continue;
+    cell.outputs.forEach((o, oi) => {
+      const text = findOutputText(o);
+      if (!text || matches.length >= 5000) return;
+      re.lastIndex = 0;
+      for (const m of text.matchAll(re)) {
+        if (!m[0].length) continue;
+        matches.push({ cell, output: oi, from: m.index, to: m.index + m[0].length, text: m[0] });
+        if (matches.length >= 5000) break;
+      }
+    });
+    if (matches.length >= 5000) return { matches, error: "", capped: true };
   }
   return { matches, error: "" };
 }
@@ -57,7 +83,7 @@ function findApply(source, edits) {
 }
 
 function findOpts() {
-  return { matchCase: nbFind.matchCase, word: nbFind.word, regex: nbFind.regex, markdown: nbFind.markdown };
+  return { matchCase: nbFind.matchCase, word: nbFind.word, regex: nbFind.regex, markdown: nbFind.markdown, outputs: nbFind.outputs };
 }
 
 function findRecompute(keepCell = true) {
@@ -73,6 +99,60 @@ function findRecompute(keepCell = true) {
   } else if (nbFind.current < 0 || nbFind.current >= nbFind.matches.length) nbFind.current = 0;
   editors.forEach((v) => v.dispatch({ effects: findRefresh.of(null) }));
   findCount();
+  findOutputMarks();
+}
+
+// Marks the output matches in the rendered outputs (CSS Custom Highlight API: no change to the
+// page's elements). Each text piece of a cell's outputs is searched with the bar's query; the
+// cell's n-th output match is its n-th marked range. Text split across elements isn't marked,
+// but it is still counted and stepped to.
+function findOutputMarks() {
+  if (typeof CSS === "undefined" || !CSS.highlights || typeof Highlight !== "function") return null;
+  const all = new Highlight();
+  const current = new Highlight();
+  let currentRange = null;
+  CSS.highlights.set("nb-find-out", all);
+  CSS.highlights.set("nb-find-out-current", current);
+  if (!nbFind.open || !nbFind.q || !nbFind.outputs || nbFind.error) return null;
+  const cur = nbFind.matches[nbFind.current];
+  const cells = new Map();
+  nbFind.matches.forEach((m) => {
+    if (m.output == null) return;
+    if (!cells.has(m.cell)) cells.set(m.cell, []);
+    cells.get(m.cell).push(m);
+  });
+  let re;
+  try { re = findRegex(nbFind.q, findOpts()); } catch { return null; }
+  cells.forEach((list, cell) => {
+    const el = document.querySelector(`[data-cell="${cell.id}"] .cell-results`);
+    if (!el) return;
+    const ranges = [];
+    el.querySelectorAll(".output").forEach((out) => {
+      const walk = document.createTreeWalker(out, NodeFilter.SHOW_TEXT);
+      for (let node = walk.nextNode(); node; node = walk.nextNode()) {
+        re.lastIndex = 0;
+        for (const m of node.data.matchAll(re)) {
+          if (!m[0].length) continue;
+          const r = document.createRange();
+          r.setStart(node, m.index);
+          r.setEnd(node, m.index + m[0].length);
+          ranges.push(r);
+        }
+      }
+    });
+    const at = cur && cur.cell === cell ? list.indexOf(cur) : -1;
+    ranges.forEach((r, i) => {
+      if (i === at) { current.add(r); currentRange = r; } else all.add(r);
+    });
+  });
+  return currentRange;
+}
+
+// Called when a cell's outputs were redrawn (a run, Clear output): the output matches follow.
+function findOutputsChanged() {
+  if (!nbFind.open || !nbFind.q || !nbFind.outputs) return;
+  clearTimeout(findOutputsChanged.t);
+  findOutputsChanged.t = setTimeout(() => findRecompute(), 150);
 }
 
 // Marks the bar's matches in one cell's editor; the current match gets its own color.
@@ -84,7 +164,7 @@ function findHighlighter(cell) {
     if (nbFind.open && nbFind.q) {
       const cur = nbFind.matches[nbFind.current];
       for (const m of nbFind.matches) {
-        if (m.cell === cell && m.to <= cell.source.length) b.add(m.from, m.to, m === cur ? current : mark);
+        if (m.cell === cell && m.output == null && m.to <= cell.source.length) b.add(m.from, m.to, m === cur ? current : mark);
       }
     }
     return b.finish();
@@ -147,6 +227,7 @@ function closeFind() {
   nbFind.undo = null;
   editors.forEach((v) => v.dispatch({ effects: findRefresh.of(null) }));
   nbFind.bar?.remove();
+  findOutputMarks();
   const cell = nbFind.matches[nbFind.current]?.cell || selectedCell();
   if (cell) enterCommandMode(cell);
 }
@@ -160,6 +241,21 @@ function findShow(i) {
   const cell = m.cell;
   revealCell(cell);  // nbcells.js: open a folded section that hides the match
   selectCell(cell);
+  if (m.output != null) {
+    if (cell.meta?.outputs_hidden) setMeta(cell, "outputs_hidden", false);
+    editors.forEach((v) => v.dispatch({ effects: findRefresh.of(null) }));
+    const range = findOutputMarks();
+    if (range) {
+      for (let p = range.startContainer.parentElement; p; p = p.parentElement) {
+        if (p.tagName === "DETAILS" && !p.open) p.open = true;  // a traceback, a folded JSON node
+      }
+      range.startContainer.parentElement?.scrollIntoView({ block: "center" });
+    } else {
+      document.querySelector(`[data-cell="${cell.id}"] .cell-results`)?.scrollIntoView({ block: "center" });
+    }
+    findCount();
+    return;
+  }
   if (cell.meta?.source_hidden) setMeta(cell, "source_hidden", false);
   if (cell.type === "markdown" && !cell.editing && !cell.meta?.frozen) { cell.editing = true; updateCell(cell); }
   const view = editors.get(cell.id);
@@ -170,6 +266,7 @@ function findShow(i) {
     document.querySelector(`[data-cell="${cell.id}"]`)?.scrollIntoView({ block: "center" });
   }
   findCount();
+  findOutputMarks();
 }
 
 function findStep(delta) {
@@ -191,6 +288,7 @@ function findWrite(cell, edits) {
 function replaceOne() {
   const m = nbFind.matches[nbFind.current];
   if (!m) return;
+  if (m.output != null) { toast("That match is in a cell's output, which can't be changed. Run the cell again to change it."); findStep(1); return; }
   if (m.cell.meta?.frozen) { toast("That match is in a frozen cell, so it wasn't changed. Unfreeze the cell to change it."); findStep(1); return; }
   findWrite(m.cell, [{ from: m.from, to: m.to, insert: findReplacement(m, nbFind.q, nbFind.with, findOpts()) }]);
   nbFind.undo = null;
@@ -203,13 +301,19 @@ function replaceOne() {
 function replaceAll() {
   const byCell = new Map();
   let frozen = 0;
+  let outputs = 0;
   for (const m of nbFind.matches) {
+    if (m.output != null) { outputs += 1; continue; }
     if (m.cell.meta?.frozen) { frozen += 1; continue; }
     if (!byCell.has(m.cell)) byCell.set(m.cell, []);
     byCell.get(m.cell).push({ from: m.from, to: m.to, insert: findReplacement(m, nbFind.q, nbFind.with, findOpts()) });
   }
   if (!byCell.size) {
-    if (frozen) toast(`All ${frozen} match${frozen === 1 ? " is" : "es are"} in frozen cells, so nothing was changed.`);
+    if (frozen || outputs) {
+      const all = frozen + outputs;
+      const where = !frozen ? "in outputs" : !outputs ? "in frozen cells" : `in frozen cells (${frozen}) or outputs (${outputs})`;
+      toast(`${all === 1 ? "The 1 match is" : `All ${all} matches are`} ${where}, which Replace leaves as ${all === 1 ? "it is" : "they are"}, so nothing was changed.`);
+    }
     return;
   }
   // Undo puts back each cell's text from before, but only while the cell still has the replaced text.
@@ -219,7 +323,8 @@ function replaceAll() {
   markDirty();
   findRecompute(false);
   toast(`Replaced ${count} match${count === 1 ? "" : "es"} in ${byCell.size} cell${byCell.size === 1 ? "" : "s"}` +
-    (frozen ? `. ${frozen} in frozen cells ${frozen === 1 ? "was" : "were"} left as they are.` : "."));
+    (frozen ? `. ${frozen} in frozen cells ${frozen === 1 ? "was" : "were"} left as they are.` : ".") +
+    (outputs ? ` ${outputs} in outputs ${outputs === 1 ? "was" : "were"} left as ${outputs === 1 ? "it is" : "they are"}.` : ""));
 }
 
 function undoReplaceAll() {
@@ -294,6 +399,9 @@ function nbFindBar() {
         h("label", { class: "nb-find-md", title: "Search Markdown cells too" },
           h("input", { type: "checkbox", checked: nbFind.markdown || null, onchange: (e) => { nbFind.markdown = e.target.checked; findRecompute(false); } }),
           "Markdown"),
+        h("label", { class: "nb-find-out", title: "Search cell outputs too: printed text, errors, tables" },
+          h("input", { type: "checkbox", checked: nbFind.outputs || null, onchange: (e) => { nbFind.outputs = e.target.checked; findRecompute(false); } }),
+          "Outputs"),
         h("button", { class: "tool small", title: "Close (Esc)", "aria-label": "Close find", onclick: closeFind }, icon("dismiss", 14))),
       h("div", { class: "nb-find-row nb-find-replace" }, w,
         btn("Replace", null, replaceOne, "tool outline small", { "data-needs-match": true, title: "Replace this match (Enter)" }),
@@ -306,6 +414,7 @@ function nbFindBar() {
     queueMicrotask(() => el.focus({ preventScroll: true }));
   }
   queueMicrotask(findCount);
+  queueMicrotask(findOutputMarks);  // the notebook was redrawn: mark the new output elements
   return nbFind.bar;
 }
 

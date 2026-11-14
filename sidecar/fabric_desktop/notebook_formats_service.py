@@ -22,7 +22,7 @@ from .filenames import file_stem
 from .notebook import to_ipynb
 from . import known_folders
 
-METHODS = {"notebook_export", "notebook_formats_import_check", "notebook_formats_import"}
+METHODS = {"notebook_export", "notebook_print_page", "notebook_formats_import_check", "notebook_formats_import"}
 
 
 def _read(file_name: str, content: str, encoding: str) -> dict[str, Any]:
@@ -120,6 +120,13 @@ class NotebookFormatsMixin:
                 raise
             return name
         raise ValueError(f"Couldn't find a free notebook name for {base}.")
+
+    def notebook_print_page(self, name: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
+        """The web page export (notebook_formats.to_html) as text, for the app to print, so the person can
+        save it as a PDF with the system's print dialog. Nothing is written."""
+        if not isinstance(cells, list) or not all(isinstance(c, dict) for c in cells):
+            raise ValueError("cells is a list of cells")
+        return {"html": nbf.to_html(name, cells)}
 
     def notebook_export(self, name: str, cells: list[dict[str, Any]], format: str,
                         lakehouse_ref: dict[str, str] | None = None) -> dict[str, Any]:

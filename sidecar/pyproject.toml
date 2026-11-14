@@ -65,18 +65,27 @@ fabric-desktop = "fabric_desktop.cli:main"
 include = ["fabric_desktop*"]
 
 [tool.setuptools.package-data]
+# The SQL editor's function help (sql_function_help.py).
+"fabric_desktop" = ["spark_function_help.json", "tsql_function_help.json"]
 # Vendored third-party code ships with its license and notice.
 "fabric_desktop._vendor.ossie_microsoft" = ["LICENSE", "NOTICE", "README.md"]
 # Hash-pinned Databricks Connect requirements, one file per runtime line.
 "fabric_desktop.engines" = ["dbconnect_locks/*.txt"]
 # Learn lessons and labs (learn/content.py), one folder per module.
 "fabric_desktop.learn" = ["content/*.json", "content/*/*", "rule_guides.json", "patterns.json"]
+# The optimization engine's demonstration fixture (opportunities/fixture.py).
+"fabric_desktop.opportunities" = ["fixtures/*.json"]
 # Academy certification packs (academy/registry.py), one folder per certification.
 "fabric_desktop.academy" = ["packs/*/*.json", "packs/*/*/*", "packs/*/*/*/*"]
+# Enterprise notebook templates (notebook_templates), one folder per platform, and their released cell hashes.
+"fabric_desktop.notebook_templates" = ["standards.json", "*/*.ipynb"]
 
 [tool.ruff]
 extend-exclude = ["fabric_desktop/_vendor",  # vendored code stays as its authors wrote it
                   "fabric_desktop/academy/packs",  # exercise answers run with the exercise's spark (pyspark_lab)
+                  # Notebook templates run on Fabric, Databricks or Snowflake (spark, dbutils and session are theirs),
+                  # and share one setup cell across kinds; tests/test_notebook_templates.py compiles and checks them.
+                  "fabric_desktop/notebook_templates/*/*.ipynb",
                   "tests/fixtures/ipynb"]  # notebooks as other tools write them, kept byte for byte (test_ipynb_round_trip)
 
 # CI's lint job (ruff check). Only mistakes: syntax errors (E9), pyflakes (F), such as an unused
@@ -138,4 +147,5 @@ testpaths = ["tests"]
 filterwarnings = ["error:Arrow output on a DB-API result:UserWarning"]
 # These take the exercise runtime's access off the shared Python install for the whole machine, so
 # another xdist worker's running exercise would lose its Python. CI runs them in a serial step of their own.
-markers = ["machine_wide_grants: removes the exercise runtime's machine-wide grants; run without xdist"]
+markers = ["machine_wide_grants: removes the exercise runtime's machine-wide grants; run without xdist",
+           "real_kernel_default: runs notebook cells with the real kernel_process default (conftest pins it off for fakes)"]

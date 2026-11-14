@@ -196,6 +196,10 @@ function reportProblem() {
 
 // A zip for whoever is helping: the engine writes it (support_bundle.py) with every file redacted, to a
 // folder the person picks. Nothing is sent from the app.
+// What a bundle keeps on purpose, and where it should go (Chris, 2026-11-13): the same sentence is in
+// CONTENTS.txt (support_bundle.KEPT), kept in step by a test.
+const BUNDLE_KEPT = "Workspace, lakehouse, warehouse, table and notebook names, and the SQL that ran. "
+  + "Send the bundle to your IT or support contact, not to a public forum or GitHub issue.";
 const BUNDLE_FILES = {
   "about.json": "App and engine build, Python, Windows version, and where each setting comes from",
   "sidecar.log": "The last 2,000 lines of the engine's log",
@@ -269,12 +273,14 @@ async function saveSupportBundle() {
       h("li", {}, "Tenant, workspace and item ids"),
       h("li", {}, "Settings that hold a secret, such as a connection string, show only whether they're set")),
     h("p", { class: "muted-text small" }, "No table data, notebook contents or sign-in cache is read."),
+    h("h3", {}, "Kept, so whoever helps can find the problem"),
+    h("p", {}, BUNDLE_KEPT),
     h("div", {}, toggle), contents,
     h("h3", {}, "Where it's saved"),
     h("label", { class: "field", for: "sb-folder" }, "Folder"),
     h("div", { class: "row" }, folder, window.__TAURI__?.core ? choose : null),
     h("p", { class: "muted-text small" }, "Saved as ", h("span", { class: "mono" }, "fabric-desktop-support-….zip"),
-      ". Read it before you send it on: logs can name your notebooks and warehouses."),
+      "."),
     problem),
   [btn("Cancel", null, closeDialog, "tool outline"), save]);
 }
@@ -684,9 +690,10 @@ function motionSettingsCard(s, locked) {
   };
   return h("section", { class: "card pad motion-settings" }, h("h2", {}, "Appearance"),
     typeof skinChooser === "function" && previewShown() ? skinChooser(locked) : null,  // skins.js
+    previewShown() || source("ui_color_mode") ? choice("ui_color_mode") : null,
     h("h3", {}, "Layout"),
     h("p", { class: "muted-text small" }, "How much every page shows. Nothing is removed: what you tuck away is one click from where it was."),
-    Object.keys(LAYOUT_CHOICES).map(choice),
+    Object.keys(LAYOUT_CHOICES).filter((key) => key !== "ui_color_mode").map(choice),
     h("h3", {}, "Living Experience"),
     h("p", { class: "muted-text small" }, "Quiet while you work, epic when you achieve. Effects only follow real work as it finishes; they never delay a run, take focus or cover your code. ",
       reduced ? h("b", {}, "Still now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),
@@ -988,8 +995,8 @@ function advancedSection(s, locked, limitRow) {
         if (await saveSettings({ client_id: "" })) { toast("Saved. Sign in again to use it."); render(); }
       }, "tool outline small") : null) : null);
   const kernel = s.kernel_process ? h("div", { class: "advanced-group" }, h("h3", {}, "Notebooks"),
-    settingRow("Run notebooks in their own process (Preview)",
-      "Cells run in a Python process of their own instead of inside the app's engine. Stop and a crash then end only that process, and the rest of the app keeps working. Variables are cleared when you switch.",
+    settingRow("Run notebooks in their own process",
+      "Cells run in a Python process of their own instead of inside the app's engine. Stop and a crash then end only that process, and the rest of the app keeps working. On by default; you or your organization can turn it off. Variables are cleared when you switch.",
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.kernel_process.value ? true : null, disabled: locked("kernel_process") ? true : null,
         onchange: async (e) => { await saveSettings({ kernel_process: e.target.checked }); render(); } }),
       h("span", {}, s.kernel_process.value ? "On" : "Off")),

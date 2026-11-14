@@ -280,7 +280,7 @@ until pip finishes:
 %pip install -r builtin/requirements.txt    # a file in the notebook's resources
 ```
 
-- It needs **Run notebooks in their own process** (Settings > Preview features). Without it the
+- It needs **Run notebooks in their own process** (Settings > Advanced, on by default). Without it the
   line is skipped with a note.
 - A notebook without an environment gets one named after it, attached to it. That session started
   without it, so the cell says to restart the session before importing. Later installs import

@@ -358,7 +358,8 @@ pre{margin:0;padding:10px;white-space:pre-wrap;word-break:break-word;font:13px/1
 .out{border-top:1px dashed #e0e0e0}.err{color:#a4262c}.skipped{padding:8px 10px;color:#616161;font-style:italic}
 table{border-collapse:collapse;margin:10px;font-size:13px}th,td{border:1px solid #e0e0e0;padding:3px 8px;text-align:left}
 th{background:#fafafa}img{max-width:100%;margin:10px}
-@media (prefers-color-scheme:dark){body{background:#1f1f1f;color:#eee}.cell,.label,th,td,.out{border-color:#444}
+@media print{body{margin:0;max-width:none;padding:0}.cell{break-inside:avoid-page}pre{white-space:pre-wrap}}
+@media screen and (prefers-color-scheme:dark){body{background:#1f1f1f;color:#eee}.cell,.label,th,td,.out{border-color:#444}
 .label,th{background:#292929}.src{background:#262626}.note,.label,.skipped{color:#aaa}.err{color:#f1707b}}
 """
 

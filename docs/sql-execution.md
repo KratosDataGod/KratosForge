@@ -28,6 +28,8 @@ Column names that repeat (`SELECT id, id FROM ...`), `NULL`s and column types ar
 
 - **CSV**, with a header row. `NULL`s are written as empty fields.
 - **Parquet**, with the result's column types. Parquet files can't hold two columns with the same name, so a repeated name gets a number: the second `id` becomes `id_2`.
+- **Excel** (.xlsx), one sheet with a bold header row that stays in view, up to 1,048,575 rows (a sheet's limit; a bigger result is refused before anything is written). Values that look like formulas (`=...`) are saved as text, so opening the file never runs them.
+- **JSON**, an array with one object per row, keyed by column name (a repeated name gets a number, as in Parquet). `NULL`s and values that aren't numbers (NaN, infinity) are `null`, dates and times are ISO 8601 text, decimals are text so no digit is lost, and binary values are base64. Whole numbers stay numbers; one larger than 9,007,199,254,740,991 (a 64-bit ID, say) is written exactly, but JavaScript and Power Query read it rounded, so cast such IDs to text in the query (`CAST(id AS STRING)`) when another tool reads the file.
 
 The export streams from the snapshot, so a large result is never loaded whole. The band shows its progress, and **Cancel** stops it. The file is written as `<name>.partial` and renamed when it's complete, so you never see half a file; a stopped or failed export leaves nothing behind. An existing file is never replaced: a name that is taken gets `(2)`, `(3)` and so on.
 
@@ -88,7 +90,9 @@ A warehouse run may also **change** the warehouse, when it's started as a change
 
 ### Estimated plan (WH-09)
 
-`estimated_plan = true` on a warehouse run that reads asks Fabric for the plan instead of the rows: the engine runs `SET SHOWPLAN_XML ON`, the query, then `SET SHOWPLAN_XML OFF`, on the same connection and in the same rolled-back transaction, so the query itself doesn't run. The result is the showplan XML, and the status adds `plan: true`. It's refused for a change (`allow`) or a target other than a warehouse: "An estimated plan is for a warehouse query that reads."
+`estimated_plan = true` on a warehouse run that reads asks Fabric for the plan instead of the rows: the engine runs `SET SHOWPLAN_XML ON`, the query, then `SET SHOWPLAN_XML OFF`, on the same connection and in the same rolled-back transaction, so the query itself doesn't run. The result is the showplan XML, and the status adds `plan: true`. It's refused for a change (`allow`) or a local data project: "An estimated plan is for a lakehouse or warehouse query that reads."
+
+On a lakehouse (editor parity S39, S40), `estimated_plan = true` runs `EXPLAIN (FORMAT JSON)` in the run's worker after the tables are bound, so nothing runs, and `profile = true` runs `EXPLAIN ANALYZE` with DuckDB's JSON profiling, which runs the query once more. Each answers with one row of JSON in a column named `plan` or `profile`, read with `sql_page`: the plan as `{steps: [{depth, name, rows, details}], more_steps}` with estimated rows (or null), the profile as a notebook's query profile. Both are for one query that only reads: more than one statement, or one that changes even the run's own session, fails with "A plan or profile is for one query that reads", and `allow` beyond reading is refused before anything starts. Profiling is turned on before the run locks its settings, and writes to a file in the run's own folder, never to the worker's output. A profile isn't for a warehouse, and isn't an estimated plan too. The status adds `plan: true` or `profile: true`, and so does the audit line.
 
 ## Limits
 

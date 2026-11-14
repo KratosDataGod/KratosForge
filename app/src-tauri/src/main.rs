@@ -16,6 +16,7 @@ use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 mod crash;
 mod deep_link;
 mod disk_space;
+mod engine_folder;
 mod engine_patch;
 mod exe_name;
 mod folder_pick;
@@ -23,6 +24,7 @@ mod policy_file;
 mod policy_trust;
 mod replies;
 mod signature;
+mod ssms_link;
 mod update_guard;
 mod vscode_link;
 mod watchdog;
@@ -427,12 +429,32 @@ fn engine_root() -> PathBuf {
     data_dir().join("engine")
 }
 
+/// IT's engine folder (engine_folder.rs, Preview): None when the policy file doesn't set one,
+/// otherwise this build's python.exe there or why it can't be used. The policy file's permissions
+/// are checked before it is read, as for engine_download_url.
+fn it_engine() -> Option<Result<PathBuf, String>> {
+    let file = PathBuf::from(std::env::var_os("ProgramData")?).join("FabricDesktop").join("policy.json");
+    let trusted = policy_trust::admin_only(&file);
+    let text = std::fs::read_to_string(&file).ok()?;
+    let checks = engine_folder::Checks {
+        policy: trusted,
+        engine: &policy_trust::admin_only_engine,
+        ancestor: &policy_trust::admin_only_ancestor,
+    };
+    engine_folder::resolve(&text, policy_allows_updates(&text), BUILD_COMMIT, checks).transpose()
+}
+
 /// This build's engine, or failing that another build's, which can still run the
 /// startup check that then updates this exe or the engine. A signed build runs only its own
-/// (own_engine_only); a missing one is installed from this build's release.
+/// (own_engine_only); a missing one is installed from this build's release. When IT keeps the
+/// engine in a folder of its own, only that one, and none when it can't be used (install_engine
+/// then says why).
 fn engine_python() -> Option<PathBuf> {
     if !bundled() {
         return None;
+    }
+    if let Some(it) = it_engine() {
+        return it.ok();
     }
     let exact = engine_root().join(BUILD_COMMIT).join("python.exe");
     if exact.exists() {
@@ -596,7 +618,22 @@ const APP_CONTROL_BLOCKED: [i32; 3] = [1260, 4551, 577];
 fn python_failed(e: &std::io::Error) -> String {
     let folder = python().ok().and_then(|p| PathBuf::from(p).parent().map(|d| d.display().to_string()))
         .unwrap_or_else(|| engine_root().display().to_string());
-    python_failed_text(e.raw_os_error(), &e.to_string(), &folder)
+    let text = python_failed_text(e.raw_os_error(), &e.to_string(), &folder);
+    if it_engine().is_some() { managed_engine_text(e.raw_os_error(), text) } else { text }
+}
+
+/// With IT's own engine folder the person can't delete or repair it, so a file that may have
+/// changed (577) goes to IT, who copies the engine there again before allowing anything.
+fn managed_engine_text(code: Option<i32>, text: String) -> String {
+    if code != Some(577) {
+        return text;
+    }
+    text.replacen(
+        "close KratosForge, delete the folder",
+        "ask IT to copy this build's engine into",
+        1,
+    )
+    .replacen(", and start KratosForge again to download a fresh engine.", " again.", 1)
 }
 
 /// Why the engine didn't start. Application control's line stands on its own; anything else keeps
@@ -1362,6 +1399,17 @@ fn run_tool(mut cmd: Command, what: &str) -> Result<(), String> {
 /// engine already has the release's Python and packages, only the engine's own code is
 /// downloaded (engine_patch.rs); the whole engine is the fallback.
 fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
+    if let Some(it) = it_engine() {
+        // Never install into IT's folder, and never fall back to the per-user engine their rules block.
+        return Err(match it {
+            Ok(python) => format!(
+                "Your organization manages the engine in {}, so KratosForge doesn't install or repair it. Ask IT to \
+                 copy this build's engine there again.",
+                python.parent().unwrap_or(&python).display()
+            ),
+            Err(why) => why,
+        });
+    }
     // A full or read-only profile disk (shared and virtual desktops) is said plainly (disk_space.rs).
     install_engine_into(app).map_err(|e| disk_space::explain(&e, &engine_root()))
 }
@@ -2611,6 +2659,73 @@ fn open_in_vscode(path: String, insiders: bool) -> Result<(), String> {
     open_with_handler(&link, if insiders { "VS Code Insiders. Is it installed?" } else { "VS Code. Is it installed?" })
 }
 
+/// Open in SSMS on the Warehouse page: where SSMS is. `chosen` is a folder or ssms.exe the person
+/// picked earlier ("Choose SSMS's folder…"), used when it still holds SSMS; otherwise SSMS 22, then
+/// 21, where they install by default. Only an ssms.exe signed by Microsoft counts. None when none is
+/// found. The page only learns whether SSMS was found: open_in_ssms finds it again itself.
+#[tauri::command]
+fn ssms_find(chosen: Option<String>) -> Option<String> {
+    find_ssms(chosen).and_then(|p| p.to_str().map(String::from))
+}
+
+fn find_ssms(chosen: Option<String>) -> Option<PathBuf> {
+    if let Some(c) = chosen.filter(|c| vscode_link::may_look_at(c)) {
+        let p = PathBuf::from(&c);
+        let exe = if p.is_dir() { p.join("SSMS.exe") } else { p };
+        if ssms_link::named_ssms(&exe) && exe.is_file() && ssms_trusted(&exe).is_ok() {
+            return Some(exe);
+        }
+    }
+    let pf = std::env::var_os("ProgramFiles").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Program Files"));
+    ssms_link::candidates(&pf).into_iter().find(|p| p.is_file() && ssms_trusted(p).is_ok())
+}
+
+/// SSMS is started only when Windows trusts its signature and it names Microsoft (ssms_link.rs).
+fn ssms_trusted(exe: &Path) -> Result<(), String> {
+    ssms_link::microsoft_signed(&signature::signer(exe))
+}
+
+/// Opens SSMS on a warehouse, signed in with Microsoft Entra (ssms_link.rs). The page never names
+/// the program: SSMS is found here (find_ssms, from `chosen` or the default folders) and must be
+/// signed by Microsoft. `query`, when given, is written to a .sql file in the app's data folder
+/// (ssms\) and opened in a query window. Files there older than a day are removed first.
+#[tauri::command]
+fn open_in_ssms(chosen: Option<String>, server: String, database: String, user: String, query: Option<String>) -> Result<(), String> {
+    let program = find_ssms(chosen).ok_or("SSMS signed by Microsoft isn't on this PC, so it wasn't opened.")?;
+    ssms_trusted(&program)?;
+    ssms_link::args(&server, &database, &user, None)?;  // the connection is checked before any file is written
+    let file = match query.filter(|q| !q.trim().is_empty()) {
+        None => None,
+        Some(q) if q.len() > ssms_link::QUERY_MAX => return Err("The query is too long to hand to SSMS.".into()),
+        Some(q) => {
+            let dir = data_dir().join("ssms");
+            std::fs::create_dir_all(&dir).map_err(|e| format!("Couldn't save the query for SSMS: {e}"))?;
+            let day = std::time::Duration::from_secs(24 * 3600);
+            for old in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let stale = old.metadata().and_then(|m| m.modified()).ok()
+                    .and_then(|t| t.elapsed().ok()).is_some_and(|age| age > day);
+                if stale && old.path().extension().is_some_and(|e| e == "sql") {
+                    let _ = std::fs::remove_file(old.path());
+                }
+            }
+            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+            let path = dir.join(ssms_link::query_file_name(&database, stamp));
+            std::fs::write(&path, q).map_err(|e| format!("Couldn't save the query for SSMS: {e}"))?;
+            Some(path)
+        }
+    };
+    let args = ssms_link::args(&server, &database, &user, file.as_deref())?;
+    Command::new(&program).args(&args).spawn().map(|_| ()).map_err(|e| format!("Couldn't open SSMS: {e}"))
+}
+
+/// "Open in VS Code (MSSQL extension)" on the Warehouse page: VS Code's MSSQL extension, connected
+/// to the warehouse with Microsoft Entra (ssms_link::mssql_link).
+#[tauri::command]
+fn open_in_mssql(server: String, database: String, user: String) -> Result<(), String> {
+    let link = ssms_link::mssql_link(&server, &database, &user)?;
+    open_with_handler(&link, "VS Code. Is it installed, with the MSSQL extension?")
+}
+
 /// The folders Open in VS Code may open: the app's notebooks folder and the repositories opened
 /// in Source control (git_repos.json, as git_service.py keeps it).
 fn notebook_folders() -> Vec<PathBuf> {
@@ -2857,7 +2972,7 @@ fn main() {
         .on_window_event(on_window_event)
         .invoke_handler(guarded(tauri::generate_handler![
             rpc, stop_kernel, check_components, confirm_started, check_for_update, update_sidecar, update_app,
-            fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link, pick_folder,
+            fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, ssms_find, open_in_ssms, open_in_mssql, take_pending_link, pick_folder,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ]))
         .run(tauri::generate_context!())
@@ -3026,6 +3141,11 @@ mod integrity_tests {
         assert!(changed.contains(&format!("close KratosForge, delete the folder {folder}, and start KratosForge again")), "{changed}");
         assert!(changed.contains("If it's still blocked, your organization's application control (App Control"), "{changed}");
         assert!(!python_failed_text(Some(1260), "x", folder).contains("may have been changed"));
+        // IT's engine folder: the person can't delete it, so IT copies the engine there again.
+        let managed = managed_engine_text(Some(577), changed.clone());
+        assert!(managed.contains(&format!("A file may have been changed: ask IT to copy this build's engine into {folder} again.")), "{managed}");
+        assert!(!managed.contains("delete the folder") && managed.contains("If it's still blocked"));
+        assert_eq!(managed_engine_text(Some(1260), "x".into()), "x");
         assert_eq!(python_failed_text(Some(2), "not found", folder), "Python was not found (not found).");
         assert_eq!(python_failed_text(Some(5), "Access is denied", folder), "Python could not be started (Access is denied).");
     }

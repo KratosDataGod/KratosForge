@@ -224,7 +224,7 @@ def test_spark_timestamps_read_in_utc_as_in_fabric_whatever_this_pcs_zone(dialec
     try:
         s._con.execute("SET TimeZone = 'America/Chicago'")
         r = s.execute(sql("SELECT CAST(date_trunc('HOUR', TIMESTAMP'2024-03-10 02:45:10') AS STRING) AS h", dialect))
-        assert r.status == "ok" and r.outputs[0]["rows"] == [["2024-03-10 02:00:00+00"]]
+        assert r.status == "ok" and r.outputs[0]["rows"] == [["2024-03-10 02:00:00"]]  # as Spark writes it, no offset
         # DuckDB SQL cells keep the session's own zone.
         assert s._con.execute("SELECT current_setting('TimeZone')").fetchone() == ("America/Chicago",)
         failed = s.execute(sql("SELECT * FROM no_such_table", dialect))

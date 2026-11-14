@@ -28,7 +28,7 @@ FILE = Path(__file__).resolve().parent / "rule_guides.json"
 DOCS = ("notebook-best-practices.md", "sql-best-practices.md", "semantic-model-rules.md",
         "orchestration/activity-registry.md")
 
-_RULE = re.compile(r"^((NB|SQ|SM)\d{3}|PG\d{1,2}|FOREACH)$")
+_RULE = re.compile(r"^((NB|SQ|SM|SE|DM|WH)\d{3}|PG\d{1,2}|FOREACH)$")
 _CODES = re.compile(r"`([a-z0-9_]+)`")
 _FIELDS = {"Why:": "why", "When it's fine:": "fine", "Safe to leave:": "fine", "Do this instead:": "instead",
            "Principle:": "principle", "Impact:": "impact", "How to check:": "check", "Source:": None}

@@ -42,6 +42,8 @@ ENGINE = None
 NONE: dict[str, tuple[str | None, str]] = {}
 FABRIC = "must be an https app.fabric.microsoft.com page (fabric_page)"
 SECTION = ("pop_out_title(&section)?", "must be one of the fixed pop-out sections")
+SSMS_ARGS = "ssms_link::args(&server, &database, &user, file.as_deref())?"
+MSSQL_LINK = "ssms_link::mssql_link(&server, &database, &user)?"
 COMMANDS: dict[str, dict[str, tuple[str | None, str]]] = {
     "rpc": {"method": (ENGINE, "sent to the engine over its pipe; the engine refuses an unknown method"),
             "params": (ENGINE, "sent to the engine, which checks each method's own arguments")},
@@ -65,6 +67,17 @@ COMMANDS: dict[str, dict[str, tuple[str | None, str]]] = {
                                  "the notebooks folder or an opened repository"))},
     "add_to_vscode": {"client_id": ("vscode_link::install_link(&launcher, &client_id, insiders)?",
                                     "checked by vscode_link; the link uses the app's own launcher path")},
+    "ssms_find": {"chosen": ("find_ssms(chosen)",
+                             "a local path (vscode_link::may_look_at) that is, or holds, an ssms.exe signed by Microsoft")},
+    "open_in_ssms": {"chosen": ("find_ssms(chosen).ok_or(", ("only where to look: the shell finds SSMS itself (find_ssms), "
+                                                                  "an ssms.exe signed by Microsoft, started by its full path")),
+                     "server": (SSMS_ARGS, "a Fabric SQL endpoint host name (ssms_link::valid_server)"),
+                     "database": (SSMS_ARGS, "letters, digits, spaces and _-. only, never starting with - (ssms_link::valid_database)"),
+                     "user": (SSMS_ARGS, "empty, or one name@domain that can't start a switch (ssms_link::valid_user)"),
+                     "query": ("q.len() > ssms_link::QUERY_MAX", "at most 1 MiB, written only to a .sql file in the app's data folder")},
+    "open_in_mssql": {"server": (MSSQL_LINK, "checked by ssms_link as for open_in_ssms, then percent-encoded"),
+                      "database": (MSSQL_LINK, "checked by ssms_link as for open_in_ssms, then percent-encoded"),
+                      "user": (MSSQL_LINK, "checked by ssms_link as for open_in_ssms, then percent-encoded")},
     "pick_folder": {"start": ("folder_pick::pick(owner, start)",
                               "only where the dialog opens, and only a local folder (folder_pick.rs)")},
     "take_pending_link": NONE,
@@ -143,3 +156,13 @@ def test_the_shell_starts_programs_only_by_their_full_path():
         code = _without_tests(rs.read_text(encoding="utf-8"))
         for name in re.findall(r'Command::new\("([^"]+)"\)', code):
             assert name == "xdg-open", f"{rs.name} starts {name!r} by name"
+
+
+def test_ssms_is_found_only_when_named_ssms_exe_local_and_signed_by_microsoft():
+    """ssms_find and open_in_ssms take only where to look; find_ssms is where that is checked."""
+    body = CODE.split("fn find_ssms(chosen: Option<String>) -> Option<PathBuf> {", 1)[1].split("\n}\n", 1)[0]
+    for check in ("vscode_link::may_look_at(c)", "ssms_link::named_ssms(&exe) && exe.is_file() && ssms_trusted(&exe).is_ok()",
+                  "p.is_file() && ssms_trusted(p).is_ok()"):
+        assert check in body, check
+    trusted = CODE.split("fn ssms_trusted(exe: &Path) -> Result<(), String> {", 1)[1].split("\n}\n", 1)[0]
+    assert "ssms_link::microsoft_signed(&signature::signer(exe))" in trusted

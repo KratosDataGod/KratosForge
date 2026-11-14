@@ -109,3 +109,9 @@ def test_these_are_no_longer_flagged_as_fabric_only():
     code = "df.mapInPandas(f, s)\ndf.groupBy('k').applyInPandas(g, s)"
     assert [why for p, why in fabric_run._FABRIC_ONLY if p.search(code)] == []
     assert any(p.search("df.rdd.map(f)") for p, _ in fabric_run._FABRIC_ONLY)
+
+
+def test_apply_in_pandas_by_an_expression_says_to_group_by_a_column(kernel):
+    out = kernel.run("from pyspark.sql import functions as F\nspark.range(4).groupBy(F.col('id') % 2).applyInPandas(lambda p: p, 'id long')")
+    assert out["status"] == "error"
+    assert "groups by column names" in out["outputs"][-1]["evalue"]

@@ -13,7 +13,7 @@ the session side:
 - ``spark.catalog.tableExists`` against the attached lakehouse (and temp views).
 - DataFrame: isEmpty, tail, explain, createTempView, toLocalIterator, offset, corr / cov /
   approxQuantile / stat, randomSplit, sortWithinPartitions, rdd / isLocal / sparkSession.
-- RDDs, foreach and row-by-row Python raise with a pointer to Fabric.
+- RDDs raise with a pointer to Fabric.
 
 COVERAGE lists PySpark 3.5's DataFrame and SparkSession methods and whether each works here;
 docs/notebook-spark-on-this-pc.md is generated from it (tests keep the two in step).

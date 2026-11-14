@@ -110,6 +110,11 @@ def apply_in_pandas(self: Any, func: Callable[..., Any], schema: Any) -> Any:
     keys = [_key_name(k) for k in self._grouping_names()]
     out_schema = _schema(schema)
     whole = df.relation.df()  # pandas, with DuckDB's own conversion of each type
+    missing = [k for k in keys if k not in whole.columns]
+    if missing:
+        raise ValueError(
+            "applyInPandas on this PC groups by column names, and " + ", ".join(missing) + " isn't a column. "
+            "Add it as a column first, for example df.withColumn('k', expr).groupBy('k').applyInPandas(...).")
     try:
         takes_key = len(inspect.signature(func).parameters) == 2
     except (TypeError, ValueError):

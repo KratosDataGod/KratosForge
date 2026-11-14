@@ -75,6 +75,12 @@ def run(job: dict[str, Any]) -> None:
                      + _advice(stop.kind))
         return
 
+    explain = job.get("explain")  # "plan" or "profile" (editor parity S39, S40): one query that reads
+    if explain and (len(statements) != 1 or sql_policy.strongest(verdicts) != "read_only"):
+        _say("error", kind="plan", message=("A plan or profile is for one query that reads. Select just that "
+                                            "query, then ask again."))
+        return
+
     if job.get("memory_cap_mb"):
         _hold_to(int(job["memory_cap_mb"]), job)
     con = keep_try_cast(duckdb.connect())
@@ -86,12 +92,23 @@ def run(job: dict[str, Any]) -> None:
     temp = Path(job["temp_dir"])
     temp.mkdir(parents=True, exist_ok=True)
     con.execute(f"SET temp_directory = '{_quote(str(temp))}'")
+    if explain == "profile":  # before the settings lock; to a file, never stdout (this process's channel)
+        con.execute("SET profiling_output = '" + _quote(str(temp / "profile.txt")) + "'")  # .txt: any profile type
+        con.execute("PRAGMA enable_profiling = 'json'")
     con.execute("SET enable_external_access = false")
     con.execute("SET lock_configuration = true")
     _say("started", permission=sql_policy.strongest(verdicts))
 
     views: dict[str, str] = {}
     result = None
+    if explain:
+        sql.bind_tables(statements[0], con, views, lambda name: sql.is_local(con, name))
+        answer = explain_query(con, sql.duckdb_sql(statements[0]), explain)
+        table = pa.table({explain: [json.dumps(answer)]})
+        with ipc.new_file(str(Path(job["out"])), table.schema) as writer:
+            writer.write_table(table)
+        _say("done", rows=1, batches=[1], columns=[{"name": explain, "type": "string"}])
+        return
     for i, statement in enumerate(statements):
         sql.bind_tables(statement, con, views, lambda name: sql.is_local(con, name))
         text = sql.duckdb_sql(statement)
@@ -120,6 +137,45 @@ def run(job: dict[str, Any]) -> None:
                 last = time.monotonic()
     _say("done", rows=rows, batches=batches,
          columns=[{"name": f.name, "type": str(f.type)} for f in schema])
+
+
+PLAN_NODES = 200  # operators a plan lists; a bigger plan says how many it left out
+
+
+def explain_query(con: Any, text: str, mode: str) -> dict[str, Any]:
+    """How DuckDB runs ``text``: ``mode`` "plan" (EXPLAIN, nothing runs) gives each operator with its
+    estimated rows; "profile" (EXPLAIN ANALYZE, the query runs) gives spark_local.query_profile's answer.
+    A profile needs JSON profiling turned on first, before the connection's settings are locked (run)."""
+    if mode == "plan":
+        rows = con.execute("EXPLAIN (FORMAT JSON) " + text).fetchall()
+        return plan_steps(json.loads(rows[0][1]) if rows else [])
+    from .spark_local import _read_profile
+
+    rows = con.execute("EXPLAIN ANALYZE " + text).fetchall()
+    return _read_profile(json.loads(rows[0][1]))
+
+
+def plan_steps(roots: list[dict[str, Any]]) -> dict[str, Any]:
+    """DuckDB's JSON plan as a list of steps, top first: {depth, name, rows (estimated, or None), details}."""
+    steps: list[dict[str, Any]] = []
+    total = 0
+
+    def walk(node: dict[str, Any], depth: int) -> None:
+        nonlocal total
+        total += 1
+        extra = node.get("extra_info") or {}
+        if len(steps) < PLAN_NODES:
+            estimate = str(extra.get("Estimated Cardinality") or "")
+            details = {k: (", ".join(map(str, v)) if isinstance(v, list) else str(v))
+                       for k, v in extra.items() if k != "Estimated Cardinality" and v not in ("", None)}
+            steps.append({"depth": depth, "name": str(node.get("name") or ""),
+                          "rows": int(estimate) if estimate.isdigit() else None, "details": details})
+        for child in node.get("children") or []:
+            walk(child, depth + 1)
+
+    for root in roots:
+        walk(root, 0)
+    return {"steps": steps, "more_steps": total - len(steps)}
 
 
 MEMORY_WATCH_SECONDS = 0.2

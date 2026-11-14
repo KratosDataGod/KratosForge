@@ -102,9 +102,14 @@ class JobQueue:
                         raise
             # wall: the local time a schedule's next run was worked out for (from before: none, so it is
             # read as the time it was set for)
-            if "wall" not in {r["name"] for r in db.execute("pragma table_info(schedule_state)")}:
+            # spec: the schedule's timing as configured when next_at was worked out, so an edited schedule
+            # is worked out again instead of firing once at the old time (from before: none, read as unchanged)
+            have = {r["name"] for r in db.execute("pragma table_info(schedule_state)")}
+            for col in ("wall", "spec"):
+                if col in have:
+                    continue
                 try:
-                    db.execute("alter table schedule_state add column wall text")
+                    db.execute(f"alter table schedule_state add column {col} text")
                 except sqlite3.OperationalError as exc:
                     if "duplicate column" not in str(exc):
                         raise
@@ -355,11 +360,33 @@ class JobQueue:
         row = self._one("select wall from schedule_state where id = ?", (schedule_id,))
         return row["wall"] if row else None
 
-    def set_schedule_next(self, schedule_id: str, next_at: float, wall: str | None = None) -> None:
+    def set_schedule_next(self, schedule_id: str, next_at: float, wall: str | None = None,
+                          spec: str | None = None) -> None:
+        """Keep a schedule's next run; ``spec`` (its timing as configured) is kept when given."""
         with self._tx() as db:
-            db.execute("insert into schedule_state (id, next_at, wall) values (?, ?, ?)"
-                       " on conflict(id) do update set next_at = excluded.next_at, wall = excluded.wall",
-                       (schedule_id, next_at, wall))
+            db.execute("insert into schedule_state (id, next_at, wall, spec) values (?, ?, ?, ?)"
+                       " on conflict(id) do update set next_at = excluded.next_at, wall = excluded.wall,"
+                       " spec = coalesce(excluded.spec, schedule_state.spec)",
+                       (schedule_id, next_at, wall, spec))
+
+    def schedule_specs(self) -> dict[str, str | None]:
+        """Each schedule id with a kept next run, and the timing it was worked out for (None: not kept)."""
+        return {r["id"]: r["spec"] for r in self._rows("select id, spec from schedule_state")}
+
+    def set_schedule_spec(self, schedule_id: str, spec: str) -> None:
+        with self._tx() as db:
+            db.execute("update schedule_state set spec = ? where id = ?", (spec, schedule_id))
+
+    def forget_schedule(self, schedule_id: str) -> None:
+        """Drop a schedule's kept next run: it is worked out again from now, and nothing fires for it."""
+        with self._tx() as db:
+            db.execute("delete from schedule_state where id = ?", (schedule_id,))
+
+    def queued_with_key(self, dedupe_key: str) -> builtins.list[dict[str, Any]]:
+        """Jobs with ``dedupe_key`` still waiting to start or to retry."""
+        rows = self._rows("select * from jobs where dedupe_key = ? and state = 'queued' order by created_at",
+                          (dedupe_key,))
+        return [self._row(r) for r in rows]  # type: ignore[misc]
 
     def close(self) -> None:
         """Nothing stays open between calls; kept for callers that close the queue when they're done."""

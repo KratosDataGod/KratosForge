@@ -19,6 +19,7 @@ to its audit log as the desktop app does (policy_watch.py), since the policy app
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import os
 import signal
@@ -67,6 +68,11 @@ POLICY_CHECK_SECONDS = 900  # how often a running agent looks for a change to th
 
 def _epoch(local: dt.datetime) -> float:
     return local.timestamp()  # naive datetimes are this machine's local time, as schedules are
+
+
+def _spec(s: Any) -> str:
+    """A schedule's timing as configured: when it fires, and whether agents share it."""
+    return json.dumps({"config": s.config, "shared": bool(s.shared)}, sort_keys=True, default=str)
 
 
 def _wall(local: dt.datetime) -> str:
@@ -429,6 +435,46 @@ class Agent:
                       extra=fields(job_id=job["id"], env=env, entities=payload["entities"], source=source))
         return job
 
+    def reconcile_schedules(self) -> dict[str, list[str]]:
+        """Bring what the queue kept for schedules in line with agent.toml, once at start (it is read
+        only then). A schedule whose timing changed is worked out again from now, so it never runs
+        once more at its old time. A schedule removed from agent.toml loses its kept next run (added
+        back later, it starts afresh rather than catching up), and a run of it still waiting to start
+        or to retry is cancelled with that reason. A first run of an edited schedule still waiting is
+        changed to its new environment, tables and backfill, so it runs once, as configured now; a
+        retry keeps the tables it still has to finish. A running job is never touched."""
+        out: dict[str, list[str]] = {"retimed": [], "forgotten": [], "cancelled": [], "updated": []}
+        current = {s.id: s for s in self.config.schedules}
+        kept = self.queue.schedule_specs()
+        for sid, spec in kept.items():
+            s = current.get(sid)
+            if s is None:
+                self.queue.forget_schedule(sid)
+                out["forgotten"].append(sid)
+            elif spec is None:
+                self.queue.set_schedule_spec(sid, _spec(s))  # kept before specs were: taken as unchanged
+            elif spec != _spec(s):
+                self.queue.forget_schedule(sid)
+                out["retimed"].append(sid)
+        known = set(kept) | set(current)
+        for sid in sorted(known):
+            s = current.get(sid)
+            for job in self.queue.queued_with_key(f"schedule:{sid}"):
+                if s is None:
+                    if self.queue.cancel(job["id"], "its schedule was removed from agent.toml"):
+                        out["cancelled"].append(job["id"])
+                    continue
+                if s.shared or job["attempts"]:
+                    continue
+                want = {"env": s.env, "entities": list(s.entities), "backfill": s.backfill, "cascade": False}
+                if job["payload"] != want and s.env in self.config.environments \
+                        and self.queue.set_payload(job["id"], want):
+                    out["updated"].append(job["id"])
+        for what, items in out.items():
+            if items:
+                self.log.info(f"schedules changed in agent.toml: {what}", extra=fields(**{what: items}))
+        return out
+
     def tick_schedules(self) -> list[str]:
         """Enqueue every schedule that is due. A schedule missed while the agent was down runs once
         when it starts again, not once per missed time. A shared schedule is written to its
@@ -466,7 +512,7 @@ class Agent:
                     local = next_run(s.config, dt.datetime.fromtimestamp(now))
                     nxt, wall = (_epoch(local), _wall(local)) if local is not None else (None, None)
                 if nxt is not None:
-                    self.queue.set_schedule_next(s.id, nxt, wall)
+                    self.queue.set_schedule_next(s.id, nxt, wall, _spec(s))
         return fired
 
     def _enqueue_due(self, s: Any, due: float) -> bool:
@@ -847,6 +893,7 @@ class Agent:
             self._pruned_at = self.clock()
             self.prune_queue()
             self.sweep_home()
+            self.prune_audit_trail()
         if _due(self._policy_at, POLICY_CHECK_SECONDS, self.clock()):
             self._policy_at = self.clock()
             self.check_policy()
@@ -890,6 +937,24 @@ class Agent:
             self.log.info("local copies removed from the agent's home",
                           extra=fields(items=len(result["removed"]), bytes=result["bytes"], older_than_days=days))
 
+    def prune_audit_trail(self) -> None:
+        """Delete whole months of the agent's audit trail (``<home>/audit``) older than the policy's
+        audit_retention_days, as the app does with its own (retention.prune_audit): at start, then
+        daily. With the default ``0`` nothing is deleted. Each cleanup first adds an ``audit_pruned``
+        line to the trail, and nothing is deleted if that line can't be written. A failure is logged
+        and tried again the next day."""
+        from . import app_settings, retention
+        try:
+            days = int(app_settings.value("audit_retention_days") or 0)
+            gone = retention.prune_audit(self.audit.folder, days,
+                                         lambda action, params: self.audit.record(action, "ok", 0.0, params), "agent")
+        except Exception as exc:  # noqa: BLE001 - a cleanup never stops jobs
+            self.log.warning("couldn't clean up the audit trail", extra=fields(error=f"{type(exc).__name__}: {exc}"))
+            return
+        if gone["files"]:
+            self.log.info("old months removed from the agent's audit trail",
+                          extra=fields(files=len(gone["files"]), lines=gone["lines"], older_than_days=days))
+
     def _guarded(self, job: dict[str, Any]) -> None:
         if self.mailbox:
             if self.mailbox.cancel_requested(job):
@@ -921,6 +986,7 @@ class Agent:
                                                     environments=self.config.environments,
                                                     schedules=[s.id for s in self.config.schedules],
                                                     project=str(self.config.project)))
+        self.reconcile_schedules()
         from .credentials import KEY_FILE_OPEN, key_file_open
         if key_file_open(self.config.auth):
             self.log.warning(KEY_FILE_OPEN)

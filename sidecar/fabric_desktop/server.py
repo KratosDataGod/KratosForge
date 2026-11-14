@@ -29,7 +29,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark", "item_pins", "set_item_pin",
            "notebook_details", "notebook_batch_start", "notebook_batch", "notebook_batch_stop", "notebook_batch_fabric",
            "list_tables", "list_files", "history",
-           "start_cell", "poll_cell", "interrupt_cell", "debug_cell", "kernel_variables", "kernel_variable_detail", "kernel_complete", "kernel_inspect", "notebook_syntax", "notebook_format", "notebook_practices", "notebook_practice_rules", "notebook_plotly_js", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_query_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_ipywidget_event", "notebook_frame_download", "restart_kernel", "save_sql", "table_columns", "cached_schemas", "sql_format", "sql_analyze", "sql_practices", "sql_practice_rules", "sql_compat_export", "sql_start", "sql_status", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
+           "start_cell", "poll_cell", "interrupt_cell", "debug_cell", "kernel_variables", "kernel_variable_detail", "kernel_complete", "kernel_inspect", "notebook_syntax", "notebook_format", "notebook_practices", "notebook_practice_rules", "notebook_plotly_js", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_query_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_ipywidget_event", "notebook_frame_download", "restart_kernel", "save_sql", "table_columns", "cached_schemas", "sql_format", "sql_function_help", "sql_analyze", "sql_practices", "sql_practice_rules", "sql_compat_export", "sql_start", "sql_status", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
            "save_notebook", "notebook_inputs", "notebook_inputs_set", "notebook_onelake_writes_set", "rename_notebook", "publish_notebook",
            "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_keys_setup", "platform_keys_join", "platform_share_keys", "platform_cancel_share_keys", "platform_domains",
            "platform_save_domain", "platform_create_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "mesh_home", "platform_glossary", "platform_save_term", "platform_audit",
@@ -131,6 +131,11 @@ from .optimize_service import METHODS as OPTIMIZE_METHODS  # noqa: E402
 
 METHODS |= OPTIMIZE_METHODS
 
+# The optimization engine's assessment (opportunities_service.py, engine only).
+from .opportunities_service import METHODS as OPPORTUNITY_METHODS  # noqa: E402
+
+METHODS |= OPPORTUNITY_METHODS
+
 from .tenant_history_service import METHODS as TENANT_HISTORY_METHODS  # noqa: E402
 from .capacity_history_service import METHODS as CAPACITY_HISTORY_METHODS  # noqa: E402
 
@@ -225,6 +230,10 @@ METHODS |= WH_PROJECT_METHODS
 from .warehouse_monitoring_service import METHODS as WH_MONITORING_METHODS  # noqa: E402
 
 METHODS |= WH_MONITORING_METHODS
+# Open in SSMS: a warehouse's server and database (warehouse_ssms_service.py).
+from .warehouse_ssms_service import METHODS as WH_SSMS_METHODS  # noqa: E402
+
+METHODS |= WH_SSMS_METHODS
 
 # Folders for notebooks (notebook_folders_service.py): new, rename, delete when empty, move into one.
 from .notebook_folders_service import METHODS as NOTEBOOK_FOLDERS_METHODS  # noqa: E402

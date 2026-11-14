@@ -37,6 +37,16 @@ log = logging.getLogger(__name__)
 
 LOG_LINES = 2000
 
+# What a bundle keeps on purpose, and where it should go. Settings shows the same sentence (BUNDLE_KEPT in
+# app/ui/settings.js); test_support_bundle_save.py keeps the two in step.
+KEPT = ("Workspace, lakehouse, warehouse, table and notebook names, and the SQL that ran. "
+        "Send the bundle to your IT or support contact, not to a public forum or GitHub issue.")
+
+
+def _wrap(text: str) -> list[str]:
+    import textwrap
+    return textwrap.wrap(text, 100)
+
 
 def _data_dir() -> Path:
     base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".cache")
@@ -205,6 +215,7 @@ def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
                 "Taken out of every file: tokens, keys, passwords, email addresses (a guest's too), the tenant's",
                 "onmicrosoft.com and SharePoint names, the organization's name on OneDrive folders, user names in paths, and tenant, workspace and item ids.",
                 "No table data, notebook contents or sign-in cache is included.",
+                "", "Kept, so whoever helps can find the problem:", *_wrap(KEPT), "",
                 "Nothing is uploaded: crash reports stay on this PC, and this bundle goes only where you send it.",
                 "Settings that hold a secret, such as a connection string, or an internal address show only whether they are set.",
                 "The policy file shows only the setting names it sets, never their values; other keys are counted.",

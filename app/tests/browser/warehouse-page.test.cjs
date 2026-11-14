@@ -254,6 +254,19 @@ test("the explorer is a tree: one row takes Tab, the arrow keys walk and open it
   assert.deepStrictEqual(app.errors, []);
 });
 
+test("F12 on a table or view in the editor opens the tree down to it and focuses it", { skip }, async () => {
+  await page().evaluate(() => { sqlPage.whOpen.add("s:dbo"); sqlPage.whFilter = "Orders"; sqlPage.whRedraw(); });  // dbo closed, filtered away
+  const text = "SELECT v.Amount FROM dbo.vSales AS v";
+  await setDoc(text);
+  await page().evaluate((at) => { sqlPage.editor.view.dispatch({ selection: { anchor: at } }); sqlPage.editor.focus(); }, text.indexOf("v.Amount"));
+  const sent = starts().length;
+  await page().keyboard.press("F12");
+  await page().waitForFunction(() => document.activeElement?.dataset?.tid === "o:dbo.vSales");
+  assert.strictEqual(await page().locator(".wh-filter").inputValue(), "", "the filter is cleared so it shows");
+  assert.ok(await page().locator(".wh-tree .tree-row.sql-col[data-tid='c:dbo.vSales.Amount']").isVisible(), "its columns are open");
+  assert.strictEqual(starts().length, sent, "nothing is sent to Fabric: the explorer's catalog is enough");
+});
+
 test("objects in Fabric's own schemas have no ALTER or DROP", { skip }, async () => {
   const labels = await page().evaluate(() => whScriptItems(sqlPage.ref, { schema: "queryinsights", name: "exec_requests_history", type: "V" }, [], {})
     .map((it) => it.label || it.info));

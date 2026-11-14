@@ -695,3 +695,308 @@ The "after" numbers re-run each survivor with `--only` and the new tests in. All
 - `spark_local.py`, left with `spark_compat.py` for a later batch.
 - The notebook kernel and debugger, as asked.
 - `app_settings.py`, `policy_schema.py`, `audit.py`, `service.py`, `audit_chain.py` and `retention.py`, which open pull requests still change.
+
+# Mutation testing, batch 8
+
+The local PySpark and Spark SQL layer, which no open pull request is changing:
+- The PySpark calls this PC adds on top of DuckDB's Spark API (`spark_compat.py`), left over from batch 7.
+- The local `spark` session: readers, writers, catalog, createDataFrame, query progress and profiles (`spark_local.py`).
+- The Spark SQL built-ins written as DuckDB SQL (`spark_builtins_sql.py`).
+
+The run was at `main` 6e76117fe (2026-11-12), with `sidecar/tools/mutate.py` and the same method as batches 1 to 7 (sample cap 150, seed 7), on DuckDB 1.5.6. Every module has more points than the cap, so 150 of each were sampled.
+
+Tests left out of every run:
+- `test_spark_read_options.py::test_the_docs_page_is_up_to_date` and `test_spark_api.py::test_the_coverage_page_matches_the_api` read pages under `docs/`. The mutator's copy of `sidecar/` doesn't have that folder, so with them in, every mutant is "killed" by a missing file. A first `spark_local.py` run that had the docs-page test in scored 150 of 150 that way, and it was thrown away. As in batch 7, `test_notebook.py`, `test_databricks_coverage.py` and `test_sql_exec.py` were not used.
+- `test_spark_compat.py::test_these_frames_leave_no_view_behind` was deselected. It takes 41 s alone, and every mutant would have paid that.
+
+The "before" runs used each module's own test files. The survivors were then run again three ways:
+- With the related `test_spark_*` files that the first set left out, listed in brackets as "existing".
+- With the new tests.
+- With both together.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Equivalent left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `spark_compat.py` | test_spark_compat, test_spark_compat_edges, test_spark_local, test_spark_builtins_sql, test_spark_bad_dates, test_spark_dataframe_decimals, test_spark_integer_casts, test_spark_join_drop, test_spark_select_star, test_safe_parse_readers, test_untranslatable_sql (+ existing test_spark_show, test_spark_column_methods, test_spark_column_names, test_spark_cube_rollup, test_spark_format_string, test_spark_missing_functions, test_spark_nan_rows, test_spark_summary_schema, test_spark_function_names, test_spark_sql_names, test_spark_stat_methods, test_spark_struct_fields, test_spark_divide, test_spark_df_extras, test_pyspark_sql_names, test_spark_cast_names; + test_spark_compat_mutation) | 150 of 1,214 | 88 / 62 | **58.7%** | 141 / 9 | **94.0%** | 7, and 2 left |
+| `spark_local.py` | test_spark_local, test_spark_local_edges, test_spark_local_more_edges, test_spark_merge, test_spark_read_options, test_spark_refusals, test_spark_write_types, test_append_conversions, test_spark_compat, test_spark_compat_edges, test_duckdb_try_cast (+ existing test_spark_writer, test_spark_catalog_names, test_spark_csv_options, test_spark_json_parquet_options, test_spark_json; + test_spark_local_mutation) | 150 of 1,025 | 86 / 64 | **57.3%** | 138 / 12 | **92.0%** | 4, and 8 not reached |
+| `spark_builtins_sql.py` | test_spark_builtins_sql, test_spark_builtins_sql_edges, test_spark_session_functions (+ test_spark_builtins_sql_mutation) | 150 of 591 | 113 / 37 | **75.3%** | 140 / 10 | **93.3%** | 8, and 2 not reached |
+
+How the survivors were killed:
+- `spark_compat.py`: 18 of the 62 by the existing files and 35 by the new tests.
+- `spark_local.py`: 29 of the 64 by the existing files and 23 by the new tests.
+- `spark_builtins_sql.py`: the existing `test_spark_hash`, `test_spark_hash_refused`, `test_spark_higher_order`, `test_spark_format_string`, `test_spark_views_text`, `test_spark_sql_names` and `test_spark_timestamp_casts` killed none of the 10 left after the new tests.
+
+All three new test files pass on DuckDB 1.5.6 and 2.0.0.
+
+### What the survivors were, and the tests that now kill them
+
+- **spark_compat.py**:
+  - `bool_or` and `some`, `bin` in 64-bit two's complement, and `split` with a limit, for a pattern and for characters.
+  - `format_string` and `printf`, including a NULL as `null` and a column refused as a format.
+  - Seeded `rand`, which repeats for a seed and stays in [0, 1).
+  - `first` and `last` with and without `ignorenulls`.
+  - `log` with and without a base.
+  - The functions that read a number argument as text (`upper(14)` is `'14'`), each one.
+  - The `percentile_approx` note, printed only for an accuracy it ignores.
+  - `grouping()` refused under a plain `groupBy`.
+  - `F.expr` names.
+  - `Window.rangeBetween` called on the class, and Window's bounds as PySpark's.
+  - `Column.substr` with ints, with Columns, and refused when mixed.
+  - The bitwise methods and their names.
+  - `between` with infinite and NaN bounds.
+  - `getField`, and the names of a struct field and a map key.
+  - A map, a struct and an interval in `show()`.
+  - A grouped `avg` and `mean`, and dict `agg` counting a column or rows.
+  - Rows for structs inside an array.
+  - The function list.
+  - `install()` run twice.
+  - A summary percentile, `drop()` given a number, and `select("`a.b`.*")`.
+  - → `test_spark_compat_mutation.py`.
+- **spark_local.py**:
+  - createDataFrame of single values, of an Arrow table, and refused where a typed value is a row.
+  - `_nan` only for a float NaN.
+  - A CSV `sep` that DuckDB's sniffer wouldn't pick.
+  - `mode("ignore")` writing a new file and keeping an old one.
+  - The query progress hint between 0 and 100, with no session and with a closed connection.
+  - The cell connection watch.
+  - DuckDB's JSON profile in its 1.x and 2.0 shapes, and a real profile.
+  - A Parquet or JSON read schema matched by name.
+  - A FAILFAST message naming a column that has a quote in its name.
+  - DDL `decimal` defaults, and a COMMENT with an escaped quote and a comma.
+  - A three-part `USE` refused.
+  - A refused write option's text.
+  - → `test_spark_local_mutation.py`. It sets LOCALAPPDATA to a temp folder, and the progress and connection tests swap module state only through monkeypatch.
+- **spark_builtins_sql.py**:
+  - `split` with a limit: Spark's empty-pattern rule (`split('abc', '', 1)` is `['a']`), and a limit from the data refused.
+  - `replace` with no replacement.
+  - `format_string`:
+    - Two's complement by type size for `%x` and `%o`.
+    - Explicit argument indexes, and too few arguments.
+    - Each refusal message.
+    - A format taken from the data.
+  - `typeof(signum(...))`.
+  - `stack` of one value and of no rows.
+  - `try_to_binary` for each format and for a column.
+  - `hash()` and `xxhash64()` of nothing, and `hash(-2147483648)` as Spark's int.
+  - `extract` from text.
+  - `to_char` with a number as its format.
+  - `to_csv`, `map_zip_with` and `extract` calls that Spark refuses still stopping.
+  - → `test_spark_builtins_sql_mutation.py`.
+
+### Equivalent mutants (left on purpose)
+
+| Module | Line | Mutant | Why it changes nothing |
+| --- | --- | --- | --- |
+| `spark_compat.py` | 1395 | `return False` → `None` | Its callers read it only as true or false. |
+| `spark_compat.py` | 1821 | `GroupedData.avg` returns nothing | `install()` replaces `avg` and `mean` with `_numeric_aggregate` before any call. |
+| `spark_compat.py` | 2059 | `and` → `or` for a map in `show()` | A struct value reaches `_pretty` as a tuple or Row, never a dict. |
+| `spark_compat.py` | 1092 | a function with no signature returned as None | Every F function has a signature. |
+| `spark_compat.py` | 2010 | Float digits searched from 1 place, not 0 | 1 place already gives the shortest text that reads back. |
+| `spark_compat.py` | 1313 | an unclosed backtick checked as `end < 1` | `find` starts after the backtick, so `end` is never 0. |
+| `spark_compat.py` | 1486 | `strict=True` → `False` in `zip` | The lengths are checked just above, or one list is built to match the other. |
+| `spark_local.py` | 356 | MERGE source names counted from 0 | Only the names change, and they stay unique. |
+| `spark_local.py` | 1185 | the "Only UPDATE and DELETE" raise removed | An Update or Delete tree always parses to a change, so it can't be reached. |
+| `spark_local.py` | 1265 | `changed` starts True | It projects the same columns unchanged. |
+| `spark_local.py` | 1317 | `strict=True` → `False` in `zip` | The rows and the values made from them have the same length. |
+| `spark_builtins_sql.py` | 1024 | `_uncast` negated | sqlglot writes a column and its identifier the same, and a recast timestamp is the same timestamp. |
+| `spark_builtins_sql.py` | 684 | `csc` template arity 1 → 0 | sqlglot writes `csc` for DuckDB by itself, giving the same value. |
+| `spark_builtins_sql.py` | 716, 717, 562 | the safe flag of `to_timestamp_ntz` and `try_to_timestamp` | With ANSI off, the only Spark mode here, sqlglot writes text that isn't a timestamp as NULL either way. |
+| `spark_builtins_sql.py` | 537 | `timestamp_micros` through the decimal path | Multiplying by 1 gives the same microseconds. |
+| `spark_builtins_sql.py` | 405 | `map_zip_with` passes the lambda as a third argument | The template has no `fj_arg2`, so it is never used. |
+| `spark_builtins_sql.py` | 641 | `window()` with no arguments skips the NULL filter | Such a call is an error either way. |
+
+Left without a test:
+- **Not reached without an attached lakehouse**:
+  - `spark_local.py` lines 375, 565, 977, 1099, 1124 and 1493 (×2): the MERGE preview, the partition columns in `listColumns`, rebinding tables after a new attach, `CREATE TABLE` properties, `INSERT INTO` a missing table, and `DeltaTable.forPath`.
+  - Their tests need a OneLake fake that these runs didn't load.
+- **Not reached by any test**:
+  - `spark_builtins_sql.py` line 1160: the hash refusal after another rewrite writes `hash` out as text.
+  - `spark_builtins_sql.py` line 621: `window()` columns without a GROUP BY.
+- **Left**:
+  - `spark_compat.py` line 2292: `install()`'s once-only flag. Running it twice gave the same results in the test.
+  - `spark_compat.py` line 1571: the summary percentile divided by 101. No small data set picked a different value.
+  - `spark_local.py` line 1242: a schema list with a name that isn't text, which PySpark refuses anyway.
+
+### Real bugs found
+
+- #2554: `extract(field FROM s)` and `date_part('field', s)` on a plain text column fail with a DuckDB binder error. Spark reads the text as a timestamp. A text literal and `CAST(s AS STRING)` work.
+- #2555: on DuckDB 1.5.6, `F.lit(float('nan'))` and Column comparisons with a NaN float become NULL. Spark's answer is NaN, true or false. DuckDB 2.0 is right.
+- #2557: `spark.read.csv` without `sep` lets DuckDB guess the delimiter, where Spark always uses a comma.
+
+None of them is security-relevant.
+
+### Not in this batch
+
+- The other `spark_*` modules: `spark_sql.py`, `spark_infer.py`, `spark_struct_fields.py`, `spark_df_extras.py` and `spark_api.py`.
+- The academy PySpark lab test (`test_academy_pyspark_lab.py`), which is in the academy area and was left out.
+
+# Mutation testing, batch 9
+
+The notebook's file formats and files, and the SQL formatter, which no open pull request is changing:
+- Notebook import and export in the Fabric, Databricks and Jupyter formats (`notebook_formats.py`).
+- The notebook's Parameters bar and widgets (`notebook_inputs.py`).
+- Notebook search, opening a file, Recently deleted and restore, and what was published (`notebook_files.py`).
+- `runMultiple`'s DAG on this PC (`notebook_dag.py`).
+- Format SQL (`sql_format.py`).
+
+The run was at `main` 3dca3ce5b (2026-11-12), with `sidecar/tools/mutate.py` and the same method as the earlier batches (sample cap 150, seed 7), on DuckDB 1.5.6 and sqlglot 30.23. `notebook_formats.py` and `notebook_files.py` have more points than the cap, so 150 of each were sampled; the other three were run whole. `notebook.py` was in batch 7 and `sql_dialects.py` in batch 3, so they aren't here again.
+
+Before each run, its test files were run unchanged in a copy of `sidecar/` alone, as the mutator runs them, to make sure every one passes there. Six tests read files outside `sidecar/` (the docs or `examples/`), so they were deselected: `test_snowflake_sql::test_the_docs_table_is_the_codes`, `test_side_by_side::test_examples_in_the_repository_are_the_generated_notebooks`, `test_notebook_parity::test_spark_reads_files_and_groups_like_pyspark` and three in `test_tsql_loud_gaps` that read the docs' refused list. With them in, every mutant would be "killed" by a missing file.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Equivalent left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `notebook_formats.py` | test_notebook_formats, test_notebook_formats_edges, test_notebook_formats_roundtrip, test_notebook_formats_service_edges, test_deep_nesting, test_chart_libraries, test_snowflake_sql, test_ipynb_round_trip (+ test_notebook_formats_mutation) | 150 of 443 | 128 / 22 | **85.3%** | 145 / 5 | **96.7%** | 5 |
+| `notebook_inputs.py` | test_notebook_inputs, test_notebook_inputs_edges, test_notebook_publish, test_prove, test_side_by_side; then also test_integrations_executions, test_side_by_side_edges, test_dbutils, test_dbutils_parity (+ test_notebook_inputs_mutation) | 117 of 117 | 108 / 9 | **92.3%** | 117 / 0 | **100%** | 0 |
+| `notebook_files.py` | test_notebook_files, test_notebook_files_edges, test_notebook_files_service_edges, test_cloud_service_more_edges, test_deep_nesting, test_notebook_folders, test_notebook_mutation; then also test_notebook_batch_edges, test_notebook_formats, test_notebook_formats_service_edges, test_notebook_resources, test_kernel_sessions (+ test_notebook_files_mutation) | 150 of 225 | 112 / 38 | **74.7%** | 145 / 5 | **96.7%** | 5 |
+| `notebook_dag.py` | test_notebook_run, test_notebookutils_local_mutation, test_notebookutils_parity, test_dbutils, test_dbutils_parity, test_notebook_parity, test_compute_check_ast, test_wizard (+ test_notebook_dag_mutation) | 88 of 88 | 71 / 17 | **80.7%** | 87 / 1 | **98.9%** | 1 |
+| `sql_format.py` | test_sql_format_edges, test_sql_editor, test_snowflake_sql_variadic, test_tsql_contract, test_tsql_loud_gaps, test_code_format (+ test_sql_format_mutation) | 134 of 134 | 116 / 18 | **86.6%** | 132 / 2 | **98.5%** | 2 |
+
+The "after" numbers re-run each survivor with `--only` and the new tests in. The existing test files added after the first run ("then also") killed 1 of the 24 survivors they were tried on alone (the resources folder a delete reports); the new tests killed the rest. Timeouts count as killed: a few `sql_format.py` mutants make the comment scanner loop forever, such as on a block comment that is never closed. All five new test files also pass on DuckDB 2.0.
+
+### What the survivors were, and the tests that now kill them
+
+- **notebook_formats.py**:
+  - The 32 MB limit on a source file, and the .dbc limits: 16 MB for one entry, 128 MB in all (one byte over is refused), both checked from the archive's headers before anything is unpacked, and an entry exactly at the limit still read whole.
+  - The unsafe-path message, which names the first 120 characters.
+  - A Fabric .py export: a `# DBTITLE` line in Python code written as it is, and a Fabric cell marker in Python code escaped so it reads back as one cell.
+  - A Fabric METADATA block giving its language to its own cell, including after a markdown cell.
+  - The options note on a cell magic line, whole-notebook notes sorted before cell notes, a table's plain text (header and blank nulls), an empty markdown chunk in a percent script, .dbc commands without a position coming first, and a .dbc notebook named by its document or else its file.
+  - → `test_notebook_formats_mutation.py`.
+- **notebook_inputs.py**:
+  - An annotated assignment (`days: int = 7`) as a parameter.
+  - A widget left out when its default, its choices or its name isn't a literal.
+  - Which widgets are checked against their choices: dropdown and multiselect only, a multiselect split on commas, a dropdown choice with a comma kept whole, and a value left at its default not checked.
+  - → `test_notebook_inputs_mutation.py`.
+- **notebook_files.py**:
+  - Search: an empty search, at most 20 hits per notebook and 100 notebooks, and the 160-character snippet around a match at the start, middle and end of a long line.
+  - A free name past "<name> 2", and its 80-character cut.
+  - The 20 MB limit on a file to open, and the summary of an opened notebook (counts, language, which cells use Spark, singular and plural).
+  - Keeping what was published in a folder made for it, twice; Fabric's cells with ids compared as a reorder.
+  - Recently deleted: only entries older than 30 days purged, an expired entry whose file is gone, newest first, whether a resources folder was kept, a restore that brings back two levels of removed folders, and a restore that finds the name taken after all keeping both the notebook there and the deleted copy.
+  - → `test_notebook_files_mutation.py`.
+- **notebook_dag.py**:
+  - The activities a list or a DAG gives when retries, intervals and cell timeouts are left out, and a non-dict activity.
+  - The concurrency note only above one.
+  - With a fake clock: each run given the DAG's time left (or no limit without one), an activity or a retry skipped once the time is out and still run with a second left, and the retry interval waited between attempts but not after the last or after a success.
+  - → `test_notebook_dag_mutation.py`.
+- **sql_format.py**:
+  - Finding the `--` comments: after a string or name holding dashes, after doubled quotes, after a block comment (empty, holding dashes or a quote), a comment with no newline or space, nested array indexes, and a string or block comment that is never closed.
+  - The row-limit check that stops LIMIT turning into TOP, the empty text for no difference, and a lost comment named by its first 40 characters.
+  - → `test_sql_format_mutation.py`.
+
+### Equivalent mutants (left on purpose)
+
+| Module | Line | Mutant | Why it changes nothing |
+| --- | --- | --- | --- |
+| `notebook_formats.py` | 214 | the options start 2 → 3 characters after the magic name | The character after the name is always a space or the line's end, which `strip()` removes either way. |
+| `notebook_formats.py` | 443 | `lines[1:]` → `lines[0:]` | The header line comes before any marker, so it is never added to a block. |
+| `notebook_formats.py` | 480, 495 | `n` default 0 → 1 | Every caller passes `n`. |
+| `notebook_formats.py` | 547 | `m.group(1)` → `m.group(0)` | The heading is only searched for `[markdown]` and `parameters`, which `# %%` doesn't change. |
+| `notebook_files.py` | 133, 353, 413, 414 | `unlink(missing_ok=True)` → `False` | Each file was written or read just before. |
+| `notebook_files.py` | 333 | the purged entry's `unlink(missing_ok=True)` → `False` | Its JSON file was read just before. |
+| `notebook_dag.py` | 72 | `concurrency or 0` → `or 1` | 0 and 1 are both "not above one". |
+| `sql_format.py` | 156 | the doubled-quote loop turned off (`end == -1`, `end == -0`) | A doubled quote read as a closing quote and an opening one ends the same string. |
+
+### Real bugs found
+
+None in this batch.
+
+### Not in this batch
+
+- `sql.py` and `notebook_practices.py`, which open pull requests change.
+- `notebook_folders.py` and the notebook `*_service.py` wrappers, for a later batch (`notebook_versions.py` and `notebook_resources.py` were in batch 4).
+
+# Mutation testing, batch 10
+
+The rest of the local PySpark layer that batch 8 left, where no open pull request is changing the module:
+- createDataFrame's schema inference (`spark_infer.py`).
+- `Column.withField` and `dropFields` (`spark_struct_fields.py`).
+- Storage levels, `sameSemantics` / `semanticHash` and `Observation` (`spark_df_extras.py`).
+- The session and DataFrame calls this PC adds, and the coverage table behind `docs/notebook-spark-on-this-pc.md` (`spark_api.py`).
+
+`spark_sql_names.py` was left out because an open pull request changes it.
+
+The run was at `main` 523163854 (2026-11-12), with `sidecar/tools/mutate.py` and the same method as batches 1 to 9 (sample cap 150, seed 7), on DuckDB 1.5.6. `spark_infer.py` and `spark_api.py` have more points than the cap, so 150 of each were run; the other two were run whole. Before each run, its tests were run in a copy of `sidecar/` on its own, the way the mutator runs them, so that a test which can't run there doesn't count every mutant as killed.
+
+Tests left out of every run, because they read pages under `docs/`, which the mutator's copy of `sidecar/` doesn't have:
+- `test_spark_api.py::test_the_coverage_page_matches_the_api`.
+- `test_spark_api_coverage.py`: `test_what_the_docs_say_runs_still_runs`, `test_the_docs_page_is_up_to_date` and `test_the_docs_link_the_list`.
+- `test_spark_coverage.py`: the same three tests.
+
+Without them, nothing checked the coverage table itself. `test_spark_api_mutation.py` now checks it without reading `docs/`.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `spark_infer.py` | test_spark_infer_edges, test_spark_infer_schema (+ test_spark_infer_mutation) | 150 of 217 | 123 / 27 | **82.0%** | 147 / 3 | **98.0%** | 3 equivalent |
+| `spark_struct_fields.py` | test_spark_struct_fields, test_spark_struct_fields_edges (+ test_spark_struct_fields_mutation) | 129 of 129 | 111 / 18 | **86.0%** | 118 / 11 | **91.5%** | 10 equivalent, 1 killed on DuckDB 2.0 only |
+| `spark_df_extras.py` | test_spark_df_extras, test_spark_df_extras_edges (+ test_spark_df_extras_mutation) | 122 of 122 | 118 / 4 | **96.7%** | 120 / 2 | **98.4%** | 1 equivalent, 1 left |
+| `spark_api.py` | test_spark_api, test_spark_api_coverage, test_spark_api_parity, test_spark_coverage, test_spark_local (+ existing test_spark_stat_methods, test_spark_views_text, test_spark_writer, test_spark_refusals; + test_spark_api_mutation) | 150 of 258 | 56 / 94 | **37.3%** | 143 / 7 | **95.3%** | 6 equivalent, 1 dead code |
+
+How the survivors were killed:
+- `spark_api.py`: 57 of the 94 by existing files that the first set left out (`test_spark_stat_methods` for crosstab, colRegex, toJSON and sampleBy, and `test_spark_views_text` for temp views), and 30 by the new tests.
+- The other three modules: all by the new tests.
+
+All four new test files pass on DuckDB 1.5.6 and 2.0.0.
+
+### What the survivors were, and the tests that now kill them
+
+- **spark_infer.py**:
+  - Every inferred field, array element and map value marked nullable, also after two structs merge.
+  - bigint's edges: `2**63 - 1` and `-2**63` infer as long; one past either goes to DuckDB's own inference, also after an earlier row of the same shape.
+  - A `datetime` going to DuckDB's own inference rather than to `date`.
+  - Rows skipped as "the same shape" only when they infer the same: lists or maps of different element types, and a map whose values have no cheap shape.
+  - A map with only NULL values refused as `CANNOT_DETERMINE_TYPE`.
+  - Spark's decimal(38,18) applied inside arrays and maps (NaN as NULL, 18 places), and flat tuple rows passed on as they are.
+  - The `LENGTH_SHOULD_BE_THE_SAME` error naming the right rows.
+  - → `test_spark_infer_mutation.py`.
+- **spark_struct_fields.py**:
+  - `withField` names and values for a dotted path (`col("s.c")`), a field name with a double quote, a NULL value, an aliased struct, a nested edit, two edits in a row, an edit whose value is itself an edit, and `withColumn`.
+  - → `test_spark_struct_fields_mutation.py`.
+- **spark_df_extras.py**:
+  - `semanticHash` a signed 32-bit int for plans on both sides of 2**31.
+  - `install()` run twice keeping one `cache` wrapper.
+  - → `test_spark_df_extras_mutation.py`.
+- **spark_api.py**:
+  - The coverage table: the state and reason of methods in each state, the counts in each heading, and each label.
+  - `_not_implemented` for a short stub that raises DuckDB's ContributionsAcceptedError, and not for a long body, a body that only names the error, a builtin, or nothing.
+  - `sparkContext.defaultParallelism` (the PC's cores, or 1) and `startTime` in milliseconds.
+  - `tableExists(name, "global_temp")` in any case, and not under another database.
+  - The refusals: crosstab past 10000 column values, a colRegex Python can't read, `toJSON().first()` on no rows, and sampleBy fractions that aren't a dict.
+  - toJSON's NaN and infinities, and a timestamp with a zone written in UTC.
+  - → `test_spark_api_mutation.py`.
+
+### Equivalent mutants (left on purpose)
+
+| Module | Line | Mutant | Why it changes nothing |
+| --- | --- | --- | --- |
+| `spark_infer.py` | 173 | `_fit`'s last `return value` dropped | `_has_struct` is true only for the four types handled above it, so it can't be reached. |
+| `spark_infer.py` | 141 | `_SCALE` from `Decimal(0)` | `quantize` uses only the exponent, which is the same. |
+| `spark_infer.py` | 258 | `strict=True` → `False` in `arrow_table` | Rows of different lengths still fail the second, strict `zip` with the schema's fields. `infer` checks lengths first anyway. |
+| `spark_struct_fields.py` | 31, 36, 42, 48, 53 | `frozen=True` → `False` on the spec dataclasses | Nothing changes or hashes a spec after it is made. |
+| `spark_struct_fields.py` | 107 | `and` → `or` before the dotted-path rewrite | In every case tried (`col("s.c")`, `df.s`, `col("s")["c"]`, an alias), the name came out the same either way. |
+| `spark_struct_fields.py` | 174 (×2) | `is_struct`'s `False` → `True` or `None` | Only reached when the frame can't read the column; the select then fails with DuckDB's same binder error. |
+| `spark_struct_fields.py` | 194 | `self.sql(inner)` dropped | `_spec` returns the edit itself whenever a column has one, so a `_Col` never holds one. |
+| `spark_struct_fields.py` | 198 | `or` → `and` before casting a constant | It casts a constant to the type it already has. |
+| `spark_df_extras.py` | 112 | `unpersist(blocking=True)` default | `blocking` is never read: there is nothing to wait for. |
+| `spark_api.py` | 264 | `toLocalIterator(prefetchPartitions=True)` default | It is never read. |
+| `spark_api.py` | 302 (×2) | the unseeded `randomSplit` salt from a different clock reading | Any salt is a valid random split. |
+| `spark_api.py` | 306 (×2) | the last part's upper bound computed instead of 1.0 | A row's point is at most 0.999999, and the weights' sum is 1.0 within float error, so no row is lost. |
+| `spark_api.py` | 324 | crosstab reads one more value than 10001 | One past the limit is already enough to refuse. |
+
+Left without a test:
+- `spark_struct_fields.py` line 108, `m.group(1)` → `m.group(0)`: only DuckDB 2.0 prints `col("s.c")` as `"s"."c"`, which reaches that line. `test_spark_struct_fields_mutation.py` kills it there (checked by hand), but the mutation runs use DuckDB 1.5.6.
+- `spark_df_extras.py` line 187, `Observation.get` with `asDict(recursive=True)`: it changes only a struct metric, from a Row to a dict. No Spark 3.5.3 output for that was at hand to test against.
+- `spark_api.py` line 194, `_duckdb_expr`: nothing in the engine calls it, so dropping its result changes nothing. It can be removed in a separate change.
+
+### Real bugs found
+
+None.
+
+### Not in this batch
+
+- `spark_sql_names.py`, which an open pull request changes.

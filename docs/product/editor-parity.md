@@ -4,7 +4,7 @@ Chris asked on 2026-11-13 for the notebook and SQL editor to have the same funct
 notebooks and SQL editors: a feature parity matrix against the top ten, a roadmap, and an execution
 plan ordered by capability and usefulness, reaching 95% as soon as possible and the last 5% soon after.
 
-This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and rows move as their PRs merge (last update at main `68552d394`).
+This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and rows move as their PRs merge (last update at main `4d7f4b6bd`).
 
 ## How to read it
 
@@ -32,13 +32,13 @@ This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and r
 
 | Group | Counted rows | Have | Partial | Gap | Score |
 | --- | --- | --- | --- | --- | --- |
-| Notebook | 54 | 42 | 3 | 9 | 81% |
-| SQL editor | 45 | 23 | 7 | 15 | 59% |
-| **Both** | **99** | **65** | **10** | **24** | **71%** |
+| Notebook | 54 | 46 | 1 | 7 | 86% |
+| SQL editor | 45 | 28 | 5 | 12 | 68% |
+| **Both** | **99** | **74** | **6** | **19** | **78%** |
 
-The notebook is close: its gaps are Markdown rendering (math, tables, images), code navigation and a
-few comfort features. The SQL editor's editing is strong (dialects, schema-aware suggestions, Format
-SQL and a compatibility check that none of the others have), but its **results grid** is a plain table
+The notebook is close: its gaps are code navigation (go to definition, rename), editor settings and a
+few comfort features. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
+signature help, Format SQL and a compatibility check that none of the others have), but its **results grid** is a plain table
 (no sort, filter, column resize or value viewer) and it runs **one statement at a time**. Those two
 areas are most of the gap and most of what developers notice in the first hour.
 
@@ -67,9 +67,9 @@ Products: JL = JupyterLab, VSC = VS Code, Fab = Fabric, Dbx = Databricks.
 | N17 | Editor display settings: word wrap, font size | Y | Y | P | Y | P | Partial | font fixed at 13px (`notebook.js:741`), no wrap toggle |
 | N18 | Vim key bindings | Y | Y | N | N | N | Gap | |
 | N19 | Rebind keyboard shortcuts | Y | Y | N | N | N | Gap | `shortcuts.js` lists keys, can't change them |
-| N20 | Markdown: numbered and nested lists, tables, code blocks, quotes, H4 to H6, clickable links | Y | Y | Y | Y | Y | Partial | `markdown()` in `app.js:2900` renders H1 to H3, bullet lists, paragraphs, bold, italic and code; links aren't clickable |
-| N21 | LaTeX math in Markdown | Y | Y | Y | Y | Y | Gap | |
-| N22 | Images in Markdown, including pasted attachments | Y | Y | Y | Y | Y | Gap | |
+| N20 | Markdown: numbered and nested lists, tables, code blocks, quotes, H4 to H6, clickable links | Y | Y | Y | Y | Y | Have | markdown-it: CommonMark, GitHub tables, nested lists, code, quotes, links opened in the browser (#2589) |
+| N21 | LaTeX math in Markdown | Y | Y | Y | Y | Y | Have | KaTeX drawn as MathML, nothing fetched (#2589) |
+| N22 | Images in Markdown, including pasted attachments | Y | Y | Y | Y | Y | Have | pasted attachments and inline data images; remote images are not fetched (#2589) |
 | N23 | Rich-text Markdown editing (toolbar, live preview) | N | P | Y | N | Y | Gap | raw source, rendered on leaving the cell |
 | N24 | Run cell, all, above, below; restart and run all; interrupt | Y | Y | Y | Y | Y | Have | `notebook.js`, `nbnext.js` |
 | N25 | Run the selected text or current line | P | Y | Y | Y | N | Have | `nbselect.js` |
@@ -107,7 +107,7 @@ Products: JL = JupyterLab, VSC = VS Code, Fab = Fabric, Dbx = Databricks.
 | N57 | Real-time co-editing | P | P | Y | Y | Y | Not counted | can't run on one PC; teams share through Git |
 | N58 | Item sharing and permissions | N | N | Y | Y | Y | Not counted | set in Fabric after Publish |
 | N59 | In-editor AI assistant | P | Y | Y | Y | Y | Not counted | AI-ready by policy: AI tools use the local API |
-| N60 | Dark mode and themes | Y | Y | Y | Y | Y | Partial | skins change the look; Settings > Appearance > Color mode (Preview, opt-in, light stays the default) is built in #2585 and counts when it merges |
+| N60 | Dark mode and themes | Y | Y | Y | Y | Y | Have | Settings > Appearance > Color mode, Preview and opt-in, light stays the default; IT can set it (#2585) |
 
 ## SQL editor matrix
 
@@ -121,11 +121,11 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S04 | Format SQL | N | Y | Y | Y | Y | Have | `sql_format` |
 | S05 | Find and replace, multi-cursor, folding, comment toggle | Y | Y | Y | Y | Y | Have | `sqleditor.js` |
 | S06 | Live error and compatibility underlines | P | Y | Y | Y | P | Have | `sqlcompat`, ahead of the others |
-| S07 | Hover a table, column or function for its details | P | Y | Y | Y | Y | Gap | no hover in `sqleditor.js` |
-| S08 | Go to (peek) definition of a table, view or procedure | Y | Y | Y | Y | N | Gap | |
+| S07 | Hover a table, column or function for its details | P | Y | Y | Y | Y | Have | hover cards for tables, columns and functions in Spark SQL, T-SQL and DuckDB (#2598) |
+| S08 | Go to (peek) definition of a table, view or procedure | Y | Y | Y | Y | N | Partial | F12 opens the table or warehouse object in the Explorer (#2610); no peek or scripted definition, no procedures |
 | S09 | Rename an alias everywhere | N | N | Y | N | N | Not counted | one product |
 | S10 | Snippets and templates | Y | Y | Y | Y | P | Have | `sqltemplates.js` |
-| S11 | Signature help for functions | P | Y | Y | P | P | Gap | |
+| S11 | Signature help for functions | P | Y | Y | P | P | Have | signature help for functions (#2598) |
 | S12 | Run all or the selection; F5 and Ctrl+Enter | Y | Y | Y | Y | Y | Have | #2406 |
 | S13 | Run the statement under the cursor | N | P | Y | Y | Y | Have | Ctrl+Shift+Enter runs the statement at the cursor (#2582) |
 | S14 | Scripts with several statements and several result sets | Y | Y | Y | Y | Y | Gap | one statement at a time ([Warehouses](../warehouse.md)) |
@@ -153,13 +153,13 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S36 | Query history with search | P | Y | Y | Y | Y | Have | `sqlhistory.js:82` |
 | S37 | Saved and shared queries | Y | Y | Y | Y | Y | Have | `sqlqueries.js` |
 | S38 | Open and save .sql files on disk | Y | Y | Y | Y | P | Gap | queries are kept in the app only |
-| S39 | Estimated plan, drawn | Y | Y | Y | Y | P | Partial | warehouse (`sqlplan.js`); no plan for lakehouse or local queries |
-| S40 | Actual plan or profile after a run | Y | Y | Y | Y | Y | Partial | notebooks have it (`qprofile.js`); the SQL page doesn't |
+| S39 | Estimated plan, drawn | Y | Y | Y | Y | P | Have | warehouse (`sqlplan.js`); lakehouse queries on this PC through DuckDB EXPLAIN, Preview (#2604) |
+| S40 | Actual plan or profile after a run | Y | Y | Y | Y | Y | Have | Profile runs a lakehouse query under EXPLAIN ANALYZE and shows the Query profile, Preview (#2604) |
 | S41 | Running queries; stop someone's | Y | N | P | Y | Y | Have | Preview, `whmonitor.js` |
 | S42 | Connect to other engines (SQL Server, Postgres, Snowflake, Databricks SQL) | P | P | Y | Y | N | Partial | lakehouse, SQL endpoint, warehouse and local project only |
 | S43 | SQL notebooks mixing SQL and Markdown | N | Y | N | N | Y | Have | notebooks with `%%sql` |
 | S44 | SSMS-style keys beyond F5 (Ctrl+R, Ctrl+Shift+U/L) | Y | Y | Y | Y | P | Have | F5, Ctrl+Enter, Shift+Alt+F, Ctrl+R, Ctrl+Shift+U/L (#2583) |
-| S45 | Dark mode | Y | Y | Y | Y | Y | Partial | as N60 |
+| S45 | Dark mode | Y | Y | Y | Y | Y | Have | as N60 (#2585) |
 | S46 | Go to line, bookmarks | Y | Y | Y | Y | N | Partial | Ctrl+G goes to a line (#2583); no bookmarks yet |
 | S47 | In-editor AI assistant | Y | Y | Y | Y | Y | Not counted | AI-ready by policy |
 
@@ -194,7 +194,7 @@ existing control does go straight to a draft PR.
 | 17 | **Find inside outputs** in notebook Find | N47 | 2 | 2 | S | 4 | No |
 | 18 | **Notebook as a read-only report**: outputs only, from the HTML export, opened in its own window | N48 | 2 | 3 | M | 3 | Yes |
 | 19 | **Scratch console** beside a notebook, in the same session | N40 | 2 | 2 | M | 2 | Yes |
-| — | **Dark mode applied** to the shell, notebooks and the SQL editor (CodeMirror themes from the same tokens). Chris approved the color mode mockup on 2026-11-13; the Platform skins work builds it in #2585, opt-in and Preview, with light the default | N60, S45 | 4 | 5 | M | 10 | Done: approved |
+| — | **Dark mode applied** to the shell, notebooks and the SQL editor (CodeMirror themes from the same tokens). Chris approved the color mode mockup on 2026-11-13; the Platform skins work built it in #2585 (merged), opt-in and Preview, with light the default | N60, S45 | 4 | 5 | M | 10 | Done |
 
 Wave 1 closes 24 Gap rows and 11 Partial rows. Afterwards: 94.5 of 99 rows, **95%**. Item 3 shipped go to line without bookmarks, so S46 stays Partial (94 of 99 until bookmarks land; they join wave 2).
 
@@ -246,7 +246,7 @@ each its own PR and Preview until used for real:
 | F7 | `notebookutils` writes: `lakehouse.loadTable`, `create`, `update`; `notebook.create`, `update`, `updateDefinition` | No |
 | F8 | Rich-text Markdown editing (N23), after the Markdown renderer | Yes |
 | F9 | Editor display settings (N17, Wave 1 item 16) | Yes |
-| F10 | Dark mode applied (N60): mockup approved 2026-11-13, built in #2585 | Done |
+| F10 | Dark mode applied (N60): mockup approved 2026-11-13, merged in #2585 | Done |
 
 What can't run on a PC stays a one-click hand-off to Fabric rather than a silent failure: real Spark
 executors and Scala, R and .NET cells, `rdd` and pandas-on-Spark, continuous streaming and watermarks,

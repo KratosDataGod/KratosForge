@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "af7d786bfe11fb22b0e0e06237bc19f6d323c960",
-    "date": "2026-11-13",
+    "commit": "2dc0bc43e7877308a0ca2408dd7d8ec31453083d",
+    "date": "2026-11-14",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -60,7 +60,8 @@
       "Product check 2026-11-12 23:42 at 36844275c10e87af9085f113a2f7a90e4290fb41: 16 PRs merged after 7c3dbd0e; 1 were product data or docs audit PRs and the other 15 were linked by title; other rows were not re-read.",
       "Product check 2026-11-13 11:42 at 6cab0dc397f9c6b358ad0fc0b8fbddd370219260: 8 PRs merged after 36844275; 2 were product data or docs audit PRs and the other 6 were linked by title; other rows were not re-read.",
       "Acceptance of PB-073 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-13 12:39 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp3ZUBsK6r4QNz6DBouE86Ey). PB-136 stays Proposed, waiting on a Windows trial and the product owner's go.",
-      "Product check 2026-11-13 23:42 at af7d786bfe11fb22b0e0e06237bc19f6d323c960: 38 PRs merged after 6cab0dc3; 3 were product data or docs audit PRs and the other 35 were linked by title; other rows were not re-read."
+      "Product check 2026-11-13 23:42 at af7d786bfe11fb22b0e0e06237bc19f6d323c960: 38 PRs merged after 6cab0dc3; 3 were product data or docs audit PRs and the other 35 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-14 11:42 at 2dc0bc43e7877308a0ca2408dd7d8ec31453083d: 9 PRs merged after af7d786b; 1 were product data or docs audit PRs and the other 8 were linked by title; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -453,7 +454,8 @@
         2411,
         2503,
         2600,
-        2602
+        2602,
+        2603
       ]
     },
     {
@@ -2617,6 +2619,7 @@
         2561,
         2581,
         2584,
+        2588,
         2589,
         2594,
         2597,
@@ -3173,7 +3176,10 @@
         2583,
         2587,
         2596,
-        2598
+        2598,
+        2604,
+        2610,
+        2616
       ],
       "workstream": "SQL development sprint",
       "next_action": "SQL editor rows are tracked by the warehouse program now (WH-08 Messages and Chart merged).",
@@ -8850,7 +8856,8 @@
         2513,
         2529,
         2541,
-        2566
+        2566,
+        2612
       ],
       "backlog": [
         "PB-119",

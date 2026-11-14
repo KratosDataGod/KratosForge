@@ -47,7 +47,7 @@ New threads are started by the coordinator, one branch per thread. **Bundle** me
 | 3 | SQL hover and signature help; plan and profile for local queries | Parity items 6 and 11 | *SQL editor parity* | 0 to A | Nothing more |
 | 4 | Go to definition and rename across cells; find inside outputs; export as PDF | Parity items 12, 17 and 10 | *Notebook parity* | 0 to A | Nothing more |
 | 5 | Transactions on a warehouse as one guarded script | Parity item 13, after row 10 | *Warehouse* | B | Security read; Workload sign-off if workloads change |
-| 6 | Finish PySpark parity: the 15 missing DataFrame methods (#2360) | One PR per 5 methods | *Spark local* | A | Bundled go |
+| 6 | Finish PySpark parity (#2360): the gap was 5 methods, not 15, and #2626 (open) builds all 5 | In #2626 (open) | *Notebook parity* | 0 | Its own review; out of the bundled go |
 | 7 | Finish the notebook debugger: breakpoints and step-through (#2362) | One PR | New: *Debugger* | A | Bundled go; mockup only if a panel changes |
 | 8 | Modern Delta profile: V-Order, deletion vectors, column mapping (#2361) | Read first, then write | New: *Delta profile* | A to B | Bundled go; data-integrity tests on every write |
 | 9 | Result grid: sort, filter, resize, value viewer, copy as, statistics | Parity item 8 | *SQL editor parity* | B | Mockup |
@@ -120,13 +120,13 @@ Everything that needs Chris goes on the twice-daily card roundup (09:00 and 22:0
 New features need Chris's **typed** go; a card tap only counts for merges and decisions. This plan asks for that go **once**, for the whole list below, with a one-paragraph scope each in its issue.
 
 - **Already approved on 2026-11-13, so not on this list:** editor parity wave 1, the Best Practice Analyzer (row 18) and TMDL to and from Ossie (row 19).
-- **The list:** #2360, #2362, #2361, #2363, #2359, #2358. Each ships under Preview and passes every gate above.
+- **The list:** #2362, #2361, #2363, #2359, #2358, each with a scope comment on its issue. #2360 is no longer on it, because #2626 covers it. Each ships under Preview and passes every gate above.
 - **Reply wanted:** a single typed reply such as "go on the week plan list", or the list minus any item he wants to leave out.
 - **When:** Monday 17:00 roundup.
 
 ### The other three asks
 
-1. **One clickable mockup** for every screen this week: parity items 4, 7, 8, 9, 14, 15, 16, 18 and 19, plus the lineage impact view and the observability screen. Asked for by Tuesday 09:00, answered at one roundup.
+1. **One clickable mockup** ([published 2026-11-14](https://claude.ai/artifact/GdNX5vjTJyWYjNsqF2Yy48)) for every screen this week: parity items 4, 7, 8, 9, 14, 15, 16, 18 and 19, plus the lineage impact view and the observability screen. Asked for by Tuesday 09:00, answered at one roundup.
 2. **The meter reading**, at Tuesday 22:00 and Wednesday 09:00, as described above.
 3. **The parked drafts**, as one card: which of the 20 drafts waiting on him should move, close or keep waiting.
 

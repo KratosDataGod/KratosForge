@@ -12,7 +12,7 @@ Build and run your Microsoft Fabric data engineering on your own Windows PC: not
 
 - **New, and not yet checked end to end on a live Fabric tenant.** What talks only to your PC is tested on every build; features that talk to Fabric and haven't been tried on a tenant are marked **Preview** in the app. See [What is tested and what isn't](docs/README.md#what-is-tested-and-what-isnt).
 - **The exe isn't code-signed yet,** so Windows SmartScreen warns the first time you start it.
-- **`spark` on your PC is DuckDB's PySpark-style API, not Spark.** Of PySpark's 102 DataFrame methods, 70 work, 9 are accepted and do nothing on one PC (such as `cache` and `repartition`), 8 run only in Fabric and 15 aren't built yet. 14 of SparkSession's 17 work. The same notebook runs on real Spark in Fabric. The full list is in [Spark on this PC](docs/notebook-spark-on-this-pc.md).
+- **`spark` on your PC is DuckDB's PySpark-style API, not Spark.** Of PySpark's 102 DataFrame methods, 80 work, 9 are accepted and do nothing on one PC (such as `cache` and `repartition`), 8 run only in Fabric and 5 aren't built yet. 14 of SparkSession's 17 work. The same notebook runs on real Spark in Fabric. The full list is in [Spark on this PC](docs/notebook-spark-on-this-pc.md).
 - **Capacity savings shown in the app are estimates** (run time × the configured CUs), not measured bills. See [Cost evidence](docs/finops/cost-evidence.md).
 
 ## Quickstart: your first table in OneLake

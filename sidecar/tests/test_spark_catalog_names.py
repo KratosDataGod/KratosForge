@@ -172,6 +172,7 @@ def test_catalog_list_functions_names_spark_builtins(listed):
                        "('upper' in names, 'date_add' in names, len(names) > 300)")
     assert (status, text) == ("ok", "(True, True, True)")
     assert run("[f.name for f in spark.catalog.listFunctions(pattern='upp*')]") == ("ok", "['upper']")
+    assert run("spark.catalog.listFunctions(pattern='upper(')") == ("ok", "[]")  # literal text, not a regex
     status, text = run("spark.udf.register('kf_shout', lambda s: s.upper())\n"
                        "[(f.name, f.className) for f in spark.catalog.listFunctions(pattern='kf_*')]")
     assert (status, text) == ("ok", "[('kf_shout', 'python')]")
@@ -208,3 +209,14 @@ def test_catalog_list_columns_marks_a_lakehouse_tables_partition_columns(lake): 
     write_deltalake(str(lake / "dbo" / "parts"), pa.table({"id": [1], "region": ["EU"]}), partition_by=["region"])
     status, text = run("[(c.name, c.isPartition) for c in spark.catalog.listColumns('dbo.parts')]")
     assert status == "ok" and "('region', True)" in text and "('id', False)" in text
+
+
+def test_catalog_list_tables_offline_or_signed_out_stops_rather_than_listing_less(lake, monkeypatch):  # noqa: F811
+    # A OneLake listing that fails (offline, signed out) must stop the cell, not quietly list only temp views.
+    from fabric_desktop import spark_local
+
+    def down(_directory):
+        raise ConnectionError("OneLake is unreachable")
+    monkeypatch.setattr(spark_local, "_list_dirs", down)
+    status, text = run("df.createOrReplaceTempView('v')\nspark.catalog.listTables()")
+    assert status == "error" and "OneLake is unreachable" in text

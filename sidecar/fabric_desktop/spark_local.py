@@ -618,7 +618,8 @@ def _catalog_calls(session: LocalSparkSession) -> dict[str, Any]:
         """Spark's catalog pattern: * is any text, | separates alternatives, case-insensitive."""
         if not pattern:
             return True
-        return any(re.fullmatch(p.strip().replace(".", r"\.").replace("*", ".*"), name, re.I)
+        # Only * is special; anything else (a "(" or "+") is literal text, so no pattern can fail to compile.
+        return any(re.fullmatch(".*".join(re.escape(part) for part in p.strip().split("*")), name, re.I)
                    for p in str(pattern).split("|"))
 
     def list_tables(dbName: str | None = None, pattern: str | None = None) -> list[Table]:  # noqa: N803

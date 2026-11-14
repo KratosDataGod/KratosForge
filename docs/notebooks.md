@@ -305,7 +305,7 @@ A bundle also lists what it can't promise: cells that hadn't run, ran in a diffe
 ## Editing
 
 - Cells have line numbers, bracket matching, folding, find in the cell (**Ctrl+F**), **Ctrl+/** to comment, and autocomplete (**Ctrl+Space**) from the running kernel's variables, Python names, and the attached lakehouse's table names inside strings and `%%sql` cells. In a `%%sql` cell, typing a table's alias and a dot (`s.`) offers that table's columns, as on the SQL page, without running anything. The app keeps the table and column names it last read for each lakehouse (names only, no data), so completion still works offline or signed out; they go with the other cached copies after `local_retention_days`.
-- Hover a name for its signature and docs, see a call's parameters as you type, and get a red underline on syntax errors. See [IntelliSense in notebook cells](notebook-editor/intellisense.md).
+- Hover a name for its signature and docs, see a call's parameters as you type, get a red underline on syntax errors, and go to a name's definition (F12), list where it's used (Shift+F12) or rename it across the cells (F2). See [IntelliSense in notebook cells](notebook-editor/intellisense.md).
 - **Shift+Alt+F** formats the cell you're editing (Python in Black's style, `%%sql` as Format SQL does), and **Edit > Format notebook** formats every code cell. See [Format code in a notebook](notebook-editor/format-code.md).
 - **Ctrl+H** finds and replaces across every cell. See [Find and replace in a notebook](notebook-editor/find-and-replace.md).
 - Drag a table or file from **Explorer > Data items** into a cell, or right-click it to load it with Polars, Spark, SQL or pandas. See [Drag tables and files into a notebook](notebook-editor/load-data-items.md).
@@ -422,7 +422,7 @@ The SQL query tab works like Fabric's. Open it with **SQL query** on a lakehouse
 | Button | What it does |
 | --- | --- |
 | **Format SQL** | Lays out the selection, or the whole query: one clause per line, nested queries and CTEs indented, keywords in capitals. See [Format SQL](#format-sql). |
-| **Copy** | Copies the rows on the current page, tab-separated, for pasting into Excel |
+| **Copy ▾** | Copies the rows on the current page: **Rows with headers** (tab-separated, for pasting into Excel), **CSV**, **JSON** (one object per row), or **INSERT statements** for the query's table (`results` when it reads more than one), with values quoted for the dialect. Export saves the full result. |
 | **Export ▾** | Saves the full result as CSV, Parquet, Excel or JSON in your Downloads folder, streamed with progress and **Cancel**; never replaces a file. See [Export](sql-execution.md#export) |
 | **Save as table** | Writes the full result to the lakehouse as a Delta table you name. If the table already exists, it asks before replacing it |
 | **Open in notebook** | Turns the query into `lakehouse.sql(...)` in a new notebook (Spark SQL only) |

@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 117 |
+| Runs | 121 |
 | Differs | 5 |
 | Refused | 13 |
-| Fails | 28 |
+| Fails | 24 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -80,7 +80,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `limit` | Runs |  |
 | `localCheckpoint` | Runs |  |
 | `mapInArrow` | Runs |  |
-| `mapInPandas` | Fails | `from pyspark.sql.functions import pandas_udf`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
+| `mapInPandas` | Runs |  |
 | `melt` | Not checked |  |
 | `na` | Runs |  |
 | `observe` | Refused | `spark.streams.addListener(MyErrorListener())`: NotImplementedError: spark.streams.addListener runs in Fabric: stream listeners and the query manager aren't on this PC. A stream started here is managed by the |
@@ -179,9 +179,9 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `agg` | Fails | `from pyspark.sql.functions import pandas_udf, PandasUDFType`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
-| `apply` | Fails | `from pyspark.sql.functions import pandas_udf, PandasUDFType`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
-| `applyInPandas` | Fails | `from pyspark.sql.functions import pandas_udf, ceil`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
+| `agg` | Runs |  |
+| `apply` | Runs |  |
+| `applyInPandas` | Runs |  |
 | `applyInPandasWithState` | Fails | `from pyspark.sql.streaming.state import GroupStateTimeout`: ModuleNotFoundError: No module named 'pyspark.sql.streaming.state'; 'pyspark.sql.streaming' is not a package |
 | `avg` | Runs |  |
 | `cogroup` | Not checked |  |

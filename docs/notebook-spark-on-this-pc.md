@@ -15,6 +15,22 @@ In a notebook on this PC, `spark` is DuckDB's PySpark-compatible API wired to th
 
 `version` and `spark.version` say 3.5.0, the PySpark API this follows. `applicationId`, `defaultParallelism` (this PC's processors), `startTime`, `sparkUser()`, `getConf()`, `setLogLevel`, `setJobDescription`, `setJobGroup` and local properties work; `uiWebUrl` is None because there's no Spark UI. RDDs (`parallelize`, `textFile`, `broadcast`, `accumulator`) run in Fabric.
 
+## Python UDFs
+
+`F.udf` (as a call, `@udf`, `@udf("int")` or `@udf(returnType=IntegerType())`), `F.pandas_udf`
+(a Series for each argument, returning a Series as long; also the `Iterator[pd.Series]` form),
+`spark.udf.register(name, f, returnType)` and `F.call_udf(name, ...)` run on this PC, in the
+notebook's own process. A registered UDF can be called by its name in `spark.sql` and `%%sql`. As in
+Spark, the declared return type (default `string`) is the column's type, a null goes in as `None`, a
+struct goes in as a `Row`, a returned value that doesn't fit the type comes out null, and an exception
+in the function fails the query. The result column is named as in Spark, such as `clean(email)`.
+`asNondeterministic()` makes it run for every row. A grouped-aggregate `pandas_udf` (Series to one
+value), Java UDFs and UDTFs run in Fabric. Registered UDFs are forgotten when the session restarts.
+A name SQL already has as a function (`lower`, `nvl`, `date_add`...) is refused by `spark.udf.register`,
+since SQL here would call that function, not the UDF: register it under another name. Spark 2's
+`PandasUDFType.SCALAR` and `SCALAR_ITER` are taken as the second argument of `pandas_udf`; `GROUPED_MAP`
+points to `applyInPandas`.
+
 ## Python over batches and groups
 
 `mapInPandas(func, schema)` and `mapInArrow(func, schema)` hand `func` the DataFrame's rows as pandas
@@ -269,7 +285,7 @@ query the first time it's read, where Spark computes it during the first action.
 | `writeStream` | Works |
 | `writeTo` | Not yet on this PC |
 
-### SparkSession: 14 of 17
+### SparkSession: 15 of 17
 
 | Method | On this PC |
 | --- | --- |
@@ -287,7 +303,7 @@ query the first time it's read, where Spark computes it during the first action.
 | `stop` | Works |
 | `streams` | Runs in Fabric: streaming runs in Fabric |
 | `table` | Works |
-| `udf` | Runs in Fabric: Python UDFs run in Fabric |
+| `udf` | Works |
 | `udtf` | Runs in Fabric: Python UDTFs run in Fabric |
 | `version` | Works |
 
@@ -296,4 +312,4 @@ query the first time it's read, where Spark computes it during the first action.
 
 **Runs on** knows what this PC's Spark refuses, from the same list the run uses, so a notebook that uses any of it shows as running in Fabric only before you run it ([where a notebook runs](notebooks.md#where-a-notebook-runs)).
 
-RDDs, Python UDFs, pandas-on-Spark, continuous and Kafka or Event Hubs streams ([streaming on this PC](notebooks.md#fabric-notebook-code-on-this-pc) runs as availableNow), Scala and R run in Fabric. A notebook that uses them can still be edited here and run with **Runs on: Fabric** ([where a notebook runs](notebooks.md#where-a-notebook-runs)).
+RDDs, Java UDFs, UDTFs, pandas-on-Spark, continuous and Kafka or Event Hubs streams ([streaming on this PC](notebooks.md#fabric-notebook-code-on-this-pc) runs as availableNow), Scala and R run in Fabric. A notebook that uses them can still be edited here and run with **Runs on: Fabric** ([where a notebook runs](notebooks.md#where-a-notebook-runs)).

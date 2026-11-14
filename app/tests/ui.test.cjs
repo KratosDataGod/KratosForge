@@ -549,7 +549,7 @@ function sqlEditorHelpers() {
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { SQL_DIALECTS, SQL_WORDS, sqlDialect, sqlQuoteIdent, sqlTableName,
     sqlMask, sqlStatementAt, sqlRunnableStatementAt, sqlTableRefs, sqlHoverTarget, sqlCallAt, sqlSignatureParts, sqlPickForm, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
-    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics });`, ctx);
+    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics, sqlRowsAs, sqlLiteral, sqlInsertTable });`, ctx);
   return ctx;
 }
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -609,6 +609,29 @@ test("Ctrl+Shift+Enter finds the statement at the cursor, or the nearest one whe
   assert.strictEqual(sqlRunnableStatementAt("  ;\n -- x\n", 2), null);
   assert.strictEqual(sqlRunnableStatementAt("", 0), null);
   assert.strictEqual(sqlRunnableStatementAt(";;\nSELECT 9", 0).text, "SELECT 9", "falls forward when nothing is before");
+});
+
+test("Copy as CSV, JSON or INSERT quotes what needs it, for the dialect", () => {
+  const { sqlRowsAs, sqlLiteral, sqlInsertTable } = sqlEditorHelpers();
+  const cols = [{ name: "id", type: "int64" }, { name: "Region Name", type: "string" }, { name: "ok", type: "bool" }, { name: "amt", type: "decimal(18,2)" }];
+  const rows = [[1, 'O\'Brien, "x"', true, "12.50"], [2, null, false, "3"], [3, "a\\b", null, null]];
+  assert.strictEqual(sqlRowsAs("tsv", cols, rows), 'id\tRegion Name\tok\tamt\n1\tO\'Brien, "x"\ttrue\t12.50\n2\t\tfalse\t3\n3\ta\\b\t\t');
+  assert.strictEqual(sqlRowsAs("csv", cols, rows), 'id,Region Name,ok,amt\r\n1,"O\'Brien, ""x""",true,12.50\r\n2,,false,3\r\n3,a\\b,,');
+  assert.deepStrictEqual(JSON.parse(sqlRowsAs("json", cols, rows))[1], { id: 2, "Region Name": null, ok: false, amt: "3" });
+  assert.strictEqual(sqlRowsAs("insert", cols, rows, { table: "dbo.sales" }),
+    "INSERT INTO dbo.sales (id, `Region Name`, ok, amt) VALUES\n  (1, 'O''Brien, \"x\"', TRUE, 12.50),\n  (2, NULL, FALSE, 3),\n  (3, 'a\\\\b', NULL, NULL);");
+  assert.strictEqual(sqlRowsAs("insert", cols, rows.slice(0, 1), { dialect: "warehouse", table: "[my t]" }),
+    "INSERT INTO [my t] (id, [Region Name], ok, amt) VALUES\n  (1, N'O''Brien, \"x\"', 1, 12.50);");
+  assert.strictEqual(sqlRowsAs("insert", cols, []), "");
+  const many = Array.from({ length: 1001 }, (_, i) => [i]);
+  assert.strictEqual(sqlRowsAs("insert", [{ name: "n", type: "int32" }], many).split("INSERT INTO").length - 1, 2, "at most 1000 rows a statement");
+  assert.strictEqual(sqlLiteral("12abc", "decimal(5,2)"), "'12abc'", "a number type's text that isn't a number stays quoted");
+  assert.strictEqual(sqlLiteral({ a: 1 }, "struct"), `'{"a":1}'`);
+  assert.strictEqual(sqlInsertTable("SELECT * FROM finance.budget b WHERE b.x > 1", "spark"), "finance.budget");
+  assert.strictEqual(sqlInsertTable("SELECT * FROM sales s JOIN customers c ON s.id = c.id"), "results", "two tables");
+  assert.strictEqual(sqlInsertTable("WITH t AS (SELECT 1 x) SELECT * FROM t"), "results", "a CTE isn't a table");
+  assert.strictEqual(sqlInsertTable("SELECT * FROM [Region Sales]", "warehouse"), "[Region Sales]");
+  assert.strictEqual(sqlInsertTable(undefined), "results");
 });
 
 test("hovering finds the function, table, alias or column under the pointer", () => {
@@ -4571,6 +4594,27 @@ test("Python cells get hover, signature help, syntax errors and completion docs"
   assert.ok(html.indexOf('src="nbintel.js"') > html.indexOf('src="notebook.js"'));
 });
 
+// Go to definition, references and rename (nbsymbols.js): Python cells get F12, Shift+F12 and F2,
+// from the engine's notebook_symbol; a new name is checked here before anything changes.
+test("Python cells get go to definition, find references and rename", () => {
+  const intel = fs.readFileSync(path.join(ui, "nbintel.js"), "utf8");
+  assert.match(intel, /intelLinter\(\), symKeys\(\)\]/);
+  const src = fs.readFileSync(path.join(ui, "nbsymbols.js"), "utf8");
+  assert.match(src, /rpc\("notebook_symbol", \{ cells: symCells\(\), cell: index, offset: view\.state\.selection\.main\.head, name \}\)/);
+  for (const key of ['"F12"', '"Shift-F12"', '"F2"']) assert.ok(src.includes(`key: ${key}`), key);
+  assert.match(src, /const used = Math\.max\(taken\.places\.length, taken\.anywhere \|\| 0\);/);  // a function's own name counts
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(src.slice(src.indexOf("const SYM_KEYWORDS"), src.indexOf("// The notebook's cells")) + "this.f = symNameProblem;", ctx);
+  assert.strictEqual(ctx.f("grand_total"), "");
+  assert.strictEqual(ctx.f("été"), "");
+  assert.match(ctx.f("2x"), /isn't a Python name/);
+  assert.match(ctx.f("a-b"), /isn't a Python name/);
+  assert.match(ctx.f("class"), /is a Python keyword/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbsymbols.js"') > html.indexOf('src="nbfind.js"'));
+});
+
 // Notebook utilities: notebookutils.lakehouse reads on this PC; changes stay in Fabric.
 test("notebookutils.lakehouse and isValidToken are documented", () => {
   const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
@@ -4708,7 +4752,7 @@ test("a workload page says whether its actions reached the platform's audit", ()
 });
 
 test("the notebook, several-cells and find keys are listed in the Keyboard shortcuts dialog", () => {
-  for (const [file, group, key] of [["notebook.js", "Notebook", "Shift+Enter"], ["nbselect.js", "Notebook: several cells", "Shift+M"], ["nbfind.js", "Notebook: find and replace", "Ctrl+H"]]) {
+  for (const [file, group, key] of [["notebook.js", "Notebook", "Shift+Enter"], ["nbselect.js", "Notebook: several cells", "Shift+M"], ["nbfind.js", "Notebook: find and replace", "Ctrl+H"], ["nbsymbols.js", "Notebook: names in Python cells", "F12"]]) {
     const src = fs.readFileSync(path.join(ui, file), "utf8");
     const at = src.indexOf(`registerShortcuts(${JSON.stringify(group)}`);
     assert.ok(at > 0, `${file} registers ${group}`);

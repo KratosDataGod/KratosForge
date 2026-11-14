@@ -470,6 +470,55 @@ function sqlChosenText(text, from, to) {
   return to > from ? text.slice(from, to) : text;
 }
 
+// ---------- copy the result as text (editor parity S23) ----------
+
+// The table an INSERT copy writes to: the query's one table when it reads just one (not a CTE), else "results".
+function sqlInsertTable(query, dialect = "spark") {
+  const { refs, ctes } = sqlTableRefs(sqlMask(query || "").text);
+  const named = refs.filter((r) => r.name && !ctes.some((c) => c.toLowerCase() === r.name.toLowerCase()));
+  const keys = new Set(named.map((r) => r.parts.join(".").toLowerCase()));
+  if (keys.size !== 1) return "results";
+  return named[0].parts.map((x) => sqlQuoteIdent(x, dialect)).join(".");
+}
+
+const SQL_NUMERIC_TYPE = /int|decimal|numeric|float|double|real|money/i;
+
+// One value as a SQL literal for the dialect.
+function sqlLiteral(v, type, dialect = "spark") {
+  if (v === null || v === undefined) return "NULL";
+  const tsql = SQL_DIALECTS[sqlDialect(dialect)].quote === "[";
+  if (typeof v === "boolean") return tsql ? (v ? "1" : "0") : (v ? "TRUE" : "FALSE");
+  if (typeof v === "number") return Number.isFinite(v) ? String(v) : "NULL";
+  const text = typeof v === "object" ? JSON.stringify(v) : String(v);
+  if (SQL_NUMERIC_TYPE.test(type || "") && /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(text)) return text;
+  const body = text.replace(/'/g, "''");
+  return `${tsql ? "N" : ""}'${sqlDialect(dialect) === "spark" ? body.replace(/\\/g, "\\\\") : body}'`;
+}
+
+// The rows on a result page as text to paste: "tsv" (with headers, as before), "csv", "json" or "insert".
+function sqlRowsAs(format, columns, rows, { dialect = "spark", table = "results" } = {}) {
+  const names = columns.map((c) => c.name);
+  const cell = (v) => (v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v));
+  if (format === "csv") {
+    const field = (v) => { const t = cell(v); return /[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+    return [names, ...rows].map((r) => r.map(field).join(",")).join("\r\n");
+  }
+  if (format === "json") {
+    return JSON.stringify(rows.map((r) => Object.fromEntries(names.map((n, i) => [n, r[i] ?? null]))), null, 2);
+  }
+  if (format === "insert") {
+    if (!rows.length) return "";
+    const head = `INSERT INTO ${table} (${names.map((n) => sqlQuoteIdent(n, dialect)).join(", ")}) VALUES`;
+    const out = [];
+    for (let i = 0; i < rows.length; i += 1000) {  // T-SQL takes at most 1000 rows in one VALUES list
+      const chunk = rows.slice(i, i + 1000).map((r) => `  (${r.map((v, k) => sqlLiteral(v, columns[k].type, dialect)).join(", ")})`);
+      out.push(`${head}\n${chunk.join(",\n")};`);
+    }
+    return out.join("\n");
+  }
+  return [names, ...rows.map((r) => r.map(cell))].map((l) => l.join("\t")).join("\n");
+}
+
 // ---------- the editor ----------
 
 const sqlCmDialects = {};

@@ -470,6 +470,14 @@ function sqlChosenText(text, from, to) {
   return to > from ? text.slice(from, to) : text;
 }
 
+// The bookmark F2 (dir 1) or Shift+F2 (dir -1) goes to from the line starting at `at`: the next or previous one,
+// wrapping around; null when there are none. `marks` are line starts, sorted (editor parity S46).
+function sqlNextBookmark(marks, at, dir = 1) {
+  if (!marks.length) return null;
+  if (dir > 0) return marks.find((m) => m > at) ?? marks[0];
+  return [...marks].reverse().find((m) => m < at) ?? marks[marks.length - 1];
+}
+
 // ---------- copy the result as text (editor parity S23) ----------
 
 // The table an INSERT copy writes to: the query's one table when it reads just one (not a CTE), else "results".
@@ -795,6 +803,41 @@ function cmStyleNonce() {
 
 // The SQL page's editor. `on` holds the page's actions: change(text), run(), save(), format().
 // `check(text, dialect)`, when given, returns a compatibility report (or null), shown as diagnostics.
+// Ctrl+F2 marks or unmarks the cursor's line, F2 and Shift+F2 go to the next and previous mark, Ctrl+Shift+F2
+// clears them, as in SSMS and VS Code. Kept while the editor is open; marks move with the text.
+const sqlBookmarkLine = CM.Decoration.line({ class: "sql-bookmarked" });
+const sqlBookmarks = CM.ViewPlugin.fromClass(class {
+  constructor() { this.marks = []; this.decorations = CM.Decoration.none; }
+  update(u) {
+    if (u.docChanged) {  // text inserted at a mark's line start (Enter there) pushes the mark down with its line
+      const doc = u.state.doc;
+      this.marks = [...new Set(this.marks.map((m) => doc.lineAt(u.changes.mapPos(m, 1)).from))].sort((a, b) => a - b);
+    }
+    const builder = new CM.RangeSetBuilder();
+    for (const m of this.marks) builder.add(m, m, sqlBookmarkLine);
+    this.decorations = builder.finish();
+  }
+}, { decorations: (v) => v.decorations });
+
+function sqlBookmarkToggle(view) {
+  const b = view.plugin(sqlBookmarks);
+  const line = view.state.doc.lineAt(view.state.selection.main.head).from;
+  b.marks = b.marks.includes(line) ? b.marks.filter((m) => m !== line) : [...b.marks, line].sort((a, b2) => a - b2);
+  view.dispatch({});  // redraws the marks
+  return true;
+}
+function sqlBookmarkGo(view, dir) {
+  const b = view.plugin(sqlBookmarks);
+  const to = sqlNextBookmark(b.marks, view.state.doc.lineAt(view.state.selection.main.head).from, dir);
+  if (to !== null) view.dispatch({ selection: { anchor: to }, scrollIntoView: true });
+  return true;
+}
+function sqlBookmarkClear(view) {
+  view.plugin(sqlBookmarks).marks = [];
+  view.dispatch({});
+  return true;
+}
+
 function createSqlEditor({ doc, dialect, provider, on, check = null, extensions = [] }) {
   let current = sqlDialect(dialect);
   const recheckNow = CM.StateEffect.define();
@@ -823,6 +866,11 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
     { key: "Mod-g", run: (v) => sqlGotoLine(v), preventDefault: true },
     // F12, as in SSMS and VS Code: the table under the cursor (or an alias's or a column's) in the Explorer.
     { key: "F12", run: () => { on.definition?.(); return true; }, preventDefault: true },
+    // Bookmarks, as in SSMS and VS Code (S46).
+    { key: "Mod-F2", run: sqlBookmarkToggle, preventDefault: true },
+    { key: "F2", run: (v) => sqlBookmarkGo(v, 1), preventDefault: true },
+    { key: "Shift-F2", run: (v) => sqlBookmarkGo(v, -1), preventDefault: true },
+    { key: "Shift-Mod-F2", run: sqlBookmarkClear, preventDefault: true },
   ];
   const view = new CM.EditorView({
     state: CM.EditorState.create({
@@ -835,7 +883,7 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
         CM.syntaxHighlighting(sqlHighlight),
         langComp.of(language()),
         sqlReferenceMarks(provider, () => current),
-        sqlIntelHover(provider, () => current), sqlIntelSignature(() => current),
+        sqlIntelHover(provider, () => current), sqlIntelSignature(() => current), sqlBookmarks,
         CM.Prec.highest(CM.keymap.of(keys)),
         CM.keymap.of([...CM.closeBracketsKeymap, ...CM.defaultKeymap, ...CM.searchKeymap, ...CM.historyKeymap,
           ...CM.foldKeymap, ...CM.completionKeymap, CM.indentWithTab]),

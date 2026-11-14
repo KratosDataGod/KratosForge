@@ -549,7 +549,7 @@ function sqlEditorHelpers() {
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { SQL_DIALECTS, SQL_WORDS, sqlDialect, sqlQuoteIdent, sqlTableName,
     sqlMask, sqlStatementAt, sqlRunnableStatementAt, sqlTableRefs, sqlHoverTarget, sqlCallAt, sqlSignatureParts, sqlPickForm, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
-    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics, sqlRowsAs, sqlLiteral, sqlInsertTable });`, ctx);
+    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics, sqlRowsAs, sqlLiteral, sqlInsertTable, sqlNextBookmark });`, ctx);
   return ctx;
 }
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -609,6 +609,18 @@ test("Ctrl+Shift+Enter finds the statement at the cursor, or the nearest one whe
   assert.strictEqual(sqlRunnableStatementAt("  ;\n -- x\n", 2), null);
   assert.strictEqual(sqlRunnableStatementAt("", 0), null);
   assert.strictEqual(sqlRunnableStatementAt(";;\nSELECT 9", 0).text, "SELECT 9", "falls forward when nothing is before");
+});
+
+test("F2 and Shift+F2 go to the next and previous bookmark, wrapping around", () => {
+  const { sqlNextBookmark } = sqlEditorHelpers();
+  const marks = [10, 40, 90];
+  assert.strictEqual(sqlNextBookmark(marks, 0), 10);
+  assert.strictEqual(sqlNextBookmark(marks, 10), 40, "from a marked line, the next one");
+  assert.strictEqual(sqlNextBookmark(marks, 90), 10, "past the last, the first");
+  assert.strictEqual(sqlNextBookmark(marks, 40, -1), 10);
+  assert.strictEqual(sqlNextBookmark(marks, 10, -1), 90, "before the first, the last");
+  assert.strictEqual(sqlNextBookmark(marks, 50, -1), 40);
+  assert.strictEqual(sqlNextBookmark([], 5), null);
 });
 
 test("Copy as CSV, JSON or INSERT quotes what needs it, for the dialect", () => {

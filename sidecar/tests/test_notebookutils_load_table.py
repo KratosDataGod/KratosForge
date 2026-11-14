@@ -85,3 +85,17 @@ def test_what_loadtable_refuses_leaves_the_table_as_it_was(files, call, says):
     status, text = run(f"notebookutils.lakehouse.loadTable({call})")
     assert status == "error" and says in text, text
     assert rows(files, "sales") == before
+
+
+def test_a_folder_with_a_file_of_another_format_is_refused_and_nothing_is_loaded(files):
+    (files.parent / "Files" / "in" / "readme.TXT").write_text("hello world\n", encoding="utf-8")
+    before = rows(files, "sales")
+    status, text = run("notebookutils.lakehouse.loadTable({'relativePath': 'Files/in', 'pathType': 'Folder', "
+                       "'mode': 'Overwrite'}, 'sales')")
+    assert status == "error" and "aren't .csv (readme.TXT)" in text, text
+    assert rows(files, "sales") == before
+
+
+def test_a_backslash_dot_dot_path_is_refused_by_load_table_itself(files):
+    status, text = run(r"notebookutils.lakehouse.loadTable({'relativePath': 'Files\\..\\x.csv'}, 'sales')")
+    assert status == "error" and "path under Files/" in text, text

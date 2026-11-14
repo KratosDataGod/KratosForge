@@ -757,7 +757,7 @@ def _load_table(option: Any, table: str, target: str, workspace_id: str) -> bool
     if not isinstance(table, str) or not table.strip():
         raise ValueError("Give loadTable the table's name.")
     rel = str(option.get("relativePath") or "").strip().lstrip("/")
-    if not rel.startswith("Files/") or ".." in rel.split("/"):
+    if not rel.startswith("Files/") or ".." in rel.replace("\\", "/").split("/"):
         raise ValueError(f"relativePath is a path under Files/ in the attached lakehouse, not {rel!r}.")
     kind = str(option.get("pathType") or "File").lower()
     mode = str(option.get("mode") or "Overwrite").lower()
@@ -777,6 +777,13 @@ def _load_table(option: Any, table: str, target: str, workspace_id: str) -> bool
                                                  recursive=bool(option.get("recursive")))
         files = sorted(e["path"] for e in found
                        if not e["is_dir"] and not e["name"].startswith(("_", ".")))
+        # Only files of the chosen format: a stray readme.txt read as CSV would add a column (and, on
+        # Overwrite, replace the table's columns), so it is refused by name before anything is read.
+        other = [f for f in files if not f.lower().endswith("." + fmt)]
+        if other:
+            shown = ", ".join(f.rsplit("/", 1)[-1] for f in other[:5]) + (" and more" if len(other) > 5 else "")
+            raise ValueError(f"{rel} has files that aren't .{fmt} ({shown}). Nothing was loaded. Move them out, or "
+                             "load the files one by one with pathType File.")
         if not files:
             raise FileNotFoundError(f"{rel} has no files to load.")
     spark = spark_local.session()

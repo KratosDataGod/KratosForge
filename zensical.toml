@@ -59,6 +59,7 @@ nav = [
     { "App Studio" = "app-studio.md" },
     { "Run the last cell on Fabric" = "notebook-fabric-step.md" },
     { "Notebook best practices" = "notebook-best-practices.md" },
+    { "Notebook templates for Silver and Gold" = "notebook-templates.md" },
     { "Notebook folders" = "notebook-folders.md" },
     { "Fabric and Databricks notebook formats" = "notebook-import-export.md" },
     { "Notebook version history" = "notebook-versions.md" },

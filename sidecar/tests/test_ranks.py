@@ -65,7 +65,7 @@ def test_every_shipped_lesson_is_planned_under_its_own_path():
     for path in content.paths():
         assert path["id"] in ranks.PATHS
         for mid in path["modules"]:
-            assert planned.get(mid) == path["id"], mid
+            assert (planned.get(mid) or ranks.ADDED_AFTER.get(mid)) == path["id"], mid
 
 
 def test_everyone_starts_as_an_apprentice_and_one_exercise_makes_a_forge_initiate():

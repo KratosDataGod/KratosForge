@@ -13,7 +13,7 @@ import binascii
 
 
 def decode_exact(text: str) -> bytes:
-    """The bytes ``text`` encodes, or ValueError unless it is whole, canonically padded base64."""
+    """The bytes ``text`` encodes, or ValueError unless it is whole, correctly padded base64."""
     if len(text) % 4:
         raise ValueError("base64 length isn't a multiple of 4")
     pad = text.find("=")

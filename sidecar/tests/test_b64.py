@@ -27,3 +27,13 @@ def test_the_check_doesnt_lean_on_the_stdlibs_padding_rule(monkeypatch):
         b64.decode_exact("YWJj=")
     with pytest.raises(ValueError, match="padding"):
         b64.decode_exact("YW==YWJj")
+
+
+def test_app_and_definition_base64_goes_through_decode_exact():
+    # validate=True alone accepts excess padding on some 3.12 patches: every strict decode uses b64.decode_exact
+    import re
+    from pathlib import Path
+    root = Path(b64.__file__).parent
+    loose = [str(p.relative_to(root)) for p in root.rglob("*.py")
+             if p.name != "b64.py" and re.search(r"b64decode\([^\n]*validate=True", p.read_text(encoding="utf-8"))]
+    assert loose == []

@@ -36,6 +36,8 @@ def test_encoding_functions(expr, want):
     ("decodeBase64('/w==')", r"isn't base64-encoded UTF-8 text"),   # one byte, 0xFF: not UTF-8
     ("dataUriToString('hello')", r"isn't a data URI"),
     ("dataUriToString('data:text/plain;base64,@@@')", r"couldn't read"),
+    ("base64ToString('YWJj=')", r"isn't base64-encoded UTF-8 text"),  # padding after the data ends
+    ("dataUriToString('data:text/plain;base64,YWJj=')", r"couldn't read"),
     ("decodeUriComponent('%FF')", r"aren't UTF-8 text"),
     ("binary('hello')", r"binary\(\) isn't supported in local runs yet"),
     ("base64ToBinary('aGVsbG8=')", r"isn't supported in local runs yet"),

@@ -211,6 +211,26 @@ test("Ctrl+F2 bookmarks lines, F2 and Shift+F2 go between them, and they move wi
   assert.strictEqual(await line(), 3, "F2 with no bookmarks stays put");
 });
 
+test("Copy ▾ copies the page as tab-separated rows, CSV, JSON or INSERT statements for the query's table", { skip }, async () => {
+  await page().evaluate(() => { window.__copied = []; Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (t) => { window.__copied.push(t); } } }); });
+  await setDoc("SELECT x FROM sales");
+  await page().keyboard.press("F5");
+  await page().waitForFunction(() => document.querySelector(".sql-pill")?.textContent === "Succeeded");
+  const copyAs = async (label) => {
+    const n = await page().evaluate(() => window.__copied.length);
+    await page().locator(".sql-copy > summary").click();
+    await page().getByRole("menuitem", { name: label, exact: true }).click();
+    await page().waitForFunction((n) => window.__copied.length > n, n);
+    return page().evaluate(() => window.__copied.at(-1));
+  };
+  assert.strictEqual(await copyAs("Rows with headers"), "x\n1\n");
+  assert.match(await toastText(), /Copied the 2 rows on this page$/);
+  assert.strictEqual(await copyAs("CSV"), "x\r\n1\r\n");
+  assert.deepStrictEqual(JSON.parse(await copyAs("JSON")), [{ x: 1 }, { x: null }]);
+  assert.strictEqual(await copyAs("INSERT statements"), "INSERT INTO sales (x) VALUES\n  (1),\n  (NULL);");
+  assert.match(await toastText(), /as INSERT statements$/);
+});
+
 test("the results pane maximizes, hides with Ctrl+R wherever focus is, and comes back on a run", { skip }, async () => {
   await page().evaluate(() => { window.__notReloaded = true; });
   const card = page().locator(".sql-card");

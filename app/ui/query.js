@@ -371,6 +371,7 @@ function renderQuery() {
     }
     if (status?.state === "completed") {
       tab.ranNotice = wh ? "" : localNotice(query);
+      tab.resultQuery = query;  // for Copy › INSERT statements, which names the query's table
       if (tab.exportAfter) { const fmt = tab.exportAfter; delete tab.exportAfter; exportResult(fmt); }
     } else if (status && !tab.errorRetry) {  // a failed engine call keeps its own message and Retry
       tab.error = status.error || `The query ${SQL_STATE[status.state]?.[1].toLowerCase() || status.state}.`;
@@ -502,12 +503,15 @@ function renderQuery() {
     renderNotebook();
   }
 
-  async function copyRows() {
+  // S23: the rows on this page as tab-separated text (with headers), CSV, JSON or INSERT statements.
+  const COPY_AS = { tsv: "", csv: " as CSV", json: " as JSON", insert: " as INSERT statements" };
+  async function copyRows(format = "tsv") {
     const r = tab.result;
     if (!r) return;
-    const lines = [r.columns.map((c) => c.name), ...r.rows.map((row) => row.map((v) => (v === null ? "" : String(v))))];
-    const copied = await attempt(() => navigator.clipboard.writeText(lines.map((l) => l.join("\t")).join("\n")).then(() => true), "Could not copy");
-    if (copied) toast(`Copied the ${r.rows.length.toLocaleString()} rows on this page`);
+    const text = sqlRowsAs(format, r.columns, r.rows,
+      { dialect: tab.dialect, table: format === "insert" ? sqlInsertTable(tab.resultQuery, tab.dialect) : undefined });
+    const copied = await attempt(() => navigator.clipboard.writeText(text).then(() => true), "Could not copy");
+    if (copied) toast(`Copied the ${r.rows.length.toLocaleString()} row${r.rows.length === 1 ? "" : "s"} on this page${COPY_AS[format]}`);
   }
 
   // Explorer: click a table to query it, a column to type its name.
@@ -633,6 +637,13 @@ function renderQuery() {
       msg = `${r.total.toLocaleString()} row${r.total === 1 ? "" : "s"} · ${ex.seconds} s ${where}`;
       if (r.total > r.rows.length) msg += ` · rows ${(r.offset + 1).toLocaleString()} to ${last.toLocaleString()}`;
     }
+    const copyItem = (format, label) => h("button", { role: "menuitem",
+      onclick: (e) => { e.target.closest("details").open = false; copyRows(format); } }, label);
+    const copyMenu = h("details", { class: "sql-copy" },
+      h("summary", { class: `tool small${!r ? " disabled" : ""}`, "aria-disabled": String(!r), title: "Copy the rows on this page",
+        onclick: (e) => { if (!r) e.preventDefault(); } }, "Copy ▾"),
+      h("div", { class: "sql-export-menu", role: "menu" },
+        copyItem("tsv", "Rows with headers"), copyItem("csv", "CSV"), copyItem("json", "JSON"), copyItem("insert", "INSERT statements")));
     const x = tab.exporting;
     const exportMenu = h("details", { class: "sql-export" },
       h("summary", { class: `tool small${!r || x ? " disabled" : ""}`, "aria-disabled": String(!r || !!x),
@@ -668,7 +679,7 @@ function renderQuery() {
         { disabled: !r.has_previous || tab.paging, "aria-label": "Previous page" }) : null,
       r && (r.has_previous || r.has_next) ? btn("Next ›", null, () => goPage(r.offset + r.limit), "tool small",
         { disabled: !r.has_next || tab.paging, "aria-label": "Next page" }) : null,
-      btn("Copy", null, copyRows, "tool small", { disabled: !r, title: "Copy the rows on this page" }),
+      copyMenu,
       exportMenu,
       h("span", { class: "sql-sep", "aria-hidden": "true" }),
       btn(p.pane === "max" ? "Restore" : "Maximize", null, () => setPane(p.pane === "max" ? null : "max"), "tool small sql-pane-max",

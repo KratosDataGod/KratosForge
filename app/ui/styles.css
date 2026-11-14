@@ -2561,6 +2561,15 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 .sql-intel-cols { display: grid; gap: 1px; white-space: normal; }
 /* F12 (S08): the Explorer row the editor went to, marked for a moment. */
 .tree-row.sql-revealed { background: var(--accent-soft-2); }
+.nb-sym { pointer-events: auto; min-width: 280px; }
+.nb-sym-list { display: flex; flex-direction: column; margin-top: 6px; max-height: 280px; overflow: auto; }
+.nb-sym-item { display: flex; align-items: baseline; gap: 10px; padding: 4px 6px; border: 0; border-radius: 4px; background: none; color: var(--text); text-align: left; cursor: pointer; font: inherit; }
+.nb-sym-item:hover, .nb-sym-item:focus-visible { background: var(--hover); }
+.nb-sym-item code { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nb-sym-where { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.nb-sym-label { display: block; margin-bottom: 4px; color: var(--text-2); }
+.nb-sym-input { width: 100%; box-sizing: border-box; font-family: var(--mono); }
+.nb-sym-note { margin-top: 6px; color: var(--text-2); font-size: 12px; }
 .cm-diagnostic-error { border-left-color: var(--danger); }
 
 /* Platform notices (platform-notices.js): the bell's Platform filter and Settings > Notifications. */

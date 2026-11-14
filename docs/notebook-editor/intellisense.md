@@ -31,6 +31,25 @@ without running the code, so there's no signature help there.
 **Ctrl+Space** (or typing) lists names from the kernel; the highlighted one shows its signature and
 docs beside the list.
 
+## Go to definition, find references, rename
+
+These work on a name the notebook defines (a variable, function, class or import) across every
+Python cell, as in an IDE. They read the cells' text and never run anything, so they work before
+you've run a cell and with **Runs on: Fabric** too.
+
+- **F12** goes to where the name under the cursor is defined: the last definition above it, as the
+  cells run top to bottom, or the first one below if there's none above.
+- **Shift+F12** lists every place the name is defined or used, cell by cell; click one to go there.
+- **F2** renames it everywhere it's used. Type the new name and press **Enter** (**Esc** cancels).
+  A name that isn't a Python name, a keyword, or a name the notebook already uses is refused, so
+  two names never become one. **Ctrl+Z** in a cell undoes the change in that cell.
+
+Scopes are followed: a function's own argument or local variable of the same name, and a loop
+variable inside a list comprehension, are different names and aren't changed. Attributes
+(`df.total`), keyword argument names (`f(total=1)`), strings and comments are never changed.
+Cells in another language (`%%sql`) are left alone, frozen cells aren't changed, and a cell with a
+Python syntax error is left out and named in the message.
+
 ## Syntax errors as you type
 
 A Python syntax error gets a red underline a moment after you stop typing; hover it for Python's
@@ -41,6 +60,6 @@ notebook, including names used before they're defined.
 ## When it isn't there
 
 - With **Runs on: Fabric**, the kernel on this PC isn't used, so hover, signature help and docs in
-  the list are off; the syntax check still works.
+  the list are off; the syntax check, go to definition, references and rename still work.
 - With the notebook running in its own process (Settings), hovering before you've run any cell
   shows nothing, because no process has started yet.

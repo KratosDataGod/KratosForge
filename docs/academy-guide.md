@@ -38,8 +38,9 @@ it under this PC's KratosForge data (`academy/<certification>/<exercise>`) with 
 generated data and your answer, which is saved as you type and kept after a restart.
 
 - **Run** (Ctrl+Enter or F5) runs your SQL and shows the first rows. Changes are undone after each run.
+- An answer over 1 MB isn't run or checked; an exercise answer is much smaller.
 - **Check my work** runs the exercise's checks on a fresh copy of its data. A pass is recorded in
-  Profile for the exercise's objectives, with how many hints you used. An answer over 1 MB isn't run.
+  Profile for the exercise's objectives, with how many hints you used.
 - **Hints** go from a nudge to nearly the answer. A challenge passed with more than one hint, or after
   opening the explanation, doesn't count as independent. Neither does a quiz passed after changing an answer
   that was already checked.

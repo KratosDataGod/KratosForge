@@ -12,6 +12,7 @@ This page records what KratosForge ships, which licenses it ships under, and how
 | Shell | The Tauri app (`app/src-tauri`) and its 243 Rust crates on Windows | `app/src-tauri/Cargo.lock` holds versions and crate checksums | `sbom-app.cdx.json`, made by `cargo cyclonedx --target x86_64-pc-windows-msvc` from `Cargo.lock`, with each crate's checksum |
 | Notebook editor | CodeMirror, bundled into `app/ui/vendor/codemirror/codemirror.js` | That folder's `package.json` gives exact versions for the direct packages. The built file is committed | `sbom-ui.cdx.json`: the packages `package.json` names (build tools left out) and everything they depend on, from `package-lock.json` with its SHA-512 hashes. Its license is in `LICENSE` there |
 | Charts | Vega, Vega-Lite, vega-embed and the d3 packages they bundle, in `app/ui/vendor/vega/vega-frame.js` | That folder's `package.json` gives exact versions for the direct packages. `THIRD-PARTY-NOTICES.md` there lists each bundled package and its version | `sbom-ui.cdx.json`: Vega, Vega-Lite and vega-embed from `package-lock.json` with their hashes, and the packages their prebuilt files bundle from `THIRD-PARTY-NOTICES.md` (the versions the upstream build used, so no hash) |
+| Skin typefaces | Inter and DM Sans, latin `woff2` files copied from Fontsource into `app/ui/vendor/fonts` | That folder's `package.json` gives exact versions. The font files are committed | `sbom-ui.cdx.json`: both packages from `package-lock.json` with their hashes. Their licence (SIL OFL 1.1) is in `LICENSE-inter` and `LICENSE-dm-sans` there |
 | Model converter | The Apache Ossie Microsoft converter, copied into `sidecar/fabric_desktop/_vendor/ossie_microsoft` | Committed source | Covered by the engine's own package |
 | VS Code extension | `vscode/` | `vscode/package-lock.json`. It has no runtime dependencies, only build and test tools | `sbom-vscode.cdx.json`, made from `kratosforge.vsix` itself: the file's SHA-256, every file inside it with its SHA-256, and the build tools from `package-lock.json` with their SHA-512 hashes, scope `excluded` (it is packaged with `--no-dependencies`, so none ships). It is also listed as itself in `sbom-ui.cdx.json`. The `.vsix` is reproducible: CI builds it twice and fails if the two differ |
 
@@ -88,7 +89,7 @@ The full list, crate by crate, is in each release's `sbom-app.cdx.json`.
 | mssql-python-rs | 0.3.0 | MIT |  |
 | narwhals | 2.27.1 | MIT |  |
 | numpy | 2.5.3 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 |  |
-| opentelemetry-api | 1.45.1 | Apache-2.0 |  |
+| opentelemetry-api | 1.45.2 | Apache-2.0 |  |
 | packaging | 26.3 | Apache-2.0 OR BSD-2-Clause |  |
 | pandas | 2.3.3 | BSD-3-Clause |  |
 | pillow | 13.0.0 | MIT-CMU |  |
@@ -117,7 +118,7 @@ The full list, crate by crate, is in each release's `sbom-app.cdx.json`.
 | sqlglot | 30.23.0 | MIT |  |
 | sse-starlette | 3.5.0 | BSD-3-Clause |  |
 | starlette | 1.8.0 | BSD-3-Clause |  |
-| tornado | 6.6 | Apache-2.0 |  |
+| tornado | 6.6.1 | Apache-2.0 |  |
 | truststore | 0.10.5 | MIT |  |
 | typing-extensions | 4.16.0 | PSF-2.0 |  |
 | typing-inspection | 0.4.4 | MIT |  |

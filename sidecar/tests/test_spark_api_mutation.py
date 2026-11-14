@@ -38,7 +38,7 @@ def test_each_method_has_the_state_and_reason_it_has_on_this_pc():
     state = {(r["area"], r["name"]): (r["state"], r["why"]) for r in spark_api.coverage()}
     assert state[("DataFrame", "rdd")] == ("Fabric", "RDDs run in Fabric")
     assert state[("SparkSession", "streams")] == ("Fabric", "streaming runs in Fabric")
-    assert state[("SparkSession", "udf")] == ("Fabric", "Python UDFs run in Fabric")
+    assert state[("SparkSession", "udf")] == ("works", "")  # spark_udf.py: Python UDFs run on this PC
     assert state[("DataFrame", "cache")] == ("no-op", "")
     assert state[("DataFrame", "hint")] == ("no-op", "")
     assert state[("DataFrame", "toJSON")] == ("works", "")

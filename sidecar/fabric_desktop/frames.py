@@ -28,6 +28,7 @@ import uuid
 import zipfile
 from collections import OrderedDict
 from pathlib import Path
+from collections.abc import Callable, Iterable
 from typing import Any, cast
 from xml.sax.saxutils import escape
 
@@ -628,7 +629,14 @@ def _text(ref: str, s: str) -> str:
 
 
 def write_xlsx(table: pa.Table, sink: Any) -> None:
-    names = table.schema.names
+    write_xlsx_batches(table.schema.names, table.to_batches(max_chunksize=8192), sink)
+
+
+def write_xlsx_batches(names: list[str], batches: Iterable[pa.RecordBatch], sink: Any,
+                       on_batch: Callable[[int], None] | None = None) -> None:
+    """One sheet, "Result", with a bold frozen header row, written a batch at a time (the SQL page's
+    export streams its snapshot through here). ``on_batch`` gets each batch's row count after it is
+    written, and may raise to stop."""
     with zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("[Content_Types].xml",
                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -674,10 +682,12 @@ def write_xlsx(table: pa.Table, sink: Any) -> None:
             head = "".join(_text(f"{_col(i)}1", n).replace('t="inlineStr"', 't="inlineStr" s="1"') for i, n in enumerate(names))
             sheet.write(f'<row r="1">{head}</row>'.encode())
             r = 2
-            for batch in table.to_batches(max_chunksize=8192):
+            for batch in batches:
                 cols = [c.to_pylist() for c in batch.columns]
                 for i in range(batch.num_rows):
                     cells = "".join(_xlsx_cell(f"{_col(j)}{r}", col[i]) for j, col in enumerate(cols))
                     sheet.write(f'<row r="{r}">{cells}</row>'.encode("utf-8"))
                     r += 1
+                if on_batch is not None:
+                    on_batch(batch.num_rows)
             sheet.write(b"</sheetData></worksheet>")

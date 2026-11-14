@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 117 |
-| Differs | 3 |
-| Refused | 15 |
-| Fails | 28 |
+| Runs | 121 |
+| Differs | 5 |
+| Refused | 13 |
+| Fails | 24 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -36,7 +36,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `approxQuantile` | Not checked |  |
 | `cache` | Runs |  |
 | `checkpoint` | Runs |  |
-| `coalesce` | Refused | `df.coalesce(1).rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
+| `coalesce` | Refused | `df.coalesce(1).rdd.getNumPartitions()`: NotImplementedError: RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), or foreach, foreachPartition and mapInPandas, which run here. |
 | `colRegex` | Runs |  |
 | `collect` | Runs |  |
 | `columns` | Runs |  |
@@ -63,8 +63,8 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `fillna` | Runs |  |
 | `filter` | Runs |  |
 | `first` | Runs |  |
-| `foreach` | Refused | `df.foreach(func)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
-| `foreachPartition` | Refused | `df.foreachPartition(func)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
+| `foreach` | Differs | `df.foreach(func)`: {"printed": "Tom\nAlice\nBob"} here, {} in Spark |
+| `foreachPartition` | Differs | `df.foreachPartition(func)`: {"printed": "Tom\nAlice\nBob"} here, {} in Spark |
 | `freqItems` | Runs |  |
 | `groupBy` | Runs |  |
 | `groupby` | Not checked |  |
@@ -80,7 +80,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `limit` | Runs |  |
 | `localCheckpoint` | Runs |  |
 | `mapInArrow` | Runs |  |
-| `mapInPandas` | Fails | `from pyspark.sql.functions import pandas_udf`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
+| `mapInPandas` | Runs |  |
 | `melt` | Not checked |  |
 | `na` | Runs |  |
 | `observe` | Refused | `spark.streams.addListener(MyErrorListener())`: NotImplementedError: spark.streams.addListener runs in Fabric: stream listeners and the query manager aren't on this PC. A stream started here is managed by the |
@@ -90,10 +90,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `persist` | Runs |  |
 | `printSchema` | Runs |  |
 | `randomSplit` | Differs | `splits[0].count()`: {"value": 2} here, {"value": 1} in Spark |
-| `rdd` | Refused | `type(df.rdd)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
+| `rdd` | Refused | `type(df.rdd)`: NotImplementedError: RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), or foreach, foreachPartition and mapInPandas, which run here. |
 | `registerTempTable` | Runs |  |
-| `repartition` | Refused | `df.repartition(10).rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
-| `repartitionByRange` | Refused | `df.repartitionByRange(2, "age").rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
+| `repartition` | Refused | `df.repartition(10).rdd.getNumPartitions()`: NotImplementedError: RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), or foreach, foreachPartition and mapInPandas, which run here. |
+| `repartitionByRange` | Refused | `df.repartitionByRange(2, "age").rdd.getNumPartitions()`: NotImplementedError: RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), or foreach, foreachPartition and mapInPandas, which run here. |
 | `replace` | Runs |  |
 | `rollup` | Runs |  |
 | `sameSemantics` | Runs |  |
@@ -179,9 +179,9 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `agg` | Fails | `from pyspark.sql.functions import pandas_udf, PandasUDFType`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
-| `apply` | Fails | `from pyspark.sql.functions import pandas_udf, PandasUDFType`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
-| `applyInPandas` | Fails | `from pyspark.sql.functions import pandas_udf, ceil`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
+| `agg` | Runs |  |
+| `apply` | Runs |  |
+| `applyInPandas` | Runs |  |
 | `applyInPandasWithState` | Fails | `from pyspark.sql.streaming.state import GroupStateTimeout`: ModuleNotFoundError: No module named 'pyspark.sql.streaming.state'; 'pyspark.sql.streaming' is not a package |
 | `avg` | Runs |  |
 | `cogroup` | Not checked |  |

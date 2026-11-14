@@ -893,6 +893,7 @@ class Agent:
             self._pruned_at = self.clock()
             self.prune_queue()
             self.sweep_home()
+            self.prune_audit_trail()
         if _due(self._policy_at, POLICY_CHECK_SECONDS, self.clock()):
             self._policy_at = self.clock()
             self.check_policy()
@@ -935,6 +936,24 @@ class Agent:
         if result["removed"]:
             self.log.info("local copies removed from the agent's home",
                           extra=fields(items=len(result["removed"]), bytes=result["bytes"], older_than_days=days))
+
+    def prune_audit_trail(self) -> None:
+        """Delete whole months of the agent's audit trail (``<home>/audit``) older than the policy's
+        audit_retention_days, as the app does with its own (retention.prune_audit): at start, then
+        daily. With the default ``0`` nothing is deleted. Each cleanup first adds an ``audit_pruned``
+        line to the trail, and nothing is deleted if that line can't be written. A failure is logged
+        and tried again the next day."""
+        from . import app_settings, retention
+        try:
+            days = int(app_settings.value("audit_retention_days") or 0)
+            gone = retention.prune_audit(self.audit.folder, days,
+                                         lambda action, params: self.audit.record(action, "ok", 0.0, params), "agent")
+        except Exception as exc:  # noqa: BLE001 - a cleanup never stops jobs
+            self.log.warning("couldn't clean up the audit trail", extra=fields(error=f"{type(exc).__name__}: {exc}"))
+            return
+        if gone["files"]:
+            self.log.info("old months removed from the agent's audit trail",
+                          extra=fields(files=len(gone["files"]), lines=gone["lines"], older_than_days=days))
 
     def _guarded(self, job: dict[str, Any]) -> None:
         if self.mailbox:

@@ -427,6 +427,43 @@ class OptimizeMixin:
         return out | {"shared": sent["sent"], "queued": len(new) if sent["queued"] else 0,
                       **({"error": sent["error"]} if sent.get("error") else {})}
 
+    def _optimize_share_analysis(self, records: dict[str, Any], source: str, approve: bool = False,
+                                 confirm: str = "") -> dict[str, Any]:
+        """Add one analysis run (``Shared.record_analysis``'s input: run, artifacts, findings,
+        recommendations) from ``source`` (such as "this assessment") to the central lakehouse, for a
+        feature that shapes its own rows (the optimization engine's assessment, OE-004). Without
+        ``approve`` it writes nothing and raises with what it would add and ``confirm``, a hash of
+        exactly those rows; it writes only with ``approve`` and that ``confirm``, so rows that changed
+        since the person looked are asked about again. Free text is shared with secrets removed
+        (record_analysis). A failure that may pass waits on this PC, as X-ray's do."""
+        run = records.get("run") or {}
+        if not str(run.get("run_id") or "").strip():
+            raise ValueError("An analysis to share needs a run id.")
+        artifacts, findings = list(records.get("artifacts") or []), list(records.get("findings") or [])
+        recommendations = list(records.get("recommendations") or [])
+        payload = {"run": run, "artifacts": artifacts, "findings": findings, "recommendations": recommendations}
+        workspaces = {str(a.get("workspace_id") or "") for a in artifacts + findings} - {""}
+        out: dict[str, Any] = {"findings": len(findings), "recommendations": len(recommendations),
+                               "items": len(artifacts), "workspaces": len(workspaces), "shared": 0}
+        if not findings:
+            return out
+        out["confirm"] = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:32]
+        if not approve or confirm != out["confirm"]:
+            name = (self.optimize_registry.active() or {}).get("lakehouse_name") or "the central lakehouse"
+            n = lambda count, word: f"{count} {word}{'s' if count != 1 else ''}"  # noqa: E731
+            changed = "What would be added changed since you looked. " if approve and confirm else ""
+            ask = PermissionError(
+                f"{changed}Adds {n(len(findings), 'finding')} and {n(len(recommendations), 'recommendation')} "
+                f"from {source} to {name}, about {n(len(artifacts), 'item')} in {n(len(workspaces), 'workspace')}: "
+                "their names and ids, what was found and why, and the evidence and impact figures, with anything "
+                "that looks like a secret removed. No code or data, and everyone who can read the lakehouse sees "
+                "them, whatever they can open in Fabric. Confirm to continue.")
+            ask.would = out  # type: ignore[attr-defined]
+            raise ask
+        sent = self._optimize_write(ANALYSIS, payload)
+        return out | {"shared": sent["sent"], "queued": len(findings) if sent["queued"] else 0,
+                      **({"error": sent["error"]} if sent.get("error") else {})}
+
     def _optimize_proofs(self) -> list[dict[str, Any]]:
         """Prove's saved proofs, one line each; a line that can't be read is left out, not the rest."""
         try:

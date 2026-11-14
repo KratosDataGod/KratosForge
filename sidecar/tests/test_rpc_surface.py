@@ -30,13 +30,14 @@ _BPA = "best practices check of a semantic model: engine first, screens wait on 
 _QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
 _FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item support view comes with the Deploy work (docs/git-integration-plan.md)"
-_AS_MODELS = "App Studio model requests (AS-10/11): engine first, the Describe and Ask screens come next (docs/architecture/app-studio.md)"
 
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
 # calling it or when it leaves METHODS; the test below fails until you do.
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 
 NO_UI_CALLER: dict[str, str] = {
+    # OE-004: the Share button on Optimize > Assessment waits on its mockup.
+    "optimization_share": "OE-004 engine call; the Assessment tab's Share button waits on its mockup",
     # Best practices check (semantic-link-labs in Fabric).
     "model_bpa_status": _BPA,
     "model_bpa_risk": _BPA,
@@ -73,10 +74,6 @@ NO_UI_CALLER: dict[str, str] = {
     "meta_preflight": _NO_SCREEN,  # the PB-067 run dialog (#915, after a mockup) shows its estimate
     "fabric_item_support": _FABRIC_GIT,
     "fabric_git_links": _FABRIC_GIT,  # the tab reads links through fabric_git_overview
-    "appstudio_plan": _AS_MODELS,
-    "appstudio_create_from_plan": _AS_MODELS,
-    "appstudio_change_plan": _AS_MODELS,
-    "appstudio_apply_change": _AS_MODELS,
     # Listed by QA-017 as having no screen.
     "platform_sources": _QA017,
 }

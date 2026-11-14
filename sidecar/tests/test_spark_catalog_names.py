@@ -172,6 +172,9 @@ def test_catalog_list_functions_names_spark_builtins(listed):
                        "('upper' in names, 'date_add' in names, len(names) > 300)")
     assert (status, text) == ("ok", "(True, True, True)")
     assert run("[f.name for f in spark.catalog.listFunctions(pattern='upp*')]") == ("ok", "['upper']")
+    status, text = run("spark.udf.register('kf_shout', lambda s: s.upper())\n"
+                       "[(f.name, f.className) for f in spark.catalog.listFunctions(pattern='kf_*')]")
+    assert (status, text) == ("ok", "[('kf_shout', 'python')]")
 
 
 def test_catalog_listings_with_no_lakehouse_are_empty_not_duckdbs(listed):

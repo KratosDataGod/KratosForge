@@ -251,6 +251,12 @@ function renderQuery() {
     on: {
       change: setSql,
       run: () => run(),
+      runStatement: () => {
+        const stmt = editor.statement();
+        if (stmt.trim()) run(stmt);
+      },
+      togglePane: () => togglePane(),
+      definition: () => goToDefinition(),
       save: () => {
         if (tab.proj) { whProjectSave(tab).then((ok) => { if (ok) { saveQueryTabs(); p.whProjectView?.refresh(); } }); return; }
         const ok = saveQueryTabs();
@@ -308,6 +314,7 @@ function renderQuery() {
   // same managed run sends one query that reads to the warehouse (sql_start target "warehouse").
   async function run(query = editor.chosen(), allow = []) {
     if (!query.trim() || tab.running) return;
+    if (p.pane === "hidden") p.pane = null;  // a run shows its results, as in SSMS
     if (!runsHere()) {
       toast(`${SQL_DIALECTS[tab.dialect].label} can't run on this PC. Pick Spark SQL or DuckDB to run here.`, true);
       return;
@@ -364,6 +371,7 @@ function renderQuery() {
     }
     if (status?.state === "completed") {
       tab.ranNotice = wh ? "" : localNotice(query);
+      tab.resultQuery = query;  // for Copy › INSERT statements, which names the query's table
       if (tab.exportAfter) { const fmt = tab.exportAfter; delete tab.exportAfter; exportResult(fmt); }
     } else if (status && !tab.errorRetry) {  // a failed engine call keeps its own message and Retry
       tab.error = status.error || `The query ${SQL_STATE[status.state]?.[1].toLowerCase() || status.state}.`;
@@ -412,7 +420,7 @@ function renderQuery() {
     sqlPage.redraw?.();
   }
 
-  // Export ▾ CSV or Parquet: streamed from the run's snapshot to a new file in Downloads.
+  // Export ▾ CSV, Parquet, Excel or JSON: streamed from the run's snapshot to a new file in Downloads.
   async function exportResult(format) {
     if (!tab.exec || tab.exporting) return;
     const out = await attempt(() => rpc("sql_export", { execution: tab.exec.id, format, name: tab.name }), "Could not export");
@@ -495,12 +503,15 @@ function renderQuery() {
     renderNotebook();
   }
 
-  async function copyRows() {
+  // S23: the rows on this page as tab-separated text (with headers), CSV, JSON or INSERT statements.
+  const COPY_AS = { tsv: "", csv: " as CSV", json: " as JSON", insert: " as INSERT statements" };
+  async function copyRows(format = "tsv") {
     const r = tab.result;
     if (!r) return;
-    const lines = [r.columns.map((c) => c.name), ...r.rows.map((row) => row.map((v) => (v === null ? "" : String(v))))];
-    const copied = await attempt(() => navigator.clipboard.writeText(lines.map((l) => l.join("\t")).join("\n")).then(() => true), "Could not copy");
-    if (copied) toast(`Copied the ${r.rows.length.toLocaleString()} rows on this page`);
+    const text = sqlRowsAs(format, r.columns, r.rows,
+      { dialect: tab.dialect, table: format === "insert" ? sqlInsertTable(tab.resultQuery, tab.dialect) : undefined });
+    const copied = await attempt(() => navigator.clipboard.writeText(text).then(() => true), "Could not copy");
+    if (copied) toast(`Copied the ${r.rows.length.toLocaleString()} row${r.rows.length === 1 ? "" : "s"} on this page${COPY_AS[format]}`);
   }
 
   // Explorer: click a table to query it, a column to type its name.
@@ -525,6 +536,47 @@ function renderQuery() {
       if (!cols.length && !p.cols[name]?.length) { p.open[name] = false; delete p.cols[name]; delete p.pending[name]; }
     }
     if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) editor.refresh(); }
+  }
+  // S08: F12 shows the table under the cursor, or an alias's or a column's table, in the Explorer: on a
+  // lakehouse its row with its columns open; on a warehouse its object in the tree, opened down to it.
+  async function goToDefinition() {
+    const text = editor.text();
+    const target = sqlHoverTarget(text, editor.selection().head, tab.dialect, provider.tables(), (t) => provider.cachedColumns(t));
+    const table = await sqlTargetTable(target, provider);
+    if (!table) {
+      toast(target?.kind === "function" ? `${target.name} is built in: hover it to see its forms.`
+        : "F12 goes to a table or view: put the cursor on its name, an alias or one of its columns.");
+      return;
+    }
+    const row = wh ? await revealWarehouseObject(table) : await revealLakehouseTable(table);
+    if (!row) return;
+    row.scrollIntoView({ block: "nearest" });
+    row.focus();
+    row.classList.add("sql-revealed");
+    setTimeout(() => row.classList.remove("sql-revealed"), 1600);
+  }
+  async function revealLakehouseTable(t) {
+    if (!sqlPage.explorerOpen && !document.querySelector(".sql-explorer:not([hidden])")) setSqlExplorerOpen(true);
+    const name = sqlTableName(t.schema, t.name);
+    p.open[name] = true;
+    drawTables();
+    await provider.columns(t).catch(() => []);
+    if (!(state.view === "query" && p.ref === ref)) return null;
+    drawTables();
+    return [...tablesBox.querySelectorAll(".sql-table-row .tree-row:not(.chev)")].find((b) => b.title === `Query ${name}`) || null;
+  }
+  async function revealWarehouseObject(t) {
+    const cat = p.catalog?.key === sqlRefKey(ref) && p.catalog.state === "done" ? p.catalog : null;
+    const o = cat?.objects.find((x) => x.schema === t.schema && x.name === t.name);
+    if (!o) { toast("List the warehouse's objects first: Explorer › List objects."); return null; }
+    const open = p.whOpen ||= new Set();
+    open.delete(`s:${o.schema}`);  // schemas and the Tables group start open: in the set means closed
+    if (o.type === "U") open.delete(`g:${o.schema}.U`); else open.add(`g:${o.schema}.${o.type}`);
+    open.add(`o:${o.schema}.${o.name}`);
+    p.whFilter = "";
+    p.whFocus = `o:${o.schema}.${o.name}`;
+    if (p.whAside && p.whAside !== "explorer") { p.whAside = "explorer"; renderQuery(); } else whTree.draw();
+    return document.querySelector(`.wh-tree [data-tid="${CSS.escape(p.whFocus)}"]`);
   }
   function loadTables() {
     drawTables();
@@ -585,16 +637,28 @@ function renderQuery() {
       msg = `${r.total.toLocaleString()} row${r.total === 1 ? "" : "s"} · ${ex.seconds} s ${where}`;
       if (r.total > r.rows.length) msg += ` · rows ${(r.offset + 1).toLocaleString()} to ${last.toLocaleString()}`;
     }
+    const copyItem = (format, label) => h("button", { role: "menuitem",
+      onclick: (e) => { e.target.closest("details").open = false; copyRows(format); } }, label);
+    const copyMenu = h("details", { class: "sql-copy" },
+      h("summary", { class: `tool small${!r ? " disabled" : ""}`, "aria-disabled": String(!r), title: "Copy the rows on this page",
+        onclick: (e) => { if (!r) e.preventDefault(); } }, "Copy ▾"),
+      h("div", { class: "sql-export-menu", role: "menu" },
+        copyItem("tsv", "Rows with headers"), copyItem("csv", "CSV"), copyItem("json", "JSON"), copyItem("insert", "INSERT statements")));
     const x = tab.exporting;
     const exportMenu = h("details", { class: "sql-export" },
       h("summary", { class: `tool small${!r || x ? " disabled" : ""}`, "aria-disabled": String(!r || !!x),
         onclick: (e) => { if (!r || x) e.preventDefault(); } }, "Export ▾"),
       h("div", { class: "sql-export-menu", role: "menu" },
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("csv"); } }, "CSV"),
-        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("parquet"); } }, "Parquet")));
+        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("parquet"); } }, "Parquet"),
+        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("xlsx"); } }, "Excel"),
+        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("json"); } }, "JSON")));
     // Messages and Chart are Preview: on the Warehouse page the whole page already is, so they carry no
     // tag of their own there; elsewhere they carry one and go when preview features are hidden.
-    const extra = [...(wh || previewShown() ? ["messages", "chart"] : []), ...(wh ? ["plan"] : [])];
+    // On a lakehouse, Plan and Profile are DuckDB's (S39, S40), Preview like Messages and Chart.
+    const localExplainOn = !wh && previewShown() && runsHere();
+    const extra = [...(wh || previewShown() ? ["messages", "chart"] : []), ...(wh || localExplainOn ? ["plan"] : []),
+      ...(localExplainOn ? ["profile"] : [])];
     const view = extra.includes(tab.view) ? tab.view : "results";
     const viewTab = (id, label) => {
       const b = h("button", { role: "tab", class: `sql-view${view === id ? " on" : ""}`, "aria-selected": String(view === id),
@@ -603,21 +667,33 @@ function renderQuery() {
     };
     band.replaceChildren(...[h("div", { class: "sql-views", role: "tablist", "aria-label": "Result views" },
       viewTab("results", "Results"), extra.length ? viewTab("messages", "Messages") : null, extra.length ? viewTab("chart", "Chart") : null,
-      wh ? viewTab("plan", "Plan") : null),
+      extra.includes("plan") ? viewTab("plan", "Plan") : null, extra.includes("profile") ? viewTab("profile", "Profile") : null),
       h("span", { class: `sql-pill ${pill[0]}` }, pill[1]), h("span", { class: "muted-text sql-run-msg" }, tab.error ? "" : msg),
       ex && (st === "running" || st === "queued") ? btn("Stop", "stop", stop, "tool small", { title: "Stop this query. Only its own process ends." }) : null,
       tab.ranNotice && r && !busy ? h("span", { class: "sql-local-note", role: "note" }, tab.ranNotice) : null,
       h("span", { class: "spacer" }),
       x ? h("span", { class: "muted-text sql-export-progress", role: "status" },
-        `Exporting ${x.format.toUpperCase()}: ${x.rows.toLocaleString()} of ${x.total.toLocaleString()} rows`) : null,
+        `Exporting ${x.format === "xlsx" ? "Excel" : x.format.toUpperCase()}: ${x.rows.toLocaleString()} of ${x.total.toLocaleString()} rows`) : null,
       x ? btn("Cancel", null, () => rpc("sql_export_cancel", { export: x.id }).catch(() => {}), "tool small") : null,
       r && (r.has_previous || r.has_next) ? btn("‹ Previous", null, () => goPage(r.offset - r.limit), "tool small",
         { disabled: !r.has_previous || tab.paging, "aria-label": "Previous page" }) : null,
       r && (r.has_previous || r.has_next) ? btn("Next ›", null, () => goPage(r.offset + r.limit), "tool small",
         { disabled: !r.has_next || tab.paging, "aria-label": "Next page" }) : null,
-      btn("Copy", null, copyRows, "tool small", { disabled: !r, title: "Copy the rows on this page" }),
-      exportMenu].filter(Boolean));
-    if (view === "plan") {
+      copyMenu,
+      exportMenu,
+      h("span", { class: "sql-sep", "aria-hidden": "true" }),
+      btn(p.pane === "max" ? "Restore" : "Maximize", null, () => setPane(p.pane === "max" ? null : "max"), "tool small sql-pane-max",
+        { title: p.pane === "max" ? "Show the editor again" : "Give the results the whole page, hiding the editor" }),
+      btn(p.pane === "hidden" ? "Show results" : "Hide results", null, togglePane, "tool small sql-pane-hide",
+        { "aria-keyshortcuts": "Control+R",
+          title: p.pane === "hidden" ? "Show the results pane (Ctrl+R)" : "Hide the results pane and give the editor the room (Ctrl+R)" })].filter(Boolean));
+    applyPane();
+    if (view === "plan" && !wh) {
+      grid.replaceChildren(sqlLocalPlanView(tab.localPlan, { busy: tab.planning, ask: () => localExplain("plan") }));
+    } else if (view === "profile") {
+      grid.replaceChildren(renderQueryProfile({ qprofile: tab.localProfile ||= { data: null, busy: false, error: null, gone: false },
+        fetch: () => localExplain("profile") }));
+    } else if (view === "plan") {
       grid.replaceChildren(tab.planning ? h("p", { class: "muted-text", style: "padding:12px 16px" }, "Asking Fabric for the estimated plan...")
         : sqlPlanView(tab.plan));
     } else if (view === "messages") {
@@ -645,6 +721,20 @@ function renderQuery() {
     }
   }
   sqlPage.redraw = () => { if (here()) drawResults(); };
+  // The results pane: as it is, maximized (the editor hidden) or hidden (the editor gets the room), as
+  // SSMS's Ctrl+R. Kept for the page's tabs until the page is left; a run shows hidden results again.
+  function applyPane() {
+    const card = grid.parentElement;
+    card?.classList.toggle("sql-pane-max", p.pane === "max");
+    card?.classList.toggle("sql-pane-hidden", p.pane === "hidden");
+  }
+  function setPane(pane) {
+    p.pane = pane || null;
+    drawResults();
+    if (p.pane !== "max") editor.focus();
+  }
+  const togglePane = () => setPane(p.pane === "hidden" ? null : "hidden");
+  p.togglePane = () => { if (here()) togglePane(); };
 
   const nextTabName = () => {
     let n = p.tabs.length + 1;
@@ -819,6 +909,30 @@ function renderQuery() {
   }
   // WH-09: Fabric's estimated plan for the query (or the selection), without running it. It has a
   // run of its own, so the tab's results stay as they were.
+  // S39, S40: DuckDB's plan for the query (or the selection) on this PC, without running it, or its profile,
+  // which runs it again under the profiler. One query that reads; its JSON answer comes back as one row.
+  async function localExplain(mode, query = editor.chosen()) {
+    if (!query.trim()) throw new Error("Write a query first, or select one.");
+    if (mode === "plan") { tab.planning = true; drawResults(); }
+    try {
+      let status = await rpc("sql_start", { query, lakehouse_ref: ref, dialect: tab.dialect, [mode === "plan" ? "estimated_plan" : "profile"]: true });
+      for (let wait = 150; ["queued", "running", "cancelling"].includes(status.state); wait = Math.min(1000, wait * 1.5)) {
+        await new Promise((r) => setTimeout(r, wait));
+        status = await rpc("sql_status", { execution: status.id });
+      }
+      if (status.state !== "completed") throw new Error(status.error || `The ${mode} ${status.state.replace("_", " ")}.`);
+      const page = await rpc("sql_page", { execution: status.id, offset: 0 });
+      const data = JSON.parse(String(page.rows?.[0]?.[0] ?? "{}"));
+      if (mode === "plan") tab.localPlan = { ...data, at: new Date() };
+      return data;
+    } catch (err) {
+      if (mode !== "plan") throw err;
+      tab.localPlan = { error: String(err).replace(/^Error: /, "") };
+      return null;
+    } finally {
+      if (mode === "plan") { tab.planning = false; sqlPage.redraw?.(); }
+    }
+  }
   async function estimatedPlan(query = editor.chosen()) {
     if (!query.trim() || tab.planning) return;
     if (!(await warehouseRunOk(ref))) return;
@@ -847,7 +961,7 @@ function renderQuery() {
   }
   function drawActions() {
     if (wh) {
-      actions.replaceChildren(btn("Run", "play", () => run(), "tool primary", { title: "Run the selected text, or the whole query when nothing is selected (F5 or Ctrl+Enter)", "aria-keyshortcuts": "F5 Control+Enter" }),
+      actions.replaceChildren(btn("Run", "play", () => run(), "tool primary", { title: "Run the selected text, or the whole query when nothing is selected (F5 or Ctrl+Enter). Ctrl+Shift+Enter runs only the statement at the cursor.", "aria-keyshortcuts": "F5 Control+Enter Control+Shift+Enter" }),
         btn("Estimated plan", "flowchart", () => estimatedPlan(), "tool outline",
           { title: "How Fabric would run the query (or the selection), without running it. Uses a little capacity." }),
         h("span", { class: "muted-text" }, "F5 or Ctrl+Enter runs it, or select text to run just that"),
@@ -858,7 +972,7 @@ function renderQuery() {
       return;
     }
     const local = runsHere();
-    actions.replaceChildren(btn("Run", "play", () => run(), "tool primary", { disabled: !local, title: "Run the selected text, or the whole query when nothing is selected (F5 or Ctrl+Enter)", "aria-keyshortcuts": "F5 Control+Enter" }),
+    actions.replaceChildren(btn("Run", "play", () => run(), "tool primary", { disabled: !local, title: "Run the selected text, or the whole query when nothing is selected (F5 or Ctrl+Enter). Ctrl+Shift+Enter runs only the statement at the cursor.", "aria-keyshortcuts": "F5 Control+Enter Control+Shift+Enter" }),
       h("span", { class: "muted-text" }, local ? "F5 or Ctrl+Enter runs it, or select text to run just that"
         : `${SQL_DIALECTS[tab.dialect].short} is formatted here, not run`),
       h("span", { class: "sql-sep", "aria-hidden": "true" }),
@@ -1057,6 +1171,7 @@ function renderQuery() {
         : btn("Save query", "save", () => saveQuery(false), "tool", { title: tab.file ? `Save to ${tab.file.name} in ${tab.file.place === "mine" ? "My queries" : tab.file.place_label}` : "Save this tab as a .sql file in My queries or a Git repository" }),
       tab.file && !tab.proj ? btn("Save as new", null, () => saveQuery(true), "tool") : null,
       btn("Open in Fabric", "open", () => openInFabric(fabricLink)),
+      whSsmsButton(ref, () => editor.text()),
       btn("Monitoring", "monitor", () => whMonitorOpen(ref), "tool", { title: "Fabric's workspace monitoring for this warehouse, and its monitoring views (Preview)" }),
       h("span", { class: "spacer" }),
       whChangesSwitch(ref, () => renderQuery()),
@@ -1081,6 +1196,7 @@ function renderQuery() {
           changes: "Nothing, until you tick Allow changes. Then a script that changes the warehouse (DDL, DML, EXEC) runs only after it shows what it changes and you confirm, typing the warehouse's name in Prod; it runs in one transaction, so a failure keeps nothing.",
           results: "A snapshot of the rows on this PC, read a page at a time, with Copy and Export to Downloads. The query text stays on this PC.",
           more: [["Capacity", "The query runs in Fabric, so it uses capacity on the warehouse's workspace."],
+            ["Open in SSMS", "Starts SQL Server Management Studio (or VS Code's MSSQL extension) on this warehouse with its server and database from Fabric. It signs in on its own with Microsoft Entra; the app passes it no password or token. With this query, the editor's text is written to a .sql file in the app's data folder first."],
             ["Your templates", "Saving, importing or deleting a template of your own writes or removes a .sql file in My templates (the app's data folder) or in the sql-templates folder of a Git repository you opened. Export writes a new file in Downloads."],
             ["Saved queries", "Save query writes the tab to a .sql file in My queries (the app's data folder) or in the sql-queries folder of a Git repository you opened; Delete removes that file. Nothing is committed for you."],
             ["Project", "The Project tab reads and writes .sql files in a <warehouse>.Warehouse folder of a Git repository you opened, in Fabric's Git layout. Import from the warehouse and Compare run catalog queries in Fabric. Import writes new files and, only if you tick it, replaces files that differ; Compare writes nothing unless you take the warehouse's version of an object. Nothing is committed and no file is removed. Deploy changes the warehouse: it previews each change and runs only the ones you tick, each as a confirmed change; Test and Prod deploy only committed, pushed files."],
@@ -1118,5 +1234,20 @@ function renderQuery() {
 // The query tabs' own key, listed in the Keyboard shortcuts dialog while the SQL page is open (sqlTab above).
 registerShortcuts("SQL query", [
   { keys: ["F5", "Ctrl+Enter"], label: "Run the selected text, or the whole query when nothing is selected", when: () => state.view === "query" },
+  { keys: ["Ctrl+Shift+Enter"], label: "Run only the statement the cursor is in (or the selected text)", when: () => state.view === "query" },
+  { keys: ["Ctrl+R"], label: "Hide or show the results pane", when: () => state.view === "query" },
+  { keys: ["Ctrl+Shift+U", "Ctrl+Shift+L"], label: "In the editor: make the selection (or the word at the cursor) upper or lower case", when: () => state.view === "query" },
+  { keys: ["Ctrl+G"], label: "In the editor: go to a line", when: () => state.view === "query" },
+  { keys: ["F12"], label: "In the editor: show the table under the cursor (or an alias's or column's table) in the Explorer", when: () => state.view === "query" },
   { keys: ["Delete"], label: "On a query tab: close it (asks first when it has SQL of its own)", when: () => !!document.querySelector(".sql-tabs") },
 ]);
+
+// Ctrl+R on the SQL page hides or shows the results pane wherever focus is (the editor handles it itself
+// first), and never reloads the window, which would lose open work.
+document.addEventListener("keydown", (e) => {
+  if (state.view !== "query" || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "r") return;
+  const handled = e.defaultPrevented;
+  e.preventDefault();
+  if (handled || document.getElementById("dialog-root")?.childElementCount || document.getElementById("palette")) return;
+  sqlPage.togglePane?.();
+});

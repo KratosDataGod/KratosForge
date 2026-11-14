@@ -83,7 +83,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [notebook-editor/find-and-replace.md](notebook-editor/find-and-replace.md) | Engineers, analysts | Find and replace across every cell of a notebook, with Replace all and undo |
 | [notebook-editor/load-data-items.md](notebook-editor/load-data-items.md) | Engineers, analysts | Drag tables and files into cells; Load with Polars, Spark, SQL or pandas |
 | [notebook-editor/format-code.md](notebook-editor/format-code.md) | Engineers, analysts | Format a cell or the whole notebook: Python with ruff, SQL cells as Format SQL does |
-| [notebook-editor/intellisense.md](notebook-editor/intellisense.md) | Engineers, analysts | Hover docs, signature help and syntax errors in Python cells |
+| [notebook-editor/intellisense.md](notebook-editor/intellisense.md) | Engineers, analysts | Hover docs, signature help, syntax errors, go to definition and rename in Python cells |
 | [notebook-editor/variables.md](notebook-editor/variables.md) | Engineers, analysts | The Variables pane: filter, sort, memory, open data frames and containers |
 | [prove/how-proofs-work.md](prove/how-proofs-work.md) | Engineers, analysts | Proving a notebook: pinned inputs, sandboxed outputs, how results are verified, the scorecard and receipts (Preview) |
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
@@ -243,7 +243,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Learn | Lessons, practice labs on this PC and the best-practice rules, opened from Academy > Practice ([learn.md](learn.md)) |
 | App Studio | Create > Applications: build an app from a template, preview it on sample data on this PC, and keep every version ([app-studio.md](app-studio.md)) |
 
-Two notebook settings are also in Preview: **Run notebooks in their own process**, and the **notebook cell time and memory limits** that need it (both in Settings > Preview features).
+Notebooks run in a process of their own by default (**Run notebooks in their own process**, Settings > Advanced), which the **notebook cell time and memory limits** need.
 
 **Local data projects** (Preview) run on your PC and don't call Fabric. Their tests use real files, DuckDB and Delta tables on every build; there are no screens for them yet ([local-data.md](local-data.md)).
 

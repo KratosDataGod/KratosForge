@@ -13,6 +13,15 @@ ends before it. If the newest line is gone when the next write comes, the old he
 ``head.json`` as ``lost``, so later lines don't hide it. Anyone who can rewrite the folder can
 rewrite this file too (and the whole chain): it catches lines cut off by a tool or by hand, not
 an attacker with write access.
+
+An organization can cap how long a trail is kept (policy ``audit_retention_days``, retention.py).
+``prune()`` then deletes whole month files whose month ended longer ago, oldest first, never the
+newest file. Before it deletes anything it records in ``head.json`` where the trail now starts
+(``base``: the last deleted line's hash, how many lines and through which month), so ``verify()``
+accepts the first remaining line chaining onto it and the line counts still add up. The caller
+writes an audit line saying what goes before calling it. ``base`` has the same limit as the rest
+of ``head.json``: someone who can rewrite the folder can delete old months and write a ``base``
+that matches, so it shows what a prune removed, not that no one else removed anything.
 """
 
 from __future__ import annotations
@@ -21,6 +30,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import re
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -33,6 +43,7 @@ HEAD = "head.json"  # the newest hash and line count, checked by verify()
 CLOCK_NOTE_SECONDS = 5 * 60  # a line this much earlier than the one before it is noted: the clock was set back
 MAX_NOTES = 20
 _TAIL = 64 * 1024  # bytes read from the end of a file at a time, looking for its last line
+_MONTH = re.compile(r"\d{4}-\d{2}")  # audit-YYYY-MM.jsonl
 
 
 def hash_entry(prev: str, entry: dict[str, Any]) -> str:
@@ -151,6 +162,8 @@ def write(folder: Path, entry: dict[str, Any], line: str) -> None:
             new["lost"] = {"hash": head["hash"], "lines": lines}
     if head.get("lost"):  # the first loss stays on record
         new["lost"] = head["lost"]
+    if head.get("base"):  # where a pruned trail starts
+        new["base"] = head["base"]
     jsonfile.write_json(folder / HEAD, new)
 
 
@@ -161,10 +174,72 @@ def append(folder: Path, entry: dict[str, Any]) -> dict[str, Any]:
     return entry
 
 
+def _month(path: Path) -> str:
+    return path.stem[len("audit-"):]
+
+
+def _month_end(month: str) -> float:
+    """The moment the month ``YYYY-MM`` ended (UTC), as a timestamp."""
+    import datetime as dt
+    year, mon = (int(x) for x in month.split("-"))
+    start = dt.datetime(year + mon // 12, mon % 12 + 1, 1, tzinfo=dt.timezone.utc)
+    return start.timestamp()
+
+
+def prunable(folder: Path, days: int, now: float | None = None) -> list[Path]:
+    """The month files ``prune`` would delete: oldest first, every month that ended more than ``days``
+    days ago, never the newest file. None when ``days`` is 0 or less (the trail is kept)."""
+    if days <= 0:
+        return []
+    cutoff = (now if now is not None else time.time()) - days * 86400
+    every = [p for p in files(folder) if _MONTH.fullmatch(_month(p))]
+    return [p for p in every[:-1] if _month_end(_month(p)) <= cutoff]
+
+
+def prune(folder: Path, days: int, now: float | None = None) -> dict[str, Any]:
+    """Delete the month files ``prunable`` names, under the chain's lock: ``head.json`` first records
+    where the trail now starts, then the files go, oldest first. A prune stopped part way is finished
+    by the next one (the head already says where the trail starts). Returns what went."""
+    folder = Path(folder)
+    with locked(folder):
+        old = prunable(folder, days, now)
+        if not old:
+            return {"files": [], "lines": 0}
+        head = _head(folder)
+        base: dict[str, Any] = head["base"] if isinstance(head.get("base"), dict) else {}
+        done = str(base.get("through") or "")  # a prune stopped part way already counted these months
+        lines = sum(1 for p in old if _month(p) > done
+                    for line in p.read_text(encoding="utf-8").splitlines() if line.strip())
+        last = _last_line(old[-1])
+        try:
+            last_hash = str(json.loads(last)["hash"])
+        except (ValueError, KeyError, TypeError):  # a damaged last line: verify() reports the break that follows
+            last_hash = ""
+        new = dict(head)
+        new["base"] = {"hash": last_hash, "through": _month(old[-1]),
+                       "lines": int(base.get("lines") or 0) + lines}
+        if isinstance(head.get("lines"), int):
+            new["lines"] = max(0, head["lines"] - lines)
+        lost = head.get("lost")
+        if isinstance(lost, dict) and isinstance(lost.get("lines"), int):
+            if lost["lines"] > lines:
+                new["lost"] = {**lost, "lines": lost["lines"] - lines}
+            else:  # lines lost before the cut: they were in the history deleted now
+                new.pop("lost", None)
+        jsonfile.write_json(folder / HEAD, new)
+        for path in old:
+            path.unlink(missing_ok=True)
+    return {"files": [p.name for p in old], "lines": lines, "through": _month(old[-1])}
+
+
+
 def verify(folder: Path) -> dict[str, Any]:
-    """Walks the chain: every line's hash must match its content and the line before it."""
+    """Walks the chain: every line's hash must match its content and the line before it. After a
+    prune, the first line may chain onto the last deleted line (``head.json`` ``base``)."""
     prev, count, problems = GENESIS, 0, []
     notes: list[str] = []
+    head = _head(folder)
+    base: dict[str, Any] = head["base"] if isinstance(head.get("base"), dict) else {}
     seen: dict[int, str] = {}  # line number across the trail -> its hash
     last_at: dt.datetime | None = None
     for path in files(folder):
@@ -178,6 +253,8 @@ def verify(folder: Path) -> dict[str, Any]:
             except (ValueError, KeyError, AttributeError, TypeError):  # TypeError: a JSON array
                 problems.append(f"{path.name} line {number}: not an audit line")
                 continue
+            if count == 1 and base.get("hash") and entry.get("prev") == base["hash"]:
+                prev = base["hash"]  # the trail starts after a prune
             if entry.get("prev") != prev:
                 problems.append(f"{path.name} line {number}: a line before it is missing or changed")
             if hash_entry(entry.get("prev", ""), entry) != stored:
@@ -190,7 +267,6 @@ def verify(folder: Path) -> dict[str, Any]:
                 notes.append(f"{path.name} line {number}: its time is {_span(last_at - at)} earlier than the line "
                              "before it, so this PC's clock was changed (the chain itself is intact)")
             last_at = at if at is not None and (last_at is None or at > last_at) else last_at
-    head = _head(folder)
     for name, mark in (("newest line recorded", head), ("line recorded before lines went missing", head.get("lost") or {})):
         lines, want = mark.get("lines"), mark.get("hash")
         if want and isinstance(lines, int) and seen.get(lines) != want:
@@ -198,6 +274,8 @@ def verify(folder: Path) -> dict[str, Any]:
     result: dict[str, Any] = {"lines": count, "ok": not problems, "problems": problems}
     if notes:  # only when the clock went back: the usual result keeps its shape
         result["notes"] = notes
+    if base.get("through"):
+        result["pruned"] = {"through": base["through"], "lines": base.get("lines")}
     return result
 
 

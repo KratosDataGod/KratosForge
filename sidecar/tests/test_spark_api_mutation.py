@@ -44,8 +44,18 @@ def test_each_method_has_the_state_and_reason_it_has_on_this_pc():
     assert state[("DataFrame", "toJSON")] == ("works", "")
     assert state[("DataFrame", "isStreaming")] == ("works", "")  # this PC's streaming adds it
     assert state[("SparkSession", "readStream")] == ("works", "")
-    assert state[("DataFrame", "freqItems")] == ("missing", "")  # DuckDB raises ContributionsAcceptedError
+    assert state[("DataFrame", "freqItems")] == ("works", "")  # spark_df_more.py (DuckDB raises ContributionsAcceptedError)
     assert len(state) == len(spark_api.PYSPARK_DATAFRAME) + len(spark_api.PYSPARK_SESSION)
+
+
+def test_a_method_duckdb_refuses_is_counted_as_not_yet(monkeypatch):
+    from duckdb.experimental.spark.sql.dataframe import DataFrame
+    monkeypatch.setattr(DataFrame, "freqItems", lambda self, *a: _refused(), raising=False)
+    monkeypatch.setattr(spark_api, "_not_implemented", lambda attr, error: getattr(attr, "__name__", "") == "<lambda>")
+    import fabric_desktop.spark_df_more as more
+    monkeypatch.setattr(more, "install", lambda: None)  # keep the refusing stand-in in place
+    state = {(r["area"], r["name"]): r["state"] for r in spark_api.coverage()}
+    assert state[("DataFrame", "freqItems")] == "missing"
 
 
 def test_the_coverage_tables_count_and_label_each_method():
@@ -58,7 +68,8 @@ def test_the_coverage_tables_count_and_label_each_method():
     assert "| `rdd` | Runs in Fabric: RDDs run in Fabric |" in lines
     assert "| `cache` | Accepted, does nothing on one PC |" in lines
     assert "| `toJSON` | Works |" in lines
-    assert "| `freqItems` | Not yet on this PC |" in lines
+    assert "| `freqItems` | Works |" in lines
+    assert "Not yet on this PC" not in "\n".join(lines)  # every PySpark 3.5 DataFrame method is placed
 
 
 def _refused():

@@ -743,16 +743,30 @@ def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str, schema_m
     from . import delta_profile
 
     def write(uri: str, data: pa.Table, how: str = "overwrite", schema: str | None = "auto",
-              where: str | None = None) -> DeltaTable:
+              where: str | None = None, partition_by: list[str] | None = None) -> DeltaTable:
         target = delta_profile.open_target(uri, proof.options())
         if target is not None and resolve_schema_mode(how, schema) != "overwrite":
             refuse_conversions(data.schema, target, f"{ref.schema}.{ref.table}")
-        extra = {"predicate": where} if where is not None and target is not None else {}
+        extra: dict[str, Any] = {"predicate": where} if where is not None and target is not None else {}
+        if partition_by and target is None:
+            extra["partition_by"] = partition_by
         write_deltalake(uri, data, mode=how, storage_options=proof.options(),  # type: ignore[call-overload]  # how is a checked str
                         schema_mode=resolve_schema_mode(how, schema), **extra)
         table = DeltaTable(uri, storage_options=proof.options())
         delta_profile.note_after_write(table)
         return table
-    uri = proof.write_location(ref.schema, ref.table, mode, write)
+
+    # A dynamic partition overwrite starts from the pinned table, partitioned as it is, so the copy keeps the
+    # partitions it doesn't write and a later dynamic overwrite in the same proof still finds them.
+    parts: list[str] = []
+    if predicate is not None:
+        try:
+            parts = list(_open_table(f"{ref.schema}.{ref.table}", record=False).metadata().partition_columns)
+        except TableNotFoundError:
+            parts = []
+
+    def seed(uri: str, data: pa.Table) -> DeltaTable:
+        return write(uri, data, partition_by=parts)
+    uri = proof.write_location(ref.schema, ref.table, mode, seed, **({"keeps_rows": True} if predicate is not None else {}))
     table = write(uri, arrow, mode, schema_mode, predicate)
     return WriteResult(f"{ref.schema}.{ref.table}", arrow.num_rows, table.version(), uri)

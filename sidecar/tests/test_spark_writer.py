@@ -69,6 +69,29 @@ def test_dynamic_partition_overwrite_replaces_only_the_partitions_written(lake, 
     assert DeltaTable(str(lake / "dbo" / "parts")).version() == version + 1
 
 
+def test_in_a_proof_a_dynamic_overwrite_keeps_the_other_partitions_of_the_proofs_copy(lake, tmp_path, monkeypatch):
+    """The proof's copy starts from the pinned version, so it ends as the real write would leave the table."""
+    from fabric_desktop.proof_runtime import ProofRuntime
+    _partitioned(lake)
+    version = DeltaTable(str(lake / "dbo" / "parts")).version()
+    rt = ProofRuntime({"id": "d1", "pins": {"dbo.parts": version}}, "pc").bind(tmp_path)
+    monkeypatch.setattr(lakehouse, "proof", rt)
+    monkeypatch.setattr(lakehouse, "proof_exempt_thread", None)
+    try:
+        status, text = run("df.write.option('partitionOverwriteMode', 'dynamic').mode('overwrite').saveAsTable('dbo.parts')\n"
+                           # A second one replaces US in the proof's copy, which kept the table's partitioning.
+                           "spark.createDataFrame([(8, 'US')], ['id', 'region']).write"
+                           ".option('partitionOverwriteMode', 'dynamic').mode('overwrite').saveAsTable('dbo.parts')")
+    finally:
+        rt.restore()
+    assert status == "ok", text
+    assert DeltaTable(str(lake / "dbo" / "parts")).version() == version  # the shared table is untouched
+    copy = DeltaTable(rt.sandbox_table("dbo.parts")).to_pyarrow_table().to_pylist()
+    assert sorted(copy, key=lambda r: r["id"]) == [{"id": 3, "region": None}, {"id": 8, "region": "US"},
+                                                   {"id": 9, "region": "EU"}]
+    assert DeltaTable(rt.sandbox_table("dbo.parts")).metadata().partition_columns == ["region"]
+
+
 def test_dynamic_overwrite_of_a_null_partition_and_with_insert_into(lake):
     _partitioned(lake)
     status, text = run("spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'dynamic')\n"

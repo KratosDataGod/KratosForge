@@ -161,6 +161,12 @@ def _partitions_predicate(data: pa.Table, columns: list[str]) -> str | None:
 
     def term(column: str, value: Any) -> str:
         return f"{quoted[column]} IS NULL" if value is None else f"{quoted[column]} = {_sql_literal(value)}"
+    if len(columns) == 1:  # one IN list, which delta-rs checks far faster than many ORs
+        col, values = quoted[columns[0]], [row[have[0]] for row in seen]
+        terms = [f"{col} IN ({', '.join(_sql_literal(v) for v in values if v is not None)})"] \
+            if any(v is not None for v in values) else []
+        terms += [f"{col} IS NULL"] if any(v is None for v in values) else []
+        return " OR ".join(terms)
     return " OR ".join("(" + " AND ".join(term(c, row[h]) for c, h in zip(columns, have, strict=True)) + ")"
                        for row in seen)
 

@@ -36,7 +36,7 @@ const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs")
 // axe covers dialogs: whmonitor.js:whMonitorBuild, xray.js:stagingDialog, optimize.js:optimizeCreateFlow, meta.js:moveSourcesToPlatform
 // axe covers dialogs: dataops.js:quarantinePanel, fabricstep.js:insertVOrderCell, governance.js:governancePolicy, mesh.js:keysPlatformCard
 // axe covers dialogs: platform.js:platformGlossaryTab, platform.js:requestTable, shortcuts.js:renderShortcuts
-// axe covers dialogs: whproject.js:whProjectDeploy, whproject.js:whProjectImport
+// axe covers dialogs: whproject.js:whProjectDeploy, whproject.js:whProjectImport, whssms.js:ssmsNotFound
 
 // "dialog: mode: finding" at 200% or in a contrast theme that needs more than a small fix (docs/ux/accessibility-zoom-contrast.md).
 const KNOWN_ZOOM_CONTRAST = new Set([]);
@@ -383,6 +383,9 @@ const CASES = [
     sqlWarehouseOk.add(sqlRefKey(ref));
     sqlPage.catalog = { key: sqlRefKey(ref), state: "done", objects: [], cols: {} };
     whProjectImport(ref, { repo: "C:/repos/wh", folder: "WH_Sales" }, () => {}); }],
+  ["whssms.js:ssmsNotFound", "SSMS isn't on this PC", () => {
+    ssmsNotFound({ kind: "warehouse", workspace_id: "w1", item_id: "wh1", name: "WH_Sales" },
+      { server: "abc123.datawarehouse.fabric.microsoft.com", database: "WH_Sales", user: "chris@contoso.com" }); }],
   ["profile.js:editProfileIdentity", "Edit profile", async () => { profilePage.data = await rpc("profile_get", {}); editProfileIdentity(); }],
 ];
 

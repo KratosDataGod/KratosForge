@@ -1090,6 +1090,8 @@ class Kernel:
             with contextlib.suppress(Exception):
                 from . import spark_local
                 spark_local.watch_connections(ident, None)
+                if status == "cancelled":
+                    spark_local.release_cancelled()
             self._local.run = None
             if restart and run.guest:
                 self._guests.pop(run.guest, None)  # a guest restarts only its own variables
@@ -2547,6 +2549,29 @@ def _attachments_used(attachments: Any, source: str) -> dict[str, Any] | None:
     return used or None
 
 
+ATTACHMENT_IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml")
+ATTACHMENT_IMAGE_MAX = 10 * 1024 * 1024  # base64 characters for one image, as the app's renderer allows
+
+
+def _attachment_images(attachments: Any, source: str) -> dict[str, dict[str, str]] | None:
+    """The images pasted into a Markdown cell (its ``attachments``) that its source shows, for the app
+    to draw: one image type each, base64 as text, each under ATTACHMENT_IMAGE_MAX. Saving never writes
+    these back; merge_saved keeps the file's own attachments."""
+    used = _attachments_used(attachments, source) or {}
+    out: dict[str, dict[str, str]] = {}
+    for name, bundle in used.items():
+        if not isinstance(name, str) or not isinstance(bundle, dict):
+            continue
+        for mime in ATTACHMENT_IMAGE_TYPES:
+            data = bundle.get(mime)
+            if isinstance(data, list):
+                data = "".join(x for x in data if isinstance(x, str))
+            if isinstance(data, str) and data and len(data) <= ATTACHMENT_IMAGE_MAX:
+                out[name] = {mime: data}
+                break
+    return out or None
+
+
 def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
     """``new`` (from to_ipynb) with what Fabric Desktop doesn't own carried over from the notebook
     as it was on disk: notebook-level keys (its kernel and language among them), other tools'
@@ -2712,6 +2737,10 @@ def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
         meta = _cell_meta(c.get("metadata") or {})
         if meta:
             cell["meta"] = meta
+        if cell["type"] == "markdown":
+            images = _attachment_images(c.get("attachments"), cell["source"])
+            if images:
+                cell["attachments"] = images
         cells.append(cell)
     # Notebooks saved before cells had ids (or by tools that don't write them) get ids here, the
     # same on every load until the next save writes them.

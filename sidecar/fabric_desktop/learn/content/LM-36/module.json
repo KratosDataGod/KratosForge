@@ -1,0 +1,69 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-36",
+  "kind": "module",
+  "title": "Enterprise notebook templates",
+  "path": "enterprise-architecture",
+  "level": "intermediate",
+  "minutes": 20,
+  "objectives": [
+    "Build Silver tables, Gold dimensions and facts from the enterprise templates",
+    "Fill in only the Parameters cell, so the notebook stays supportable",
+    "Declare a fact's grain and keep degenerate and descriptive fields out of it",
+    "Check a notebook and hand it over to the enterprise, or keep it as domain-owned work"
+  ],
+  "prerequisites": [
+    "LM-30"
+  ],
+  "platforms": [
+    "Microsoft Fabric",
+    "Databricks",
+    "Snowflake"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "fact-as-of",
+      "prompt": "Fix the fact query. Keep only the keys and measures (order_sk, customer_sk, amount, net_amount), take the customer version that was valid on the order date, and send an order whose customer isn't in the dimension to the Unknown member (-1). Order by order_sk.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "order_id and status describe the order: they belong in dim_order, and the fact keeps order_sk.",
+        "A Type 2 version is valid when valid_from <= order_date < valid_to. The current version is the wrong one for an order placed before the change.",
+        "Use a LEFT JOIN and COALESCE(c.customer_sk, -1), and leave the Unknown member out of the join so it is only ever the fallback."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "order_sk",
+          "customer_sk",
+          "amount",
+          "net_amount"
+        ],
+        "rows": [
+          [1, 1, 50.0, 45.0],
+          [2, 4, 20.0, 20.0],
+          [3, -1, 10.0, 10.0]
+        ]
+      }
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "notebook-templates.md"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-05"
+}

@@ -26,7 +26,7 @@ class _Conf:
 def test_a_conf_that_cant_answer_has_nothing_set(error):
     session = SimpleNamespace(conf=_Conf(error))
     assert sl._refuse_dynamic_overwrite(session) is None
-    assert sl._refuse_auto_merge(session) is None
+    assert sl._auto_merge_on(session) is False
 
 
 def test_a_schema_mismatch_says_how_to_change_the_schema(monkeypatch):
@@ -96,8 +96,7 @@ def builder(monkeypatch):
 def test_merge_builder_refusals(builder):
     with pytest.raises(ValueError, match="whenNotMatchedBySourceUpdate needs the columns to set"):
         builder.whenNotMatchedBySourceUpdate(set={})
-    with pytest.raises(NotImplementedError, match="MERGE with schema evolution runs in Fabric"):
-        builder.withSchemaEvolution()
+    assert builder.withSchemaEvolution() is builder and builder._evolve
     with pytest.raises(ValueError, match="has no whenMatched or whenNotMatched clause"):
         builder.execute()
     builder.whenNotMatchedBySourceUpdate("t.active", {"active": "false"}).whenNotMatchedBySourceDelete()

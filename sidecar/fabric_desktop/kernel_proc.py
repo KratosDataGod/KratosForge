@@ -117,6 +117,16 @@ class KernelGone(RuntimeError):
     """The kernel's process ended or stopped answering."""
 
 
+def _attached_schemas() -> bool:
+    """Whether the attached lakehouse uses schemas, asked by the kernel only when a cell reads or
+    writes a table: finding out asks Fabric, which a cell that never touches OneLake shouldn't need
+    (offline, or signed out), as in the engine's own kernel."""
+    a = lakehouse._attached
+    if a is None:
+        raise RuntimeError("No lakehouse is attached. Use Add data items to attach one.")
+    return bool(a.schemas_enabled())
+
+
 class ProcessKernel:
     def __init__(self, token: Callable[[str], str] | None = None,
                  load_notebook: Callable[[str], list[dict[str, Any]]] | None = None,
@@ -129,6 +139,7 @@ class ProcessKernel:
             "variable_libraries": variable_libraries or (lambda name: None),
             "write_guard": self._write_refusal,
             "proof_options": lambda: (self._proof_options or (lambda: {}))(),
+            "schemas_enabled": _attached_schemas,
         }
         self._proof_options = proof_options
         self.command = command or [sys.executable, "-m", "fabric_desktop.kernel_host"]
@@ -408,7 +419,7 @@ class ProcessKernel:
         context = None if a is None else {
             "workspace_id": a.workspace_id, "lakehouse_id": a.lakehouse_id, "name": a.name,
             "workspace_name": a.workspace_name, "work_dir": str(a.work_dir),
-            "history_file": str(a.history_file) if a.history_file else None, "schemas_enabled": bool(a.schemas_enabled())}
+            "history_file": str(a.history_file) if a.history_file else None}  # schemas: asked when a cell needs it
         key = (json.dumps(context, sort_keys=True), guard)
         if key != self._attached:
             self._request("attach", context=context, guard=guard)

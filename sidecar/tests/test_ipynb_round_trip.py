@@ -120,6 +120,25 @@ def test_a_pasted_image_stays_while_the_markdown_still_shows_it(tmp_path):
     assert "attachments" not in json.loads(_save(store, nb))["cells"][0]
 
 
+def test_a_markdown_cell_brings_the_pictures_its_source_shows(tmp_path):
+    """The app draws pasted images (#2579): one picture type each, only those the source names."""
+    store, nb, raw = _open(tmp_path, "jupyter_4_4")
+    image = json.loads(raw)["cells"][0]["attachments"]
+    assert nb["cells"][0]["attachments"] == {k: {m: v} for k, b in image.items() for m, v in b.items() if m.startswith("image/")}
+    assert all("attachments" not in c for c in nb["cells"][1:])
+
+
+def test_attachment_images_keep_only_pictures_the_source_shows():
+    from fabric_desktop.notebook import ATTACHMENT_IMAGE_MAX, _attachment_images
+    bundles = {"a.png": {"image/png": ["iVBO", "Rw=="], "text/plain": "x"}, "b.html": {"text/html": "<b>x</b>"},
+               "c.svg": {"image/svg+xml": "PHN2Zz4="}, "big.png": {"image/png": "A" * (ATTACHMENT_IMAGE_MAX + 1)},
+               "unused.png": {"image/png": "iVBO"}, 3: {"image/png": "x"}, "odd.png": "not a bundle"}
+    src = "![](attachment:a.png) ![](attachment:b.html) ![](attachment:c.svg) ![](attachment:big.png) ![](attachment:odd.png)"
+    assert _attachment_images(bundles, src) == {"a.png": {"image/png": "iVBORw=="}, "c.svg": {"image/svg+xml": "PHN2Zz4="}}
+    assert _attachment_images(None, src) is None
+    assert _attachment_images({"a.png": {"text/plain": "x"}}, "![](attachment:a.png)") is None
+
+
 def test_an_unchanged_raw_cell_stays_raw(tmp_path):
     store, nb, _raw = _open(tmp_path, "jupyter_4_4")
     nb["cells"][1]["source"] += "\n"

@@ -594,7 +594,7 @@ test("Inspect profiles every row of that cell's result", { skip }, async () => {
   const from = app.calls.length;
   await output(0).getByRole("button", { name: "Inspect" }).click();
   await output(0).getByText("Profile of all 5 rows").waitFor({ timeout: 30000 });
-  assert.deepStrictEqual(sent(from, "notebook_frame_profile"), [{ frame }]);
+  assert.deepStrictEqual(sent(from, "notebook_frame_profile"), [{ frame, notebook: "Profile test" }]);
   const stats = await output(0).locator(".inspect-col").evaluateAll((cols) => cols.map((c) => ({
     name: c.querySelector(".inspect-name").firstChild.textContent,
     stats: Object.fromEntries([...c.querySelectorAll("dt")].map((dt) => [dt.textContent, dt.nextElementSibling.textContent])) })));
@@ -611,11 +611,11 @@ test("Inspect profiles every row of that cell's result", { skip }, async () => {
 // The real engine after a kernel restart: the result is no longer held, so Inspect says to run the cell again.
 test("Inspect after the kernel restarted keeps the preview's summary and says to run the cell again", { skip }, async () => {
   const frame = await runForTable(1);
-  await page().evaluate(() => rpc("restart_kernel"));
+  await page().evaluate(() => rpc("restart_kernel", { notebook: state.notebook.name }));  // as the toolbar does
   const from = app.calls.length;
   await output(1).getByRole("button", { name: "Inspect" }).click();
   await output(1).getByText("Summary of 3 rows. Run the cell again to profile every row.").waitFor({ timeout: 30000 });
-  assert.deepStrictEqual(sent(from, "notebook_frame_profile"), [{ frame }]);
+  assert.deepStrictEqual(sent(from, "notebook_frame_profile"), [{ frame, notebook: "Profile test" }]);
   assert.strictEqual(await output(1).locator(".inspect-col .inspect-name").first().evaluate((n) => n.firstChild.textContent), "n");
   assert.deepStrictEqual(writes(from), []);
   await noSerious(await outSel(1));
@@ -634,7 +634,7 @@ test("Inspect when the kernel doesn't answer says why under the summary", { skip
   await output(0).getByRole("button", { name: "Inspect" }).click();
   const more = output(0).locator(".more", { hasText: "Could not profile every row" });
   await more.waitFor();
-  assert.deepStrictEqual(sent(from, "notebook_frame_profile"), [{ frame }]);
+  assert.deepStrictEqual(sent(from, "notebook_frame_profile"), [{ frame, notebook: "Profile test" }]);
   assert.match(await more.textContent(), /^Summary of 5 rows\. Could not profile every row: .*The notebook's Python process isn't answering\. Stop it to start a fresh one; variables will be cleared\.$/);
   assert.ok(await output(0).locator(".inspect-col").first().isVisible(), "the preview's summary stays");
   assert.deepStrictEqual(writes(from), []);

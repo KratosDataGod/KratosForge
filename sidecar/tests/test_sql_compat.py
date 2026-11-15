@@ -190,3 +190,11 @@ def test_checking_isnt_audited_and_an_export_is_audited_without_the_sql():
     assert audit.audited("sql_compat_export")
     assert audit.target({"query": "SELECT secret FROM t", "target": "spark", "name": "Q"}) == {
         "query": "(given)", "target": "spark", "name": "Q"}
+
+
+@pytest.mark.parametrize("target", sorted(PROFILES))
+def test_the_not_checked_message_names_the_target_once(target):
+    # "couldn't be read as {target} SQL" read "Spark SQL SQL" and "the SQL analytics endpoint SQL"
+    msg = next(d["message"] for d in analyze("SELECT FROM WHERE", target)["diagnostics"] if d["rule"] == "SYN-007")
+    assert msg.startswith(f"This statement couldn't be read for {PROFILES[target]['short']}, ")
+    assert "SQL SQL" not in msg and "endpoint SQL" not in msg and "database SQL" not in msg

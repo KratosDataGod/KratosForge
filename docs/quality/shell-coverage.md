@@ -9,9 +9,9 @@ cd app/src-tauri
 cargo llvm-cov --locked --summary-only
 ```
 
-- Tool: cargo-llvm-cov 0.6, with the `llvm-tools-preview` component of the pinned Rust release (1.99.1).
+- Tool: cargo-llvm-cov 0.9.1, with the `llvm-tools-preview` component of the pinned Rust release (1.99.1).
 - Date: 2026-11-15, on Linux (x86_64).
-- **Linux only.** Code behind `#[cfg(windows)]` isn't compiled on Linux, so it is neither counted nor covered here. That includes Authenticode in `signature.rs`, the permission reads in `policy_trust.rs`, the Windows proxy lookup in `win_proxy.rs`, and the window and process code in `main.rs`. The shell job in CI runs the same tests on Windows (`cargo test --release`), but doesn't measure coverage there yet.
+- **Linux only.** Code behind `#[cfg(windows)]` isn't compiled on Linux, so it is neither counted nor covered here. That includes Authenticode in `signature.rs`, the permission reads in `policy_trust.rs`, the Windows proxy lookup in `win_proxy.rs`, and the window and process code in `main.rs`. The shell job in CI runs the same tests on Windows (`cargo test --release`) on every pull request. Windows coverage is measured separately, below.
 - "Before" is main at the time; "after" adds the tests in this change.
 
 ## Line coverage by file
@@ -51,7 +51,10 @@ A file's line count grows with its own tests, since the tests sit in the same fi
 - **`watch_sidecar_log`** waits 30 seconds before its first check, so no unit test runs it. The trimming it calls is tested directly.
 - **`update_guard.rs`'s remaining lines** are the message for a swap whose rollback also fails, and the 250 ms retry loop on a locked file. The rename can't be made to fail at that point without changing the code to take the rename as a parameter, as `restore_with` already does.
 
+## Windows
+
+The Shell coverage (Windows) workflow (`.github/workflows/shell-coverage.yml`) runs the same tests with cargo-llvm-cov on the Windows runner, so the `#[cfg(windows)]` code is counted too. It runs once a day and by hand (Actions, then Run workflow), never on a pull request, so it doesn't hold Windows runners that pull request CI needs. Each run puts the per-file table in its summary, and keeps the table and an `lcov.info` file as the `shell-coverage-windows` artifact for 30 days. Like the numbers above, it's advisory: nothing fails on them.
+
 ## Next
 
-- Measure on Windows too, so the `#[cfg(windows)]` code is counted. That would be cargo-llvm-cov in an advisory workflow (by hand or nightly, not on every pull request), since the shell job's release build would need a second, instrumented build.
 - Split the testable rules out of `main.rs`'s startup and engine handling, in their own pull requests, then test them.

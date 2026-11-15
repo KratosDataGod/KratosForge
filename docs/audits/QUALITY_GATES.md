@@ -13,7 +13,7 @@ This page lists the automated checks every change passes, what each one enforces
 | `vscode-extension` | Build and tests of the VS Code extension | Yes |
 | `audit` | `pip-audit` on `constraints.txt`, `engine-requirements.txt` and the Databricks Connect locks; `npm audit` on the UI vendor and VS Code lock files (high and critical fail); `cargo audit` on `Cargo.lock`. The CI tools' own advisories are informational only | Yes |
 | `secrets` | detect-secrets, through `.github/scripts/secret_scan.py`, on a pull request's changed files (every tracked file on main). A finding that `.secrets.baseline` doesn't list as reviewed fails | Yes |
-| `engine`, `shell` | Windows build of the engine zip and the exe; Rust tests (`cargo test --release --locked`) | Yes |
+| `engine`, `shell` | Windows build of the engine zip and the exe; Rust tests (`cargo test --release --locked`). Line coverage of the Rust tests is measured daily on Windows (`shell-coverage.yml`), advisory only ([shell coverage](../quality/shell-coverage.md)) | Yes |
 | `sbom-app`, `release` | SBOMs, provenance attestations, and the Preview publish (main only) | Main only |
 | `docs.yml` | `zensical build --strict`, which fails on broken links | Yes |
 

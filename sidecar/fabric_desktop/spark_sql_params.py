@@ -47,7 +47,10 @@ def literal(value: Any, where: str) -> str:
             raise ValueError(f"{where}: {value} isn't a value Spark's DECIMAL holds.")
         return f"{value}BD"
     if isinstance(value, dt.datetime):
-        return f"TIMESTAMP '{value.isoformat(sep=' ')}'"
+        # An instant: a zone-aware value keeps its offset; a naive one is read as UTC, the zone of
+        # Fabric's and Databricks' Spark drivers (PySpark reads it in the driver's local zone, not this PC's).
+        moment = value if value.tzinfo is not None else value.replace(tzinfo=dt.timezone.utc)
+        return f"TIMESTAMP '{moment.isoformat(sep=' ')}'"
     if isinstance(value, dt.date):
         return f"DATE '{value.isoformat()}'"
     if isinstance(value, str):
@@ -139,3 +142,64 @@ def format_query(query: str, kwargs: dict[str, Any], register_view: Callable[[An
         return value
 
     return _Formatter().format(query, **kwargs)
+
+
+_LEGACY = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def bind_widgets(query: str, widgets: Any) -> str:
+    """A Databricks SQL cell's widget references filled from ``widgets`` (dbutils.widgets), as a
+    Databricks notebook fills them: ``:name`` binds the widget's value as a string literal,
+    ``getArgument('name'[, 'default'])`` is that value as a string, and ``${name}`` is replaced by the
+    value as written (Databricks' older text substitution, inside strings too). A ``${name}`` that
+    isn't a widget is left as it is; a ``:name`` or getArgument of a widget that doesn't exist stops
+    with the widget's own message."""
+    if widgets is None:
+        return query
+    known = {*getattr(widgets, "defined", {}), *getattr(widgets, "passed", {})}
+    query = _LEGACY.sub(lambda m: widgets.get(m[1]) if m[1] in known else m[0], query)
+    query = _get_argument(query, widgets)
+    named = [n for _, _, n in _markers(query) if n != "?"]
+    if not named:
+        return query
+    return bind(query, {n: _widget(widgets, n) for n in named})
+
+
+def _widget(widgets: Any, name: str) -> str:
+    try:
+        return str(widgets.get(name))
+    except Exception as exc:  # noqa: BLE001  # silent-ok: re-raised as the cell's ValueError
+        raise ValueError(f"The SQL uses :{name}. {exc}") from None
+
+
+def _get_argument(query: str, widgets: Any) -> str:
+    """getArgument('name') and getArgument('name', 'default') calls, as string literals."""
+    import sqlglot
+    from sqlglot.tokens import TokenType
+    if "getargument" not in query.lower():
+        return query
+    try:
+        tokens = sqlglot.tokenize(query, read="spark")
+    except Exception:  # noqa: BLE001  # silent-ok: unreadable SQL goes on to the engine, which says why
+        return query
+    pieces = []
+    for i, tok in enumerate(tokens):
+        if tok.text.lower() != "getargument" or i + 3 >= len(tokens) or tokens[i + 1].token_type != TokenType.L_PAREN:
+            continue
+        name = tokens[i + 2]
+        if name.token_type != TokenType.STRING:
+            continue
+        default = None
+        end = tokens[i + 3]
+        if end.token_type == TokenType.COMMA and i + 5 < len(tokens) and tokens[i + 4].token_type == TokenType.STRING:
+            default, end = tokens[i + 4].text, tokens[i + 5]
+        if end.token_type != TokenType.R_PAREN:
+            continue
+        value = widgets.getArgument(name.text, default)
+        if value is None:
+            raise ValueError(f"The SQL uses getArgument('{name.text}'), and there's no widget named {name.text}. "
+                             f"Create it first, for example dbutils.widgets.text({name.text!r}, \"\").")
+        pieces.append((tok.start, end.end, literal(value, f"getArgument('{name.text}')")))
+    for first, last, text in reversed(pieces):
+        query = query[:first] + text + query[last + 1:]
+    return query

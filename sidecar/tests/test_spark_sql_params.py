@@ -96,3 +96,17 @@ def test_a_qualified_column_kwarg_is_its_name_however_duckdb_writes_it(text, nam
     written = spark_sql_params.format_query("SELECT {c}", {"c": Col()}, lambda df, view: None,
                                             lambda v: False, lambda v: isinstance(v, Col))
     assert written == f"SELECT `{name}`"
+
+
+def test_a_datetime_is_an_instant_shown_in_the_session_zone(spark):
+    """As Apache Spark 3.5.5 with its driver in UTC (Fabric's and Databricks'): an aware value keeps
+    its instant, a naive one is read as UTC, and both show in spark.sql.session.timeZone."""
+    aware = dt.datetime(2026, 1, 2, 3, 4, 5, tzinfo=dt.timezone(dt.timedelta(hours=5)))
+    naive = aware.replace(tzinfo=None)
+    query = "SELECT date_format(:a, 'yyyy-MM-dd HH:mm:ss') AS a, date_format(:n, 'yyyy-MM-dd HH:mm:ss') AS n"
+    assert one(spark, query, {"a": aware, "n": naive}) == {"a": "2026-01-01 22:04:05", "n": "2026-01-02 03:04:05"}
+    spark.conf.set("spark.sql.session.timeZone", "America/New_York")
+    try:
+        assert one(spark, query, {"a": aware, "n": naive}) == {"a": "2026-01-01 17:04:05", "n": "2026-01-01 22:04:05"}
+    finally:
+        spark.conf.unset("spark.sql.session.timeZone")

@@ -55,7 +55,6 @@ def test_a_decimal_has_at_most_38_digits_and_scale_38():
     assert dv.parse_json("1" * 38 + ".5", False) == "1.111111111111111E37"  # 39 digits: a DOUBLE
 
 
-@pytest.mark.xfail(strict=True, reason="#2662: a decimal past 28 digits is rounded")
 def test_a_decimal_keeps_all_38_digits():
     digits_38 = "1" * 37 + ".5"
     assert dv.parse_json(digits_38, False) == digits_38

@@ -3,10 +3,16 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-14 11:42 UTC, main 2dc0bc43.** Covers the PRs merged from #135 to #2616.
+**Product check of 2026-11-14 23:42 UTC, main 7178e900.** Covers the PRs merged from #135 to #2648.
 
 ## Summary
 
+- Evening check, 2026-11-14: 27 PRs merged after 2dc0bc43. 3 were product data, docs audit or operations PRs, and the
+  other 24 were linked. Notebook Spark on this PC (Preview) gained Python UDFs, mapInPandas and applyInPandas,
+  spark.catalog listings, dynamic partition overwrite, MERGE with schema evolution, OPTIMIZE, VACUUM and RESTORE, and
+  notebookutils.lakehouse.loadTable; notebooks also gained go to definition, find references and rename across cells
+  (PB-103). The SQL editor gained bookmarks (PB-106). Base64 from the app is decoded strictly everywhere (PB-124), and
+  mutation testing batches 11 to 19 landed (PB-101). No item changed status.
 - Morning check, 2026-11-14: 9 PRs merged after af7d786b. 1 was a product data PR, and the other 8 were linked. The
   SQL page shows Plan and Profile for lakehouse queries (Preview), copies results as CSV, JSON or INSERT statements,
   and F12 finds the table under the cursor (PB-106). Notebook templates for Silver and Gold tables landed (PB-103),

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import pathlib
 
 import pytest
 
@@ -301,6 +302,17 @@ def test_a_source_path_on_this_pc_is_refused(proj, tmp_path, path, bad):
     e.spec["source"] = {"landing": path}
     hit = any("only exists on this PC" in p for p in problems(proj, "bronze.orders"))
     assert hit is bad
+
+
+@pytest.mark.parametrize("path, bad", [("/data/x.csv", True), ("\\data\\x.csv", True), ("\\\\server\\share\\x.csv", True),
+                                       ("landing/x.csv", False), ("Files/landing/x.csv", False)])
+@pytest.mark.parametrize("flavour", [pathlib.PurePosixPath, pathlib.PureWindowsPath])
+def test_a_rooted_source_path_is_on_this_pc_on_either_platform(proj, monkeypatch, flavour, path, bad):
+    # On Windows "/data/x.csv" has no drive, so PureWindowsPath doesn't call it absolute; it's still this PC's drive
+    monkeypatch.setattr(P, "Path", flavour)
+    e = proj.entities["bronze.orders"]
+    e.spec["source"] = {"landing": path}
+    assert any("only exists on this PC" in p for p in problems(proj, "bronze.orders")) is bad
 
 
 def test_overwrite_schema_is_true_or_false(proj):

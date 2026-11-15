@@ -295,6 +295,9 @@ def _number_cast(value: _Number, json_text: str, target: str, safe: bool) -> str
     if match is None or value.kind == "double" and "E" in value.text:
         raise _unknown(json_text, target)
     precision, scale = int(match.group(1)), int(match.group(2))
+    if precision > _MAX_DIGITS:  # Spark's own check, before any value is read
+        raise ValueError(f"[DECIMAL_PRECISION_EXCEEDS_MAX_PRECISION] Decimal precision {precision} exceeds max "
+                         f"precision {_MAX_DIGITS}.")
     rounded = Decimal(value.text).quantize(Decimal(1).scaleb(-scale), rounding=ROUND_HALF_UP, context=_EXACT)
     if len(rounded.as_tuple().digits) - max(-int(rounded.as_tuple().exponent), 0) <= precision - scale:
         return format(rounded, "f")

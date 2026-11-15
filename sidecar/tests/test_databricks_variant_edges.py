@@ -55,3 +55,8 @@ def test_a_decimal_of_up_to_38_digits_keeps_every_digit(text):
 
 def test_a_cast_to_a_wide_decimal_rounds_at_its_scale_not_at_28_digits():
     assert get("1234567890123456789012345678901.255", "decimal(38,2)") == "1234567890123456789012345678901.26"
+
+
+def test_a_decimal_wider_than_38_digits_is_refused_as_spark_refuses_it():
+    with pytest.raises(ValueError, match=r"DECIMAL_PRECISION_EXCEEDS_MAX_PRECISION\] Decimal precision 60"):
+        get("1.5", "decimal(60,45)")

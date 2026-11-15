@@ -1133,6 +1133,7 @@ class Kernel:
             with run.onelake.waiting():
                 failed = writes.flush(cancel=cancelled)
         except KeyboardInterrupt:
+            run.interrupted = True
             failed = writes.flush(cancel=True)
             cancelled = True
         for warning in getattr(writes, "warnings", []):
@@ -1157,6 +1158,7 @@ class Kernel:
                 shown = "hidden" if self._hidden(expr, value) else secrets(_preview(value))
                 results.append({"expr": expr, "value": shown, "type": type(value).__name__})
             except KeyboardInterrupt:
+                run.interrupted = True
                 results += [{"expr": e, "skipped": True} for e in watches[i:]]
                 break
             except Exception as exc:  # noqa: BLE001 - shown next to the watch

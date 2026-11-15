@@ -201,14 +201,15 @@ def _sql_text(text: str) -> str:
 def java_double_text(x: str) -> str:
     """DuckDB SQL for Java's Double.toString of the DOUBLE ``x`` (Spark's text for a double): the
     shortest digits, as plain decimals from 0.001 up to 10^7 (with .0 for a whole number), else as
-    d.dddE±n; NaN, Infinity, -0.0."""
+    d.dddE±n; NaN, Infinity, -0.0. Its lambdas are written as DuckDB 2 reads them (lambda x: ...), which
+    DuckDB 1.5 and sqlglot read too, so the SQL also runs as it is (Column.cast)."""
     s = f"CAST(ABS({x}) AS VARCHAR)"
     # DuckDB's shortest digits, in either notation: mantissa digits and the exponent of the first one
     sci = (f"(LIST_TRANSFORM([{{'m': SPLIT_PART({s}, 'e', 1), 'x': COALESCE(TRY_CAST(NULLIF(SPLIT_PART({s}, 'e', 2), '') "
-           f"AS INTEGER), 0)}}], kf_n -> (LIST_TRANSFORM([{{'i': SPLIT_PART(kf_n.m, '.', 1), 'd': SPLIT_PART(kf_n.m, '.', 1) "
-           f"|| SPLIT_PART(kf_n.m, '.', 2), 'x': kf_n.x}}], kf_p -> (LIST_TRANSFORM([{{'g': RTRIM(LTRIM(kf_p.d, '0'), '0'), "
+           f"AS INTEGER), 0)}}], lambda kf_n: (LIST_TRANSFORM([{{'i': SPLIT_PART(kf_n.m, '.', 1), 'd': SPLIT_PART(kf_n.m, '.', 1) "
+           f"|| SPLIT_PART(kf_n.m, '.', 2), 'x': kf_n.x}}], lambda kf_p: (LIST_TRANSFORM([{{'g': RTRIM(LTRIM(kf_p.d, '0'), '0'), "
            f"'e': kf_p.x + LENGTH(kf_p.i) - 1 - (LENGTH(kf_p.d) - LENGTH(LTRIM(kf_p.d, '0')))}}], "
-           f"kf_q -> LEFT(kf_q.g, 1) || '.' || COALESCE(NULLIF(SUBSTR(kf_q.g, 2), ''), '0') || 'E' || kf_q.e))[1]))[1]))[1]")
+           f"lambda kf_q: LEFT(kf_q.g, 1) || '.' || COALESCE(NULLIF(SUBSTR(kf_q.g, 2), ''), '0') || 'E' || kf_q.e))[1]))[1]))[1]")
     plain = f"(CASE WHEN CONTAINS({s}, '.') THEN {s} ELSE {s} || '.0' END)"
     return (f"(CASE WHEN {x} IS NULL THEN NULL WHEN ISNAN({x}) THEN 'NaN' WHEN ISINF({x}) THEN "
             f"CASE WHEN {x} > 0 THEN 'Infinity' ELSE '-Infinity' END "

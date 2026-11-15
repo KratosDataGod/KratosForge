@@ -588,9 +588,23 @@ def isnan(col: Any) -> Column:
     return _sql(f"coalesce(isnan(CAST({_arg(col)} AS DOUBLE)), false)")
 
 
+# DuckDB 1.5 writes a column's lambda back as (lambda x: ...), in parentheses sqlglot doesn't read. Quoted
+# text is matched first and kept, so a string that holds "(lambda x: " is left as it is.
+_PAREN_LAMBDA = re.compile(r"""('(?:[^']|'')*'|"(?:[^"]|"")*")|\(lambda ([A-Za-z_]\w*(?:, [A-Za-z_]\w*)*): """)
+
+
+def _readable(text: str) -> str:
+    """A column's DuckDB SQL as sqlglot reads it: (lambda x: ...) as (x -> ...)."""
+    def arrow(m: re.Match[str]) -> str:
+        if m[1]:
+            return m[1]
+        return f"({m[2]} -> " if "," not in m[2] else f"(({m[2]}) -> "
+    return _PAREN_LAMBDA.sub(arrow, text)
+
+
 def _over_columns(template: exp.Expression, cols: Any) -> Column:
     """A Spark SQL rewrite (fj_arg0, fj_arg1, ... for the columns) written as DuckDB SQL."""
-    args = [cast(exp.Expression, sqlglot.parse_one(_col_sql(c), read="duckdb")) for c in cols]
+    args = [cast(exp.Expression, sqlglot.parse_one(_readable(_col_sql(c)), read="duckdb")) for c in cols]
     return _sql(spark_sql.duckdb_sql(spark_builtins_sql._with_args(template, args)))
 
 
@@ -2205,15 +2219,17 @@ def _int_cast(original: Any) -> Any:
 
 
 def _text_cast(original: Any) -> Any:
-    """Column.cast("string") as Spark writes a timestamp (sql.spark_timestamp_text): no '+00' after it.
-    The column keeps the name DuckDB's cast gives it. Written without lambdas, so functions that read
-    a column's SQL back (conv, format_string) still take it; a double keeps DuckDB's text here."""
+    """Column.cast("string") as Spark writes it (sql.spark_text_cast): a timestamp with no '+00' after
+    it, a double or float as Java writes it ('1.0E20', not '1e+20'). The column keeps the name DuckDB's
+    cast gives it."""
     def cast(self: Column, dataType: Any) -> Column:  # noqa: N803 - PySpark's name
         name = dataType.strip().lower() if isinstance(dataType, str) else type(dataType).__name__
         if name not in ("string", "StringType"):
             return original(self, dataType)
         named = original(self, dataType).expr.get_name()
-        return _sql(spark_sql.spark_timestamp_text(f"({_col_sql(self)})")).alias(named)
+        # The value is bound once (spark_text_cast names it many times), so casts inside casts stay small
+        text = spark_sql.spark_text_cast("kf_text")
+        return _sql(f"(LIST_TRANSFORM([{_col_sql(self)}], lambda kf_text: {text}))[1]").alias(named)
     return cast
 
 

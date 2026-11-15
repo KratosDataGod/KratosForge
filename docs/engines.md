@@ -251,7 +251,7 @@ current by CI.
 
 Translated Spark SQL and Databricks SQL run with the session time zone set to UTC, the default for Spark sessions in Fabric and Databricks, so a timestamp reads the same here as there whatever this PC's time zone. DuckDB SQL cells keep the session's own zone.
 
-Casts to STRING write a timestamp as Spark does, in the session time zone with no offset (`2026-01-02 03:04:05`), and a double or float as Java writes it (`1.0E20`), in Spark SQL, Databricks SQL and `F.expr`. `Column.cast("string")` writes the timestamp the same way; a double there keeps DuckDB's text (`1e+20`). `concat` and `||` with a text literal in them write their other parts the same way (`'at ' || ts` is `at 2026-01-02 03:04:05`); a `concat` of columns alone, which may join arrays, writes a timestamp with DuckDB's `+00`: cast it to STRING first.
+Casts to STRING write a timestamp as Spark does, in the session time zone with no offset (`2026-01-02 03:04:05`), and a double or float as Java writes it (`1.0E20`), in Spark SQL, Databricks SQL and `F.expr`. `Column.cast("string")` writes both the same way. `concat` and `||` with a text literal in them write their other parts the same way (`'at ' || ts` is `at 2026-01-02 03:04:05`); a `concat` of columns alone, which may join arrays, writes a timestamp with DuckDB's `+00`: cast it to STRING first.
 
 Casts to TINYINT, SMALLINT, INT or BIGINT answer as Spark does, in Spark SQL, Databricks SQL, `F.expr` and `Column.cast`: a fraction is truncated (`CAST(3.7 AS INT)` is 3, not 4), and text is read as Spark reads it (`CAST('1.9' AS INT)` is 1 with ANSI off, NULL for `try_cast`, and stops in Databricks SQL's ANSI `CAST`).
 

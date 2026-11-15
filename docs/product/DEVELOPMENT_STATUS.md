@@ -3,10 +3,14 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-14 23:42 UTC, main 7178e900.** Covers the PRs merged from #135 to #2648.
+**Product check of 2026-11-15 11:42 UTC, main b76c42d2.** Covers the PRs merged from #135 to #2672.
 
 ## Summary
 
+- Morning check, 2026-11-15: 22 PRs merged after 7178e900. 1 was a product data PR, and the other 21 were linked.
+  Databricks parity moved on: Databricks SQL cells read widgets, parse_json keeps decimals of up to 38 digits, and
+  concat writes timestamps and doubles as Spark does (PB-120). Three correctness fixes landed (PB-124), Spark decimals
+  find mixed-case names (PB-103), and mutation testing batches 20 to 31 landed (PB-101). No item changed status.
 - Evening check, 2026-11-14: 27 PRs merged after 2dc0bc43. 3 were product data, docs audit or operations PRs, and the
   other 24 were linked. Notebook Spark on this PC (Preview) gained Python UDFs, mapInPandas and applyInPandas,
   spark.catalog listings, dynamic partition overwrite, MERGE with schema evolution, OPTIMIZE, VACUUM and RESTORE, and

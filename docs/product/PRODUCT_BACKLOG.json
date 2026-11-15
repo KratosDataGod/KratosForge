@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-14",
+  "updated": "2026-11-15",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -4589,7 +4589,8 @@
         "Enterprise engineering audit baseline (#1571, docs/audits/): readiness scorecard 54/100 at b75dcf5 and the EA-nnn remediation backlog; EA fixes, the hashed engine build (#1573, #1636, #1637), type-check slices and redaction merged on main at 32cbd98f",
         "The mypy baseline is empty: every engine module type-checks (#2069 to #2171); credentials kept out of the engine log and backups (#2161); restore checks the same roles as rollback (#2053) on main at 56e3826b",
         "Mutation testing batches 6 to 10 pin the policy and approval gates, SQL translation, local PySpark and notebook formats (#2545, #2550, #2559, #2564, #2565); a script drafts release notes from merged PRs (#2563) on main at 36844275",
-        "Mutation testing batches 11 to 19 (#2629, #2630, #2638, #2641, #2643, #2644, #2645, #2647, #2648) on main at 7178e900"
+        "Mutation testing batches 11 to 19 (#2629, #2630, #2638, #2641, #2643, #2644, #2645, #2647, #2648) on main at 7178e900",
+        "Mutation testing batches 20 to 31 (#2649, #2654 to #2657, #2659 to #2661, #2664, #2668, #2670, #2672); editor parity docs rows (#2658) on main at b76c42d2"
       ],
       "features": [
         "FEAT-SHL-09",
@@ -5031,7 +5032,20 @@
         2644,
         2645,
         2647,
-        2648
+        2648,
+        2649,
+        2654,
+        2655,
+        2656,
+        2657,
+        2658,
+        2659,
+        2660,
+        2661,
+        2664,
+        2668,
+        2670,
+        2672
       ],
       "issues": [
         910,
@@ -5182,7 +5196,8 @@
         "Spark on this PC: extract on text, NaN literals and read.csv's default comma (#2561); SQL cells ending in comments run, and a cell with no statement is done (#2551, #2553) on main at 36844275",
         "Notebooks: find searches outputs, export as PDF, Markdown cells render tables, math and images, Cancel releases an unread result (#2581, #2584, #2589, #2608); spark.sql args and CAST to STRING as Spark (#2594, #2597) on main at af7d786b",
         "Notebook templates for Silver tables and Gold dimensions and facts, with enterprise handover (#2588) on main at 2dc0bc43",
-        "Notebook Spark on this PC (Preview): Python UDFs (#2617), mapInPandas, mapInArrow, applyInPandas and foreach (#2619), freqItems, inputFiles, to, withMetadata and writeTo (#2626), spark.catalog listings (#2627), dynamic partition overwrite (#2635), MERGE with schema evolution (#2631), OPTIMIZE, VACUUM and RESTORE (#2639), notebookutils.lakehouse.loadTable (#2637); go to definition, find references and rename across cells (#2615) on main at 7178e900"
+        "Notebook Spark on this PC (Preview): Python UDFs (#2617), mapInPandas, mapInArrow, applyInPandas and foreach (#2619), freqItems, inputFiles, to, withMetadata and writeTo (#2626), spark.catalog listings (#2627), dynamic partition overwrite (#2635), MERGE with schema evolution (#2631), OPTIMIZE, VACUUM and RESTORE (#2639), notebookutils.lakehouse.loadTable (#2637); go to definition, find references and rename across cells (#2615) on main at 7178e900",
+        "Spark decimals find mixed-case table and column names (#2667) on main at b76c42d2"
       ],
       "features": [
         "FEAT-NB-04",
@@ -5377,7 +5392,8 @@
         2633,
         2635,
         2637,
-        2639
+        2639,
+        2667
       ]
     },
     {
@@ -6489,7 +6505,11 @@
         2278,
         2293,
         2332,
-        2338
+        2338,
+        2665,
+        2666,
+        2669,
+        2671
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
@@ -6502,7 +6522,8 @@
         "Databricks SQL: the last Fails closed (#2276); IP address, UTF-8, VARIANT and counter_diff functions run with Databricks' values (#2243, #2255, #2263, #2278) on main at 2bf8ea1b",
         "Implementation review docs/product/reviews/PB-120-kudp.md recommends Accept with documented limitations: only Fabric has live evidence (level 2), Databricks and Snowflake are verified at level 0, and the portability report and two-engine comparison have no screen. Databricks functions at 013281be: 440 run, 0 differ, 0 fail, 92 refused by name, 57 not checked. 1,404 engine tests and 4 browser tests pass on main at bddb5b27",
         "Databricks SQL value checks for 15 more functions (#2293); the parity page's Databricks and Snowflake SQL rows rest on the generated function lists, with a guard (#2332); generated Databricks notebook helpers list (#2338); implementation review PB-120-kudp.md (#2306) on main at d5a867c0",
-        "Implementation review docs/product/reviews/PB-120-kudp.md: Accepted with Documented Limitations (Chris chose 'Accept with limits' on the decision card, 2026-11-10 20:29 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpYRYGUPQ2mE64P6mQ1JuT64); limitations: only Fabric is proven live, to level 2, with Databricks and Snowflake verified at level 0; the portability report and two-engine comparison have no screen; function checks use one documented example per function on this PC"
+        "Implementation review docs/product/reviews/PB-120-kudp.md: Accepted with Documented Limitations (Chris chose 'Accept with limits' on the decision card, 2026-11-10 20:29 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpYRYGUPQ2mE64P6mQ1JuT64); limitations: only Fabric is proven live, to level 2, with Databricks and Snowflake verified at level 0; the portability report and two-engine comparison have no screen; function checks use one documented example per function on this PC",
+        "Databricks parity: Databricks SQL cells read widgets (#2666), parse_json keeps decimals of up to 38 digits (#2665), concat and || write timestamps and doubles as Spark does (#2669), review follow-ups for getArgument, unreadable SQL cells and wide decimals (#2671) on main at b76c42d2"
       ],
       "features": [
         "FEAT-EXT-05",
@@ -6723,7 +6744,8 @@
         "CI installs engine packages from hashed lock files (#2517); workflows pin actions to a commit with scoped tokens (#2514); the shell's Rust crates gated by clippy and cargo-deny (#2509); an unreadable request line gets an error reply instead of ending the engine (#2501); a republish inside Fabric's publish cooldown waits and is sent once more (#2523) on main at 86c07814",
         "Application control names AppLocker or WDAC when a file is blocked (#2536); Windows FIPS policy explained and the engine's ids run under a FIPS stand-in (#2532); Fabric and OneLake errors cite a request id only when one was sent (#2534, #2538); every CI job installs from hashed locks (#2525) on main at 7c3dbd0e",
         "Engine in a folder only administrators can write, by policy (#2198, Preview); Activity says when the app stopped the engine on purpose (#2586) on main at af7d786b",
-        "Base64 from the app and from definitions is decoded strictly everywhere (#2636) on main at 7178e900"
+        "Base64 from the app and from definitions is decoded strictly everywhere (#2636) on main at 7178e900",
+        "Correctness fixes: a rooted source path is local on Windows (#2651), shortcut request times compared as times (#2652), SQL parity checks compare whole numbers exactly (#2653) on main at b76c42d2"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6927,7 +6949,10 @@
         2567,
         2586,
         2634,
-        2636
+        2636,
+        2651,
+        2652,
+        2653
       ],
       "issues": [],
       "computed": {

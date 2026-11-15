@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "7178e900314a6e7835d2477605fe741cf73a3934",
-    "date": "2026-11-14",
+    "commit": "b76c42d29b79df1898b0f194687751e50b2aa122",
+    "date": "2026-11-15",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -62,7 +62,8 @@
       "Acceptance of PB-073 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-13 12:39 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp3ZUBsK6r4QNz6DBouE86Ey). PB-136 stays Proposed, waiting on a Windows trial and the product owner's go.",
       "Product check 2026-11-13 23:42 at af7d786bfe11fb22b0e0e06237bc19f6d323c960: 38 PRs merged after 6cab0dc3; 3 were product data or docs audit PRs and the other 35 were linked by title; other rows were not re-read.",
       "Product check 2026-11-14 11:42 at 2dc0bc43e7877308a0ca2408dd7d8ec31453083d: 9 PRs merged after af7d786b; 1 were product data or docs audit PRs and the other 8 were linked by title; other rows were not re-read.",
-      "Product check 2026-11-14 23:42 at 7178e900314a6e7835d2477605fe741cf73a3934: 27 PRs merged after 2dc0bc43; 3 were product data, docs audit or operations PRs and the other 24 were linked by title; other rows were not re-read."
+      "Product check 2026-11-14 23:42 at 7178e900314a6e7835d2477605fe741cf73a3934: 27 PRs merged after 2dc0bc43; 3 were product data, docs audit or operations PRs and the other 24 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-15 11:42 at b76c42d29b79df1898b0f194687751e50b2aa122: 22 PRs merged after 7178e900; 1 were product data, docs audit or operations PRs and the other 21 were linked by title; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -246,7 +247,10 @@
         2567,
         2586,
         2634,
-        2636
+        2636,
+        2651,
+        2652,
+        2653
       ]
     },
     {
@@ -2637,7 +2641,8 @@
         2633,
         2635,
         2637,
-        2639
+        2639,
+        2667
       ]
     },
     {
@@ -8334,7 +8339,11 @@
         2278,
         2293,
         2332,
-        2338
+        2338,
+        2665,
+        2666,
+        2669,
+        2671
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",

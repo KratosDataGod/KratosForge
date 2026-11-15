@@ -69,6 +69,8 @@ RICH_CHARS = 16_000_000
 # the start of the message, and the end of the traceback, where the error itself is.
 ERROR_CHARS = 200_000
 _CELL_FILE = "<cell>"
+# How long Cancel waits for the cell to catch its interrupt before sending it again (Kernel.interrupt).
+_RESEND_SECONDS = 0.5
 # Proxy and certificate settings the engine's own HTTP calls (with your Fabric token) read.
 _ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
                 "SSL_CERT_FILE", "SSL_CERT_DIR"}
@@ -328,6 +330,10 @@ class _Run:
         self.cancel_lock = threading.Lock()
         self.armed = False
         self.cancel_requested = False
+        # Set as the cell catches an interrupt. One that never gets there was lost: Python drops an
+        # exception raised in a callback (a weakref's, run by garbage collection on the cell's thread)
+        # or code in the cell caught it, so Cancel sends it again.
+        self.interrupted = False
         self.watches: list[dict[str, Any]] | None = None
         self._reset()
         self.debugger: Any = None  # debugger.Debugger when the cell runs with breakpoints
@@ -1003,11 +1009,17 @@ class Kernel:
         # thread's start-up, or before the handlers) would end the thread without finishing the run.
         # Such a cell stops itself as soon as it gets there.
         # The interrupt is sent under the lock, so the cell can't disarm between the check and the send.
+        # One the cell hasn't caught after a moment was lost (_Run.interrupted), so it is sent again.
+        ident = cast(int, run.thread.ident)
         with run.cancel_lock:
             run.cancel_requested = True
             if run.armed:
-                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(cast(int, run.thread.ident)), ctypes.py_object(KeyboardInterrupt))
-        run.done.wait(2.0)
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(ident), ctypes.py_object(KeyboardInterrupt))
+        deadline = time.monotonic() + 2.0
+        while not run.done.wait(min(_RESEND_SECONDS, max(0.0, deadline - time.monotonic()))) and time.monotonic() < deadline:
+            with run.cancel_lock:
+                if run.armed and not run.interrupted:
+                    ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(ident), ctypes.py_object(KeyboardInterrupt))
         return {"interrupted": True, "stopped": run.done.is_set()}
 
     def debug(self, action: str, expression: str | None = None) -> dict[str, Any]:
@@ -1047,7 +1059,7 @@ class Kernel:
         try:
             with run.cancel_lock:
                 run.armed = True
-                cancelled = run.cancel_requested
+                cancelled = run.interrupted = run.cancel_requested
             if cancelled:  # Cancel came before the cell got here
                 run.add({"type": "text", "text": "Cancelled. Variables are kept."})
                 raise KeyboardInterrupt
@@ -1065,6 +1077,7 @@ class Kernel:
                 status = "ok"
                 restart = isinstance(done, RestartPython)
             except KeyboardInterrupt:
+                run.interrupted = True
                 status = "cancelled"
                 run.add({"type": "text", "text": "Cancelled. Variables are kept."})
             if writes is not None:
@@ -1074,6 +1087,7 @@ class Kernel:
                 out.targets[ident] = err.targets[ident] = _Run(0)
                 self._watch(watches, run)
         except KeyboardInterrupt:  # an interrupt that landed while the first one was being handled
+            run.interrupted = True
             status = "cancelled"
         finally:
             try:
@@ -1119,6 +1133,7 @@ class Kernel:
             with run.onelake.waiting():
                 failed = writes.flush(cancel=cancelled)
         except KeyboardInterrupt:
+            run.interrupted = True
             failed = writes.flush(cancel=True)
             cancelled = True
         for warning in getattr(writes, "warnings", []):
@@ -1143,6 +1158,7 @@ class Kernel:
                 shown = "hidden" if self._hidden(expr, value) else secrets(_preview(value))
                 results.append({"expr": expr, "value": shown, "type": type(value).__name__})
             except KeyboardInterrupt:
+                run.interrupted = True
                 results += [{"expr": e, "skipped": True} for e in watches[i:]]
                 break
             except Exception as exc:  # noqa: BLE001 - shown next to the watch

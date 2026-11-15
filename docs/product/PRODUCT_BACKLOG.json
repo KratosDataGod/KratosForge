@@ -4588,7 +4588,8 @@
         "Backlog not yet pushed (push freeze)",
         "Enterprise engineering audit baseline (#1571, docs/audits/): readiness scorecard 54/100 at b75dcf5 and the EA-nnn remediation backlog; EA fixes, the hashed engine build (#1573, #1636, #1637), type-check slices and redaction merged on main at 32cbd98f",
         "The mypy baseline is empty: every engine module type-checks (#2069 to #2171); credentials kept out of the engine log and backups (#2161); restore checks the same roles as rollback (#2053) on main at 56e3826b",
-        "Mutation testing batches 6 to 10 pin the policy and approval gates, SQL translation, local PySpark and notebook formats (#2545, #2550, #2559, #2564, #2565); a script drafts release notes from merged PRs (#2563) on main at 36844275"
+        "Mutation testing batches 6 to 10 pin the policy and approval gates, SQL translation, local PySpark and notebook formats (#2545, #2550, #2559, #2564, #2565); a script drafts release notes from merged PRs (#2563) on main at 36844275",
+        "Mutation testing batches 11 to 19 (#2629, #2630, #2638, #2641, #2643, #2644, #2645, #2647, #2648) on main at 7178e900"
       ],
       "features": [
         "FEAT-SHL-09",
@@ -5021,7 +5022,16 @@
         2606,
         2609,
         2613,
-        2614
+        2614,
+        2629,
+        2630,
+        2638,
+        2641,
+        2643,
+        2644,
+        2645,
+        2647,
+        2648
       ],
       "issues": [
         910,
@@ -5171,7 +5181,8 @@
         "Spark SQL session, clock and random functions answer as in Fabric (#2535), and columns without AS are named as Spark names them (#2539) on main at 7c3dbd0e",
         "Spark on this PC: extract on text, NaN literals and read.csv's default comma (#2561); SQL cells ending in comments run, and a cell with no statement is done (#2551, #2553) on main at 36844275",
         "Notebooks: find searches outputs, export as PDF, Markdown cells render tables, math and images, Cancel releases an unread result (#2581, #2584, #2589, #2608); spark.sql args and CAST to STRING as Spark (#2594, #2597) on main at af7d786b",
-        "Notebook templates for Silver tables and Gold dimensions and facts, with enterprise handover (#2588) on main at 2dc0bc43"
+        "Notebook templates for Silver tables and Gold dimensions and facts, with enterprise handover (#2588) on main at 2dc0bc43",
+        "Notebook Spark on this PC (Preview): Python UDFs (#2617), mapInPandas, mapInArrow, applyInPandas and foreach (#2619), freqItems, inputFiles, to, withMetadata and writeTo (#2626), spark.catalog listings (#2627), dynamic partition overwrite (#2635), MERGE with schema evolution (#2631), OPTIMIZE, VACUUM and RESTORE (#2639), notebookutils.lakehouse.loadTable (#2637); go to definition, find references and rename across cells (#2615) on main at 7178e900"
       ],
       "features": [
         "FEAT-NB-04",
@@ -5355,7 +5366,18 @@
         2589,
         2594,
         2597,
-        2608
+        2608,
+        2615,
+        2617,
+        2619,
+        2620,
+        2626,
+        2627,
+        2631,
+        2633,
+        2635,
+        2637,
+        2639
       ]
     },
     {
@@ -5503,7 +5525,8 @@
         "Local T-SQL answers as T-SQL for text compares, float text, CONVERT and FORMAT styles, LEFT/RIGHT/TRANSLATE errors and CONCAT (#1622, #1632, #1633, #1635, #1852, #1898), the refused list in the docs is checked by a test (#1869), queries about 3x faster (#1900); Warehouse table detail with profile, a read at a past time and a clone script (#755) on main at a7631920",
         "T-SQL functions on this PC: a generated page checked by CI (#1912), TIMEFROMPARTS runs and OPENJSON is refused by name (#1913), math functions keep T-SQL's types (#1939) on main at de881016",
         "SQL editor: run the statement at the cursor, maximize or hide results, hover cards and signature help (#2582, #2583, #2598); export results as Excel or JSON (#2587); Open in SSMS from the Warehouse page (#2596) on main at af7d786b",
-        "SQL page: Plan and Profile for lakehouse queries (#2604, Preview), Copy as rows, CSV, JSON or INSERT statements (#2616); F12 shows the table under the cursor (#2610) on main at 2dc0bc43"
+        "SQL page: Plan and Profile for lakehouse queries (#2604, Preview), Copy as rows, CSV, JSON or INSERT statements (#2616); F12 shows the table under the cursor (#2610) on main at 2dc0bc43",
+        "SQL editor bookmarks with Ctrl+F2, F2 and Shift+F2 (#2618); the SQL compatibility check reads db..table names and handles SELECT ... INTO (#2632) on main at 7178e900"
       ],
       "features": [
         "FEAT-FAB-11",
@@ -5593,7 +5616,9 @@
         2598,
         2604,
         2610,
-        2616
+        2616,
+        2618,
+        2632
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -6697,7 +6722,8 @@
         "Sign-in survives a damaged saved sign-in, an unreachable Microsoft sign-in and a late refusal (#2444, #2484, #2498); Windows proxy with PAC and WPAD (#2436); tools started by full path (#2470, #2476); agent queue holds work with its reason (#2432, #2465); the app's stores tested after a killed writer (#2426, #2485); MSI lifecycle on the Windows runner (#2420) on main at 47416473",
         "CI installs engine packages from hashed lock files (#2517); workflows pin actions to a commit with scoped tokens (#2514); the shell's Rust crates gated by clippy and cargo-deny (#2509); an unreadable request line gets an error reply instead of ending the engine (#2501); a republish inside Fabric's publish cooldown waits and is sent once more (#2523) on main at 86c07814",
         "Application control names AppLocker or WDAC when a file is blocked (#2536); Windows FIPS policy explained and the engine's ids run under a FIPS stand-in (#2532); Fabric and OneLake errors cite a request id only when one was sent (#2534, #2538); every CI job installs from hashed locks (#2525) on main at 7c3dbd0e",
-        "Engine in a folder only administrators can write, by policy (#2198, Preview); Activity says when the app stopped the engine on purpose (#2586) on main at af7d786b"
+        "Engine in a folder only administrators can write, by policy (#2198, Preview); Activity says when the app stopped the engine on purpose (#2586) on main at af7d786b",
+        "Base64 from the app and from definitions is decoded strictly everywhere (#2636) on main at 7178e900"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6899,7 +6925,9 @@
         2548,
         2558,
         2567,
-        2586
+        2586,
+        2634,
+        2636
       ],
       "issues": [],
       "computed": {

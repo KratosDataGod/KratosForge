@@ -693,7 +693,8 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
                 errors.append(f"{e.name}: [model] date_column {e.date_column} must be a contract column of type date "
                               "or datetime")
         files = s.get("source", {}).get("files", "") or s.get("source", {}).get("landing", "")
-        if files and (Path(files).is_absolute() or re.match(r"^[A-Za-z]:", files)):
+        # rooted ("/data", "\\data", "\\\\server") or a drive: on Windows "/data" has no drive, so isn't is_absolute()
+        if files and (Path(files).is_absolute() or files.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", files)):
             errors.append(f"{e.name}: source path {files} only exists on this PC; put the files in the "
                           f"lakehouse Files area and use a relative path")
         errors += freshness_mod.problems(e.name, s, ENVIRONMENTS)

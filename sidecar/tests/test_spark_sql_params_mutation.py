@@ -56,6 +56,11 @@ def test_only_a_colon_right_before_a_name_with_no_path_before_it_is_a_marker(que
     assert p.bind(query, {}) == query
 
 
+def test_a_colon_with_a_space_before_the_name_isnt_a_marker():
+    # Spark needs ":name" written together; ": lim" is a stray colon and a column
+    assert p._markers("SELECT : lim") == []
+
+
 def test_a_marker_at_the_very_start_binds():
     assert p.bind(":a", {"a": 1}) == "1"
 

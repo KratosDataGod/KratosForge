@@ -70,3 +70,37 @@ def test_databricks_sql_writes_a_timestamp_as_text_the_same_way():
     con.execute("SET TimeZone = 'UTC'")
     [statement] = _databricks("SELECT CAST(TIMESTAMP '2026-01-02 03:04:05' AS STRING), CAST(1e20D AS STRING)")
     assert con.execute(sql.duckdb_sql(statement)).fetchone() == ("2026-01-02 03:04:05", "1.0E20")
+
+
+def test_concat_and_pipes_with_text_write_their_parts_as_spark(spark):
+    """Apache Spark 3.5.5 in UTC, for the same query."""
+    got = one(spark, "SELECT concat('at ', TIMESTAMP '2026-01-02 03:04:05') a, 'x' || TIMESTAMP '2026-01-02 03:04:05' b, "
+                     "concat('d', 1e20D) c, concat(t, '|') e, concat('n', NULL) f, "
+                     "concat('y', 2.5D, 7, true, DATE '2026-01-02') g, concat(array(1), array(2)) h, "
+                     "'a' || 'b' || t i, concat('k', CAST(t AS STRING)) k "
+                     "FROM (SELECT TIMESTAMP '2026-01-02 03:04:05.12' t)")
+    assert got == {"a": "at 2026-01-02 03:04:05", "b": "x2026-01-02 03:04:05", "c": "d1.0E20",
+                   "e": "2026-01-02 03:04:05.12|", "f": None, "g": "y2.57true2026-01-02", "h": [1, 2],
+                   "i": "ab2026-01-02 03:04:05.12", "k": "k2026-01-02 03:04:05.12"}
+
+
+def test_concat_keeps_spark_column_names(spark):
+    df = spark.sql("SELECT concat('at ', t), 'x' || t FROM (SELECT TIMESTAMP '2026-01-02 03:04:05' t)")
+    assert df.columns == ["concat(at , t)", "concat(x, t)"]
+
+
+def test_databricks_sql_concat_writes_a_timestamp_as_spark():
+    con = duckdb.connect()
+    con.execute("SET TimeZone = 'UTC'")
+    [statement] = _databricks("SELECT 'at ' || TIMESTAMP '2026-01-02 03:04:05', concat('d', 1e20D)")
+    assert con.execute(sql.duckdb_sql(statement)).fetchone() == ("at 2026-01-02 03:04:05", "d1.0E20")
+
+
+def test_nested_and_parenthesized_joins_write_their_parts_as_spark(spark):
+    """Apache Spark 3.5.5 in UTC: a join inside another, with or without parentheses, is one join of strings."""
+    got = one(spark, "SELECT 'a' || ('b' || t) p, 'a' || (t || t) q, 'a' || concat(t, t) r, concat(t, 'x' || t) u, "
+                     "concat('a', (t)) v, 'a' || upper(concat('b', t)) a, concat('x', coalesce('b' || t, '')) b, "
+                     "'a' || lower('b' || t) c FROM (SELECT TIMESTAMP '2026-01-02 03:04:05' t)")
+    stamp = "2026-01-02 03:04:05"
+    assert got == {"p": f"ab{stamp}", "q": f"a{stamp}{stamp}", "r": f"a{stamp}{stamp}", "u": f"{stamp}x{stamp}",
+                   "v": f"a{stamp}", "a": f"aB{stamp}", "b": f"xb{stamp}", "c": f"ab{stamp}"}

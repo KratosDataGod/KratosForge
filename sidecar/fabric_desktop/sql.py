@@ -181,7 +181,7 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     (_spark_timestampdiff)."""
     statement = spark_builtins_sql.mark(statement)
     statement = _spark_timestampdiff(spark_builtins_sql.rewrite(
-        _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_cast_functions(_spark_names(statement)))))))))
+        _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_concat_text(_spark_cast_functions(_spark_names(statement))))))))))
     return statement if databricks else _spark_session_functions(statement)
 
 
@@ -832,6 +832,45 @@ def spark_text_cast(value: str) -> str:
             f"WHEN typeof({value}) = 'DOUBLE' THEN {java(f'TRY_CAST({value} AS DOUBLE)')} "
             f"WHEN typeof({value}) = 'FLOAT' THEN {java(f'TRY_CAST({value} AS FLOAT)')} "
             f"ELSE CAST({value} AS VARCHAR) END")
+
+
+def _spark_concat_text(statement: exp.Expression) -> exp.Expression:
+    """concat(...) and ||, when a part is a string literal, with each other part cast to STRING as
+    Spark casts it (spark_text_cast): 'at ' || ts is 'at 2026-01-02 03:04:05', where DuckDB writes
+    '+00' after the timestamp, and a double is '1.0E20', not '1e+20'. Only a concat with a string
+    literal in it is surely of strings; one of columns alone may join arrays, and concat_ws may take
+    an array, so those are left as they are."""
+    def parts(node: exp.Expression, joins: set[int]) -> list[exp.Expression]:
+        """The parts joined, through nested || and concat and their parentheses: 'a' || (b || t). The
+        joins it reads through go in ``joins``; a join inside a function call is a part of its own."""
+        if isinstance(node, (exp.DPipe, exp.Concat)):
+            joins.add(id(node))
+            inner = [node.this, node.expression] if isinstance(node, exp.DPipe) else node.expressions
+            return [p for e in inner for p in parts(e, joins)]
+        if isinstance(node, exp.Paren) and isinstance(node.this, (exp.DPipe, exp.Concat, exp.Paren)):
+            return parts(node.this, joins)
+        return [node]
+
+    def literal(node: exp.Expression) -> bool:
+        return isinstance(node, exp.Literal) and node.is_string
+
+    done: set[int] = set()
+    for node in list(statement.find_all(exp.Concat, exp.DPipe)):
+        if id(node) in done:
+            continue
+        joins: set[int] = set()
+        found = parts(node, joins)
+        if not any(literal(p) for p in found):
+            continue
+        done |= joins  # the joins read through here are handled here
+        for part in found:
+            already = isinstance(part, (exp.Cast, exp.TryCast)) and isinstance(part.to, exp.DataType) \
+                and part.to.this in _TEXT_CASTS
+            if not literal(part) and not already and not isinstance(part, exp.Null):
+                cast = exp.Cast(to=exp.DataType.build("TEXT"))
+                part.replace(cast)
+                cast.set("this", part)  # the part itself, so a join inside it is still found and rewritten
+    return statement
 
 
 def spark_integer_casts(statement: exp.Expression) -> exp.Expression:

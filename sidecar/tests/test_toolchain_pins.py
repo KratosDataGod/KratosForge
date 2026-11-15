@@ -123,4 +123,5 @@ def test_the_windows_shell_coverage_run_is_advisory_and_pinned():
     channel = tomllib.loads((ROOT / "app" / "src-tauri" / "rust-toolchain.toml").read_text(encoding="utf-8"))["toolchain"]["channel"]
     assert f'toolchain: "{channel}"' in text
     assert re.search(r"cargo install --locked cargo-llvm-cov --version \d+\.\d+\.\d+\b", text)
+    assert "persist-credentials: false" in text
     assert "--fail-under" not in text

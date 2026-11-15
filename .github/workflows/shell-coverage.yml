@@ -28,6 +28,9 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # The token stays out of .git/config, where the crates' build scripts could read it.
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           # The version in app/src-tauri/rust-toolchain.toml, which cargo uses in that folder.

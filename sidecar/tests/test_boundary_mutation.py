@@ -205,6 +205,20 @@ def test_a_cell_one_past_the_last_has_no_name():
     assert find_symbol(_cells("x = 1"), 1, 0) == {"name": None, "places": [], "skipped": []}
 
 
-@pytest.mark.xfail(strict=True, reason="#2691: N38 casts to DECIMAL(38, 38), which has no room for an integer part")
 def test_format_n38_of_a_value_with_an_integer_part(engine):
     assert _format(engine, "1.5", "N38") == "1.5" + "0" * 37
+
+
+@pytest.mark.parametrize("value, pattern, text", [
+    ("1.5", "F38", "1.5" + "0" * 37),
+    ("CAST(12345678901234567890123456789012345678 AS DECIMAL(38, 0))", "N2",
+     "12,345,678,901,234,567,890,123,456,789,012,345,678.00"),
+    ("9.995", "N2", "10.00"),
+    ("-9.995", "F2", "-10.00"),
+    ("CAST(1.255 AS DECIMAL(5, 3))", "F2", "1.26"),
+    ("CAST(-0.5 AS DECIMAL(3, 1))", "F2", "-0.50"),
+    ("CAST(42 AS INT)", "N3", "42.000"),
+])
+def test_format_writes_the_whole_part_and_the_decimals_of_any_size(engine, value, pattern, text):
+    """#2691: the whole part and the decimals are written separately, so a high precision leaves room."""
+    assert _format(engine, value, pattern) == text

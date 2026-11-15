@@ -228,18 +228,22 @@ def _number(fmt: str, integer: bool) -> exp.Expression:
     places = int(digits) if digits else 2
     if places > 38:
         raise ValueError(NOT_YET + "FORMAT's number formats are carried with at most 38 decimal places.")
-    rounded = exp.Cast(this=exp.Round(this=v, decimals=exp.Literal.number(places)),
-                       to=exp.DataType.build(f"DECIMAL(38, {places})"))
-    if letter == "F":
-        return exp.Cast(this=rounded, to=exp.DataType.build("VARCHAR"))
+    # Rounded in the value's own type (ROUND keeps it), and written as its whole part and its first
+    # ``places`` decimals: a cast to DECIMAL(38, places) would leave no room for the whole part when
+    # places is high, so 'N38' of 1.5 would fail (#2691).
+    rounded = exp.Round(this=v, decimals=exp.Literal.number(places))
     sign = exp.Case(ifs=[exp.If(this=exp.LT(this=rounded.copy(), expression=exp.Literal.number(0)),
                                 true=exp.Literal.string("-"))], default=exp.Literal.string(""))
-    grouped = _call("FORMAT", exp.Literal.string("{:,}"),
-                    exp.Cast(this=exp.Trunc(this=exp.Abs(this=rounded.copy())), to=exp.DataType.build("HUGEINT")))
-    out: exp.Expression = exp.DPipe(this=sign, expression=grouped, safe=False)
+    whole = exp.Cast(this=exp.Trunc(this=exp.Abs(this=rounded.copy())), to=exp.DataType.build("HUGEINT"))
+    if letter == "N":
+        whole_text: exp.Expression = _call("FORMAT", exp.Literal.string("{:,}"), whole)
+    else:
+        whole_text = exp.Cast(this=whole, to=exp.DataType.build("VARCHAR"))
+    out: exp.Expression = exp.DPipe(this=sign, expression=whole_text, safe=False)
     if places:
-        fraction = _call("SPLIT_PART", exp.Cast(this=rounded.copy(), to=exp.DataType.build("VARCHAR")),
-                            exp.Literal.string("."), exp.Literal.number(2))
+        decimals = _call("SPLIT_PART", exp.Cast(this=rounded.copy(), to=exp.DataType.build("VARCHAR")),
+                         exp.Literal.string("."), exp.Literal.number(2))
+        fraction = _call("RPAD", decimals, exp.Literal.number(places), exp.Literal.string("0"))
         out = exp.DPipe(this=exp.DPipe(this=out, expression=exp.Literal.string("."), safe=False),
                         expression=fraction, safe=False)
     return out

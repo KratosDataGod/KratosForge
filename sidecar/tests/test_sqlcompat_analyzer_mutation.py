@@ -67,9 +67,26 @@ def test_go_alone_on_its_line(query, alone):
     assert A._alone_on_line(query, _tok(query, "GO" if "GO" in query else "go")) is alone
 
 
-@pytest.mark.xfail(strict=True, reason="#2673: a T-SQL name spelled go splits the statement")
 def test_a_column_alias_called_go_does_not_split_t_sql():
     assert len(A.split("SELECT x AS go FROM t", "warehouse")[0]) == 1
+    assert len(A.split("SELECT go FROM t", "warehouse")[0]) == 1
+
+
+def test_go_with_a_count_separates_batches_and_the_count_stays_with_it():
+    statements, _ = A.split("SELECT 1\n  go 5  \nSELECT 2", "warehouse")
+    assert [s.text for s in statements] == ["SELECT 1", "SELECT 2"]
+
+
+@pytest.mark.parametrize("go", ["GO -- done", "GO /* a */ /* b */", "GO 5 -- again"])
+def test_go_with_a_comment_on_its_line_still_separates_batches(go):
+    statements, _ = A.split(f"SELECT 1\n{go}\nSELECT 2", "warehouse")
+    assert [s.text for s in statements] == ["SELECT 1", "SELECT 2"]
+
+
+def test_go_followed_by_a_semicolon_is_not_a_batch_separator():
+    # sqlcmd and SSMS want GO alone on its line; GO; is left to the statement it ends
+    statements, _ = A.split("SELECT 1\nGO;\nSELECT 2", "warehouse")
+    assert [s.text for s in statements] == ["SELECT 1\nGO", "SELECT 2"]
 
 
 # ---- tokens
@@ -96,11 +113,16 @@ def test_a_parse_error_drops_the_token_dump():
     assert stmt.error == "Expected table name but got"
 
 
-@pytest.mark.xfail(strict=True, reason="#2674: the syntax finding points at the statement, not at the error")
 def test_a_syntax_finding_points_at_the_token_that_failed():
     q = "SELECT 1;\nSELECT FROM WHERE x"
     (d,) = A.analyze(q, "spark")["diagnostics"]
     assert d["rule"] == "SYN-007" and d["from"] == q.index("WHERE")
+
+
+def test_a_syntax_finding_on_a_later_line_of_a_t_sql_batch_points_at_the_token():
+    q = "SELECT 1\nGO\nSELECT a,\n  FROM t WHERE"
+    (d,) = A.analyze(q, "warehouse")["diagnostics"]
+    assert d["rule"] == "SYN-007" and d["from"] == q.rindex("WHERE") and d["line"] == 4
 
 
 # ---- the exported report

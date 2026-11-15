@@ -67,8 +67,8 @@ CASES = [
     ("warehouse", "WITH a AS (SELECT 1 AS x), b AS (SELECT x FROM b) SELECT * FROM b", [("DML-002", "b")]),
     # statements that end early are read to their end without failing
     ("warehouse", "CREATE TABLE t (a nvarchar(10)", [("TYP-001", "nvarchar")]),
-    ("warehouse", "WITH a AS (SELECT 1)", [("SYN-007", "WITH")]),
-    ("warehouse", "SELECT * FROM t WITH", [("SYN-007", "SELECT")]),
+    ("warehouse", "WITH a AS (SELECT 1)", [("SYN-007", ")")]),
+    ("warehouse", "SELECT * FROM t WITH", [("SYN-007", "WITH")]),
 ]
 
 

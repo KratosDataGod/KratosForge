@@ -360,7 +360,9 @@ mod windows_tests {
 
     /// The account running the tests, as a SID string, from whoami.
     fn me() -> String {
-        let out = std::process::Command::new("whoami").args(["/user", "/fo", "csv", "/nh"]).output().unwrap();
+        let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+        let whoami = PathBuf::from(root).join("System32").join("whoami.exe");
+        let out = std::process::Command::new(whoami).args(["/user", "/fo", "csv", "/nh"]).output().unwrap();
         let text = String::from_utf8_lossy(&out.stdout);
         let sid = text.trim().rsplit(',').next().unwrap().trim_matches('"').to_string();
         assert!(sid.starts_with("S-1-5-"), "{text}");

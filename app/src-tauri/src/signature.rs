@@ -153,6 +153,42 @@ mod tests {
     }
 
     #[test]
+    fn the_publisher_must_match_exactly() {
+        let ours = Ok(Some(US.to_string()));
+        // Case, spacing and a missing or different Trusted Signing identity each name someone else.
+        for other in ["cn=KratosBI, O=KratosBI, L=Austin, S=Texas, C=US", "CN=KratosBI,O=KratosBI,L=Austin,S=Texas,C=US",
+                      "CN=KratosBI, O=KratosBI, L=Austin, S=Texas, C=US ", ""] {
+            assert!(update_allowed(&ours, &Ok(Some(other.to_string()))).is_err(), "{other:?}");
+        }
+        let with_identity = format!("{US} [1.3.6.1.4.1.311.97.1.2.3]");
+        let ours_with_identity = Ok(Some(with_identity.clone()));
+        assert_eq!(update_allowed(&ours_with_identity, &Ok(Some(with_identity))), Ok(()));
+        // The same subject from a certificate without the identity usage isn't the same publisher.
+        assert!(update_allowed(&ours_with_identity, &Ok(Some(US.to_string()))).is_err());
+        assert!(update_allowed(&ours, &Ok(Some(format!("{US} [1.3.6.1.4.1.311.97.9.9.9]")))).is_err());
+        assert!(update_allowed(&ours_with_identity, &Ok(Some(format!("{US} [1.3.6.1.4.1.311.97.9.9.9]")))).is_err());
+    }
+
+    #[test]
+    fn a_refusal_says_which_signature_failed_and_why() {
+        let ours = Ok(Some(US.to_string()));
+        let why = update_allowed(&ours, &Err("Windows doesn't trust its signature (0x800B0100)".into())).unwrap_err();
+        assert!(why.contains("0x800B0100") && why.contains("wasn't installed"), "{why}");
+        let why = update_allowed(&Err("Its signing certificate couldn't be read".into()), &Ok(Some(US.to_string()))).unwrap_err();
+        assert!(why.contains("couldn't be read") && why.contains("releases page"), "{why}");
+        let why = update_allowed(&ours, &Ok(Some("CN=Mallory".into()))).unwrap_err();
+        assert!(why.contains("CN=Mallory") && why.contains(US), "{why}");
+    }
+
+    #[test]
+    fn an_unsigned_file_has_no_signer() {
+        // This test binary is never signed: on Windows that is "no signature", not an error, and
+        // elsewhere nothing is checked.
+        let exe = std::env::current_exe().unwrap();
+        assert_eq!(super::signer(&exe), Ok(None));
+    }
+
+    #[test]
     fn a_build_whose_own_signature_cant_be_checked_installs_nothing() {
         for theirs in [Ok(None), Ok(Some(US.to_string()))] {
             assert!(update_allowed(&Err("0x800B0109".into()), &theirs).unwrap_err().contains("can't be checked"));

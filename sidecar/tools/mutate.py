@@ -194,12 +194,16 @@ def _kill_group(proc: subprocess.Popen) -> None:
             print(f"pytest {proc.pid} would not stop; moving on", file=sys.stderr, flush=True)
 
 
+USAGE = ("mutate.py MODULE [--cap N] [--seed N] [--kinds all|point|boundary] [--entries NAME] [--only N,...] "
+         "--out FILE -- TESTS...")
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if "--" not in argv:
-        raise SystemExit("usage: mutate.py MODULE [--cap N] [--seed N] [--entries NAME] --out FILE -- TESTS...")
+        raise SystemExit(f"usage: {USAGE}")
     split = argv.index("--")
-    ap = argparse.ArgumentParser(description="Mutation testing for one engine module.")
+    ap = argparse.ArgumentParser(description="Mutation testing for one engine module.", usage=USAGE)
     ap.add_argument("module", help="path under sidecar/, such as fabric_desktop/retrying.py")
     ap.add_argument("--cap", type=int, default=150)
     ap.add_argument("--seed", type=int, default=7)

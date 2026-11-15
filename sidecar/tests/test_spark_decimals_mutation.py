@@ -61,7 +61,6 @@ def test_a_sum_of_an_integer_or_a_double_keeps_duckdbs_type_next_to_one_that_cha
     assert answer(conn, query) == kinds
 
 
-@pytest.mark.xfail(strict=True, reason="#2663: a mixed-case name isn't found, so DuckDB's type is kept")
 def test_a_mixed_case_column_is_found(conn):
     assert answer(conn, "SELECT Amt / b AS v FROM t") == ["DECIMAL(23,13)"]
 
@@ -102,7 +101,6 @@ def test_frame_expressions_keep_their_alias_apart():
     assert "DECIMAL(21, 4)" in bare[0]
 
 
-@pytest.mark.xfail(strict=True, reason="#2663: a mixed-case name isn't found, so DuckDB's type is kept")
 def test_a_frame_column_with_a_mixed_case_name_is_found():
     out = spark_decimal_columns(['"Amt" * b'], [("Amt", "DECIMAL(10,2)"), ("b", "DECIMAL(10,2)")])
     assert out[0] is not None and "DECIMAL(21, 4)" in out[0][0]

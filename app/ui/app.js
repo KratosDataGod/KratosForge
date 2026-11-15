@@ -837,7 +837,7 @@ async function renderHome() {
   const resume = h("span", { class: "home-continue" });
   // Living Experience (home-hero.js, Preview): the welcome and the primary actions (Continue, New
   // notebook) sit in the hero's text-safe left side; Start something keeps the rest.
-  // Only while Home has header art: with no Home pool (RPG art is for progression pages), Home is the flat page.
+  // Only while Home has header art (its pool in art/experience/heroes.js); with no Home pool, Home is the flat page.
   const living = typeof homeHero === "function" && homeLivingOn() && !!heroArtPick("home");
   const newNb = btn("New notebook", "notebook", newNotebook, living ? "tool hero-outline" : "tool outline");
   const start = h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"), living ? null : resume, living ? null : newNb,

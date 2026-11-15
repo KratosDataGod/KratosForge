@@ -132,7 +132,11 @@ def _alone_on_line(query: str, t: Any) -> bool:
     line_start = query.rfind("\n", 0, t.start) + 1
     line_end = query.find("\n", t.end + 1)
     line = query[line_start:len(query) if line_end == -1 else line_end]
-    return re.fullmatch(r"GO(?:\s+\d+)?", line.strip(), re.IGNORECASE) is not None
+    return _GO_LINE.fullmatch(line.strip()) is not None
+
+
+# GO, an optional count, and comments (Microsoft's GO allows a comment on its line)
+_GO_LINE = re.compile(r"GO(?:\s+\d+)?\s*(?:(?:--.*|/\*.*?\*/)\s*)*", re.IGNORECASE)
 
 
 # Statements sqlglot doesn't read but that are ordinary commands of the engine: the token rules check

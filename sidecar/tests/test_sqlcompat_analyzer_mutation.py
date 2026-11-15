@@ -77,6 +77,18 @@ def test_go_with_a_count_separates_batches_and_the_count_stays_with_it():
     assert [s.text for s in statements] == ["SELECT 1", "SELECT 2"]
 
 
+@pytest.mark.parametrize("go", ["GO -- done", "GO /* a */ /* b */", "GO 5 -- again"])
+def test_go_with_a_comment_on_its_line_still_separates_batches(go):
+    statements, _ = A.split(f"SELECT 1\n{go}\nSELECT 2", "warehouse")
+    assert [s.text for s in statements] == ["SELECT 1", "SELECT 2"]
+
+
+def test_go_followed_by_a_semicolon_is_not_a_batch_separator():
+    # sqlcmd and SSMS want GO alone on its line; GO; is left to the statement it ends
+    statements, _ = A.split("SELECT 1\nGO;\nSELECT 2", "warehouse")
+    assert [s.text for s in statements] == ["SELECT 1\nGO", "SELECT 2"]
+
+
 # ---- tokens
 
 def test_a_two_word_token_keeps_each_words_place():

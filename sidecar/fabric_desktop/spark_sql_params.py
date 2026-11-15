@@ -159,7 +159,11 @@ def bind_widgets(query: str, widgets: Any) -> str:
     known = {*getattr(widgets, "defined", {}), *getattr(widgets, "passed", {})}
     query = _LEGACY.sub(lambda m: widgets.get(m[1]) if m[1] in known else m[0], query)
     query = _get_argument(query, widgets)
-    named = [n for _, _, n in _markers(query) if n != "?"]
+    try:
+        found = _markers(query)
+    except ValueError:  # silent-ok: unreadable SQL goes on to the engine, whose message says why
+        return query
+    named = [n for _, _, n in found if n != "?"]
     if not named:
         return query
     return bind(query, {n: _widget(widgets, n) for n in named})
@@ -182,24 +186,36 @@ def _get_argument(query: str, widgets: Any) -> str:
         tokens = sqlglot.tokenize(query, read="spark")
     except Exception:  # noqa: BLE001  # silent-ok: unreadable SQL goes on to the engine, which says why
         return query
+
+    def strings(j: int) -> tuple[str | None, int]:
+        """The text of the string literals from token ``j`` on, joined as Spark joins 'it' 's', and the
+        index after them; None when token ``j`` isn't a string."""
+        parts = []
+        while j < len(tokens) and tokens[j].token_type == TokenType.STRING:
+            parts.append(tokens[j].text)
+            j += 1
+        return ("".join(parts) if parts else None), j
+
     pieces = []
     for i, tok in enumerate(tokens):
-        if tok.text.lower() != "getargument" or i + 3 >= len(tokens) or tokens[i + 1].token_type != TokenType.L_PAREN:
+        if tok.text.lower() != "getargument" or i + 1 >= len(tokens) or tokens[i + 1].token_type != TokenType.L_PAREN:
             continue
-        name = tokens[i + 2]
-        if name.token_type != TokenType.STRING:
+        name, j = strings(i + 2)
+        if name is None or j >= len(tokens):
             continue
         default = None
-        end = tokens[i + 3]
-        if end.token_type == TokenType.COMMA and i + 5 < len(tokens) and tokens[i + 4].token_type == TokenType.STRING:
-            default, end = tokens[i + 4].text, tokens[i + 5]
-        if end.token_type != TokenType.R_PAREN:
+        if tokens[j].token_type == TokenType.COMMA:
+            default, j = strings(j + 1)
+            if default is None:
+                continue
+        if j >= len(tokens) or tokens[j].token_type != TokenType.R_PAREN:
             continue
-        value = widgets.getArgument(name.text, default)
+        end = tokens[j]
+        value = widgets.getArgument(name, default)
         if value is None:
-            raise ValueError(f"The SQL uses getArgument('{name.text}'), and there's no widget named {name.text}. "
-                             f"Create it first, for example dbutils.widgets.text({name.text!r}, \"\").")
-        pieces.append((tok.start, end.end, literal(value, f"getArgument('{name.text}')")))
+            raise ValueError(f"The SQL uses getArgument('{name}'), and there's no widget named {name}. "
+                             f"Create it first, for example dbutils.widgets.text({name!r}, \"\").")
+        pieces.append((tok.start, end.end, literal(value, f"getArgument('{name}')")))
     for first, last, text in reversed(pieces):
         query = query[:first] + text + query[last + 1:]
     return query

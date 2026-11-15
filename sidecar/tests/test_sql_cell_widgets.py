@@ -72,3 +72,27 @@ def test_a_value_cant_change_the_query():
 
 def test_without_widgets_the_sql_is_unchanged():
     assert spark_sql_params.bind_widgets("SELECT ${a}, :b", None) == "SELECT ${a}, :b"
+
+
+def test_get_argument_reads_adjacent_strings_as_spark_joins_them():
+    """Spark joins 'it' 's' (and so 'it''s') into one string: Apache Spark 3.5.5 gives 'its'."""
+    from fabric_desktop import spark_sql_params
+
+    class Widgets:
+        defined = {"x": ""}
+        passed: dict = {}
+
+        def getArgument(self, name, default=None):
+            return default
+
+    assert spark_sql_params.bind_widgets("SELECT getArgument('x', 'it''s') v", Widgets()) == "SELECT 'its' v"
+
+
+def test_unreadable_sql_goes_to_the_engine_unchanged():
+    from fabric_desktop import spark_sql_params
+
+    class Widgets:
+        defined: dict = {}
+        passed: dict = {}
+
+    assert spark_sql_params.bind_widgets("SELECT 'unterminated", Widgets()) == "SELECT 'unterminated"

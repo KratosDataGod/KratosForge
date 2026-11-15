@@ -413,9 +413,9 @@ mod windows_tests {
             return;
         }
         assert_eq!(admin_only(&place.file), Ok(()));
-        // Reading, and a deny, change nothing; nor does TrustedInstaller's full control.
+        // Reading, and a deny (for Guests, so cleanup can still delete it), change nothing; nor does TrustedInstaller's full control.
         assert!(place.lock(&format!("{ADMINS_ONLY}(A;;FRFX;;;BU)(A;;FA;;;{TRUSTED_INSTALLER})"),
-                           &format!("{ADMINS_ONLY}(A;;FR;;;BU)(D;;FA;;;WD)")));
+                           &format!("{ADMINS_ONLY}(A;;FR;;;BU)(D;;FA;;;BG)")));
         assert_eq!(admin_only(&place.file), Ok(()));
     }
 
@@ -471,6 +471,10 @@ mod windows_tests {
     #[test]
     fn a_missing_file_is_not_trusted() {
         let place = Place::new("missing");
+        // The folder must pass first, or its own check answers instead.
+        if !place.lock(ADMINS_ONLY, ADMINS_ONLY) {
+            return;
+        }
         let why = admin_only(&place.dir.join("nothing.json")).unwrap_err();
         assert_eq!(why, "its permissions can't be read (2)");
     }

@@ -840,14 +840,15 @@ def _spark_concat_text(statement: exp.Expression) -> exp.Expression:
     '+00' after the timestamp, and a double is '1.0E20', not '1e+20'. Only a concat with a string
     literal in it is surely of strings; one of columns alone may join arrays, and concat_ws may take
     an array, so those are left as they are."""
-    def parts(node: exp.Expression) -> list[exp.Expression]:
-        """The parts joined, through nested || and concat and their parentheses: 'a' || (b || t)."""
-        if isinstance(node, exp.DPipe):
-            return parts(node.this) + parts(node.expression)
-        if isinstance(node, exp.Concat):
-            return [p for e in node.expressions for p in parts(e)]
+    def parts(node: exp.Expression, joins: set[int]) -> list[exp.Expression]:
+        """The parts joined, through nested || and concat and their parentheses: 'a' || (b || t). The
+        joins it reads through go in ``joins``; a join inside a function call is a part of its own."""
+        if isinstance(node, (exp.DPipe, exp.Concat)):
+            joins.add(id(node))
+            inner = [node.this, node.expression] if isinstance(node, exp.DPipe) else node.expressions
+            return [p for e in inner for p in parts(e, joins)]
         if isinstance(node, exp.Paren) and isinstance(node.this, (exp.DPipe, exp.Concat, exp.Paren)):
-            return parts(node.this)
+            return parts(node.this, joins)
         return [node]
 
     def literal(node: exp.Expression) -> bool:
@@ -857,15 +858,18 @@ def _spark_concat_text(statement: exp.Expression) -> exp.Expression:
     for node in list(statement.find_all(exp.Concat, exp.DPipe)):
         if id(node) in done:
             continue
-        found = parts(node)
+        joins: set[int] = set()
+        found = parts(node, joins)
         if not any(literal(p) for p in found):
             continue
-        done.update(id(p) for p in node.find_all(exp.DPipe, exp.Concat))  # its inner joins are handled here
+        done |= joins  # the joins read through here are handled here
         for part in found:
             already = isinstance(part, (exp.Cast, exp.TryCast)) and isinstance(part.to, exp.DataType) \
                 and part.to.this in _TEXT_CASTS
             if not literal(part) and not already and not isinstance(part, exp.Null):
-                part.replace(exp.Cast(this=part.copy(), to=exp.DataType.build("TEXT")))
+                cast = exp.Cast(to=exp.DataType.build("TEXT"))
+                part.replace(cast)
+                cast.set("this", part)  # the part itself, so a join inside it is still found and rewritten
     return statement
 
 

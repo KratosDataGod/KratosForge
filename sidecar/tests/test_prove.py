@@ -705,9 +705,15 @@ def test_a_cancel_caught_by_a_watch_counts_as_caught():
 def test_a_cell_that_catches_cancel_itself_is_sent_it_again(monkeypatch):
     # Code in the cell that catches KeyboardInterrupt and carries on would otherwise run on after Cancel.
     k = Kernel()
-    _armed_cell(k, "import time\ntry:\n    for _ in range(400):\n        time.sleep(0.05)\n"
+    _armed_cell(k, "import time\ntry:\n    inside = True\n    for _ in range(400):\n        time.sleep(0.05)\n"
                    "except KeyboardInterrupt:\n    caught = True\n"
                    "for _ in range(400):\n    time.sleep(0.05)")
+    # Armed is before the cell's own code runs: wait until it is inside its try, so the first interrupt
+    # lands where the cell catches it (Windows CI sent it before the cell got there).
+    deadline = time.monotonic() + 30
+    while not k.namespace.get("inside") and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert k.namespace.get("inside")
     assert k.interrupt() == {"interrupted": True, "stopped": True}
     snap = k.poll(-1, 0.0)
     assert snap["status"] == "cancelled" and k.namespace.get("caught") is True

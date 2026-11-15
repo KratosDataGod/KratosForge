@@ -148,12 +148,13 @@ def _rewrap(top: exp.Expr, inner: exp.Expr, replacement: exp.Expr) -> exp.Expr:
 
 
 def _schema(conn: Any) -> MappingSchema:
-    """The connection's tables and views by name; a temp view wins over a table of the same name."""
+    """The connection's tables and views by name; a temp view wins over a table of the same name. Names
+    are kept in lower case, as qualify reads Spark's names (case-insensitive) in lower case (#2663)."""
     tables: dict[str, dict[str, str]] = {}
     rows = conn.execute("SELECT table_name, column_name, data_type FROM duckdb_columns() "
                         "WHERE NOT internal ORDER BY database_name = 'temp' DESC, column_index").fetchall()
     for table, column, kind in rows:
-        tables.setdefault(table, {}).setdefault(column, kind)
+        tables.setdefault(table.lower(), {}).setdefault(column.lower(), kind)
     return MappingSchema(cast(dict[str, object], tables), dialect="duckdb", normalize=False)
 
 
@@ -209,7 +210,7 @@ def spark_decimal_columns(expressions: list[str], columns: list[tuple[str, str]]
             return unchanged
         frame: dict[str, str] = {}
         for name, kind in columns:
-            frame.setdefault(name, kind)
+            frame.setdefault(name.lower(), kind)  # qualify reads Spark's names in lower case (#2663)
         schema = MappingSchema(cast(dict[str, object], {_FRAME: frame}), dialect="duckdb", normalize=False)
         if _sees_lambda_name(statement, schema):
             log.info("Spark decimal types not applied: a column is named like the rewrite's lambdas %s", _LAMBDAS)

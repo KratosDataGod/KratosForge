@@ -3670,3 +3670,349 @@ mod sidecar_log_tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
+
+/// The bridge between the app and the engine (`Sidecar::call`, `read_replies`, `exited`) and how an
+/// engine is stopped (`SidecarState::shut_down`) or held back after a crash loop (`start_into`), against a
+/// stand-in engine: this test binary run again as `fake_engine`, which speaks the engine's line protocol
+/// on stdin and stdout. It starts the same way on Windows and Linux, with no Python.
+#[cfg(test)]
+mod sidecar_bridge_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    const FAKE: &str = "KRATOSFORGE_FAKE_ENGINE";
+
+    /// Not a test of its own: with `FAKE` set it is the stand-in engine, and without it, it returns at once.
+    ///
+    /// - `echo`: answers each request with its method and params, until its input closes.
+    /// - `reverse`: reads two requests, answers the second first, then echoes.
+    /// - `error`, `error_object`, `no_result`: answers with an error text, an error that isn't text, or no result.
+    /// - `crash`: writes a Python-style error to its log and exits with code 3 without answering.
+    /// - `hang`: never answers and ignores its input closing.
+    #[test]
+    fn fake_engine() {
+        let Ok(mode) = std::env::var(FAKE) else { return };
+        let mut out = std::io::stdout();
+        let mut answer = |reply: Value| {
+            writeln!(out, "{reply}").unwrap();
+            out.flush().unwrap();
+        };
+        let echo = |request: &Value| json!({ "id": request["id"], "result": { "method": request["method"], "params": request["params"] } });
+        let mut lines = std::io::stdin().lock().lines().map_while(Result::ok).map(|l| serde_json::from_str::<Value>(&l).unwrap());
+        match mode.as_str() {
+            "crash" => {
+                let mut err = std::io::stderr();
+                err.write_all(b"engine starting\n\nTraceback (most recent call last):\n  File \"server.py\", line 1\nValueError: bad settings file\n").unwrap();
+                err.flush().unwrap();
+                std::process::exit(3);
+            }
+            "hang" => loop {
+                std::thread::sleep(Duration::from_secs(60));
+            },
+            "reverse" => {
+                let (first, second) = (lines.next().unwrap(), lines.next().unwrap());
+                answer(echo(&second));
+                answer(echo(&first));
+            }
+            _ => {}
+        }
+        for request in lines {
+            answer(match mode.as_str() {
+                "error" => json!({ "id": request["id"], "error": "That notebook doesn't exist." }),
+                "error_object" => json!({ "id": request["id"], "error": { "code": 7 } }),
+                "no_result" => json!({ "id": request["id"] }),
+                _ => echo(&request),
+            });
+        }
+    }
+
+    fn folder(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("kf-bridge-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A stand-in engine wired up the way `Sidecar::start` wires the real one.
+    fn start(mode: &str, log: &Path) -> Sidecar {
+        let stderr = open_sidecar_log(log).map(Stdio::from).unwrap_or_else(|_| Stdio::null());
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            // Terse (-q), so the test runner's own output is whole lines the bridge drops (they carry no id)
+            // and never the start of a line an answer is written on.
+            .args(["sidecar_bridge_tests::fake_engine", "--exact", "--nocapture", "--test-threads=1", "-q", "--color", "never"])
+            .env(FAKE, mode)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(stderr)
+            .spawn()
+            .unwrap();
+        let stdin = Mutex::new(child.stdin.take().unwrap());
+        let stdout = child.stdout.take().unwrap();
+        let pending = Arc::new(Mutex::new(replies::Pending::default()));
+        let reader = pending.clone();
+        std::thread::spawn(move || read_replies(stdout, reader));
+        Sidecar {
+            child: Arc::new(Mutex::new(child)),
+            stdin,
+            pending,
+            next_id: AtomicU64::new(1),
+            log: log.to_path_buf(),
+            started: Instant::now(),
+            stopped: Default::default(),
+            noted: Default::default(),
+            counted: Default::default(),
+        }
+    }
+
+    fn state() -> SidecarState {
+        SidecarState {
+            sidecar: Mutex::new(None),
+            child: Mutex::new(None),
+            updating: Default::default(),
+            installing: Default::default(),
+            crash_loop: Mutex::new(crash::CrashLoop::default()),
+        }
+    }
+
+    fn running(engine: &Sidecar) -> bool {
+        matches!(engine.child.lock().unwrap().try_wait(), Ok(None))
+    }
+
+    #[test]
+    fn each_call_gets_the_answer_to_its_own_request() {
+        let dir = folder("echo");
+        let engine = start("echo", &dir.join("sidecar.log"));
+        let first = engine.call("list_notebooks", json!({ "folder": "Sales" })).unwrap();
+        assert_eq!(first, json!({ "method": "list_notebooks", "params": { "folder": "Sales" } }));
+        let second = engine.call("app_settings", json!({})).unwrap();
+        assert_eq!(second["method"], "app_settings");
+        assert_eq!(engine.next_id.load(Ordering::SeqCst), 3, "each request takes the next id");
+        drop(engine);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn answers_that_come_back_out_of_order_still_reach_their_own_calls() {
+        let dir = folder("reverse");
+        let engine = Arc::new(start("reverse", &dir.join("sidecar.log")));
+        let calls: Vec<_> = ["run_cell", "poll_cell"]
+            .into_iter()
+            .map(|method| {
+                let engine = engine.clone();
+                let call = std::thread::spawn(move || engine.call(method, json!({ "cell": method })));
+                // The first request goes out before the second, so the engine answers the second first.
+                std::thread::sleep(Duration::from_millis(200));
+                (method, call)
+            })
+            .collect();
+        for (method, call) in calls {
+            let answer = call.join().unwrap().unwrap();
+            assert_eq!(answer["method"], method);
+            assert_eq!(answer["params"]["cell"], method);
+        }
+        drop(engine);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_engine_error_comes_back_as_its_text_and_an_answer_without_a_result_is_null() {
+        let dir = folder("errors");
+        for (mode, want) in [
+            ("error", Err("That notebook doesn't exist.".to_string())),
+            ("error_object", Err("Unknown sidecar error".to_string())),
+            ("no_result", Ok(Value::Null)),
+        ] {
+            let engine = start(mode, &dir.join(format!("{mode}.log")));
+            assert_eq!(engine.call("open_notebook", json!({ "name": "missing" })), want, "{mode}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_engine_that_dies_reports_the_end_of_its_log_and_how_it_ended_once() {
+        let dir = folder("crash");
+        let log = dir.join("sidecar.log");
+        let engine = start("crash", &log);
+        let err = engine.call("open_notebook", json!({})).unwrap_err();
+        let lines: Vec<&str> = err.lines().collect();
+        assert_eq!(lines[0], SIDECAR_EXITED);
+        // The last three lines that aren't blank: the error, and the line saying how it ended.
+        assert_eq!(lines[1], "  File \"server.py\", line 1");
+        assert_eq!(lines[2], "ValueError: bad settings file");
+        assert!(lines[3].ends_with("seconds: it exited with code 3."), "{err}");
+        assert_eq!(lines[4], format!("Full log: {}", log.display()));
+
+        // Every later call hears the same at once, and how it ended is written to the log only once.
+        let again = engine.call("list_notebooks", json!({})).unwrap_err();
+        assert!(again.starts_with(SIDECAR_EXITED), "{again}");
+        let text = std::fs::read_to_string(&log).unwrap();
+        assert_eq!(text.matches("The engine stopped after").count(), 1, "{text}");
+        assert!(text.starts_with("engine starting\n"), "the engine's own output is kept: {text}");
+        drop(engine);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_engine_ended_on_purpose_is_logged_as_such_and_with_no_log_the_message_stands_alone() {
+        let dir = folder("stopped");
+        let log = dir.join("sidecar.log");
+        let engine = start("hang", &log);
+        engine.stopped.store(true, Ordering::SeqCst);
+        engine.child.lock().unwrap().kill().unwrap();
+        let err = engine.call("run_cell", json!({})).unwrap_err();
+        assert!(err.contains("KratosForge ended it (Stop or an update)."), "{err}");
+        drop(engine);
+
+        // A log that can't be written or read leaves the plain message, with no empty tail or path.
+        let engine = start("crash", &dir.join("missing").join("sidecar.log"));
+        assert_eq!(engine.call("run_cell", json!({})).unwrap_err(), SIDECAR_EXITED);
+        drop(engine);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn shutting_down_with_no_engine_says_none_was_running() {
+        assert_eq!(state().shut_down(Duration::from_millis(100)), Ok(false));
+    }
+
+    #[test]
+    fn an_idle_engine_ends_when_its_input_closes() {
+        let dir = folder("idle");
+        let state = state();
+        let engine = Arc::new(start("echo", &dir.join("sidecar.log")));
+        engine.call("app_settings", json!({})).unwrap();
+        let child = engine.child.clone();
+        *state.child.lock().unwrap() = Some(child.clone());
+        *state.sidecar.lock().unwrap() = Some(engine);
+
+        assert_eq!(state.shut_down(Duration::from_secs(20)), Ok(true));
+        assert!(state.sidecar.lock().unwrap().is_none() && state.child.lock().unwrap().is_none());
+        // It ended on its own, because its input closed: exit code 0, not killed.
+        assert_eq!(child.lock().unwrap().try_wait().unwrap().and_then(|s| s.code()), Some(0));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_engine_that_ignores_its_input_closing_is_ended_after_the_grace_time() {
+        let dir = folder("hang");
+        let state = state();
+        let engine = Arc::new(start("hang", &dir.join("sidecar.log")));
+        let child = engine.child.clone();
+        *state.sidecar.lock().unwrap() = Some(engine);
+
+        let began = Instant::now();
+        assert_eq!(state.shut_down(Duration::from_millis(500)), Ok(true));
+        assert!(began.elapsed() >= Duration::from_millis(500), "it waited the grace time first");
+        assert!(child.lock().unwrap().try_wait().unwrap().is_some(), "the process is gone");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_engine_a_call_still_holds_is_ended_and_the_hand_over_is_refused() {
+        let dir = folder("held");
+        let state = state();
+        let engine = Arc::new(start("hang", &dir.join("sidecar.log")));
+        let held = engine.clone(); // a call in flight
+        *state.sidecar.lock().unwrap() = Some(engine);
+
+        let err = state.shut_down(Duration::from_millis(300)).unwrap_err();
+        assert_eq!(err, "The engine was still answering a call, so the new build wasn't put in place.");
+        assert!(held.stopped.load(Ordering::SeqCst), "it's marked as ended on purpose, not a crash");
+        // The process was ended so the call could return.
+        assert!(held.child.lock().unwrap().wait().is_ok());
+        assert!(!running(&held));
+        assert!(state.sidecar.lock().unwrap().is_none());
+        drop(held);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_engine_is_not_started_while_a_crash_loop_is_waited_out() {
+        let state = state();
+        {
+            let mut crash_loop = state.crash_loop.lock().unwrap();
+            for _ in 0..crash::STRIKES {
+                crash_loop.ended(Duration::from_secs(1), Instant::now(), "ValueError: bad settings file");
+            }
+        }
+        let mut slot = None;
+        let err = state.start_into(&mut slot).unwrap_err();
+        assert!(err.starts_with(crash::SAFE_MODE), "{err}");
+        assert!(err.ends_with("The last time: ValueError: bad settings file"), "{err}");
+        assert!(slot.is_none() && state.child.lock().unwrap().is_none(), "nothing was started");
+    }
+
+    #[test]
+    fn a_running_engine_is_kept_even_while_a_crash_loop_is_waited_out() {
+        let dir = folder("kept");
+        let state = state();
+        {
+            let mut crash_loop = state.crash_loop.lock().unwrap();
+            for _ in 0..crash::STRIKES {
+                crash_loop.ended(Duration::from_secs(1), Instant::now(), "crashed");
+            }
+        }
+        let engine = Arc::new(start("echo", &dir.join("sidecar.log")));
+        let mut slot = Some(engine.clone());
+        assert_eq!(state.start_into(&mut slot), Ok(()));
+        assert!(slot.as_ref().is_some_and(|kept| Arc::ptr_eq(kept, &engine)));
+        drop((slot, engine));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+/// The page asks the shell to open links and files; these are the asks it refuses before anything is
+/// started. (The ones it allows start the browser, the mail app or VS Code, so they aren't run here.)
+#[cfg(test)]
+mod open_refusal_tests {
+    use super::*;
+
+    #[test]
+    fn only_https_and_mailto_links_are_opened() {
+        for (link, scheme) in [
+            ("http://example.com/", "http"),
+            ("file:///C:/Windows/System32/notepad.exe", "file"),
+            ("javascript:alert(1)", "javascript"),
+            ("kratosforge://open?notebook=x", "kratosforge"),
+            ("vscode://file/C:/x.ipynb", "vscode"),
+            ("ms-settings:privacy", "ms-settings"),
+        ] {
+            assert_eq!(open_link(link.into()), Err(format!("Not opening a {scheme} link")), "{link}");
+        }
+        // Not a whole address at all.
+        assert!(open_link("notepad.exe".into()).is_err());
+        assert!(open_link(String::new()).is_err());
+    }
+
+    #[test]
+    fn vs_code_opens_only_a_notebook_or_folder_on_this_pc_inside_the_notebooks_folders() {
+        for path in ["notebooks/sales.ipynb", r"\\host\share\sales.ipynb", "//host/share/sales.ipynb"] {
+            assert_eq!(
+                open_in_vscode(path.into(), false),
+                Err(format!("Not a notebook or folder on this PC: {path}")),
+                "{path}"
+            );
+        }
+        let dir = std::env::temp_dir().join(format!("kf-open-vscode-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let missing = dir.join("missing.ipynb");
+        let text = dir.join("notes.txt");
+        std::fs::write(&text, "not a notebook").unwrap();
+        for path in [&missing, &text] {
+            let path = path.to_string_lossy().to_string();
+            assert_eq!(open_in_vscode(path.clone(), true), Err(format!("Not a notebook or folder: {path}")));
+        }
+        // A real notebook, and a folder, outside the app's notebooks folder and its repositories.
+        let notebook = dir.join("sales.IPYNB");
+        std::fs::write(&notebook, "{}").unwrap();
+        for path in [&notebook, &dir] {
+            let path = path.to_string_lossy().to_string();
+            assert_eq!(
+                open_in_vscode(path.clone(), false),
+                Err(format!("Not in the notebooks folder or a repository opened in Source control: {path}"))
+            );
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}

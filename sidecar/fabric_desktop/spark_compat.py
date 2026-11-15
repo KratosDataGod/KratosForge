@@ -2205,15 +2205,15 @@ def _int_cast(original: Any) -> Any:
 
 
 def _text_cast(original: Any) -> Any:
-    """Column.cast("string") as Spark writes a timestamp (sql.spark_timestamp_text): no '+00' after it.
-    The column keeps the name DuckDB's cast gives it. Written without lambdas, so functions that read
-    a column's SQL back (conv, format_string) still take it; a double keeps DuckDB's text here."""
+    """Column.cast("string") as Spark writes it (sql.spark_text_cast): a timestamp with no '+00' after
+    it, a double or float as Java writes it ('1.0E20', not '1e+20'). The column keeps the name DuckDB's
+    cast gives it."""
     def cast(self: Column, dataType: Any) -> Column:  # noqa: N803 - PySpark's name
         name = dataType.strip().lower() if isinstance(dataType, str) else type(dataType).__name__
         if name not in ("string", "StringType"):
             return original(self, dataType)
         named = original(self, dataType).expr.get_name()
-        return _sql(spark_sql.spark_timestamp_text(f"({_col_sql(self)})")).alias(named)
+        return _sql(spark_sql.spark_text_cast(f"({_col_sql(self)})")).alias(named)
     return cast
 
 

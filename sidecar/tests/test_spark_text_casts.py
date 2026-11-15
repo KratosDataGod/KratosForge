@@ -62,7 +62,23 @@ def test_column_cast_to_string_keeps_its_name_and_writes_as_spark(spark):
     df = spark.sql("SELECT TIMESTAMP '2026-01-02 03:04:05' t, 1e20D d, 7 i")
     out = df.select(df.t.cast("string"), df.d.cast(StringType()), df.i.cast("string"))
     assert out.columns == ["t", "d", "i"]
-    assert out.collect()[0].asDict() == {"t": "2026-01-02 03:04:05", "d": "1e+20", "i": "7"}  # see _text_cast
+    assert out.collect()[0].asDict() == {"t": "2026-01-02 03:04:05", "d": "1.0E20", "i": "7"}
+
+
+def test_column_cast_to_string_writes_a_double_as_java_does(spark):
+    # the same values as test_a_double_as_text_is_javas, which Apache Spark 3.5.5 gave for CAST
+    df = spark.sql("SELECT 1e20D h, 1234567.0D a, 1.0E7D b, 0.0001D c, CAST(1.1 AS FLOAT) d, -0.0D e, "
+                   "CAST('NaN' AS DOUBLE) f, 2.5D g, CAST(NULL AS DOUBLE) n")
+    got = df.select(*[df[c].cast("string") for c in df.columns]).collect()[0].asDict()
+    assert got == {"h": "1.0E20", "a": "1234567.0", "b": "1.0E7", "c": "1.0E-4", "d": "1.1", "e": "-0.0", "f": "NaN",
+                   "g": "2.5", "n": None}
+
+
+def test_a_double_cast_to_string_still_reads_back_into_functions_that_take_its_sql(spark):
+    from pyspark.sql import functions as F
+    df = spark.sql("SELECT 1e20D d, 5 i")
+    out = df.select(F.format_string("%s!", df.d.cast("string")).alias("f"), F.conv(df.i.cast("string"), 10, 2).alias("c"))
+    assert out.collect()[0].asDict() == {"f": "1.0E20!", "c": "101"}
 
 
 def test_databricks_sql_writes_a_timestamp_as_text_the_same_way():

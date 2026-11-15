@@ -36,8 +36,8 @@ This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and r
 | SQL editor | 45 | 29 | 4 | 12 | 69% |
 | **Both** | **99** | **76** | **5** | **18** | **79%** |
 
-The notebook is close: its gaps are code navigation (go to definition, rename), editor settings and a
-few comfort features. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
+The notebook is close: its gaps are editor settings, rich-text Markdown and a few comfort
+features. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
 signature help, Format SQL and a compatibility check that none of the others have), but its **results grid** is a plain table
 (no sort, filter, column resize or value viewer) and it runs **one statement at a time**. Those two
 areas are most of the gap and most of what developers notice in the first hour.

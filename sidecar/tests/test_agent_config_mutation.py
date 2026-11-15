@@ -227,7 +227,7 @@ def test_a_shared_schedule_id_holds_40_characters(project):
 
 def test_a_service_principal_with_a_secret_variable_reads(project):
     auth = {"type": "service_principal", "tenant_id": "t", "client_id": "c", "client_secret_env": "SP_SECRET_VAR"}
-    assert config(project, auth=auth).auth["client_secret_env"] == "SP_SECRET_VAR"
+    assert config(project, auth=auth).auth["client_secret_env"] == "SP_SECRET_VAR"  # pragma: allowlist secret (an environment variable name, not a value)
 
 
 def test_a_service_principal_needs_a_certificate_or_a_secret_variable(project):

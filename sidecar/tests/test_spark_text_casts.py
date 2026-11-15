@@ -81,6 +81,16 @@ def test_a_double_cast_to_string_still_reads_back_into_functions_that_take_its_s
     assert out.collect()[0].asDict() == {"f": "1.0E20!", "c": "101"}
 
 
+def test_a_cast_of_a_cast_to_string_grows_its_sql_linearly(spark):
+    # the cast's SQL names its value many times; bound once, three nested casts stay a few times one
+    from fabric_desktop.spark_compat import _col_sql
+    df = spark.sql("SELECT 1e20D d")
+    one_cast = len(_col_sql(df.d.cast("string")))
+    nested = df.d.cast("string").cast("string").cast("string")
+    assert len(_col_sql(nested)) < 4 * one_cast
+    assert df.select(nested.alias("x")).collect()[0].x == "1.0E20"
+
+
 def test_databricks_sql_writes_a_timestamp_as_text_the_same_way():
     con = duckdb.connect()
     con.execute("SET TimeZone = 'UTC'")

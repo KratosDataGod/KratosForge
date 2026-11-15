@@ -2213,7 +2213,9 @@ def _text_cast(original: Any) -> Any:
         if name not in ("string", "StringType"):
             return original(self, dataType)
         named = original(self, dataType).expr.get_name()
-        return _sql(spark_sql.spark_text_cast(f"({_col_sql(self)})")).alias(named)
+        # The value is bound once (spark_text_cast names it many times), so casts inside casts stay small
+        text = spark_sql.spark_text_cast("kf_text")
+        return _sql(f"(LIST_TRANSFORM([{_col_sql(self)}], kf_text -> {text}))[1]").alias(named)
     return cast
 
 

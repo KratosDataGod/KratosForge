@@ -69,7 +69,7 @@ _RULES = [
     _r("SYN-006", "error", "syntax", TSQL, "`Backticks` aren't T-SQL",
        "{engine} doesn't read `name` as a name.", "Quote names with [square brackets] or \"double quotes\".", "surface"),
     _r("SYN-007", "unverified", "syntax", ALL, "Not checked: couldn't read this statement",
-       "This statement couldn't be read as {target} SQL, so the rules couldn't check it. It may be a typo, or SQL "
+       "This statement couldn't be read for {target}, so the rules couldn't check it. It may be a typo, or SQL "
        "the reader doesn't know.", "Check the statement near this point, or test it in {engine}.", "local", "medium"),
     _r("SYN-008", "warning", "syntax", TSQL + (DK,), "\"Double quotes\" make a name, not text",
        "In {engine}, \"...\" is a column or table name. Comparing with it compares with a column, or fails if there "

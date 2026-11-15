@@ -242,7 +242,9 @@ mod windows_tests {
     fn a_signed_exe_names_its_publisher() {
         let Some(exe) = signed_exe() else { return };
         let who = signer(&exe).unwrap().unwrap_or_else(|| panic!("{} should be signed", exe.display()));
-        assert!(who.starts_with("CN=Microsoft Corporation"), "{who}");
+        // CertNameToStrW lists the parts as the certificate stores them, most general first
+        // ("C=US, S=Washington, ..., CN=Microsoft Corporation").
+        assert!(who.contains("CN=Microsoft Corporation"), "{who}");
         assert!(who.contains("O=Microsoft Corporation"), "{who}");
         // Any identity usages listed are Trusted Signing's, and nothing else is.
         if let Some((_, usages)) = who.split_once(" [") {

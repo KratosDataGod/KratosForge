@@ -60,7 +60,9 @@ def test_the_shells_crates_are_linted_and_gated_on_licence_and_source():
     toolchain = tomllib.loads((ROOT / "app" / "src-tauri" / "rust-toolchain.toml").read_text(encoding="utf-8"))
     assert "clippy" in toolchain["toolchain"]["components"]
     audit = CI.split("\n  audit:\n", 1)[1].split("\n  sbom-app:\n", 1)[0]
-    assert "check licenses bans sources" in audit and "cargo audit --file app/src-tauri/Cargo.lock" in audit
+    action = (ROOT / ".github" / "actions" / "dependency-audit" / "action.yml").read_text(encoding="utf-8")
+    assert "check licenses bans sources" in audit and "uses: ./.github/actions/dependency-audit" in audit
+    assert "cargo audit --file app/src-tauri/Cargo.lock" in action
     deny = tomllib.loads((ROOT / "app" / "src-tauri" / "deny.toml").read_text(encoding="utf-8"))
     assert deny["graph"]["targets"] == ["x86_64-pc-windows-msvc"]
     assert (deny["sources"]["unknown-registry"], deny["sources"]["unknown-git"]) == ("deny", "deny")

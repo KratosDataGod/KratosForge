@@ -127,13 +127,31 @@ def test_the_npm_command_fails_on_a_high_advisory_or_a_failed_audit(tmp_path):
     assert run("not json").returncode == 1
 
 
+AUDIT_ACTION = ROOT / ".github" / "actions" / "dependency-audit" / "action.yml"
+
+
 def test_the_audit_job_covers_every_lock_that_ships():
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     job = ci.split("\n  audit:\n", 1)[1].split("\n  sbom-app:\n", 1)[0]
+    assert "uses: ./.github/actions/dependency-audit\n" in job
+    action = AUDIT_ACTION.read_text(encoding="utf-8")
     for lock in ("sidecar/constraints.txt", "sidecar/engine-requirements.txt", "sidecar/fabric_desktop/engines/dbconnect_locks/*.txt",
                  "app/ui/vendor/*/package-lock.json", "vscode/package-lock.json", "app/src-tauri/Cargo.lock"):
-        assert lock in job, lock
-    assert "audit_exceptions.py npm" in job
+        assert lock in action, lock
+    assert "audit_exceptions.py npm" in action
+    # a failed audit fails the job: no step of it is let off
+    assert "continue-on-error" not in action
+
+
+def test_main_is_audited_on_a_schedule_with_the_same_checks():
+    import yaml
+    flow = yaml.safe_load((ROOT / ".github" / "workflows" / "dependency-audit.yml").read_text(encoding="utf-8"))
+    triggers = flow[True]  # YAML reads the bare key on as true
+    assert triggers["schedule"] == [{"cron": "23 */6 * * *"}] and "workflow_dispatch" in triggers
+    assert flow["permissions"] == {"contents": "read"}
+    steps = flow["jobs"]["audit"]["steps"]
+    assert steps[-1] == {"uses": "./.github/actions/dependency-audit"}
+    assert flow["jobs"]["report"]["needs"] == "audit" and flow["jobs"]["report"]["permissions"] == {"issues": "write"}
 
 
 def test_an_npm_advisory_without_a_ghsa_gets_an_id_the_exceptions_file_accepts():
@@ -154,6 +172,5 @@ def test_an_npm_advisory_with_no_id_fails_and_no_exceptions_line_lets_it_through
 
 
 def test_the_npm_step_clears_the_last_report_before_each_lock():
-    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    step = ci.split("- name: npm packages", 1)[1].split("\n      - ", 1)[0]
+    step = AUDIT_ACTION.read_text(encoding="utf-8").split("- name: npm packages", 1)[1].split("\n    - ", 1)[0]
     assert step.index('rm -f "$RUNNER_TEMP/npm-audit.json"') < step.index("npm audit --package-lock-only")

@@ -151,7 +151,7 @@ Some wheels bundle native libraries of their own, for example pyarrow and polars
 
 ## Known vulnerabilities
 
-The CI `audit` job checks every lock file that ships, on every pull request, and the release job waits for it:
+The CI `audit` job checks every lock file that ships, on every pull request, and the release job waits for it. The same checks (`.github/actions/dependency-audit`) also run against main every 6 hours (`.github/workflows/dependency-audit.yml`), so a new advisory opens a `dependency-audit` issue before a pull request runs into it. [docs/quality/new-advisory.md](../quality/new-advisory.md) says what to do then.
 
 | Lock file | Tool | Fails on |
 | --- | --- | --- |

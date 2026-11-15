@@ -250,6 +250,40 @@ def test_one_added_before_the_request_is_not_taken_for_the_requests_own(svc, con
     assert len(added) == 2  # the app's earlier one, and this request's record of the one it found
 
 
+def test_one_added_in_the_same_second_before_the_request_is_not_taken_for_the_requests_own(svc, conflicts, monkeypatch):  # noqa: F811
+    # The request's time is kept to the second, the change's to the microsecond: as text, ".829233" sorts after "+"
+    svc.create_shortcut("ws-dev", "lh-1", "Tables/dbo", "supplier", SRC, "LH_Silver", "Sales Dev", "Sales Dev 2")
+    svc.delete_shortcut("ws-dev", "lh-1", "Tables/dbo", "supplier", "LH_Silver", "Sales Dev")
+    svc.api.items["lh-1"].append({"name": "supplier", "path": "Tables/dbo", "target": WANTED})
+    earlier = next(c["at"] for c in svc.shortcut_changes()["changes"] if c["kind"] == "added")
+    assert "." in earlier
+    monkeypatch.setattr(core, "_now", lambda: earlier.split(".")[0] + "+00:00")  # the same second, truncated
+    req = _ask(svc)
+    out = svc.platform_decide(req["id"], True)
+    assert out["status"] == "approved" and out["next"] == [KEPT]
+    made = svc.platform_requests("approved")[0]["detail"]["made"]
+    assert made == {"shortcut_id": "lh-1|Tables/dbo/supplier", "found": True}
+    added = [c for c in svc.shortcut_changes()["changes"] if c["kind"] == "added" and c["name"] == "supplier"]
+    assert len(added) == 2
+
+
+@pytest.mark.parametrize("requested_at, changes, ours", [
+    # as text ".829233" sorts after "+": made and removed in the request's second, before it
+    ("2026-11-14T16:01:58+00:00", [("16:01:58.100000", "added"), ("16:01:58.829233", "removed")], False),
+    ("2026-11-14T16:01:58+00:00", [("16:01:57.999999", "added")], False),  # before the request
+    ("2026-11-14T16:01:58+00:00", [("16:01:58.300000", "added")], True),  # this approval, the same second
+    ("2026-11-14T16:01:58+00:00", [("16:01:57", "added"), ("16:01:57.5", "removed"), ("16:02:03", "added")], True),
+    ("2026-11-14T16:01:58+00:00", [("16:02:03", "added"), ("16:02:09", "removed")], False),  # gone again since
+    ("2026-11-14T16:01:58+00:00", [("16:02:03", "added"), ("16:02:09", "repointed")], True),
+    ("", [("16:02:03", "added")], False),  # no request time: nothing counts
+    ("2026-11-14T16:01:58+00:00", [("not a time", "added")], False),
+])
+def test_request_and_change_times_compare_as_times(requested_at, changes, ours):
+    from fabric_desktop.shortcut_service import _added_since
+    logged = [{"at": at if at == "not a time" else f"2026-11-14T{at}+00:00", "kind": kind} for at, kind in reversed(changes)]
+    assert _added_since(logged, requested_at) is ours
+
+
 def test_an_environments_copy_already_there_is_read_from_the_code_whatever_the_status(svc, monkeypatch):  # noqa: F811
     from test_shortcut_request_envs import LAKEHOUSES
     monkeypatch.setattr(type(svc), "_sc_lakehouses", lambda self: LAKEHOUSES)

@@ -588,9 +588,19 @@ def isnan(col: Any) -> Column:
     return _sql(f"coalesce(isnan(CAST({_arg(col)} AS DOUBLE)), false)")
 
 
+# DuckDB 1.5 writes a column's lambda back as (lambda x: ...), in parentheses sqlglot doesn't read
+_PAREN_LAMBDA = re.compile(r"\(lambda ([A-Za-z_]\w*(?:, [A-Za-z_]\w*)*): ")
+
+
+def _readable(text: str) -> str:
+    """A column's DuckDB SQL as sqlglot reads it: (lambda x: ...) as (x -> ...)."""
+    return _PAREN_LAMBDA.sub(lambda m: f"({m.group(1)} -> " if "," not in m.group(1) else f"(({m.group(1)}) -> ",
+                             text)
+
+
 def _over_columns(template: exp.Expression, cols: Any) -> Column:
     """A Spark SQL rewrite (fj_arg0, fj_arg1, ... for the columns) written as DuckDB SQL."""
-    args = [cast(exp.Expression, sqlglot.parse_one(_col_sql(c), read="duckdb")) for c in cols]
+    args = [cast(exp.Expression, sqlglot.parse_one(_readable(_col_sql(c)), read="duckdb")) for c in cols]
     return _sql(spark_sql.duckdb_sql(spark_builtins_sql._with_args(template, args)))
 
 
@@ -2215,7 +2225,7 @@ def _text_cast(original: Any) -> Any:
         named = original(self, dataType).expr.get_name()
         # The value is bound once (spark_text_cast names it many times), so casts inside casts stay small
         text = spark_sql.spark_text_cast("kf_text")
-        return _sql(f"(LIST_TRANSFORM([{_col_sql(self)}], kf_text -> {text}))[1]").alias(named)
+        return _sql(f"(LIST_TRANSFORM([{_col_sql(self)}], lambda kf_text: {text}))[1]").alias(named)
     return cast
 
 

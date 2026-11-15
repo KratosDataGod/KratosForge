@@ -158,6 +158,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         self._schema_cache: dict[str, bool] = {}
         self._tables: dict[str, Any] | None = None
         self._tables_lock = threading.Lock()
+        lakehouse.maintenance_guard = self._maintenance_refusal  # OPTIMIZE, VACUUM, RESTORE from notebook code
 
     @property
     def auth(self) -> Authenticator:

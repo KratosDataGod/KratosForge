@@ -13,7 +13,6 @@ publish workspace, so a proof never changes the published notebook that schedule
 
 from __future__ import annotations
 
-import base64
 import datetime as dt
 import hashlib
 import json
@@ -26,6 +25,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from . import b64
 from . import app_settings, depgraph, envprofile, jsonfile, notebook_cells, proof, receipts, redact, replay, scorecard, verify, wizard
 from .notebook import check_watches, leaf_name
 from .fabric_run import TERMINAL, fabric_ipynb
@@ -245,7 +245,7 @@ class ProveMixin:
     def replay_bundle_open(self, path: str | None = None, content: str | None = None) -> dict[str, Any]:
         """Open a bundle (a file's ``path``, or its ``content`` in base64) as a new notebook,
         "<notebook> replay", that remembers the bundle. Nothing runs."""
-        data = Path(path).read_bytes() if path else base64.b64decode(content or "", validate=True)
+        data = Path(path).read_bytes() if path else b64.decode_exact(content or "")
         if len(data) > self.MAX_BUNDLE_BYTES:
             raise ValueError("That file is too large for a replay bundle.")
         bundle_id = hashlib.sha256(data).hexdigest()[:16]

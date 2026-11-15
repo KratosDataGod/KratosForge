@@ -4631,7 +4631,8 @@ test("Python cells get go to definition, find references and rename", () => {
 test("notebookutils.lakehouse and isValidToken are documented", () => {
   const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
   assert.match(docs, /\| `lakehouse` \(Preview\) \| `get`, `getWithProperties`, `list` and `listTables`, read from Fabric as you/);
-  assert.match(docs, /`create`, `update`, `delete` and `loadTable` run in Fabric only/);
+  assert.match(docs, /`create`, `update` and `delete` run in Fabric only/);
+  assert.match(docs, /`loadTable` loads a CSV or Parquet file, or a folder of them/);
   assert.match(docs, /`isValidToken` says whether a token hasn't expired yet/);
 });
 

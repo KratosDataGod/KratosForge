@@ -151,7 +151,8 @@ def parse(stmt: Stmt, dialect: str) -> None:
     try:
         trees = [t for t in sql_dialects.parse(text, read=dialect, error_level=sqlglot.ErrorLevel.RAISE) if t is not None]
         stmt.ast = cast(exp.Expression, trees[0]) if trees else None  # sqlglot types parse as its Expr base
-    except (ParseError, TokenError, SqlglotError, RecursionError, ValueError) as exc:
+    # sqlglot's T-SQL parser can also fail with AttributeError on a half-typed statement (SELECT a INTO)
+    except (ParseError, TokenError, SqlglotError, RecursionError, ValueError, AttributeError) as exc:
         if stmt.toks and stmt.toks[0].kw in COMMANDS.get(dialect, ()):
             return
         errors = getattr(exc, "errors", None) or []

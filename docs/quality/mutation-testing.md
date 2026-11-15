@@ -1109,3 +1109,1387 @@ None.
 
 - `orchestration/evaluate.py`, which an open pull request changes.
 - `progress.py`, the developer profile, next to the academy area.
+
+# Mutation testing, batch 11
+
+Three modules no open pull request is changing:
+- The Snowflake SQL translator that runs Snowflake cells on this PC (`snowflake_sql.py`).
+- The SQL compatibility rules behind the SQL editor's and the notebook's compatibility check (`sqlcompat/rules.py`).
+- The ipywidgets stand-in that notebook cells import (`widgets.py`).
+
+The run was at `main` 4d7f4b6bd (2026-11-14), with `sidecar/tools/mutate.py` and the same method as batches 1 to 10 (sample cap 150, seed 7), on DuckDB 1.5.6. All three modules have more points than the cap, so 150 of each were run.
+
+Before each run, its tests were run in a copy of `sidecar/` on its own, the way the mutator runs them. This batch also ran them once against the module as `ast.unparse` writes it, because that is the text every mutant is written as. That check found a false 100% for `snowflake_sql.py`: `test_snowflake_sql.py::test_every_rule_the_code_uses_is_in_the_docs_table` reads the module's source for rule ids in double quotes, and `ast.unparse` writes single quotes, so the test failed for every mutant and each counted as killed. That run was thrown away, and the test is left out of the runs below.
+
+Tests left out of every run, because they read pages under `docs/` or the module's own source:
+- `test_snowflake_sql.py`: `test_the_docs_table_is_the_codes` and `test_every_rule_the_code_uses_is_in_the_docs_table`.
+- `test_snowflake_sql_parity.py::test_the_docs_carry_the_table_and_say_no_account_was_used`.
+- `test_snowflake_coverage.py`: `test_what_the_docs_say_runs_still_runs`, `test_the_docs_page_is_up_to_date` and `test_the_docs_link_the_list`.
+- `test_learn_guides.py::test_the_shipped_guides_are_the_docs`.
+- `test_practice_docs.py`: `test_every_rule_has_a_docs_section` and `test_no_docs_section_for_a_rule_that_doesnt_exist`.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `snowflake_sql.py` | test_local_sql_mutation, test_snowflake_coverage, test_snowflake_sql, test_snowflake_sql_edges, test_snowflake_sql_parity, test_snowflake_sql_variadic, test_sql_lambdas (+ test_snowflake_sql_mutation) | 150 of 732 | 132 / 18 | **88.0%** | 144 / 6 | **96.0%** | 6 equivalent |
+| `sqlcompat/rules.py` | test_learn_fixes, test_learn_fixes_edges, test_learn_guides, test_localdata_engine_mutation, test_practice_docs, test_snowflake_sql_variadic, test_sql_compat, test_sql_practices, test_tsql_contract (+ test_sqlcompat_rules_mutation) | 150 of 1133 | 102 / 48 | **68.0%** | 137 / 13 | **91.3%** | 10 equivalent, 3 tied to #2623 and #2624 |
+| `widgets.py` | test_ipywidgets, test_ipywidgets_parity, test_output_cap, test_outputs_hardening, test_widgets_more_edges (+ test_widgets_mutation) | 150 of 519 | 127 / 23 | **84.7%** | 146 / 4 | **97.3%** | 4 equivalent |
+
+Existing test files the first sets left out were tried on the survivors first, and they killed none:
+- `snowflake_sql.py`: test_snowflake_coverage_edges, test_local_sql_errors, test_local_sql_results, test_sql_portability.
+- `sqlcompat/rules.py`: test_learn_labs, test_opportunities, test_risk, test_sql_portability.
+- `widgets.py`: test_chart_libraries, test_dbutils, test_dbutils_parity, test_display_handles, test_notebook_inputs, test_notebook_inputs_edges, test_notebook_inputs_mutation, test_notebook_mutation, test_notebook_formats.
+
+All the survivors that were killed, were killed by the new tests. The three new test files pass on DuckDB 1.5.6 and 2.0.0.
+
+### What the survivors were, and the tests that now kill them
+
+- **snowflake_sql.py**:
+  - A divisor written as text (`10 / '0'`) or as a column named like a number (`"2"`) still gets Snowflake's "Division by zero".
+  - `OCTET_LENGTH` of BINARY counts bytes (`octet_length`), not the characters of its text.
+  - `OBJECT_INSERT` with a `FALSE` update flag refuses a key that is already there.
+  - `FLATTEN` with a positional input, and `OUTER => FALSE` against `OUTER => TRUE` on an empty array.
+  - `ALTER ... SET TAG` refused as a Snowflake setting, while `ALTER TABLE ... RENAME` runs.
+  - `AS_DECIMAL` refusing a precision of 39, and the reason each `AS_*` function gives when it has too many arguments.
+  - The translation label carrying each note in full, and the report objects being frozen.
+  - → `test_snowflake_sql_mutation.py`.
+- **sqlcompat/rules.py**:
+  - The exact text each finding points at, for 39 statements across the rules: types, `CREATE`/`ALTER` objects, constraints, hints, the endpoint's read-only writes, the clock words, date patterns, `ISNULL`, `GO` and CTEs.
+  - `#temp` names: `#t` is a temp table and `# t` isn't, and `##g` is global.
+  - Columns added by `ALTER TABLE`, with and without `COLUMN`, and after a comma.
+  - A table made from a query, past `WITH (options)` and inside `CONVERT`.
+  - An `UPDATE` whose `WHERE` comes after a subquery still has one.
+  - A CTE with a column list that names itself, and the second of two CTEs.
+  - Statements that end early (an unclosed column list, a lone `WITH`), read to their end without failing.
+  - More than 1,024 columns, a bad name quoted to 64 characters, and the rules being frozen.
+  - → `test_sqlcompat_rules_mutation.py`.
+- **widgets.py**:
+  - How deep a nested view is drawn: down to `MAX_DEPTH`, then a placeholder.
+  - The controls `interact` picks: the range of an int or float slider around its value and the float step in hundredths, a two- or three-number tuple as a slider with a step of 1, and anything else listed as a dropdown.
+  - A range slider starting at a quarter and three quarters of its bounds.
+  - `Text` turning `None` into an empty value, and a dropdown's description being settable.
+  - `Output` without and with a kernel bound: `with out as o` gives the widget, an error inside isn't swallowed, `capture()` keeps what was there, and an output that exactly fills the rich cap is shown, also after `clear_output()`.
+  - `interact` as a decorator and through `interact.options()` giving back the function.
+  - Installing twice keeping this module.
+  - → `test_widgets_mutation.py`.
+
+### Equivalent mutants (left on purpose)
+
+| Module | Line | Mutant | Why it changes nothing |
+| --- | --- | --- | --- |
+| `snowflake_sql.py` | 1363 (×2), 1376 | `_div0_branch` misreading DIV0's or DIV0NULL's division | A division it misses gets the zero check too, inside the `ELSE` branch DIV0 never reaches when the divisor is 0. DuckDB's `CASE` doesn't evaluate a branch it doesn't take, so the results are the same. |
+| `snowflake_sql.py` | 1377, 1160 | `return False` → `return None` | Both callers only test the result for truth. |
+| `snowflake_sql.py` | 953 | `COALESCE(running, 0)` → `1` for `CONDITIONAL_TRUE_EVENT` | The running sum of 0s and 1s up to the current row is never NULL. |
+| `sqlcompat/rules.py` | 366 | `_where_follows`'s `return False` → `None` | Its caller only tests `not _where_follows(...)`. |
+| `sqlcompat/rules.py` | 338 | `_args` counting commas from the `(` instead of after it | The `(` isn't a comma. |
+| `sqlcompat/rules.py` | 605 | `ISNULL`'s argument count from the name instead of the `(` | A bracket is at its call's own depth, so the same `)` and the same commas are found. |
+| `sqlcompat/rules.py` | 646 | `_regex_pattern` looking for commas from before the `(` | The two extra tokens are the name and the `(`, never a comma at the argument depth. |
+| `sqlcompat/rules.py` | 764 | `_close(s, k + 1)` → `_close(s, k)` past `WITH (options)` | From `WITH`, the first `)` at the same depth is the same one. |
+| `sqlcompat/rules.py` | 908 | the `NOT NULL` search starting two tokens earlier | Those tokens are the table name and `ADD`. |
+| `sqlcompat/rules.py` | 977, 978 | the `CREATE`/`ALTER`/`DROP` guard and its look-ahead | The slice is safe without the guard, and only the first three words are read. |
+| `sqlcompat/rules.py` | 1048 | the self-reference search starting at `AS` | `AS` and `(` are never a CTE's name. |
+| `sqlcompat/rules.py` | 1087 | `FROM (` read at `FROM` | A `(` isn't a name either way, so the token is skipped. |
+| `widgets.py` | 153 | `_view(depth=0)` default | Every caller passes the depth. |
+| `widgets.py` | 230 | `IntSlider` reading a value from the app as `float` | Setting `value` casts it to `int` anyway. |
+| `widgets.py` | 618 | `Literal[False]` → `Literal[True]` in `__exit__`'s annotation | An annotation. `test_widgets_mutation.py` checks that the error isn't swallowed. |
+| `widgets.py` | 636 | `capture(wait=True)` default | `clear_output` doesn't read `wait`. |
+
+Left without a test, tied to a bug filed in this batch:
+- `sqlcompat/rules.py` lines 294 and 299, `_name_at`: the `db..table` branch can't be reached, so neither mutant changes anything until #2624 is fixed.
+- `sqlcompat/rules.py` line 985, `_writes`' `k + 1 < len(toks)` guard for `SELECT ... INTO` at the end: for the T-SQL targets, sqlglot fails on that statement before the rules run (#2623).
+
+### Real bugs found
+
+- #2623: the SQL compatibility check fails with `AttributeError` on a T-SQL `SELECT ... INTO` with no table name, because sqlglot's T-SQL parser throws one and `analyzer.parse()` doesn't catch it.
+- #2624: a `db..table` name isn't read past the first dot, so `CREATE TABLE db..t (a nvarchar(10))` gets no findings.
+- #2625: `widgets.install()` keeps a real ipywidgets that a library imported first, because only KratosForge's module has `__kratosforge__` and the check defaults to `True`.
+
+None of them is security-relevant.
+
+### Not in this batch
+
+- `snowflake_sql.py`, `sqlcompat/rules.py` and `widgets.py` past the 150 sampled mutants.
+
+# Mutation testing, batch 13
+
+Three modules no open pull request is changing:
+- Connection profiles: which platforms a piece of work uses, its sign-in references, export and import, and reading the Databricks and Snowflake CLIs' own files (`connprofiles.py`).
+- The result viewer behind a notebook table output: paging, the profile, charts and downloads, with its small Excel writer (`frames.py`).
+- The Databricks SQL warehouse engine (`engines/databricks_sql.py`).
+
+The run was at `main` fb729823b (2026-11-14), with `sidecar/tools/mutate.py` and the same method as batches 1 to 12 (sample cap 150, seed 7), on DuckDB 1.5.6. All three modules have more points than the cap, so 150 of each were run.
+
+Before each run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. Every test passed both ways, so no run below can score a false 100%. One extra test was left out of the `connprofiles.py` re-run because it reads a page under `docs/`: `test_platforms.py::test_the_docs_table_is_the_codes`.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `connprofiles.py` | test_connprofiles, test_connprofiles_edges, test_connprofiles_key_text, test_connprofiles_shape, test_databricks_host, test_databricks_profile_host, test_engine_connections_settings, test_engines_service, test_engines_service_edges, test_secret_detectors_userinfo (+ test_connprofiles_mutation) | 150 of 406 | 137 / 13 | **91.3%** | 150 / 0 | **100%** | none |
+| `frames.py` | test_frames, test_frames_more_edges, test_notebook_display_edges, test_outputs_hardening, test_query_profile, test_spark_summary_schema, test_wrangler, test_write_types (+ test_frames_mutation) | 150 of 424 | 126 / 24 | **84.0%** | 149 / 1 | **99.3%** | 1 with no deterministic test |
+| `engines/databricks_sql.py` | test_credential_expiry, test_databricks_discovery, test_databricks_sql, test_databricks_sql_errors, test_databricks_sql_robust, test_paging, test_remote_text_lines, test_reply_text_one_line (+ test_databricks_sql_mutation) | 150 of 373 | 133 / 17 | **88.7%** | 150 / 0 | **100%** | none |
+
+The 7 timeouts (2 in `connprofiles.py`, 1 in `frames.py`, 4 in `engines/databricks_sql.py`) are real hangs: each mutant turns a loop's exit or a lock's non-blocking try into one that never ends (`import_`'s new-id loop, `_unique`'s suffix loop, the statement poll, and a second cell waiting on the first).
+
+Existing test files the first sets left out were tried on the survivors first:
+- `connprofiles.py`: test_databricks_billing, test_databricks_bundles_service, test_databricks_runs_service, test_databricks_sync_service, test_dbconnect, test_dbconnect_env, test_engine_conformance, test_platforms. They killed none.
+- `frames.py`: test_kernel_process_edges, test_notebook_history, test_pandas_in_notebooks, test_publish_mutation, test_service_edges, test_state_writes. They killed none.
+- `engines/databricks_sql.py`: test_cli_tenant_commands, test_databricks_billing, test_databricks_jobs, test_databricks_runs_service, test_databricks_sync_service, test_databricks_workspace_sync, test_databricks_workspace_sync_edges, test_dbconnect_env, test_engine_conformance, test_engines_service, test_engines_service_edges. They killed 2: the adapter's `describe()` and a whole result asked for with `result_rows` of 1.
+
+The new tests killed the rest. The three new test files pass on DuckDB 1.5.6 and 2.0.0.
+
+### What the survivors were, and the tests that now kill them
+
+- **connprofiles.py**:
+  - A private key file on a network share (`\\server\...` or `//server/...`) refused with its own reason.
+  - Import refusing a secret anywhere in the document, not only inside its profile.
+  - Databricks on AWS or GCP refused, since only Azure is turned on.
+  - A service principal needing both its client id and its secret reference.
+  - The local cache defaulting to 10 GB.
+  - Export marking only filled-in credential fields as needing setup.
+  - The Databricks CLI file reading as found, and a profile with only a host signing in through the CLI.
+  - A CLI profile or connection name making an id of 40 characters.
+  - The Snowflake CLI folder following this computer's system.
+  - A Snowflake CLI connection warned about only when it uses a sign-in KratosForge can't.
+  - Deleting a profile that was never saved.
+  - → `test_connprofiles_mutation.py`.
+- **frames.py**:
+  - A page of 100 rows by default, and frame ids of 12 hex characters.
+  - The Arrow table made once and reused.
+  - An Excel download of 1,048,576 rows refused before anything is written.
+  - The profile covering 200 columns and saying how many more there are, sampling only above 250,000 rows, and drawing 12 histogram bins.
+  - The type names for true/false and struct columns, and a NaN chart category keeping its own key.
+  - A bar chart keeping the largest categories first, and a line chart keeping x order with a missing x last.
+  - Summing a decimal column keeping its fractions, and count counting rows where the value is missing or no value is picked.
+  - A series chart with no "Other" slot, and a histogram binning by the values' range.
+  - Excel dates around the 1900 leap day that never was, decimals of more than 15 digits going out as text, column letters past Z, text keeping tabs and line breaks, and each row getting its own number.
+  - → `test_frames_mutation.py`.
+- **engines/databricks_sql.py**:
+  - The two-hour limit, counted from when the statement was sent, and its message in minutes.
+  - An error cell reporting its own running time.
+  - A plain cell and Plan sending no row limit, and a whole result of one row asking for two.
+  - A whole result's preview starting at its first row, and a first chunk that says it starts at row 0 being read.
+  - A whole result of exactly the size limit kept.
+  - A result chunk that isn't an object refused by name.
+  - A refused token tried once more with a new one, a new token that is refused too being forgotten, and a sign-in that can't be renewed being a 401 error.
+  - Requests waiting a minute at most.
+  - Cancel tried again after Cancel was pressed, while other calls aren't.
+  - A cell's catalog and schema winning over the connection's.
+  - → `test_databricks_sql_mutation.py`.
+
+### Left without a test
+
+| Module | Line | Mutant | Why |
+| --- | --- | --- | --- |
+| `frames.py` | 457 | `sname in values and _chart_key(k) in index` → `or` | Every series name the chart's last query gives is in `values`, and its x values come from the same ordered list of kept categories. They can only differ when categories tie at the 60-category cut and DuckDB orders the tie differently in two queries, which no test can make happen on demand. |
+
+### Real bugs found
+
+None.
+
+### Not in this batch
+
+- `connprofiles.py`, `frames.py` and `engines/databricks_sql.py` past the 150 sampled mutants.
+
+# Mutation testing, batch 14
+
+Three modules no open pull request is changing:
+- Where a metadata project's tables live: reads, writes, appends that lose a race for the next version, MERGE, the run metadata tables and the files a failed write left (`meta/store.py`).
+- A metadata project itself: its layers file, exceptions, the save gate, the run order and what is downstream of an entity (`meta/project.py`).
+- Run requests from Fabric pipelines, the agent's side of the mailbox in `LH_Meta` (`mailbox.py`).
+
+The run was at `main` 5c80b9a53 (2026-11-14), with `sidecar/tools/mutate.py` and the same method as batches 1 to 13 (sample cap 150, seed 7), on DuckDB 1.5.6. All three modules have more points than the cap, so 150 of each were run. Each mutant's tests ran with `-n 2`, so a set of about a minute fits the 120-second limit.
+
+Before each run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batches 11 to 13. Every test passed both ways, so no run below can score a false 100%. Eight `mailbox.py` tests fail in a copy of `sidecar/` alone because their `nb` fixture reads `examples/pipeline/run_on_agent.ipynb`, so they are left out of every run: in `test_mailbox.py`, `test_a_pipeline_request_runs_and_reports_back`, `test_the_same_request_runs_once_however_often_it_is_sent_or_read`, `test_a_cancel_file_stops_a_request_before_it_runs`, `test_a_cancel_that_arrives_between_polls_stops_the_worker_before_it_starts`, `test_cancelling_a_running_request_lets_the_run_finish`, `test_the_notebook_gives_up_cancels_and_fails_after_its_timeout` and `test_the_notebook_names_its_pipeline_run_when_given_one`; and `test_agent_queue_bound.py::test_a_waiting_request_is_cancelled_by_its_cancel_file_and_is_never_queued`. `test_meta_atomic_save.py` reads `meta/project.py`'s source, but only to check that it never calls `.write_text(`, which no mutant adds, so it stays in.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `meta/store.py` | test_meta_store_edges, test_meta_compaction, test_meta_filtered_reads, test_meta_write_types, test_durable_commits, test_lease_before_commit, test_delta_profile_writes, test_awkward_paths, test_landing_manifest, test_landing_zones, test_crash_kills, test_bounded_previews, test_conversions_everywhere, test_full_load_memory, test_meta_keys_edges, test_batches (+ test_meta_store_mutation) | 150 of 373 | 117 / 33 | **78.0%** | 144 / 6 | **96.0%** | 6 equivalent |
+| `meta/project.py` | test_meta_project_edges, test_meta_project_folder, test_meta_atomic_save, test_meta_compare_edges, test_meta_compare_totals, test_meta_engine_edges, test_meta_source_systems_edges, test_project_version_walk, test_schema_evolution, test_versioned_contracts, test_lineage, test_shared_keys, test_breaking_changes, test_model_date_table, test_sealed_settings, test_platform_service_paths, test_meta_service_edges, test_meta_service_keys_edges, test_meta_keys_edges (+ test_meta_project_mutation) | 150 of 452 | 85 / 65 | **56.7%** | 148 / 2 | **98.7%** | 2 equivalent |
+| `mailbox.py` | test_mailbox, test_mailbox_edges, test_mailbox_more_edges, test_agent, test_agent_clock_and_folder, test_agent_queue_bound, test_agent_recovery, test_agent_silent_failures, test_agent_status, test_agent_takeover, test_paging, test_lease_clock_skew, test_shared_schedules, test_schedule_overlap, test_sqlite_connections_closed, test_not_set_up, test_cli_local_commands, test_contract_onelake (+ test_mailbox_mutation) | 150 of 416 | 123 / 27 | **82.0%** | 144 / 6 | **96.0%** | 6 equivalent |
+
+The one timeout, in `meta/project.py`, is a real hang: it was run again on its own and still passed the 120-second limit. Swapping `and` for `or` in `impact`'s test of which entities to add (`f in e.reads() and n not in out and n != entity`) adds the same entities again on every round, so the loop never ends.
+
+Existing test files the first sets left out were tried on the survivors first:
+- `meta/store.py`: test_concurrent_writers, test_maintenance_concurrency, test_dataops, test_dataops_edges, test_large_tables, test_keys. They killed 9: the row count from the log's statistics, the append retry setting, and the race retries' conditions and waits. One more timed out there while the machine was loaded; the new tests kill it directly.
+- `meta/project.py`: test_meta, test_keys, test_batches. With test_meta at about 40 seconds, the first 9 survivors took a quarter of an hour, so the run was stopped there. They killed 4 of those 9, and the new tests kill all 4 as well.
+- `mailbox.py`: none beyond the first set.
+
+The new tests killed the rest. The three new test files pass on DuckDB 1.5.6 and 2.0.0.
+
+### What the survivors were, and the tests that now kill them
+
+- **meta/store.py**:
+  - Where a run ran, in words: Fabric, an agent with or without its host, or this PC.
+  - Create-if-absent saying `False` when the table was already there.
+  - The schema kept after a write only for the version that write made.
+  - A MERGE into an existing table refusing a type that would change values.
+  - An upsert on a key that bounds nothing (a float) still merging, and an upsert and a stream keeping their commit metadata.
+  - A stream that loses its lease saying so with its own cleanup note, not as a conflict; and a stream into a table another writer made first being a conflict.
+  - An append that keeps losing the Windows commit race, or keeps losing to another writer's create, giving up after ten tries with waits of 0.05 s, 0.1 s and so on; an overwrite never sent again; and an append that lost to another writer's create once being made again on the table as it is now.
+  - The files a failed stream left counted as "1 data file" or "2 data files", and a stream whose files couldn't be listed first removing none.
+  - → `test_meta_store_mutation.py`.
+- **meta/project.py**:
+  - `max_deletes` taking 100% but not more.
+  - The logic hash ignoring the settings that only change how a run reads and the order settings are written in, and changing for one that picks rows.
+  - Soft deletes only for an incremental load, and the columns a dimension, a lookup and soft deletes make.
+  - The source an entity's summary names, for files, a landing folder, a link and an upstream entity.
+  - The layers file keeping the rules and a retention other than the default, and leaving both out when there are none.
+  - A layer keeping versions for 7 to 3,650 days, a project having 10 layers but not 11, a layer name in lowercase, and a layer list that breaks a read being refused with the old file kept.
+  - A misnamed entity file reported with its name cut to 80 characters, and the environments a project doesn't name getting their defaults.
+  - The fingerprint counting the Python an entity runs, and only for an entity that runs some.
+  - An exception in force to the end of its last day, waiving its own rule only; and its status and notice by days left: today, 1 day, 14 days, 15 days, ended, permanent, or not a date.
+  - The save gate on expired and unreadable exceptions, a link's columns, `batch_by`, `lookback`, deletes and soft deletes, a source path on this PC, `overwrite_schema`, same-layer reads, the layers a layer may read, a not-null check on a non-key column, a custom step, and a custom function that can't be imported.
+  - The run order given whatever other problems there are, a cycle found and named from where it closes, and everything downstream of an entity.
+  - → `test_meta_project_mutation.py`.
+- **mailbox.py**:
+  - The defaults: no backfills from pipelines, request files kept for 14 days, and a request given up after 3 agents.
+  - A status written as indented JSON.
+  - A pipeline run up to 24 hours old, starting up to 5 minutes ahead of this clock, and only a Pipeline job; a lookup Fabric couldn't answer marked to try again, and one it refused not.
+  - Pipeline runs already used forgotten after 24 hours and kept until then.
+  - A running job's status with no finish time yet, a cancel while running noted only then, and a job change updating only this agent's open requests.
+  - A cancel check only for this agent's environments.
+  - A request three agents lost failing, a busy agent taking a lost request over unless it claims only while free, and an owner in OneLake judged lost only past its fresh time plus the grace.
+  - A finished request's files removed after 14 days and not before.
+  - A refused listing of a mailbox folder being an error.
+  - → `test_mailbox_mutation.py`.
+
+### Equivalent mutants
+
+| Module | Line | Mutant | Why it changes nothing a test can see |
+| --- | --- | --- | --- |
+| `meta/store.py` | 338 | `safe != data.schema` → `==` on the retry after another writer's create | The rows are already cast to the safe types before the first try, so on the retry the two are the same and the cast is skipped either way, unless another writer made the table with other types at that same moment, which no test can arrange on demand. |
+| `meta/store.py` | 357 | `isinstance(self, LocalStore)` negated before a stream makes the table's folder | delta-rs makes the folder itself, so a stream into a new local table works without it. |
+| `meta/store.py` | 395 | `_delta_safe`'s `loaded=False` default → `True` | Only `write_stream` uses the default, for a write that isn't an append, and the table is loaded only for an append. |
+| `meta/store.py` | 693 | `maintain_order=True` → `False` in `meta_where`'s sort | Rows are sorted by their write time; no test can make two rows with the same time come back in a different order. |
+| `meta/store.py` | 791 | `version + 1` → `version - 1` in the commits flushed after a compaction | The flush then also covers two commits already flushed; nothing a test can see. |
+| `meta/store.py` | 803 | the compaction lease's `ttl=120` → `121` | A second more on a lease no test waits out. |
+| `meta/project.py` | 389 | `usedforsecurity=False` → `True` | The same SHA-1. |
+| `meta/project.py` | 709 | `overwrite_schema`'s default `False` → `True` | The check refuses only a value that isn't true or false, and both defaults are. |
+| `mailbox.py` | 156 | the lock holder read from byte 1 → byte 0 | Byte 0 is a space, which `json.loads` skips. |
+| `mailbox.py` | 157 | the holder read as 4,096 bytes → 4,097 | A holder record is far smaller. |
+| `mailbox.py` | 189 | a folder listing's `timeout=60` → `61` | A second more on a request no test waits out. |
+| `mailbox.py` | 218 | a Fabric time's fraction cut to 6 digits → 7 | Python 3.12's `fromisoformat` takes the seventh digit and drops it. |
+| `mailbox.py` | 411 | `e.get("at") or 0` → `or 1` | Every entry has a numeric `at`: entries without one are dropped on loading, and new ones always get it. |
+| `mailbox.py` | 628 | `return False` → `return None` for a record that isn't an agent's | Both are false to the caller. |
+
+### Real bugs found
+
+None.
+
+### Not in this batch
+
+- `meta/store.py`, `meta/project.py` and `mailbox.py` past the 150 sampled mutants.
+- `OneLakeStore` beyond the addresses and file listings, which needs a OneLake to talk to.
+
+# Mutation testing, batch 15
+
+Three modules no open pull request is changing:
+- The engine picker behind a notebook: connections, the confirm and risk check a remote engine asks for, switching engines, Databricks sync pairs, and the threads a session and a cell run on (`engines_service.py`).
+- OneLake shortcuts: the shortcut center, its history, repointing, finding a moved target, undo, and shortcut requests (`shortcut_service.py`).
+- The Estate X-ray service: a scan and its cost findings, Optimize and Vacuum with their risk check, leftover Dataflow Gen2 staging lakehouses, and adopting a lakehouse into the metadata project (`xray_service.py`).
+
+The run was at `main` e0187cd1a (2026-11-14), with `sidecar/tools/mutate.py` and the same method as batches 1 to 13 (sample cap 150, seed 7), on DuckDB 1.5.6. All three modules have more points than the cap, so 150 of each were run. It ran beside batch 14, which took other modules.
+
+Before each run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. Every test passed both ways, so no run below can score a false 100%. One test file was left out of the `shortcut_service.py` runs because two of its tests read the app's own files under `app/`: `test_rpc_surface.py` (`test_every_rpc_method_has_a_ui_caller_or_a_listed_reason` and `test_the_exception_list_stays_honest`).
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `engines_service.py` | test_databricks_billing, test_databricks_bundles_service, test_databricks_runs_service, test_databricks_sync_service, test_engine_connections_settings, test_engines_service, test_engines_service_edges, test_fabric_spark (+ test_engines_service_mutation) | 150 of 391 | 130 / 20 | **86.7%** | 150 / 0 | **100%** | none |
+| `shortcut_service.py` | test_shortcut_center, test_shortcut_fixes, test_shortcut_service_paths, test_state_writes (+ test_fail_closed, test_shortcut_request_envs, test_shortcut_request_retries, test_shortcut_watch, test_typed_errors, test_shortcut_service_mutation) | 150 of 366 | 104 / 46 | **69.3%** | 148 / 2 | **98.7%** | 2 equivalent |
+| `xray_service.py` | test_failed_lookups, test_optimize_service, test_paging_complete, test_xray, test_xray_service_edges, test_xray_staging (+ test_audit, test_estate_service_edges, test_optimize_outbox, test_risk, test_xray_edges, test_xray_service_mutation) | 150 of 298 | 108 / 42 | **72.0%** | 150 / 0 | **100%** | none |
+
+The 3 timeouts, all in `engines_service.py`, are real hangs: two make `_new_id`'s loop never end, and one makes the loop that picks a free connection id never end.
+
+Existing test files the first sets left out were tried on the survivors first:
+- `engines_service.py`: the first set already held every test file that calls it.
+- `shortcut_service.py`: test_fail_closed, test_shortcut_request_envs, test_shortcut_request_retries, test_shortcut_watch, test_typed_errors. They killed 15, mostly in shortcut requests: a conflict that is raised again, a waiting request found by its id and kind, the requester's name, and what to do next when the shortcut was already there.
+- `xray_service.py`: test_audit, test_estate_service_edges, test_optimize_outbox, test_risk, test_xray_edges. They killed 2: what sharing with the central lakehouse returns when the findings were queued and when it failed.
+
+The new tests killed the rest. The three new test files pass on DuckDB 1.5.6 and 2.0.0.
+
+### What the survivors were, and the tests that now kill them
+
+- **engines_service.py**:
+  - A connection in Settings keeping its sign-in method and CLI profile, falling back to the database for Snowflake, and showing as "profile · label".
+  - A connection key whose connection part has a colon naming that whole part.
+  - A remote engine asking for a confirm unless the profile's policy allows that very engine.
+  - Prepare saying the session closes when moving from one local engine to another, and that nothing changes for the same engine or the kernel.
+  - The risk check's wording for a stopped warehouse and one with auto-stop off, and for 1 and 6 cells that may change data.
+  - A Databricks sync pair that shares only its local or only its remote folder with another being kept, and pair ids of 10 hex characters.
+  - A chosen engine whose start was forgotten reading as ready, and a running cell's time to a tenth of a second.
+  - Sessions and cells running on daemon threads, so the app can quit.
+  - → `test_engines_service_mutation.py`.
+- **shortcut_service.py**:
+  - The history windows asked of the platform: 30 days and 2,000 changes for the history, 7 days and ten years for the center, ten years for undo.
+  - Saving rules returning them, and a repoint across environments returning its warning.
+  - A row's first-seen time and its target's environment, and the environments read from the platform's config.
+  - The week's count of changes, and environment groups leaving out a layer that is in only one environment.
+  - Export making the Downloads folders it needs.
+  - Finding a moved target: never listing lakehouses without a name, picking the candidate with more tables, a 300 answer counting as not there, and asking only the first five.
+  - Repointing many reporting each warning and problem once.
+  - The readers check saying "Matches" when both sides have the same readers.
+  - Undo refusing a repoint that recorded no before or after, and an add being undone by its name.
+  - A conflicting shortcut being kept on a 400 answer, its message, a shortcut made by hand after the request counting as found, and a twin copy's conflict message.
+  - → `test_shortcut_service_mutation.py`.
+- **xray_service.py**:
+  - A table named with a leading digit getting a letter first, and a table with no id column keyed by its first column.
+  - An adopted entity loading new rows by its timestamp column, with "me" as owner when none is known.
+  - A dismissed finding's id of up to 1,024 characters and its reason cut at 500.
+  - A scan starting unpaused, and pause with no argument pausing it.
+  - A scan adding the last 30 days' cost findings, and a second scan writing over the first.
+  - Sharing with a central lakehouse that has no name saying "the central lakehouse".
+  - Annotating reading the runs log fresh by default, 500 runs.
+  - A lakehouse counted as managed or adopted only for its own workspace and tables.
+  - A fix that ended in the same second the scan began still counting as fixed.
+  - Optimize naming the table with its schema.
+  - Vacuum and Optimize assessed under their own label and workload id, without a fresh capacity read.
+  - A risk check that can't run being unknown and asking for nothing.
+  - A vacuum sized from a recursive listing, and 0 bytes when nothing is listed.
+  - Adopt keeping the picked keys, saying which schema and table it came from, and taking the owner from the sign-in.
+  - A young staging lakehouse saying how long ago it was written or made, in days.
+  - A refresh less than an hour after the last write not showing a staging lakehouse unused.
+  - Remove logging the workspace's name and keeping removals from the last 90 days.
+  - → `test_xray_service_mutation.py`.
+
+### Left without a test
+
+| Module | Line | Mutant | Why |
+| --- | --- | --- | --- |
+| `shortcut_service.py` | 98 | `cached is not None and cached is not self._sc_recorded` → `or` | Equivalent: when `all_shortcuts` returns a finished read it always leaves the cache set, so the first test never decides the answer. |
+| `shortcut_service.py` | 233 | `zip(shortcuts, hits, strict=True)` → `strict=False` | Equivalent: `hits` is built from `shortcuts` one for one, so the two always have the same length. |
+### Real bugs found
+
+- [#2640](https://github.com/kratosdatagod/fabric-desktop/issues/2640): approving a shortcut request counts an "added" change from the same second, just before the request, as the request's own. The request's time drops microseconds and a change's time keeps them, so comparing them as text puts the earlier change after the request.
+
+### Not in this batch
+
+- `engines_service.py`, `shortcut_service.py` and `xray_service.py` past the 150 sampled mutants.
+- `meta/store`, `meta/project`, `mailbox`, `cloud_service` and `git/repo`, which batch 14 took.
+
+# Mutation testing, batch 16
+
+Three modules no open pull request is changing:
+- The TPC-H benchmark notebooks: the 22 queries, the notebooks' cells, and writing them as `.ipynb` files (`benchmark.py`).
+- Proving a notebook and replaying a failure: a proof's two runs, how they are compared, its verdict and receipt, proof rules, and opening, checking and saving replay bundles (`prove_service.py`).
+- The Fabric side of the app: publishing notebooks and their schedules, the Fabric runs log and Monitor, profiling, the Direct Lake model, health and table maintenance, and Fabric steps (`cloud_service.py`).
+
+The run was at `main` 577b43e64 (2026-11-14), with `sidecar/tools/mutate.py` and the same method as batches 1 to 13 (sample cap 150, seed 7), on DuckDB 1.5.6. `benchmark.py` has 41 points, so all of them were run. The other two have more points than the cap, so 150 of each were run. It ran beside batch 17, which took other modules.
+
+Before each run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batches 11 to 15. Every test passed both ways, so no run below can score a false 100%. One test was left out of the `benchmark.py` runs because it reads the repository's `examples/` folder: `test_side_by_side.py::test_examples_in_the_repository_are_the_generated_notebooks`.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `benchmark.py` | test_side_by_side, test_receipts_env (+ test_benchmark_mutation) | 41 of 41 | 27 / 14 | **65.9%** | 41 / 0 | **100%** | none |
+| `prove_service.py` | test_prove, test_prove_service_edges, test_local_retention_gaps (+ test_replay, test_replay_edges, test_receipts_edges, test_debugging, test_wizard, test_prove_service_mutation) | 150 of 515 | 75 / 75 | **50.0%** | 146 / 4 | **97.3%** | 4 equivalent |
+| `cloud_service.py` | test_cloud, test_cloud_service_edges, test_cloud_service_more_edges, test_fabric_compute, test_fabric_step, test_failed_lookups, test_notebook_runs (+ test_notebook_files, test_notebook_publish, test_not_set_up, test_model_bpa, test_dataops, test_notebook_batch_edges, test_usage_import, test_cloud_service_mutation) | 150 of 474 | 107 / 43 | **71.3%** | 146 / 4 | **97.3%** | 2 equivalent, 2 with reasons below |
+
+The one timeout, in `cloud_service.py`, is a real hang: with the condition turned round, Monitor builds a Fabric client when there is no sign-in, and the status check then waits on the network.
+
+Existing test files the first sets left out were tried on the survivors first:
+- `benchmark.py`: no other test file calls it.
+- `prove_service.py`: test_replay, test_replay_edges, test_receipts_edges, test_debugging, test_wizard. test_replay was left out of the first set because it takes most of a minute on its own. They killed 28: a replayed table's key; what blocks a replay (the kernel's own process, another lakehouse); the live replay, its result and its end; a policy against data samples in bundles; the bundle size limit; whether an opened bundle keeps its lakehouse; a replay notebook's cells, proofs and publishing waiting for its replay; samples and pinned tables read with the short limits, and a sample read offline; the sandboxes a replay remembers; a vacuumed version used only by choice; seeding a table's sample; the names of an opened and a saved bundle; and a wizard notebook whose name is taken.
+- `cloud_service.py`: test_notebook_files, test_notebook_publish, test_not_set_up, test_model_bpa, test_dataops, test_notebook_batch_edges, test_usage_import. They killed 10 and timed out on 1: where a notebook is published when no workspace is picked, its schedules after a publish, a Fabric item changed since the last publish (and one made by another notebook), the message when the Fabric notebook published to before was deleted, the name a linked notebook publishes under, and the runs list when the metadata project can't be read.
+
+The new tests killed the rest. The three new test files pass on DuckDB 1.5.6 and 2.0.0.
+
+### What the survivors were, and the tests that now kill them
+
+- **benchmark.py**:
+  - The queries numbered 1 to 22, from the pricing summary to the country codes.
+  - The queries cell being the only hidden one, with the 22 queries in order.
+  - `write()` making a nested folder that isn't there yet, returning both paths, and writing JSON with an indent of 1 and one closing newline.
+  - `write()` taking a folder as text and writing over its own files the second time.
+  - Running the module writing to the folder given, or to the current folder when none is, and printing each path.
+  - → `test_benchmark_mutation.py`.
+- **prove_service.py**:
+  - A proof waiting up to six hours for Fabric.
+  - The Fabric job's own time and the time Fabric took to start, a failure reason given as text, and a job without times having no job time.
+  - Deleting a proof's outputs returning the folder deleted.
+  - Verifying a table again saving a receipt only when asked, with its verdict and wording.
+  - A receipt that can't be saved saying why in the proof's message.
+  - The plan naming the workspace and lakehouse, or saying "its workspace" and "the lakehouse" when they have no name.
+  - Comparing the two runs: more than five changed tables cut short with dots, a table written on one side only saying which, and the two runtimes' differences listed only when Fabric's is known.
+  - A proof's receipt keeping its parameters, inputs, environment, both runs, its outputs without their rules, the rules, the cost and every limitation.
+  - The verdict: what stopped a run on this PC, never blamed for a Fabric failure; "fingerprint" when any table was compared by checksum only; "table" for one and "tables" for more.
+  - Proof rules keeping their default and keying each table as schema.table, and saving them returning them.
+  - The Variables pane keeping its saved watches when they are left out.
+  - Receipts exported as HTML and saved under new names in a nested Downloads folder, and a receipt file never saved with parts left out.
+  - Replay bundles: ending when no replay runs, an opened bundle's 16-character id, its safe name and its lakehouse, a bundle that doesn't say whether it has ids counting as having them, the check naming the bundle's lakehouse or saying "another lakehouse" and "its lakehouse", a pinned table read with the short limits when signed in, and a saved bundle's safe file name.
+  - → `test_prove_service_mutation.py`.
+- **cloud_service.py**:
+  - The Fabric runs log being made in a nested app folder, listing the newest 50 by default and keeping the last 500.
+  - Monitor counting Fabric as unreachable again from nothing after one answer, keeping a run's message when a check fails, and getting a Fabric client only when already signed in.
+  - The model link opening the model's details in Fabric.
+  - Profiling the source or the table written, and a written table only getting check suggestions.
+  - Preview showing only the source rows a rule changes.
+  - A schedule never replacing changes made in Fabric.
+  - A publish Fabric returns no id for not being recorded as published.
+  - A Fabric run counted as the engine it was published for (Python or Spark).
+  - A linked notebook with another name not blocking a publish, and one with the same name in another folder blocking it.
+  - A Fabric step whose item comes back without an id being looked up by name.
+  - Table maintenance without a layer retention keeping the default days.
+  - Building the Direct Lake model over an existing one asking first and naming it, even when Fabric gives no id.
+  - Health listing only this environment's table maintenance and looking at the last 100 runs.
+  - An environment with no target being in OneLake, so it can run in Fabric.
+  - A Fabric step's and a metadata run's result being the run asked for, looked for in the last 200 runs.
+  - A table with one V-Ordered file counting as V-Ordered.
+  - Publishing the Fabric bundle recording it in an app folder whose parent isn't there yet.
+  - → `test_cloud_service_mutation.py`.
+
+### Left without a test
+
+| Module | Line | Mutant | Why |
+| --- | --- | --- | --- |
+| `cloud_service.py` | 327 | the publish check's schema fallback `True` → `False` when there is no lakehouse | Equivalent: with no lakehouse the notebook is published without the lakehouse cell, the only part that reads it. |
+| `cloud_service.py` | 558 | the compaction lease's `wait=120` → `121` | A second more on a lease no test waits out. |
+| `cloud_service.py` | 684 | the bundles file's `indent=2` → `3` | Equivalent: the file is only read back as JSON. |
+| `cloud_service.py` | 744 | a schedule's store `create=env == "dev"` → `!=` | The tests fake the metadata store, which doesn't make anything, so whether it would be created isn't seen; a real one needs OneLake. |
+| `prove_service.py` | 258 | an unreadable bundle's copy removed with `missing_ok=True` → `False` | Equivalent: the copy was written just before, so it is always there to remove. |
+| `prove_service.py` | 816 | the first poll after a cell starts asks from version `-1` → `0` | Equivalent: at version 0 nothing has been output yet, so both give no outputs; after it, both give them all. |
+| `prove_service.py` | 817 | `snap.get("outputs") or []` → `and []` on that first poll | Equivalent in the record: it changes only what the panel shows for a running cell until the next poll, a second later, and the cell's final outputs come from a poll of their own. |
+| `prove_service.py` | 825 | the final `snap.get("outputs") or outputs` → `and outputs` | Equivalent: the outputs seen last while the cell ran are the final poll's outputs, and when there are none both are empty. |
+
+### Real bugs found
+
+None.
+
+### Not in this batch
+
+- `benchmark.py` is done. `prove_service.py` and `cloud_service.py` past the 150 sampled mutants.
+- `git/repo.py`, which wasn't needed because none of the three was skipped.
+
+# Mutation testing, batch 17
+
+Three modules no open pull request is changing:
+- Fabric user data functions: the function's definition and the parts it is uploaded as (`central/udf.py`).
+- Running a notebook in Fabric: the shim a notebook runs with, and the check that blocks or flags a cell before it runs, with its SQL, magics, `%run` order and Preview-only Delta calls (`fabric_run.py`).
+- The agent: schedules and their time zone, job outcomes, retries and alerts, the pipeline mailbox, the waiting-request alerts, the shortcut check and the threads it starts (`agent.py`).
+
+`central/checks_service.py` was planned but left out, because it holds the governance promote gate. `agent.py` took its place. `cli.py` was not used because an open pull request changes it.
+
+The run was at `main` 577b43e64 (2026-11-14), with `sidecar/tools/mutate.py` and the same method as batches 1 to 15 (sample cap 150, seed 7), on DuckDB 1.5.6. It ran beside batch 16, which took other modules.
+
+Before each run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. Every test that was kept passed both ways, so no run below can score a false 100%. These tests were left out because they read files outside `sidecar/`:
+- `agent.py`: `test_agent_runbook.py` (it reads `docs/`), `test_agent_queue_bound.py::test_a_waiting_request_is_cancelled_by_its_cancel_file_and_is_never_queued`, and seven tests in `test_mailbox.py` that use the example notebook under `examples/` (`test_a_pipeline_request_runs_and_reports_back`, `test_the_same_request_runs_once_however_often_it_is_sent_or_read`, `test_a_cancel_file_stops_a_request_before_it_runs`, `test_a_cancel_that_arrives_between_polls_stops_the_worker_before_it_starts`, `test_cancelling_a_running_request_lets_the_run_finish`, `test_the_notebook_gives_up_cancels_and_fails_after_its_timeout`, `test_the_notebook_names_its_pipeline_run_when_given_one`).
+- `fabric_run.py`: none.
+- `central/udf.py`: none.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `central/udf.py` | test_udf_parity, test_platform_retries, test_platform_setup_steps, test_platform_refusals, test_requests_core_four (+ test_platform, test_best_practice_checks, test_product_groups, test_trust_badges, test_shared_keys, test_governance, test_central_udf_mutation) | 41 of 41 | 29 / 12 | **70.7%** | 38 / 3 | **92.7%** | 3 equivalent |
+| `fabric_run.py` | test_fabric_run_edges, test_compute_check_ast, test_notebook_comments, test_spark_map, test_notebookutils_helpers, test_schedule_config, test_spark_csv_options, test_spark_json_parquet_options, test_conversions_everywhere, test_spark_udf, test_notebook_magics, test_dbutils, test_cloud, test_validate (+ test_spark_refusals, test_spark_merge, test_risk_service_edges, test_integrations_services_edges, test_prove, test_prove_spark, test_fabric_run_mutation) | 150 of 764 | 118 / 32 | **78.7%** | 147 / 3 | **98.0%** | 3 equivalent |
+| `agent.py` | test_agent, test_agent_clock_and_folder, test_agent_clock_jumps, test_agent_config_edges, test_agent_crash_report, test_agent_edges, test_agent_fleet, test_agent_queue_bound, test_agent_recovery, test_agent_silent_failures, test_agent_status, test_agent_takeover (+ test_cli_local_commands, test_incident_failures, test_incidents, test_jobqueue_concurrency, test_logs_json, test_mailbox, test_mailbox_edges, test_notify_delivery, test_schedule_clock_changes, test_schedule_edges, test_schedule_edits, test_shared_schedules, test_shortcut_watch, test_agent_mutation) | 150 of 325 | 81 / 69 | **54.0%** | 148 / 2 | **98.7%** | 2 equivalent |
+
+The 3 timeouts, all in `agent.py`, are real hangs: the mutants keep a loop from ever ending.
+
+Existing test files the first sets left out were tried on the survivors first:
+- `central/udf.py`: test_platform, test_best_practice_checks, test_product_groups, test_trust_badges, test_shared_keys, test_governance. They killed 8.
+- `fabric_run.py`: test_spark_refusals, test_spark_merge, test_risk_service_edges, test_integrations_services_edges, test_prove, test_prove_spark. They killed 16.
+- `agent.py`: the files in brackets above, other than test_agent_mutation. They killed 28.
+
+The new tests killed the rest. The three new test files pass on DuckDB 1.5.6 and 2.0.0.
+
+### What the survivors were, and the tests that now kill them
+
+- **central/udf.py**:
+  - The parts a definition is uploaded as: each file once, in order, as inline base64 that decodes back to it, and no parts for no files.
+  - The real definition decoding back to itself, with its SQL database as the one connected data source.
+  - → `test_central_udf_mutation.py`.
+- **fabric_run.py**:
+  - The shim naming the workspace, lakehouse and name, and whether schemas are on.
+  - A cell the check can't read still being blocked for a literal in-place MERGE, a DROP TABLE, or importing the warehouse helper.
+  - A change in a comment after a blank line not counting.
+  - A syntax error naming its line and code.
+  - A `%sql DROP TABLE` line magic saying where it runs.
+  - SQL built from many parts at run time being unknown.
+  - With Preview off, a kept DeltaTable's optimize being blocked, while a plain optimize or reading a DeltaTable is fine.
+  - The `%run` order naming the first blocking notebook, and `%%scala` not blocking.
+  - → `test_fabric_run_mutation.py`.
+- **agent.py**:
+  - The longest wait for a cron, weekly and daily schedule.
+  - The earlier of two times an hour that happens twice when clocks go back.
+  - The agent's clock, the status listing 20 jobs, and the shortcut-check and heartbeat threads being daemons.
+  - Pruning the queue, home folder and audit trail logging only when something was removed.
+  - Which alert addresses can be sent to, each bad one warned about once.
+  - Incident routing reading webhooks from the environment and warning once for one that isn't set.
+  - The schedule's kept wall time, and a time zone change of exactly a minute.
+  - Reconciling schedules: updating a waiting first run, and logging only the kinds of change it made.
+  - A deferred schedule saying so only once it is queued, and its backfill being passed on.
+  - Only a pipeline job being checked for a take-over, and the mailbox being told a pipeline job's end state or that it was cancelled.
+  - The summary's counts, audit times rounded to a tenth of a second, and a failed job's audit time.
+  - A retryable error retrying without an alert while tries are left, alerting on the last try, and busy tables retrying without one.
+  - A cascading job keeping its tables, and the running job's claim kept through a step.
+  - Waiting-request alerts writing no outbox when nothing ever waited, and sending when one is there from before.
+  - The shortcut check skipping an environment with no workspace.
+  - → `test_agent_mutation.py`.
+
+### Left without a test
+
+| Module | Line | Mutant | Why |
+| --- | --- | --- | --- |
+| `central/udf.py` | 1018 | `indent=2` → `3` in the definition's JSON | Equivalent: the JSON reads back the same, and nothing compares the text. |
+| `central/udf.py` | 1019 | `indent=2` → `3` in the definition's JSON | Equivalent: as above. |
+| `central/udf.py` | 925 | `"-" * 60` → `61` in a separator comment | Equivalent: the line is a comment in the generated code. |
+| `fabric_run.py` | 334 | `source.rfind("\n", 0, offset)` → `rfind("\n", 1, offset)` in `_in_comment` | Equivalent: it differs only on line 2 of a cell that starts with a blank line, where the column is one too large, and a `#` before the change is still before it. The test for a commented-out change after a leading blank line runs this case. |
+| `fabric_run.py` | 677 | `"schema" in names[1:]` → `names[0:]` | Equivalent: `names[0]` is a read call, never `schema`. |
+| `fabric_run.py` | 659 | `links[1:]` → `links[0:]` when finding the format | Equivalent: `links[0]` is the read method, never `format`. |
+| `agent.py` | 529 | `_enqueue_due` returning `None` for `False` | Equivalent: its one caller only tests it with `not`. |
+| `agent.py` | 486 | `due is not None and not s.shared` → `or` | Equivalent: a shared schedule keeps no wall time, so the read gives `None`, and with no due time the wall is never used. |
+
+### Real bugs found
+
+None.
+
+### Not in this batch
+
+- `fabric_run.py` and `agent.py` past the 150 sampled mutants.
+- `central/checks_service.py`, left out as above.
+- `benchmark`, `prove_service`, `cloud_service` and `git/repo`, which batch 16 took.
+
+# Mutation testing, batch 18
+
+Three modules that no open pull request is changing:
+- Databricks SQL's own built-in functions on this PC, which are written as DuckDB SQL or refused by name (`databricks_builtins_sql.py`).
+- The Snowflake function checks: each case's reference link, how `run` answers, and the table in the docs (`snowflake_sql_parity.py`).
+- The new notebook wizard: its choices, its checks on each answer, and the cells each template writes (`wizard.py`).
+
+`estate_service.py` was planned but left out, because it connects the tests that gate a promote. `integrations/capabilities.py` was left for later.
+
+The run was at `main` afd8d51ba (2026-11-14), with `sidecar/tools/mutate.py` and the same method as batches 1 to 17 (sample cap 150, seed 7), on DuckDB 1.5.6. The branch was then moved onto `main` dbc70faff after batch 17 merged, and its tests were run again there.
+
+Before each run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. Every test that was kept passed both ways, so no run below can score a false 100%. These tests were left out because they read files outside `sidecar/`:
+- `databricks_builtins_sql.py`: `test_databricks_coverage.py::test_what_the_docs_say_runs_still_runs`, `::test_the_docs_page_is_up_to_date` and `::test_the_docs_link_the_list`, `test_databricks_sql_parity.py::test_the_docs_carry_the_table`, and, in the wider set below, `test_parity.py::test_docs_page_matches_the_code`, its two `test_a_sql_rows_local_claim_follows_its_function_list` cases and `test_snowflake_sql.py::test_the_docs_table_is_the_codes`.
+- `snowflake_sql_parity.py`: `test_snowflake_sql_parity.py::test_the_docs_carry_the_table_and_say_no_account_was_used`, and `test_snowflake_coverage.py::test_what_the_docs_say_runs_still_runs`, `::test_the_docs_page_is_up_to_date` and `::test_the_docs_link_the_list`.
+- `wizard.py`: none.
+
+The test files for `databricks_builtins_sql.py` were found by making `rewrite` raise and seeing which files failed. That wider set takes about 80 seconds per mutant, so the sampled run used the two files that test the module most directly (about 28 seconds). The wider set was then run on the survivors.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `databricks_builtins_sql.py` | test_databricks_coverage, test_databricks_sql_parity (+ test_academy_dbsql_lab, test_engines, test_local_sql_errors, test_local_sql_mutation, test_parity, test_snowflake_sql, test_spark_builtins_sql, test_spark_hash_refused, test_spark_higher_order, test_spark_integer_casts, test_spark_json, test_spark_lambdas, test_spark_schema_of_json, test_spark_session_functions, test_spark_text_casts, test_untranslatable_sql, test_databricks_builtins_sql_mutation) | 150 of 431 | 130 / 20 | **86.7%** | 146 / 4 | **97.3%** | 4 equivalent |
+| `snowflake_sql_parity.py` | test_snowflake_sql_parity, test_snowflake_coverage_edges, test_snowflake_coverage (+ test_snowflake_sql_parity_mutation) | 150 of 243 | 127 / 23 | **84.7%** | 141 / 9 | **94.0%** | 8 equivalent, 1 that needs #2646 |
+| `wizard.py` | test_wizard, test_append_callers, test_prove_service_edges (+ test_wizard_mutation) | 150 of 206 | 135 / 15 | **90.0%** | 150 / 0 | **100%** | none |
+
+There were no timeouts.
+
+The wider Databricks set (the files in brackets, other than test_databricks_builtins_sql_mutation) was tried on all 20 survivors first. It killed none. The new tests killed the rest. The three new test files pass on DuckDB 1.5.6 and 2.0.0.
+
+### What the survivors were, and the tests that now kill them
+
+- **databricks_builtins_sql.py**:
+  - Each argument count and its message: `to_time`, `unix_nanos`, `bitmap_and_agg`, `ip_cidr_contains`, `hmac`, `vector_norm`, `time_to_seconds` and `is_valid_utf8` with too few and too many arguments, and "argument" against "arguments".
+  - `time_diff` in microseconds counting each microsecond.
+  - `to_time` reading a column with a constant format, and refusing a format from a column.
+  - `try_make_timestamp_ltz` from a date and a time, read in the zone given or in the session's zone.
+  - `bit_reverse` of a literal past INT staying BIGINT.
+  - `variant_get` refusing a path that is a number, not a string.
+  - A function of a person's own over a window staying as written.
+  - A call inside another call being written too, and a statement that is itself the call.
+  - → `test_databricks_builtins_sql_mutation.py`.
+- **snowflake_sql_parity.py**:
+  - A case linking the reference page named by its first word unless it gives one.
+  - Each way `run` answers: a statement that runs only in Snowflake with its reason, the documented error counted as the same, another error by its type and first line, no rows as `None`, and only the first column compared.
+  - The docs table: its heading sentence, each case that differs, the words for each outcome, and the closing list of the rest.
+  - The estimates that differ giving the value their notes name (DATASKETCHES_HLL and APPROX_PERCENTILE).
+  - → `test_snowflake_sql_parity_mutation.py`.
+- **wizard.py**:
+  - The fiscal month choices numbered from 1 with their names.
+  - A malformed allowed-values or range line showing its own example.
+  - Clean with no columns keeping every column, and with columns selecting them.
+  - Load file needing key columns, and load folder refusing another file type.
+  - SCD type 2 naming the tracked columns, or any other column when none are tracked.
+  - A date dimension covering at most 200 years of 366 days.
+  - A fiscal year from January being the calendar year, and one from July named by the year it ends in.
+  - → `test_wizard_mutation.py`.
+
+### Left without a test
+
+| Module | Line | Mutant | Why |
+| --- | --- | --- | --- |
+| `databricks_builtins_sql.py` | 69 | `strict=True` → `False` in `_whole`'s `zip` | Equivalent: `names` is cut to the number of vectors, so both sides are always the same length. |
+| `databricks_builtins_sql.py` | 277 | `not isinstance(window, exp.Window) or window.this is not node` → `and` | Equivalent: `counter_diff` in another function's window is still refused with the same message, by the later pass that writes each call. |
+| `databricks_builtins_sql.py` | 538 | `isinstance(node.parent, exp.Table)` negated for `variant_explode` in FROM | Equivalent: replacing the call inside its table writes the same SQL, alias included, as replacing the table. |
+| `databricks_builtins_sql.py` | 547 | `bfs=False` → `True` when finding the calls to write | Equivalent: in reversed breadth-first order, an inner call still comes before the call around it. |
+| `snowflake_sql_parity.py` | 162 | `MD5_NUMBER_UPPER64`'s expected value + 1 | Can't be killed until #2646 is fixed: `same()` compares numbers as floats, so two integers past 2^53 that differ by 1 compare equal. |
+| `snowflake_sql_parity.py` | 186 | `_values(1, 0)` → `_values(0, 0)` for `1 / x` | Equivalent: a zero divisor is still there, so the documented error is the same. |
+| `snowflake_sql_parity.py` | 391 | COUNT_IF's sample `2` → `3`, and `3` → `4` | Equivalent: two values are still above 1. |
+| `snowflake_sql_parity.py` | 392 | MEDIAN's sample `4` → `5` | Equivalent: the median of 1, 2, 3 and 5 is still 2.5. |
+| `snowflake_sql_parity.py` | 404 | APPROX_COUNT_DISTINCT's sample `2` → `3` | Equivalent: there are still two distinct values. |
+| `snowflake_sql_parity.py` | 405 | HLL's sample `2` → `3` | Equivalent: as above. |
+| `snowflake_sql_parity.py` | 411 | APPROX_PERCENTILE's `range(11)` → `range(12)` | Equivalent: DuckDB's estimate at 0.1 is still 1.0, so the case still differs as its note says. |
+| `snowflake_sql_parity.py` | 437 | RATIO_TO_REPORT's sample `300` → `301` | Equivalent: the case checks the NULL row, which is still NULL. |
+
+### Real bug found
+
+- #2646: `same()` in `engines/databricks_sql_parity.py`, which the Snowflake and Databricks checks share, compares two whole numbers as floats. Two integers past 2^53 that differ can compare equal, so a wrong 64-bit answer such as `MD5_NUMBER_UPPER64`'s would still be recorded as "same".
+
+### Not in this batch
+
+`estate_service.py`, which connects the tests that gate a promote, and `integrations/capabilities.py`.
+
+# Mutation testing, batch 19
+
+Three modules that no open pull request is changing:
+- The metadata project templates: a new project's defaults, who owns the sample key tables and source systems, and the TOML each entity template writes (`meta/templates.py`).
+- Source control's service: the defaults each call passes on, the list of repositories this PC opened, the platform repository's reads and deploy refusals, and the note a deploy leaves (`git_service.py`).
+- Optimize's app calls: the outbox kept open, which failures are tried again, the overhead a sync records, the central lakehouse's role changes, and the asks before sharing runs or an analysis (`optimize_service.py`).
+
+`integrations/capabilities.py` was started and dropped. Its tests take about 40 seconds per mutant, so after 35 minutes only 41 of 150 mutants had run, and `optimize_service.py` took its place.
+
+The run was at `main` dbc70faff (2026-11-14), with `sidecar/tools/mutate.py` and the same method as batches 1 to 18 (sample cap 150, seed 7), on DuckDB 1.5.6. The branch was then brought up to `main` 352188c0d after batch 18 merged, and its tests were run again there.
+
+Before each run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. Every test that was kept passed both ways, so no run below can score a false 100%. One test was left out because it reads files outside `sidecar/`: `test_vscode_setup.py::test_copilot_instructions_match_the_docs`, in the wider `git_service.py` set.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `meta/templates.py` | test_meta_templates_edges, test_meta, test_meta_project_edges, test_meta_project_mutation, test_landing_zones, test_model_date_table (+ test_meta_templates_mutation) | 84 of 84 | 67 / 17 | **79.8%** | 84 / 0 | **100%** | none |
+| `git_service.py` | test_git_service_edges, test_git, test_fabric_git, test_corrupt_state_reads (+ test_capacity_repo, test_git_scopes, test_git_service_more_edges, test_platform_repo, test_vscode_setup, test_notebook_places, test_notebook_folders, test_git_service_mutation, test_git_service_platform_mutation) | 150 of 211 | 76 / 74 | **50.7%** | 149 / 1 | **99.3%** | 1 equivalent |
+| `optimize_service.py` | test_opportunities_share, test_optimize_local_runs, test_optimize_outbox, test_optimize_service, test_optimize_service_edges, test_optimize_share_analysis (+ test_access_cache, test_tenant_history, test_opportunities, test_optimize_service_mutation) | 150 of 239 | 126 / 24 | **84.0%** | 150 / 0 | **100%** | none |
+
+There were no timeouts.
+
+The existing tests in brackets were tried on the survivors first. For `git_service.py` they killed 51 of the 74: the sampled set had missed the platform repository, notebook places and capacity repository tests. For `optimize_service.py` they killed none. The new tests killed the rest. The four new test files pass on DuckDB 1.5.6 and 2.0.0.
+
+### What the survivors were, and the tests that now kill them
+
+- **meta/templates.py**:
+  - A new project having the sample by default, and going into a folder that already exists without touching what is there.
+  - Only the three-layer preset with the sample getting it: no entities, landing files, key tables or source systems otherwise.
+  - The sample key tables, source systems and entities belonging to the owner, or to "me" when there is none.
+  - Without keys, the first column being the key.
+  - A landing entity reading its source, or a placeholder named after the entity.
+  - Clean and fact loading incrementally on the upstream table's watermark, and in full when there is none.
+  - A type 2 dimension tracking the first three columns that aren't keys.
+  - A custom step owned by its owner, or by "me".
+  - → `test_meta_templates_mutation.py`.
+- **git_service.py**:
+  - The list of repositories keeping the newest 50, and a notebooks place named by its saved name or else its folder.
+  - Open, init and create handing back the repository's status.
+  - The operations list for one repository or all of them.
+  - Each default a call passes on: changing a repository's kind, discarding a block and deleting a branch needing confirm; a notebook diff comparing code only; the log showing 50 commits; a new branch being switched to; a branch with commits no other holds kept without force.
+  - A platform read that fails about another operation, or for another reason, not being taken for an older platform.
+  - A diff against an environment that isn't one, export keeping prod's key table when dev and prod disagree, only a platform admin deploying, ignored platform files named five at a time, and a deploy noting its commit.
+  - → `test_git_service_mutation.py`, `test_git_service_platform_mutation.py`.
+- **optimize_service.py**:
+  - The outbox opened once, and discover counting the tables that aren't any family's.
+  - Connecting saying it created nothing.
+  - A refused write, including a network error that says 403, not being tried again, and the answer being `False`, not just falsy.
+  - A sync recording the rows and commits it added.
+  - A connection saved without the schemas flag being read as having schemas, both for a family's tables and for keeping them from DefaultReader.
+  - The reason a role read failed being cut to 200 characters.
+  - A role write refused with either `PreconditionFailed` or status 412 saying the roles changed, and any other failure raised as it is.
+  - Sharing runs reading the whole history, and sharing runs or an analysis needing approve as well as the confirm.
+  - Each confirm being 32 hex characters, the ask naming the lakehouse, and an analysis's confirm not depending on key order.
+  - Metadata runs coming only from environments kept on this PC (Dev by default), and a run log row without its environment getting the one it was read from.
+  - → `test_optimize_service_mutation.py`.
+
+### Left without a test
+
+| Module | Line | Mutant | Why |
+| --- | --- | --- | --- |
+| `git_service.py` | 84 | `json.dumps(..., indent=2)` → `indent=3` for the list of repositories | Equivalent: the file is only ever read back as JSON. |
+
+### Real bugs found
+
+None.
+
+### Not in this batch
+
+`integrations/capabilities.py`, for the time its tests take per mutant.
+
+# Mutation testing, batch 20
+
+Three modules that no open pull request is changing:
+- The proof's Spark side: the names and paths it accepts, the versions it reads, the SQL it rewrites, and the readers it patches so that a proof only changes its own folder (`proof_spark.py`).
+- Structured streaming on this PC: what each sink reports as written, the query's progress and status, and the files a folder stream reads (`spark_stream.py`).
+- Surrogate key tables: how many times a key commit is retried and how long it waits, the check on the keys a batch just added, the key service's answers, key counts, and source systems (`meta/keys.py`).
+
+`engines/fabric_spark.py` was planned but left out, because #2417 is changing it. `spark_stream.py` took its place. Batch 19's modules were left to batch 19.
+
+The run was at `main` 352188c0d (2026-11-14), with `sidecar/tools/mutate.py` and the same method as batches 1 to 19 (sample cap 150, seed 7), on DuckDB 1.5.6.
+
+Before each run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. Every test that was kept passed both ways, so no run below can score a false 100%. No test that reads `docs/`, `examples/`, `app/` or the module's own source was in these sets, so none was left out.
+
+`test_prove.py` also uses `proof_spark.py`, but it is slow, so the sampled run left it out. It was run on the 10 survivors and killed none. In the same way, the other test files that use streams were run on the 22 `spark_stream.py` survivors and killed none, and `test_estate`, `test_meta_service_edges`, `test_platform_service_paths` and `test_platform` were started on the 34 `meta/keys.py` survivors and had killed none of the first two when they were stopped, so the new tests were written for all 34.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `proof_spark.py` | test_prove_spark, test_prove_spark_install (+ test_proof_spark_mutation) | 150 of 397 | 140 / 10 | **93.3%** | 149 / 1 | **99.3%** | 1 equivalent |
+| `spark_stream.py` | test_spark_stream, test_spark_stream_edges (+ test_spark_stream_mutation) | 150 of 259 | 128 / 22 | **85.3%** | 147 / 3 | **98.0%** | 3 equivalent |
+| `meta/keys.py` | test_keys, test_meta_keys_edges, test_shared_keys, test_meta_service_keys_edges, test_meta_atomic_save, test_meta_source_systems_edges (+ test_meta_keys_mutation) | 150 of 241 | 116 / 34 | **77.3%** | 149 / 1 | **99.3%** | 1 equivalent |
+
+There were no timeouts. The three new test files pass on DuckDB 1.5.6 and 2.0.0.
+
+### What the survivors were, and the tests that now kill them
+
+- **proof_spark.py**:
+  - `dbo` naming a table on a lakehouse without schemas, in any case, and another schema being refused.
+  - A `file:` path without a slash after the colon being the lakehouse mount too.
+  - A `Tables/` folder being one name without schemas and two with them, and a deeper folder being refused.
+  - A table pinned without a version still existing.
+  - A frame reading the pinned version, and a table the proof made reading its latest.
+  - Dropping a view the notebook didn't make being refused, alone or listed with one it did make.
+  - A table name with no place in the SQL being refused rather than left as it was.
+  - A load outside the lakehouse handing back Spark's own frame.
+  - Every path given to `parquet` being checked, but only the first argument of the other readers, whose second argument is not a path.
+  - → `test_proof_spark_mutation.py`.
+- **spark_stream.py**:
+  - A table sink reporting its rows, its query name (or none) and a trigger time in milliseconds.
+  - A console sink reporting its rows, and `foreachBatch` reporting no row count.
+  - A folder sink making missing folders, writing again, and naming its files `part-NNNNN-xxxxxxxx.parquet`.
+  - A Delta sink at a `Tables/` path writing that table.
+  - The batch message naming the versions read.
+  - A folder stream reading only files of its format, not other files or a folder named like one.
+  - Two streams joined being refused as something that runs in Fabric.
+  - The query's last progress, its error and its stopped status; `queryName` and `options` returning the writer; `False` not being a set flag; and a file without partitions matching every row.
+  - → `test_spark_stream_mutation.py`.
+- **meta/keys.py**:
+  - Making a key table and adding keys each trying 10 times, waiting longer each time, before giving up.
+  - The unknown member being dated 1900-01-01, and a key table that has it not being written again.
+  - A batch of keys already there adding none, and reporting so in full.
+  - Keys following a 0 key, and reading a table that isn't there finding none.
+  - A key that another run gave the same business key meanwhile stopping the batch.
+  - Key counts for a missing table, a table with only its unknown member, and a table without it.
+  - Only a store with both `issue` and a client being the platform's key service, and that service's lookups, counts and new keys, with unknown members and empty values left out.
+  - A one-column business key in Spark SQL being just trimmed.
+  - Source systems being active and id 0 unless they say otherwise, from a dict and from the file.
+  - Files being written into a project that has no keys folder yet, and the path coming back.
+  - → `test_meta_keys_mutation.py`.
+
+### Left without a test
+
+| Module | Line | Mutant | Why |
+| --- | --- | --- | --- |
+| `proof_spark.py` | 196 | `tree.this is not None` → `is None` in the DROP VIEW fallback | Equivalent: sqlglot always sets `tables` on a DROP, so the fallback after `or` is never read. |
+| `spark_stream.py` | 101 | `history(now - last)` → `history(now + last)` | Equivalent: reading more history only adds older versions to a dict looked up by the versions after `last`. |
+| `spark_stream.py` | 104 | `range(last + 1, …)` → `range(last + 0, …)` | Equivalent: version `last` is the one already loaded, so it has no removed and no new files. |
+| `spark_stream.py` | 332 | `explain(extended=False)` → `True` | Equivalent: `explain` prints the same sentence whatever `extended` is. |
+| `meta/keys.py` | 432 | `else 0` → `else 1` when no unknown member row comes back | Equivalent: `read_where` gives `None` only for a table that isn't there, and `key_stats` has already answered for a missing table, so only a table deleted between the two reads could reach it. |
+
+### Real bugs found
+
+None.
+
+### Not in this batch
+
+`engines/fabric_spark.py`, which #2417 is changing, and `integrations/services.py`.
+
+# Mutation testing, batch 21
+
+Three modules that no open pull request is changing:
+- Warehouse projects in source control: the size and count limits and the messages that name them, how deep projects and files may sit, which folders are searched, names read from the text, and which environment a deploy counts as (`warehouse_project_service.py`).
+- What an outside tool is given: page limits, the thin adapters to the engine, executions, what notebook runs and proofs start with, and which fields reach the tool (`integrations/services.py`).
+- The notebook's own Python process: requests and their answers, the snapshot a starting cell shows, polls, stop, restart and close, the result viewer's requests, and how exit codes and limits are written (`kernel_proc.py`).
+
+`integrations/services.py`, left out of batch 20, is in this one.
+
+The run was at `main` adb130d08 (2026-11-15), with `sidecar/tools/mutate.py` and the same method as batches 1 to 20 (sample cap 150, seed 7), on DuckDB 1.5.6.
+
+Before each run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. Four tests in `test_integrations_prompts.py` read pages in `docs/` and failed there, so they were deselected from the `integrations/services.py` run. Every other test that was kept passed both ways, so no run below can score a false 100%.
+
+`test_integrations_executions.py` and `test_integrations_conformance.py` also use `integrations/services.py`, but each takes about 40 seconds, so the sampled run left them out. `test_integrations_executions.py` was run on the 11 survivors in the notebook run and proof start checks and killed 9; the other two only drop `retryable=True`. For `kernel_proc.py`, the existing tests of the outside tool's environment (`test_integrations_executions.py`) and of exit codes (`test_notebook_out_of_room.py`) were missed by the first run; they were run on its 49 survivors and killed 12. The new tests were written for the rest.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `warehouse_project_service.py` | test_warehouse_project, test_warehouse_project_edges, test_warehouse_project_more_edges (+ test_warehouse_project_mutation) | 150 of 340 | 129 / 21 | **86.0%** | 149 / 1 | **99.3%** | 1 equivalent |
+| `integrations/services.py` | test_integrations_services_edges, test_integrations_core, test_integrations_workspace_scope, test_integrations_registry, test_integrations_prompts, test_integrations_mcp (+ test_integrations_services_mutation) | 150 of 203 | 59 / 91 | **39.3%** | 150 / 0 | **100%** | none |
+| `kernel_proc.py` | test_kernel_process, test_kernel_process_edges (+ the four existing tests above, test_kernel_proc_mutation) | 150 of 505 | 101 / 49 | **67.3%** | 143 / 7 | **95.3%** | 2 Windows only, 5 equivalent or timing |
+
+The one timeout was in `kernel_proc.py`: stop's wait for the reader, negated, waits its full 5 seconds. The three new test files pass on DuckDB 1.5.6 and 2.0.0. The `kernel_proc.py` tests that start a real process end it in a `finally` block.
+
+### What the survivors were, and the tests that now kill them
+
+- **warehouse_project_service.py**:
+  - 5000 objects being taken and 5001 refused, for writing and for comparing.
+  - A file of exactly 1 MB being read and one byte more refused, and the read, save and diff messages naming 1024 KB.
+  - A diff taking 2 MB in all.
+  - A small project having no note about being cut.
+  - Projects being found four folders down and no deeper, and a folder deeper than that being refused.
+  - Hidden folders, build folders (in any case) and files named like projects holding no projects.
+  - At most 50 projects being listed from one repository.
+  - A project being named from its `.platform` file, and the repository by its name or else its folder.
+  - A file seven folders deep being allowed and eight refused, and a link to nowhere being refused.
+  - Quotes inside a bracketed name being part of the name.
+  - A table without a schema being skipped for that reason, when writing and when comparing.
+  - A project made twice keeping its first `.platform` file.
+  - `prod` sent without a workspace counting as no environment, so the deploy is gated.
+  - → `test_warehouse_project_mutation.py`.
+- **integrations/services.py**:
+  - A page being at most 500 and at least 1, and the default page sizes of each listing, from the first row.
+  - Listings asking the engine for everything before paging.
+  - About 20 adapters handing back what the engine gave and passing what the caller sent.
+  - Pipeline run settings, and a zero timeout meaning none.
+  - A step an outside tool can only mock saying so.
+  - Notebook dependencies and environment coming from the saved notebook.
+  - Proofs, side-by-side runs and receipts coming back without data, and metadata and notebook fields that reach a tool, with the metadata project named or "Metadata project".
+  - Cell line counts, and source hidden when asked.
+  - The execution manager being made once, SQL and Python run titles, targets, waits, timeouts and row limits, and a Python run taking a whole lakehouse or none.
+  - Execution status waiting only when asked and leaving out the logs, and logs, lists and cancels going to the manager.
+  - What a notebook run and a proof are started with, and the message for a notebook with no code.
+  - A receipt export hiding what the caller asked and what policy requires.
+  - → `test_integrations_services_mutation.py`.
+- **kernel_proc.py**:
+  - A request without a process being refused and starting none, and a request returning its result or raising the error it is answered with, by message or else by type.
+  - The variable libraries call answering nothing when the engine gives nothing.
+  - A starting cell showing running, with the next count and no outputs, and a cell that ends its process before starting showing those outputs.
+  - A cell not starting while another notebook's cell runs in a shared session, naming that notebook or "Another notebook".
+  - Another notebook's poll asking the running process without starting one, with its timeout.
+  - A poll without outputs keeping the outputs already shown, and a poll that gets no answer showing the cell as it last was.
+  - A process that ends only ending a cell that is running, and a restart clearing the count and the cell.
+  - The debugger's timeout, and the result viewer's defaults and answers.
+  - Memory being read in bytes from the kilobytes Linux reports.
+  - The reader thread being a daemon, stop waiting for a slow reader, and close ending a process that runs.
+  - A cell inside its time limit not being interrupted.
+  - Exit codes shown in hex only past four hex digits, signed or unsigned, and limits written in their largest whole unit, in GB from 1 GB up.
+  - → `test_kernel_proc_mutation.py`.
+
+### Left without a test
+
+| Module | Line | Mutant | Why |
+| --- | --- | --- | --- |
+| `warehouse_project_service.py` | 95 | `and` ↔ `or` in `_unquote` | Equivalent: `_PART` only matches a balanced bracket or quote form or a plain identifier, so both forms give the same answer. |
+| `kernel_proc.py` | 837 | `JOB_PIDS = 1024` → `1025` | Windows only: the job object's process list. |
+| `kernel_proc.py` | 838 | `PROCESS_QUERY_LIMITED_INFORMATION` `0x1000` → `0x1001` | Windows only: `OpenProcess` access rights. |
+| `kernel_proc.py` | 313 | `proc is self._proc and self.pid` → `or` in the memory watch | Equivalent once the process has said its id; before that, under a second, the watch measures nothing instead of the launcher. |
+| `kernel_proc.py` | 468 | the 5 second wait after a cell ends its process → 6 | Timing: the reader marks the process gone well inside either. |
+| `kernel_proc.py` | 481 | `or` → `and` when another notebook polls | Equivalent: an ended process makes the request fail, and that gives the same idle answer. |
+| `kernel_proc.py` | 533 | stop's 5 second wait for the reader → 6 | Timing, as at line 468. |
+| `kernel_proc.py` | 630 | `spawn=False` → `True` for `frame_wrangle` | Equivalent: `alive()` is checked just before, so a process is always running. |
+
+### Real bugs found
+
+None.
+
+### Not in this batch
+
+`meta/source_systems.py`, kept as a substitute, wasn't needed.
+
+# Mutation testing, batch 22
+
+Three modules, the first three on this batch's list:
+- Schedules on this PC: the runs log's limits, the saved file, how `schtasks` is started, pausing and resuming under the signed-out policy, renaming a notebook, and the next run when the clocks change (`local_schedules.py`).
+- Pipeline definitions: the reader's version and limits, the size messages, where a pipeline takes its name from, Git folders, Switch cases, and how each format is exported (`orchestration/definition.py`).
+- The agent's job queue: its defaults, what each call answers, the backoff, recovering leases and retries from before the clock went back, why a job can't be requeued, pruning, and a queue file damaged inside (`jobqueue.py`).
+
+`cleanup.py` and `sqlcompat/practices.py` were left for a later batch. Batch 21's modules were left to batch 21.
+
+The run was at `main` e8b14fb72 (2026-11-14), with `sidecar/tools/mutate.py` and the same method as batches 1 to 20 (sample cap 150, seed 7), on DuckDB 1.5.6.
+
+Before each run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. Every test that was kept passed both ways, so no run below can score a false 100%. `test_activity_registry.py::test_example_report_in_docs_is_current` and `test_mailbox.py` read `examples/` or `docs/`, so they were left out. `test_agent_queue_bound.py::test_a_waiting_request_is_cancelled_by_its_cancel_file_and_is_never_queued` was left out of the `jobqueue.py` run as well.
+
+The sampled runs left out some slower test files that also use these modules, and those files were then run on the survivors:
+- For `local_schedules.py`, the other schedule and notebook test files killed 6 of the 23 survivors.
+- For `orchestration/definition.py`, the other pipeline test files killed 2 of the 32.
+- For `jobqueue.py`, the agent's test files had killed 3 of the first 6 of the 57 survivors when they were stopped, so the new tests were written for all 57.
+
+`jobqueue.py` has 137 places to mutate, fewer than the cap, so every one was run.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `local_schedules.py` | test_local_schedules_edges, test_schedules, test_schedule_config, test_schedule_edges, test_schedule_locks_and_lists, test_schedule_service_mutation, test_signed_out_schedules, test_pipeline_schedules, test_json_files (+ test_schedule_clock_changes, test_shared_schedules, test_schedule_edits, test_notebook_folders, test_notebook_runs, test_local_schedules_mutation) | 150 of 248 | 127 / 23 | **84.7%** | 146 / 4 | **97.3%** | 4 equivalent |
+| `orchestration/definition.py` | test_orchestration_definition_edges, test_pipeline_definitions, test_pipeline_fabric_parity, test_pipeline_gotchas, test_deep_nesting, test_pipeline_adapters_edges (+ 13 other pipeline test files, test_orchestration_definition_mutation) | 150 of 253 | 118 / 32 | **78.7%** | 148 / 2 | **98.7%** | 2 equivalent |
+| `jobqueue.py` | test_jobqueue_concurrency, test_jobqueue_edges, test_agent_queue_bound, test_sqlite_connections_closed, test_store_upgrades, test_schedule_clock_changes, test_shared_schedules, test_schedule_edits (+ test_jobqueue_mutation) | 137 of 137 | 80 / 57 | **58.4%** | 136 / 1 | **99.3%** | 1 equivalent |
+
+There were no timeouts. The three new test files pass on DuckDB 1.5.6 and 2.0.0.
+
+### What the survivors were, and the tests that now kill them
+
+- **local_schedules.py**:
+  - The runs log keeping 10,000 rows, trimmed at 8 MB down to 4 MB, those limits being handed to the trimmer, and a run being logged into folders that weren't made yet.
+  - The schedules file being saved with a one-space indent, and the start time being on the minute.
+  - `schtasks` being started as text with its output captured, and with no window flag where Python has none.
+  - A signed-out schedule being paused under a policy that forbids signed-out runs, but not resumed.
+  - `set_enabled` and `set_signed_out` answering with the schedule.
+  - Pausing disallowed schedules doing nothing when the policy allows them.
+  - Renaming a notebook moving only that notebook's schedules (not a pipeline's with the same name) and saving them, and leaving the file alone when no schedule runs it.
+  - The next run when the clocks go back (the repeated hour, at either of its two moments) and when they go forward, in Europe/London. These tests are skipped where Python can't set the time zone (Windows).
+  - → `test_local_schedules_mutation.py`.
+- **orchestration/definition.py**:
+  - The reader being version 1 and the size limit being 20 MB, with the limit named in megabytes in the messages for text and for a file.
+  - 40 containers deep, of ForEach or Switch cases, being read and 41 being too deep.
+  - Only the `Inactive` state marking an activity inactive, and a Switch case that isn't an object being skipped.
+  - The parts listed in the schema, and a Synapse resource type alone reading as Data Factory.
+  - A pipeline taking its name from the wrapper, the `.platform` part, the file, or a Git folder's `.platform` file, in that order.
+  - A Git folder skipping folders and files over the limit inside it.
+  - Export:
+    - A changed definition being written with a two-space indent and its own characters.
+    - A pipeline's content never taking parts from a wrapper it didn't come from.
+    - An item definition's content part being chosen over a `.platform` part before it.
+    - A broken `.platform` part naming its place.
+  - → `test_orchestration_definition_mutation.py`.
+- **jobqueue.py**:
+  - A backoff of a minute, doubling up to half an hour, and three attempts unless told otherwise (at least one).
+  - The queue file being made in a folder that doesn't exist yet, and opened again.
+  - A job id being the time and 12 hex digits, a delayed job being due later, and a job already queued under the same key coming back marked as such.
+  - A claim's lease ending at the time of the claim plus the lease.
+  - A retry further off than the longest backoff plus five minutes being due, and one nearer not being due.
+  - `fail`, `retry_later`, `cancel`, `requeue` and `set_payload` each answering as documented.
+  - Recovering a lease further off than the longest lease plus the margin, and leaving one within it.
+  - `requeue` refusing an unknown job, a job that isn't dead or failed, a job from a Fabric pipeline, and a job with a newer run queued, each with its own message, and putting back a dead job with or without a key.
+  - Pruning by age (a day being 86,400 seconds), and `dry_run` only listing.
+  - `list` and `for_env` defaulting to 50 and 200 jobs.
+  - A queue file that opens but fails its check being set aside.
+  - → `test_jobqueue_mutation.py`.
+
+### Left without a test
+
+| Module | Line | Mutant | Why |
+| --- | --- | --- | --- |
+| `local_schedules.py` | 86 | `replace(microsecond=0)` → `microsecond=1` | Equivalent: the start time is written with `%S`, which drops microseconds. |
+| `local_schedules.py` | 121 | `nxt + k * step` → `nxt - k * step` | Equivalent: `k` runs from `-span` to `span`, so the same grid times are made in another order, and the earliest one still to come is taken. |
+| `local_schedules.py` | 125 | `range(7)` → `range(8)` for a daily schedule | Equivalent: `weekday()` is never 7. |
+| `local_schedules.py` | 126 | `not times or not days` → `and` | Equivalent: with no times or no days, the loop after it finds nothing and returns `None` anyway. |
+| `orchestration/definition.py` | 174 | `_dump(ensure_ascii=False)` → `True` | Equivalent: `_dump` is only compared with another `_dump`, so both sides change together. |
+| `orchestration/definition.py` | 454 | `ensure_ascii=False` → `True` for the parts JSON | Equivalent: the parts are paths and base64 payloads, which are ASCII. |
+| `jobqueue.py` | 121 | `sqlite3.connect(timeout=30)` → `31` | Equivalent in any test: it only changes how long a connection waits for another writer's lock. |
+
+### Real bugs found
+
+None.
+
+### Not in this batch
+
+`cleanup.py` and `sqlcompat/practices.py`, and batch 21's modules.
+
+# Mutation testing, batch 24
+
+Three modules, the first three on this batch's list:
+- Platform skins: the size of a skin file, how many pages the rail and its labels hold, the limits on descriptions and targets, a label for a command that doesn't exist, which colour pairs a mode must set, the contrast maths, and how a skin is exported (`skins.py`).
+- The agent's settings file: the defaults of each section, the lowest value of each number, the shortcut webhook, incident routes, shared schedules, a service principal's secret, and how long names are cut in messages (`agent_config.py`).
+- Side by side runs: the saved history, the cores choice, starting a run, polling each cell on this PC, waiting on Fabric, the timings and cost, the upload speed, the tables a notebook writes, and copying a record that is changing (`side_by_side_service.py`).
+
+`appstudio/providers.py` was left for a later batch, because App Studio has open pull requests. Batch 23's modules were left to batch 23.
+
+The run was at `main` 7ce636067 (2026-11-15), with `sidecar/tools/mutate.py` and the same method as batches 1 to 22 (sample cap 150, seed 7), on DuckDB 1.5.6.
+
+Before each run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. Every test that was kept passed both ways, so no run below can score a false 100%. Six tests in `test_skins.py` and two in `test_parity.py` read `app/` or `docs/`, and `test_side_by_side.py::test_examples_in_the_repository_are_the_generated_notebooks` reads `examples/`, so they were left out.
+
+The sampled runs left out some other test files that also use these modules, and those files were then run on the survivors:
+- For `agent_config.py`, the incident, shortcut, shared schedule and agent test files killed 28 of the 65 survivors.
+- For `side_by_side_service.py`, the other side by side, notebook, OneLake and service test files killed 6 of the 39.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `skins.py` | test_skins, test_parity (+ test_skins_mutation) | 150 of 173 | 136 / 14 | **90.7%** | 149 / 1 | **99.3%** | 1 equivalent |
+| `agent_config.py` | test_agent_config_edges, test_schedule_config, test_agent (+ test_incidents, test_shortcut_watch, test_shared_schedules, test_agent_mutation, test_agent_silent_failures, test_schedule_edges, test_agent_status, test_file_text_one_line, test_agent_config_mutation) | 150 of 267 | 85 / 65 | **56.7%** | 148 / 2 | **98.7%** | 2 equivalent |
+| `side_by_side_service.py` | test_side_by_side, test_side_by_side_edges (+ test_side_by_side_cores, test_side_by_side_more_edges, test_json_files, test_onelake_writes, test_notebook_cells, 7 service test files, test_side_by_side_service_mutation) | 150 of 220 | 111 / 39 | **74.0%** | 150 / 0 | **100%** | none |
+
+There were no timeouts. The three new test files pass on DuckDB 1.5.6 and 2.0.0.
+
+### What the survivors were, and the tests that now kill them
+
+- **skins.py**:
+  - A file of exactly 64 KB being read and one byte more being refused.
+  - The rail and its labels holding 12 pages and not 13, and labels that aren't an object being refused.
+  - A description and a target's basis holding 200 characters, and targets holding 4 and not 5, as a list only.
+  - A label for an unknown command being one problem, not a crash.
+  - A token outside every contrast pair needing no partner in a mode without built-in colours, and setting only the background of a pair naming the missing text token.
+  - Short hex colours meaning the same as long ones, and each channel carrying its WCAG weight.
+  - An export being two-space JSON in the manifest's own key order.
+  - → `test_skins_mutation.py`.
+- **agent_config.py**:
+  - The pipeline, incidents and shortcut sections being off until written `true`, with their defaults, and three attempts by default.
+  - Each of 16 numbers having its default, taking its lowest value, and refusing anything below it as one problem; a number that isn't one being a problem, not a crash.
+  - The problem count in words, and a read config that can't be changed.
+  - Shortcut breaks going to their own webhook, else the alerts one.
+  - Routes being read with their filters, and a route with a URL, without `webhook_env`, with an unknown key, without a name, named `default` or not a table each being one problem named by its place.
+  - Escalation naming a route that was read.
+  - A schedule without an id named by its place, and long ids, environments, certificate paths and project folders cut to 80 or 200 characters in messages.
+  - Shared schedules: reading when the mailbox takes their environment, needing the pipeline on, a backfill needing `allow_backfill`, and an id of at most 40 characters.
+  - A service principal reading with a secret variable and needing a certificate or a secret variable, and a project path the system refuses not being a project.
+  - → `test_agent_config_mutation.py`.
+- **side_by_side_service.py**:
+  - Fabric being asked every 5 seconds and given up on after 6 hours (with a stand-in clock).
+  - A saved cores choice being kept only when it is one of the choices, a good choice being saved and answered with the new card, a bad one saving nothing, and a PC that can't count its cores taking one.
+  - A clean history file being read without being set aside, a torn one staying in place when the repair can't write, the history keeping the newest 200, and the list showing the newest 20.
+  - A reason a notebook can't run naming its cell when it has one, a save that doesn't name every cell stopping the start, and a started run having a dated id and running on a background thread.
+  - A held run getting a kernel process of its own and closing it, each cell being polled from the start with its last output kept, the error message cut to 1,000 characters, and cells numbered from one.
+  - The Fabric run's times rounded to the hundredth, its CU seconds and cost per hour of capacity, and a start-up split never below nothing.
+  - Upload time and speed rounded to the hundredth, with a speed for an upload under a second.
+  - Writes read from code cells only and named from cell one.
+  - A record that keeps changing being tried 20 times and then called busy.
+  - → `test_side_by_side_service_mutation.py`.
+
+### Left without a test
+
+| Module | Line | Mutant | Why |
+| --- | --- | --- | --- |
+| `skins.py` | 176 | `return False` dropped in `_command_id` | Equivalent: the only caller that reads the answer tests it with `not`, and `None` is falsy too. |
+| `agent_config.py` | 305 | `or` → `and` inside a shared schedule's `every_minutes` check | Equivalent: the checks before it already refuse an `every_minutes` that isn't a whole number from 1. |
+| `agent_config.py` | 305 | `minutes < 1` → `minutes < 0` | Equivalent for the same reason: the earlier check refuses 0. |
+
+### Real bugs found
+
+None.
+
+### Not in this batch
+
+`appstudio/providers.py`, and batch 23's modules.
+
+# Mutation testing, batch 23
+
+Three modules, the first three on this batch's list:
+- Clean up: the titles and texts of each tidy-up, which lines of an f-string are left alone, leading blank lines, frozen cells, and an empty cell whose change wasn't picked (`cleanup.py`).
+- SQL best practices: TOP n PERCENT before a star, UPDATE ... SET with and without FROM, LIKE inside IIF and inside grouping brackets, NOT IN over an expression, aliases and calls in correlated subqueries, table-valued functions, CTE names, a TRUNCATE then an INSERT without INTO, and statements that end early (`sqlcompat/practices.py`).
+- Executions a connected tool starts: the output, row, log and record limits, how the list is read and sorted, how a stop and a cancel wait, a query error that isn't a stop, numbering cells, a failed cell, the time a call waits, and daemon threads (`integrations/executions.py`).
+
+`integrations/registry.py` was left for a later batch. Batch 24's modules (skins, agent configuration, side by side and App Studio providers) were left to batch 24.
+
+The run was at `main` 7ce636067 (2026-11-15), with `sidecar/tools/mutate.py` and the same method as batches 1 to 22 (sample cap 150, seed 7), on DuckDB 1.5.6.
+
+Before each run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. Every test that was kept passed both ways, so no run below can score a false 100%. `test_learn_guides.py::test_the_shipped_guides_are_the_docs` and `test_practice_docs.py` read `docs/`, so they were left out of the `sqlcompat/practices.py` run.
+
+`cleanup.py` only changes cell text in memory: it writes no file and deletes nothing. Its new tests, like the others, point `LOCALAPPDATA` and `HOME` at the test's own temporary folder.
+
+The `cleanup.py` survivors that were left were also run against `test_service_edges.py` and `test_batches.py`, which call clean up through the service; neither killed any.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `cleanup.py` | test_cleanup, test_cleanup_edges (+ test_cleanup_mutation) | 150 of 317 | 133 / 17 | **88.7%** | 145 / 5 | **96.7%** | 5 equivalent |
+| `sqlcompat/practices.py` | test_sql_practices, test_learn_fixes, test_learn_guides (+ test_sqlcompat_practices_mutation) | 150 of 547 | 109 / 41 | **72.7%** | 138 / 12 | **92.0%** | 12 equivalent |
+| `integrations/executions.py` | test_integrations_executions, test_integrations_executions_edges, test_attach_race (+ test_integrations_executions_mutation) | 150 of 157 | 116 / 34 | **77.3%** | 147 / 3 | **98.0%** | 3 equivalent |
+
+Two `executions.py` mutants timed out, and were counted as killed: one keeps a call waiting after its work has finished, and the other makes a stop wait on a kernel that isn't running. The three new test files pass on DuckDB 1.5.6 and 2.0.0.
+
+### What the survivors were, and the tests that now kill them
+
+- **cleanup.py**:
+  - "1 unused import" and "2 unused imports" in the titles.
+  - Three cells listed as "Cells 1, 2 and 3".
+  - The number of print lines counted from each cell's code.
+  - "Cell 2 has no code." and "Cells 2 and 3 have no code."
+  - An empty cell being kept when its change isn't one of those picked.
+  - Leading blank lines being removed.
+  - A frozen cell getting no spacing change.
+  - The lines of an f-string over several lines being left alone up to, but not including, the line that closes it.
+  - → `test_cleanup_mutation.py`.
+- **sqlcompat/practices.py**:
+  - The rules being frozen.
+  - A star after `TOP 10` and after `TOP 10 PERCENT` in a view.
+  - `UPDATE orders SET ...`, with or without WHERE, naming a table without its schema, and `UPDATE o SET ... FROM dbo.orders AS o` not.
+  - `LIKE '%x'` inside brackets in WHERE counting, inside `IIF(...)` not, and in a WHERE clause on its own.
+  - `NOT IN (SELECT b + 1 ...)` being flagged, since an expression can't be shown to drop NULLs.
+  - A column called `row_number` not being `ROW_NUMBER()`.
+  - A star in a subquery not feeding an INSERT, and a JOIN without ON inside brackets.
+  - `CROSS JOIN` at the start being flagged once.
+  - A table-valued function and a CTE name not being tables without a schema.
+  - Subqueries in the SELECT list: aliases with and without AS, `dbo.u` defining `u`, a schema-qualified table, `dbo.fn(...)`, and an outer alias anywhere in the subquery.
+  - `TRUNCATE TABLE dbo.t` then `INSERT dbo.t` (without INTO) being a reload.
+  - Statements that end early (`TRUNCATE`, `... INSERT`, `... AS`, `... NOT IN (`, `... ORDER`, `WHERE YEAR(d)`, `VARCHAR(MAX`) being read without an error.
+  - → `test_sqlcompat_practices_mutation.py`.
+- **integrations/executions.py**:
+  - A displayed table keeping 100 rows, the cut naming 100,000 characters, 2,000 log lines, and 200 finished records kept.
+  - The list holding 50 records by default, reading the newest 200 files, sorting by start time with no start time as 0, and leaving out a running execution's result.
+  - A record another save already removed being no error.
+  - A view's seconds being counted from the start, to three places.
+  - A query timeout being retryable and a cancel not.
+  - Cells numbered from 1, the log saying so, and a failed cell not being retryable.
+  - An error output keeping its traceback, and an image being named by its type.
+  - A stop interrupting the kernel, waiting while it reports running, and only then ending it.
+  - A cancel waiting for the work to finish.
+  - A query error that isn't a stop reaching the caller, with the query slot given back.
+  - A call with a time limit answering a second before it.
+  - The execution, its timer and a query's stop running on daemon threads.
+  - → `test_integrations_executions_mutation.py`.
+
+### Left without a test
+
+| Module | Line | Mutant | Why |
+| --- | --- | --- | --- |
+| `cleanup.py` | 256 | blank-line count starts at 1, not 0 | Equivalent: only leading blank lines are affected, and those are removed anyway. |
+| `cleanup.py` | 267 | `1 not in keep` → `0 not in keep` | Equivalent: line 1 is only kept when a string starts on it, so it isn't blank. |
+| `cleanup.py` | 295 | `lambda i: True` → `False` when nothing is chosen | Equivalent: `plan` only reads the changes found, not the tidied cells. |
+| `cleanup.py` | 337 | `ch["id"] == "empty_cells"` → `!=` | Equivalent: with no empty cells, the list of cells to remove is empty either way. |
+| `cleanup.py` | 428 | `return False` → `return None` | Equivalent: the result is only used as a condition. |
+| `sqlcompat/practices.py` | 248, 253, 333, 369 | `return False` → `return None` | Equivalent: each result is only used as a condition. |
+| `sqlcompat/practices.py` | 351 | `return ""` → `return None` | Equivalent: the result is only compared with `"WHERE"`. |
+| `sqlcompat/practices.py` | 376 | subquery range starts at the bracket, not after it | Equivalent: the bracket is neither a name nor FROM or JOIN. |
+| `sqlcompat/practices.py` | 382 (2) | table-name range starts one or two places earlier | Equivalent: those places are FROM or JOIN and the token before it, which can't start a `name.name` reference. |
+| `sqlcompat/practices.py` | 387 | `and` → `or` in the alias check | Equivalent in any T-SQL: the extra "aliases" are words such as WHERE or JOIN, which can't start a reference. |
+| `sqlcompat/practices.py` | 391 (2) | `j == paren + 1` → `paren - 1` or `paren` | Equivalent: the token after the bracket is SELECT, and the token before any other is checked anyway. |
+| `sqlcompat/practices.py` | 392 | `j + 3 >= close` → `j - 3 >= close` | Equivalent: `j + 3` is at most the closing bracket, which is neither a dot nor an opening bracket. |
+| `integrations/executions.py` | 85 | after a cut, the budget left is 1, not 0 | Equivalent: no output is 1 character long, so every later one is cut either way. |
+| `integrations/executions.py` | 277 | a cancel waits 3 × the grace period, not 2 | Only changes how long a cancel waits for work that hasn't stopped; a test of it would be slow and timing-dependent. |
+| `integrations/executions.py` | 295 | `have_slot = False` → `True` | Equivalent: the first try for the slot sets it before anything can fail. |
+
+### Real bugs found
+
+None.
+
+### Not in this batch
+
+`integrations/registry.py`, and batch 24's modules.
+
+# Mutation testing, batch 25
+
+Three modules, the three on this batch's list:
+- The capability registry: the version a capability starts at, when removing one counts as a change, the timeout limit, paging defaults, a preview capability's status, and the message for an unknown resource option (`integrations/registry.py`).
+- The optimization analyzers: how cells are normalized, the run history text, which duplicate notebook is kept and which copies count as running, the tables evidence, how copy sources are compared, the wording for each kind of repeated copy, and the SQL scan limit (`opportunities/analyzers.py`).
+- The shortcut command center: storage target keys, an unreadable lakehouse, allowed connections, port paths without a schema, cross-environment risk text, accepted risks, needs, counts, the readers gap, CSV cells, and environment twins (`shortcut_center.py`).
+
+`integrations/http_server.py` was left to batch 26, which ran at the same time.
+
+The run was at `main` a09aa1fe0 (2026-11-15), with `sidecar/tools/mutate.py` and the same method as batches 1 to 24 (sample cap 150, seed 7), on DuckDB 1.5.6.
+
+Before each run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. Every test that was kept passed both ways, so no run below can score a false 100%. Six tests read `docs/`, so they were left out of the `integrations/registry.py` survivor run: `test_activity_registry.py::test_example_report_in_docs_is_current`, `test_integrations_conformance.py::test_capability_ids_in_docs_are_real`, and four in `test_integrations_prompts.py` (`test_workflows_page_matches_the_prompts`, `test_connect_page_carries_every_setup_from_the_app`, `test_agent_instructions_name_every_prompt_and_only_real_tools`, `test_kratosforge_skill_names_only_real_tools_and_every_prompt_and_matches_its_page`).
+
+The first `integrations/registry.py` run used its four fastest test files. The 45 survivors were then run against every `test_integrations_*.py` file and `test_activity_registry.py`, which killed 35. Before writing new tests for `shortcut_center.py`, its survivors were run against `test_fail_closed.py`, `test_shortcut_service_mutation.py` and `test_shortcut_service_paths.py`. The last two killed 6; `test_fail_closed.py` killed none.
+
+None of these modules writes files. The new tests, like the others, point `LOCALAPPDATA` and `HOME` at the test's own temporary folder, and use no network and no timing.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `integrations/registry.py` | test_integrations_registry, test_integrations_mcp, test_integrations_permissions, test_integrations_http; survivors also against every other test_integrations_* file and test_activity_registry (+ test_integrations_registry_mutation) | 150 of 235 | 105 / 45 | **70.0%** | 150 / 0 | **100%** | none |
+| `opportunities/analyzers.py` | test_opportunities; survivors also against test_opportunities_share and test_optimize_share_analysis (+ test_opportunities_analyzers_mutation) | 150 of 183 | 101 / 49 | **67.3%** | 146 / 4 | **97.3%** | 4 equivalent |
+| `shortcut_center.py` | test_shortcut_center, test_shortcut_center_more_edges, test_shortcut_fixes, test_shortcut_request_envs, test_shortcut_request_retries, test_shortcut_service_mutation, test_shortcut_service_paths (+ test_shortcut_center_mutation) | 150 of 287 | 116 / 34 | **77.3%** | 150 / 0 | **100%** | none |
+
+No mutant timed out. The three new test files pass on DuckDB 1.5.6 and 2.0.0.
+
+### What the survivors were, and the tests that now kill them
+
+- **integrations/registry.py**: 35 were killed by existing tests not in the first run, mostly `test_integrations_registry_edges.py`, which takes about a minute, so it isn't run for every mutant. The other 10:
+  - A capability's version starting at 1.
+  - Removing a capability that isn't there not counting as a change, and removing one that is counting.
+  - A timeout of exactly 3,600 seconds being accepted, and 3,600.5 refused.
+  - Paging defaulting to 100, and a paged output allowing more fields.
+  - A preview capability listed as preview only when the caller could use it.
+  - An unknown resource option named with the resource it was given to.
+  - Three more, recorded with the security notes.
+  - → `test_integrations_registry_mutation.py`.
+- **opportunities/analyzers.py**:
+  - A cell in another language keeping its language, Python that doesn't parse being compared as text, and a cell with only a docstring, `pass` or a comment counting as no code.
+  - The run history text: unread, counted with seconds, and counted with none.
+  - Two notebooks with the same code: the title naming the kept one and the count, the risk, the cells counted from the first notebook, a copy with one run counting as running, a copy read with no runs not counting, and a copy with unread history named in the validation.
+  - The notebook with the most runs being kept, then the most scheduled runs, then the first by name, with unread history ranking like no runs.
+  - Notebooks and pipelines whose definitions weren't read being left out.
+  - The tables evidence naming what is read and saying when nothing is written, and the other way round.
+  - The fingerprint shown being 16 characters.
+  - Repeated copies: one opportunity for the same source and sink, worded for it; repeated extraction worded for different sinks; an expression in the source checked first; descriptions and annotations ignored even inside lists; sources that differ inside a list kept apart; a copy with no sink left out; a pipeline with no runs not counted as removed; and a copy inside a larger pipeline making the saving partial.
+  - A full refresh saying whether it is a notebook or a pipeline.
+  - SQL rewrites numbered from cell 1, and the SQL scan stopping exactly at 200,000 characters.
+  - → `test_opportunities_analyzers_mutation.py`.
+- **shortcut_center.py**: 6 were killed by `test_shortcut_service_mutation.py` and `test_shortcut_service_paths.py`. The other 28:
+  - A storage target's key being its type and location, lower case.
+  - A lakehouse you can't read (401 or 403) not being checked.
+  - No allowed-connections list blocking no connection.
+  - A port in a lakehouse without a schema being found by both table paths.
+  - A storage shortcut having no same-environment target.
+  - Cross-environment risk text for Prod reading Dev, and for Dev reading Test.
+  - An accepted risk recording who, why and when, with blanks for what is missing.
+  - Only waiting shortcut requests you can decide being needs, with "Someone" when nobody is named.
+  - Every count, exactly.
+  - At most 50 readers listed as missing from the target.
+  - The CSV cells for a OneLake shortcut, a storage shortcut, a health check change and a change seen at scan.
+  - A workspace the platform puts in an environment getting twins whatever its name, a shared target keeping its workspace name, and a missing target twin naming the target's workspace.
+  - → `test_shortcut_center_mutation.py`.
+
+### Left without a test
+
+| Module | Line | Mutant | Why |
+| --- | --- | --- | --- |
+| `opportunities/analyzers.py` | 176 | `same[0]` → `same[1]` for the lakehouse | Equivalent: every notebook in the group has the same default lakehouse. |
+| `opportunities/analyzers.py` | 270 | `sort_keys=True` → `False` | Equivalent: `_canon` already builds every dictionary in key order. |
+| `opportunities/analyzers.py` | 363 | `m.group(1)` → `m.group(0)` | Equivalent: the pattern around group 1 is only `\b`, which matches no characters. |
+| `opportunities/analyzers.py` | 375 | `scheduled=True` → `False` | Equivalent: only NB007 is switched on, and it isn't one of the scheduled-only rules. |
+
+### Real bugs found
+
+None.
+
+### Not in this batch
+
+`integrations/http_server.py` (batch 26).
+
+# Mutation testing, batch 26
+
+Three modules, none touched by an open pull request:
+- The local HTTP API: the status each error code gets, the size, rate and concurrency limits at their boundaries, why a request is refused, the OpenAPI document, which resources are listed, the server's settings, `serve()` staying off unless the organization and the person both have the API on, and the parent watcher, on Windows too (`integrations/http_server.py`).
+- Before a run starts: ages and durations at each unit boundary, the defaults, each check's evidence and wording, the last five finished runs, CU measurements without a value, input sizes, schedules, and which finding the summary names (`risk.py`).
+- Notebook cell dependencies: dotted imports, imports inside nested functions, keyword-only defaults, names read after a function, write calls without a literal name, file-system calls, a cell magic below a line magic, and the line a parse error or a network call is reported on (`depgraph.py`).
+
+Batch 25's modules (`integrations/registry.py`, `opportunities/analyzers.py` and `shortcut_center.py`) were left to batch 25.
+
+The run was at `main` a09aa1fe0 (2026-11-15), with `sidecar/tools/mutate.py` and the same method as batches 1 to 25 (sample cap 150, seed 7), on DuckDB 1.5.6.
+
+Before each run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. Every test that was kept passed both ways, so no run below can score a false 100%. `test_integrations_conformance.py::test_capability_ids_in_docs_are_real` reads `docs/`, so it was left out of the `integrations/http_server.py` run.
+
+`test_risk_service_edges.py` wasn't found by the first search, so `risk.py`'s "before" run was done again with it. It killed no more mutants (101 / 49 both times), since its stand-in service hands the analyzer facts that the other tests already cover.
+
+The new HTTP tests don't open a socket. Requests go through the guard in-process (Starlette's test client, or the guard called directly), and `serve()` runs with a stand-in for uvicorn's server. Like the other new tests, they point `LOCALAPPDATA` and `HOME` at the test's own temporary folder, and they wait on events, not on timing margins.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `integrations/http_server.py` | test_integrations_http, test_integrations_http_guard, test_integrations_extensions, test_integrations_audit, test_integrations_peer, test_integrations_resources, test_integrations_conformance, test_cli_local_commands (+ test_integrations_http_mutation) | 150 of 227 | 107 / 43 | **71.3%** | 144 / 6 | **96.0%** | 4 equivalent, 2 not tested |
+| `risk.py` | test_risk, test_risk_service_edges, test_compute_check_ast, test_model_bpa (+ test_risk_mutation) | 150 of 257 | 101 / 49 | **67.3%** | 149 / 1 | **99.3%** | 1 equivalent |
+| `depgraph.py` | test_depgraph, test_depgraph_edges, test_notebook_magics, test_notebook_resources (+ test_depgraph_mutation) | 150 of 187 | 128 / 22 | **85.3%** | 149 / 1 | **99.3%** | 1 equivalent |
+
+One `http_server.py` mutant timed out before and after, and was counted as killed: it keeps the parent watcher from stopping the server once its parent has gone. The three new test files pass on DuckDB 1.5.6 and 2.0.0.
+
+### What the survivors were, and the tests that now kill them
+
+- **integrations/http_server.py**:
+  - The status of every error code, and the error body saying `"ok": false`.
+  - A Content-Length of exactly 1 MiB passing and one byte more being refused, and the same for a streamed body.
+  - A result of exactly 1,000,000 bytes being returned and one byte more being refused.
+  - A burst of 30 calls per tool, then five a second.
+  - Four calls running at once.
+  - Refusals saying why: the size limit in KB, no token, a wrong token, and a rate limit that is retryable with a hint and `Retry-After: 1`.
+  - The OpenAPI document's error schema, its 503 response, the resource URI's 2,000-character limit, and an invoke body that is optional and takes only `arguments`.
+  - Resources that are switched off not being listed.
+  - The server's settings: loopback, keep-alive 5 s, 33 connections counting the new one, graceful shutdown 10 s, no access log and no server header.
+  - `serve()` staying off when either of the person's two switches, or either of the organization's, is off; and going on to start when all are on.
+  - A server that never listened stopping cleanly, with its parent watcher on a daemon thread.
+  - A live parent keeping the server running, and no parent pid meaning it follows nobody.
+  - A parent that has ended being reported as not alive, and on Windows, only a process that is still active counting as alive, with its handle closed.
+  - → `test_integrations_http_mutation.py`.
+- **risk.py**:
+  - Ages and durations at each unit boundary, and rounding at the next one.
+  - The defaults and the worst-first order.
+  - A finding's fields, and only a warning being overridable.
+  - The policy passing by default, and sign-in needed for Fabric or when asked.
+  - A cached capacity reading saying so.
+  - The title of a capacity that can't be read, and a paused capacity's status text.
+  - An unknown state naming the capacity.
+  - The first three definition errors, and an old version naming the environment.
+  - Compatibility naming the place the run goes.
+  - A running run saying when it started and where, with at most three listed.
+  - Only the last five finished runs counting, "1 successful run" being singular, and the failure threshold, including 0 turning it off.
+  - CU measurements without a value being skipped, with the evidence, source and threshold wording.
+  - Input notes and defaults, and the memory guard only blocking runs on this PC.
+  - At most four schedules listed, with the window in minutes.
+  - The summary naming the first blocked finding, warnings being counted, acknowledgement following the setting, a non-essential unknown still passing, and the id's length.
+  - → `test_risk_mutation.py`.
+- **depgraph.py**:
+  - `import a.b.c` defining `a`, and an alias or a name from `from m import`.
+  - An import inside a nested function staying local to it.
+  - Keyword-only defaults being read when the function is defined.
+  - Names after a function being read at once, not deferred.
+  - `write_table` and file writes needing a literal name or path.
+  - Only `sql` calls being read as SQL, and only calls on `fs` changing files.
+  - A copy writing its destination.
+  - A cell magic one or two lines below a line magic not repeating it.
+  - A parse error and a network call being reported on their own lines.
+  - A declared dependency carrying no names.
+  - → `test_depgraph_mutation.py`.
+
+### Left without a test
+
+| Module | Line | Mutant | Why |
+| --- | --- | --- | --- |
+| `integrations/http_server.py` | 68 | default status 500 → 501 | Equivalent: an `IntegrationError` can only have a known code, and every known code is in the table. |
+| `integrations/http_server.py` | 139 (2) | `[:2]` → `[:3]`, and `("", 0)` → `("", 1)` | Equivalent: a client is a host and a port, and a request with no client is refused either way. |
+| `integrations/http_server.py` | 396 | `or` → `and` in the header deadline's close check | Needs a live connection that is part way through a response when the deadline passes; a test of it would depend on timing. |
+| `integrations/http_server.py` | 313 | `abandon_on_cancel=True` → `False` | Only changes how soon a call whose client hung up stops waiting for its thread; a test of it would depend on timing. |
+| `integrations/http_server.py` | 478 | the parent watcher sleeps 0 s, not 1 s | Equivalent in behaviour: it only checks the parent more often. |
+| `risk.py` | 351 | `sort_keys=True` → `False` | Equivalent: the key is a list of strings and tuples, with no dictionary to sort. |
+| `depgraph.py` | 257 | `exc.lineno or 1` → `or 0` | Equivalent in practice: `ast.parse` always gives a line number for a syntax error. |
+
+### Real bugs found
+
+None.
+
+### Not in this batch
+
+Batch 25's modules.
+
+# Mutation testing, batch 27
+
+Three modules, none touched by an open pull request:
+- Workspace limits for connected tools: the re-check after an approval wait, how deep a record is read, how far a receipt chain is followed, and the resolvers that read a notebook, a proof, an execution and the metadata project (`integrations/scope.py`).
+- Go to definition, find references and rename across a notebook: statements on a cell's first line, dotted imports, keyword-only defaults, except and case names, global statements, a method in a class inside a function, how often a name is written in any scope, and the length of a place's line text (`nbsymbols.py`).
+- Spark's number formats for to_number and to_char: an empty format, a separator at the end of a digit run, the 38-digit limit, a format that starts with its decimal point, and a sign moved past more than one space (`spark_number_format.py`).
+
+The run was at `main` da9c8c5ac (2026-11-15), with `sidecar/tools/mutate.py` and the same method as batches 1 to 26 (sample cap 150, seed 7), on DuckDB 1.5.6.
+
+Before each run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. Every test that was kept passed both ways, so no run below can score a false 100%. The `spark_number_format.py` run used `-k "number or to_char or to_varchar"` on the Spark SQL test files, which keeps their 279 number-format tests and leaves out `test_snowflake_sql.py::test_the_docs_table_is_the_codes`, which reads `docs/`. `test_integrations_executions.py` was left out of the `integrations/scope.py` run because it takes about 40 seconds and none of its tests limit a tool's workspaces.
+
+None of these modules writes files, and the new tests use no network and no timing.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `integrations/scope.py` | test_integrations_scope_edges, test_integrations_workspace_scope, test_integrations_permissions, test_integrations_registry_edges, test_integrations_services_mutation (+ test_integrations_scope_mutation) | 150 of 161 | 132 / 18 | **88.0%** | 148 / 2 | **98.7%** | 2 equivalent |
+| `nbsymbols.py` | test_nbsymbols (+ test_nbsymbols_mutation) | 150 of 268 | 117 / 33 | **78.0%** | 148 / 2 | **98.7%** | 2 equivalent |
+| `spark_number_format.py` | test_spark_number_format_contract, test_spark_builtins_sql, test_spark_builtins_sql_edges, test_spark_builtins_sql_mutation, test_snowflake_sql, with the `-k` filter above (+ test_spark_number_format_mutation) | 150 of 272 | 139 / 11 | **92.7%** | 144 / 6 | **96.0%** | 6 equivalent |
+
+Three `spark_number_format.py` mutants timed out before and after, and were counted as killed. The three new test files pass on DuckDB 1.5.6 and 2.0.0. The number-format tests go through `sql.run`, as the other Spark SQL tests do.
+
+### What the survivors were, and the tests that now kill them
+
+- **integrations/scope.py**:
+  - The re-check after an approval wait: a call that reaches only the tool's workspaces passing, one that reaches another workspace or a place it can't tell being refused with the reason and where to change it, and a tool with no limit reaching anything.
+  - A workspace id 12 levels deep being found, one 13 levels deep making the record impossible to check, counted the same through dictionaries and lists, and every part read from the top.
+  - A receipt chain of three being followed to its proof, and a longer one being impossible to check.
+  - A notebook reaching both its lakehouse's workspace and the one it publishes to, with the call's own workspace added.
+  - A record whose lakehouse has no workspace id being impossible to check.
+  - An execution with no call context being read for no client.
+  - The metadata project reaching the workspaces its entities name.
+  - → `test_integrations_scope_mutation.py`.
+- **nbsymbols.py**:
+  - A def or a global statement on a cell's first line.
+  - `import os.path` binding `os`, and shadowing the module's `os` inside a function.
+  - Keyword-only defaults of a function and of a lambda being read where they are written.
+  - An except name at module level being a definition, with another except name left alone.
+  - Case captures and stars being definitions, found where the pattern binds them.
+  - A global statement finding the name after its keyword, with the name earlier on the line skipped.
+  - A method in a class inside a function seeing the module's name, past its class's own.
+  - How often a name is written in any scope counting only that name: arguments, classes, defs, except names and the rest of a mapping pattern.
+  - A place's line text being cut at 200 characters.
+  - → `test_nbsymbols_mutation.py`.
+- **spark_number_format.py**:
+  - An empty format saying it is empty.
+  - A separator at the end of a digit run being refused.
+  - 38 digits being the most a format can have, with or without a decimal point.
+  - A format that starts with its decimal point reading the fraction.
+  - A sign moving left past every space before it.
+  - → `test_spark_number_format_mutation.py`.
+
+### Left without a test
+
+| Module | Line | Mutant | Why |
+| --- | --- | --- | --- |
+| `integrations/scope.py` | 135, 141 | `return False` → `return None` | Equivalent: both are false inside `all()`. |
+| `nbsymbols.py` | 27 | `[0, 0]` → `[1, 0]` | Equivalent: lines count from 1, so the first entry is never read. |
+| `nbsymbols.py` | 221 | `+ 6` → `+ 7` after `global` | Equivalent: `global` is always followed by at least one space, so the name starts at 7 or later. |
+| `spark_number_format.py` | 19 | `frozen=True` → `False` | Equivalent: a digit run is never changed or hashed. |
+| `spark_number_format.py` | 90 | `-1` → `-0` for no dollar sign | Equivalent: the checks only compare it with positions, which are never negative. |
+| `spark_number_format.py` | 99 | `seps[j - 1]` → `seps[j + 1]` | Equivalent: two separators side by side are still caught at the first one, and a leading one by `j == 0`. |
+| `spark_number_format.py` | 233 | `else 0` → `else 1` digits after the point | Equivalent: with no decimal point, nothing reads the digits after it. |
+| `spark_number_format.py` | 297, 298 | `or` → `and`, and the `"0"` fallback dropped | Not reached: every valid format of up to four parts gives text other than a lone sign. |
+
+### Real bugs found
+
+None.
+
+### Not in this batch
+
+Batch 26's modules.

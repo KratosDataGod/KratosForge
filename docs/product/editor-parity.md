@@ -4,7 +4,7 @@ Chris asked on 2026-11-13 for the notebook and SQL editor to have the same funct
 notebooks and SQL editors: a feature parity matrix against the top ten, a roadmap, and an execution
 plan ordered by capability and usefulness, reaching 95% as soon as possible and the last 5% soon after.
 
-This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and rows move as their PRs merge (last update at main `4d7f4b6bd`).
+This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and rows move as their PRs merge (last update at main `a09aa1fe0`).
 
 ## How to read it
 
@@ -32,12 +32,12 @@ This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and r
 
 | Group | Counted rows | Have | Partial | Gap | Score |
 | --- | --- | --- | --- | --- | --- |
-| Notebook | 54 | 46 | 1 | 7 | 86% |
-| SQL editor | 45 | 28 | 5 | 12 | 68% |
-| **Both** | **99** | **74** | **6** | **19** | **78%** |
+| Notebook | 54 | 47 | 1 | 6 | 88% |
+| SQL editor | 45 | 29 | 4 | 12 | 69% |
+| **Both** | **99** | **76** | **5** | **18** | **79%** |
 
-The notebook is close: its gaps are code navigation (go to definition, rename), editor settings and a
-few comfort features. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
+The notebook is close: its gaps are editor settings, rich-text Markdown and a few comfort
+features. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
 signature help, Format SQL and a compatibility check that none of the others have), but its **results grid** is a plain table
 (no sort, filter, column resize or value viewer) and it runs **one statement at a time**. Those two
 areas are most of the gap and most of what developers notice in the first hour.
@@ -57,7 +57,7 @@ Products: JL = JupyterLab, VSC = VS Code, Fab = Fabric, Dbx = Databricks.
 | N07 | Completion from the live kernel | Y | Y | Y | Y | Y | Have | `kernel_complete` (`sidecar/fabric_desktop/service.py`) |
 | N08 | Hover docs and signature help | P | Y | Y | Y | P | Have | `nbintel.js`, `kernel_inspect` |
 | N09 | Inline syntax and lint underlines | P | Y | Y | Y | N | Have | `nbintel.js` |
-| N10 | Go to definition, find references, rename across cells | P | Y | N | P | N | Gap | `nbintel.js` has hover and lint only |
+| N10 | Go to definition, find references, rename across cells | P | Y | N | P | N | Have | F12, Shift+F12 and F2 across Python cells, read with Python's parser (#2615) |
 | N11 | Format a cell or the notebook | P | Y | Y | Y | N | Have | #470; the Format code button has its own thread |
 | N12 | Multi-cursor, bracket matching, folding, comment toggle | Y | Y | Y | Y | Y | Have | CodeMirror 6 setup in `notebook.js` |
 | N13 | Outline from headings; collapse a heading's section | Y | Y | Y | Y | Y | Have | `notebook.js` |
@@ -137,7 +137,7 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S20 | Filter or search the result grid | N | Y | Y | Y | Y | Gap | |
 | S21 | Resize and reorder result columns | Y | Y | Y | Y | Y | Gap | |
 | S22 | Open a long text or JSON value in a viewer | P | Y | Y | Y | Y | Gap | |
-| S23 | Copy selected cells, with or without headers, as CSV, JSON or INSERT | Y | Y | Y | Y | Y | Partial | copies the page as TSV with headers (`copyRows` in `query.js`) |
+| S23 | Copy selected cells, with or without headers, as CSV, JSON or INSERT | Y | Y | Y | Y | Y | Partial | Copy ▾ gives the page's rows as TSV with headers, CSV, JSON or INSERT (#2616); no cell selection yet (comes with the result grid, item 8) |
 | S24 | Export as CSV, Excel and JSON | Y | Y | Y | Y | Y | Have | CSV, Parquet, Excel and JSON (#2587) |
 | S25 | Chart a result | N | Y | N | P | Y | Have | `sqlchart.js` |
 | S26 | Column statistics on a result | N | N | P | N | Y | Gap | the notebook's profile (`frame_profile`) isn't on the SQL page |
@@ -160,7 +160,7 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S43 | SQL notebooks mixing SQL and Markdown | N | Y | N | N | Y | Have | notebooks with `%%sql` |
 | S44 | SSMS-style keys beyond F5 (Ctrl+R, Ctrl+Shift+U/L) | Y | Y | Y | Y | P | Have | F5, Ctrl+Enter, Shift+Alt+F, Ctrl+R, Ctrl+Shift+U/L (#2583) |
 | S45 | Dark mode | Y | Y | Y | Y | Y | Have | as N60 (#2585) |
-| S46 | Go to line, bookmarks | Y | Y | Y | Y | N | Partial | Ctrl+G goes to a line (#2583); no bookmarks yet |
+| S46 | Go to line, bookmarks | Y | Y | Y | Y | N | Have | Ctrl+G (#2583); bookmarks with Ctrl+F2, F2 and Shift+F2 (#2618) |
 | S47 | In-editor AI assistant | Y | Y | Y | Y | Y | Not counted | AI-ready by policy |
 
 ## Roadmap
@@ -196,7 +196,7 @@ existing control does go straight to a draft PR.
 | 19 | **Scratch console** beside a notebook, in the same session | N40 | 2 | 2 | M | 2 | Yes |
 | — | **Dark mode applied** to the shell, notebooks and the SQL editor (CodeMirror themes from the same tokens). Chris approved the color mode mockup on 2026-11-13; the Platform skins work built it in #2585 (merged), opt-in and Preview, with light the default | N60, S45 | 4 | 5 | M | 10 | Done |
 
-Wave 1 closes 24 Gap rows and 11 Partial rows. Afterwards: 94.5 of 99 rows, **95%**. Item 3 shipped go to line without bookmarks, so S46 stays Partial (94 of 99 until bookmarks land; they join wave 2).
+Wave 1 closes 24 Gap rows and 11 Partial rows. Afterwards: 94.5 of 99 rows, **95%**. Item 3 shipped go to line first; bookmarks followed in #2618, so S46 is whole again.
 
 ### Wave 2: the last 5%
 
@@ -204,7 +204,6 @@ Wave 1 closes 24 Gap rows and 11 Partial rows. Afterwards: 94.5 of 99 rows, **95
 | --- | --- | --- |
 | Rich-text Markdown editing (toolbar, live preview) | N23 | Lower use; Markdown source stays the format saved |
 | Presentation (slide) mode | N49 | Lower use |
-| Bookmarks in the SQL editor | S46 | Go to line shipped in wave 1; bookmarks are used less |
 | Data compare between two tables | S34 | Builds on the result grid and several result sets |
 | Edit rows in the result grid | S35 | Writes to lakehouse and warehouse tables are guarded on purpose; needs Chris's decision and a Security read |
 | Connect to other engines (Azure SQL Database first) | S42 | Needs a Security read (token audience, SQL auth) and Chris's go; the Azure SQL query editor check ranked it first |
@@ -235,18 +234,18 @@ Chris asked on 2026-11-13 for 100% parity with Fabric notebooks specifically. Th
 page's editor rows into what this PC's Spark runs. The Notebook parity thread owns it, in this order,
 each its own PR and Preview until used for real:
 
-| # | Item | Mockup |
-| --- | --- | --- |
-| F1 | Python UDFs: `F.udf`, `@udf`, `spark.udf.register` (usable from `%%sql`), `pandas_udf` | No |
-| F2 | `mapInPandas`, `mapInArrow`, `groupBy().applyInPandas`, `foreach`, `foreachPartition` | No |
-| F3 | DataFrame leftovers: `freqItems`, `inputFiles`, `to(schema)`, `withMetadata`, `writeTo(...)` | No |
-| F4 | `spark.catalog.listTables`, `listDatabases`, `listFunctions` from the attached lakehouse | No |
-| F5 | MERGE with schema evolution and dynamic partition overwrite, under the write lease | No |
-| F6 | `OPTIMIZE`, `VACUUM`, `RESTORE` and `DeltaTable` maintenance from code, behind the app's guards | No |
-| F7 | `notebookutils` writes: `lakehouse.loadTable`, `create`, `update`; `notebook.create`, `update`, `updateDefinition` | No |
-| F8 | Rich-text Markdown editing (N23), after the Markdown renderer | Yes |
-| F9 | Editor display settings (N17, Wave 1 item 16) | Yes |
-| F10 | Dark mode applied (N60): mockup approved 2026-11-13, merged in #2585 | Done |
+| # | Item | Mockup | Status |
+| --- | --- | --- | --- |
+| F1 | Python UDFs: `F.udf`, `@udf`, `spark.udf.register` (usable from `%%sql`), `pandas_udf` | No | Merged #2617 |
+| F2 | `mapInPandas`, `mapInArrow`, `groupBy().applyInPandas`, `foreach`, `foreachPartition` | No | Merged #2619 |
+| F3 | DataFrame leftovers: `freqItems`, `inputFiles`, `to(schema)`, `withMetadata`, `writeTo(...)` | No | Merged #2626 |
+| F4 | `spark.catalog.listTables`, `listDatabases`, `listFunctions` from the attached lakehouse | No | Merged #2627 |
+| F5 | MERGE with schema evolution and dynamic partition overwrite, under the write lease | No | Merged #2631, #2635 (Preview) |
+| F6 | `OPTIMIZE`, `VACUUM`, `RESTORE` and `DeltaTable` maintenance from code, behind the app's guards | No | Merged #2639 (Preview) |
+| F7 | `notebookutils` writes: `lakehouse.loadTable`, `create`, `update`; `notebook.create`, `update`, `updateDefinition` | No | Part: `lakehouse.loadTable` merged #2637 (Preview) |
+| F8 | Rich-text Markdown editing (N23), after the Markdown renderer | Yes | Waits on the mockup |
+| F9 | Editor display settings (N17, Wave 1 item 16) | Yes | Waits on the mockup |
+| F10 | Dark mode applied (N60): mockup approved 2026-11-13, merged in #2585 | Yes | Merged #2585 |
 
 What can't run on a PC stays a one-click hand-off to Fabric rather than a silent failure: real Spark
 executors and Scala, R and .NET cells, `rdd` and pandas-on-Spark, continuous streaming and watermarks,

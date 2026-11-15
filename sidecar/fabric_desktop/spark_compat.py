@@ -588,14 +588,18 @@ def isnan(col: Any) -> Column:
     return _sql(f"coalesce(isnan(CAST({_arg(col)} AS DOUBLE)), false)")
 
 
-# DuckDB 1.5 writes a column's lambda back as (lambda x: ...), in parentheses sqlglot doesn't read
-_PAREN_LAMBDA = re.compile(r"\(lambda ([A-Za-z_]\w*(?:, [A-Za-z_]\w*)*): ")
+# DuckDB 1.5 writes a column's lambda back as (lambda x: ...), in parentheses sqlglot doesn't read. Quoted
+# text is matched first and kept, so a string that holds "(lambda x: " is left as it is.
+_PAREN_LAMBDA = re.compile(r"""('(?:[^']|'')*'|"(?:[^"]|"")*")|\(lambda ([A-Za-z_]\w*(?:, [A-Za-z_]\w*)*): """)
 
 
 def _readable(text: str) -> str:
     """A column's DuckDB SQL as sqlglot reads it: (lambda x: ...) as (x -> ...)."""
-    return _PAREN_LAMBDA.sub(lambda m: f"({m.group(1)} -> " if "," not in m.group(1) else f"(({m.group(1)}) -> ",
-                             text)
+    def arrow(m: re.Match[str]) -> str:
+        if m[1]:
+            return m[1]
+        return f"({m[2]} -> " if "," not in m[2] else f"(({m[2]}) -> "
+    return _PAREN_LAMBDA.sub(arrow, text)
 
 
 def _over_columns(template: exp.Expression, cols: Any) -> Column:

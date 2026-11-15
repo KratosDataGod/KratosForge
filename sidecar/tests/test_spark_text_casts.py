@@ -81,6 +81,13 @@ def test_a_double_cast_to_string_still_reads_back_into_functions_that_take_its_s
     assert out.collect()[0].asDict() == {"f": "1.0E20!", "c": "101"}
 
 
+def test_text_that_looks_like_a_lambda_passes_through_functions_that_read_a_column_back(spark):
+    from pyspark.sql import functions as F
+    df = spark.sql("SELECT 1e20D d")
+    out = df.select(F.format_string("%s|%s", F.lit("(lambda x: y) it's"), df.d.cast("string")).alias("f"))
+    assert out.collect()[0].f == "(lambda x: y) it's|1.0E20"
+
+
 def test_a_cast_of_a_cast_to_string_grows_its_sql_linearly(spark):
     # the cast's SQL names its value many times; bound once, three nested casts stay a few times one
     from fabric_desktop.spark_compat import _col_sql

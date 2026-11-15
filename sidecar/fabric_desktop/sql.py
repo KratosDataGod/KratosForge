@@ -841,8 +841,13 @@ def _spark_concat_text(statement: exp.Expression) -> exp.Expression:
     literal in it is surely of strings; one of columns alone may join arrays, and concat_ws may take
     an array, so those are left as they are."""
     def parts(node: exp.Expression) -> list[exp.Expression]:
+        """The parts joined, through nested || and concat and their parentheses: 'a' || (b || t)."""
         if isinstance(node, exp.DPipe):
             return parts(node.this) + parts(node.expression)
+        if isinstance(node, exp.Concat):
+            return [p for e in node.expressions for p in parts(e)]
+        if isinstance(node, exp.Paren) and isinstance(node.this, (exp.DPipe, exp.Concat, exp.Paren)):
+            return parts(node.this)
         return [node]
 
     def literal(node: exp.Expression) -> bool:
@@ -852,11 +857,10 @@ def _spark_concat_text(statement: exp.Expression) -> exp.Expression:
     for node in list(statement.find_all(exp.Concat, exp.DPipe)):
         if id(node) in done:
             continue
-        found = node.expressions if isinstance(node, exp.Concat) else parts(node)
-        if isinstance(node, exp.DPipe):
-            done.update(id(p) for p in node.find_all(exp.DPipe))
+        found = parts(node)
         if not any(literal(p) for p in found):
             continue
+        done.update(id(p) for p in node.find_all(exp.DPipe, exp.Concat))  # its inner joins are handled here
         for part in found:
             already = isinstance(part, (exp.Cast, exp.TryCast)) and isinstance(part.to, exp.DataType) \
                 and part.to.this in _TEXT_CASTS

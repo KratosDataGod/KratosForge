@@ -94,3 +94,12 @@ def test_databricks_sql_concat_writes_a_timestamp_as_spark():
     con.execute("SET TimeZone = 'UTC'")
     [statement] = _databricks("SELECT 'at ' || TIMESTAMP '2026-01-02 03:04:05', concat('d', 1e20D)")
     assert con.execute(sql.duckdb_sql(statement)).fetchone() == ("at 2026-01-02 03:04:05", "d1.0E20")
+
+
+def test_nested_and_parenthesized_joins_write_their_parts_as_spark(spark):
+    """Apache Spark 3.5.5 in UTC: a join inside another, with or without parentheses, is one join of strings."""
+    got = one(spark, "SELECT 'a' || ('b' || t) p, 'a' || (t || t) q, 'a' || concat(t, t) r, concat(t, 'x' || t) u, "
+                     "concat('a', (t)) v FROM (SELECT TIMESTAMP '2026-01-02 03:04:05' t)")
+    stamp = "2026-01-02 03:04:05"
+    assert got == {"p": f"ab{stamp}", "q": f"a{stamp}{stamp}", "r": f"a{stamp}{stamp}", "u": f"{stamp}x{stamp}",
+                   "v": f"a{stamp}"}

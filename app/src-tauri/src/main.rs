@@ -3611,4 +3611,62 @@ mod sidecar_log_tests {
         assert!(!text.contains('\0'));
         std::fs::remove_dir_all(&dir).unwrap();
     }
+
+    #[test]
+    fn a_log_cut_inside_one_long_line_keeps_only_the_note_and_what_follows() {
+        let dir = std::env::temp_dir().join(format!("kf-sidecar-line-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("sidecar.log");
+        let mut engine = open_sidecar_log(&log).unwrap();
+        // One line longer than the half kept: no line start to cut at, so no half line is kept.
+        engine.write_all(&[b'x'; 1000]).unwrap();
+        assert!(trim_sidecar_log(&log, 400).unwrap());
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), SIDECAR_LOG_TRIMMED);
+        writeln!(engine, "next").unwrap();
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), format!("{SIDECAR_LOG_TRIMMED}next\n"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_log_exactly_at_its_cap_is_left_alone_and_a_missing_one_is_an_error() {
+        let dir = std::env::temp_dir().join(format!("kf-sidecar-edge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("sidecar.log");
+        std::fs::write(&log, [b'a'; 400]).unwrap();
+        assert!(!trim_sidecar_log(&log, 400).unwrap());
+        assert_eq!(std::fs::metadata(&log).unwrap().len(), 400);
+        // Trimming twice in a row cuts once: the trimmed log is under the cap.
+        std::fs::write(&log, "a\n".repeat(300)).unwrap();
+        assert!(trim_sidecar_log(&log, 400).unwrap());
+        assert!(!trim_sidecar_log(&log, 400).unwrap());
+        assert!(trim_sidecar_log(&dir.join("gone.log"), 400).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_log_in_a_missing_folder_cant_be_opened_and_the_engine_starts_without_one() {
+        // Sidecar::start falls back to no stderr when this fails, rather than not starting.
+        let dir = std::env::temp_dir().join(format!("kf-sidecar-nofolder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(open_sidecar_log(&dir.join("sidecar.log")).is_err());
+        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn a_crash_log_is_kept_even_when_the_last_run_left_an_older_copy() {
+        let dir = std::env::temp_dir().join(format!("kf-sidecar-crash-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("sidecar.log");
+        let prev = dir.join("sidecar.prev.log");
+        std::fs::write(&prev, "two runs ago\n").unwrap();
+        std::fs::write(&log, "Traceback: the crash\n").unwrap();
+        let mut engine = open_sidecar_log(&log).unwrap();
+        writeln!(engine, "restarted").unwrap();
+        assert_eq!(std::fs::read_to_string(&prev).unwrap(), "Traceback: the crash\n");
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), "restarted\n");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

@@ -269,6 +269,57 @@ mod tests {
     }
 
     #[test]
+    fn entry_kinds_the_app_cant_read_count_against_the_path() {
+        // Allowed entries with extra data (compound, object, callback, callback object) could grant
+        // anything, so they are refused even for an administrator.
+        for kind in [4u8, 5, 9, 11] {
+            assert_eq!(entry(kind, 0, FULL, Who::Other, ENGINE, true), Entry::Unknown, "{kind}");
+            assert_eq!(entry(kind, 0, FULL, Who::Admin, ENGINE, false), Entry::Unknown, "{kind}");
+        }
+        // Deny, audit, alarm and label entries, and types past the last one Windows defines, grant nothing.
+        for kind in [1u8, 2, 3, 6, 7, 8, 10, 12, 13, 14, 15, 16, 17, 18, 255] {
+            assert_eq!(entry(kind, 0, FULL, Who::Other, ENGINE, true), Entry::Fine, "{kind}");
+        }
+    }
+
+    #[test]
+    fn each_right_that_could_change_the_file_is_refused_for_anyone_else() {
+        for right in [0x2u32, 0x4, 0x40, 0x1_0000, 0x4_0000, 0x8_0000, 0x1000_0000, 0x4000_0000] {
+            assert_eq!(entry(0, 0, right, Who::Other, ENGINE, false), Entry::Grants, "{right:#x}");
+            // CREATOR OWNER is only exempt on an entry that passes down; on the path itself it is someone else.
+            assert_eq!(entry(0, 0, right, Who::CreatorOwner, ENGINE, false), Entry::Grants, "{right:#x}");
+            assert_eq!(entry(0, 0, right, Who::Admin, ENGINE, false), Entry::Fine, "{right:#x}");
+        }
+        // Read, execute and synchronize change nothing.
+        assert_eq!(entry(0, 0, 0x1_200A9, Who::Other, ENGINE, false), Entry::Fine);
+        // A right outside the set asked about doesn't count: the policy folder lets everyone add files.
+        let folder_rights = 0x40 | 0x1_0000 | 0x4_0000 | 0x8_0000 | 0x1000_0000;
+        assert_eq!(entry(0, 0, 0x2 | 0x4, Who::Other, folder_rights, false), Entry::Fine);
+        assert_eq!(entry(0, 0, 0x40, Who::Other, folder_rights, false), Entry::Grants);
+    }
+
+    #[test]
+    fn an_inherited_grant_that_passes_down_to_files_or_folders_only_still_counts() {
+        // Object-inherit or container-inherit alone, inherit-only: still reaches what is inside.
+        assert_eq!(entry(0, 0x01 | 0x08, MODIFY, Who::Other, ENGINE, true), Entry::Grants);
+        assert_eq!(entry(0, 0x02 | 0x08, MODIFY, Who::Other, ENGINE, true), Entry::Grants);
+        // An inherited (not inherit-only) entry applies to the path itself, asked about or not.
+        assert_eq!(entry(0, 0x01 | 0x02 | 0x10, MODIFY, Who::Other, ENGINE, false), Entry::Grants);
+    }
+
+    #[test]
+    fn a_policy_file_without_a_folder_or_off_windows_is_not_trusted() {
+        assert!(admin_only(std::path::Path::new("")).is_err());
+        #[cfg(not(windows))]
+        {
+            let why = admin_only(&std::env::temp_dir().join("policy.json")).unwrap_err();
+            assert!(why.contains("only trusted on Windows"), "{why}");
+            assert!(super::admin_only_engine(&std::env::temp_dir()).is_err());
+            assert!(super::admin_only_ancestor(&std::env::temp_dir()).is_err());
+        }
+    }
+
+    #[test]
     fn an_engine_folder_the_user_can_write_is_not_trusted() {
         let dir = std::env::temp_dir().join(format!("kf-engine-trust-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

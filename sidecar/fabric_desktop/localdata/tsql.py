@@ -713,7 +713,8 @@ CHECKED_DATE_STYLES = ("0", "101", "103", "112", "120", "121", "126")
 
 def _unchecked_style(style: str) -> str:
     return (f"CONVERT style {style} runs as a translation that hasn't been checked against T-SQL's answers; "
-            f"styles {', '.join(CHECKED_DATE_STYLES[1:])} have been.")
+            f"styles {', '.join(CHECKED_DATE_STYLES[1:-1])} and {CHECKED_DATE_STYLES[-1]} have been. "
+            "Compare its values in Fabric if they matter.")
 
 
 def _converts(tree: exp.Expression) -> list[str]:
@@ -726,6 +727,10 @@ def _converts(tree: exp.Expression) -> list[str]:
             new = sqlglot.parse_one(node.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE), read="duckdb")
         except SqlglotError as exc:
             raise ValueError(f"This T-SQL can't be run on the local engine: {_first_line(exc)}") from None
+        if isinstance(new, exp.StrToTime):
+            # To a datetime or datetime2 sqlglot writes the bare STRPTIME; wrap it as for a date, so
+            # TRY_CONVERT's NULL and the ISO styles' optional parts apply there too (WR-208).
+            new = exp.Cast(this=new, to=node.this.copy())
         if isinstance(new, (exp.Cast, exp.TryCast)):
             # Keep CONVERT's own type, length included (the DuckDB text drops it), and TRY_CONVERT's NULL.
             kind = exp.TryCast if node.args.get("safe") else exp.Cast

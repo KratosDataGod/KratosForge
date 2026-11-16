@@ -111,9 +111,11 @@ def read_csv(text: str) -> list[dict[str, str]]:
     delimiter = ";" if first.count(";") > first.count(",") else ","
     try:
         return _rows(csv.reader(io.StringIO(text), delimiter=delimiter))
-    except csv.Error as exc:  # how a lenient reader fails: a cell past csv's field size limit
-        raise ValueError(f"A cell in this file is over {csv.field_size_limit():,} characters, "
-                         "so it isn't a data dictionary.") from exc
+    except csv.Error as exc:  # a cell past csv's field size limit, or a bare carriage return in an unquoted cell
+        if "field larger than field limit" in str(exc):
+            raise ValueError(f"A cell in this file is over {csv.field_size_limit():,} characters, more than a data "
+                             "dictionary cell can hold. Shorten it and import again.") from exc
+        raise ValueError("This file couldn't be read as CSV, so it isn't a data dictionary.") from exc
 
 
 def _rows(reader: Iterator[list[str]]) -> list[dict[str, str]]:

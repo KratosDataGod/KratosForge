@@ -72,8 +72,15 @@ def test_a_cell_too_long_for_csv_is_refused_like_any_other_bad_file(svc):
     text = md.to_csv(svc.meta_model_dictionary()["items"])
     long = "x" * 200_000  # past csv's field size limit, well under the file limit
     for bad in (_edit(text, "dim_customer", "email", long), long + "\r\n" + text):
-        with pytest.raises(ValueError, match="A cell in this file is over 131,072 characters, so it isn't a data"):
+        with pytest.raises(ValueError, match="A cell in this file is over 131,072 characters, more than a data "
+                                             "dictionary cell can hold. Shorten it and import again."):
             svc.meta_model_dictionary_preview(bad)
+
+
+def test_a_file_csv_cant_parse_is_refused_without_blaming_cell_length(svc):
+    head = md.to_csv([]).rstrip("\r\n")
+    with pytest.raises(ValueError, match="^This file couldn't be read as CSV, so it isn't a data dictionary.$"):
+        svc.meta_model_dictionary_preview(head + "\na\rb,c\n")  # a bare carriage return in an unquoted cell
 
 
 def test_text_excel_would_run_as_a_formula_goes_out_as_text_and_comes_back_the_same(svc):

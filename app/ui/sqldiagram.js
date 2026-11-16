@@ -149,7 +149,7 @@ function diagramSvg(tables, edges, keys, { dark = false, interactive = true } = 
       `<text x="${b.x + 10}" y="${b.y + 18}" fill="${c.text}" font-weight="700">${esc(t.name)}</text>${rows}</g>`;
   };
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" ` +
-    `font-family="Segoe UI, system-ui, sans-serif" font-size="12" role="img" aria-label="Diagram of ${tables.length} table${tables.length === 1 ? "" : "s"}">` +
+    `font-family="Segoe UI, system-ui, sans-serif" font-size="12" role="${interactive ? "group" : "img"}" aria-label="Diagram of ${tables.length} table${tables.length === 1 ? "" : "s"}">` +
     `<rect width="100%" height="100%" fill="${c.bg}"/>${paths}${tables.map(box).join("")}</svg>`;
 }
 

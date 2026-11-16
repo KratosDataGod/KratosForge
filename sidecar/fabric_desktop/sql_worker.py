@@ -132,9 +132,9 @@ def run(job: dict[str, Any]) -> None:
                 text = sql.duckdb_sql(statement)
                 bound = _bound(statement, values)
                 if i == len(sts) - 1:
-                    result = for_arrow(con, text, bound)
+                    result = for_arrow(con, text, *([bound] if bound else []))
                 else:
-                    run_through(con, text, bound)
+                    run_through(con, text, *([bound] if bound else []))
             rows, batches, schema = _snapshot(result, Path(job["parts_dir"]) / f"result-{n}.arrow")
             _say("part", statement=n, rows=rows, batches=batches, seconds=round(time.monotonic() - began, 2),
                  columns=[{"name": f.name, "type": str(f.type)} for f in schema])
@@ -145,9 +145,9 @@ def run(job: dict[str, Any]) -> None:
         text = sql.duckdb_sql(statement)
         bound = _bound(statement, values)
         if i == len(statements) - 1:
-            result = for_arrow(con, text, bound)
+            result = for_arrow(con, text, *([bound] if bound else []))
         else:
-            run_through(con, text, bound)
+            run_through(con, text, *([bound] if bound else []))
 
     rows, batches, schema = _snapshot(result, Path(job["out"]))
     _say("done", rows=rows, batches=batches,

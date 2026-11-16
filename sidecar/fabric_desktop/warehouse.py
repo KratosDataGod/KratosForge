@@ -18,7 +18,8 @@ warehouse (below):
 A **change** (WH-10) is a run started with ``writes``: the person saw what it changes and
 confirmed it, naming the warehouse (sql_exec.py checks the name against Fabric's). Its script may be
 several statements, in batches split at ``GO`` lines like SSMS: DDL, DML, EXEC, variables. Still
-refused, before anything is sent: BEGIN TRAN, COMMIT and ROLLBACK (the run is the transaction),
+refused, before anything is sent: BEGIN TRAN, COMMIT and ROLLBACK (the run is the transaction; a BEGIN TRAN first
+line and COMMIT last line that wrap the whole script are taken off, see without_outer_transaction),
 USE (another database), GRANT, REVOKE and DENY (permissions belong in Fabric), COPY INTO (loading
 files comes with data loading), CREATE, ALTER or DROP DATABASE, and OPENROWSET, OPENQUERY and
 OPENDATASOURCE. Also refused: dynamic SQL (EXEC of a string or a variable, sp_executesql), since
@@ -92,7 +93,8 @@ _DEFINES = re.compile(r"^\s*(?:CREATE|ALTER|CREATE\s+OR\s+ALTER)\s+(PROC|PROCEDU
 # procedure and function bodies included (they run the same way when called). The words are looked
 # for with quoted names taken out too, so a column called [User] is fine; the procedure names with
 # quoted names unwrapped, so [sys].[sp_executesql] is still sp_executesql.
-_TRANSACTION = "the run is one transaction the app commits: leave out BEGIN TRAN, COMMIT and ROLLBACK"
+_TRANSACTION = ("the run is one transaction the app commits: BEGIN TRAN may be the script's first line and COMMIT its "
+                "last, but not ROLLBACK, SAVE TRAN, a named transaction, or a COMMIT in the middle")
 _PERMISSIONS = "permissions, roles and users are managed in Fabric"
 _AS_NAME = "; a column or table with that name is written in brackets, such as [{}]"  # {}: the word found
 _DYNAMIC = "it runs SQL made from text, which can't be checked before it runs"
@@ -149,6 +151,33 @@ def resolve(fabric: Any, ref: dict[str, Any]) -> Endpoint:
 def batches(query: str) -> list[str]:
     """The script's batches, split at ``GO`` lines as SSMS does; empty ones are left out."""
     return [b.strip("\n") for b in _GO.split(query.replace("\r\n", "\n")) if b.strip()]
+
+
+# A change script written as one transaction (WR-204): BEGIN TRAN on its own first line and COMMIT on
+# its own last line (GO lines may follow either). The run is already one transaction the app commits
+# once every batch succeeded and rolls back otherwise, so those two lines are what it does anyway:
+# they are taken off and the rest runs as before. A named transaction, ROLLBACK, SAVE TRAN, or BEGIN
+# TRAN or COMMIT anywhere else is still refused (_NEVER_WORDS), since the app can't keep its promise
+# that a failed change keeps nothing with the script deciding when to commit.
+_BEGIN_LINE = re.compile(r"\A\s*BEGIN[ \t]+TRAN(?:SACTION)?[ \t]*;?[ \t]*(?:\n|\Z)", re.IGNORECASE)
+_COMMIT_LINE = re.compile(r"(?:\A|\n)[ \t]*COMMIT(?:[ \t]+(?:TRAN(?:SACTION)?|WORK))?[ \t]*;?[ \t]*"
+                          r"(?:\n[ \t]*GO[ \t]*;?[ \t]*)*\s*\Z", re.IGNORECASE)
+
+
+def without_outer_transaction(query: str) -> tuple[str, bool]:
+    """``query`` without a BEGIN TRAN first line and COMMIT last line that wrap all of it, and whether
+    they were there. Comments and strings are blanked first, so a COMMIT in one doesn't count."""
+    text = query.replace("\r\n", "\n")
+    bare = _TOKENS.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)  # same length, lines kept
+    begin, commit = _BEGIN_LINE.match(bare), _COMMIT_LINE.search(bare)
+    if not begin or not commit or commit.start() < begin.end():
+        return query, False
+    return text[begin.end():commit.start()], True
+
+
+def change_batches(query: str) -> list[str]:
+    """A change's batches, as they are sent: without the BEGIN TRAN and COMMIT lines that wrap it."""
+    return batches(without_outer_transaction(query)[0])
 
 
 # A read at a past time (time travel): Fabric's query hint OPTION (FOR TIMESTAMP AS OF '<UTC time>') at
@@ -212,7 +241,7 @@ def _bare_and_names(batch: str) -> tuple[str, str]:
 
 
 def _change_verdicts(query: str) -> list[sql_policy.Verdict]:
-    parts = batches(query)
+    parts = change_batches(query)
     if not parts:
         raise ValueError("The query is empty.")
     out: list[sql_policy.Verdict] = []
@@ -418,8 +447,14 @@ def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None])
             return
         if plan:
             cursor.execute("SET SHOWPLAN_XML ON")  # its own batch, as T-SQL requires
-        for batch in (batches(job["query"]) if writes else [job["query"]]):
-            cursor.execute(batch)
+        sent = change_batches(job["query"]) if writes else [job["query"]]
+        for at, batch in enumerate(sent, 1):
+            try:
+                cursor.execute(batch)
+            except Exception as exc:
+                if not writes:
+                    raise
+                raise RuntimeError(_failed_batch(at, sent, exc)) from exc
             while True:
                 if cursor.description:
                     result = _write_result(cursor, out, say)  # each result replaces the one before: the last is shown
@@ -445,6 +480,17 @@ def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None])
                 con.rollback()
         finally:
             con.close()
+
+
+def _failed_batch(at: int, sent: list[str], exc: BaseException) -> str:
+    """Which batch of a change failed, its first line, and that nothing was kept (the run rolls back)."""
+    first = next((line.strip() for line in sent[at - 1].splitlines() if line.strip() and not line.strip().startswith("--")),
+                 "")
+    where = f"Batch {at} of {len(sent)} ({first[:80]}{'…' if len(first) > 80 else ''})" if len(sent) > 1 else \
+        f"The change ({first[:80]}{'…' if len(first) > 80 else ''})"
+    fix = "Fix that batch and run the change again." if len(sent) > 1 else "Fix it and run it again."
+    return (f"{where} failed, so the whole change was rolled back and nothing was kept. {fix} "
+            f"{str(exc).strip() or type(exc).__name__}")
 
 
 def _write_result(cursor: Any, out: Path, say: Callable[..., None]) -> tuple[int, list[int], Any]:

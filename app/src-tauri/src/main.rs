@@ -670,10 +670,23 @@ const APP_CONTROL_BLOCKED: [i32; 3] = [1260, 4551, 577];
 /// Why the engine's Python didn't start, in words that say what to do: application control is
 /// named with the folder IT allows, and a missing file isn't called blocked (or the reverse).
 fn python_failed(e: &std::io::Error) -> String {
-    let folder = python().ok().and_then(|p| PathBuf::from(p).parent().map(|d| d.display().to_string()))
-        .unwrap_or_else(|| engine_root().display().to_string());
-    let text = python_failed_text(e.raw_os_error(), &e.to_string(), &folder);
-    if it_engine().is_some() { managed_engine_text(e.raw_os_error(), text) } else { text }
+    python_failed_for(e.raw_os_error(), &e.to_string(), python().ok(), engine_root, || it_engine().is_some())
+}
+
+/// python_failed's words for error `code` / `error`: the folder is that of `python` (the interpreter
+/// it tried), else `root`'s, and `managed` says whether IT keeps the engine. `root` and `managed` are
+/// asked only when needed, in that order, as python_failed asks them.
+fn python_failed_for(
+    code: Option<i32>,
+    error: &str,
+    python: Option<String>,
+    root: impl FnOnce() -> PathBuf,
+    managed: impl FnOnce() -> bool,
+) -> String {
+    let folder = python.and_then(|p| PathBuf::from(p).parent().map(|d| d.display().to_string()))
+        .unwrap_or_else(|| root().display().to_string());
+    let text = python_failed_text(code, error, &folder);
+    if managed() { managed_engine_text(code, text) } else { text }
 }
 
 /// With IT's own engine folder the person can't delete or repair it, so a file that may have
@@ -3641,6 +3654,52 @@ mod embed_host_tests {
         // core.invoke reaches only the app's commands; convertFileSrc builds a URL in the page; event.listen is the one permission.
         let known: std::collections::BTreeSet<String> = ["", ".core", ".core.invoke", ".core.convertFileSrc", ".event", ".event.listen"].iter().map(|s| s.to_string()).collect();
         assert!(used.is_subset(&known), "a page uses more of the Tauri bridge than the capability grants: {used:?}");
+    }
+}
+
+#[cfg(test)]
+mod python_failed_tests {
+    use super::python_failed_for;
+    use std::cell::Cell;
+    use std::path::PathBuf;
+
+    const CHANGED: &str = "Windows cannot verify the digital signature for this file. (os error 577)";
+
+    fn engine() -> PathBuf {
+        PathBuf::from("data").join("engine").join("abc")
+    }
+
+    #[test]
+    fn the_folder_named_is_the_pythons_own() {
+        let python = engine().join("python.exe").display().to_string();
+        let asked = Cell::new(false);
+        let text = python_failed_for(Some(1260), "blocked", Some(python), || { asked.set(true); PathBuf::from("root") }, || false);
+        assert!(text.contains(&format!("allow the engine's files in {};", engine().display())), "{text}");
+        assert!(!asked.get(), "the engine root isn't asked for when the Python is known");
+    }
+
+    #[test]
+    fn without_a_python_the_engine_root_is_named() {
+        let text = python_failed_for(Some(1260), "blocked", None, || PathBuf::from("root"), || false);
+        assert!(text.contains("allow the engine's files in root;"), "{text}");
+    }
+
+    #[test]
+    fn with_its_own_folder_a_changed_file_goes_to_it() {
+        let python = Some(engine().join("python.exe").display().to_string());
+        let mine = python_failed_for(Some(577), CHANGED, python.clone(), || PathBuf::from("root"), || false);
+        assert!(mine.contains("close KratosForge, delete the folder"), "{mine}");
+        let its = python_failed_for(Some(577), CHANGED, python, || PathBuf::from("root"), || true);
+        assert!(its.contains(&format!("ask IT to copy this build's engine into {} again.", engine().display())), "{its}");
+        assert!(!its.contains("delete the folder"), "{its}");
+    }
+
+    #[test]
+    fn other_errors_read_the_same_either_way() {
+        for managed in [false, true] {
+            assert_eq!(python_failed_for(Some(2), "not found", None, || PathBuf::from("root"), || managed), "Python was not found (not found).");
+            assert_eq!(python_failed_for(None, "odd", None, || PathBuf::from("root"), || managed), "Python could not be started (odd).");
+        }
     }
 }
 

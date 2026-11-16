@@ -146,6 +146,7 @@ class Execution:
     error: str = ""
     error_kind: str = ""
     refused: dict[str, Any] | None = None
+    notes: list[str] = field(default_factory=list)  # local T-SQL: where this PC's answer can differ from a warehouse's
     proc: subprocess.Popen[str] | None = field(default=None, repr=False)
     timer: threading.Timer | None = field(default=None, repr=False)
     stop_reason: str = ""  # "cancel" or "timeout" once the engine ended the process
@@ -179,7 +180,7 @@ class Execution:
                 "rows": self.rows, "columns": self.columns, "permission": self.permission,
                 "error": self.error, "error_kind": self.error_kind, "refused": self.refused,
                 "time_limit_minutes": round(self.time_limit_s / 60, 2),
-                **({"time_limit_from": self.time_limit_from} if self.target == "local" else {}),
+                **({"time_limit_from": self.time_limit_from, "notes": self.notes} if self.target == "local" else {}),
                 **({"change": True, "affected": self.affected, "committed": self.committed}
                    if "warehouse_write" in self.allow else {}),
                 **({"plan": True} if self.plan else {}),
@@ -643,6 +644,7 @@ class SqlExecutions:
         from .localdata import EngineBusy, QueryCancelled
         state, kind, error, refused = "completed", "", "", None
         rows, batches, columns = 0, [], []
+        notes: list[str] = []
         engine = None
         try:
             verdicts = sql_policy.classify(_policy_statements(run.query, run.dialect), "local")
@@ -666,6 +668,7 @@ class SqlExecutions:
                             batches.append(batch.num_rows)
                             run.rows = rows
                     columns = [{"name": f.name, "type": str(f.type)} for f in stream.schema]
+                    notes = list(getattr(stream, "notes", None) or [])  # an engine without translation notes
         except QueryCancelled:
             state, error = "cancelled", "Stopped."
         except TimeoutError as exc:
@@ -682,7 +685,7 @@ class SqlExecutions:
             if refused is not None:
                 run.permission = refused["permission"]
             if state == "completed":
-                run.rows, run.batches, run.columns = rows, batches, columns
+                run.rows, run.batches, run.columns, run.notes = rows, batches, columns, notes
                 run.offsets = list(itertools.accumulate([0, *batches[:-1]])) if batches else []
             else:
                 shutil.rmtree(run.folder, ignore_errors=True)

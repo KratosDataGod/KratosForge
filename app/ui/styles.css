@@ -1452,6 +1452,13 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .shortcuts-list h3 { margin: 4px 0 6px; font-size: 13px; }
 .shortcuts-list .kbd-keys { white-space: nowrap; width: 1%; }
 .shortcuts-list .kbd-keys span { margin: 0 3px; }
+/* Settings > Editor > Change keys (editorprefs.js). */
+.editor-keys-body { display: flex; flex-direction: column; gap: 8px; min-width: min(560px, 80vw); }
+.editor-keys { max-height: 50vh; }
+.editor-keys td:nth-child(2) { white-space: nowrap; }
+.editor-keys td:nth-child(2) .pill-s { margin-left: 6px; }
+.editor-keys td:last-child { width: 1%; white-space: nowrap; text-align: right; }
+.editor-keys-body .fail-text:empty { display: none; }
 .search kbd, .palette kbd, .shortcuts-list kbd { padding: 0 5px; border: 1px solid var(--border-input); border-radius: var(--r-sm); font: 11px var(--mono); color: var(--muted); background: var(--surface); }
 .search.filtering { border-color: var(--accent); background: var(--accent-soft); }
 .search input { cursor: pointer; }

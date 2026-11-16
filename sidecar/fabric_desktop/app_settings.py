@@ -662,6 +662,10 @@ def _in_range(key: str, value: Any) -> bool:
         return value in CHOICES[key]
     if key == "ui_skin":
         return _skin_id(value)
+    if key == "editor_font_size":
+        return value == 0 or EDITOR_FONT_SIZES[0] <= value <= EDITOR_FONT_SIZES[1]
+    if key == "editor_key_overrides":
+        return _editor_keys_problem(value) is None
     return True
 
 
@@ -784,9 +788,9 @@ def _editor_keys_problem(value: Any) -> str | None:
     if len(value) > EDITOR_KEY_OVERRIDES_MAX:
         return f"can change at most {EDITOR_KEY_OVERRIDES_MAX} keys"
     for command, key in value.items():
-        if not isinstance(command, str) or not _EDITOR_COMMAND.match(command):
+        if not isinstance(command, str) or not _EDITOR_COMMAND.fullmatch(command):
             return f"has a command name that isn't one: {str(command)[:40]!r}"
-        if not isinstance(key, str) or not _EDITOR_KEY.match(key):
+        if not isinstance(key, str) or not _EDITOR_KEY.fullmatch(key):
             return f"has a key for {command} that isn't one, such as Mod-Shift-f: {str(key)[:40]!r}"
     return None
 

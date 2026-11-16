@@ -64,7 +64,7 @@ test("the report's window shows the outputs without the code, then the out-of-da
   await report.getByText("Revenue by region since 1 October.").waitFor();
   assert.strictEqual(await report.getByRole("cell", { name: "West" }).count(), 1);
   assert.strictEqual(await report.getByText("secret_code").count(), 0);
-  assert.match(await report.textContent(), /Outputs from the run at .*, on this PC\. Code is hidden; 3 cells, 1 Markdown\./);
+  assert.match(await report.textContent(), /Outputs from the run at .*, on this PC\. Code is hidden\. 3 cells, 1 of them Markdown\./);
   assert.strictEqual(await p.title(), "Weekly sales review · report");
   if (axeSource) assert.deepStrictEqual(await axeFindings(p, ".nb-report"), []);
 

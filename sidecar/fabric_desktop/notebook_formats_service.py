@@ -140,12 +140,14 @@ class NotebookFormatsMixin:
         if not isinstance(ran, str) or len(ran) > 200:
             raise ValueError("ran is a short line saying which run the outputs are from")
         markdown = sum(1 for c in cells if c.get("type") == "markdown")
-        line = f"{ran} Code is hidden; {len(cells)} cell{'' if len(cells) == 1 else 's'}, {markdown} Markdown."
+        count = (f"1 cell{', Markdown' if markdown else ''}" if len(cells) == 1
+                 else f"{len(cells)} cells, {markdown} of them Markdown")
+        line = f"{ran} Code is hidden. {count}."
         page = nbf.to_html(name, cells, report=line)
         if len(page.encode("utf-8")) > REPORT_MAX_BYTES:
             raise ValueError("The notebook's outputs are larger than 64 MB, so the report wasn't made. Clear the largest outputs and try again.")
         self._notebook_report = {"name": name, "html": page, "stale": bool(stale), "at": time.time()}
-        return {"name": name, "bytes": len(page)}
+        return {"name": name, "bytes": len(page.encode("utf-8"))}
 
     def notebook_report_page(self) -> dict[str, Any]:
         """The report kept by notebook_report_open: {"name", "html", "stale", "at"}, or {} when there's none."""

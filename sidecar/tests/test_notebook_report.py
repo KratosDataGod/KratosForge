@@ -23,9 +23,9 @@ def test_the_report_shows_markdown_and_outputs_only(svc):  # noqa: F811
     html = page["html"]
     assert "secret_code" not in html and "df.show()" not in html and "Cell 1" not in html
     assert "Revenue by &lt;region&gt;" in html and "<td>West</td>" in html and "<script" not in html
-    assert f"{RAN} Code is hidden; 3 cells, 1 Markdown." in html
+    assert f"{RAN} Code is hidden. 3 cells, 1 of them Markdown." in html
     assert "default-src 'none'" in html  # the export's own policy: no script, nothing loads
-    assert html == nbf.to_html("Weekly sales", CELLS, report=f"{RAN} Code is hidden; 3 cells, 1 Markdown.")
+    assert html == nbf.to_html("Weekly sales", CELLS, report=f"{RAN} Code is hidden. 3 cells, 1 of them Markdown.")
 
 
 def test_a_new_report_replaces_the_last_and_says_when_it_is_out_of_date(svc):  # noqa: F811
@@ -33,7 +33,7 @@ def test_a_new_report_replaces_the_last_and_says_when_it_is_out_of_date(svc):  #
     svc.notebook_report_open("A", CELLS, RAN)
     svc.notebook_report_open("B", CELLS[:1], RAN, stale=True)
     page = svc.notebook_report_page()
-    assert page["name"] == "B" and page["stale"] is True and "1 cell, 1 Markdown." in page["html"]
+    assert page["name"] == "B" and page["stale"] is True and "Code is hidden. 1 cell, Markdown." in page["html"]
 
 
 def test_export_writes_the_page_the_window_shows_to_a_new_file(svc):  # noqa: F811

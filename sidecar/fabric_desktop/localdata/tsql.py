@@ -908,12 +908,13 @@ def _refused_by_name(tree: exp.Expression) -> None:
     answer (HASHBYTES' hex text, the engine's user name) or DuckDB's own error. Refused by T-SQL's name."""
     if any(True for _ in tree.find_all(exp.MD5, exp.SHA, exp.SHA2)):  # T-SQL reads these only from HASHBYTES
         raise ValueError(_NOT_YET + "HASHBYTES isn't mapped yet: T-SQL gives the hash as bytes (VARBINARY), and "
-                         "here it would be hex text, so comparisons and lengths would differ. Hash in Fabric.")
+                         "here it would be hex text, so comparisons and lengths would differ. Run it in a Fabric Warehouse.")
     user = any(True for _ in tree.find_all(exp.CurrentUser, exp.SessionUser)) or any(
         c.name.upper() == "USER" and not c.table and not c.this.args.get("quoted") for c in tree.find_all(exp.Column))
     if user:
         raise ValueError(_NOT_YET + "CURRENT_USER isn't mapped yet, and neither are USER, SESSION_USER, SYSTEM_USER, "
-                         "SUSER_NAME and SUSER_SNAME: here they would give the local engine's user, not yours.")
+                         "SUSER_NAME and SUSER_SNAME: here they would give the local engine's user, not yours. "
+                         "Run it in a Fabric Warehouse.")
     if any(True for _ in tree.find_all(exp.ObjectId)):
         raise ValueError(_NOT_YET + "OBJECT_ID isn't mapped yet: the local engine has no object ids. "
                          "Look a table up in INFORMATION_SCHEMA.TABLES.")
@@ -922,11 +923,11 @@ def _refused_by_name(tree: exp.Expression) -> None:
                          "SCHEMA_NAME() with no argument runs.")
     if any(True for _ in tree.find_all(exp.RegexpSubstr)):  # T-SQL's start and occurrence arguments differ
         raise ValueError(_NOT_YET + "REGEXP_SUBSTR isn't mapped yet. REGEXP_LIKE, REGEXP_REPLACE and REGEXP_COUNT run.")
-    bits = any(True for _ in tree.find_all(exp.Getbit)) or any(
-        a.name.upper() == "SET_BIT" for a in tree.find_all(exp.Anonymous))
-    if bits:  # DuckDB's GET_BIT and SET_BIT work on bit strings, not numbers
-        raise ValueError(_NOT_YET + "GET_BIT isn't mapped yet, and neither is SET_BIT. "
-                         "Use & and | with a power of 2, such as x & 4.")
+    # DuckDB's GET_BIT and SET_BIT work on bit strings, not numbers
+    if any(True for _ in tree.find_all(exp.Getbit)):
+        raise ValueError(_NOT_YET + "GET_BIT isn't mapped yet. Use & with a power of 2, such as x & 4.")
+    if any(a.name.upper() == "SET_BIT" for a in tree.find_all(exp.Anonymous)):
+        raise ValueError(_NOT_YET + "SET_BIT isn't mapped yet. Use | with a power of 2, such as x | 4.")
 
 
 def _unknown_functions(tree: exp.Expression, known: Container[str]) -> None:

@@ -284,7 +284,7 @@ REFUSED_IN_THE_DOCS = {
     "OPTION (...)": "SELECT 1 OPTION (MAXDOP 1)",
     "DATEFIRST": "SET DATEFIRST 1",
 }
-ADVICE_IN_THE_DOCS = {"&", "JSON_VALUE", "JSON_QUERY", "TRY_CAST(x AS FLOAT) IS NOT NULL", "POWER(2.5, 2)", "FLOAT", "SYSUTCDATETIME()",
+ADVICE_IN_THE_DOCS = {"&", "|", "JSON_VALUE", "JSON_QUERY", "TRY_CAST(x AS FLOAT) IS NOT NULL", "POWER(2.5, 2)", "FLOAT", "SYSUTCDATETIME()",
                       "DECIMAL(19, 4)", "DECIMAL(10, 4)",
                       "SET NOCOUNT ON", "SET DATEFIRST 7"}
 
@@ -362,4 +362,5 @@ def test_a_column_named_user_in_brackets_or_with_its_table_still_runs(engine):
     engine.execute("CREATE OR REPLACE TABLE dbo.people AS SELECT 'ann' AS \"user\"")
     assert first(engine, "SELECT [user] FROM dbo.people") == "ann"
     assert first(engine, "SELECT p.[user] FROM dbo.people AS p") == "ann"
+    assert first(engine, "SELECT p.user FROM dbo.people AS p") == "ann"  # with its table it's a column, not USER
     assert first(engine, "SELECT SCHEMA_NAME()") == "dbo"

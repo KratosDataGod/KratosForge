@@ -4537,7 +4537,7 @@ Before each "after" run, its tests were run in a copy of `sidecar/` on its own a
 | Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `fabric_step.py` | test_fabric_step (+ test_fabric_step_mutation) | 89 of 89 (85 + 4) | 81 / 8 | **91.0%** | 77/85 → 85/85 | 4/4 → 4/4 | 89 / 0 | **100%** | none (one mutant is killed by a strict xfail, #2749) |
-| `pipeline_script.py` | test_pipeline_script, test_pipeline_script_edges (+ test_pipeline_script_mutation) | 147 of 147 (144 + 3) | 110 / 37 | **74.8%** | 108/144 → 142/144 | 2/3 → 2/3 | 144 / 3 | **98.0%** | 2 equivalent, 1 not testable |
+| `pipeline_script.py` | test_pipeline_script, test_pipeline_script_edges (+ test_pipeline_script_mutation) | 147 of 147 (144 + 3) | 110 / 37 | **74.8%** | 108/144 → 142/144 | 2/3 → 3/3 | 145 / 2 | **98.6%** | 2 equivalent |
 | `signed_out_tasks.py` | test_signed_out_schedules, test_local_schedules_edges (+ test_signed_out_tasks_mutation) | 87 of 87 (86 + 1) | 68 / 19 | **78.2%** | 68/86 → 86/86 | 0/1 → 1/1 | 87 / 0 | **100%** | none |
 
 One bug was found, in `fabric_step.py`, and filed as #2749: a `%sql` line magic below the cell's first line (`df = %sql SELECT 1`) is refused with "isn't Python that Fabric Spark can run", though the docstring says `%sql` lines become `spark.sql` as when publishing. Nothing runs, so the refusal is safe. A strict xfail pins it: `test_a_sql_line_magic_below_the_first_line_becomes_spark_sql`. The mutant that turns `== "sql"` into `!= "sql"` at line 165 happens to fix it, so that test, which then passes, is what kills it.
@@ -4564,6 +4564,7 @@ One bug was found, in `fabric_step.py`, and filed as #2749: a `%sql` line magic 
   - A person cancelling a running script fails it as cancelled.
   - Lakehouse translation notes are logged under their script's number.
   - Later pages ask only for the rows still wanted, a longer page is cut at 5,000 rows, and a row that doesn't match the columns fails.
+  - At exactly the deadline a script keeps running; only a later clock reading ends it with the policy timeout (added in review).
   - → `test_pipeline_script_mutation.py`.
 - **signed_out_tasks.py**:
   - A schedule id is 1 to 32 lowercase hex characters and is returned as given. `../x`, `a/b`, `a\b`, an empty or missing id, uppercase, 33 characters, a leading or trailing space, a trailing newline, `;`, `'`, a space inside and `0x1f` are refused.
@@ -4580,7 +4581,6 @@ One bug was found, in `fabric_step.py`, and filed as #2749: a `%sql` line magic 
 | Module | Line | Mutant | Why it stays |
 | --- | --- | --- | --- |
 | `pipeline_script.py` | 159 | `"resultSetCount": 0` to `1` | Equivalent: every path that returns `out` sets `resultSetCount` to the number of result sets first (line 175). |
-| `pipeline_script.py` | 188 | `time.monotonic() > deadline` to `>=` | Not testable: the two differ only when the clock reads the deadline to the exact float, which a test can't arrange. |
 | `pipeline_script.py` | 204 | `return None, False` to `None, True` | Equivalent: `run` reads the cut flag only when there are rows (`rows is not None`), and here there are none. |
 
 None of the three involves text, so leading or trailing whitespace and regex edge cases can't change them.

@@ -113,6 +113,17 @@ def test_a_person_cancelling_a_running_script_fails_it_as_cancelled():
     assert raised.value.error["errorCode"] == "LocalCancelled" and runs.cancelled == ["r1"]
 
 
+def test_a_script_runs_on_until_the_clock_passes_the_deadline(monkeypatch):
+    # At exactly the deadline the script keeps running; only a later reading ends it.
+    clock = iter([100.0, 100.5])
+    monkeypatch.setattr(ps, "time", SimpleNamespace(monotonic=lambda: next(clock), sleep=lambda s: None))
+    runs = Runs([{"state": "running"}, {"state": "running"}, {"state": "running"}])
+    with pytest.raises(ActivityFailed, match="policy timeout") as raised:
+        scripts(runs, {"Load": "proj"}).run(activity(), {"scripts": [{"text": "SELECT 1"}]}, lambda: False, 100.0)
+    assert raised.value.error["errorCode"] == "LocalActivityTimeout" and runs.cancelled == ["r1"]
+    assert runs.states == [{"state": "running"}]   # one poll happened at the deadline itself
+
+
 @pytest.mark.parametrize("state, words, code", [
     ({"state": "failed", "refused": {"message": "DROP needs a confirm"}, "error": "e"}, "DROP needs a confirm",
      "LocalScriptRefused"),

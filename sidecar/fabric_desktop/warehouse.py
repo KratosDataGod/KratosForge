@@ -411,6 +411,111 @@ def object_changed(cursor: Any, p: dict[str, Any]) -> bool:
     return not definition or definition_fingerprint(str(definition[0] or "")) != p["definition"]
 
 
+# ---- a run the warehouse or the network ended part way (WR-207)
+
+class Interrupted(RuntimeError):
+    """A run that ended part way, by name: ``kind`` is connection, signin, throttled, timeout, cancelled,
+    commit_unknown or sql (a change's batch failed on its own SQL); ``batch`` the batch that was running.
+    The message says what was kept and what to do next."""
+
+    def __init__(self, kind: str, message: str, batch: int | None = None):
+        super().__init__(message)
+        self.kind, self.batch = kind, batch
+
+
+_TIMED_OUT = re.compile(r"HYT00|query timeout expired", re.IGNORECASE)
+_CANCELLED = re.compile(r"HY008|operation (was )?cancel", re.IGNORECASE)
+_SIGNIN_EXPIRED = re.compile(r"token (is|has) expired|expired token|AADSTS70043|AADSTS700082|\(18456\)", re.IGNORECASE)
+_DROPPED = re.compile(r"communication link failure|08S01|08S02|08003|transport-level error|TCP Provider|"
+                      r"connection (was|has been) (forcibly )?closed|connection is (closed|broken)|forcibly closed|"
+                      r"physical connection is not usable|\(10054\)|\(10053\)", re.IGNORECASE)
+_THROTTLED = re.compile(r"throttl|too many requests|currently busy|capacity .*(limit|exceeded)|not currently available",
+                        re.IGNORECASE)
+
+
+def interruption(exc: BaseException) -> tuple[str, int | None] | None:
+    """Why the warehouse or the network ended a run part way, from the driver's error text, and the error
+    number when there is one; None for the SQL's own error. After the connection opened, so a 18456 means
+    the sign-in expired, not a refused login."""
+    text = str(exc)
+    numbers = sorted({int(n) for n in _ERROR_NUMBER.findall(text)} & set(TRANSIENT_LOGIN_ERRORS))
+    if _TIMED_OUT.search(text):
+        return "timeout", None
+    if _CANCELLED.search(text):
+        return "cancelled", None
+    if _SIGNIN_EXPIRED.search(text):
+        return "signin", None
+    if _DROPPED.search(text):
+        return "connection", None
+    if numbers or _THROTTLED.search(text):
+        return "throttled", numbers[0] if numbers else None
+    return None
+
+
+def _first_line(batch: str) -> str:
+    first = next((line.strip() for line in batch.splitlines() if line.strip() and not line.strip().startswith("--")), "")
+    return f"{first[:80]}{'…' if len(first) > 80 else ''}"
+
+
+def _interrupted(exc: BaseException, at: int, sent: list[str], writes: bool) -> BaseException:
+    """The error a run ends with when batch ``at`` of ``sent`` failed: named, with what was kept and what to
+    do next. A read's own SQL error stays the driver's, as before."""
+    why = interruption(exc)
+    if why is None and isinstance(exc, (OSError, MemoryError)):
+        return exc  # this PC's own trouble writing the result (a full disk), not the batch's: its own message says so
+    if why is None:
+        return Interrupted("sql", _failed_batch(at, sent, exc), at) if writes else exc
+    kind, number = why
+    if writes:
+        where = f"during batch {at} of {len(sent)} ({_first_line(sent[at - 1])})" if len(sent) > 1 else \
+            f"during the change ({_first_line(sent[at - 1])})"
+        kept = "so the whole change was rolled back and nothing was kept"
+    else:
+        where, kept = "while the query ran", "so no result was kept"
+    message = {
+        "connection": f"The connection to the warehouse dropped {where}, {kept}. Check this PC's network "
+                      "(and VPN, if you use one), then run it again.",
+        "signin": f"Your sign-in to Fabric expired {where}, {kept}. Sign in again, then run it again.",
+        "throttled": f"The warehouse stopped the run {where} because its capacity is busy"
+                     f"{f' (error {number})' if number else ''}, {kept}. Wait a few minutes and run it again; if "
+                     "it keeps happening, ask your Fabric capacity admin about the capacity's load.",
+        "timeout": f"The run reached its time limit {where}, {kept}. Narrow the query, or raise the time limit in "
+                   "Settings › SQL, then run it again.",
+        "cancelled": f"The warehouse cancelled the run {where}, {kept}. Run it again; if it's cancelled again, an "
+                     "admin may be stopping it: check the warehouse's activity in Fabric.",
+    }[kind]
+    return Interrupted(kind, message, at)
+
+
+def _commit(con: Any) -> None:
+    """Commit a change. If the connection drops while the commit is on its way, the warehouse may or may not
+    have kept the change, and the error says so; any other refusal means nothing was kept."""
+    try:
+        con.commit()
+    except Exception as exc:
+        why = interruption(exc)
+        if why is not None and why[0] in ("connection", "timeout", "cancelled"):
+            raise Interrupted("commit_unknown", "The connection to the warehouse was lost while the change was being "
+                              "committed, so it may or may not have been kept. Check the tables it changes before "
+                              "running it again.") from exc
+        raise Interrupted("sql", "The warehouse didn't commit the change, so nothing was kept. Fix what it "
+                          f"reports, then run it again: {str(exc).strip() or type(exc).__name__}") from exc
+
+
+def _end(con: Any, committed: bool) -> None:
+    """Roll back what wasn't committed and close. When the connection is already gone these fail too; the
+    warehouse rolls an open transaction back on its own then, and the run's own error is the one to keep."""
+    try:
+        if not committed:
+            con.rollback()
+    except Exception as exc:  # noqa: BLE001 - the connection may be gone, and the run's own error is the one to keep
+        _log.warning("Rolling back after the run failed: %s", type(exc).__name__)
+    try:
+        con.close()
+    except Exception as exc:  # noqa: BLE001 - closing a connection that is already gone mustn't hide the run's result
+        _log.warning("Closing the warehouse connection: %s", type(exc).__name__)
+
+
 def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None]) -> None:
     """Run the job's query and stream the last result's rows into the job's Arrow IPC file. A job
     with ``writes`` runs its batches in one transaction and commits it once they all succeeded. A job
@@ -451,17 +556,18 @@ def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None])
         for at, batch in enumerate(sent, 1):
             try:
                 cursor.execute(batch)
+                while True:
+                    if cursor.description:
+                        result = _write_result(cursor, out, say)  # each result replaces the one before: the last is shown
+                    elif writes and isinstance(getattr(cursor, "rowcount", -1), int) and cursor.rowcount > 0:
+                        affected += cursor.rowcount
+                    if not writes or not cursor.nextset():
+                        break
             except Exception as exc:
-                if not writes:
+                failure = _interrupted(exc, at, sent, writes)
+                if failure is exc:
                     raise
-                raise RuntimeError(_failed_batch(at, sent, exc)) from exc
-            while True:
-                if cursor.description:
-                    result = _write_result(cursor, out, say)  # each result replaces the one before: the last is shown
-                elif writes and isinstance(getattr(cursor, "rowcount", -1), int) and cursor.rowcount > 0:
-                    affected += cursor.rowcount
-                if not writes or not cursor.nextset():
-                    break
+                raise failure from exc
         if plan:
             cursor.execute("SET SHOWPLAN_XML OFF")
         if result is None:
@@ -469,25 +575,20 @@ def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None])
                 pass
             result = (0, [], pa.schema([]))
         if writes:
-            con.commit()
+            say("committing")  # a Stop from here on may come after the warehouse kept the change
+            _commit(con)
             committed = True
         rows, batch_rows, schema = result
         say("done", rows=rows, batches=batch_rows, columns=[{"name": f.name, "type": str(f.type)} for f in schema],
             **({"affected": affected, "committed": True} if writes else {}))
     finally:
-        try:
-            if not committed:
-                con.rollback()
-        finally:
-            con.close()
+        _end(con, committed)
 
 
 def _failed_batch(at: int, sent: list[str], exc: BaseException) -> str:
     """Which batch of a change failed, its first line, and that nothing was kept (the run rolls back)."""
-    first = next((line.strip() for line in sent[at - 1].splitlines() if line.strip() and not line.strip().startswith("--")),
-                 "")
-    where = f"Batch {at} of {len(sent)} ({first[:80]}{'…' if len(first) > 80 else ''})" if len(sent) > 1 else \
-        f"The change ({first[:80]}{'…' if len(first) > 80 else ''})"
+    first = _first_line(sent[at - 1])
+    where = f"Batch {at} of {len(sent)} ({first})" if len(sent) > 1 else f"The change ({first})"
     fix = "Fix that batch and run the change again." if len(sent) > 1 else "Fix it and run it again."
     return (f"{where} failed, so the whole change was rolled back and nothing was kept. {fix} "
             f"{str(exc).strip() or type(exc).__name__}")

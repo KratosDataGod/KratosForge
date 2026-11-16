@@ -122,6 +122,16 @@ def time_limit_message(source: str, seconds: float) -> str:
             "project": f"Stopped after the project's time limit ({minutes}, in the project's settings)."}.get(source, "")
 
 
+def _change_kept(change: bool, committing: bool) -> str:
+    """What a stopped warehouse change kept: nothing before its commit was sent, and maybe all of it after."""
+    if not change:
+        return ""
+    if committing:
+        return (" The change was being committed, so it may or may not have been kept. Check the tables it changes "
+                "before running it again.")
+    return " The change was rolled back, so nothing was kept."
+
+
 class RerunNeeded(Exception):
     """The run's snapshot is gone; the query has to run again."""
 
@@ -164,6 +174,8 @@ class Execution:
     profile: bool = False  # lakehouse target: the query run under DuckDB's profiler, its steps not its rows (S40)
     precondition: dict[str, Any] | None = None  # a deploy change: the object as its preview saw it (#947)
     committed: bool = False
+    committing: bool = False  # warehouse change: the commit was sent, so a Stop may come after it was kept
+    failed_batch: int = 0  # warehouse run: the batch that was running when it failed (1-based), 0 if none
 
     @property
     def snapshot(self) -> Path:
@@ -183,6 +195,7 @@ class Execution:
                 **({"time_limit_from": self.time_limit_from, "notes": self.notes} if self.target == "local" else {}),
                 **({"change": True, "affected": self.affected, "committed": self.committed}
                    if "warehouse_write" in self.allow else {}),
+                **({"failed_batch": self.failed_batch} if self.failed_batch else {}),
                 **({"plan": True} if self.plan else {}),
                 **({"profile": True} if self.profile else {}),
                 "snapshot": self.state == "completed" and self.snapshot.exists()}
@@ -573,6 +586,8 @@ class SqlExecutions:
             with self._lock:
                 if kind == "started":
                     run.permission = str(event.get("permission") or "")
+                elif kind == "committing":
+                    run.committing = True
                 elif kind == "progress":
                     run.rows = int(event.get("rows") or 0)
                 elif kind in ("done", "error"):
@@ -588,22 +603,28 @@ class SqlExecutions:
                 run.timer.cancel()
             run.ended = time.time()
             run.proc = None
-            if run.stop_reason == "timeout":
-                run.state, run.error_kind = "timed_out", "timeout"
-                run.error = time_limit_message(run.time_limit_from, run.time_limit_s) \
-                    or time_limit_message("sql", run.time_limit_s)
-            elif run.stop_reason == "cancel":
-                run.state, run.error = "cancelled", "Stopped."
-            elif outcome.get("event") == "done":
+            change = "warehouse_write" in run.allow
+            if outcome.get("event") == "done":  # finished before a Stop could end it: a change was kept
                 run.state = "completed"
                 run.rows = int(outcome.get("rows") or 0)
                 run.batches = [int(n) for n in outcome.get("batches") or []]
                 run.offsets = list(itertools.accumulate([0, *run.batches[:-1]])) if run.batches else []
                 run.columns = list(outcome.get("columns") or [])
                 run.affected, run.committed = int(outcome.get("affected") or 0), bool(outcome.get("committed"))
+            elif run.stop_reason == "timeout" or outcome.get("kind") == "timeout":
+                run.state, run.error_kind = "timed_out", "timeout"
+                if run.time_limit_s:
+                    run.error = (time_limit_message(run.time_limit_from, run.time_limit_s)
+                                 or time_limit_message("sql", run.time_limit_s)) + _change_kept(change, run.committing)
+                else:  # no limit of the app's: the warehouse's own timeout, in the worker's words
+                    run.error = str(outcome.get("message") or "The warehouse stopped the run at its time limit.")
+                run.failed_batch = int(outcome.get("batch") or 0)
+            elif run.stop_reason == "cancel":
+                run.state, run.error = "cancelled", "Stopped." + _change_kept(change, run.committing)
             elif outcome.get("event") == "error":
                 run.state, run.error_kind = "failed", str(outcome.get("kind") or "sql")
                 run.error = str(outcome.get("message") or "The query failed.")
+                run.failed_batch = int(outcome.get("batch") or 0)
                 if run.error_kind == "permission":
                     run.permission = str(outcome.get("permission") or "")
                     run.refused = {"permission": run.permission, "statement": outcome.get("statement"),
@@ -614,6 +635,7 @@ class SqlExecutions:
                              "memory: close other apps and run it again, or narrow the query (a filter, fewer "
                              "columns), or raise the memory share in Settings › SQL.")
             if run.state != "completed":
+                run.rows = 0  # rows read before it failed aren't a result: none are kept
                 shutil.rmtree(run.folder, ignore_errors=True)
             self._finished(run)
         self._pump()
@@ -709,7 +731,9 @@ class SqlExecutions:
                                  "warehouse": run.warehouse.get("database", ""),
                                  **({"plan": True} if run.plan else {}),
                                  **({"affected": run.affected, "committed": run.committed}
-                                    if "warehouse_write" in run.allow else {})} if run.target == "warehouse" else {})})
+                                    if "warehouse_write" in run.allow else {}),
+                                 **({"failed_batch": run.failed_batch, "error_kind": run.error_kind}
+                                    if run.failed_batch else {})} if run.target == "warehouse" else {})})
             except Exception as exc:  # noqa: BLE001 - an audit problem never fails the run
                 print(f"audit: could not record sql_execution: {type(exc).__name__}", file=sys.stderr)
         run.query = ""  # the SQL isn't kept once the run is over

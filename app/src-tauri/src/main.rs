@@ -101,10 +101,17 @@ fn engine_mirror_state() -> Result<Option<String>, String> {
     let file = PathBuf::from(dir).join("FabricDesktop").join("policy.json");
     let trusted = policy_trust::admin_only(&file);
     let text = std::fs::read_to_string(&file).unwrap_or_default();
-    if policy_allows_updates(&text) {
+    mirror_from(&text, trusted)
+}
+
+/// engine_mirror_state's rule for the policy file's `text`, given whether only administrators
+/// could have written it: an engine folder only with `"auto_update": false`, a valid address, and
+/// a trusted file; a valid address in an untrusted file is why it is ignored.
+fn mirror_from(text: &str, trusted: Result<(), String>) -> Result<Option<String>, String> {
+    if policy_allows_updates(text) {
         return Ok(None);
     }
-    match (policy_engine_url(&text), trusted) {
+    match (policy_engine_url(text), trusted) {
         (Some(url), Ok(())) => Ok(Some(url)),
         (Some(_), Err(why)) => Err(why),
         (None, _) => Ok(None),
@@ -227,8 +234,14 @@ mod policy_tests {
 /// sidecar's app_settings.py.
 fn release_tag() -> &'static str {
     let user = std::fs::read_to_string(data_dir().join("app-settings.json")).unwrap_or_default();
-    for text in [policy_text(), user] {
-        match setting(&text, "channel").as_deref() {
+    channel_tag(&policy_text(), &user)
+}
+
+/// release_tag's rule: the first of the policy file's and then the person's `"channel"` that is
+/// "preview" or "stable" decides; anything else, or neither, is Stable.
+fn channel_tag(policy: &str, user: &str) -> &'static str {
+    for text in [policy, user] {
+        match setting(text, "channel").as_deref() {
             Some("preview") => return "latest",
             Some("stable") => return "stable",
             _ => {}
@@ -4015,6 +4028,53 @@ mod sidecar_bridge_tests {
 
 /// The page asks the shell to open links and files; these are the asks it refuses before anything is
 /// started. (The ones it allows start the browser, the mail app or VS Code, so they aren't run here.)
+#[cfg(test)]
+mod policy_rule_tests {
+    use super::{channel_tag, mirror_from};
+
+    const MIRROR: &str = r#"{"auto_update": false, "engine_download_url": "https://files.contoso.com/kf/"}"#;
+
+    #[test]
+    fn the_policy_files_channel_wins_over_the_persons() {
+        assert_eq!(channel_tag(r#"{"channel": "stable"}"#, r#"{"channel": "preview"}"#), "stable");
+        assert_eq!(channel_tag(r#"{"channel": "preview"}"#, r#"{"channel": "stable"}"#), "latest");
+        // No policy, or one that doesn't set a known channel: the person's choice.
+        assert_eq!(channel_tag("", r#"{"channel": "preview"}"#), "latest");
+        assert_eq!(channel_tag(r#"{"channel": "nightly"}"#, r#"{"channel": "preview"}"#), "latest");
+        assert_eq!(channel_tag("\u{feff}{\"channel\": \"preview\"}", ""), "latest", "a byte-order mark is skipped");
+    }
+
+    #[test]
+    fn stable_is_the_default_for_anything_else() {
+        for (policy, user) in [("", ""), ("not json", "{"), (r#"{"channel": "Preview"}"#, ""), (r#"{"channel": 1}"#, r#"{"channel": null}"#)] {
+            assert_eq!(channel_tag(policy, user), "stable", "{policy:?} {user:?}");
+        }
+    }
+
+    #[test]
+    fn its_engine_folder_is_used_only_from_a_trusted_file_with_updates_off() {
+        assert_eq!(mirror_from(MIRROR, Ok(())), Ok(Some("https://files.contoso.com/kf".into())));
+        assert_eq!(mirror_from(MIRROR, Err("a standard user can change it".into())), Err("a standard user can change it".into()));
+        // With updates on the engine isn't one known build, so the folder isn't used, trusted or not.
+        let updates_on = r#"{"engine_download_url": "https://files.contoso.com/kf"}"#;
+        assert_eq!(mirror_from(updates_on, Ok(())), Ok(None));
+        assert_eq!(mirror_from(updates_on, Err("untrusted".into())), Ok(None));
+    }
+
+    #[test]
+    fn no_or_an_unusable_address_means_github_whatever_the_trust() {
+        for text in [r#"{"auto_update": false}"#, r#"{"auto_update": false, "engine_download_url": "http://files.contoso.com/kf"}"#,
+                     r#"{"auto_update": false, "engine_download_url": "https://user@files.contoso.com/kf"}"#] {
+            assert_eq!(mirror_from(text, Ok(())), Ok(None), "{text}");
+            assert_eq!(mirror_from(text, Err("untrusted".into())), Ok(None), "{text}");
+        }
+        // No readable policy file: updates are on, so there is no engine folder.
+        for text in ["", "not json"] {
+            assert_eq!(mirror_from(text, Err("missing".into())), Ok(None), "{text}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod open_refusal_tests {
     use super::*;

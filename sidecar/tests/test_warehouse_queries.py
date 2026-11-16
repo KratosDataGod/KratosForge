@@ -475,14 +475,15 @@ def test_a_failed_wrapped_change_rolls_back_and_names_the_batch_that_failed(runs
     status = wait(runs, change(runs, script)["id"])
     assert status["state"] == "failed" and status["committed"] is False
     assert ("Batch 2 of 2 (UPDATE dbo.sales SET fail = 1) failed, so the whole change was rolled back and nothing was "
-            "kept: Invalid column name 'nope'.") in status["error"]
+            "kept. Fix that batch and run the change again. Invalid column name 'nope'.") in status["error"]
     seen = json.loads(runs.log.read_text())
     assert seen["rolled_back"] and "committed" not in seen
 
 
 def test_a_one_batch_change_that_fails_says_so_without_a_batch_number(runs):
     status = wait(runs, change(runs, "UPDATE dbo.sales SET fail = 1")["id"])
-    assert status["error"].startswith("The change (UPDATE dbo.sales SET fail = 1) failed, so the whole change was rolled back")
+    assert status["error"].startswith("The change (UPDATE dbo.sales SET fail = 1) failed, so the whole change was rolled back "
+                                      "and nothing was kept. Fix it and run it again.")
 
 
 def test_a_change_needs_its_confirm_and_the_warehouses_name(runs):

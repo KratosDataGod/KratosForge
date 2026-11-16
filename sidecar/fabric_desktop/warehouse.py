@@ -488,7 +488,8 @@ def _failed_batch(at: int, sent: list[str], exc: BaseException) -> str:
                  "")
     where = f"Batch {at} of {len(sent)} ({first[:80]}{'…' if len(first) > 80 else ''})" if len(sent) > 1 else \
         f"The change ({first[:80]}{'…' if len(first) > 80 else ''})"
-    return (f"{where} failed, so the whole change was rolled back and nothing was kept: "
+    fix = "Fix that batch and run the change again." if len(sent) > 1 else "Fix it and run it again."
+    return (f"{where} failed, so the whole change was rolled back and nothing was kept. {fix} "
             f"{str(exc).strip() or type(exc).__name__}")
 
 

@@ -96,6 +96,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
                 parts.replace(_timefromparts(parts))
             notes += _converts(tree)
             notes += _types(tree, schema)
+            _percentiles(tree)
             notes += _likes(tree)
             _patindex(tree)
             _functions(tree)
@@ -235,7 +236,7 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
 
     kinds = (exp.Div, exp.Avg, exp.Add, exp.Sub, exp.Mul, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow,
              exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
-             tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs)
+             tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.WithinGroup)
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
     if not here and not compared:
@@ -285,6 +286,10 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
             continue
         if isinstance(node, exp.Sub | exp.Mul):
             pass  # numbers, as DuckDB does them; only decimals need T-SQL's precision and scale
+        elif isinstance(node, exp.WithinGroup):
+            ordered = info.expression.expressions if isinstance(info.expression, exp.Order) else []
+            if ordered:
+                node.meta[_ORDER_TYPE] = ordered[0].this.type  # for _percentiles
         elif isinstance(node, exp.Div):
             a, b = info.this.type, info.expression.type
             if _is(a, _INTEGERS) and _is(b, _INTEGERS):
@@ -951,6 +956,47 @@ def _is(kind: exp.DataType | None, group: set) -> bool:
 
 def _unknown(kind: exp.DataType | None) -> bool:
     return kind is None or kind.this in (exp.DataType.Type.UNKNOWN, exp.DataType.Type.NULL)
+
+
+_ORDER_TYPE = "kf_order_type"
+
+
+def _percentiles(tree: exp.Expression) -> None:
+    """``PERCENTILE_CONT`` and ``PERCENTILE_DISC`` as T-SQL gives them.
+
+    - ``PERCENTILE_CONT`` is a float in T-SQL. DuckDB kept a decimal's type, so 0.25 of 1.25, 2.50 and
+      4.00 came back as 1.88, not 1.875: the values are made floats first.
+    - With ``ORDER BY x DESC``, p counts from the largest value. DuckDB's windowed QUANTILE ignores the
+      DESC and counted from the smallest, so the 0.25 percentile came back as the 0.75 one. Here the
+      values are negated, so ascending order is T-SQL's descending one, and the answer is negated back:
+      integers in a wider type, so the smallest one doesn't overflow, then returned to their own type."""
+    for group in list(tree.find_all(exp.WithinGroup)):
+        window = group.parent
+        if not (isinstance(group.this, (exp.PercentileCont, exp.PercentileDisc)) and isinstance(window, exp.Window)
+                and window.this is group and isinstance(group.expression, exp.Order)
+                and len(group.expression.expressions) == 1):
+            continue
+        ordered = group.expression.expressions[0]
+        cont = isinstance(group.this, exp.PercentileCont)
+        if cont:
+            ordered.set("this", exp.Cast(this=ordered.this, to=exp.DataType.build("DOUBLE")))
+        if not ordered.args.get("desc"):
+            continue
+        kind: exp.DataType | None = group.meta.get(_ORDER_TYPE)
+        if not cont and not _unknown(kind) and (not _is(kind, _NUMBERS) or _is(kind, {exp.DataType.Type.BIT})):
+            raise ValueError(_NOT_YET + "PERCENTILE_DISC with ORDER BY ... DESC on a value that isn't a number "
+                             "isn't mapped yet: order it ascending.")
+        value = ordered.this
+        if not cont and _is(kind, _INTEGERS):
+            value = exp.Cast(this=value, to=exp.DataType.build("HUGEINT"))
+        ordered.set("this", exp.Neg(this=exp.paren(value, copy=False)))
+        ordered.set("desc", False)
+        ordered.set("nulls_first", True)
+        answer: exp.Expression = exp.Neg(this=exp.paren(window.copy(), copy=False))
+        if not cont and _is(kind, _INTEGERS):
+            assert kind is not None
+            answer = exp.Cast(this=answer, to=kind.copy())
+        window.replace(answer)
 
 
 _SPREADS = {"VAR": exp.Variance, "VARP": exp.VariancePop, "STDEVP": exp.StddevPop}

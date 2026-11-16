@@ -57,12 +57,14 @@ def _notes(result):
 @pytest.mark.parametrize(("p1", "s1", "op", "p2", "s2", "want"), [
     (5, 2, "+", 7, 3, (8, 3)),
     (38, 10, "+", 38, 0, (38, 0)),  # past 38 digits, scale gives way to the whole part
+    (38, 10, "+", 30, 5, (38, 10)),  # past 38 digits, and the whole part leaves room for all the scale
     (5, 2, "-", 10, 0, (13, 2)),
     (5, 2, "*", 7, 3, (13, 5)),
     (38, 10, "*", 38, 10, (38, 6)),  # 57 whole digits: scale is cut to 6
     (38, 10, "*", 5, 2, (38, 6)),  # 32 whole digits: scale 12 is cut to 6
     (30, 10, "*", 2, 1, (33, 11)),  # fits in 38: nothing is cut
     (20, 2, "*", 10, 2, (31, 4)),
+    (36, 4, "*", 5, 4, (38, 6)),  # exactly 32 whole digits
     (5, 2, "/", 7, 3, (16, 10)),
     (18, 0, "/", 18, 0, (37, 19)),
     (38, 10, "/", 38, 10, (38, 6)),
@@ -161,6 +163,7 @@ def test_a_decimal_average_over_a_window_has_the_warehouse_type(engine):
     ("1.0 / 3", (7, 6), "0.333333"),
     ("-a / 0.5", (10, 6), "20.500000"),
     ("a * 3000000000", (16, 2), "-30750000000.00"),  # too big for an int: decimal(10, 0)
+    ("i * 2147483648", (21, 0), "6442450944"),  # 2^31, the first whole number too big for an int, is a decimal
     ("(a * b) + (a / i)", (22, 13), "-35.4479166666666"),
     ("SUM(a) * 2", (38, 2), "-20.50"),
     ("AVG(a) / 2", (38, 6), "-5.125000"),
@@ -175,4 +178,11 @@ def test_a_product_too_wide_to_work_out_exactly_says_so(engine):
     r = tsql(engine, "SELECT w * a AS v, a * d AS small FROM dbo.n")
     assert [c["type"].replace(" ", "") for c in r["columns"]] == ["decimal128(38,6)", "decimal128(38,6)"]
     assert r["rows"][0][1] == "-15.375000"  # a small value in the same kind of product is still exact
+    assert FLOAT_NOTE in _notes(r)
+
+
+def test_scales_that_add_up_past_38_still_multiply(engine):
+    # DuckDB can't type decimal(38,20) * decimal(38,20); T-SQL gives decimal(38,6).
+    r = tsql(engine, "SELECT CAST(1.5 AS DECIMAL(38,20)) * CAST(2 AS DECIMAL(38,20)) AS v FROM dbo.n")
+    assert _type(r) == (38, 6) and r["rows"] == [["3.000000"]]
     assert FLOAT_NOTE in _notes(r)

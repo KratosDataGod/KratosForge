@@ -337,9 +337,9 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
 # T-SQL converts an integer to a decimal of this precision when it meets one in arithmetic.
 _INTEGER_DIGITS = {exp.DataType.Type.TINYINT: 3, exp.DataType.Type.UTINYINT: 3, exp.DataType.Type.SMALLINT: 5,
                    exp.DataType.Type.INT: 10, exp.DataType.Type.BIGINT: 19}
-_FLOAT_NOTE = ("A decimal AVG, or decimal arithmetic on a value too wide to work out exactly here, is done in "
-               "floating point and then given T-SQL's precision and scale: about 15 significant digits match the "
-               "warehouse, and digits past those can differ.")
+_FLOAT_NOTE = ("A decimal AVG, or decimal arithmetic on a value too wide to work out exactly on the local engine, is "
+               "done in floating point and then given T-SQL's precision and scale. About the first 15 significant "
+               "digits match the warehouse; later digits can differ.")
 _DECIMAL_OPS: dict[type[exp.Expression], str] = {exp.Add: "+", exp.Sub: "-", exp.Mul: "*", exp.Div: "/"}
 _HUGEINT_ROOM = 38  # a HUGEINT holds every whole number of up to 38 digits
 
@@ -441,13 +441,18 @@ def _decimal_math(node: exp.Expression, left: tuple[int, int], right: tuple[int,
     if op == "/":
         return _division(node, left, right, precision, scale)
     kept = left[1] + right[1] if op == "*" else max(left[1], right[1])
+    kind = f"DECIMAL({precision}, {scale})"
+    if kept > _HUGEINT_ROOM:
+        # The sides' scales add up past 38: DuckDB can't type the product at all (decimal(38,20) * decimal(38,20)),
+        # where T-SQL cuts the scale to 6. Only floating point is left.
+        _fill_in(node, f"CAST(CAST((__a) AS DOUBLE) {op} CAST((__b) AS DOUBLE) AS {kind})")
+        return True
     if kept <= scale or _volatile(node):
         _cast_in_place(node, precision, scale)
         return False
     # T-SQL cut the scale to make room for whole digits. DuckDB keeps the scale, so a big value overflows there and
     # not in a warehouse: such a value is worked out in floating point instead, and the rest exactly. The check is
     # in floating point too, a digit short of DuckDB's room, so rounding in it can't let an overflow through.
-    kind = f"DECIMAL({precision}, {scale})"
     size = f"ABS(CAST((__a) AS DOUBLE)) {'*' if op == '*' else '+'} ABS(CAST((__b) AS DOUBLE))"
     text = (f"CASE WHEN {size} < 1e{_HUGEINT_ROOM - 1 - kept} THEN CAST((__a) {op} (__b) AS {kind}) "
             f"ELSE CAST(CAST((__a) AS DOUBLE) {op} CAST((__b) AS DOUBLE) AS {kind}) END")

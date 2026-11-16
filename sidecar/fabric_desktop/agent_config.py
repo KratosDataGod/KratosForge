@@ -80,6 +80,7 @@ from .fabric_run import MAX_EVERY_MINUTES, schedule_configuration
 from .local_schedules import local_configuration
 from .meta.project import ENVIRONMENTS
 from .redact import one_line
+from .shared_schedules import MAX_ID
 
 # Keys whose value would be a secret itself. Give the name of an environment variable instead.
 _SECRET_KEYS = {"client_secret", "password", "secret", "certificate_password", "teams_webhook", "token", "api_key"}
@@ -298,8 +299,8 @@ def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None
     if not isinstance(shared, bool):
         errors.append(f"{where}: shared is true or false")
         return None
-    if shared and len(sid) > 40:
-        errors.append(f"{where}: a shared schedule's id is at most 40 characters")
+    if shared and len(sid) > MAX_ID:
+        errors.append(f"{where}: a shared schedule's id is at most {MAX_ID} characters")
         return None
     minutes = raw.get("every_minutes")
     if shared and minutes is not None and (isinstance(minutes, bool) or not isinstance(minutes, int) or minutes < 1):

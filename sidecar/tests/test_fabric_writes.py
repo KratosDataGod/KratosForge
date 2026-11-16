@@ -3,6 +3,10 @@ raises FabricError, so nothing above it can report the write as done, and a writ
 reached Fabric is never sent a second time. Request shapes and the success paths are in
 test_fabric_api*.py; this file walks every write method with the same two failures."""
 
+import ast
+import inspect
+import textwrap
+
 import pytest
 
 from fabric_desktop.fabric_api import FabricClient, FabricError
@@ -21,14 +25,19 @@ class Resp:
         return self._body
 
 
-class Always:
-    """A session that answers every request with one status."""
+class WritesFail:
+    """Fabric that answers reads (GET) as an empty list, or with ``existing`` items, and every write with
+    one status, so a method that looks its item up first still gets as far as its write."""
 
-    def __init__(self, status):
-        self.status, self.calls = status, []
+    def __init__(self, status, existing=()):
+        self.status, self.existing, self.calls = status, list(existing), []
 
     def request(self, method, url, **kwargs):
         self.calls.append((method.upper(), url))
+        if method.upper() in SAFE_METHODS:
+            ok = Resp(200)
+            ok._body = {"value": self.existing}
+            return ok
         return Resp(self.status)
 
 
@@ -70,27 +79,60 @@ WRITES = {
 }
 
 
+# Methods that send a POST to read, not to change anything (Fabric's query and definition APIs).
+READS_BY_POST = {"admin_scan_workspaces", "get_item_definition", "query_activity_runs"}
+
+
+def _sends_a_write(fn) -> bool:
+    """The method's source names a write verb (POST, PUT, PATCH, DELETE) as a string."""
+    tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+    return any(isinstance(n, ast.Constant) and n.value in ("POST", "PUT", "PATCH", "DELETE") for n in ast.walk(tree))
+
+
 def test_the_list_holds_every_write_method():
-    """A new write method on FabricClient has to join WRITES, so its failures are walked too."""
+    """A new write method on FabricClient has to join WRITES, so its failures are walked too: found by a
+    write verb in its source, or by a name that says it changes something."""
     verbs = ("add_", "assign_", "cancel_", "create_", "delete_", "put_", "refresh_", "run_", "save_", "set_",
              "update_", "git_update")
-    found = {n for n in dir(FabricClient) if n.startswith(verbs) and callable(getattr(FabricClient, n))}
+    public = {n: f for n, f in inspect.getmembers(FabricClient, inspect.isfunction) if not n.startswith("_")}
+    found = {n for n, f in public.items() if n.startswith(verbs) or _sends_a_write(f)} - READS_BY_POST
     assert found == set(WRITES)
+    assert READS_BY_POST <= set(public)
 
 
 @pytest.mark.parametrize("status", [400, 403, 404, 409, 500, 503])
 @pytest.mark.parametrize("name", sorted(WRITES))
 def test_a_refused_or_failed_write_raises_and_is_sent_once(name, status):
-    session = Always(status)
+    session = WritesFail(status)
     client = FabricClient(lambda: "tok", session=session, sleep=lambda s: None)
     with pytest.raises(FabricError) as raised:
         getattr(client, name)(*WRITES[name])
     assert raised.value.status == status, name
+    # A write that reached Fabric and failed may have half happened, so it is sent exactly once.
     writes = [c for c in session.calls if c[0] not in SAFE_METHODS]
-    # A write that reached Fabric and failed may have half happened, so it isn't sent again. (A
-    # method that looks the item up first can fail on that read before sending any write.)
-    assert len(writes) <= 1, (name, session.calls)
+    assert len(writes) == 1, (name, session.calls)
     assert all(url.startswith("https://api.fabric.microsoft.com/") for _, url in session.calls), session.calls
+
+
+# The save_* methods look the item up first: with an item of that name there, they update it instead.
+SAVES_EXISTING = {
+    "save_item": ("Report", "r"),
+    "save_notebook": ("Notebook", "nb"),
+    "save_semantic_model": ("SemanticModel", "m"),
+    "save_variable_library": ("VariableLibrary", "v"),
+}
+
+
+@pytest.mark.parametrize("status", [400, 409, 500])
+@pytest.mark.parametrize("name", sorted(SAVES_EXISTING))
+def test_a_save_over_an_existing_item_that_fails_raises_and_is_sent_once(name, status):
+    kind, display = SAVES_EXISTING[name]
+    session = WritesFail(status, existing=[{"id": "it1", "type": kind, "displayName": display}])
+    client = FabricClient(lambda: "tok", session=session, sleep=lambda s: None)
+    with pytest.raises(FabricError):
+        getattr(client, name)(*WRITES[name])
+    writes = [c for c in session.calls if c[0] not in SAFE_METHODS]
+    assert len(writes) == 1 and "/it1" in writes[0][1], (name, session.calls)  # the update, not a create
 
 
 # ---- OneLake file writes (FileStore): upload, delete, mkdir

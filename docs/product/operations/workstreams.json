@@ -67,14 +67,14 @@
         "Sync pinned workspaces with Fabric"
       ],
       "active": {
-        "story": "WR-203"
+        "story": "WR-204"
       },
       "ready": [
         {
-          "story": "WR-204"
+          "story": "WR-206"
         },
         {
-          "story": "WR-205"
+          "story": "WR-207"
         }
       ],
       "backlog": [
@@ -89,7 +89,7 @@
         "#799 staging cleaner held"
       ],
       "last_completed": "WR-201 long-running operations and throttling retries (#2342, #2394); WR-202 request id and next step (#2494, #2534, #2538, #2570)",
-      "next_action": "WR-203, then WR-204 and WR-205. Run 11 waits on Chris's typed yes."
+      "next_action": "WR-204 (#2763) in review; WR-203 (#2757) with RM; WR-205 Best Practice Analyzer runs in the BPA thread; then WR-206, WR-207. Run 11 waits on Chris's typed yes."
     },
     {
       "key": "dbx-snow",
@@ -200,11 +200,11 @@
         "Enterprise readiness program"
       ],
       "active": {
-        "story": "WR-604"
+        "story": "WR-605"
       },
       "ready": [
         {
-          "story": "WR-605"
+          "story": "WR-606"
         },
         {
           "story": "PB-061"
@@ -216,7 +216,7 @@
         "PB-001 / EA-009 code signing waits on Microsoft identity validation (Chris)",
         "#744 HD-030 waits on Chris's fail-closed decision"
       ],
-      "last_completed": "WR-601 dependency scanning; WR-602 VDI fixes (#2469, #2484); WR-603 cancelled runs apart; main audited every 6 h (#2681); shell coverage 67% to 75% with Windows-only security tests (#2682 to #2720)",
+      "last_completed": "WR-604 flaky ledger has no open rows (2026-11-16); WR-601 dependency scanning; WR-602 VDI fixes (#2469, #2484); WR-603 cancelled runs apart; main audited every 6 h (#2681); shell coverage 67% to 75% with Windows-only security tests (#2682 to #2720)",
       "next_action": "WR-604, WR-605. Signing waits on Chris's identity check."
     }
   ],
@@ -481,6 +481,39 @@
       "acceptance": [
         "One dry run of the runbook recorded in docs/quality",
         "Any gap found fixed"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-206": {
+      "title": "Local T-SQL decimal arithmetic follows the warehouse's precision and scale rules, or says where it differs",
+      "priority": "P2",
+      "problem": "Local execution translates T-SQL to DuckDB, whose decimal division and multiplication results can use a different scale than a Fabric warehouse; a number that differs silently breaks trust.",
+      "acceptance": [
+        "Tests compare result precision and scale for +, -, *, / and SUM/AVG on decimal columns against the documented T-SQL rules",
+        "Each case either matches or is listed in docs/sql-compatibility.md with what differs",
+        "No silent difference: a case that can't match warns or is refused by name"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-207": {
+      "title": "Warehouse runs end with a named error on every failure path, and never report a partial batch as success",
+      "priority": "P2",
+      "problem": "Long warehouse runs can lose the connection, the sign-in can expire mid-query, or Fabric can throttle; each must end with a named error and a next step.",
+      "acceptance": [
+        "Tests with fakes cover connection drop mid-batch, sign-in expiry during a long query, throttling and cancel",
+        "Each ends with a named error and a next step; none reports success for a partial batch",
+        "Run history records the failed batch"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-606": {
+      "title": "Every failed CI test is named in the run summary",
+      "priority": "P2",
+      "problem": "The 11-16 flaky-ledger review hit a blind spot: a ui-browser failure on 11-09 whose test name fell outside the readable log tail.",
+      "acceptance": [
+        "Each test job writes a short failed-tests summary (name and first error line) to the job summary",
+        "A failing test in any job shows by name without reading the full log",
+        "The flaky ledger's how-to points at the summary"
       ],
       "agent": "Codebase audit and hardening"
     }

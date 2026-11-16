@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 122 |
+| Runs | 139 |
 | Differs | 5 |
-| Refused | 13 |
-| Fails | 23 |
+| Refused | 10 |
+| Fails | 9 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -70,7 +70,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `groupby` | Not checked |  |
 | `head` | Runs |  |
 | `hint` | Not checked |  |
-| `inputFiles` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a single...`: AttributeError: 'LakehouseWriter' object has no attribute 'json' |
+| `inputFiles` | Runs |  |
 | `intersect` | Runs |  |
 | `intersectAll` | Runs |  |
 | `isEmpty` | Runs |  |
@@ -196,39 +196,39 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `csv` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `format` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'json' to <temp dir> on this PC. |
+| `csv` | Runs |  |
+| `format` | Runs |  |
 | `jdbc` | Not checked |  |
-| `json` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'json' to <temp dir> on this PC. |
-| `load` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `option` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `options` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `orc` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'orc' to <temp dir> on this PC. |
-| `parquet` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
+| `json` | Runs |  |
+| `load` | Runs |  |
+| `option` | Runs |  |
+| `options` | Runs |  |
+| `orc` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: NotImplementedError: ORC files are written in Fabric; DuckDB on this PC can't write ORC. Write Parquet here (df.write.parquet), or run the cell in Fabric. |
+| `parquet` | Runs |  |
 | `schema` | Refused | `spark.read.schema("col0 INT, col1 DOUBLE")`: NotImplementedError: On this PC, give read.schema() a StructType. A DDL string isn't supported. |
 | `table` | Runs |  |
-| `text` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'text' to <temp dir> on this PC. |
+| `text` | Runs |  |
 
 ## DataFrameWriter
 
 | Method | Status | Note |
 | --- | --- | --- |
 | `bucketBy` | Fails | `from pyspark.sql.functions import input_file_name`: ImportError: cannot import name 'input_file_name' from 'duckdb.experimental.spark.sql.functions' |
-| `csv` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `format` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
+| `csv` | Runs |  |
+| `format` | Runs |  |
 | `insertInto` | Fails | `_ = spark.sql("DROP TABLE IF EXISTS tblA")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
 | `jdbc` | Not checked |  |
-| `json` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: AttributeError: 'LakehouseWriter' object has no attribute 'json' |
-| `mode` | Fails | `with tempfile.TemporaryDirectory() as d: # Overwrite the ...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `option` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: NotImplementedError: The nullvalue option isn't supported when writing a CSV file on this PC. Leave it out, or run the cell in Fabric. |
-| `options` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: NotImplementedError: The nullvalue option isn't supported when writing a CSV file on this PC. Leave it out, or run the cell in Fabric. |
-| `orc` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: AttributeError: 'LakehouseWriter' object has no attribute 'orc' |
-| `parquet` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `partitionBy` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `save` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'json' to <temp dir> on this PC. |
+| `json` | Runs |  |
+| `mode` | Runs |  |
+| `option` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: NotImplementedError: The nullvalue option isn't supported when writing csv files on this PC. Leave it out, or run the cell in Fabric. |
+| `options` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: NotImplementedError: The nullvalue option isn't supported when writing csv files on this PC. Leave it out, or run the cell in Fabric. |
+| `orc` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: NotImplementedError: ORC files are written in Fabric; DuckDB on this PC can't write ORC. Write Parquet here (df.write.parquet), or run the cell in Fabric. |
+| `parquet` | Runs |  |
+| `partitionBy` | Runs |  |
+| `save` | Runs |  |
 | `saveAsTable` | Fails | `_ = spark.sql("DROP TABLE IF EXISTS tblA")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
 | `sortBy` | Fails | `from pyspark.sql.functions import input_file_name`: ImportError: cannot import name 'input_file_name' from 'duckdb.experimental.spark.sql.functions' |
-| `text` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: AttributeError: 'LakehouseWriter' object has no attribute 'text' |
+| `text` | Runs |  |
 
 ## DataFrameNaFunctions
 

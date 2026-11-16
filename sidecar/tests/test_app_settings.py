@@ -189,3 +189,29 @@ def test_a_subject_level_defaults_to_same_and_a_policy_can_set_it(dirs):
             app_settings.save({key: "focus"})
     dirs.write_text(json.dumps({"learn_mode_sql": "guided"}))
     assert app_settings.load()["learn_mode_sql"] == {"value": "guided", "source": "policy"}
+
+
+def test_editor_settings_default_to_the_editors_as_they_were_and_check_what_is_saved():
+    loaded = app_settings.load()
+    assert [loaded[k]["value"] for k in ("editor_word_wrap", "editor_font_size", "editor_keys", "editor_key_overrides")] == [
+        "off", 0, "default", {}]
+    saved = app_settings.save({"editor_word_wrap": "sql", "editor_font_size": 16, "editor_keys": "vim",
+                               "editor_key_overrides": {"format": "Alt-Shift-g", "split_cell": "Mod-Shift--"}})
+    assert saved["editor_font_size"]["value"] == 16 and saved["editor_key_overrides"]["value"]["format"] == "Alt-Shift-g"
+    for bad, says in [({"editor_word_wrap": "auto"}, "must be one of"), ({"editor_font_size": 9}, "10 to 24"),
+                      ({"editor_font_size": True}, "10 to 24"), ({"editor_keys": "emacs"}, "must be one of"),
+                      ({"editor_key_overrides": {"format": "<b>"}}, "isn't one"),
+                      ({"editor_key_overrides": {"Format!": "F3"}}, "command name"),
+                      ({"editor_key_overrides": ["F3"]}, "map of command to key")]:
+        with pytest.raises(ValueError, match=says):
+            app_settings.save(bad)
+    cleared = app_settings.save({"editor_font_size": 0, "editor_key_overrides": {}})
+    assert cleared["editor_font_size"] == {"value": 0, "source": "default"}
+    assert cleared["editor_key_overrides"] == {"value": {}, "source": "default"}
+
+
+def test_a_policy_with_a_bad_editor_setting_says_so(dirs):
+    dirs.write_text(json.dumps({"editor_font_size": 40, "editor_key_overrides": {"format": "F3; rm"}}))
+    problems = app_settings.policy_problems()
+    assert any("editor_font_size must be 0" in p for p in problems)
+    assert any(p.startswith("editor_key_overrides has a key for format") for p in problems)

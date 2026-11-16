@@ -711,6 +711,25 @@ When your organization's policy file sets one of these, or the `FABRIC_DESKTOP_C
 - **Learning guidance** (Preview). **Expert**, **Professional** (the default) or **Guided**: how much explanation the best-practice panels and Learn show beside your work. See [Learn](learn.md#guidance).
 - **SQL guidance** and **Notebook guidance** (Preview). **Same** (the default) follows Learning guidance; **Expert**, **Professional** or **Guided** sets the level beside that subject's best-practice findings only. See [Learn](learn.md#guidance).
 
+### Editor settings
+
+**Settings > Editor** changes how notebook cells and SQL editors type and look. Changes apply at once to every
+open editor and are kept:
+
+- **Word wrap.** **Notebooks**, **SQL**, **Both** or **Off** (the default): long lines wrap instead of scrolling sideways.
+- **Font size.** The code font in cells and SQL editors, 10 to 24 px. **Each editor's own** (the default) keeps
+  13 px in cells and 13.5 px in SQL editors. The rest of the app follows Ctrl+= and Ctrl+-.
+- **Key bindings** (Preview). **Default** or **Vim**, which adds Vim's modal editing to cells and SQL editors. In a
+  cell, Esc in Vim's normal mode still leaves for command mode; out of insert or visual mode first, then again to leave.
+  Shift+Enter, Ctrl+Enter and the other run keys work in every mode.
+- **Shortcuts.** **Change keys...** lists the editor commands with their keys: running a cell or a query, format,
+  comment, change case, go to a line, bookmarks and more. **Change** waits for the new key (Esc cancels), and
+  **Reset** puts one back. A key needs Ctrl or Alt unless it's an F key. Keys the app already uses, such as Ctrl+K
+  (the command bar), Ctrl+C or Ctrl+Z, can't be taken, and neither can another command's key in the same editor.
+
+IT can set any of these for everyone with `editor_word_wrap`, `editor_font_size`, `editor_keys` and
+`editor_key_overrides` ([Push settings to everyone](azure-setup.md)); Settings then shows them locked.
+
 ### Motion and effects
 
 **Settings > Appearance > Living Experience** sets how much the app moves. The **Experience mode** is

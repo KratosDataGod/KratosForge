@@ -3,10 +3,15 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-15 11:42 UTC, main b76c42d2.** Covers the PRs merged from #135 to #2672.
+**Product check of 2026-11-15 23:42 UTC (run 2026-11-16 01:03), main a13d0a0f.** Covers the PRs merged from #135 to #2698.
 
 ## Summary
 
+- Evening check, 2026-11-15 (run 01:03 on 11-16): 22 PRs merged after b76c42d2. 1 was a product data PR, and the
+  other 21 were linked. Cancel now resends its interrupt when a cell missed it and keeps writes that were in flight
+  (PB-103). The SQL check splits on GO only on its own line and points at the failing token (PB-106). Home's banner
+  art and progress panel are back (PB-102). The shell gained tests and Windows coverage, and mutation testing batches
+  32 to 38 landed (PB-101). No item changed status.
 - Morning check, 2026-11-15: 22 PRs merged after 7178e900. 1 was a product data PR, and the other 21 were linked.
   Databricks parity moved on: Databricks SQL cells read widgets, parse_json keeps decimals of up to 38 digits, and
   concat writes timestamps and doubles as Spark does (PB-120). Three correctness fixes landed (PB-124), Spark decimals

@@ -315,7 +315,12 @@ fn missing_release_file(err: &str) -> bool {
 
 /// The host the engine comes from: IT's own folder (engine_download_url) or GitHub.
 fn download_host() -> String {
-    engine_mirror()
+    mirror_host(engine_mirror())
+}
+
+/// The host of IT's engine folder `mirror`, or GitHub's without one (or when it has no host).
+fn mirror_host(mirror: Option<String>) -> String {
+    mirror
         .and_then(|folder| Url::parse(&folder).ok()?.host_str().map(str::to_string))
         .unwrap_or_else(|| "github.com".into())
 }
@@ -369,7 +374,13 @@ fn certificate_dates(err: &str) -> bool {
 }
 
 fn release_file(tag: &str, file: &str) -> String {
-    match engine_mirror() {
+    release_url(engine_mirror(), tag, file)
+}
+
+/// Where `file` of release `tag` is downloaded from: IT's engine folder `mirror` when there is one,
+/// otherwise the GitHub release.
+fn release_url(mirror: Option<String>, tag: &str, file: &str) -> String {
+    match mirror {
         Some(folder) => format!("{folder}/{file}"),
         None => format!("https://github.com/KratosDataGod/KratosForge/releases/download/{tag}/{file}"),
     }
@@ -4296,6 +4307,52 @@ mod engine_choice_tests {
     fn with_updates_off_another_engine_is_refused_and_it_is_asked_for_the_exe() {
         let why = engine_build_allowed(OTHER, OWN, || true, || false).unwrap_err();
         assert!(why.starts_with("Your organization rolls out builds itself, and the engine offered is build bbbbbbb, not this app's build aaaaaaa"), "{why}");
+    }
+}
+
+#[cfg(test)]
+mod download_source_tests {
+    use super::{mirror_host, release_url, setting};
+
+    #[test]
+    fn a_setting_is_read_from_json_text() {
+        assert_eq!(setting(r#"{"channel":"latest"}"#, "channel").as_deref(), Some("latest"));
+        assert_eq!(setting("\u{feff}{\"a\":\"b\"}", "a").as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn a_missing_or_unreadable_setting_is_none() {
+        assert_eq!(setting(r#"{"a":"b"}"#, "c"), None);
+        assert_eq!(setting(r#"{"a":true}"#, "a"), None);
+        assert_eq!(setting(r#"{"a":null}"#, "a"), None);
+        assert_eq!(setting("not json", "a"), None);
+        assert_eq!(setting("", "a"), None);
+        assert_eq!(setting(r#"["a"]"#, "a"), None);
+    }
+
+    #[test]
+    fn files_come_from_the_github_release_without_an_it_folder() {
+        assert_eq!(
+            release_url(None, "stable", "version.json"),
+            "https://github.com/KratosDataGod/KratosForge/releases/download/stable/version.json"
+        );
+        assert_eq!(mirror_host(None), "github.com");
+    }
+
+    #[test]
+    fn files_come_from_the_it_folder_when_there_is_one() {
+        let folder = Some("https://files.example.com/kratosforge/build-13cd5dfa54ee".to_string());
+        assert_eq!(
+            release_url(folder.clone(), "stable", "engine.zip"),
+            "https://files.example.com/kratosforge/build-13cd5dfa54ee/engine.zip"
+        );
+        assert_eq!(mirror_host(folder), "files.example.com");
+    }
+
+    #[test]
+    fn a_folder_without_a_host_names_github() {
+        assert_eq!(mirror_host(Some("not a url".to_string())), "github.com");
+        assert_eq!(mirror_host(Some("file:///C:/engines".to_string())), "github.com");
     }
 }
 

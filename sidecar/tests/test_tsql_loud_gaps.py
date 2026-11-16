@@ -256,6 +256,18 @@ REFUSED_IN_THE_DOCS = {
     "ISDATE": "SELECT ISDATE('2024-01-01')",
     "CHECKSUM": "SELECT CHECKSUM('a')",
     "TRY_PARSE": "SELECT TRY_PARSE('1' AS int)",
+    "HASHBYTES": "SELECT HASHBYTES('SHA2_256', 'a')",
+    "CURRENT_USER": "SELECT CURRENT_USER",
+    "USER": "SELECT USER",
+    "SESSION_USER": "SELECT SESSION_USER",
+    "SYSTEM_USER": "SELECT SYSTEM_USER",
+    "SUSER_NAME": "SELECT SUSER_NAME()",
+    "SUSER_SNAME": "SELECT SUSER_SNAME()",
+    "OBJECT_ID": "SELECT OBJECT_ID('dbo.orders')",
+    "SCHEMA_NAME": "SELECT SCHEMA_NAME(1)",
+    "REGEXP_SUBSTR": "SELECT REGEXP_SUBSTR('abc', 'b')",
+    "GET_BIT": "SELECT GET_BIT(3, 0)",
+    "SET_BIT": "SELECT SET_BIT(0, 1)",
     "DECLARE": "DECLARE @n INT = 1",
     "@x": "SELECT @x",
     "@@ROWCOUNT": "SELECT @@ROWCOUNT",
@@ -272,7 +284,7 @@ REFUSED_IN_THE_DOCS = {
     "OPTION (...)": "SELECT 1 OPTION (MAXDOP 1)",
     "DATEFIRST": "SET DATEFIRST 1",
 }
-ADVICE_IN_THE_DOCS = {"JSON_VALUE", "JSON_QUERY", "TRY_CAST(x AS FLOAT) IS NOT NULL", "POWER(2.5, 2)", "FLOAT", "SYSUTCDATETIME()",
+ADVICE_IN_THE_DOCS = {"&", "|", "JSON_VALUE", "JSON_QUERY", "TRY_CAST(x AS FLOAT) IS NOT NULL", "POWER(2.5, 2)", "FLOAT", "SYSUTCDATETIME()",
                       "DECIMAL(19, 4)", "DECIMAL(10, 4)",
                       "SET NOCOUNT ON", "SET DATEFIRST 7"}
 
@@ -335,3 +347,20 @@ def test_timefromparts_refuses_fractions_from_a_column_that_dont_fit(engine, fra
 def test_timefromparts_takes_fractions_from_a_column(engine):
     engine.execute("CREATE OR REPLACE TABLE dbo.parts AS SELECT 3 AS s, 250 AS f")
     assert first(engine, "SELECT DATEPART(millisecond, TIMEFROMPARTS(1, 2, s, f, 3)) FROM dbo.parts") == 250
+
+
+@pytest.mark.parametrize("sql", ["SELECT HASHBYTES('MD5', 'a')", "SELECT HASHBYTES('SHA1', 'a')",
+                                 "SELECT CASE WHEN HASHBYTES('MD5', 'a') = 0x0CC175B9C0F1B6A831C399E269772661 THEN 1 END",
+                                 "SELECT id FROM dbo.orders WHERE SUSER_SNAME() = 'x'"])
+def test_a_function_duckdb_has_with_another_meaning_is_refused_by_name(engine, sql):
+    """WR-203: each of these gave another answer here (hex text for HASHBYTES' bytes, the engine's user name)."""
+    with pytest.raises(Exception, match="local engine: (HASHBYTES|CURRENT_USER) isn't mapped yet"):
+        engine.execute(sql, dialect="tsql")
+
+
+def test_a_column_named_user_in_brackets_or_with_its_table_still_runs(engine):
+    engine.execute("CREATE OR REPLACE TABLE dbo.people AS SELECT 'ann' AS \"user\"")
+    assert first(engine, "SELECT [user] FROM dbo.people") == "ann"
+    assert first(engine, "SELECT p.[user] FROM dbo.people AS p") == "ann"
+    assert first(engine, "SELECT p.user FROM dbo.people AS p") == "ann"  # with its table it's a column, not USER
+    assert first(engine, "SELECT SCHEMA_NAME()") == "dbo"

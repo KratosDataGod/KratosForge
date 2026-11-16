@@ -852,30 +852,31 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
   const keys = [
     // F5 runs, as in SSMS: the selection when there is one, otherwise the whole query (on.run reads it).
     { key: "F5", run: () => { on.run(); return true; } },
-    { key: "Mod-Enter", run: () => { on.run(); return true; } },
+    { id: "sql_run", key: "Mod-Enter", run: () => { on.run(); return true; } },
     // Ctrl+Shift+Enter runs only the statement the cursor is in (the selection when there is one), as in DataGrip and Snowsight.
-    { key: "Shift-Mod-Enter", run: () => { on.runStatement?.(); return true; } },
-    { key: "Mod-s", run: () => { on.save(); return true; }, preventDefault: true },
-    { key: "Shift-Alt-f", run: () => { on.format(); return true; } },
-    { key: "Mod-/", run: CM.toggleComment },
+    { id: "sql_run_statement", key: "Shift-Mod-Enter", run: () => { on.runStatement?.(); return true; } },
+    { id: "sql_save", key: "Mod-s", run: () => { on.save(); return true; }, preventDefault: true },
+    { id: "format", key: "Shift-Alt-f", run: () => { on.format(); return true; } },
+    { id: "comment", key: "Mod-/", run: CM.toggleComment },
     // SSMS's keys: Ctrl+R hides or shows the results, Ctrl+Shift+U and Ctrl+Shift+L change case, Ctrl+G goes to a
     // line (CodeMirror's own go-to-line box; F3 and Shift+F3 still find the next and previous match).
-    { key: "Mod-r", run: () => { on.togglePane?.(); return true; }, preventDefault: true },
-    { key: "Shift-Mod-u", run: (v) => sqlChangeCase(v, "upper"), preventDefault: true },
-    { key: "Shift-Mod-l", run: (v) => sqlChangeCase(v, "lower"), preventDefault: true },
-    { key: "Mod-g", run: (v) => sqlGotoLine(v), preventDefault: true },
+    { id: "sql_results", key: "Mod-r", run: () => { on.togglePane?.(); return true; }, preventDefault: true },
+    { id: "upper_case", key: "Shift-Mod-u", run: (v) => sqlChangeCase(v, "upper"), preventDefault: true },
+    { id: "lower_case", key: "Shift-Mod-l", run: (v) => sqlChangeCase(v, "lower"), preventDefault: true },
+    { id: "go_to_line", key: "Mod-g", run: (v) => sqlGotoLine(v), preventDefault: true },
     // F12, as in SSMS and VS Code: the table under the cursor (or an alias's or a column's) in the Explorer.
-    { key: "F12", run: () => { on.definition?.(); return true; }, preventDefault: true },
+    { id: "definition", key: "F12", run: () => { on.definition?.(); return true; }, preventDefault: true },
     // Bookmarks, as in SSMS and VS Code (S46).
-    { key: "Mod-F2", run: sqlBookmarkToggle, preventDefault: true },
-    { key: "F2", run: (v) => sqlBookmarkGo(v, 1), preventDefault: true },
-    { key: "Shift-F2", run: (v) => sqlBookmarkGo(v, -1), preventDefault: true },
-    { key: "Shift-Mod-F2", run: sqlBookmarkClear, preventDefault: true },
+    { id: "bookmark", key: "Mod-F2", run: sqlBookmarkToggle, preventDefault: true },
+    { id: "bookmark_next", key: "F2", run: (v) => sqlBookmarkGo(v, 1), preventDefault: true },
+    { id: "bookmark_previous", key: "Shift-F2", run: (v) => sqlBookmarkGo(v, -1), preventDefault: true },
+    { id: "bookmark_clear", key: "Shift-Mod-F2", run: sqlBookmarkClear, preventDefault: true },
   ];
   const view = new CM.EditorView({
     state: CM.EditorState.create({
       doc,
       extensions: [
+        editorPrefsExtension("sql", keys),  // editorprefs.js: wrap, font size, Vim and changed keys; first, so Vim reads keys first
         cmStyleNonce(), CM.lineNumbers(), CM.foldGutter(), CM.highlightActiveLineGutter(),
         CM.highlightSpecialChars(), CM.history(), CM.drawSelection(), CM.dropCursor(),
         CM.EditorState.allowMultipleSelections.of(true), CM.rectangularSelection(), CM.crosshairCursor(),
@@ -884,7 +885,6 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
         langComp.of(language()),
         sqlReferenceMarks(provider, () => current),
         sqlIntelHover(provider, () => current), sqlIntelSignature(() => current), sqlBookmarks,
-        CM.Prec.highest(CM.keymap.of(keys)),
         CM.keymap.of([...CM.closeBracketsKeymap, ...CM.defaultKeymap, ...CM.searchKeymap, ...CM.historyKeymap,
           ...CM.foldKeymap, ...CM.completionKeymap, CM.indentWithTab]),
         CM.placeholder("Write SQL. F5 or Ctrl+Enter runs it, Ctrl+Space suggests names."),

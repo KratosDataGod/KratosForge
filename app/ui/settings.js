@@ -26,6 +26,7 @@ async function loadSettings() {
   state.settings = await rpc("app_settings").catch(() => state.settings || null);
   applyMotion();  // motion.js
   applyAppearance();  // features.js
+  applyEditorPrefs();  // editorprefs.js
   if (!skinState.list) loadSkins().then(() => typeof render === "function" && render());  // skins.js: once; the rail then takes the skin's order
   return state.settings;
 }
@@ -35,6 +36,7 @@ async function saveSettings(changes, label = "Not saved") {
   if (res) state.settings = res;
   applyMotion();
   applyAppearance();  // features.js
+  applyEditorPrefs();  // editorprefs.js
   return res;
 }
 
@@ -879,6 +881,7 @@ async function renderSettings() {
 
   // Appearance > Living Experience (motion.js, docs/forge-animations.md)
   const display = s.motion_level ? motionSettingsCard(s, locked) : null;
+  const editor = s.editor_word_wrap ? editorSettingsCard(s, locked) : null;  // editorprefs.js
 
   // Preview features
   const previews = h("section", { class: "card pad" }, h("h2", {}, "Preview features"),
@@ -956,7 +959,7 @@ async function renderSettings() {
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       pageIntro("How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
-    tabs, tab === "integrations" ? integrations : tab === "connections" ? connections : [account, updates, display, previews, usage, platform, notify, about, advanced].filter(Boolean)));
+    tabs, tab === "integrations" ? integrations : tab === "connections" ? connections : [account, updates, display, editor, previews, usage, platform, notify, about, advanced].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
     return;

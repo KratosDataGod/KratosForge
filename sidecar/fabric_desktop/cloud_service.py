@@ -36,6 +36,7 @@ from .notebook import leaf_name
 from .meta.store import META_LAKEHOUSE, META_SCHEMAS, LocalStore, OneLakeStore
 from .onelake import FileStore, TableRef, storage_options
 from .redact import describe, one_line
+from .timeutil import now_iso as _now, seconds_between
 
 _log = logging.getLogger(__name__)
 # How long Monitor waits for Fabric to say how its open runs are doing before showing the rest as last known.
@@ -57,20 +58,8 @@ _FINISHED_REASON = {"Completed": "", "Cancelled": "cancelled", "Deduped": "refus
 
 def _seconds(started: Any, finished: Any) -> float:
     """Seconds between two ISO times (ours, or Fabric's endTimeUtc); 0.0 when either is missing or odd."""
-    try:
-        start = dt.datetime.fromisoformat(str(started).replace("Z", "+00:00"))
-        end = dt.datetime.fromisoformat(str(finished).replace("Z", "+00:00"))
-        if start.tzinfo is None:
-            start = start.replace(tzinfo=dt.timezone.utc)
-        if end.tzinfo is None:
-            end = end.replace(tzinfo=dt.timezone.utc)
-        return max(0.0, round((end - start).total_seconds(), 3))
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    between = seconds_between(started, finished)
+    return max(0.0, round(between, 3)) if between is not None else 0.0
 
 
 class CloudMixin:

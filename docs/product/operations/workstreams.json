@@ -141,9 +141,6 @@
       },
       "ready": [
         {
-          "story": "WR-403"
-        },
-        {
           "story": "WR-404"
         }
       ],
@@ -159,8 +156,8 @@
         "Email notices for requests: decision card with Chris on how to send without an app registration (Power Automate flow recommended)",
         "#1679 Save support bundle: passed review, waits on Chris's Windows click test"
       ],
-      "last_completed": "WR-401 personal-data inventory (#2282); FIPS (#2532), AppLocker/WDAC (#2536), policy keys in step (#2569), #2305 audit time limit",
-      "next_action": "WR-402, WR-403; WR-404 in the TMDL thread. #2258 Group Policy waits on Chris's go."
+      "last_completed": "WR-401 personal-data inventory (#2282); WR-403 verifiable audit exports (#2336, #2339, #2426, #2427); FIPS (#2532), AppLocker/WDAC (#2536), policy keys in step (#2569), #2305 audit time limit",
+      "next_action": "WR-402 (runbook anchors exist from #2044; add the acceptance test); WR-404 in the TMDL thread. #2258 Group Policy waits on Chris's go."
     },
     {
       "key": "devex",
@@ -338,7 +335,7 @@
       "acceptance": [
         "A test checks each start-log reason has a runbook anchor"
       ],
-      "agent": "Workload management workspace"
+      "agent": "Finish governance follow-ups"
     },
     "WR-403": {
       "title": "Audit trail files carry a checksum IT can verify after export",

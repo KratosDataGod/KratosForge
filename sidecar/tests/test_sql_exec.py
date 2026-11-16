@@ -837,6 +837,15 @@ def test_local_target_runs_t_sql_under_the_same_policy(local_runs):
     assert count(local_runs) == 2500
 
 
+def test_a_local_t_sql_run_says_where_its_answer_can_differ_from_a_warehouse(local_runs):
+    # WR-206: a decimal AVG is worked out in floating point here; the run's status says so, and the page shows it.
+    done = wait(local_runs, start_local(local_runs, "SELECT AVG(CAST(id AS DECIMAL(10, 2))) AS a FROM orders",
+                                        dialect="tsql")["id"])
+    assert done["state"] == "completed" and any("floating point" in n for n in done["notes"])
+    plain = wait(local_runs, start_local(local_runs, "SELECT TOP 1 id FROM orders ORDER BY id", dialect="tsql")["id"])
+    assert plain["notes"] == []
+
+
 def test_a_dry_run_changes_nothing(local_runs, runs, lake):
     before = local_runs.recent()
     plan = start_local(local_runs, "INSERT INTO orders VALUES (9999, 1); DROP TABLE orders", dry_run=True)

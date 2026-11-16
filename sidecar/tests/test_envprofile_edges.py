@@ -53,3 +53,8 @@ def test_a_name_import_machinery_refuses_reads_as_missing(monkeypatch):
 
     monkeypatch.setattr(envprofile.importlib.util, "find_spec", refuse)
     assert envprofile.on_this_pc("halfloaded")["status"] == "missing"
+
+
+def test_an_install_line_below_blank_lines_is_reported_on_its_own_line():
+    src = "import os\n\n\n%pip install foo\n  \n\t!pip install bar\n%conda install baz\n"
+    assert envprofile.imports(src)["dynamic"] == [4, 6, 7]

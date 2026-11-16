@@ -7,6 +7,9 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
 - divides integers as integers (``7 / 2`` is 3), and averages integers as integers, as T-SQL
   does, using the project's column types to tell. A division whose types it can't tell is left
   as DuckDB divides and reported in ``notes``;
+- gives ``+``, ``-``, ``*``, ``/`` with a decimal side, and ``AVG`` of a decimal, T-SQL's precision and
+  scale, and divides decimals exactly, cut at that scale (WR-206). What can't be done exactly here is
+  done in floating point and reported in ``notes``;
 - reads date parts by T-SQL's names (``y`` is day of year, ``w`` weekday, ``m`` month), counts
   ``DATEDIFF(week, ...)`` in Sundays crossed, starts ``DATETRUNC(week, ...)`` on Sunday, and keeps a
   date a date in ``DATEADD`` and ``DATETRUNC``;
@@ -230,7 +233,7 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     from sqlglot.optimizer.annotate_types import annotate_types
     from sqlglot.optimizer.qualify import qualify
 
-    kinds = (exp.Div, exp.Avg, exp.Add, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow,
+    kinds = (exp.Div, exp.Avg, exp.Add, exp.Sub, exp.Mul, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow,
              exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
              tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs)
     here = _in_order(tree, kinds)
@@ -262,8 +265,27 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                 "integers and floats joined into text are done as DuckDB does them (T-SQL divides and averages "
                 "integers as integers, cuts a decimal cast to an integer toward zero, and writes a float in CONCAT "
                 "with at most 6 significant digits).")]
-    for node, info in zip(here, there, strict=True):
-        if isinstance(node, exp.Div):
+    pairs = list(zip(here, there, strict=True))
+    done: set[int] = set()
+    # Decimal arithmetic first, and inner before outer: a rewrite copies its operands, which by then carry theirs.
+    for node, info in reversed(pairs):
+        if isinstance(node, tuple(_DECIMAL_OPS)) and (sides := _decimal_operands(info)) is not None:
+            if _decimal_math(node, *sides) and _FLOAT_NOTE not in notes:
+                notes.append(_FLOAT_NOTE)
+            done.add(id(node))
+        elif isinstance(node, exp.Avg) and (number := _tsql_number(info.this)) is not None and number[2]:
+            # T-SQL's AVG of decimal(p, s) is decimal(38, max(s, 6)); DuckDB's is a double.
+            whole = node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
+            _cast_in_place(whole, 38, max(number[1], 6))
+            if _FLOAT_NOTE not in notes:
+                notes.append(_FLOAT_NOTE)
+            done.add(id(node))
+    for node, info in pairs:
+        if id(node) in done:
+            continue
+        if isinstance(node, exp.Sub | exp.Mul):
+            pass  # numbers, as DuckDB does them; only decimals need T-SQL's precision and scale
+        elif isinstance(node, exp.Div):
             a, b = info.this.type, info.expression.type
             if _is(a, _INTEGERS) and _is(b, _INTEGERS):
                 node.replace(exp.IntDiv(this=node.this, expression=node.expression))
@@ -312,6 +334,186 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
             _truncated(node, info.this.type)
             _sized_text(node, source)  # a no-op for the integer casts _truncated may replace
     return notes
+
+
+# T-SQL converts an integer to a decimal of this precision when it meets one in arithmetic.
+_INTEGER_DIGITS = {exp.DataType.Type.TINYINT: 3, exp.DataType.Type.UTINYINT: 3, exp.DataType.Type.SMALLINT: 5,
+                   exp.DataType.Type.INT: 10, exp.DataType.Type.BIGINT: 19}
+_FLOAT_NOTE = ("A decimal AVG, or decimal arithmetic on a value too wide to work out exactly on the local engine, is "
+               "done in floating point and then given T-SQL's precision and scale. About the first 15 significant "
+               "digits match the warehouse; later digits can differ.")
+_DECIMAL_OPS: dict[type[exp.Expression], str] = {exp.Add: "+", exp.Sub: "-", exp.Mul: "*", exp.Div: "/"}
+_HUGEINT_ROOM = 38  # a HUGEINT holds every whole number of up to 38 digits
+
+
+def _decimal_ps(kind: exp.DataType | None) -> tuple[int, int] | None:
+    """A decimal's (precision, scale), or an integer's as T-SQL widens it to a decimal; None for anything else."""
+    if kind is None:
+        return None
+    if kind.this in _INTEGER_DIGITS:
+        return _INTEGER_DIGITS[kind.this], 0
+    if kind.this != exp.DataType.Type.DECIMAL:
+        return None
+    params = [int(p.name) for p in kind.expressions if p.name.isdigit()]
+    if not params:
+        return 18, 3  # DuckDB's DECIMAL with no size
+    return params[0], params[1] if len(params) > 1 else 0
+
+
+def tsql_decimal(op: str, p1: int, s1: int, p2: int, s2: int) -> tuple[int, int]:
+    """The precision and scale T-SQL gives ``+``, ``-``, ``*`` or ``/`` of decimal(p1, s1) and decimal(p2, s2),
+    with its rules for a result wider than 38 digits (Microsoft Learn, "Precision, scale, and length")."""
+    if op in "+-":
+        integral = max(p1 - s1, p2 - s2)
+        scale = max(s1, s2)
+        precision = scale + integral + 1
+        if precision > 38:
+            precision, scale = 38, max(min(scale, 38 - integral), 0)
+        return precision, scale
+    if op == "*":
+        precision, scale = p1 + p2 + 1, s1 + s2
+    else:
+        scale = max(6, s1 + p2 + 1)
+        precision = p1 - s1 + s2 + scale
+    if precision > 38:
+        integral = precision - scale
+        if integral < 32:
+            scale = min(scale, 38 - integral)
+        elif scale > 6:
+            scale = 6
+        precision = 38
+    return precision, scale
+
+
+def _tsql_number(node: exp.Expression) -> tuple[int, int, bool] | None:
+    """``(precision, scale, is_decimal)`` of a number as T-SQL types it, from the typed copy of the tree; None when
+    it isn't a decimal or an integer. sqlglot types ``1.5`` as a float, ``a / b`` of decimals as DuckDB does, and
+    ``SUM`` or ``AVG`` of a decimal as its argument, so those are worked out here by T-SQL's rules."""
+    if isinstance(node, (exp.Paren, exp.Neg)):
+        return _tsql_number(node.this)
+    if isinstance(node, exp.Literal) and node.is_number:
+        text = node.name.lstrip("-+")
+        if "e" in text.lower():
+            return None  # 2e0 is a float
+        if "." not in text:
+            # A whole number meets a decimal as decimal(its digits, 0), so 1.0 / 3 is 0.333333; it is an int,
+            # or a decimal when it is too big for an int.
+            return max(len(text.lstrip("0")), 1), 0, int(text) >= 2 ** 31
+        whole, fraction = text.split(".", 1)
+        return max(len(whole.lstrip("0")) + len(fraction), 1), len(fraction), True
+    op = _DECIMAL_OPS.get(type(node))
+    if op is not None:
+        a, b = _tsql_number(node.this), _tsql_number(node.expression)
+        if a is not None and b is not None and (a[2] or b[2]):
+            return (*tsql_decimal(op, a[0], a[1], b[0], b[1]), True)
+    if isinstance(node, exp.Window) and isinstance(node.this, (exp.Sum, exp.Avg)):
+        return _tsql_number(node.this)
+    if isinstance(node, (exp.Sum, exp.Avg)):
+        inner = _tsql_number(node.this)
+        if inner is not None and inner[2]:
+            return 38, inner[1] if isinstance(node, exp.Sum) else max(inner[1], 6), True
+    kind = node.type
+    ps = _decimal_ps(kind)
+    if kind is None or ps is None:
+        return None
+    return ps[0], ps[1], kind.this == exp.DataType.Type.DECIMAL
+
+
+def _decimal_operands(info: exp.Expression) -> tuple[tuple[int, int], tuple[int, int]] | None:
+    """Both sides' (precision, scale) when ``info`` is decimal arithmetic: a decimal on one side, and a decimal or
+    an integer on the other."""
+    a, b = _tsql_number(info.this), _tsql_number(info.expression)
+    if a is None or b is None or not (a[2] or b[2]):
+        return None
+    return a[:2], b[:2]
+
+
+def _volatile(node: exp.Expression) -> bool:
+    """Whether reading ``node`` twice could give two answers (RAND, NEWID)."""
+    return any(isinstance(n, (exp.Rand, exp.Uuid)) or (isinstance(n, exp.Anonymous) and n.name.upper() in
+                                                         ("NEWID", "RAND")) for n in node.walk())
+
+
+def _decimal_math(node: exp.Expression, left: tuple[int, int], right: tuple[int, int]) -> bool:
+    """``+``, ``-``, ``*`` or ``/`` with a decimal side given T-SQL's precision and scale and T-SQL's value (WR-206).
+    DuckDB widens decimals by its own rules, keeps every digit of scale where T-SQL cuts it, and divides decimals
+    as doubles. Whether a value can end up worked out in floating point (the caller notes it)."""
+    op = _DECIMAL_OPS[type(node)]
+    precision, scale = tsql_decimal(op, *left, *right)
+    if op == "/":
+        return _division(node, left, right, precision, scale)
+    kept = left[1] + right[1] if op == "*" else max(left[1], right[1])
+    kind = f"DECIMAL({precision}, {scale})"
+    if kept > _HUGEINT_ROOM:
+        # The sides' scales add up past 38: DuckDB can't type the product at all (decimal(38,20) * decimal(38,20)),
+        # where T-SQL cuts the scale to 6. Only floating point is left.
+        _fill_in(node, f"CAST(CAST((__a) AS DOUBLE) {op} CAST((__b) AS DOUBLE) AS {kind})")
+        return True
+    if kept <= scale or _volatile(node):
+        _cast_in_place(node, precision, scale)
+        return False
+    # T-SQL cut the scale to make room for whole digits. DuckDB keeps the scale, so a big value overflows there and
+    # not in a warehouse: such a value is worked out in floating point instead, and the rest exactly. The check is
+    # in floating point too, a digit short of DuckDB's room, so rounding in it can't let an overflow through.
+    size = f"ABS(CAST((__a) AS DOUBLE)) {'*' if op == '*' else '+'} ABS(CAST((__b) AS DOUBLE))"
+    text = (f"CASE WHEN {size} < 1e{_HUGEINT_ROOM - 1 - kept} THEN CAST((__a) {op} (__b) AS {kind}) "
+            f"ELSE CAST(CAST((__a) AS DOUBLE) {op} CAST((__b) AS DOUBLE) AS {kind}) END")
+    _fill_in(node, text)
+    return True
+
+
+def _fill_in(node: exp.Expression, text: str) -> None:
+    """``node`` (a op b) replaced by the DuckDB SQL ``text``, with ``__a`` and ``__b`` standing for its sides."""
+    filled = sqlglot.parse_one(text, read="duckdb")
+    for placeholder in list(filled.find_all(exp.Column)):
+        if placeholder.name in ("__a", "__b"):
+            placeholder.replace((node.this if placeholder.name == "__a" else node.expression).copy())
+    node.replace(filled)
+
+
+def _unscaled(side: str, scale: int) -> str:
+    """A decimal's digits as a whole number (2.50 at scale 2 is 250), in HUGEINT: the value at exactly ``scale``
+    places, written out with its point taken away. Arithmetic would have to pass a wide value through a decimal
+    that can't hold it."""
+    if scale == 0:
+        return f"CAST({side} AS HUGEINT)"
+    return f"CAST(REPLACE(CAST(CAST({side} AS DECIMAL(38, {scale})) AS VARCHAR), '.', '') AS HUGEINT)"
+
+
+def _division(node: exp.Expression, left: tuple[int, int], right: tuple[int, int], precision: int,
+              scale: int) -> bool:
+    """``a / b`` with a decimal side as T-SQL divides: exactly, cut toward zero at the result's scale, and stopping
+    on a zero divisor ("Divide by zero error encountered"). Both sides become whole numbers (their digits, in
+    HUGEINT), the dividend moved left so the quotient lands at the result's scale. A value whose digits would not
+    fit in 38 is divided in floating point instead. Whether that can happen (the caller notes it)."""
+    (p1, s1), (p2, s2) = left, right
+    shift = scale - s1 + s2  # places the dividend moves left (or, below zero, the divisor)
+    if _volatile(node) or abs(shift) > _HUGEINT_ROOM:
+        _cast_in_place(node, precision, scale)
+        return True
+    a_shift, b_shift = max(shift, 0), max(-shift, 0)
+    a, b = _unscaled("(__a)", s1), _unscaled("(__b)", s2)
+    kind = f"DECIMAL({precision}, {scale})"
+    quotient = (f"CAST(CAST(CASE WHEN ((__a) < 0) <> ((__b) < 0) THEN -1 ELSE 1 END * (ABS({a}) * "
+                f"CAST('{10 ** a_shift}' AS HUGEINT) // (ABS({b}) * CAST('{10 ** b_shift}' AS HUGEINT))) "
+                f"AS DECIMAL(38, 0)) * CAST('0.{'0' * (scale - 1)}1' AS DECIMAL({scale}, {scale})) AS {kind})")
+    fits = [f"ABS({digits}) < CAST('{10 ** (_HUGEINT_ROOM - moved)}' AS HUGEINT)"
+            for digits, p, moved in ((a, p1, a_shift), (b, p2, b_shift)) if p + moved > _HUGEINT_ROOM]
+    zero = "WHEN (__b) = 0 THEN error('Divide by zero error encountered.')"
+    if fits:
+        text = (f"CASE {zero} WHEN {' AND '.join(fits)} THEN {quotient} "
+                f"ELSE CAST(CAST((__a) AS DOUBLE) / CAST((__b) AS DOUBLE) AS {kind}) END")
+    else:
+        text = f"CASE {zero} ELSE {quotient} END"
+    _fill_in(node, text)
+    return bool(fits)
+
+
+def _cast_in_place(node: exp.Expression, precision: int, scale: int) -> None:
+    """``node`` cast to DECIMAL(precision, scale), keeping the node itself in the tree (later rewrites find it)."""
+    cast = exp.Cast(to=exp.DataType.build(f"DECIMAL({precision}, {scale})"))
+    node.replace(cast)
+    cast.set("this", node)
 
 
 def _text_as_number(node: exp.Add, side: str, to: exp.DataType) -> None:

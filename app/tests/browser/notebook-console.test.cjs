@@ -36,7 +36,8 @@ test("Scratch runs in the notebook's session, adds no cell, and keeps what ran f
   const pane = p.getByRole("complementary", { name: "Scratch" });
   const box = pane.getByLabel("Scratch input");
   await box.waitFor();
-  assert.strictEqual(await p.evaluate(() => document.activeElement?.classList.contains("console-input")), true);
+  // Opening focuses the box on the next frame, so wait for it rather than checking at once.
+  await p.waitForFunction(() => document.activeElement?.classList.contains("console-input"));
   await box.fill("df.count()");
   await box.press("Shift+Enter");
   await pane.getByText("48210").waitFor();

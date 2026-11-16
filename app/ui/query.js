@@ -173,17 +173,25 @@ function sqlMessages(ex, tab, target) {
     ` · ${(ex.columns?.length || 0).toLocaleString()} column${ex.columns?.length === 1 ? "" : "s"}` : ""}`);
   if (ex.change) lines.push(`Change: ${(ex.affected || 0).toLocaleString()} row${ex.affected === 1 ? "" : "s"} affected · ${ex.committed ? "committed" : "nothing kept"}`);
   if (ex.refused) lines.push(`Refused before it ran: statement ${ex.refused.statement} ${ex.refused.label}`);
+  if (tab.multi) {  // S14: what each statement did
+    for (const u of tab.multi.units) {
+      const at = tab.multi.units.indexOf(u) + 1;
+      const x = ex.parts?.find((p) => p.statement === at);
+      lines.push(`Statement ${u.n}${u.known ? ` (line ${u.line})` : ""}: ${sqlPartLabel(u, ex, tab.multi).text.replace(/^\d+ /, "")}` +
+        `${x?.seconds != null ? ` · ${x.seconds} s` : ""}`);
+    }
+  }
   if (ex.error) lines.push(`Message: ${ex.error}`);
   if (ex.time_limit_minutes) lines.push(`Time limit: ${ex.time_limit_minutes} minutes`);
   return h("pre", { class: "sql-messages" }, lines.join("\n"));
 }
 
 // The rows the Chart view draws: the run's snapshot, a page at a time, up to SQL_CHART_ROWS.
-async function sqlChartRows(execution) {
+async function sqlChartRows(execution, part) {
   const rows = [];
   let columns = [], total = 0;
   for (let offset = 0; rows.length < SQL_CHART_ROWS;) {
-    const page = await rpc("sql_page", { execution, offset });
+    const page = await rpc("sql_page", { execution, offset, ...sqlPartArg(part) });
     if (page.rerun_needed) throw new Error(page.message);
     ({ columns, total } = page);
     rows.push(...page.rows);
@@ -212,15 +220,51 @@ async function followRun(tab, status) {
   return status;
 }
 
+// Editor parity S14: the part (statement) of a run with several whose result is shown, as sql_page's argument.
+const sqlPartArg = (part) => (part ? { part } : {});
+
 async function loadPage(tab, offset) {
   try {
-    const page = await rpc("sql_page", { execution: tab.exec.id, offset });
+    const page = await rpc("sql_page", { execution: tab.exec.id, offset, ...sqlPartArg(tab.multi?.part) });
     if (page.rerun_needed) { tab.result = null; tab.error = page.message; tab.errorRetry = null; return; }
     Object.assign(tab, { result: page, error: null, errorRetry: null });
   } catch (err) {
     tab.error = String(err);
     tab.errorRetry = () => loadPage(tab, offset).then(() => sqlPage.redraw?.());  // reads the same page again
   }
+}
+
+// S14: the statement whose result a finished run with several shows first: the one that failed, else the
+// last that returned rows, else the last that ran.
+function sqlPickPart(status) {
+  if (status.failed_statement) return status.failed_statement;
+  const parts = status.parts || [];
+  return ([...parts].reverse().find((x) => x.columns?.length && !sqlPartIsCount(x)) || parts.at(-1))?.statement ?? null;
+}
+
+// DuckDB answers a statement that makes or changes something with one Count column; that isn't rows to show.
+const sqlPartIsCount = (x) => x.columns?.length === 1 && x.columns[0].name === "Count" && x.rows <= 1;
+
+// A statement's first word (SELECT, UPDATE, CREATE), comments and strings aside.
+function sqlVerb(text) {
+  return (sqlMask(text).text.trim().match(/^[A-Za-z]+/)?.[0] || "").toUpperCase();
+}
+
+// The label of a statement's result tab: its number, what it is and what it gave, as "2 SELECT · 5 rows".
+function sqlPartLabel(u, ex, multi) {
+  const n = (k) => k.toLocaleString();
+  const at = multi.units.indexOf(u) + 1;
+  const x = ex?.parts?.find((p) => p.statement === at);
+  const verb = sqlVerb(u.text);
+  if (x) {
+    const kept = !multi.change || ex.committed || !["failed", "cancelled", "timed_out"].includes(ex.state);
+    const what = x.affected != null ? `${n(x.affected)} row${x.affected === 1 ? "" : "s"} ${kept ? "changed" : "rolled back"}`
+      : x.columns?.length && !sqlPartIsCount(x) ? `${n(x.rows)} row${x.rows === 1 ? "" : "s"}` : "Done";
+    return { state: "done", text: `${u.n} ${verb} · ${what}` };
+  }
+  if (ex?.failed_statement === at) return { state: "bad", text: `${u.n} Error` };
+  if (ex && ["queued", "running", "cancelling"].includes(ex.state) && (ex.statement || 1) === at) return { state: "busy", text: `${u.n} ${verb} · Running` };
+  return { state: "skip", text: `${u.n} Not run` };
 }
 
 function cellText(v) {
@@ -253,7 +297,7 @@ function renderQuery() {
       run: () => run(),
       runStatement: () => {
         const stmt = editor.statement();
-        if (stmt.trim()) run(stmt);
+        if (stmt.trim()) run(stmt, [], { single: true });
       },
       togglePane: () => togglePane(),
       definition: () => goToDefinition(),
@@ -312,20 +356,27 @@ function renderQuery() {
   // of its own, with Stop and the time limit in Settings > Advanced > SQL queries. Results come a page at a time from
   // the run's snapshot, so a large result is never loaded whole. On the Warehouse page (WH-01) the
   // same managed run sends one query that reads to the warehouse (sql_start target "warehouse").
-  async function run(query = editor.chosen(), allow = []) {
+  //
+  // S14 (Preview): a script of several statements runs them one after the other in one session, each with a
+  // result tab of its own, and stops at the first that fails. `opts.units` runs these statements (Run from
+  // statement n); `opts.single` runs `query` as one statement whatever it holds (Ctrl+Shift+Enter).
+  async function run(query = editor.chosen(), allow = [], opts = {}) {
     if (!query.trim() || tab.running) return;
     if (p.pane === "hidden") p.pane = null;  // a run shows its results, as in SSMS
     if (!runsHere()) {
       toast(`${SQL_DIALECTS[tab.dialect].label} can't run on this PC. Pick Spark SQL or DuckDB to run here.`, true);
       return;
     }
+    const units = opts.units || (previewShown() && PREVIEW_FEATURES.sqlStatements && !opts.single ? splitScript(query) : []);
+    const multi = units.length > 1;
+    const each = multi ? { statements: units.map((u) => u.text) } : {};
     // WH-10b: with Allow changes ticked, ask the engine what the script does first; a change has its own confirm.
     const whRef = wh ? { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind } : null;
     let change = false;
     if (wh && whChangesTicked(ref)) {
       let plan;
       try {
-        plan = await rpc("sql_start", { query, target: "warehouse", dialect: "tsql", warehouse_ref: whRef, allow: ["warehouse_write"], dry_run: true });
+        plan = await rpc("sql_start", { query, target: "warehouse", dialect: "tsql", warehouse_ref: whRef, allow: ["warehouse_write"], dry_run: true, ...each });
       } catch (err) {
         Object.assign(tab, { error: String(err), errorRetry: () => run(query), result: null, exec: null });
         sqlPage.redraw?.();
@@ -346,28 +397,32 @@ function renderQuery() {
     if (wh && !sqlPage.catalog) loadCatalog();
     tab.running = true;
     const startedAt = Date.now();
-    Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "", chart: null });
+    Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "", chart: null,
+      multi: multi ? { units, part: null, change } : null });
     drawResults();
     let status;
     try {
       status = await rpc("sql_start", wh
-        ? { query, target: "warehouse", dialect: "tsql", warehouse_ref: whRef,
+        ? { query, target: "warehouse", dialect: "tsql", warehouse_ref: whRef, ...each,
           ...(change ? { allow: ["warehouse_write"], confirm: true, confirm_name: ref.name } : {}) }
-        : { query, lakehouse_ref: ref, dialect: tab.dialect, allow });
+        : { query, lakehouse_ref: ref, dialect: tab.dialect, allow, ...each });
       Object.assign(tab, { exec: status, ranSql: query, ranDialect: tab.dialect });
       status = await followRun(tab, status);
     } catch (err) {
       tab.error = String(err);
-      tab.errorRetry = () => run(query);  // runs it again through the same checks, including any confirmation
+      tab.errorRetry = () => run(query, allow, opts);  // runs it again through the same checks, including any confirmation
     }
-    if (status?.state === "completed") await loadPage(tab, 0);
+    if (tab.multi && status) {
+      tab.multi.part = sqlPickPart(status);
+      if (status.parts?.some((x) => x.statement === tab.multi.part)) await loadPage(tab, 0);
+    } else if (status?.state === "completed") await loadPage(tab, 0);
     tab.running = false;
     if (status?.refused?.permission === "local_mutation" && !allow.length) {
       sqlPage.redraw?.();
       const ok = await confirmDialog("Let this query change its own session?",
         `Statement ${status.refused.statement} ${status.refused.label}: a temp view, a table made in the query, a cache. ` +
         "Only this run's own DuckDB session on this PC changes; no lakehouse table, file or Fabric item does. Nothing has run yet.", "Run");
-      if (ok) return run(query, ["local_mutation"]);
+      if (ok) return run(query, ["local_mutation"], opts);
     }
     if (status?.state === "completed") {
       // Local T-SQL: where this PC's answer can differ from a warehouse's (a decimal done in floating point, say).
@@ -408,6 +463,38 @@ function renderQuery() {
       && !(status.refused?.permission === "local_mutation" && !allow.length)) forgeEvent("sql.failed", pill);
   }
 
+  // S14: the script's statements, with where each starts in the editor (when the run's text is there).
+  function splitScript(query) {
+    const text = editor.text();
+    const sel = editor.selection();
+    const at = sel.to > sel.from && text.slice(sel.from, sel.to) === query ? sel.from : text.indexOf(query);
+    const firstLine = at >= 0 ? text.slice(0, at).split("\n").length : 1;
+    return sqlSplitStatements(query, { tsql: wh, base: Math.max(at, 0), firstLine })
+      .map((u, i) => ({ ...u, n: i + 1, known: at >= 0 }));
+  }
+  function selectPart(n) {
+    const m = tab.multi;
+    if (!m || m.part === n) return;
+    m.part = n;
+    Object.assign(tab, { result: null, chart: null });
+    drawResults();
+    if (tab.exec?.parts?.some((x) => x.statement === n)) loadPage(tab, 0).then(() => sqlPage.redraw?.());
+  }
+  // Go to line n: selects the statement in the editor, when the editor still holds it where it ran from.
+  function goToStatement(u) {
+    if (!u.known || editor.text().slice(u.from, u.to) !== u.text) {
+      toast("The SQL changed since this run, so the statement's place isn't known. Run it again to find it.");
+      return;
+    }
+    editor.reveal(u.from, u.to);
+  }
+  // Run from statement n: that statement and the ones after it, as a new run.
+  function runFrom(u) {
+    const m = tab.multi;
+    const rest = m.units.slice(m.units.indexOf(u));
+    run(rest.map((x) => x.text).join(";\n"), [], { units: rest });
+  }
+
   async function stop() {
     if (!tab.exec) return;
     const out = await attempt(() => rpc("sql_cancel", { execution: tab.exec.id }), "Could not stop the query");
@@ -425,7 +512,8 @@ function renderQuery() {
   // Export ▾ CSV, Parquet, Excel or JSON: streamed from the run's snapshot to a new file in Downloads.
   async function exportResult(format) {
     if (!tab.exec || tab.exporting) return;
-    const out = await attempt(() => rpc("sql_export", { execution: tab.exec.id, format, name: tab.name }), "Could not export");
+    const out = await attempt(() => rpc("sql_export", { execution: tab.exec.id, format, name: tab.name, ...sqlPartArg(tab.multi?.part) }),
+      "Could not export");
     if (!out) return;
     if (out.rerun_needed) {
       const again = await confirmDialog("Run the query again?",
@@ -620,11 +708,58 @@ function renderQuery() {
   }
 
   const band = h("div", { class: "sql-band" });
+  // S14: a tab for each statement of a run with several, and why the run stopped when one failed.
+  const rtabs = h("div", { class: "sql-rtabs-row" });
+  function drawPartTabs() {
+    const m = tab.multi;
+    const ex = tab.exec;
+    rtabs.hidden = !m;
+    if (!m) { rtabs.replaceChildren(); return; }
+    const parts = m.units.map((u, i) => ({ u, at: i + 1, label: sqlPartLabel(u, ex, m) }));
+    const list = h("div", { class: "sql-rtabs", role: "tablist", "aria-label": "Statement results",
+      onkeydown: (e) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+        e.preventDefault();
+        const i = parts.findIndex((x) => x.at === m.part);
+        const next = e.key === "Home" ? 0 : e.key === "End" ? parts.length - 1
+          : (i + (e.key === "ArrowRight" ? 1 : -1) + parts.length) % parts.length;
+        selectPart(parts[next].at);
+        rtabs.querySelector(".sql-rtab[aria-selected=true]")?.focus();
+      } },
+    parts.map(({ u, at, label }) => h("button", { role: "tab", class: `sql-rtab ${label.state}${m.part === at ? " on" : ""}`,
+      "aria-selected": String(m.part === at), tabindex: m.part === at ? "0" : "-1",
+      title: `Line ${u.line}: ${u.text.split("\n")[0].slice(0, 120)}`, onclick: () => selectPart(at) }, label.text)));
+    const failed = ex?.failed_statement ? m.units[ex.failed_statement - 1] : null;
+    let note = null;
+    if (failed && ex.state === "failed") {
+      const later = m.units.length - ex.failed_statement;
+      const done = ex.parts?.length || 0;
+      const first = m.units[0].n;
+      const before = !done || /rolled back/.test(ex.error || "") ? "" : m.change
+        ? ` ${done === 1 ? "The statement before it" : `The ${done} statements before it`} ran, then the whole change was rolled back, so nothing was kept.`
+        : done === 1 ? ` Statement ${first} finished; its result is in its tab.`
+          : ` Statements ${first} ${done === 2 ? "and" : "to"} ${m.units[done - 1].n} finished; their results are in their tabs.`;
+      // The error's first line here; all of it on the statement's own tab.
+      const why = String(ex.error || "").replace(/^Error: /, "").trim().split("\n")[0].replace(/[.!]$/, "");
+      note = h("div", { class: "note warn sql-stop-note", role: "alert" },
+        h("span", {}, h("b", {}, `Statement ${failed.n} failed${later ? `, so ${later === 1 ? `statement ${failed.n + 1} didn't` : `the ${later} after it didn't`} run` : ""}.`),
+          ` ${why}${failed.known ? ` (line ${failed.line})` : ""}.${before}`),
+        h("div", { class: "row" },
+          failed.known ? btn(`Go to line ${failed.line}`, null, () => goToStatement(failed), "tool outline small") : null,
+          btn(`Run from statement ${failed.n}`, null, () => runFrom(failed), "tool outline small",
+            { title: "Run this statement and the ones after it again, as a new run. The ones before it don't run again." })));
+    }
+    rtabs.replaceChildren(...[h("div", { class: "sql-rtabs-head" }, list, wh ? null : previewTag()), note].filter(Boolean));
+  }
   const grid = h("div", { class: "sql-grid" });
   function drawResults() {
+    drawPartTabs();
     const r = tab.result;
     const ex = tab.exec;
     const busy = tab.running;
+    // S14: the chosen statement's own result, or none when it failed or didn't run.
+    const m = tab.multi;
+    const partDone = !!(m?.part && ex?.parts?.some((x) => x.statement === m.part));
     const st = busy && !ex ? "queued" : ex?.state;
     const pill = st ? SQL_STATE[st] : ["", "Not run"];
     let msg = "Press Run to see results";
@@ -633,7 +768,8 @@ function renderQuery() {
     else if (st === "queued") msg = "Waiting for another query to finish (Settings > Advanced > SQL queries sets how many run at once)";
     else if (st === "completed" && !r && busy) msg = "Reading the first page...";
     else if (st === "running" || st === "cancelling") {
-      msg = `${ex.seconds} s ${where}${ex.rows ? ` · ${ex.rows.toLocaleString()} rows so far` : ""}`;
+      msg = `${ex.seconds} s ${where}${m && ex.statement ? ` · statement ${ex.statement} of ${m.units.length}` : ""}` +
+        `${ex.rows ? ` · ${ex.rows.toLocaleString()} rows so far` : ""}`;
     } else if (r) {
       const last = r.offset + r.rows.length;
       msg = `${r.total.toLocaleString()} row${r.total === 1 ? "" : "s"} · ${ex.seconds} s ${where}`;
@@ -701,13 +837,20 @@ function renderQuery() {
     } else if (view === "messages") {
       grid.replaceChildren(sqlMessages(ex, tab, wh ? `${ref.name}${ref.workspace_name ? ` (${ref.workspace_name})` : ""} · in Fabric` : `${ref.name} · on this PC`));
     } else if (view === "chart") {
-      grid.replaceChildren(r && r.columns.length && ex?.state === "completed"
-        ? sqlChartView(tab.chart ||= {}, () => sqlChartRows(ex.id))
+      grid.replaceChildren(r && r.columns.length && (ex?.state === "completed" || partDone)
+        ? sqlChartView(tab.chart ||= {}, () => sqlChartRows(ex.id, m?.part))
         : h("p", { class: "muted-text", style: "padding:12px 16px" }, "Run a query to chart its result. The chart reads the rows already on this PC; nothing runs again."));
+    } else if (m && m.part && !partDone && !busy && ex?.failed_statement === m.part && view === "results") {
+      grid.replaceChildren(h("div", { class: "output error" }, h("pre", {}, String(ex.error || "").replace(/^Error: /, ""))));
+    } else if (m && m.part && !partDone && !busy && ex) {
+      // A statement with no result: one that never ran.
+      grid.replaceChildren(h("p", { class: "muted-text", style: "padding:12px 16px" },
+        ex.failed_statement ? `This statement didn't run, because statement ${m.units[ex.failed_statement - 1].n} failed first.`
+          : ex.state === "completed" ? "This statement ran and returned no rows." : `This statement didn't run: the run ${SQL_STATE[ex.state]?.[1].toLowerCase() || ex.state}.`));
     } else if (tab.error && tab.errorRetry) {
       // The engine call itself failed (UX-011): a sentence, Retry and the raw text under Details.
       grid.replaceChildren(h("div", { class: "output error" }, errorPanel(tab.error, { retry: tab.errorRetry })));
-    } else if (tab.error) {
+    } else if (tab.error && !partDone) {
       // The query's own error ("Binder Error: ..."), or why it stopped, is what the person needs to read.
       grid.replaceChildren(h("div", { class: "output error" }, h("pre", {}, tab.error.replace(/^Error: /, ""))));
     } else if (r && r.columns.length) {
@@ -1208,7 +1351,7 @@ function renderQuery() {
       h("section", { class: "sql-main" }, tabs,
         monitorOn ? whMonitorView(ref, { insight: openInsight })
           : compareOn ? whCompareView(ref, { open: openProjectFile })
-          : h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, grid))))
+          : h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, rtabs, grid))))
     : h("div", { class: "sql-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
       btn("New SQL query", "add", addTab),
@@ -1222,7 +1365,7 @@ function renderQuery() {
           h("span", { class: "label" }, ref.name)),
         tablesBox),
       h("section", { class: "sql-main" }, tabs,
-        h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, grid)))));
+        h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, rtabs, grid)))));
   drawResults();
   drawTables();
   if (tab.autorun) { delete tab.autorun; run(tab.sql); }

@@ -457,7 +457,7 @@ def test_a_stopped_excel_or_json_export_leaves_no_files(runs, lake, tmp_path, mo
     export.path.parent.mkdir(parents=True)
     export.path.write_bytes(b"")
     export.cancel.set()
-    runs._write(runs._get(run["id"]), export)
+    runs._write(runs._get(run["id"]).snapshot, export)
     assert export.state == "cancelled"
     assert list((tmp_path / "Downloads").iterdir()) == []
 

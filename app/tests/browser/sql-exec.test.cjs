@@ -165,6 +165,39 @@ test("the next run pages by the new page size", { skip }, async () => {
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "sql-003-paging.png") });
 });
 
+test("a script of several statements gives a result tab for each and stops at the first error (S14)", { skip }, async () => {
+  await setDoc("SELECT range AS n FROM range(3);\nSELECT 'x' AS word;\nSELECT oops FROM range(2) AS r;\nSELECT 4 AS never");
+  await page().keyboard.press("Control+Enter");
+  await waitPill("Failed");
+  const call = runs().at(-1);
+  assert.deepStrictEqual(call.statements, ["SELECT range AS n FROM range(3);", "SELECT 'x' AS word;", "SELECT oops FROM range(2) AS r;", "SELECT 4 AS never"]);
+  await page().waitForSelector(".sql-rtab");
+  const tabs = await page().locator(".sql-rtab").allTextContents();
+  assert.deepStrictEqual(tabs, ["1 SELECT · 3 rows", "2 SELECT · 1 row", "3 Error", "4 Not run"]);
+  assert.strictEqual(await page().locator(".sql-rtab[aria-selected=true]").textContent(), "3 Error");
+  assert.match(await page().locator(".sql-stop-note").textContent(), /Statement 3 failed, so statement 4 didn't run\. Binder Error: Referenced column "oops" not found in FROM clause \(line 3\)\. Statements 1 and 2 finished/);
+  assert.match(await page().locator(".sql-grid pre").textContent(), /Candidate bindings/, "the whole error on its own tab");
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "sql-s14-stopped.png") });
+  await page().locator(".sql-rtab", { hasText: "1 SELECT" }).click();
+  await page().waitForFunction(() => document.querySelectorAll(".sql-grid tbody tr").length === 3);
+  assert.deepStrictEqual(await page().locator(".sql-grid th").allTextContents(), ["", "n"]);
+  await page().getByRole("button", { name: "Go to line 3" }).click();
+  const picked = await page().evaluate(() => { const s = sqlPage.editor.selection(); return sqlPage.editor.text().slice(s.from, s.to); });
+  assert.strictEqual(picked, "SELECT oops FROM range(2) AS r;");
+  await setDoc("SELECT 1 AS a;\nSELECT 2 AS b");
+  await page().keyboard.press("Control+Enter");
+  await waitPill("Succeeded");
+  assert.deepStrictEqual(await page().locator(".sql-rtab").allTextContents(), ["1 SELECT · 1 row", "2 SELECT · 1 row"]);
+  assert.strictEqual(await page().locator(".sql-rtab[aria-selected=true]").textContent(), "2 SELECT · 1 row");
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "sql-s14-all-ran.png") });
+  await setDoc("SELECT 1 AS a;\nSELECT 2 AS b");
+  await page().evaluate(() => { const v = sqlPage.editor.view; v.dispatch({ selection: { anchor: 3 } }); });
+  await page().keyboard.press("Control+Shift+Enter");
+  await waitPill("Succeeded");
+  assert.ok(!runs().at(-1).statements, "Ctrl+Shift+Enter runs one statement");
+  assert.ok(await page().locator(".sql-rtabs-row").isHidden());
+});
+
 test("nothing on the page threw", { skip }, async () => {
   assert.deepStrictEqual(app.errors, []);
 });

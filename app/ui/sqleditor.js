@@ -188,6 +188,43 @@ function sqlStatementAt(text, pos) {
   return { from, to, text: text.slice(from, to), masked: masked.slice(from, to) };
 }
 
+// Editor parity S14: a script's statements, each run with a result of its own. Split at `;` and at GO lines
+// (SSMS's batch separator), outside strings and comments; a statement that is only comments or blank is left
+// out. T-SQL (`tsql` true) splits a GO batch at `;` only when that is safe: a batch that declares or uses a
+// variable, has a BEGIN ... END block, or defines a procedure, function, trigger or view stays whole, since its
+// statements only mean something together. Each is { from, to, text, line } with line 1-based, from `base`.
+function sqlSplitStatements(text, { tsql = false, base = 0, firstLine = 1 } = {}) {
+  const masked = sqlMask(text).text;
+  const out = [];
+  const lineAt = (pos) => firstLine + (text.slice(0, pos).match(/\n/g)?.length || 0);
+  const push = (from, to) => {
+    const lead = text.slice(from, to).length - text.slice(from, to).trimStart().length;
+    const a = from + lead;
+    const b = from + text.slice(from, to).trimEnd().length;
+    if (b <= a || !masked.slice(a, b).replace(/;/g, "").trim()) return;
+    out.push({ from: base + a, to: base + b, text: text.slice(a, b), line: lineAt(a) });
+  };
+  // GO on a line of its own (an optional count or ; after it is left alone: SSMS repeats a batch, we don't).
+  const go = /^[ \t]*GO[ \t]*;?[ \t]*$/gim;
+  const batches = [];
+  let start = 0;
+  for (const m of masked.matchAll(go)) {
+    batches.push([start, m.index]);
+    start = m.index + m[0].length;
+  }
+  batches.push([start, text.length]);
+  const whole = /@\w|\bBEGIN\b|\b(?:CREATE|ALTER)\s+(?:OR\s+ALTER\s+)?(?:PROC|PROCEDURE|FUNCTION|TRIGGER|VIEW)\b/i;
+  for (const [from, to] of batches) {
+    if (tsql && whole.test(masked.slice(from, to))) { push(from, to); continue; }
+    let at = from;
+    for (let i = from; i < to; i++) {
+      if (masked[i] === ";") { push(at, i + 1); at = i + 1; }
+    }
+    push(at, to);
+  }
+  return out;
+}
+
 // The statement to run for Ctrl+Shift+Enter: the one around `pos`. A cursor just after a `;` on its line
 // (spaces between are fine) runs the statement that `;` ends; one in a blank stretch, or in a statement that is
 // only comments, runs the nearest statement before it, then after it. Leading and trailing whitespace is left

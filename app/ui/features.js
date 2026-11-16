@@ -109,6 +109,7 @@ const PREVIEW_FEATURES = {
   trustBadges: "Endorsement",
   warehouse: "Warehouse queries",
   sqlResultViews: "Messages and Chart on the SQL page",
+  sqlStatements: "Several SQL statements per run, a result for each",
   sqlPractices: "SQL best practices",
   bestPractices: "Best practices: checks and templates",
   updateBanner: "New build banner",

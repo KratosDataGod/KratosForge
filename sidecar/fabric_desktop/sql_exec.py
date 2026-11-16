@@ -47,6 +47,15 @@ Its batches run in one transaction (warehouse.py). Its status adds ``affected`` 
 ``dry_run`` classifies the statements and says what would run, and what needs confirming, without
 running anything, for every target.
 
+A run started with ``statements`` (editor parity S14, Preview) is a script the page split into
+statements: the list of their texts. They run one after the other in the run's one session (one DuckDB
+connection, or one warehouse connection and its transaction), so a temp view or a variable made by one
+is there for the next. Each statement's result is a **part** with a snapshot of its own
+(``result-<n>.arrow``), read with ``page`` and ``export`` by its ``part`` number; a statement that
+returns no rows says what it did instead (rows changed, on a warehouse). The run stops at the first
+statement that fails: the parts before it are kept and can still be paged, the statements after it
+never start. Every statement is checked before the first one runs, as a whole script is.
+
 Each finished run adds one ``sql_execution`` line to the audit trail: its id, dialect, lakehouse,
 state, permission class, rows and seconds (and target and project for a local run, or the
 warehouse for a warehouse run). Never the SQL, the error text, the token or any data.
@@ -83,6 +92,7 @@ from . import known_folders
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
 FINISHED = ("completed", "failed", "cancelled", "timed_out")
 MAX_KEPT = 20  # finished runs whose snapshots are kept, newest first
+MAX_STATEMENTS = 200  # statements one run may hold (S14)
 EXPORT_FORMATS = ("csv", "parquet", "xlsx", "json")
 EXPORT_BATCH_ROWS = 65_536
 LOCAL_BATCH_ROWS = 65_536
@@ -176,9 +186,16 @@ class Execution:
     committed: bool = False
     committing: bool = False  # warehouse change: the commit was sent, so a Stop may come after it was kept
     failed_batch: int = 0  # warehouse run: the batch that was running when it failed (1-based), 0 if none
+    units: list[str] = field(default_factory=list, repr=False)  # S14: the script's statements, each a part
+    parts: list[dict[str, Any]] = field(default_factory=list)  # S14: each finished statement's result
+    current: int = 0  # S14: the statement running now (1-based), 0 before the first
+    failed_statement: int = 0  # S14: the statement that failed (1-based), 0 if none
+    pinned: bool = False  # kept past MAX_KEPT and the retention time until unpinned (S27)
 
     @property
     def snapshot(self) -> Path:
+        if self.units and self.parts:  # S14: the run's own result is its last statement's
+            return self.part_file(self.parts[-1]["statement"])
         return self.folder / "result.arrow"
 
     def status(self) -> dict[str, Any]:
@@ -198,7 +215,18 @@ class Execution:
                 **({"failed_batch": self.failed_batch} if self.failed_batch else {}),
                 **({"plan": True} if self.plan else {}),
                 **({"profile": True} if self.profile else {}),
+                **({"statements": len(self.units), "statement": self.current, "failed_statement": self.failed_statement,
+                    "parts": [_part_status(p) for p in self.parts]} if self.units else {}),
+                **({"pinned": True} if self.pinned else {}),
                 "snapshot": self.state == "completed" and self.snapshot.exists()}
+
+    def part_file(self, n: int) -> Path:
+        return self.folder / f"result-{int(n)}.arrow"
+
+
+def _part_status(part: dict[str, Any]) -> dict[str, Any]:
+    """A part as the page sees it: never its batch sizes, which only paging uses."""
+    return {k: v for k, v in part.items() if k not in ("batches", "offsets")}
 
 
 @dataclass
@@ -262,7 +290,7 @@ class SqlExecutions:
               confirm: bool = False, dry_run: bool = False, timeout: float | None = None,
               warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
               estimated_plan: bool = False, precondition: dict[str, Any] | None = None,
-              profile: bool = False) -> dict[str, Any]:
+              profile: bool = False, statements: list[str] | None = None) -> dict[str, Any]:
         """Queue a run. ``target="local"`` runs it in local data project ``project`` instead of
         against ``lakehouse_ref``; ``confirm`` lets its DROP, TRUNCATE and DELETE or UPDATE without
         WHERE run; ``timeout`` (seconds, local only) replaces the SQL page's time limit, except that a
@@ -279,7 +307,20 @@ class SqlExecutions:
         On a lakehouse (editor parity S39, S40), ``estimated_plan`` returns how DuckDB would run one
         query that reads, without running it (EXPLAIN), and ``profile`` runs it under DuckDB's profiler
         (EXPLAIN ANALYZE) and returns each step's rows and time instead of the rows. Both answer with one
-        row of JSON, read with ``page`` as any result."""
+        row of JSON, read with ``page`` as any result.
+
+        ``statements`` (S14) runs the script as these statements, each with a result of its own (a part);
+        ``query`` is then ignored. Not with a plan, a profile or a local data project."""
+        units: list[str] = []
+        if statements is not None:
+            if (not isinstance(statements, list) or not statements or len(statements) > MAX_STATEMENTS
+                    or not all(isinstance(t, str) and t.strip() for t in statements)):
+                raise ValueError(f"statements must be 1 to {MAX_STATEMENTS} statements, none of them empty.")
+            if target == "local" or estimated_plan or profile:
+                raise ValueError("Several statements, each with its result, run on a lakehouse or a warehouse.")
+            units = warehouse.change_units(statements) if target == "warehouse" and "warehouse_write" in (allow or []) \
+                else list(statements)
+            query = warehouse.join_units(units) if target == "warehouse" else ";\n".join(t.rstrip().rstrip(";") for t in units)
         if not isinstance(query, str) or not query.strip():
             raise ValueError("The query is empty.")
         if target not in TARGET_ALLOWS:
@@ -334,7 +375,7 @@ class SqlExecutions:
         if change and not dry_run and not (confirm and isinstance(confirm_name, str) and confirm_name.strip()):
             raise PermissionError("A warehouse change runs only after you confirm it, naming the warehouse.")
         if dry_run:
-            return self._plan(query, dialect, target, allowed, confirm)
+            return self._plan(query, dialect, target, allowed, confirm, units)
         if not self._cleaned_at_start:
             self._cleaned_at_start = True
             self.cleanup(earlier_sessions=True)
@@ -342,7 +383,7 @@ class SqlExecutions:
         folder = self.base() / run_id
         run = Execution(id=run_id, query=query, dialect=dialect, lakehouse=dict(lakehouse_ref or {}), allow=allowed,
                         folder=folder, target=target, confirm=bool(confirm),
-                        timeout_s=None if timeout is None else float(timeout))
+                        timeout_s=None if timeout is None else float(timeout), units=units)
         if target == "warehouse":
             assert warehouse_ref is not None
             run.warehouse = {k: warehouse_ref[k] for k in ("workspace_id", "item_id", "kind")}
@@ -350,7 +391,8 @@ class SqlExecutions:
             run.plan = bool(estimated_plan)
             run.precondition = ({k: precondition[k] for k in warehouse.PRECONDITION_KEYS if k in precondition}
                                 if precondition is not None else None)
-            stop = sql_policy.refused(warehouse.verdicts(query, writes=change), allowed)  # before Fabric is asked anything
+            stop = sql_policy.refused(warehouse.unit_verdicts(units, writes=change) if units
+                                      else warehouse.verdicts(query, writes=change), allowed)  # before Fabric is asked anything
             if stop is not None:
                 return self._refuse(run, stop)
             if self._resolve_warehouse is None:
@@ -392,11 +434,13 @@ class SqlExecutions:
             run.warehouse.update(server=endpoint.server, database=endpoint.database)
         self._pump()
 
-    def _plan(self, query: str, dialect: str, target: str, allowed: tuple[str, ...], confirm: bool) -> dict[str, Any]:
+    def _plan(self, query: str, dialect: str, target: str, allowed: tuple[str, ...], confirm: bool,
+              units: list[str] | None = None) -> dict[str, Any]:
         """A dry run: what each statement is and whether the run would be refused or need
         confirming. Nothing runs and no run is kept."""
-        verdicts = (warehouse.verdicts(query, writes="warehouse_write" in allowed) if target == "warehouse"
-                    else sql_policy.classify(_policy_statements(query, dialect), target))
+        writes = "warehouse_write" in allowed
+        verdicts = ((warehouse.unit_verdicts(units, writes=writes) if units else warehouse.verdicts(query, writes=writes))
+                    if target == "warehouse" else sql_policy.classify(_policy_statements(query, dialect), target))
         stop = sql_policy.refused(verdicts, allowed, bool(confirm))
         return {"dry_run": True, "target": target, "dialect": dialect,
                 "permission": sql_policy.strongest(verdicts),
@@ -485,6 +529,8 @@ class SqlExecutions:
                                    "warehouse": {k: run.warehouse[k] for k in ("server", "database")},
                                    "time_limit_s": minutes * 60, "writes": "warehouse_write" in run.allow,
                                    "plan": run.plan}
+            if run.units:
+                job.update(statements=run.units, parts_dir=str(run.folder))
             if run.precondition:
                 job["precondition"] = run.precondition
         else:
@@ -494,6 +540,8 @@ class SqlExecutions:
                    "threads": run_threads(limits)}
             if run.plan or run.profile:
                 job["explain"] = "plan" if run.plan else "profile"
+            if run.units:
+                job.update(statements=run.units, parts_dir=str(run.folder))
             memory = self._memory_budget(int(limits["sql_memory_limit_percent"]))
             job.update(memory_mb=memory["duckdb_mb"], memory_cap_mb=memory["cap_mb"],
                        memory_bound=memory["bound"], free_mb=memory["free_mb"])
@@ -590,6 +638,10 @@ class SqlExecutions:
                     run.committing = True
                 elif kind == "progress":
                     run.rows = int(event.get("rows") or 0)
+                elif kind == "statement" and run.units:
+                    run.current, run.rows = int(event.get("statement") or 0), 0
+                elif kind == "part" and run.units:
+                    run.parts.append(_part(event))
                 elif kind in ("done", "error"):
                     outcome = event
         code = proc.wait()
@@ -611,6 +663,9 @@ class SqlExecutions:
                 run.offsets = list(itertools.accumulate([0, *run.batches[:-1]])) if run.batches else []
                 run.columns = list(outcome.get("columns") or [])
                 run.affected, run.committed = int(outcome.get("affected") or 0), bool(outcome.get("committed"))
+                if run.units and run.parts:  # the run's own result is its last statement's
+                    last = run.parts[-1]
+                    run.rows, run.batches, run.offsets, run.columns = last["rows"], last["batches"], last["offsets"], last["columns"]
             elif run.stop_reason == "timeout" or outcome.get("kind") == "timeout":
                 run.state, run.error_kind = "timed_out", "timeout"
                 if run.time_limit_s:
@@ -634,9 +689,21 @@ class SqlExecutions:
                 run.error = (f"The query's process stopped unexpectedly (exit code {code}). It may have run out of "
                              "memory: close other apps and run it again, or narrow the query (a filter, fewer "
                              "columns), or raise the memory share in Settings › SQL.")
+            if run.units and run.state != "completed":
+                run.failed_statement = int(outcome.get("statement") or run.current or 0) if run.state == "failed" else 0
             if run.state != "completed":
                 run.rows = 0  # rows read before it failed aren't a result: none are kept
-                shutil.rmtree(run.folder, ignore_errors=True)
+                if run.parts:
+                    # S14: the statements before the one that failed finished; their results stay. A part of
+                    # the statement that failed was never written whole, so it goes.
+                    run.parts = [p for p in run.parts if p["statement"] != run.failed_statement]
+                    keep = {run.part_file(p["statement"]).name for p in run.parts}
+                    for f in run.folder.glob("*") if run.folder.is_dir() else []:
+                        if f.name not in keep:
+                            shutil.rmtree(f, ignore_errors=True) if f.is_dir() else f.unlink(missing_ok=True)
+                else:
+                    run.parts = []
+                    shutil.rmtree(run.folder, ignore_errors=True)
             self._finished(run)
         self._pump()
 
@@ -741,22 +808,34 @@ class SqlExecutions:
 
     # ---- paging
 
-    def page(self, run_id: str, offset: int = 0, limit: int | None = None) -> dict[str, Any]:
-        """Rows ``offset`` to ``offset + limit`` of a completed run's result, read from its snapshot."""
+    def _result(self, run: Execution, part: int | None, what: str) -> _Result:
+        """The result ``page`` and ``export`` read: the run's own, or (S14) statement ``part``'s. A part
+        that finished can be read even when a later statement failed or the run was stopped."""
+        if part is None:
+            if run.state != "completed":
+                raise ValueError(f"The query is {run.state.replace('_', ' ')}, so there {what}.")
+            return _Result(run.snapshot, run.rows, run.offsets, run.columns, None)
+        found = next((p for p in run.parts if p["statement"] == int(part)), None)
+        if found is None:
+            raise ValueError(f"Statement {int(part)} has no result, so there {what}.")
+        return _Result(run.part_file(found["statement"]), found["rows"], found["offsets"], found["columns"], found["statement"])
+
+    def page(self, run_id: str, offset: int = 0, limit: int | None = None, part: int | None = None) -> dict[str, Any]:
+        """Rows ``offset`` to ``offset + limit`` of a completed run's result, read from its snapshot; with
+        ``part``, of that statement's result (S14)."""
         run = self._get(run_id)
-        if run.state != "completed":
-            raise ValueError(f"The query is {run.state.replace('_', ' ')}, so there are no rows to show.")
-        if not run.snapshot.exists():
+        res = self._result(run, part, "are no rows to show")
+        if not res.path.exists():
             raise RerunNeeded("This result was cleaned up. Run the query again to see it.")
         limit = int(limit or self._limits()["sql_page_rows"])
         limit = max(1, min(limit, app_settings.SQL_RANGES["sql_page_rows"][1]))
-        offset = max(0, min(int(offset), max(0, run.rows - 1)))
+        offset = max(0, min(int(offset), max(0, res.rows - 1)))
         rows: list[list[Any]] = []
-        if run.rows:
-            with pa.memory_map(str(run.snapshot)) as source:
+        if res.rows:
+            with pa.memory_map(str(res.path)) as source:
                 reader = pa.ipc.open_file(source)
-                i = bisect.bisect_right(run.offsets, offset) - 1
-                need, skip = limit, offset - run.offsets[i]
+                i = bisect.bisect_right(res.offsets, offset) - 1
+                need, skip = limit, offset - res.offsets[i]
                 while need > 0 and i < reader.num_record_batches:
                     batch = reader.get_batch(i).slice(skip, need)
                     columns = [c.to_pylist() for c in batch.columns]  # by position: names can repeat
@@ -764,8 +843,8 @@ class SqlExecutions:
                     need -= batch.num_rows
                     skip, i = 0, i + 1
         return {"id": run.id, "offset": offset, "limit": limit, "rows": [[_json_value(v) for v in r] for r in rows],
-                "columns": run.columns, "total": run.rows, "has_previous": offset > 0,
-                "has_next": offset + len(rows) < run.rows}
+                "columns": res.columns, "total": res.rows, "has_previous": offset > 0,
+                "has_next": offset + len(rows) < res.rows, **({"part": res.part} if res.part is not None else {})}
 
     def query_of(self, run_id: str) -> str:
         """The SQL a run ran, for the engine's own checks (GD-06); never sent to the page."""
@@ -785,26 +864,26 @@ class SqlExecutions:
 
     # ---- export
 
-    def export(self, run_id: str, fmt: str = "csv", name: str = "") -> dict[str, Any]:
-        """Stream a completed run's snapshot to a new file in Downloads; never replaces a file."""
+    def export(self, run_id: str, fmt: str = "csv", name: str = "", part: int | None = None) -> dict[str, Any]:
+        """Stream a completed run's snapshot (or, with ``part``, one statement's, S14) to a new file in
+        Downloads; never replaces a file."""
         if fmt not in EXPORT_FORMATS:
             raise ValueError(f"Export as {', '.join(EXPORT_FORMATS[:-1])} or {EXPORT_FORMATS[-1]}.")
         run = self._get(run_id)
-        if run.state != "completed":
-            raise ValueError(f"The query is {run.state.replace('_', ' ')}, so there is no result to export.")
-        if fmt == "xlsx" and run.rows > EXCEL_MAX_ROWS:
+        res = self._result(run, part, "is no result to export")
+        if fmt == "xlsx" and res.rows > EXCEL_MAX_ROWS:
             raise ValueError(f"Excel holds at most {EXCEL_MAX_ROWS:,} rows and this result has "
-                             f"{run.rows:,}. Export it as CSV or Parquet instead.")
-        if not run.snapshot.exists():
+                             f"{res.rows:,}. Export it as CSV or Parquet instead.")
+        if not res.path.exists():
             return {"rerun_needed": True, "message": "This result was cleaned up. Run the query again to export it."}
         folder = self._downloads()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name or run.lakehouse.get('name') or run.project_name or '')} query {time.strftime('%Y-%m-%d %H%M%S')}"
         path = _reserve(folder, base, "." + fmt)
-        export = Export(id=uuid.uuid4().hex[:12], execution=run.id, format=fmt, path=path, total=run.rows)
+        export = Export(id=uuid.uuid4().hex[:12], execution=run.id, format=fmt, path=path, total=res.rows)
         with self._lock:
             self._exports[export.id] = export
-        threading.Thread(target=self._write, args=(run, export), daemon=True, name=f"sql-export-{export.id}").start()
+        threading.Thread(target=self._write, args=(res.path, export), daemon=True, name=f"sql-export-{export.id}").start()
         return export.status()
 
     def export_status(self, export_id: str) -> dict[str, Any]:
@@ -822,10 +901,10 @@ class SqlExecutions:
             raise KeyError(f"No export {export_id!r}.")
         return export
 
-    def _write(self, run: Execution, export: Export) -> None:
+    def _write(self, snapshot: Path, export: Export) -> None:
         partial = export.path.with_name(export.path.name + ".partial")
         try:
-            with pa.memory_map(str(run.snapshot)) as source:
+            with pa.memory_map(str(snapshot)) as source:
                 reader = pa.ipc.open_file(source)
                 schema = reader.schema
                 if export.format in ("parquet", "json"):
@@ -946,6 +1025,29 @@ def _quiet(spill: Path, now: float) -> bool:
 
 class _Stopped(Exception):
     pass
+
+
+@dataclass
+class _Result:
+    """A result to read: the run's own or one statement's (S14)."""
+    path: Path
+    rows: int
+    offsets: list[int]
+    columns: list[dict[str, str]]
+    part: int | None
+
+
+def _part(event: dict[str, Any]) -> dict[str, Any]:
+    """A worker's ``part`` event as the run keeps it (S14)."""
+    batches = [int(n) for n in event.get("batches") or []]
+    part: dict[str, Any] = {"statement": int(event.get("statement") or 0), "rows": int(event.get("rows") or 0),
+                            "columns": list(event.get("columns") or []), "batches": batches,
+                            "offsets": list(itertools.accumulate([0, *batches[:-1]])) if batches else []}
+    if event.get("affected") is not None:
+        part["affected"] = int(event["affected"])
+    if event.get("seconds") is not None:
+        part["seconds"] = float(event["seconds"])
+    return part
 
 
 _OUTSIDE_COMMAND = re.compile(r"(EXPORT|IMPORT)\s+DATABASE\b", re.IGNORECASE)

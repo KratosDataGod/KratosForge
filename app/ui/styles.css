@@ -788,6 +788,19 @@ h2.flush { margin: 0; }
 .sql-practice .link-btn { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
 .sql-practice-sev.error { color: var(--danger); } .sql-practice-sev.warning { color: var(--warn-strong); } .sql-practice-sev.info { color: var(--accent); }
 .sql-compat-note { margin: 0; font-size: 12px; }
+/* S14: a result tab for each statement of a run with several, and why a run stopped */
+.sql-rtabs-row { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.sql-rtabs-row[hidden] { display: none; }
+.sql-rtabs-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sql-rtabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.sql-rtab { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 10px; border: 1px solid var(--border-input); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.sql-rtab.on { border-color: var(--accent); background: var(--accent-soft-2); font-weight: 600; }
+.sql-rtab.bad { border-color: var(--danger-border); color: var(--danger); }
+.sql-rtab.skip { border-style: dashed; color: var(--muted); }
+.sql-rtab.busy { color: var(--text-2); }
+.sql-stop-note { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--warn-soft-4); color: var(--warn-ink); font-size: 13px; }
+.sql-stop-note .row { display: flex; flex-wrap: wrap; gap: 8px; }
 .sql-local-note { flex-basis: 100%; padding: 6px 10px; border-radius: var(--r-sm); background: var(--warn-soft-4); color: var(--warn-ink); font-size: 12.5px; }
 /* WH-01: the Warehouse page */
 .sql-target-note { font-size: 13px; color: var(--text-2); }

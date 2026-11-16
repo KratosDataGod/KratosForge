@@ -548,7 +548,7 @@ function sqlEditorHelpers() {
   const code = src.slice(0, src.indexOf("// ---------- the editor ----------"));
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { SQL_DIALECTS, SQL_WORDS, sqlDialect, sqlQuoteIdent, sqlTableName,
-    sqlMask, sqlStatementAt, sqlRunnableStatementAt, sqlTableRefs, sqlHoverTarget, sqlCallAt, sqlSignatureParts, sqlPickForm, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
+    sqlMask, sqlStatementAt, sqlRunnableStatementAt, sqlSplitStatements, sqlTableRefs, sqlHoverTarget, sqlCallAt, sqlSignatureParts, sqlPickForm, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
     sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics, sqlRowsAs, sqlLiteral, sqlInsertTable, sqlNextBookmark });`, ctx);
   return ctx;
 }
@@ -609,6 +609,27 @@ test("Ctrl+Shift+Enter finds the statement at the cursor, or the nearest one whe
   assert.strictEqual(sqlRunnableStatementAt("  ;\n -- x\n", 2), null);
   assert.strictEqual(sqlRunnableStatementAt("", 0), null);
   assert.strictEqual(sqlRunnableStatementAt(";;\nSELECT 9", 0).text, "SELECT 9", "falls forward when nothing is before");
+});
+
+test("a script splits into statements at ; and GO lines, outside strings and comments (S14)", () => {
+  const { sqlSplitStatements } = sqlEditorHelpers();
+  const texts = (t, o) => plain(sqlSplitStatements(t, o).map((u) => u.text));
+  const script = "SELECT 'a;b' -- c;d\nFROM t;\n\n-- only a note;\nSELECT 2 /* x; */;\n;\nSELECT 3";
+  assert.deepStrictEqual(texts(script), ["SELECT 'a;b' -- c;d\nFROM t;", "-- only a note;\nSELECT 2 /* x; */;", "SELECT 3"]);
+  const units = sqlSplitStatements(script, { base: 100, firstLine: 5 });
+  assert.deepStrictEqual(plain(units.map((u) => u.line)), [5, 8, 11]);
+  assert.strictEqual(units[2].from, 100 + script.indexOf("SELECT 3"));
+  assert.strictEqual(units[2].to - units[2].from, "SELECT 3".length);
+  assert.deepStrictEqual(texts("SELECT 1\nGO\nSELECT 2\n  go ;\nSELECT 3", { tsql: true }), ["SELECT 1", "SELECT 2", "SELECT 3"]);
+  assert.deepStrictEqual(texts("SELECT 1 AS go;\nSELECT 2"), ["SELECT 1 AS go;", "SELECT 2"], "GO only on a line of its own");
+  assert.deepStrictEqual(texts("UPDATE dbo.t SET a = 1; SELECT * FROM dbo.t;", { tsql: true }), ["UPDATE dbo.t SET a = 1;", "SELECT * FROM dbo.t;"]);
+  const vars = "DECLARE @n int = 1; SELECT @n;\nGO\nSELECT 2; SELECT 3";
+  assert.deepStrictEqual(texts(vars, { tsql: true }), ["DECLARE @n int = 1; SELECT @n;", "SELECT 2;", "SELECT 3"],
+    "a T-SQL batch with a variable stays whole");
+  assert.deepStrictEqual(texts("CREATE PROCEDURE dbo.p AS BEGIN SELECT 1; SELECT 2; END", { tsql: true }).length, 1);
+  assert.deepStrictEqual(texts("CREATE PROCEDURE dbo.p AS SELECT 1; SELECT 2"), ["CREATE PROCEDURE dbo.p AS SELECT 1;", "SELECT 2"],
+    "only T-SQL keeps a definition whole");
+  assert.deepStrictEqual(texts("  ;\n -- x\n"), []);
 });
 
 test("F2 and Shift+F2 go to the next and previous bookmark, wrapping around", () => {

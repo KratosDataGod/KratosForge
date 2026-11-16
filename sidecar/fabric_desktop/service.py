@@ -1120,7 +1120,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                   confirm: bool = False, dry_run: bool = False,
                   warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
                   estimated_plan: bool = False, precondition: dict[str, Any] | None = None,
-                  profile: bool = False) -> dict[str, Any]:
+                  profile: bool = False, statements: list[str] | None = None) -> dict[str, Any]:
         """Queue a query on this PC. ``allow`` adds "local_mutation" after the person confirmed it;
         lakehouse writes and Fabric changes are never allowed here (sql_policy.py).
 
@@ -1135,11 +1135,15 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         ``dry_run`` only says what each statement would do; nothing runs. ``estimated_plan`` (warehouse,
         a query that reads) returns Fabric's estimated plan as showplan XML instead of running it; on a
         lakehouse, DuckDB's plan for one query that reads, as JSON, with nothing run. ``profile`` (a
-        lakehouse query that reads) runs it under DuckDB's profiler and returns its steps as JSON."""
+        lakehouse query that reads) runs it under DuckDB's profiler and returns its steps as JSON.
+
+        ``statements`` (S14, Preview) runs the script as these statements, one after the other in one
+        session, each with a result of its own (``parts`` in the status; ``part`` in sql_page and
+        sql_export), stopping at the first that fails."""
         return self.sql_runs.start(query, lakehouse_ref, dialect, allow, target=target, project=project,
                                    confirm=confirm, dry_run=dry_run, warehouse_ref=warehouse_ref,
                                    confirm_name=confirm_name, estimated_plan=estimated_plan, precondition=precondition,
-                                   profile=profile)
+                                   profile=profile, statements=statements)
 
     def sql_status(self, execution: str) -> dict[str, Any]:
         return self.sql_runs.status(execution)
@@ -1148,9 +1152,9 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """This session's runs, newest first: states and timings, never the SQL."""
         return self.sql_runs.recent()
 
-    def sql_page(self, execution: str, offset: int = 0, limit: int | None = None) -> dict[str, Any]:
+    def sql_page(self, execution: str, offset: int = 0, limit: int | None = None, part: int | None = None) -> dict[str, Any]:
         try:
-            return self.sql_runs.page(execution, offset, limit)
+            return self.sql_runs.page(execution, offset, limit, part)
         except sql_exec.RerunNeeded as exc:
             return {"id": execution, "rerun_needed": True, "message": str(exc)}
 
@@ -1158,8 +1162,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """Stop one run: ends that run's own process and nothing else."""
         return self.sql_runs.cancel(execution)
 
-    def sql_export(self, execution: str, format: str = "csv", name: str = "") -> dict[str, Any]:
-        return self.sql_runs.export(execution, format, name)
+    def sql_export(self, execution: str, format: str = "csv", name: str = "", part: int | None = None) -> dict[str, Any]:
+        return self.sql_runs.export(execution, format, name, part)
 
     def sql_export_status(self, export: str) -> dict[str, Any]:
         return self.sql_runs.export_status(export)

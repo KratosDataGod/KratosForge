@@ -136,7 +136,7 @@ def test_a_binary_collation_runs_and_any_other_is_refused_by_name(engine):
     assert one(engine, "SELECT CASE WHEN 'a' = 'a' COLLATE Latin1_General_100_BIN2_UTF8 THEN 1 ELSE 0 END")[0] == 1
     assert one(engine, "SELECT CASE WHEN 'a' = 'A' COLLATE Latin1_General_100_BIN2 THEN 1 ELSE 0 END")[0] == 0
     for name in ("Latin1_General_100_CI_AS_KS_WS_SC_UTF8", "SQL_Latin1_General_CP1_CI_AS", "Latin1_General_CS_AS"):
-        with pytest.raises(ValueError, match=f"COLLATE {name} isn't carried: text here compares as a Fabric "
+        with pytest.raises(ValueError, match=f"COLLATE {name} isn't mapped yet: text here compares as a Fabric "
                                              r"Warehouse's default collation \(Latin1_General_100_BIN2_UTF8\)"):
             engine.execute(f"SELECT s FROM dbo.t WHERE s = 'a' COLLATE {name}", dialect="tsql")
 

@@ -195,7 +195,7 @@ def _refuse(tree: exp.Expression) -> None:
     for collate in list(tree.find_all(exp.Collate)):
         name = collate.expression.sql(dialect="tsql").strip("[]\"'")
         if not re.search(r"_BIN2?(_|$)", name, re.IGNORECASE):
-            raise ValueError(_NOT_YET + f"COLLATE {name} isn't carried: text here compares as a Fabric Warehouse's "
+            raise ValueError(_NOT_YET + f"COLLATE {name} isn't mapped yet: text here compares as a Fabric Warehouse's "
                              "default collation (Latin1_General_100_BIN2_UTF8) does, by code point and case-sensitive. "
                              "Use UPPER or LOWER on both sides to compare without case, or run it in a Fabric "
                              "Warehouse.")

@@ -52,7 +52,7 @@ _UNCARRIED = {"F": "F (fractions without trailing zeros)", "g": "g (the era)", "
               "z": "z (the time zone offset)"}
 _DATE_TYPES = {exp.DataType.Type.DATE, exp.DataType.Type.DATETIME, exp.DataType.Type.DATETIME2,
                exp.DataType.Type.TIMESTAMP, exp.DataType.Type.SMALLDATETIME, exp.DataType.Type.TIMESTAMP_S,
-               exp.DataType.Type.TIMESTAMP_MS}
+               exp.DataType.Type.TIMESTAMP_MS, exp.DataType.Type.TIMESTAMPNTZ, exp.DataType.Type.TIMESTAMP_NS}
 _EXACT_NUMBERS = (exp.DataType.INTEGER_TYPES | {exp.DataType.Type.DECIMAL}) - {exp.DataType.Type.BIT}
 
 

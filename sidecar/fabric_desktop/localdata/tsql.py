@@ -94,7 +94,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             _temp_tables(tree)
             for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
                 parts.replace(_timefromparts(parts))
-            _converts(tree)
+            notes += _converts(tree)
             notes += _types(tree, schema)
             notes += _likes(tree)
             _patindex(tree)
@@ -329,6 +329,8 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                 notes.append(f"Couldn't tell the type in {node.sql(dialect='tsql')}: it converts as DuckDB does, "
                              "and T-SQL cuts a decimal toward zero and refuses text that isn't a whole number.")
             source = _numeric_style(node, info) or info.this.type
+            if (unchecked := node.meta.pop("tsql_unchecked_style", None)) is not None:
+                notes.append(_unchecked_style(unchecked))
             _truncated(node, info.this.type)
             _sized_text(node, source)  # a no-op for the integer casts _truncated may replace
     return notes
@@ -645,12 +647,33 @@ def _numeric_style(node: exp.Expression, info: exp.Expression) -> exp.DataType |
         return None
     kind = info.this.this.type
     if not _is(kind, _NUMBERS):
+        _date_style(node.this, kind, style)
+        if style not in CHECKED_DATE_STYLES:
+            node.meta["tsql_unchecked_style"] = style
         return None
     if style != "0" and _is(kind, _FLOATS):
         raise ValueError(f"This T-SQL can't be run on the local engine: CONVERT style {style} for a float isn't "
                          "carried yet. Leave the style out, or use 0.")
     node.set("this", node.this.this)
     return kind
+
+
+def _date_style(text: exp.TimeToStr, kind: exp.DataType | None, style: str) -> None:
+    """A date written as text with a style, as T-SQL writes it (WR-208): a ``date`` has no time, so styles
+    120, 121 and 126 give only ``yyyy-mm-dd``; and style 126 leaves the fraction off when it is zero
+    (``2024-02-29T13:04:05``)."""
+    fmt = text.args.get("format")
+    if not isinstance(fmt, exp.Literal) or not fmt.name.startswith("%Y-%m-%d"):
+        return
+    if _is(kind, {exp.DataType.Type.DATE}):
+        text.set("format", exp.Literal.string("%Y-%m-%d"))
+    elif style == "126" and fmt.name.endswith(".%f"):
+        whole = text.copy()
+        whole.set("format", exp.Literal.string(fmt.name[:-len(".%f")]))
+        # DuckDB's MICROSECOND counts the seconds too: the fraction is what's left of a whole second.
+        fraction = exp.Mod(this=exp.func("MICROSECOND", text.this.copy()), expression=exp.Literal.number(1_000_000))
+        zero = exp.EQ(this=exp.paren(fraction, copy=False), expression=exp.Literal.number(0))
+        text.replace(exp.Case(ifs=[exp.If(this=zero, true=whole)], default=text.copy()))
 
 
 _SIZED = {exp.DataType.Type.VARCHAR, exp.DataType.Type.NVARCHAR, exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
@@ -684,22 +707,50 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
     node.replace(cut)
 
 
-def _converts(tree: exp.Expression) -> None:
+# The date styles whose values are checked against T-SQL's (WR-208); 0 is the default, as a CAST.
+CHECKED_DATE_STYLES = ("0", "101", "103", "112", "120", "121", "126")
+
+
+def _unchecked_style(style: str) -> str:
+    return (f"CONVERT style {style} runs as a translation that hasn't been checked against T-SQL's answers; "
+            f"styles {', '.join(CHECKED_DATE_STYLES[1:-1])} and {CHECKED_DATE_STYLES[-1]} have been. "
+            "Compare its values in Fabric if they matter.")
+
+
+def _converts(tree: exp.Expression) -> list[str]:
     """``CONVERT`` fails on a value it can't convert, as ``CAST`` does; sqlglot writes it as TRY_CAST,
-    which gives NULL instead. Write it as sqlglot does, then make the outer conversion strict."""
+    which gives NULL instead. Write it as sqlglot does, then make the outer conversion strict. A date
+    style that hasn't been checked against T-SQL runs as sqlglot maps it, and the notes say so."""
+    notes: list[str] = []
     for node in list(tree.find_all(exp.Convert)):
         try:
             new = sqlglot.parse_one(node.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE), read="duckdb")
         except SqlglotError as exc:
             raise ValueError(f"This T-SQL can't be run on the local engine: {_first_line(exc)}") from None
+        if isinstance(new, exp.StrToTime):
+            # To a datetime or datetime2 sqlglot writes the bare STRPTIME; wrap it as for a date, so
+            # TRY_CONVERT's NULL and the ISO styles' optional parts apply there too (WR-208).
+            new = exp.Cast(this=new, to=node.this.copy())
         if isinstance(new, (exp.Cast, exp.TryCast)):
             # Keep CONVERT's own type, length included (the DuckDB text drops it), and TRY_CONVERT's NULL.
             kind = exp.TryCast if node.args.get("safe") else exp.Cast
             new = kind(this=new.this, to=node.this.copy())
+            if isinstance(new.this, exp.StrToTime):
+                fmt = new.this.args.get("format")
+                if isinstance(fmt, exp.Literal) and fmt.name.startswith("%Y-%m-%d"):
+                    # Styles 120, 121 and 126 read ISO text, with or without its time and fraction (WR-208),
+                    # which a plain cast does; the style's own pattern would demand every part.
+                    new.set("this", new.this.this)
+                elif kind is exp.TryCast:
+                    new.this.set("safe", True)  # TRY_CONVERT gives NULL for a date that doesn't exist, not an error
             style = node.args.get("style")
+            if isinstance(new.this, exp.StrToTime) and isinstance(style, exp.Literal) \
+                    and style.name not in CHECKED_DATE_STYLES:
+                notes.append(_unchecked_style(style.name))  # text read as a date; a date written as text: _types
             if isinstance(new.this, exp.TimeToStr) and isinstance(style, exp.Literal):
                 new.meta["tsql_style"] = style.name  # a date style, unless _types finds a number (_numeric_style)
         node.replace(new)
+    return notes
 
 
 _LIKE_NOTE = ("A LIKE pattern that isn't written in the query (such as LIKE other_column) matches as DuckDB's LIKE "
@@ -934,6 +985,8 @@ def _functions(tree: exp.Expression) -> None:
                 _sunday_weeks(node)
             elif part == "ISO_WEEK":
                 _sunday_weeks(node, shift=0)
+            elif not node.args.get("big_int"):
+                _int_datediff(node)
         elif isinstance(node, exp.DateAdd):
             _datepart(node, "DATEADD")
         elif isinstance(node, exp.TimestampTrunc):
@@ -1281,6 +1334,21 @@ def _string_edges(tree: exp.Expression) -> None:
             times = node.args["times"]
             negative = exp.LT(this=times.copy(), expression=exp.Literal.number(0))
             node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy()))
+
+
+_DATEDIFF_OVERFLOW = ("The datediff function resulted in an overflow. The number of dateparts separating two "
+                      "date/time instances is too large. Try to use datediff with a less precise datepart.")
+
+
+def _int_datediff(node: exp.DateDiff) -> None:
+    """``DATEDIFF`` is an int in T-SQL, and a count past an int's range is an error there (WR-208:
+    ``DATEDIFF(millisecond, ...)`` over more than 24 days), where DuckDB gives a BIGINT. ``DATEDIFF_BIG``
+    keeps the BIGINT."""
+    fits = exp.Between(this=node.copy(), low=exp.Literal.number(-(2 ** 31)), high=exp.Literal.number(2 ** 31 - 1))
+    whole = exp.Case(ifs=[exp.If(this=fits, true=exp.cast(node.copy(), "INT"))],
+                     default=exp.cast(exp.Anonymous(this="error", expressions=[exp.Literal.string(_DATEDIFF_OVERFLOW)]),
+                                      "INT"))
+    node.replace(whole)
 
 
 def _sunday_weeks(node: exp.DateDiff, shift: int = 1) -> None:

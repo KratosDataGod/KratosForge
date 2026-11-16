@@ -167,7 +167,7 @@ SFD_JARO = _n("SFD-012", "JAROWINKLER_SIMILARITY scores can differ",
               "and 72 here; 'Snowflake' and 'Oracle' (61) and two empty strings (0) match.",
               "Don't reuse a threshold tuned on Snowflake's scores without checking pairs near it.",
               f"{_DOCS}/functions/jarowinkler_similarity")
-SFD_MOMENTS = _n("SFD-013", "SKEW and STDDEV_POP from the seventh digit",
+SFD_MOMENTS = _n("SFD-013", "SKEW and STDDEV_POP can differ from the seventh digit",
                  "SKEW and STDDEV_POP give the exact sample skewness and population standard deviation here. "
                  "Snowflake's reference shows values that differ from about the seventh significant digit: "
                  "STDDEV_POP of 6, 10 and 14 is 3.265986375 there and 3.265986324 (the square root of 32/3) here; "

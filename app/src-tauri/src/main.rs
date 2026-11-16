@@ -625,20 +625,26 @@ fn apply_release_rule(latest: &mut Value) {
     if BUILD_COMMIT.is_empty() || latest["commit"].as_str().is_none() {
         return;
     }
-    let tag = latest["tag"].as_str().unwrap_or(release_tag()).to_string();
-    let path = update_state();
-    match update_guard::check_manifest(latest, update_guard::load_seen(&path, &tag).as_ref(), unix_now()) {
-        Ok(seen) => match update_guard::refused_as_failed(&seen.commit, &update_guard::failed_builds(&path)) {
+    let channel = release_tag();
+    release_rule(latest, channel, &update_state(), unix_now());
+}
+
+/// The release rule itself: `channel` is the release this PC follows when the report names none,
+/// `path` is update-state.json and `now` the Unix time.
+fn release_rule(latest: &mut Value, channel: &str, path: &Path, now: i64) {
+    let tag = latest["tag"].as_str().unwrap_or(channel).to_string();
+    match update_guard::check_manifest(latest, update_guard::load_seen(path, &tag).as_ref(), now) {
+        Ok(seen) => match update_guard::refused_as_failed(&seen.commit, &update_guard::failed_builds(path)) {
             None => {
-                let _ = update_guard::remember(&path, &tag, Some(&seen));
+                let _ = update_guard::remember(path, &tag, Some(&seen));
             }
             Some(reason) => {
-                let _ = update_guard::remember(&path, &tag, None);
+                let _ = update_guard::remember(path, &tag, None);
                 latest["refused"] = json!(reason);
             }
         },
         Err(reason) => {
-            let _ = update_guard::remember(&path, &tag, None);
+            let _ = update_guard::remember(path, &tag, None);
             latest["refused"] = json!(reason);
         }
     }
@@ -4125,6 +4131,85 @@ mod open_refusal_tests {
                 Err(format!("Not in the notebooks folder or a repository opened in Source control: {path}"))
             );
         }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod release_rule_tests {
+    use super::*;
+
+    const A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const NOW: i64 = 1_760_800_000;
+
+    fn state(name: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("kf-release-rule-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("update-state.json");
+        (dir, path)
+    }
+
+    fn release(commit: &str, published: i64, tag: Option<&str>) -> Value {
+        let mut r = json!({ "commit": commit, "exe_sha256": "e".repeat(64), "published": published });
+        if let Some(t) = tag {
+            r["tag"] = json!(t);
+        }
+        r
+    }
+
+    #[test]
+    fn a_valid_release_is_remembered_and_offered() {
+        let (dir, path) = state("valid");
+        let mut r = release(A, NOW, None);
+        release_rule(&mut r, "stable", &path, NOW);
+        assert!(r.get("refused").is_none());
+        assert_eq!(update_guard::offered(&path).as_deref(), Some(A));
+        assert_eq!(update_guard::load_seen(&path, "stable").map(|s| s.commit).as_deref(), Some(A));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_reports_own_tag_picks_the_channel() {
+        let (dir, path) = state("tag");
+        let mut r = release(A, NOW, Some("latest"));
+        release_rule(&mut r, "stable", &path, NOW);
+        assert!(update_guard::load_seen(&path, "latest").is_some());
+        assert!(update_guard::load_seen(&path, "stable").is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_older_release_is_refused_and_nothing_is_offered() {
+        let (dir, path) = state("older");
+        release_rule(&mut release(A, NOW, None), "stable", &path, NOW);
+        let mut older = release(B, NOW - 3600, None);
+        release_rule(&mut older, "stable", &path, NOW);
+        assert!(older["refused"].as_str().unwrap().contains("older release"));
+        assert_eq!(update_guard::offered(&path), None);
+        assert_eq!(update_guard::load_seen(&path, "stable").map(|s| s.commit).as_deref(), Some(A));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_build_rolled_back_here_is_refused() {
+        let (dir, path) = state("failed");
+        update_guard::record_failed(&path, A).unwrap();
+        let mut r = release(A, NOW, None);
+        release_rule(&mut r, "stable", &path, NOW);
+        assert!(r["refused"].as_str().unwrap().contains("didn't finish starting on this PC"));
+        assert_eq!(update_guard::offered(&path), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_release_without_a_checksum_is_refused() {
+        let (dir, path) = state("nosum");
+        let mut r = json!({ "commit": A, "published": NOW });
+        release_rule(&mut r, "stable", &path, NOW);
+        assert!(r["refused"].as_str().unwrap().contains("no checksum"));
+        assert_eq!(update_guard::offered(&path), None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

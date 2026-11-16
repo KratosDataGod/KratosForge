@@ -985,7 +985,7 @@ def _percentiles(tree: exp.Expression) -> None:
         kind: exp.DataType | None = group.meta.get(_ORDER_TYPE)
         if not cont and not _unknown(kind) and (not _is(kind, _NUMBERS) or _is(kind, {exp.DataType.Type.BIT})):
             raise ValueError(_NOT_YET + "PERCENTILE_DISC with ORDER BY ... DESC on a value that isn't a number "
-                             "isn't mapped yet: order it ascending.")
+                             "isn't mapped yet. Run it in a Fabric Warehouse.")
         value = ordered.this
         if not cont and _is(kind, _INTEGERS):
             value = exp.Cast(this=value, to=exp.DataType.build("HUGEINT"))

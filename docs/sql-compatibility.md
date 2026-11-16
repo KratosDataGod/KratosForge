@@ -85,7 +85,7 @@ When a project runs T-SQL on this PC, NULLs, ties and window functions give a wa
 
 What can still differ:
 
-- `PERCENTILE_DISC` with `ORDER BY ... DESC` on a date or text column is refused by name. Order it ascending instead.
+- `PERCENTILE_DISC` with `ORDER BY ... DESC` on a date or text column is refused by name. Run it in a Fabric Warehouse.
 - Rows that tie in an `ORDER BY` can come back in any order, in a warehouse as here. Add a column that tells them apart when the order matters.
 
 ## Local T-SQL dates and times

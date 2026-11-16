@@ -78,6 +78,13 @@ CASES = [
  ("ROUND(CAST(150 AS TINYINT), -2)", "200"),
  ("ROUND(CAST(250 AS TINYINT), -2)", "ERROR:Arithmetic overflow error converting expression to data type tinyint."),
  ("ROUND(f, 0)", "3.0"),
+ ("ROUND(2147483647, -1)", "ERROR:Arithmetic overflow error converting expression to data type int."),
+ ("ROUND(CAST(32767 AS SMALLINT), -1)", "ERROR:Arithmetic overflow error converting expression to data type smallint."),
+ ("ROUND(CAST(9223372036854775807 AS BIGINT), -1)",
+  "ERROR:Arithmetic overflow error converting expression to data type bigint."),
+ ("ROUND(CAST(255 AS TINYINT), -1)", "ERROR:Arithmetic overflow error converting expression to data type tinyint."),
+ ("ROUND(2147483644, -1)", "2147483640"), ("ROUND(CAST(32764 AS SMALLINT), -1)", "32760"),
+ ("ROUND(CAST(9223372036854775804 AS BIGINT), -1)", "9223372036854775800"), ("ROUND(-2147483648, -1)", "-2147483650"),
 ]
 
 VALUES = [c for c in CASES if c[1] is None or not c[1].startswith("ERROR:")]

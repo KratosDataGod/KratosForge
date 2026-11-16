@@ -382,6 +382,8 @@ def _round_keeps_type(node: exp.Round, info: exp.Expression) -> None:
     elif _is(kind, set(_TSQL_INT_NAMES)) and not _written_decimal(node.this):
         assert kind is not None
         to, name = ("UTINYINT" if kind.this == exp.DataType.Type.TINYINT else kind.this.value), _TSQL_INT_NAMES[kind.this]
+        # Rounded in a wider type: DuckDB's ROUND on an integer wraps past its type (ROUND(2147483647, -1)).
+        node.set("this", exp.Cast(this=node.this, to=exp.DataType.build("HUGEINT")))
     else:
         return
     message = _OVERFLOW.format(kind=name)

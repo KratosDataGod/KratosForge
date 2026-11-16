@@ -55,6 +55,20 @@ Queries over 100,000 characters are checked when you press **Check now** in the 
 - Check every construct. Statements the engine treats as commands (GRANT, DBCC, SHOW, OPTIMIZE and similar) are checked only by the rules that read their words.
 - Put SQL text or findings in the security audit log, or put string literals in findings: a password in the SQL never shows in a message.
 
+## Decimal results on this PC (LOC-005)
+
+Spark SQL run on this PC gives Spark's decimal type and value for division, multiplication, addition, subtraction, `%`, `pmod`, `div`, `avg`, `sum`, `round`, `bround`, `ceil` and `floor`. These follow Spark's own rules: DecimalPrecision with `spark.sql.decimalOperations.allowPrecisionLoss` on, the default. A division by zero gives NULL, as Spark does with ANSI mode off. For example, `CAST(1 AS DECIMAL(10,2)) / 3` is `decimal(14,6)` 0.333333 here, as in Fabric Spark. These results are checked against Spark's published rules in `sidecar/tests/test_spark_decimal_rules.py`. They haven't been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
+
+These cases can still differ, and LOC-005 notes them:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| A sum, difference or product past 38 digits, such as two `DECIMAL(38,18)` columns multiplied | Rounds the scale down, to no fewer than 6 places, for example `decimal(38,6)`; NULL when the result doesn't fit | DuckDB's own type, for example `DECIMAL(38,36)`; the query fails when the result doesn't fit |
+| A division whose dividend, scaled, needs more than 38 digits | The exact quotient | Worked out through DOUBLE and cast to Spark's type, so the last digits can differ |
+| `div` past 38 digits | The exact quotient | Worked out through DOUBLE |
+| `div` whose quotient is past the BIGINT range | Wraps around (ANSI off) | NULL |
+| ANSI mode on | A division by zero is an error | NULL |
+
 ## Rules
 
 Rule set **2026.10.3**, from Microsoft Learn and the Apache Spark 3.5 reference as they read on 2026-10-17. Each Microsoft page's "last updated" date is kept in `sidecar/fabric_desktop/sqlcompat/profiles.py`. DDL-007 (ALTER TABLE) is an error except ALTER COLUMN, which is a warning because it is in preview. 2026.10.3 stops reading T-SQL's `GRANT`, `DENY` or `REVOKE ... ON SCHEMA::name` (and the other securable classes after `ON`) as a Spark `::` cast, and `UPDATE STATISTICS` (with no `SET`) as an UPDATE without WHERE.
@@ -164,6 +178,21 @@ Fabric Warehouse has QUALIFY too, so there the rewrite is one way to run it, not
 
 Like the check above, it never runs the SQL or connects anywhere, and "compatible" is not proof that
 two platforms give the same answer. Comparing answers needs both runs.
+
+## Local T-SQL decimals
+
+When a project runs T-SQL on this PC, arithmetic with a decimal side gets the precision and scale a Fabric Warehouse gives it, by T-SQL's rules ("Precision, scale, and length" on Microsoft Learn). DuckDB's own rules differ: it widens decimals its own way, keeps every digit of scale, and divides decimals as doubles.
+
+| Case | Here, as in a warehouse | What can still differ |
+| --- | --- | --- |
+| `+`, `-`, `*` of decimals, or a decimal and an integer | T-SQL's type, and its value rounded to that scale. Past 38 digits the scale gives way as T-SQL's rules say (`decimal(38,10) * decimal(38,10)` is `decimal(38,6)`) | A value too big to work out exactly here (more whole digits than DuckDB leaves room for) is worked out in floating point, and the run's notes say so: about 15 significant digits match |
+| `/` with a decimal side | T-SQL's type, and the quotient worked out exactly and cut at that scale (`-10.25 / 3` is `-3.4166666666666`). An inner division is cut at its own scale first, as in T-SQL. Dividing by zero stops with "Divide by zero error encountered" | A dividend or divisor whose digits don't fit in 38 once moved is divided in floating point, and the notes say so. Also when a side calls `RAND` or `NEWID`, which can't be read twice |
+| `SUM` of a decimal | `decimal(38, s)` | Nothing |
+| `AVG` of a decimal, also with `OVER (...)` | `decimal(38, max(s, 6))` | The average is worked out in floating point, then given that type, and the notes say so |
+| Numbers written in the query | `1.5` is `decimal(2,1)`, and a whole number meets a decimal as `decimal(its digits, 0)`, so `1.0 / 3` is `0.333333` | Nothing |
+| A result too big for its type | Stops, as in a warehouse ("Could not cast value ... to DECIMAL(38,6)" here, "Arithmetic overflow error" there) | The message's words |
+
+`money` and `smallmoney` are refused rather than given decimal rules (use `DECIMAL(19, 4)` and `DECIMAL(10, 4)`). An integer divided by an integer stays an integer, cut toward zero, and dividing integers by zero still gives `NULL` here.
 
 ## How it's built and tested
 

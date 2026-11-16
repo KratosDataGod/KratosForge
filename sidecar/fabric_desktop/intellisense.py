@@ -162,14 +162,17 @@ def syntax_problems(source: str) -> list[dict[str, Any]]:
     """The first Python syntax error in a cell, as {line, col, end_line, end_col, message} with
     1-based lines and 0-based columns in the cell's own text. Cells in another language (``%%sql``,
     ``%%html``...) and IPython syntax (``%magic``, ``!cmd``, ``x = %sql ...``) aren't errors."""
-    first = source.lstrip("\n").split("\n", 1)[0]
+    # The first line with text, as IPython finds a cell magic: lines of only spaces before it don't count (#2746).
+    head = source.split("\n")
+    blank = next((i for i, line in enumerate(head) if line.strip()), len(head))
+    first = head[blank] if blank < len(head) else ""
     m = _CELL_MAGIC.match(first)
     offset = 0
     if m:
         if m.group(1).lower() not in _PY_CELL_MAGICS:
             return []
-        offset = source[:source.index(first)].count("\n") + 1
-        source = source.split("\n", offset)[-1] if source.count("\n") >= offset else ""
+        offset = blank + 1
+        source = "\n".join(head[offset:])
     lines = []
     for line in source.split("\n"):
         stripped = line.lstrip()

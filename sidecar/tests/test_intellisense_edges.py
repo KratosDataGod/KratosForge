@@ -68,3 +68,10 @@ def test_a_syntax_error_with_no_usable_end_points_at_one_character(monkeypatch):
     monkeypatch.setattr(isn, "compile", refuse, raising=False)
     [got] = isn.syntax_problems("a = 1\nb")
     assert (got["line"], got["col"], got["end_line"], got["end_col"]) == (2, 4, 2, 5)
+
+
+def test_a_cell_magic_after_lines_of_only_spaces_is_still_the_cells_language():
+    # As IPython reads it: blank lines before %%sql don't make the cell Python (#2746).
+    assert isn.syntax_problems("   \n%%sql\nSELECT * FROM t") == []
+    assert isn.syntax_problems("  \n\t\n%%sql\nselect") == []
+    assert isn.syntax_problems(" \n%%pyspark\nx = (")[0]["line"] == 3  # a Python magic still checks its own body

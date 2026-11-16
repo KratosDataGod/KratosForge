@@ -761,7 +761,9 @@ def _spark_named_cols(cols: Any) -> Any:
 def _field_names(frame: Any, cols: Any) -> Any:
     """``col[key]`` and ``col.key`` are named col.key when col is a struct (its field) and col[key] when
     it's a map, as in Spark; which one is known only from the frame's types, here."""
-    relation = getattr(frame, "relation", None) or getattr(getattr(frame, "_df", None), "relation", None)
+    relation = getattr(frame, "relation", None)
+    if relation is None:  # not `or`: a relation's truth value is its row count, which runs it
+        relation = getattr(getattr(frame, "_df", None), "relation", None)
     for c in cols:
         field = vars(c).get("_fd_field") if isinstance(c, Column) else None
         if field is None or relation is None or "_fd_top" in vars(c):
@@ -1086,8 +1088,13 @@ def _aliased(col: Column) -> bool:
 def _alias_marked(fn: Any) -> Any:
     """Column.alias, marking the Column it gives as aliased (see _aliased)."""
     def alias(self: Column, *names: Any, **kwargs: Any) -> Column:
+        metadata = kwargs.pop("metadata", None)
+        if metadata is not None and not isinstance(metadata, dict):
+            raise TypeError("metadata is a dict.")
         out = fn(self, *names, **kwargs)
         out._fd_alias = True
+        if metadata is not None and names:  # kept on the DataFrame a select makes (spark_df_more)
+            out._fd_col_metadata = (str(names[0]), dict(metadata))
         if "_fd_struct" in vars(self):  # a withField/dropFields column, worked out at select (spark_struct_fields)
             out._fd_struct = vars(self)["_fd_struct"]
             out._fd_struct_alias = names[0] if names else None

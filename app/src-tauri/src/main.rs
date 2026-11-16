@@ -570,9 +570,6 @@ fn run_schedule_arg(args: &[String]) -> Option<&str> {
     }
 }
 
-/// Runs the current engine's `run-schedule`, windowless, in the task's working folder, and returns
-/// its exit code for Task Scheduler's "last result". No window and no single-instance claim: an
-/// open copy of the app isn't involved.
 /// The interpreter a scheduled run uses: pythonw.exe next to `python` when it is there, so no
 /// console window opens, otherwise `python` itself.
 fn schedule_interpreter(python: String) -> std::ffi::OsString {
@@ -580,6 +577,9 @@ fn schedule_interpreter(python: String) -> std::ffi::OsString {
     if pythonw.exists() { pythonw.into_os_string() } else { python.into() }
 }
 
+/// Runs the current engine's `run-schedule`, windowless, in the task's working folder, and returns
+/// its exit code for Task Scheduler's "last result". No window and no single-instance claim: an
+/// open copy of the app isn't involved.
 fn run_schedule(id: &str) -> i32 {
     let Ok(python) = python() else { return 2 };
     let mut cmd = Command::new(schedule_interpreter(python));

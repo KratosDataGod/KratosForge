@@ -175,3 +175,11 @@ def test_a_fabric_jobs_duration_is_zero_when_a_time_is_missing_or_odd():
     assert _seconds("2026-10-20T07:00:00+00:00", None) == 0.0
     assert _seconds("soon", "2026-10-20T07:00:00Z") == 0.0
     assert _seconds("2026-10-20T07:00:10", "2026-10-20T07:00:00Z") == 0.0  # never negative
+
+
+def test_a_fabric_end_time_without_an_offset_still_gives_the_runs_length(svc):
+    # Fabric's endTimeUtc carries no offset (2026-10-20T07:02:30.1234567); the app's started_at has one.
+    _fabric(svc, started_at="2026-10-20T07:00:00+00:00", finished_at="2026-10-20T07:02:30.1234567", status="Completed")
+    _fabric(svc, job_id="j2", started_at="2026-10-20T08:00:00+00:00", finished_at="not a time", status="Failed")
+    runs = svc.notebook_runs("Daily sales")
+    assert [r["seconds"] for r in runs] == [None, 150.1]

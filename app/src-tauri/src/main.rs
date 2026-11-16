@@ -1093,21 +1093,18 @@ async fn rpc(
     let result = tauri::async_runtime::spawn_blocking(move || engine.call(&method, params))
         .await
         .map_err(|e| e.to_string())?;
-    let ended = matches!(&result, Err(e) if e.starts_with(SIDECAR_STUCK) || e.starts_with(SIDECAR_EXITED));
+    let outcome = call_outcome(&result, sidecar.stopped.load(Ordering::SeqCst), sidecar.started.elapsed(), first_call);
     if let Ok(mut crash_loop) = state.crash_loop.lock() {
-        match &result {
+        if let Some(why) = &outcome.crashed {
             // Counted once, however many calls were waiting on the engine that ended.
-            Err(e) if e.starts_with(SIDECAR_EXITED) && !sidecar.stopped.load(Ordering::SeqCst) => {
-                if !sidecar.counted.swap(true, Ordering::SeqCst) {
-                    let why: Vec<&str> = e.lines().skip(1).filter(|l| !l.starts_with("Full log: ")).collect();
-                    let why = if why.is_empty() { "nothing was written to its log".to_string() } else { why.join(" | ") };
-                    crash_loop.ended(sidecar.started.elapsed(), std::time::Instant::now(), &why);
-                }
+            if !sidecar.counted.swap(true, Ordering::SeqCst) {
+                crash_loop.ended(sidecar.started.elapsed(), std::time::Instant::now(), why);
             }
-            _ if !ended && sidecar.started.elapsed() >= crash::SOON => crash_loop.settled(),
-            _ => {}
+        } else if outcome.settled {
+            crash_loop.settled();
         }
     }
+    let ended = outcome.ended;
     if ended {
         // Ended by the time limit, Stop or a crash: the next call starts a fresh one, unless
         // another call already did.
@@ -1116,12 +1113,43 @@ async fn rpc(
             *guard = None;
         }
     }
-    if first_call && matches!(&result, Err(e) if e.starts_with(SIDECAR_EXITED)) {
+    if outcome.forget_verified {
         // It would not even start: have the next startup check load the engine again
         // rather than trusting that this build worked before.
         let _ = std::fs::remove_file(data_dir().join("engine-verified.json"));
     }
     result
+}
+
+/// What one engine call's result means for the engine and the crash-loop count (rpc acts on it).
+#[derive(Debug, Default, PartialEq)]
+struct CallOutcome {
+    /// The engine ended on its own (not Stop or an update): why, from the end of its log, to count
+    /// toward a crash loop.
+    crashed: Option<String>,
+    /// The engine answered (even with an error of its own) after running past crash::SOON, so an
+    /// earlier crash loop is over.
+    settled: bool,
+    /// The engine is gone (crashed, stopped or stuck), so the next call starts a fresh one.
+    ended: bool,
+    /// It ended on the very first call: the next startup check should load the engine again.
+    forget_verified: bool,
+}
+
+/// `result` of a call to an engine that was `stopped` on purpose or not and had run for `ran`;
+/// `first_call` when it was the engine's first call.
+fn call_outcome(result: &Result<Value, String>, stopped: bool, ran: std::time::Duration, first_call: bool) -> CallOutcome {
+    let exited = matches!(result, Err(e) if e.starts_with(SIDECAR_EXITED));
+    let ended = exited || matches!(result, Err(e) if e.starts_with(SIDECAR_STUCK));
+    let crashed = match result {
+        Err(e) if exited && !stopped => {
+            let why: Vec<&str> = e.lines().skip(1).filter(|l| !l.starts_with("Full log: ")).collect();
+            Some(if why.is_empty() { "nothing was written to its log".to_string() } else { why.join(" | ") })
+        }
+        _ => None,
+    };
+    let settled = crashed.is_none() && !ended && ran >= crash::SOON;
+    CallOutcome { crashed, settled, ended, forget_verified: first_call && exited }
 }
 
 /// Stops a running notebook cell by ending the sidecar process. The blocked
@@ -4014,5 +4042,65 @@ mod open_refusal_tests {
             );
         }
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod call_outcome_tests {
+    use super::{call_outcome, CallOutcome, SIDECAR_EXITED, SIDECAR_STUCK};
+    use serde_json::json;
+    use std::time::Duration;
+
+    const SOON: Duration = crate::crash::SOON;
+    const BRIEF: Duration = Duration::from_secs(5);
+
+    fn exited(tail: &str) -> Result<serde_json::Value, String> {
+        Err(format!("{SIDECAR_EXITED}\n{tail}\nFull log: C:\\Users\\a\\AppData\\Local\\FabricDesktop\\sidecar.log"))
+    }
+
+    #[test]
+    fn an_engine_that_crashes_counts_toward_a_crash_loop_with_the_end_of_its_log() {
+        let got = call_outcome(&exited("Traceback (most recent call last):\nValueError: bad settings file"), false, BRIEF, false);
+        assert_eq!(got, CallOutcome {
+            crashed: Some("Traceback (most recent call last): | ValueError: bad settings file".into()),
+            settled: false,
+            ended: true,
+            forget_verified: false,
+        });
+        // Nothing in its log but the full-log line, or no tail at all.
+        let quiet = format!("{SIDECAR_EXITED}\nFull log: C:\\x\\sidecar.log");
+        assert_eq!(call_outcome(&Err(quiet), false, BRIEF, false).crashed.as_deref(), Some("nothing was written to its log"));
+        assert_eq!(call_outcome(&Err(SIDECAR_EXITED.into()), false, SOON * 2, false).crashed.as_deref(), Some("nothing was written to its log"));
+    }
+
+    #[test]
+    fn an_engine_stopped_on_purpose_ends_but_never_counts() {
+        let got = call_outcome(&exited("killed"), true, BRIEF, false);
+        assert_eq!(got, CallOutcome { crashed: None, settled: false, ended: true, forget_verified: false });
+    }
+
+    #[test]
+    fn a_stuck_engine_ends_without_counting_or_settling() {
+        let got = call_outcome(&Err(format!("{SIDECAR_STUCK} It didn't answer list_notebooks.")), false, SOON * 2, false);
+        assert_eq!(got, CallOutcome { crashed: None, settled: false, ended: true, forget_verified: false });
+    }
+
+    #[test]
+    fn an_answer_after_the_engine_has_run_a_while_ends_a_crash_loop() {
+        for result in [Ok(json!({"ok": true})), Err("That notebook doesn't exist.".to_string())] {
+            assert_eq!(call_outcome(&result, false, SOON, false), CallOutcome { settled: true, ..Default::default() }, "{result:?}");
+            // Too soon after starting to know the engine is healthy.
+            assert_eq!(call_outcome(&result, false, SOON - Duration::from_millis(1), false), CallOutcome::default(), "{result:?}");
+        }
+    }
+
+    #[test]
+    fn only_an_engine_that_ends_on_its_first_call_has_its_check_forgotten() {
+        assert!(call_outcome(&exited("x"), false, BRIEF, true).forget_verified);
+        // Stopped on the first call still means it never answered once.
+        assert!(call_outcome(&exited("x"), true, BRIEF, true).forget_verified);
+        assert!(!call_outcome(&exited("x"), false, BRIEF, false).forget_verified);
+        assert!(!call_outcome(&Err(SIDECAR_STUCK.into()), false, BRIEF, true).forget_verified);
+        assert!(!call_outcome(&Ok(json!(1)), false, BRIEF, true).forget_verified);
     }
 }

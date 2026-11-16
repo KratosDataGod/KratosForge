@@ -242,7 +242,8 @@ mod tests {
 #[cfg(all(test, windows))]
 mod windows_tests {
     use super::{resolve, Checks};
-    use crate::policy_trust::{admin_only_ancestor, admin_only_engine, windows_tests::set};
+    use crate::policy_trust::windows_tests::{me, set};
+    use crate::policy_trust::{admin_only_ancestor, admin_only_engine};
     use std::path::{Path, PathBuf};
 
     const BUILD: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -344,8 +345,14 @@ mod windows_tests {
     #[test]
     fn an_engine_folder_owned_by_the_account_is_not_used() {
         let engine = Engine::new("owner");
-        // Created by the account and never locked: it owns the folder and may change everything.
+        if !engine.lock(ADMINS) {
+            return;
+        }
+        // Only admins may change it, but the account (an administrator, not the Administrators
+        // group) owns the top folder, and an owner can always change its permissions.
+        set(&engine.0, &format!("O:{}D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)", me())).unwrap();
         let why = engine.resolve().unwrap_err();
         assert!(why.starts_with("Your organization's engine folder"), "{why}");
+        assert!(why.contains("isn't owned by SYSTEM or Administrators"), "{why}");
     }
 }

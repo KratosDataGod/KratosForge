@@ -359,7 +359,7 @@ pub(crate) mod windows_tests {
     }
 
     /// The account running the tests, as a SID string, from whoami.
-    fn me() -> String {
+    pub(crate) fn me() -> String {
         let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
         let whoami = PathBuf::from(root).join("System32").join("whoami.exe");
         let out = std::process::Command::new(whoami).args(["/user", "/fo", "csv", "/nh"]).output().unwrap();

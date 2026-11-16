@@ -92,9 +92,9 @@ test("Change keys moves Format to a new key, refuses a reserved key or another c
   await page().keyboard.press("Control+k");
   await dialog.getByText("Ctrl+K is the command bar, so it can't be used here.").waitFor();
   await page().keyboard.press("Control+/");
-  await dialog.getByText("Ctrl+/ is already the key for Comment or uncomment lines. Change that one first.").waitFor();
+  await dialog.getByText('Ctrl+/ is already the key for "Comment or uncomment lines". Change that one first.').waitFor();
   await page().keyboard.press("g");
-  await dialog.getByText("G on its own types or moves in the text. Add Ctrl or Alt.").waitFor();
+  await dialog.getByText("On its own, G types or moves the cursor. Add Ctrl or Alt.").waitFor();
   await page().keyboard.press("Alt+Shift+g");
   await page().waitForFunction(() => state.settings.editor_key_overrides.value.format === "Alt-Shift-g");
   await dialog.getByText("Changed").waitFor();

@@ -124,7 +124,7 @@ function editorVimTakesEscape(view) {
 }
 
 // Why a command can't take this key, or "" when it can. Without Ctrl or Alt, only F keys: anything else
-// on its own types or moves in the text.
+// on its own types or moves the cursor.
 function editorKeyProblem(id, key) {
   const canon = editorKeyCanon(key);
   const label = editorKeyLabel(key);
@@ -132,12 +132,12 @@ function editorKeyProblem(id, key) {
   const mods = canon.split(/-(?!$)/).slice(0, -1);
   const name = canon.split(/-(?!$)/).pop();
   if (!mods.includes("Mod") && !mods.includes("Alt") && !/^F\d{1,2}$/.test(name)) {
-    return `${label} on its own types or moves in the text. Add Ctrl or Alt.`;
+    return `On its own, ${label} types or moves the cursor. Add Ctrl or Alt.`;
   }
   const cmd = EDITOR_COMMANDS.find((c) => c.id === id);
   const other = EDITOR_COMMANDS.find((c) => c.id !== id && editorKeyCanon(editorKey(c.id)) === canon
     && (c.in === "both" || cmd.in === "both" || c.in === cmd.in));
-  return other ? `${label} is already the key for ${other.label.replace(/ \(.*\)$/, "")}. Change that one first.` : "";
+  return other ? `${label} is already the key for "${other.label.replace(/ \(.*\)$/, "")}". Change that one first.` : "";
 }
 
 // A key press as CodeMirror names it, by the key's place on the keyboard (so Shift+- stays Shift+-), or null

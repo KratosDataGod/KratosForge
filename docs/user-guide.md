@@ -720,7 +720,7 @@ open editor and are kept:
 - **Font size.** The code font in cells and SQL editors, 10 to 24 px. **Each editor's own** (the default) keeps
   13 px in cells and 13.5 px in SQL editors. The rest of the app follows Ctrl+= and Ctrl+-.
 - **Key bindings** (Preview). **Default** or **Vim**, which adds Vim's modal editing to cells and SQL editors. In a
-  cell, Esc in Vim's normal mode still leaves for command mode; out of insert or visual mode first, then again to leave.
+  cell, Esc in Vim's normal mode still leaves for command mode: in insert or visual mode, press Esc once to get back to normal mode, then again to leave.
   Shift+Enter, Ctrl+Enter and the other run keys work in every mode.
 - **Shortcuts.** **Change keys...** lists the editor commands with their keys: running a cell or a query, format,
   comment, change case, go to a line, bookmarks and more. **Change** waits for the new key (Esc cancels), and

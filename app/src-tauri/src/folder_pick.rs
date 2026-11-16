@@ -38,7 +38,7 @@ pub fn pick(owner: isize, start: Option<String>) -> Result<Option<String>, Strin
             .map_err(failed)?;
         // GetDriveTypeW reads only the drive letter's type, so a network drive isn't touched.
         let local = |s: &str| GetDriveTypeW(&HSTRING::from(format!("{}:\\", &s[..1]))) != DRIVE_REMOTE;
-        if let Some(dir) = start.filter(|s| on_drive(s) && local(s) && Path::new(s).is_dir()) {
+        if let Some(dir) = start_folder(start, local, |s| Path::new(s).is_dir()) {
             // A start folder the shell can't read just leaves the dialog where Windows opens it.
             if let Ok(item) = SHCreateItemFromParsingName::<_, _, IShellItem>(&HSTRING::from(dir), None) {
                 let _ = dialog.SetFolder(&item);
@@ -55,6 +55,14 @@ pub fn pick(owner: isize, start: Option<String>) -> Result<Option<String>, Strin
     }
 }
 
+/// The folder to open the dialog in: `start` when it is on a drive letter, that drive isn't a
+/// network drive (`local`), and it is a folder (`is_dir`), asked in that order, so neither of the
+/// later two is ever asked about a UNC path, and `is_dir` never about a network drive.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn start_folder(start: Option<String>, local: impl Fn(&str) -> bool, is_dir: impl Fn(&str) -> bool) -> Option<String> {
+    start.filter(|s| on_drive(s) && local(s) && is_dir(s))
+}
+
 /// `C:\...` or `C:/...`: a drive letter, so not a `\\server\share` or `\\?\` path.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn on_drive(path: &str) -> bool {
@@ -64,6 +72,45 @@ fn on_drive(path: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::start_folder;
+    use std::cell::RefCell;
+
+    /// Runs start_folder with stand-ins that record each question asked.
+    fn ask(start: Option<&str>, remote: bool, dir: bool) -> (Option<String>, Vec<String>) {
+        let asked = RefCell::new(Vec::new());
+        let got = start_folder(
+            start.map(str::to_string),
+            |s| { asked.borrow_mut().push(format!("local {s}")); !remote },
+            |s| { asked.borrow_mut().push(format!("is_dir {s}")); dir },
+        );
+        (got, asked.into_inner())
+    }
+
+    #[test]
+    fn a_local_folder_on_a_drive_letter_is_where_the_dialog_starts() {
+        assert_eq!(ask(Some("C:\\Data"), false, true), (Some("C:\\Data".into()), vec!["local C:\\Data".into(), "is_dir C:\\Data".into()]));
+        assert_eq!(ask(Some("d:/data"), false, true).0.as_deref(), Some("d:/data"));
+    }
+
+    #[test]
+    fn nothing_is_asked_about_a_path_that_isnt_on_a_drive_letter() {
+        for path in ["\\\\server\\share\\x", "\\\\?\\C:\\x", "//server/share", "relative", "C:", ""] {
+            assert_eq!(ask(Some(path), false, true), (None, vec![]), "{path}");
+        }
+        assert_eq!(ask(None, false, true), (None, vec![]));
+    }
+
+    #[test]
+    fn a_network_drive_is_never_looked_at() {
+        // A mapped drive: only its type is read, never the folder.
+        assert_eq!(ask(Some("Z:\\Team"), true, true), (None, vec!["local Z:\\Team".into()]));
+    }
+
+    #[test]
+    fn a_folder_that_isnt_there_leaves_the_dialog_where_windows_opens_it() {
+        assert_eq!(ask(Some("C:\\Gone"), false, false).0, None);
+    }
+
     #[test]
     fn starts_only_on_a_drive_letter() {
         for ok in ["C:\\Users\\you", "d:/data", "E:\\"] { assert!(super::on_drive(ok), "{ok}"); }

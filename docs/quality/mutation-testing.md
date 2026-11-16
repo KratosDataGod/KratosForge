@@ -3929,6 +3929,7 @@ No real bugs were found.
 - **orchestration/runs.py**:
   - Trim keeps exactly the newest 200 records, and the list gives 50 by default and at least one.
   - A run id may be 64 characters and use every allowed character; 65 is refused.
+  - Ids with other characters are refused (added after review; not a mutant the tool makes).
   - Recovery runs once per store: a run started after it is never marked interrupted by a later read, and a second call reports 0.
   - Runs this process is running are left as they are.
   - An interrupted run gets an end time, and keeps one it already had.

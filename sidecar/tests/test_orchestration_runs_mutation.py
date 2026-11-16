@@ -51,6 +51,12 @@ def test_a_run_id_may_be_64_characters_and_use_every_allowed_character(tmp_path)
         store.save({"run_id": "a" * 65, "state": "succeeded"})
 
 
+@pytest.mark.parametrize("run_id", ["../x", "a/b", "a\\b", "c:x", "..", "a.b", ""])
+def test_ids_with_other_characters_are_refused(tmp_path, run_id):
+    with pytest.raises(ValueError):
+        RunStore(tmp_path)._path(run_id)
+
+
 def test_recover_runs_once_per_store(tmp_path):
     store = RunStore(tmp_path)
     store.save({"run_id": "aa", "state": "running"})

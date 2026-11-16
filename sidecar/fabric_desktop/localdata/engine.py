@@ -563,11 +563,12 @@ class LocalEngine:
                 query.__exit__(None, None, None)
         # Start it now, so closing or dropping the reader before the first batch still frees the connection.
         stream = batches()
+        notes = list((run.get("translation") or {}).get("notes") or [])
         try:
             first = next(stream)
         except StopIteration:
-            return ResultStream(inner.schema, iter(()), stream)
-        return ResultStream(inner.schema, _chain(first, stream), stream)
+            return ResultStream(inner.schema, iter(()), stream, notes)
+        return ResultStream(inner.schema, _chain(first, stream), stream, notes)
 
     @contextmanager
     def _query(self, sql: str, dialect: str, timeout: float | None, query_id: str | None,
@@ -1587,8 +1588,9 @@ class ResultStream:
     """A query's whole result, batch by batch. Closing it (or reading it to the end) frees the
     project's connection; a pyarrow reader's own close() wouldn't, so this wraps one."""
 
-    def __init__(self, schema: pa.Schema, batches: Any, generator: Any):
+    def __init__(self, schema: pa.Schema, batches: Any, generator: Any, notes: list[str] | None = None):
         self.schema = schema
+        self.notes = notes or []  # T-SQL: where this PC's answer can differ from a warehouse's (translation notes)
         self._generator = generator
         self.reader = pa.RecordBatchReader.from_batches(schema, batches)
 

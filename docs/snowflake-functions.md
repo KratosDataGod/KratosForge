@@ -21,11 +21,11 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 167 |
-| Differs | 20 |
+| Runs | 283 |
+| Differs | 23 |
 | Refused | 81 |
 | Fails | 0 |
-| Not checked | 227 |
+| Not checked | 108 |
 | **All** | **495** |
 
 ## String and binary
@@ -33,9 +33,9 @@ the known differences in more detail.
 | Function | Status | Note |
 | --- | --- | --- |
 | `ASCII` | Runs | 1 value check |
-| `BIT_LENGTH` | Not checked |  |
+| `BIT_LENGTH` | Runs | 2 value checks |
 | `CHR` | Runs | 1 value check |
-| `CHAR` | Not checked |  |
+| `CHAR` | Runs | 2 value checks |
 | `CONCAT` | Runs | 1 value check |
 | `CONCAT_WS` | Runs | 1 value check |
 | `INSERT` | Runs | 1 value check |
@@ -48,46 +48,46 @@ the known differences in more detail.
 | `PARSE_URL` | Refused | Not rewritten for DuckDB. PARSE_URL is not supported in DuckDB. |
 | `REPEAT` | Runs | 1 value check |
 | `REVERSE` | Runs | 1 value check |
-| `RPAD` | Not checked |  |
-| `RTRIM` | Not checked |  |
-| `RTRIMMED_LENGTH` | Not checked |  |
+| `RPAD` | Runs | 3 value checks |
+| `RTRIM` | Runs | 3 value checks |
+| `RTRIMMED_LENGTH` | Runs | 1 value check |
 | `SOUNDEX` | Runs | 6 value checks |
 | `SOUNDEX_P123` | Runs | 2 value checks |
 | `SPACE` | Runs | 1 value check |
 | `SPLIT` | Runs | 1 value check |
 | `SPLIT_PART` | Runs | 3 value checks |
 | `STRTOK` | Runs | 1 value check |
-| `STRTOK_TO_ARRAY` | Not checked |  |
+| `STRTOK_TO_ARRAY` | Runs | 2 value checks |
 | `TRANSLATE` | Runs | 1 value check |
 | `TRIM` | Runs | 1 value check |
-| `UNICODE` | Not checked |  |
+| `UNICODE` | Runs | 4 value checks |
 | `UUID_STRING` | Not checked |  |
 | `SEARCH` | Refused | SEARCH: a Snowflake feature DuckDB lacks. SEARCH and SEARCH_IP match with Snowflake's search analyzers, which DuckDB doesn't have. |
 | `SEARCH_IP` | Refused | SEARCH_IP: a Snowflake feature DuckDB lacks. SEARCH and SEARCH_IP match with Snowflake's search analyzers, which DuckDB doesn't have. |
 | `INITCAP` | Runs | 1 value check |
-| `LOWER` | Not checked |  |
+| `LOWER` | Runs | 3 value checks |
 | `UPPER` | Runs | 1 value check |
 | `CHARINDEX` | Runs | 1 value check |
 | `CONTAINS` | Runs | 1 value check |
 | `EDITDISTANCE` | Runs | 1 value check |
 | `ENDSWITH` | Runs | 1 value check |
-| `JAROWINKLER_SIMILARITY` | Not checked |  |
+| `JAROWINKLER_SIMILARITY` | Differs | JAROWINKLER_SIMILARITY (phrase): Snowflake's reference shows 56; DuckDB's Jaro-Winkler gives 57 (SFD-012). |
 | `LEFT` | Runs | 1 value check |
 | `POSITION` | Runs | 1 value check |
 | `REPLACE` | Runs | 1 value check |
 | `RIGHT` | Runs | 1 value check |
 | `STARTSWITH` | Runs | 1 value check |
 | `SUBSTR` | Runs | 1 value check |
-| `SUBSTRING` | Not checked |  |
+| `SUBSTRING` | Runs | 2 value checks |
 | `COMPRESS` | Refused | Not rewritten for DuckDB. DuckDB does not support the COMPRESS() function. |
 | `DECOMPRESS_BINARY` | Refused | Not rewritten for DuckDB. DECOMPRESS_BINARY is not supported in DuckDB. |
 | `DECOMPRESS_STRING` | Refused | Not rewritten for DuckDB. DECOMPRESS_STRING is not supported in DuckDB. |
 | `BASE64_DECODE_BINARY` | Not checked |  |
-| `BASE64_DECODE_STRING` | Not checked |  |
-| `BASE64_ENCODE` | Not checked |  |
+| `BASE64_DECODE_STRING` | Runs | 1 value check |
+| `BASE64_ENCODE` | Runs | 2 value checks |
 | `HEX_DECODE_BINARY` | Not checked |  |
-| `HEX_DECODE_STRING` | Not checked |  |
-| `HEX_ENCODE` | Not checked |  |
+| `HEX_DECODE_STRING` | Runs | 2 value checks |
+| `HEX_ENCODE` | Runs | 2 value checks |
 | `TRY_BASE64_DECODE_BINARY` | Runs | 1 value check |
 | `TRY_BASE64_DECODE_STRING` | Runs | 2 value checks |
 | `TRY_HEX_DECODE_BINARY` | Runs | 1 value check |
@@ -113,15 +113,15 @@ the known differences in more detail.
 | Function | Status | Note |
 | --- | --- | --- |
 | `MD5` | Runs | 1 value check |
-| `MD5_HEX` | Not checked |  |
+| `MD5_HEX` | Runs | 1 value check |
 | `MD5_BINARY` | Not checked |  |
 | `MD5_NUMBER_LOWER64` | Runs | 1 value check |
 | `MD5_NUMBER_UPPER64` | Runs | 1 value check |
-| `SHA1` | Not checked |  |
-| `SHA1_HEX` | Not checked |  |
+| `SHA1` | Runs | 1 value check |
+| `SHA1_HEX` | Runs | 1 value check |
 | `SHA1_BINARY` | Not checked |  |
 | `SHA2` | Runs | 1 value check |
-| `SHA2_HEX` | Not checked |  |
+| `SHA2_HEX` | Runs | 1 value check |
 | `SHA2_BINARY` | Not checked |  |
 | `HASH` | Not checked |  |
 | `HASH_AGG` | Refused | HASH_AGG: a Snowflake feature DuckDB lacks. HASH_AGG uses Snowflake's own hash, which DuckDB's hash doesn't reproduce. |
@@ -138,34 +138,34 @@ the known differences in more detail.
 | `MOD` | Runs | 1 value check |
 | `ROUND` | Runs | 2 value checks |
 | `SIGN` | Runs | 1 value check |
-| `TRUNCATE` | Not checked |  |
+| `TRUNCATE` | Runs | 3 value checks |
 | `TRUNC` | Runs | 1 value check |
-| `CBRT` | Not checked |  |
-| `EXP` | Not checked |  |
-| `FACTORIAL` | Not checked |  |
-| `POW` | Not checked |  |
+| `CBRT` | Runs | 2 value checks |
+| `EXP` | Runs | 2 value checks |
+| `FACTORIAL` | Runs | 3 value checks |
+| `POW` | Runs | 3 value checks |
 | `POWER` | Runs | 1 value check |
 | `SQRT` | Runs | 1 value check |
 | `SQUARE` | Runs | 1 value check |
-| `LN` | Not checked |  |
-| `LOG` | Not checked |  |
-| `ACOS` | Not checked |  |
-| `ACOSH` | Not checked |  |
-| `ASIN` | Not checked |  |
-| `ASINH` | Not checked |  |
-| `ATAN` | Not checked |  |
-| `ATAN2` | Not checked |  |
-| `ATANH` | Not checked |  |
-| `COS` | Not checked |  |
-| `COSH` | Not checked |  |
-| `COT` | Not checked |  |
-| `DEGREES` | Not checked |  |
-| `PI` | Not checked |  |
-| `RADIANS` | Not checked |  |
-| `SIN` | Not checked |  |
-| `SINH` | Not checked |  |
-| `TAN` | Not checked |  |
-| `TANH` | Not checked |  |
+| `LN` | Runs | 2 value checks |
+| `LOG` | Runs | 3 value checks |
+| `ACOS` | Runs | 2 value checks |
+| `ACOSH` | Runs | 1 value check |
+| `ASIN` | Runs | 1 value check |
+| `ASINH` | Runs | 1 value check |
+| `ATAN` | Runs | 1 value check |
+| `ATAN2` | Runs | 1 value check |
+| `ATANH` | Runs | 1 value check |
+| `COS` | Runs | 2 value checks; labelled SFD-003 Division returns DOUBLE |
+| `COSH` | Runs | 1 value check |
+| `COT` | Runs | 1 value check; labelled SFD-003 Division returns DOUBLE |
+| `DEGREES` | Runs | 2 value checks |
+| `PI` | Runs | 1 value check |
+| `RADIANS` | Runs | 2 value checks |
+| `SIN` | Runs | 2 value checks; labelled SFD-003 Division returns DOUBLE |
+| `SINH` | Runs | 1 value check |
+| `TAN` | Runs | 1 value check; labelled SFD-003 Division returns DOUBLE |
+| `TANH` | Runs | 1 value check |
 | `WIDTH_BUCKET` | Runs | 4 value checks |
 | `HAVERSINE` | Runs | 2 value checks |
 
@@ -174,51 +174,51 @@ the known differences in more detail.
 | Name | Status | Sample | Note |
 | --- | --- | --- | --- |
 | `DATE_FROM_PARTS` | Runs |  | 1 value check |
-| `TIME_FROM_PARTS` | Not checked |  |  |
-| `TIMESTAMP_FROM_PARTS` | Not checked |  |  |
+| `TIME_FROM_PARTS` | Runs |  | 2 value checks |
+| `TIMESTAMP_FROM_PARTS` | Runs |  | 1 value check |
 | `TIMESTAMP_LTZ_FROM_PARTS` | Not checked |  |  |
-| `TIMESTAMP_NTZ_FROM_PARTS` | Not checked |  |  |
+| `TIMESTAMP_NTZ_FROM_PARTS` | Runs |  | 1 value check |
 | `TIMESTAMP_TZ_FROM_PARTS` | Not checked |  |  |
 | `DATE_PART` | Runs |  | 1 value check |
 | `DAYNAME` | Runs |  | 1 value check |
-| `EXTRACT` | Not checked | `SELECT EXTRACT(YEAR FROM TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
+| `EXTRACT` | Runs |  | 1 value check |
 | `HOUR` | Runs |  | 1 value check |
-| `MINUTE` | Not checked | `SELECT MINUTE(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `SECOND` | Not checked | `SELECT SECOND(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
+| `MINUTE` | Runs |  | 1 value check |
+| `SECOND` | Runs |  | 1 value check |
 | `LAST_DAY` | Runs |  | 1 value check |
 | `MONTHNAME` | Runs |  | 1 value check |
 | `NEXT_DAY` | Not checked | `SELECT NEXT_DAY(TO_DATE('2024-03-05'), 'FR')` |  |
 | `PREVIOUS_DAY` | Not checked | `SELECT PREVIOUS_DAY(TO_DATE('2024-03-05'), 'FR')` |  |
 | `YEAR` | Runs |  | 1 value check |
-| `YEAROFWEEK` | Not checked | `SELECT YEAROFWEEK(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `YEAROFWEEKISO` | Not checked | `SELECT YEAROFWEEKISO(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `DAY` | Not checked | `SELECT DAY(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `DAYOFMONTH` | Not checked | `SELECT DAYOFMONTH(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
+| `YEAROFWEEK` | Runs |  | 1 value check |
+| `YEAROFWEEKISO` | Runs |  | 1 value check |
+| `DAY` | Runs |  | 1 value check |
+| `DAYOFMONTH` | Runs |  | 1 value check |
 | `DAYOFWEEK` | Runs |  | 1 value check |
-| `DAYOFWEEKISO` | Not checked | `SELECT DAYOFWEEKISO(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `DAYOFYEAR` | Not checked | `SELECT DAYOFYEAR(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `WEEK` | Not checked | `SELECT WEEK(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `WEEKOFYEAR` | Not checked | `SELECT WEEKOFYEAR(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `WEEKISO` | Not checked | `SELECT WEEKISO(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `MONTH` | Not checked | `SELECT MONTH(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `QUARTER` | Not checked | `SELECT QUARTER(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
+| `DAYOFWEEKISO` | Runs |  | 1 value check |
+| `DAYOFYEAR` | Runs |  | 1 value check |
+| `WEEK` | Runs |  | 1 value check |
+| `WEEKOFYEAR` | Runs |  | 1 value check |
+| `WEEKISO` | Runs |  | 1 value check |
+| `MONTH` | Runs |  | 1 value check |
+| `QUARTER` | Runs |  | 1 value check |
 | `ADD_MONTHS` | Runs |  | 1 value check |
 | `DATEADD` | Runs |  | 1 value check |
 | `DATEDIFF` | Runs |  | 2 value checks |
-| `MONTHS_BETWEEN` | Not checked |  |  |
+| `MONTHS_BETWEEN` | Runs |  | 3 value checks |
 | `TIMEADD` | Runs |  | 1 value check |
-| `TIMEDIFF` | Not checked | `SELECT TIMEDIFF(HOUR, TO_TIMESTAMP('2024-03-05 10:20:30'), TO_TIMESTAMP('2024-03-06 10:20:30'))` |  |
+| `TIMEDIFF` | Runs |  | 2 value checks |
 | `TIMESTAMPADD` | Runs |  | 4 value checks |
 | `TIMESTAMPDIFF` | Runs |  | 1 value check |
 | `DATE_TRUNC` | Runs |  | 1 value check |
 | `TIME_SLICE` | Runs |  | 1 value check |
 | `TO_DATE` | Runs |  | 2 value checks |
-| `DATE` | Not checked |  |  |
+| `DATE` | Runs |  | 3 value checks |
 | `TO_TIME` | Runs |  | 1 value check |
 | `TIME` | Runs |  | 2 value checks |
-| `TO_TIMESTAMP` | Not checked |  |  |
+| `TO_TIMESTAMP` | Runs |  | 2 value checks |
 | `TO_TIMESTAMP_LTZ` | Differs |  | SFD-004 Local time zone is this PC's |
-| `TO_TIMESTAMP_NTZ` | Not checked |  |  |
+| `TO_TIMESTAMP_NTZ` | Runs |  | 2 value checks |
 | `TO_TIMESTAMP_TZ` | Differs |  | SFD-002 TIMESTAMP_TZ loses its offset |
 | `CONVERT_TIMEZONE` | Not checked |  |  |
 
@@ -233,18 +233,18 @@ the known differences in more detail.
 | `TO_BINARY` | Not checked |  |  |
 | `TRY_TO_BINARY` | Not checked |  |  |
 | `TO_DECFLOAT` | Refused |  | DECFLOAT. DuckDB has no decimal floating-point type to hold Snowflake's DECFLOAT (38 significant digits with an exponent). |
-| `TO_DECIMAL` | Not checked |  |  |
+| `TO_DECIMAL` | Runs |  | 2 value checks |
 | `TO_NUMBER` | Runs |  | 1 value check |
-| `TO_NUMERIC` | Not checked |  |  |
-| `TO_DOUBLE` | Not checked |  |  |
+| `TO_NUMERIC` | Runs |  | 2 value checks |
+| `TO_DOUBLE` | Runs |  | 2 value checks |
 | `TRY_TO_DECFLOAT` | Refused |  | DECFLOAT. DuckDB has no decimal floating-point type to hold Snowflake's DECFLOAT (38 significant digits with an exponent). |
 | `TRY_TO_DECIMAL` | Not checked |  |  |
 | `TRY_TO_NUMBER` | Runs |  | 1 value check |
 | `TRY_TO_NUMERIC` | Not checked |  |  |
 | `TRY_TO_DOUBLE` | Not checked |  |  |
 | `TO_BOOLEAN` | Runs |  | 1 value check |
-| `TRY_TO_BOOLEAN` | Not checked |  |  |
-| `TRY_TO_DATE` | Not checked |  |  |
+| `TRY_TO_BOOLEAN` | Runs |  | 2 value checks |
+| `TRY_TO_DATE` | Runs |  | 4 value checks |
 | `TRY_TO_TIME` | Not checked |  |  |
 | `TRY_TO_TIMESTAMP` | Not checked |  |  |
 | `TRY_TO_TIMESTAMP_LTZ` | Differs |  | SFD-004 Local time zone is this PC's |
@@ -355,52 +355,52 @@ the known differences in more detail.
 
 ## Aggregate
 
-| Name | Status | Sample | Note |
-| --- | --- | --- | --- |
-| `ANY_VALUE` | Runs |  | 1 value check |
-| `AVG` | Not checked |  |  |
-| `CORR` | Not checked |  |  |
-| `COUNT` | Not checked |  |  |
-| `COUNT_IF` | Runs |  | 1 value check |
-| `COVAR_POP` | Not checked |  |  |
-| `COVAR_SAMP` | Not checked |  |  |
-| `LISTAGG` | Runs |  | 1 value check |
-| `MAX` | Not checked |  |  |
-| `MAX_BY` | Not checked |  |  |
-| `MEDIAN` | Runs |  | 1 value check |
-| `MIN` | Not checked |  |  |
-| `MIN_BY` | Not checked |  |  |
-| `MODE` | Not checked |  |  |
-| `PERCENTILE_CONT` | Not checked | `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY a) FROM t` |  |
-| `PERCENTILE_DISC` | Not checked | `SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY a) FROM t` |  |
-| `STDDEV` | Not checked |  |  |
-| `STDDEV_SAMP` | Runs |  | 1 value check |
-| `STDDEV_POP` | Not checked |  |  |
-| `SUM` | Not checked |  |  |
-| `VAR_POP` | Not checked |  |  |
-| `VAR_SAMP` | Not checked |  |  |
-| `VARIANCE` | Not checked |  |  |
-| `VARIANCE_SAMP` | Not checked |  |  |
-| `VARIANCE_POP` | Not checked |  |  |
-| `BITAND_AGG` | Not checked |  |  |
-| `BITOR_AGG` | Not checked |  |  |
-| `BITXOR_AGG` | Not checked |  |  |
-| `BOOLAND_AGG` | Not checked |  |  |
-| `BOOLOR_AGG` | Runs |  | 1 value check |
-| `BOOLXOR_AGG` | Not checked |  |  |
-| `REGR_AVGX` | Not checked |  |  |
-| `REGR_AVGY` | Not checked |  |  |
-| `REGR_COUNT` | Not checked |  |  |
-| `REGR_INTERCEPT` | Not checked |  |  |
-| `REGR_R2` | Not checked |  |  |
-| `REGR_SLOPE` | Not checked |  |  |
-| `REGR_SXX` | Not checked |  |  |
-| `REGR_SXY` | Not checked |  |  |
-| `REGR_SYY` | Not checked |  |  |
-| `KURTOSIS` | Not checked |  |  |
-| `SKEW` | Not checked |  |  |
-| `GROUPING` | Runs |  | 2 value checks |
-| `GROUPING_ID` | Runs |  | 1 value check |
+| Function | Status | Note |
+| --- | --- | --- |
+| `ANY_VALUE` | Runs | 1 value check |
+| `AVG` | Runs | 2 value checks |
+| `CORR` | Runs | 1 value check |
+| `COUNT` | Runs | 3 value checks |
+| `COUNT_IF` | Runs | 1 value check |
+| `COVAR_POP` | Runs | 1 value check |
+| `COVAR_SAMP` | Runs | 1 value check |
+| `LISTAGG` | Runs | 1 value check |
+| `MAX` | Runs | 1 value check |
+| `MAX_BY` | Runs | 2 value checks |
+| `MEDIAN` | Runs | 1 value check |
+| `MIN` | Runs | 1 value check |
+| `MIN_BY` | Runs | 2 value checks |
+| `MODE` | Runs | 2 value checks |
+| `PERCENTILE_CONT` | Runs | 2 value checks |
+| `PERCENTILE_DISC` | Runs | 2 value checks |
+| `STDDEV` | Runs | 1 value check |
+| `STDDEV_SAMP` | Runs | 1 value check |
+| `STDDEV_POP` | Differs | STDDEV_POP: Snowflake's reference shows 3.265986375; the square root of 32/3 is 3.265986324 (SFD-013). |
+| `SUM` | Runs | 1 value check |
+| `VAR_POP` | Runs | 2 value checks |
+| `VAR_SAMP` | Runs | 2 value checks |
+| `VARIANCE` | Runs | 1 value check |
+| `VARIANCE_SAMP` | Not checked |  |
+| `VARIANCE_POP` | Not checked |  |
+| `BITAND_AGG` | Runs | 2 value checks |
+| `BITOR_AGG` | Runs | 2 value checks |
+| `BITXOR_AGG` | Runs | 2 value checks |
+| `BOOLAND_AGG` | Runs | 2 value checks |
+| `BOOLOR_AGG` | Runs | 1 value check |
+| `BOOLXOR_AGG` | Runs | 2 value checks |
+| `REGR_AVGX` | Runs | 1 value check |
+| `REGR_AVGY` | Runs | 1 value check |
+| `REGR_COUNT` | Runs | 1 value check |
+| `REGR_INTERCEPT` | Runs | 1 value check |
+| `REGR_R2` | Runs | 1 value check |
+| `REGR_SLOPE` | Runs | 1 value check |
+| `REGR_SXX` | Runs | 1 value check |
+| `REGR_SXY` | Runs | 1 value check |
+| `REGR_SYY` | Runs | 1 value check |
+| `KURTOSIS` | Runs | 2 value checks |
+| `SKEW` | Differs | SKEW: Snowflake's reference shows 0.05240788515; the exact sample skewness is 0.05240784322 (SFD-013). |
+| `GROUPING` | Runs | 2 value checks |
+| `GROUPING_ID` | Runs | 1 value check |
 
 ## Approximate and sketches
 
@@ -446,32 +446,32 @@ the known differences in more detail.
 | `INTERPOLATE_LINEAR` | Runs | 1 value check; labelled SFD-011 INTERPOLATE_LINEAR gives a DOUBLE |
 | `RATIO_TO_REPORT` | Runs | 5 value checks |
 | `CUME_DIST` | Not checked |  |
-| `DENSE_RANK` | Not checked |  |
+| `DENSE_RANK` | Runs | 1 value check |
 | `FIRST_VALUE` | Not checked |  |
-| `LAG` | Not checked |  |
+| `LAG` | Runs | 2 value checks |
 | `LAST_VALUE` | Not checked |  |
 | `LEAD` | Not checked |  |
-| `NTH_VALUE` | Not checked |  |
+| `NTH_VALUE` | Runs | 1 value check |
 | `NTILE` | Not checked |  |
 | `PERCENT_RANK` | Not checked |  |
-| `RANK` | Not checked |  |
+| `RANK` | Runs | 1 value check |
 | `ROW_NUMBER` | Not checked |  |
 
 ## Conditional
 
 | Function | Status | Note |
 | --- | --- | --- |
-| `BOOLAND` | Not checked |  |
-| `BOOLNOT` | Not checked |  |
-| `BOOLOR` | Not checked |  |
-| `BOOLXOR` | Not checked |  |
+| `BOOLAND` | Runs | 4 value checks |
+| `BOOLNOT` | Runs | 3 value checks |
+| `BOOLOR` | Runs | 4 value checks |
+| `BOOLXOR` | Runs | 4 value checks |
 | `COALESCE` | Runs | 1 value check |
 | `DECODE` | Runs | 2 value checks |
 | `EQUAL_NULL` | Runs | 1 value check |
 | `GREATEST` | Runs | 2 value checks |
-| `GREATEST_IGNORE_NULLS` | Not checked |  |
+| `GREATEST_IGNORE_NULLS` | Runs | 2 value checks |
 | `LEAST` | Runs | 1 value check |
-| `LEAST_IGNORE_NULLS` | Not checked |  |
+| `LEAST_IGNORE_NULLS` | Runs | 2 value checks |
 | `IFF` | Runs | 1 value check |
 | `IFNULL` | Runs | 1 value check |
 | `NULLIF` | Runs | 1 value check |
@@ -487,12 +487,12 @@ the known differences in more detail.
 | Function | Status | Note |
 | --- | --- | --- |
 | `BITAND` | Runs | 1 value check |
-| `BITNOT` | Not checked |  |
-| `BITOR` | Not checked |  |
-| `BITSHIFTLEFT` | Not checked |  |
-| `BITSHIFTRIGHT` | Not checked |  |
-| `BITXOR` | Not checked |  |
-| `GETBIT` | Not checked |  |
+| `BITNOT` | Runs | 2 value checks |
+| `BITOR` | Runs | 1 value check |
+| `BITSHIFTLEFT` | Runs | 1 value check |
+| `BITSHIFTRIGHT` | Runs | 1 value check |
+| `BITXOR` | Runs | 1 value check |
+| `GETBIT` | Runs | 3 value checks |
 
 ## Context
 

@@ -34,7 +34,8 @@ def test_everyday_tsql_runs_and_gives_tsql_answers(engine):
 
 def test_integers_divide_and_average_as_integers(engine):
     r = tsql(engine, "SELECT qty / boxes AS per, 7 / 2 AS lit, price / boxes AS dec FROM dbo.orders ORDER BY id")
-    assert r["rows"] == [[3, 3, 1.25], [-3, 3, 2.0]]  # truncated toward zero, as T-SQL does
+    # Integers truncate toward zero; decimal(2,1) / int is decimal(13,12), as in a Warehouse.
+    assert r["rows"] == [[3, 3, "1.250000000000"], [-3, 3, "2.000000000000"]]
     assert tsql(engine, "SELECT AVG(boxes + id) AS a FROM dbo.orders")["rows"] == [[3]]  # (3 + 4) / 2
 
 
@@ -42,7 +43,8 @@ def test_an_integer_average_over_a_window_is_an_integer(engine):
     # The whole AVG(...) OVER (...) is cut, not the AVG inside it (that was a parser error).
     r = tsql(engine, "SELECT AVG(id) OVER () AS a, AVG(qty - id) OVER (ORDER BY id ROWS BETWEEN 1 PRECEDING "
                      "AND CURRENT ROW) AS b, AVG(price) OVER () AS c FROM dbo.orders ORDER BY id")
-    assert r["rows"] == [[1, 6, 3.25], [1, -1, 3.25]]  # 1.5 and -1.5 toward zero; non-integers are not cut
+    # 1.5 and -1.5 toward zero; a decimal average is decimal(38, 6), as in a Warehouse.
+    assert r["rows"] == [[1, 6, "3.250000"], [1, -1, "3.250000"]]
 
 
 def test_len_weekday_week_and_plus_on_text(engine):

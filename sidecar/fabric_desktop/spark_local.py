@@ -313,6 +313,17 @@ class LakehouseWriter:
         self._partition_by = [str(c) for c in flat]
         return self
 
+    def bucketBy(self, numBuckets: int, col: Any, *cols: Any) -> LakehouseWriter:  # noqa: N802, N803, ARG002
+        """Refused, as in Fabric: a lakehouse table is a Delta table, and Delta tables have no buckets."""
+        raise ValueError("Delta tables have no buckets, so this PC refuses bucketBy as Fabric does (\"Operation not "
+                         "allowed: Bucketing is not supported for Delta tables\"). Leave bucketBy out, or use "
+                         "partitionBy to split the table into folders.")
+
+    def sortBy(self, col: Any, *cols: Any) -> LakehouseWriter:  # noqa: N802, ARG002
+        """Refused: sortBy only goes with bucketBy, which Delta tables don't have."""
+        raise ValueError("sortBy only goes with bucketBy, and Delta tables have no buckets, so this PC refuses it as "
+                         "Fabric does. Leave it out, or sort the DataFrame with orderBy before you write it.")
+
     def _table_partitions_note(self) -> None:
         if getattr(self, "_partition_by", None):
             print("Note: partitionBy is ignored on this PC; the table is written without partitions.")
@@ -581,6 +592,10 @@ REFUSED_CODE: list[tuple[re.Pattern[str], str]] = [
      "opens DeltaTable.forPath outside the lakehouse's Tables/, which this PC's Spark refuses (use DeltaTable.forName)"),
     (re.compile(r"""\.write\b[^\n]*?\.(?:orc\(|format\(\s*["']orc["']\s*\))"""),
      "writes an ORC file, which this PC's Spark refuses (write Parquet, or run the cell in Fabric)"),
+    (re.compile(r"\binput_file_name\s*\("),
+     "calls input_file_name(), which this PC's Spark refuses: it doesn't track the file each row came from"),
+    (re.compile(r"\.applyInPandasWithState\s*\("),
+     "calls applyInPandasWithState, which this PC's Spark refuses: state across a stream's micro-batches runs in Fabric"),
 ]
 # DeltaTable maintenance (spark_maint, Preview): runs on this PC only with Preview features on (_preview_on).
 DELTA_MAINTENANCE = ("restoreToVersion", "restoreToTimestamp", "vacuum", "optimize")

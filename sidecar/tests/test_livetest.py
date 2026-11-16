@@ -219,7 +219,24 @@ def test_delete_lakehouse_calls_the_documented_endpoint():
 
 import base64  # noqa: E402
 
+import time  # noqa: E402
+
 from deltalake import write_deltalake  # noqa: E402
+
+from fabric_desktop.retrying import staged_commit_race  # noqa: E402
+
+
+def write_local(tmp_path, ref, data, mode, **kw):
+    """The tests' stand-in for writing a OneLake table, on local disk. On Windows two threads appending
+    at once can lose the staged-commit race (retrying.staged_commit_race), which OneLake never gives;
+    an append that lost it committed nothing, so it is sent again, as meta/store.py does locally."""
+    for attempt in range(5):
+        try:
+            return write_deltalake(str(tmp_path / "delta" / ref.lakehouse_id / ref.table), data, mode=mode, **kw)
+        except OSError as exc:
+            if mode != "append" or attempt == 4 or not staged_commit_race(exc):
+                raise
+            time.sleep(0.05 * (attempt + 1))
 
 
 def _b64(text):
@@ -300,7 +317,7 @@ def local_writer(tmp_path, fail_once=None, drop=None):
             raise RuntimeError("CommitFailedError: Transaction failed: version already exists")
         if drop and who == drop:
             return
-        write_deltalake(str(tmp_path / "delta" / ref.lakehouse_id / ref.table), data, mode=mode)
+        write_local(tmp_path, ref, data, mode)
     return write
 
 
@@ -354,7 +371,7 @@ def test_all_opt_in_checks_pass_and_their_items_are_deleted(tmp_path):
 def test_a_writer_that_lost_the_commit_race_is_reported_as_retried(tmp_path):
     result = extra_harness(tmp_path, extra={"delta.concurrent"}, writer=local_writer(tmp_path, fail_once="B")).run()
     check = by_id(result)["delta.concurrent"]
-    assert check["status"] == "passed", check
+    assert check["status"] == "passed", check["detail"]  # the detail says which writer failed and how
     # The forced failure costs B one attempt; the two writers can also really collide, which costs more.
     retried = re.search(r"writer B retried \((\d+) attempts\)", check["detail"])
     assert retried and int(retried[1]) >= 2, check
@@ -555,7 +572,7 @@ def test_the_mailbox_check_is_skipped_without_the_lakehouse(tmp_path):
 
 def merge_writer(tmp_path):
     def write(ref, data, mode):
-        write_deltalake(str(tmp_path / "delta" / ref.lakehouse_id / ref.table), data, mode=mode)
+        write_local(tmp_path, ref, data, mode)
     return write
 
 
@@ -644,7 +661,7 @@ def _losing_writer(tmp_path, who, times, error="CommitFailedError: Transaction f
         if data.column("writer")[0].as_py() == who and len(lost) < times:
             lost.append(1)
             raise RuntimeError(error)
-        write_deltalake(str(tmp_path / "delta" / ref.lakehouse_id / ref.table), data, mode=mode)
+        write_local(tmp_path, ref, data, mode)
     return write
 
 
@@ -653,7 +670,7 @@ def test_a_writer_retries_a_lost_race_twice_waiting_1_then_2_seconds(tmp_path):
     result = extra_harness(tmp_path, extra={"delta.concurrent"}, writer=_losing_writer(tmp_path, "A", 2),
                            sleep=slept.append).run()
     check = by_id(result)["delta.concurrent"]
-    assert check["status"] == "passed", check
+    assert check["status"] == "passed", check["detail"]  # the detail says which writer failed and how
     assert "writer A retried (3 attempts)" in check["detail"]
     assert [s for s in slept if s in (1, 2)][:2] == [1, 2]
 
@@ -666,3 +683,22 @@ def test_a_writer_that_loses_three_times_or_fails_otherwise_fails_the_check(tmp_
                            writer=_losing_writer(tmp_path / "2", "B", 1, error="403 Forbidden")).run()
     check = by_id(result)["delta.concurrent"]
     assert check["status"] == "failed" and "Writer B failed: RuntimeError: 403 Forbidden" in check["detail"], check
+
+
+def test_the_local_stand_in_sends_an_append_again_after_the_windows_staged_commit_race(tmp_path, monkeypatch):
+    import sys
+    calls = []
+    race = OSError("Generic LocalFileSystem error: Unable to open file "
+                   "D:\\t\\_delta_log\\00000000000000000002.json#1: Access is denied. (os error 5)")
+
+    def write(*a, **k):
+        calls.append(k["mode"])
+        if len(calls) == 1:
+            raise race
+    monkeypatch.setattr(sys.modules[__name__], "write_deltalake", write)
+    ref = livetest.TableRef("ws", "lh", "dbo", "t")
+    write_local(tmp_path, ref, None, "append")
+    assert calls == ["append", "append"]
+    calls.clear()
+    with pytest.raises(OSError):  # an overwrite isn't sent again
+        write_local(tmp_path, ref, None, "overwrite")

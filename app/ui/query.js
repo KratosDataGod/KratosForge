@@ -370,7 +370,8 @@ function renderQuery() {
       if (ok) return run(query, ["local_mutation"]);
     }
     if (status?.state === "completed") {
-      tab.ranNotice = wh ? "" : localNotice(query);
+      // Local T-SQL: where this PC's answer can differ from a warehouse's (a decimal done in floating point, say).
+      tab.ranNotice = wh ? "" : [localNotice(query), ...(status.notes || [])].filter(Boolean).join(" ");
       tab.resultQuery = query;  // for Copy › INSERT statements, which names the query's table
       if (tab.exportAfter) { const fmt = tab.exportAfter; delete tab.exportAfter; exportResult(fmt); }
     } else if (status && !tab.errorRetry) {  // a failed engine call keeps its own message and Retry

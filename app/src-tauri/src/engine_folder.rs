@@ -246,7 +246,7 @@ mod windows_tests {
     use crate::policy_trust::{admin_only_ancestor, admin_only_engine};
     use std::path::{Path, PathBuf};
 
-    const BUILD: &str = "0123456789abcdef0123456789abcdef01234567";
+    const BUILD: &str = "kf-test-build";
     const ADMINS: &str = "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)";
 
     /// An engine folder on the system drive with one build in it, removed on drop.

@@ -228,7 +228,7 @@ In a notebook, the explorer's **Resources** tab lists the notebook's **Built-in 
 
 ## Scratch console (Preview)
 
-**Scratch** (View tab) opens a console beside the cells. It runs in the notebook's own session, so it sees the same variables, DataFrames and imports as the cells, and what it sets shows in **Variables**; but nothing typed there is saved in the notebook. Type Python and press **Shift+Enter** (or **Run**); **Up** and **Down** at the start or end of the box step through what ran before. **Copy to a new cell** adds what's in the box, or else the last line that ran, as a new cell at the end of the notebook. **Clear** empties the console. It runs on this PC only, one run at a time: while a cell is running it waits, and a notebook that runs in Fabric or on another engine can't use it.
+**Scratch** (View tab) opens a console beside the cells. It runs in the notebook's own session, so it sees the same variables, DataFrames and imports as the cells, and what it sets shows in **Variables**; but nothing typed there is saved in the notebook. Type Python and press **Shift+Enter** (or **Run**); **Up** and **Down** at the start or end of the box step through what ran before. **Copy to a new cell** adds what's in the box, or else the last line that ran, as a new cell at the end of the notebook. **Clear** empties the console. It runs on this PC only, one run at a time: while a cell is running, run it again when the cell finishes, and a notebook that runs in Fabric or on another engine can't use it.
 
 ## Fabric and Databricks notebook formats (Preview)
 

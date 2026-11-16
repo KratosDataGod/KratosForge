@@ -33,7 +33,7 @@ function consolePanel(nb) {
   if (!c.open) return null;
   const blocked = consoleBlocked(nb);
   const log = h("div", { class: "console-log", role: "log", "aria-label": "Scratch results", "aria-live": "polite" },
-    c.entries.length ? c.entries.map(consoleEntry) : h("p", { class: "muted-text small" }, "Type Python and press Shift+Enter. df.count(), df.columns..."));
+    c.entries.length ? c.entries.map(consoleEntry) : h("p", { class: "muted-text small" }, "Type Python and press Shift+Enter. Try df.count() or df.columns."));
   const input = h("textarea", { class: "console-input", rows: "2", "aria-label": "Scratch input", spellcheck: "false",
     placeholder: "Python, in this notebook's session", disabled: blocked ? true : null,
     oninput: (e) => { c.draft = e.target.value; c.at = null; },
@@ -88,7 +88,7 @@ async function consoleRun(nb) {
   if (!code) return;
   const blocked = consoleBlocked(nb);
   if (blocked) { toast(blocked); return; }
-  if (kernelBusy(nb)) { toast("A cell is running. The scratch console runs when it finishes."); return; }
+  if (kernelBusy(nb)) { toast("A cell is running. Run this again when it finishes."); return; }
   const entry = { code, outputs: [], status: "running" };
   c.entries.push(entry);
   c.entries.splice(0, Math.max(0, c.entries.length - CONSOLE_MAX_ENTRIES));

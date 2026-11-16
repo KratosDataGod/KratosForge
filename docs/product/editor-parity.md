@@ -132,7 +132,7 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S15 | Stop a running query | Y | Y | Y | Y | Y | Have | `sql_cancel` |
 | S16 | Time, rows and a Messages view | Y | Y | Y | Y | Y | Have | `query.js:604` |
 | S17 | Query variables and parameters | Y | P | Y | Y | Y | Gap | |
-| S18 | Transactions and auto-commit control | Y | Y | Y | Y | P | Partial | warehouse changes go through Allow changes and a confirm; no open transaction across runs |
+| S18 | Transactions and auto-commit control | Y | Y | Y | Y | P | Partial | warehouse changes go through Allow changes and a confirm; a script wrapped in `BEGIN TRAN` ... `COMMIT` runs as one guarded transaction (WR-204); no open transaction across runs |
 | S19 | Sort the result grid by a column | P | Y | Y | Y | Y | Gap | plain table (`drawResults` in `query.js`) |
 | S20 | Filter or search the result grid | N | Y | Y | Y | Y | Gap | |
 | S21 | Resize and reorder result columns | Y | Y | Y | Y | Y | Gap | |

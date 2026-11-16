@@ -699,6 +699,35 @@ test("the result grid selects a block of cells, moves with the keys, and copies 
   assert.strictEqual(sqlValueText(1204330.5), "1204330.5");
 });
 
+test("the result grid keeps a column layout for one set of names: widths, hidden columns and order", () => {
+  const ctx = {};
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8")}; Object.assign(this, { sqlGridLayoutFor, sqlGridWidthCss, sqlGridMoveColumn, sqlGridCarry, sqlGridBlock });`, ctx);
+  const { sqlGridLayoutFor, sqlGridWidthCss, sqlGridMoveColumn, sqlGridCarry, sqlGridBlock } = ctx;
+  const cols = [{ name: "region" }, { name: "orders" }, { name: "revenue" }];
+  const g = {};
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(g, cols)), [0, 1, 2]);
+  g.hidden = [1];
+  g.order = sqlGridMoveColumn([0, 1, 2], 2, -2);
+  assert.deepStrictEqual(plain(g.order), [2, 0, 1]);
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(g, cols)), [2, 0], "revenue first, orders hidden");
+  assert.deepStrictEqual(plain(sqlGridMoveColumn([0, 1, 2], 0, -1)), [0, 1, 2], "the first can't go up");
+  g.hidden = [0, 1, 2];
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(g, cols)), [2, 0, 1], "never no columns at all");
+  g.hidden = [1];
+  g.widths = { 2: 180.4 };
+  assert.strictEqual(sqlGridWidthCss(g.widths), '.sql-result-table [data-col="2"] { width: 180px; min-width: 180px; max-width: 180px; }');
+  const next = sqlGridCarry(g);
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(next, cols)), [2, 0], "a new run with the same columns keeps the layout");
+  assert.deepStrictEqual(plain(next.sort), []);
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(next, [{ name: "x" }, { name: "y" }])), [0, 1], "other columns start again");
+  assert.deepStrictEqual(plain(next.widths), {});
+  assert.strictEqual(sqlGridCarry({ sort: [] }), null);
+  const r = { columns: cols, rows: [["West", 4812, 1.5], ["North", 3977, 2.5]] };
+  assert.deepStrictEqual(plain(sqlGridBlock(r, { a: { r: 0, c: 0 }, f: { r: 1, c: 1 } }, [2, 0])),
+    { columns: [{ name: "revenue" }, { name: "region" }], rows: [[1.5, "West"], [2.5, "North"]] }, "a selection is of the columns on screen");
+  assert.deepStrictEqual(plain(sqlGridBlock(r, null, [2])).columns, [{ name: "revenue" }]);
+});
+
 test("hovering finds the function, table, alias or column under the pointer", () => {
   const { sqlHoverTarget } = sqlEditorHelpers();
   const cols = { sales: [{ name: "amount", type: "decimal" }, { name: "Region Name", type: "string" }], budget: [{ name: "year", type: "int" }] };

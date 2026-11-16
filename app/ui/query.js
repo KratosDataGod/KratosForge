@@ -352,7 +352,7 @@ function renderQuery() {
     if (wh && !sqlPage.catalog) loadCatalog();
     tab.running = true;
     const startedAt = Date.now();
-    Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "", chart: null, grid: null });
+    Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "", chart: null, grid: sqlGridCarry(tab.grid) });
     drawResults();
     let status;
     try {
@@ -472,10 +472,10 @@ function renderQuery() {
     if (!r || !r.rows.length) return;
     const g = sqlGridState(tab);
     const text = sqlGridCopyText(format, r, g.sel,
-      { dialect: tab.dialect, table: format === "insert" ? sqlInsertTable(tab.resultQuery, tab.dialect) : undefined });
+      { dialect: tab.dialect, table: format === "insert" ? sqlInsertTable(tab.resultQuery, tab.dialect) : undefined, vis: g.vis });
     const copied = await attempt(() => navigator.clipboard.writeText(text).then(() => true), "Could not copy");
     if (!copied) return;
-    const b = sqlGridBlock(r, g.sel);
+    const b = sqlGridBlock(r, g.sel, g.vis);
     const cells = b.rows.length * b.columns.length;
     toast(format === "cells" ? `Copied ${cells.toLocaleString()} cell${cells === 1 ? "" : "s"}`
       : `Copied ${b.rows.length.toLocaleString()} row${b.rows.length === 1 ? "" : "s"}${COPY_SEL[format]}`);
@@ -484,7 +484,7 @@ function renderQuery() {
   function cellMenu(td) {
     const g = sqlGridState(tab);
     if (!td || !g.sel) return;
-    const at = g.sel.f;
+    const at = { r: g.sel.f.r, c: g.vis?.[g.sel.f.c] ?? g.sel.f.c };  // the result's column, not its place on screen
     const table = grid.querySelector("table");
     const item = (label, key, action, first) => h("button", { type: "button", class: `tool${first ? " sql-menu-group" : ""}`,
       ...(key ? { "aria-keyshortcuts": key.replace(/Ctrl/g, "Control") } : {}),
@@ -499,6 +499,27 @@ function renderQuery() {
       item("Copy as INSERT statements", null, () => copySelection("insert")),
       item("Open value", "Enter", () => openValue(at), true),
       item("Column statistics", null, () => columnStats(at.c))]);
+  }
+  // Columns...: show, hide and reorder the grid's columns; the dialog's list follows each change.
+  function columnsDialog() {
+    const r = tab.result;
+    if (!r?.columns.length) return;
+    const g = sqlGridState(tab);
+    sqlGridLayoutFor(g, r.columns);
+    const box = h("div", {});
+    const draw = (moved, dir) => {
+      box.replaceChildren(sqlColumnsBody(r.columns, g, { change: (k, d) => { g.sel = null; draw(k, d); drawResults(); } }));
+      if (moved !== undefined) {
+        const name = r.columns[moved].name;
+        const again = box.querySelector(`button[aria-label="Move ${CSS.escape(name)} ${dir}"]`);
+        (again && !again.disabled ? again : box.querySelector(`button[aria-label="Move ${CSS.escape(name)} ${dir === "up" ? "down" : "up"}"]`))?.focus();
+      }
+    };
+    draw();
+    showDialog("Columns", box, [
+      btn("Show all", null, () => { Object.assign(g, { hidden: [], order: null, widths: {}, sel: null }); draw(); drawResults(); }, "tool outline",
+        { title: "Every column, in the result's order, at its own width" }),
+      btn("Done", null, closeDialog, "tool primary")]);
   }
   function openValue(at) {
     sqlGridState(tab).side = { kind: "value", at };
@@ -806,6 +827,8 @@ function renderQuery() {
       r && r.columns.length ? btn("Filter", null, toggleFilter, `tool small${tab.grid?.filterOn ? " toggled" : ""}`,
         { "aria-pressed": String(!!tab.grid?.filterOn),
           title: "A filter box under each column. Filters and sort apply to every row of the result on this PC; nothing runs again." }) : null,
+      r && r.columns.length ? btn("Columns...", null, columnsDialog, "tool small",
+        { title: "Show, hide and reorder the grid's columns" }) : null,
       copyMenu,
       exportMenu,
       h("span", { class: "sql-sep", "aria-hidden": "true" }),

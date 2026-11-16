@@ -50,6 +50,10 @@ Click a cell to select it; Shift+click or drag selects a block, a row's number s
 
 Right-click a cell, or press Shift+F10, for the menu. Column statistics are over every row of the result's snapshot on this PC, not just the page, and ignore the filters; nothing runs again.
 
+### Arrange the columns
+
+Drag the edge of a column's header to resize it, or focus the edge and use the left and right arrow keys; double-click the edge to fit the column again. **Columns...** shows, hides and reorders the columns. A hidden column isn't shown or copied, but sort, filters and Export still cover every column. The layout stays for the tab's next run while the query returns the same column names; **Show all** puts every column back, in order and at its own width.
+
 ## Export
 
 **Export ▾** saves the whole result, not just the page you see, to your Downloads folder:

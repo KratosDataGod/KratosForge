@@ -1029,6 +1029,18 @@ h2.flush { margin: 0; }
 .menu .tool .sql-menu-key { margin-left: auto; padding-left: 16px; color: var(--muted); font-size: 12px; }
 .menu .tool.sql-menu-group { margin-top: 5px; position: relative; }
 .menu .tool.sql-menu-group::before { content: ""; position: absolute; left: 6px; right: 6px; top: -3px; border-top: 1px solid var(--border-soft); }
+.sql-grid .sql-result-table.sized { min-width: 0; }
+.sql-grid th .sql-col-resize { position: absolute; top: 0; right: -1px; bottom: 0; width: 7px; cursor: col-resize; touch-action: none; }
+.sql-grid th .sql-col-resize:hover, .sql-grid th .sql-col-resize:focus-visible { background: var(--accent); opacity: 0.5; outline: none; }
+.sql-grid th[data-col] { padding-right: 14px; }
+.sql-grid-hidden { padding: 6px 12px; font-size: 12px; }
+.sql-columns { display: flex; flex-direction: column; gap: 8px; min-width: 320px; }
+.sql-columns p { margin: 0; font-size: 12.5px; }
+.sql-columns-list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow: auto; border: 1px solid var(--border-soft); border-radius: var(--r-sm); }
+.sql-columns-list li { display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-bottom: 1px solid var(--border-soft); }
+.sql-columns-list li:last-child { border-bottom: 0; }
+.sql-columns-list label { flex: 1; display: flex; align-items: baseline; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.sql-columns-list label .muted-text { font-size: 12px; }
 @media (forced-colors: active) { .sql-grid td.sel { forced-color-adjust: none; background: Highlight; color: HighlightText; } }
 @media (max-width: 760px) { .sql-side-box { width: 200px; } }
 .sql-table-row { display: flex; align-items: center; }

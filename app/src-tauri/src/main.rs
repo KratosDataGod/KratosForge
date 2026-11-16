@@ -626,7 +626,11 @@ fn unix_now() -> i64 {
 
 /// The build the exe that started this one updated to (`--updated-to <commit>`).
 fn updated_to_arg() -> Option<String> {
-    let args: Vec<String> = std::env::args().collect();
+    updated_to(&std::env::args().collect::<Vec<_>>())
+}
+
+/// The value after the first `--updated-to` in `args`, if there is one.
+fn updated_to(args: &[String]) -> Option<String> {
     args.iter().position(|a| a == "--updated-to").and_then(|i| args.get(i + 1)).cloned()
 }
 
@@ -3132,6 +3136,35 @@ mod python_choice_tests {
 }
 
 #[cfg(test)]
+mod updated_to_tests {
+    use super::updated_to;
+
+    fn args(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn the_build_after_updated_to_is_read() {
+        assert_eq!(updated_to(&args(&["kf.exe", "--updated-to", "abc123"])).as_deref(), Some("abc123"));
+        assert_eq!(updated_to(&args(&["kf.exe", "--other", "--updated-to", "abc123", "more"])).as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn the_first_updated_to_counts() {
+        assert_eq!(updated_to(&args(&["kf.exe", "--updated-to", "first", "--updated-to", "second"])).as_deref(), Some("first"));
+    }
+
+    #[test]
+    fn without_a_value_or_the_flag_there_is_none() {
+        assert_eq!(updated_to(&args(&["kf.exe"])), None);
+        assert_eq!(updated_to(&args(&["kf.exe", "--updated-to"])), None);
+        assert_eq!(updated_to(&args(&["kf.exe", "--updated-to=abc123"])), None);
+        assert_eq!(updated_to(&args(&["kf.exe", "--UPDATED-TO", "abc123"])), None);
+        assert_eq!(updated_to(&[]), None);
+    }
+}
+
+#[cfg(test)]
 mod integrity_tests {
     use super::*;
 
@@ -4043,8 +4076,6 @@ mod sidecar_bridge_tests {
     }
 }
 
-/// The page asks the shell to open links and files; these are the asks it refuses before anything is
-/// started. (The ones it allows start the browser, the mail app or VS Code, so they aren't run here.)
 #[cfg(test)]
 mod policy_rule_tests {
     use super::{channel_tag, mirror_from};
@@ -4092,6 +4123,8 @@ mod policy_rule_tests {
     }
 }
 
+/// The page asks the shell to open links and files; these are the asks it refuses before anything is
+/// started. (The ones it allows start the browser, the mail app or VS Code, so they aren't run here.)
 #[cfg(test)]
 mod open_refusal_tests {
     use super::*;

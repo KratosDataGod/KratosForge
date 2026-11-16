@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import csv
 import io
+from collections.abc import Iterator
 from typing import Any
 
 from . import semantic
@@ -108,7 +109,14 @@ def read_csv(text: str) -> list[dict[str, str]]:
     text = text.lstrip("﻿")
     first = text.split("\n", 1)[0]
     delimiter = ";" if first.count(";") > first.count(",") else ","
-    reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+    try:
+        return _rows(csv.reader(io.StringIO(text), delimiter=delimiter))
+    except csv.Error as exc:  # how a lenient reader fails: a cell past csv's field size limit
+        raise ValueError(f"A cell in this file is over {csv.field_size_limit():,} characters, "
+                         "so it isn't a data dictionary.") from exc
+
+
+def _rows(reader: Iterator[list[str]]) -> list[dict[str, str]]:
     head = next(reader, None)
     if not head or [h.strip().lower() for h in head[:len(HEADER)]] != [h.lower() for h in HEADER]:
         raise ValueError(f"This isn't a data dictionary from KratosForge: the first row must be {', '.join(HEADER)}.")

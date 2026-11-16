@@ -68,6 +68,14 @@ def test_import_previews_only_real_changes_and_skips_what_it_cant_take(svc):
     assert reasons["dim_customer.city"] == "Listed twice; the first row counts"
 
 
+def test_a_cell_too_long_for_csv_is_refused_like_any_other_bad_file(svc):
+    text = md.to_csv(svc.meta_model_dictionary()["items"])
+    long = "x" * 200_000  # past csv's field size limit, well under the file limit
+    for bad in (_edit(text, "dim_customer", "email", long), long + "\r\n" + text):
+        with pytest.raises(ValueError, match="A cell in this file is over 131,072 characters, so it isn't a data"):
+            svc.meta_model_dictionary_preview(bad)
+
+
 def test_text_excel_would_run_as_a_formula_goes_out_as_text_and_comes_back_the_same(svc):
     items = svc.meta_model_dictionary()["items"]
     evil = '=HYPERLINK("http://x","click")'

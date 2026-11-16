@@ -573,10 +573,16 @@ fn run_schedule_arg(args: &[String]) -> Option<&str> {
 /// Runs the current engine's `run-schedule`, windowless, in the task's working folder, and returns
 /// its exit code for Task Scheduler's "last result". No window and no single-instance claim: an
 /// open copy of the app isn't involved.
+/// The interpreter a scheduled run uses: pythonw.exe next to `python` when it is there, so no
+/// console window opens, otherwise `python` itself.
+fn schedule_interpreter(python: String) -> std::ffi::OsString {
+    let pythonw = PathBuf::from(&python).with_file_name("pythonw.exe");
+    if pythonw.exists() { pythonw.into_os_string() } else { python.into() }
+}
+
 fn run_schedule(id: &str) -> i32 {
     let Ok(python) = python() else { return 2 };
-    let pythonw = PathBuf::from(&python).with_file_name("pythonw.exe");
-    let mut cmd = Command::new(if pythonw.exists() { pythonw.into_os_string() } else { python.into() });
+    let mut cmd = Command::new(schedule_interpreter(python));
     cmd.args(["-m", "fabric_desktop.cli", "run-schedule", id])
         .env("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", BUILTIN_CLIENT_ID)
         .envs(win_proxy::engine_env().iter().cloned())
@@ -3326,6 +3332,23 @@ mod integrity_tests {
         let tool = system_tool("curl.exe");
         assert!(tool.ends_with("System32/curl.exe") || tool.ends_with("System32\\curl.exe"), "{}", tool.display());
         assert!(tool.is_absolute() || std::env::var_os("SystemRoot").is_none());
+    }
+}
+
+#[cfg(test)]
+mod schedule_interpreter_tests {
+    use super::schedule_interpreter;
+
+    #[test]
+    fn a_scheduled_run_prefers_pythonw_next_to_the_engines_python() {
+        let dir = std::env::temp_dir().join(format!("kf-schedule-python-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let python = dir.join("python.exe").display().to_string();
+        assert_eq!(schedule_interpreter(python.clone()), std::ffi::OsString::from(&python));
+        std::fs::write(dir.join("pythonw.exe"), "stand-in").unwrap();
+        assert_eq!(schedule_interpreter(python), dir.join("pythonw.exe").into_os_string());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
 

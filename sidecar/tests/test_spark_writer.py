@@ -3,6 +3,8 @@
 Each test writes real local Delta tables through lakehouse.write_table, so what is checked is
 the table afterwards, not which call was made."""
 
+import os
+
 import pyarrow as pa
 import pytest
 from deltalake import DeltaTable, write_deltalake
@@ -239,9 +241,11 @@ def test_layout_options_are_accepted_with_a_note(lake):
 
 def test_csv_files_keep_the_header_option_and_refuse_others(lake, tmp_path):
     out = tmp_path / "out.csv"
-    status, text = run(f"df.write.option('header', 'false').csv({str(out)!r})")
+    status, text = run(f"df.write.option('header', 'true').csv({str(out)!r})")
     assert status == "ok", text
-    assert out.read_text().strip() == "9,EU"
+    assert next(out.glob("part-*.csv")).read_text().strip() == "id,region\n9,EU"
+    status, text = run(f"df.write.csv({str(tmp_path / 'plain.csv')!r})")  # no header unless asked, as in Spark
+    assert next((tmp_path / "plain.csv").glob("part-*.csv")).read_text().strip() == "9,EU"
     status, text = run(f"df.write.option('escapeQuotes', 'false').csv({str(tmp_path / 'b.csv')!r})")
     assert status == "error" and "escapequotes" in text.lower()
 
@@ -317,37 +321,121 @@ def test_drop_and_truncate_of_a_lakehouse_table_stop_with_a_clear_message(lake):
     assert out["outputs"][-1]["text"].strip().splitlines()[-1] == "0", out
 
 
-# A Parquet or CSV file on this PC follows the save mode as Spark does, so a second write never
-# quietly replaces the first: append used to overwrite the file and drop its rows.
-@pytest.mark.parametrize("fmt", ["parquet", "csv"])
-def test_a_file_that_is_there_is_refused_by_default_and_kept(tmp_path, fmt):
+# Files on this PC are written as Spark writes them: a folder of part files and _SUCCESS, following
+# the save mode, so a second write never quietly replaces or drops the first.
+def _parts(folder):
+    return sorted(p.name for p in folder.rglob("part-*"))
+
+
+@pytest.mark.parametrize("fmt", ["parquet", "csv", "json"])
+def test_a_path_that_is_there_is_refused_by_default_and_kept(tmp_path, fmt):
     out = tmp_path / f"out.{fmt}"
     assert run(f"df.write.{fmt}({str(out)!r})")[0] == "ok"
-    before = out.read_bytes()
+    assert out.is_dir() and (out / "_SUCCESS").exists() and len(_parts(out)) == 1
+    before = _parts(out)
     status, text = run(f"spark.createDataFrame([(1, 'US')], ['id', 'region']).write.{fmt}({str(out)!r})")
-    assert status == "error" and "already exists" in text
-    assert out.read_bytes() == before
+    assert status == "error" and "PATH_ALREADY_EXISTS" in text
+    assert _parts(out) == before
 
 
-@pytest.mark.parametrize("fmt", ["parquet", "csv"])
-def test_append_to_a_file_is_refused_and_the_file_is_kept(tmp_path, fmt):
+@pytest.mark.parametrize("fmt", ["parquet", "csv", "json"])
+def test_append_adds_a_part_file_beside_the_first(tmp_path, fmt):
     out = tmp_path / f"out.{fmt}"
     assert run(f"df.write.{fmt}({str(out)!r})")[0] == "ok"
-    before = out.read_bytes()
-    status, text = run(f"df.write.mode('append').{fmt}({str(out)!r})")
-    assert status == "error" and "append" in text.lower() and "saveAsTable" in text
-    assert out.read_bytes() == before
+    status, text = run(f"spark.createDataFrame([(1, 'US')], ['id', 'region']).write.mode('append').{fmt}({str(out)!r})\n"
+                       f"print(sorted(r[0] for r in spark.read.{fmt}({str(out)!r}).collect()))")
+    assert status == "ok", text
+    assert len(_parts(out)) == 2
+    assert text.strip().splitlines()[-1] in ("[1, 9]", "['1', '9']")  # CSV reads every column as a string
 
 
-def test_ignore_leaves_a_file_and_overwrite_replaces_it(tmp_path):
+def test_ignore_leaves_a_folder_and_overwrite_replaces_it(tmp_path):
     out = tmp_path / "out.parquet"
     assert run(f"df.write.parquet({str(out)!r})")[0] == "ok"
     status, text = run(f"spark.createDataFrame([(1, 'US')], ['id', 'region']).write.mode('ignore').parquet({str(out)!r})")
-    assert status == "ok" and "nothing was written" in text
+    assert status == "ok" and "Note" not in text  # silently, as in Spark
     assert run(f"print(spark.read.parquet({str(out)!r}).collect())")[1].count("id=9") == 1
     status, text = run(f"spark.createDataFrame([(1, 'US')], ['id', 'region']).write.mode('overwrite')"
                        f".parquet({str(out)!r})\nprint(spark.read.parquet({str(out)!r}).collect())")
     assert status == "ok" and "id=1" in text and "id=9" not in text
+    assert len(_parts(out)) == 1
+
+
+def test_overwrite_never_deletes_a_folder_a_spark_write_didnt_make(tmp_path):
+    mine = tmp_path / "mine"
+    mine.mkdir()
+    (mine / "notes.txt").write_text("keep me")
+    status, text = run(f"df.write.mode('overwrite').parquet({str(mine)!r})")
+    assert status == "error" and "notes.txt" in text and "didn't delete anything" in text
+    assert (mine / "notes.txt").read_text() == "keep me"
+    (mine / "notes.txt").unlink()
+    (mine / "sub").mkdir()
+    status, text = run(f"df.write.mode('overwrite').parquet({str(mine)!r})")
+    assert status == "error" and "sub" in text and (mine / "sub").is_dir()
+    (mine / "sub").rmdir()
+    for name in ("part-1 of my thesis.docx", "part-numbers.xlsx", ".notes.crc"):
+        (mine / name).write_text("keep me")
+        status, text = run(f"df.write.mode('overwrite').parquet({str(mine)!r})")
+        assert status == "error" and name in text and (mine / name).read_text() == "keep me", text
+        (mine / name).unlink()
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="needs symlinks")
+def test_overwrite_never_deletes_through_a_link(tmp_path):
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "keep.txt").write_text("keep me")
+    out = tmp_path / "out"
+    status, _ = run(f"df.write.parquet({str(out)!r})")
+    assert status == "ok"
+    for name in ("k=v", "linked"):  # a link inside the folder, under any name
+        try:
+            (out / name).symlink_to(target, target_is_directory=True)
+        except OSError:
+            pytest.skip("this account can't make symlinks")
+        status, text = run(f"df.write.mode('overwrite').parquet({str(out)!r})")
+        assert status == "error" and "a link" in text and name in text, text
+        assert (out / name).is_symlink() and (target / "keep.txt").exists()
+        (out / name).unlink()
+    link = tmp_path / "link"  # the path itself a link
+    link.symlink_to(target, target_is_directory=True)
+    status, text = run(f"df.write.mode('overwrite').parquet({str(link)!r})")
+    assert status == "error" and "is a link" in text and "didn't delete anything" in text, text
+    assert link.is_symlink() and (target / "keep.txt").exists()
+
+
+def test_partition_by_writes_a_folder_per_value_and_reads_back(tmp_path):
+    out = tmp_path / "parts"
+    code = ("spark.createDataFrame([(1, 'a b'), (2, 'x/y'), (3, None)], ['id', 'k'])"
+            f".write.partitionBy('k').parquet({str(out)!r})\n"
+            f"print(sorted(spark.read.parquet({str(out)!r}).collect()))\n"
+            f"print(spark.read.parquet({str(out / 'k=a b')!r}).columns)")
+    status, text = run(code)
+    assert status == "ok", text
+    assert sorted(p.name for p in out.iterdir()) == ["_SUCCESS", "k=__HIVE_DEFAULT_PARTITION__", "k=a b", "k=x%2Fy"]
+    lines = text.strip().splitlines()
+    assert lines[-2] == "[Row(id=1, k='a b'), Row(id=2, k='x/y'), Row(id=3, k=None)]"
+    assert lines[-1] == "['id']"  # one partition's folder has no partition column, as in Spark
+
+
+def test_text_writes_one_string_column_and_refuses_more(tmp_path):
+    out = tmp_path / "t"
+    status, text = run(f"spark.createDataFrame([('a',), ('b',)], ['v']).write.text({str(out)!r})\n"
+                       f"print(sorted(r.value for r in spark.read.text({str(out)!r}).collect()))")
+    assert status == "ok" and text.strip().splitlines()[-1] == "['a', 'b']", text
+    status, text = run(f"df.write.text({str(tmp_path / 'u')!r})")
+    assert status == "error" and "UNSUPPORTED_DATA_TYPE" in text
+
+
+def test_orc_is_refused_by_name(tmp_path):
+    status, text = run(f"df.write.orc({str(tmp_path / 'o')!r})")
+    assert status == "error" and "ORC" in text and not (tmp_path / "o").exists()
+
+
+def test_an_empty_folder_reads_as_spark_says(tmp_path):
+    (tmp_path / "empty").mkdir()
+    status, text = run(f"spark.read.parquet({str(tmp_path / 'empty')!r})")
+    assert status == "error" and "UNABLE_TO_INFER_SCHEMA" in text
 
 
 def test_an_unknown_mode_is_refused_before_a_file_is_written(tmp_path):

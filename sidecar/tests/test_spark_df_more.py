@@ -36,8 +36,10 @@ def test_freq_items_lists_values_at_or_above_support(df):
 
 def test_input_files_names_what_a_read_scans(spark, df, tmp_path):
     path = tmp_path / "x.parquet"
-    df.write.parquet(str(path))
-    assert spark.read.parquet(str(path)).inputFiles() == [str(path)]
+    df.write.parquet(str(path))  # a folder of part files, as Spark writes it
+    [part] = path.glob("part-*.parquet")
+    assert spark.read.parquet(str(path)).inputFiles() == [str(part)]
+    assert spark.read.parquet(str(part)).inputFiles() == [str(part)]
     assert df.inputFiles() == []  # made from Python data
 
 

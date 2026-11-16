@@ -40,6 +40,7 @@ BLOCKED = {
     "_statement": ("spark.sql('INSERT INTO dbo.t PARTITION (d = 1) SELECT * FROM s')", "PARTITION or REPLACE WHERE"),
     "forPath": ("from delta.tables import DeltaTable\nt = DeltaTable.forPath(spark, 'Files/raw/t')", "forPath"),
     "_refusal": ("df = spark.read.option('ignoreLeadingWhiteSpace', 'true').csv('Files/x.csv')", "ignoreLeadingWhiteSpace"),
+    "save": ("df.write.mode('overwrite').orc('Files/out')", "ORC"),
 }
 
 

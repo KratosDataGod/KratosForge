@@ -3,7 +3,8 @@
 Task Scheduler restarts a stopped agent every minute and keeps only "the task ended with code 2";
 the reason went to a console nobody sees. Each such stop now adds a few lines to
 ``<home>/logs/agent-start.log``: when (UTC), the version, which stage (settings, data, start,
-crash), the exit code and the reason, made log-safe (``redact.describe``). Where the settings can't
+crash), the exit code, the runbook section for that stage (``RUNBOOK``) and the reason, made log-safe
+(``redact.describe``). Where the settings can't
 be read, ``<home>`` is the default one (``agent_config.default_home``), which the installer lets the
 agent's account write. The file stays under ``MAX_BYTES`` by dropping its oldest half, and nothing
 is sent anywhere. A crash keeps its stack as file, line and function names only.
@@ -21,7 +22,14 @@ from .redact import describe, one_line
 
 START_LOG = "agent-start.log"
 MAX_BYTES = 256 << 10
-STAGES = ("settings", "data", "start", "crash")
+# Each stage's section in docs/agent-runbook.md; tests/test_agent_runbook.py checks every one is a heading there.
+RUNBOOK = {
+    "settings": "the-agents-settings-are-refused",
+    "data": "the-agents-home-was-saved-by-a-newer-build",
+    "start": "another-agent-is-using-the-control-folder",
+    "crash": "the-agent-stopped-as-it-started",
+}
+STAGES = tuple(RUNBOOK)
 
 
 _PACKAGE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -40,7 +48,8 @@ def record(home: Path | None, stage: str, reason: BaseException | str, code: int
         path = Path(home or default_home()) / "logs" / START_LOG
         text = describe(reason) if isinstance(reason, BaseException) else one_line(reason, 2000)
         now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-        lines = [f"{now} agent run stopped: stage={stage} exit={code} version={__version__}", f"  {text}"]
+        lines = [f"{now} agent run stopped: stage={stage} exit={code} version={__version__}",
+                 f"  see docs/agent-runbook.md#{RUNBOOK.get(stage, RUNBOOK['crash'])}", f"  {text}"]
         if stage == "crash" and isinstance(reason, BaseException):
             lines += [f"  at {_short(f.filename)}:{f.lineno} in {f.name}"
                       for f in traceback.extract_tb(reason.__traceback__)[-12:]]

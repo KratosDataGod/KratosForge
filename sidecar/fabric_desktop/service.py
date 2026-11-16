@@ -8,6 +8,7 @@ import logging
 import os
 import math
 import platform
+import re
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FutureTimeout
@@ -1083,6 +1084,34 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 continue
             return {"path": str(path), "outcome": report["outcome"]["status"], "counts": report["counts"]}
         raise ValueError("Couldn't find a free file name in Downloads for the report.")
+
+    # A table diagram as the SQL page draws it: an <svg> with its colors written in. Anything that could run
+    # or reach out when the file is opened in a browser (script, foreignObject, event attributes, links,
+    # entities) is refused rather than cleaned, since the page never makes it.
+    DIAGRAM_SVG_MAX = 4 * 1024 * 1024
+    _DIAGRAM_REFUSED = re.compile(r"<\s*script|foreignobject|<!|<\?|<[^>]*\s(?:on[a-z]+|href|xlink:href|src|style)\s*=|"
+                                  r"javascript:|url\s*\(", re.IGNORECASE)
+
+    def sql_diagram_export(self, svg: str, name: str = "") -> dict[str, Any]:
+        """Write a table diagram as a new .svg file in the Downloads folder. Never replaces a file."""
+        if not isinstance(svg, str) or not svg.startswith("<svg ") or not svg.rstrip().endswith("</svg>"):
+            raise ValueError("That isn't a diagram from the SQL page.")
+        if len(svg.encode("utf-8")) > self.DIAGRAM_SVG_MAX:
+            raise ValueError("The diagram is too big to save (over 4 MB).")
+        if self._DIAGRAM_REFUSED.search(svg):
+            raise ValueError("The diagram has content a diagram never has, so it wasn't saved.")
+        folder = known_folders.downloads()
+        folder.mkdir(parents=True, exist_ok=True)
+        base = f"{file_stem(name, 'Diagram')} {time.strftime('%Y-%m-%d %H%M%S')}"
+        for n in range(1, 1000):
+            path = folder / (f"{base}.svg" if n == 1 else f"{base} ({n}).svg")
+            try:
+                with open(path, "x", encoding="utf-8") as f:
+                    f.write(svg)
+            except FileExistsError:
+                continue
+            return {"path": str(path)}
+        raise ValueError("Couldn't find a free file name in Downloads for the diagram.")
 
     # Managed runs (SQL-003, sql_exec.py): each query in a process of its own, with Stop, a time
     # limit, a memory limit, pages read from a snapshot and streamed export. run_sql below stays for

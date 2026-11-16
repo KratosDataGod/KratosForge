@@ -101,10 +101,17 @@ fn engine_mirror_state() -> Result<Option<String>, String> {
     let file = PathBuf::from(dir).join("FabricDesktop").join("policy.json");
     let trusted = policy_trust::admin_only(&file);
     let text = std::fs::read_to_string(&file).unwrap_or_default();
-    if policy_allows_updates(&text) {
+    mirror_from(&text, trusted)
+}
+
+/// engine_mirror_state's rule for the policy file's `text`, given whether only administrators
+/// could have written it: an engine folder only with `"auto_update": false`, a valid address, and
+/// a trusted file; a valid address in an untrusted file is why it is ignored.
+fn mirror_from(text: &str, trusted: Result<(), String>) -> Result<Option<String>, String> {
+    if policy_allows_updates(text) {
         return Ok(None);
     }
-    match (policy_engine_url(&text), trusted) {
+    match (policy_engine_url(text), trusted) {
         (Some(url), Ok(())) => Ok(Some(url)),
         (Some(_), Err(why)) => Err(why),
         (None, _) => Ok(None),
@@ -227,8 +234,14 @@ mod policy_tests {
 /// sidecar's app_settings.py.
 fn release_tag() -> &'static str {
     let user = std::fs::read_to_string(data_dir().join("app-settings.json")).unwrap_or_default();
-    for text in [policy_text(), user] {
-        match setting(&text, "channel").as_deref() {
+    channel_tag(&policy_text(), &user)
+}
+
+/// release_tag's rule: the first of the policy file's and then the person's `"channel"` that is
+/// "preview" or "stable" decides; anything else, or neither, is Stable.
+fn channel_tag(policy: &str, user: &str) -> &'static str {
+    for text in [policy, user] {
+        match setting(text, "channel").as_deref() {
             Some("preview") => return "latest",
             Some("stable") => return "stable",
             _ => {}
@@ -262,14 +275,25 @@ fn own_engine_only() -> bool {
 
 /// Only this exe's own engine build when own_engine_only, never a newer one (#418).
 fn check_engine_build(commit: &str) -> Result<(), String> {
-    if !own_engine_only() || commit.eq_ignore_ascii_case(BUILD_COMMIT) {
+    engine_build_allowed(commit, BUILD_COMMIT, own_engine_only, auto_update_allowed)
+}
+
+/// check_engine_build's rule for the engine build `commit`, in an app built from `own`. `own_only`
+/// and `updates_allowed` are asked only when needed, in that order, as check_engine_build asks them.
+fn engine_build_allowed(
+    commit: &str,
+    own: &str,
+    own_only: impl FnOnce() -> bool,
+    updates_allowed: impl FnOnce() -> bool,
+) -> Result<(), String> {
+    if !own_only() || commit.eq_ignore_ascii_case(own) {
         return Ok(());
     }
-    if auto_update_allowed() {
+    if updates_allowed() {
         return Err(format!(
             "This signed build runs only its own engine (build {}), and the engine offered is build {}, so it wasn't \
              installed. The next app update brings its engine with it.",
-            BUILD_COMMIT.get(..7).unwrap_or(BUILD_COMMIT),
+            own.get(..7).unwrap_or(own),
             commit.get(..7).unwrap_or(commit)
         ));
     }
@@ -277,7 +301,7 @@ fn check_engine_build(commit: &str) -> Result<(), String> {
         "Your organization rolls out builds itself, and the engine offered is build {}, not this app's build {}, \
          so it wasn't installed. Ask IT for the current KratosForge exe.",
         commit.get(..7).unwrap_or(commit),
-        BUILD_COMMIT.get(..7).unwrap_or(BUILD_COMMIT)
+        own.get(..7).unwrap_or(own)
     ))
 }
 
@@ -453,17 +477,30 @@ fn engine_python() -> Option<PathBuf> {
     if !bundled() {
         return None;
     }
-    if let Some(it) = it_engine() {
+    pick_engine(it_engine, &engine_root(), BUILD_COMMIT, signed_build)
+}
+
+/// engine_python's choice in `root` for build `own`: IT's folder when `it` names one (and nothing
+/// when that can't be used), else this build's engine, else (unless `signed`) another build's,
+/// skipping hidden folders such as a download being unpacked. `it` and `signed` are asked only
+/// when needed, in that order.
+fn pick_engine(
+    it: impl FnOnce() -> Option<Result<PathBuf, String>>,
+    root: &Path,
+    own: &str,
+    signed: impl FnOnce() -> bool,
+) -> Option<PathBuf> {
+    if let Some(it) = it() {
         return it.ok();
     }
-    let exact = engine_root().join(BUILD_COMMIT).join("python.exe");
+    let exact = root.join(own).join("python.exe");
     if exact.exists() {
         return Some(exact);
     }
-    if signed_build() {
+    if signed() {
         return None;
     }
-    std::fs::read_dir(engine_root())
+    std::fs::read_dir(root)
         .ok()?
         .flatten()
         .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
@@ -3992,6 +4029,53 @@ mod sidecar_bridge_tests {
 /// The page asks the shell to open links and files; these are the asks it refuses before anything is
 /// started. (The ones it allows start the browser, the mail app or VS Code, so they aren't run here.)
 #[cfg(test)]
+mod policy_rule_tests {
+    use super::{channel_tag, mirror_from};
+
+    const MIRROR: &str = r#"{"auto_update": false, "engine_download_url": "https://files.contoso.com/kf/"}"#;
+
+    #[test]
+    fn the_policy_files_channel_wins_over_the_persons() {
+        assert_eq!(channel_tag(r#"{"channel": "stable"}"#, r#"{"channel": "preview"}"#), "stable");
+        assert_eq!(channel_tag(r#"{"channel": "preview"}"#, r#"{"channel": "stable"}"#), "latest");
+        // No policy, or one that doesn't set a known channel: the person's choice.
+        assert_eq!(channel_tag("", r#"{"channel": "preview"}"#), "latest");
+        assert_eq!(channel_tag(r#"{"channel": "nightly"}"#, r#"{"channel": "preview"}"#), "latest");
+        assert_eq!(channel_tag("\u{feff}{\"channel\": \"preview\"}", ""), "latest", "a byte-order mark is skipped");
+    }
+
+    #[test]
+    fn stable_is_the_default_for_anything_else() {
+        for (policy, user) in [("", ""), ("not json", "{"), (r#"{"channel": "Preview"}"#, ""), (r#"{"channel": 1}"#, r#"{"channel": null}"#)] {
+            assert_eq!(channel_tag(policy, user), "stable", "{policy:?} {user:?}");
+        }
+    }
+
+    #[test]
+    fn its_engine_folder_is_used_only_from_a_trusted_file_with_updates_off() {
+        assert_eq!(mirror_from(MIRROR, Ok(())), Ok(Some("https://files.contoso.com/kf".into())));
+        assert_eq!(mirror_from(MIRROR, Err("a standard user can change it".into())), Err("a standard user can change it".into()));
+        // With updates on the engine isn't one known build, so the folder isn't used, trusted or not.
+        let updates_on = r#"{"engine_download_url": "https://files.contoso.com/kf"}"#;
+        assert_eq!(mirror_from(updates_on, Ok(())), Ok(None));
+        assert_eq!(mirror_from(updates_on, Err("untrusted".into())), Ok(None));
+    }
+
+    #[test]
+    fn no_or_an_unusable_address_means_github_whatever_the_trust() {
+        for text in [r#"{"auto_update": false}"#, r#"{"auto_update": false, "engine_download_url": "http://files.contoso.com/kf"}"#,
+                     r#"{"auto_update": false, "engine_download_url": "https://user@files.contoso.com/kf"}"#] {
+            assert_eq!(mirror_from(text, Ok(())), Ok(None), "{text}");
+            assert_eq!(mirror_from(text, Err("untrusted".into())), Ok(None), "{text}");
+        }
+        // No readable policy file: updates are on, so there is no engine folder.
+        for text in ["", "not json"] {
+            assert_eq!(mirror_from(text, Err("missing".into())), Ok(None), "{text}");
+        }
+    }
+}
+
+#[cfg(test)]
 mod open_refusal_tests {
     use super::*;
 
@@ -4042,6 +4126,91 @@ mod open_refusal_tests {
             );
         }
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod engine_choice_tests {
+    use super::{engine_build_allowed, pick_engine};
+    use std::cell::Cell;
+    use std::path::PathBuf;
+
+    const OWN: &str = "aaaaaaa1111111111111111111111111111111111";
+    const OTHER: &str = "bbbbbbb2222222222222222222222222222222222";
+
+    fn root(name: &str, builds: &[&str]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("kf-engine-choice-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for build in builds {
+            std::fs::create_dir_all(dir.join(build)).unwrap();
+            std::fs::write(dir.join(build).join("python.exe"), "stand-in").unwrap();
+        }
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn none() -> Option<Result<PathBuf, String>> {
+        None
+    }
+
+    #[test]
+    fn this_builds_engine_is_used_before_any_other() {
+        let dir = root("own", &[OTHER, OWN]);
+        let asked = Cell::new(false);
+        let got = pick_engine(none, &dir, OWN, || { asked.set(true); false });
+        assert_eq!(got, Some(dir.join(OWN).join("python.exe")));
+        assert!(!asked.get(), "whether the build is signed isn't asked when its own engine is there");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unsigned_build_falls_back_to_another_builds_engine_but_a_signed_one_never_does() {
+        let dir = root("other", &[OTHER, ".unpacking"]);
+        assert_eq!(pick_engine(none, &dir, OWN, || false), Some(dir.join(OTHER).join("python.exe")));
+        assert_eq!(pick_engine(none, &dir, OWN, || true), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_hidden_folder_such_as_a_download_being_unpacked_is_never_run() {
+        let dir = root("hidden", &[".unpacking"]);
+        assert_eq!(pick_engine(none, &dir, OWN, || false), None);
+        assert_eq!(pick_engine(none, &dir.join("missing"), OWN, || false), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn its_engine_folder_wins_and_one_that_cant_be_used_means_no_engine_at_all() {
+        let dir = root("it", &[OWN, OTHER]);
+        let it = PathBuf::from(r"C:\Program Files\KratosForge\engine\x\python.exe");
+        let signed_asked = Cell::new(false);
+        let got = pick_engine(|| Some(Ok(it.clone())), &dir, OWN, || { signed_asked.set(true); false });
+        assert_eq!(got, Some(it));
+        // IT asked for its folder, so the per-user engines their rules block are not a fallback.
+        assert_eq!(pick_engine(|| Some(Err("not admin-only".into())), &dir, OWN, || false), None);
+        assert!(!signed_asked.get());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn any_engine_build_is_allowed_unless_only_this_builds_own_may_run() {
+        let updates_asked = Cell::new(false);
+        assert_eq!(engine_build_allowed(OTHER, OWN, || false, || { updates_asked.set(true); true }), Ok(()));
+        assert!(!updates_asked.get());
+        assert_eq!(engine_build_allowed(&OWN.to_uppercase(), OWN, || true, || true), Ok(()), "build ids match without case");
+    }
+
+    #[test]
+    fn a_signed_build_refuses_another_engine_and_says_an_app_update_brings_its_own() {
+        let why = engine_build_allowed(OTHER, OWN, || true, || true).unwrap_err();
+        assert!(why.starts_with("This signed build runs only its own engine (build aaaaaaa)"), "{why}");
+        assert!(why.contains("the engine offered is build bbbbbbb"), "{why}");
+    }
+
+    #[test]
+    fn with_updates_off_another_engine_is_refused_and_it_is_asked_for_the_exe() {
+        let why = engine_build_allowed(OTHER, OWN, || true, || false).unwrap_err();
+        assert!(why.starts_with("Your organization rolls out builds itself, and the engine offered is build bbbbbbb, not this app's build aaaaaaa"), "{why}");
     }
 }
 

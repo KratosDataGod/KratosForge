@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import json
 import logging
 import os
@@ -24,6 +23,7 @@ from .orchestration.definition import DefinitionError
 from .redact import describe
 from .redact import without_webhook as _without_webhook
 from .time_zones import time_zones
+from .timeutil import now_iso as _now, seconds_between
 from .workloads.notify import Outbox, send, single
 
 _log = logging.getLogger(__name__)
@@ -42,8 +42,6 @@ TYPE_LABELS = {"Notebook": "Notebook", "DataPipeline": "Pipeline", "SparkJobDefi
 STALE_LOCK_SECONDS = 12 * 3600
 
 
-def _now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 def _read_lock(path: Path) -> dict[str, Any]:
     """Who holds a schedule lock. Older builds wrote only the pid."""
@@ -240,8 +238,9 @@ class ScheduleMixin:
         for r in mine:
             seconds = None
             if r.get("finished_at") and r.get("started_at"):
-                seconds = round((dt.datetime.fromisoformat(r["finished_at"].replace("Z", "+00:00"))
-                                 - dt.datetime.fromisoformat(r["started_at"])).total_seconds(), 1)
+                # Fabric's endTimeUtc has no offset and our started_at has one: timeutil reads both as UTC.
+                between = seconds_between(r["started_at"], r["finished_at"])
+                seconds = round(between, 1) if between is not None else None
             url = r.get("url") or (f"{FABRIC_APP}/groups/{r['workspace_id']}/synapsenotebooks/{r['item_id']}"
                                    "?experience=fabric-developer" if r.get("item_id") else "")
             trigger = ("prove" if r.get("proof") else "side_by_side" if r.get("side_by_side")

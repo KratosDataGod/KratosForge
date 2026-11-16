@@ -25,6 +25,7 @@ import statistics
 from typing import Any
 
 from ..orchestration.definition import DefinitionError, loads
+from ..timeutil import parse_time
 
 ANALYZED = {"Notebook", "DataPipeline"}
 _PY_CELL = re.compile(r"^# (?:CELL|MARKDOWN|PARAMETERS CELL) \*+\s*$", re.MULTILINE)
@@ -33,13 +34,7 @@ _PY_DEFAULT_LH = re.compile(r'"default_lakehouse"\s*:\s*"([^"]+)"')
 
 
 def _when(text: Any) -> dt.datetime | None:
-    if not isinstance(text, str) or not text:
-        return None
-    try:
-        t = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
+    return parse_time(text) if isinstance(text, str) else None
 
 
 def run_summary(jobs: list[dict[str, Any]] | None, now: dt.datetime, days: int) -> dict[str, Any]:

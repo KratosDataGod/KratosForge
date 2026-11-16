@@ -162,7 +162,9 @@ if _fd_error:
 def step_ipynb(name: str, cell: dict[str, Any], lakehouse: dict[str, Any], request_id: str) -> dict[str, Any]:
     """The companion Spark notebook: the cell's code, run with V-Order on, its printed output saved
     to the lakehouse. %%sql and ``%sql`` lines become ``spark.sql`` as when publishing."""
-    if magics.cell(cell.get("source", "")).language == "sql" or cell.get("source", "").lstrip().startswith("%"):
+    code = cell.get("source", "")
+    if (magics.cell(code).language == "sql" or code.lstrip().startswith("%")
+            or any(m.name == "sql" for m in magics.find(code))):  # a %sql line anywhere in the cell
         cell = fabric_sql_magics([magics.fabric_cell(cell)], spark=True)[0]
         if magics.cell(cell["source"]).language == "sql":  # a %%sql cell whose rows nothing reads
             cell = {**cell, "source": f"display(spark.sql({json.dumps(magics.cell(cell['source']).body.strip())}))"}

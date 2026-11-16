@@ -146,6 +146,14 @@ def test_sql_cells_become_spark_sql_and_other_magics_are_refused():
         fabric_step.step_ipynb("NB", {"type": "code", "source": "%pip install x"}, LAKEHOUSE, "r")
 
 
+
+def test_a_sql_line_magic_below_the_first_line_becomes_spark_sql():
+    source = "n = 1\ndf = %sql SELECT 1 AS a\nif n:\n    %sql SELECT 2\nprint(df)"
+    nb = fabric_step.step_ipynb("NB", {"type": "code", "source": source}, LAKEHOUSE, "r")
+    want = 'n = 1\ndf = spark.sql("SELECT 1 AS a")\nif n:\n    spark.sql("SELECT 2")\nprint(df)'
+    assert repr(want) in "".join(nb["cells"][0]["source"])
+
+
 # ---- the RPCs, called the way the app calls them
 
 

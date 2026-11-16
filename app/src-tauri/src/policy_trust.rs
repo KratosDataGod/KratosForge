@@ -328,3 +328,175 @@ mod tests {
         assert!(trusted.is_err(), "{trusted:?}");
     }
 }
+
+/// The real permission reads, on real files and folders whose owner and permissions each test sets.
+/// Setting an owner of Administrators needs an elevated account, as the Windows CI runner has; run
+/// elsewhere unelevated, these tests say so and stop, but on CI that is a failure.
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::{admin_only, admin_only_ancestor, admin_only_engine};
+    use std::path::{Path, PathBuf};
+    use windows::core::HSTRING;
+    use windows::Win32::Foundation::{LocalFree, HLOCAL};
+    use windows::Win32::Security::Authorization::{ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
+    use windows::Win32::Security::{SetFileSecurityW, DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR};
+
+    const ADMINS_ONLY: &str = "(A;;FA;;;SY)(A;;FA;;;BA)";
+    const TRUSTED_INSTALLER: &str = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
+
+    /// Sets `path`'s owner and DACL from SDDL. Err(code) when Windows refuses (1307, "this security
+    /// ID may not be assigned as the owner", when the account isn't elevated).
+    fn set(path: &Path, sddl: &str) -> Result<(), u32> {
+        let mut sd = PSECURITY_DESCRIPTOR::default();
+        unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(&HSTRING::from(sddl), SDDL_REVISION_1, &mut sd, None)
+                .unwrap_or_else(|e| panic!("{sddl}: {e}"));
+            let ok = SetFileSecurityW(&HSTRING::from(path.as_os_str()), OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, sd);
+            let code = windows::Win32::Foundation::GetLastError().0;
+            let _ = LocalFree(Some(HLOCAL(sd.0)));
+            if ok.as_bool() { Ok(()) } else { Err(code) }
+        }
+    }
+
+    /// The account running the tests, as a SID string, from whoami.
+    fn me() -> String {
+        let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+        let whoami = PathBuf::from(root).join("System32").join("whoami.exe");
+        let out = std::process::Command::new(whoami).args(["/user", "/fo", "csv", "/nh"]).output().unwrap();
+        let text = String::from_utf8_lossy(&out.stdout);
+        let sid = text.trim().rsplit(',').next().unwrap().trim_matches('"').to_string();
+        assert!(sid.starts_with("S-1-5-"), "{text}");
+        sid
+    }
+
+    /// A fresh folder with a policy.json in it, removed on drop.
+    struct Place {
+        dir: PathBuf,
+        file: PathBuf,
+    }
+
+    impl Place {
+        fn new(name: &str) -> Place {
+            let dir = std::env::temp_dir().join(format!("kf-trust-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let file = dir.join("policy.json");
+            std::fs::write(&file, "{}").unwrap();
+            Place { dir, file }
+        }
+
+        /// Owner Administrators and the given DACLs on the folder and the file. False when the
+        /// account can't do that (not elevated) and this isn't CI.
+        fn lock(&self, folder_dacl: &str, file_dacl: &str) -> bool {
+            for (path, dacl) in [(&self.file, file_dacl), (&self.dir, folder_dacl)] {
+                match set(path, &format!("O:BAD:P{dacl}")) {
+                    Ok(()) => {}
+                    Err(1307) if std::env::var_os("CI").is_none() => {
+                        eprintln!("not elevated, so the owner can't be set to Administrators: run these tests elevated");
+                        return false;
+                    }
+                    Err(code) => panic!("couldn't set {}'s permissions ({code})", path.display()),
+                }
+            }
+            true
+        }
+    }
+
+    impl Drop for Place {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    #[test]
+    fn a_file_and_folder_only_admins_can_change_are_trusted() {
+        let place = Place::new("admins");
+        if !place.lock(ADMINS_ONLY, ADMINS_ONLY) {
+            return;
+        }
+        assert_eq!(admin_only(&place.file), Ok(()));
+        // Reading, and a deny (for Guests, so cleanup can still delete it), change nothing; nor does TrustedInstaller's full control.
+        assert!(place.lock(&format!("{ADMINS_ONLY}(A;;FRFX;;;BU)(A;;FA;;;{TRUSTED_INSTALLER})"),
+                           &format!("{ADMINS_ONLY}(A;;FR;;;BU)(D;;FA;;;BG)")));
+        assert_eq!(admin_only(&place.file), Ok(()));
+    }
+
+    #[test]
+    fn a_file_others_can_write_is_not_trusted() {
+        let place = Place::new("users-write");
+        if !place.lock(ADMINS_ONLY, &format!("{ADMINS_ONLY}(A;;FW;;;BU)")) {
+            return;
+        }
+        let why = admin_only(&place.file).unwrap_err();
+        assert!(why.starts_with("someone other than SYSTEM and Administrators can change"), "{why}");
+        assert!(why.contains("policy.json"), "{why}");
+    }
+
+    #[test]
+    fn a_folder_others_can_delete_from_is_not_trusted() {
+        let place = Place::new("users-delete");
+        // Delete child: anyone could swap the file for their own.
+        if !place.lock(&format!("{ADMINS_ONLY}(A;;0x40;;;AU)"), ADMINS_ONLY) {
+            return;
+        }
+        let why = admin_only(&place.file).unwrap_err();
+        assert!(why.starts_with("someone other than SYSTEM and Administrators can change"), "{why}");
+        assert!(!why.contains("policy.json"), "the folder, not the file, is named: {why}");
+        // Creating files in the folder is allowed for the policy file, as %ProgramData% allows it.
+        assert!(place.lock(&format!("{ADMINS_ONLY}(A;;0x6;;;AU)"), ADMINS_ONLY));
+        assert_eq!(admin_only(&place.file), Ok(()));
+    }
+
+    #[test]
+    fn a_file_owned_by_someone_else_is_not_trusted() {
+        let place = Place::new("owner");
+        if !place.lock(ADMINS_ONLY, ADMINS_ONLY) {
+            return;
+        }
+        // The account itself (an administrator, but not the Administrators group) owns it.
+        set(&place.file, &format!("O:{}D:P{ADMINS_ONLY}", me())).unwrap();
+        let why = admin_only(&place.file).unwrap_err();
+        assert!(why.ends_with("isn't owned by SYSTEM or Administrators"), "{why}");
+    }
+
+    #[test]
+    fn a_file_with_no_permissions_set_is_not_trusted() {
+        let place = Place::new("null-dacl");
+        if !place.lock(ADMINS_ONLY, ADMINS_ONLY) {
+            return;
+        }
+        set(&place.file, "O:BAD:NO_ACCESS_CONTROL").unwrap();
+        let why = admin_only(&place.file).unwrap_err();
+        assert!(why.ends_with("has no permissions set, so anyone can change it"), "{why}");
+    }
+
+    #[test]
+    fn a_missing_file_is_not_trusted() {
+        let place = Place::new("missing");
+        // The folder must pass first, or its own check answers instead.
+        if !place.lock(ADMINS_ONLY, ADMINS_ONLY) {
+            return;
+        }
+        let why = admin_only(&place.dir.join("nothing.json")).unwrap_err();
+        assert_eq!(why, "its permissions can't be read (2)");
+    }
+
+    #[test]
+    fn an_engine_folder_refuses_what_it_would_pass_down_and_an_ancestor_does_not() {
+        let place = Place::new("engine");
+        // Users may write every file later created inside, but not the folder itself.
+        if !place.lock(&format!("{ADMINS_ONLY}(A;OICIIO;FW;;;BU)"), ADMINS_ONLY) {
+            return;
+        }
+        let why = admin_only_engine(&place.dir).unwrap_err();
+        assert!(why.starts_with("someone other than SYSTEM and Administrators can change"), "{why}");
+        assert_eq!(admin_only_ancestor(&place.dir), Ok(()));
+        // CREATOR OWNER's full control passed down is fine: only administrators create things there.
+        assert!(place.lock(&format!("{ADMINS_ONLY}(A;OICIIO;FA;;;CO)(A;OICI;FRFX;;;BU)"), ADMINS_ONLY));
+        assert_eq!(admin_only_engine(&place.dir), Ok(()));
+        // Adding files to an engine folder is refused, though the policy folder allows it.
+        assert!(place.lock(&format!("{ADMINS_ONLY}(A;;0x2;;;BU)"), ADMINS_ONLY));
+        assert!(admin_only_engine(&place.dir).is_err());
+        assert_eq!(admin_only_ancestor(&place.dir), Ok(()));
+    }
+}

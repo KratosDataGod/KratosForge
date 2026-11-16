@@ -195,3 +195,77 @@ mod tests {
         }
     }
 }
+
+/// WinVerifyTrust on real files: one this build made (unsigned), a Microsoft-signed exe the Windows
+/// CI image installs, and a copy of that exe with one byte changed.
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::signer;
+    use std::path::PathBuf;
+
+    /// An exe with a signature embedded in it (not only in a Windows catalog, which WinVerifyTrust's
+    /// file check doesn't read).
+    fn signed_exe() -> Option<PathBuf> {
+        let found = [r"C:\Program Files\PowerShell\7\pwsh.exe", r"C:\Program Files\dotnet\dotnet.exe"]
+            .into_iter()
+            .map(PathBuf::from)
+            .find(|p| p.is_file());
+        if found.is_none() {
+            assert!(std::env::var_os("CI").is_none(), "the Windows CI image should have pwsh.exe or dotnet.exe");
+            eprintln!("no embedded-signed exe found, so this test checks nothing here");
+        }
+        found
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("kf-signature-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join(name)
+    }
+
+    #[test]
+    fn an_unsigned_exe_has_no_signer() {
+        // The test binary itself: a real exe nobody signed.
+        assert_eq!(signer(&std::env::current_exe().unwrap()), Ok(None));
+    }
+
+    #[test]
+    fn a_file_that_isnt_an_exe_has_no_signer() {
+        let path = scratch("not-an.exe");
+        std::fs::write(&path, b"this is not a program").unwrap();
+        let got = signer(&path);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(got, Ok(None));
+    }
+
+    #[test]
+    fn a_signed_exe_names_its_publisher() {
+        let Some(exe) = signed_exe() else { return };
+        let who = signer(&exe).unwrap().unwrap_or_else(|| panic!("{} should be signed", exe.display()));
+        // CertNameToStrW lists the parts as the certificate stores them, most general first
+        // ("C=US, S=Washington, ..., CN=Microsoft Corporation").
+        assert!(who.contains("CN=Microsoft Corporation"), "{who}");
+        assert!(who.contains("O=Microsoft Corporation"), "{who}");
+        // Any identity usages listed are Trusted Signing's, and nothing else is.
+        if let Some((_, usages)) = who.split_once(" [") {
+            assert!(usages.trim_end_matches(']').split(", ").all(|u| u.starts_with("1.3.6.1.4.1.311.97.")), "{who}");
+        }
+        // The same file asked twice gives the same answer, which is what update_allowed compares.
+        assert_eq!(signer(&exe).unwrap().as_deref(), Some(who.as_str()));
+    }
+
+    #[test]
+    fn a_signed_exe_with_one_byte_changed_is_not_trusted() {
+        let Some(exe) = signed_exe() else { return };
+        let mut bytes = std::fs::read(&exe).unwrap();
+        // A quarter of the way in: inside the program, well before the signature at the end.
+        let at = bytes.len() / 4;
+        bytes[at] ^= 0xFF;
+        let path = scratch("tampered.exe");
+        std::fs::write(&path, &bytes).unwrap();
+        let got = signer(&path);
+        let _ = std::fs::remove_file(&path);
+        let why = got.unwrap_err();
+        assert!(why.starts_with("Windows doesn't trust its signature (0x"), "{why}");
+    }
+}

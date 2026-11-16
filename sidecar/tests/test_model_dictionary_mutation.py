@@ -47,7 +47,6 @@ def test_the_size_limit_is_five_million_characters():
         md.read_csv(ok + " ")
 
 
-@pytest.mark.xfail(strict=True, reason="#2728: a cell over 131072 characters raises csv.Error, not the ValueError")
 def test_a_very_long_cell_gets_the_same_error_as_any_other_bad_file():
     with pytest.raises(ValueError):
         md.read_csv(HEAD + "\r\n" + _row(desc="x" * 200_000) + "\r\n")

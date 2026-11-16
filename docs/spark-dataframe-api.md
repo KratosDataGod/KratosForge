@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 139 |
-| Differs | 5 |
-| Refused | 10 |
-| Fails | 9 |
+| Runs | 142 |
+| Differs | 7 |
+| Refused | 14 |
+| Fails | 0 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -32,7 +32,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | Method | Status | Note |
 | --- | --- | --- |
 | `agg` | Runs |  |
-| `alias` | Fails | `joined_df.select( "df_as1.name", "df_as2.name", "df_as2.a...`: BinderException: Binder Error: Referenced table "df_as1" not found! |
+| `alias` | Runs |  |
 | `approxQuantile` | Not checked |  |
 | `cache` | Runs |  |
 | `checkpoint` | Runs |  |
@@ -75,7 +75,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `intersectAll` | Runs |  |
 | `isEmpty` | Runs |  |
 | `isLocal` | Runs |  |
-| `isStreaming` | Fails | `df = spark.readStream.format("rate").load()`: ValueError: readStream.load needs a path. |
+| `isStreaming` | Refused | `df = spark.readStream.format("rate").load()`: ValueError: Streaming from 'rate' runs in Fabric. On this PC, streams read Delta tables and csv, json, parquet or text files. |
 | `join` | Runs |  |
 | `limit` | Runs |  |
 | `localCheckpoint` | Runs |  |
@@ -134,7 +134,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `withColumnsRenamed` | Runs |  |
 | `withMetadata` | Runs |  |
 | `withWatermark` | Not checked |  |
-| `write` | Fails | `_ = spark.sql("DROP TABLE IF EXISTS tab2")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
+| `write` | Differs | `df.write.saveAsTable("tab2")`: {"printed": "Wrote 2 rows to dbo.tab2 (Delta version 0). New table: re here, {} in Spark |
 | `writeStream` | Not checked |  |
 | `writeTo` | Runs |  |
 
@@ -142,7 +142,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `alias` | Fails | `df.select(df.age.alias("age3", metadata={'max': 99})).sch...`: TypeError: Column.alias() got an unexpected keyword argument 'metadata' |
+| `alias` | Runs |  |
 | `asc` | Runs |  |
 | `asc_nulls_first` | Runs |  |
 | `asc_nulls_last` | Runs |  |
@@ -182,7 +182,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `agg` | Runs |  |
 | `apply` | Runs |  |
 | `applyInPandas` | Runs |  |
-| `applyInPandasWithState` | Fails | `from pyspark.sql.streaming.state import GroupStateTimeout`: ModuleNotFoundError: No module named 'pyspark.sql.streaming.state'; 'pyspark.sql.streaming' is not a package |
+| `applyInPandasWithState` | Runs |  |
 | `avg` | Runs |  |
 | `cogroup` | Not checked |  |
 | `count` | Runs |  |
@@ -213,10 +213,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `bucketBy` | Fails | `from pyspark.sql.functions import input_file_name`: ImportError: cannot import name 'input_file_name' from 'duckdb.experimental.spark.sql.functions' |
+| `bucketBy` | Refused | `spark.createDataFrame([ (100, "Hyukjin Kwon"), (120, "Hyu...`: ValueError: Delta tables have no buckets, so this PC refuses bucketBy as Fabric does ("Operation not allowed: Bucketing is not supported for Delta tables"). Lea |
 | `csv` | Runs |  |
 | `format` | Runs |  |
-| `insertInto` | Fails | `_ = spark.sql("DROP TABLE IF EXISTS tblA")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
+| `insertInto` | Differs | `df.write.saveAsTable("tblA")`: {"printed": "Wrote 3 rows to dbo.tblA (Delta version 0). New table: re here, {} in Spark |
 | `jdbc` | Not checked |  |
 | `json` | Runs |  |
 | `mode` | Runs |  |
@@ -226,8 +226,8 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `parquet` | Runs |  |
 | `partitionBy` | Runs |  |
 | `save` | Runs |  |
-| `saveAsTable` | Fails | `_ = spark.sql("DROP TABLE IF EXISTS tblA")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
-| `sortBy` | Fails | `from pyspark.sql.functions import input_file_name`: ImportError: cannot import name 'input_file_name' from 'duckdb.experimental.spark.sql.functions' |
+| `saveAsTable` | Refused | `_ = spark.sql("DROP TABLE IF EXISTS tblA")`: ValueError: DROP TABLE removes tblA from the lakehouse, which runs in Fabric. Run the cell in Fabric. |
+| `sortBy` | Refused | `spark.createDataFrame([ (100, "Hyukjin Kwon"), (120, "Hyu...`: ValueError: Delta tables have no buckets, so this PC refuses bucketBy as Fabric does ("Operation not allowed: Bucketing is not supported for Delta tables"). Lea |
 | `text` | Runs |  |
 
 ## DataFrameNaFunctions

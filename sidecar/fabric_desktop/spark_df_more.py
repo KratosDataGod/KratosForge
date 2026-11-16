@@ -131,6 +131,47 @@ def _schema_with_metadata(prop: Any) -> Any:
     return property(schema)
 
 
+def _select_keeping(select: Any) -> Any:
+    """DataFrame.select, keeping the metadata of a column aliased with ``alias(name, metadata=...)`` for
+    ``df.schema[name].metadata``, and what was selected from, for a sort by a name only it has."""
+    if getattr(select, "_fd_keeping", False):
+        return select
+
+    def wrapped(self: Any, *cols: Any, **kwargs: Any) -> Any:
+        out = select(self, *cols, **kwargs)
+        listed = cols[0] if len(cols) == 1 and isinstance(cols[0], (list, tuple)) else cols
+        kept = dict(c for c in (vars(c).get("_fd_col_metadata") for c in listed if not isinstance(c, str)) if c)
+        if kept:
+            out._fd_metadata = kept
+        out._fd_selected = (self, cols, kwargs)
+        return out
+    wrapped._fd_keeping = True  # type: ignore[attr-defined]  # installed once
+    wrapped.__doc__ = select.__doc__
+    return wrapped
+
+
+def _sort_through_select(sort: Any) -> Any:
+    """DataFrame.sort and orderBy by a name the select before them left out, as Spark resolves it:
+    ``df_as1.join(df_as2, ...).select("df_as1.name", ...).sort(desc("df_as1.name"))`` sorts the joined
+    rows by df_as1's name, then selects."""
+    if getattr(sort, "_fd_through", False):
+        return sort
+
+    def wrapped(self: Any, *cols: Any, **kwargs: Any) -> Any:
+        import duckdb
+        try:
+            return sort(self, *cols, **kwargs)
+        except duckdb.BinderException as exc:
+            selected = vars(self).get("_fd_selected")
+            if selected is None or "not found" not in str(exc):
+                raise
+            source, picked, how = selected
+            return sort(source, *cols, **kwargs).select(*picked, **how)
+    wrapped._fd_through = True  # type: ignore[attr-defined]  # installed once
+    wrapped.__doc__ = sort.__doc__
+    return wrapped
+
+
 class DataFrameWriterV2:
     """``df.writeTo("schema.table")``: Spark's DataFrameWriterV2 over the lakehouse table writer."""
 
@@ -220,6 +261,9 @@ def install() -> None:
     DataFrame.to = to
     DataFrame.withMetadata = with_metadata
     DataFrame.writeTo = write_to
+    DataFrame.select = _select_keeping(DataFrame.select)
+    for name in ("sort", "orderBy"):
+        setattr(DataFrame, name, _sort_through_select(getattr(DataFrame, name)))
     if not getattr(DataFrame.schema.fget, "_fd_metadata", False):
         prop = _schema_with_metadata(DataFrame.schema)
         prop.fget._fd_metadata = True

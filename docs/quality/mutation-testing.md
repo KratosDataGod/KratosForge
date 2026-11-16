@@ -4042,7 +4042,7 @@ No bugs were found.
   - Parts are two-space JSON with text kept as written.
   - Visuals with data cross-filter the others.
   - Positions are grid columns rounded to two places.
-  - One more, recorded with the security notes.
+  - A visual name with other characters is refused.
   - → `test_appstudio_pbir_mutation.py`.
 
 ### Left

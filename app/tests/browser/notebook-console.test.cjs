@@ -76,6 +76,28 @@ test("Copy to a new cell adds the last line that ran at the end, and Clear empti
   assert.strictEqual(await p.getByRole("complementary", { name: "Scratch" }).count(), 0);
 });
 
+test("while a cell runs, Run refuses and says to run again, and nothing is sent", { skip }, async () => {
+  const p = page();
+  await p.evaluate(() => { state.notebook.console.open = true; renderNotebook(); setKernel("busy", state.notebook); });
+  const pane = p.getByRole("complementary", { name: "Scratch" });
+  const before = ran.length;
+  await pane.getByLabel("Scratch input").fill("df.count()");
+  await pane.getByRole("button", { name: "Run" }).click();
+  await p.getByText("A cell is running. Run this again when it finishes.").waitFor();
+  assert.strictEqual(ran.length, before);
+  assert.strictEqual(await pane.getByLabel("Scratch input").inputValue(), "df.count()", "what you typed stays");
+  await p.evaluate(() => setKernel("idle", state.notebook));
+});
+
+test("on another engine the console says it runs on this PC's Python", { skip }, async () => {
+  const p = page();
+  await p.evaluate(() => { engineStates.set(state.notebook.name, { engine: "spark-local", status: "ready" }); renderNotebook(); });
+  const pane = p.getByRole("complementary", { name: "Scratch" });
+  await pane.getByText("The scratch console runs on this PC's Python.", { exact: false }).waitFor();
+  assert.strictEqual(await pane.getByRole("button", { name: "Run" }).isDisabled(), true);
+  await p.evaluate(() => { engineStates.delete(state.notebook.name); renderNotebook(); });
+});
+
 test("a notebook that runs in Fabric says the console isn't available there", { skip }, async () => {
   const p = page();
   await p.evaluate(() => { state.notebook.console.open = true; state.notebook.compute = "fabric"; renderNotebook(); });

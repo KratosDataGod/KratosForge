@@ -36,6 +36,20 @@ Click a column's header to sort the whole result by it: once for ascending, agai
 
 `%` and `_` mean themselves, not wildcards. A filter that can't be read for its column, such as `> lots` on a number column, is marked, and its message says what to write; the rows on screen stay until it's fixed. Turning **Filter** off clears the filters.
 
+### Select, copy and look closer
+
+Click a cell to select it; Shift+click or drag selects a block, a row's number selects the row, and Ctrl+A selects the page. The arrow keys move (Shift and an arrow extends), and the band says how many cells are selected, as "3 × 2 cells selected".
+
+| Key or menu item | What it does |
+| --- | --- |
+| **Copy** (Ctrl+C) | The selected values, tab-separated, as a spreadsheet pastes them |
+| **Copy with headers** (Ctrl+Shift+C) | The same, with the column names first |
+| **Copy as CSV**, **JSON** or **INSERT statements** | The selection in that format, as **Copy ▾** does for the page |
+| **Open value** (Enter, or double-click) | The value in full beside the grid: JSON and long text formatted, with its type and length. Esc closes it |
+| **Column statistics** | Rows, empty values, distinct values (approximate), and for numbers min, max, mean and a histogram; for dates the range; for text the most common values |
+
+Right-click a cell, or press Shift+F10, for the menu. Column statistics are over every row of the result's snapshot on this PC, not just the page, and ignore the filters; nothing runs again.
+
 ## Export
 
 **Export ▾** saves the whole result, not just the page you see, to your Downloads folder:

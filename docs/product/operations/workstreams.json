@@ -31,12 +31,9 @@
         "Local TPC-H run slowdown"
       ],
       "active": {
-        "story": "WR-101"
+        "story": "WR-104"
       },
       "ready": [
-        {
-          "story": "WR-104"
-        },
         {
           "story": "WR-103"
         }
@@ -51,8 +48,8 @@
       "blockers": [
         "PB-015 live Prove run waits on Chris's yes (state kept in the backlog; its issue is closed until approved)"
       ],
-      "last_completed": "WR-102 benchmark baseline gate (#2329, #2350); WR-103 full temp drive message (#2478) and real-volume test (#2413), out-of-memory part still open",
-      "next_action": "WR-101, then WR-104. #2361's new profile options wait on Chris's go; the 8-hour soak and PB-015 wait on Chris."
+      "last_completed": "WR-101 first-write race retry (#2273, #2277); WR-102 benchmark baseline gate (#2329, #2350); WR-103 full temp drive message (#2478) and real-volume test (#2413), out-of-memory part still open",
+      "next_action": "WR-104, then WR-103 (out-of-memory part). #2361's new profile options wait on Chris's go; the 8-hour soak and PB-015 wait on Chris."
     },
     {
       "key": "fabric",

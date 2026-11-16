@@ -135,7 +135,7 @@ def _value(name: str, kind: str, text: str) -> Any:
             raise ValueError(f"Parameter {name} is a date and time: write it as 2026-10-01 14:30.") from None
     if v.lower() in ("true", "false"):
         return v.lower() == "true"
-    raise ValueError(f"Parameter {name} is true or false.")
+    raise ValueError(f"Parameter {name} is true or false: write true or false.")
 
 
 def _bad() -> Any:

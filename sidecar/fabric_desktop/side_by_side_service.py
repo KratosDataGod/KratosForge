@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import json
 import logging
 import os
@@ -21,6 +20,7 @@ from .fabric_run import TERMINAL, compute_check, uses_local_module, uses_spark
 from .fabric_step import STEP_REFUSED, is_step
 from .onelake import DFS_HOST, FileStore, storage_options
 from .redact import describe
+from .timeutil import now_iso as _now, parse_time as _parse
 
 _log = logging.getLogger(__name__)
 _SAVE_LOCK = threading.Lock()  # side_by_side.jsonl is read, changed and written back whole
@@ -30,16 +30,6 @@ POLL_SECONDS = 5
 MAX_FABRIC_SECONDS = 6 * 3600
 
 
-def _now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-
-
-def _parse(at: Any) -> dt.datetime | None:
-    try:
-        t = dt.datetime.fromisoformat(str(at).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
 
 
 class OneLakeTables(sbs.Tables):

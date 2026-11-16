@@ -13,7 +13,6 @@ publish workspace, so a proof never changes the published notebook that schedule
 
 from __future__ import annotations
 
-import datetime as dt
 import hashlib
 import json
 import logging
@@ -36,6 +35,7 @@ from .proof_runtime import PROOF_ROOT
 from .redact import describe
 from .side_by_side import machine
 from . import known_folders
+from .timeutil import now_iso as _now, parse_time as _parse
 
 NOTEBOOK_JOB = "RunNotebook"
 _GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
@@ -48,16 +48,6 @@ _log = logging.getLogger(__name__)
 _PROOFS_SAVING = threading.Lock()  # proofs.jsonl is read, changed and written whole
 
 
-def _now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-
-
-def _parse(at: Any) -> dt.datetime | None:
-    try:
-        t = dt.datetime.fromisoformat(str(at).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
 
 
 

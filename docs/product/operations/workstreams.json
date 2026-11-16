@@ -171,12 +171,9 @@
         "Run continuous product management"
       ],
       "active": {
-        "story": "WR-501"
+        "story": "WR-502"
       },
       "ready": [
-        {
-          "story": "WR-502"
-        },
         {
           "story": "WR-504"
         }
@@ -190,8 +187,8 @@
         "EA-030 Narrator pass needs a Windows PC",
         "#1136 Embed Studio screen held for Chris's live report test"
       ],
-      "last_completed": "WR-503 errors name a next step (#2325); editor parity wave 1 items needing no mockup (#2581 to #2627); docs audits 18 to 21",
-      "next_action": "WR-501; WR-504 in Notebook parity. The combined mockup (#2580) waits on Chris; its items start when he answers."
+      "last_completed": "WR-501 real-world paths in VS Code (#2319, #2519, #2573); WR-503 errors name a next step (#2325); editor parity wave 1 items needing no mockup (#2581 to #2627); docs audits 18 to 21",
+      "next_action": "WR-502 docs audit with the product check (UX reviews its copy); WR-504 in Notebook parity (UX reviews its copy). The combined mockup (#2580) waits on Chris; its items start when he answers."
     },
     {
       "key": "platform",

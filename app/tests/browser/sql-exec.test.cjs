@@ -4,7 +4,10 @@ const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
 const path = require("node:path");
-const { playwright, openApp } = require("./harness.cjs");
+const os = require("node:os");
+const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: query.js:renderQuery
 
 const LH = { workspace_id: "ws1", lakehouse_id: "lh1", name: "Sales" };
 const SHOTS = process.env.SCREENSHOT_DIR;
@@ -17,6 +20,7 @@ before(async () => {
   if (skip) return;
   app = await openApp({
     engine: ["sql_format", "sql_analyze", "sql_start", "sql_status", "sql_page", "sql_cancel", "sql_pin", "learn_fix_compare",
+      "sql_file_info", "sql_file_read", "sql_file_write",
       "sql_export", "sql_export_status", "sql_export_cancel", "app_settings", "save_app_settings"],
     mocks: { list_tables: () => ({ dbo: ["sales"] }), table_columns: () => [] },
   });
@@ -254,6 +258,63 @@ test("a query with parameters asks for their values once, then keeps them with t
   assert.ok(await page().locator(".sql-params").isHidden(), "kept values don't ask again");
   const kept = await page().evaluate(() => JSON.parse(localStorage.getItem(queryTabsKey(sqlPage.ref)))[sqlPage.active].params);
   assert.deepStrictEqual(kept, { word: { type: "text", value: "x' OR '1'='1" }, n: { type: "number", value: "41" } });
+});
+
+test("a .sql file opens in a tab, saves back to itself and says when another program changed it (S38)", { skip }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kf-sqlfile-"));
+  const file = path.join(dir, "orders.sql");
+  fs.writeFileSync(file, '-- KratosForge parameters: {"w":{"type":"text","value":"West"}}\nSELECT :w AS w\n');
+  await page().evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async (cmd, args) => (cmd === "pick_sql_file" ? window.__fdPick(args) : invoke(cmd, args));
+  });
+  await page().evaluate((file) => { window.__fdPick = () => file; }, file);
+  await page().getByRole("button", { name: "Open .sql..." }).click();
+  await page().waitForSelector(".sql-file-chip");
+  assert.strictEqual(await page().locator(".sql-tabs [aria-selected=true]").textContent(), "orders.sql");
+  assert.strictEqual(await page().locator(".sql-file-chip").textContent(), `File on this PC: ${file}`);
+  assert.strictEqual(await page().evaluate(() => sqlPage.editor.text()), "SELECT :w AS w\n", "the parameter line stays out of the editor");
+  assert.deepStrictEqual(await page().evaluate(() => sqlPage.tabs[sqlPage.active].params), { w: { type: "text", value: "West" } });
+  const dot = page().locator(".sql-tab.on .sql-dirty");
+  assert.ok(await dot.isHidden());
+
+  await setDoc("SELECT :w AS w, 2 AS two\n");
+  assert.ok(await dot.isVisible(), "a change the file doesn't have shows a dot");
+  await page().keyboard.press("Control+s");
+  await page().waitForFunction(() => /Saved orders\.sql/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.strictEqual(fs.readFileSync(file, "utf8"), '-- KratosForge parameters: {"w":{"type":"text","value":"West"}}\nSELECT :w AS w, 2 AS two\n',
+    "saved back with its parameter line and its own LF line endings");
+  assert.ok(await page().locator(".sql-tab.on .sql-dirty").isHidden());
+
+  fs.writeFileSync(file, "SELECT 'from another editor' AS s\n");
+  fs.utimesSync(file, new Date(), new Date(Date.now() + 5000));
+  await page().evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page().waitForSelector(".sql-disk-note:not([hidden])");
+  assert.match(await page().locator(".sql-disk-note").textContent(), /orders\.sql changed on this PC.*Your tab has no unsaved changes\./);
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "sql-s38-changed.png") });
+  await page().getByRole("button", { name: "Load the new version" }).click();
+  await page().waitForFunction(() => sqlPage.editor?.text() === "SELECT 'from another editor' AS s\n");
+  assert.ok(await page().locator(".sql-disk-note").isHidden());
+
+  await setDoc("SELECT 'mine' AS s\n");
+  await page().locator(".sql-tab.on .close").click();
+  await page().waitForSelector("#dialog-root .dialog");
+  assert.match(await page().locator("#dialog-root .dialog").textContent(), /Save changes to orders\.sql\?.*file on this PC stays as it was/);
+  if (axeSource) assert.deepStrictEqual(await axeFindings(page(), "#dialog-root .dialog"), []);
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "sql-s38-close.png") });
+  await page().getByRole("button", { name: "Don't save" }).click();
+  await page().waitForFunction(() => !sqlPage.tabs.some((t) => t.disk));
+  assert.strictEqual(fs.readFileSync(file, "utf8"), "SELECT 'from another editor' AS s\n", "Don't save leaves the file as it was");
+
+  const copy = path.join(dir, "copy.sql");
+  await page().evaluate((copy) => { window.__fdPick = (args) => (args.saveName ? copy : null); }, copy);
+  await setDoc("SELECT 1 AS one\nSELECT 2 AS two");
+  await page().getByRole("button", { name: "Save as .sql..." }).click();
+  await page().waitForSelector(".sql-file-chip");
+  assert.strictEqual(fs.readFileSync(copy, "utf8"), "SELECT 1 AS one\r\nSELECT 2 AS two", "a new file has Windows line endings");
+  assert.strictEqual(await page().locator(".sql-tabs [aria-selected=true]").textContent(), "copy.sql");
+  const shell = await page().evaluate(() => window.__fdShellCalls.filter((c) => c.cmd === "pick_sql_file").length);
+  assert.strictEqual(shell, 0, "the test's picker stood in for the shell's");
 });
 
 test("nothing on the page threw", { skip }, async () => {

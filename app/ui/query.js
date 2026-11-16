@@ -109,7 +109,8 @@ function loadQueryTabs(ref) {
       const tabs = saved.map((t) => ({ name: String(t.name), sql: String(t.sql), dialect: sqlDialect(t.dialect),
         ...(t.params && typeof t.params === "object" ? { params: sqlKeptParams(t.params) } : {}),
         ...(t.file && typeof t.file.name === "string" ? { file: t.file } : {}),
-        ...(t.proj && typeof t.proj.path === "string" ? { proj: t.proj } : {}) }));
+        ...(t.proj && typeof t.proj.path === "string" ? { proj: t.proj } : {}),
+        ...(t.disk && typeof t.disk.path === "string" ? { disk: t.disk } : {}) }));
       return wh ? tabs.map((t) => ({ ...t, dialect: ref.kind })) : tabs;
     }
   } catch { /* no saved tabs */ }
@@ -130,12 +131,37 @@ function sqlParamsText(list) {
   return list.map((x) => `${x.name} = ${x.value.length > 40 ? `${x.value.slice(0, 40)}…` : x.value}`).join(", ");
 }
 
+// S38: a tab's parameter values go into its .sql file as one comment line at the top, and come back out
+// when the file opens, so the values travel with the file and the SQL itself stays as written.
+const SQL_FILE_PARAMS = "-- KratosForge parameters: ";
+
+function sqlFileText(sql, params) {
+  const kept = sqlKeptParams(params);
+  return Object.keys(kept).length ? `${SQL_FILE_PARAMS}${JSON.stringify(kept)}\n${sql}` : sql;
+}
+
+function sqlFileSplit(text) {
+  if (!text.startsWith(SQL_FILE_PARAMS)) return { sql: text, params: null };
+  const end = text.indexOf("\n");
+  const line = end < 0 ? text : text.slice(0, end);
+  try {
+    const params = sqlKeptParams(JSON.parse(line.slice(SQL_FILE_PARAMS.length)));
+    return { sql: end < 0 ? "" : text.slice(end + 1), params: Object.keys(params).length ? params : null };
+  } catch { return { sql: text, params: null }; /* not our line after all: the SQL keeps it */ }
+}
+
+// A tab opened from (or saved as) a .sql file has changes the file doesn't, when its text with its
+// parameter line differs from what was last read or written. Unknown (null) counts as changed.
+function sqlDiskDirty(t) {
+  return !!t.disk && (t.disk.saved == null || sqlFileText(t.sql, t.params) !== t.disk.saved);
+}
+
 function saveQueryTabs() {
   try {
     localStorage.setItem(queryTabsKey(sqlPage.ref),
       JSON.stringify(sqlPage.tabs.map((t) => ({ name: t.name, sql: t.sql, dialect: t.dialect || "spark", ...(t.file ? { file: t.file } : {}),
         ...(t.params && Object.keys(t.params).length ? { params: t.params } : {}),
-        ...(t.proj ? { proj: t.proj } : {}) }))));
+        ...(t.proj ? { proj: t.proj } : {}), ...(t.disk ? { disk: t.disk } : {}) }))));
     return true;
   } catch { return false; /* storage unavailable: tabs last for this session */ }
 }
@@ -309,7 +335,9 @@ function renderQuery() {
   const runsHere = () => wh || SQL_DIALECTS[tab.dialect].runsHere;
   const where = wh ? "in Fabric" : "on this PC";
 
-  const setSql = (text) => { tab.sql = text; saveQueryTabs(); drawParamChip(); };
+  const setSql = (text) => { tab.sql = text; saveQueryTabs(); drawParamChip(); drawDirty(); };
+  // S38: the dot on a tab opened from a .sql file while it has changes the file doesn't.
+  const drawDirty = () => { for (const [t, dot] of p.dirtyDots || []) dot.hidden = !sqlDiskDirty(t); };
   p.editor?.destroy();
   const provider = wh ? warehouseSqlProvider(ref) : lakehouseSqlProvider(p, ref, () => { if (here()) editor.refresh(); });
   const editor = p.editor = createSqlEditor({
@@ -326,6 +354,7 @@ function renderQuery() {
       togglePane: () => togglePane(),
       definition: () => goToDefinition(),
       save: () => {
+        if (tab.disk) { saveDisk(false); return; }
         if (tab.proj) { whProjectSave(tab).then((ok) => { if (ok) { saveQueryTabs(); p.whProjectView?.refresh(); } }); return; }
         const ok = saveQueryTabs();
         toast(ok ? `Saved ${tab.name}` : "Could not save the query: this PC's app storage is unavailable", !ok);
@@ -959,7 +988,7 @@ function renderQuery() {
     // On a lakehouse, Plan and Profile are DuckDB's (S39, S40), Preview like Messages and Chart.
     const localExplainOn = !wh && previewShown() && runsHere();
     const extra = [...(wh || previewShown() ? ["messages", "chart"] : []), ...(wh || localExplainOn ? ["plan"] : []),
-      ...(localExplainOn ? ["profile"] : []), ...(previewShown() ? ["history"] : [])];
+      ...(localExplainOn ? ["profile"] : []), ...(previewShown() && PREVIEW_FEATURES.sqlHistory ? ["history"] : [])];
     const view = extra.includes(tab.view) ? tab.view : "results";
     const viewTab = (id, label) => {
       const b = h("button", { role: "tab", class: `sql-view${view === id ? " on" : ""}`, "aria-selected": String(view === id),
@@ -1069,7 +1098,7 @@ function renderQuery() {
   // A tablist holds only tabs (#905): each wrapper is presentational, and its × is for the mouse; with the
   // keyboard, Delete on the tab closes it. New query sits beside the list, not in it.
   // Delete and × ask first when the query has SQL of its own (keyClose); after Delete, focus goes to the tab now selected.
-  const sqlTab = (cls, on, label, iconName, select, close, extra = {}, keyClose = close) => h("div", { class: `sql-tab${cls}${on ? " on" : ""}`, role: "none" },
+  const sqlTab = (cls, on, label, iconName, select, close, extra = {}, keyClose = close, mark = null) => h("div", { class: `sql-tab${cls}${on ? " on" : ""}`, role: "none" },
     h("button", { class: "name", role: "tab", "aria-selected": String(on), onclick: select,
       ...(close ? { "aria-keyshortcuts": "Delete", onkeydown: async (e) => {
         if (e.key !== "Delete") return;
@@ -1077,8 +1106,10 @@ function renderQuery() {
         if (await keyClose() === false) return;
         document.querySelector(".sql-tabs [aria-selected=true]")?.focus();
       } } : {}),
-      ...extra }, icon(iconName, 14), label),
+      ...extra }, icon(iconName, 14), label, mark),
     close ? h("button", { class: "close", "aria-hidden": "true", tabindex: "-1", title: `Close ${label} (Delete)`, onclick: () => keyClose() }, "×") : null);
+  p.dirtyDots = p.tabs.filter((t) => t.disk).map((t) => [t, h("span", { class: "sql-dirty", title: "Not saved to the file", "aria-label": "not saved", hidden: !sqlDiskDirty(t) })]);
+  const dotFor = (t) => p.dirtyDots.find(([x]) => x === t)?.[1] || null;
   const tabs = h("div", { class: "sql-tabbar" },
     h("div", { class: "sql-tabs", role: "tablist", "aria-label": "Queries" },
       p.tabs.map((t, i) => sqlTab("", i === p.active && !compareOn && !monitorOn, t.name, "code",
@@ -1089,11 +1120,16 @@ function renderQuery() {
           if (name) { t.name = name; saveQueryTabs(); renderQuery(); }
         } },
         async () => {
+          if (t.disk) {
+            if (sqlDiskDirty(t) && !(await askSaveDisk(i))) return false;
+            closeTab(i);
+            return;
+          }
           const sql = (t.sql || "").trim();
           if (sql && sql !== QUERY_HINT.trim() && sql !== WAREHOUSE_HINT.trim()
             && !(await confirmDialog(`Close ${t.name}?`, "Its SQL is discarded. It isn't saved anywhere else.", "Close query", { danger: true }))) return false;
           closeTab(i);
-        })),
+        }, dotFor(t))),
       compare ? sqlTab(" wh-cmp-tab", compareOn, "Compare", "branchCompare",
         () => { p.whCompareShown = true; p.whMonitorShown = false; renderQuery(); },
         () => { p.whCompare = null; p.whCompareShown = false; renderQuery(); }) : null,
@@ -1457,6 +1493,98 @@ function renderQuery() {
     await sqlLoadQueries();
     if (p.ref === ref && state.view === "query") renderQuery();
   };
+  // S38 (Preview): .sql files on this PC. Open .sql... and Save as .sql... use the Windows file dialog;
+  // the engine reads and writes the file (sql_files.py), keeping its encoding and line endings. A tab
+  // opened from a file saves back to it, and a file another program changed is never written over
+  // without asking.
+  const filesOn = previewShown() && !!PREVIEW_FEATURES.sqlFiles;
+  const diskOf = (f, text) => ({ path: f.path, name: f.name, version: f.version, encoding: f.encoding, newline: f.newline, saved: text });
+  const openDisk = async () => {
+    const path = await attempt(() => invoke("pick_sql_file", { start: tab.disk?.path || null, saveName: null }), "Could not show the Open dialog");
+    if (!path) return;
+    const at = p.tabs.findIndex((t) => t.disk?.path?.toLowerCase() === path.toLowerCase());
+    if (at < 0) {
+      const f = await attempt(() => rpc("sql_file_read", { path }), "Could not open the file");
+      if (!f) return;
+      const { sql, params } = sqlFileSplit(f.text);
+      p.tabs.push({ name: f.name, sql, dialect: tab.dialect, ...(params ? { params } : {}), disk: diskOf(f, sqlFileText(sql, params)) });
+    }
+    p.whCompareShown = p.whMonitorShown = false;
+    p.active = at < 0 ? p.tabs.length - 1 : at;
+    saveQueryTabs();
+    renderQuery();
+  };
+  const saveDisk = async (asNew, t = tab) => {
+    let path = asNew ? null : t.disk?.path;
+    if (!path) {
+      const name = t.disk?.name || `${(t.name || "query").replace(/[<>:"/\\|?*\x00-\x1f]+/g, " ").trim().replace(/\.sql$/i, "") || "query"}.sql`;
+      path = await attempt(() => invoke("pick_sql_file", { start: t.disk?.path || null, saveName: name }), "Could not show the Save dialog");
+      if (!path) return false;
+    }
+    const same = !!t.disk && path.toLowerCase() === t.disk.path.toLowerCase();
+    const text = sqlFileText(t.sql, t.params);
+    // The Save dialog itself asks before replacing a file, so Save as may write over one.
+    const write = (expect, overwrite) => attempt(() => rpc("sql_file_write", { path, text, expect, overwrite,
+      encoding: t.disk?.encoding || "utf-8", newline: t.disk?.newline || "\r\n" }), "Could not save the file");
+    let out = await write(same ? t.disk.version : "", !same);
+    if (out?.conflict) {
+      if (!(await confirmDialog(`Save ${out.name}?`, `${out.message} Saving writes this tab over the file, and the other version is lost.`,
+        "Save anyway", { danger: true }))) return false;
+      out = await write("", true);
+    }
+    if (!out || out.conflict) return false;
+    t.disk = diskOf(out, text);
+    if (!same) t.name = out.name;
+    saveQueryTabs();
+    toast(`Saved ${out.name}`);
+    if (p.ref === ref && state.view === "query") renderQuery();
+    return true;
+  };
+  // Closing a tab with changes the file doesn't have: Save, Don't save, or Cancel (false).
+  const askSaveDisk = (i) => new Promise((resolve) => {
+    const t = p.tabs[i];
+    let settled = false;
+    const done = (v) => { if (settled) return; settled = true; closeDialog(); resolve(v); };
+    showDialog(`Save changes to ${t.disk.name}?`,
+      h("div", {}, h("p", { class: "text" }, "You changed this tab since it was saved. If you don't save, the file on this PC stays as it was.")),
+      [btn("Cancel", null, () => done(false), "tool outline"), btn("Don't save", null, () => done(true), "tool outline"),
+        btn("Save", null, async () => { settled = true; closeDialog(); resolve(await saveDisk(false, t)); }, "tool primary")],
+      () => done(false));
+  });
+  // The file's line above the editor, and a note when another program changed the file on this PC.
+  const diskNote = h("div", { class: "sql-disk-note", hidden: true });
+  const fileRow = tab.disk && filesOn ? h("div", { class: "sql-file-row" },
+    h("span", { class: "sql-file-chip", title: tab.disk.path }, `File on this PC: ${tab.disk.path}`),
+    h("span", { class: "muted-text" }, "Ctrl+S saves to this file."), diskNote) : null;
+  const checkDisk = async () => {
+    const d = tab.disk;
+    if (!d || !filesOn || !here()) return;
+    const now = await rpc("sql_file_info", { path: d.path }).catch(() => null);
+    if (!now || tab.disk !== d || !here()) return;
+    const dirty = sqlDiskDirty(tab);
+    const load = async () => {
+      const f = await attempt(() => rpc("sql_file_read", { path: d.path }), "Could not read the file");
+      if (!f) return;
+      const { sql, params } = sqlFileSplit(f.text);
+      Object.assign(tab, { sql, params: params || {}, disk: diskOf(f, sqlFileText(sql, params)) });
+      saveQueryTabs();
+      renderQuery();
+    };
+    const keep = () => { tab.disk = { ...d, version: now.version || "", saved: null }; saveQueryTabs(); renderQuery(); };
+    if (!now.exists) {
+      diskNote.replaceChildren(h("span", null, h("b", null, `${d.name} isn't on this PC any more.`), " Save as .sql... keeps this tab in a file."));
+    } else if (now.version !== d.version) {
+      const at = now.changed ? timeText(new Date(now.changed * 1000)) : "";
+      diskNote.replaceChildren(h("span", null, h("b", null, `${d.name} changed on this PC`), at ? ` (another program saved it at ${at}). ` : ". ",
+        dirty ? "Your tab has unsaved changes; loading the new version discards them." : "Your tab has no unsaved changes."),
+        h("div", { class: "row" }, btn("Load the new version", null, load, "tool primary"), btn("Keep this tab as it is", null, keep, "tool outline")));
+    } else { diskNote.hidden = true; return; }
+    diskNote.hidden = false;
+    diskNote.setAttribute("role", "alert");
+  };
+  p.checkDisk = checkDisk;
+  const fileButtons = () => filesOn ? [btn("Open .sql...", "folderOpen", openDisk, "tool", { title: "Open a .sql file on this PC in a new tab" }),
+    btn("Save as .sql...", null, () => saveDisk(true), "tool", { title: "Save this tab as a .sql file on this PC. The tab then saves to that file." })] : [];
   // WH-11: the warehouse's project in Git, on the explorer's Project tab. A file opens in its own
   // tab, or in the tab that already holds it; Save writes it back.
   const openProjectFile = async (f, project) => {
@@ -1488,6 +1616,7 @@ function renderQuery() {
       tab.proj ? btn("Save file", "save", saveFile, "tool", { title: `Save to ${tab.proj.path} in ${tab.proj.folder} (Ctrl+S). Commit it in Source control.` })
         : btn("Save query", "save", () => saveQuery(false), "tool", { title: tab.file ? `Save to ${tab.file.name} in ${tab.file.place === "mine" ? "My queries" : tab.file.place_label}` : "Save this tab as a .sql file in My queries or a Git repository" }),
       tab.file && !tab.proj ? btn("Save as new", null, () => saveQuery(true), "tool") : null,
+      ...fileButtons(),
       btn("Open in Fabric", "open", () => openInFabric(fabricLink)),
       whSsmsButton(ref, () => editor.text()),
       btn("Monitoring", "monitor", () => whMonitorOpen(ref), "tool", { title: "Fabric's workspace monitoring for this warehouse, and its monitoring views (Preview)" }),
@@ -1524,12 +1653,13 @@ function renderQuery() {
       h("section", { class: "sql-main" }, tabs,
         monitorOn ? whMonitorView(ref, { insight: openInsight })
           : compareOn ? whCompareView(ref, { open: openProjectFile })
-          : h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), paramsBox, band, rtabs, grid))))
+          : h("div", { class: "sql-card" }, actions, fileRow, h("div", { class: "sql-editor-row" }, edit, compat), paramsBox, band, rtabs, grid))))
     : h("div", { class: "sql-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
       btn("New SQL query", "add", addTab),
       btn("New notebook", "notebook", () => newNotebook(ref)),
       btn("Refresh", "sync", () => { p.tables = null; p.cols = {}; p.pending = {}; renderQuery(); }),
+      ...fileButtons(),
       h("span", { class: "spacer" }),
       h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB, so no Fabric job starts. Reading OneLake still uses some capacity. ", learnMore("sql-queries")))),
     h("div", { class: "nb-body" },
@@ -1538,7 +1668,7 @@ function renderQuery() {
           h("span", { class: "label" }, ref.name)),
         tablesBox),
       h("section", { class: "sql-main" }, tabs,
-        h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), paramsBox, band, rtabs, grid)))));
+        h("div", { class: "sql-card" }, actions, fileRow, h("div", { class: "sql-editor-row" }, edit, compat), paramsBox, band, rtabs, grid)))));
   drawResults();
   drawTables();
   if (tab.autorun) { delete tab.autorun; run(tab.sql); }
@@ -1546,8 +1676,12 @@ function renderQuery() {
   if (wh) whMonitorAutoCheck(ref);
   if (wh && !p.envRead) { p.envRead = true; whEnvRead(); }
   if (!p.tables && !wh) loadTables();
+  checkDisk();
   editor.focus();
 }
+
+// S38: coming back to the app (another program may have saved the file) checks the open tab's .sql file.
+window.addEventListener("focus", () => { if (state.view === "query") sqlPage.checkDisk?.(); });
 
 // The query tabs' own key, listed in the Keyboard shortcuts dialog while the SQL page is open (sqlTab above).
 registerShortcuts("SQL query", [

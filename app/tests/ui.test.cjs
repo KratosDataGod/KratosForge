@@ -5833,7 +5833,8 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
       "Databricks workspace discovery", "Connection profiles in Settings",
       "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
       "Databricks workspace sync", "Databricks Asset Bundles in Source control"],
-    embedStudio: ["Embed Studio"],
+    embedStudio: ["Embed Studio"], sqlStatements: ["Several statements in one run"], sqlParams: ["Query parameters"],
+    sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {

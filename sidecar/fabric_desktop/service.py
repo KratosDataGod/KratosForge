@@ -23,7 +23,7 @@ from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator, cached_account
 from .fabric_api import FabricClient
-from . import app_settings, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_format, sql_function_help, sqlcompat, warehouse
+from . import app_settings, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_files, sql_format, sql_function_help, sqlcompat, warehouse
 from .learn import evidence
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
@@ -1164,6 +1164,24 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """Keep a run's result on this PC until it is unpinned (S27, the SQL page's result history), or let
         it go. Runs nothing."""
         return self.sql_runs.pin(execution, bool(pinned))
+
+    def sql_file_info(self, path: str) -> dict[str, Any]:
+        """A .sql file's version, without reading it (S38, Preview): the page asks when it comes back into
+        view, to say the file changed on disk."""
+        return sql_files.info(path)
+
+    def sql_file_read(self, path: str) -> dict[str, Any]:
+        """Open a .sql file the user picked: its text, encoding, line endings and version."""
+        return sql_files.read(path)
+
+    def sql_file_write(self, path: str, text: str, expect: str = "", encoding: str = "utf-8",
+                       newline: str = "\r\n", overwrite: bool = False) -> dict[str, Any]:
+        """Save a tab to a .sql file. A file that changed on disk since ``expect`` (or one already there
+        on Save as, without ``overwrite``) is not written: the answer says ``conflict`` and the page asks."""
+        try:
+            return sql_files.write(path, text, expect, encoding, newline, bool(overwrite))
+        except sql_files.Conflict as exc:
+            return {**sql_files.info(path), "conflict": True, "message": str(exc)}
 
     def sql_cancel(self, execution: str) -> dict[str, Any]:
         """Stop one run: ends that run's own process and nothing else."""

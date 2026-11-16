@@ -96,6 +96,38 @@ A warehouse run may also **change** the warehouse, when it's started as a change
 
 On a lakehouse (editor parity S39, S40), `estimated_plan = true` runs `EXPLAIN (FORMAT JSON)` in the run's worker after the tables are bound, so nothing runs, and `profile = true` runs `EXPLAIN ANALYZE` with DuckDB's JSON profiling, which runs the query once more. Each answers with one row of JSON in a column named `plan` or `profile`, read with `sql_page`: the plan as `{steps: [{depth, name, rows, details}], more_steps}` with estimated rows (or null), the profile as a notebook's query profile. Both are for one query that only reads: more than one statement, or one that changes even the run's own session, fails with "A plan or profile is for one query that reads", and `allow` beyond reading is refused before anything starts. Profiling is turned on before the run locks its settings, and writes to a file in the run's own folder, never to the worker's output. A profile isn't for a warehouse, and isn't an estimated plan too. The status adds `plan: true` or `profile: true`, and so does the audit line.
 
+## Several statements in one run (Preview)
+
+With Preview features shown, **Run** on a script of several statements runs them one after another and gives each its own result tab above the grid: `1 SELECT · 5 rows`, `2 UPDATE · 14 rows changed`, and so on. Statements are split on `;` and, for T-SQL, on `GO` lines; a semicolon inside a string, a comment or a quoted name doesn't split, and a T-SQL batch that declares variables or creates a procedure, function, trigger or view stays one statement. **Ctrl+Shift+Enter**, a selection, and a single statement run as before, with one result.
+
+- On a lakehouse, the statements share one DuckDB session, so a temporary view made by the first can be read by the second. Every statement is read and checked before the first one runs: a statement that can't be read, or that [isn't allowed](#what-a-query-may-do), stops the run before anything runs, and the message names it (*Statement 2: ...*).
+- On a warehouse, the statements run one at a time on one connection. A script that only reads may hold several reads. A script that changes the warehouse still goes through **Allow changes** and the confirm, and runs in one transaction: `BEGIN TRAN` and `COMMIT` around it are dropped, since the run has its own.
+- The run stops at the first statement that fails. The tabs before it keep their results; the failed one shows the error, and the rest show *Not run*. A note under the tabs offers **Go to line n** and **Run from statement n**. On a warehouse, a failed change rolls back every statement before it; on a lakehouse, a temporary view or setting made before the failure stays in that session only.
+- Each tab's result can be paged and exported on its own. At most 200 statements run in one go.
+
+## Query parameters (Preview)
+
+A query can name a value it needs as `:name` or `{{name}}`, as in `WHERE region = :region AND order_date >= {{start_date}}`. A name inside a string, a comment or a quoted name isn't a parameter, and `::` (a cast) never starts one. With Preview features shown, **Run** asks for each value and its type once: **Text**, **Number** (42 or 3.5), **Date** (2026-10-01), **Date and time** (2026-10-01 14:30) or **True or false**. A value that doesn't fit its type is pointed out, and nothing runs until it does.
+
+The values never become part of the SQL text. On a lakehouse each is bound to DuckDB as a typed parameter; on a warehouse each is sent to the driver as a `?` parameter. So a value such as `x' OR '1'='1` is only ever that text. The values are kept with the tab (shown as a chip beside **Run**, with **Change**), so the next run doesn't ask again, and they're saved at the top of a [.sql file](#sql-files-on-this-pc-preview) as one comment line. The values are never written to the audit trail: a run with parameters is recorded with `params` noted as "(given)".
+
+## Result history and pinned results (Preview)
+
+The **History** view beside **Results** lists the last 20 runs of the tab: when each ran, its SQL, its parameter values, its rows and how long it took. Clicking a run's SQL shows its result again, read from its snapshot on this PC, without running the query; a note says so, with **Back to the latest**, **Pin it** and **Compare with latest**. The history lasts until the tab closes.
+
+The engine keeps the newest 20 results of the whole page, for the retention time in [Limits](#limits). **Pin** keeps a result past both until you unpin it or close its tab, up to 10 pinned results. A result the engine no longer has says it needs running again; opening the history never runs anything.
+
+## .sql files on this PC (Preview)
+
+With Preview features shown, the SQL page's toolbar has **Open .sql...** and **Save as .sql...** beside **Save query**, which keeps saving to My queries or a Git repository as before. Both use the Windows file dialog, and only `.sql` files are opened or saved.
+
+- A file opens in a tab of its own, named after the file, with *File on this PC: path* above the editor. **Ctrl+S** in that tab saves back to the file. A dot on the tab shows changes the file doesn't have yet.
+- A file keeps its encoding (UTF-8, UTF-8 with a byte order mark, or UTF-16) and its line endings (CRLF or LF). A new file is UTF-8 with Windows line endings. A file that isn't UTF-8 or UTF-16 text, a file larger than 5 MB, and a link (a symbolic link or junction) to another file aren't opened.
+- When another program saved the file since the tab opened it, the page says so when you come back to the app, with **Load the new version** and **Keep this tab as it is**. **Ctrl+S** never writes over such a change without asking first.
+- Closing a tab with unsaved changes asks: **Save**, **Don't save** (the file stays as it was) or **Cancel**.
+
+Saving writes the whole file at once: another program sees the old file or the new one, never half of it. Saving is recorded in the [audit trail](#the-audit-trail) with the file's path and the text noted as "(given)"; opening a file isn't recorded.
+
 ## Limits
 
 Set them in **Settings › Advanced › SQL queries**. Your IT team can set any of them in the policy file (see [Azure setup](azure-setup.md#4-push-settings-to-everyone)); a value they set shows as *Set by your organization's policy* and can't be edited.
@@ -117,4 +149,4 @@ Each run adds one `sql_execution` line to the [audit trail](user-guide.md#audit-
 
 ## For developers and other tools
 
-The engine calls are `sql_start`, `sql_status`, `sql_page`, `sql_cancel`, `sql_export`, `sql_export_status` and `sql_export_cancel` (`sidecar/fabric_desktop/sql_exec.py`). `sql_start` takes `target` (`lakehouse`, `local` or `warehouse`), `project`, `warehouse_ref`, `confirm`, `confirm_name` and `dry_run` as well. `local_query_start`, `local_query_status` and `local_query_cancel` are deprecated: they forward to these runs and answer as before. `run_sql` and `save_sql`, which the page used before, still work unchanged for other callers (`export_sql_csv` is no longer an engine call; code inside the engine can still use it), as do `lakehouse.sql()` in notebooks and the read-only query that external AI tools use through the [local API](architecture/ai-integration.md).
+The engine calls are `sql_start`, `sql_status`, `sql_page`, `sql_pin`, `sql_cancel`, `sql_export`, `sql_export_status` and `sql_export_cancel` (`sidecar/fabric_desktop/sql_exec.py`). `sql_start` takes `target` (`lakehouse`, `local` or `warehouse`), `project`, `warehouse_ref`, `confirm`, `confirm_name` and `dry_run` as well, and `statements` (a list, one result each) and `params` (a list of `{name, type, value}`, see `sql_params.py`). `sql_page` and `sql_export` take `part`, the statement whose result to read. `sql_file_info`, `sql_file_read` and `sql_file_write` open and save `.sql` files (`sql_files.py`). `local_query_start`, `local_query_status` and `local_query_cancel` are deprecated: they forward to these runs and answer as before. `run_sql` and `save_sql`, which the page used before, still work unchanged for other callers (`export_sql_csv` is no longer an engine call; code inside the engine can still use it), as do `lakehouse.sql()` in notebooks and the read-only query that external AI tools use through the [local API](architecture/ai-integration.md).

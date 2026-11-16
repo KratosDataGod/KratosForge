@@ -2883,6 +2883,20 @@ async fn pick_folder(window: tauri::Window, start: Option<String>) -> Result<Opt
         .map_err(|_| "The folder dialog stopped unexpectedly".to_string())?
 }
 
+/// Open .sql... and Save as .sql... on the SQL page (editor parity S38): the Windows file dialog, owned by
+/// the window that asked. `save_name` asks where to save (that name suggested); without it, which file to
+/// open. Returns the path, or None when the person cancels. The engine reads and writes the file.
+#[tauri::command]
+async fn pick_sql_file(window: tauri::Window, start: Option<String>, save_name: Option<String>) -> Result<Option<String>, String> {
+    #[cfg(windows)]
+    let owner = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
+    #[cfg(not(windows))]
+    let owner = { let _ = &window; 0 };
+    tauri::async_runtime::spawn_blocking(move || std::thread::spawn(move || folder_pick::pick_sql(owner, start, save_name)).join())
+        .await.map_err(|e| e.to_string())?
+        .map_err(|_| "The file dialog stopped unexpectedly".to_string())?
+}
+
 /// Opens one of this repository's docs pages in the default browser, such as
 /// "xray-fixes.md#small-files". Only pages under docs/ on GitHub.
 #[tauri::command]
@@ -3091,7 +3105,7 @@ fn main() {
         .on_window_event(on_window_event)
         .invoke_handler(guarded(tauri::generate_handler![
             rpc, stop_kernel, check_components, confirm_started, check_for_update, update_sidecar, update_app,
-            fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, ssms_find, open_in_ssms, open_in_mssql, take_pending_link, pick_folder,
+            fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, ssms_find, open_in_ssms, open_in_mssql, take_pending_link, pick_folder, pick_sql_file,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ]))
         .run(tauri::generate_context!())

@@ -111,6 +111,8 @@ const PREVIEW_FEATURES = {
   sqlResultViews: "Messages and Chart on the SQL page",
   sqlStatements: "Several SQL statements per run, a result for each",
   sqlParams: "Query parameters (:name and {{name}}) on the SQL page",
+  sqlFiles: "Open and save .sql files on this PC from the SQL page",
+  sqlHistory: "Result history and pinned results on the SQL page",
   sqlPractices: "SQL best practices",
   bestPractices: "Best practices: checks and templates",
   updateBanner: "New build banner",

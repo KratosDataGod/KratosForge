@@ -21,7 +21,9 @@ from .filenames import file_stem
 from .notebook import to_ipynb
 from . import known_folders
 
-METHODS = {"notebook_export", "notebook_print_page", "notebook_formats_import_check", "notebook_formats_import"}
+METHODS = {"notebook_export", "notebook_print_page", "notebook_formats_import_check", "notebook_formats_import",
+           "notebook_report_open", "notebook_report_page", "notebook_report_export"}
+REPORT_MAX_BYTES = 64 * 1024 * 1024
 
 
 def _read(file_name: str, content: str, encoding: str) -> dict[str, Any]:
@@ -126,6 +128,46 @@ class NotebookFormatsMixin:
         if not isinstance(cells, list) or not all(isinstance(c, dict) for c in cells):
             raise ValueError("cells is a list of cells")
         return {"html": nbf.to_html(name, cells)}
+
+    # The read-only report (Notebook > Share > Open as report, Preview): the app sends the notebook's
+    # cells and outputs as on screen, the engine keeps that one report in memory, and the report's own
+    # window reads it. Nothing is written, until Export as HTML writes the same page to Downloads.
+    def notebook_report_open(self, name: str, cells: list[dict[str, Any]], ran: str, stale: bool = False) -> dict[str, Any]:
+        """Keep the report the report window shows: the page (to_html in report form) and whether the
+        notebook changed after the run its outputs are from. Replaces the report kept before."""
+        if not isinstance(cells, list) or not all(isinstance(c, dict) for c in cells):
+            raise ValueError("cells is a list of cells")
+        if not isinstance(ran, str) or len(ran) > 200:
+            raise ValueError("ran is a short line saying which run the outputs are from")
+        markdown = sum(1 for c in cells if c.get("type") == "markdown")
+        line = f"{ran} Code is hidden; {len(cells)} cell{'' if len(cells) == 1 else 's'}, {markdown} Markdown."
+        page = nbf.to_html(name, cells, report=line)
+        if len(page.encode("utf-8")) > REPORT_MAX_BYTES:
+            raise ValueError("The notebook's outputs are larger than 64 MB, so the report wasn't made. Clear the largest outputs and try again.")
+        self._notebook_report = {"name": name, "html": page, "stale": bool(stale), "at": time.time()}
+        return {"name": name, "bytes": len(page)}
+
+    def notebook_report_page(self) -> dict[str, Any]:
+        """The report kept by notebook_report_open: {"name", "html", "stale", "at"}, or {} when there's none."""
+        return dict(getattr(self, "_notebook_report", None) or {})
+
+    def notebook_report_export(self) -> dict[str, Any]:
+        """Write the report's page, as the report window shows it, to a new .html file in Downloads."""
+        report = getattr(self, "_notebook_report", None)
+        if not report:
+            raise ValueError("There's no report to export. Open it again from the notebook (Share > Open as report).")
+        folder = known_folders.downloads()
+        folder.mkdir(parents=True, exist_ok=True)
+        base = f"{file_stem(report['name'], 'Notebook')} report"
+        for n in range(1, 1000):
+            path = folder / (f"{base}.html" if n == 1 else f"{base} ({n}).html")
+            try:
+                with open(path, "x", encoding="utf-8", newline="\n") as f:
+                    f.write(report["html"])
+            except FileExistsError:
+                continue
+            return {"path": str(path)}
+        raise ValueError("Couldn't find a free file name in Downloads for the report.")
 
     def notebook_export(self, name: str, cells: list[dict[str, Any]], format: str,
                         lakehouse_ref: dict[str, str] | None = None) -> dict[str, Any]:

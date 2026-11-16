@@ -2542,7 +2542,7 @@ async fn fabric_view_sign_out(app: tauri::AppHandle) -> Result<(), String> {
 
 /// The sections that pop out, with their window titles: Monitor's From KratosForge list and
 /// Fabric's Monitoring hub.
-const POP_OUTS: [(&str, &str); 2] = [("runs", "From KratosForge"), ("fabric", "Fabric Monitoring hub")];
+const POP_OUTS: [(&str, &str); 3] = [("runs", "From KratosForge"), ("fabric", "Fabric Monitoring hub"), ("report", "Notebook report")];
 const POP_OUT_PREFIX: &str = "pop-out-";
 
 fn pop_out_label(section: &str) -> String {
@@ -2667,7 +2667,7 @@ async fn pop_out_open(app: tauri::AppHandle, section: String, on_top: Option<boo
         .collect();
     let builder = match saved_place(&pop_out_places(), &section).filter(|p| place_on_screen(*p, &screens)) {
         Some([x, y, w, h]) => builder.position(x, y).inner_size(w, h),
-        None => builder.inner_size(if section == "fabric" { 1100.0 } else { 720.0 }, 640.0).center(),
+        None => builder.inner_size(match section.as_str() { "fabric" => 1100.0, "report" => 920.0, _ => 720.0 }, 640.0).center(),
     };
     builder.build().map_err(|e| e.to_string())?;
     let _ = app.emit("pop-out", json!({"section": section, "open": true}));
@@ -3493,6 +3493,7 @@ mod fabric_nav_tests {
     fn only_listed_sections_pop_out() {
         assert_eq!(pop_out_title("runs"), Ok("From KratosForge"));
         assert_eq!(pop_out_title("fabric"), Ok("Fabric Monitoring hub"));
+        assert_eq!(pop_out_title("report"), Ok("Notebook report"));
         for bad in ["", "main", "../runs", "runs?x=1", "Fabric"] {
             assert!(pop_out_title(bad).is_err(), "{bad}");
         }

@@ -79,10 +79,14 @@ function nbfPrintDone() {
 async function nbfPrintPdf(nb) {
   const out = await attempt(() => rpc("notebook_print_page", { name: nb.name, cells: nbfExportPayload(nb, "html").cells }),
     "Could not make the notebook's page to print");
-  if (!out) return;
+  if (out) nbfPrintHtml(out.html);
+}
+
+// Prints one of the engine's notebook pages (the export, or the report) on its own.
+function nbfPrintHtml(html) {
   nbfPrintDone();
   const root = h("div", { id: "nbf-print", class: "nbf-print", "aria-hidden": "true" });
-  root.append(...nbfPrintNodes(out.html));
+  root.append(...nbfPrintNodes(html));
   document.body.append(root);
   document.body.classList.add("nbf-printing");
   window.addEventListener("afterprint", nbfPrintDone, { once: true });

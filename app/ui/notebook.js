@@ -110,8 +110,10 @@ function renderNotebook() {
       h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
       h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb),
       skinGroup ? null : btn("Save", "save", () => saveExplicitly(() => document.querySelector("button[data-save]")), "tool", { "data-save": true }),
-      ribbonMenu("Share", "arrowUpload", (menu) => [btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions), nbfExportButton(menu)],
-        "Save a copy, Versions and Export"),
+      ribbonMenu("Share", "arrowUpload", (menu) => [btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions), nbfExportButton(menu),
+        preview("nbReport", btn("Open as report", "document", openNotebookReport, "tool",
+          { title: "The Markdown and outputs from the last run, without the code, in a window of its own. Nothing in it runs." }))],
+        "Save a copy, Versions, Export and Open as report"),
       vscodeButton(nb),
       ribbonMenu("Schedule", "history", () => [preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")), runsToggle(nb)],
         "Schedule this notebook and see its recent runs (also on the Run tab)"),
@@ -1563,6 +1565,7 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
   }
   if (cell.paused) dbgSnapshot(cell, null);
   cell.finishedAt = timeText(new Date());
+  cell.finishedAtMs = Date.now();  // the report says which run its outputs are from (nbreport.js)
   cell.partial = code != null;
   setKernel(nb.stopRequested ? "stopped" : "idle", nb);
   if (state.notebook !== nb) return ok;  // finished in the background; reopening shows it

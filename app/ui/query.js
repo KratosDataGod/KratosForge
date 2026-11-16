@@ -214,8 +214,11 @@ async function followRun(tab, status) {
 
 async function loadPage(tab, offset) {
   try {
-    const page = await rpc("sql_page", { execution: tab.exec.id, offset });
+    // The grid's sort and filters (sqlgrid.js) apply to every row of the run's snapshot, on this PC.
+    const page = await rpc("sql_page", { execution: tab.exec.id, offset, ...sqlGridQuery(tab.grid) });
     if (page.rerun_needed) { tab.result = null; tab.error = page.message; tab.errorRetry = null; return; }
+    if (page.filter_error) { sqlGridState(tab).filterError = page.filter_error; return; }  // the rows on screen stay
+    if (tab.grid) tab.grid.filterError = null;
     Object.assign(tab, { result: page, error: null, errorRetry: null });
   } catch (err) {
     tab.error = String(err);
@@ -346,7 +349,7 @@ function renderQuery() {
     if (wh && !sqlPage.catalog) loadCatalog();
     tab.running = true;
     const startedAt = Date.now();
-    Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "", chart: null });
+    Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "", chart: null, grid: null });
     drawResults();
     let status;
     try {
@@ -418,6 +421,36 @@ function renderQuery() {
     if (!tab.result || tab.paging) return;
     tab.paging = true;
     await loadPage(tab, Math.max(0, offset));
+    tab.paging = false;
+    sqlPage.redraw?.();
+  }
+
+  // The result grid (sqlgrid.js): sort and filter read the first page again, over every row of the snapshot.
+  function gridSort(column) {
+    const g = sqlGridState(tab);
+    g.sort = sqlGridNextSort(g.sort, column);
+    goPageAgain();
+  }
+  function gridFilter(column, text) {
+    const g = sqlGridState(tab);
+    if ((g.filters[column] || "") === text) return;
+    g.filters[column] = text;
+    goPageAgain();
+  }
+  function toggleFilter() {
+    const g = sqlGridState(tab);
+    g.filterOn = !g.filterOn;
+    const had = Object.values(g.filters).some((t) => String(t).trim());
+    if (!g.filterOn) { g.filters = {}; g.filterError = null; }
+    if (!g.filterOn && had) goPageAgain();
+    else drawResults();
+    if (g.filterOn) grid.querySelector(".sql-filter")?.focus();
+  }
+  async function goPageAgain() {
+    if (!tab.result) return;
+    if (tab.paging) { tab.pageAgain = true; return; }  // the latest sort and filters are read when this page arrives
+    tab.paging = true;
+    do { tab.pageAgain = false; await loadPage(tab, 0); } while (tab.pageAgain);
     tab.paging = false;
     sqlPage.redraw?.();
   }
@@ -636,7 +669,7 @@ function renderQuery() {
       msg = `${ex.seconds} s ${where}${ex.rows ? ` · ${ex.rows.toLocaleString()} rows so far` : ""}`;
     } else if (r) {
       const last = r.offset + r.rows.length;
-      msg = `${r.total.toLocaleString()} row${r.total === 1 ? "" : "s"} · ${ex.seconds} s ${where}`;
+      msg = `${sqlGridCount(r, r.columns)} · ${ex.seconds} s ${where}`;
       if (r.total > r.rows.length) msg += ` · rows ${(r.offset + 1).toLocaleString()} to ${last.toLocaleString()}`;
     }
     const copyItem = (format, label) => h("button", { role: "menuitem",
@@ -681,6 +714,9 @@ function renderQuery() {
         { disabled: !r.has_previous || tab.paging, "aria-label": "Previous page" }) : null,
       r && (r.has_previous || r.has_next) ? btn("Next ›", null, () => goPage(r.offset + r.limit), "tool small",
         { disabled: !r.has_next || tab.paging, "aria-label": "Next page" }) : null,
+      r && r.columns.length ? btn("Filter", null, toggleFilter, `tool small${tab.grid?.filterOn ? " toggled" : ""}`,
+        { "aria-pressed": String(!!tab.grid?.filterOn),
+          title: "A filter box under each column. Filters and sort apply to every row of the result on this PC; nothing runs again." }) : null,
       copyMenu,
       exportMenu,
       h("span", { class: "sql-sep", "aria-hidden": "true" }),
@@ -711,10 +747,12 @@ function renderQuery() {
       // The query's own error ("Binder Error: ..."), or why it stopped, is what the person needs to read.
       grid.replaceChildren(h("div", { class: "output error" }, h("pre", {}, tab.error.replace(/^Error: /, ""))));
     } else if (r && r.columns.length) {
-      grid.replaceChildren(h("table", {},
-        h("thead", {}, h("tr", {}, h("th", { class: "i" }), r.columns.map((c) => h("th", { title: c.type }, c.name)))),
-        h("tbody", {}, r.rows.map((row, i) => h("tr", {}, h("td", { class: "i" }, String(r.offset + i + 1)),
-          row.map((v) => h("td", { class: `${typeof v === "number" ? "n" : ""}${v === null ? " null" : ""}` }, cellText(v))))))));
+      // A redraw replaces the filter boxes: the one being typed in keeps focus and its caret.
+      const typing = document.activeElement?.matches?.(".sql-grid .sql-filter") ? document.activeElement : null;
+      const at = typing && { column: typing.dataset.column, start: typing.selectionStart, end: typing.selectionEnd };
+      grid.replaceChildren(...sqlResultGrid(r, sqlGridState(tab), { sort: gridSort, filter: gridFilter }));
+      const box = at && grid.querySelector(`.sql-filter[data-column="${at.column}"]`);
+      if (box) { box.focus(); box.setSelectionRange(at.start, at.end); }
     } else {
       grid.replaceChildren(h("p", { class: "muted-text", style: "padding:12px 16px" },
         r ? "The query ran and returned no columns."

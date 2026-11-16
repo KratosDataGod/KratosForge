@@ -17,7 +17,7 @@ before(async () => {
   if (skip) return;
   app = await openApp({
     engine: ["sql_format", "sql_analyze", "sql_start", "sql_status", "sql_page", "sql_cancel",
-      "sql_export", "sql_export_status", "sql_export_cancel", "app_settings", "save_app_settings"],
+      "sql_export", "sql_export_status", "sql_export_cancel", "sql_column_stats", "app_settings", "save_app_settings"],
     mocks: { list_tables: () => ({ dbo: ["sales"] }), table_columns: () => [] },
   });
   await app.page.evaluate((lh) => openSqlQuery(lh), LH);
@@ -163,6 +163,45 @@ test("the next run pages by the new page size", { skip }, async () => {
   assert.strictEqual(await page().locator(".sql-grid tbody tr").count(), 500);
   assert.match(await band(), /rows 1 to 500/);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "sql-003-paging.png") });
+});
+
+test("headers sort and Filter's boxes filter every row of the result, on this PC, without running it again", { skip }, async () => {
+  await setDoc("SELECT range AS n, CASE range % 3 WHEN 0 THEN 'West' WHEN 1 THEN 'North' ELSE 'Central' END AS region FROM range(1200)");
+  await page().keyboard.press("Control+Enter");
+  await waitPill("Succeeded");
+  const before = runs().length;
+  const first = () => page().locator(".sql-grid tbody tr").first().locator("td").nth(1).textContent();
+  const nHead = page().locator(".sql-grid th").nth(1);
+  await nHead.getByRole("button").click();
+  await page().waitForFunction(() => document.querySelector(".sql-grid th:nth-child(2)")?.getAttribute("aria-sort") === "ascending");
+  await nHead.getByRole("button").click();
+  await page().waitForFunction(() => document.querySelector(".sql-grid th:nth-child(2)")?.getAttribute("aria-sort") === "descending");
+  assert.strictEqual(await first(), "1,199", "the largest of every row, not of the page");
+  assert.match(await band(), /1,200 rows · sorted by n/);
+  await page().getByRole("button", { name: "Filter", exact: true }).click();
+  assert.strictEqual(await page().getByRole("button", { name: "Filter", exact: true }).getAttribute("aria-pressed"), "true");
+  const region = page().getByRole("textbox", { name: "Filter region" });
+  await region.fill("!= central");
+  await region.press("Enter");
+  await page().waitForFunction(() => /800 of 1,200 rows \(filtered\)/.test(document.querySelector(".sql-band")?.textContent || ""));
+  const n = page().getByRole("textbox", { name: "Filter n" });
+  await n.fill("< 10");  // applies as you stop typing
+  await page().waitForFunction(() => /7 of 1,200 rows/.test(document.querySelector(".sql-band")?.textContent || ""));
+  assert.ok(await n.evaluate((el) => el === document.activeElement), "the box keeps focus through the redraw");
+  assert.deepStrictEqual(await page().locator(".sql-grid tbody tr td:nth-child(2)").allTextContents(), ["9", "7", "6", "4", "3", "1", "0"]);
+  await n.fill("< ten");
+  await n.press("Enter");
+  await page().waitForSelector(".sql-grid-error");
+  assert.match(await page().locator(".sql-grid-error").textContent(), /Write a number after < in the filter on n/);
+  assert.strictEqual(await n.getAttribute("aria-invalid"), "true");
+  assert.strictEqual(await page().locator(".sql-grid tbody tr").count(), 7, "the rows on screen stay");
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "grid-sort-filter.png") });
+  await page().getByRole("button", { name: "Filter", exact: true }).click();  // off: the filters go
+  await page().waitForFunction(() => /1,200 rows · sorted by n/.test(document.querySelector(".sql-band")?.textContent || ""));
+  assert.strictEqual(runs().length, before, "nothing ran again");
+  const pages = app.calls.filter((c) => c.method === "sql_page").at(-1).params;
+  assert.deepStrictEqual(pages.sort, [{ column: 0, desc: true }]);
+  assert.strictEqual(pages.filters, undefined);
 });
 
 test("nothing on the page threw", { skip }, async () => {

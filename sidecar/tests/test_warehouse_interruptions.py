@@ -20,7 +20,8 @@ from tests.test_warehouse_queries import SIDECAR, FakeFabric, limits, start, wai
 
 # Markers in the SQL pick the failure: DROP (the link fails), EXPIRED (the sign-in), BUSY (40501),
 # CAPACITY (Fabric's throttling text), CANCELME (the warehouse cancels), SLOWLY (the driver's time limit),
-# FETCHDROP (the link fails after the first rows), COMMITDROP (the link fails on commit), COMMITHANG
+# FETCHDROP (the link fails after the first rows), COMMITDROP, COMMITSLOWLY and COMMITCANCEL (the commit
+# is cut off by a drop, the time limit or a cancel), COMMITHANG
 # (the commit never answers), CONFLICT (the commit is refused), HANG (a statement that never ends).
 WORKER = textwrap.dedent('''
     import json, sys, time
@@ -77,6 +78,10 @@ WORKER = textwrap.dedent('''
                 time.sleep(60)
             if any("COMMITDROP" in q for q in RAN):
                 raise RuntimeError(FAILS["DROP"])
+            if any("COMMITSLOWLY" in q for q in RAN):
+                raise RuntimeError(FAILS["SLOWLY"])
+            if any("COMMITCANCEL" in q for q in RAN):
+                raise RuntimeError(FAILS["CANCELME"])
             if any("CONFLICT" in q for q in RAN):
                 raise RuntimeError("Snapshot isolation transaction aborted due to update conflict. (24556)")
             self.seen["committed"] = True
@@ -167,8 +172,9 @@ def test_the_drivers_time_limit_is_a_timed_out_run(runs):
     assert status["failed_batch"] == 2 and status["committed"] is False
 
 
-def test_a_drop_while_committing_says_the_change_may_have_been_kept(runs):
-    status = wait(runs, change(runs, "UPDATE dbo.sales SET a = 1 -- COMMITDROP")["id"])
+@pytest.mark.parametrize("marker", ["COMMITDROP", "COMMITSLOWLY", "COMMITCANCEL"])
+def test_a_commit_cut_off_says_the_change_may_have_been_kept(runs, marker):
+    status = wait(runs, change(runs, f"UPDATE dbo.sales SET a = 1 -- {marker}")["id"])
     assert status["state"] == "failed" and status["error_kind"] == "commit_unknown"
     assert "may or may not have been kept. Check the tables it changes" in status["error"]
     assert status["committed"] is False
@@ -207,6 +213,7 @@ def test_stopping_a_change_while_it_commits_says_it_may_have_been_kept(runs):
       "remote host. (10054)"), ("connection", None)),
     ("A transport-level error has occurred when receiving results from the server.", ("connection", None)),
     ("The token has expired. AADSTS70043", ("signin", None)),
+    ("Login failed for user '<token-identified principal>'. (18456)", ("signin", None)),
     ("Database 'WH' on server 'x' is not currently available. (40613)", ("throttled", 40613)),
     ("Query timeout expired (HYT00)", ("timeout", None)),
     ("Operation canceled (HY008)", ("cancelled", None)),
@@ -215,3 +222,43 @@ def test_stopping_a_change_while_it_commits_says_it_may_have_been_kept(runs):
 ])
 def test_the_driver_text_tells_an_interruption_from_the_sqls_own_error(text, why):
     assert warehouse.interruption(RuntimeError(text)) == why
+
+
+def test_this_pcs_own_trouble_writing_a_result_keeps_its_own_message(tmp_path, monkeypatch):
+    # A change whose batch returns rows, on a full disk: the disk's message, not "fix that batch" (Quality, #2779).
+    import errno
+
+    from fabric_desktop import sql_worker
+
+    class Cursor:
+        description, rowcount = [("id", int, None, None, 10, 0, True)], -1
+
+        def execute(self, q):
+            pass
+
+        def fetchmany(self, size):
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        def nextset(self):
+            return False
+
+    class Connection:
+        timeout = 0
+
+        def cursor(self):
+            return Cursor()
+
+        def rollback(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(warehouse, "connect", lambda *a, **k: Connection())
+    job = {"query": "UPDATE dbo.t SET a = 1\nGO\nSELECT id FROM dbo.t", "writes": True, "target": "warehouse",
+           "out": str(tmp_path / "out.arrow"), "warehouse": {"server": "s", "database": "WH"}}
+    with pytest.raises(OSError) as failed:
+        warehouse.run(job, lambda: "tok", lambda *a, **k: None)
+    assert not isinstance(failed.value, warehouse.Interrupted)
+    kind, message = sql_worker.error_message(failed.value, job)
+    assert kind == "disk" and "Fix that batch" not in message

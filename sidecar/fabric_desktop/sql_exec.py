@@ -612,8 +612,11 @@ class SqlExecutions:
                 run.affected, run.committed = int(outcome.get("affected") or 0), bool(outcome.get("committed"))
             elif run.stop_reason == "timeout" or outcome.get("kind") == "timeout":
                 run.state, run.error_kind = "timed_out", "timeout"
-                run.error = (time_limit_message(run.time_limit_from, run.time_limit_s)
-                             or time_limit_message("sql", run.time_limit_s)) + _change_kept(change, run.committing)
+                if run.time_limit_s:
+                    run.error = (time_limit_message(run.time_limit_from, run.time_limit_s)
+                                 or time_limit_message("sql", run.time_limit_s)) + _change_kept(change, run.committing)
+                else:  # no limit of the app's: the warehouse's own timeout, in the worker's words
+                    run.error = str(outcome.get("message") or "The warehouse stopped the run at its time limit.")
                 run.failed_batch = int(outcome.get("batch") or 0)
             elif run.stop_reason == "cancel":
                 run.state, run.error = "cancelled", "Stopped." + _change_kept(change, run.committing)

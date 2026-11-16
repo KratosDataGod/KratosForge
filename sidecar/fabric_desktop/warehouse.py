@@ -461,6 +461,8 @@ def _interrupted(exc: BaseException, at: int, sent: list[str], writes: bool) -> 
     """The error a run ends with when batch ``at`` of ``sent`` failed: named, with what was kept and what to
     do next. A read's own SQL error stays the driver's, as before."""
     why = interruption(exc)
+    if why is None and isinstance(exc, (OSError, MemoryError)):
+        return exc  # this PC's own trouble writing the result (a full disk), not the batch's: its own message says so
     if why is None:
         return Interrupted("sql", _failed_batch(at, sent, exc), at) if writes else exc
     kind, number = why
@@ -496,8 +498,8 @@ def _commit(con: Any) -> None:
             raise Interrupted("commit_unknown", "The connection to the warehouse was lost while the change was being "
                               "committed, so it may or may not have been kept. Check the tables it changes before "
                               "running it again.") from exc
-        raise Interrupted("sql", "The warehouse didn't commit the change, so nothing was kept. Run it again. "
-                          f"{str(exc).strip() or type(exc).__name__}") from exc
+        raise Interrupted("sql", "The warehouse didn't commit the change, so nothing was kept. Fix what it "
+                          f"reports, then run it again: {str(exc).strip() or type(exc).__name__}") from exc
 
 
 def _end(con: Any, committed: bool) -> None:

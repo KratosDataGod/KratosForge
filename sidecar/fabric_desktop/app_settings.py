@@ -38,6 +38,11 @@ Keys:
                      saved skin. A skin is appearance and page arrangement only
     ui_color_mode    "skin" (default), "light" or "dark": the app's color mode (skins.js colorMode); a policy value
                      applies even with Preview features hidden
+    editor_word_wrap  "off" (default), "notebooks", "sql" or "both": which code editors wrap long lines
+    editor_font_size  the code font in notebook cells and SQL editors, 10 to 24 px; 0 (default) keeps each
+                     editor's own size
+    editor_keys      "default" or "vim" (Preview): Vim's modal editing in cells and SQL editors
+    editor_key_overrides  a map of editor command to its key, for the commands Settings > Editor lists
     learn_mode       how much learning guidance shows beside your work (docs/learn.md): "expert"
                      findings, About and Dismiss; "professional" (default) adds a line on why and
                      Explain and Show example on request; "guided" opens Explain, adds the lesson
@@ -154,6 +159,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
@@ -251,6 +257,18 @@ CHOICES["ui_color_mode"] = ("skin", "light", "dark")
 DEFAULTS.update({"ui_skin": "kratosforge", "ui_color_mode": "skin"})
 TYPES.update({"ui_skin": str, "ui_color_mode": str})
 USER_KEYS += ("ui_skin", "ui_color_mode")
+# Editor settings (app/ui/editorprefs.js), for notebook cells and SQL editors. The defaults are the
+# editors as they were: no wrapping, each editor's own font size (0) and the default keys.
+CHOICES.update({"editor_word_wrap": ("off", "notebooks", "sql", "both"), "editor_keys": ("default", "vim")})
+EDITOR_FONT_SIZES = (10, 24)  # in px; 0 is each editor's own size
+EDITOR_KEY_OVERRIDES_MAX = 100
+_EDITOR_KEY = re.compile(r"^(?:(?:Mod|Ctrl|Alt|Shift|Meta)-)*[A-Za-z0-9\[\]\\;',./`=\-]$|"
+                         r"^(?:(?:Mod|Ctrl|Alt|Shift|Meta)-)*(?:F\d{1,2}|Enter|Space|Backspace|Delete|Home|End|PageUp|"
+                         r"PageDown|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|Insert)$")
+_EDITOR_COMMAND = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+DEFAULTS.update({"editor_word_wrap": "off", "editor_font_size": 0, "editor_keys": "default", "editor_key_overrides": {}})
+TYPES.update({"editor_word_wrap": str, "editor_font_size": int, "editor_keys": str, "editor_key_overrides": dict})
+USER_KEYS += ("editor_word_wrap", "editor_font_size", "editor_keys", "editor_key_overrides")
 # Learn (app/ui/learn.js): guidance beside findings. Checks run the same in every mode.
 CHOICES["learn_mode"] = ("expert", "professional", "guided")
 DEFAULTS["learn_mode"] = "professional"
@@ -477,6 +495,11 @@ def policy_problems() -> list[str]:
             problems.append(f"channel must be one of {', '.join(CHANNELS)}")
         elif key in CHOICES and value not in (*CHOICES[key], *RENAMED.get(key, {})):
             problems.append(f"{key} must be one of {', '.join(CHOICES[key])}")
+        elif key == "editor_font_size" and value and not EDITOR_FONT_SIZES[0] <= value <= EDITOR_FONT_SIZES[1]:
+            problems.append(f"editor_font_size must be 0 (each editor's own size) or {EDITOR_FONT_SIZES[0]} to "
+                            f"{EDITOR_FONT_SIZES[1]}")
+        elif key == "editor_key_overrides" and _editor_keys_problem(value):
+            problems.append(f"editor_key_overrides {_editor_keys_problem(value)}")
         elif key == "motion_level" and not MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]:
             problems.append(f"motion_level must be between {MOTION_LEVELS[0]} and {MOTION_LEVELS[1]}")
         elif key in SQL_RANGES and not SQL_RANGES[key][0] <= value <= SQL_RANGES[key][1]:
@@ -639,6 +662,10 @@ def _in_range(key: str, value: Any) -> bool:
         return value in CHOICES[key]
     if key == "ui_skin":
         return _skin_id(value)
+    if key == "editor_font_size":
+        return value == 0 or EDITOR_FONT_SIZES[0] <= value <= EDITOR_FONT_SIZES[1]
+    if key == "editor_key_overrides":
+        return _editor_keys_problem(value) is None
     return True
 
 
@@ -736,12 +763,36 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"motion_level must be a whole number from {MOTION_LEVELS[0]} to {MOTION_LEVELS[1]}")
         if key in LIMITS:
             new = _limit(key, new)
+        if key == "editor_font_size" and new not in (None, ""):
+            if isinstance(new, bool) or not isinstance(new, int) or (new and not EDITOR_FONT_SIZES[0] <= new <= EDITOR_FONT_SIZES[1]):
+                raise ValueError(f"editor_font_size must be 0 (each editor's own size) or a whole number from "
+                                 f"{EDITOR_FONT_SIZES[0]} to {EDITOR_FONT_SIZES[1]}")
+            new = new or None
+        if key == "editor_key_overrides" and new not in (None, ""):
+            if (why := _editor_keys_problem(new)) is not None:
+                raise ValueError(f"editor_key_overrides {why}")
+            new = new or None
         if new in (None, ""):
             user.pop(key, None)
         else:
             user[key] = new
     jsonfile.write_json(user_path(), user)  # readers see the old file or the new one, never half (QA-011)
     return load()
+
+
+def _editor_keys_problem(value: Any) -> str | None:
+    """Why ``value`` isn't an editor_key_overrides map (command id to a CodeMirror key, such as "Mod-Shift-f"),
+    or None when it is one. Which keys are free is the editor's to say (editorprefs.js); this checks the shape."""
+    if not isinstance(value, dict):
+        return f"should be a map of command to key, not {type(value).__name__}"
+    if len(value) > EDITOR_KEY_OVERRIDES_MAX:
+        return f"can change at most {EDITOR_KEY_OVERRIDES_MAX} keys"
+    for command, key in value.items():
+        if not isinstance(command, str) or not _EDITOR_COMMAND.fullmatch(command):
+            return f"has a command name that isn't one: {str(command)[:40]!r}"
+        if not isinstance(key, str) or not _EDITOR_KEY.fullmatch(key):
+            return f"has a key for {command} that isn't one, such as Mod-Shift-f: {str(key)[:40]!r}"
+    return None
 
 
 def _limit(key: str, new: Any) -> float | None:

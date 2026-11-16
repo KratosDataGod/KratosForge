@@ -66,13 +66,15 @@ def test_the_builder_gives_the_address_table_ref_always_gave():
 
 
 @pytest.mark.parametrize("ws, lh", [("", "lh"), ("ws", ""), ("w/s", "lh"), ("ws", "l@h"), ("ws", "lh?x"),
-                                    ("ws", "lh#x"), ("w s", "lh")])
+                                    ("ws", "lh#x"), ("w s", "lh"), ("ws", ".."), (".", "lh"),
+                                    ("ws", "lh%2F"), ("ws", "c:lh")])
 def test_an_id_that_would_change_the_address_is_refused(ws, lh):
     with pytest.raises(ValueError, match="Invalid (workspace|lakehouse) id"):
         lakehouse_root(ws, lh)
 
 
-@pytest.mark.parametrize("schema, table", [("dbo", "../other"), ("dbo", "a/b"), ("", "t"), ("d#", "t"), ("dbo", " t")])
+@pytest.mark.parametrize("schema, table", [("dbo", "../other"), ("dbo", "a/b"), ("", "t"), ("d#", "t"), ("dbo", " t"),
+                                           ("dbo", ".."), ("..", "x"), ("dbo", "."), (".", "x")])
 def test_a_name_that_would_step_out_of_its_folder_is_refused(schema, table):
     with pytest.raises(ValueError, match="Invalid (schema|table) name"):
         table_uri("root", schema, table)

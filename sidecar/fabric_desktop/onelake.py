@@ -33,20 +33,21 @@ _BAD_NAME = re.compile(r"[\"'#%+:?`/\\]")
 
 
 def check_name(kind: str, name: str) -> str:
-    if not name or _BAD_NAME.search(name) or name != name.strip():
+    if not name or _BAD_NAME.search(name) or name != name.strip() or name in (".", ".."):
         raise ValueError(f"Invalid {kind} name {name!r}: avoid quotes, # % + : ? ` / \\ and edge spaces.")
     return name
 
 
-_BAD_ID = re.compile(r"[/@\\?#\s]")
+_BAD_ID = re.compile(r"[/@\\?#%:\s]")
 
 
 def lakehouse_root(workspace_id: str, lakehouse_id: str) -> str:
     """The OneLake address of a lakehouse, ``abfss://<workspace>@onelake.../<lakehouse>``: the one place it
     is built (tests/test_table_uris.py fails on another). The ids are GUIDs, which ABFS reads where a
-    name with spaces fails; one that would change the address's shape (a slash, @, ? or #) is refused."""
+    name with spaces fails; one that would change the address's shape (a slash, @, ?, #, %, :, or . or ..
+    alone) is refused."""
     for kind, value in (("workspace", workspace_id), ("lakehouse", lakehouse_id)):
-        if not value or _BAD_ID.search(value):
+        if not value or _BAD_ID.search(value) or value in (".", ".."):
             raise ValueError(f"Invalid {kind} id {value!r} for a OneLake address.")
     return f"abfss://{workspace_id}@{DFS_HOST}/{lakehouse_id}"
 

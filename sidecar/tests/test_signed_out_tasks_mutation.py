@@ -65,7 +65,8 @@ def test_powershell_runs_noninteractive_by_default_with_a_two_minute_limit(monke
     assert kw["capture_output"] is True and kw["text"] is True and kw["check"] is False
     assert kw["errors"] == "replace"
     assert kw["creationflags"] == getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    assert kw["env"]["KF_A"] == "1" and kw["env"]["SystemRoot"] == "R"
+    env = {k.upper(): v for k, v in kw["env"].items()}   # Windows hands environ keys back upper-case
+    assert env["KF_A"] == "1" and env["SYSTEMROOT"] == "R"
 
 
 def test_powershell_with_a_prompt_drops_noninteractive_and_waits_five_minutes(monkeypatch):

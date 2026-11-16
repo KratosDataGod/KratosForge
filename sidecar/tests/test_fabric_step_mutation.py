@@ -93,8 +93,6 @@ def test_python_cells_are_left_as_written():
     assert step_source(nb) == "x = 1\nprint(x)"
 
 
-@pytest.mark.xfail(strict=True, reason="a %sql line magic below the first line is refused, though the "
-                                       "docstring says %sql lines become spark.sql (#2749)")
 def test_a_sql_line_magic_below_the_first_line_becomes_spark_sql():
     nb = fabric_step.step_ipynb("NB", {"type": "code", "source": "df = %sql SELECT 1\nprint(df.count())"},
                                 LAKEHOUSE, "r")

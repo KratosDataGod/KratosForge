@@ -4536,11 +4536,13 @@ Before each "after" run, its tests were run in a copy of `sidecar/` on its own a
 
 | Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `fabric_step.py` | test_fabric_step (+ test_fabric_step_mutation) | 89 of 89 (85 + 4) | 81 / 8 | **91.0%** | 77/85 → 85/85 | 4/4 → 4/4 | 89 / 0 | **100%** | none (one mutant is killed by a strict xfail, #2749) |
+| `fabric_step.py` | test_fabric_step (+ test_fabric_step_mutation) | 89 of 89 (85 + 4) | 81 / 8 | **91.0%** | 77/85 → 85/85 | 4/4 → 4/4 | 89 / 0 | **100%** | none (scored before #2759; see below) |
 | `pipeline_script.py` | test_pipeline_script, test_pipeline_script_edges (+ test_pipeline_script_mutation) | 147 of 147 (144 + 3) | 110 / 37 | **74.8%** | 108/144 → 142/144 | 2/3 → 3/3 | 145 / 2 | **98.6%** | 2 equivalent |
 | `signed_out_tasks.py` | test_signed_out_schedules, test_local_schedules_edges (+ test_signed_out_tasks_mutation) | 87 of 87 (86 + 1) | 68 / 19 | **78.2%** | 68/86 → 86/86 | 0/1 → 1/1 | 87 / 0 | **100%** | none |
 
-One bug was found, in `fabric_step.py`, and filed as #2749: a `%sql` line magic below the cell's first line (`df = %sql SELECT 1`) is refused with "isn't Python that Fabric Spark can run", though the docstring says `%sql` lines become `spark.sql` as when publishing. Nothing runs, so the refusal is safe. A strict xfail pins it: `test_a_sql_line_magic_below_the_first_line_becomes_spark_sql`. The mutant that turns `== "sql"` into `!= "sql"` at line 165 happens to fix it, so that test, which then passes, is what kills it.
+One bug was found, in `fabric_step.py`, and filed as #2749: a `%sql` line magic below the cell's first line (`df = %sql SELECT 1`) was refused with "isn't Python that Fabric Spark can run", though the docstring says `%sql` lines become `spark.sql` as when publishing. Nothing ran, so the refusal was safe. #2759 fixed it, and `test_a_sql_line_magic_below_the_first_line_becomes_spark_sql` now passes as a plain test.
+
+After #2759, the module has 90 mutants (86 + 4), and the same test files kill 89 of them (**98.9%**). The one left turns `language == "sql"` into `!= "sql"` at line 166. It is equivalent: a cell whose language is `sql` always starts with `%` once leading blank lines are stripped, so the next test in that `if` catches it anyway, and a cell with no magics comes through the `%sql` rewrite unchanged. Cells with string literals holding `%%sql`, comments, `!` lines, other magics, indented `%sql` lines and leading blank lines all give the same result either way.
 
 ### What the survivors were, and the tests that now kill them
 

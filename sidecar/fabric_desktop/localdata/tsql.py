@@ -713,7 +713,7 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
         to.set("expressions", [])  # VARCHAR(MAX): DuckDB's VARCHAR has no limit and takes no MAX
         return
     n = int(size.name)
-    text = exp.Cast(this=node.this, to=exp.DataType.build("VARCHAR"), safe=isinstance(node, exp.TryCast))
+    text: exp.Expr = exp.Cast(this=node.this, to=exp.DataType.build("VARCHAR"), safe=isinstance(node, exp.TryCast))
     if isinstance(node, exp.TryCast):
         text = exp.TryCast(this=node.this, to=exp.DataType.build("VARCHAR"))
     if _is(source, _BITS):

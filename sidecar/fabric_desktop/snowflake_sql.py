@@ -160,6 +160,21 @@ SFD_LINEAR = _n("SFD-011", "INTERPOLATE_LINEAR gives a DOUBLE",
                 "it rounds a filled value for a whole-number column, so no rounding is done here.",
                 "Cast the result (ROUND, or ::NUMBER) where a whole number is needed.",
                 f"{_DOCS}/functions/interpolate_bfill")
+SFD_JARO = _n("SFD-012", "JAROWINKLER_SIMILARITY scores can differ",
+              "JAROWINKLER_SIMILARITY runs as DuckDB's jaro_winkler_similarity on upper-cased text, times 100. "
+              "Snowflake's reference doesn't say how its score is worked out, and its examples don't all match "
+              "it: 'Gute nacht' and 'Ich weis nicht' score 56 there and 57 here, 'święta' and 'swieta' 77 there "
+              "and 72 here; 'Snowflake' and 'Oracle' (61) and two empty strings (0) match.",
+              "Don't reuse a threshold tuned on Snowflake's scores without checking pairs near it.",
+              f"{_DOCS}/functions/jarowinkler_similarity")
+SFD_MOMENTS = _n("SFD-013", "SKEW and STDDEV_POP from the seventh digit",
+                 "SKEW and STDDEV_POP give the exact sample skewness and population standard deviation here. "
+                 "Snowflake's reference shows values that differ from about the seventh significant digit: "
+                 "STDDEV_POP of 6, 10 and 14 is 3.265986375 there and 3.265986324 (the square root of 32/3) here; "
+                 "SKEW of 1, 2, 2, 2, 2 is -2.236069766 there and -2.236067977 here. No Snowflake account was "
+                 "used, so which digits Snowflake returns today isn't known.",
+                 "Round SKEW and STDDEV_POP to six significant digits where results are compared with Snowflake's.",
+                 f"{_DOCS}/functions/stddev_pop")
 SFD_NUMBER = _n("SFD-008", "A JSON fraction counts as a decimal",
                 "Snowflake's PARSE_JSON keeps a number written with a fraction (123.12) as DECIMAL and one written "
                 "with an exponent (1.912e2) as DOUBLE; DuckDB's JSON reads both as DOUBLE. So IS_DECIMAL, AS_DECIMAL "
@@ -635,6 +650,39 @@ def _rewrite_time(statement: exp.Expression) -> None:
         node.replace(exp.Cast(this=value, to=exp.DataType.build("TIME")))
 
 
+def _rewrite_timestamp_parts(statement: exp.Expression) -> None:
+    """SFX-017: TIMESTAMP_FROM_PARTS and TIMESTAMP_NTZ_FROM_PARTS from numbers take a month, day, hour,
+    minute or second outside its range and carry it over, as Snowflake does (seconds of -3600 is an hour
+    earlier); DuckDB's MAKE_TIMESTAMP stops on them. TO_TIMESTAMP and TO_TIMESTAMP_NTZ of a number written
+    in the query (40 * 365.25 * 86400) are seconds since 1970 with no time zone."""
+    for node in list(statement.find_all(exp.TimestampFromParts)):
+        parts = [node.args.get(k) for k in ("year", "month", "day", "hour", "min", "sec")]
+        if any(p is None for p in parts) or node.args.get("zone") is not None or node.args.get("milli") is not None:
+            continue
+        nano = node.args.get("nano")
+        template = ("CAST(MAKE_DATE(fj_arg0, 1, 1) + INTERVAL (fj_arg1 - 1) MONTH + INTERVAL (fj_arg2 - 1) DAY AS TIMESTAMP)"
+                    " + INTERVAL (fj_arg3 * 3600 + fj_arg4 * 60 + fj_arg5) SECOND")
+        if nano is not None:
+            template += " + INTERVAL (CAST(fj_arg6 AS BIGINT) // 1000) MICROSECOND"
+            parts.append(nano)
+        _put(node, template, [p for p in parts if p is not None])
+    for anonymous in list(statement.find_all(exp.Anonymous)):
+        if str(anonymous.this).upper() in ("TO_TIMESTAMP", "TO_TIMESTAMP_NTZ") and len(anonymous.expressions) == 1 \
+                and _written_number(anonymous.expressions[0]):
+            _put(anonymous, "CAST(TO_TIMESTAMP(fj_arg0) AT TIME ZONE 'UTC' AS TIMESTAMP)", [anonymous.expressions[0]])
+
+
+def _written_number(node: exp.Expression) -> bool:
+    """Whether ``node`` is a number written in the query: number literals and arithmetic on them."""
+    if isinstance(node, exp.Literal):
+        return not node.is_string
+    if isinstance(node, (exp.Paren, exp.Neg)):
+        return _written_number(node.this)
+    if isinstance(node, (exp.Add, exp.Sub, exp.Mul, exp.Div)):
+        return _written_number(node.this) and _written_number(node.expression)
+    return False
+
+
 def _zoned(node: exp.Expression) -> bool:
     """Whether ``node`` is plainly a timestamp with a time zone in DuckDB: CURRENT_TIMESTAMP or a cast to
     TIMESTAMP_TZ or TIMESTAMP_LTZ (SYSDATE and CONVERT_TIMEZONE already give a TIMESTAMP there)."""
@@ -685,6 +733,11 @@ def _rewrite_strings(statement: exp.Expression) -> None:
                                           "alphabet argument isn't rewritten; the default (+, / and =) is.",
                                           f"{_DOCS}/functions/{_function_name(decoder).lower()}"))
         put(decoder, decoders[type(decoder)].format(f"CAST({sql(decoder.this)} AS VARCHAR)"))
+    for getbit in list(statement.find_all(exp.Getbit)):
+        put(getbit, f"CAST((CAST({sql(getbit.this)} AS HUGEINT) >> CAST({sql(getbit.expression)} AS INTEGER)) & 1 AS INTEGER)")
+    for agg in list(statement.find_all(exp.BitwiseAndAgg, exp.BitwiseOrAgg, exp.BitwiseXorAgg)):
+        if not isinstance(agg.this, exp.Distinct):  # a decimal is rounded to a whole number first, as in Snowflake
+            agg.set("this", exp.Cast(this=agg.this, to=exp.DataType.build("HUGEINT", dialect="duckdb")))
     from .sql import _from_template
     for soundex in list(statement.find_all(exp.SoundexP123)):
         soundex.replace(_from_template(_soundex_p123_template(), [soundex.this]))
@@ -1452,6 +1505,10 @@ def _differences(statement: exp.Expression) -> list[Note]:
         notes.append(SFD_LINEAR)
     if any(str(n.this).upper() in _DECIMAL_FAMILY for n in statement.find_all(exp.Anonymous)):
         notes.append(SFD_NUMBER)
+    if any(statement.find_all(exp.JarowinklerSimilarity)):
+        notes.append(SFD_JARO)
+    if any(statement.find_all(exp.Skewness, exp.StddevPop)):
+        notes.append(SFD_MOMENTS)
     return notes
 
 
@@ -1514,7 +1571,9 @@ CATALOG = (
                 "WIDTH_BUCKET gives 0 below min_value, num_buckets + 1 at or above max_value, and NULL when any "
                 "argument is NULL; min_value at or above max_value stops with an error. TRY_BASE64_DECODE_STRING, TRY_BASE64_DECODE_BINARY, TRY_HEX_DECODE_STRING and "
                 "TRY_HEX_DECODE_BINARY give NULL where the text doesn't decode; an alphabet argument isn't "
-                "rewritten. SOUNDEX_P123 keeps the second letter's number (Pfister is P123). Arguments are "
+                "rewritten. SOUNDEX_P123 keeps the second letter's number (Pfister is P123). GETBIT reads a bit "
+                "of a whole number (0 to 127). BITAND_AGG, BITOR_AGG and BITXOR_AGG round a decimal to a whole "
+                "number first. Arguments are "
                 "worked out more than once, which matters only when they aren't deterministic.")),
     ("SFX-016", "Rewritten", ("OBJECT_DELETE, OBJECT_PICK, OBJECT_INSERT, OBJECT_AGG, TO_OBJECT and ARRAYS_TO_OBJECT run "
                 "on DuckDB JSON with Snowflake's NULL rules: a SQL NULL key or value is left out and JSON null is "
@@ -1530,7 +1589,9 @@ CATALOG = (
     ("SFX-017", "Rewritten", ("TIME(x) is a cast to TIME, as TO_TIME(x) is: the time of a string or a timestamp. "
                 "CURRENT_TIMESTAMP and a cast to TIMESTAMP_TZ or TIMESTAMP_LTZ go through TIMESTAMP, the "
                 "local time; a TIMESTAMP_TZ column stops with DuckDB's cast error, since its type isn't known "
-                "here.")),
+                "here. TIMESTAMP_FROM_PARTS and TIMESTAMP_NTZ_FROM_PARTS carry a part outside its range over "
+                "(seconds of -3600 is an hour earlier). TO_TIMESTAMP and TO_TIMESTAMP_NTZ of a number written "
+                "in the query are seconds since 1970, with no time zone.")),
     ("SFX-018", "Rewritten", ("CONDITIONAL_TRUE_EVENT and CONDITIONAL_CHANGE_EVENT count events from each "
                 "partition's first row in ORDER BY order (a NULL is neither true nor a change), and "
                 "INTERPOLATE_FFILL, INTERPOLATE_BFILL and INTERPOLATE_LINEAR fill a NULL from the rows before "
@@ -1550,6 +1611,8 @@ CATALOG = (
     ("SFD-009", "Runs, with a difference: " + SFD_BRACKET.title, SFD_BRACKET.reason),
     ("SFD-010", "Runs, with a difference: " + SFD_APPROX.title, SFD_APPROX.reason),
     ("SFD-011", "Runs, with a difference: " + SFD_LINEAR.title, SFD_LINEAR.reason),
+    ("SFD-012", "Runs, with a difference: " + SFD_JARO.title, SFD_JARO.reason),
+    ("SFD-013", "Runs, with a difference: " + SFD_MOMENTS.title, SFD_MOMENTS.reason),
     ("SFN-001", "Runs only in Snowflake", "Streams."),
     ("SFN-002", "Runs only in Snowflake", "Tasks."),
     ("SFN-003", "Runs only in Snowflake", "Dynamic tables (their SELECT can be tried on its own)."),
@@ -1621,6 +1684,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_approximate(tree)
         _rewrite_strings(tree)
         _rewrite_time(tree)
+        _rewrite_timestamp_parts(tree)
         _rewrite_objects(tree)
         _rewrite_typeof(tree)
         _rewrite_variant_types(tree)

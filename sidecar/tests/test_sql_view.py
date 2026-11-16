@@ -104,6 +104,17 @@ def test_a_sort_or_filter_on_a_column_the_result_lacks_is_refused():
         page(None, [{"column": -1, "text": "x"}])
 
 
+def test_times_compare_as_times_and_a_bad_column_index_is_refused():
+    t = pa.table({"at": pa.array([dt.time(1, 30), dt.time(2, 15), dt.time(23, 0), None])})
+    rows, total = sql_view.view_page(t, 0, 10, None, [{"column": 0, "text": "> 02:00"}])
+    assert total == 2 and [r[0] for r in rows] == [dt.time(2, 15), dt.time(23, 0)]
+    with pytest.raises(sql_view.FilterError, match="Write a time after < in the filter on at, as 14:30"):
+        sql_view.view_page(t, 0, 10, None, [{"column": 0, "text": "< 2pm"}])
+    for bad in (None, "x", [1], True):
+        with pytest.raises(ValueError, match="doesn't have"):
+            sql_view.view_page(t, 0, 10, [{"column": bad}], None)
+
+
 def test_lists_and_structs_can_t_be_sorted_but_can_be_searched():
     t = pa.table({"tags": pa.array([["a", "b"], ["c"]])})
     with pytest.raises(ValueError, match="lists or structs"):

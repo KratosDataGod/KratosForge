@@ -196,6 +196,24 @@ test("headers sort and Filter's boxes filter every row of the result, on this PC
   assert.strictEqual(await n.getAttribute("aria-invalid"), "true");
   assert.strictEqual(await page().locator(".sql-grid tbody tr").count(), 7, "the rows on screen stay");
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "grid-sort-filter.png") });
+  // Text typed while a page is still loading stays in the box through the redraw, and is applied after it.
+  await page().evaluate(() => {
+    const core = window.__TAURI__.core;
+    const real = core.invoke;
+    window.__held = [];
+    window.__hold = true;
+    core.invoke = (cmd, args) => (cmd === "rpc" && args?.method === "sql_page" && window.__hold
+      ? new Promise((resolve, reject) => window.__held.push(() => real(cmd, args).then(resolve, reject))) : real(cmd, args));
+  });
+  await n.fill("< 1");
+  await n.press("Enter");
+  await page().waitForFunction(() => window.__held.length === 1);
+  await page().keyboard.type("00");
+  await page().evaluate(() => { window.__hold = false; window.__held.splice(0).forEach((go) => go()); });
+  await page().waitForFunction(() => /[^\d,]1 of 1,200 rows/.test(document.querySelector(".sql-band")?.textContent || ""));
+  assert.strictEqual(await n.inputValue(), "< 100", "the box kept what was typed while the page loaded");
+  await page().waitForFunction(() => /67 of 1,200 rows/.test(document.querySelector(".sql-band")?.textContent || ""));
+  assert.strictEqual(await n.inputValue(), "< 100");
   await page().getByRole("button", { name: "Filter", exact: true }).click();  // off: the filters go
   await page().waitForFunction(() => /1,200 rows · sorted by n/.test(document.querySelector(".sql-band")?.textContent || ""));
   assert.strictEqual(runs().length, before, "nothing ran again");

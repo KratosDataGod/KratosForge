@@ -43,17 +43,20 @@ function sqlResultGrid(r, g, on) {
         title: `Sort by ${c.name} (${c.type}). Sorts every row of the result on this PC; nothing runs again.` },
       c.name, s ? h("span", { class: "sql-sort-mark", "aria-hidden": "true" }, s.desc ? " ▼" : " ▲") : null));
   });
-  let timer = 0;
+  // A column's pending filter is kept on the grid's state: a redraw while a page loads makes new boxes,
+  // and typing in a column's new box replaces what its old one had waiting.
+  const timers = (g.filterTimers ||= {});
+  const wait = (i, fn) => { clearTimeout(timers[i]); timers[i] = fn ? setTimeout(() => { delete timers[i]; fn(); }, 450) : 0; };
   const filterRow = g.filterOn ? h("tr", { class: "sql-filter-row" }, h("td", { class: "i" }),
     r.columns.map((c, i) => {
       const bad = g.filterError?.column === i;
       const box = h("input", { type: "text", class: "sql-filter", "data-column": String(i), value: g.filters[i] || "",
         placeholder: "Filter", "aria-label": `Filter ${c.name}`, spellcheck: "false", ...(bad ? { "aria-invalid": "true" } : {}),
         title: "Text it contains, or = != > >= < <= and a value, or null / not null",
-        oninput: () => { clearTimeout(timer); timer = setTimeout(() => on.filter(i, box.value), 450); },
+        oninput: () => wait(i, () => on.filter(i, box.value)),
         onkeydown: (e) => {
-          if (e.key === "Enter") { clearTimeout(timer); on.filter(i, box.value); }
-          if (e.key === "Escape" && box.value) { e.stopPropagation(); box.value = ""; clearTimeout(timer); on.filter(i, ""); }
+          if (e.key === "Enter") { wait(i, null); on.filter(i, box.value); }
+          if (e.key === "Escape" && box.value) { e.stopPropagation(); box.value = ""; wait(i, null); on.filter(i, ""); }
         } });
       return h("td", {}, box);
     })) : null;

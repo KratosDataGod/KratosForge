@@ -30,7 +30,7 @@ Click a column's header to sort the whole result by it: once for ascending, agai
 | --- | --- |
 | `West` | contains it, ignoring case (on a number column, equals it) |
 | `= West`, `!= Central`, `<> Central` | equals it or not, ignoring case for text |
-| `> 3000`, `>= 3000`, `< 3000`, `<= 3000` | compares as a number, a date (`2026-10-01`) or text, by the column's type |
+| `> 3000`, `>= 3000`, `< 3000`, `<= 3000` | compares as a number, a date (`2026-10-01`), a time (`14:30`) or text, by the column's type |
 | `= true`, `!= false` | on a true/false column |
 | `null`, `not null` | is empty or not |
 

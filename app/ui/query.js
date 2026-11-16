@@ -433,7 +433,7 @@ function renderQuery() {
   }
   function gridFilter(column, text) {
     const g = sqlGridState(tab);
-    if ((g.filters[column] || "") === text) return;
+    if (!g.filterOn || (g.filters[column] || "") === text) return;  // Filter turned off, or a new run, since it was typed
     g.filters[column] = text;
     goPageAgain();
   }
@@ -441,7 +441,10 @@ function renderQuery() {
     const g = sqlGridState(tab);
     g.filterOn = !g.filterOn;
     const had = Object.values(g.filters).some((t) => String(t).trim());
-    if (!g.filterOn) { g.filters = {}; g.filterError = null; }
+    if (!g.filterOn) {
+      for (const t of Object.values(g.filterTimers || {})) clearTimeout(t);
+      Object.assign(g, { filters: {}, filterError: null, filterTimers: {} });
+    }
     if (!g.filterOn && had) goPageAgain();
     else drawResults();
     if (g.filterOn) grid.querySelector(".sql-filter")?.focus();
@@ -747,12 +750,13 @@ function renderQuery() {
       // The query's own error ("Binder Error: ..."), or why it stopped, is what the person needs to read.
       grid.replaceChildren(h("div", { class: "output error" }, h("pre", {}, tab.error.replace(/^Error: /, ""))));
     } else if (r && r.columns.length) {
-      // A redraw replaces the filter boxes: the one being typed in keeps focus and its caret.
+      // A redraw replaces the filter boxes: the one being typed in keeps its text (typed while a page was
+      // loading, and not applied yet: its filter is still waiting, sqlgrid.js), focus and caret.
       const typing = document.activeElement?.matches?.(".sql-grid .sql-filter") ? document.activeElement : null;
-      const at = typing && { column: typing.dataset.column, start: typing.selectionStart, end: typing.selectionEnd };
+      const at = typing && { column: typing.dataset.column, value: typing.value, start: typing.selectionStart, end: typing.selectionEnd };
       grid.replaceChildren(...sqlResultGrid(r, sqlGridState(tab), { sort: gridSort, filter: gridFilter }));
       const box = at && grid.querySelector(`.sql-filter[data-column="${at.column}"]`);
-      if (box) { box.focus(); box.setSelectionRange(at.start, at.end); }
+      if (box) { box.value = at.value; box.focus(); box.setSelectionRange(at.start, at.end); }
     } else {
       grid.replaceChildren(h("p", { class: "muted-text", style: "padding:12px 16px" },
         r ? "The query ran and returned no columns."

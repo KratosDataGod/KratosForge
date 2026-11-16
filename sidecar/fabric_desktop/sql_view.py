@@ -68,6 +68,10 @@ def filter_sql(c: str, field: pa.Field, column: int, text: str) -> tuple[str, li
     if _NOT_NULL.match(text):
         return f"{c} IS NOT NULL", []
     kind = _kind(field.type)
+    if pa.types.is_time(field.type):
+        kind = "time"
+    elif pa.types.is_duration(field.type) or pa.types.is_interval(field.type):
+        kind = "text"  # compared as their text
     m = _OP.match(text)
     if not m:  # no operator: contains (a number column: equals, when the text is a number)
         n = _number(text) if kind == "number" else None
@@ -89,6 +93,12 @@ def filter_sql(c: str, field: pa.Field, column: int, text: str) -> tuple[str, li
         if d is None:
             raise FilterError(column, f"Write a date after {op} in the filter on {name}, as 2026-10-01.")
         return f"CAST({c} AS TIMESTAMP) {op} CAST(? AS TIMESTAMP)", [d]
+    if kind == "time":
+        try:
+            t = dt.time.fromisoformat(value.strip()).isoformat()
+        except ValueError:
+            raise FilterError(column, f"Write a time after {op} in the filter on {name}, as 14:30 or 14:30:15.") from None
+        return f"CAST({c} AS TIME) {op} CAST(? AS TIME)", [t]
     if kind == "boolean":
         b = value.lower()
         if b not in ("true", "false") or op not in ("=", "!="):
@@ -99,11 +109,19 @@ def filter_sql(c: str, field: pa.Field, column: int, text: str) -> tuple[str, li
     return f"CAST({c} AS VARCHAR) {op} ?", [value]
 
 
+def _index(column: Any) -> int:
+    """A column's position as sent, or -1 (refused as a column the result doesn't have) when it isn't a whole number."""
+    try:
+        return int(column) if not isinstance(column, bool) else -1
+    except (TypeError, ValueError):
+        return -1
+
+
 def _where(table: pa.Table, cols: list[str], filters: list[dict[str, Any]] | None) -> tuple[str, list[Any]]:
     parts: list[str] = []
     params: list[Any] = []
     for f in filters or []:
-        i = int(f.get("column", -1))
+        i = _index(f.get("column"))
         if not 0 <= i < len(cols):
             raise ValueError("A filter names a column this result doesn't have.")
         if not str(f.get("text") or "").strip():
@@ -117,7 +135,7 @@ def _where(table: pa.Table, cols: list[str], filters: list[dict[str, Any]] | Non
 def _order(table: pa.Table, cols: list[str], sort: list[dict[str, Any]] | None) -> str:
     keys = []
     for s in (sort or [])[:MAX_SORT_KEYS]:
-        i = int(s.get("column", -1))
+        i = _index(s.get("column"))
         if not 0 <= i < len(cols):
             raise ValueError("The sort names a column this result doesn't have.")
         t = table.schema.field(i).type

@@ -4402,7 +4402,8 @@
         "OneLake table writes outlast their token (#2439); local data projects flush each Delta commit to disk and their database is tested after a killed engine (#2490, #2497) and say a full temp drive instead of Out of Memory (#2478); a DuckDB relation result pages, searches and downloads (#2475) on main at 47416473",
         "Local data projects read Delta tables under folders with a space, a non-ASCII letter or % (#2502) and refuse a Delta write Windows can't read back with long paths off (#2519) on main at 86c07814",
         "A refused or failed Delta write closes its reader so the next query works (#2542); local MERGE with no ON clause says so (#2528) on main at 7c3dbd0e",
-        "Local data finishes a query's record in one step and reads it under a lock (#2677) on main at a13d0a0f"
+        "Local data finishes a query's record in one step and reads it under a lock (#2677) on main at a13d0a0f",
+        "A Delta reader matrix for the Fabric-safe profile's features (#2722); a table outside the profile names the feature and the readers it would break (#2723) on main at 7bd752a5"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -4535,7 +4536,9 @@
         2519,
         2528,
         2542,
-        2677
+        2677,
+        2722,
+        2723
       ]
     },
     {
@@ -4593,7 +4596,8 @@
         "Mutation testing batches 6 to 10 pin the policy and approval gates, SQL translation, local PySpark and notebook formats (#2545, #2550, #2559, #2564, #2565); a script drafts release notes from merged PRs (#2563) on main at 36844275",
         "Mutation testing batches 11 to 19 (#2629, #2630, #2638, #2641, #2643, #2644, #2645, #2647, #2648) on main at 7178e900",
         "Mutation testing batches 20 to 31 (#2649, #2654 to #2657, #2659 to #2661, #2664, #2668, #2670, #2672); editor parity docs rows (#2658) on main at b76c42d2",
-        "Mutation testing batches 32 to 38; shell tests for the engine bridge, shutdown, refused links, update signatures, policy trust and restores, with Windows line coverage measured daily (#2682, #2685, #2686); a Windows proxy test against a local PAC file (#2697) on main at a13d0a0f"
+        "Mutation testing batches 32 to 38; shell tests for the engine bridge, shutdown, refused links, update signatures, policy trust and restores, with Windows line coverage measured daily (#2682, #2685, #2686); a Windows proxy test against a local PAC file (#2697) on main at a13d0a0f",
+        "Mutation batches 39 to 54; shell code split out so it can be tested (#2705 to #2718); Windows tests for signature and policy checks, the engine folder, disk space and shortcuts (#2696, #2703); shell coverage notes (#2720) on main at 7bd752a5"
       ],
       "features": [
         "FEAT-SHL-09",
@@ -5058,8 +5062,37 @@
         2688,
         2693,
         2695,
+        2696,
         2697,
-        2698
+        2698,
+        2701,
+        2702,
+        2703,
+        2704,
+        2705,
+        2706,
+        2707,
+        2708,
+        2709,
+        2710,
+        2711,
+        2712,
+        2713,
+        2714,
+        2715,
+        2716,
+        2717,
+        2718,
+        2719,
+        2720,
+        2721,
+        2724,
+        2726,
+        2727,
+        2729,
+        2731,
+        2732,
+        2734
       ],
       "issues": [
         910,
@@ -6772,7 +6805,8 @@
         "Engine in a folder only administrators can write, by policy (#2198, Preview); Activity says when the app stopped the engine on purpose (#2586) on main at af7d786b",
         "Base64 from the app and from definitions is decoded strictly everywhere (#2636) on main at 7178e900",
         "Correctness fixes: a rooted source path is local on Windows (#2651), shortcut request times compared as times (#2652), SQL parity checks compare whole numbers exactly (#2653) on main at b76c42d2",
-        "CI audits main's dependency locks every 6 hours (#2681) on main at a13d0a0f"
+        "CI audits main's dependency locks every 6 hours (#2681) on main at a13d0a0f",
+        "A data dictionary file csv can't parse is refused with the usual error (#2730); the shared schedule id limit is read from one place (#2725) on main at 7bd752a5"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6980,7 +7014,9 @@
         2651,
         2652,
         2653,
-        2681
+        2681,
+        2725,
+        2730
       ],
       "issues": [],
       "computed": {
@@ -7116,7 +7152,8 @@
         1897,
         2037,
         2054,
-        2524
+        2524,
+        2733
       ],
       "problem": "People can't describe an application and get a Power BI report or app they can preview, change, save in Git and publish.",
       "capability": "Describe an application, have the person's own AI model turn it into a structured specification, preview it on this PC, edit it by asking or by hand, save it as a Git-friendly project and publish it to a destination Microsoft supports (docs/architecture/app-studio.md).",
@@ -7129,7 +7166,8 @@
         "AS-06 page shell, Design and local preview on sample data (#1736, Preview) on main at 9b7848eb",
         "AS-06 model connections behind the organization's AI policy (#1842), AS-10 describe an app and approve a plan into a project (#1868), AS-11 ask for a change and apply it as one undoable step (#1871), AS-13 publish as a Power BI report behind a check and a typed confirm (#1897) on main at a7631920",
         "App Studio: Model connections screen and a working Publish dialog (#2054, Preview) on main at 86c07814",
-        "App Studio: Describe an app and Ask for a change screens (#2524, Preview) on main at af7d786b"
+        "App Studio: Describe an app and Ask for a change screens (#2524, Preview) on main at af7d786b",
+        "App Studio PBIR checks page ids as folder-safe names (#2733) on main at 7bd752a5"
       ],
       "features": [
         "FEAT-FAB-05"

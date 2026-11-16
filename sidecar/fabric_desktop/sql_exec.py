@@ -19,7 +19,9 @@ the page asks before running the query again.
 
 Snapshots live under ``sql_temp_dir`` (default ``<data>/sql-runs``) and are deleted after
 ``sql_result_retention_hours``, when more than MAX_KEPT runs are kept, and at start-up for runs
-from an earlier session that are past retention.
+from an earlier session that are past retention. A result the person pinned (``pin``, editor parity
+S27: the page's result history) is kept past both until it is unpinned, up to MAX_PINNED at once,
+for this session.
 
 A run's target is a lakehouse (above) or, with ``target="local"``, a local data project
 (KF-DE-027). A local run doesn't get a process of its own: it runs in the project's own DuckDB
@@ -93,6 +95,7 @@ STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled",
 FINISHED = ("completed", "failed", "cancelled", "timed_out")
 MAX_KEPT = 20  # finished runs whose snapshots are kept, newest first
 MAX_STATEMENTS = 200  # statements one run may hold (S14)
+MAX_PINNED = 10  # results kept past MAX_KEPT and retention because the person pinned them (S27)
 EXPORT_FORMATS = ("csv", "parquet", "xlsx", "json")
 EXPORT_BATCH_ROWS = 65_536
 LOCAL_BATCH_ROWS = 65_536
@@ -476,6 +479,23 @@ class SqlExecutions:
 
     def status(self, run_id: str) -> dict[str, Any]:
         return self._get(run_id).status()
+
+    def pin(self, run_id: str, pinned: bool = True) -> dict[str, Any]:
+        """Keep a finished run's result past MAX_KEPT and the retention time (S27), or let it go again.
+        At most MAX_PINNED at once. Pinning runs nothing; unpinning may clean the result up at once."""
+        run = self._get(run_id)
+        with self._lock:
+            if pinned and not run.pinned:
+                if run.state != "completed" and not run.parts:
+                    raise ValueError("Only a query's result can be pinned, and this run has none.")
+                if not run.folder.is_dir():
+                    raise RerunNeeded("This result was cleaned up, so it can't be pinned. Run the query again.")
+                if sum(r.pinned for r in self._runs.values()) >= MAX_PINNED:
+                    raise ValueError(f"Up to {MAX_PINNED} results can be pinned at once. Unpin one first.")
+            run.pinned = bool(pinned)
+        if not pinned:
+            self.cleanup()
+        return run.status()
 
     def recent(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -981,7 +1001,8 @@ class SqlExecutions:
         hours = float(self._limits()["sql_result_retention_hours"])
         now = time.time()
         with self._lock:
-            done = sorted((r for r in self._runs.values() if r.state in FINISHED), key=lambda r: r.ended or 0, reverse=True)
+            done = sorted((r for r in self._runs.values() if r.state in FINISHED and not r.pinned),
+                          key=lambda r: r.ended or 0, reverse=True)
             busy = {e.execution for e in self._exports.values() if e.state == "running"}
             for n, run in enumerate(done):
                 old = hours > 0 and now - (run.ended or now) > hours * 3600

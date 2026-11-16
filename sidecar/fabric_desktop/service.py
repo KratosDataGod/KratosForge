@@ -1158,6 +1158,11 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         except sql_exec.RerunNeeded as exc:
             return {"id": execution, "rerun_needed": True, "message": str(exc)}
 
+    def sql_pin(self, execution: str, pinned: bool = True) -> dict[str, Any]:
+        """Keep a run's result on this PC until it is unpinned (S27, the SQL page's result history), or let
+        it go. Runs nothing."""
+        return self.sql_runs.pin(execution, bool(pinned))
+
     def sql_cancel(self, execution: str) -> dict[str, Any]:
         """Stop one run: ends that run's own process and nothing else."""
         return self.sql_runs.cancel(execution)

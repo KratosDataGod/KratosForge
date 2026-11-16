@@ -267,6 +267,14 @@ function sqlPartLabel(u, ex, multi) {
   return { state: "skip", text: `${u.n} Not run` };
 }
 
+// S27: each tab's last runs that left a result, newest first, and the ones pinned. Kept in memory, so on this
+// PC until the tab or the app closes; a pinned result's snapshot is kept by the engine until it's unpinned.
+const SQL_HISTORY_MAX = 20;
+function sqlResultHistoryAdd(tab, entry) {
+  let unpinned = 0;
+  tab.history = [entry, ...(tab.history || [])].filter((e) => e.pinned || ++unpinned <= SQL_HISTORY_MAX);
+}
+
 function cellText(v) {
   if (v === null || v === undefined) return "NULL";
   return typeof v === "number" ? v.toLocaleString(undefined, { maximumFractionDigits: 6 }) : String(v);
@@ -398,7 +406,7 @@ function renderQuery() {
     tab.running = true;
     const startedAt = Date.now();
     Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "", chart: null,
-      multi: multi ? { units, part: null, change } : null });
+      multi: multi ? { units, part: null, change } : null, old: null });
     drawResults();
     let status;
     try {
@@ -436,6 +444,11 @@ function renderQuery() {
     if (change && status?.state === "completed") {
       toast(`Changed ${ref.name}: ${(status.affected || 0).toLocaleString()} row${status.affected === 1 ? "" : "s"} affected, committed.`);
       if (sqlPage.catalog) loadCatalog();  // tables, views or procedures may have changed
+    }
+    // S27: a run that left a result goes into this tab's result history.
+    if (status && (status.state === "completed" || status.parts?.length)) {
+      sqlResultHistoryAdd(tab, { id: status.id, at: startedAt, sql: query, rows: status.rows ?? 0, seconds: status.seconds ?? null,
+        multi: tab.multi ? { units: tab.multi.units, change: tab.multi.change } : null, pinned: false });
     }
     // WH-07: each run that reached the engine goes into this PC's history for the warehouse.
     if (wh && status?.state) {
@@ -493,6 +506,71 @@ function renderQuery() {
     const m = tab.multi;
     const rest = m.units.slice(m.units.indexOf(u));
     run(rest.map((x) => x.text).join(";\n"), [], { units: rest });
+  }
+
+  // S27: an earlier run's result, read again from its snapshot on this PC. Nothing runs.
+  async function openOld(entry) {
+    if (tab.running) return;
+    let st;
+    try {
+      st = await rpc("sql_status", { execution: entry.id });
+    } catch {
+      toast("That result is no longer on this PC: the engine was restarted, or it was cleaned up. Run the query again.", true);
+      return;
+    }
+    if (!tab.old) tab.old = { latest: { exec: tab.exec, result: tab.result, multi: tab.multi, error: tab.error, errorRetry: tab.errorRetry,
+      ranNotice: tab.ranNotice, chart: tab.chart } };
+    tab.old.entry = entry;
+    Object.assign(tab, { exec: st, result: null, chart: null, error: null, errorRetry: null, ranNotice: "", view: "results",
+      multi: entry.multi ? { ...entry.multi, part: sqlPickPart(st) } : null });
+    if (tab.multi ? st.parts?.some((x) => x.statement === tab.multi.part) : st.state === "completed") await loadPage(tab, 0);
+    else tab.error = st.error || "That run has no result.";
+    sqlPage.redraw?.();
+  }
+  function backToLatest() {
+    if (!tab.old) return;
+    Object.assign(tab, tab.old.latest, { old: null });
+    drawResults();
+  }
+  async function pinEntry(e, on) {
+    const out = await attempt(() => rpc("sql_pin", { execution: e.id, pinned: on }), on ? "Could not pin the result" : "Could not unpin the result");
+    if (!out) return;
+    e.pinned = on;
+    drawResults();
+  }
+  async function compareWithLatest(e) {
+    const latest = tab.old?.latest.exec;
+    const out = latest && await attempt(() => rpc("learn_fix_compare", { before: e.id, after: latest.id }), "Could not compare the results");
+    if (!out) return;
+    const n = (k) => `${k.toLocaleString()} row${k === 1 ? "" : "s"}`;
+    toast(out.result === "match" ? `Same rows as the latest run (${n(out.rows.after)}). Nothing ran.`
+      : `Different from the latest run: ${n(out.rows.before)} then, ${n(out.rows.after)} in the latest. Nothing ran.`);
+  }
+  // The History view: this tab's runs, newest first, each opened again from its snapshot or pinned.
+  function historyView() {
+    const list = tab.history || [];
+    if (!list.length) {
+      return h("p", { class: "muted-text", style: "padding:12px 16px" },
+        "No results yet. Each run's result is kept here, on this PC, until you close this tab.");
+    }
+    const latestId = (tab.old?.latest.exec || tab.exec)?.id;
+    const first = (sql) => { const line = sql.trim().split("\n")[0]; return line.length > 80 ? `${line.slice(0, 80)}…` : line + (sql.trim().includes("\n") ? "…" : ""); };
+    return h("div", { class: "sql-history" },
+      h("table", { class: "sql-history-list" },
+        h("thead", {}, h("tr", {}, h("th", {}, "Ran"), h("th", {}, "Query"), h("th", {}, "Rows"), h("th", {}, "Time"),
+          h("th", {}, h("span", { class: "sr-only" }, "Pin")))),
+        h("tbody", {}, list.map((e) => h("tr", { class: tab.old?.entry === e ? "on" : null },
+          h("td", {}, timeText(e.at)),
+          h("td", {}, h("button", { class: "link-btn", title: "Open this result again. Nothing runs.", onclick: () => openOld(e) }, h("code", {}, first(e.sql))),
+            e.id === latestId ? h("span", { class: "sql-chip" }, "Latest") : null,
+            e.multi ? h("span", { class: "muted-text" }, ` ${e.multi.units.length} statements`) : null),
+          h("td", { class: "n" }, e.rows.toLocaleString()),
+          h("td", { class: "n" }, e.seconds != null ? `${e.seconds} s` : ""),
+          h("td", { class: "sql-pin-cell" }, e.pinned
+            ? [h("span", { class: "sql-pin" }, "● Pinned"), btn("Unpin", null, () => pinEntry(e, false), "tool outline small sql-pinned", { title: "Kept until you unpin it" })]
+            : btn("Pin", null, () => pinEntry(e, true), "tool outline small", { title: "Keep this result until you unpin it" })))))),
+      h("p", { class: "muted-text sql-compat-note", style: "padding:8px 12px" },
+        `The ${SQL_HISTORY_MAX} most recent runs of this tab, kept on this PC until you close the tab or the app. Pinned results stay until you unpin them (up to 10).`));
   }
 
   async function stop() {
@@ -713,8 +791,15 @@ function renderQuery() {
   function drawPartTabs() {
     const m = tab.multi;
     const ex = tab.exec;
-    rtabs.hidden = !m;
-    if (!m) { rtabs.replaceChildren(); return; }
+    const old = tab.old?.entry;
+    rtabs.hidden = !m && !old;
+    const oldNote = old ? h("div", { class: "sql-old-note", role: "status" },
+      h("span", {}, h("b", {}, `Result from ${timeText(old.at)}, not the latest run.`), " Read from the snapshot on this PC; nothing ran."),
+      h("div", { class: "row" }, btn("Back to the latest", null, backToLatest, "tool outline small"),
+        old.pinned ? btn("Unpin it", null, () => pinEntry(old, false), "tool outline small") : btn("Pin it", null, () => pinEntry(old, true), "tool outline small"),
+        tab.old.latest.exec?.state === "completed" ? btn("Compare with latest", null, () => compareWithLatest(old), "tool outline small",
+          { title: "Compare this result's rows with the latest run's, on this PC. Nothing runs." }) : null)) : null;
+    if (!m) { rtabs.replaceChildren(...[oldNote].filter(Boolean)); return; }
     const parts = m.units.map((u, i) => ({ u, at: i + 1, label: sqlPartLabel(u, ex, m) }));
     const list = h("div", { class: "sql-rtabs", role: "tablist", "aria-label": "Statement results",
       onkeydown: (e) => {
@@ -749,7 +834,7 @@ function renderQuery() {
           btn(`Run from statement ${failed.n}`, null, () => runFrom(failed), "tool outline small",
             { title: "Run this statement and the ones after it again, as a new run. The ones before it don't run again." })));
     }
-    rtabs.replaceChildren(...[h("div", { class: "sql-rtabs-head" }, list, wh ? null : previewTag()), note].filter(Boolean));
+    rtabs.replaceChildren(...[oldNote, h("div", { class: "sql-rtabs-head" }, list, wh ? null : previewTag()), note].filter(Boolean));
   }
   const grid = h("div", { class: "sql-grid" });
   function drawResults() {
@@ -796,7 +881,7 @@ function renderQuery() {
     // On a lakehouse, Plan and Profile are DuckDB's (S39, S40), Preview like Messages and Chart.
     const localExplainOn = !wh && previewShown() && runsHere();
     const extra = [...(wh || previewShown() ? ["messages", "chart"] : []), ...(wh || localExplainOn ? ["plan"] : []),
-      ...(localExplainOn ? ["profile"] : [])];
+      ...(localExplainOn ? ["profile"] : []), ...(previewShown() ? ["history"] : [])];
     const view = extra.includes(tab.view) ? tab.view : "results";
     const viewTab = (id, label) => {
       const b = h("button", { role: "tab", class: `sql-view${view === id ? " on" : ""}`, "aria-selected": String(view === id),
@@ -805,7 +890,8 @@ function renderQuery() {
     };
     band.replaceChildren(...[h("div", { class: "sql-views", role: "tablist", "aria-label": "Result views" },
       viewTab("results", "Results"), extra.length ? viewTab("messages", "Messages") : null, extra.length ? viewTab("chart", "Chart") : null,
-      extra.includes("plan") ? viewTab("plan", "Plan") : null, extra.includes("profile") ? viewTab("profile", "Profile") : null),
+      extra.includes("plan") ? viewTab("plan", "Plan") : null, extra.includes("profile") ? viewTab("profile", "Profile") : null,
+      extra.includes("history") ? viewTab("history", "History") : null),
       h("span", { class: `sql-pill ${pill[0]}` }, pill[1]), h("span", { class: "muted-text sql-run-msg" }, tab.error ? "" : msg),
       ex && (st === "running" || st === "queued") ? btn("Stop", "stop", stop, "tool small", { title: "Stop this query. Only its own process ends." }) : null,
       tab.ranNotice && r && !busy ? h("span", { class: "sql-local-note", role: "note" }, tab.ranNotice) : null,
@@ -826,7 +912,9 @@ function renderQuery() {
         { "aria-keyshortcuts": "Control+R",
           title: p.pane === "hidden" ? "Show the results pane (Ctrl+R)" : "Hide the results pane and give the editor the room (Ctrl+R)" })].filter(Boolean));
     applyPane();
-    if (view === "plan" && !wh) {
+    if (view === "history") {
+      grid.replaceChildren(historyView());
+    } else if (view === "plan" && !wh) {
       grid.replaceChildren(sqlLocalPlanView(tab.localPlan, { busy: tab.planning, ask: () => localExplain("plan") }));
     } else if (view === "profile") {
       grid.replaceChildren(renderQueryProfile({ qprofile: tab.localProfile ||= { data: null, busy: false, error: null, gone: false },
@@ -886,7 +974,13 @@ function renderQuery() {
     while (p.tabs.some((t) => t.name === `Query ${n}`)) n++;
     return `Query ${n}`;
   };
-  const closeTab = (i) => { p.tabs.splice(i, 1); p.active = Math.min(p.active, p.tabs.length - 1); saveQueryTabs(); renderQuery(); };
+  const closeTab = (i) => {
+    for (const e of p.tabs[i].history || []) if (e.pinned) rpc("sql_pin", { execution: e.id, pinned: false }).catch(() => {});  // its results can go now
+    p.tabs.splice(i, 1);
+    p.active = Math.min(p.active, p.tabs.length - 1);
+    saveQueryTabs();
+    renderQuery();
+  };
   const addTab = () => { p.whCompareShown = p.whMonitorShown = false; p.tabs.push({ name: nextTabName(), sql: wh ? WAREHOUSE_HINT : QUERY_HINT, dialect: tab.dialect }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); };
   // WH-12: the compare view, when one was made for this warehouse, has a tab of its own.
   const compare = wh && p.whCompare?.key === sqlRefKey(ref) ? p.whCompare : null;

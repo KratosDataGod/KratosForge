@@ -801,6 +801,19 @@ h2.flush { margin: 0; }
 .sql-rtab.busy { color: var(--text-2); }
 .sql-stop-note { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--warn-soft-4); color: var(--warn-ink); font-size: 13px; }
 .sql-stop-note .row { display: flex; flex-wrap: wrap; gap: 8px; }
+/* S27: the result history, and an earlier result shown again */
+.sql-history { overflow: auto; }
+.sql-history-list { width: 100%; border-collapse: collapse; font-size: 13px; }
+.sql-history-list th, .sql-history-list td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
+.sql-history-list th { font-size: 12px; font-weight: 600; color: var(--text-2); }
+.sql-history-list td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sql-history-list tr.on td { background: var(--accent-soft-2); }
+.sql-history-list .link-btn { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; text-align: left; }
+.sql-history-list .sql-chip { margin-left: 6px; }
+.sql-history-list .sql-pin-cell { white-space: nowrap; }
+.sql-history-list .sql-pin { margin-right: 8px; color: var(--warn-strong); font-weight: 600; }
+.sql-old-note { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--accent-soft-2); color: var(--accent); font-size: 13px; }
+.sql-old-note .row { display: flex; flex-wrap: wrap; gap: 8px; }
 .sql-local-note { flex-basis: 100%; padding: 6px 10px; border-radius: var(--r-sm); background: var(--warn-soft-4); color: var(--warn-ink); font-size: 12.5px; }
 /* WH-01: the Warehouse page */
 .sql-target-note { font-size: 13px; color: var(--text-2); }

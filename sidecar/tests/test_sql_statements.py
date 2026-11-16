@@ -204,3 +204,30 @@ def test_a_warehouse_change_stops_at_the_statement_that_fails_and_rolls_back(tmp
     assert [f["statement"] for e, f in said if e == "part"] == [1]
     assert said[-1][0] == "raised" and "Statement 2 of 3" in said[-1][1]["error"] and "rolled back" in said[-1][1]["error"]
     assert cur.ran == units[:2] and con.events == ["rollback", "close"]
+
+
+# ---------------------------------------------------------------- pinned results (S27)
+
+
+def test_a_pinned_result_outlives_the_runs_kept_and_unpinning_lets_it_go(runs, lake, monkeypatch):
+    monkeypatch.setattr(sql_exec, "MAX_KEPT", 1)
+    first = wait(runs, runs.start("SELECT 1 AS a", lake)["id"])
+    assert runs.pin(first["id"])["pinned"] is True
+    for _ in range(2):
+        wait(runs, runs.start("SELECT 2 AS b", lake)["id"])
+    assert runs.page(first["id"])["rows"] == [[1]], "kept past MAX_KEPT while pinned"
+    assert "pinned" not in runs.pin(first["id"], False)
+    with pytest.raises(KeyError):
+        runs.status(first["id"])
+
+
+def test_only_so_many_results_can_be_pinned(runs, lake, monkeypatch):
+    monkeypatch.setattr(sql_exec, "MAX_PINNED", 1)
+    a = wait(runs, runs.start("SELECT 1 AS a", lake)["id"])
+    b = wait(runs, runs.start("SELECT 2 AS a", lake)["id"])
+    runs.pin(a["id"])
+    with pytest.raises(ValueError, match="Up to 1 results"):
+        runs.pin(b["id"])
+    failed = wait(runs, runs.start("SELECT * FROM nothing_here", lake)["id"])
+    with pytest.raises(ValueError, match="has none"):
+        runs.pin(failed["id"])

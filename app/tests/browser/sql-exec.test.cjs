@@ -16,7 +16,7 @@ const skip = !playwright && "Playwright is not installed";
 before(async () => {
   if (skip) return;
   app = await openApp({
-    engine: ["sql_format", "sql_analyze", "sql_start", "sql_status", "sql_page", "sql_cancel",
+    engine: ["sql_format", "sql_analyze", "sql_start", "sql_status", "sql_page", "sql_cancel", "sql_pin", "learn_fix_compare",
       "sql_export", "sql_export_status", "sql_export_cancel", "app_settings", "save_app_settings"],
     mocks: { list_tables: () => ({ dbo: ["sales"] }), table_columns: () => [] },
   });
@@ -196,6 +196,34 @@ test("a script of several statements gives a result tab for each and stops at th
   await waitPill("Succeeded");
   assert.ok(!runs().at(-1).statements, "Ctrl+Shift+Enter runs one statement");
   assert.ok(await page().locator(".sql-rtabs-row").isHidden());
+});
+
+test("History lists the tab's runs; an old result opens again without running, and can be pinned (S27)", { skip }, async () => {
+  await setDoc("SELECT range AS n FROM range(4)");
+  await page().keyboard.press("Control+Enter");
+  await waitPill("Succeeded");
+  await setDoc("SELECT range AS n FROM range(2)");
+  await page().keyboard.press("Control+Enter");
+  await waitPill("Succeeded");
+  const before = runs().length;
+  await page().getByRole("tab", { name: /^History/ }).click();
+  const rows = page().locator(".sql-history-list tbody tr");
+  assert.match(await rows.first().textContent(), /SELECT range AS n FROM range\(2\)Latest2/);
+  await rows.nth(1).getByRole("button", { name: "Pin" }).click();
+  await page().waitForFunction(() => document.querySelectorAll(".sql-history-list .sql-pinned").length === 1);
+  await rows.nth(1).locator(".link-btn").click();
+  await page().waitForFunction(() => document.querySelectorAll(".sql-grid tbody tr").length === 4);
+  assert.match(await page().locator(".sql-old-note").textContent(), /not the latest run\. Read from the snapshot on this PC; nothing ran\./);
+  assert.strictEqual(runs().length, before, "opening an old result runs nothing");
+  await page().getByRole("button", { name: "Compare with latest" }).click();
+  await page().waitForFunction(() => /Different from the latest run: 4 rows then, 2 rows in the latest/.test(document.querySelector(".toast")?.textContent || ""));
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "sql-s27-old-result.png") });
+  await page().getByRole("button", { name: "Back to the latest" }).click();
+  await page().waitForFunction(() => document.querySelectorAll(".sql-grid tbody tr").length === 2);
+  assert.ok(await page().locator(".sql-old-note").count() === 0);
+  await page().getByRole("tab", { name: /^History/ }).click();
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "sql-s27-history.png") });
+  await page().getByRole("tab", { name: /^Results/ }).click();
 });
 
 test("nothing on the page threw", { skip }, async () => {

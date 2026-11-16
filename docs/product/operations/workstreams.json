@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-09",
+  "updated": "2026-11-16",
   "about": "Machine-readable work queues for the six workstreams. GitHub Issues hold each story; this file says which story each workstream is on, what comes next and what blocks it. The orchestrator thread updates it at the weekly review and when a lead reports a story done. Check and render with: python docs/product/operations/tools/queues.py all",
   "rules": {
     "ready_minimum": 2,
@@ -35,7 +35,7 @@
       },
       "ready": [
         {
-          "story": "WR-102"
+          "story": "WR-104"
         },
         {
           "story": "WR-103"
@@ -51,8 +51,8 @@
       "blockers": [
         "PB-015 live Prove run waits on Chris's yes (state kept in the backlog; its issue is closed until approved)"
       ],
-      "last_completed": "#1861 every append caller stops a value-changing append; #2273 first-write race exposure; #2281 reproducible engine zip",
-      "next_action": "WR-101, then WR-102 and WR-103. The 8-hour soak and PB-015's live Prove run wait on Chris."
+      "last_completed": "WR-102 benchmark baseline gate (#2329, #2350); WR-103 full temp drive message (#2478) and real-volume test (#2413), out-of-memory part still open",
+      "next_action": "WR-101, then WR-104. #2361's new profile options wait on Chris's go; the 8-hour soak and PB-015 wait on Chris."
     },
     {
       "key": "fabric",
@@ -70,14 +70,14 @@
         "Sync pinned workspaces with Fabric"
       ],
       "active": {
-        "story": "WR-201"
+        "story": "WR-203"
       },
       "ready": [
         {
-          "story": "WR-202"
+          "story": "WR-204"
         },
         {
-          "story": "WR-203"
+          "story": "WR-205"
         }
       ],
       "backlog": [
@@ -91,8 +91,8 @@
         "PB-002, PB-003, PB-049 and PB-052 live runs wait on Chris's yes (issues closed until approved)",
         "#799 staging cleaner held"
       ],
-      "last_completed": "#1869 T-SQL refused list matches the code; #1711, #1686 T-SQL gaps; #1936, #1965 local pipeline coverage",
-      "next_action": "WR-201 one module per PR. Warehouse run 8 and the tenant smoke tests wait on Chris's typed yes."
+      "last_completed": "WR-201 long-running operations and throttling retries (#2342, #2394); WR-202 request id and next step (#2494, #2534, #2538, #2570)",
+      "next_action": "WR-203, then WR-204 and WR-205. Run 11 waits on Chris's typed yes."
     },
     {
       "key": "dbx-snow",
@@ -104,14 +104,14 @@
         "Snowflake local-first development (to be opened)"
       ],
       "active": {
-        "story": "WR-301"
+        "story": "WR-302"
       },
       "ready": [
         {
-          "story": "WR-302"
+          "story": "WR-303"
         },
         {
-          "story": "WR-303"
+          "story": "WR-304"
         }
       ],
       "backlog": [],
@@ -123,8 +123,8 @@
         "Databricks live runs need a workspace and Chris's yes",
         "Snowflake sign-in and engine wait on Chris's D4 decision"
       ],
-      "last_completed": "Spark DataFrame coverage list complete (#2240, #2250, #2266); Databricks SQL Fails at 0 (#2276, #2278); Academy Databricks exercises (#2301, #2304)",
-      "next_action": "WR-301 and WR-302 in parallel. Databricks live runs need a workspace and Chris's yes."
+      "last_completed": "WR-301 reader options (#1720, #2561); PySpark parity: UDFs, mapInPandas, the 5 missing DataFrame methods, MERGE schema evolution, spark.catalog (#2626 and the week's Notebook Spark PRs)",
+      "next_action": "WR-302 and WR-304 in parallel. Databricks live runs need a workspace and Chris's yes."
     },
     {
       "key": "enterprise",
@@ -137,14 +137,14 @@
         "Workload management workspace"
       ],
       "active": {
-        "story": "WR-401"
+        "story": "WR-402"
       },
       "ready": [
         {
-          "story": "WR-402"
+          "story": "WR-403"
         },
         {
-          "story": "WR-403"
+          "story": "WR-404"
         }
       ],
       "backlog": [
@@ -159,8 +159,8 @@
         "Email notices for requests: decision card with Chris on how to send without an app registration (Power Automate flow recommended)",
         "#1679 Save support bundle: passed review, waits on Chris's Windows click test"
       ],
-      "last_completed": "#2262 local data retention; #2236 governance follow-ups; #2279 agent start record and incident ages; #2291 install fix-forward",
-      "next_action": "WR-401 in the retention thread. #2305 audit time limit and #2258 Group Policy wait on Chris's go."
+      "last_completed": "WR-401 personal-data inventory (#2282); FIPS (#2532), AppLocker/WDAC (#2536), policy keys in step (#2569), #2305 audit time limit",
+      "next_action": "WR-402, WR-403; WR-404 in the TMDL thread. #2258 Group Policy waits on Chris's go."
     },
     {
       "key": "devex",
@@ -181,7 +181,7 @@
           "story": "WR-502"
         },
         {
-          "story": "WR-503"
+          "story": "WR-504"
         }
       ],
       "backlog": [
@@ -193,8 +193,8 @@
         "EA-030 Narrator pass needs a Windows PC",
         "#1136 Embed Studio screen held for Chris's live report test"
       ],
-      "last_completed": "#2286 accessibility at 200% and contrast themes; #2292 VS Code compatibility matrix; #2303, #2307 reproducible .vsix; #2309 output limits",
-      "next_action": "WR-501; WR-502 with the product check. Layout decisions in docs/ux/accessibility-zoom-contrast.md go to UX mockups."
+      "last_completed": "WR-503 errors name a next step (#2325); editor parity wave 1 items needing no mockup (#2581 to #2627); docs audits 18 to 21",
+      "next_action": "WR-501; WR-504 in Notebook parity. The combined mockup (#2580) waits on Chris; its items start when he answers."
     },
     {
       "key": "platform",
@@ -209,26 +209,24 @@
         "Enterprise readiness program"
       ],
       "active": {
-        "story": "WR-601"
+        "story": "WR-604"
       },
       "ready": [
         {
-          "story": "WR-602"
+          "story": "WR-605"
         },
         {
-          "story": "WR-603"
+          "story": "PB-061"
         }
       ],
-      "backlog": [
-        "PB-061"
-      ],
+      "backlog": [],
       "dependencies": [],
       "blockers": [
         "PB-001 / EA-009 code signing waits on Microsoft identity validation (Chris)",
         "#744 HD-030 waits on Chris's fail-closed decision"
       ],
-      "last_completed": "#2268 pinned runner images; #2281 reproducible engine zip; #2256 lock-hash and SBOM guard; mypy strict with an empty baseline (#2197, #2242)",
-      "next_action": "WR-601, WR-602 (PR open now), WR-603 with this review. Signing waits on Chris's identity check."
+      "last_completed": "WR-601 dependency scanning; WR-602 VDI fixes (#2469, #2484); WR-603 cancelled runs apart; main audited every 6 h (#2681); shell coverage 67% to 75% with Windows-only security tests (#2682 to #2720)",
+      "next_action": "WR-604, WR-605. Signing waits on Chris's identity check."
     }
   ],
   "new_stories": {
@@ -412,6 +410,88 @@
         "Test covers the count"
       ],
       "agent": "Orchestrator"
+    },
+    "WR-104": {
+      "title": "Every Delta profile refusal is covered by a data-integrity test named after its reader-matrix row",
+      "priority": "P1",
+      "problem": "The reader matrix (#2722) and named refusals (#2723) landed; a refusal reason without its own test could regress silently.",
+      "acceptance": [
+        "Each forbidden feature and version limit in delta_profile.py has a test that writes the table and checks the refusal names the feature and readers",
+        "Removing any refusal fails a test"
+      ],
+      "agent": "Local data engine"
+    },
+    "WR-204": {
+      "title": "Warehouse transactions run as one guarded script (editor parity item 13)",
+      "priority": "P2",
+      "problem": "BEGIN TRAN ... COMMIT typed in the SQL editor runs statement by statement; a failure mid-way leaves the transaction open.",
+      "acceptance": [
+        "A script with BEGIN TRAN ... COMMIT runs as one request, with Prod's typed-name guard",
+        "A failure rolls back and says which statement failed",
+        "Security read"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-205": {
+      "title": "Best Practice Analyzer drafts brought up to date and PB-115 covered (Chris's go 2026-11-13)",
+      "priority": "P1",
+      "problem": "The SQL, notebook and model best-practice drafts sat parked; Chris said go.",
+      "acceptance": [
+        "#2461 updated, reviewed and merged",
+        "PB-115 covered",
+        "The live semantic-model check is written but not run until Chris's typed yes"
+      ],
+      "agent": "Best Practice Analyzer for semantic models"
+    },
+    "WR-304": {
+      "title": "Spark DataFrame API coverage: every Fails row fixed or refused by name",
+      "priority": "P2",
+      "problem": "docs/spark-dataframe-api.md still lists rows that fail on this PC rather than refusing by name.",
+      "acceptance": [
+        "Each Fails row runs as Spark 3.5.3 does or is refused with a message naming it",
+        "The page regenerates in CI and can't go stale"
+      ],
+      "agent": "Fix Spark functions that fail locally"
+    },
+    "WR-404": {
+      "title": "TMDL to and from Apache Ossie, slice 2: the service call and folder-write hardening (PB-110, Chris's go 2026-11-13)",
+      "priority": "P1",
+      "problem": "Slice 1 (#2592) writes TMDL from TMSL; the Ossie-to-TMDL service call and safe folder writes are next.",
+      "acceptance": [
+        "An Ossie file converts to TMDL under semantic/<name>.SemanticModel/ with a round-trip test",
+        "Nothing is dropped silently: anything that can't survive is refused or warned by name",
+        "Security read on parsing model files"
+      ],
+      "agent": "TMDL and OSI semantic model conversion"
+    },
+    "WR-504": {
+      "title": "Notebook editor parity: the F-list items that need no mockup",
+      "priority": "P2",
+      "problem": "Notebook parity has ready items (F2 onward) under Chris's 2026-11-13 go for the parity program.",
+      "acceptance": [
+        "Each item one PR with its parity row moved to Have",
+        "Preview until used for real"
+      ],
+      "agent": "Build notebook parity items"
+    },
+    "WR-604": {
+      "title": "Flaky ledger: every Open row reproduced, fixed or closed with evidence",
+      "priority": "P2",
+      "problem": "Fixes like #2690 (lost interrupt) show some ledger rows had real causes.",
+      "acceptance": [
+        "Each Open row in the flaky ledger has a cause and a fix PR, or a dated note that it hasn't recurred in 7 days"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-605": {
+      "title": "Main's 6-hourly dependency audit has a drill: a simulated advisory goes from alert to merged bump within one batch",
+      "priority": "P2",
+      "problem": "#2681 audits main every 6 hours; the runbook hasn't been exercised.",
+      "acceptance": [
+        "One dry run of the runbook recorded in docs/quality",
+        "Any gap found fixed"
+      ],
+      "agent": "Codebase audit and hardening"
     }
   },
   "side_programs": []

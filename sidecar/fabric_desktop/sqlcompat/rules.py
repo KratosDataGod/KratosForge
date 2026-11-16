@@ -244,7 +244,9 @@ _RULES = [
        "{name} doesn't return the same value on every run, so results here and in Fabric won't match.",
        "Don't compare these values between runs.", "local"),
     _r("LOC-005", "information", "local", (SP,), "Decimal results can differ",
-       "Spark and DuckDB use different precision and rounding rules for decimal arithmetic.",
+       "On this PC decimal arithmetic follows Spark's precision and scale rules, except a product, sum or "
+       "difference past 38 digits (DuckDB keeps its own type, and can fail where Spark rounds), and a division "
+       "whose dividend needs more than 38 digits (worked out through DOUBLE).",
        "Compare the results in Fabric if exact decimals matter.", "local", "medium"),
     _r("LOC-006", "warning", "local", (SP,), "{name} has no fixed order",
        "{name} returns values in no fixed order, so the result here and in Fabric can differ.",
@@ -1220,8 +1222,13 @@ def _local(s: Stmt) -> Iterator[Hit]:
             yield _hit("LOC-001", toks[i])
         elif verb in ("CACHE", "SET", "USE"):
             yield _hit("LOC-007", toks[i])
-    if any(t.kw in ("DECIMAL", "NUMERIC") for t in toks) and any(t.type in (TokenType.SLASH,) for t in toks):
-        first = next(t for t in toks if t.kw in ("DECIMAL", "NUMERIC"))
-        yield _hit("LOC-005", first)
+    # Where a decimal result on this PC can still differ from Spark's (docs/sql-compatibility.md, LOC-005):
+    # a division (a very large one goes through DOUBLE) and a product past 38 digits.
+    times = any(t.type == TokenType.STAR and i and toks[i - 1].type not in (
+        TokenType.SELECT, TokenType.COMMA, TokenType.DOT, TokenType.L_PAREN, TokenType.DISTINCT)
+        for i, t in enumerate(toks))
+    decimal = next((t for t in toks if t.kw in ("DECIMAL", "NUMERIC")), None)
+    if decimal is not None and (times or any(t.type == TokenType.SLASH for t in toks)):
+        yield _hit("LOC-005", decimal)
     if s.index == 0:
         yield _hit("LOC-008", toks[0])

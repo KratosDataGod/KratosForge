@@ -210,6 +210,8 @@ def _spark_session_functions(statement: exp.Expression) -> exp.Expression:
     return statement
 
 
+# The meta key naming the Spark function a template was written out from.
+SPARK_FUNCTION = "kf_spark_function"
 # Spark functions whose sqlglot DuckDB SQL answers differently or doesn't run, as DuckDB SQL that
 # answers as Spark does ({0}, {1} are the arguments). Lambda names can't clash with a column.
 _ANON_TEMPLATES = {
@@ -499,7 +501,9 @@ def _spark_functions(statement: exp.Expression) -> exp.Expression:
                 args.append(exp.Literal.number(0))
             places = args[1] if name == "BROUND" and len(args) == 2 else None
             if places is not None and (places.is_int or (isinstance(places, exp.Neg) and places.this.is_int)):
-                node.replace(_from_template(_bround(int(places.sql())), [args[0]]))
+                written = _from_template(_bround(int(places.sql())), [args[0]])
+                written.meta[SPARK_FUNCTION] = name  # spark_decimals types it as Spark's round
+                node.replace(written)
                 continue
             if name == "FORMAT_NUMBER" and len(args) == 2:
                 places = args[1]
@@ -513,7 +517,9 @@ def _spark_functions(statement: exp.Expression) -> exp.Expression:
                                      expressions=[e.copy() for e in args[1].expressions])
                 node.replace(exp.Not(this=exp.paren(_from_template(_EXISTS, [args[0], negated]))))
             elif name in _ANON_TEMPLATES and len(args) == _arity(_ANON_TEMPLATES[name]):
-                node.replace(_from_template(_ANON_TEMPLATES[name], args))
+                written = _from_template(_ANON_TEMPLATES[name], args)
+                written.meta[SPARK_FUNCTION] = name  # spark_decimals types pmod by Spark's Remainder rule
+                node.replace(written)
     return statement
 
 

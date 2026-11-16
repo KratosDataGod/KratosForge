@@ -6,7 +6,8 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
 
 - divides integers as integers (``7 / 2`` is 3), and averages integers as integers, as T-SQL
   does, using the project's column types to tell. A division whose types it can't tell is left
-  as DuckDB divides and reported in ``notes``;
+  as DuckDB divides and reported in ``notes``. Dividing by zero (``/`` and ``%``) is T-SQL's error,
+  ``ROUND`` keeps its value's type, and ``ISNULL`` takes its first argument's type (WR-211);
 - gives ``+``, ``-``, ``*``, ``/`` with a decimal side, and ``AVG`` of a decimal, T-SQL's precision and
   scale, and divides decimals exactly, cut at that scale (WR-206). What can't be done exactly here is
   done in floating point and reported in ``notes``;
@@ -235,7 +236,7 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
 
     kinds = (exp.Div, exp.Avg, exp.Add, exp.Sub, exp.Mul, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow,
              exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
-             tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs)
+             tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce)
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
     if not here and not compared:
@@ -288,7 +289,9 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
         elif isinstance(node, exp.Div):
             a, b = info.this.type, info.expression.type
             if _is(a, _INTEGERS) and _is(b, _INTEGERS):
-                node.replace(exp.IntDiv(this=node.this, expression=node.expression))
+                _by_zero(node, "//")
+            elif _is(a, _NUMBERS) and _is(b, _NUMBERS):
+                _by_zero(node, "/")  # a float, or a number with one: an error too, not inf or NULL
             elif _unknown(a) or _unknown(b):
                 notes.append(f"Couldn't tell the types in {node.sql(dialect='tsql')}: it divides as DuckDB does, "
                              "and T-SQL divides two integers as integers.")
@@ -297,6 +300,14 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                 # AVG(x) OVER (...) is a Window around the AVG: the whole window is what gets cut.
                 whole = node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
                 whole.replace(exp.Cast(this=exp.Trunc(this=whole.copy()), to=exp.DataType.build("BIGINT")))
+        elif isinstance(node, exp.Mod):
+            if _is(info.this.type, _NUMBERS) and _is(info.expression.type, _NUMBERS):
+                _by_zero(node, "%")
+        elif isinstance(node, exp.Round):
+            _round_keeps_type(node, info)
+        elif isinstance(node, exp.Coalesce):
+            if node.args.get("is_null"):
+                _isnull_first_type(node, info)
         elif isinstance(node, exp.Pow):
             notes += _power(node, info.this.type)
         elif isinstance(node, (exp.Ceil, exp.Floor, exp.Degrees, exp.Radians)):
@@ -325,7 +336,7 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
         else:
             to = node.args.get("to")
             if isinstance(to, exp.DataType) and to.this in _INTEGERS - {exp.DataType.Type.BIT} \
-                    and _unknown(info.this.type):
+                    and _unknown(info.this.type) and not isinstance(node.this, exp.Null):  # NULL converts the same
                 notes.append(f"Couldn't tell the type in {node.sql(dialect='tsql')}: it converts as DuckDB does, "
                              "and T-SQL cuts a decimal toward zero and refuses text that isn't a whole number.")
             source = _numeric_style(node, info) or info.this.type
@@ -334,6 +345,79 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
             _truncated(node, info.this.type)
             _sized_text(node, source)  # a no-op for the integer casts _truncated may replace
     return notes
+
+
+_BY_ZERO = "Divide by zero error encountered."
+
+
+def _by_zero(node: exp.Expression, op: str) -> None:
+    """``a / b`` or ``a % b`` stops with T-SQL's error when ``b`` is 0, for integers and floats too (WR-211);
+    DuckDB gives NULL, or infinity for a float. ``//`` divides integers as integers. A divisor written as a
+    number other than 0 can't be 0, and is left as it is."""
+    value = _number(node.expression)
+    if value is not None and value != 0:
+        if op == "//":
+            node.replace(exp.IntDiv(this=node.this, expression=node.expression))
+        return
+    # NULL / 0 is NULL in T-SQL: the error is only for a value divided by zero.
+    _fill_in(node, f"CASE WHEN (__b) = 0 AND (__a) IS NOT NULL THEN error('{_BY_ZERO}') ELSE (__a) {op} (__b) END")
+
+
+_OVERFLOW = "Arithmetic overflow error converting expression to data type {kind}."
+_TSQL_INT_NAMES = {exp.DataType.Type.UTINYINT: "tinyint", exp.DataType.Type.TINYINT: "tinyint",
+                   exp.DataType.Type.SMALLINT: "smallint", exp.DataType.Type.INT: "int", exp.DataType.Type.BIGINT: "bigint"}
+
+
+def _round_keeps_type(node: exp.Round, info: exp.Expression) -> None:
+    """``ROUND`` keeps its value's type in T-SQL (WR-211): ``ROUND(1234.567, -2)`` is 1200.000, and a result
+    that no longer fits the type is an error (``ROUND(999.5, 0)``, a decimal(4,1), would be 1000.0). DuckDB
+    gives a decimal of another scale, or a BIGINT for an integer. A float stays as DuckDB rounds it."""
+    kind = info.this.type
+    number = _tsql_number(info.this)
+    if number is not None and number[2]:
+        precision, scale = number[0], number[1]
+        to, name = f"DECIMAL({precision}, {scale})", "numeric"
+        # Rounded at full width: DuckDB rounds a narrow decimal past its digits to 0 (748.58 at -3).
+        node.set("this", exp.Cast(this=node.this, to=exp.DataType.build(f"DECIMAL(38, {scale})")))
+    elif _is(kind, set(_TSQL_INT_NAMES)) and not _written_decimal(node.this):
+        assert kind is not None
+        to, name = ("UTINYINT" if kind.this == exp.DataType.Type.TINYINT else kind.this.value), _TSQL_INT_NAMES[kind.this]
+    else:
+        return
+    message = _OVERFLOW.format(kind=name)
+    _fill_in_one(node, f"CASE WHEN (__x) IS NOT NULL AND TRY_CAST((__x) AS {to}) IS NULL "
+                       f"THEN CAST(error('{message}') AS {to}) ELSE CAST((__x) AS {to}) END")
+
+
+def _fill_in_one(node: exp.Expression, text: str) -> None:
+    """``node`` replaced by the DuckDB SQL ``text``, with ``__x`` standing for the node itself (kept, so later
+    rewrites still find it)."""
+    filled = sqlglot.parse_one(text, read="duckdb")
+    holders = [c for c in filled.find_all(exp.Column) if c.name == "__x"]
+    node.replace(filled)
+    for placeholder in holders:
+        placeholder.replace(node.copy())
+
+
+def _isnull_first_type(node: exp.Coalesce, info: exp.Expression) -> None:
+    """``ISNULL(a, b)`` has ``a``'s type in T-SQL, so ``b`` is converted to it: ``ISNULL(CAST(NULL AS
+    VARCHAR(2)), 'abcd')`` is 'ab' and ``ISNULL(int_column, 2.7)`` is 2. ``COALESCE`` takes the type that
+    ranks highest instead, as DuckDB does (WR-211). An ``a`` whose type can't be told is left as it is."""
+    first = node.this
+    kind = first.args["to"] if isinstance(first, (exp.Cast, exp.TryCast)) else info.this.type
+    if len(node.expressions) != 1 or not isinstance(kind, exp.DataType) or _unknown(kind):
+        return
+    other, other_type = node.expressions[0], info.expressions[0].type
+    if kind.this in _SIZED and kind.expressions:
+        size = kind.expressions[0].this
+        if isinstance(size, exp.Literal) and not size.is_string:
+            node.set("expressions", [exp.func("LEFT", exp.cast(other, "VARCHAR"), exp.Literal.number(int(size.name)))])
+    elif kind.this in _INTEGERS - {exp.DataType.Type.BIT, exp.DataType.Type.BOOLEAN} and not _is(other_type, _INTEGERS):
+        cut = exp.Cast(this=other, to=kind.copy())
+        node.set("expressions", [cut])
+        _truncated(cut, other_type)  # toward zero, as a CAST to an integer; text has to be a whole number
+    elif kind.this == exp.DataType.Type.DECIMAL and kind.expressions:
+        node.set("expressions", [exp.Cast(this=other, to=kind.copy())])
 
 
 # T-SQL converts an integer to a decimal of this precision when it meets one in arithmetic.
@@ -499,7 +583,7 @@ def _division(node: exp.Expression, left: tuple[int, int], right: tuple[int, int
                 f"AS DECIMAL(38, 0)) * CAST('0.{'0' * (scale - 1)}1' AS DECIMAL({scale}, {scale})) AS {kind})")
     fits = [f"ABS({digits}) < CAST('{10 ** (_HUGEINT_ROOM - moved)}' AS HUGEINT)"
             for digits, p, moved in ((a, p1, a_shift), (b, p2, b_shift)) if p + moved > _HUGEINT_ROOM]
-    zero = "WHEN (__b) = 0 THEN error('Divide by zero error encountered.')"
+    zero = "WHEN (__b) = 0 AND (__a) IS NOT NULL THEN error('Divide by zero error encountered.')"  # NULL / 0 is NULL
     if fits:
         text = (f"CASE {zero} WHEN {' AND '.join(fits)} THEN {quotient} "
                 f"ELSE CAST(CAST((__a) AS DOUBLE) / CAST((__b) AS DOUBLE) AS {kind}) END")

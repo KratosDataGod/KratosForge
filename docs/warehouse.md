@@ -30,6 +30,21 @@ A script you wrote as one transaction, `BEGIN TRAN` on its first line and `COMMI
 
 Some things are never run, even when changes are allowed: any other `BEGIN TRAN`, `COMMIT` or `ROLLBACK` (the run is the transaction), dynamic SQL, `EXECUTE AS`, permissions (`GRANT`, `REVOKE`, `DENY`, roles and users, which are managed in Fabric), `USE` and other databases, `COPY INTO` and database DDL. A script with one of these says which statement and why, and nothing is sent. A procedure's body is checked when you create it here, but a procedure already in the warehouse runs as it was written. The full list is in [SQL execution](sql-execution.md#changes-on-a-warehouse-wh-10).
 
+### When a run is cut off
+
+A run the network or the warehouse ends part way says so by name, says what was kept, and says what to do next. A partial result or a partial change is never shown as a success:
+
+| What happened | The error says | Next step it gives |
+| --- | --- | --- |
+| The connection dropped | *The connection to the warehouse dropped during batch 2 of 3 (UPDATE ...), so the whole change was rolled back and nothing was kept.* | Check this PC's network (and VPN), then run it again |
+| Your sign-in expired during a long run | *Your sign-in to Fabric expired ...* | Sign in again, then run it again |
+| The capacity is busy (throttling, errors such as 40501) | *The warehouse stopped the run ... because its capacity is busy (error 40501) ...* | Wait a few minutes; if it keeps happening, ask your Fabric capacity admin |
+| The warehouse cancelled the run | *The warehouse cancelled the run ...* | Run it again; if it's cancelled again, check the warehouse's activity in Fabric |
+| The time limit was reached | *Stopped after the time limit (10 minutes, Settings › SQL). The change was rolled back, so nothing was kept.* | Narrow the query or raise the limit |
+| You pressed **Stop** | *Stopped. The change was rolled back, so nothing was kept.* | |
+
+A read that is cut off keeps no rows, even ones it had already received. A change is one transaction, so it keeps nothing unless the commit went through. The one case that can't be known is a connection lost while the commit was on its way, or **Stop** pressed then: the error says the change *may or may not have been kept*, so check the tables it changes before running it again. The batch that was running is kept with the run: hover the run in **History** (*Failed at batch 2*), and the audit log records it with the kind of failure.
+
 **Settings › Advanced › SQL queries › Warehouse changes** turns changes off for this PC, which leaves **Allow changes** greyed out; your organization can turn them off for everyone. The audit log records who changed which warehouse and how many rows, never the SQL or the data.
 
 ## The project in Git
@@ -177,7 +192,7 @@ If the file changed after you opened it (a Git pull, or another editor), **Save 
 
 The explorer's **History** tab has two parts.
 
-**This PC's runs** lists every query you ran on this warehouse from the app, newest first: its first line of SQL (skipping comments), when it ran, how it ended (Succeeded, Failed, Stopped, Timed out), how long it took and how many rows it returned. Hover a failed run to see why: the first line of its error, with quoted text and numbers taken out, since an error can echo values from your data. Click one to open its SQL in a new tab; it doesn't run again until you press **Run**. **Filter by text or table** narrows the list. The SQL is kept in the app's storage on this PC only (up to 200 runs per warehouse, 20,000 characters of SQL each, and about 1 MB across all warehouses: past that, or when the app's storage is full, the oldest runs go first, so open tabs always keep their room), never in the engine's logs or the audit trail. **Clear history** removes them after asking; saved queries and open tabs stay.
+**This PC's runs** lists every query you ran on this warehouse from the app, newest first: its first line of SQL (skipping comments), when it ran, how it ended (Succeeded, Failed, Stopped, Timed out), how long it took and how many rows it returned. Hover a failed run to see why: the first line of its error, with quoted text and numbers taken out, since an error can echo values from your data, and the batch that failed when it was a script of several. Click one to open its SQL in a new tab; it doesn't run again until you press **Run**. **Filter by text or table** narrows the list. The SQL is kept in the app's storage on this PC only (up to 200 runs per warehouse, 20,000 characters of SQL each, and about 1 MB across all warehouses: past that, or when the app's storage is full, the oldest runs go first, so open tabs always keep their room), never in the engine's logs or the audit trail. **Clear history** removes them after asking; saved queries and open tabs stay.
 
 **Query insights from Fabric** reads Fabric's own record of everyone's queries on the warehouse, from its [queryinsights views](https://learn.microsoft.com/en-us/fabric/data-warehouse/query-insights):
 

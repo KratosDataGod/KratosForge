@@ -70,6 +70,13 @@ def test_a_syntax_error_with_no_usable_end_points_at_one_character(monkeypatch):
     assert (got["line"], got["col"], got["end_line"], got["end_col"]) == (2, 4, 2, 5)
 
 
+def test_an_error_over_several_lines_ends_at_its_own_end_column():
+    # The end column is on the end line, so it isn't clamped to one past the start column (#2743).
+    assert isn.syntax_problems("f(\n**k,\n*a)") == [
+        {"line": 2, "col": 3, "end_line": 3, "end_col": 2,
+         "message": "Iterable argument unpacking follows keyword argument unpacking"}]
+
+
 def test_a_cell_magic_after_lines_of_only_spaces_is_still_the_cells_language():
     # As IPython reads it: blank lines before %%sql don't make the cell Python (#2746).
     assert isn.syntax_problems("   \n%%sql\nSELECT * FROM t") == []

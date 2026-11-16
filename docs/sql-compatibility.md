@@ -66,6 +66,7 @@ These cases can still differ, and LOC-005 notes them:
 | A sum, difference or product past 38 digits, such as two `DECIMAL(38,18)` columns multiplied | Rounds the scale down, to no fewer than 6 places, for example `decimal(38,6)`; NULL when the result doesn't fit | DuckDB's own type, for example `DECIMAL(38,36)`; the query fails when the result doesn't fit |
 | A division whose dividend, scaled, needs more than 38 digits | The exact quotient | Worked out through DOUBLE and cast to Spark's type, so the last digits can differ |
 | `div` past 38 digits | The exact quotient | Worked out through DOUBLE |
+| `div` whose quotient is past the BIGINT range | Wraps around (ANSI off) | NULL |
 | ANSI mode on | A division by zero is an error | NULL |
 
 ## Rules

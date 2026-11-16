@@ -167,8 +167,17 @@ def test_div_of_integers_is_a_bigint():
     assert run(c, "n div z") == ("BIGINT", None)  # DuckDB 2.0's own // raises on a zero divisor
 
 
+def test_div_past_38_digits_still_truncates_toward_zero():
+    # Worked out through DOUBLE (listed in the compatibility docs); a negative quotient shows TRUNC, not FLOOR.
+    c = duckdb.connect()
+    c.execute("CREATE TEMP VIEW t AS SELECT CAST(-7 AS DECIMAL(38,0)) AS a, CAST(2.5 AS DECIMAL(3,2)) AS b, "
+              "CAST(-1e37 AS DECIMAL(38,0)) AS big")
+    assert run(c, "a div b") == ("BIGINT", -2)
+    assert run(c, "big div b") == ("BIGINT", None)  # past BIGINT: NULL here, listed in the compatibility docs
+
+
 ROUNDS = [(10, 2, 1), (10, 2, 2), (10, 2, 5), (10, 2, 0), (10, 2, -1), (10, 2, -3), (23, 13, 2), (5, 0, 0),
-          (5, 0, -2), (38, 18, 4)]
+          (5, 0, -2), (38, 18, 4), (2, 0, -3)]  # (2,0) to -3: 1 - places beats p - s + 1, decimal(4,0)
 
 
 @pytest.mark.parametrize("p, s, places", ROUNDS, ids=[f"{p},{s} to {d}" for p, s, d in ROUNDS])
@@ -273,3 +282,11 @@ def test_the_static_check_warns_where_results_can_still_differ(case):
     hits = [d for d in analyze(STILL_DIFFERS[case], "spark")["diagnostics"] if d["rule"] == "LOC-005"]
     assert hits, case
 
+
+@pytest.mark.parametrize("fn, expected", [("ceil", "-123.45"), ("floor", "-123.46")])
+def test_ceil_and_floor_to_places_at_exactly_38_digits_stay_exact(fn, expected):
+    # decimal(36,3) to 2 places: p + places is 38, which still fits.
+    c = duckdb.connect()
+    c.execute("CREATE TEMP VIEW t AS SELECT CAST('-123.456' AS DECIMAL(36,3)) AS a")
+    rp, rs = round_type(36, 3, 2)
+    assert run(c, f"{fn}(a, 2)") == (f"DECIMAL({rp},{rs})", Decimal(expected))

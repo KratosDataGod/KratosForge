@@ -234,3 +234,125 @@ mod tests {
         assert!(err.contains("build 0123456") && err.contains(r"C:\Program Files\KratosForge\engine"), "{err}");
     }
 }
+
+/// `resolve` with Windows' real permission checks, on an engine folder made on the system drive
+/// (the temp folder sits in a profile the account controls, so it could never pass). Owners and
+/// permissions are set on every file and folder from SDDL, which needs the elevated account the
+/// Windows CI runner has; elsewhere unelevated the test says so and stops, but on CI that fails.
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::{resolve, Checks};
+    use crate::policy_trust::windows_tests::{me, set};
+    use crate::policy_trust::{admin_only_ancestor, admin_only_engine};
+    use std::path::{Path, PathBuf};
+
+    const BUILD: &str = "kf-test-build";
+    const ADMINS: &str = "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)";
+
+    /// An engine folder on the system drive with one build in it, removed on drop.
+    struct Engine(PathBuf);
+
+    impl Engine {
+        fn new(name: &str) -> Engine {
+            let drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into());
+            let base = PathBuf::from(format!(r"{drive}\kf-engine-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&base);
+            let build = base.join(BUILD);
+            std::fs::create_dir_all(build.join("Lib").join("site-packages").join("polars")).unwrap();
+            std::fs::create_dir_all(build.join("DLLs")).unwrap();
+            for file in ["python.exe", "pythonw.exe", "python312.dll", "python312._pth", "python312.zip"] {
+                std::fs::write(build.join(file), "stand-in").unwrap();
+            }
+            Engine(base)
+        }
+
+        /// Sets `sddl` on the folder and everything in it. False when the account isn't elevated
+        /// and this isn't CI.
+        fn lock(&self, sddl: &str) -> bool {
+            let mut all = vec![self.0.clone()];
+            let mut at = 0;
+            while at < all.len() {
+                if all[at].is_dir() {
+                    let mut inside: Vec<PathBuf> = std::fs::read_dir(&all[at]).unwrap().flatten().map(|e| e.path()).collect();
+                    inside.sort();
+                    all.extend(inside);
+                }
+                at += 1;
+            }
+            for path in &all {
+                match set(path, sddl) {
+                    Ok(()) => {}
+                    Err(1307) if std::env::var_os("CI").is_none() => {
+                        eprintln!("not elevated, so the owner can't be set to Administrators: run these tests elevated");
+                        return false;
+                    }
+                    Err(code) => panic!("couldn't set {}'s permissions ({code})", path.display()),
+                }
+            }
+            true
+        }
+
+        fn policy(&self) -> String {
+            serde_json::json!({ "engine_folder": self.0.to_string_lossy() }).to_string()
+        }
+
+        fn resolve(&self) -> Result<Option<PathBuf>, String> {
+            let engine = |p: &Path| admin_only_engine(p);
+            let ancestor = |p: &Path| admin_only_ancestor(p);
+            resolve(&self.policy(), false, BUILD, Checks { policy: Ok(()), engine: &engine, ancestor: &ancestor })
+        }
+    }
+
+    impl Drop for Engine {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn an_engine_folder_only_admins_can_change_is_used() {
+        let engine = Engine::new("admins");
+        if !engine.lock(ADMINS) {
+            return;
+        }
+        assert_eq!(engine.resolve(), Ok(Some(engine.0.join(BUILD).join("python.exe"))));
+    }
+
+    #[test]
+    fn a_package_folder_others_can_add_to_stops_the_engine_folder_being_used() {
+        let engine = Engine::new("package");
+        if !engine.lock(ADMINS) {
+            return;
+        }
+        let package = engine.0.join(BUILD).join("Lib").join("site-packages").join("polars");
+        set(&package, "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;BU)").unwrap();
+        let why = engine.resolve().unwrap_err();
+        assert!(why.starts_with("Your organization's engine folder"), "{why}");
+        assert!(why.contains("polars"), "the folder at fault is named: {why}");
+    }
+
+    #[test]
+    fn a_dll_python_loads_first_that_others_can_change_stops_the_engine_folder_being_used() {
+        let engine = Engine::new("dll");
+        if !engine.lock(ADMINS) {
+            return;
+        }
+        set(&engine.0.join(BUILD).join("python312.dll"), "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FW;;;BU)").unwrap();
+        let why = engine.resolve().unwrap_err();
+        assert!(why.contains("python312.dll"), "{why}");
+    }
+
+    #[test]
+    fn an_engine_folder_owned_by_the_account_is_not_used() {
+        let engine = Engine::new("owner");
+        if !engine.lock(ADMINS) {
+            return;
+        }
+        // Only admins may change it, but the account (an administrator, not the Administrators
+        // group) owns the top folder, and an owner can always change its permissions.
+        set(&engine.0, &format!("O:{}D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)", me())).unwrap();
+        let why = engine.resolve().unwrap_err();
+        assert!(why.starts_with("Your organization's engine folder"), "{why}");
+        assert!(why.contains("isn't owned by SYSTEM or Administrators"), "{why}");
+    }
+}

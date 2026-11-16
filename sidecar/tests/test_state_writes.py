@@ -49,6 +49,8 @@ IN_PLACE = {
     "prove_service.py:replay_bundle_open": "named by the hash of its own bytes, so writing it again writes the same file",
     "smoketest.py:_finish": "the report of a finished smoke test, written once to its own new folder",
     "spark_stream.py:_to_files": "a streaming sink's output part, a new uniquely named file per batch",
+    "spark_local.py:write_files": "df.write's _SUCCESS marker, an empty file beside new uniquely named part files, as "
+                                  "Spark writes it",
 }
 
 

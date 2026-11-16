@@ -58,7 +58,8 @@ def test_a_csv_header_given_as_an_argument_is_kept(lake, tmp_path):  # noqa: F81
     out = tmp_path / "out.csv"
     status, text = run(f"df.write.csv({str(out)!r}, header=False)")
     assert status == "ok", text
-    assert out.read_text().strip() == "9,EU"
+    [part] = out.glob("part-*.csv")
+    assert part.read_text().strip() == "9,EU"
 
 
 # ---- reads

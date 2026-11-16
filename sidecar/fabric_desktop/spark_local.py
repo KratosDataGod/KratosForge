@@ -174,6 +174,107 @@ def _true(value: Any) -> bool:
     return value is True or str(value).strip().lower() == "true"
 
 
+# Spark writes a folder of part files: these are its formats on this PC, with each file's extension.
+_FILE_FORMATS = {"parquet": ".snappy.parquet", "csv": ".csv", "json": ".json", "text": ".txt"}
+# What a Spark write leaves in its folder; overwrite clears a folder only when it holds nothing else.
+_SPARK_OUTPUT = re.compile(r"part-\d{5}-.*|_SUCCESS|_committed_.*|_started_.*|\.(?:part-\d{5}-.*|_SUCCESS)\.crc")
+
+
+def _is_link(path: str) -> bool:
+    return os.path.islink(path) or bool(getattr(os.path, "isjunction", lambda _p: False)(path))
+
+
+def _clear_output(path: str) -> None:
+    """Remove a Spark write's folder (or a file) at ``path`` before an overwrite, as Spark does. A
+    folder that holds anything a Spark write doesn't leave (part files, _SUCCESS, name=value folders),
+    or a link, is refused instead, so an overwrite can't delete someone's own files."""
+    import shutil
+    refused = "so overwrite didn't delete anything. Write to a new path, or empty the folder first."
+    if _is_link(path):
+        raise ValueError(f"{path} is a link, {refused}")
+    if not os.path.isdir(path):
+        os.remove(path)
+        return
+    for root, dirs, files in os.walk(path):
+        rel = os.path.relpath(root, path)
+        if rel != "." and not all("=" in part for part in rel.split(os.sep)):
+            raise ValueError(f"{path} holds a folder ({rel}) that a Spark write doesn't make, {refused}")
+        linked = [n for n in dirs + files if _is_link(os.path.join(root, n))]
+        if linked:
+            raise ValueError(f"{path} holds a link ({linked[0]}), {refused}")
+        foreign = [f for f in files if not _SPARK_OUTPUT.fullmatch(f)]
+        if foreign:
+            raise ValueError(f"{path} holds files a Spark write doesn't make ({foreign[0]}), {refused}")
+    shutil.rmtree(path)
+
+
+def write_files(rel: Any, path: str, fmt: str, partition_by: list[str], header: bool = False,
+                sep: str = ",") -> None:
+    """``rel`` written into the folder ``path`` as Spark writes it: part-00000-<uuid>-c000 files (one
+    folder per value, name=value/, for each partitionBy column) and an empty _SUCCESS file."""
+    import uuid
+    columns = list(rel.columns)
+    missing = [c for c in partition_by if c not in columns]
+    if missing:
+        raise ValueError(f"partitionBy column {missing[0]} isn't in the data, which has {', '.join(columns)}.")
+    if fmt == "text":
+        data = [c for c in columns if c not in partition_by]
+        types = dict(zip(columns, (str(t) for t in rel.types), strict=True))
+        if len(data) != 1 or types[data[0]] != "VARCHAR":
+            raise ValueError("[UNSUPPORTED_DATA_TYPE] The text data source writes one string column; this "
+                             f"DataFrame has {', '.join(f'{c} {types[c]}' for c in data) or 'none'}. Select one "
+                             "string column, or write csv or parquet.")
+    os.makedirs(path, exist_ok=True)
+    stem = f"part-00000-{uuid.uuid4()}-c000"
+    options = {"parquet": "FORMAT parquet, COMPRESSION snappy", "json": "FORMAT json",
+               "csv": f"FORMAT csv, HEADER {str(header).lower()}, DELIMITER {_quoted_text(sep)}",
+               "text": "FORMAT csv, HEADER false, QUOTE '', ESCAPE '', DELIMITER chr(1)"}[fmt]
+    view = f"_kf_write_{uuid.uuid4().hex}"
+    conn = _session.conn if _session is not None else duckdb.default_connection()
+    rel.create_view(view, replace=True)  # on the connection the DataFrame reads from: spark's
+    try:
+        if partition_by:
+            keep = ", ".join(_sql_name(c) for c in columns if c not in partition_by) or "*"
+            names = ", ".join(_sql_name(c) for c in partition_by)
+            texts = ", ".join(f"CAST({_sql_name(c)} AS VARCHAR)" for c in partition_by)
+            for values in conn.execute(f"SELECT DISTINCT {names}, {texts} FROM {view}").fetchall():
+                raw, shown = values[:len(partition_by)], values[len(partition_by):]
+                folder = os.path.join(path, *(f"{_partition_text(c)}={_partition_text(v)}"
+                                              for c, v in zip(partition_by, shown, strict=True)))
+                os.makedirs(folder, exist_ok=True)
+                where = " AND ".join(f"{_sql_name(c)} IS NOT DISTINCT FROM ${i + 1}" for i, c in enumerate(partition_by))
+                target = os.path.join(folder, stem + _FILE_FORMATS[fmt])
+                conn.execute(f"COPY (SELECT {keep} FROM {view} WHERE {where}) TO {_quoted_text(target)} ({options})",
+                             list(raw))
+        else:
+            target = os.path.join(path, stem + _FILE_FORMATS[fmt])
+            conn.execute(f"COPY (SELECT * FROM {view}) TO {_quoted_text(target)} ({options})")
+    finally:
+        conn.execute(f"DROP VIEW IF EXISTS {view}")
+    open(os.path.join(path, "_SUCCESS"), "wb").close()  # noqa: SIM115
+
+
+# The characters Spark escapes (as %XX) in a partition folder's name (ExternalCatalogUtils), as on
+# Fabric's Linux, plus < > |, which a Windows file name can't hold. A space stays a space, as in Fabric.
+_PARTITION_ESCAPE = set('"#%\'*/:=?\\{[]^<>|') | {chr(c) for c in range(1, 32)} | {chr(127)}
+
+
+def _partition_text(value: str | None) -> str:
+    """A partition column's name or value as Spark writes it in a folder name; NULL is Spark's
+    __HIVE_DEFAULT_PARTITION__."""
+    if value is None:
+        return "__HIVE_DEFAULT_PARTITION__"
+    return "".join(f"%{ord(ch):02X}" if ch in _PARTITION_ESCAPE else ch for ch in value)
+
+
+def _quoted_text(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
+
+
+def _sql_name(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
 class LakehouseWriter:
     """``df.write``: Delta tables in the attached lakehouse, or files on this PC."""
 
@@ -205,9 +306,16 @@ class LakehouseWriter:
             self.option(k, v)
         return self
 
-    def partitionBy(self, *_cols: Any) -> LakehouseWriter:
-        print("Note: partitionBy is ignored on this PC; the table is written without partitions.")
+    def partitionBy(self, *cols: Any) -> LakehouseWriter:
+        """Folders per value for files (name=value/), as Spark writes them. A lakehouse table is
+        written without partitions on this PC, with a note."""
+        flat = [c for col in cols for c in (col if isinstance(col, (list, tuple)) else [col])]
+        self._partition_by = [str(c) for c in flat]
         return self
+
+    def _table_partitions_note(self) -> None:
+        if getattr(self, "_partition_by", None):
+            print("Note: partitionBy is ignored on this PC; the table is written without partitions.")
 
     def _check_options(self, allowed: tuple[str, ...], what: str) -> None:
         for name in self._options:
@@ -231,26 +339,23 @@ class LakehouseWriter:
             return "overwrite"
         raise ValueError(f"Unknown save mode {self._mode!r}. Use overwrite, append, ignore or error.")
 
-    def _file_mode(self, path: str, kind: str) -> bool:
-        """Whether to write the file at ``path``, following the save mode as Spark does. Error (the
-        default) refuses a path that is already there and ignore leaves it as it is; overwrite
-        replaces it. This PC writes one file, which can't take more rows, so append is refused
-        rather than replacing what the file holds."""
+    def _folder_mode(self, path: str) -> bool:
+        """Whether to write files into the folder ``path``, following the save mode as Spark does.
+        Error (the default) refuses a path that is already there and ignore leaves it as it is;
+        append adds files beside those there, and overwrite replaces what a Spark write left there."""
         exists = os.path.exists(path)
         if self._mode == "overwrite":
+            if exists:
+                _clear_output(path)
             return True
         if self._mode == "append":
-            raise ValueError(f"Appending to a {kind} file isn't supported on this PC: it writes one file, and "
-                             f"appending would replace {path}. Write to a new path, use .mode(\"overwrite\") to "
-                             "replace it, or append to a lakehouse table with saveAsTable.")
+            return True
         if self._mode == "ignore":
-            if exists:
-                print(f"Note: {path} already exists, so nothing was written (mode ignore).")
-            return not exists
+            return not exists  # silently, as in Spark
         if self._mode in ("error", "errorifexists", "default"):
             if exists:
-                raise ValueError(f"{path} already exists. Use .mode(\"overwrite\") to replace it, "
-                                 "or write to a new path.")
+                raise ValueError(f"[PATH_ALREADY_EXISTS] {path} already exists. Use .mode(\"overwrite\") to "
+                                 "replace it, .mode(\"append\") to add to it, or write to a new path.")
             return True
         raise ValueError(f"Unknown save mode {self._mode!r}. Use overwrite, append, ignore or error.")
 
@@ -302,6 +407,7 @@ class LakehouseWriter:
         self.options(**options)
         if (format or self._format) not in ("delta", None):
             raise ValueError("Lakehouse tables are Delta tables. Leave out format, or use format(\"delta\").")
+        self._table_partitions_note()
         self._check_options(_SCHEMA_OPTIONS + _MODE_OPTIONS, "a Delta table")
         how = self._write_mode(name)
         if how != "skip":
@@ -345,25 +451,38 @@ class LakehouseWriter:
                              f"Writing files to {rel} runs in Fabric.")
         if path is None:
             raise ValueError("Give save a path, or write a lakehouse table with saveAsTable.")
-        if fmt == "parquet":
-            self._check_options((), "a Parquet file")
-            if self._file_mode(path, "Parquet"):
-                self._df.relation.write_parquet(path)
-            return None
-        if fmt == "csv":
-            self._check_options(("header",), "a CSV file")
-            if self._file_mode(path, "CSV"):
-                self._df.relation.write_csv(path, header=_true(self._options.get("header", True)))
-            return None
-        raise ValueError(f"Can't write format {fmt!r} to {path} on this PC.")
+        if fmt == "orc":
+            raise NotImplementedError("ORC files are written in Fabric; DuckDB on this PC can't write ORC. Write "
+                                      "Parquet here (df.write.parquet), or run the cell in Fabric.")
+        if fmt not in _FILE_FORMATS:
+            raise ValueError(f"Can't write format {fmt!r} to {path} on this PC. Use parquet, csv, json or text.")
+        allowed = ("header", "sep", "delimiter") if fmt == "csv" else ()
+        self._check_options(allowed, f"{fmt} files")
+        if self._folder_mode(path):
+            write_files(self._df.relation, path, fmt, getattr(self, "_partition_by", None) or [],
+                        header=_true(self._options.get("header", False)),
+                        sep=str(self._options.get("sep") or self._options.get("delimiter") or ","))
+        return None
 
     def parquet(self, path: str, mode: str | None = None, partitionBy: Any = None, **options: Any) -> None:  # noqa: N803
         self.save(path, format="parquet", mode=mode, partitionBy=partitionBy, **options)
 
-    def csv(self, path: str, mode: str | None = None, header: Any = None, **options: Any) -> None:
+    def csv(self, path: str, mode: str | None = None, header: Any = None, sep: str | None = None,
+            partitionBy: Any = None, **options: Any) -> None:  # noqa: N803
         if header is not None:
             self.option("header", header)
-        self.save(path, format="csv", mode=mode, **options)
+        if sep is not None:
+            self.option("sep", sep)
+        self.save(path, format="csv", mode=mode, partitionBy=partitionBy, **options)
+
+    def json(self, path: str, mode: str | None = None, partitionBy: Any = None, **options: Any) -> None:  # noqa: N803
+        self.save(path, format="json", mode=mode, partitionBy=partitionBy, **options)
+
+    def text(self, path: str, partitionBy: Any = None, **options: Any) -> None:  # noqa: N803
+        self.save(path, format="text", partitionBy=partitionBy, **options)
+
+    def orc(self, path: str, mode: str | None = None, partitionBy: Any = None, **options: Any) -> None:  # noqa: N803
+        self.save(path, format="orc", mode=mode, partitionBy=partitionBy, **options)
 
 
 def _write_table(data: pa.Table, name: str, how: str, schema_mode: str | None, predicate: str | None = None) -> Any:
@@ -449,6 +568,7 @@ CHECKED_REFUSALS = {
     "forPath": "DeltaTable.forPath of a literal path outside Tables/ (REFUSED_CODE)",
     "_catalog_call_in_fabric": ("spark.catalog.currentDatabase, refused only with no lakehouse or one with schemas, "
                                 "which the check doesn't know, so it isn't flagged"),
+    "save": "an ORC file write, df.write.orc or format(\"orc\") (REFUSED_CODE)",
     "_refusal": ("a CSV, JSON or Parquet read option this PC doesn't take, a non-UTF-8 encoding, a CSV mode "
                  "without a schema, a JSON mode it has no match for, or a Parquet rebase mode other than CORRECTED "
                  "(read_option_refusal)"),
@@ -459,6 +579,8 @@ _IN_FABRIC_TEXT = "{}, which runs in Fabric (this PC's Spark refuses it)"
 REFUSED_CODE: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"""\bDeltaTable\.forPath\(\s*[^,()]+,\s*[rRuU]?["'](?![^"']*Tables/)"""),
      "opens DeltaTable.forPath outside the lakehouse's Tables/, which this PC's Spark refuses (use DeltaTable.forName)"),
+    (re.compile(r"""\.write\b[^\n]*?\.(?:orc\(|format\(\s*["']orc["']\s*\))"""),
+     "writes an ORC file, which this PC's Spark refuses (write Parquet, or run the cell in Fabric)"),
 ]
 # DeltaTable maintenance (spark_maint, Preview): runs on this PC only with Preview features on (_preview_on).
 DELTA_MAINTENANCE = ("restoreToVersion", "restoreToTimestamp", "vacuum", "optimize")
@@ -945,10 +1067,35 @@ class LakehouseReader:
             return self._session._from_arrow_dataset(data)
         return self._session.table(name)
 
-    def _local(self, path: str) -> str:
-        return str(lakehouse.local_path(path))
+    def _local(self, path: str) -> str | list[str]:
+        """A local path for ``path``; a folder is its data files, as Spark reads one: every file below
+        it except those (and folders) whose names start with _ or . (_SUCCESS, .crc files)."""
+        local = str(lakehouse.local_path(path))
+        if not os.path.isdir(local):
+            return local
+        self._root = local
+        found = []
+        for root, dirs, files in os.walk(local):
+            dirs[:] = sorted(d for d in dirs if not d.startswith(("_", ".")))
+            found += [os.path.join(root, f) for f in sorted(files) if not f.startswith(("_", "."))]
+        if not found:
+            raise ValueError(f"[UNABLE_TO_INFER_SCHEMA] {path} is a folder with no data files, so there's no "
+                             "schema to read. Write data there first, or give a file.")
+        return found
+
+    def _hive(self, files: str | list[str]) -> dict[str, Any]:
+        """Partition columns from the name=value folders below the folder read, as Spark reads a
+        folder written with partitionBy; reading one partition's folder (name=x) gives no such column."""
+        root = getattr(self, "_root", None)
+        if not isinstance(files, list) or root is None:
+            return {"hive_partitioning": False}
+        below = any("=" in part for f in files for part in os.path.relpath(os.path.dirname(f), root).split(os.sep))
+        return {"hive_partitioning": below}
 
     def load(self, path: str | None = None, format: str | None = None, **opts: Any) -> DataFrame:  # noqa: A002
+        if opts.get("schema") is not None:  # load(path, schema=s) is read.schema(s), as in Spark
+            self.schema(opts["schema"])
+        opts.pop("schema", None)
         self.options(**opts)
         fmt = (format or self._format or "parquet").lower()
         given = self._options.pop("path", None)  # .option("path", p).load(), as in Spark
@@ -1005,7 +1152,8 @@ class LakehouseReader:
                 extra[arg] = str(given[name])
         mode = str(given.get("mode", "PERMISSIVE")).upper()
         header = _true(given.get("header", False))
-        rel = self._session.conn.read_csv(self._local(path), header=header, **extra)
+        files = self._local(path)
+        rel = self._session.conn.read_csv(files, header=header, **extra, **self._hive(files))  # type: ignore[arg-type]  # a list of files too
         if not header:  # Spark names a file's columns _c0, _c1... (DuckDB: column0, column1...)
             rel = rel.project(", ".join(f'"{c.replace(chr(34), chr(34) * 2)}" AS "_c{i}"' for i, c in enumerate(rel.columns)))
         return self._apply(DataFrame(rel, self._session), by_position=True, mode=mode)
@@ -1023,11 +1171,15 @@ class LakehouseReader:
     def parquet(self, *paths: str, **opts: Any) -> DataFrame:
         """Spark's Parquet options (#1669): each is honoured, or refused with a message, never dropped."""
         given = self._given("parquet", opts)
-        files = [self._local(p) for p in paths]
-        if not files:
+        if not paths:
             raise ValueError("Give parquet a path: a Tables/ or Files/ path, or a file or folder on this PC.")
+        files: list[str] = []
+        for p in paths:
+            local = self._local(p)
+            files += local if isinstance(local, list) else [local]
         rel = self._session.conn.read_parquet(files if len(files) > 1 else files[0],
-                                              union_by_name=_true(given.get("mergeschema", False)))
+                                              union_by_name=_true(given.get("mergeschema", False)),
+                                              **self._hive(files))
         return self._apply(DataFrame(rel, self._session), False)
 
     def json(self, path: str, **opts: Any) -> DataFrame:
@@ -1042,14 +1194,24 @@ class LakehouseReader:
             # A malformed line is a row of nulls, as in Spark (which also has no _corrupt_record column
             # unless the schema asks for one, and this PC refuses that option).
             extra.update(format="newline_delimited", ignore_errors=True)
-        rel = self._session.conn.read_json(self._local(path), **extra)
+        files = self._local(path)
+        rel = self._session.conn.read_json(files, **extra, **self._hive(files))  # type: ignore[arg-type]  # a list of files too
         return self._apply(DataFrame(rel, self._session), False)
 
     def text(self, path: str, **_opts: Any) -> DataFrame:
-        self._no_schema("text files")
+        """Each line as a row of one string column, value (or the one string field read.schema() names,
+        as in Spark)."""
+        name = "value"
+        schema = getattr(self, "_schema", None)
+        if schema is not None:
+            fields = list(getattr(schema, "fields", []))
+            if len(fields) != 1 or type(fields[0].dataType).__name__ != "StringType":
+                raise ValueError("A text file's schema is one string column, such as StructType([StructField("
+                                 "\"value\", StringType())]).")
+            name = fields[0].name
         conn = self._session.conn
-        rel = conn.sql("SELECT line AS value FROM read_csv(?, columns={'line': 'VARCHAR'}, header=false, "
-                       "delim=chr(1), quote='', escape='')", params=[self._local(path)])
+        rel = conn.sql("SELECT line AS \"" + name.replace('"', '""') + "\" FROM read_csv(?, columns={'line': 'VARCHAR'}, "
+                       "header=false, delim=chr(1), quote='', escape='')", params=[self._local(path)])
         return DataFrame(rel, self._session)
 
 

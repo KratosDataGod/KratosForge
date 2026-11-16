@@ -80,7 +80,7 @@ def test_mode_ignore_writes_a_new_file_and_keeps_an_old_one(spark, tmp_path, cap
     assert path.exists()
     assert rows(spark.read.parquet(str(path))) == [(1,)]
     spark.createDataFrame([(2,)], ["id"]).write.mode("ignore").parquet(str(path))
-    assert "already exists, so nothing was written" in capsys.readouterr().out
+    assert capsys.readouterr().out == ""  # silently, as in Spark
     assert rows(spark.read.parquet(str(path))) == [(1,)]
 
 

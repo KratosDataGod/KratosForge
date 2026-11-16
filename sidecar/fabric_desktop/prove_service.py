@@ -31,7 +31,7 @@ from .notebook import check_watches, leaf_name
 from .fabric_run import TERMINAL, fabric_ipynb
 from .kernel_proc import ProcessKernel
 from .measure import RunMeter
-from .onelake import DFS_HOST, FileStore, TableRef, check_name, read_storage_options, storage_options
+from .onelake import FileStore, TableRef, check_name, lakehouse_root, read_storage_options, storage_options, table_uri
 from .proof_runtime import PROOF_ROOT
 from .redact import describe
 from .side_by_side import machine
@@ -361,7 +361,7 @@ class ProveMixin:
         """A pinned table: whether its version can still be read, and its latest version."""
         from deltalake import DeltaTable
         schema, table = t["table"].split(".", 1)
-        uri = f"{root}/Tables/{table}" if flat else f"{root}/Tables/{schema}/{table}"
+        uri = table_uri(root, schema, table, flat)
         row: dict[str, Any] = {"table": t["table"], "version": t["version"], "readable": True, "latest": None, "why": ""}
 
         def opts() -> dict[str, str]:  # two small reads on the ordered lane: OneLake's short read limits (#1303)
@@ -576,7 +576,7 @@ class ProveMixin:
     # Where a proof reads and writes. Tests replace these with local folders.
 
     def _proof_location(self, lakehouse_ref: dict[str, str]) -> tuple[str, Callable[[], dict[str, str]]]:
-        root = f"abfss://{lakehouse_ref['workspace_id']}@{DFS_HOST}/{lakehouse_ref['lakehouse_id']}"
+        root = lakehouse_root(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])
         return root, lambda: storage_options(self.auth.storage_token())  # type: ignore[attr-defined]
 
     def _proof_tables(self, lakehouse_ref: dict[str, str]) -> Any:

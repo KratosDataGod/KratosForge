@@ -757,10 +757,25 @@ fn stream(app: &tauri::AppHandle, mut cmd: Command) -> Result<(), String> {
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| python_failed(&e))?;
+    let tail = updater_tail(BufReader::new(child.stdout.take().expect("updater stdout")), |line| {
+        let _ = app.emit("component-log", line);
+    });
+    let mut stderr = String::new();
+    let _ = child.stderr.take().expect("updater stderr").read_to_string(&mut stderr);
+    let status = child.wait().map_err(|e| e.to_string())?;
+    if status.success() {
+        return Ok(());
+    }
+    Err(updater_failure(tail, &stderr))
+}
+
+/// Reads the updater's output to the end, passing every line to `emit` (the page's log), and
+/// keeps the last 12 lines that aren't progress, for the error if it fails.
+fn updater_tail(out: impl BufRead, mut emit: impl FnMut(&String)) -> VecDeque<String> {
     let mut tail = VecDeque::new();
-    for line in BufReader::new(child.stdout.take().expect("updater stdout")).lines() {
+    for line in out.lines() {
         let line = line.unwrap_or_default();
-        let _ = app.emit("component-log", &line);
+        emit(&line);
         if line.starts_with("progress ") {
             continue;
         }
@@ -769,15 +784,14 @@ fn stream(app: &tauri::AppHandle, mut cmd: Command) -> Result<(), String> {
         }
         tail.push_back(line);
     }
-    let mut stderr = String::new();
-    let _ = child.stderr.take().expect("updater stderr").read_to_string(&mut stderr);
-    let status = child.wait().map_err(|e| e.to_string())?;
-    if status.success() {
-        return Ok(());
-    }
+    tail
+}
+
+/// A failed update's error: the last 12 lines of its output followed by what it wrote to stderr.
+fn updater_failure(mut tail: VecDeque<String>, stderr: &str) -> String {
     tail.extend(stderr.lines().map(str::to_string));
     let start = tail.len().saturating_sub(12);
-    Err(tail.iter().skip(start).cloned().collect::<Vec<_>>().join("\n"))
+    tail.iter().skip(start).cloned().collect::<Vec<_>>().join("\n")
 }
 
 /// Several calls can be in flight at once: each writes its request line, then waits for the
@@ -3783,6 +3797,47 @@ mod sidecar_log_tests {
         assert_eq!(std::fs::read_to_string(&prev).unwrap(), "Traceback: the crash\n");
         assert_eq!(std::fs::read_to_string(&log).unwrap(), "restarted\n");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod updater_output_tests {
+    use super::{updater_failure, updater_tail};
+    use std::collections::VecDeque;
+
+    fn lines(range: std::ops::RangeInclusive<u32>) -> String {
+        range.map(|i| format!("line {i}\n")).collect()
+    }
+
+    #[test]
+    fn every_line_reaches_the_log_and_progress_is_left_out_of_the_tail() {
+        let mut logged = Vec::new();
+        let tail = updater_tail("checking\nprogress 10\nprogress 20\ndone\n".as_bytes(), |l| logged.push(l.clone()));
+        assert_eq!(logged, ["checking", "progress 10", "progress 20", "done"]);
+        assert_eq!(tail, ["checking", "done"]);
+    }
+
+    #[test]
+    fn the_tail_keeps_the_last_twelve_lines() {
+        let tail = updater_tail(lines(1..=20).as_bytes(), |_| {});
+        assert_eq!(tail.len(), 12);
+        assert_eq!(tail.front().map(String::as_str), Some("line 9"));
+        assert_eq!(tail.back().map(String::as_str), Some("line 20"));
+    }
+
+    #[test]
+    fn a_failure_ends_with_stderr_and_keeps_twelve_lines() {
+        let tail: VecDeque<String> = ["out 1", "out 2"].map(String::from).into();
+        assert_eq!(updater_failure(tail, "err 1\nerr 2\n"), "out 1\nout 2\nerr 1\nerr 2");
+        let full = updater_tail(lines(1..=12).as_bytes(), |_| {});
+        let text = updater_failure(full, "Traceback\nValueError: bad zip\n");
+        assert_eq!(text.lines().count(), 12);
+        assert!(text.starts_with("line 3\n") && text.ends_with("Traceback\nValueError: bad zip"), "{text}");
+    }
+
+    #[test]
+    fn a_failure_with_no_output_is_empty() {
+        assert_eq!(updater_failure(VecDeque::new(), ""), "");
     }
 }
 

@@ -21,7 +21,6 @@ def test_a_dynamic_import_after_a_blank_first_line_is_on_line_two():
     assert envprofile.imports("importlib.import_module('a')")["dynamic"] == [1]
 
 
-@pytest.mark.xfail(strict=True, reason="a %pip line below a blank line is reported on the blank line (#2773)")
 def test_a_pip_line_below_blank_lines_is_reported_on_its_own_line():
     assert envprofile.imports("\n%pip install x")["dynamic"] == [2]
     assert envprofile.imports("x = 1\n\n%pip install x")["dynamic"] == [3]

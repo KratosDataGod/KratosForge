@@ -4674,7 +4674,7 @@ Before each "after" run, its tests were run in a copy of `sidecar/` on its own a
 | `envprofile.py` | test_envprofile_edges, test_notebook_magics, test_prove_service_edges, test_receipts_env (+ test_envprofile_mutation) | 108 of 108 (108 + 0) | 98 / 10 | **90.7%** | 98/108 → 106/108 | none | 106 / 2 | **98.1%** | 2 equivalent |
 | `semantic.py` | test_cloud, test_tmdl, test_model_date_table, test_model_dictionary, test_model_directlake, test_model_ossie (+ test_semantic_mutation) | 100 of 100 (99 + 1) | 89 / 11 | **89.0%** | 88/99 → 99/99 | 1/1 → 1/1 | 100 / 0 | **100%** | none |
 
-One bug was found, in `envprofile.py`, and filed as #2773: a `%pip` line below one or more blank lines is reported on the first blank line rather than on its own line, because `\s*` at the start of the pattern also matches newlines. Only the line number shown is wrong. A strict xfail pins it: `test_a_pip_line_below_blank_lines_is_reported_on_its_own_line`.
+One bug was found, in `envprofile.py`, and filed as #2773: a `%pip` line below one or more blank lines was reported on the first blank line rather than on its own line, because `\s*` at the start of the pattern also matches newlines. Only the line number shown was wrong. #2776 fixed it, and `test_a_pip_line_below_blank_lines_is_reported_on_its_own_line` now passes as a plain test. A run on the fixed module gives the same score: 106 of 108, with the same two equivalent mutants.
 
 ### What the survivors were, and the tests that now kill them
 

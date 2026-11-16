@@ -333,7 +333,7 @@ mod tests {
 /// Setting an owner of Administrators needs an elevated account, as the Windows CI runner has; run
 /// elsewhere unelevated, these tests say so and stop, but on CI that is a failure.
 #[cfg(all(test, windows))]
-mod windows_tests {
+pub(crate) mod windows_tests {
     use super::{admin_only, admin_only_ancestor, admin_only_engine};
     use std::path::{Path, PathBuf};
     use windows::core::HSTRING;
@@ -346,7 +346,7 @@ mod windows_tests {
 
     /// Sets `path`'s owner and DACL from SDDL. Err(code) when Windows refuses (1307, "this security
     /// ID may not be assigned as the owner", when the account isn't elevated).
-    fn set(path: &Path, sddl: &str) -> Result<(), u32> {
+    pub(crate) fn set(path: &Path, sddl: &str) -> Result<(), u32> {
         let mut sd = PSECURITY_DESCRIPTOR::default();
         unsafe {
             ConvertStringSecurityDescriptorToSecurityDescriptorW(&HSTRING::from(sddl), SDDL_REVISION_1, &mut sd, None)

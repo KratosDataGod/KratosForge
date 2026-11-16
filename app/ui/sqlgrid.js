@@ -68,7 +68,7 @@ function sqlResultGrid(r, g, on) {
       const bad = g.filterError?.column === i;
       const box = h("input", { type: "text", class: "sql-filter", "data-column": String(i), value: g.filters[i] || "",
         placeholder: "Filter", "aria-label": `Filter ${c.name}`, spellcheck: "false", ...(bad ? { "aria-invalid": "true" } : {}),
-        title: "Text it contains, or = != > >= < <= and a value, or null / not null",
+        title: "Text to find, or an operator and a value (= != > >= < <=), or null or not null",
         oninput: () => wait(i, () => on.filter(i, box.value)),
         onkeydown: (e) => {
           if (e.key === "Enter") { wait(i, null); on.filter(i, box.value); }

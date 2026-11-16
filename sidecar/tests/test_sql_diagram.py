@@ -37,7 +37,22 @@ def test_the_diagram_is_saved_as_a_new_file_in_downloads(service, tmp_path):
     '<svg x="1"><rect\nonload="x()"/></svg>', '<svg x="1"><a href="https://example.com">t</a></svg>',
     '<svg x="1"><image xlink:href="file:///c:/x"/></svg>', '<svg x="1"><!DOCTYPE x [<!ENTITY a "b">]></svg>',
     '<svg x="1"><rect style="fill:url(https://e.com/a)"/></svg>', '<svg x="1"><rect fill="url(#a)"/></svg>',
-    '<svg x="1"><?xml-stylesheet href="a.css"?></svg>'])
+    '<svg x="1"><?xml-stylesheet href="a.css"?></svg>',
+    # A ">" inside an earlier value, then an event attribute on the root.
+    '<svg xmlns="http://www.w3.org/2000/svg" aria-label="a>b" onload="x()"><rect/></svg>',
+    # href under another prefix bound to the xlink namespace.
+    '<svg xmlns="http://www.w3.org/2000/svg" xmlns:q="http://www.w3.org/1999/xlink"><image q:href="https://e.com/a"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" xmlns:q="http://www.w3.org/1999/xlink"><rect q:href="https://e.com/a"/></svg>',
+    # set or animate putting a link in href.
+    '<svg xmlns="http://www.w3.org/2000/svg"><a><set attributeName="href" to="https://e.com"/></a></svg>',
+    # script under a prefix bound to XHTML.
+    '<svg xmlns="http://www.w3.org/2000/svg" xmlns:x="http://www.w3.org/1999/xhtml"><x:script>alert(1)</x:script></svg>',
+    # style element with @import.
+    '<svg xmlns="http://www.w3.org/2000/svg"><style>@import "https://e.com/a.css";</style></svg>',
+    # An unknown attribute, an element outside the SVG namespace, a root that isn't svg, broken XML.
+    '<svg xmlns="http://www.w3.org/2000/svg"><rect transform="x"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg"><g xmlns="urn:x"><rect/></g></svg>',
+    '<svg xmlns="urn:x"><rect/></svg>', '<svg xmlns="http://www.w3.org/2000/svg"><rect></svg>'])
 def test_anything_a_diagram_never_has_is_refused_and_nothing_is_written(service, tmp_path, bad):
     assert "error" in call(service, {"svg": bad})
     assert not (tmp_path / "Downloads").exists() or not list((tmp_path / "Downloads").iterdir())

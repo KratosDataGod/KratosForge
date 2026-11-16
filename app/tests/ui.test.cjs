@@ -6153,5 +6153,10 @@ test("the diagram's SVG escapes names and has nothing the engine's export refuse
   assert.ok(svg.startsWith("<svg ") && svg.endsWith("</svg>"));
   assert.match(diagramSvg(tables, [], { pks: {}, fks: [] }), /aria-label="&lt;b onload=x&gt;: open it in the Explorer"/);
   assert.ok(!svg.includes("<b ") && svg.includes("&lt;b onload=x&gt;") && svg.includes("&quot;q&quot; &amp; &#39;r&#39;"));
-  assert.doesNotMatch(svg, /<\s*script|foreignobject|<!|<\?|<[^>]*\s(?:on[a-z]+|href|xlink:href|src|style)\s*=|javascript:|url\s*\(/i);
+  // Only what the engine's export allows (service.py, _DIAGRAM_TAGS and _DIAGRAM_ATTRS).
+  const tags = new Set([...svg.matchAll(/<(\w+)/g)].map((m) => m[1]));
+  const attrs = new Set([...svg.matchAll(/\s([\w:-]+)="/g)].map((m) => m[1]).filter((a) => a !== "xmlns"));
+  assert.deepStrictEqual([...tags].filter((t) => !["svg", "g", "rect", "path", "text", "title"].includes(t)), []);
+  assert.deepStrictEqual([...attrs].filter((a) => !["viewBox", "width", "height", "font-family", "font-size", "font-weight", "role",
+    "aria-label", "x", "y", "rx", "fill", "stroke", "stroke-width", "stroke-dasharray", "d"].includes(a)), []);
 });

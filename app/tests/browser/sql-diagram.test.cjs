@@ -95,7 +95,7 @@ test("a lakehouse's diagram guesses from names and says a lakehouse has no keys"
   await page().evaluate((lh) => openSqlQuery(lh), LH);
   await page().getByRole("button", { name: "Diagram" }).click();
   const dialog = page().getByRole("dialog", { name: "Diagram: sales_lh" });
-  await dialog.getByText("3 tables · 0 from keys · 1 guessed from names").waitFor();
+  await dialog.getByText("3 tables · 1 guessed from names").waitFor();
   await dialog.getByText("Guessed from column names (a lakehouse has no keys).", { exact: false }).waitFor();
   assert.strictEqual(await dialog.getByText("From the warehouse's keys").count(), 0);
   await page().keyboard.press("Escape");

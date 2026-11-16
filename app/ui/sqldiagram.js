@@ -154,11 +154,11 @@ function diagramSvg(tables, edges, keys, { dark = false, interactive = true } = 
 }
 
 // One line on what the diagram shows.
-function diagramSummary(tables, edges, shownOf, total) {
+function diagramSummary(tables, edges, shownOf, total, kind = "warehouse") {
   const keyed = edges.filter((e) => e.kind === "key").length;
   const guessed = edges.length - keyed;
   return [`${tables.length}${total > shownOf ? ` of ${total}` : ""} table${tables.length === 1 && total <= shownOf ? "" : "s"}`,
-    `${keyed} from keys`, `${guessed} guessed from names`].join(" · ");
+    ...(kind === "lakehouse" ? [] : [`${keyed} from keys`]), `${guessed} guessed from names`].join(" · ");
 }
 
 // Opens the diagram. source: { kind: "warehouse" | "lakehouse", name, schemas: [schema], tables(schema) ->
@@ -201,7 +201,7 @@ async function openSqlDiagram(source) {
       holder.replaceChildren();
       return;
     }
-    status.textContent = diagramSummary(view.tables, view.edges, DIAGRAM_MAX_TABLES, view.total)
+    status.textContent = diagramSummary(view.tables, view.edges, DIAGRAM_MAX_TABLES, view.total, source.kind)
       + (view.total > DIAGRAM_MAX_TABLES ? `. Showing the first ${DIAGRAM_MAX_TABLES}.` : "");
     const dark = document.documentElement.dataset.colorMode === "dark";
     holder.innerHTML = diagramSvg(view.tables, view.edges, view.keys, { dark });

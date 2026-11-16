@@ -177,26 +177,34 @@ def _true(value: Any) -> bool:
 # Spark writes a folder of part files: these are its formats on this PC, with each file's extension.
 _FILE_FORMATS = {"parquet": ".snappy.parquet", "csv": ".csv", "json": ".json", "text": ".txt"}
 # What a Spark write leaves in its folder; overwrite clears a folder only when it holds nothing else.
-_SPARK_OUTPUT = re.compile(r"(part-.*|_SUCCESS|_committed_.*|_started_.*|\..*\.crc)")
+_SPARK_OUTPUT = re.compile(r"part-\d{5}-.*|_SUCCESS|_committed_.*|_started_.*|\.(?:part-\d{5}-.*|_SUCCESS)\.crc")
+
+
+def _is_link(path: str) -> bool:
+    return os.path.islink(path) or bool(getattr(os.path, "isjunction", lambda _p: False)(path))
 
 
 def _clear_output(path: str) -> None:
     """Remove a Spark write's folder (or a file) at ``path`` before an overwrite, as Spark does. A
-    folder that holds anything a Spark write doesn't leave (part files, _SUCCESS, name=value folders)
-    is refused instead, so an overwrite can't delete someone's own files."""
+    folder that holds anything a Spark write doesn't leave (part files, _SUCCESS, name=value folders),
+    or a link, is refused instead, so an overwrite can't delete someone's own files."""
     import shutil
+    refused = "so overwrite didn't delete anything. Write to a new path, or empty the folder first."
+    if _is_link(path):
+        raise ValueError(f"{path} is a link, {refused}")
     if not os.path.isdir(path):
         os.remove(path)
         return
-    for root, _dirs, files in os.walk(path):
+    for root, dirs, files in os.walk(path):
         rel = os.path.relpath(root, path)
         if rel != "." and not all("=" in part for part in rel.split(os.sep)):
-            raise ValueError(f"{path} holds a folder ({rel}) that a Spark write doesn't make, so overwrite "
-                             "didn't delete anything. Write to a new path, or empty the folder first.")
+            raise ValueError(f"{path} holds a folder ({rel}) that a Spark write doesn't make, {refused}")
+        linked = [n for n in dirs + files if _is_link(os.path.join(root, n))]
+        if linked:
+            raise ValueError(f"{path} holds a link ({linked[0]}), {refused}")
         foreign = [f for f in files if not _SPARK_OUTPUT.fullmatch(f)]
         if foreign:
-            raise ValueError(f"{path} holds files a Spark write doesn't make ({foreign[0]}), so overwrite didn't "
-                             "delete anything. Write to a new path, or empty the folder first.")
+            raise ValueError(f"{path} holds files a Spark write doesn't make ({foreign[0]}), {refused}")
     shutil.rmtree(path)
 
 

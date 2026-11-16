@@ -3,6 +3,8 @@
 Each test writes real local Delta tables through lakehouse.write_table, so what is checked is
 the table afterwards, not which call was made."""
 
+import os
+
 import pyarrow as pa
 import pytest
 from deltalake import DeltaTable, write_deltalake
@@ -370,6 +372,36 @@ def test_overwrite_never_deletes_a_folder_a_spark_write_didnt_make(tmp_path):
     (mine / "sub").mkdir()
     status, text = run(f"df.write.mode('overwrite').parquet({str(mine)!r})")
     assert status == "error" and "sub" in text and (mine / "sub").is_dir()
+    (mine / "sub").rmdir()
+    for name in ("part-1 of my thesis.docx", "part-numbers.xlsx", ".notes.crc"):
+        (mine / name).write_text("keep me")
+        status, text = run(f"df.write.mode('overwrite').parquet({str(mine)!r})")
+        assert status == "error" and name in text and (mine / name).read_text() == "keep me", text
+        (mine / name).unlink()
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="needs symlinks")
+def test_overwrite_never_deletes_through_a_link(tmp_path):
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "keep.txt").write_text("keep me")
+    out = tmp_path / "out"
+    status, _ = run(f"df.write.parquet({str(out)!r})")
+    assert status == "ok"
+    for name in ("k=v", "linked"):  # a link inside the folder, under any name
+        try:
+            (out / name).symlink_to(target, target_is_directory=True)
+        except OSError:
+            pytest.skip("this account can't make symlinks")
+        status, text = run(f"df.write.mode('overwrite').parquet({str(out)!r})")
+        assert status == "error" and "a link" in text and name in text, text
+        assert (out / name).is_symlink() and (target / "keep.txt").exists()
+        (out / name).unlink()
+    link = tmp_path / "link"  # the path itself a link
+    link.symlink_to(target, target_is_directory=True)
+    status, text = run(f"df.write.mode('overwrite').parquet({str(link)!r})")
+    assert status == "error" and "is a link" in text and "didn't delete anything" in text, text
+    assert link.is_symlink() and (target / "keep.txt").exists()
 
 
 def test_partition_by_writes_a_folder_per_value_and_reads_back(tmp_path):

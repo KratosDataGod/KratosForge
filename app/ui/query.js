@@ -386,7 +386,8 @@ function renderQuery() {
     if (wh && status?.state) {
       sqlHistoryAdd(ref, { at: startedAt, sql: query, state: status.state, seconds: status.seconds ?? null, rows: status.rows ?? null,
         change: change || undefined, affected: change ? status.affected ?? null : undefined,
-        error: status.state === "completed" ? undefined : sqlHistoryError(status.error) });
+        error: status.state === "completed" ? undefined : sqlHistoryError(status.error),
+        batch: status.failed_batch || undefined });  // WR-207: the error's own numbers are masked in history
       if (p.whAside === "history") p.whRedraw?.();
     }
     sqlPage.redraw?.();

@@ -168,7 +168,8 @@ function sqlRunMocks(answer) {
         done.set(id, { columns, rows });
         status = { id, state: "completed", target: "lakehouse", rows: rows.length, columns, seconds: 0.01 };
       } catch (err) {
-        status = { id, state: "failed", error: String(err.message || err), error_kind: "sql", rows: 0, columns: [], seconds: 0.01 };
+        status = { id, state: "failed", error: String(err.message || err), error_kind: err.kind || "sql", rows: 0, columns: [], seconds: 0.01,
+          ...(err.batch ? { failed_batch: err.batch } : {}) };
       }
       return status;
     },

@@ -300,6 +300,10 @@ def error_message(exc: BaseException, job: dict[str, Any]) -> tuple[str, str]:
     """The kind and message a failed run reports: DuckDB's own words, except where they mislead."""
     from . import disk_full
     message = str(exc).strip() or type(exc).__name__
+    if job.get("target") == "warehouse":
+        from . import warehouse
+        if isinstance(exc, warehouse.Interrupted):  # named, with what was kept and what to do next (WR-207)
+            return exc.kind, message
     if "configuration has been locked" in message:
         return "sql", ("A query can't change the run's settings (memory, threads, files). They come from "
                        "Settings › SQL.")
@@ -331,7 +335,8 @@ def main() -> None:
         run(job)
     except BaseException as exc:  # noqa: BLE001 - every failure goes back to the engine as a message
         kind, message = error_message(exc, job)
-        _say("error", kind=kind, message=message[:4000])
+        batch = getattr(exc, "batch", None) if job.get("target") == "warehouse" else None
+        _say("error", kind=kind, message=message[:4000], **({"batch": batch} if isinstance(batch, int) else {}))
     # Leave without the interpreter's shutdown. _listen is still blocked reading stdin, which the
     # engine keeps open until this process ends; on Windows closing stdin then waits for that read
     # to finish, so a normal exit would hang every finished run.

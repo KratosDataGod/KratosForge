@@ -17,6 +17,10 @@ before(async () => {
   if (skip) return;
   const runs = sqlRunMocks((p) => {
     if (/DimCustomr/.test(p.query)) throw new Error("Invalid object name 'dbo.DimCustomr'.");
+    if (/LinkDrops/.test(p.query)) {
+      throw Object.assign(new Error("The connection to the warehouse dropped during batch 2 of 3 (SELECT 2), so no result was kept."),
+        { kind: "connection", batch: 2 });
+    }
     if (/queryinsights/.test(p.query)) return { columns: [{ name: "number_of_runs", type: "int" }], rows: [[42]] };
     if (/sys\./.test(p.query)) return { columns: [{ name: "x", type: "int" }], rows: [] };
     return { columns: [{ name: "CustomerName", type: "varchar" }], rows: [["Contoso"], ["Fabrikam"]] };
@@ -169,6 +173,16 @@ test("every warehouse's history shares one budget, and a full storage drops the 
   assert.strictEqual(out.full.threw, null);
   assert.strictEqual(out.full.newest, 5009, "the new run was kept");
   assert.ok(out.full.kept < out.budget.one + out.budget.two, "room was made from the oldest runs");
+  await page().evaluate(() => sqlHistoryClear(sqlPage.ref));
+});
+
+test("a run cut off part way keeps the batch it failed in (WR-207)", { skip }, async () => {
+  await runSql("SELECT 1 -- LinkDrops\nGO\nSELECT 2\nGO\nSELECT 3");
+  const [last] = await history();
+  assert.strictEqual(last.batch, 2, "the batch number survives, though the error's own numbers are masked");
+  assert.match(last.error, /dropped during batch # of #/);
+  const row = aside().locator(".wh-h-row").first();
+  assert.match(await row.getAttribute("title"), /^Failed at batch 2: The connection to the warehouse dropped/);
   await page().evaluate(() => sqlHistoryClear(sqlPage.ref));
 });
 

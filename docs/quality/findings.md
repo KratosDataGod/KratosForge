@@ -251,6 +251,8 @@ The fakes themselves are good: `test_fabric_api.py:22-33` checks method, URL and
 
 **Fix.** PR-QA-14: one shared `FakeFabric` in `conftest.py` that records request shape; a request-shape test for each of the 22 methods against `FakeSession`; `FileStore` tests against a fake DFS; rename the two tests; extend `livetest.py` to the write paths. **Verify:** `fabric_api.py` and `onelake.py` coverage above 90%.
 
+**Status.** Reach fixed. On 2026-11-16 the tests that touch them cover `fabric_api.py` 100% and `onelake.py` 99% (lines 174 and 280-281 left). `tests/test_fabric_writes.py` walks all 30 `FabricClient` write methods with 400, 403, 404, 409, 500 and 503: each raises `FabricError` and sends its write exactly once (reads answer, so the `save_*` methods reach their create, and over an existing item their update). A guard fails when a new write method isn't in its list, found by name or by a write verb in its source. The same file covers `FileStore.upload` failing at each of its four steps (it raises, never renames, and removes only its own new file), `delete` (sent once, 404 is done) and `mkdir` (a 5xx is retried, 409 is done). With either retry rule loosened, these tests fail (64 and 2). Still open: the seven `FakeFabric` copies, and the two over-named tests.
+
 ### QA-019 UI components re-implemented per page (Medium)
 
 **Evidence: Count.**

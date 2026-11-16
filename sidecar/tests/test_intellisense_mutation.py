@@ -150,3 +150,8 @@ def test_an_error_over_several_lines_keeps_its_own_end_column():
     assert isn.syntax_problems("f(\n**k,\n*a)") == [
         {"line": 2, "col": 3, "end_line": 3, "end_col": 2,
          "message": "Iterable argument unpacking follows keyword argument unpacking"}]
+
+
+@pytest.mark.xfail(strict=True, reason="#2746: a whitespace-only first line hides the cell magic below it")
+def test_a_sql_cell_after_a_line_of_spaces_is_not_checked_as_python():
+    assert isn.syntax_problems("  \n%%sql\nselect 1 from") == []

@@ -4401,9 +4401,9 @@ Before each "after" run, its tests were run in a copy of `sidecar/` on its own a
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `advisor.py` | test_advisor, test_compute_check_ast, test_risk_service_edges (+ test_advisor_mutation) | 127 of 127 (126 + 1) | 101 / 26 | **79.5%** | 101/126 → 126/126 | 0/1 → 1/1 | 127 / 0 | **100%** | none |
 | `editor_pairing.py` | before: test_editor_channel, test_editor_pairing_edges, test_editor_service_edges; after: test_editor_pairing_edges, test_editor_service_edges (+ test_editor_pairing_mutation) | 99 of 99 (96 + 3) | 83 / 16 | **83.8%** | 81/96 → 96/96 | 2/3 → 3/3 | 99 / 0 | **100%** | none |
-| `intellisense.py` | test_intellisense, test_intellisense_edges (+ test_intellisense_mutation) | 150 of 188 (140 + 10) | 112 / 38 (4 timeouts counted as killed) | **74.7%** | 108/140 → 133/140 | 4/10 → 8/10 | 141 / 9 (4 timeouts counted as killed) | **94.0%** | 9 equivalent |
+| `intellisense.py` | test_intellisense, test_intellisense_edges (+ test_intellisense_mutation) | 150 of 188 (140 + 10) | 112 / 38 (4 timeouts counted as killed) | **74.7%** | 108/140 → 134/140 | 4/10 → 8/10 | 142 / 8 (4 timeouts counted as killed) | **94.7%** | 8 equivalent |
 
-One bug was found, in `intellisense.py`: when a syntax error covers more than one line, the end column reported for it is clamped as if the error ended on its first line (#2743). A strict xfail in `test_intellisense_mutation.py` holds the expected answer, and it will start to pass when the bug is fixed.
+Two bugs were found, both in `intellisense.py`. When a syntax error covers more than one line, the end column reported for it is clamped as if the error ended on its first line (#2743). And a `%%sql` cell whose first line holds only spaces is checked as Python, because only empty lines are skipped before looking for the cell magic, so it gets a false syntax error (#2746; the line 165 mutant, first listed as equivalent, found it in review). A strict xfail in `test_intellisense_mutation.py` holds the expected answer for each, and it will start to pass when the bug is fixed; the #2746 one also kills the line 165 mutant.
 
 ### What the survivors were, and the tests that now kill them
 
@@ -4443,7 +4443,6 @@ One bug was found, in `intellisense.py`: when a syntax error covers more than on
 | Module | Line | Mutant | Why it stays |
 | --- | --- | --- | --- |
 | `intellisense.py` | 87 | `nl < 0` to `nl <= 0` | Equivalent: the search for the end of a comment starts at the `#`, so it can't find a line break at index 0. |
-| `intellisense.py` | 165 | `split("\n", 1)` to `split("\n", 0)` | Equivalent: only the first line is kept, and it is the same with no split. |
 | `intellisense.py` | 171 | `count("\n") + 1` to `+ 0` | Equivalent: the cell magic line is then kept and replaced by `pass`, so the reported line numbers come out the same. |
 | `intellisense.py` | 178 | `max(0, ...)` to `max(1, ...)`, `- 4` to `+ 4`, `- 4` to `- 5` | Equivalent (3 mutants): these change only the spaces after `pass` at the end of a line, which never change a syntax error. |
 | `intellisense.py` | 192 | `col + 2` to `col - 2` | Equivalent: with no end offset, the larger of the two is `col + 1` either way. |

@@ -306,6 +306,8 @@ The fakes themselves are good: `test_fabric_api.py:22-33` checks method, URL and
 
 **Fix.** PR-QA-08.
 
+**Status.** Fixed 2026-11-16. `onelake.lakehouse_root` and `onelake.table_uri` build every OneLake address. They check the ids (no slash, @, ? or #) and the names (`check_name`), and `TableRef.uri` uses them too. `side_by_side_service`, `prove_service` (both sites), `pipeline_data`, `fabric_step` and `proof` now call them. A name without a schema now goes to `dbo`, not `Tables//name`. The two notebooks the app generates for Fabric (`fabric_run`'s shim and `model_bpa`) take `DFS_HOST` instead of spelling the host out. `tests/test_table_uris.py` fails on an f-string that puts a value into an `abfss://` address or straight before `/Tables/`. Three files are allowed, each with its reason: `proof_runtime.py` (self-contained in Fabric), and `xray_service.py` and `notebook_practices.py` (they match addresses but build none).
+
 ### QA-026 Notebook file helpers that pretend (Low)
 
 **Evidence: Code.** `fs.exists` (`notebookutils_local.py:117-126`) returns False on any `HTTPError`, including 401 and 403, which skips the overwrite checks in `put` and `mv` (`:131-134`, `:168-171`). `mkdirs` on OneLake (`:175-180`) does nothing and returns True. `spark.read.schema(...)` (`spark_local.py:136-137`) is ignored, so types are inferred (leading zeros, decimals and dates can differ from Fabric).

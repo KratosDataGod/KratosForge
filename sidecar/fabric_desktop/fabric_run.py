@@ -18,6 +18,7 @@ from collections.abc import Callable, Collection
 from typing import Any
 
 from . import magics
+from .onelake import DFS_HOST
 from .notebook import _RUN_SCRIPT, MAX_RUN_DEPTH, _run_target, configure_report, to_ipynb
 
 SHIM_MARKER = "# Fabric Desktop setup"
@@ -45,7 +46,7 @@ _fd_conversions = {}
 exec(%(conversions)s, _fd_conversions)  # the PC's rule for which column types keep every value (EA-001)
 
 def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None, mount="/lakehouse/default"):
-    root = root or f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{lakehouse_id}"
+    root = root or f"abfss://{workspace_id}@%(dfs_host)s/{lakehouse_id}"
 
     def opts():
         return {"bearer_token": _nbu.credentials.getToken("storage"), "use_fabric_endpoint": "true"}
@@ -205,7 +206,8 @@ def uses_local_module(cells: list[dict[str, Any]]) -> bool:
 def shim_cell(lakehouse: dict[str, Any], schemas_enabled: bool = True) -> dict[str, Any]:
     return {"type": "code", "source": SHIM_MARKER + "\n" + _SHIM % {
         "workspace_id": lakehouse["workspace_id"], "lakehouse_id": lakehouse["lakehouse_id"],
-        "name": lakehouse.get("name", ""), "schemas": bool(schemas_enabled), "conversions": repr(_conversions_source())}}
+        "name": lakehouse.get("name", ""), "schemas": bool(schemas_enabled), "conversions": repr(_conversions_source()),
+        "dfs_host": DFS_HOST}}
 
 
 def _conversions_source() -> str:

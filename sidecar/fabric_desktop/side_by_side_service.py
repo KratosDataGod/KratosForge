@@ -19,7 +19,7 @@ from . import depgraph, jsonfile, notebook_cells, receipts
 from . import side_by_side as sbs
 from .fabric_run import TERMINAL, compute_check, uses_local_module, uses_spark
 from .fabric_step import STEP_REFUSED, is_step
-from .onelake import DFS_HOST, FileStore, storage_options
+from .onelake import FileStore, lakehouse_root, storage_options, table_uri
 from .redact import describe
 
 _log = logging.getLogger(__name__)
@@ -51,9 +51,8 @@ class OneLakeTables(sbs.Tables):
         self.files = FileStore(token)
 
     def _uri(self, table: str) -> str:
-        schema, _, name = table.rpartition(".")
-        folder = f"{schema}/{name}" if self.schemas else name
-        return f"abfss://{self.workspace_id}@{DFS_HOST}/{self.lakehouse_id}/Tables/{folder}"
+        schema, _, name = table.rpartition(".")  # a name without a schema is in dbo, as everywhere else
+        return table_uri(lakehouse_root(self.workspace_id, self.lakehouse_id), schema or "dbo", name, not self.schemas)
 
     def _names(self) -> list[str]:
         top = [e for e in self.files.list(self.workspace_id, self.lakehouse_id, "Tables") if e["is_dir"]]

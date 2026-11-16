@@ -38,6 +38,29 @@ def check_name(kind: str, name: str) -> str:
     return name
 
 
+_BAD_ID = re.compile(r"[/@\\?#\s]")
+
+
+def lakehouse_root(workspace_id: str, lakehouse_id: str) -> str:
+    """The OneLake address of a lakehouse, ``abfss://<workspace>@onelake.../<lakehouse>``: the one place it
+    is built (tests/test_table_uris.py fails on another). The ids are GUIDs, which ABFS reads where a
+    name with spaces fails; one that would change the address's shape (a slash, @, ? or #) is refused."""
+    for kind, value in (("workspace", workspace_id), ("lakehouse", lakehouse_id)):
+        if not value or _BAD_ID.search(value):
+            raise ValueError(f"Invalid {kind} id {value!r} for a OneLake address.")
+    return f"abfss://{workspace_id}@{DFS_HOST}/{lakehouse_id}"
+
+
+def table_uri(root: str, schema: str, table: str, flat: bool = False) -> str:
+    """A Delta table's folder under a lakehouse ``root`` (lakehouse_root, or a local folder in tests and
+    runs on this PC): ``<root>/Tables/<schema>/<table>``, or ``<root>/Tables/<table>`` in a lakehouse
+    without schemas. Names are checked as Fabric checks them, so none can step into another folder."""
+    check_name("table", table)
+    if flat:
+        return f"{root}/Tables/{table}"
+    return f"{root}/Tables/{check_name('schema', schema)}/{table}"
+
+
 @dataclass(frozen=True)
 class TableRef:
     """A Delta table in a schema-enabled lakehouse, addressed by GUIDs."""
@@ -56,8 +79,7 @@ class TableRef:
     @property
     def uri(self) -> str:
         # GUIDs avoid ABFS failures on workspace names with spaces.
-        folder = self.table if self.flat else f"{self.schema}/{self.table}"
-        return f"abfss://{self.workspace_id}@{DFS_HOST}/{self.lakehouse_id}/Tables/{folder}"
+        return table_uri(lakehouse_root(self.workspace_id, self.lakehouse_id), self.schema, self.table, self.flat)
 
 
 # Uploads on a slow line. delta-rs sends each data file as 5 MB parts, 10 at a time, with several

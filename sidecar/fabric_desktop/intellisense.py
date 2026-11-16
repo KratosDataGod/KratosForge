@@ -189,8 +189,10 @@ def syntax_problems(source: str) -> list[dict[str, Any]]:
         err_line = (err.lineno or 1)
         col = max((err.offset or 1) - 1, 0)
         end_line = getattr(err, "end_lineno", None) or err_line
-        end_col = max((getattr(err, "end_offset", None) or col + 2) - 1, col + 1)
-        if end_line < err_line or (end_line == err_line and end_col <= col):
+        end_offset = getattr(err, "end_offset", None)
+        # The end column is on the end line: clamped against the start column only when that's the same line.
+        end_col = max((end_offset or col + 2) - 1, 0)
+        if end_line < err_line or (end_line == err_line and end_col <= col) or (end_line > err_line and not end_offset):
             end_line, end_col = err_line, col + 1
         return [{"line": err_line + offset, "col": col, "end_line": end_line + offset, "end_col": end_col,
                  "message": _message(err)}]

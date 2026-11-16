@@ -131,12 +131,13 @@ function sqlParamsText(list) {
   return list.map((x) => `${x.name} = ${x.value.length > 40 ? `${x.value.slice(0, 40)}…` : x.value}`).join(", ");
 }
 
-// S38: a tab's parameter values go into its .sql file as one comment line at the top, and come back out
+// S38: a tab's parameter values (those its SQL uses) go into its .sql file as one comment line at the top, and come back out
 // when the file opens, so the values travel with the file and the SQL itself stays as written.
 const SQL_FILE_PARAMS = "-- KratosForge parameters: ";
 
 function sqlFileText(sql, params) {
-  const kept = sqlKeptParams(params);
+  const used = new Set(sqlParamNames(sql).map((x) => x.name));  // only the values this SQL asks for
+  const kept = Object.fromEntries(Object.entries(sqlKeptParams(params)).filter(([name]) => used.has(name)));
   return Object.keys(kept).length ? `${SQL_FILE_PARAMS}${JSON.stringify(kept)}\n${sql}` : sql;
 }
 

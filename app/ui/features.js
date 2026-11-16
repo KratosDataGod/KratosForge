@@ -110,6 +110,7 @@ const PREVIEW_FEATURES = {
   warehouse: "Warehouse queries",
   sqlResultViews: "Messages and Chart on the SQL page",
   sqlStatements: "Several SQL statements per run, a result for each",
+  sqlParams: "Query parameters (:name and {{name}}) on the SQL page",
   sqlPractices: "SQL best practices",
   bestPractices: "Best practices: checks and templates",
   updateBanner: "New build banner",

@@ -548,8 +548,8 @@ function sqlEditorHelpers() {
   const code = src.slice(0, src.indexOf("// ---------- the editor ----------"));
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { SQL_DIALECTS, SQL_WORDS, sqlDialect, sqlQuoteIdent, sqlTableName,
-    sqlMask, sqlStatementAt, sqlRunnableStatementAt, sqlSplitStatements, sqlTableRefs, sqlHoverTarget, sqlCallAt, sqlSignatureParts, sqlPickForm, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
-    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics, sqlRowsAs, sqlLiteral, sqlInsertTable, sqlNextBookmark });`, ctx);
+    sqlMask, sqlStatementAt, sqlRunnableStatementAt, sqlSplitStatements, sqlParamNames, sqlParamProblem, sqlTableRefs, sqlHoverTarget, sqlCallAt, sqlSignatureParts, sqlPickForm, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
+    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics, sqlRowsAs, sqlLiteral, sqlInsertTable, sqlNextBookmark, SQL_PARAM_TYPES });`, ctx);
   return ctx;
 }
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -630,6 +630,20 @@ test("a script splits into statements at ; and GO lines, outside strings and com
   assert.deepStrictEqual(texts("CREATE PROCEDURE dbo.p AS SELECT 1; SELECT 2"), ["CREATE PROCEDURE dbo.p AS SELECT 1;", "SELECT 2"],
     "only T-SQL keeps a definition whole");
   assert.deepStrictEqual(texts("  ;\n -- x\n"), []);
+});
+
+test("a query's parameters are :name and {{name}}, outside strings, comments and casts (S17)", () => {
+  const { sqlParamNames, sqlParamProblem } = sqlEditorHelpers();
+  const text = "SELECT ':no', a::int -- :nope\nFROM t /* {{nope}} */\nWHERE r = :region AND d >= {{ start_date }} AND x = :region AND p = c:path";
+  assert.deepStrictEqual(plain(sqlParamNames(text)), [{ name: "region", line: 3 }, { name: "start_date", line: 3 }]);
+  assert.strictEqual(sqlParamProblem("date", "1 Oct"), "Write a date as 2026-10-01.");
+  assert.strictEqual(sqlParamProblem("date", "2026-02-30"), "Write a date as 2026-10-01.");
+  assert.strictEqual(sqlParamProblem("date", "2026-10-01"), "");
+  assert.strictEqual(sqlParamProblem("datetime", "2026-10-01 14:30"), "");
+  assert.strictEqual(sqlParamProblem("number", "4,2"), "Write a number, such as 42 or 3.5.");
+  assert.strictEqual(sqlParamProblem("number", "-3.5"), "");
+  assert.strictEqual(sqlParamProblem("boolean", "TRUE"), "");
+  assert.strictEqual(sqlParamProblem("text", ""), "", "an empty text value is a value");
 });
 
 test("F2 and Shift+F2 go to the next and previous bookmark, wrapping around", () => {

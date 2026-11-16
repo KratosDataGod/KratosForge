@@ -107,6 +107,7 @@ function loadQueryTabs(ref) {
     const saved = JSON.parse(localStorage.getItem(queryTabsKey(ref)));
     if (Array.isArray(saved) && saved.length) {
       const tabs = saved.map((t) => ({ name: String(t.name), sql: String(t.sql), dialect: sqlDialect(t.dialect),
+        ...(t.params && typeof t.params === "object" ? { params: sqlKeptParams(t.params) } : {}),
         ...(t.file && typeof t.file.name === "string" ? { file: t.file } : {}),
         ...(t.proj && typeof t.proj.path === "string" ? { proj: t.proj } : {}) }));
       return wh ? tabs.map((t) => ({ ...t, dialect: ref.kind })) : tabs;
@@ -115,10 +116,25 @@ function loadQueryTabs(ref) {
   return [wh ? { name: "Query 1", sql: WAREHOUSE_HINT, dialect: ref.kind } : { name: "Query 1", sql: QUERY_HINT, dialect: "spark" }];
 }
 
+// S17: a tab's kept parameter values, as read back from this PC's storage: {name: {type, value}}.
+function sqlKeptParams(raw) {
+  const out = {};
+  for (const [name, v] of Object.entries(raw || {})) {
+    if (/^[A-Za-z_]\w*$/.test(name) && v && SQL_PARAM_TYPES[v.type] && typeof v.value === "string") out[name] = { type: v.type, value: v.value };
+  }
+  return out;
+}
+
+// "region = West, start_date = 2026-10-01": the values a run used, for the band and the history.
+function sqlParamsText(list) {
+  return list.map((x) => `${x.name} = ${x.value.length > 40 ? `${x.value.slice(0, 40)}…` : x.value}`).join(", ");
+}
+
 function saveQueryTabs() {
   try {
     localStorage.setItem(queryTabsKey(sqlPage.ref),
       JSON.stringify(sqlPage.tabs.map((t) => ({ name: t.name, sql: t.sql, dialect: t.dialect || "spark", ...(t.file ? { file: t.file } : {}),
+        ...(t.params && Object.keys(t.params).length ? { params: t.params } : {}),
         ...(t.proj ? { proj: t.proj } : {}) }))));
     return true;
   } catch { return false; /* storage unavailable: tabs last for this session */ }
@@ -269,10 +285,10 @@ function sqlPartLabel(u, ex, multi) {
 
 // S27: each tab's last runs that left a result, newest first, and the ones pinned. Kept in memory, so on this
 // PC until the tab or the app closes; a pinned result's snapshot is kept by the engine until it's unpinned.
-const SQL_HISTORY_MAX = 20;
+const SQL_RESULT_HISTORY_MAX = 20;
 function sqlResultHistoryAdd(tab, entry) {
   let unpinned = 0;
-  tab.history = [entry, ...(tab.history || [])].filter((e) => e.pinned || ++unpinned <= SQL_HISTORY_MAX);
+  tab.history = [entry, ...(tab.history || [])].filter((e) => e.pinned || ++unpinned <= SQL_RESULT_HISTORY_MAX);
 }
 
 function cellText(v) {
@@ -293,7 +309,7 @@ function renderQuery() {
   const runsHere = () => wh || SQL_DIALECTS[tab.dialect].runsHere;
   const where = wh ? "in Fabric" : "on this PC";
 
-  const setSql = (text) => { tab.sql = text; saveQueryTabs(); };
+  const setSql = (text) => { tab.sql = text; saveQueryTabs(); drawParamChip(); };
   p.editor?.destroy();
   const provider = wh ? warehouseSqlProvider(ref) : lakehouseSqlProvider(p, ref, () => { if (here()) editor.refresh(); });
   const editor = p.editor = createSqlEditor({
@@ -375,6 +391,14 @@ function renderQuery() {
       toast(`${SQL_DIALECTS[tab.dialect].label} can't run on this PC. Pick Spark SQL or DuckDB to run here.`, true);
       return;
     }
+    // S17 (Preview): the query's parameters. Run asks for their values once; the tab keeps them.
+    const names = previewShown() && PREVIEW_FEATURES.sqlParams ? sqlParamNames(query) : [];
+    if (names.length && (opts.ask || names.some((x) => !tab.params?.[x.name]))) {
+      askParams(names, () => run(query, allow, { ...opts, ask: false }));
+      return;
+    }
+    const used = names.map((x) => ({ name: x.name, type: tab.params[x.name].type, value: tab.params[x.name].value }));
+    const withParams = used.length ? { params: used } : {};
     const units = opts.units || (previewShown() && PREVIEW_FEATURES.sqlStatements && !opts.single ? splitScript(query) : []);
     const multi = units.length > 1;
     const each = multi ? { statements: units.map((u) => u.text) } : {};
@@ -384,7 +408,7 @@ function renderQuery() {
     if (wh && whChangesTicked(ref)) {
       let plan;
       try {
-        plan = await rpc("sql_start", { query, target: "warehouse", dialect: "tsql", warehouse_ref: whRef, allow: ["warehouse_write"], dry_run: true, ...each });
+        plan = await rpc("sql_start", { query, target: "warehouse", dialect: "tsql", warehouse_ref: whRef, allow: ["warehouse_write"], dry_run: true, ...each, ...withParams });
       } catch (err) {
         Object.assign(tab, { error: String(err), errorRetry: () => run(query), result: null, exec: null });
         sqlPage.redraw?.();
@@ -406,14 +430,14 @@ function renderQuery() {
     tab.running = true;
     const startedAt = Date.now();
     Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "", chart: null,
-      multi: multi ? { units, part: null, change } : null, old: null });
+      multi: multi ? { units, part: null, change } : null, old: null, ranParams: used });
     drawResults();
     let status;
     try {
       status = await rpc("sql_start", wh
-        ? { query, target: "warehouse", dialect: "tsql", warehouse_ref: whRef, ...each,
+        ? { query, target: "warehouse", dialect: "tsql", warehouse_ref: whRef, ...each, ...withParams,
           ...(change ? { allow: ["warehouse_write"], confirm: true, confirm_name: ref.name } : {}) }
-        : { query, lakehouse_ref: ref, dialect: tab.dialect, allow, ...each });
+        : { query, lakehouse_ref: ref, dialect: tab.dialect, allow, ...each, ...withParams });
       Object.assign(tab, { exec: status, ranSql: query, ranDialect: tab.dialect });
       status = await followRun(tab, status);
     } catch (err) {
@@ -448,7 +472,7 @@ function renderQuery() {
     // S27: a run that left a result goes into this tab's result history.
     if (status && (status.state === "completed" || status.parts?.length)) {
       sqlResultHistoryAdd(tab, { id: status.id, at: startedAt, sql: query, rows: status.rows ?? 0, seconds: status.seconds ?? null,
-        multi: tab.multi ? { units: tab.multi.units, change: tab.multi.change } : null, pinned: false });
+        multi: tab.multi ? { units: tab.multi.units, change: tab.multi.change } : null, params: used, pinned: false });
     }
     // WH-07: each run that reached the engine goes into this PC's history for the warehouse.
     if (wh && status?.state) {
@@ -508,6 +532,58 @@ function renderQuery() {
     run(rest.map((x) => x.text).join(";\n"), [], { units: rest });
   }
 
+  // S17: the parameters panel above the results: a type and a value for each, then Run with these values.
+  const paramsBox = h("section", { class: "sql-params", "aria-labelledby": "sql-params-h", hidden: true });
+  function askParams(names, go) {
+    const kept = tab.params || {};
+    const rows = names.map((x) => {
+      const k = kept[x.name] || { type: /date/i.test(x.name) ? "date" : "text", value: "" };
+      const type = h("select", { "aria-label": `Type of ${x.name}` },
+        Object.entries(SQL_PARAM_TYPES).map(([id, label]) => h("option", { value: id, selected: id === k.type }, label)));
+      const value = h("input", { value: k.value, "aria-label": `Value of ${x.name}`, spellcheck: "false", autocomplete: "off" });
+      const why = h("small", { class: "error-text", role: "alert" });
+      const hint = h("small", { class: "muted-text" }, `Used on line ${x.line}`);
+      return { x, type, value, why, hint, el: h("label", {}, h("span", { class: "sql-param-name" }, x.name), h("span", { class: "f" }, type, value), why, hint) };
+    });
+    const runIt = () => {
+      let bad = null;
+      for (const r of rows) {
+        const problem = sqlParamProblem(r.type.value, r.value.value);
+        r.why.textContent = problem;
+        r.hint.hidden = !!problem;
+        r.value.setAttribute("aria-invalid", String(!!problem));
+        bad ||= problem ? r : null;
+      }
+      if (bad) { bad.value.focus(); return; }
+      tab.params = { ...(tab.params || {}), ...Object.fromEntries(rows.map((r) => [r.x.name, { type: r.type.value, value: r.value.value }])) };
+      saveQueryTabs();
+      paramsBox.hidden = true;
+      drawParamChip();
+      go();
+    };
+    for (const r of rows) r.value.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); runIt(); } });
+    paramsBox.replaceChildren(h("h3", { id: "sql-params-h" }, `This query has ${names.length} parameter${names.length === 1 ? "" : "s"}`, previewTag()),
+      h("div", { class: "sql-param-fields" }, rows.map((r) => r.el)),
+      h("div", { class: "row" }, btn("Run with these values", "play", runIt, "tool primary"),
+        btn("Cancel", null, () => { paramsBox.hidden = true; editor.focus(); }, "tool outline"),
+        h("span", { class: "muted-text small" }, "They're kept with this tab, and saved with it as a comment at the top of the .sql file. " +
+          "They're sent as typed values, never pasted into the SQL.")));
+    paramsBox.hidden = false;
+    rows[0]?.value.focus();
+  }
+  // The chip in the actions bar: the values the tab keeps for the query's parameters, with Change.
+  const paramChip = h("span", { class: "sql-param-chip", hidden: true });
+  function drawParamChip() {
+    const text = editor.text();
+    const names = previewShown() && PREVIEW_FEATURES.sqlParams && text.length <= SQL_AUTO_CHECK_LIMIT ? sqlParamNames(text) : [];
+    const kept = names.filter((x) => tab.params?.[x.name]);
+    paramChip.hidden = !kept.length;
+    if (!kept.length) { paramChip.replaceChildren(); return; }
+    paramChip.replaceChildren(`${names.length} parameter${names.length === 1 ? "" : "s"}: `,
+      sqlParamsText(kept.map((x) => ({ name: x.name, value: tab.params[x.name].value }))),
+      h("button", { class: "link-btn", onclick: () => askParams(sqlParamNames(editor.text()), () => run(undefined, [], {})) }, "Change"));
+  }
+
   // S27: an earlier run's result, read again from its snapshot on this PC. Nothing runs.
   async function openOld(entry) {
     if (tab.running) return;
@@ -519,9 +595,9 @@ function renderQuery() {
       return;
     }
     if (!tab.old) tab.old = { latest: { exec: tab.exec, result: tab.result, multi: tab.multi, error: tab.error, errorRetry: tab.errorRetry,
-      ranNotice: tab.ranNotice, chart: tab.chart } };
+      ranNotice: tab.ranNotice, chart: tab.chart, ranParams: tab.ranParams } };
     tab.old.entry = entry;
-    Object.assign(tab, { exec: st, result: null, chart: null, error: null, errorRetry: null, ranNotice: "", view: "results",
+    Object.assign(tab, { exec: st, result: null, chart: null, error: null, errorRetry: null, ranNotice: "", view: "results", ranParams: entry.params || [],
       multi: entry.multi ? { ...entry.multi, part: sqlPickPart(st) } : null });
     if (tab.multi ? st.parts?.some((x) => x.statement === tab.multi.part) : st.state === "completed") await loadPage(tab, 0);
     else tab.error = st.error || "That run has no result.";
@@ -563,14 +639,15 @@ function renderQuery() {
           h("td", {}, timeText(e.at)),
           h("td", {}, h("button", { class: "link-btn", title: "Open this result again. Nothing runs.", onclick: () => openOld(e) }, h("code", {}, first(e.sql))),
             e.id === latestId ? h("span", { class: "sql-chip" }, "Latest") : null,
-            e.multi ? h("span", { class: "muted-text" }, ` ${e.multi.units.length} statements`) : null),
+            e.multi ? h("span", { class: "muted-text" }, ` ${e.multi.units.length} statements`) : null,
+            e.params?.length ? h("span", { class: "sql-chip" }, sqlParamsText(e.params)) : null),
           h("td", { class: "n" }, e.rows.toLocaleString()),
           h("td", { class: "n" }, e.seconds != null ? `${e.seconds} s` : ""),
           h("td", { class: "sql-pin-cell" }, e.pinned
             ? [h("span", { class: "sql-pin" }, "● Pinned"), btn("Unpin", null, () => pinEntry(e, false), "tool outline small sql-pinned", { title: "Kept until you unpin it" })]
             : btn("Pin", null, () => pinEntry(e, true), "tool outline small", { title: "Keep this result until you unpin it" })))))),
       h("p", { class: "muted-text sql-compat-note", style: "padding:8px 12px" },
-        `The ${SQL_HISTORY_MAX} most recent runs of this tab, kept on this PC until you close the tab or the app. Pinned results stay until you unpin them (up to 10).`));
+        `The ${SQL_RESULT_HISTORY_MAX} most recent runs of this tab, kept on this PC until you close the tab or the app. Pinned results stay until you unpin them (up to 10).`));
   }
 
   async function stop() {
@@ -859,6 +936,7 @@ function renderQuery() {
       const last = r.offset + r.rows.length;
       msg = `${r.total.toLocaleString()} row${r.total === 1 ? "" : "s"} · ${ex.seconds} s ${where}`;
       if (r.total > r.rows.length) msg += ` · rows ${(r.offset + 1).toLocaleString()} to ${last.toLocaleString()}`;
+      if (tab.ranParams?.length) msg += ` · with ${sqlParamsText(tab.ranParams)}`;
     }
     const copyItem = (format, label) => h("button", { role: "menuitem",
       onclick: (e) => { e.target.closest("details").open = false; copyRows(format); } }, label);
@@ -1207,7 +1285,7 @@ function renderQuery() {
         h("span", { class: "sql-sep", "aria-hidden": "true" }),
         h("span", { class: "sql-target-note" }, SQL_DIALECTS[tab.dialect].label),
         btn("Format SQL", null, formatSql, "tool outline", { title: "Format the selection, or the whole query (Shift+Alt+F)" }),
-        compatChip, practicesChip);
+        compatChip, practicesChip, paramChip);
       return;
     }
     const local = runsHere();
@@ -1217,12 +1295,13 @@ function renderQuery() {
       h("span", { class: "sql-sep", "aria-hidden": "true" }),
       dialectPick,
       btn("Format SQL", null, formatSql, "tool outline", { title: "Format the selection, or the whole query (Shift+Alt+F)" }),
-      compatChip, practicesChip,
+      compatChip, practicesChip, paramChip,
       h("span", { class: "spacer" }),
       btn("Save as table", "save", saveAsTable, "tool outline", { disabled: !local }),
       btn("Open in notebook", "notebook", openInNotebook, "tool outline", { disabled: tab.dialect !== "spark" }));
   }
   drawActions();
+  drawParamChip();
 
   // The Compatibility panel beside the editor: the last check's outcome and findings, newest SQL first.
   const compat = h("aside", { class: "sql-compat", id: "sql-compat", "aria-label": "Compatibility" });
@@ -1445,7 +1524,7 @@ function renderQuery() {
       h("section", { class: "sql-main" }, tabs,
         monitorOn ? whMonitorView(ref, { insight: openInsight })
           : compareOn ? whCompareView(ref, { open: openProjectFile })
-          : h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, rtabs, grid))))
+          : h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), paramsBox, band, rtabs, grid))))
     : h("div", { class: "sql-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
       btn("New SQL query", "add", addTab),
@@ -1459,7 +1538,7 @@ function renderQuery() {
           h("span", { class: "label" }, ref.name)),
         tablesBox),
       h("section", { class: "sql-main" }, tabs,
-        h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, rtabs, grid)))));
+        h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), paramsBox, band, rtabs, grid)))));
   drawResults();
   drawTables();
   if (tab.autorun) { delete tab.autorun; run(tab.sql); }

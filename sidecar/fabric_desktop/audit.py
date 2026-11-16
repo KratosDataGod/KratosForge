@@ -98,7 +98,7 @@ academy_exam_home academy_exam_heartbeat academy_exam_review
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.
-_CONTENT = frozenset({"code", "source", "sql", "query", "statement", "text", "cells", "content", "ipynb", "body", "value", "values",
+_CONTENT = frozenset({"code", "source", "sql", "query", "statement", "statements", "params", "text", "cells", "content", "ipynb", "body", "value", "values",
                       "rows", "data", "parts", "definition", "notes", "description", "spec", "toml", "changes", "events", "routes",
                       "report_summary", "identity", "teams_webhook"})
 _MAX = 200

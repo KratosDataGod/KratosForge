@@ -225,6 +225,30 @@ function sqlSplitStatements(text, { tsql = false, base = 0, firstLine = 1 } = {}
   return out;
 }
 
+// Editor parity S17: a query's parameters, :name or {{name}}, outside strings and comments; `::` (a cast) and a
+// name right after a word (a path such as col:field) aren't one. Each { name, line } once, in order, line 1-based.
+function sqlParamNames(text) {
+  const masked = sqlMask(text).text;
+  const out = new Map();
+  for (const m of masked.matchAll(/(?<![:\w]):([A-Za-z_]\w*)(?![\w:])|\{\{\s*([A-Za-z_]\w*)\s*\}\}/g)) {
+    const name = m[1] || m[2];
+    if (!out.has(name)) out.set(name, { name, line: (text.slice(0, m.index).match(/\n/g)?.length || 0) + 1 });
+  }
+  return [...out.values()];
+}
+
+// The types a parameter's value can have, and why a value doesn't fit one ("" when it does).
+const SQL_PARAM_TYPES = { text: "Text", number: "Number", date: "Date", datetime: "Date and time", boolean: "True or false" };
+function sqlParamProblem(type, value) {
+  const v = String(value ?? "").trim();
+  if (type === "number" && !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(v)) return "Write a number, such as 42 or 3.5.";
+  const realDate = (s) => { const d = new Date(`${s.slice(0, 10)}T00:00:00Z`); return !isNaN(d) && d.toISOString().slice(0, 10) === s.slice(0, 10); };
+  if (type === "date" && !(/^\d{4}-\d{2}-\d{2}$/.test(v) && realDate(v))) return "Write a date as 2026-10-01.";
+  if (type === "datetime" && !(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?$/.test(v) && realDate(v))) return "Write a date and time as 2026-10-01 14:30.";
+  if (type === "boolean" && !/^(true|false)$/i.test(v)) return "Pick true or false.";
+  return "";
+}
+
 // The statement to run for Ctrl+Shift+Enter: the one around `pos`. A cursor just after a `;` on its line
 // (spaces between are fine) runs the statement that `;` ends; one in a blank stretch, or in a statement that is
 // only comments, runs the nearest statement before it, then after it. Leading and trailing whitespace is left

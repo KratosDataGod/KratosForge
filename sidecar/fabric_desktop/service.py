@@ -1120,7 +1120,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                   confirm: bool = False, dry_run: bool = False,
                   warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
                   estimated_plan: bool = False, precondition: dict[str, Any] | None = None,
-                  profile: bool = False, statements: list[str] | None = None) -> dict[str, Any]:
+                  profile: bool = False, statements: list[str] | None = None,
+                  params: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """Queue a query on this PC. ``allow`` adds "local_mutation" after the person confirmed it;
         lakehouse writes and Fabric changes are never allowed here (sql_policy.py).
 
@@ -1139,11 +1140,12 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
         ``statements`` (S14, Preview) runs the script as these statements, one after the other in one
         session, each with a result of its own (``parts`` in the status; ``part`` in sql_page and
-        sql_export), stopping at the first that fails."""
+        sql_export), stopping at the first that fails. ``params`` (S17, Preview) are the query's ``:name``
+        and ``{{name}}`` parameters, [{name, type, value}], bound as typed values and never kept."""
         return self.sql_runs.start(query, lakehouse_ref, dialect, allow, target=target, project=project,
                                    confirm=confirm, dry_run=dry_run, warehouse_ref=warehouse_ref,
                                    confirm_name=confirm_name, estimated_plan=estimated_plan, precondition=precondition,
-                                   profile=profile, statements=statements)
+                                   profile=profile, statements=statements, params=params)
 
     def sql_status(self, execution: str) -> dict[str, Any]:
         return self.sql_runs.status(execution)

@@ -57,7 +57,7 @@ def run(job: dict[str, Any]) -> None:
     import pyarrow as pa
     import pyarrow.ipc as ipc
 
-    from . import lakehouse, sql, sql_policy
+    from . import lakehouse, sql, sql_params, sql_policy
     from .duckdb_rows import for_arrow, keep_try_cast, run_through
 
     lh = job["lakehouse"]
@@ -70,6 +70,7 @@ def run(job: dict[str, Any]) -> None:
         root = Path(job["local_root"])
         setattr(lakehouse, "open_table", lambda name: DeltaTable(str(root / lakehouse.table_ref(name).table)))  # noqa: B010 - tests only
 
+    values = sql_params.typed(job.get("params"))  # S17: bound by name to each statement that uses them
     units: list[str] = list(job.get("statements") or [])  # S14: each statement's result is a part of its own
     if units:
         per_unit = [_parse_unit(sql, u, job["dialect"], n) for n, u in enumerate(units, 1)]
@@ -129,10 +130,11 @@ def run(job: dict[str, Any]) -> None:
             for i, statement in enumerate(sts):
                 sql.bind_tables(statement, con, views, lambda name: sql.is_local(con, name))
                 text = sql.duckdb_sql(statement)
+                bound = _bound(statement, values)
                 if i == len(sts) - 1:
-                    result = for_arrow(con, text)
+                    result = for_arrow(con, text, bound)
                 else:
-                    run_through(con, text)
+                    run_through(con, text, bound)
             rows, batches, schema = _snapshot(result, Path(job["parts_dir"]) / f"result-{n}.arrow")
             _say("part", statement=n, rows=rows, batches=batches, seconds=round(time.monotonic() - began, 2),
                  columns=[{"name": f.name, "type": str(f.type)} for f in schema])
@@ -141,14 +143,28 @@ def run(job: dict[str, Any]) -> None:
     for i, statement in enumerate(statements):
         sql.bind_tables(statement, con, views, lambda name: sql.is_local(con, name))
         text = sql.duckdb_sql(statement)
+        bound = _bound(statement, values)
         if i == len(statements) - 1:
-            result = for_arrow(con, text)
+            result = for_arrow(con, text, bound)
         else:
-            run_through(con, text)
+            run_through(con, text, bound)
 
     rows, batches, schema = _snapshot(result, Path(job["out"]))
     _say("done", rows=rows, batches=batches,
          columns=[{"name": f.name, "type": str(f.type)} for f in schema])
+
+
+def _bound(statement: Any, values: dict[str, Any]) -> dict[str, Any] | None:
+    """The values of the parameters ``statement`` uses, by name, for DuckDB to bind (S17); None when it uses none."""
+    from sqlglot import exp
+
+    used = list(dict.fromkeys(p.name for p in statement.find_all(exp.Placeholder) if p.name))
+    if not used:
+        return None
+    missing = [n for n in used if n not in values]
+    if missing:
+        raise ValueError(f"Give a value for :{missing[0]} before running the query.")
+    return {n: values[n] for n in used}
 
 
 def _parse_unit(sql: Any, text: str, dialect: str, n: int) -> list[Any]:

@@ -58,6 +58,10 @@ returns no rows says what it did instead (rows changed, on a warehouse). The run
 statement that fails: the parts before it are kept and can still be paged, the statements after it
 never start. Every statement is checked before the first one runs, as a whole script is.
 
+A run started with ``params`` (editor parity S17, Preview) binds its ``:name`` and ``{{name}}``
+parameters to typed values (sql_params.py). The values never become SQL text, are never kept after the
+run, and never reach the audit trail or the status.
+
 Each finished run adds one ``sql_execution`` line to the audit trail: its id, dialect, lakehouse,
 state, permission class, rows and seconds (and target and project for a local run, or the
 warehouse for a warehouse run). Never the SQL, the error text, the token or any data.
@@ -86,7 +90,7 @@ from typing import Any, Callable
 import pyarrow as pa
 from sqlglot import exp
 
-from . import app_settings, free_memory, jsonfile, sql, sql_policy, warehouse
+from . import app_settings, free_memory, jsonfile, sql, sql_params, sql_policy, warehouse
 from .filenames import file_stem
 from .frames import EXCEL_MAX_ROWS, write_xlsx_batches
 from . import known_folders
@@ -190,6 +194,7 @@ class Execution:
     committing: bool = False  # warehouse change: the commit was sent, so a Stop may come after it was kept
     failed_batch: int = 0  # warehouse run: the batch that was running when it failed (1-based), 0 if none
     units: list[str] = field(default_factory=list, repr=False)  # S14: the script's statements, each a part
+    params: list[dict[str, Any]] = field(default_factory=list, repr=False)  # S17: the values, until the run starts
     parts: list[dict[str, Any]] = field(default_factory=list)  # S14: each finished statement's result
     current: int = 0  # S14: the statement running now (1-based), 0 before the first
     failed_statement: int = 0  # S14: the statement that failed (1-based), 0 if none
@@ -293,7 +298,8 @@ class SqlExecutions:
               confirm: bool = False, dry_run: bool = False, timeout: float | None = None,
               warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
               estimated_plan: bool = False, precondition: dict[str, Any] | None = None,
-              profile: bool = False, statements: list[str] | None = None) -> dict[str, Any]:
+              profile: bool = False, statements: list[str] | None = None,
+              params: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """Queue a run. ``target="local"`` runs it in local data project ``project`` instead of
         against ``lakehouse_ref``; ``confirm`` lets its DROP, TRUNCATE and DELETE or UPDATE without
         WHERE run; ``timeout`` (seconds, local only) replaces the SQL page's time limit, except that a
@@ -313,7 +319,17 @@ class SqlExecutions:
         row of JSON, read with ``page`` as any result.
 
         ``statements`` (S14) runs the script as these statements, each with a result of its own (a part);
-        ``query`` is then ignored. Not with a plan, a profile or a local data project."""
+        ``query`` is then ignored. Not with a plan, a profile or a local data project.
+
+        ``params`` (S17) are the query's parameters, [{name, type, value}], bound as typed values."""
+        if params is not None:
+            sql_params.typed(params)  # a value that doesn't fit its type fails here, before anything is queued
+            if target == "local" or estimated_plan or profile:
+                raise ValueError("Query parameters are for a lakehouse or a warehouse query.")
+            tsql = target == "warehouse"
+            query = sql_params.as_colons(query, tsql) if isinstance(query, str) else query
+            if isinstance(statements, list):
+                statements = [sql_params.as_colons(t, tsql) if isinstance(t, str) else t for t in statements]
         units: list[str] = []
         if statements is not None:
             if (not isinstance(statements, list) or not statements or len(statements) > MAX_STATEMENTS
@@ -386,7 +402,7 @@ class SqlExecutions:
         folder = self.base() / run_id
         run = Execution(id=run_id, query=query, dialect=dialect, lakehouse=dict(lakehouse_ref or {}), allow=allowed,
                         folder=folder, target=target, confirm=bool(confirm),
-                        timeout_s=None if timeout is None else float(timeout), units=units)
+                        timeout_s=None if timeout is None else float(timeout), units=units, params=list(params or []))
         if target == "warehouse":
             assert warehouse_ref is not None
             run.warehouse = {k: warehouse_ref[k] for k in ("workspace_id", "item_id", "kind")}
@@ -551,6 +567,8 @@ class SqlExecutions:
                                    "plan": run.plan}
             if run.units:
                 job.update(statements=run.units, parts_dir=str(run.folder))
+            if run.params:
+                job["params"] = run.params
             if run.precondition:
                 job["precondition"] = run.precondition
         else:
@@ -562,6 +580,8 @@ class SqlExecutions:
                 job["explain"] = "plan" if run.plan else "profile"
             if run.units:
                 job.update(statements=run.units, parts_dir=str(run.folder))
+            if run.params:
+                job["params"] = run.params
             memory = self._memory_budget(int(limits["sql_memory_limit_percent"]))
             job.update(memory_mb=memory["duckdb_mb"], memory_cap_mb=memory["cap_mb"],
                        memory_bound=memory["bound"], free_mb=memory["free_mb"])
@@ -569,6 +589,7 @@ class SqlExecutions:
             job["lakehouse"]["schemas_enabled"] = False
             job["local_root"] = str(self.test_lake)
         run.state, run.started = "running", time.time()
+        run.params = []  # the values go to the worker only; nothing keeps them
         try:
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -824,6 +845,7 @@ class SqlExecutions:
             except Exception as exc:  # noqa: BLE001 - an audit problem never fails the run
                 print(f"audit: could not record sql_execution: {type(exc).__name__}", file=sys.stderr)
         run.query = ""  # the SQL isn't kept once the run is over
+        run.params = []
         self.cleanup()
 
     # ---- paging

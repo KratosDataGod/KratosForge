@@ -226,6 +226,36 @@ test("History lists the tab's runs; an old result opens again without running, a
   await page().getByRole("tab", { name: /^Results/ }).click();
 });
 
+test("a query with parameters asks for their values once, then keeps them with the tab (S17)", { skip }, async () => {
+  await setDoc("SELECT :word AS w,\n  {{n}} + 1 AS n, ':not' AS s");
+  await page().keyboard.press("Control+Enter");
+  await page().waitForSelector(".sql-params:not([hidden])");
+  assert.match(await page().locator("#sql-params-h").textContent(), /This query has 2 parameters/);
+  const before = runs().length;
+  await page().getByLabel("Value of word").fill("x' OR '1'='1");
+  await page().getByLabel("Type of n").selectOption("number");
+  await page().getByLabel("Value of n").fill("4,2");
+  await page().getByRole("button", { name: "Run with these values" }).click();
+  assert.match(await page().locator(".sql-params").textContent(), /Write a number, such as 42 or 3\.5\./);
+  assert.strictEqual(runs().length, before, "nothing runs while a value doesn't fit");
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "sql-s17-ask.png") });
+  await page().getByLabel("Value of n").fill("41");
+  await page().getByRole("button", { name: "Run with these values" }).click();
+  await waitPill("Succeeded");
+  const call = runs().at(-1);
+  assert.deepStrictEqual(call.params, [{ name: "word", type: "text", value: "x' OR '1'='1" }, { name: "n", type: "number", value: "41" }]);
+  assert.ok(call.query.includes(":word") && !call.query.includes("OR '1'"), "the values never go into the SQL");
+  assert.deepStrictEqual(await page().locator(".sql-grid tbody td:not(.i)").allTextContents(), ["x' OR '1'='1", "42", ":not"]);
+  assert.match(await band(), /with word = x' OR '1'='1, n = 41/);
+  assert.match(await page().locator(".sql-param-chip").textContent(), /2 parameters: word = x' OR '1'='1, n = 41/);
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "sql-s17-kept.png") });
+  await page().keyboard.press("Control+Enter");
+  await waitPill("Succeeded");
+  assert.ok(await page().locator(".sql-params").isHidden(), "kept values don't ask again");
+  const kept = await page().evaluate(() => JSON.parse(localStorage.getItem(queryTabsKey(sqlPage.ref)))[sqlPage.active].params);
+  assert.deepStrictEqual(kept, { word: { type: "text", value: "x' OR '1'='1" }, n: { type: "number", value: "41" } });
+});
+
 test("nothing on the page threw", { skip }, async () => {
   assert.deepStrictEqual(app.errors, []);
 });

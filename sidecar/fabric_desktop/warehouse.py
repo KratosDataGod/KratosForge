@@ -54,7 +54,7 @@ from typing import Any, Callable, cast
 from sqlglot import exp
 from sqlglot.errors import ErrorLevel, ParseError
 
-from . import sql_dialects, sql_policy
+from . import sql_dialects, sql_params, sql_policy
 
 KINDS = ("warehouse", "endpoint")  # a Data warehouse, or a lakehouse's SQL analytics endpoint
 HOST_SUFFIX = ".datawarehouse.fabric.microsoft.com"
@@ -582,13 +582,15 @@ def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None])
             return
         if plan:
             cursor.execute("SET SHOWPLAN_XML ON")  # its own batch, as T-SQL requires
+        values = sql_params.typed(job.get("params"))  # S17: each sent to the driver as a ? parameter
         sent = units or (change_batches(job["query"]) if writes else [job["query"]])
         for at, batch in enumerate(sent, 1):
             began, mine, changed = time.monotonic(), None, None
             if units:
                 say("statement", statement=at)
             try:
-                cursor.execute(batch)
+                text, ordered = sql_params.as_positional(batch, values) if values or sql_params.find(batch, True) else (batch, [])
+                cursor.execute(text, *ordered) if ordered else cursor.execute(text)
                 while True:
                     if cursor.description:
                         # each result replaces the one before: the last is shown (and, S14, is the statement's part)

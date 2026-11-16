@@ -1,5 +1,5 @@
 """App Studio discovery: the caps at their exact values, the text limits at their edges, and which texts are
-cleaned for support (descriptions) and which only for secrets (measure expressions). Mutation batch 56."""
+cleaned for support (descriptions and measure expressions). Mutation batch 56."""
 
 from __future__ import annotations
 
@@ -78,11 +78,13 @@ def test_table_and_column_descriptions_leave_out_emails_and_user_names():
     assert table["measures"][0]["description"] == "Ask [email]"
 
 
-def test_a_measure_expression_is_cleaned_of_secrets_only():
-    # DAX can name a column after a person or a path; only credential-shaped text is removed from it.
+def test_an_expressions_emails_and_user_paths_are_removed_too():
+    # DAX references and literals stay; only emails and user names in paths are left out.
     got = discovery.from_bim(_bim([{"name": "T", "measures": [
-        {"name": "m", "expression": "CALCULATE([Sales], 'Owners'[Email] = \"jane.doe@contoso.com\")"}]}]),
+        {"name": "m", "expression": "CALCULATE([Sales], 'Owners'[Email] = \"jane.doe@contoso.com\")"},
+        {"name": "p", "expression": "\"C:\\Users\\jdoe\\x.csv\" & 'T'[Col] & 42"}]}]),
         include_expressions=True)
-    assert got["tables"][0]["measures"][0]["expression"] == (
-        "CALCULATE([Sales], 'Owners'[Email] = \"jane.doe@contoso.com\")")
+    m, p = got["tables"][0]["measures"]
+    assert m["expression"] == "CALCULATE([Sales], 'Owners'[Email] = \"[email]\")"
+    assert p["expression"] == "\"C:\\Users\\[user]\\x.csv\" & 'T'[Col] & 42"
     assert discovery._text("jane.doe@contoso.com", 100) == "jane.doe@contoso.com"

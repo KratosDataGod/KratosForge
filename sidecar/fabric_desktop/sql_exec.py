@@ -1028,11 +1028,11 @@ def local_error(exc: BaseException, project: Any, snapshot: Path | None) -> tupl
         # DuckDB's own advice is to SET threads or memory_limit, which a local run refuses: they are
         # the project's settings.
         limit = str(getattr(settings, "memory_limit", "") or "")
-        share = (f"this project's memory limit ({limit}, in the project's settings)" if limit
-                 else "DuckDB's default share of this PC's memory (80%; the project's settings can set a limit)")
-        return "memory", (f"Stopped: the query ran out of memory within {share}. The statement that ran out of "
-                          "memory didn't finish. Narrow the query (a filter, fewer columns or tables), or raise "
-                          "the limit or lower the threads in the project's settings, and run it again.")
+        share, change = ((f"this project's memory limit ({limit})", "raise the memory limit") if limit else
+                         ("DuckDB's default share of this PC's memory (80%)", "set a memory limit"))
+        return "memory", (f"Stopped: the query needed more memory than {share} allows. That statement didn't "
+                          f"finish. Narrow the query (a filter, fewer columns or tables), or {change} or lower "
+                          "the threads in the project's settings, and run it again.")
     if disk_full.is_disk_full(exc):
         named = getattr(exc, "filename", None)  # else the project's folder: its database is the usual writer
         path = named if isinstance(named, (str, Path)) and named else getattr(project, "root", None) or snapshot

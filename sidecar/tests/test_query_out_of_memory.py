@@ -3,7 +3,7 @@ can change, changes nothing, and the next query runs (WR-103).
 
 DuckDB's own words ("Out of Memory Error: failed to allocate data of size ... Possible solutions:
 SET threads=X ... SET memory_limit=...") tell the user to run SET, which a Local data project run
-refuses and the SQL page locks: the limit is in the project's settings or in Settings › SQL.
+refuses and the SQL page locks: the limit is in the project's settings or in Settings > SQL.
 Measured on Linux with a 32MB project memory limit; the same query fails the same way on Windows,
 where it is UNVERIFIED by hand but runs in the Windows CI job.
 """
@@ -49,8 +49,8 @@ def test_a_local_data_run_past_the_projects_memory_limit_names_it_and_changes_no
                       "INSERT INTO t SELECT len(list(md5(i::VARCHAR))) FROM range(3000000) t(i)"):
             status = _local_run(svc, pid, query)
             assert status["state"] == "failed" and status["error_kind"] == "memory", status
-            assert status["error"].startswith("Stopped: the query ran out of memory within this project's memory "
-                                              "limit (32MB, in the project's settings)."), status["error"]
+            assert status["error"].startswith("Stopped: the query needed more memory than this project's memory "
+                                              "limit (32MB) allows. That statement didn't finish."), status["error"]
             assert "SET " not in status["error"]  # a local run refuses SET: the advice names the settings
         assert _local_run(svc, pid, "SELECT * FROM big")["error_kind"] == "sql"  # the new table wasn't made
         done = _local_run(svc, pid, "SELECT count(*) AS n FROM t")  # the existing table is unchanged
@@ -63,16 +63,17 @@ def test_with_no_project_limit_the_message_names_duckdbs_default():
     project = SimpleNamespace(settings=SimpleNamespace(memory_limit="", max_temp_size=""), temp_dir=None, root=None)
     kind, message = sql_exec.local_error(_oom(), project, None)
     assert kind == "memory"
-    assert message.startswith("Stopped: the query ran out of memory within DuckDB's default share of this PC's "
-                              "memory (80%; the project's settings can set a limit).")
+    assert message.startswith("Stopped: the query needed more memory than DuckDB's default share of this PC's "
+                              "memory (80%) allows. That statement didn't finish.")
+    assert "set a memory limit or lower the threads in the project's settings" in message
     assert "SET " not in message
 
 
 def test_the_sql_page_names_settings_sql():
     kind, message = sql_worker.error_message(_oom(), {})
     assert kind == "memory"
-    assert message.startswith("Stopped: the query ran out of memory within the share of this PC's memory set in "
-                              "Settings › SQL. Nothing was saved.")
+    assert message.startswith("Stopped: the query needed more memory than the share of this PC's memory set in "
+                              "Settings > SQL allows. Nothing was saved.")
     assert "SET " not in message
 
 

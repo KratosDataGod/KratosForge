@@ -308,9 +308,9 @@ def error_message(exc: BaseException, job: dict[str, Any]) -> tuple[str, str]:
     if disk_full.is_disk_full(exc):
         return "disk", disk_full.message(job.get("out"), "Nothing was saved.")
     if "out of memory error" in message.lower():  # DuckDB's advice (SET threads or memory_limit) can't apply here
-        return "memory", ("Stopped: the query ran out of memory within the share of this PC's memory set in "
-                          "Settings › SQL. Nothing was saved. Narrow the query (a filter, fewer columns or "
-                          "tables), or raise the share, and run it again.")
+        return "memory", ("Stopped: the query needed more memory than the share of this PC's memory set in "
+                          "Settings > SQL allows. Nothing was saved. Narrow the query (a filter, fewer columns "
+                          "or tables), or raise the share, and run it again.")
     return "sql", message
 
 

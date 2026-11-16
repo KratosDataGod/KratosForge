@@ -4019,6 +4019,62 @@ mod sidecar_bridge_tests {
     }
 }
 
+/// The page asks the shell to open links and files; these are the asks it refuses before anything is
+/// started. (The ones it allows start the browser, the mail app or VS Code, so they aren't run here.)
+#[cfg(test)]
+mod open_refusal_tests {
+    use super::*;
+
+    #[test]
+    fn only_https_and_mailto_links_are_opened() {
+        for (link, scheme) in [
+            ("http://example.com/", "http"),
+            ("file:///C:/Windows/System32/notepad.exe", "file"),
+            ("javascript:alert(1)", "javascript"),
+            ("kratosforge://open?notebook=x", "kratosforge"),
+            ("vscode://file/C:/x.ipynb", "vscode"),
+            ("ms-settings:privacy", "ms-settings"),
+        ] {
+            assert_eq!(open_link(link.into()), Err(format!("Not opening a {scheme} link")), "{link}");
+        }
+        // Not a whole address at all.
+        assert!(open_link("notepad.exe".into()).is_err());
+        assert!(open_link(String::new()).is_err());
+    }
+
+    #[test]
+    fn vs_code_opens_only_a_notebook_or_folder_on_this_pc_inside_the_notebooks_folders() {
+        for path in ["notebooks/sales.ipynb", r"\\host\share\sales.ipynb", "//host/share/sales.ipynb"] {
+            assert_eq!(
+                open_in_vscode(path.into(), false),
+                Err(format!("Not a notebook or folder on this PC: {path}")),
+                "{path}"
+            );
+        }
+        let dir = std::env::temp_dir().join(format!("kf-open-vscode-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let missing = dir.join("missing.ipynb");
+        let text = dir.join("notes.txt");
+        std::fs::write(&text, "not a notebook").unwrap();
+        for path in [&missing, &text] {
+            let path = path.to_string_lossy().to_string();
+            assert_eq!(open_in_vscode(path.clone(), true), Err(format!("Not a notebook or folder: {path}")));
+        }
+        // A real notebook, and a folder, outside the app's notebooks folder and its repositories.
+        let notebook = dir.join("sales.IPYNB");
+        std::fs::write(&notebook, "{}").unwrap();
+        for path in [&notebook, &dir] {
+            let path = path.to_string_lossy().to_string();
+            assert_eq!(
+                open_in_vscode(path.clone(), false),
+                Err(format!("Not in the notebooks folder or a repository opened in Source control: {path}"))
+            );
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
 #[cfg(test)]
 mod release_rule_tests {
     use super::*;
@@ -4094,62 +4150,6 @@ mod release_rule_tests {
         release_rule(&mut r, "stable", &path, NOW);
         assert!(r["refused"].as_str().unwrap().contains("no checksum"));
         assert_eq!(update_guard::offered(&path), None);
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-}
-
-/// The page asks the shell to open links and files; these are the asks it refuses before anything is
-/// started. (The ones it allows start the browser, the mail app or VS Code, so they aren't run here.)
-#[cfg(test)]
-mod open_refusal_tests {
-    use super::*;
-
-    #[test]
-    fn only_https_and_mailto_links_are_opened() {
-        for (link, scheme) in [
-            ("http://example.com/", "http"),
-            ("file:///C:/Windows/System32/notepad.exe", "file"),
-            ("javascript:alert(1)", "javascript"),
-            ("kratosforge://open?notebook=x", "kratosforge"),
-            ("vscode://file/C:/x.ipynb", "vscode"),
-            ("ms-settings:privacy", "ms-settings"),
-        ] {
-            assert_eq!(open_link(link.into()), Err(format!("Not opening a {scheme} link")), "{link}");
-        }
-        // Not a whole address at all.
-        assert!(open_link("notepad.exe".into()).is_err());
-        assert!(open_link(String::new()).is_err());
-    }
-
-    #[test]
-    fn vs_code_opens_only_a_notebook_or_folder_on_this_pc_inside_the_notebooks_folders() {
-        for path in ["notebooks/sales.ipynb", r"\\host\share\sales.ipynb", "//host/share/sales.ipynb"] {
-            assert_eq!(
-                open_in_vscode(path.into(), false),
-                Err(format!("Not a notebook or folder on this PC: {path}")),
-                "{path}"
-            );
-        }
-        let dir = std::env::temp_dir().join(format!("kf-open-vscode-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let missing = dir.join("missing.ipynb");
-        let text = dir.join("notes.txt");
-        std::fs::write(&text, "not a notebook").unwrap();
-        for path in [&missing, &text] {
-            let path = path.to_string_lossy().to_string();
-            assert_eq!(open_in_vscode(path.clone(), true), Err(format!("Not a notebook or folder: {path}")));
-        }
-        // A real notebook, and a folder, outside the app's notebooks folder and its repositories.
-        let notebook = dir.join("sales.IPYNB");
-        std::fs::write(&notebook, "{}").unwrap();
-        for path in [&notebook, &dir] {
-            let path = path.to_string_lossy().to_string();
-            assert_eq!(
-                open_in_vscode(path.clone(), false),
-                Err(format!("Not in the notebooks folder or a repository opened in Source control: {path}"))
-            );
-        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

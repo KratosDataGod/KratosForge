@@ -75,3 +75,10 @@ def test_an_error_over_several_lines_ends_at_its_own_end_column():
     assert isn.syntax_problems("f(\n**k,\n*a)") == [
         {"line": 2, "col": 3, "end_line": 3, "end_col": 2,
          "message": "Iterable argument unpacking follows keyword argument unpacking"}]
+
+
+def test_a_cell_magic_after_lines_of_only_spaces_is_still_the_cells_language():
+    # As IPython reads it: blank lines before %%sql don't make the cell Python (#2746).
+    assert isn.syntax_problems("   \n%%sql\nSELECT * FROM t") == []
+    assert isn.syntax_problems("  \n\t\n%%sql\nselect") == []
+    assert isn.syntax_problems(" \n%%pyspark\nx = (")[0]["line"] == 3  # a Python magic still checks its own body

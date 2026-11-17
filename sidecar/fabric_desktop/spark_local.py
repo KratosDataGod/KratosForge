@@ -39,6 +39,7 @@ from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
 from .duckdb_rows import first_row, keep_try_cast
 from .spark_complex import spark_complex_types
 from .spark_decimals import spark_decimal_types
+from . import trees
 
 
 def _arrow(df: DataFrame) -> pa.Table:
@@ -189,7 +190,6 @@ def _clear_output(path: str) -> None:
     """Remove a Spark write's folder (or a file) at ``path`` before an overwrite, as Spark does. A
     folder that holds anything a Spark write doesn't leave (part files, _SUCCESS, name=value folders),
     or a link, is refused instead, so an overwrite can't delete someone's own files."""
-    import shutil
     refused = "so overwrite didn't delete anything. Write to a new path, or empty the folder first."
     if _is_link(path):
         raise ValueError(f"{path} is a link, {refused}")
@@ -206,7 +206,7 @@ def _clear_output(path: str) -> None:
         foreign = [f for f in files if not _SPARK_OUTPUT.fullmatch(f)]
         if foreign:
             raise ValueError(f"{path} holds files a Spark write doesn't make ({foreign[0]}), {refused}")
-    shutil.rmtree(path)
+    trees.remove(path)
 
 
 def write_files(rel: Any, path: str, fmt: str, partition_by: list[str], header: bool = False,

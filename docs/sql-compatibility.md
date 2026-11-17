@@ -55,9 +55,33 @@ Queries over 100,000 characters are checked when you press **Check now** in the 
 - Check every construct. Statements the engine treats as commands (GRANT, DBCC, SHOW, OPTIMIZE and similar) are checked only by the rules that read their words.
 - Put SQL text or findings in the security audit log, or put string literals in findings: a password in the SQL never shows in a message.
 
+## ANSI mode on this PC
+
+Spark SQL and the DataFrame API on this PC run with ANSI mode off (`spark.sql.ansi.enabled = false`). That is how Fabric runs them. Runtime 1.3 (Spark 3.5) keeps Spark's default, and Runtime 2.0 (Spark 4.1) is set to false by Microsoft, although Spark 4 turns it on. Databricks SQL on the DuckDB engine runs with ANSI mode on, as a Databricks SQL warehouse (`ANSI_MODE`) and Databricks Runtime 17.0 and later do. Each case below is checked against Spark 3.5's ANSI compliance page and Databricks' `ANSI_MODE` page in `sidecar/tests/test_spark_ansi.py`. None has been compared with a Fabric or Databricks run, so treat them as UNVERIFIED there.
+
+| Case | Spark SQL here (ANSI off, as Fabric) | Databricks SQL here (ANSI on) |
+| --- | --- | --- |
+| A `CAST` of text that isn't a number or a date, such as `CAST('abc' AS INT)` or `CAST('2024-02-30' AS DATE)` | NULL | Stops (`[CAST_INVALID_INPUT]` for a number) |
+| A `CAST` of a number past the type's range | A whole number keeps its low bits, as Java's cast does: `CAST(2147483648 AS INT)` is -2147483648. A double past the range becomes the range's nearest end: `CAST(1e10 AS INT)` is 2147483647, and NaN is 0. Text past the range is NULL | Stops |
+| A division by zero (`/`, `div`, `%`) | NULL | Stops with `[DIVIDE_BY_ZERO]` |
+| `try_cast`, `try_divide` | NULL | NULL |
+
+`spark.conf.set("spark.sql.ansi.enabled", "true")` is kept for when the notebook runs in Fabric, and prints a note naming it: this PC still answers with ANSI mode off.
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| `int` or `bigint` arithmetic past the type's range, such as `2147483647 + 1`, with ANSI off | Wraps around: -2147483648 | Stops with DuckDB's "Overflow in addition of INT32". Cast to a wider type first, or use `try_add` |
+| `abs(-2147483648)` or `-(-2147483648)` on an int, with ANSI off | Wraps around: -2147483648 | 2147483648, a `bigint` |
+| A notebook in Databricks Runtime 17.0 or later, which runs Spark SQL with ANSI mode on | A failed `CAST` or a division by zero stops | Gives NULL, as with ANSI mode off. The first use of `dbutils` in a session prints a note saying so, since which runtime a notebook is meant for isn't known here. Run it as Databricks SQL on the DuckDB engine, or on Databricks |
+| `pmod(x, 0)` in Databricks SQL | Stops with `[DIVIDE_BY_ZERO]` | NULL |
+| A decimal sum past its type's range in Databricks SQL on the DuckDB engine | Stops (`[ARITHMETIC_OVERFLOW]`, ANSI on) | NULL, as with ANSI off |
+| `try_divide` of decimals | A decimal, typed as `/` is | A `double` |
+
 ## Decimal results on this PC (LOC-005)
 
-Spark SQL run on this PC gives Spark's decimal type and value for division, multiplication, addition, subtraction, `%`, `pmod`, `div`, `avg`, `sum`, `round`, `bround`, `ceil` and `floor`. These follow Spark's own rules: DecimalPrecision with `spark.sql.decimalOperations.allowPrecisionLoss` on, the default. A division by zero gives NULL, as Spark does with ANSI mode off. For example, `CAST(1 AS DECIMAL(10,2)) / 3` is `decimal(14,6)` 0.333333 here, as in Fabric Spark. These results are checked against Spark's published rules in `sidecar/tests/test_spark_decimal_rules.py`. They haven't been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
+Spark SQL run on this PC, in a notebook or on the DuckDB engine, and Databricks SQL on the DuckDB engine, give Spark's decimal type and value for division, multiplication, addition, subtraction, `%`, `pmod`, `div`, `avg`, `sum`, `round`, `bround`, `ceil` and `floor`. These follow Spark's own rules: DecimalPrecision with `spark.sql.decimalOperations.allowPrecisionLoss` on, the default. A division by zero gives NULL, as Spark does with ANSI mode off; Databricks SQL stops on it, as with ANSI mode on. For example, `CAST(1 AS DECIMAL(10,2)) / 3` is `decimal(14,6)` 0.333333 here, as in Fabric Spark. These results are checked against Spark's published rules in `sidecar/tests/test_spark_decimal_rules.py`. They haven't been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
 
 These cases can still differ, and LOC-005 notes them:
 
@@ -67,7 +91,8 @@ These cases can still differ, and LOC-005 notes them:
 | A division whose dividend, scaled, needs more than 38 digits | The exact quotient | Worked out through DOUBLE and cast to Spark's type, so the last digits can differ |
 | `div` past 38 digits | The exact quotient | Worked out through DOUBLE |
 | `div` whose quotient is past the BIGINT range | Wraps around (ANSI off) | NULL |
-| ANSI mode on | A division by zero is an error | NULL |
+| `spark.sql.ansi.enabled` set to true in a notebook | A division by zero is an error | NULL |
+| On the DuckDB engine, a statement that reads a table made earlier in the same cell | Spark's decimal types | DuckDB's types: the table isn't there yet when the cell is read. Make the table in its own cell |
 
 ## Dates and times on this PC (LOC-003)
 

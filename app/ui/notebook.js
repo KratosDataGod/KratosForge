@@ -878,6 +878,7 @@ function editorFor(cell) {
     state: CM.EditorState.create({
       doc: cell.source,
       extensions: [
+        editorPrefsExtension("notebook", keys),  // editorprefs.js: wrap, font size, Vim and changed keys; first, so Vim reads keys first
         gutterComp.of(gutters(cell)), cmStyleNonce(),
         // tabindex: a Tab stop already (contenteditable), said outright so a checker counts the editor's scroller as
         // reachable from the keyboard when a long line makes it scroll sideways (axe scrollable-region-focusable).
@@ -888,7 +889,6 @@ function editorFor(cell) {
         CM.syntaxHighlighting(editorHighlight),
         // Before langComp: its completion keymap, also at highest precedence, would otherwise take Esc
         // while suggestions are still being fetched, with nothing on screen.
-        CM.Prec.highest(CM.keymap.of(keys)),
         langComp.of(languageFor(cell)),
         readOnlyComp.of(readOnly(cell)),
         findHighlighter(cell),  // nbfind.js
@@ -941,20 +941,22 @@ function cellKeymap(cell) {
     return true;
   };
   return [
-    { key: "Shift-Enter", run: run(true, false) },
-    { key: "Mod-Enter", run: run(false, false) },
-    { key: "Alt-Enter", run: run(false, true) },
-    // A suggestion list on screen takes Esc first (it closes); otherwise Esc leaves for command mode.
+    // An entry with an id takes the key Settings > Editor > Change keys gives it (editorprefs.js).
+    { id: "run_cell_next", key: "Shift-Enter", run: run(true, false) },
+    { id: "run_cell", key: "Mod-Enter", run: run(false, false) },
+    { id: "run_cell_insert", key: "Alt-Enter", run: run(false, true) },
+    // A suggestion list on screen takes Esc first (it closes), and so does Vim out of its normal mode;
+    // otherwise Esc leaves for command mode.
     { key: "Escape", run: (view) => {
-      if (view.dom.querySelector(".cm-tooltip-autocomplete")) return false;
+      if (view.dom.querySelector(".cm-tooltip-autocomplete") || editorVimTakesEscape(view)) return false;
       view.contentDOM.blur();
       enterCommandMode(cell);
       return true;
     } },
-    { key: "Mod-Shift--", run: () => { splitCell(cell); return true; } },  // CodeMirror names keys by their character
-    { key: "Mod-/", run: CM.toggleComment },
-    { key: "F9", run: () => dbgToggleAtCursor(cell) },
-    { key: "Shift-Alt-f", run: () => { formatCells([cell]); return true; } },
+    { id: "split_cell", key: "Mod-Shift--", run: () => { splitCell(cell); return true; } },  // CodeMirror names keys by their character
+    { id: "comment", key: "Mod-/", run: CM.toggleComment },
+    { id: "breakpoint", key: "F9", run: () => dbgToggleAtCursor(cell) },
+    { id: "format", key: "Shift-Alt-f", run: () => { formatCells([cell]); return true; } },
   ];
 }
 

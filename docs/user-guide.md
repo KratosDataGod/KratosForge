@@ -294,6 +294,10 @@ Opening a lakehouse shows its **Tables** (by schema) and **Files** (folders and 
 
 **SQL query** on a **Warehouse** or **SQL analytics endpoint** row in Workspaces opens the Warehouse page: the same editor and results, with T-SQL that runs in Fabric on the warehouse. It uses capacity, so the first run on each warehouse after the app starts asks first. It only reads until you tick **Allow changes**; then a script that changes the warehouse shows what it changes and runs after you confirm, in one transaction, and in Prod you type the warehouse's name first. It signs in as you, so the warehouse's own permissions apply. The explorer lists schemas, tables, views, procedures and functions from the warehouse's catalog, with column types, and completes names as you type. **SQL from a template** (the arrow beside **New SQL query**) opens T-SQL templates (tables, loads, views, procedures, time travel, security, statistics and accelerators such as an SCD type 2 merge) with fields to fill in; the script opens in a new tab and runs nothing. **New template** adds your own, kept on this PC or in a Git repository's `sql-templates` folder for your team, and **Import** and **Export** share them as `.sql` files. **Save query** keeps a tab as a `.sql` file in My queries or in a Git repository's `sql-queries` folder, and the explorer's **Queries** tab opens them again. The **History** tab lists your runs on this PC and opens Fabric's query insights (long running, frequently run, recent requests). The **Project** tab keeps the warehouse as `.sql` files in a Git repository, in the layout Fabric's Git integration uses: **Import** scripts the warehouse into it, and you edit, save and commit the files. **Table detail** on a table profiles its columns, opens a query that reads it as it was at a past time, and scripts a clone. **Estimated plan** shows how Fabric would run a query as a tree of operators with estimated rows and cost, without running it. **Compare** shows which objects differ between the project and the warehouse, side by side, and **Deploy** previews and runs the changes that make the warehouse match, with Test and Prod deploying only what's committed and pushed. More in [Warehouses](warehouse.md).
 
+### Table diagram (Preview)
+
+**Diagram** in the SQL page's Explorer draws the tables of one schema and how their columns link; pick another schema at the top. It's read only and never adds or changes a key. On a warehouse or SQL analytics endpoint, solid lines come from the warehouse's own primary and foreign keys, read with one more catalog query in Fabric (it uses a little capacity, after the explorer has listed the objects). Dashed lines are guessed from column names: a column such as `customer_id` links to the one other table named for it (`dim_customer`, `customers`) that has that column or an `id` column, and when two tables fit equally, no line is drawn. A lakehouse has no keys, so every line there is a guess, and each table's columns are read as the Explorer reads them. It shows the first 40 tables of a schema and 12 columns of each, plus any column a line uses. Click a table, or press Enter on it, to open it in the Explorer. **Export as SVG** saves the drawing as a new `.svg` file in your Downloads folder; it never replaces a file.
+
 ### Warehouse monitoring (Preview)
 
 **Monitoring** on the Warehouse page shows Fabric's workspace monitoring for the warehouse: queries, typical and slowest times, failures and who runs what, from the workspace's monitoring KQL database. It needs a workspace admin to turn on monitoring in Fabric first. **Build views** creates a KQL queryset with the same views in the workspace, after you confirm, and can do it for new warehouses there without asking again. See [Warehouse: Monitoring](warehouse.md#monitoring-preview).
@@ -714,6 +718,25 @@ When your organization's policy file sets one of these, or the `FABRIC_DESKTOP_C
 - **Density.** **Comfortable** (the default) or **Compact**, which tightens tables, lists, toolbars and cards.
 - **Learning guidance** (Preview). **Expert**, **Professional** (the default) or **Guided**: how much explanation the best-practice panels and Learn show beside your work. See [Learn](learn.md#guidance).
 - **SQL guidance** and **Notebook guidance** (Preview). **Same** (the default) follows Learning guidance; **Expert**, **Professional** or **Guided** sets the level beside that subject's best-practice findings only. See [Learn](learn.md#guidance).
+
+### Editor settings
+
+**Settings > Editor** changes how notebook cells and SQL editors type and look. Changes apply at once to every
+open editor and are kept:
+
+- **Word wrap.** **Notebooks**, **SQL**, **Both** or **Off** (the default): long lines wrap instead of scrolling sideways.
+- **Font size.** The code font in cells and SQL editors, 10 to 24 px. **Each editor's own** (the default) keeps
+  13 px in cells and 13.5 px in SQL editors. The rest of the app follows Ctrl+= and Ctrl+-.
+- **Key bindings** (Preview). **Default** or **Vim**, which adds Vim's modal editing to cells and SQL editors. In a
+  cell, Esc in Vim's normal mode still leaves for command mode: in insert or visual mode, press Esc once to get back to normal mode, then again to leave.
+  Shift+Enter, Ctrl+Enter and the other run keys work in every mode.
+- **Shortcuts.** **Change keys...** lists the editor commands with their keys: running a cell or a query, format,
+  comment, change case, go to a line, bookmarks and more. **Change** waits for the new key (Esc cancels), and
+  **Reset** puts one back. A key needs Ctrl or Alt unless it's an F key. Keys the app already uses, such as Ctrl+K
+  (the command bar), Ctrl+C or Ctrl+Z, can't be taken, and neither can another command's key in the same editor.
+
+IT can set any of these for everyone with `editor_word_wrap`, `editor_font_size`, `editor_keys` and
+`editor_key_overrides` ([Push settings to everyone](azure-setup.md)); Settings then shows them locked.
 
 ### Motion and effects
 

@@ -2930,8 +2930,8 @@ test("a cell replaced whole keeps its breakpoints by line text, and names the on
   assert.deepStrictEqual(JSON.parse(JSON.stringify(dbgBpRematch([2, 5], text, ["x = 1", "z = 2"]))), { lines: [], dropped: [2, 5] });
   // Repeated text: the occurrence nearest where it was.
   assert.deepStrictEqual([...dbgBpRematch([3], (n) => ["a", "b", "a", "b"][n - 1], ["a", "b", "a", "b", "a"]).lines], [3]);
-  assert.strictEqual(dbgDroppedText([4], "its line was deleted"), "Removed the breakpoint on line 4: its line was deleted.");
-  assert.strictEqual(dbgDroppedText([2, 5, 9], "their lines were deleted"), "Removed the breakpoints on lines 2, 5 and 9: their lines were deleted.");
+  assert.strictEqual(dbgDroppedText([4], "its line was deleted"), "Removed the breakpoint on line 4, because its line was deleted.");
+  assert.strictEqual(dbgDroppedText([2, 5, 9], "their lines were deleted"), "Removed the breakpoints on lines 2, 5 and 9, because their lines were deleted.");
   assert.strictEqual(dbgDroppedText([], "x"), "");
 });
 

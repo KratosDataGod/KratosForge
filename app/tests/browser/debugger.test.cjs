@@ -167,7 +167,7 @@ test("an edited cell moves its breakpoints with their lines, and names any it re
   // A breakpoint whose line is gone is removed, and the message says which.
   await p.evaluate(() => { setSource(state.notebook.cells[0], "a = 1\nb = 2"); });
   assert.deepStrictEqual(await p.evaluate(() => state.notebook.cells[0].meta.breakpoints), [2]);
-  assert.ok((await toasts(p)).some((t) => t.includes("Removed the breakpoint on line 5: that line isn't in the cell any more.")));
+  assert.ok((await toasts(p)).some((t) => t.includes("Removed the breakpoint on line 5, because that line isn't in the cell any more.")));
   // Code changed where no editor saw it: a breakpoint past the end is named before the run.
   await p.evaluate(() => {
     const c = state.notebook.cells[0];
@@ -175,7 +175,7 @@ test("an edited cell moves its breakpoints with their lines, and names any it re
     return dbgStartArgs(c, false);
   });
   assert.deepStrictEqual(await p.evaluate(() => state.notebook.cells[0].meta.breakpoints), [2]);
-  assert.ok((await toasts(p)).some((t) => t.includes("Removed the breakpoint on line 9: the cell has 2 lines now.")));
+  assert.ok((await toasts(p)).some((t) => t.includes("Removed the breakpoint on line 9, because the cell has 2 lines now.")));
   assert.deepStrictEqual(app.errors, []);
 });
 

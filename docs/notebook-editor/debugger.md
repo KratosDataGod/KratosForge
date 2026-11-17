@@ -25,8 +25,8 @@ question on the roadmap.
   its line. When the whole cell is rewritten at once (**Format cell**, a language change), each
   breakpoint finds its line's code again, wherever it moved.
 - A breakpoint is never lost without a word. When its line is deleted, or its code is no longer in
-  the cell, it is removed and a message names the line, such as "Removed the breakpoint on line 5:
-  its line was deleted." A breakpoint past the cell's end (its code was changed in another program)
+  the cell, it is removed and a message names the line, such as "Removed the breakpoint on line 5,
+  because its line was deleted." A breakpoint past the cell's end (its code was changed in another program)
   is removed and named the same way when the cell runs.
 - Breakpoints are **saved with the notebook**, so they're there after you close and reopen it.
   They're kept in each format KratosForge writes:
@@ -55,7 +55,7 @@ The paused line is highlighted, and a panel under the cell shows:
 - **Variables** in the paused frame: names, types, sizes and a short value. A variable whose name
   looks like a secret, or whose value came from `getSecret`, shows as `hidden`. A frame with more
   than 200 variables lists the first 200 by name and says how many there are. A data frame shows
-  its size and first columns, not its rows (evaluate `df.head()` for those), and a long list or
+  its size and first columns, not its rows (evaluate its head(), such as `df.head()`, for those), and a long list or
   text shows its first items, so pausing next to large data stays quick.
 - **Stepped over, not into**: after **Step into**, the library functions (such as `json.dumps`) and
   the functions from other cells it didn't go into, by name.

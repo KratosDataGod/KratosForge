@@ -97,7 +97,7 @@ function dbgDroppedText(dropped, why) {
   if (!dropped.length) return "";
   const list = dropped.length === 1 ? `line ${dropped[0]}`
     : `lines ${dropped.slice(0, -1).join(", ")} and ${dropped[dropped.length - 1]}`;
-  return `Removed the ${dropped.length === 1 ? "breakpoint" : "breakpoints"} on ${list}: ${why}.`;
+  return `Removed the ${dropped.length === 1 ? "breakpoint" : "breakpoints"} on ${list}, because ${why}.`;
 }
 
 // The paused call stack, outermost first: "(cell) line 5 › f line 3".
@@ -552,7 +552,7 @@ function dbgVariablesNote(p) {
     parts.push(`Showing the first ${p.variables.length} of ${p.variables_total} variables, by name. Evaluate a name to see one that isn't listed.`);
   }
   if ((p.variables || []).some((r) => /×/.test(r.size || ""))) {
-    parts.push("Data frames show their size and first columns only. Evaluate df.head() to see rows.");
+    parts.push("Data frames show their size and first columns only. Evaluate its head(), such as df.head(), to see rows.");
   }
   return parts.length ? h("div", { class: "muted-text dbg-note dbg-capped" }, parts.join(" ")) : null;
 }

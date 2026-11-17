@@ -48,7 +48,7 @@ def test_staged_table_matches_fabric_profile(tmp_path):
 def test_staging_still_refuses_a_schema_outside_the_profile(tmp_path):
     import datetime as dt
     data = pa.table({"at": pa.array([dt.datetime(2026, 1, 1)], pa.timestamp("us"))})  # timestamp_ntz: reader 3
-    with pytest.raises(delta_profile.ProfileViolation, match="reader version 3"):
+    with pytest.raises(delta_profile.ProfileViolation, match=r"reader features \['timestampNtz'\]"):
         stage_locally(data, tmp_path, "stage")
     assert list(tmp_path.iterdir()) == []
 

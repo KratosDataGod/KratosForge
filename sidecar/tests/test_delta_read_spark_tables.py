@@ -135,8 +135,10 @@ def test_project_queries_and_time_travel_see_the_spark_rows(tmp_path, tables):
         local.close_all()
 
 
-def test_a_write_to_a_table_outside_the_profile_is_still_refused_and_changes_nothing(tmp_path, tables):
+def test_a_write_to_a_table_outside_the_profile_is_still_refused_and_changes_nothing(tmp_path, tables, monkeypatch):
     """Reading these tables doesn't open them to writes: that is the profile's choice, not the reader's."""
+    from fabric_desktop import delta_profile
+    monkeypatch.setattr(delta_profile, "DEFAULT_PROFILE", delta_profile.CONSERVATIVE)
     local = LocalData(tmp_path / "app" / "local-data")
     try:
         e = local.engine(local.create("Spark tables")["id"])

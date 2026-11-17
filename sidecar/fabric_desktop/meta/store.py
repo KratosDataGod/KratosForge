@@ -294,6 +294,9 @@ class Store:
             Path(uri).mkdir(parents=True, exist_ok=True)
         if current is not None:
             delta_profile.check_table(current)
+        wanted = {"overwrite": "overwrite", "error": None}.get(
+            "error" if mode == "overwrite" and read_version is None else mode, "merge")
+        schema_mode = delta_read.schema_mode_for(current, data.schema.names, wanted, f"{schema}.{table}")
         # An append goes through the table as loaded: delta-rs commits it on top of any commit made since.
         target: Any = current if mode == "append" and current is not None else uri
         extra: dict[str, Any] = {}
@@ -306,7 +309,6 @@ class Store:
                 target = _at(current, uri, self.options(), int(read_version))
                 extra["predicate"] = "true"
         try:
-            how = extra.get("mode", mode)
             check_held()  # the table's lease is still ours, with time to commit (HD-016)
             # Appends never conflict with each other, so one that loses the race for a version is made on
             # the next; delta-rs's default 15 tries ran out with four runs appending to the run log at once.
@@ -314,7 +316,7 @@ class Store:
             for attempt in range(APPEND_RACE_ATTEMPTS):
                 try:
                     write_deltalake(target, data, **({"mode": mode} | extra), storage_options=self.options(),
-                                    schema_mode={"overwrite": "overwrite", "error": None}.get(how, "merge"),
+                                    schema_mode=schema_mode,
                                     commit_properties=CommitProperties(custom_metadata=metadata, max_commit_retries=retries)
                                     if metadata or retries else None)
                     break
@@ -375,7 +377,9 @@ class Store:
         try:
             check_held()
             write_deltalake(target, rows, **extra, storage_options=self.options(),
-                            schema_mode="overwrite" if read_version is not None else None,
+                            schema_mode=delta_read.schema_mode_for(current, rows.schema.names,
+                                                                   "overwrite" if read_version is not None else None,
+                                                                   f"{schema}.{table}"),
                             commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
         except Exception as exc:
             if not self.removes_unwritten:
@@ -610,7 +614,8 @@ class Store:
             bounds = f"(({bounds}) OR t.`{col}` >= {int(first)})"
         predicate = " AND ".join(([bounds] if bounds else []) + [f"t.`{c}` = s.`{c}`" for c in on])
         check_held()
-        merger = target.merge(data, predicate, source_alias="s", target_alias="t", merge_schema=True,
+        evolve = delta_read.schema_mode_for(current, data.schema.names, "merge", f"{schema}.{table}") is not None
+        merger = target.merge(data, predicate, source_alias="s", target_alias="t", merge_schema=evolve,
                               commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
         if delete_flag:
             # Rows flagged in df remove their match from the table; the flag itself is never written.

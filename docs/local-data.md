@@ -63,7 +63,7 @@ The same statements work in Spark SQL (`INSERT INTO TABLE sales ...`, `INSERT OV
 
 Times are UTC. A time picks the last version committed at or before it. To restore a version, overwrite from it: `INSERT OVERWRITE sales SELECT * FROM sales AT (VERSION => 3)`, which is a new version itself. Delta tables in registered folders can be read as of a version too.
 
-**Fabric-safe.** Tables are written in the plain Delta profile Fabric reads reliably (reader version 1, writer version 2, no table features), checked before and after every write, so a later publish to OneLake needs no conversion:
+**Fabric-safe.** Tables this engine creates are plain Delta (reader version 1, writer version 2, no table features), which every Fabric reader reads, so a later publish to OneLake needs no conversion. A write to an existing table is checked against the [Delta profile](delta-reader-matrix.md#the-profiles) first:
 
 - `TIMESTAMP` columns are stored as UTC timestamps. (A Delta `timestamp_ntz` column would need reader version 3.)
 - Unsigned integers widen to the next signed type (`UTINYINT` to `SMALLINT`, `UBIGINT` to `DECIMAL(20,0)`).

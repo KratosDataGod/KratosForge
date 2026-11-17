@@ -78,7 +78,7 @@ Several calls can be on the pipe at once. Each request carries an id, and the sh
 
 `lakehouse.write_table`, **Save as table**, jobs and metadata runs all write the same way:
 
-1. An empty local staging Delta table with the result's schema is written first, since the schema alone decides the table's protocol, and deleted once checked. It is checked against the Fabric-safe Delta profile before anything leaves the PC: reader version 1, writer version 2, no deletion vectors, no column mapping and classic checkpoints.
+1. An empty local staging Delta table with the result's schema is written first, since the schema alone decides the table's protocol, and deleted once checked. It is checked against the Delta profile before anything leaves the PC (`delta_profile.py`; the modern profile by default, see [the Delta reader matrix](delta-reader-matrix.md#the-profiles)).
 2. delta-rs writes the Parquet data files to `Tables/<schema>/<table>`, or `Tables/<table>` in a lakehouse without schemas. It then commits the Delta log in one atomic step, so Fabric never sees a half-written version.
 3. The written table is checked against the profile again, and the write is added to the run history shown in **Monitor**.
 

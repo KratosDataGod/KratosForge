@@ -68,7 +68,8 @@ def test_the_docs_table_lists_each_case_that_differs_then_names_the_rest():
     table, tail = rest.split("\n\n")
     lines = table.split("\n")
     assert lines[:2] == ["| Function | Group | On this PC | What to know |", "| --- | --- | --- | --- |"]
-    assert lines[2:] == [f"| `{c.function}` | {c.group} | Different result | {c.note} |" for c in others]
+    words = {"differs": "Different result", "error": "Doesn't run", "untranslated": "Runs only in Snowflake"}
+    assert lines[2:] == [f"| `{c.function}` | {c.group} | {words[c.outcome]} | {c.note} |" for c in others]
     assert tail == (f"These {len(same)} checks answer as Snowflake documents: "
                     + ", ".join(f"`{c.function}`" for c in same) + ".")
 

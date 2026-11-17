@@ -942,3 +942,66 @@ def test_sfx018_lag_and_running_count_read_tied_rows_in_one_order():
     rows = _rows("SELECT CONDITIONAL_CHANGE_EVENT(x) OVER (ORDER BY o) FROM VALUES (1, 'a'), (1, 'b'), (1, 'a'), "
                  "(2, 'a') AS t(o, x)")
     assert max(r[0] for r in rows) in (1, 2, 3)  # tied rows come in some order, but one order for LAG and count
+
+
+@pytest.mark.parametrize(("sql", "why"), [
+    ("SELECT hash(10)", "Snowflake's own hash"), ("SELECT hash(a, b) FROM t", "Snowflake's own hash"),
+    ("SELECT uniform(1, 10, 42)", "UNIFORM with a generator other than RANDOM()"),
+    ("SELECT uniform(1, 10, random(12))", "UNIFORM with a generator other than RANDOM()"),
+    ("SELECT uniform(1, 10, a) FROM t", "UNIFORM with a generator other than RANDOM()"),
+])
+def test_snowflake_own_hash_and_a_uniform_series_are_refused(sql, why):
+    translation = sf.translate(sql)
+    assert not translation.runnable and why in translation.first_refusal()
+
+
+def test_uniform_from_random_still_runs():
+    assert sf.translate("SELECT uniform(1, 10, random())").runnable
+
+
+def _first(sql):
+    translation = sf.translate(sql)
+    assert translation.runnable, translation.first_refusal()
+    return duckdb.sql(translation.duckdb_sql).fetchone()[0]
+
+
+def test_alter_session_sets_the_time_zone_and_refuses_other_parameters():
+    translation = sf.translate("ALTER SESSION SET TIMEZONE = 'America/New_York'")
+    assert translation.runnable and translation.duckdb_sql == "SET TimeZone = 'America/New_York'"
+    for sql in ("ALTER SESSION UNSET TIMESTAMP_OUTPUT_FORMAT", "ALTER SESSION SET TIMESTAMP_OUTPUT_FORMAT = 'x'"):
+        translation = sf.translate(sql)  # no longer an AttributeError
+        assert not translation.runnable and "Session parameters" in translation.first_refusal()
+
+
+def test_array_distinct_keeps_first_places_and_flatten_of_a_null_is_null():
+    assert _first("SELECT array_distinct([3, 1, 3, NULL, 2, NULL, 1])") == [3, 1, None, 2]
+    assert _first("SELECT array_flatten([[1], NULL])") is None
+    assert _first("SELECT array_flatten([[1], [NULL]])") == [1, None]
+
+
+def test_get_of_an_object_key_cast_to_text_has_no_json_quotes():
+    assert _first("SELECT get(object_construct('a', 'x'), 'a')::VARCHAR") == "x"
+    assert _first("SELECT strip_null_value(parse_json('{\"c\": \"3\"}'):c)::VARCHAR") == "3"
+    assert _first("SELECT get([2.5, 1], 0)") == 2.5  # an array's element is left as it is
+
+
+def test_the_e_parameter_gives_the_first_group_unless_one_is_named():
+    assert _first("SELECT regexp_substr('the best', 'the\\\\W+(\\\\w+)', 1, 1, 'e')") == "best"
+    assert _first("SELECT regexp_substr('ab', '(a)(b)', 1, 1, 'e', 2)") == "b"
+    assert _first("SELECT regexp_substr('ab', '(a)(b)')") == "ab"  # no 'e': the whole match
+
+
+def test_a_whole_number_in_a_string_is_read_by_its_size():
+    import datetime as dt
+    for text in ("31536000", "31536000000", "31536000000000", "31536000000000000"):
+        assert _first(f"SELECT to_timestamp('{text}')") == dt.datetime(1971, 1, 1), text
+    assert _first("SELECT to_timestamp(31536000)") == dt.datetime(1971, 1, 1)  # a number is seconds
+
+
+def test_timestamp_tz_from_parts_is_in_the_session_zone():
+    con = duckdb.connect()
+    for statement in sf.translate("ALTER SESSION SET TIMEZONE = 'America/New_York'; "
+                                  "SELECT date_part(epoch_second, timestamp_tz_from_parts(2013, 4, 5, 12, 0, 0))"
+                                  ).statements:
+        last = con.execute(statement.duckdb_sql)
+    assert last.fetchone()[0] == 1365177600  # 12:00 -0400

@@ -34,7 +34,10 @@ def test_cases_are_unique_cite_snowflake_and_say_what_to_know():
     for c in parity.CASES:
         assert c.outcome in ("same", "differs", "error", "untranslated")
         assert bool(c.note) == (c.outcome != "same"), c.function
-        assert c.sql.startswith("SELECT ") and c.source.startswith("https://docs.snowflake.com/en/sql-reference/")
+        # a query, or a statement's own example: the page's tables and statements, then a SELECT of the result
+        assert c.sql.split(" ", 1)[0] in ("SELECT", "WITH", "CREATE", "ALTER"), c.function
+        assert c.sql.rstrip().split(";")[-1].strip().startswith(("SELECT ", "WITH ")) or ";" not in c.sql, c.function
+        assert c.source.startswith("https://docs.snowflake.com/en/sql-reference/")
 
 
 def test_the_docs_carry_the_table_and_say_no_account_was_used():

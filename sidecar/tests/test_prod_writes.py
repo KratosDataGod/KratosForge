@@ -165,3 +165,37 @@ def test_an_unreadable_project_is_warned_about_and_the_remembered_ids_still_hold
         assert svc._prod_write_refusal("delete", "other-ws", "Other", "dbo.sales", "nb") is None
     assert any(r.levelname == "WARNING" and "only the Prod workspaces remembered" in r.getMessage() for r in caplog.records)
     assert svc._prod_write_refusal("delete", "ws-prod", "Sales Prod", "dbo.sales", "nb") is not None
+
+
+@pytest.mark.parametrize("code", [
+    "df = spark.createDataFrame([(9, 'EU')], ['id', 'region'])\ndf.write.mode('overwrite').saveAsTable('dbo.sales')",
+    "spark.sql(\"INSERT OVERWRITE dbo.sales SELECT 9 AS id, 'EU' AS region\")",
+    "import pyarrow as pa\nfrom fabric_desktop import lakehouse\nlakehouse.write_table(pa.table({'id': [9], 'region': ['EU']}), 'dbo.sales')",
+])
+def test_an_overwrite_from_a_cell_asks_too(lake, prod, code):  # noqa: F811
+    before = _version(lake)
+    status, enames, text = _run(code)
+    assert status == "error" and enames == ["ProdConfirmNeeded"], text
+    assert "OVERWRITE on dbo.sales" in text and _version(lake) == before
+    pending = prod.notebook_prod_pending("")
+    prod.notebook_prod_confirm("", pending["workspace_id"], pending["workspace_name"])
+    kernel = Kernel()
+    kernel.prod_allowed = prod._take_prod_allowance("")
+    status, _, text = _run(code, kernel)
+    assert status == "ok", text
+    assert _version(lake) > before
+
+
+def test_an_append_from_a_cell_and_the_apps_own_overwrite_are_not_asked_about(lake, prod):  # noqa: F811
+    status, _, text = _run("df = spark.createDataFrame([(9, 'EU')], ['id', 'region'])\n"
+                           "df.write.mode('append').saveAsTable('dbo.sales')\nspark.sql(\"INSERT INTO dbo.sales SELECT 10, 'US'\")")
+    assert status == "ok", text
+    assert prod.notebook_prod_pending("") is None
+    lakehouse.write_table(pa.table({"id": [1], "region": ["EU"]}), "dbo.sales")  # not a cell: the SQL page confirms its own way
+    assert prod.notebook_prod_pending("") is None
+
+
+def test_in_a_notebooks_own_process_every_overwrite_is_a_cells(lake, prod, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(lakehouse, "in_kernel_process", True)
+    with pytest.raises(lakehouse.ProdConfirmNeeded):
+        lakehouse.write_table(pa.table({"id": [1], "region": ["EU"]}), "dbo.sales")

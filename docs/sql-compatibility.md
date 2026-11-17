@@ -99,6 +99,31 @@ These cases can still differ. LOC-003 warns wherever a pattern is used:
 
 A cast of text that is only a year or a year and month, such as `CAST('2024-02' AS DATE)` or `to_timestamp('2024')`, also still differs. Spark reads it as the month's or the year's first day; here it is NULL. No rule warns about it yet.
 
+## Window functions on this PC
+
+Spark SQL and the DataFrame API run on this PC give Spark's answers for window functions, with ANSI mode off as Fabric runs it. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_windows.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
+
+| What | On this PC, as in Spark |
+| --- | --- |
+| NULLs in a window's `ORDER BY` | First in ascending order and last in descending order, unless the window says `NULLS FIRST` or `NULLS LAST` |
+| `row_number`, `rank`, `dense_rank`, `ntile` | An `int`. Ties share a rank: `rank` skips after a tie (1, 1, 3), `dense_rank` doesn't (1, 1, 2). `ntile` gives the extra rows to the first groups: 7 rows in 3 groups are 3, 2 and 2 |
+| `percent_rank`, `cume_dist` | A `double`; ties share a value |
+| `lag`, `lead` | NULL past the edge of the partition, or the default given: `lag(x, 1, 0)`. A NULL value in range stays NULL; the default is only for rows past the edge |
+| Aggregates `OVER (ORDER BY ...)` | The default frame is `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`, so rows that tie share a running total. Without `ORDER BY` the frame is the whole partition |
+| Column names | Spark's, with the frame written out: `row_number() OVER (PARTITION BY p ORDER BY v ASC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)` |
+| A ranking function, `lag` or `lead` with no `ORDER BY` in its window | Stops, as in Spark: nothing runs |
+| `lag` or `lead` given a frame, or a ranking function given a frame other than its own | Stops, as in Spark: nothing runs |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| Rows that tie in a window's `ORDER BY`, for `row_number`, `lag`, `lead`, `first` and `last` | Any order | Any order, which can differ from Spark's. Add a column that tells them apart when the order matters |
+| A window given by name in a `WINDOW` clause | Checked as above | Not checked here: a missing `ORDER BY` or a frame isn't refused |
+| A DataFrame window function Spark stops on | Stops at the `select` | Stops at `.over(...)`, a line earlier |
+| A DataFrame window with `rangeBetween` and numbers, such as `rangeBetween(-1, 0)` | Named after its frame as Spark writes it for the column's type | Named `... RANGE BETWEEN 1 PRECEDING AND CURRENT ROW`. Give it an `alias` |
+| `ntile(0)`, or `ntile` of a column | Stops with Spark's message | Stops with DuckDB's message |
+
 ## Aggregates on this PC
 
 Spark SQL and the DataFrame API run on this PC give Spark's values and types for its aggregates, with ANSI mode off as Fabric runs it. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_aggregates.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
@@ -151,7 +176,7 @@ These cases still differ:
 | `posexplode` and `LATERAL VIEW posexplode` | `pos` is an `int` | `pos` is a `bigint` |
 | A map that only comes from a computed expression, such as `size(map_filter(m, ...))` or `explode(map_from_arrays(...))`, in a view or subquery the types can't be read through | Counted or exploded as a map | Can stop with a DuckDB error naming the function. A map column, or a map written in the query, works |
 | `array(1, 'a')` and other arrays that mix types | The elements are cast to a common type (`array<string>`) | Stops with a conversion error. Cast the elements to one type first |
-| The DataFrame API: `F.size`, `F.explode` and `F.explode_outer` of a map column, `F.reverse` of an array, `F.sequence` counting down, and `F.posexplode` and `F.map_concat`, which aren't there | As in Spark SQL | Not given Spark's answer yet: a map or a count down stops or gives `[]`. Run that part through `spark.sql` |
+| The DataFrame API's `F.size`, `F.cardinality`, `F.reverse` and `F.sequence` used in `agg`, `groupBy` or `orderBy`, and `F.explode` or `F.posexplode` of a map used anywhere but `select` | As in Spark SQL | They're read as arrays here: a map stops with a DuckDB error, and a count down gives `[]`. In `select`, `withColumn`, `withColumns` and `filter` they give Spark's answer. Work the column out in a `select` first |
 | Databricks SQL on the DuckDB engine | As in Spark SQL | The fixes that don't need column types apply; `size`, `explode` and `reverse` of a map or array column keep DuckDB's forms |
 | `explode` of a map that holds `rand()` or `shuffle()`, in a select list | The map is read once | Its keys and values are read separately, so they can come from different reads. Use `LATERAL VIEW explode`, which reads it once |
 

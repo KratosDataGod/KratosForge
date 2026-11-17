@@ -90,6 +90,7 @@ const PREVIEW_FEATURES = {
   lineage: "Column lineage",
   rollback: "Roll back a release",
   promote: "Promote",
+  createWorkspace: "Create workspace",
   syncKeys: "Sync keys",
   varlib: "Variable library",
   quarantineReplay: "Quarantine replay",
@@ -147,12 +148,17 @@ function preview(id, node) {
 
 // Core steps that are untested on a tenant but must not disappear when preview features are hidden:
 // they always show, always with the Preview tag (previewMarked).
-const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "quarantineReplay", "risk", "vscode"];
+const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "quarantineReplay", "risk", "vscode", "createWorkspace"];
 
 // The node with a Preview tag, whatever the Settings switch says.
 function previewMarked(id, node) {
   if (PREVIEW_FEATURES[id]) node.append(previewTag());
   return node;
+}
+
+// A Fabric-run button carries the Run in Fabric tag; the same button on this PC carries none.
+function fabricMarked(inFabric, node) {
+  return inFabric ? previewMarked("fabricRun", node) : node;
 }
 
 // A small "Learn more" link to a section of the user guide.

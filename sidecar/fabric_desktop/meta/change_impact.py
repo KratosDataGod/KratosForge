@@ -46,6 +46,8 @@ def _module_file(root: Path, ref: str) -> Path | None:
     if parts[0] != "transforms" or not all(p.isidentifier() for p in parts):
         return None
     base = (root / "transforms").resolve()
+    if base != root.resolve() / "transforms":  # transforms/ itself is a link to somewhere else
+        return None
     p = root.joinpath(*parts).with_suffix(".py").resolve()
     if not p.is_relative_to(base):  # a symlink can still point out; never read outside transforms/
         return None

@@ -210,7 +210,7 @@ def with_overrides(select: str, overrides: dict[str, str]) -> str:
     if not overrides:
         return select
     for column, type_ in overrides.items():
-        if not _TYPE_OK.match(type_ or ""):
+        if not _TYPE_OK.fullmatch(type_ or ""):
             raise ValueError(f"{type_!r} is not a column type (for {column}).")
     casts = ", ".join(f"CAST({q(c)} AS {t}) AS {q(c)}" for c, t in overrides.items())
     return f"SELECT * REPLACE ({casts}) FROM ({select})"
@@ -491,7 +491,7 @@ class LocalEngine:
         if entry is None:
             raise KeyError(f"{table} is not a discovered file in {self.project.name}.")
         for type_ in columns.values():
-            if not _TYPE_OK.match(type_ or ""):
+            if not _TYPE_OK.fullmatch(type_ or ""):
                 raise ValueError(f"{type_!r} is not a column type.")
         if columns:
             self.project.overrides[key] = dict(columns)
@@ -796,7 +796,7 @@ class LocalEngine:
         return found
 
     def _refuse_drop(self, statement: str) -> None:
-        m = _DROP.match(statement)
+        m = _DROP.fullmatch(statement)
         if m and self._is_own(*delta.split_name(m["name"])):
             raise ValueError(f"{m['name']} is one of the project's Delta tables. Dropping it deletes its folder "
                              "and every version, so it's done as its own step (local_drop_delta), not in SQL.")

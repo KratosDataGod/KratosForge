@@ -84,7 +84,7 @@ class ReceiptStore:
         self.folder = folder
 
     def _path(self, rid: str) -> Path:
-        if not _ID.match(rid or ""):
+        if not _ID.fullmatch(rid or ""):
             raise ReceiptError(f"{rid!r} isn't a receipt id (64 hex characters).")
         return self.folder / f"{rid}.json"
 

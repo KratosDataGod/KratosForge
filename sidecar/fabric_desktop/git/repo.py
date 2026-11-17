@@ -258,7 +258,7 @@ class Repository:
 
     def add_remote(self, name: str, url: str) -> list[dict[str, Any]]:
         name = (name or "origin").strip()
-        if not _REMOTE_NAME.match(name):
+        if not _REMOTE_NAME.fullmatch(name):
             raise GitError("A remote name is letters, numbers, . _ and -, such as origin.", kind="invalid")
         if name in [r["name"] for r in self.remotes()]:
             raise GitError(f"This repository already has a remote called {name}.", kind="exists")
@@ -768,7 +768,7 @@ def parse_unified(text: str) -> dict[str, Any]:
     cur: dict[str, Any] | None = None
     old = new = 0
     for line in text.splitlines():
-        m = _HUNK.match(line)
+        m = _HUNK.fullmatch(line)
         if m:
             old, new = int(m.group(1)), int(m.group(3))
             cur = {"header": line, "old_start": old, "new_start": new, "context": m.group(5), "lines": []}

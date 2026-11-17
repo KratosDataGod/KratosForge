@@ -904,10 +904,13 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         return session.kernel
 
     def notebook_frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
-                            desc: bool = False, q: str = "", notebook: str | None = None) -> dict[str, Any]:
-        """A page of a cell's whole result, searched and sorted over every row."""
+                            desc: bool = False, q: str = "", notebook: str | None = None,
+                            filters: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        """A page of a cell's whole result, searched, filtered (a filter box per column, as the SQL page's
+        result grid: sql_view.py) and sorted over every row."""
         try:
-            return self._frame_kernel(notebook).frame_page(frame=frame, offset=offset, limit=limit, sort=sort, desc=desc, q=q)
+            return self._frame_kernel(notebook).frame_page(frame=frame, offset=offset, limit=limit, sort=sort, desc=desc, q=q,
+                                                           filters=filters)
         except (FrameGone, RuntimeError) as exc:
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}

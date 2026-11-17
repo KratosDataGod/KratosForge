@@ -689,6 +689,12 @@ def _hash(name: str) -> Callable[..., exp.Expression]:
     return build
 
 
+def _user_size(arg: exp.Expression) -> exp.Expression:
+    size = exp.ArraySize(this=arg.copy())
+    size.meta["kf_complex_written"] = True  # the query's own call (spark_complex.mark_calls)
+    return size
+
+
 _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     **_AGGREGATES,
     "ARRAY_REPEAT": _template("CASE WHEN fj_arg1 IS NULL THEN NULL ELSE LIST_TRANSFORM(RANGE(GREATEST(fj_arg1, 0)), "
@@ -697,9 +703,8 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
                              "|| ''' is not true!') END", 1),
     # spaces, or each of the characters given, off both ends
     "BTRIM": lambda n, a: _with_args("TRIM(fj_arg0)" if len(a) == 1 else "TRIM(fj_arg0, fj_arg1)", a) if len(a) in (1, 2) else None,
-    "CARDINALITY": lambda n, a: None if len(a) != 1 else _with_args(
-        "CASE WHEN fj_arg0 IS NULL THEN -1 ELSE " + ("CARDINALITY" if isinstance(a[0], (exp.Map, exp.VarMap)) else "LEN")
-        + "(fj_arg0) END", a),
+    # cardinality is size: spark_complex gives -1 for NULL, an int, and a map's key count.
+    "CARDINALITY": lambda n, a: None if len(a) != 1 else _user_size(a[0]),
     "CRC32": _template(_CRC32, 1),
     "CSC": _template("1 / SIN(CAST(fj_arg0 AS DOUBLE))", 1),
     "E": _template("EXP(1.0)", 0),

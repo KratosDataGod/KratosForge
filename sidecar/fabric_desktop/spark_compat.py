@@ -26,7 +26,7 @@ from duckdb.experimental.spark.sql.column import Column
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.group import GroupedData
 from sqlglot import exp
-from . import spark_builtins_sql, spark_sql_names, sql_dialects
+from . import spark_builtins_sql, spark_complex, spark_sql_names, sql_dialects
 from . import sql as spark_sql
 from .duckdb_rows import one_row
 
@@ -48,9 +48,9 @@ def _col_sql(c: Any) -> str:
 
 def spark_expr(text: str) -> str:
     """One Spark SQL expression as DuckDB SQL."""
-    tree = spark_builtins_sql.mark(_parse(text))
-    return spark_sql.duckdb_sql(spark_sql.spark_legacy_times(spark_builtins_sql.rewrite(spark_sql.spark_substring(
-        spark_sql.spark_integer_casts(tree)))))
+    tree = spark_complex.mark_calls(spark_builtins_sql.mark(_parse(text)))
+    return spark_sql.duckdb_sql(spark_complex.spark_complex_results(spark_sql.spark_legacy_times(
+        spark_builtins_sql.rewrite(spark_sql.spark_substring(spark_sql.spark_integer_casts(tree))))))
 
 
 def _parse(text: str) -> exp.Expression:
@@ -176,6 +176,20 @@ def unix_timestamp(timestamp: Any = None, format: str = "yyyy-MM-dd HH:mm:ss") -
 
 def size(col: Any) -> Column:
     return _call("size({0})", col)
+
+
+def array_contains(col: Any, value: Any) -> Column:
+    # NULL when the value isn't found and the array holds a NULL, as in Spark (spark_complex).
+    return _call(f"array_contains({{0}}, {_lit(value)})", col) if not isinstance(value, Column) else \
+        _call("array_contains({0}, {1})", col, value)
+
+
+def array_position(col: Any, value: Any) -> Column:
+    return _call(f"array_position({{0}}, {_lit(value)})", col)
+
+
+def flatten(col: Any) -> Column:
+    return _call("flatten({0})", col)
 
 
 def element_at(col: Any, extraction: Any) -> Column:
@@ -2293,7 +2307,8 @@ def install() -> None:
     for name, fn in FUNCTIONS.items():
         if name in ("count", "substring", "concat", "initcap", "first", "last", "slice", "add_months",
                     "months_between", "element_at", "to_date", "to_timestamp", "ln", "log2", "pow", "factorial",
-                    "split", "rand", "isnan", "printf") or not hasattr(F, name):
+                    "split", "rand", "isnan", "printf", "array_contains", "array_position", "flatten",
+                    ) or not hasattr(F, name):
             setattr(F, name, fn)
     vars(F).update(expr=expr)  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.alias = _alias_marked(Column.alias)  # type: ignore[method-assign]

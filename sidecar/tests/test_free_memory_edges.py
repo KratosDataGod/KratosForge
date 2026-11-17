@@ -101,3 +101,24 @@ def test_a_control_group_file_that_cant_be_read_sets_no_limit(monkeypatch):
     serve(monkeypatch, {"/proc/meminfo": MEMINFO, "/proc/self/cgroup": "0::/app\n",
                         "/sys/fs/cgroup/app/memory.max": str(1 * GB)})  # memory.current can't be read
     assert fm.available() == 8 * GB
+
+
+def test_the_inactive_file_cache_a_control_group_holds_counts_as_free(monkeypatch):
+    # The kernel takes that cache back under pressure: a group full of it still has room (cgroup v2).
+    files = {"/proc/meminfo": MEMINFO, "/proc/self/cgroup": "0::/app\n",
+             "/sys/fs/cgroup/app/memory.max": str(4 * GB), "/sys/fs/cgroup/app/memory.current": str(4 * GB),
+             "/sys/fs/cgroup/app/memory.stat": f"anon {1 * GB}\nactive_file 5\ninactive_file {3 * GB}\n"}
+    serve(monkeypatch, files)
+    assert fm.available() == 3 * GB
+    files["/sys/fs/cgroup/app/memory.stat"] = f"inactive_file {9 * GB}\n"  # more than use: never more than the limit
+    assert fm.available() == 4 * GB
+    files["/sys/fs/cgroup/app/memory.stat"] = "inactive_file x\n"  # unreadable: use as it is
+    assert fm.available() == 0
+
+
+def test_a_cgroup_v1_counts_its_whole_tree_s_inactive_file_cache_as_free(monkeypatch):
+    base = "/sys/fs/cgroup/memory/docker/abc"
+    serve(monkeypatch, {"/proc/meminfo": MEMINFO, "/proc/self/cgroup": "4:memory:/docker/abc\n",
+                        f"{base}/memory.limit_in_bytes": str(2 * GB), f"{base}/memory.usage_in_bytes": str(2 * GB),
+                        f"{base}/memory.stat": f"inactive_file {1}\ntotal_inactive_file {1 * GB}\n"})
+    assert fm.available() == 1 * GB

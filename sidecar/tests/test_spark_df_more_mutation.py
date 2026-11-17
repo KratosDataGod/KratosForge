@@ -114,8 +114,6 @@ def test_an_unreadable_log_lists_the_data_files_and_not_the_log(tmp_path, monkey
     assert files(f"SELECT * FROM delta_scan('{tmp_path}')") == [str(tmp_path / "part-0.parquet")]
 
 
-@pytest.mark.xfail(strict=True, reason="the log check matches '_delta_log' anywhere in the path, so a folder whose "
-                   "own name contains it lists no files; reported for a fix")
 def test_a_folder_whose_name_contains_delta_log_still_lists_its_files(tmp_path):
     folder = tmp_path / "orders_delta_log_archive"  # a plain folder, not a Delta table
     folder.mkdir()

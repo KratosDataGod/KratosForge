@@ -63,6 +63,15 @@ def _written(node: exp.Expr) -> str | None:
     return name if name in _WRITTEN else None
 
 
+def _zero_guard(node: Any) -> bool:
+    """Whether ``node`` is Databricks SQL's check that a division's divisor isn't 0 (sql._ansi_divisions),
+    a CASE typed as the division it holds."""
+    return isinstance(node, exp.Case) and bool(node.meta.get(ZERO_GUARD))
+
+
+ZERO_GUARD = "kf_zero_guard"
+
+
 def _operands(node: exp.Expr) -> list[Any]:
     if _written(node):
         last = node.args.get("default")  # ELSE (a) % (b), or ELSE ROUND(x, places)
@@ -104,8 +113,8 @@ def _decimal(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]]
              ) -> tuple[int, int] | tuple[str, int] | None:
     """Spark's (precision, scale) for ``node`` as a decimal operand, "int" for a whole-number column,
     or None when it is anything else."""
-    while isinstance(node, exp.Paren):
-        node = node.this
+    while isinstance(node, exp.Paren) or _zero_guard(node):
+        node = node.this if isinstance(node, exp.Paren) else node.args["default"]
     if id(node) in typed:
         return typed[id(node)]
     if isinstance(node, exp.Literal):
@@ -272,7 +281,10 @@ def _retype(statement: exp.Expr, targets: list[Any], schema: MappingSchema) -> e
     marked = 0
     for node in targets:
         for operand in _operands(node):
-            while isinstance(operand, (exp.Paren, exp.Neg, exp.Distinct)):
+            while isinstance(operand, (exp.Paren, exp.Neg, exp.Distinct)) or _zero_guard(operand):
+                if _zero_guard(operand):
+                    operand = operand.args["default"]
+                    continue
                 operand = operand.this if not isinstance(operand, exp.Distinct) else (
                     operand.expressions[0] if len(operand.expressions) == 1 else None)
             if isinstance(operand, exp.Expr):

@@ -139,6 +139,11 @@ written in the same second, so a mutant could be scored as the one before it, in
 Scores from batches 1 to 77 were taken without the fix and may be off by such a mutant; batch 78 and
 later were taken with it. Two runs with the fix give the same result for every mutant.
 
+Before any mutant, the tests run once on the unmutated copy, and the run stops with a message if they
+fail or time out there. Only `sidecar/` is copied, so a test that reads `docs/` or `app/` fails in the
+copy whatever the mutant, and without this check every mutant would count as killed. Earlier batches
+left such tests out by hand; leave them out (or `--deselect` them) in the same way.
+
 # Mutation testing, batch 2
 
 The rest of the Delta write and commit paths: MERGE, UPDATE and DELETE (`delta_dml.py`), publishing a
@@ -5811,8 +5816,8 @@ A mutant whose run times out counts as killed, as in earlier batches.
 | `pipeline_notebooks.py` | test_pipeline_notebooks, test_pipeline_notebooks_edges, test_pipeline_script, test_fabric_step, test_notebook_cells, test_pipeline_data (+ test_pipeline_notebooks_mutation) | 140 of 140 (138 + 2) | 122 / 18 | **87.1%** | 121/138 → 138/138 | 1/2 → 2/2 | 140 / 0 | **100%** | none |
 | `spark_df_more.py` | test_spark_df_more, test_spark_api_mutation, test_spark_api_fails_cleared, test_prove_spark, test_prove_spark_install (+ test_spark_df_more_mutation) | 109 of 109 (107 + 2) | 76 / 33 | **69.7%** | 76/107 → 106/107 | 0/2 → 2/2 | 108 / 1 | **99.1%** | 1 equivalent |
 
-One bug was found, in `spark_df_more.py`, and is marked `xfail` in `test_spark_df_more_mutation.py` until it is fixed:
-- `inputFiles` leaves out a file when any part of its path contains `_delta_log`, not only the Delta log folder itself. So a plain folder named, for example, `orders_delta_log_archive` lists no files.
+One bug was found, in `spark_df_more.py`, and is fixed; its test in `test_spark_df_more_mutation.py` now passes:
+- `inputFiles` left out a file when any part of its path contains `_delta_log`, not only the Delta log folder itself. So a plain folder named, for example, `orders_delta_log_archive` listed no files. It now skips only the `_delta_log` folder inside the table.
 
 ### What the survivors were, and the tests that now kill them
 
@@ -5889,8 +5894,8 @@ A mutant whose run times out counts as killed, as in earlier batches.
 | `spark_complex.py` | test_spark_complex, test_spark_higher_order (+ test_spark_complex_mutation) | 106 of 106 (105 + 1) | 89 / 17 | **84.0%** | 88/105 → 97/105 | 1/1 → 1/1 | 98 / 8 | **92.5%** | 8 equivalent |
 | `notebook_batch_service.py` | test_notebook_batch, test_notebook_batch_edges, test_notebook_batch_stop, test_regex_anchors (its batch id test) (+ test_notebook_batch_service_mutation) | 130 of 130 (124 + 6) | 91 / 39 | **70.0%** | 89/124 → 121/124 | 2/6 → 6/6 | 127 / 3 | **97.7%** | 3 equivalent |
 
-One bug was found, outside the three modules, and is marked `xfail` in `test_spark_complex_mutation.py` until it is fixed:
-- `LATERAL VIEW stack(...)` and `LATERAL VIEW json_tuple(...)` give each row's values as one struct column (`{'col0': 1}`), where Spark gives the values themselves (`1`). The rewrite is in `spark_builtins_sql.py`. In a select list both give the values.
+One bug was found, outside the three modules, and is fixed; its test in `test_spark_complex_mutation.py` now passes:
+- `LATERAL VIEW stack(...)` and `LATERAL VIEW json_tuple(...)` gave each row's values as one struct column (`{'col0': 1}`), where Spark gives the values themselves (`1`). The rewrite is in `spark_builtins_sql.py`. In a select list both gave the values. After `LATERAL VIEW` they, and `inline`, now give one column per name.
 
 ### What the survivors were, and the tests that now kill them
 

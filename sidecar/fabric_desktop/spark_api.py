@@ -52,6 +52,15 @@ KNOWN_CONF: dict[str, tuple[str, str]] = {
 }
 
 
+# Spark SQL on this PC runs with ANSI mode off, as Fabric does: Runtime 1.3 (Spark 3.5) by Spark's default,
+# and Runtime 2.0 (Spark 4.1) by Microsoft's override of Spark 4's (Runtime 2.0 migration guide). A
+# notebook that turns it on would stop in Fabric where it gives NULL here, so it is told by name.
+ANSI_NOTE = ("Note: spark.sql.ansi.enabled = true is kept for Fabric, but this PC runs Spark SQL with ANSI mode "
+             "off, as Fabric does by default. Here a CAST that fails and a division by zero give NULL, and an int "
+             "or bigint that overflows a CAST wraps around; with ANSI mode on, Fabric stops on each. Run the "
+             "notebook in Fabric to see ANSI mode's answers.")
+
+
 class LocalRuntimeConfig:
     """``spark.conf``: every key is kept; see KNOWN_CONF for what takes effect here."""
 
@@ -65,6 +74,8 @@ class LocalRuntimeConfig:
             raise ValueError(f"partitionOverwriteMode is static or dynamic, not {text!r}.")
         if key == "spark.sql.session.timeZone":
             self._session.conn.execute("SET TimeZone = ?", [text])  # fails, with DuckDB's reason, for an unknown zone
+        if key.lower() == "spark.sql.ansi.enabled" and text.strip().lower() == "true":
+            print(ANSI_NOTE)
         self._set[key] = text
 
     def get(self, key: str, default: Any = ...) -> str | None:

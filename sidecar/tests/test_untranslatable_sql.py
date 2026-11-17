@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from fabric_desktop import spark_compat, sql
-from fabric_desktop.engines.contract import Unsupported
+from fabric_desktop.engines.contract import SessionConfig, Unsupported
 from fabric_desktop.engines.local_sql import DuckDBSession
 
 PACKAGE = Path(__file__).resolve().parents[1] / "fabric_desktop"
@@ -44,9 +44,12 @@ def test_a_query_that_translates_exactly_still_runs():
 
 
 def test_a_databricks_cell_on_the_duckdb_engine_is_refused_the_same_way():
-    session = DuckDBSession.__new__(DuckDBSession)
-    with pytest.raises(Unsupported, match="Argument 'ins_cost' is not supported"):
-        session._sql(DROPPED, "databricks")
+    session = DuckDBSession(SessionConfig("nb"))  # a real one: decimal types read its tables (WR-113)
+    try:
+        with pytest.raises(Unsupported, match="Argument 'ins_cost' is not supported"):
+            session._sql(DROPPED, "databricks")
+    finally:
+        session.close()
 
 
 def test_a_pyspark_expression_is_refused_the_same_way():

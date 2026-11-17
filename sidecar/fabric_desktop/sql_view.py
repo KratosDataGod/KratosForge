@@ -188,4 +188,6 @@ def column_stats(table: pa.Table, column: int) -> dict[str, Any]:
         con.close()
     out["column"] = i
     out["rows"] = table.num_rows
+    # Distinct is counted approximately (HyperLogLog), so it can come out above the values there are.
+    out["distinct"] = min(int(out.get("distinct") or 0), table.num_rows - int(out.get("missing") or 0))
     return out

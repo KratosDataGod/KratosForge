@@ -101,6 +101,7 @@ const PREVIEW_FEATURES = {
   notebookFolderPublish: "Publishing notebooks from folders",
   fabricStep: "Run the last cell on Fabric",
   popOut: "Pop-out windows",
+  nbConsole: "Scratch console in notebooks",
   nbReport: "Notebook as a report",
   pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",

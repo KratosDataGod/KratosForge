@@ -770,7 +770,7 @@ h2.flush { margin: 0; }
 .sql-editor-row .sql-edit { flex: 1; min-width: 0; border-bottom: 0; }
 /* The results pane maximized (the editor row hidden) or hidden (the editor takes the room), Ctrl+R. */
 .sql-card.sql-pane-max .sql-editor-row { display: none; }
-.sql-card.sql-pane-hidden .sql-grid { display: none; }
+.sql-card.sql-pane-hidden .sql-grid-row { display: none; }
 .sql-card.sql-pane-hidden .sql-editor-row { flex: 1; min-height: 0; }
 .sql-card.sql-pane-hidden .sql-editor-row .sql-edit { height: auto; resize: none; }
 .sql-card.sql-pane-hidden .sql-band { order: 1; border-bottom: 0; border-top: 1px solid var(--border); }
@@ -1017,6 +1017,41 @@ h2.flush { margin: 0; }
 .sql-grid .sql-filter[aria-invalid="true"] { border-color: var(--danger); }
 .sql-grid-error { margin: 0; padding: 8px 12px; color: var(--danger); font-size: 12.5px; }
 .sql-grid-note { padding: 12px 16px; }
+/* The grid's selection, and the value viewer or a column's statistics beside it (sqlgrid.js). */
+.sql-grid-row { flex: 1; display: flex; min-height: 120px; }
+.sql-grid-row > .sql-grid { min-width: 0; }
+.sql-grid .sql-result-table { outline: none; }
+.sql-grid .sql-result-table tbody td:not(.i) { cursor: cell; user-select: none; }
+.sql-grid td.sel { background: var(--accent-soft); }
+.sql-grid .sql-result-table:focus-visible td.cur, .sql-grid td.cur:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+.sql-grid td.cur { outline: 1px solid var(--accent); outline-offset: -1px; }
+.sql-side-box { flex: none; width: 280px; border-left: 1px solid var(--border); overflow: auto; background: var(--surface); }
+.sql-side { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; min-width: 0; }
+.sql-side-head { display: flex; align-items: center; gap: 6px; }
+.sql-side-head h3 { flex: 1; margin: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.sql-side-value { margin: 0; max-height: 50vh; overflow: auto; padding: 8px; border-radius: var(--r-sm); background: var(--surface-2); font: 12px/1.5 var(--mono, Consolas, monospace); white-space: pre-wrap; overflow-wrap: anywhere; }
+.sql-side-value.null { color: var(--muted); font-style: italic; }
+.sql-side-kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0; font-size: 12.5px; }
+.sql-side-kv dt { color: var(--muted); }
+.sql-side-kv dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.sql-side-note { margin: 0; font-size: 12px; }
+.menu .tool .sql-menu-key { margin-left: auto; padding-left: 16px; color: var(--muted); font-size: 12px; }
+.menu .tool.sql-menu-group { margin-top: 5px; position: relative; }
+.menu .tool.sql-menu-group::before { content: ""; position: absolute; left: 6px; right: 6px; top: -3px; border-top: 1px solid var(--border-soft); }
+.sql-grid .sql-result-table.sized { min-width: 0; }
+.sql-grid th .sql-col-resize { position: absolute; top: 0; right: -1px; bottom: 0; width: 7px; cursor: col-resize; touch-action: none; }
+.sql-grid th .sql-col-resize:hover, .sql-grid th .sql-col-resize:focus-visible { background: var(--accent); opacity: 0.5; outline: none; }
+.sql-grid th[data-col] { padding-right: 14px; }
+.sql-grid-hidden { padding: 6px 12px; font-size: 12px; }
+.sql-columns { display: flex; flex-direction: column; gap: 8px; min-width: 320px; }
+.sql-columns p { margin: 0; font-size: 12.5px; }
+.sql-columns-list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow: auto; border: 1px solid var(--border-soft); border-radius: var(--r-sm); }
+.sql-columns-list li { display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-bottom: 1px solid var(--border-soft); }
+.sql-columns-list li:last-child { border-bottom: 0; }
+.sql-columns-list label { flex: 1; display: flex; align-items: baseline; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.sql-columns-list label .muted-text { font-size: 12px; }
+@media (forced-colors: active) { .sql-grid td.sel { forced-color-adjust: none; background: Highlight; color: HighlightText; } }
+@media (max-width: 760px) { .sql-side-box { width: 200px; } }
 .sql-table-row { display: flex; align-items: center; }
 .sql-table-row .tree-row { width: auto; }
 .sql-table-row .tree-row.chev { flex: none; padding-right: 2px; }
@@ -3740,6 +3775,17 @@ body[data-skin-cells="rounded"] .cells.editing .cell.selected .cell-box { box-sh
   .nbf-print th { background: var(--surface-2); }
   .nbf-print img { max-width: 100%; margin: 8px 10px; }
 }
+
+/* Notebook > View > Scratch (nbconsole.js): a console in the notebook's session, beside the cells. */
+.consolepane { width: 340px; flex: none; display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; border-left: 1px solid var(--border); background: var(--surface); min-height: 0; }
+.consolepane > :not(.explorer-head) { margin: 0 10px; }
+.console-log { flex: 1; min-height: 80px; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.console-entry { display: flex; flex-direction: column; gap: 2px; }
+.console-in { margin: 0; font: 12.5px/1.5 Consolas, ui-monospace, monospace; white-space: pre-wrap; color: var(--text); }
+.console-in::before { content: "› "; color: var(--accent-ink); }
+.console-entry .output { margin-left: 14px; }
+.console-input { font: 12.5px/1.5 Consolas, ui-monospace, monospace; padding: 6px 8px; border: 1px solid var(--accent-ink); border-radius: 4px; background: var(--surface); color: var(--text); resize: vertical; }
+.console-actions { gap: 6px; align-items: center; }
 
 /* Notebook > Share > Open as report (nbreport.js): the export's page in report form, in its own window. */
 .nb-report { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }

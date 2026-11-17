@@ -4,7 +4,7 @@ const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
 const path = require("node:path");
-const { playwright, openApp } = require("./harness.cjs");
+const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
 
 const LH = { workspace_id: "ws1", lakehouse_id: "lh1", name: "Sales" };
 const SHOTS = process.env.SCREENSHOT_DIR;
@@ -220,6 +220,110 @@ test("headers sort and Filter's boxes filter every row of the result, on this PC
   const pages = app.calls.filter((c) => c.method === "sql_page").at(-1).params;
   assert.deepStrictEqual(pages.sort, [{ column: 0, desc: true }]);
   assert.strictEqual(pages.filters, undefined);
+});
+
+test("cells select with the mouse and keys, right-click copies them, a value opens in full, and a column's statistics cover every row", { skip }, async () => {
+  await setDoc(`SELECT range AS n, CASE WHEN range = 1 THEN '{"tier":"gold","tags":[1,2]}' ELSE 'r' || range END AS note FROM range(1200)`);
+  await page().keyboard.press("Control+Enter");
+  await waitPill("Succeeded");
+  const before = runs().length;
+  await page().evaluate(() => { window.__copied = []; Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (t) => { window.__copied.push(t); } } }); });
+  const cell = (r, c) => page().locator(`.sql-grid tbody tr[data-r="${r}"] td[data-c="${c}"]`);
+  await cell(0, 0).click();
+  await cell(2, 1).click({ modifiers: ["Shift"] });
+  assert.match(await band(), /3 × 2 cells selected/);
+  assert.strictEqual(await page().locator(".sql-grid td.sel").count(), 6);
+  await page().keyboard.press("Control+c");
+  await page().waitForFunction(() => window.__copied.length === 1);
+  assert.strictEqual(await page().evaluate(() => window.__copied[0]), 'r0\n1\t{"tier":"gold","tags":[1,2]}\n2\tr2'.replace(/^r0/, "0\tr0"));
+  await page().keyboard.press("Control+Shift+C");
+  await page().waitForFunction(() => window.__copied.length === 2);
+  assert.match(await page().evaluate(() => window.__copied[1]), /^n\tnote\n0\tr0/, "with headers");
+  // Right-click inside the selection keeps it; the menu is the mockup's.
+  await cell(1, 1).click({ button: "right" });
+  const items = await page().locator("#menu [role=menuitem]").evaluateAll((els) => els.map((e) => e.firstChild.textContent));
+  assert.deepStrictEqual(items, ["Copy", "Copy with headers", "Copy as CSV", "Copy as JSON", "Copy as INSERT statements", "Open value", "Column statistics"]);
+  await page().getByRole("menuitem", { name: "Copy as JSON" }).click();
+  await page().waitForFunction(() => window.__copied.length === 3);
+  assert.strictEqual(JSON.parse(await page().evaluate(() => window.__copied[2])).length, 3);
+  assert.ok(await page().locator(".sql-grid table").evaluate((t) => t === document.activeElement), "focus goes back to the grid");
+  // Arrow keys move one cell from the focused one (the block's last, row 3); Enter opens the value in full, formatted.
+  await page().keyboard.press("ArrowUp");
+  assert.doesNotMatch(await band(), /cells selected/);
+  await page().keyboard.press("Enter");
+  const side = page().locator(".sql-side");
+  await side.waitFor();
+  assert.strictEqual(await side.locator("h3").textContent(), "note, row 2");
+  assert.strictEqual(await side.locator("pre").textContent(), '{\n  "tier": "gold",\n  "tags": [\n    1,\n    2\n  ]\n}');
+  assert.match(await side.textContent(), /Length28 characters/);
+  await side.getByRole("button", { name: "Copy" }).click();
+  await page().waitForFunction(() => window.__copied.length === 4);
+  assert.strictEqual(await page().evaluate(() => window.__copied[3]), '{"tier":"gold","tags":[1,2]}', "the value as it is");
+  await page().locator(".sql-grid table").focus();
+  await page().keyboard.press("Escape");
+  await page().waitForFunction(() => !document.querySelector(".sql-side"));
+  // Column statistics: over all 1,200 rows, not the page.
+  await cell(0, 0).click({ button: "right" });
+  await page().getByRole("menuitem", { name: "Column statistics" }).click();
+  await page().waitForFunction(() => /Mean/.test(document.querySelector(".sql-side")?.textContent || ""));
+  const stats = await side.textContent();
+  assert.match(stats, /Rows1,200/);
+  assert.match(stats, /Max1,199/);
+  assert.match(stats, /Over the whole result snapshot/);
+  assert.strictEqual(await side.locator(".hist span").count() > 0, true);
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "grid-stats.png") });
+  await side.getByRole("button", { name: "Close" }).click();
+  await page().waitForFunction(() => !document.querySelector(".sql-side"));
+  assert.strictEqual(runs().length, before, "nothing ran again");
+  assert.strictEqual(app.calls.filter((c) => c.method === "sql_column_stats").at(-1).params.column, 0);
+});
+
+test("Columns... hides and reorders the grid's columns, a header's edge resizes one, and a new run keeps the layout", { skip }, async () => {
+  const q = "SELECT range AS n, 'r' || range AS note, range * 2 AS twice FROM range(50)";
+  await setDoc(q);
+  await page().keyboard.press("Control+Enter");
+  await waitPill("Succeeded");
+  const heads = () => page().locator(".sql-grid thead tr:first-child th[data-col] .sql-sort").evaluateAll((els) => els.map((e) => e.firstChild.textContent));
+  await page().getByRole("button", { name: "Columns...", exact: true }).click();
+  const dialog = page().getByRole("dialog", { name: "Columns" });
+  await dialog.getByRole("checkbox", { name: /note/ }).uncheck();
+  await dialog.getByRole("button", { name: "Move twice up" }).click();
+  assert.ok(await dialog.getByRole("button", { name: "Move twice up" }).evaluate((b) => b === document.activeElement), "focus stays on the moved column");
+  assert.deepStrictEqual(await heads(), ["n", "twice"]);
+  await dialog.getByRole("button", { name: "Move twice up" }).click();
+  assert.deepStrictEqual(await heads(), ["twice", "n"]);
+  // axe covers dialogs: query.js:renderQuery
+  if (axeSource) assert.deepStrictEqual(await axeFindings(page(), "#dialog-root"), []);  // CI installs axe-core
+  await dialog.getByRole("button", { name: "Done" }).click();
+  assert.match(await page().locator(".sql-grid-hidden").textContent(), /1 column is hidden/);
+  assert.deepStrictEqual(await page().locator(".sql-grid tbody tr").first().locator("td").allTextContents(), ["1", "0", "0"]);
+  // Copy is of the columns on screen, in their order.
+  await page().evaluate(() => { window.__copied = []; Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (t) => { window.__copied.push(t); } } }); });
+  await page().locator('.sql-grid tbody tr[data-r="2"] td[data-c="0"]').click();
+  await page().keyboard.press("Control+Shift+C");
+  await page().waitForFunction(() => window.__copied.length === 1);
+  assert.strictEqual(await page().evaluate(() => window.__copied[0]), "twice\n4");
+  // The handle at a header's edge: arrow keys resize, double-click fits again.
+  const th = page().locator('.sql-grid th[data-col="2"]');
+  const w0 = (await th.boundingBox()).width;
+  await th.locator(".sql-col-resize").focus();
+  for (let k = 0; k < 4; k++) await page().keyboard.press("ArrowRight");
+  const widthIs = (w) => page().waitForFunction((w) => Math.abs(document.querySelector('.sql-grid th[data-col="2"]').getBoundingClientRect().width - w) <= 2, w);
+  await widthIs(w0 + 64);  // wider by 64 px
+  const w1 = (await th.boundingBox()).width;
+  // Run it again: the same columns, so the layout stays.
+  await page().locator(".sql-edit .cm-content").click();
+  await page().keyboard.press("Control+Enter");
+  await waitPill("Succeeded");
+  await page().waitForSelector(".sql-grid tbody tr");
+  assert.deepStrictEqual(await heads(), ["twice", "n"]);
+  await widthIs(w1);  // the width too
+  await th.locator(".sql-col-resize").dblclick();
+  await page().waitForFunction((w) => document.querySelector('.sql-grid th[data-col="2"]').getBoundingClientRect().width < w - 8, w1);  // fits again
+  await page().getByRole("button", { name: "Columns...", exact: true }).click();
+  await dialog.getByRole("button", { name: "Show all" }).click();
+  await dialog.getByRole("button", { name: "Done" }).click();
+  assert.deepStrictEqual(await heads(), ["n", "note", "twice"]);
 });
 
 test("nothing on the page threw", { skip }, async () => {

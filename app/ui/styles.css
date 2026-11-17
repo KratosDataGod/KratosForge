@@ -1484,6 +1484,13 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .shortcuts-list h3 { margin: 4px 0 6px; font-size: 13px; }
 .shortcuts-list .kbd-keys { white-space: nowrap; width: 1%; }
 .shortcuts-list .kbd-keys span { margin: 0 3px; }
+/* Settings > Editor > Change keys (editorprefs.js). */
+.editor-keys-body { display: flex; flex-direction: column; gap: 8px; min-width: min(560px, 80vw); }
+.editor-keys { max-height: 50vh; }
+.editor-keys td:nth-child(2) { white-space: nowrap; }
+.editor-keys td:nth-child(2) .pill-s { margin-left: 6px; }
+.editor-keys td:last-child { width: 1%; white-space: nowrap; text-align: right; }
+.editor-keys-body .fail-text:empty { display: none; }
 .search kbd, .palette kbd, .shortcuts-list kbd { padding: 0 5px; border: 1px solid var(--border-input); border-radius: var(--r-sm); font: 11px var(--mono); color: var(--muted); background: var(--surface); }
 .search.filtering { border-color: var(--accent); background: var(--accent-soft); }
 .search input { cursor: pointer; }
@@ -3701,3 +3708,15 @@ body[data-skin-cells="rounded"] .cells.editing .cell.selected .cell-box { box-sh
   .nbf-print th { background: var(--surface-2); }
   .nbf-print img { max-width: 100%; margin: 8px 10px; }
 }
+
+/* SQL page > Explorer > Diagram (sqldiagram.js) */
+.sql-explorer-actions { margin: 4px 8px; }
+.sql-diagram-body { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; }
+.sql-diagram { flex: 1; min-height: 240px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.sql-diagram svg { display: block; }
+.sql-diagram .diagram-table { cursor: pointer; }
+.sql-diagram .diagram-table:focus-visible rect:first-child, .sql-diagram .diagram-table:hover rect:first-child { stroke: var(--accent-ink); stroke-width: 2; }
+.sql-diagram .diagram-table:focus { outline: none; }
+.sql-diagram-legend { margin: 0; }
+.sql-diagram-solid, .sql-diagram-dashed { display: inline-block; width: 24px; vertical-align: middle; border-top: 2px solid var(--accent-ink); }
+.sql-diagram-dashed { border-top: 2px dashed var(--muted); margin-left: 8px; }

@@ -3,10 +3,16 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-16 11:42 UTC, main 7bd752a5.** Covers the PRs merged from #135 to #2734.
+**Product check of 2026-11-16 23:42 UTC, main 58a112e4.** Covers the PRs merged from #135 to #2800.
 
 ## Summary
 
+- Evening check, 2026-11-16: 44 PRs merged after 7bd752a5. 3 were product data, work queue and weekly review PRs,
+  and the other 41 were linked. Local T-SQL now matches a Fabric Warehouse at its edges for dates, arithmetic,
+  conversion and decimals, a warehouse script in BEGIN TRAN ... COMMIT runs as one transaction, and the editor gained
+  word wrap, font size and Vim settings (Preview) (PB-106). Spark on this PC cleared the last Fails rows of the
+  DataFrame API list and writes files as folders of part files (PB-103). Every SQLite store now commits durably
+  through one helper (PB-124), and every Fabric and OneLake write is tested failing (PB-101). No item changed status.
 - Morning check, 2026-11-16: 36 PRs merged after a13d0a0f. 2 were product data and docs audit PRs, and the other
   34 were linked. Local data gained a Delta reader matrix for the Fabric-safe profile, and a table outside it now names
   the feature and the readers it would break (PB-099). App Studio checks PBIR page ids as folder-safe names (PB-127).

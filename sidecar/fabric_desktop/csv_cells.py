@@ -120,5 +120,5 @@ def note(protected: int, can_keep_raw: bool = True) -> str:
     cells, got = ("1 text cell", "it got") if protected == 1 else (f"{protected:,} text cells", "each got")
     said = (f"{cells} started with =, +, -, @, a tab or a carriage return, so {got} an apostrophe in front to keep a "
             "spreadsheet from running it as a formula.")
-    return said + (" To export the values exactly as they are, export again with Keep raw values." if can_keep_raw
+    return said + (" To keep the values exactly as they are, pick CSV, Keep raw values." if can_keep_raw
                    else "")

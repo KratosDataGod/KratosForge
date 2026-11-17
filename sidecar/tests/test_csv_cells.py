@@ -78,7 +78,7 @@ def test_the_note_says_how_many_and_how_to_keep_raw_values():
     assert csv_cells.note(0) == ""
     assert csv_cells.note(1).startswith("1 text cell started with") and " it got an apostrophe" in csv_cells.note(1)
     many = csv_cells.note(1234)
-    assert many.startswith("1,234 text cells") and many.endswith("export again with Keep raw values.")
+    assert many.startswith("1,234 text cells") and many.endswith("To keep the values exactly as they are, pick CSV, Keep raw values.")
     assert "Keep raw values" not in csv_cells.note(3, can_keep_raw=False)
 
 

@@ -79,6 +79,8 @@ These cases still differ:
 | A notebook in Databricks Runtime 17.0 or later, which runs Spark SQL with ANSI mode on | A failed `CAST` or a division by zero stops | Gives NULL, as with ANSI mode off. The first use of `dbutils` in a session prints a note saying so, since which runtime a notebook is meant for isn't known here. Run it as Databricks SQL on the DuckDB engine, or on Databricks |
 | `pmod(x, 0)` in Databricks SQL | Stops with `[DIVIDE_BY_ZERO]` | NULL |
 | A decimal `sum` or `avg` whose running total passes about 1.7 × 10^38 | NULL with ANSI off, `[ARITHMETIC_OVERFLOW]` with ANSI on | Stops with DuckDB's "Overflow in HUGEINT addition" |
+| On DuckDB 2.0 (not yet the version this PC installs): a decimal `sum` or `avg` of a `decimal(38, s)` column past its type | NULL with ANSI off, `[ARITHMETIC_OVERFLOW]` with ANSI on | Stops with DuckDB's "Overflow in SUM of DECIMAL" |
+| On DuckDB 2.0: `pmod(x, 0)` in Databricks SQL | Stops with `[DIVIDE_BY_ZERO]` | Stops with DuckDB's own division-by-zero error |
 
 ## Decimal results on this PC (LOC-005)
 

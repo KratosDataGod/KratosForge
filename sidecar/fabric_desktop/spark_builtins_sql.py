@@ -35,6 +35,10 @@ def _with_args(template: str | exp.Expression, args: list[exp.Expression]) -> ex
     return tree
 
 
+_JAVA = "it calls a Java method by reflection, and this PC runs no Java."
+_INPUT_FILE = "this PC doesn't track the file each row was read from."
+
+
 def _refuse(name: str, why: str, instead: str = "") -> Callable[..., exp.Expression]:
     def refuse(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression:
         raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric, so nothing ran: {why} "
@@ -721,6 +725,18 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     # Refused by name: these can't give Spark's value here.
     "AES_DECRYPT": _refuse("aes_decrypt", "AES isn't available in the engine on this PC."),
     "TRY_AES_DECRYPT": _refuse("try_aes_decrypt", "AES isn't available in the engine on this PC."),
+    "AES_ENCRYPT": _refuse("aes_encrypt", "AES isn't available in the engine on this PC."),
+    "TRY_AES_ENCRYPT": _refuse("try_aes_encrypt", "AES isn't available in the engine on this PC."),
+    **{name: _refuse(name.lower(), _JAVA) for name in ("JAVA_METHOD", "REFLECT")},
+    **{name: _refuse(name.lower(), _INPUT_FILE) for name in ("INPUT_FILE_NAME", "INPUT_FILE_BLOCK_LENGTH",
+                                                             "INPUT_FILE_BLOCK_START")},
+    "SPARK_PARTITION_ID": _refuse("spark_partition_id", "this PC doesn't split a query's rows into Spark "
+                                  "partitions, so there is no partition number to give."),
+    # Increasing and unique, as Spark promises (its values have gaps between partitions), as
+    # spark_compat.monotonically_increasing_id writes it for a DataFrame
+    "MONOTONICALLY_INCREASING_ID": _template("(ROW_NUMBER() OVER () - 1)", 0),
+    # Stops the query with the message, as Spark's does (Spark's error class is USER_RAISED_EXCEPTION)
+    "RAISE_ERROR": _template("ERROR(fj_arg0)", 1),
     "COUNT_MIN_SKETCH": _refuse("count_min_sketch", _SKETCH),
     "HISTOGRAM_NUMERIC": _refuse("histogram_numeric", "Spark's bins come from its own streaming algorithm, "
                                  "which this PC doesn't have.", "use width_bucket for fixed-width bins"),

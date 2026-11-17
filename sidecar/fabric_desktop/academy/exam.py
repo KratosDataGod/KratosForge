@@ -96,7 +96,7 @@ def _read_json(path: Path) -> Any:
 
 
 def _pack_root(pack: str, packs: Path = PACKS) -> Path:
-    if not _PACK.match(str(pack)) or not (packs / pack).is_dir():
+    if not _PACK.fullmatch(str(pack)) or not (packs / pack).is_dir():
         raise ExamError(f"Not an Academy pack: {pack}")
     return packs / pack
 
@@ -151,7 +151,7 @@ def _question_problems(objective: str, q: dict[str, Any], cases: dict[str, Any],
                        hosts: tuple[str, ...] = SOURCE_HOSTS, docs: str = DOCS_NAMES["fabric"]) -> list[str]:
     qid = str(q.get("id") or "?")
     where = f"question {qid}"
-    m = _QID.match(qid)
+    m = _QID.fullmatch(qid)
     out = [] if m and m.group(1) == objective else [f"{where}: id is <objective>-qN, like {objective}-q1"]
     if q.get("type") not in TYPES:
         return out + [f"{where}: type is one of {', '.join(TYPES)}"]
@@ -159,7 +159,7 @@ def _question_problems(objective: str, q: dict[str, Any], cases: dict[str, Any],
     out += _text_problems(f"{where} explanation", q.get("explanation"))
     options = q.get("options") or []
     ids: list[str] = [str(o.get("id")) for o in options if isinstance(o, dict)]
-    if len(ids) != len(options) or len(set(ids)) != len(ids) or not all(_OPTION.match(str(i)) for i in ids):
+    if len(ids) != len(options) or len(set(ids)) != len(ids) or not all(_OPTION.fullmatch(str(i)) for i in ids):
         out.append(f"{where}: options each need their own id, a to h")
     for o in options:
         if isinstance(o, dict):
@@ -189,7 +189,7 @@ def _question_problems(objective: str, q: dict[str, Any], cases: dict[str, Any],
         out.append(f"{where}: version is a whole number from 1")
     if q.get("status") not in STATUSES:
         out.append(f"{where}: status is one of {', '.join(STATUSES)}")
-    elif q["status"] == "live" and not _DATE.match(str(q.get("reviewed") or "")):
+    elif q["status"] == "live" and not _DATE.fullmatch(str(q.get("reviewed") or "")):
         out.append(f"{where}: a live question needs the date it was last reviewed (reviewed: YYYY-MM-DD)")
     return out
 
@@ -212,7 +212,7 @@ def problems(pack: str, objectives: list[str] | None = None, packs: Path = PACKS
         except ValueError as exc:
             return [f"cases.json can't be read ({exc})"]
         for cid, case in cases.items():
-            if not _CASE.match(str(cid)) or not isinstance(case, dict):
+            if not _CASE.fullmatch(str(cid)) or not isinstance(case, dict):
                 out.append(f"case {cid}: ids are lowercase words joined by hyphens")
                 continue
             out += _text_problems(f"case {cid} title", case.get("title"))
@@ -222,7 +222,7 @@ def problems(pack: str, objectives: list[str] | None = None, packs: Path = PACKS
     used_cases: set[str] = set()
     for f in sorted((root / "questions").glob("*")):
         objective = f.stem
-        if f.suffix != ".json" or not _OBJECTIVE.match(objective):
+        if f.suffix != ".json" or not _OBJECTIVE.fullmatch(objective):
             out.append(f"questions/{f.name}: a question file is named by its objective, like 2.2.9.json or 2.3.json")
             continue
         try:
@@ -571,7 +571,7 @@ class ExamStore:
         self.root = Path(root)
 
     def _path(self, session_id: str) -> Path:
-        if not _SESSION.match(str(session_id)):
+        if not _SESSION.fullmatch(str(session_id)):
             raise ExamError("Not an exam id")
         return self.root / f"{session_id}.json"
 
@@ -592,7 +592,7 @@ class ExamStore:
         """Every finished exam for ``pack`` on this PC, in full. Unreadable files are skipped."""
         out = []
         for f in self.root.glob("*.json") if self.root.is_dir() else []:
-            if not _SESSION.match(f.stem):
+            if not _SESSION.fullmatch(f.stem):
                 continue
             try:
                 s = _read_json(f)
@@ -606,7 +606,7 @@ class ExamStore:
         """Summaries of saved exams, newest first."""
         out = []
         for f in self.root.glob("*.json") if self.root.is_dir() else []:
-            if not _SESSION.match(f.stem):
+            if not _SESSION.fullmatch(f.stem):
                 continue
             try:
                 s = _read_json(f)

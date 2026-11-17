@@ -109,14 +109,14 @@ def _now() -> str:
 
 def key_name(name: str) -> str:
     name = str(name or "").strip().lower()
-    if not _NAME.match(name):
+    if not _NAME.fullmatch(name):
         raise PlatformError(f"{name!r} isn't a key table name: lowercase letters, digits or _, starting with a letter")
     return name
 
 
 def domain_id(value: str) -> str:
     value = str(value or "").strip().lower().replace(" ", "-")
-    if not _ID.match(value):
+    if not _ID.fullmatch(value):
         raise PlatformError(f"{value!r} isn't a domain id: lowercase letters, digits, - or _")
     return value
 
@@ -1305,7 +1305,7 @@ def register_link(db: Db, consumer: str, alias: str, product_id: str, port: str,
     if product["status"] == "draft":
         raise PlatformError(f"{product_id} is still a draft; its owner publishes it on promote")
     accepts = str(accepts or "").strip()
-    if accepts and not _ACCEPTS.match(accepts):
+    if accepts and not _ACCEPTS.fullmatch(accepts):
         raise PlatformError(f"accepts is a version (\"2\"), a range (\"2-3\") or a version and later (\"2+\"), "
                             f"not {accepts!r}")
     lid = f"{consumer}:{alias}"
@@ -1593,7 +1593,7 @@ def _names(value: Any) -> set[str]:
 
 def is_sign_in_name(text: str) -> bool:
     """Whether ``text`` can be a caller's sign-in name (UPN), the only thing an admin is matched by."""
-    return bool(_EMAIL.match(str(text or "")))
+    return bool(_EMAIL.fullmatch(str(text or "")))
 
 
 def list_admins(db: Db) -> list[dict[str, Any]]:
@@ -1683,7 +1683,7 @@ def list_key_tables(db: Db) -> list[dict[str, Any]]:
                                                               "AND name LIKE 'keys\\_\\_%' ESCAPE '\\'")]
     out = []
     for name in sorted(set(physical) | set(registered)):
-        if not _NAME.match(name):
+        if not _NAME.fullmatch(name):
             continue
         row = dict(registered.get(name) or {"name": name, "business_key": "", "description": "", "domain_id": None,
                                             "created_at": "", "created_by": ""})
@@ -1757,7 +1757,7 @@ def _source_row(source: dict[str, Any], by: str) -> dict[str, Any]:
     code = str(source.get("code") or "").strip()
     name = key_name(source.get("name") or code)
     code = code or name.upper()
-    if not _CODE.match(code) or code.lower() != name:
+    if not _CODE.fullmatch(code) or code.lower() != name:
         raise PlatformError(f"{code!r}: a source's code is its folder name in any case, like {name.upper()}")
     hours = str(source.get("expected_hours") or "").strip()
     if hours and not hours.replace(".", "", 1).isdigit():
@@ -2077,7 +2077,7 @@ def _earlier_people(db: Db, project: str) -> list[str]:
     if db.exists("catalog", "link"):
         people += [_who(r.get("updated_by")) for r in
                    db.rows(f"SELECT updated_by FROM {db.t('catalog', 'link')} WHERE consumer_project = ?", (project,))]
-    return sorted({x for x in people if x and _EMAIL.match(x)})
+    return sorted({x for x in people if x and _EMAIL.fullmatch(x)})
 
 
 def _put_member(db: Db, project: str, user: str, role: str, by: str) -> None:
@@ -2094,7 +2094,7 @@ def require_member(db: Db, project: str, by: str, action: str) -> None:
     members = _stored_members(db, project)
     if not members:
         first = _earlier_people(db, project)
-        if not first and not _in_catalog(db, project) and _EMAIL.match(who):
+        if not first and not _in_catalog(db, project) and _EMAIL.fullmatch(who):
             first = [who]
         for person in first:
             _put_member(db, project, person, "owner", by or person)
@@ -2131,7 +2131,7 @@ def list_project_members(db: Db, project: str, by: str = "") -> dict[str, Any]:
     rows = sorted(({"user": u, "role": r} for u, r in members.items()), key=lambda m: (m["role"] != "owner", m["user"]))
     return {"project": project, "members": rows, "earlier": earlier,
             "can_change": is_admin(db, by) or members.get(who) == "owner"
-            or (not members and not _in_catalog(db, project) and bool(_EMAIL.match(who))),
+            or (not members and not _in_catalog(db, project) and bool(_EMAIL.fullmatch(who))),
             "domain_request": _waiting_join(db, project, who)}
 
 
@@ -2154,7 +2154,7 @@ def set_project_member(db: Db, project: str, user: str, role: str = "", by: str 
     user = _who(user)
     if not project:
         raise PlatformError("Say which project")
-    if not _EMAIL.match(user):
+    if not _EMAIL.fullmatch(user):
         raise PlatformError(f"{user or 'That'} isn't an email address: members are people, by their sign-in")
     if role and role not in PROJECT_ROLES:
         raise PlatformError(f"role must be one of {', '.join(PROJECT_ROLES)}")
@@ -2246,9 +2246,9 @@ def principal(value: Any) -> dict[str, str]:
         text, name = str(value.get("id") or value.get("email") or "").strip(), str(value.get("name") or "").strip()
     else:
         text, name = str(value or "").strip(), ""
-    if _GUID.match(text):
+    if _GUID.fullmatch(text):
         return {"type": "Group", "id": text.lower(), "email": "", "name": name or text.lower()}
-    if _EMAIL.match(text):
+    if _EMAIL.fullmatch(text):
         return {"type": "User", "id": "", "email": text.lower(), "name": name or text.lower()}
     raise PlatformError(f"{text or 'Nobody'} isn't a person's email or UPN, or a group's object ID")
 
@@ -2267,7 +2267,7 @@ def _principals(values: Any) -> list[dict[str, str]]:
 def _check_workspace(db: Db, target: str, detail: dict[str, Any], reason: str) -> tuple[str, dict[str, Any]]:
     name = workspace_name(detail.get("name") or target)
     capacity = str(detail.get("capacity_id") or "").strip().lower()
-    if capacity and not _GUID.match(capacity):
+    if capacity and not _GUID.fullmatch(capacity):
         raise PlatformError("Pick the capacity from the list")
     domain = str(detail.get("domain_id") or "").strip()
     row = _row(db, "domain", "id", domain_id(domain)) if domain else None
@@ -2285,13 +2285,13 @@ def _check_workspace(db: Db, target: str, detail: dict[str, Any], reason: str) -
 
 def _check_workspace_access(db: Db, target: str, detail: dict[str, Any], by: str) -> tuple[str, dict[str, Any]]:
     wid = str(detail.get("workspace_id") or "").strip().lower()
-    if not _GUID.match(wid):
+    if not _GUID.fullmatch(wid):
         raise PlatformError("Pick the workspace, or paste its ID from its address in Fabric")
     role = str(detail.get("role") or "").strip().title()
     if role not in WORKSPACE_ROLES:
         raise PlatformError(f"role must be one of {', '.join(WORKSPACE_ROLES)}")
     if str(detail.get("who") or "me") == "me":
-        if not _EMAIL.match(_who(by)):
+        if not _EMAIL.fullmatch(_who(by)):
             raise PlatformError("Sign in, so the request says who you are")
         who = principal(_who(by))
     else:
@@ -2336,7 +2336,7 @@ def _check_data_request(db: Db, target: str, detail: dict[str, Any], reason: str
     needed_by = str(detail.get("needed_by") or "").strip()
     if needed_by:
         try:
-            if not _DAY.match(needed_by):
+            if not _DAY.fullmatch(needed_by):
                 raise ValueError(needed_by)
             dt.date.fromisoformat(needed_by)
         except ValueError:
@@ -2652,7 +2652,7 @@ def owner_coverage(db: Db, presence: bool = True) -> dict[str, Any]:
     seen, now = _last_seen(db) if presence else {}, dt.datetime.now(dt.timezone.utc)
 
     def quiet(owner: str) -> int | None:
-        if not presence or not _UPN_LIKE.match(owner):
+        if not presence or not _UPN_LIKE.fullmatch(owner):
             return None
         last = seen.get(owner)
         if not last:
@@ -2676,7 +2676,7 @@ def owner_coverage(db: Db, presence: bool = True) -> dict[str, Any]:
                 problems.append(f"{o} hasn't used the platform yet")
             elif q is not None:
                 problems.append(f"{o} hasn't used the platform for {q} days")
-        unchecked = [o for o in owners if not _UPN_LIKE.match(o)]
+        unchecked = [o for o in owners if not _UPN_LIKE.fullmatch(o)]
         return {"kind": kind, "id": id_, "name": name, "owners": owners, "problems": problems,
                 "unchecked": unchecked, "opens": opens}
 
@@ -3270,7 +3270,7 @@ def list_product_items(db: Db, product_id: str = "") -> list[dict[str, Any]]:
 
 def _fabric_id(value: Any, what: str) -> str:
     text = str(value or "").strip().lower()
-    if not _GUID.match(text):
+    if not _GUID.fullmatch(text):
         raise PlatformError(f"{what} needs its Fabric id")
     return text
 

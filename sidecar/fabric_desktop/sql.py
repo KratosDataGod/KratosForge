@@ -181,12 +181,45 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     Apache Spark 3.5 (Fabric) quotes only names that need it. timestampdiff counts whole units
     (_spark_timestampdiff)."""
     statement = spark_builtins_sql.mark(statement)
+    if databricks:
+        _mark_divisions(statement)
     statement = _spark_date_results(statement, ansi=databricks)
     statement = _spark_timestampdiff(spark_builtins_sql.rewrite(
         _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_concat_text(_spark_cast_functions(spark_strings.spark_text_results(spark_aggregates.spark_aggregate_results(spark_complex.mark_calls(_spark_names(statement))))))))))),
         ansi=databricks))
     statement = spark_complex.spark_complex_results(statement)
-    return statement if databricks else _spark_session_functions(statement)
+    return _ansi_divisions(statement) if databricks else _spark_session_functions(statement)
+
+
+# Databricks SQL runs with ANSI mode on (a SQL warehouse's ANSI_MODE, and Databricks Runtime 17.0 and
+# later), so a division by zero stops the query; Spark with ANSI off, as Fabric runs it, gives NULL.
+_DIVIDE_BY_ZERO = ("[DIVIDE_BY_ZERO] Division by zero. Use `try_divide` to tolerate divisor being 0 and return NULL "
+                   "instead. If necessary set ansi_mode to false to bypass this error.")
+_DIVISIONS = (exp.Div, exp.IntDiv, exp.Mod)
+_USER_DIVISION = "kf_user_division"
+
+
+def _mark_divisions(statement: exp.Expression) -> None:
+    """Mark the query's own /, div and %, before other rewrites write theirs (an average's sum / count)."""
+    for node in statement.find_all(*_DIVISIONS):
+        node.meta[_USER_DIVISION] = True
+
+
+def _ansi_divisions(statement: exp.Expression) -> exp.Expression:
+    """The query's own /, div and % stop on a zero divisor, as with ANSI mode on (see _DIVIDE_BY_ZERO). The
+    divisor is read once: through a lambda argument unless it is a column or a literal."""
+    stop = exp.Literal.string(_DIVIDE_BY_ZERO).sql("duckdb")
+    for node in list(statement.find_all(*_DIVISIONS)):
+        if not node.meta.pop(_USER_DIVISION, False):
+            continue
+        divisor = node.expression
+        if isinstance(divisor, (exp.Column, exp.Literal)):
+            text = "CASE WHEN fj_arg0 = 0 THEN ERROR(" + stop + ") ELSE fj_arg0 END"
+        else:
+            text = "(LIST_TRANSFORM([fj_arg0], kf_divisor -> CASE WHEN kf_divisor = 0 THEN ERROR(" + stop + \
+                   ") ELSE kf_divisor END))[1]"
+        node.set("expression", exp.paren(_with_args(text, [divisor])))
+    return statement
 
 
 # Spark's date and time functions that return an int (sqlglot's DuckDB SQL gives a BIGINT).
@@ -790,6 +823,7 @@ _TIMESTAMP_CASTS = (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPTZ, 
 _TEXT_CASTS = (exp.DataType.Type.TEXT, exp.DataType.Type.VARCHAR)
 _PLAIN_NUMBER = r"^\s*([+-]?[0-9]+)(\.[0-9]*)?\s*$"
 _WHOLE_NUMBER = r"^\s*([+-]?[0-9]+)\s*$"
+_WHOLE_PART = r"^\s*([+-]?[0-9]+)"  # a decimal's digits before its point, as DuckDB writes it
 
 
 def spark_integer_cast(value: str, duck_type: str, spark_type: str, mode: str) -> str:
@@ -810,12 +844,44 @@ def spark_integer_cast(value: str, duck_type: str, spark_type: str, mode: str) -
     # A timestamp is its seconds since 1970 (UTC), rounded down, as in Spark (EA-014); DuckDB has no such
     # cast. It is read through text, so the CASE binds whatever the value's type.
     seconds = f"floor(epoch(TRY_CAST({text} AS TIMESTAMPTZ)))"
-    return (f"CASE WHEN typeof({value}) IN ({_WHOLE_TYPES}) THEN {cast_}({value} AS {duck_type}) "
-            f"WHEN typeof({value}) IN ({_TIMESTAMP_TYPES}) THEN {cast_}({seconds} AS {duck_type}) "
-            f"WHEN typeof({value}) IN ('DOUBLE', 'FLOAT') THEN {cast_}(trunc(TRY_CAST({value} AS DOUBLE)) AS {duck_type}) "
+    if mode == "legacy":  # a number that doesn't fit wraps around or saturates, as Java's casts do (_java_narrowed)
+        whole = _java_narrowed(f"TRY_CAST({value} AS HUGEINT)", duck_type)
+        stamp = _java_narrowed(f"TRY_CAST({seconds} AS HUGEINT)", duck_type)
+        double = _java_narrowed(f"TRY_CAST({value} AS DOUBLE)", duck_type, from_double=True)
+        whole_part = f"TRY_CAST(regexp_extract({text}, '{_WHOLE_PART}', 1) AS HUGEINT)"
+        decimal = (f"WHEN typeof({value}) LIKE 'DECIMAL%' THEN "
+                   f"{_java_narrowed(whole_part, duck_type)} ")
+    else:
+        whole = f"{cast_}({value} AS {duck_type})"
+        stamp = f"{cast_}({seconds} AS {duck_type})"
+        double = f"{cast_}(trunc(TRY_CAST({value} AS DOUBLE)) AS {duck_type})"
+        decimal = ""
+    return (f"CASE WHEN typeof({value}) IN ({_WHOLE_TYPES}) THEN {whole} "
+            f"WHEN typeof({value}) IN ({_TIMESTAMP_TYPES}) THEN {stamp} "
+            f"WHEN typeof({value}) IN ('DOUBLE', 'FLOAT') THEN {double} "
+            f"{decimal}"
             f"WHEN typeof({value}) = 'VARCHAR' THEN {string} "
             f"WHEN regexp_matches({text}, '{_PLAIN_NUMBER}') THEN {cast_}(regexp_extract({text}, '{_PLAIN_NUMBER}', 1) "
             f"AS {duck_type}) ELSE {cast_}({value} AS {duck_type}) END")
+
+
+_WIDTHS = {"TINYINT": 8, "SMALLINT": 16, "INTEGER": 32, "BIGINT": 64}
+
+
+def _java_narrowed(number: str, duck_type: str, from_double: bool = False) -> str:
+    """DuckDB SQL for ``number`` (a HUGEINT, or a DOUBLE with ``from_double``) cast to ``duck_type`` as
+    Spark's CAST does with ANSI mode off, which is Java's: a whole number keeps its low bits, so
+    CAST(2147483648L AS INT) is -2147483648 (Spark's ANSI compliance page); a double is cut to a whole
+    number, NaN is 0, and one past the range is the nearest end (Java's d2i and d2l), and for a
+    tinyint or smallint that int then keeps its low bits."""
+    bits = _WIDTHS[duck_type]
+    if from_double:
+        top = 64 if bits == 64 else 32
+        high, low = f"{2 ** (top - 1) - 1}", f"-{2 ** (top - 1)}"
+        number = (f"CASE WHEN isnan({number}) THEN 0 WHEN {number} >= {high}.0 THEN {high} WHEN {number} <= {low}.0 "
+                  f"THEN {low} ELSE CAST(trunc({number}) AS HUGEINT) END")
+    half, size = 2 ** (bits - 1), 2 ** bits
+    return f"CAST(((CAST({number} AS HUGEINT) + {half}) % {size} + {size}) % {size} - {half} AS {duck_type})"
 
 
 def spark_timestamp_cast(value: str, duck_type: str, mode: str) -> str:
@@ -952,6 +1018,19 @@ def _to_timestamp_call(node: exp.Expression) -> bool:
             and node.meta.get(spark_sql_names._NAME) == "to_timestamp")
 
 
+def _past(source: exp.Expression, kind: Any) -> bool:
+    """Whether the whole number ``source`` (see _whole_number) can be past the range of the integer type
+    ``kind``: a literal that is, or a cast to a wider type."""
+    bits = _WIDTHS[_INT_CASTS[kind][0]]
+    while isinstance(source, exp.Paren):
+        source = source.this
+    if isinstance(source, exp.Literal):
+        return not -(2 ** (bits - 1)) <= int(source.this) < 2 ** (bits - 1)
+    if isinstance(source, (exp.Cast, exp.TryCast)) and source.to.this in _INT_CASTS:
+        return _WIDTHS[_INT_CASTS[source.to.this][0]] > bits
+    return False
+
+
 def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
     """Casts to TINYINT, SMALLINT, INT or BIGINT written out as Spark casts (EA-003, and EA-014 for a
     timestamp): see spark_integer_cast. Casts to a timestamp read a number as seconds (spark_timestamp_cast).
@@ -967,7 +1046,9 @@ def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
             mode = "try" if node.args.get("safe") else "legacy"
         else:
             mode = "ansi"
-        if kind in _INT_CASTS and not _whole_number(source):
+        if kind in _INT_CASTS and mode == "legacy" and _whole_number(source) and _past(source, kind):
+            write = functools.partial(_java_narrowed, duck_type=_INT_CASTS[kind][0])
+        elif kind in _INT_CASTS and not _whole_number(source):
             write = functools.partial(spark_integer_cast, duck_type=_INT_CASTS[kind][0],
                                       spark_type=_INT_CASTS[kind][1], mode=mode)
         elif kind in _TIMESTAMP_CASTS and not (isinstance(source, exp.Literal) and source.is_string):

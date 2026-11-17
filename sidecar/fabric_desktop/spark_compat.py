@@ -2260,6 +2260,40 @@ def _constant(value: Any) -> duckdb.Expression:
     return duckdb.ConstantExpression(value)
 
 
+def _install_java_regex() -> None:
+    """Java's regular expressions where a pattern is given as a string (spark_strings): F.regexp_replace,
+    F.regexp_extract, F.split and Column.rlike; Column.like with Spark's default escape (\\)."""
+    from .spark_strings import java_regex_function
+    own = hasattr(F, "_java_replacement")  # DuckDB 2.0's regexp_replace reads Java's $1 itself
+    vars(F).update(regexp_replace=java_regex_function("regexp_replace", F.regexp_replace, 1, replacement_at=2,
+                                                      own_replacement=own),
+                   regexp_extract=java_regex_function("regexp_extract", F.regexp_extract, 1, group_at=2),
+                   split=java_regex_function("split", F.split, 1))
+    setattr(Column, "rlike", java_regex_function("rlike", Column.rlike, 1))  # noqa: B010 - mypy: a method
+    like, ilike = Column.like, Column.ilike
+
+    def escaped(fn: Any, op: str) -> Any:
+        def method(self: Column, other: Any) -> Column:
+            if isinstance(other, str) and "\\" in other:
+                return _sql(f"({_col_sql(self)} {op} {_text(other)} ESCAPE '\\')")
+            return cast(Column, fn(self, other))
+        method.__doc__ = fn.__doc__
+        return method
+    setattr(Column, "like", escaped(like, "LIKE"))  # noqa: B010 - mypy: a method
+    setattr(Column, "ilike", escaped(ilike, "ILIKE"))  # noqa: B010
+    for name in ("length", "octet_length", "bit_length", "instr", "locate", "levenshtein"):
+        if hasattr(F, name):
+            setattr(F, name, _int_result(getattr(F, name)))
+
+
+def _int_result(fn: Any) -> Any:
+    """F.<fn> as an int, as Spark gives it (DuckDB's is a bigint)."""
+    @functools.wraps(fn)
+    def call(*args: Any, **kwargs: Any) -> Column:
+        return _sql(f"CAST({_col_sql(fn(*args, **kwargs))} AS INTEGER)")
+    return call
+
+
 def install() -> None:
     """Add the calls above to DuckDB's Spark API (once per process)."""
     if getattr(DataFrame, "_fd_compat", False):
@@ -2304,6 +2338,7 @@ def install() -> None:
     for name, at in _TEXT_ARGS.items():
         if hasattr(F, name):
             setattr(F, name, _text_argument(name, at, getattr(F, name)))
+    _install_java_regex()
     _install_spark_names()  # after every other Column patch, so it names what they give
     DataFrame.agg = _agg  # type: ignore[attr-defined]
     DataFrame.show = _show  # type: ignore[method-assign,assignment]

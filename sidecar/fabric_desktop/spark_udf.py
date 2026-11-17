@@ -193,14 +193,18 @@ class UserDefinedFunction:
 def _isnull(v: Any) -> bool:
     try:
         import pandas as pd
-        return v is None or (not isinstance(v, (list, tuple, dict)) and bool(pd.isna(v)))
+        # An array (numpy's, with ndim above 0) is a value, even one holding a single NaN.
+        return v is None or (not isinstance(v, (list, tuple, dict)) and not getattr(v, "ndim", 0) and bool(pd.isna(v)))
     except (TypeError, ValueError):
         return False
 
 
 def _plain(v: Any) -> Any:
-    """numpy and pandas scalars as Python values."""
+    """numpy and pandas scalars as Python values, and numpy arrays as lists (Spark gives an ArrayType
+    column's arrays as lists). An array is checked first: a one-element array's item() is its value."""
     import datetime
+    if getattr(v, "ndim", 0) and hasattr(v, "tolist"):
+        return v.tolist()
     if hasattr(v, "to_pydatetime"):
         return v.to_pydatetime()
     if hasattr(v, "item") and not isinstance(v, (list, tuple, dict, datetime.date)):

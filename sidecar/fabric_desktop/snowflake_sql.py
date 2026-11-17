@@ -673,13 +673,25 @@ def _rewrite_arrays(statement: exp.Expression) -> None:
     Snowflake's does (DuckDB's LIST_DISTINCT doesn't keep the order). ARRAY_FLATTEN of an array holding
     a NULL in place of an array is NULL, as in Snowflake; DuckDB's FLATTEN skips it."""
     for distinct in list(statement.find_all(exp.ArrayDistinct)):
-        _put(distinct, "LIST_FILTER(fj_arg0, LAMBDA kf_x, kf_i: LIST_POSITION(fj_arg0, kf_x) = kf_i)",
+        # the array is worked out once (fj_arg0 is read once), then searched for each element's first place
+        _put(distinct, "LIST_TRANSFORM([fj_arg0], LAMBDA kf_l: "
+                       "LIST_FILTER(kf_l, LAMBDA kf_x, kf_i: LIST_POSITION(kf_l, kf_x) = kf_i))[1]",
              [distinct.this])
     for flatten in list(statement.find_all(exp.Flatten)):
         if flatten.expressions:
             continue
         _put(flatten, "CASE WHEN LEN(LIST_FILTER(fj_arg0, LAMBDA kf_e: kf_e IS NULL)) > 0 THEN NULL "
                       "ELSE FLATTEN(fj_arg0) END", [flatten.this])
+
+
+def _rewrite_variant_reads(statement: exp.Expression) -> None:
+    """SFX-023: GET and the : path read a VARIANT made with TO_VARIANT (or a cast to VARIANT) as JSON, as
+    Snowflake reads any VARIANT; DuckDB reads its own VARIANT as text that isn't JSON, and stops."""
+    for read in list(statement.find_all(exp.GetExtract, exp.JSONExtract)):
+        value = read.this
+        if isinstance(value, exp.ToVariant) or (isinstance(value, (exp.Cast, exp.TryCast))
+                                                and value.to.is_type(exp.DataType.Type.VARIANT)):
+            value.replace(exp.Cast(this=value.copy(), to=exp.DataType.build("JSON")))
 
 
 def _rewrite_regexp_groups(statement: exp.Expression) -> None:
@@ -1693,6 +1705,8 @@ CATALOG = (
     ("SFX-022", "Rewritten", ("TO_TIMESTAMP of a string written in the query that holds a whole number reads it "
                 "as seconds, milliseconds, microseconds or nanoseconds by its size, as Snowflake does. A column "
                 "is read as before.")),
+    ("SFX-023", "Rewritten", ("GET and the : path read a VARIANT made with TO_VARIANT or a cast to VARIANT as JSON, "
+                "as Snowflake does.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -1801,6 +1815,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_time(tree)
         _rewrite_timestamp_parts(tree)
         _rewrite_arrays(tree)
+        _rewrite_variant_reads(tree)
         _rewrite_regexp_groups(tree)
         _rewrite_string_epochs(tree)
         _rewrite_objects(tree)

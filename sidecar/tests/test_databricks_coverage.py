@@ -829,6 +829,23 @@ def test_monotonically_increasing_id_is_unique_and_increasing():
     assert got == [[0], [1], [2], [3], [4]]
 
 
+def test_raise_error_of_null_stops_as_spark_does():
+    with pytest.raises(Exception, match="null"):
+        databricks_coverage.run("SELECT raise_error(NULL)", databricks_coverage.connect())
+
+
+def test_monotonically_increasing_id_in_a_condition_is_refused_by_name():
+    con = databricks_coverage.connect()
+    for code in ("SELECT id FROM range(3) AS t(id) WHERE monotonically_increasing_id() < 2",
+                 "SELECT count(*) FROM range(3) GROUP BY monotonically_increasing_id()",
+                 "SELECT id FROM range(3) AS t(id) ORDER BY monotonically_increasing_id() DESC"):
+        with pytest.raises(ValueError, match="monotonically_increasing_id.*select it in a subquery"):
+            databricks_coverage.run(code, con)
+    # in a subquery's SELECT list it still runs
+    assert databricks_coverage.run("SELECT id FROM range(3) AS t(id) WHERE id IN "
+                                   "(SELECT monotonically_increasing_id() FROM range(2)) ORDER BY id", con) == [[0], [1]]
+
+
 def test_current_timezone_is_the_session_zone():
     con = databricks_coverage.connect()
     assert databricks_coverage.run("SELECT current_timezone()", con) == [["UTC"]]
@@ -856,6 +873,25 @@ def test_randstr_and_uniform_keep_what_databricks_documents_without_a_seed():
 def test_what_this_pc_cant_answer_is_refused_by_name_for_a_databricks_cell(code):
     with pytest.raises(ValueError, match="the way it runs in Databricks.*Run the cell on a Databricks SQL warehouse"):
         databricks_coverage.run(code, databricks_coverage.connect())
+
+
+def test_a_refusal_reached_at_run_time_names_databricks_in_a_databricks_cell():
+    from fabric_desktop.engines import local_sql
+    from fabric_desktop.engines.contract import CellRequest, SessionConfig
+    session = local_sql.DuckDBSession(SessionConfig("nb"))
+    try:
+        def error(code, dialect):
+            result = session.execute(CellRequest(code, "sql", dialect))
+            assert result.status == "error"
+            return result.outputs[0]["evalue"]
+        quoted = "SELECT from_csv('\"a\"', 'x STRING')"
+        assert "the way it runs in Databricks" in error(quoted, "databricks")
+        assert "Run the cell on a Databricks SQL warehouse" in error(quoted, "databricks")
+        assert "Run the cell in Fabric" in error(quoted, "spark")
+        # a message the cell's author wrote is left as written
+        assert error("SELECT raise_error('Run the cell in Fabric.')", "databricks").endswith("Run the cell in Fabric.")
+    finally:
+        session.close()
 
 
 def test_a_spark_sql_cell_still_names_fabric():

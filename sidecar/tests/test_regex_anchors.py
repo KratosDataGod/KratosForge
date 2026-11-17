@@ -14,12 +14,9 @@ ROOT = pathlib.Path(fabric_desktop.__file__).parent
 
 # Modules still to move, slice by slice. Remove a module when its patterns use fullmatch.
 NOT_YET = {
-    "governance_notices.py", "history.py", "localdata/discovery.py", "localdata/projects.py",
-    "localdata/transform.py", "magics.py", "notebook_formats.py", "notebookutils_local.py",
-    "optimize/local_runs.py", "optimize/schema.py", "pip_magic.py", "replay.py", "semantic.py", "spark_compat.py",
-    "sql_function_help.py", "sql_queries_service.py", "sql_templates_service.py", "sql_view.py", "tmdl.py",
-    "usage/reader.py", "validate_service.py", "warehouse_compare.py", "warehouse_project_service.py",
-    "workloads/deliver.py", "workloads/impact.py", "workloads/platform_notify.py",
+    "governance_notices.py", "localdata/discovery.py", "localdata/transform.py", "magics.py", "notebook_formats.py",
+    "notebookutils_local.py", "optimize/local_runs.py", "spark_compat.py", "sql_queries_service.py", "sql_view.py",
+    "tmdl.py", "usage/reader.py", "workloads/deliver.py", "workloads/impact.py", "workloads/platform_notify.py",
 }
 
 # Deny lists: a match means "refuse", so match (which also takes a final line break) is the stricter check.
@@ -131,3 +128,15 @@ def test_a_batch_or_cell_id_ending_in_a_line_break_is_refused():
 def test_academy_and_learn_ids_ending_in_a_line_break_are_refused():
     from fabric_desktop.learn import content
     assert content.is_id("LM-01") and not content.is_id("LM-01\n")
+
+
+def test_a_dax_or_sql_name_ending_in_a_line_break_is_quoted():
+    from fabric_desktop import semantic, warehouse_compare
+    assert semantic._PLAIN.fullmatch("Sales") and not semantic._PLAIN.fullmatch("Sales\n")
+    assert not warehouse_compare._PLAIN.fullmatch("orders\n")
+
+
+def test_only_a_validate_run_id_names_a_sandbox_folder_to_remove():
+    from fabric_desktop import validate_service
+    good = "validate-20261117-070000-abc123"
+    assert validate_service._ID.fullmatch(good) and not validate_service._ID.fullmatch(good + "\n")

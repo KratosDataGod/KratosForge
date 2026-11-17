@@ -99,7 +99,7 @@ class ProdWritesMixin:
                 "workspace_id": workspace_id, "workspace_name": shown, "operation": operation.upper(),
                 "table": table, "at": time.monotonic()}
         return (f"{operation.upper()} on {table} would change {shown}, a Prod workspace, so it waits for you to "
-                "type the workspace's name. Nothing was changed. Run the cell again after you type it.")
+                "type the workspace's name. Nothing was changed. Run this cell on its own to type it.")
 
     def _take_prod_allowance(self, notebook: str | None) -> frozenset[str]:
         """The workspaces this run of ``notebook`` may change after a typed name; the allowance is used up."""

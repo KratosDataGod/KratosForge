@@ -211,8 +211,8 @@ def _updated_once(con: duckdb.DuckDBPyConnection, text: str) -> None:
     if row is not None:
         name = f"{target.db}.{target.name}" if target.db else target.name
         raise ValueError(f"The UPDATE would set a row of {name} from more than one row of its FROM, so which one "
-                         "it gets is undefined. Keep one row per row of the table in FROM, for example with GROUP "
-                         "BY or ROW_NUMBER(), or use a MERGE.")
+                         f"it gets is undefined. Make FROM give at most one row for each row of {name}, for example "
+                         "with GROUP BY or ROW_NUMBER(), or use a MERGE.")
 
 
 def _matched_once(con: duckdb.DuckDBPyConnection, c: "delta_dml.Change") -> None:

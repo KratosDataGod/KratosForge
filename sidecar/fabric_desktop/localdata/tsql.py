@@ -189,7 +189,7 @@ def _joined_changes(tree: exp.Expression) -> None:
                          "name it first, as FROM table AS t JOIN ...")
     if any(j.side or (j.kind and j.kind.upper() not in ("INNER", "CROSS")) for j in joins):
         raise ValueError(_NOT_YET + f"{what} isn't mapped yet with an outer join (LEFT, RIGHT or FULL JOIN) in its "
-                         "FROM: use an inner join, or a MERGE.")
+                         "FROM: use WHERE [NOT] EXISTS (...), or a MERGE.")
     filters = [j.args["on"] for j in joins if j.args.get("on") is not None]
     if any(j.args.get("using") for j in joins):
         raise ValueError(_NOT_YET + f"{what} isn't mapped yet with JOIN ... USING in its FROM: use JOIN ... ON.")

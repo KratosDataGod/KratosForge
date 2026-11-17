@@ -115,7 +115,7 @@ def _skill_problems(doc: Any, out: list[str], known: dict[str, set[str]] | None)
     skills: dict[str, dict[str, Any]] = {}
     for s in doc.get("skills") or []:
         sid = str(s.get("id")) if isinstance(s, dict) else "?"
-        if not isinstance(s, dict) or not _ID.match(sid):
+        if not isinstance(s, dict) or not _ID.fullmatch(sid):
             out.append(f"skills.json: bad skill id {sid!r}")
             continue
         if sid in skills:
@@ -138,8 +138,8 @@ def _skill_problems(doc: Any, out: list[str], known: dict[str, set[str]] | None)
                 out.append(f"skills.json: {sid} has unknown evidence kind {kind!r}")
                 continue
             for i in ids:
-                bad = {"learn": not _LEARN.match(str(i)), "academy": not _ACADEMY.match(str(i)),
-                       "objectives": not _OBJECTIVE.match(str(i)), "rules": not _RULE.match(str(i)),
+                bad = {"learn": not _LEARN.fullmatch(str(i)), "academy": not _ACADEMY.fullmatch(str(i)),
+                       "objectives": not _OBJECTIVE.fullmatch(str(i)), "rules": not _RULE.fullmatch(str(i)),
                        "events": i not in EVENTS, "checks": i not in CHECKS}[kind]
                 if bad:
                     out.append(f"skills.json: {sid} {kind} hook {i!r} isn't valid")
@@ -153,7 +153,7 @@ def _class_problems(c: dict[str, Any], skills: dict[str, dict[str, Any]], out: l
     where = f"class {cid}"
     if c.get("schema") != CLASS_SCHEMA:
         out.append(f"{where}: schema isn't {CLASS_SCHEMA}")
-    if not _ID.match(cid):
+    if not _ID.fullmatch(cid):
         out.append(f"{where}: bad id")
     if not isinstance(c.get("version"), int) or c["version"] < 1:
         out.append(f"{where}: version must be a whole number from 1")
@@ -175,7 +175,7 @@ def _class_problems(c: dict[str, Any], skills: dict[str, dict[str, Any]], out: l
     spec_ids: set[str] = set()
     for sp in specs:
         sid = str(sp.get("id"))
-        if not _ID.match(sid) or sid in spec_ids:
+        if not _ID.fullmatch(sid) or sid in spec_ids:
             out.append(f"{where}: bad or repeated specialization id {sid!r}")
         spec_ids.add(sid)
         names.append(str(sp.get("title") or ""))
@@ -184,7 +184,7 @@ def _class_problems(c: dict[str, Any], skills: dict[str, dict[str, Any]], out: l
             out.append(f"{where}/{sid}: {len(mine)} talents, needs at least {MIN_NODES}")
         for n in mine:
             nid = str(n.get("id"))
-            if not _NODE.match(nid) or not nid.startswith(f"{sid}."):
+            if not _NODE.fullmatch(nid) or not nid.startswith(f"{sid}."):
                 out.append(f"{where}/{sid}: node id {nid!r} must be '{sid}.NN'")
             if nid in nodes:
                 out.append(f"{where}: node {nid} used twice")

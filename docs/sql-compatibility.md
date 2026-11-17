@@ -715,7 +715,7 @@ Fabric Warehouse loads files with `COPY INTO`, `BULK INSERT` and `OPENROWSET(BUL
 
 Besides the hand-picked cases above, three tests generate queries from a fixed seed and compare each answer here with the target's:
 
-- **Spark SQL** (`sidecar/tests/test_spark_differential.py` and `_more.py`): about 1,580 random scalar expressions over the functions this page lists (arithmetic, `div`, `pmod`, casts, text, dates, `LIKE`, three-valued logic), with NULLs mixed in. Each was run in Apache Spark 3.5.3 (local mode, UTC, ANSI mode off, as Fabric) by `sidecar/tools/capture_spark_differential.py`, and its answer is kept in `sidecar/tests/fixtures/spark_3_5_3_differential.json`. CI has no Spark, so the fixture is made by hand and checked in.
+- **Spark SQL** (`sidecar/tests/test_spark_differential.py` and `_more.py`): about 1,580 random scalar expressions over the functions this page lists (arithmetic, `div`, `pmod`, casts, text, dates, `LIKE`, three-valued logic), with NULLs mixed in. Each was run in Apache Spark 3.5.3 (local mode, UTC, ANSI mode off, as Fabric) by `sidecar/tools/capture_spark_differential.py`, and its answer is kept in `sidecar/tests/fixtures/spark_3_5_3_differential.json`. CI has no Spark, so the capture is run by hand and the fixture is checked in.
 - **T-SQL** (`sidecar/tests/test_tsql_rules_differential.py`): about 1,700 inputs for `SUBSTRING`, `LEFT`, `RIGHT`, `CHARINDEX`, `REPLICATE`, `LEN`, integer `/` and `%`, `ROUND`, `CAST` to `int`, `=` and `<` with trailing spaces, `LIKE` with `[a-c]` ranges, `DATEDIFF`, `DATEADD`, `EOMONTH`, `DATEPART`, `CONCAT`, `CONCAT_WS` and `+`, each with `'...'` and with `N'...'` text. The expected answer is a short model of the rule in T-SQL's reference. No warehouse was used.
 - **Snowflake** (`sidecar/tests/test_snowflake_rules_differential.py`): about 1,700 inputs for `SUBSTR`, `LEFT`, `RIGHT`, `REPEAT`, `CONCAT`, `||`, `CONCAT_WS`, `MOD`, `DIV0`, `DIV0NULL`, `ROUND` (both modes), `DATEDIFF`, `DAYOFWEEK`, `DAYOFWEEKISO`, `DATE_TRUNC('week')`, `WEEKISO`, `LAST_DAY`, `POSITION`, `CHARINDEX`, `SPLIT_PART`, `LPAD`, `RPAD` and `ORDER BY`'s NULL order, modeled on Snowflake's SQL reference with the default session parameters. No Snowflake account was used.
 
@@ -723,8 +723,8 @@ A different answer, or an error where the target answers, fails these tests unle
 
 | Engine | What differs here | How |
 | --- | --- | --- |
-| Spark SQL | `substring(s, pos, len)` with a negative `len` | Spark gives `''` |
-| Spark SQL | `overlay(... FROM pos)` with `pos` of 0 or below | Spark's own substring rules: `overlay('abc' PLACING ',' FROM 0)` is `,abc` |
+| Spark SQL | `substring(s, pos, len)` with a negative `len` | Spark gives `''`. Here it counts back from `pos`: `substring('Hello World', -1, -6)` is `o Worl` |
+| Spark SQL | `overlay(... FROM pos)` with `pos` of 0 or below | Spark keeps its own substring rules: `overlay('abc' PLACING ',' FROM 0)` is `,abc`. Here it is `ab,abc` |
 | Spark SQL | `levenshtein` on text that isn't ASCII | Spark counts characters, here bytes |
 | Spark SQL | `locate(sub, NULL, pos)` with `pos` below 1 | Spark gives NULL, here 0 |
 | Spark SQL | `bit_count` of a negative `int` | Spark counts 64 bits (-1 gives 64), here 32 |
@@ -732,7 +732,7 @@ A different answer, or an error where the target answers, fails these tests unle
 | Spark SQL | `a div b` when `a` is a decimal (`floor(-1.25) div 7`) | Spark gives a whole number, here a double division |
 | Spark SQL | `isnan(NULL)` | Spark gives false, here NULL |
 | Spark SQL | `to_date('24-02-29')` | Spark gives NULL (a year needs 4 digits), here the year 24 |
-| Spark SQL | `date_format` of a year past 9999 | Spark writes a leading `+` |
+| Spark SQL | `date_format` of a year past 9999 | Spark writes a leading `+` (`+8535706`). Here there is none (`8535706`) |
 | Spark SQL | `initcap`, `trunc(date, 'MM')` and its other formats, `make_date` with a day that doesn't exist, `sqrt` of a negative number, `shiftleft`/`shiftright` of a negative number or by a negative count, `soundex` of a cast, `CAST` of text past a date's range | These stop here with an error, where Spark answers |
 | Spark SQL | `split_part(s, d, 0)` | Refused by name before the query runs; Spark stops only when the call is reached |
 | Snowflake | `POSITION` and `CHARINDEX` with an empty search text and a start past the end | Snowflake gives 0, here the start |

@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from sqlglot import exp
 
-from fabric_desktop import spark_aggregates, sql_dialects
+from fabric_desktop import spark_aggregates, sql, sql_dialects
 from fabric_desktop.notebook import Kernel
 
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "sql-compatibility.md"
@@ -200,3 +200,17 @@ def test_docs_list_what_still_differs() -> None:
     section = text.split("## Aggregates on this PC", 1)[1].split("\n## ", 1)[0]
     missing = [name for name in STILL_DIFFERS if f"`{name}" not in section]
     assert not missing, missing
+
+
+# PercentileCont/PercentileDisc.sql in Spark 3.5.1 (read from spark-catalyst's class constants):
+# "<name>(<fraction>) WITHIN GROUP (ORDER BY <column>[ DESC])"; NULLS FIRST/LAST isn't shown.
+@pytest.mark.parametrize(("query", "name"), [
+    ("percentile_cont(0.5) WITHIN GROUP (ORDER BY x)", "percentile_cont(0.5) WITHIN GROUP (ORDER BY x)"),
+    ("percentile_disc(0.25) WITHIN GROUP (ORDER BY x DESC)", "percentile_disc(0.25) WITHIN GROUP (ORDER BY x DESC)"),
+    ("percentile_cont(0.5) WITHIN GROUP (ORDER BY x ASC NULLS LAST)", "percentile_cont(0.5) WITHIN GROUP (ORDER BY x)"),
+    ("percentile_disc(0.5) WITHIN GROUP (ORDER BY x + 1)", "percentile_disc(0.5) WITHIN GROUP (ORDER BY (x + 1))"),
+    ("percentile_cont(0.5) WITHIN GROUP (ORDER BY x) FILTER (WHERE g = 1)",
+     "percentile_cont(0.5) WITHIN GROUP (ORDER BY x) FILTER (WHERE (g = 1))"),
+])
+def test_percentile_cont_and_disc_are_named_as_spark(query: str, name: str) -> None:
+    assert str(sql.parse(f"SELECT {query} FROM t")[0].expressions[0].alias_or_name) == name

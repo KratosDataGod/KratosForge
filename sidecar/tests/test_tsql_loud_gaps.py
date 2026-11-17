@@ -255,6 +255,8 @@ def test_a_macro_in_the_database_is_a_known_function(engine):
 # list has a query here that the local engine must refuse; an item added to the list without one, or a query here
 # whose item left the list, fails. The other backticked text in the list is advice or a skipped option.
 REFUSED_IN_THE_DOCS = {
+    "CREATE TABLE ... AS CLONE OF": "CREATE TABLE dbo.c AS CLONE OF dbo.t",
+    "ALTER DATABASE ... SET TIMESTAMP": "ALTER DATABASE s SET TIMESTAMP = CURRENT_TIMESTAMP",
     "ISNUMERIC": "SELECT ISNUMERIC('1')",
     "POWER": "SELECT POWER(2.5, 2)",
     "DEGREES": "SELECT DEGREES(1.0)",

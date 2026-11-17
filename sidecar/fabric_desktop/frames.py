@@ -259,25 +259,34 @@ class Frames:
     # ---- the viewer
 
     def page(self, fid: str, offset: int = 0, limit: int = PAGE_ROWS, sort: int | None = None,
-             desc: bool = False, q: str = "") -> dict[str, Any]:
-        """One page of the result, searched and sorted over every row."""
+             desc: bool = False, q: str = "", filters: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        """One page of the result, searched, filtered and sorted over every row. ``filters`` are the
+        grid's filter boxes ({column, text}, read as the SQL page's: sql_view.py); one that can't be
+        read answers ``filter_error`` instead of rows."""
         import duckdb
+
+        from . import sql_view  # it reads frames.py's helpers, so not at the top
         table = self.table(fid)
         offset = max(0, int(offset))
         limit = min(max(1, int(limit)), MAX_PAGE_ROWS)
         cols = [f"c{i}" for i in range(table.num_columns)]
+        try:
+            boxes, params = sql_view.where_parts(table, cols, filters)
+        except sql_view.FilterError as exc:
+            return {"frame": fid, "filter_error": {"column": exc.column, "message": str(exc)}}
         con = duckdb.connect()
         try:
             con.register("t", table.rename_columns(cols))
-            where, params = "", []
+            parts = list(boxes)
             if q:
-                where = " WHERE " + " OR ".join(f"CAST({c} AS VARCHAR) ILIKE ? ESCAPE '\\'" for c in cols)
+                parts.insert(0, "(" + " OR ".join(f"CAST({c} AS VARCHAR) ILIKE ? ESCAPE '\\'" for c in cols) + ")")
                 like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-                params = [like] * len(cols)
+                params = [like] * len(cols) + params
+            where = (" WHERE " + " AND ".join(parts)) if parts else ""
             order = ""
             if sort is not None and 0 <= int(sort) < len(cols):
                 order = f" ORDER BY {cols[int(sort)]} {'DESC' if desc else 'ASC'} NULLS LAST"
-            total = one_row(con.execute(f"SELECT count(*) FROM t{where}", params))[0] if q else table.num_rows
+            total = one_row(con.execute(f"SELECT count(*) FROM t{where}", params))[0] if where else table.num_rows
             rows = _rows(for_arrow(con, f"SELECT * FROM t{where}{order} LIMIT {limit} OFFSET {offset}", params))
         finally:
             con.close()

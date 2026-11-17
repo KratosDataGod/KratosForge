@@ -128,7 +128,7 @@ Every call passes PermissionAuthorizer.check (integrations/permissions.py) befor
 | `fabric_desktop_start_pipeline_run` | `sidecar/fabric_desktop/integrations/services.py:296` | EXECUTE_LOCAL_CODE | yes | always |  |
 | `fabric_desktop_start_proof` | `sidecar/fabric_desktop/integrations/services.py:476` | MODIFY_FABRIC_ARTIFACTS | no (refused) | always |  |
 
-## 3. Engine methods that change something (412)
+## 3. Engine methods that change something (413)
 
 Reached only by the app window, over the engine's own pipe. "What it changes" and "Check" are found by reading the method and the methods it calls; "platform's check per operation" points at section 1.
 
@@ -376,11 +376,11 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `notebook_debug_get` | `sidecar/fabric_desktop/prove_service.py:512` | this PC | the signed-in Windows user's own files |
 | `notebook_debug_set` | `sidecar/fabric_desktop/prove_service.py:518` | this PC | the signed-in Windows user's own files |
 | `notebook_delete` | `sidecar/fabric_desktop/notebook_files_service.py:128` | this PC | the signed-in Windows user's own files |
-| `notebook_export` | `sidecar/fabric_desktop/notebook_formats_service.py:130` | Databricks, Snowflake or a Git remote | that service's own rights |
+| `notebook_export` | `sidecar/fabric_desktop/notebook_formats_service.py:174` | Databricks, Snowflake or a Git remote | that service's own rights |
 | `notebook_folder_create` | `sidecar/fabric_desktop/notebook_folders_service.py:24` | this PC | the signed-in Windows user's own files |
 | `notebook_folder_delete` | `sidecar/fabric_desktop/notebook_folders_service.py:42` | this PC | the signed-in Windows user's own files |
 | `notebook_folder_rename` | `sidecar/fabric_desktop/notebook_folders_service.py:28` | this PC | the signed-in Windows user's own files |
-| `notebook_formats_import` | `sidecar/fabric_desktop/notebook_formats_service.py:83` | this PC | the signed-in Windows user's own files |
+| `notebook_formats_import` | `sidecar/fabric_desktop/notebook_formats_service.py:85` | this PC | the signed-in Windows user's own files |
 | `notebook_frame_download` | `sidecar/fabric_desktop/service.py:973` | runs code or a pipeline on this PC | what the code reaches is checked where it lands |
 | `notebook_from_fabric` | `sidecar/fabric_desktop/notebook_files_service.py:181` | Fabric or OneLake | Fabric's own rights |
 | `notebook_import` | `sidecar/fabric_desktop/notebook_files_service.py:110` | this PC | the signed-in Windows user's own files |
@@ -388,6 +388,7 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `notebook_ipywidget_event` | `sidecar/fabric_desktop/service.py:961` | runs code or a pipeline on this PC | what the code reaches is checked where it lands |
 | `notebook_move_to_folder` | `sidecar/fabric_desktop/notebook_folders_service.py:46` | this PC | the signed-in Windows user's own files |
 | `notebook_onelake_writes_set` | `sidecar/fabric_desktop/service.py:1327` | this PC | the signed-in Windows user's own files |
+| `notebook_report_export` | `sidecar/fabric_desktop/notebook_formats_service.py:156` | this PC | the signed-in Windows user's own files |
 | `notebook_resource_add` | `sidecar/fabric_desktop/notebook_resources_service.py:42` | this PC | the signed-in Windows user's own files |
 | `notebook_resource_delete` | `sidecar/fabric_desktop/notebook_resources_service.py:54` | this PC | the signed-in Windows user's own files |
 | `notebook_resource_rename` | `sidecar/fabric_desktop/notebook_resources_service.py:51` | this PC | the signed-in Windows user's own files |

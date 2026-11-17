@@ -129,8 +129,8 @@ def test_merge_with_an_extra_source_column_stops_as_databricks_reference_says(ce
 
 
 def test_a_refusal_sqlglot_makes_names_databricks_not_fabric(cell):
-    answer = cell("CREATE TABLE p (a INT) PARTITIONED BY (a) LOCATION 'x'")
-    assert "Fabric" not in answer
+    answer = cell("CREATE TABLE p (a INT) LOCATION 'x'")
+    assert answer.startswith("error: ") and "Fabric" not in answer and "Databricks" in answer
 
 
 @pytest.mark.parametrize("dialect", ["databricks", "spark", "duckdb", "snowflake"])
@@ -149,5 +149,23 @@ def test_a_plan_of_a_table_with_an_identity_column_makes_no_table():
         assert "CREATE_TABLE" in session.plan("CREATE TABLE ids (id BIGINT GENERATED ALWAYS AS IDENTITY, n STRING)",
                                               "databricks")
         assert session._con.execute("SELECT count(*) FROM duckdb_tables()").fetchall() == [(0,)]
+    finally:
+        session.close()
+
+
+def test_partitioning_and_clustering_make_the_table_and_comments_are_kept(cell):
+    assert cell("CREATE TABLE p (a INT COMMENT 'the a', b STRING) USING DELTA PARTITIONED BY (a) COMMENT 'tbl'") == []
+    assert cell("CREATE TABLE c USING DELTA CLUSTER BY (a) AS SELECT 1 AS a") == [[1]]
+    assert cell("SELECT table_name, comment FROM duckdb_tables() ORDER BY 1") == [["c", None], ["p", "tbl"]]
+    assert cell("SELECT column_name, comment FROM duckdb_columns() WHERE table_name = 'p' ORDER BY 1") == [
+        ["a", "the a"], ["b", None]]
+    _refused(cell("CREATE TABLE q (a INT) PARTITIONED BY (d DATE)"), "PARTITIONED BY with column types")
+
+
+def test_a_plan_of_an_identity_column_leaves_no_sequence():
+    session = local_sql.DuckDBSession(SessionConfig("nb"))
+    try:
+        session.plan("CREATE TABLE ids (id BIGINT GENERATED ALWAYS AS IDENTITY, n STRING)", "databricks")
+        assert session._con.execute("SELECT count(*) FROM duckdb_sequences()").fetchall() == [(0,)]
     finally:
         session.close()

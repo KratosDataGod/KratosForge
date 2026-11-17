@@ -336,7 +336,7 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
         if isinstance(node, exp.DynamicIdentifier):
             return _refuse("SFN-023", "IDENTIFIER() of a variable this cell doesn't set",
                            "IDENTIFIER($name) is rewritten only when the same cell sets the variable to a string "
-                           "first (SET name = '...'); here its value isn't known.",
+                           "first (SET name = '...'); here its value isn't known. Set it in this cell, or write the name out.",
                            f"{_DOCS}/identifier-literal")
         if isinstance(node, exp.Pivot) and any(
                 isinstance(value, (exp.PivotAny, exp.Select, exp.Subquery))
@@ -708,9 +708,10 @@ def _rewrite_variant_reads(statement: exp.Expression) -> None:
             value.replace(exp.Cast(this=value.copy(), to=exp.DataType.build("JSON")))
 
 
-_MERGE_DUPLICATE = ("MERGE stopped: a target row matches more than one source row, and an UPDATE would get "
-                    "more than one value. Snowflake stops here too (ERROR_ON_NONDETERMINISTIC_MERGE). Make the "
-                    "source one row per target row, for example with GROUP BY.")
+_MERGE_DUPLICATE = ("A target row matches more than one source row, so the MERGE stopped and this MERGE changed "
+                    "nothing. Snowflake stops on it too (ERROR_ON_NONDETERMINISTIC_MERGE). Make the source one row "
+                    "per target row, for example with GROUP BY or QUALIFY ROW_NUMBER() OVER (PARTITION BY key "
+                    "ORDER BY ...) = 1.")
 
 
 def _rewrite_statements(statement: exp.Expression) -> None:
@@ -754,6 +755,7 @@ def _rewrite_statements(statement: exp.Expression) -> None:
         if isinstance(value, (exp.Column, exp.JSONExtract, exp.GetExtract, exp.ParseJSON, exp.ToVariant)) or (
                 isinstance(value, (exp.Cast, exp.TryCast)) and value.to.is_type(exp.DataType.Type.VARIANT,
                                                                                  exp.DataType.Type.JSON)):
+            _keep_name(size)
             _put(size, "CASE WHEN json_type(CAST(CAST(fj_arg0 AS VARIANT) AS JSON)) = 'ARRAY' "
                        "THEN CAST(json_array_length(CAST(CAST(fj_arg0 AS VARIANT) AS JSON)) AS BIGINT) END", [value])
 
@@ -774,10 +776,33 @@ def _variant_text(statement: exp.Expression) -> None:
                 exp.EQ(this=exp.Anonymous(this="typeof", expressions=[column.copy()]),
                        expression=exp.Literal.string("VARIANT")),
                 exp.RegexpLike(this=kind, expression=exp.Literal.string("^(OBJECT|ARRAY)")))
-            to_text_node.replace(exp.Case(ifs=[exp.If(this=compound, true=exp.Cast(
-                this=exp.Cast(this=column.copy(), to=exp.DataType.build("JSON")),
+            # TRY_CAST: DuckDB may work out a shared part of several columns once for every row, before the
+            # CASE picks its branch, and a text column that isn't JSON mustn't stop the query there
+            written: exp.Expression = exp.Case(ifs=[exp.If(this=compound, true=exp.Cast(
+                this=exp.TryCast(this=column.copy(), to=exp.DataType.build("JSON")),
                 to=to_text_node.to.copy() if isinstance(to_text_node, exp.Cast) else exp.DataType.build("VARCHAR")))],
-                default=to_text_node.copy()))
+                default=to_text_node.copy())
+            _keep_name(to_text_node)
+            to_text_node.replace(written)
+
+
+def _keep_name(node: exp.Expr) -> None:
+    """Name the select-list item ``node`` is in as it reads now, when it has no name of its own, so a
+    rewrite that writes a long CASE in its place doesn't give the column that CASE's text as its name. The
+    same for each query it sits in, outward, so a scalar subquery in a select list keeps its name too."""
+    from . import sql
+    item = node
+    while item.parent is not None:
+        while isinstance(item.parent, exp.Expression) and not isinstance(item.parent, exp.Select):
+            item = item.parent
+        select = item.parent
+        if select is None:
+            return
+        if not isinstance(item, exp.Alias) and any(e is item for e in select.expressions):
+            named = exp.Alias(alias=exp.to_identifier(sql.duckdb_sql(item), quoted=True))
+            item.replace(named)
+            named.set("this", item)
+        item = select
 
 
 def _rewrite_semi_structured_types(statement: exp.Expression) -> None:

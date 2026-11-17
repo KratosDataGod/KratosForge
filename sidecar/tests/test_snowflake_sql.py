@@ -1078,6 +1078,22 @@ def test_a_variant_column_reads_its_paths_flattens_and_prints_as_json():
         == [(None, 2, None), (1, None, None), (None, None, None)]
 
 
+def test_text_casts_keep_their_column_names_and_text_columns_that_arent_json_still_read():
+    translation = sf.translate(
+        "CREATE TABLE t (n INT, s VARCHAR, j VARIANT); INSERT INTO t SELECT 1, 'x', PARSE_JSON('{\"a\":[1]}'); "
+        "SELECT n::VARCHAR, TRY_CAST(s AS VARCHAR), j::VARCHAR, TO_VARCHAR(s), UPPER(s::VARCHAR), ARRAY_SIZE(j:a), "
+        "n::VARCHAR AS named, (SELECT MAX(n::VARCHAR) FROM t) FROM t")
+    con = duckdb.connect()
+    for statement in translation.statements[:-1]:
+        con.execute(statement.duckdb_sql)
+    result = con.sql(translation.statements[-1].duckdb_sql)
+    assert result.columns == ["CAST(n AS TEXT)", "TRY_CAST(s AS TEXT)", "CAST(j AS TEXT)", "CAST(s AS TEXT)",
+                              "UPPER(CAST(s AS TEXT))", "ARRAY_LENGTH(CAST(j AS JSON) -> '$.a')", "named",
+                              '(SELECT MAX(CAST(n AS TEXT)) AS "MAX(CAST(n AS TEXT))" FROM t)']
+    # 'x' isn't JSON: the VARIANT branch is never taken for it, even when DuckDB works it out for every row
+    assert result.fetchall() == [("1", "x", '{"a":[1]}', "x", "X", 1, "1", "1")]
+
+
 def test_merge_stops_when_a_target_row_matches_several_source_rows_for_an_update():
     setup = _VARIANT_TABLE + "CREATE TABLE s (id INT, v INT); INSERT INTO s VALUES (1, 100), (1, 101), (4, 400); "
     with pytest.raises(duckdb.Error, match="more than one source row"):
@@ -1085,7 +1101,8 @@ def test_merge_stops_when_a_target_row_matches_several_source_rows_for_an_update
     with pytest.raises(duckdb.Error, match="more than one source row"):
         _rows(setup + "MERGE INTO t USING (SELECT id, v FROM s) AS src ON t.id = src.id "
               "WHEN MATCHED THEN UPDATE SET v = src.v")
-    # several deletes don't conflict, as on Snowflake's page; one match per row updates as before
+    # several deletes don't conflict, as on Snowflake's page; one match per row updates as before. This is
+    # DuckDB 1.5's own MERGE: a DuckDB that refuses it would lose parity with Snowflake, so the test says so
     assert _rows(setup + "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE; "
                  "SELECT list(id ORDER BY id) FROM t") == [([2, 3],)]
     assert _rows(setup + "MERGE INTO t AS tt USING (SELECT 1 AS id, 7 AS v) AS x ON tt.id = x.id "

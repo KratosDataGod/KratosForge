@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import re
 from statistics import median
 from typing import Any, Callable
@@ -31,6 +32,8 @@ MINIMUM = 10  # readable loads needed before a load can be called unusual
 SPREADS = 3.0  # how many spreads from the median is unusual
 FLOOR = 0.10  # ... or this share of the median, when the spread is smaller than that
 HISTORY = 200  # Delta log entries read per check
+
+_log = logging.getLogger(__name__)
 
 # Commits that change no data (same as maintenance's: settings, constraints, column DDL, VACUUM, OPTIMIZE).
 _NO_DATA = re.compile(r"TBLPROPERT|CONSTRAINT|^(ADD|CHANGE|RENAME|DROP) COLUMNS?\b|^UPGRADE PROTOCOL|^VACUUM|^OPTIMIZE$"
@@ -98,6 +101,11 @@ def _when(entry: dict[str, Any]) -> dt.datetime | None:
     return None
 
 
+def _version(entry: dict[str, Any]) -> bool:
+    v = entry.get("version")
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
 def changes_data(entry: dict[str, Any]) -> bool:
     return not _NO_DATA.search(str(entry.get("operation") or ""))
 
@@ -114,7 +122,7 @@ def loads(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Each load in the log, oldest first: version, when, operation, mode and rows written (None when unrecorded)."""
     out = []
     for e in history:
-        if not is_load(e) or not isinstance(e.get("version"), int):
+        if not is_load(e) or not _version(e):
             continue
         params = e.get("operationParameters")
         params = params if isinstance(params, dict) else {}
@@ -154,13 +162,13 @@ def volume(history: list[dict[str, Any]]) -> dict[str, Any]:
 
 def freshness(history: list[dict[str, Any]], within_hours: float | None, now: dt.datetime) -> dict[str, Any]:
     """How long ago data last changed, against the promise (if the entity makes one)."""
-    versioned = [e for e in history if isinstance(e.get("version"), int) and not isinstance(e.get("version"), bool)]
+    versioned = [e for e in history if _version(e)]
     last = max((e for e in versioned if changes_data(e)), key=lambda e: e["version"], default=None)
     when = _when(last) if last else None
     out: dict[str, Any] = {"within_hours": within_hours, "last_version": last["version"] if last else None,
                            "last_change": _iso(when), "operation": last.get("operation") if last else None}
     if when is None:
-        why = "No commit in the log changed data." if last is None else "The commit that last changed data has no time."
+        why = f"None of the last {HISTORY} commits in the log changed data." if last is None else "The commit that last changed data has no time."
         return out | {"state": "unread", "age_hours": None, "why": why}
     age = max(0.0, (now - when).total_seconds() / 3600)
     out["age_hours"] = round(age, 2)
@@ -225,7 +233,10 @@ def check(open_at: Callable[[int | None], Any], within_hours: float | None = Non
         try:
             schema = schema_change(_columns(open_at(since).schema()), _columns(open_at(latest["version"]).schema()))
         except Exception as exc:  # noqa: BLE001 - a version whose log entry is gone, or any read failure: say so
-            schema = {"state": "unread", "why": f"Couldn't read the schema at version {since}: {exc}"}
+            # The delta-rs error usually names the table's OneLake path: it goes to the log, not the result.
+            _log.warning("Couldn't read the schema at version %s: %s", since, exc)
+            schema = {"state": "unread", "why": f"Couldn't read the schema at version {since}; its log entry may have "
+                      "been removed."}
         result["schema"] = schema | {"version": latest["version"], "since_version": since}
     result["alerts"] = alerts(result)
     return result

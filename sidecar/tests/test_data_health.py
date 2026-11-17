@@ -94,6 +94,8 @@ def test_freshness_against_the_promise():
     history[0]["timestamp"] = None
     assert dh.freshness(history, 24, NOW)["state"] == "unread" and dh.freshness(history, 24, NOW)["age_hours"] is None
     assert dh.freshness([], 24, NOW)["state"] == "unread"
+    assert "last 200 commits" in dh.freshness([], 24, NOW)["why"]
+    assert dh.loads([{"version": True, "operation": "WRITE", "operationMetrics": {"numOutputRows": 1}}]) == []
     [alert] = dh.alerts({"freshness": late, "volume": {"state": "usual"}, "schema": {"state": "same"}})
     assert alert["kind"] == "freshness" and "promise 24 h" in alert["title"]
 
@@ -132,7 +134,8 @@ def test_a_schema_that_cant_be_read_says_so_and_the_rest_still_reports(tmp_path)
         return DeltaTable(uri, version=v)
 
     out = dh.check(open_at)
-    assert out["schema"]["state"] == "unread" and "log entry gone" in out["schema"]["why"]
+    assert out["schema"]["state"] == "unread" and "version 0" in out["schema"]["why"]
+    assert "log entry gone" not in out["schema"]["why"]  # the raw error (often a path) stays in the log
     assert out["freshness"]["state"] == "no_promise" and out["volume"]["state"] == "not_enough_history"
 
 

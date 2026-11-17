@@ -30,6 +30,9 @@ def test_every_function_marked_as_running_has_a_value_check_that_passes(rows):
     data = {f["name"]: f for f in [*spark_coverage.load(), *databricks_coverage.load()]}
     con = databricks_coverage.connect()
     for r in (r for r in rows if r["status"] == "runs"):
+        if r["name"] in databricks_coverage.DATABRICKS_CHECKS:  # a check from Databricks' reference
+            assert databricks_coverage._listed(databricks_coverage.DATABRICKS_CHECKS[r["name"]], con)[0] == "runs"
+            continue
         f = data[r["name"]]
         assert f.get("example") and "value" in f and r["name"] not in spark_coverage.VARYING, r["name"]
         want = databricks_coverage.DATABRICKS_VALUES.get(r["name"], f["value"])
@@ -38,7 +41,7 @@ def test_every_function_marked_as_running_has_a_value_check_that_passes(rows):
 
 def test_a_refusal_a_difference_and_a_failure_are_told_apart(rows):
     status = {r["name"]: r["status"] for r in rows}
-    assert status["abs"] == "runs" and status["rand"] == "runs" and status["version"] == "not checked"
+    assert status["abs"] == "runs" and status["rand"] == "runs" and status["version"] == "differs"
     assert status["hll_sketch_agg"] == "refused" and status["xpath"] == "refused"  # refused by name
     assert status["bitmap_count"] == "runs"  # X '1010' reads in Databricks SQL as in Spark SQL
     assert status["named_struct"] == "runs" and status["map_entries"] == "runs"  # a struct isn't a map
@@ -95,7 +98,7 @@ def test_databricks_own_functions_are_listed_once_and_not_spark_ones():
 
 def test_a_databricks_function_with_no_check_is_probed(rows):
     status = {r["name"]: r["status"] for r in rows}
-    assert status["session_user"] == "not checked"  # DuckDB accepts it; its value is the session's
+    assert status["session_user"] == "differs"  # checked from Databricks' reference: DuckDB's user, not the signed-in one
     assert status["iff"] == "runs"  # Databricks' own example, value checked
     notes = {r["name"]: r["note"] for r in rows}
     assert status["vector_norm"] == "runs" and "FLOAT in Databricks" in notes["vector_norm"]  # its listed note
@@ -123,7 +126,7 @@ def test_a_sketch_name_in_spark_sql_is_left_alone():
 
 def test_a_function_with_its_own_syntax_is_probed_in_that_syntax(rows):
     status = {r["name"]: r["status"] for r in rows}
-    assert status["cube"] == "not checked"  # runs here; no value check yet
+    assert status["cube"] == "runs"  # value checked against the example in Databricks' reference
     for name in ("try_cast", "percentile_cont", "percentile_disc", "timestampdiff", "timestampadd"):
         assert status[name] == "runs", name  # Databricks' own example, value checked
     assert status["collate"] == "runs"  # UTF8_LCASE is DuckDB's NOCASE
@@ -794,3 +797,68 @@ def test_unix_nanos_says_when_a_timestamp_is_past_its_range():
 ])
 def test_databricks_names_aggregates_and_time_give_its_values(code, want):
     assert _one(code) == want
+
+
+# Functions whose value varies (random, the clock, the session) checked from their pages in Databricks' reference
+def test_no_function_is_left_not_checked(rows):
+    assert [r["name"] for r in rows if r["status"] == "not checked"] == []
+
+
+def test_a_reference_check_runs_differs_or_stops_on_its_own_terms():
+    con = databricks_coverage.connect()
+    listed = databricks_coverage._listed
+    assert listed({"example": "SELECT 1", "value": [[1]]}, con) == ("runs", "")
+    assert listed({"example": "SELECT 2", "value": [[1]]}, con)[0] == "differs"
+    assert listed({"example": "SELECT 'v1.5.6'", "pattern": r"\d+\.\d+"}, con)[0] == "differs"  # the whole value
+    assert listed({"example": "SELECT '3.5.0'", "pattern": r"\d+\.\d+\.\d+"}, con)[0] == "runs"
+    assert listed({"example": "SELECT raise_error('boom')", "error": "boom"}, con)[0] == "runs"
+    assert listed({"example": "SELECT 1", "error": "boom"}, con)[0] == "differs"  # it didn't stop
+    assert listed({"example": "SELECT raise_error('other')", "error": "boom"}, con)[0] == "fails"
+
+
+def test_raise_error_stops_with_its_message():
+    with pytest.raises(Exception, match="custom error message"):
+        databricks_coverage.run("SELECT raise_error('custom error message')", databricks_coverage.connect())
+    # only when it's reached, as in Databricks
+    assert databricks_coverage.run("SELECT CASE WHEN 1 = 0 THEN raise_error('x') ELSE 1 END",
+                                   databricks_coverage.connect()) == [[1]]
+
+
+def test_monotonically_increasing_id_is_unique_and_increasing():
+    got = databricks_coverage.run("SELECT monotonically_increasing_id() FROM range(5)", databricks_coverage.connect())
+    assert got == [[0], [1], [2], [3], [4]]
+
+
+def test_current_timezone_is_the_session_zone():
+    con = databricks_coverage.connect()
+    assert databricks_coverage.run("SELECT current_timezone()", con) == [["UTC"]]
+    con.execute("SET TimeZone = 'Asia/Shanghai'")
+    assert databricks_coverage.run("SELECT current_timezone()", con) == [["Asia/Shanghai"]]
+
+
+def test_randstr_and_uniform_keep_what_databricks_documents_without_a_seed():
+    con = databricks_coverage.connect()
+    assert databricks_coverage.run("SELECT randstr(10) RLIKE '^[a-zA-Z0-9]{10}$' FROM range(20)", con) == [[True]] * 20
+    assert databricks_coverage.run("SELECT min(u) >= 10 AND max(u) <= 20 FROM (SELECT uniform(10, 20) AS u "
+                                   "FROM range(200))", con) == [[True]]
+    assert databricks_coverage.run("SELECT getdate() = current_timestamp()", con) == [[True]]
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT aes_encrypt('Spark SQL', '0000111122223333', 'ECB', 'PKCS')",
+    "SELECT java_method('java.util.UUID', 'randomUUID')",
+    "SELECT reflect('java.util.UUID', 'randomUUID')",
+    "SELECT input_file_name()",
+    "SELECT input_file_block_start()",
+    "SELECT spark_partition_id()",
+    "SELECT * FROM sql_keywords()",
+])
+def test_what_this_pc_cant_answer_is_refused_by_name_for_a_databricks_cell(code):
+    with pytest.raises(ValueError, match="the way it runs in Databricks.*Run the cell on a Databricks SQL warehouse"):
+        databricks_coverage.run(code, databricks_coverage.connect())
+
+
+def test_a_spark_sql_cell_still_names_fabric():
+    from fabric_desktop import sql
+    with pytest.raises(ValueError, match="the way it runs in Fabric.*Run the cell in Fabric"):
+        sql.parse("SELECT aes_encrypt('a', '0000111122223333')")

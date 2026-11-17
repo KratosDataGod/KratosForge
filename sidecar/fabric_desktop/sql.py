@@ -216,11 +216,14 @@ def _ansi_divisions(statement: exp.Expression) -> exp.Expression:
             continue
         divisor = node.expression
         if divisor.find(exp.Rand, exp.Randn, exp.Uuid):
-            text = "(LIST_TRANSFORM([fj_arg0], kf_divisor -> CASE WHEN kf_divisor = 0 THEN " + stop + \
-                   " ELSE kf_divisor END))[1]"
-            node.set("expression", exp.paren(_with_args(text, [divisor])))
+            text = "(LIST_TRANSFORM([fj_arg0], kf_divisor -> CASE WHEN kf_divisor = 0 AND fj_arg1 IS NOT NULL " \
+                   "THEN " + stop + " ELSE kf_divisor END))[1]"
+            node.set("expression", exp.paren(_with_args(text, [divisor, node.this.copy()])))
             continue
-        guard = _with_args("CASE WHEN fj_arg0 = 0 THEN " + stop + " END", [divisor])
+        # A NULL dividend gives NULL before the divisor is looked at (Spark's DivModLike), so an empty
+        # group's sum(x) / count(*) is NULL, not a stop.
+        guard = _with_args("CASE WHEN fj_arg0 = 0 AND fj_arg1 IS NOT NULL THEN " + stop + " END",
+                           [divisor, node.this.copy()])
         new = exp.Case(ifs=guard.args["ifs"], default=node.copy())
         new.meta.update(spark_sql_names.kept(node))
         new.meta[spark_decimals.ZERO_GUARD] = True  # typed as the division it holds

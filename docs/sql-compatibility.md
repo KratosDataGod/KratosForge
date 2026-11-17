@@ -338,6 +338,31 @@ What can still differ:
 - `ALTER VIEW` on a view made earlier in the same script stops with "Invalid object name": the check reads the views that were there when the script started.
 - A name with a schema that a warehouse doesn't have, such as DuckDB's `main`, still runs here.
 
+## Local T-SQL security and session settings
+
+The local engine has no users, roles or permissions. Statements that set them are refused by name, never skipped, so a script that ran here never looks as if it applied permissions. Apply them in the Fabric Warehouse.
+
+Refused by name, with "... isn't applied on this PC":
+
+- `GRANT`, `DENY` and `REVOKE`, `GRANT UNMASK` included
+- `EXECUTE AS` and `REVERT`
+- Row-level security: `CREATE`, `ALTER` and `DROP SECURITY POLICY`
+- Dynamic data masking: `MASKED WITH (FUNCTION = ...)` in `CREATE TABLE`, and `ADD MASKED` and `DROP MASKED` in `ALTER TABLE`
+- `CREATE`, `ALTER` and `DROP USER`, `ROLE` and `LOGIN`, `ALTER ROLE ... ADD MEMBER`, and `ALTER AUTHORIZATION`
+
+`SET` options run as a Fabric Warehouse's defaults:
+
+| Option | Runs here | Refused by name |
+| --- | --- | --- |
+| `NOCOUNT`, `XACT_ABORT` | `ON` and `OFF`. A script stops at its first error either way (see Local T-SQL scripts) | |
+| `ANSI_NULLS`, `QUOTED_IDENTIFIER`, `ANSI_WARNINGS`, `ANSI_PADDING`, `ARITHABORT`, `CONCAT_NULL_YIELDS_NULL` | `ON` | `OFF` |
+| `NUMERIC_ROUNDABORT` | `OFF` | `ON` |
+| `DATEFORMAT` | `mdy` | any other |
+| `LANGUAGE` | `us_english`, `English` | any other |
+| `DATEFIRST` | `7` | any other |
+
+Any other option (`ROWCOUNT`, `STATISTICS IO`, `STATISTICS TIME`, `SHOWPLAN_XML`, `NOEXEC`, `FMTONLY`, `LOCK_TIMEOUT`, `IMPLICIT_TRANSACTIONS`, `CONTEXT_INFO` and the rest) is refused by name. `SET TRANSACTION` is refused with the transactions.
+
 ## Local T-SQL scripts
 
 When a project runs a T-SQL script on this PC, it runs as a batch does in a Fabric Warehouse that nothing wraps in a transaction, and what the local engine can't run is refused by name before anything runs.

@@ -290,6 +290,14 @@ REFUSED_IN_THE_DOCS = {
     "sys": "SELECT * FROM sys.objects",
     "CREATE SCHEMA ... AUTHORIZATION": "CREATE SCHEMA s AUTHORIZATION dbo",
     "WITH SCHEMABINDING": "CREATE VIEW dbo.b WITH SCHEMABINDING AS SELECT 1 AS a",
+    "GRANT": "GRANT SELECT ON dbo.orders TO alice",
+    "DENY": "DENY SELECT ON dbo.orders TO alice",
+    "REVOKE": "REVOKE SELECT ON dbo.orders FROM alice",
+    "EXECUTE AS": "EXECUTE AS USER = 'alice'",
+    "SET ANSI_NULLS OFF": "SET ANSI_NULLS OFF",
+    "SET DATEFORMAT dmy": "SET DATEFORMAT dmy",
+    "SET DATEFIRST 1": "SET DATEFIRST 1",
+    "SET ROWCOUNT": "SET ROWCOUNT 10",
     "transactions": "BEGIN TRANSACTION",
     "procedures and functions": "CREATE PROCEDURE dbo.p AS SELECT 1",
     "USE": "USE sales",
@@ -302,11 +310,10 @@ REFUSED_IN_THE_DOCS = {
     "##global": "CREATE TABLE ##g (id INT)",
     "PERCENTILE_DISC": "SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY 'a' DESC) OVER ()",
     "ORDER BY ... DESC": "SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY CAST('2024-01-01' AS DATE) DESC) OVER ()",
-    "DATEFIRST": "SET DATEFIRST 1",
 }
 ADVICE_IN_THE_DOCS = {"&", "|", "JSON_VALUE", "JSON_QUERY", "TRY_CAST(x AS FLOAT) IS NOT NULL", "POWER(2.5, 2)", "FLOAT", "SYSUTCDATETIME()",
                       "DECIMAL(19, 4)", "DECIMAL(10, 4)",
-                      "SET NOCOUNT ON", "SET DATEFIRST 7", "SELECT", "INSERT", "#temp"}
+                      "SET NOCOUNT ON", "SET DATEFIRST 7", "SET ANSI_NULLS ON", "SELECT", "INSERT", "#temp"}
 
 
 def _docs_refused_list() -> str:

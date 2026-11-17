@@ -1615,6 +1615,17 @@ class KfDuckDB(DuckDB):
                 expression.set("colon", True)
             return super().lambda_sql(expression, arrow_sep=arrow_sep, wrap=wrap)
 
+        def ordered_sql(self, expression: exp.Ordered) -> str:
+            """sqlglot leaves out an ascending sort's NULLS LAST, as DuckDB's own default; the Spark
+            session's default puts NULLs first, so ``ORDER BY g NULLS LAST`` would sort them first."""
+            sql = super().ordered_sql(expression)
+            if expression.args.get("desc") or expression.args.get("nulls_first") is not False:
+                return sql
+            head = self.sql(expression, "this") + (" ASC" if expression.args.get("desc") is False else "")
+            if sql.startswith(head) and not sql[len(head):].startswith(" NULLS"):
+                sql = f"{head} NULLS LAST{sql[len(head):]}"
+            return sql
+
 
 def duckdb_sql(statement: exp.Expr) -> str:
     """``statement`` as DuckDB SQL. sqlglot leaves out what DuckDB has no way to say (such as

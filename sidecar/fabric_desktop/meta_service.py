@@ -14,7 +14,7 @@ import polars as pl
 
 from . import duties, lakehouse, risk, sealed_settings
 from .meta import keys as keys_mod
-from .meta import lineage, release
+from .meta import change_impact, lineage, release
 from .meta import mesh
 from .meta import Engine, GateError, Layer, LocalStore, OneLakeStore, Project, impact, promote
 from .meta.engine import RunResult
@@ -686,6 +686,21 @@ class MetaMixin:
             except Exception as exc:  # noqa: BLE001 - the promote itself worked; the next run uploads again
                 result["fabric"] = f"not synced: {exc}"
         return result
+
+    def meta_impact(self, name: str, column: str, change: str = "drop", new_name: str | None = None,
+                    new_type: str | None = None) -> dict[str, Any]:
+        """What dropping, renaming or retyping ``name.column`` would break or should be checked, from the
+        project's files. Nothing runs and nothing changes."""
+        return change_impact.column_impact(self._project(), name, column, change, new_name, new_type)
+
+    def meta_edit_impact(self, name: str, text: str) -> dict[str, Any]:
+        """Before a save: what the contract changes in ``text`` would break. TOML that doesn't parse has
+        nothing to compare; the save itself says why."""
+        try:
+            spec = tomllib.loads(text)
+        except tomllib.TOMLDecodeError:
+            return {"entity": name, "changes": []}
+        return {"entity": name, "changes": change_impact.edit_impact(self._project(), name, spec)}
 
     def meta_lineage(self, name: str, column: str | None = None) -> dict[str, Any]:
         """Column lineage from the project's files: every column of ``name``, or, for one column,

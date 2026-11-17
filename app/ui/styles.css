@@ -2156,6 +2156,22 @@ button.git-name { padding: 0; border: 0; background: none; font: inherit; color:
 .lineage-col .mono { flex: 1; overflow-wrap: anywhere; }
 .lineage-col:hover, .lineage-col.on { border-color: var(--border); background: var(--surface); }
 .lineage-detail { display: flex; flex-direction: column; gap: 8px; overflow: auto; min-width: 0; }
+.impact-view { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.impact-view .lead { margin: 0; }
+.impact-view label.inline { display: inline-flex; gap: 6px; align-items: center; }
+.impact-out { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.impact-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.impact-tile { border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); padding: 8px 12px; }
+.impact-tile b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+.impact-tile b.bad { color: var(--danger); }
+.impact-tile b.wrn { color: var(--warn); }
+.impact-tile span { font-size: 12px; color: var(--muted); }
+.impact-list { display: flex; flex-direction: column; gap: 6px; }
+.impact-group { margin: 6px 0 0; font-size: 12px; font-weight: 600; }
+.impact-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); padding: 7px 10px; }
+.impact-name { overflow-wrap: anywhere; }
+.impact-why { grid-column: 2 / 4; margin: 0; padding-left: 16px; }
+.impact-chain { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .lineage-detail table td { vertical-align: top; overflow-wrap: anywhere; }
 @media (max-width: 640px) {
   .lineage-split { grid-template-columns: 1fr; overflow-y: auto; }

@@ -161,3 +161,38 @@ def test_decimal_types_on_the_duckdb_engine(engine, dialect: str) -> None:
 def test_a_decimal_division_by_zero_on_the_duckdb_engine(engine) -> None:
     assert "[DIVIDE_BY_ZERO]" in engine("SELECT a / z FROM t")
     assert engine("SELECT a / z FROM t", "spark") == (["decimal128(23, 13)"], [{"(a / z)": None}])
+
+
+# WR-114: try_divide of decimals is a decimal, typed as / is; a decimal sum (and an average's sum) past its
+# type is NULL with ANSI off and stops with Spark's ARITHMETIC_OVERFLOW in Databricks SQL (ANSI on).
+
+@pytest.mark.parametrize("dialect", ["databricks", "spark"])
+def test_try_divide_of_decimals_is_a_decimal(engine, dialect: str) -> None:
+    types, rows = engine("SELECT try_divide(a, b), try_divide(a, z), try_divide(i, 2), try_divide(i, 0), "
+                         "try_divide(a, b) * 2 FROM t", dialect)
+    assert types == ["decimal128(23, 13)", "decimal128(23, 13)", "double", "double", "decimal128(25, 13)"]
+    assert [list(r.values()) for r in rows] == [[Decimal("0.3333333333333"), None, 3.5, None, Decimal("0.6666666666666")]]
+
+
+def test_try_divide_in_a_notebook(kernel: Kernel) -> None:
+    text = run(kernel, """
+import json
+df = spark.sql("SELECT try_divide(CAST(1 AS DECIMAL(10,2)), CAST(3 AS DECIMAL(10,2))) AS q, try_divide(1, 0) AS z")
+print('RESULT' + json.dumps([df.dtypes, [str(v) for v in df.collect()[0]]]))
+""")
+    assert json.loads(text.split("RESULT", 1)[1]) == [[["q", "decimal(23,13)"], ["z", "double"]], ["0.3333333333333", "None"]]
+
+
+@pytest.fixture
+def overflowing(engine):
+    engine("CREATE TABLE u AS SELECT CAST(6e37 AS DECIMAL(38,0)) AS big UNION ALL SELECT CAST(6e37 AS DECIMAL(38,0))",
+           "duckdb")
+    return engine
+
+
+def test_a_decimal_sum_past_its_type(overflowing) -> None:
+    assert overflowing("SELECT sum(big), avg(big) FROM u", "spark") == (
+        ["decimal128(38, 0)", "decimal128(38, 4)"], [{"sum(big)": None, "avg(big)": None}])
+    for query in ("SELECT sum(big) FROM u", "SELECT avg(big) FROM u"):
+        assert "[ARITHMETIC_OVERFLOW] Overflow in sum of decimals" in overflowing(query)
+    assert overflowing("SELECT sum(big) FROM u WHERE false") == (["decimal128(38, 0)"], [{"sum(big)": None}])

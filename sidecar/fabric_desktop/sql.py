@@ -183,6 +183,7 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     statement = spark_builtins_sql.mark(statement)
     if databricks:
         _mark_divisions(statement)
+    statement = _try_divisions(statement)
     statement = _spark_date_results(statement, ansi=databricks)
     statement = _spark_timestampdiff(spark_builtins_sql.rewrite(
         _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_concat_text(_spark_cast_functions(spark_strings.spark_text_results(spark_aggregates.spark_aggregate_results(spark_complex.mark_calls(_spark_names(spark_windows.check_windows(statement)))))))))))),
@@ -197,6 +198,19 @@ _DIVIDE_BY_ZERO = ("[DIVIDE_BY_ZERO] Division by zero. Use `try_divide` to toler
                    "instead. If necessary set ansi_mode to false to bypass this error.")
 _DIVISIONS = (exp.Div, exp.IntDiv, exp.Mod)
 _USER_DIVISION = "kf_user_division"
+
+
+def _try_divisions(statement: exp.Expression) -> exp.Expression:
+    """try_divide(a, b) as a division NULL for a zero divisor, typed as ``/`` is (spark_decimals reads through
+    the CASE): a decimal for decimals, as in Spark. sqlglot's own form hides the division from that typing."""
+    holder = exp.Tuple(expressions=[statement])  # so the statement itself can be replaced
+    for node in list(statement.find_all(exp.SafeDivide)):
+        guard = _with_args("CASE WHEN fj_arg0 = 0 THEN NULL END", [node.expression.copy()])
+        new = exp.Case(ifs=guard.args["ifs"], default=exp.Div(this=node.this, expression=node.expression))
+        new.meta.update(spark_sql_names.kept(node))
+        new.meta[spark_decimals.ZERO_GUARD] = True
+        node.replace(new)
+    return cast(exp.Expression, holder.expressions[0])
 
 
 def _mark_divisions(statement: exp.Expression) -> None:

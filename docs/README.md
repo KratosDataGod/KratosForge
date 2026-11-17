@@ -229,6 +229,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Column lineage | Entity page, Columns |
 | Roll back a release | Data mesh > Deploy, Roll back... on a Test or Prod Last release card |
 | Promote | Data mesh > Deploy (always shown) |
+| Create workspace | Data mesh > Environments and Domains, Platform > Settings: Create workspace, Create platform and Finish setup (always shown) |
 | Sync keys | Data mesh > Surrogate keys, Sync to LH_Keys (always shown) |
 | Variable library | Data mesh > Source systems (always shown) |
 | Warehouse queries | Workspaces > a Warehouse or SQL analytics endpoint row > SQL query (the Warehouse page), and its Monitoring tab ([warehouse.md](warehouse.md#monitoring-preview)) |

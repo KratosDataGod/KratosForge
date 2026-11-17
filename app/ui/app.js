@@ -1134,7 +1134,7 @@ async function renderMonitor() {
     h("button", { class: `tab${source === id ? " active" : ""}`, role: "tab", "aria-selected": String(source === id), onclick: show(first) }, label)));
   // This source's pages: Operations opens the view it was last on.
   const pages = source === "databricks" ? [] : source === "fabric"
-    ? [["fabric", "Monitoring hub", hub], previewShown() ? ["fabric_schedules", "Schedules", monitorPage.panel === "fabric_schedules"] : null]
+    ? [["fabric", "Monitoring hub", hub], previewShown() ? ["fabric_schedules", ["Schedules", previewTag()], monitorPage.panel === "fabric_schedules"] : null]
     : [["runs", "Runs", monitorPage.panel === "runs"], previewShown() ? ["schedules", "Schedules", monitorPage.panel === "schedules"] : null,
       ops.length ? [ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel,
         ["Operations", ops.every((o) => PREVIEW_FEATURES[o.feature]) ? previewTag() : null], !!op] : null];
@@ -1269,10 +1269,10 @@ async function renderMonitor() {
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
       h("td", {}, runEnvCell(r)), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, r.tookText ?? took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
-      h("td", { class: "n" }, r.cancel ? btn("Cancel", null, async (e) => {
+      h("td", { class: "n" }, r.cancel ? previewMarked("fabricRun", btn("Cancel", null, async (e) => {
         e.stopPropagation();
         if (await cancelFabricJob(r.cancel)) { monitorPage.refreshing = true; render(); }
-      }, "tool small outline danger") : null,
+      }, "tool small outline danger")) : null,
       r.open ? h("span", { class: "link-text" }, r.openLabel || "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"
       ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook.");

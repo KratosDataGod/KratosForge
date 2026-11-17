@@ -24,7 +24,7 @@ NOT_YET = {
 
 # Deny lists: a match means "refuse", so match (which also takes a final line break) is the stricter check.
 DENY = {
-    ("environments.py", "_RESERVED"), ("sql_policy.py", "_FILE_FUNCS"),
+    ("academy/gitlab.py", "_SHORT_NAME"), ("environments.py", "_RESERVED"), ("sql_policy.py", "_FILE_FUNCS"),
     ("sql_templates_service.py", "_RESERVED"), ("warehouse_project_service.py", "_RESERVED"),
 }
 

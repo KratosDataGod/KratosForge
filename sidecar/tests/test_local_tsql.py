@@ -554,7 +554,7 @@ def test_numbers_compare_as_before_and_unknown_text_comparisons_are_noted():
     texts, notes = translate("SELECT 1 FROM q WHERE a = 'x' OR b = 'y'")
     assert texts == ["SELECT 1 FROM q WHERE a = 'x' OR b = 'y'"]
     assert notes == [("Couldn't tell the types in some comparisons, so they are done as DuckDB does them: T-SQL "
-                     "ignores trailing spaces when it compares text ('a' = 'a  '), and here they count.")]
+                     "ignores trailing spaces when it compares text ('a' = 'a  ', and 'a  ' LIKE 'a'), and here they count.")]
 
 
 def test_the_function_list_is_read_only_when_a_query_calls_an_unknown_function(engine, monkeypatch):

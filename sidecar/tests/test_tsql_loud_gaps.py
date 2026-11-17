@@ -75,6 +75,15 @@ MAPPED = [  # decimals come back as text, as the engine sends them
     ("FORMAT long date", "SELECT FORMAT(CAST('2024-03-05' AS DATE), 'D')", "Tuesday, March 5, 2024"),
     ("FORMAT abbreviated day and AM/PM", "SELECT FORMAT(CAST('2024-03-05 14:07' AS DATETIME2), 'ddd hh:mm tt')",
      "Tue 02:07 PM"),
+    # WR-219: the JSON functions, as T-SQL's reference gives them (more in test_tsql_json.py)
+    ("ISJSON of an object", "SELECT ISJSON('{" + DQ + "a" + DQ + ": 1}')", 1),
+    ("ISJSON of a scalar", "SELECT ISJSON('1')", 0),
+    ("JSON_VALUE of a number", "SELECT JSON_VALUE('{" + DQ + "a" + DQ + ": 1}', '$.a')", "1"),
+    ("JSON_VALUE of an object, lax", "SELECT JSON_VALUE('{" + DQ + "a" + DQ + ": [1]}', '$.a')", None),
+    ("JSON_QUERY of an array", "SELECT JSON_QUERY('{" + DQ + "a" + DQ + ": [1]}', '$.a')", "[1]"),
+    ("JSON_QUERY of a scalar, lax", "SELECT JSON_QUERY('{" + DQ + "a" + DQ + ": 1}', '$.a')", None),
+    ("JSON_OBJECT keeps NULL", "SELECT JSON_OBJECT('name':'value', 'type':NULL)", '{"name":"value","type":null}'),
+    ("JSON_ARRAY leaves NULL out", "SELECT JSON_ARRAY('a', 1, 'b', NULL)", '["a",1,"b"]'),
 ]
 # Refused with the local-engine message: mapping them faithfully needs more than a rewrite.
 REFUSED = [
@@ -290,11 +299,23 @@ REFUSED_IN_THE_DOCS = {
     "sys": "SELECT * FROM sys.objects",
     "CREATE SCHEMA ... AUTHORIZATION": "CREATE SCHEMA s AUTHORIZATION dbo",
     "WITH SCHEMABINDING": "CREATE VIEW dbo.b WITH SCHEMABINDING AS SELECT 1 AS a",
+    "GRANT": "GRANT SELECT ON dbo.orders TO alice",
+    "DENY": "DENY SELECT ON dbo.orders TO alice",
+    "REVOKE": "REVOKE SELECT ON dbo.orders FROM alice",
+    "EXECUTE AS": "EXECUTE AS USER = 'alice'",
+    "SET ANSI_NULLS OFF": "SET ANSI_NULLS OFF",
+    "SET DATEFORMAT dmy": "SET DATEFORMAT dmy",
+    "SET DATEFIRST 1": "SET DATEFIRST 1",
+    "SET ROWCOUNT": "SET ROWCOUNT 10",
     "transactions": "BEGIN TRANSACTION",
     "procedures and functions": "CREATE PROCEDURE dbo.p AS SELECT 1",
     "USE": "USE sales",
     "FOR JSON": "SELECT 1 AS a FOR JSON PATH",
     "OPENJSON": "SELECT [key] FROM OPENJSON('{}')",
+    "NULL ON NULL": "SELECT JSON_ARRAY(1, NULL NULL ON NULL)",
+    "ABSENT ON NULL": "SELECT JSON_OBJECT('a': NULL ABSENT ON NULL)",
+    "JSON_ARRAYAGG": "SELECT JSON_ARRAYAGG(id) FROM dbo.orders",
+    "JSON_OBJECTAGG": "SELECT JSON_OBJECTAGG('a': id) FROM dbo.orders",
     "OPTION (...)": "SELECT 1 OPTION (MAXDOP 1)",
     "OUTPUT": "DELETE FROM dbo.orders OUTPUT deleted.id WHERE id = 1",
     "IDENTITY": "CREATE TABLE dbo.identity_test (id BIGINT IDENTITY, v INT)",
@@ -302,11 +323,10 @@ REFUSED_IN_THE_DOCS = {
     "##global": "CREATE TABLE ##g (id INT)",
     "PERCENTILE_DISC": "SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY 'a' DESC) OVER ()",
     "ORDER BY ... DESC": "SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY CAST('2024-01-01' AS DATE) DESC) OVER ()",
-    "DATEFIRST": "SET DATEFIRST 1",
 }
-ADVICE_IN_THE_DOCS = {"&", "|", "JSON_VALUE", "JSON_QUERY", "TRY_CAST(x AS FLOAT) IS NOT NULL", "POWER(2.5, 2)", "FLOAT", "SYSUTCDATETIME()",
+ADVICE_IN_THE_DOCS = {"&", "|", "JSON_VALUE", "JSON_QUERY", "JSON_OBJECT", "JSON_ARRAY", "TRY_CAST(x AS FLOAT) IS NOT NULL", "POWER(2.5, 2)", "FLOAT", "SYSUTCDATETIME()",
                       "DECIMAL(19, 4)", "DECIMAL(10, 4)",
-                      "SET NOCOUNT ON", "SET DATEFIRST 7", "SELECT", "INSERT", "#temp"}
+                      "SET NOCOUNT ON", "SET DATEFIRST 7", "SET ANSI_NULLS ON", "SELECT", "INSERT", "#temp"}
 
 
 def _docs_refused_list() -> str:

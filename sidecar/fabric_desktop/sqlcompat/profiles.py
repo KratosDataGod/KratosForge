@@ -149,8 +149,10 @@ _SPARK: dict[str, Any] = {
     "identifiers": "Names are case-insensitive; quote with backticks. Text compares case-sensitively.",
     "transactions": ["No multi-statement transactions; each Delta write commits on its own."],
     "ddl_dml": "Lakehouse tables are Delta. This PC's SQL page only reads; write with Save as table or a notebook.",
-    "semantic_differences": ["Regular expressions are Java's in Fabric and RE2 on this PC.",
-                             "Date patterns are translated for DuckDB; unusual pattern letters can differ.",
+    "semantic_differences": [("Regular expressions are Java's in Fabric; on this PC a pattern in the query is "
+                              "translated for RE2, except the cases the regular expression warning lists."),
+                             ("Date patterns are read as Spark reads them, with two exceptions that the date pattern "
+                              "warning lists."),
                              "collect_list and similar give rows in no fixed order."],
     "confidence": "Spark SQL rules plus the known differences of running it on this PC. A query that runs here may still behave differently in Fabric Spark.",
     "docs": ["spark", "spark_functions", "fabric_runtime", "local"],

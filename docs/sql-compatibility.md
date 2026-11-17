@@ -69,6 +69,36 @@ These cases can still differ, and LOC-005 notes them:
 | `div` whose quotient is past the BIGINT range | Wraps around (ANSI off) | NULL |
 | ANSI mode on | A division by zero is an error | NULL |
 
+## Dates and times on this PC (LOC-003)
+
+Spark SQL run on this PC gives Spark's values and types for its date and time functions, with ANSI mode off as Fabric runs it. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_datetime.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `date_format`, `from_unixtime` with a pattern | Every pattern letter Spark takes is written as Java writes it, in the session's time zone: fractions (`SSS`), quarters (`Q` to `QQQQ`), `k` and `K` hours, offsets (`X`, `x`, `Z`, `O`), the zone's id (`VV`), and quoted text (`'T'`). Text that isn't a timestamp gives NULL |
+| `to_timestamp`, `to_date`, `unix_timestamp`, `to_unix_timestamp` with a pattern | Text is read with Spark's pattern, in the session's time zone unless it has an offset (`XXX` reads `Z` and `+05:30`). `yy` reads 00 to 99 as 2000 to 2099. A pattern without a year reads the date as 1970-01-01. Text that doesn't match gives NULL |
+| `to_timestamp`, `to_timestamp_ltz`, `try_to_timestamp`, `make_timestamp`, `timestamp_seconds`, `from_utc_timestamp`, `to_utc_timestamp`, `date_trunc` | Spark's `timestamp`, not `timestamp_ntz`, so the result can be written to a Delta table. `to_timestamp_ntz` and `make_timestamp_ntz` give `timestamp_ntz` |
+| `year`, `month`, `day`, `dayofyear`, `weekofyear`, `dayofweek`, `weekday`, `quarter`, `hour`, `minute`, `second`, `datediff`, `unix_date` | An `int`, as in Spark |
+| `date_add`, `date_sub`, `datediff`, `add_months`, `last_day`, `months_between` | Spark's dates at month ends and the leap day (`add_months(DATE'2019-02-28', 1)` is `2019-03-28`), and NULL for text that isn't a date |
+| `trunc`, `date_trunc` | NULL for a unit the function doesn't take. `trunc` takes `YEAR`, `YYYY`, `YY`, `QUARTER`, `MONTH`, `MM`, `MON` and `WEEK`; `date_trunc` also takes `DAY`, `DD`, `HOUR`, `MINUTE`, `SECOND`, `MILLISECOND` and `MICROSECOND` |
+| `next_day` | Takes `MO`, `MON` or `MONDAY` and so on for each day, in any case. Any other text gives NULL |
+| `make_date`, `make_timestamp` | NULL for a day that doesn't exist, such as `make_date(2023, 2, 29)` |
+
+Patterns that Spark refuses are refused here by name, and nothing runs: the week-based letters (`Y`, `w`, `W`, `u`, `e`, `c`), `F`, optional sections (`[ ]`) and letters that aren't pattern letters. These are refused too, because this PC can't give Spark's text for them:
+
+- Zone names (`z`, such as `EST`). Use `VV` for the zone's id or `XXX` for its offset.
+- When reading text, `G`, `Q`, `k`, `K`, `O` and `z`.
+
+These cases can still differ. LOC-003 warns wherever a pattern is used:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| Text with more fraction digits than the pattern's `S` letters, such as `.123` with `ss.SS` | NULL | Read, up to 6 digits |
+| Text with one digit where the pattern has two, such as `2024-2-9` with `yyyy-MM-dd` | Not read: see the next row | Read |
+| Text the pattern doesn't read the Spark 3 way, with `spark.sql.legacy.timeParserPolicy` at its default `EXCEPTION` | Stops with `SparkUpgradeException` when Spark 2's parser would have read it | NULL, as with the policy `CORRECTED`. The setting isn't read here |
+
+A cast of text that is only a year or a year and month, such as `CAST('2024-02' AS DATE)` or `to_timestamp('2024')`, also still differs. Spark reads it as the month's or the year's first day; here it is NULL. No rule warns about it yet.
+
 ## Local T-SQL changes
 
 When a project runs T-SQL on this PC, `MERGE`, `UPDATE`, `DELETE` and `INSERT` on a database table give a warehouse's rows, or stop by name. Each case below is checked against T-SQL's reference.
@@ -148,6 +178,67 @@ What still differs:
 - Any other collation (`COLLATE Latin1_General_100_CI_AS_KS_WS_SC_UTF8`, `SQL_Latin1_General_CP1_CI_AS`) is refused by name. Compare `UPPER(...)` on both sides to ignore case.
 - `PATINDEX` needs its pattern written out as text, and is refused otherwise.
 
+These aren't checked against a warehouse yet, since T-SQL's reference doesn't say. The warehouse live check, flow 17 of the [smoke test](product/smoke-test/README.md#flow-17-the-warehouse-live-check), runs them, and each section's other cases, against a test warehouse:
+
+- `LIKE` with a wildcard where the text has trailing spaces. Here a match counts if the text matches as written, or with its trailing spaces removed. So `'abc  ' LIKE 'abc_'` is false, and `'abc  ' LIKE 'abc__'` is true.
+- `CHARINDEX` with a `NULL` start. Here the answer is `NULL`.
+
+## Regular expressions and text on this PC (LOC-002)
+
+Spark reads a regular expression the Java way (`java.util.regex`), and DuckDB reads it with RE2. On this PC a pattern written in the query, or given as a Python string to the DataFrame API's `F.regexp_replace`, `F.regexp_extract`, `F.split` and `Column.rlike`, is translated for RE2 before it runs, in `rlike`, `regexp`, `regexp_like`, `regexp_extract`, `regexp_extract_all`, `regexp_replace`, `split`, `regexp_count`, `regexp_instr` and `regexp_substr`, in Spark SQL and Databricks SQL. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_strings.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
+
+| What | On this PC, as in Spark |
+| --- | --- |
+| Named groups `(?<name>...)` and `${name}` in a replacement | Read as Java reads them |
+| POSIX classes `\p{Alpha}`, `\p{Digit}`, `\p{Punct}` and the others, and `\P{...}` | ASCII only, as in Java |
+| `\s`, `\h`, `\v`, `\R`, `\uXXXX`, `\0nn`, `\e`, `\cX`, `\Q...\E` | Java's characters. `\s` takes the vertical tab, as Java's does |
+| `regexp_replace`'s replacement | Java's: `$1` and `${name}` are groups, and `\` takes the next character as it is (`\$` is a dollar sign). A `$` that refers to no group stops, as in Spark |
+| `regexp_replace` with a position | The first position is 1. Position 0 or less stops, as in Spark |
+| `regexp_extract`, `regexp_extract_all` | Group 1 unless you give one. A group index the pattern doesn't have, or below 0, stops by name. A NULL index gives NULL |
+| `regexp_count` | An `int`. An empty pattern counts each position, as Java does: `regexp_count('abc', '')` is 4 |
+| `regexp_instr` | An `int` |
+| `split` | Every match splits, and empty parts at the end are kept: `split('a,b,,', ',')` has 4 parts |
+| Any of these with a NULL | NULL |
+
+These are refused by name, and nothing runs, because RE2 has no reading for them:
+
+- Lookaheads and lookbehinds (`(?=`, `(?!`, `(?<=`, `(?<!`), atomic groups (`(?>`), backreferences (`\1`, `\k<name>`) and possessive quantifiers (`*+`, `++`, `?+`).
+- `\Z`. Use `\z` for the very end.
+- The flags `x`, `d` and `U` (`(?x)`). RE2's `U` means something else.
+- A class inside a class, such as `[a[b]]` or `[[:alpha:]]`, and class intersections (`&&`). Write the characters in one class, or use `\p{Alpha}`.
+- A group past 9 in `regexp_extract` or a replacement.
+- `\p{In...}` blocks, `\p{java...}` classes and binary properties such as `\p{IsAlphabetic}`. Use a category such as `\p{L}` or a script such as `\p{IsLatin}`.
+
+String functions that give Spark's answer on this PC, where DuckDB's own differs:
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `length`, `char_length`, `octet_length`, `bit_length`, `instr`, `locate`, `position`, `levenshtein` | An `int` |
+| `split_part` | An empty delimiter doesn't split the text: part 1 or -1 is the whole text. Index 0 stops, as in Spark |
+| `left`, `right` | A length of 0 or less gives `''` |
+| `lpad`, `rpad` with an empty pad | The text, cut to the length |
+| `locate(substr, str, pos)` | 0 for a position before 1, or a NULL position |
+| `chr`, `char` | `''` below 0, and the character for n % 256 from 256 on: `chr(321)` is `A` |
+| `LIKE`, `ILIKE` | `\` escapes the next `_` or `%`, as Spark's default escape does |
+| `concat` with a NULL | NULL, as a `string` |
+| `concat_ws` with an array, such as `array(...)`, `split(...)` or `collect_list(...)` | The array's elements joined, NULLs left out |
+
+These cases can still differ. LOC-002 warns wherever a pattern is used:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| A pattern taken from the data, not written in the query | Java's syntax | RE2's: not translated, and a lookaround stops with DuckDB's message |
+| `$` without the `m` flag, on text that ends in a line break | Matches just before the final line break | Matches only at the very end |
+| `.` and `\r`, `\u0085`, `\u2028`, `\u2029` | Doesn't match them | Matches them. Both leave out `\n` |
+| `(?i)` with letters outside ASCII | Without `(?u)`, only ASCII letters ignore case | Every letter ignores case |
+| `\b` next to a letter outside ASCII | Java counts it as a word character | RE2 doesn't |
+| `split` with a pattern that can match no text, such as `x*` | The array ends with an empty part | No empty part at the end |
+| `regexp_replace` with a replacement taken from the data that has a `$` or `\` | Read as groups and escapes | Refused by name |
+| `concat_ws` with an array column (not an array expression in SQL), or any array in the DataFrame API's `F.concat_ws` | The elements joined | The array written as text, such as `[a, b]` |
+| A pattern in the DataFrame API given as a column, such as `F.regexp_like(c, F.lit('...'))` | Java's syntax | RE2's: only a pattern given as a Python string is translated |
+| The DataFrame API's `F.split_part` with an empty delimiter, and `F.concat` with a NULL | As in the table above | `''`, and an `int` NULL. The DataFrame API's other string functions weren't compared. Use the SQL form, `F.expr(...)`, for Spark's |
+| `upper('ß')` | `SS` | `ẞ` |
+
 ## Rules
 
 Rule set **2026.10.3**, from Microsoft Learn and the Apache Spark 3.5 reference as they read on 2026-10-17. Each Microsoft page's "last updated" date is kept in `sidecar/fabric_desktop/sqlcompat/profiles.py`. DDL-007 (ALTER TABLE) is an error except ALTER COLUMN, which is a warning because it is in preview. 2026.10.3 stops reading T-SQL's `GRANT`, `DENY` or `REVOKE ... ON SCHEMA::name` (and the other securable classes after `ON`) as a Spark `::` cast, and `UPDATE STATISTICS` (with no `SET`) as an UPDATE without WHERE.
@@ -217,7 +308,7 @@ Rule set **2026.10.3**, from Microsoft Learn and the Apache Spark 3.5 reference 
 | DES-005 | DROP COLUMN deletes the column's data | warning | Spark, Warehouse, Endpoint, SQL database, DuckDB | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 | LOC-001 | Changes data in Fabric, not here | warning | Spark | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 | LOC-002 | Regular expressions differ on this PC | warning | Spark | medium | [source](https://duckdb.org/docs/stable/sql/functions/regular_expressions) |
-| LOC-003 | Date pattern is translated on this PC | warning | Spark | medium | [source](https://spark.apache.org/docs/3.5.1/sql-ref-datetime-pattern.html) |
+| LOC-003 | Date pattern reads some text differently on this PC | warning | Spark | medium | [source](https://spark.apache.org/docs/3.5.1/sql-ref-datetime-pattern.html) |
 | LOC-004 | *name* gives a different value each run | information | Spark, DuckDB | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 | LOC-005 | Decimal results can differ | information | Spark | medium | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 | LOC-006 | *name* has no fixed order | warning | Spark | medium | [source](https://spark.apache.org/docs/3.5.1/sql-ref-functions-builtin.html) |
@@ -313,6 +404,29 @@ When a project runs T-SQL on this PC, these are checked against T-SQL's referenc
 | `CAST`, `TRY_CAST` | A value that doesn't convert stops `CAST` and is `NULL` with `TRY_CAST`. A decimal or float to an integer is cut toward zero, and a decimal to a narrower decimal rounds |
 | `ROUND` | Keeps its value's type: `ROUND(150.75, 0)` is `151.00`, `ROUND(748.58, -1)` is `750.00`, and `ROUND(150.75, 0, 1)` cuts to `150.00`. A result that no longer fits the type stops with "Arithmetic overflow error" (`ROUND(748.58, -3)`, `ROUND(999.5, 0)`) |
 
+## Local T-SQL JSON
+
+When a project runs T-SQL on this PC, the JSON functions give a Fabric Warehouse's answers, as T-SQL's reference gives them (its pages for these functions apply to Warehouse in Microsoft Fabric):
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| `ISJSON(x)` | `1` for an object or array, `0` for anything else (`ISJSON('1')` is `0`), and `NULL` for `NULL`. With `VALUE`, `ARRAY`, `OBJECT` or `SCALAR` it tests for that kind: `ISJSON('"text"', SCALAR)` is `1` |
+| `JSON_VALUE(x, path)` | A scalar's text. In lax mode, the default, a path that isn't there, an object or array, or text longer than 4000 characters gives `NULL`. In `strict` mode each is an error. A JSON `null` gives `NULL` either way |
+| `JSON_QUERY(x, path)` | An object or array, and the whole text with no path. In lax mode a scalar or a path that isn't there gives `NULL`; in `strict` mode each is an error |
+| `JSON_OBJECT('a': x, ...)` | `{"a":...}`, keeping a `NULL` value as `null`, T-SQL's default |
+| `JSON_ARRAY(x, ...)` | `[...]`, leaving `NULL`s out, T-SQL's default: `JSON_ARRAY('a', 1, NULL)` is `["a",1]` |
+| One of these inside another | Nested as JSON, not as quoted text: `JSON_ARRAY(1, JSON_OBJECT('k': 'v'))` is `[1,{"k":"v"}]` |
+| JSON text that isn't JSON | `JSON_VALUE` and `JSON_QUERY` stop with an error, in lax mode too. The message is the local engine's ("Malformed JSON"), not T-SQL's |
+
+Refused by name: `OPENJSON`, with or without `WITH`, `FOR JSON PATH` and `FOR JSON AUTO`, `NULL ON NULL` and `ABSENT ON NULL` (leave the clause out to get T-SQL's default), `JSON_ARRAYAGG`, `JSON_OBJECTAGG`, `JSON_MODIFY` and `JSON_PATH_EXISTS`. A path that isn't written out as text is refused too.
+
+What can still differ, each with a note in the run's `translation.notes`:
+
+- `JSON_VALUE` gives a number in the local engine's form: `1.50` is `1.5`, and `1e2` is `100.0`. T-SQL gives it as written.
+- `JSON_OBJECT` and `JSON_ARRAY` write a decimal in its shortest form (`1.50` is `1.5`). T-SQL keeps its scale.
+- `ISJSON` counts JSON with a trailing comma, or `NaN`, as valid. T-SQL counts only standard JSON.
+- `JSON_QUERY` gives an object or array without the spaces between its parts (`[1,2]` for `[1, 2]`). Whether a warehouse keeps them hasn't been checked.
+
 ## Local T-SQL names, schemas and views
 
 When a project runs T-SQL on this PC, names resolve as in a Fabric Warehouse, and a name that can't resolve here is refused by name, never answered from another table.
@@ -337,6 +451,31 @@ What can still differ:
 - A view made with `SELECT *` picks up columns added to its table later. In a warehouse its columns stay as they were until the view is altered.
 - `ALTER VIEW` on a view made earlier in the same script stops with "Invalid object name": the check reads the views that were there when the script started.
 - A name with a schema that a warehouse doesn't have, such as DuckDB's `main`, still runs here.
+
+## Local T-SQL security and session settings
+
+The local engine has no users, roles or permissions. Statements that set them are refused by name, never skipped, so a script that ran here never looks as if it applied permissions. Apply them in the Fabric Warehouse.
+
+Refused by name, with "... isn't applied on this PC":
+
+- `GRANT`, `DENY` and `REVOKE`, `GRANT UNMASK` included
+- `EXECUTE AS` and `REVERT`
+- Row-level security: `CREATE`, `ALTER` and `DROP SECURITY POLICY`
+- Dynamic data masking: `MASKED WITH (FUNCTION = ...)` in `CREATE TABLE`, and `ADD MASKED` and `DROP MASKED` in `ALTER TABLE`
+- `CREATE`, `ALTER` and `DROP USER`, `ROLE` and `LOGIN`, `ALTER ROLE ... ADD MEMBER`, and `ALTER AUTHORIZATION`
+
+`SET` options run as a Fabric Warehouse's defaults:
+
+| Option | Runs here | Refused by name |
+| --- | --- | --- |
+| `NOCOUNT`, `XACT_ABORT` | `ON` and `OFF`. A script stops at its first error either way (see Local T-SQL scripts) | |
+| `ANSI_NULLS`, `QUOTED_IDENTIFIER`, `ANSI_WARNINGS`, `ANSI_PADDING`, `ARITHABORT`, `CONCAT_NULL_YIELDS_NULL` | `ON` | `OFF` |
+| `NUMERIC_ROUNDABORT` | `OFF` | `ON` |
+| `DATEFORMAT` | `mdy` | any other |
+| `LANGUAGE` | `us_english`, `English` | any other |
+| `DATEFIRST` | `7` | any other |
+
+Any other option (`ROWCOUNT`, `STATISTICS IO`, `STATISTICS TIME`, `SHOWPLAN_XML`, `NOEXEC`, `FMTONLY`, `LOCK_TIMEOUT`, `IMPLICIT_TRANSACTIONS`, `CONTEXT_INFO` and the rest) is refused by name. `SET TRANSACTION` is refused with the transactions.
 
 ## Local T-SQL scripts
 

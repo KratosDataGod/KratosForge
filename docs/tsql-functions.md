@@ -21,11 +21,11 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 67 |
+| Runs | 72 |
 | Differs | 0 |
-| Refused | 36 |
+| Refused | 35 |
 | Fails | 0 |
-| Not checked | 75 |
+| Not checked | 71 |
 | **All** | **178** |
 
 ## String
@@ -187,12 +187,12 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 
 | Name | Status | Sample | Note |
 | --- | --- | --- | --- |
-| `ISJSON` | Refused | `SELECT ISJSON('{"a": 1}')` | ISJSON isn't mapped yet. |
-| `JSON_ARRAY` | Not checked | `SELECT JSON_ARRAY(1, 2)` |  |
+| `ISJSON` | Runs |  | 2 value checks |
+| `JSON_ARRAY` | Runs |  | 1 value check |
 | `JSON_MODIFY` | Refused | `SELECT JSON_MODIFY('{"a": 1}', '$.a', 2)` | JSON_MODIFY isn't mapped yet. |
-| `JSON_OBJECT` | Not checked | `SELECT JSON_OBJECT('a': 1)` |  |
-| `JSON_QUERY` | Not checked | `SELECT JSON_QUERY('{"a": [1]}', '$.a')` |  |
-| `JSON_VALUE` | Not checked | `SELECT JSON_VALUE('{"a": 1}', '$.a')` |  |
+| `JSON_OBJECT` | Runs |  | 1 value check |
+| `JSON_QUERY` | Runs |  | 2 value checks |
+| `JSON_VALUE` | Runs |  | 2 value checks |
 | `OPENJSON` | Refused | `SELECT [key], value FROM OPENJSON('{"a": 1}')` | OPENJSON isn't mapped yet. JSON_VALUE and JSON_QUERY read one value or object from JSON text. |
 
 ## Other
@@ -252,6 +252,6 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `CREATE PROCEDURE` | Refused | `CREATE PROCEDURE dbo.p AS SELECT 1` | T-SQL CREATE PROCEDURE doesn't run on the local engine. Procedures and functions run in a Fabric Warehouse. |
 | `CREATE FUNCTION` | Refused | `CREATE FUNCTION dbo.f() RETURNS INT AS BEGIN RETURN 1 END` | T-SQL CREATE FUNCTION doesn't run on the local engine. Procedures and functions run in a Fabric Warehouse. |
 | `USE` | Refused | `USE sales` | The local engine doesn't run T-SQL USE yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs in |
-| `FOR JSON` | Refused | `SELECT a FROM dbo.t FOR JSON PATH` | Unsupported query option. |
+| `FOR JSON` | Refused | `SELECT a FROM dbo.t FOR JSON PATH` | FOR JSON PATH isn't mapped yet. Build each row's JSON with JSON_OBJECT or JSON_ARRAY, or run it in a Fabric Warehou |
 | `OPTION (...)` | Refused | `SELECT a FROM dbo.t OPTION (MAXDOP 1)` | Unsupported query option. |
 | `SET options` | Not checked | `SET NOCOUNT ON; SELECT 1` |  |

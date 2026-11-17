@@ -21,7 +21,14 @@ def _name(query: str) -> str:
 
 @pytest.mark.parametrize("query", sorted(FIXTURE["names"]))
 def test_a_column_is_named_as_spark_names_it(query):
+    if query in _REFUSED:  # DuckDB has no such function: refused by name before any column is named
+        with pytest.raises(ValueError, match="can't run on this PC the way it runs in Fabric"):
+            _name(query)
+        return
     assert _name(query) == FIXTURE["names"][query]
+
+
+_REFUSED = {"input_file_name()", "spark_partition_id()"}
 
 
 def run(code: str) -> str:

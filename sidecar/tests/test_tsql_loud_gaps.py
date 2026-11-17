@@ -313,7 +313,8 @@ REFUSED_IN_THE_DOCS = {
 }
 ADVICE_IN_THE_DOCS = {"&", "|", "JSON_VALUE", "JSON_QUERY", "TRY_CAST(x AS FLOAT) IS NOT NULL", "POWER(2.5, 2)", "FLOAT", "SYSUTCDATETIME()",
                       "DECIMAL(19, 4)", "DECIMAL(10, 4)",
-                      "SET NOCOUNT ON", "SET DATEFIRST 7", "SET ANSI_NULLS ON", "SELECT", "INSERT", "#temp"}
+                      "SET NOCOUNT ON", "SET DATEFIRST 7", "SET ANSI_NULLS ON", "SELECT", "INSERT", "#temp",
+                      "OPTION (FOR TIMESTAMP AS OF ...)"}
 
 
 def _docs_refused_list() -> str:

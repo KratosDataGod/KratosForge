@@ -59,22 +59,23 @@ def _series(node: exp.GenerateSeries) -> None:
     if start is None or stop is None:
         raise ValueError(_NOT_YET + "GENERATE_SERIES takes a start and a stop, and a step if you give one.")
     if any(_is_null(a) for a in (start, stop, step)):
-        raise ValueError(_NOT_YET + "GENERATE_SERIES with NULL isn't mapped yet: Microsoft's page doesn't say what "
+        raise ValueError(_NOT_YET + "GENERATE_SERIES with NULL isn't mapped yet. Microsoft's page doesn't say what "
                          "a warehouse returns. Give it numbers.")
     if any(a is not None and _kind(a) == "float" for a in (start, stop, step)):
         raise ValueError(_NOT_YET + "GENERATE_SERIES takes whole numbers and decimals, not float, as in T-SQL. "
                          "Write the number without an exponent, such as 1.5.")
     kinds = {_kind(start), _kind(stop)}
     if kinds == {"whole", "decimal"}:
-        raise ValueError(_NOT_YET + "GENERATE_SERIES needs start and stop of the same type, as in T-SQL: here one "
-                         "is a whole number and the other a decimal. Write both as decimals, such as 1.0 and 5.0.")
+        raise ValueError(_NOT_YET + "GENERATE_SERIES needs start and stop of the same type, as in T-SQL. Here one "
+                         "is a whole number and the other a decimal, so write both as decimals, such as 1.0 and 5.0.")
     if step is not None and _places(step) > max(_places(start), _places(stop)):
         raise ValueError(_NOT_YET + "GENERATE_SERIES with a step that has more decimal places than start and stop "
-                         "isn't mapped yet: its values are of start's type, and Microsoft's page doesn't say how a "
+                         "isn't mapped yet. Its values are of start's type, and Microsoft's page doesn't say how a "
                          "step that doesn't fit is rounded. Give start and stop as many places, such as 1.00.")
     holder = node.parent
     if not isinstance(holder, (exp.Table, exp.Lateral)):
-        raise ValueError(_NOT_YET + "GENERATE_SERIES runs here only in FROM or CROSS APPLY.")
+        raise ValueError(_NOT_YET + "GENERATE_SERIES runs here only in FROM or CROSS APPLY. "
+                         "Move it there, or run it in a Fabric Warehouse.")
     s, e = start.copy(), stop.copy()
     if step is None:  # 1 counting up, -1 counting down
         st: exp.Expression = exp.Case(ifs=[exp.If(this=exp.GT(this=s.copy(), expression=e.copy()),
@@ -150,9 +151,10 @@ def _fits_int(node: exp.Expression) -> bool:
 def _percent(limit: exp.Limit, ties: bool) -> None:
     select = limit.parent
     if not isinstance(select, exp.Select):
-        raise ValueError(_NOT_YET + "TOP ... PERCENT runs here only on a SELECT.")
+        raise ValueError(_NOT_YET + "TOP ... PERCENT runs here only on a SELECT. Run it in a Fabric Warehouse.")
     if select.args.get("distinct") or select.args.get("qualify"):
-        raise ValueError(_NOT_YET + "TOP ... PERCENT runs here only without DISTINCT or QUALIFY.")
+        raise ValueError(_NOT_YET + "TOP ... PERCENT runs here only without DISTINCT or QUALIFY. "
+                         "Run it in a Fabric Warehouse.")
     order = select.args.get("order")
     if ties and order is None:
         raise ValueError(_NOT_YET + "TOP ... WITH TIES needs an ORDER BY, as in T-SQL.")
@@ -184,8 +186,8 @@ def _named(values: exp.Values) -> None:
     width = len(values.expressions[0].expressions) if values.expressions and isinstance(
         values.expressions[0], exp.Tuple) else 1
     if alias is None or not alias.this:
-        raise ValueError(_NOT_YET + "a VALUES list in FROM needs a name and a name for each column, as in T-SQL: "
-                         "(VALUES (1, 'a')) AS v (n, c).")
+        raise ValueError(_NOT_YET + "a VALUES list in FROM needs a name and a name for each column, as in T-SQL, "
+                         "such as (VALUES (1, 'a')) AS v (n, c).")
     names = alias.args.get("columns") or []
     if len(names) < width:
         raise ValueError(f"No column name was specified for column {len(names) + 1} of '{alias.this.name}'. "

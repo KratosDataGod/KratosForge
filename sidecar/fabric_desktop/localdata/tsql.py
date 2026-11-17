@@ -2255,16 +2255,16 @@ def _string_split(node: exp.Anonymous) -> None:
         if isinstance(flag, exp.Null) or (isinstance(flag, exp.Literal) and not flag.is_string and flag.name == "0"):
             node.set("expressions", node.expressions[:2])
         elif isinstance(flag, exp.Literal) and not flag.is_string and flag.name == "1":
-            raise ValueError(_NOT_YET + "STRING_SPLIT with enable_ordinal 1 isn't mapped yet: Microsoft's page lists "
+            raise ValueError(_NOT_YET + "STRING_SPLIT with enable_ordinal 1 isn't mapped yet. Microsoft's page lists "
                              "the ordinal column for Azure SQL and SQL Server, not for a Fabric Warehouse. Leave "
                              "it out, or run it in a Fabric Warehouse to see whether it's there.")
         else:
             raise ValueError("STRING_SPLIT's enable_ordinal must be a constant 0 or 1, as in T-SQL.")
     if len(node.expressions) != 2:
-        raise ValueError("STRING_SPLIT takes a text, a separator of one character and, if you like, enable_ordinal.")
+        raise ValueError("STRING_SPLIT takes text, a separator of one character and, optionally, enable_ordinal.")
     separator = node.expressions[1]
     if isinstance(separator, exp.Null):
-        raise ValueError(_NOT_YET + "STRING_SPLIT with a NULL separator isn't mapped yet: Microsoft's page doesn't "
+        raise ValueError(_NOT_YET + "STRING_SPLIT with a NULL separator isn't mapped yet. Microsoft's page doesn't "
                          "say what a warehouse returns. Give it a separator of one character.")
     if isinstance(separator, (exp.Literal, exp.National)) and len(separator.name) != 1:
         raise ValueError("STRING_SPLIT takes a separator of one character, as in T-SQL.")

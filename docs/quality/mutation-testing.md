@@ -5633,10 +5633,10 @@ No bug was found.
 ### What the survivors were, and the tests that now kill them
 
 - **spark_datetime.py**:
-  - Each pattern letter takes up to the most letters java.time takes (G, M, L, Q, q, E, X, x and Z five; S nine; D three; d, h, K, k, H, m and s two; a one) and is refused by name past that. A year takes up to 99.
+  - Each pattern letter takes up to the most letters java.time takes (X, x and Z five; S nine; D three; d, h, K, k, H, m and s two; a one) and is refused by name past that. G, M, L, Q, q and E take four and a year six; past that Spark stops too ("Too many pattern letters"), and so does this PC (since #2868; before it they took five and a year 99).
   - The localized offset is written O or OOOO only, and A, the first letter, is read as a letter Spark refuses.
   - The day and the day of the year are padded to the letters given.
-  - Five era letters give the narrow era.
+  - One to four era letters give the short or full era (five gave the narrow era until #2868 refused them, as Spark does).
   - The localized and ISO offsets come out right in every width, with Z for a zero offset where java.time writes it.
   - An empty pattern gives empty text, and formatting is lenient unless asked to be strict.
   - Reading takes LLLL and yyyy, and refuses LLLLL and an offset of four letters.

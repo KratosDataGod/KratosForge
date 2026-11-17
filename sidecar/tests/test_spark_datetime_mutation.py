@@ -11,8 +11,9 @@ import pytest
 from fabric_desktop import spark_datetime as sd
 
 # The most letters java.time takes in a run of each (O has its own rule, below).
-MOST = {"G": 5, "M": 5, "L": 5, "d": 2, "D": 3, "Q": 5, "q": 5, "E": 5, "a": 1, "h": 2, "K": 2, "k": 2,
-        "H": 2, "m": 2, "s": 2, "S": 9, "X": 5, "x": 5, "Z": 5}
+MOST = {"d": 2, "D": 3, "a": 1, "h": 2, "K": 2, "k": 2, "H": 2, "m": 2, "s": 2, "S": 9, "X": 5, "x": 5, "Z": 5}
+# Runs Spark stops on before java.time sees them: five of a text letter, seven or more y.
+SPARK_MOST = {"G": 4, "M": 4, "L": 4, "Q": 4, "q": 4, "E": 4, "y": 6}
 
 
 @pytest.mark.parametrize(("letter", "most"), sorted(MOST.items()))
@@ -22,10 +23,12 @@ def test_each_letter_takes_up_to_its_most_and_no_more(letter, most):
         sd.tokens(letter * (most + 1))
 
 
-def test_a_year_takes_any_run_up_to_99_letters():
-    assert sd.tokens("y" * 99) == [("letter", "y" * 99)]
-    with pytest.raises(ValueError, match="too many pattern letters: y\\."):
-        sd.tokens("y" * 100)
+@pytest.mark.parametrize(("letter", "most"), sorted(SPARK_MOST.items()))
+def test_spark_stops_on_five_text_letters_and_seven_years(letter, most):
+    assert sd.tokens(letter * most) == [("letter", letter * most)]
+    for n in (most + 1, 99):
+        with pytest.raises(ValueError, match=f'Spark stops on it too \\("Too many pattern letters: {letter}"\\)\\.'):
+            sd.tokens(letter * n)
 
 
 @pytest.mark.parametrize("run", ["OO", "OOO", "OOOOO"])
@@ -61,8 +64,8 @@ def test_the_day_and_the_day_of_the_year_are_padded_to_the_letters_given():
     assert fmt("dd", at="2026-01-25 13:04:05+00") == "25"
 
 
-def test_five_era_letters_give_the_narrow_era():
-    assert (fmt("G"), fmt("GGGG"), fmt("GGGGG")) == ("AD", "Anno Domini", "A")
+def test_one_to_four_era_letters_give_the_short_or_full_era():
+    assert (fmt("G"), fmt("GG"), fmt("GGGG")) == ("AD", "AD", "Anno Domini")
 
 
 def test_localized_offsets_short_and_full():

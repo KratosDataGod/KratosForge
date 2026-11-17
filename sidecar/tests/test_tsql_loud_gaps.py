@@ -282,11 +282,12 @@ REFUSED_IN_THE_DOCS = {
     "FOR JSON": "SELECT 1 AS a FOR JSON PATH",
     "OPENJSON": "SELECT [key] FROM OPENJSON('{}')",
     "OPTION (...)": "SELECT 1 OPTION (MAXDOP 1)",
+    "OUTPUT": "DELETE FROM dbo.orders OUTPUT deleted.id WHERE id = 1",
     "DATEFIRST": "SET DATEFIRST 1",
 }
 ADVICE_IN_THE_DOCS = {"&", "|", "JSON_VALUE", "JSON_QUERY", "TRY_CAST(x AS FLOAT) IS NOT NULL", "POWER(2.5, 2)", "FLOAT", "SYSUTCDATETIME()",
                       "DECIMAL(19, 4)", "DECIMAL(10, 4)",
-                      "SET NOCOUNT ON", "SET DATEFIRST 7"}
+                      "SET NOCOUNT ON", "SET DATEFIRST 7", "SELECT"}
 
 
 def _docs_refused_list() -> str:

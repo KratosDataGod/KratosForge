@@ -92,7 +92,7 @@ from sqlglot import exp
 
 from . import app_settings, free_memory, jsonfile, sql, sql_params, sql_policy, sql_view, warehouse
 from .filenames import file_stem
-from .frames import EXCEL_MAX_ROWS, write_xlsx_batches
+from .frames import EXCEL_MAX_ROWS, ExportNotes, csv_ready_batch, csv_ready_schema, write_xlsx_batches
 from . import known_folders
 
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
@@ -248,10 +248,12 @@ class Export:
     total: int = 0
     error: str = ""
     cancel: threading.Event = field(default_factory=threading.Event)
+    notes: list[str] = field(default_factory=list)  # what the file couldn't keep exactly (WR-221), once it's done
 
     def status(self) -> dict[str, Any]:
         return {"id": self.id, "execution": self.execution, "format": self.format, "path": str(self.path),
-                "state": self.state, "rows": self.rows, "total": self.total, "error": self.error}
+                "state": self.state, "rows": self.rows, "total": self.total, "error": self.error,
+                "notes": list(self.notes)}
 
 
 class SqlExecutions:
@@ -975,12 +977,14 @@ class SqlExecutions:
                 schema = reader.schema
                 if export.format in ("parquet", "json"):
                     schema = _unique_names(schema)
+                notes = ExportNotes(schema)
                 with open(partial, "xb") as sink:
                     if export.format in ("xlsx", "json"):
-                        self._write_rows(export, reader, schema, sink)
+                        self._write_rows(export, reader, schema, sink, notes)
                     else:
                         self._write_batches(export, reader, schema, sink)
             # After the file is closed: Windows can't rename a file that is still open.
+            export.notes = notes.sentences()
             self._done(export, partial)
         except _Stopped:
             _discard(partial, export.path)  # before the state changes: a finished export leaves no files
@@ -991,8 +995,9 @@ class SqlExecutions:
 
     @staticmethod
     def _write_batches(export: Export, reader: Any, schema: pa.Schema, sink: Any) -> None:
-        """CSV or Parquet, through Arrow's own writers."""
-        writer = _writer(export.format, sink, schema)
+        """CSV or Parquet, through Arrow's own writers. CSV gets binary as hex and lists as JSON text (_csv_ready)."""
+        csv = export.format == "csv"
+        writer = _writer(export.format, sink, csv_ready_schema(schema) if csv else schema)
         try:
             for i in range(reader.num_record_batches):
                 if export.cancel.is_set():
@@ -1000,7 +1005,7 @@ class SqlExecutions:
                 batch = reader.get_batch(i)
                 if export.format == "parquet":
                     batch = pa.RecordBatch.from_arrays(batch.columns, schema=schema)
-                writer.write_batch(batch)
+                writer.write_batch(csv_ready_batch(batch) if csv else batch)
                 export.rows += batch.num_rows
         finally:
             writer.close()
@@ -1013,7 +1018,7 @@ class SqlExecutions:
         export.state = "completed"
 
     @staticmethod
-    def _write_rows(export: Export, reader: Any, schema: pa.Schema, sink: Any) -> None:
+    def _write_rows(export: Export, reader: Any, schema: pa.Schema, sink: Any, notes: ExportNotes | None = None) -> None:
         """Excel (one sheet, as the notebook's download writes it) or JSON (an array of objects, one per
         row, keyed by the column names made unique), a batch at a time with Cancel between batches."""
         def batches() -> Any:
@@ -1026,13 +1031,19 @@ class SqlExecutions:
             export.rows += n
 
         if export.format == "xlsx":
-            write_xlsx_batches(reader.schema.names, batches(), sink, counted)
+            write_xlsx_batches(reader.schema.names, batches(), sink, counted, notes)
             return
         names = schema.names
+        whole = [pa.types.is_integer(f.type) for f in schema]
         sink.write(b"[")
         first = True
         for batch in batches():
             cols = [c.to_pylist() for c in batch.columns]
+            if notes is not None:
+                for name, col, is_whole in zip(names, cols, whole, strict=True):
+                    for v in col if is_whole else ():
+                        if v is not None and abs(v) > _JSON_SAFE:
+                            notes.add(name, "big")
             for i in range(batch.num_rows):
                 row = {name: _json_cell(col[i]) for name, col in zip(names, cols, strict=True)}
                 sink.write((b"\n" if first else b",\n") + json.dumps(row, ensure_ascii=False, default=str).encode("utf-8"))
@@ -1247,6 +1258,9 @@ def local_refusal_message(stop: sql_policy.Verdict, allow: tuple[str, ...] = TAR
 def _refusal(stop: sql_policy.Verdict) -> dict[str, Any]:
     return {"permission": stop.kind, "statement": stop.statement, "label": sql_policy.LABELS.get(stop.kind, ""),
             "reason": stop.reason, "confirm_required": stop.confirm}
+
+
+_JSON_SAFE = 2 ** 53 - 1  # the largest whole number JavaScript reads exactly
 
 
 def _json_cell(v: Any) -> Any:

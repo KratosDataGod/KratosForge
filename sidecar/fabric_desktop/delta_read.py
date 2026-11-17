@@ -16,6 +16,10 @@ from typing import Any
 
 import pyarrow as pa
 
+# A table read through DataFusion is read whole into memory (see dataset()). Past this many bytes of
+# data files, the read is refused with the reason instead of taking the PC's memory.
+MAX_WHOLE_READ_BYTES = 2 * 1024**3
+
 # The table settings and protocol features that the pyarrow reader gets wrong or refuses.
 _DV_FEATURE = "deletionVectors"
 _CM_FEATURE = "columnMapping"
@@ -73,11 +77,27 @@ def _query(table: Any, columns: list[str] | None, tail: str = "") -> pa.Table:
     return got.cast(want) if got.schema != want else got
 
 
+def data_bytes(table: Any) -> int:
+    """The size of the loaded version's data files, from the log (nothing is read)."""
+    sizes = pa.table(table.get_add_actions(flatten=True)).column("size_bytes")
+    return int(sum(s for s in sizes.to_pylist() if s))
+
+
+def _whole(table: Any, columns: list[str] | None) -> pa.Table:
+    reasons = needs_kernel(table)
+    size = data_bytes(table)
+    if size > MAX_WHOLE_READ_BYTES:
+        raise ValueError(f"This table uses {' and '.join(reasons)}, so it is read whole into this PC's memory, and its "
+                         f"files hold {size / 1024**3:.1f} GB, more than {MAX_WHOLE_READ_BYTES / 1024**3:.0f} GB. "
+                         "Read part of it in Fabric, or in a local data project, which reads it in place.")
+    return _query(table, columns)
+
+
 def arrow(table: Any, columns: list[str] | None = None) -> pa.Table:
     """Every row of the table as loaded (its version), as an Arrow table."""
     if not needs_kernel(table):
         return table.to_pyarrow_table(columns=columns)
-    return _query(table, columns)
+    return _whole(table, columns)
 
 
 def head(table: Any, limit: int, columns: list[str] | None = None) -> pa.Table:
@@ -89,12 +109,13 @@ def head(table: Any, limit: int, columns: list[str] | None = None) -> pa.Table:
 
 def dataset(table: Any) -> Any:
     """The table as a pyarrow dataset. For a table that needs DataFusion's reader, its rows are read
-    into memory first: a dataset over its files would show deleted rows or physical column names."""
+    into memory first: a dataset over its files would show deleted rows or physical column names.
+    So a query of such a table (even with LIMIT) reads all of it, up to MAX_WHOLE_READ_BYTES of files."""
     if not needs_kernel(table):
         return table.to_pyarrow_dataset()
     import pyarrow.dataset as ds  # here, not at the top: it costs about 0.2 s of engine start
 
-    return ds.dataset(_query(table, None))
+    return ds.dataset(_whole(table, None))
 
 
 def count(table: Any) -> int:

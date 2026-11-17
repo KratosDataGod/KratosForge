@@ -162,8 +162,9 @@ def test_a_struct_column_under_column_mapping_is_refused_not_read_wrong():
     flat = pa.schema([pa.field("a", pa.int64(), metadata=meta)])
     assert eng._physical_names(flat) == {"a": "col-1"}
     nested = pa.schema([pa.field("s", pa.list_(pa.struct([("x", pa.int64())])), metadata=meta)])
-    with pytest.raises(ValueError, match="Column s is a struct in a table with column mapping"):
+    with pytest.raises(ValueError, match="Column s is a struct in a table with column mapping") as refused:
         eng._physical_names(nested)
+    assert str(refused.value).endswith("Read it from a notebook on this PC instead, which reads it in full.")
 
 
 def test_deleted_positions_are_ranges_and_rows_past_a_short_vector_are_kept():
@@ -178,8 +179,9 @@ def test_deleted_positions_are_ranges_and_rows_past_a_short_vector_are_kept():
 
 def test_a_vector_for_a_file_the_view_doesnt_read_is_refused(monkeypatch):
     monkeypatch.setattr(delta_read, "deleted_positions", lambda _t: {"file:///elsewhere/x.parquet": [(0, 0)]})
-    with pytest.raises(ValueError, match="deletion vector for a file that isn't in its file list"):
+    with pytest.raises(ValueError, match="deletion vector for a file that isn't in its file list") as refused:
         eng.delta_select(str(FIXTURES / "dv"))
+    assert str(refused.value).endswith("Run OPTIMIZE on it in Fabric, then refresh.")
 
 
 def test_previews_count_rows_without_the_deleted_ones():
@@ -198,3 +200,17 @@ def test_the_stores_reads_see_the_spark_rows(tables):
         assert sorted(frame.rows()) == EXPECTED[name]["rows"], name
         lazy = store.lazy(DeltaTable(uri), uri, None).collect()
         assert sorted(lazy.rows()) == EXPECTED[name]["rows"], name
+
+
+def test_a_whole_read_past_the_size_limit_is_refused_with_the_reason(monkeypatch):
+    table = DeltaTable(str(FIXTURES / "cm_name"))
+    size = delta_read.data_bytes(table)
+    assert size > 0
+    monkeypatch.setattr(delta_read, "MAX_WHOLE_READ_BYTES", size - 1)
+    for read in (delta_read.arrow, delta_read.dataset):
+        with pytest.raises(ValueError, match=r"uses column mapping, so it is read whole into this PC's memory"):
+            read(table)
+    assert delta_read.head(table, 2).num_rows == 2  # a first-rows read stops early, so it has no limit
+    assert delta_read.count(table) == 10
+    monkeypatch.setattr(delta_read, "MAX_WHOLE_READ_BYTES", size)
+    assert delta_read.arrow(table).num_rows == 10

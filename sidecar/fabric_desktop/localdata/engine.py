@@ -87,6 +87,7 @@ _UNREADABLE = {"deletionVectors": None, "columnMapping": None,  # applied in del
 # the view never grows to megabytes; compacting the table in Fabric (OPTIMIZE) folds the vectors in.
 MAX_DELETED_RANGES = 50_000
 _FILE_COL = "__kf_file"
+_IN_A_NOTEBOOK = " Read it from a notebook on this PC instead, which reads it in full."
 _ROW_COL = "file_row_number"
 
 
@@ -121,7 +122,7 @@ def delta_select(folder: str, version: int | None = None, timestamp: str | None 
     for part in partitions:
         if not all(f"/{physical[part]}=" in f.replace("\\", "/") for f in files):
             raise ValueError(f"The table's files aren't in {physical[part]}=... folders, so its partition column "
-                             f"{part} can't be read locally yet.")
+                             f"{part} can't be read locally yet.{_IN_A_NOTEBOOK}")
     options = "union_by_name = true"
     if partitions:
         types = _duckdb_types(pa.schema([pa.field(physical[p], schema.field(p).type) for p in partitions]))
@@ -132,7 +133,7 @@ def delta_select(folder: str, version: int | None = None, timestamp: str | None 
         clash = {_FILE_COL, _ROW_COL} & {n.lower() for n in physical.values()}
         if clash:
             raise ValueError(f"{name or folder} has a column named {sorted(clash)[0]}, which the local read of its "
-                             "deletion vectors needs for itself, so it isn't queryable here.")
+                             f"deletion vectors needs for itself, so it isn't queryable here.{_IN_A_NOTEBOOK}")
         options += f", filename = {lit(_FILE_COL)}, file_row_number = true"
         info["deleted_rows"] = sum(hi - lo + 1 for ranges in deleted.values() for lo, hi in ranges)
     columns = ", ".join(q(physical[f.name]) + ("" if physical[f.name] == f.name else f" AS {q(f.name)}")
@@ -154,7 +155,7 @@ def _physical_names(schema: pa.Schema) -> dict[str, str]:
     for field in schema:
         if _has_struct(field.type):
             raise ValueError(f"Column {field.name} is a struct in a table with column mapping, which a local read "
-                             "can't apply to nested fields yet, so the table isn't queryable here.")
+                             f"can't apply to nested fields yet, so the table isn't queryable here.{_IN_A_NOTEBOOK}")
         meta = field.metadata or {}
         physical = meta.get(b"delta.columnMapping.physicalName")
         out[field.name] = physical.decode() if physical else field.name
@@ -194,7 +195,7 @@ def _deleted_ranges(table: Any, folder: str, files: list[str], name: str) -> dic
         if match is None:
             # A vector for a file the view doesn't read would mean the two lists disagree; never guess.
             raise ValueError(f"{name or folder} has a deletion vector for a file that isn't in its file list, so it "
-                             "isn't queryable here.")
+                             "isn't queryable here. Run OPTIMIZE on it in Fabric, then refresh.")
         out[match] = rows
     return out
 

@@ -7,6 +7,13 @@ function sqlGridState(tab) {
   return (tab.grid ||= { sort: [], filters: {}, filterOn: false, filterError: null });
 }
 
+// A new run of the tab: a fresh grid that keeps the column layout (widths, hidden columns, order), used
+// again when the new result has the same column names.
+function sqlGridCarry(g) {
+  if (!g?.names) return null;
+  return { sort: [], filters: {}, filterOn: false, filterError: null, names: g.names, widths: g.widths, hidden: g.hidden, order: g.order };
+}
+
 // What sql_page is sent for the grid's sort and filters (nothing when neither is set).
 function sqlGridQuery(g) {
   const filters = Object.entries(g?.filters || {}).filter(([, t]) => String(t).trim())
@@ -32,44 +39,148 @@ function sqlGridCount(r, columns) {
   return text;
 }
 
-// The grid's table: sortable headers, an optional row of filter boxes, the page's rows.
-// on.sort(column) and on.filter(column, text) change the view; the caller reads the page again.
+// The grid's table: sortable headers that can be resized, an optional row of filter boxes, the page's rows,
+// in the columns Columns... shows and in its order. on.sort(column) and on.filter(column, text) change the
+// view (the caller reads the page again).
 function sqlResultGrid(r, g, on) {
+  const vis = sqlGridLayoutFor(g, r.columns);
   const sortOf = (i) => (r.sort || []).find((s) => s.column === i);
-  const head = r.columns.map((c, i) => {
+  const widths = h("style", {}, sqlGridWidthCss(g.widths));
+  const head = vis.map((i) => {
+    const c = r.columns[i];
     const s = sortOf(i);
-    return h("th", { title: c.type, "aria-sort": s ? (s.desc ? "descending" : "ascending") : "none" },
+    return h("th", { title: c.type, "data-col": String(i), "aria-sort": s ? (s.desc ? "descending" : "ascending") : "none" },
       h("button", { class: "sql-sort", type: "button", onclick: () => on.sort(i),
         title: `Sort by ${c.name} (${c.type}). Sorts every row of the result on this PC; nothing runs again.` },
-      c.name, s ? h("span", { class: "sql-sort-mark", "aria-hidden": "true" }, s.desc ? " ▼" : " ▲") : null));
+      c.name, s ? h("span", { class: "sql-sort-mark", "aria-hidden": "true" }, s.desc ? " ▼" : " ▲") : null),
+      sqlColumnResizer(c, i, g, () => {
+        widths.textContent = sqlGridWidthCss(g.widths);
+        table.classList.toggle("sized", Object.keys(g.widths).length > 0);
+      }));
   });
   // A column's pending filter is kept on the grid's state: a redraw while a page loads makes new boxes,
   // and typing in a column's new box replaces what its old one had waiting.
   const timers = (g.filterTimers ||= {});
   const wait = (i, fn) => { clearTimeout(timers[i]); timers[i] = fn ? setTimeout(() => { delete timers[i]; fn(); }, 450) : 0; };
   const filterRow = g.filterOn ? h("tr", { class: "sql-filter-row" }, h("td", { class: "i" }),
-    r.columns.map((c, i) => {
+    vis.map((i) => {
+      const c = r.columns[i];
       const bad = g.filterError?.column === i;
       const box = h("input", { type: "text", class: "sql-filter", "data-column": String(i), value: g.filters[i] || "",
         placeholder: "Filter", "aria-label": `Filter ${c.name}`, spellcheck: "false", ...(bad ? { "aria-invalid": "true" } : {}),
-        title: "Text it contains, or = != > >= < <= and a value, or null / not null",
+        title: "Text to find, or an operator and a value (= != > >= < <=), or null or not null",
         oninput: () => wait(i, () => on.filter(i, box.value)),
         onkeydown: (e) => {
           if (e.key === "Enter") { wait(i, null); on.filter(i, box.value); }
           if (e.key === "Escape" && box.value) { e.stopPropagation(); box.value = ""; wait(i, null); on.filter(i, ""); }
         } });
-      return h("td", {}, box);
+      return h("td", { "data-col": String(i) }, box);
     })) : null;
-  const table = h("table", { tabindex: "0", class: "sql-result-table",
+  // A column a person sized keeps its width: the table no longer stretches its columns to fill the grid.
+  const table = h("table", { tabindex: "0", class: `sql-result-table${Object.keys(g.widths).length ? " sized" : ""}`,
     "aria-label": "Results. Arrow keys move, Shift and an arrow selects, Ctrl+C copies, Enter opens a value, Shift+F10 shows more." },
     h("thead", {}, h("tr", {}, h("th", { class: "i" }), head), filterRow),
-    h("tbody", {}, r.rows.map((row, i) => h("tr", { "data-r": String(i) }, h("td", { class: "i" }, String(r.offset + i + 1)),
-      row.map((v, c) => h("td", { "data-c": String(c), class: `${typeof v === "number" ? "n" : ""}${v === null ? " null" : ""}` }, cellText(v)))))));
-  if (on.select) sqlGridWire(table, r, g, on);
+    h("tbody", {}, r.rows.map((row, k) => h("tr", { "data-r": String(k) }, h("td", { class: "i" }, String(r.offset + k + 1)),
+      vis.map((i, c) => {
+        const v = row[i];
+        return h("td", { "data-c": String(c), "data-col": String(i), class: `${typeof v === "number" ? "n" : ""}${v === null ? " null" : ""}` }, cellText(v));
+      })))));
+  if (on.select) sqlGridWire(table, r, g, on, vis);
+  const hidden = r.columns.length - vis.length;
+  const note = hidden ? h("p", { class: "muted-text sql-grid-note sql-grid-hidden" },
+    `${hidden.toLocaleString()} column${hidden === 1 ? " is" : "s are"} hidden. Columns... shows ${hidden === 1 ? "it" : "them"}.`) : null;
   const empty = !r.rows.length && r.total === 0 && (r.all_rows ?? 0) > 0
     ? h("p", { class: "muted-text sql-grid-note" }, "No rows match the filters.") : null;
   const error = g.filterError ? h("p", { class: "sql-grid-error", role: "alert" }, g.filterError.message) : null;
-  return [table, empty, error].filter(Boolean);
+  return [widths, table, empty, error, note].filter(Boolean);
+}
+
+// ---------- column widths, and Columns... to hide and reorder them ----------
+
+// The columns the grid shows, as positions in the result, in their order. The layout (widths, hidden
+// columns, order) is for one set of column names: a result with other columns starts again.
+function sqlGridLayoutFor(g, columns) {
+  const names = columns.map((c) => c.name);
+  if (!g.names || g.names.length !== names.length || g.names.some((n, k) => n !== names[k])) {
+    Object.assign(g, { names, widths: {}, hidden: [], order: null });
+  }
+  const order = g.order?.length === names.length ? g.order : names.map((_, k) => k);
+  const hidden = new Set(g.hidden || []);
+  const vis = order.filter((k) => !hidden.has(k));
+  g.vis = vis.length ? vis : order;  // Columns... keeps at least one shown
+  return g.vis;
+}
+
+// The style that holds the widths a person set: { [column]: px }.
+function sqlGridWidthCss(widths) {
+  return Object.entries(widths || {}).map(([k, w]) =>
+    `.sql-result-table [data-col="${Number(k)}"] { width: ${Math.round(w)}px; min-width: ${Math.round(w)}px; max-width: ${Math.round(w)}px; }`).join("\n");
+}
+
+// A column moved up or down in Columns...: the new order.
+function sqlGridMoveColumn(order, column, delta) {
+  const out = [...order];
+  const at = out.indexOf(column);
+  const to = at + delta;
+  if (at < 0 || to < 0 || to >= out.length) return out;
+  out.splice(at, 1);
+  out.splice(to, 0, column);
+  return out;
+}
+
+// The handle at a header's right edge: drag to resize, double-click to fit the column again, or focus it
+// and use the arrow keys.
+function sqlColumnResizer(c, i, g, changed) {
+  const set = (w) => {
+    if (w === null) delete g.widths[i];
+    else g.widths[i] = Math.max(40, Math.min(1200, w));
+    changed();
+  };
+  const handle = h("span", { class: "sql-col-resize", role: "separator", "aria-orientation": "vertical", tabindex: "0",
+    "aria-label": `Width of ${c.name}`, title: "Drag to resize. Double-click to fit. Arrow keys resize too.",
+    onpointerdown: (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const start = e.clientX;
+      const width = handle.parentElement.getBoundingClientRect().width;
+      handle.setPointerCapture?.(e.pointerId);
+      handle.onpointermove = (m) => set(width + m.clientX - start);
+      handle.onpointerup = handle.onpointercancel = () => { handle.onpointermove = handle.onpointerup = handle.onpointercancel = null; };
+    },
+    ondblclick: (e) => { e.stopPropagation(); set(null); },
+    onkeydown: (e) => {
+      const now = g.widths[i] ?? handle.parentElement.getBoundingClientRect().width;
+      if (e.key === "ArrowLeft") set(now - 16);
+      else if (e.key === "ArrowRight") set(now + 16);
+      else if (e.key === "Enter" || e.key === "Delete") set(null);
+      else return;
+      e.preventDefault();
+      e.stopPropagation();
+    } });
+  return handle;
+}
+
+// Columns...: a check box to show each column, and Up and Down to move it. Changes apply to the grid at
+// once (on.change()); on.reset() shows every column in the result's order, at its own width.
+function sqlColumnsBody(columns, g, on) {
+  const order = g.order?.length === columns.length ? g.order : columns.map((_, k) => k);
+  const hidden = new Set(g.hidden || []);
+  const shown = order.filter((k) => !hidden.has(k)).length;
+  return h("div", { class: "sql-columns" },
+    h("p", { class: "muted-text" }, "Hidden columns aren't shown or copied; sort, filters and Export still cover every column."),
+    h("ul", { class: "sql-columns-list", "aria-label": "Columns" }, order.map((k, at) => {
+      const c = columns[k];
+      const on1 = !hidden.has(k);
+      return h("li", {},
+        h("label", {}, h("input", { type: "checkbox", checked: on1, disabled: on1 && shown === 1,
+          onchange: (e) => { g.hidden = e.target.checked ? [...hidden].filter((x) => x !== k) : [...hidden, k]; on.change(); } }),
+        h("span", {}, c.name), h("span", { class: "muted-text" }, c.type)),
+        h("button", { type: "button", class: "tool small", "aria-label": `Move ${c.name} up`, disabled: at === 0,
+          onclick: () => { g.order = sqlGridMoveColumn(order, k, -1); on.change(k, "up"); } }, "↑"),
+        h("button", { type: "button", class: "tool small", "aria-label": `Move ${c.name} down`, disabled: at === order.length - 1,
+          onclick: () => { g.order = sqlGridMoveColumn(order, k, 1); on.change(k, "down"); } }, "↓"));
+    })));
 }
 
 // ---------- selection, Copy as, the value viewer and column statistics (approved mockup, "Copy as") ----------
@@ -110,16 +221,19 @@ function sqlGridMove(sel, e, rows, cols) {
   return { a: e.shiftKey && sel ? sel.a : to, f: to };
 }
 
-// The selected block of the page as columns and rows (the whole page when nothing is selected).
-function sqlGridBlock(r, sel) {
-  const x = sqlGridRect(sel) || { r0: 0, r1: r.rows.length - 1, c0: 0, c1: r.columns.length - 1 };
-  return { columns: r.columns.slice(x.c0, x.c1 + 1), rows: r.rows.slice(x.r0, x.r1 + 1).map((row) => row.slice(x.c0, x.c1 + 1)) };
+// The selected block of the page as columns and rows (the whole page when nothing is selected). vis is the
+// columns the grid shows, in its order (sqlGridLayoutFor); a selection's columns are positions in it.
+function sqlGridBlock(r, sel, vis = null) {
+  const cols = vis || r.columns.map((_, k) => k);
+  const x = sqlGridRect(sel) || { r0: 0, r1: r.rows.length - 1, c0: 0, c1: cols.length - 1 };
+  const pick = cols.slice(x.c0, x.c1 + 1);
+  return { columns: pick.map((k) => r.columns[k]), rows: r.rows.slice(x.r0, x.r1 + 1).map((row) => pick.map((k) => row[k])) };
 }
 
 // What a copy of the selection puts on the clipboard: "cells" (the values, tab-separated, as a spreadsheet
 // takes them), "tsv" (with headers), "csv", "json" or "insert" (sqlRowsAs, sqleditor.js).
-function sqlGridCopyText(format, r, sel, opts) {
-  const b = sqlGridBlock(r, sel);
+function sqlGridCopyText(format, r, sel, opts = {}) {
+  const b = sqlGridBlock(r, sel, opts.vis);
   if (format === "cells") {
     const cell = (v) => (v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v));
     return b.rows.map((row) => row.map(cell).join("\t")).join("\n");
@@ -211,9 +325,9 @@ function sqlGridPaint(table, sel) {
 // The grid's mouse and keys: click selects a cell (Shift+click or a drag, a block; a row's number, the
 // row), Ctrl+A the page, the arrows move. Ctrl+C copies the values, Ctrl+Shift+C with headers, Enter or a
 // double-click opens the value, right-click or Shift+F10 shows Copy as. on.select() after a change,
-// on.copy(format), on.open(at), on.menu(td), on.close() for Esc.
-function sqlGridWire(table, r, g, on) {
-  const rows = r.rows.length, cols = r.columns.length;
+// on.copy(format), on.open({ r, c }) with c the result's column, on.menu(td), on.close() for Esc.
+function sqlGridWire(table, r, g, on, vis = r.columns.map((_, k) => k)) {
+  const rows = r.rows.length, cols = vis.length;
   const set = (sel, scroll = true) => {
     g.sel = sel;
     sqlGridPaint(table, sel);
@@ -239,7 +353,7 @@ function sqlGridWire(table, r, g, on) {
   table.addEventListener("mouseup", () => { dragging = false; });
   table.addEventListener("dblclick", (e) => {
     const at = sqlGridCellAt(e.target.closest("td"));
-    if (at && !at.row) on.open(at);
+    if (at && !at.row) on.open({ r: at.r, c: vis[at.c] });
   });
   table.addEventListener("contextmenu", (e) => {
     const td = e.target.closest("td");
@@ -257,7 +371,7 @@ function sqlGridWire(table, r, g, on) {
     if (move) set(move);
     else if (ctrl && e.key.toLowerCase() === "a" && !e.shiftKey) set({ a: { r: 0, c: 0 }, f: { r: rows - 1, c: cols - 1 } }, false);
     else if (ctrl && e.key.toLowerCase() === "c") on.copy(e.shiftKey ? "tsv" : "cells");
-    else if (e.key === "Enter" && g.sel) on.open(g.sel.f);
+    else if (e.key === "Enter" && g.sel) on.open({ r: g.sel.f.r, c: vis[g.sel.f.c] });
     else if (((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") && g.sel) on.menu(cellOf(g.sel.f));
     else if (e.key === "Escape" && on.close()) { /* closed the side panel */ } else return;
     e.preventDefault();

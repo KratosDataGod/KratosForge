@@ -1039,9 +1039,21 @@ def _to_timestamp_with_format(node: exp.Expression, args: list[exp.Expression]) 
 _TEXT_DATE = ("^[\\s\\p{Cc}]*([+-]?)([0-9]{4,7})(?:-([0-9]{1,2})(?:-([0-9]{1,2})(?:[ T].*)?)?)?[\\s\\p{Cc}]*$")
 
 
+# Databricks SQL (ANSI on) stops on text that isn't a date, where Spark with ANSI off gives NULL.
+_DATE_MALFORMED = ("'[CAST_INVALID_INPUT] The value ''' || LEFT(CAST(kf_a.t AS VARCHAR), 200) || ''' of the type "
+                   "\"STRING\" cannot be cast to \"DATE\" because it is malformed. Correct the value as per the "
+                   "syntax, or change its target type. Use try_cast to tolerate malformed input and return NULL "
+                   "instead.'")
+
+
 def text_date(value: exp.Expression) -> exp.Expression:
-    """to_date(value), or Spark's CAST(value AS DATE), as Spark gives it (spark_text_date)."""
-    return _with_args(spark_text_date("fj_arg0"), [value])
+    """to_date(value), or Spark's CAST(value AS DATE), as Spark gives it (spark_text_date). In Databricks SQL
+    (ANSI on) text that isn't a date stops with CAST_INVALID_INPUT, as Databricks does."""
+    if not _ANSI.get():
+        return _with_args(spark_text_date("fj_arg0"), [value])
+    return _with_args(f"(LIST_TRANSFORM([{{'t': fj_arg0, 'd': {spark_text_date('fj_arg0')}}}], kf_a -> "
+                      f"CASE WHEN kf_a.t IS NOT NULL AND kf_a.d IS NULL THEN CAST(ERROR({_DATE_MALFORMED}) AS DATE) "
+                      "ELSE kf_a.d END))[1]", [value])
 
 
 def spark_text_date(value: str) -> str:

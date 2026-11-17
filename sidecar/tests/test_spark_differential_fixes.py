@@ -154,3 +154,20 @@ def test_ceil_floor_of_a_double(case_sql: str, spark) -> None:
 ])
 def test_ceil_floor_of_a_double_edges(expression: str, want) -> None:
     assert one(expression) == want
+
+
+@pytest.mark.parametrize("text", ["abc", "2024-02-30", "24-02-29"])
+def test_to_date_of_bad_text_stops_in_a_databricks_cell(text: str) -> None:
+    """Databricks SQL runs with ANSI on, so to_date of text that isn't a date stops with CAST_INVALID_INPUT, as
+    Databricks does; Spark SQL with ANSI off gives NULL (above)."""
+    from fabric_desktop.engines.contract import CellRequest, SessionConfig
+    from fabric_desktop.engines.local_sql import DuckDBSession
+    session = DuckDBSession(SessionConfig("nb"))
+    try:
+        bad = session.execute(CellRequest(code=f"SELECT to_date('{text}') AS d", language="sql", dialect="databricks"))
+        assert bad.status != "ok" and "[CAST_INVALID_INPUT]" in bad.outputs[0]["evalue"]
+        good = session.execute(CellRequest(code="SELECT to_date('2024-02-29') AS d, to_date(CAST(NULL AS STRING)) AS n",
+                                           language="sql", dialect="databricks", result_rows=10))
+        assert good.status == "ok" and good.table.to_pylist() == [{"d": dt.date(2024, 2, 29), "n": None}]
+    finally:
+        session.close()

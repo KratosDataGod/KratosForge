@@ -460,9 +460,12 @@ lakehouse = "Sales"          # created as a schema-enabled lakehouse if missing
 schema = "dbo"
 table = "sales_by_region"
 mode = "overwrite"           # or "append"
+v_order = false              # true: V-Order the table in Fabric after each run (Preview)
 ```
 
 Relative paths in a job resolve from the job file's folder.
+
+**V-Order (Preview).** Only Fabric writes V-Order, which Direct Lake and the SQL analytics endpoint read fastest, so a table written from this PC has none. With `v_order = true`, once the write has committed, the run queues Fabric's table maintenance job for the table. That job runs OPTIMIZE with V-Order and no VACUUM, so it removes no version a reader may still need. It runs on the workspace's capacity, which costs capacity. The run's history has the job's id as `v_order_job`. If the job can't be queued (for example, the capacity is paused), the run still succeeds, because the rows are written, and `v_order_error` says why. Metadata projects have the same step for every table an environment's run writes: **Optimize every table a run writes, right after the run** on the project's Health page. That step also runs VACUUM. This hasn't been run against a live tenant yet.
 
 ## Limits in this version
 

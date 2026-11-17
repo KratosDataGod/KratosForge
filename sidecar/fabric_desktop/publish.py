@@ -41,6 +41,9 @@ class RunRecord:
     delta_version: int
     seconds: float
     finished_at: str
+    # With the target's v_order: the Fabric table maintenance job queued after the write, or why it wasn't.
+    v_order_job: str | None = None
+    v_order_error: str | None = None
 
 
 def stage_locally(data: pa.Table, root: Path, *parts: str) -> DeltaTable:
@@ -266,6 +269,20 @@ def _local_leases(ref: TableRef) -> Path:
     return Path(ref.uri).parent / "_leases"
 
 
+def _queue_v_order(fabric: FabricClient, ref: TableRef) -> tuple[str | None, str | None]:
+    """Queue Fabric's table maintenance job with V-Order for a table just written: OPTIMIZE alone, with no
+    VACUUM, so no version a reader may still need is removed. The write has committed, so a failure here
+    is reported with the run, never raised: raising would call a written table failed, and a rerun would
+    write it again."""
+    try:
+        job_id = fabric.run_table_maintenance(ref.workspace_id, ref.lakehouse_id, ref.table, ref.schema,
+                                              v_order=True, vacuum_retention=None)
+    except Exception as exc:  # noqa: BLE001 - said with the run; the rows are already in the table
+        _log.warning("Wrote %s.%s, but V-Order wasn't queued: %s", ref.schema, ref.table, describe(exc))
+        return None, f"The table was written, but V-Order wasn't queued: {describe(exc)}"
+    return str(job_id), None
+
+
 def run_job(job: Job, fabric: FabricClient, storage_token: Callable[[], str],
             work_dir: Path, history_file: Path | None = None,
             guard: Callable[[str, str, str, str], str | None] | None = None) -> RunRecord:
@@ -283,6 +300,7 @@ def run_job(job: Job, fabric: FabricClient, storage_token: Callable[[], str],
     except WriteTokenExpired as exc:  # nothing was committed: once more, with a fresh token
         _log.warning("Writing %s again with a fresh token: %s", job.name, describe(exc))
         table = publish(data, ref, job.target.mode, storage_token)
+    v_order_job, v_order_error = (_queue_v_order(fabric, ref) if job.target.v_order else (None, None))
     record = RunRecord(
         job=job.name,
         table_uri=ref.uri,
@@ -291,6 +309,8 @@ def run_job(job: Job, fabric: FabricClient, storage_token: Callable[[], str],
         delta_version=table.version(),
         seconds=round(time.monotonic() - started, 2),
         finished_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        v_order_job=v_order_job,
+        v_order_error=v_order_error,
     )
     if history_file:
         runlog.append(history_file, asdict(record))

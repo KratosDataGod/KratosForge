@@ -240,7 +240,7 @@ REFUSED = [
     ("date_format(DATE'2024-02-29', '[yyyy]')", "'['", "optional sections"),
     ("date_format(DATE'2024-02-29', 'ddd')", "'ddd'", "too many"),
     # Spark stops on five of a text letter and on seven or more y: "Too many pattern letters".
-    *[(f"date_format(DATE'2024-02-29', '{r}')", f"'{r}'", f"too many pattern letters: {r[0]}")
+    *[(f"date_format(DATE'2024-02-29', '{r}')", f"'{r}'", f"(\"Too many pattern letters: {r[0]}\")")
       for r in ("GGGGG", "MMMMM", "LLLLL", "EEEEE", "QQQQQ", "qqqqq", "yyyyyyy", "yyyyyyyyyy")],
     ("to_timestamp('2024', 'yyyyyyy')", "'yyyyyyy'", "Spark stops on it too"),
     ("date_format(DATE'2024-02-29', 'b')", "'b'", "isn't a pattern letter"),

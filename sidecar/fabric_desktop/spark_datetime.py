@@ -91,7 +91,7 @@ def _check(run: str) -> None:
     if c not in _MOST and c not in "yV":
         raise ValueError(_REFUSED.format(run=run, why=f"'{c}' isn't a pattern letter."))
     if n > _SPARK_MOST.get(c, 99):
-        raise ValueError(_REFUSED.format(run=run, why=f"Spark stops on it too (too many pattern letters: {c})."))
+        raise ValueError(_REFUSED.format(run=run, why=f"Spark stops on it too (\"Too many pattern letters: {c}\")."))
     if n > _MOST.get(c, 99):
         raise ValueError(_REFUSED.format(run=run, why=f"too many pattern letters: {c}."))
 

@@ -142,7 +142,7 @@ def test_select_into_and_ctas_make_tables_with_the_selects_types(engine):
                                                        "takes only BIGINT IDENTITY, with no seed or increment")),
     ("CREATE TABLE dbo.i (id INT IDENTITY(1, 1), v INT)", r"IDENTITY isn't mapped yet \(column id\)"),
     ("DBCC CHECKIDENT ('dbo.i', RESEED)", "DBCC isn't mapped yet"),
-    ("SET IDENTITY_INSERT dbo.i ON", "doesn't run T-SQL SET yet"),
+    ("SET IDENTITY_INSERT dbo.i ON", "SET IDENTITY_INSERT isn't mapped yet"),
     ("SELECT 1;\n  dbcc SHOW_STATISTICS ('dbo.t', s)", "DBCC isn't mapped yet"),
     ("ALTER TABLE dbo.t ADD w VARCHAR(2)", r"ALTER TABLE \.\.\. ADD of a column with a length \(w\) isn't mapped yet"),
     ("ALTER TABLE dbo.t ADD x INT, w VARBINARY(4)", r"ADD of a column with a length \(w\)"),

@@ -153,6 +153,62 @@ Not yet checked against a warehouse, since T-SQL's reference doesn't say:
 - `LIKE` with a wildcard where the text has trailing spaces. Here the text matches either as written or without its trailing spaces. So `'abc  ' LIKE 'abc_'` is false, and `'abc  ' LIKE 'abc__'` is true.
 - `CHARINDEX` with a `NULL` start. Here the answer is `NULL`.
 
+## Regular expressions and text on this PC (LOC-002)
+
+Spark reads a regular expression the Java way (`java.util.regex`), and DuckDB reads it with RE2. On this PC a pattern written in the query, or given as a Python string to the DataFrame API's `F.regexp_replace`, `F.regexp_extract`, `F.split` and `Column.rlike`, is translated for RE2 before it runs, in `rlike`, `regexp`, `regexp_like`, `regexp_extract`, `regexp_extract_all`, `regexp_replace`, `split`, `regexp_count`, `regexp_instr` and `regexp_substr`, in Spark SQL and Databricks SQL. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_strings.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
+
+| What | On this PC, as in Spark |
+| --- | --- |
+| Named groups `(?<name>...)` and `${name}` in a replacement | Read as Java reads them |
+| POSIX classes `\p{Alpha}`, `\p{Digit}`, `\p{Punct}` and the others, and `\P{...}` | ASCII only, as in Java |
+| `\s`, `\h`, `\v`, `\R`, `\uXXXX`, `\0nn`, `\e`, `\cX`, `\Q...\E` | Java's characters. `\s` takes the vertical tab, as Java's does |
+| `regexp_replace`'s replacement | Java's: `$1` and `${name}` are groups, and `\` takes the next character as it is (`\$` is a dollar sign). A `$` that refers to no group stops, as in Spark |
+| `regexp_replace` with a position | The first position is 1. Position 0 or less stops, as in Spark |
+| `regexp_extract`, `regexp_extract_all` | Group 1 unless you give one. A group index the pattern doesn't have, or below 0, stops by name. A NULL index gives NULL |
+| `regexp_count` | An `int`. An empty pattern counts each position, as Java does: `regexp_count('abc', '')` is 4 |
+| `regexp_instr` | An `int` |
+| `split` | Every match splits, and empty parts at the end are kept: `split('a,b,,', ',')` has 4 parts |
+| Any of these with a NULL | NULL |
+
+These are refused by name, and nothing runs, because RE2 has no reading for them:
+
+- Lookaheads and lookbehinds (`(?=`, `(?!`, `(?<=`, `(?<!`), atomic groups (`(?>`), backreferences (`\1`, `\k<name>`) and possessive quantifiers (`*+`, `++`, `?+`).
+- `\Z`. Use `\z` for the very end.
+- The flags `x`, `d` and `U` (`(?x)`). RE2's `U` means something else.
+- A class inside a class, such as `[a[b]]` or `[[:alpha:]]`, and class intersections (`&&`). Write the characters in one class, or use `\p{Alpha}`.
+- A group past 9 in `regexp_extract` or a replacement.
+- `\p{In...}` blocks, `\p{java...}` classes and binary properties such as `\p{IsAlphabetic}`. Use a category such as `\p{L}` or a script such as `\p{IsLatin}`.
+
+String functions that give Spark's answer on this PC, where DuckDB's own differs:
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `length`, `char_length`, `octet_length`, `bit_length`, `instr`, `locate`, `position`, `levenshtein` | An `int` |
+| `split_part` | An empty delimiter doesn't split the text: part 1 or -1 is the whole text. Index 0 stops, as in Spark |
+| `left`, `right` | A length of 0 or less gives `''` |
+| `lpad`, `rpad` with an empty pad | The text, cut to the length |
+| `locate(substr, str, pos)` | 0 for a position before 1, or a NULL position |
+| `chr`, `char` | `''` below 0, and the character for n % 256 from 256 on: `chr(321)` is `A` |
+| `LIKE`, `ILIKE` | `\` escapes the next `_` or `%`, as Spark's default escape does |
+| `concat` with a NULL | NULL, as a `string` |
+| `concat_ws` with an array, such as `array(...)`, `split(...)` or `collect_list(...)` | The array's elements joined, NULLs left out |
+
+These cases can still differ. LOC-002 warns wherever a pattern is used:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| A pattern taken from the data, not written in the query | Java's syntax | RE2's: not translated, and a lookaround stops with DuckDB's message |
+| `$` without the `m` flag, on text that ends in a line break | Matches just before the final line break | Matches only at the very end |
+| `.` and `\r`, `\u0085`, `\u2028`, `\u2029` | Doesn't match them | Matches them. Both leave out `\n` |
+| `(?i)` with letters outside ASCII | Without `(?u)`, only ASCII letters ignore case | Every letter ignores case |
+| `\b` next to a letter outside ASCII | Java counts it as a word character | RE2 doesn't |
+| `split` with a pattern that can match no text, such as `x*` | The array ends with an empty part | No empty part at the end |
+| `regexp_replace` with a replacement taken from the data that has a `$` or `\` | Read as groups and escapes | Refused by name |
+| `concat_ws` with an array column (not an array expression in SQL), or any array in the DataFrame API's `F.concat_ws` | The elements joined | The array written as text, such as `[a, b]` |
+| A pattern in the DataFrame API given as a column, such as `F.regexp_like(c, F.lit('...'))` | Java's syntax | RE2's: only a pattern given as a Python string is translated |
+| The DataFrame API's `F.split_part` with an empty delimiter, and `F.concat` with a NULL | As in the table above | `''`, and an `int` NULL. The DataFrame API's other string functions weren't compared. Use the SQL form, `F.expr(...)`, for Spark's |
+| `upper('ß')` | `SS` | `ẞ` |
+
 ## Rules
 
 Rule set **2026.10.3**, from Microsoft Learn and the Apache Spark 3.5 reference as they read on 2026-10-17. Each Microsoft page's "last updated" date is kept in `sidecar/fabric_desktop/sqlcompat/profiles.py`. DDL-007 (ALTER TABLE) is an error except ALTER COLUMN, which is a warning because it is in preview. 2026.10.3 stops reading T-SQL's `GRANT`, `DENY` or `REVOKE ... ON SCHEMA::name` (and the other securable classes after `ON`) as a Spark `::` cast, and `UPDATE STATISTICS` (with no `SET`) as an UPDATE without WHERE.

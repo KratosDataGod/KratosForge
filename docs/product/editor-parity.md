@@ -4,7 +4,7 @@ Chris asked on 2026-11-13 for the notebook and SQL editor to have the same funct
 notebooks and SQL editors: a feature parity matrix against the top ten, a roadmap, and an execution
 plan ordered by capability and usefulness, reaching 95% as soon as possible and the last 5% soon after.
 
-This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and rows move as their PRs merge (last update at main `4c4d2d931`).
+This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and rows move as their PRs merge (last update 2026-11-17: SQL rows at main `4c4d2d9`, notebook rows after #2803).
 
 ## How to read it
 
@@ -33,14 +33,16 @@ This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and r
 | Group | Counted rows | Have | Partial | Gap | Score |
 | --- | --- | --- | --- | --- | --- |
 | Notebook | 54 | 52 | 0 | 2 | 96% |
-| SQL editor | 45 | 29 | 4 | 12 | 69% |
-| **Both** | **99** | **81** | **4** | **14** | **84%** |
+| SQL editor | 45 | 40 | 3 | 2 | 92% |
+| **Both** | **99** | **92** | **3** | **4** | **94%** |
 
 The notebook is at 96%: its two gaps are rich-text Markdown editing (N23) and presentation mode
 (N49), the wave 2 items, which wait on a mockup. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
-signature help, Format SQL and a compatibility check that none of the others have), but its **results grid** is a plain table
-(no sort, filter, column resize or value viewer) and it runs **one statement at a time**. Those two
-areas are most of the gap and most of what developers notice in the first hour.
+signature help, Format SQL and a compatibility check that none of the others have), and its results
+grid now sorts, filters, resizes, opens and copies over every row, with several statements and
+result sets per run. Its open rows are go to definition (S08: no peek or scripted definition yet),
+data compare (S34), open transactions across runs (S18), and two rows that need Chris's decision:
+editing rows in the grid (S35) and other engines (S42).
 
 ## Notebook matrix
 
@@ -128,31 +130,31 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S11 | Signature help for functions | P | Y | Y | P | P | Have | signature help for functions (#2598) |
 | S12 | Run all or the selection; F5 and Ctrl+Enter | Y | Y | Y | Y | Y | Have | #2406 |
 | S13 | Run the statement under the cursor | N | P | Y | Y | Y | Have | Ctrl+Shift+Enter runs the statement at the cursor (#2582) |
-| S14 | Scripts with several statements and several result sets | Y | Y | Y | Y | Y | Gap | one statement at a time ([Warehouses](../warehouse.md)) |
+| S14 | Scripts with several statements and several result sets | Y | Y | Y | Y | Y | Have | split at `;` and `GO`, a result tab for each, stop on the first error, Preview (#2799) |
 | S15 | Stop a running query | Y | Y | Y | Y | Y | Have | `sql_cancel` |
 | S16 | Time, rows and a Messages view | Y | Y | Y | Y | Y | Have | `query.js:604` |
-| S17 | Query variables and parameters | Y | P | Y | Y | Y | Gap | |
+| S17 | Query variables and parameters | Y | P | Y | Y | Y | Have | `:name` and `{{name}}`, bound as typed values and never part of the SQL text, Preview (#2799, #2832) |
 | S18 | Transactions and auto-commit control | Y | Y | Y | Y | P | Partial | warehouse changes go through Allow changes and a confirm; a script wrapped in `BEGIN TRAN` ... `COMMIT` runs as one guarded transaction (WR-204); no open transaction across runs |
-| S19 | Sort the result grid by a column | P | Y | Y | Y | Y | Gap | plain table (`drawResults` in `query.js`) |
-| S20 | Filter or search the result grid | N | Y | Y | Y | Y | Gap | |
-| S21 | Resize and reorder result columns | Y | Y | Y | Y | Y | Gap | |
-| S22 | Open a long text or JSON value in a viewer | P | Y | Y | Y | Y | Gap | |
-| S23 | Copy selected cells, with or without headers, as CSV, JSON or INSERT | Y | Y | Y | Y | Y | Partial | Copy ▾ gives the page's rows as TSV with headers, CSV, JSON or INSERT (#2616); no cell selection yet (comes with the result grid, item 8) |
+| S19 | Sort the result grid by a column | P | Y | Y | Y | Y | Have | sorts every row of the run's result on this PC (#2792); the notebook table too |
+| S20 | Filter or search the result grid | N | Y | Y | Y | Y | Have | a filter box under each header over every row (#2792); the notebook table too (#2818) |
+| S21 | Resize and reorder result columns | Y | Y | Y | Y | Y | Have | drag or key to resize, Columns... to hide and reorder (#2798); the notebook table too (#2822) |
+| S22 | Open a long text or JSON value in a viewer | P | Y | Y | Y | Y | Have | Open value (Enter) in a side panel, JSON laid out (#2796, #2822) |
+| S23 | Copy selected cells, with or without headers, as CSV, JSON or INSERT | Y | Y | Y | Y | Y | Have | select a block with mouse or keys; Ctrl+C, and right-click to copy with headers, as CSV, JSON or INSERT (#2796, #2822) |
 | S24 | Export as CSV, Excel and JSON | Y | Y | Y | Y | Y | Have | CSV, Parquet, Excel and JSON (#2587) |
 | S25 | Chart a result | N | Y | N | P | Y | Have | `sqlchart.js` |
-| S26 | Column statistics on a result | N | N | P | N | Y | Gap | the notebook's profile (`frame_profile`) isn't on the SQL page |
-| S27 | Result history, pin a result | N | N | Y | Y | P | Gap | |
+| S26 | Column statistics on a result | N | N | P | N | Y | Have | Column statistics over every row (`sql_column_stats`, #2796); in a notebook it opens Inspect (#2822) |
+| S27 | Result history, pin a result | N | N | Y | Y | P | Have | History lists a tab's last 20 runs; Pin keeps a result, Preview (#2799) |
 | S28 | Results pane: resize, maximize, hide (Ctrl+R) | Y | Y | Y | Y | Y | Have | maximize, hide with Ctrl+R, and resize (#2583) |
 | S29 | Object explorer: schemas, tables, views, procedures, functions, columns | Y | Y | Y | Y | Y | Have | warehouse Explorer; lakehouse lists tables and columns |
 | S30 | Script as SELECT, CREATE, ALTER, DROP | Y | Y | Y | Y | P | Have | warehouse ([Warehouses](../warehouse.md)) |
 | S31 | Table detail, data preview, profile | P | P | Y | Y | Y | Have | Preview, `whdetail.js` |
-| S32 | Diagram of tables and their relationships | Y | N | Y | Y | N | Gap | |
+| S32 | Diagram of tables and their relationships | Y | N | Y | Y | N | Have | Explorer › Diagram, from warehouse keys and names, read only, Preview (#2795) |
 | S33 | Schema compare and deploy | Y | Y | Y | Y | N | Have | `whproject.js` |
 | S34 | Data compare between two tables | Y | N | Y | Y | N | Gap | |
 | S35 | Edit rows in the result grid | Y | N | Y | Y | N | Gap | writes to lakehouse tables are guarded; needs a decision |
 | S36 | Query history with search | P | Y | Y | Y | Y | Have | `sqlhistory.js:82` |
 | S37 | Saved and shared queries | Y | Y | Y | Y | Y | Have | `sqlqueries.js` |
-| S38 | Open and save .sql files on disk | Y | Y | Y | Y | P | Gap | queries are kept in the app only |
+| S38 | Open and save .sql files on disk | Y | Y | Y | Y | P | Have | open and save `.sql` files on this PC, Preview (#2799) |
 | S39 | Estimated plan, drawn | Y | Y | Y | Y | P | Have | warehouse (`sqlplan.js`); lakehouse queries on this PC through DuckDB EXPLAIN, Preview (#2604) |
 | S40 | Actual plan or profile after a run | Y | Y | Y | Y | Y | Have | Profile runs a lakehouse query under EXPLAIN ANALYZE and shows the Query profile, Preview (#2604) |
 | S41 | Running queries; stop someone's | Y | N | P | Y | Y | Have | Preview, `whmonitor.js` |

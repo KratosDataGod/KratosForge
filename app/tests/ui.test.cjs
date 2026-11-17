@@ -5923,7 +5923,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
       "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests",
       "Promises to readers"],
     trustBadges: ["Endorsement"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
-    lineage: ["Column lineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
+    lineage: ["Column lineage", "Impact of a column change"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
     updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
     learn: ["Learn", "Writing a Learn lesson", "Decision patterns"], academy: ["Academy"],

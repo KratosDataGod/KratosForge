@@ -91,6 +91,23 @@ def test_python_is_flagged_when_it_names_the_column_and_when_it_only_reads_the_t
     assert "couldn't be read from transforms/" in why(res, "transforms.plain:run")
 
 
+def test_python_outside_transforms_is_never_read(tmp_path):
+    root = tmp_path / "proj"
+    (root / "transforms").mkdir(parents=True)
+    (tmp_path / "secret.py").write_text("segment = 1\n", encoding="utf-8")
+    (root / "transforms" / "ok.py").write_text("x = 1\n", encoding="utf-8")
+    assert change_impact._module_file(root, "transforms.ok:run") == (root / "transforms" / "ok.py").resolve()
+    for ref in ("transforms./../../secret:run", "transforms...secret:run", "transforms.a/../../../secret:run",
+                "other.secret:run", "transforms:run"):
+        assert change_impact._module_file(root, ref) is None, ref
+    link = root / "transforms" / "out.py"
+    try:
+        link.symlink_to(tmp_path / "secret.py")
+    except OSError:
+        return  # no symlinks here (Windows without the right)
+    assert change_impact._module_file(root, "transforms.out:run") is None
+
+
 def test_bad_requests_are_refused(svc):
     with pytest.raises(LookupError):
         svc.meta_impact("silver.nope", "x", "drop")

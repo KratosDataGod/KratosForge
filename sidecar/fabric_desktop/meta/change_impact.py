@@ -42,9 +42,13 @@ _DIRECT = {
 def _module_file(root: Path, ref: str) -> Path | None:
     """``transforms.pkg.mod:fn`` -> <project>/transforms/pkg/mod.py, if it's there."""
     module = ref.split(":", 1)[0]
-    if not module.startswith("transforms."):
+    parts = module.split(".")
+    if parts[0] != "transforms" or not all(p.isidentifier() for p in parts):
         return None
-    p = root.joinpath(*module.split(".")).with_suffix(".py")
+    base = (root / "transforms").resolve()
+    p = root.joinpath(*parts).with_suffix(".py").resolve()
+    if not p.is_relative_to(base):  # a symlink can still point out; never read outside transforms/
+        return None
     return p if p.is_file() else None
 
 

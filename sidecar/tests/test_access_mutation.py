@@ -143,7 +143,6 @@ def test_a_role_name_of_letters_and_digits_up_to_128_is_taken(name):
     assert access.make_role(name, ["*"], ["o"], "t")["name"] == name
 
 
-@pytest.mark.xfail(strict=True, reason="a role name ending in a line break passes the name check (#2819)")
 def test_a_role_name_ending_in_a_line_break_is_refused():
     with pytest.raises(ValueError):
         access.make_role("Sales\n", ["*"], ["o"], "t")

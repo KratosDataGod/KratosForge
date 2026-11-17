@@ -150,7 +150,7 @@ _SPARK: dict[str, Any] = {
     "transactions": ["No multi-statement transactions; each Delta write commits on its own."],
     "ddl_dml": "Lakehouse tables are Delta. This PC's SQL page only reads; write with Save as table or a notebook.",
     "semantic_differences": [("Regular expressions are Java's in Fabric; on this PC a pattern in the query is "
-                              "translated for RE2, except the cases LOC-002 lists."),
+                              "translated for RE2, except the cases the regular expression warning lists."),
                              "Date patterns are translated for DuckDB; unusual pattern letters can differ.",
                              "collect_list and similar give rows in no fixed order."],
     "confidence": "Spark SQL rules plus the known differences of running it on this PC. A query that runs here may still behave differently in Fabric Spark.",

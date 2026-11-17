@@ -23,8 +23,8 @@ from sqlglot import exp
 
 from . import spark_sql_names
 
-_REFUSED = ("{fn} can't use {what} in a regular expression on this PC, so nothing ran: Java reads it, and "
-            "RE2, which runs regular expressions here, has no reading for it. {hint}Or run it in Fabric.")
+_REFUSED = ("{fn} can't use {what} in a regular expression on this PC, so nothing ran: Fabric's Java regular "
+            "expressions accept it, but RE2, which runs them here, doesn't. {hint}")
 
 # Java's POSIX classes, ASCII only as in Java (no UNICODE_CHARACTER_CLASS flag), and RE2's names for them
 _POSIX = {"Lower": "lower", "Upper": "upper", "ASCII": "ascii", "Alpha": "alpha", "Digit": "digit",
@@ -35,11 +35,22 @@ _H = r" \t\x{A0}\x{1680}\x{180E}\x{2000}-\x{200A}\x{202F}\x{205F}\x{3000}"
 _V = r"\n\x{0B}\f\r\x{85}\x{2028}\x{2029}"
 _QUANTIFIER = re.compile(r"\{\d+(,\d*)?\}")
 _FLAGS = re.compile(r"([a-zA-Z]*)(?:-([a-zA-Z]*))?([:)])")
+_OCTAL = re.compile(r"[0-3][0-7]{0,2}|[0-7]{1,2}")
 _NAME = re.compile(r"([A-Za-z][A-Za-z0-9]*)>")
 
 
 def _refuse(fn: str, what: str, hint: str = "") -> ValueError:
-    return ValueError(_REFUSED.format(fn=fn, what=what, hint=hint + " " if hint else ""))
+    return ValueError(_REFUSED.format(fn=fn, what=what, hint=hint + " Or run it in Fabric." if hint
+                                      else "Run it in Fabric."))
+
+
+def _groups(n: int) -> str:
+    """'1 group', '2 groups'."""
+    return f"{n} group" if n == 1 else f"{n} groups"
+
+
+def _use_group(n: int) -> str:
+    return "Use 0 for the whole match." if n == 0 else f"Use a group from 0 to {min(n, 9)}."
 
 
 def java_pattern(pattern: str, fn: str) -> tuple[str, int, dict[str, int]]:
@@ -75,11 +86,11 @@ def java_pattern(pattern: str, fn: str) -> tuple[str, int, dict[str, int]]:
             elif d.isdigit() and d != "0":
                 raise _refuse(fn, f"a backreference ('\\{d}')", "RE2 can't match text a group matched earlier.")
             elif d == "0":
-                digits = re.match(r"[0-3][0-7]{0,2}|[0-7]{1,2}", pattern[i:])
+                digits = _OCTAL.match(pattern, i)
                 if not digits:
                     raise _refuse(fn, "'\\0' without an octal number after it")
                 out.append(f"\\x{{{int(digits.group(), 8):X}}}")
-                i += len(digits.group())
+                i = digits.end()
             elif d == "k":
                 raise _refuse(fn, "a backreference ('\\k<name>')", "RE2 can't match text a group matched earlier.")
             elif d == "Z":
@@ -139,23 +150,23 @@ def java_pattern(pattern: str, fn: str) -> tuple[str, int, dict[str, int]]:
         if c == "(":
             quantified = False
             if pattern.startswith("(?", i):
-                rest = pattern[i + 2:]
-                if rest.startswith(("=", "!", "<=", "<!")):
+                at = i + 2   # matched in place, not on a slice, so a long pattern stays linear
+                if pattern.startswith(("=", "!", "<=", "<!"), at):
                     raise _refuse(fn, "a lookahead or lookbehind ('(?=', '(?!', '(?<=', '(?<!')",
                                   "Match the text itself, or test it in a separate condition.")
-                if rest.startswith(">"):
+                if pattern.startswith(">", at):
                     raise _refuse(fn, "an atomic group ('(?>')")
-                if rest.startswith("<"):
-                    named = _NAME.match(rest, 1)
+                if pattern.startswith("<", at):
+                    named = _NAME.match(pattern, at + 1)
                     if not named:
                         raise _refuse(fn, "'(?<' without a group name")
                     groups += 1
                     names[named.group(1)] = groups
                     out.append(f"(?P<{named.group(1)}>")
-                    i += 2 + named.end()
+                    i = named.end()
                     continue
-                flags = _FLAGS.match(rest)
-                if flags and rest[:flags.end()] != ":":
+                flags = _FLAGS.match(pattern, at)
+                if flags and flags.group(0) != ":":
                     on, off, close = flags.group(1), flags.group(2) or "", flags.group(3)
                     bad = sorted(set(on + off) - set("imsu"))
                     if bad:
@@ -166,7 +177,7 @@ def java_pattern(pattern: str, fn: str) -> tuple[str, int, dict[str, int]]:
                         out.append(f"(?{on}{'-' + off if off else ''}{close}")
                     elif close == ":":
                         out.append("(?:")
-                    i += 2 + flags.end()
+                    i = flags.end()
                     continue
             else:
                 groups += 1
@@ -181,7 +192,7 @@ def java_pattern(pattern: str, fn: str) -> tuple[str, int, dict[str, int]]:
                 quantified = True
                 continue
         if c == "+" and quantified:
-            raise _refuse(fn, "a possessive quantifier ('*+', '++', '?+')", "Drop the second +.")
+            raise _refuse(fn, "a possessive quantifier ('*+', '++', '?+')", "Drop the second + if the match doesn't depend on it.")
         if c == "?" and quantified:
             out.append(c)   # lazy, which RE2 reads too
             i += 1
@@ -218,7 +229,7 @@ def java_replacement(text: str, fn: str, groups: int, names: dict[str, int]) -> 
         if c == "\\":
             if i + 1 >= n:
                 raise ValueError(f"{fn}'s replacement ends in a \\, so nothing ran: Spark stops on it too, as Java "
-                                 "does (character to be escaped is missing). Write \\\\ for a backslash.")
+                                 "does (\"character to be escaped is missing\"). Write \\\\ for a backslash.")
             out.append("\\\\" if text[i + 1] == "\\" else text[i + 1])
             i += 2
             continue
@@ -236,14 +247,16 @@ def java_replacement(text: str, fn: str, groups: int, names: dict[str, int]) -> 
         elif i + 1 < n and text[i + 1].isdigit():
             group = int(text[i + 1])
             if group > groups:
-                raise ValueError(f"{fn}'s replacement refers to group {group}, and the pattern has {groups}, so "
-                                 "nothing ran: Spark stops on it too (No group). Write \\$ for a dollar sign.")
+                ask = (f"Use a group from 0 to {groups}, or write \\$ for a dollar sign." if groups
+                       else "Use 0 for the whole match, or write \\$ for a dollar sign.")
+                raise ValueError(f"{fn}'s replacement refers to group {group}, and the pattern has {_groups(groups)}, "
+                                 f"so nothing ran: Spark stops on it too (\"No group {group}\"). {ask}")
             i += 2
             while i < n and text[i].isdigit() and group * 10 + int(text[i]) <= groups:
                 group, i = group * 10 + int(text[i]), i + 1
         else:
             raise ValueError(f"{fn}'s replacement has a $ that refers to no group, so nothing ran: Spark stops on "
-                             "it too (Illegal group reference). Write \\$ for a dollar sign.")
+                             "it too (\"Illegal group reference\"). Write \\$ for a dollar sign.")
         if group > 9:
             raise ValueError(f"{fn}'s replacement refers to group {group}. On this PC a replacement can use groups "
                              "0 to 9, so nothing ran. Run it in Fabric.")
@@ -313,8 +326,8 @@ def _regex(node: exp.Expression, fn: str) -> exp.Expression | None:
             raise ValueError(f"{fn}'s group index is {index}, so nothing ran: Spark stops on it too. Use 0 for the "
                              "whole match, or a group's number.")
         if index is not None and groups is not None and index > groups:
-            raise ValueError(f"{fn} asks for group {index}, and the pattern has {groups}, so nothing ran: Spark "
-                             f"stops on it too where a row matches. Give a group index from 0 to {groups}.")
+            raise ValueError(f"{fn} asks for group {index}, and the pattern has {_groups(groups)}, so nothing ran: "
+                             f"Spark stops on it too where a row matches. {_use_group(groups)}")
         if index is not None and index > 9:
             raise ValueError(f"{fn} asks for group {index}. On this PC a group index can be 0 to 9, so nothing ran. "
                              "Run it in Fabric.")
@@ -329,9 +342,9 @@ def _regex(node: exp.Expression, fn: str) -> exp.Expression | None:
         if written is not None and groups is not None and replacement is not None:
             replacement.replace(exp.Literal.string(java_replacement(written, fn, groups, names)))
         elif replacement is not None and not isinstance(replacement, exp.Null):
-            message = (f"{fn}'s replacement here has a $ or a \\, which Java reads as a group or an escape, and "
-                       "on this PC only a replacement written in the query is read that way, so nothing ran. "
-                       "Write the replacement in the query, or run it in Fabric.").replace("'", "''")
+            message = (f"{fn}'s replacement comes from the data and has a $ or a \\. Java reads those as a group or "
+                       "an escape, but on this PC only a replacement written in the query is read that way, so "
+                       "nothing ran. Write the replacement in the query, or run it in Fabric.").replace("'", "''")
             replacement.replace(_with(f"CASE WHEN STRPOS(fj_arg0, '$') > 0 OR STRPOS(fj_arg0, '\\') > 0 "
                                       f"THEN CAST(ERROR('{message}') AS VARCHAR) ELSE fj_arg0 END", [replacement]))
     if isinstance(node, exp.RegexpCount):
@@ -479,9 +492,8 @@ def java_regex_function(fn_name: str, fn: Callable[..., Any], at: int, replaceme
             if group_at is not None and len(args) > group_at and isinstance(args[group_at], int):
                 index = args[group_at]
                 if index < 0 or index > groups or index > 9:
-                    raise ValueError(f"{fn_name} asks for group {index}, and the pattern has {groups}, so nothing "
-                                     f"ran: Spark stops on it too where a row matches. Give a group index from 0 to "
-                                     f"{min(groups, 9)}.")
+                    raise ValueError(f"{fn_name} asks for group {index}, and the pattern has {_groups(groups)}, so "
+                                     f"nothing ran: Spark stops on it too where a row matches. {_use_group(groups)}")
             args = tuple(new)
         return fn(*args, **kwargs)
     return call

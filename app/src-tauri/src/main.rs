@@ -1791,6 +1791,16 @@ struct ExeHandover<'a> {
     marker: PathBuf,
     commit: &'a str,
     child: Option<Child>,
+    /// The download's SHA-256 when its checksum and signer were checked: swap re-checks it once it
+    /// holds the file, so a change while the swap waited on a scanner is never installed.
+    checked_sha256: String,
+}
+
+fn sha256_of(r: &mut dyn std::io::Read) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    std::io::copy(r, &mut hasher)?;
+    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 impl update_guard::Handover for ExeHandover<'_> {
@@ -1800,7 +1810,14 @@ impl update_guard::Handover for ExeHandover<'_> {
     }
 
     fn swap(&mut self) -> Result<(), String> {
-        update_guard::swap_in(&self.exe, &self.new, &self.old)
+        let checked = &self.checked_sha256;
+        update_guard::swap_in_checked(&self.exe, &self.new, &self.old, |r| {
+            match sha256_of(r) {
+                Ok(now) if &now == checked => Ok(()),
+                Ok(_) => Err("The new build changed after it was checked, so it wasn't installed. Try the update again.".into()),
+                Err(e) => Err(format!("Could not read the new build to check it again: {e}")),
+            }
+        })
     }
 
     fn spawn(&mut self) -> Result<(), String> {
@@ -1896,8 +1913,15 @@ async fn update_app(app: tauri::AppHandle, webview: tauri::Webview, state: tauri
         let _ = std::fs::remove_file(&new);
         return Err(why);
     }
+    let checked_sha256 = match std::fs::File::open(&new).and_then(|mut f| sha256_of(&mut f)) {
+        Ok(sha) => sha,
+        Err(e) => {
+            let _ = std::fs::remove_file(&new);
+            return Err(format!("Could not read the new build to check it: {e}"));
+        }
+    };
     update_guard::hand_over(&mut ExeHandover {
-        app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &target, child: None,
+        app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &target, child: None, checked_sha256,
     })
 }
 

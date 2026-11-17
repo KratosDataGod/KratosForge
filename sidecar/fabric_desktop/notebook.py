@@ -856,8 +856,8 @@ class Kernel:
             self._widget_lock.release()
 
     def frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
-                   desc: bool = False, q: str = "") -> dict[str, Any]:
-        return self.frames.page(frame, offset, limit, sort, desc, q)
+                   desc: bool = False, q: str = "", filters: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        return self.frames.page(frame, offset, limit, sort, desc, q, filters)
 
     def frame_chart(self, frame: str, **spec: Any) -> dict[str, Any]:
         return self.frames.chart(frame, **spec)

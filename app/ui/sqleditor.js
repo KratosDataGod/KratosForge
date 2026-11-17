@@ -189,6 +189,7 @@ function sqlMask(text, pos = -1, { backslash = false } = {}) {
 // finding `;` and GO lines: names stay in sqlMask's text, where hover and suggestions read them.
 function sqlSplitMask(text, dialect = null) {
   const d = dialect ? sqlDialect(dialect) : null;
+  const tsql = ["warehouse", "endpoint", "sqldb"].includes(d);
   const out = text.split("");
   const blank = (from, to) => { for (let k = from; k < to; k++) if (out[k] !== "\n") out[k] = " "; };
   // A quoted run from i: where it ends (after its closing quote, or at the end), with `q` doubled inside as itself.
@@ -208,7 +209,7 @@ function sqlSplitMask(text, dialect = null) {
     if (c === "'") end = quoted(i, "'", d === "spark");
     else if (c === '"') end = quoted(i, '"', d === "spark");
     else if (c === "`") end = quoted(i, "`", false);
-    else if (c === "[") end = quoted(i, "]", false);
+    else if (c === "[" && tsql) end = quoted(i, "]", false);  // in Spark SQL and DuckDB, [ is a list or an index
     else if (d === "duckdb" && text.startsWith("$$", i)) { const e = text.indexOf("$$", i + 2); end = e === -1 ? text.length : e + 2; }
     else if (text.startsWith("--", i)) { end = text.indexOf("\n", i); if (end === -1) end = text.length; }
     else if (text.startsWith("/*", i)) {
@@ -241,7 +242,7 @@ function sqlStatementAt(text, pos, dialect = null) {
 // variable, has a BEGIN ... END block, or defines a procedure, function, trigger or view stays whole, since its
 // statements only mean something together. Each is { from, to, text, line } with line 1-based, from `base`.
 function sqlSplitStatements(text, { tsql = false, base = 0, firstLine = 1, dialect = null } = {}) {
-  const masked = sqlSplitMask(text, dialect);
+  const masked = sqlSplitMask(text, dialect || (tsql ? "warehouse" : null));
   const out = [];
   const lineAt = (pos) => firstLine + (text.slice(0, pos).match(/\n/g)?.length || 0);
   const push = (from, to) => {

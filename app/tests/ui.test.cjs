@@ -671,6 +671,14 @@ test("fuzz: the statement splitter never splits inside a string, a quoted name o
       }
     }
   }
+  // [ quotes a name only in T-SQL: in Spark SQL and DuckDB it is a list or an index, and a string in it is a string.
+  const texts = (t, o) => plain(sqlSplitStatements(t, o).map((u) => u.text));
+  for (const dialect of ["spark", "duckdb"]) {
+    assert.deepStrictEqual(texts("SELECT ['a]b']; SELECT 1", { dialect }), ["SELECT ['a]b'];", "SELECT 1"], dialect);
+    assert.deepStrictEqual(texts("SELECT arr[1]; SELECT [1, 2]; SELECT 3", { dialect }), ["SELECT arr[1];", "SELECT [1, 2];", "SELECT 3"], dialect);
+  }
+  assert.deepStrictEqual(texts("SELECT [a]b;c]; SELECT 1", { tsql: true }), ["SELECT [a]b;", "c];", "SELECT 1"], "a single ] ends the name");
+  assert.deepStrictEqual(texts("SELECT [a;b]; SELECT 1", { tsql: true }), ["SELECT [a;b];", "SELECT 1"], "T-SQL without a dialect named");
   // A T-SQL batch with a block keeps its quoted ; inside, and GO still ends it.
   const block = "IF 1 = 1 BEGIN SELECT 'a;b'; SELECT [c;d]; END\nGO\nSELECT 2";
   assert.deepStrictEqual(plain(sqlSplitStatements(block, { tsql: true, dialect: "warehouse" }).map((u) => u.text)),

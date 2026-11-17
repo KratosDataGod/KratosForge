@@ -545,7 +545,7 @@ def test_a_text_column_compares_without_trailing_spaces(engine):
 
 def test_an_equality_on_a_text_column_keeps_a_range_for_skipping_row_groups():
     texts, _ = translate("SELECT id FROM dbo.orders WHERE name = 'Ann '", {"dbo": {"orders": {"id": "INTEGER", "name": "VARCHAR"}}})
-    assert texts == ["SELECT id FROM dbo.orders WHERE (name >= 'Ann' AND name <= 'Ann \U0010ffff' AND RTRIM(name) = 'Ann')"]
+    assert texts == ["SELECT id FROM dbo.orders WHERE (name >= 'Ann' AND name <= 'Ann \U0010ffff' AND RTRIM(name, ' ') = 'Ann')"]
 
 
 def test_numbers_compare_as_before_and_unknown_text_comparisons_are_noted():

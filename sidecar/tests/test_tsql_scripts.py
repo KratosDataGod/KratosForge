@@ -12,7 +12,7 @@ import pytest
 from fabric_desktop.localdata import LocalData
 from fabric_desktop.localdata.tsql import translate
 
-LATER = "The local engine doesn't run T-SQL {} yet"
+LATER = "The local engine doesn't run T-SQL {}"
 
 
 @pytest.fixture()
@@ -43,9 +43,9 @@ def run(engine, sql):
     ("done:\nSELECT 1", r"labels \(done:\)"),
     ("THROW 50000, 'Stop', 1", "THROW"),
     ("SELECT 1;\nTHROW 50000, 'Stop', 1", "THROW"),
-    ("WAITFOR DELAY '00:00:01'", "WAITFOR"),
+    ("WAITFOR DELAY '00:00:01'", r"WAITFOR yet\. Run it in a Fabric Warehouse\.$"),
     ("CHECKPOINT", "CHECKPOINT"),
-    ("OPEN c", r"cursors \(OPEN\)"),
+    ("OPEN c", r"cursors \(OPEN\) yet\. Run it in a Fabric Warehouse\.$"),
     ("CLOSE c", r"cursors \(CLOSE\)"),
     ("DEALLOCATE c", r"cursors \(DEALLOCATE\)"),
     ("SAVE TRANSACTION s", r"transactions \(SAVE TRANSACTION\)"),
@@ -130,7 +130,7 @@ def test_update_from_another_table_is_typed():
     columns = {"dbo": {"t": {"id": "INTEGER", "v": "VARCHAR"}, "s": {"id": "INTEGER", "w": "VARCHAR"}}}
     texts, notes = translate("UPDATE x SET v = x.v + s.w FROM dbo.t AS x JOIN dbo.s AS s ON s.w = x.v "
                              "WHERE x.id = 1", columns)
-    assert texts == [("UPDATE x SET v = x.v || s.w FROM dbo.t AS x JOIN dbo.s AS s ON RTRIM(s.w) = RTRIM(x.v) "
+    assert texts == [("UPDATE x SET v = x.v || s.w FROM dbo.t AS x JOIN dbo.s AS s ON RTRIM(s.w, ' ') = RTRIM(x.v, ' ') "
                       "WHERE x.id = 1")]
     assert notes == []
 
@@ -139,3 +139,28 @@ def test_the_set_side_is_never_read_as_a_comparison():
     texts, notes = translate("UPDATE dbo.t SET v = 'a  ' WHERE v = 'a'", {"dbo": {"t": {"v": "VARCHAR"}}})
     assert texts[0].startswith("UPDATE dbo.t SET v = 'a  ' WHERE")
     assert notes == []
+
+
+NBSP, IDEO = "\u00a0", "\u3000"  # whitespace T-SQL's trailing-space rules don't take off; DuckDB's RTRIM(x) did
+
+
+@pytest.fixture()
+def spaced(engine):
+    run(engine, "DELETE FROM dbo.t")
+    run(engine, f"INSERT INTO dbo.t VALUES (1, 'a', 1), (2, 'a ', 2), (3, N'a{NBSP}', 3), (4, N'a{IDEO}', 4)")
+    run(engine, "CREATE TABLE dbo.s (w VARCHAR(5))")
+    run(engine, "INSERT INTO dbo.s VALUES ('a')")
+    return engine
+
+
+@pytest.mark.parametrize("where", ["v IN ('a', 'b')", "v LIKE 'a'", "v = 'a'", "v <= 'a'",
+                                   "EXISTS (SELECT 1 FROM dbo.s WHERE s.w = t.v)"])
+def test_only_spaces_are_trailing_spaces_in_a_write(spaced, where):
+    assert run(spaced, f"DELETE FROM dbo.t WHERE {where}") == [[2]]
+    assert run(spaced, "SELECT id FROM dbo.t ORDER BY id") == [[3], [4]]
+
+
+def test_only_spaces_are_trailing_spaces_in_a_join_and_rtrim_and_len(spaced):
+    assert run(spaced, "SELECT t.id FROM dbo.t JOIN dbo.s ON s.w = t.v ORDER BY 1") == [[1], [2]]
+    assert run(spaced, "SELECT id, LEN(v), LEN(RTRIM(v)), LEN(TRIM(v)), LEN(LTRIM(v)) FROM dbo.t ORDER BY id") == [
+        [1, 1, 1, 1, 1], [2, 1, 1, 1, 1], [3, 2, 2, 2, 2], [4, 2, 2, 2, 2]]

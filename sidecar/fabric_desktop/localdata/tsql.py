@@ -154,6 +154,9 @@ _RESERVED_STATEMENTS = {"RETURN": "RETURN", "BREAK": "BREAK", "CONTINUE": "CONTI
                         "CLOSE": "cursors (CLOSE)", "DEALLOCATE": "cursors (DEALLOCATE)"}
 
 
+_NOT_SCRIPT_ADVICE = {"WAITFOR", "CHECKPOINT", "OPEN", "CLOSE", "DEALLOCATE"}  # nothing to run one at a time
+
+
 def _refuse_control(batch: str) -> None:
     """Refuse by name the statements sqlglot misreads: the reserved words above anywhere (a reserved word can't be
     an unquoted name), THROW where a statement starts (T-SQL wants a ; before it), SAVE TRANSACTION, SET
@@ -186,7 +189,8 @@ def _refuse_control(batch: str) -> None:
         elif tok.token_type == TokenType.VAR and after is not None and after.token_type == TokenType.COLON:
             what = f"labels ({tok.text}:)"
         if what is not None:
-            raise ValueError(f"The local engine doesn't run T-SQL {what} yet. {_LATER}")
+            advice = "Run it in a Fabric Warehouse." if word in _NOT_SCRIPT_ADVICE else _LATER
+            raise ValueError(f"The local engine doesn't run T-SQL {what} yet. {advice}")
 
 
 def _parse(batch: str) -> list[exp.Expression]:
@@ -1194,7 +1198,8 @@ def _like_padded(node: exp.Like) -> None:
 def _rtrim(node: exp.Expression) -> exp.Expr:
     if isinstance(node, exp.Literal) and node.is_string:
         return exp.Literal.string(node.name.rstrip(" "))
-    return exp.func("RTRIM", node)
+    # T-SQL takes off spaces only; DuckDB's RTRIM(x) also takes off other whitespace, such as a no-break space.
+    return exp.func("RTRIM", node, exp.Literal.string(" "))
 
 
 def _column_and_text(node: exp.EQ) -> bool:
@@ -1211,7 +1216,7 @@ def _padded_equal(node: exp.EQ) -> None:
     low, high = exp.Literal.string(value), exp.Literal.string(value + " " + _TOP)
     node.replace(exp.paren(exp.and_(
         exp.GTE(this=column.copy(), expression=low), exp.LTE(this=column.copy(), expression=high),
-        exp.EQ(this=exp.func("RTRIM", column), expression=low.copy())), copy=False))
+        exp.EQ(this=_rtrim(column), expression=low.copy())), copy=False))
 
 
 def _in_order(tree: exp.Expression, kinds: tuple) -> list[exp.Expression]:
@@ -1272,6 +1277,9 @@ _SPREADS = {"VAR": exp.Variance, "VARP": exp.VariancePop, "STDEVP": exp.StddevPo
 
 
 def _functions(tree: exp.Expression) -> None:
+    for trim in tree.find_all(exp.Trim):
+        if trim.args.get("expression") is None:  # RTRIM, LTRIM and TRIM take off spaces only, as in T-SQL
+            trim.set("expression", exp.Literal.string(" "))
     for kind in tree.find_all(exp.DataType):
         if kind.this == exp.DataType.Type.DOUBLE and kind.expressions:
             # FLOAT(n): 4 bytes up to 24 bits of mantissa, 8 from 25 to 53, as SQL Server stores it.
@@ -1309,7 +1317,7 @@ def _functions(tree: exp.Expression) -> None:
                 _sunday_week_start(node)
         elif isinstance(node, exp.Length):
             # LEN doesn't count trailing spaces.
-            node.set("this", exp.func("RTRIM", node.this))
+            node.set("this", _rtrim(node.this))
         elif isinstance(node, exp.Extract):
             unit = node.this.name.upper()
             if isinstance(node.expression, exp.Literal) and node.expression.is_string:

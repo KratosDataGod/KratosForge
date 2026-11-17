@@ -226,14 +226,16 @@ def round_datetimes(tree: exp.Expression) -> None:
                                                          "character string."))
             continue
         target = "datetime" if kind.this == T.DATETIME else "smalldatetime"
-        mark = exp.Anonymous(this=_MARK, expressions=[])
-        mark.meta.update(kf_kind=kind.this, kf_safe=safe,
-                         kf_message=f"The conversion of a {'varchar' if text is not None else 'datetime2'} data "
-                                    f"type to a {target} data type resulted in an out-of-range value.")
+        message = (f"The conversion of a {'varchar' if text is not None else 'datetime2'} data type to a {target} "
+                   "data type resulted in an out-of-range value.")
+        # What the rounding needs rides in the mark's arguments, which survive the rewrites that rebuild the tree
+        # around it (CONVERT's styles make a new node; meta would be lost).
+        mark = exp.Anonymous(this=_MARK, expressions=[exp.Literal.string(target), exp.Literal.string(
+            "safe" if safe else "strict"), exp.Literal.string(message)])
         outer = exp.Cast(this=mark, to=kind.copy())
         outer.meta["kf_rounded"] = True
         node.replace(outer)
-        mark.append("expressions", node)
+        mark.set("expressions", [node, *mark.expressions])
 
 
 _MARK = "KF_TSQL_DATETIME"
@@ -241,21 +243,20 @@ _MARK = "KF_TSQL_DATETIME"
 
 def expand_datetimes(tree: exp.Expression) -> None:
     """The rounding ``round_datetimes`` marked, written as DuckDB SQL around the value."""
-    for mark in list(tree.find_all(exp.Anonymous)):
-        if mark.name != _MARK:
-            continue
-        value = mark.expressions[0]
-        kind = mark.meta["kf_kind"]
+    marks = [m for m in tree.find_all(exp.Anonymous) if m.name == _MARK]
+    for mark in reversed(marks):  # the innermost first, so an outer one copies its value already rounded
+        value, target, safe, message = mark.expressions
+        kind = T.DATETIME if target.name == "datetime" else T.SMALLDATETIME
         low, high = _RANGE[kind]
         rounded = _ROUND[kind]
         wrapper = sqlglot.parse_one(
             f"CASE WHEN ({rounded}) < CAST('{low}' AS TIMESTAMP) OR ({rounded}) > CAST('{high}' AS TIMESTAMP) "
-            f"THEN {'NULL' if mark.meta['kf_safe'] else 'KF_FAIL'} ELSE ({rounded}) END", read="duckdb")
+            f"THEN {'NULL' if safe.name == 'safe' else 'KF_FAIL'} ELSE ({rounded}) END", read="duckdb")
         for spot in list(wrapper.find_all(exp.Column)):
             if spot.name == "X":
                 spot.replace(value.copy())
             elif spot.name == "KF_FAIL":
-                spot.replace(_fail(mark.meta["kf_message"]))
+                spot.replace(_fail(message.name))
         mark.replace(wrapper)
 
 
@@ -294,3 +295,11 @@ def delta_times(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str
         query = exp.select(star).from_(inner)
         table.replace(exp.Subquery(this=query, alias=alias.copy() if alias else
                                    exp.TableAlias(this=exp.to_identifier(table.name, quoted=True))))
+
+
+def is_rounded(value: exp.Expression) -> bool:
+    """``value`` is a datetime or smalldatetime that ``round_datetimes`` marked, under the casts that the CONVERT
+    rewrite wraps it in (that rewrite goes through SQL text, so the type as written is lost there)."""
+    while isinstance(value, (exp.Cast, exp.Paren)):
+        value = value.this
+    return isinstance(value, exp.Anonymous) and value.name.upper() == _MARK

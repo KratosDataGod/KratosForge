@@ -170,6 +170,27 @@ def test_more_than_three_digits_of_a_second_isnt_a_datetime(engine):
     assert one(engine, "SELECT TRY_CAST('2024-01-01 10:00:00.1234' AS DATETIME) AS c") is None
 
 
+@pytest.mark.parametrize("sql, expected", [
+    ("SELECT CONVERT(VARCHAR(30), CAST('2024-01-01 10:00:00.002' AS DATETIME), 121) AS c", "2024-01-01 10:00:00.003"),
+    ("SELECT CONVERT(VARCHAR(30), CAST('2024-01-01 10:00:00.002' AS DATETIME), 120) AS c", "2024-01-01 10:00:00"),
+    ("SELECT CONVERT(VARCHAR(30), CAST('2024-01-01 10:00:00.002' AS DATETIME), 126) AS c", "2024-01-01T10:00:00.003"),
+    ("SELECT CONVERT(VARCHAR(8), CAST('2024-01-01 23:59:59.999' AS DATETIME), 112) AS c", "20240102"),
+    ("SELECT CONVERT(DATE, CAST('2024-01-01 23:59:59.999' AS DATETIME)) AS c", "2024-01-02"),
+    ("SELECT CONVERT(VARCHAR(30), CAST('2024-01-01 10:00:29.999' AS SMALLDATETIME), 120) AS c", "2024-01-01 10:01:00"),
+    ("SELECT CONVERT(VARCHAR(30), CONVERT(DATETIME, '2024-02-29 10:00:00.002', 121), 121) AS c",
+     "2024-02-29 10:00:00.003"),
+    # 29.998 is .997 as a datetime, which then rounds down to the minute; 29.999 is 30.000, which rounds up.
+    ("SELECT CAST(CAST('2024-01-01 10:00:29.998' AS DATETIME) AS SMALLDATETIME) AS c", "2024-01-01 10:00:00"),
+    ("SELECT CAST(CAST('2024-01-01 10:00:29.999' AS DATETIME) AS SMALLDATETIME) AS c", "2024-01-01 10:01:00"),
+    ("SELECT CONVERT(VARCHAR(30), CAST('2024-01-01 10:00:00' AS DATETIME), 126) AS c", "2024-01-01T10:00:00"),
+    ("SELECT CAST(CAST(CAST('2024-01-01 10:00:00.0049' AS DATETIME2) AS DATETIME) AS DATETIME) AS c",
+     "2024-01-01 10:00:00.003000"),
+    ("SELECT TRY_CAST(TRY_CAST('2024-01-01 10:00:00.002' AS DATETIME) AS SMALLDATETIME) AS c", "2024-01-01 10:00:00"),
+])
+def test_a_rounded_datetime_inside_another_conversion_keeps_its_rounding(engine, sql, expected):
+    assert str(one(engine, sql)) == expected
+
+
 def test_the_rounding_adds_no_note():
     _, notes = translate("SELECT CAST('2024-01-01 10:00:00.002' AS DATETIME) AS a, "
                          "DATEADD(day, 1, CONVERT(DATETIME, '02/29/2024', 101)) AS b")

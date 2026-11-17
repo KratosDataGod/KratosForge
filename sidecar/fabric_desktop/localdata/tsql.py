@@ -1353,9 +1353,14 @@ def _date_style(text: exp.TimeToStr, kind: exp.DataType | None, style: str) -> N
         return
     if _is(kind, {exp.DataType.Type.DATE}):
         text.set("format", exp.Literal.string("%Y-%m-%d"))
-    elif style == "126" and fmt.name.endswith(".%f"):
+        return
+    if (_is(kind, {exp.DataType.Type.DATETIME, exp.DataType.Type.SMALLDATETIME}) or tsql_types.is_rounded(text.this)) \
+            and fmt.name.endswith(".%f"):
+        fmt = exp.Literal.string(fmt.name[:-len(".%f")] + ".%g")  # datetime is written to the millisecond (WR-223)
+        text.set("format", fmt)
+    if style == "126" and fmt.name.endswith((".%f", ".%g")):
         whole = text.copy()
-        whole.set("format", exp.Literal.string(fmt.name[:-len(".%f")]))
+        whole.set("format", exp.Literal.string(fmt.name[:-len(".%f")]))  # .%g is as long
         # DuckDB's MICROSECOND counts the seconds too: the fraction is what's left of a whole second.
         fraction = exp.Mod(this=exp.func("MICROSECOND", text.this.copy()), expression=exp.Literal.number(1_000_000))
         zero = exp.EQ(this=exp.paren(fraction, copy=False), expression=exp.Literal.number(0))

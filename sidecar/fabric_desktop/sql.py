@@ -181,6 +181,7 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     Apache Spark 3.5 (Fabric) quotes only names that need it. timestampdiff counts whole units
     (_spark_timestampdiff)."""
     statement = spark_builtins_sql.mark(statement)
+    _no_reserved_names(statement)  # on the SQL as written, before any rewrite adds its own kf_ names
     if databricks:
         _mark_divisions(statement)
     statement = _spark_date_results(statement, ansi=databricks)
@@ -267,8 +268,12 @@ def _spark_date_results(statement: exp.Expression, ansi: bool) -> exp.Expression
         node.replace(new)
         return new
     if not ansi:
-        for found in list(statement.find_all(exp.TsOrDsToDate, exp.TsOrDsAdd, exp.LastDay, exp.UnixDate,
-                                             exp.NextDay, exp.DateTrunc, exp.TimestampTrunc, exp.Anonymous)):
+        # Deepest first: wrap() puts copies of a call's arguments in its new SQL, so a call inside another one
+        # is rewritten before it is copied (next_day(make_date(1900, -1, -1), 'MON') stopped with "Date out of
+        # range", since only the original, now unused, make_date was made NULL-safe).
+        for found in reversed(list(statement.find_all(exp.TsOrDsToDate, exp.TsOrDsAdd, exp.LastDay, exp.UnixDate,
+                                                      exp.NextDay, exp.DateTrunc, exp.TimestampTrunc,
+                                                      exp.Anonymous))):
             node = cast(exp.Expression, found)  # sqlglot's Func isn't typed as an Expression
             if isinstance(node, exp.TsOrDsToDate):
                 if node.args.get("format") is None:
@@ -569,7 +574,6 @@ def _spark_functions(statement: exp.Expression) -> exp.Expression:
     map_filter, transform_keys, transform_values and aggregate/reduce with a finish lambda (#1371). Deepest first, so a rewritten argument is
     written out already rewritten."""
     _spark_lambdas(statement)
-    _no_reserved_names(statement)
     found = list(statement.find_all(exp.DayOfWeek, *_SORTS, exp.Quantile, exp.ArrayDistinct,
                                     exp.ArrayIntersect, exp.ArrayExcept, exp.LastDay, exp.NextDay, exp.Soundex, exp.Exists,
                                     exp.MapContainsKey, exp.Reduce, exp.Anonymous))
@@ -1257,7 +1261,9 @@ def _spark_dates(statement: exp.Expression) -> exp.Expression:
     """Keep Spark's date results where sqlglot's DuckDB SQL differs: date_add and date_sub return
     a date (DuckDB's date + INTERVAL is a timestamp), trunc(date, 'MM') returns a date, and Spark's
     unit spellings ('MM', 'YYYY') become ones DuckDB reads."""
-    for node in list(statement.find_all(exp.TsOrDsAdd, exp.DateTrunc, exp.TimestampTrunc)):
+    # Deepest first: a node is replaced by a cast of its copy, so a trunc inside a trunc must have its unit
+    # spelled for DuckDB before the outer one copies it (trunc(trunc(d, 'MM'), 'MONTH') kept 'MM' and stopped).
+    for node in reversed(list(statement.find_all(exp.TsOrDsAdd, exp.DateTrunc, exp.TimestampTrunc))):
         if isinstance(node, (exp.DateTrunc, exp.TimestampTrunc)):
             unit = node.args.get("unit")
             spark_trunc = isinstance(unit, exp.Literal)  # trunc(date, 'MM'); date_trunc('MM', ts) has a Var

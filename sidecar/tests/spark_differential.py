@@ -66,21 +66,10 @@ KNOWN = [
     Known("date-format-past-9999", "wrong", r"add_months\(.*1000000",
           "date_format of a year past 9999 starts with + in Spark; here it doesn't", says=r"^\d{5,}"),
     # Loud: an error where Spark answers.
-    Known("initcap-parse-error", "error", r"initcap\(", "initcap's rewrite fails to parse",
-          says=r"ParseError: Expecting \)"),
     Known("shift-java-rules", "wrong/error", r"shift(left|right)\(",
           "shiftleft and shiftright of a negative number, by a negative count or of a decimal stop or answer "
           "differently here; Spark shifts as Java does (the count taken mod 32 for an int)",
           says=r"shift|'<<\(|'>>\(|^-?\d+$"),
-    Known("trunc-date-formats", "error", r"trunc\(", "trunc(date, 'MM' | 'yyyy' | 'MONTH' ...) stops here",
-          says=r'extract specifier "(MM|YYYY)" not recognized'),
-    Known("make-date-invalid-parts", "error", r"make_date\(",
-          "make_date with a month or day that doesn't exist stops here; Spark (ANSI off) gives NULL",
-          says=r"Date out of range: \d+-"),
-    Known("sqrt-negative", "error", r"sqrt\(", "sqrt of a negative number stops here; Spark gives NaN",
-          says=r"cannot take square root of a negative number"),
-    Known("soundex-reserved-name", "error", r"soundex\((translate|CAST)\(",
-          "soundex of a rewritten argument stops on the kf_ reserved-name check", says=r"names that start with kf_"),
     Known("cast-long-text-to-date", "error", r"CAST\(repeat\(", "CAST of text past a date's range stops here; "
           "Spark gives NULL", says=r"date value out of range"),
     # Refused by name on purpose: split_part's index 0 is an error in Spark too, but Spark raises it only when

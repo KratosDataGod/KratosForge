@@ -732,7 +732,7 @@ A different answer, or an error where the target answers, fails these tests unle
 | Spark SQL | `isnan(NULL)` | Spark gives false, here NULL |
 | Spark SQL | `to_date('24-02-29')` | Spark gives NULL (a year needs 4 digits), here the year 24 |
 | Spark SQL | `date_format` of a year past 9999 | Spark writes a leading `+` (`+8535706`). Here there is none (`8535706`) |
-| Spark SQL | `initcap`, `trunc(date, 'MM')` and its other formats, `make_date` with a day that doesn't exist, `sqrt` of a negative number, `shiftleft`/`shiftright` of a negative number or by a negative count, `soundex` of a cast, `CAST` of text past a date's range | These stop here with an error, where Spark answers |
+| Spark SQL | `shiftleft`/`shiftright` of a negative number or by a negative count, `CAST` of text past a date's range | These stop here with an error, where Spark answers |
 | Spark SQL | `split_part(s, d, 0)` | Refused by name before the query runs; Spark stops only when the call is reached |
 | T-SQL | `N'...'` text in `=`, `<`, `LIKE` and `+` | Trailing spaces count, `[a-c]` ranges don't match, and `N'a' + N'b'` stops. The same text without `N` answers as T-SQL does |
 | Snowflake | `POSITION` and `CHARINDEX` with an empty search text and a start past the end | Snowflake gives 0, here the start |

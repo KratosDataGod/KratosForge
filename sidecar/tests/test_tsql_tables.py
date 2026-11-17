@@ -67,6 +67,24 @@ def test_an_update_past_the_length_stops_and_keeps_the_old_value(engine):
     assert run(engine, "SELECT v FROM dbo.t") == [["abc"]]
 
 
+def test_trailing_blanks_past_the_length_pass_as_in_tsql(engine):
+    # T-SQL drops blanks past a VARCHAR or CHAR length without an error; bytes past a VARBINARY length still stop.
+    assert run(engine, "INSERT INTO dbo.t (id, v, c) VALUES (1, 'abcde   ', 'ab ')") == [[1]]
+    assert run(engine, "SELECT LEN(v), LEN(c) FROM dbo.t") == [[5, 2]]
+    with pytest.raises(Exception, match=TRUNCATED.format("v")):
+        engine.execute("INSERT INTO dbo.t (id, v) VALUES (2, 'abcdef ')", dialect="tsql")
+
+
+def test_dbcc_inside_a_string_is_just_text(engine):
+    assert run(engine, "SELECT 'x;\n DBCC'") == [["x;\n DBCC"]]
+
+
+def test_alter_table_adds_a_column_without_a_length(engine):
+    run(engine, "ALTER TABLE dbo.t ADD n INT")
+    run(engine, "ALTER TABLE dbo.t ADD w VARCHAR(MAX)")
+    assert run(engine, "INSERT INTO dbo.t (id, n, w) VALUES (1, 2, 'abc')") == [[1]]
+
+
 def test_not_null_is_kept(engine):
     with pytest.raises(Exception, match="NOT NULL constraint failed"):
         engine.execute("INSERT INTO dbo.t (id) VALUES (NULL)", dialect="tsql")
@@ -119,6 +137,9 @@ def test_select_into_and_ctas_make_tables_with_the_selects_types(engine):
     ("CREATE TABLE dbo.i (id INT IDENTITY(1, 1), v INT)", r"IDENTITY isn't mapped yet \(column id\)"),
     ("DBCC CHECKIDENT ('dbo.i', RESEED)", "DBCC isn't mapped yet"),
     ("SET IDENTITY_INSERT dbo.i ON", "doesn't run T-SQL SET yet"),
+    ("SELECT 1;\n  dbcc SHOW_STATISTICS ('dbo.t', s)", "DBCC isn't mapped yet"),
+    ("ALTER TABLE dbo.t ADD w VARCHAR(2)", r"ALTER TABLE \.\.\. ADD of a column with a length \(w\) isn't mapped yet"),
+    ("ALTER TABLE dbo.t ADD x INT, w VARBINARY(4)", r"ADD of a column with a length \(w\)"),
 ])
 def test_what_isnt_mapped_is_refused_by_name(engine, sql, words):
     with pytest.raises(ValueError, match="This T-SQL can't be run on the local engine|The local engine doesn't run"):
@@ -130,7 +151,7 @@ def test_what_isnt_mapped_is_refused_by_name(engine, sql, words):
 def test_the_length_check_is_written_into_the_table():
     from fabric_desktop.localdata.tsql import translate
     texts, _ = translate("CREATE TABLE dbo.t (v VARCHAR(5), b VARBINARY(2), m VARCHAR(MAX))")
-    assert texts == [("CREATE TABLE dbo.t (v TEXT(5) CHECK (CASE WHEN STRLEN(v) > 5 THEN ERROR('String or binary data "
+    assert texts == [("CREATE TABLE dbo.t (v TEXT(5) CHECK (CASE WHEN STRLEN(RTRIM(v)) > 5 THEN ERROR('String or binary data "
                      "would be truncated in table ''dbo.t'', column ''v''.') ELSE TRUE END), b BLOB CHECK (CASE WHEN "
                      "OCTET_LENGTH(b) > 2 THEN ERROR('String or binary data would be truncated in table ''dbo.t'', "
                      "column ''b''.') ELSE TRUE END), m TEXT)")]

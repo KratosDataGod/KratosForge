@@ -327,9 +327,10 @@ class SqlExecutions:
             if target == "local" or estimated_plan or profile:
                 raise ValueError("Query parameters are for a lakehouse or a warehouse query.")
             tsql = target == "warehouse"
-            query = sql_params.as_colons(query, tsql) if isinstance(query, str) else query
+            backslash = not tsql and dialect == "spark"  # only Spark strings take \' (sql_params.py)
+            query = sql_params.as_colons(query, tsql, backslash) if isinstance(query, str) else query
             if isinstance(statements, list):
-                statements = [sql_params.as_colons(t, tsql) if isinstance(t, str) else t for t in statements]
+                statements = [sql_params.as_colons(t, tsql, backslash) if isinstance(t, str) else t for t in statements]
         units: list[str] = []
         if statements is not None:
             if (not isinstance(statements, list) or not statements or len(statements) > MAX_STATEMENTS
@@ -735,9 +736,8 @@ class SqlExecutions:
             if run.state != "completed":
                 run.rows = 0  # rows read before it failed aren't a result: none are kept
                 if run.parts:
-                    # S14: the statements before the one that failed finished; their results stay. A part of
-                    # the statement that failed was never written whole, so it goes.
-                    run.parts = [p for p in run.parts if p["statement"] != run.failed_statement]
+                    # S14: the statements before the one that failed finished; their results stay. A worker says
+                    # a part only once its snapshot is written whole, so every part listed can be read.
                     keep = {run.part_file(p["statement"]).name for p in run.parts}
                     for f in run.folder.glob("*") if run.folder.is_dir() else []:
                         if f.name not in keep:

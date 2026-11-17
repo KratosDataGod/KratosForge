@@ -11,7 +11,7 @@ import pytest
 from deltalake import write_deltalake
 
 from fabric_desktop import sql_exec, sql_params, warehouse
-from tests.test_sql_exec import limits, wait
+from tests.test_sql_exec import SLOW, limits, wait
 
 SERVER = "abc.datawarehouse.fabric.microsoft.com"
 
@@ -74,6 +74,29 @@ def test_a_lakehouse_run_binds_typed_values_and_never_keeps_them(runs, lake):
     assert status["state"] == "completed", status["error"]
     assert runs.page(status["id"])["rows"] == [[3]]
     assert region not in repr(status) and region not in repr(runs.lines) and runs._get(status["id"]).params == []
+
+
+def test_the_values_leave_the_run_when_its_worker_starts(runs, lake):
+    run = runs.start(SLOW + " WHERE a.range > :floor", lake, params=[{"name": "floor", "type": "number", "value": "-1"}])
+    wait(runs, run["id"], ("running",))
+    assert runs._get(run["id"]).params == [], "the worker has them; the run doesn't keep them while it runs"
+    runs.cancel(run["id"])
+    wait(runs, run["id"])
+
+
+def test_a_backslash_ends_a_duckdb_string_but_not_a_spark_one():
+    text = "SELECT 'C:\\' AS p, {{x}} AS x"
+    assert sql_params.as_colons(text, backslash=False) == "SELECT 'C:\\' AS p, :x AS x"
+    assert sql_params.as_colons(text) == text, "in Spark, \\' doesn't end the string, so {{x}} is inside it"
+    assert sql_params.names("SELECT l[:n] FROM t", backslash=False) == ["n"], "a DuckDB list slice reads as a parameter"
+    assert sql_params.names("SELECT l[1:n] FROM t", backslash=False) == []
+
+
+def test_a_duckdb_query_with_a_backslash_in_a_string_still_finds_its_parameter(runs, lake):
+    status = wait(runs, runs.start("SELECT 'C:\\' AS p, {{x}} AS x", lake, dialect="duckdb",
+                                   params=[{"name": "x", "type": "number", "value": "7"}])["id"])
+    assert status["state"] == "completed", status["error"]
+    assert runs.page(status["id"])["rows"] == [["C:\\", 7]]
 
 
 def test_a_value_is_never_sql(runs, lake):

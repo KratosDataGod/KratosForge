@@ -3,7 +3,9 @@
 A query names a parameter as ``:name`` or ``{{name}}``. The page asks for each value and its type once,
 and sends them with the run. The values never become SQL text: on this PC each is bound to DuckDB as a
 typed parameter (``$name``), and on a warehouse each is sent to the driver as a ``?`` parameter. A name
-inside a string, a comment or a quoted name isn't a parameter, and ``::`` (a cast) never starts one.
+inside a string, a comment or a quoted name isn't a parameter, and ``::`` (a cast) never starts one. A backslash
+escapes a quote only in Spark SQL: in DuckDB ``'C:\\'`` is a whole string, and T-SQL has no escapes. DuckDB's
+list slice ``l[:n]`` reads as the parameter ``n``: write it ``l[1:n]`` or ``list_slice(l, 1, n)``.
 
 Types: ``text``, ``number``, ``date`` (2026-10-01), ``datetime`` (2026-10-01 14:30) and ``boolean``.
 """
@@ -24,7 +26,7 @@ _BRACES = re.compile(rf"\{{\{{\s*({_NAME})\s*\}}\}}")
 _NUMBER = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
 
 
-def _inert(text: str, brackets: bool) -> list[tuple[int, int]]:
+def _inert(text: str, brackets: bool, backslash: bool = True) -> list[tuple[int, int]]:
     """Where strings, comments and quoted names are: (start, end) spans no parameter is looked for in."""
     spans, i, n = [], 0, len(text)
     while i < n:
@@ -44,7 +46,7 @@ def _inert(text: str, brackets: bool) -> list[tuple[int, int]]:
                         j += 2
                         continue
                     break
-                if text[j] == "\\" and ch in "'\"" and not brackets:  # Spark and DuckDB strings take \' too
+                if text[j] == "\\" and ch in "'\"" and backslash and not brackets:  # Spark strings take \' too
                     j += 2
                     continue
                 j += 1
@@ -57,9 +59,10 @@ def _inert(text: str, brackets: bool) -> list[tuple[int, int]]:
     return spans
 
 
-def find(text: str, tsql: bool = False) -> list[tuple[int, int, str]]:
-    """Each parameter in ``text``, in order: (start, end, name), outside strings, comments and quoted names."""
-    spans = _inert(text, brackets=tsql)
+def find(text: str, tsql: bool = False, backslash: bool | None = None) -> list[tuple[int, int, str]]:
+    """Each parameter in ``text``, in order: (start, end, name), outside strings, comments and quoted names.
+    ``backslash``: whether a backslash escapes a quote (Spark SQL); by default, unless ``tsql``."""
+    spans = _inert(text, brackets=tsql, backslash=not tsql if backslash is None else backslash)
 
     def free(at: int) -> bool:
         return not any(a <= at < b for a, b in spans)
@@ -68,14 +71,14 @@ def find(text: str, tsql: bool = False) -> list[tuple[int, int, str]]:
     return sorted(found)
 
 
-def names(text: str, tsql: bool = False) -> list[str]:
-    return list(dict.fromkeys(name for _a, _b, name in find(text, tsql)))
+def names(text: str, tsql: bool = False, backslash: bool | None = None) -> list[str]:
+    return list(dict.fromkeys(name for _a, _b, name in find(text, tsql, backslash)))
 
 
-def as_colons(text: str, tsql: bool = False) -> str:
+def as_colons(text: str, tsql: bool = False, backslash: bool | None = None) -> str:
     """``text`` with each ``{{name}}`` written ``:name``, which sqlglot reads as a placeholder."""
     out, at = [], 0
-    for a, b, name in find(text, tsql):
+    for a, b, name in find(text, tsql, backslash):
         out += [text[at:a], f":{name}"]
         at = b
     return "".join(out) + text[at:]

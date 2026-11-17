@@ -297,6 +297,11 @@ class OptimizeMixin:
             state = setup.inspect(lake, fam)
             if state["state"] == setup.READY:
                 continue
+            if fam is setup.CORE and family is not setup.CORE and state["state"] == setup.UPGRADE:
+                # The shared tables another family writes (installations, audit, config) are the same in
+                # every version, so an older Optimize schema doesn't hold that family up; upgrading
+                # Optimize's own tables stays Optimize's own confirmed step.
+                continue
             if state["state"] not in setup.CAN_INITIALIZE:
                 raise PermissionError(state["message"])
             if not approve:

@@ -111,16 +111,24 @@ def retry(fn: Callable[[], Any], attempts: int = 5, backoff: float = 0.5, sleep:
                                lambda n: min(backoff * 2 ** (n - 1), 8.0), sleep)
 
 
-def _rows(name: str, rows: list[dict[str, Any]], family: Family = CORE) -> pl.DataFrame:
-    cols = family.expected()[family.table(name)]
+def _rows(name: str, rows: list[dict[str, Any]], family: Family = CORE, version: int | None = None) -> pl.DataFrame:
+    tables = family.expected(version)
+    if family.table(name) not in tables:
+        # A table a later version adds, in a lakehouse not upgraded to it yet.
+        raise PermissionError(message(UPGRADE, family))
+    cols = tables[family.table(name)]
     return pl.DataFrame([{c: r.get(c) for c in cols} for r in rows], schema=cols)
 
 
 def write(lake: Any, installation: Installation, name: str, rows: list[dict[str, Any]], version: int | None = None,
           family: Family = CORE) -> None:
-    """Insert rows into ``<prefix><name>``, each with provenance; rows already there are skipped."""
-    base = installation.provenance(version or family.latest())
-    df = _rows(name, [base | r for r in rows], family)
+    """Insert rows into ``<prefix><name>``, each with provenance; rows already there are skipped.
+    ``version`` is the family's schema version the lakehouse is at (default: this app's): rows get only
+    that version's columns, so an app that knows a later version still writes to a lakehouse nobody
+    has upgraded yet, and a table that version doesn't have is refused with the upgrade message."""
+    version = min(version or family.latest(), family.latest())
+    base = installation.provenance(version)
+    df = _rows(name, [base | r for r in rows], family, version)
     retry(lambda: lake.insert_new(family.table(name), df))
 
 
@@ -131,7 +139,9 @@ def initialize(lake: Any, installation: Installation, approve: bool = False, fam
     it at once."""
     if family is not CORE:
         core = inspect(lake)
-        if core["state"] != READY:
+        # An older core schema already has the shared tables, which every version keeps the same;
+        # upgrading Optimize's own tables is Optimize's own step, not another family's.
+        if core["state"] not in (READY, UPGRADE):
             initialize(lake, installation, approve)
     before = inspect(lake, family)
     if before["state"] == READY:

@@ -275,6 +275,7 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 | `LEN`, `DATALENGTH` | `LEN('ab  ')` is `2`, and `DATALENGTH('ab  ')` is `4`. `DATALENGTH` counts UTF-8 bytes (`'é'` is `2`) and two per character for `N'...'` |
 | `CHARINDEX`, `PATINDEX` | Case counts, and the answer is `0` when the text isn't found. A `CHARINDEX` start of 0 or below searches from the start, and an empty search text gives `0` |
 | `CONCAT`, `CONCAT_WS`, `+` | `CONCAT` skips `NULL`, and `+` gives `NULL`. A number written with a point keeps its digits (`CONCAT('a', 1.50)` is `a1.50`), and a `bit` is `1` or `0` |
+| `N'...'` text | The same as `'...'` in comparisons, `LIKE` and `+`: `WHERE name = N'abc'` finds `'abc  '`, and `N'a' + N'b'` is `ab`. Only `DATALENGTH` counts it as nvarchar, two bytes a character |
 | `TRIM`, `LTRIM`, `RTRIM`, `REPLACE` | Spaces only, or the characters you give. `REPLACE` matches case and leaves the text alone for an empty search |
 | `COLLATE` | A binary collation (`..._BIN2`, `..._BIN`) runs as written, since it's how text compares here already |
 
@@ -734,6 +735,5 @@ A different answer, or an error where the target answers, fails these tests unle
 | Spark SQL | `date_format` of a year past 9999 | Spark writes a leading `+` |
 | Spark SQL | `initcap`, `trunc(date, 'MM')` and its other formats, `make_date` with a day that doesn't exist, `sqrt` of a negative number, `shiftleft`/`shiftright` of a negative number or by a negative count, `soundex` of a cast, `CAST` of text past a date's range | These stop here with an error, where Spark answers |
 | Spark SQL | `split_part(s, d, 0)` | Refused by name before the query runs; Spark stops only when the call is reached |
-| T-SQL | `N'...'` text in `=`, `<`, `LIKE` and `+` | Trailing spaces count, `[a-c]` ranges don't match, and `N'a' + N'b'` stops. The same text without `N` answers as T-SQL does |
 | Snowflake | `POSITION` and `CHARINDEX` with an empty search text and a start past the end | Snowflake gives 0, here the start |
 | Snowflake | `LPAD` and `RPAD` with an empty pad | Stops with "Insufficient padding", where Snowflake truncates |

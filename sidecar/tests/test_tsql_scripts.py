@@ -72,7 +72,7 @@ def test_reserved_words_quoted_or_after_a_dot_or_at_are_names(engine):
 
 
 def test_a_procedure_keeps_its_own_refusal():
-    with pytest.raises(ValueError, match="CREATE FUNCTION dbo.f isn.t mapped yet: user-defined functions don.t run on the local engine"):
+    with pytest.raises(ValueError, match="CREATE FUNCTION dbo.f isn.t mapped yet. Procedures and user-defined functions take parameters"):
         translate("CREATE FUNCTION dbo.f() RETURNS INT AS BEGIN RETURN 1 END")
 
 

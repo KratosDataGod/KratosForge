@@ -11,11 +11,11 @@ import pytest
 from fabric_desktop.localdata import LocalData
 from fabric_desktop.localdata.tsql import translate
 
-WAITS = "wait on the local engine's support for variables and control flow"
+WAITS = "take parameters and use control flow, which the local engine doesn't run yet"
 
 
 @pytest.mark.parametrize("sql, words", [
-    ("CREATE PROCEDURE dbo.load AS SELECT 1 AS a", "CREATE PROCEDURE dbo.load isn't mapped yet"),
+    ("CREATE PROCEDURE dbo.load AS SELECT 1 AS a", "CREATE PROCEDURE dbo.load isn't mapped yet. Procedures"),
     ("CREATE PROC dbo.load @day DATE AS BEGIN SET NOCOUNT ON; SELECT @day END", "CREATE PROCEDURE dbo.load"),
     ("CREATE OR ALTER PROCEDURE dbo.load AS SELECT 1 AS a", "CREATE OR ALTER PROCEDURE dbo.load"),
     ("ALTER PROCEDURE dbo.load AS SELECT 2 AS a", "ALTER PROCEDURE dbo.load"),
@@ -24,14 +24,14 @@ WAITS = "wait on the local engine's support for variables and control flow"
     (("CREATE PROCEDURE [dbo].[load] @n INT AS\nBEGIN\n  DECLARE @i INT = 0;\n  WHILE @i < @n SET @i += 1;\n"
       "  IF @i > 2 THROW 50000, 'x', 1;\nEND"), "CREATE PROCEDURE [dbo].[load]"),
     ("CREATE FUNCTION dbo.plus_one (@x INT) RETURNS INT AS BEGIN RETURN @x + 1 END",
-     "CREATE FUNCTION dbo.plus_one isn't mapped yet: user-defined functions"),
+     "CREATE FUNCTION dbo.plus_one isn't mapped yet. Procedures"),
     ("CREATE FUNCTION dbo.orders_on (@d DATE) RETURNS TABLE AS RETURN (SELECT 1 AS id)", "CREATE FUNCTION dbo.orders_on"),
     ("CREATE OR ALTER FUNCTION dbo.f () RETURNS INT AS BEGIN RETURN 1 END", "CREATE OR ALTER FUNCTION dbo.f"),
     ("ALTER FUNCTION dbo.f () RETURNS INT AS BEGIN RETURN 2 END", "ALTER FUNCTION dbo.f"),
     ("DROP FUNCTION dbo.f", "DROP FUNCTION dbo.f"),
     ("DROP FUNCTION IF EXISTS dbo.f", "DROP FUNCTION dbo.f"),
     ("SELECT 1 AS a;\nCREATE PROCEDURE dbo.p AS SELECT 1 AS a", "CREATE PROCEDURE dbo.p"),
-    ("EXEC dbo.load", "EXEC dbo.load isn't mapped yet: stored procedures don't run"),
+    ("EXEC dbo.load", "EXEC dbo.load isn't mapped yet. Procedures"),
     ("EXECUTE dbo.load @day = '2026-11-01'", "EXEC dbo.load"),
     ("EXEC load 1, 'a'", "EXEC load"),
     ("SELECT 1 AS a; EXEC dbo.load", "EXEC dbo.load"),
@@ -49,7 +49,7 @@ def test_procedures_and_functions_are_refused_by_name_and_wait_on_variables(sql,
 
 
 @pytest.mark.parametrize("sql, words", [
-    ("EXEC sp_executesql N'SELECT 1'", "sp_executesql isn't mapped yet: it runs text as SQL"),
+    ("EXEC sp_executesql N'SELECT 1'", "sp_executesql isn't mapped yet. It runs text as SQL"),
     ("EXEC sp_executesql N'SELECT * FROM dbo.t WHERE id = @id', N'@id INT', @id = 1", "sp_executesql"),
     ("EXECUTE sys.sp_executesql N'SELECT 1'", "sp_executesql"),
     ("sp_executesql N'SELECT 1'", "sp_executesql"),
@@ -110,14 +110,14 @@ def test_sp_rename_renames_a_table_or_a_column(sql, expected):
 
 
 @pytest.mark.parametrize("sql, words", [
-    ("EXEC sp_rename 'dbo.t.ix', 'ix2', 'INDEX'", "sp_rename of an index isn't mapped yet"),
-    ("EXEC sp_rename 'db', 'db2', 'DATABASE'", "sp_rename of an database"),
+    ("EXEC sp_rename 'dbo.t.ix', 'ix2', 'INDEX'", "sp_rename with @objtype 'INDEX' isn't mapped yet"),
+    ("EXEC sp_rename 'db', 'db2', 'DATABASE'", "sp_rename with @objtype 'DATABASE'"),
     ("EXEC sp_rename 'dbo.t', 'dbo.t2'", "would name the table [dbo.t2]"),
     ("EXEC sp_rename 'dbo.t', 'a/b'", "contain / or \\"),
     ("EXEC sp_rename 'dbo.t', 'ab.'", "end with a period"),
     ("EXEC sp_rename 'dbo.t', ''", "can't be empty"),
     ("EXEC sp_rename 'dbo.t'", "expects parameters '@objname' and '@newname'"),
-    ("EXEC sp_rename @old, 't2'", "a variable is refused"),
+    ("EXEC sp_rename @old, 't2'", "because variables aren't mapped yet"),
     ("EXEC sp_rename 'dbo.t', 't2', 'OBJECT', 'x'", "this sp_rename isn't mapped yet"),
     ("EXEC sp_rename 'a.b.c', 't2'", "can't read 'a.b.c'"),
     ("EXEC sp_rename 't', 'b', 'COLUMN'", "can't read 't'"),

@@ -23,10 +23,9 @@ from sqlglot import exp
 from sqlglot.tokens import Token, TokenType
 
 _NOT_YET = "This T-SQL can't be run on the local engine: "
-_WAITS = ("A procedure or function takes parameters, which are variables, and runs with control flow, so procedures "
-          "and user-defined functions wait on the local engine's support for variables and control flow, which "
-          "isn't built yet. Run it in a Fabric Warehouse, or run its statements one at a time with values in place "
-          "of its parameters.")
+_WAITS = ("Procedures and user-defined functions take parameters and use control flow, which the local engine "
+          "doesn't run yet. Run it in a Fabric Warehouse, or run its statements one at a time with values in place of "
+          "its parameters.")
 _DYNAMIC = ("runs text as SQL (dynamic SQL), which the local engine doesn't do. Write the statement itself in the "
             "script, with values in place of its parameters, or run it in a Fabric Warehouse.")
 _CATALOG = ("INFORMATION_SCHEMA.TABLES and INFORMATION_SCHEMA.COLUMNS list the project's tables and columns, and "
@@ -73,8 +72,7 @@ def _routine(verb: str, kind: str, name: object) -> None:
         raise ValueError(f"{verb} TRIGGER {written} can't be run: a Fabric Warehouse has no triggers either. Run the "
                          "change the trigger would make as its own statement.".replace("  ", " "))
     word = "PROCEDURE" if kind == "PROC" else kind
-    raise ValueError(_NOT_YET + f"{verb} {word} {written} isn't mapped yet: {_KINDS[kind]} don't run on the local "
-                     f"engine. {_WAITS}".replace("  ", " "))
+    raise ValueError(_NOT_YET + f"{verb} {word} {written} isn't mapped yet. {_WAITS}".replace("  ", " "))
 
 
 def _name(table: exp.Expression) -> str:
@@ -87,13 +85,12 @@ def _execute(tree: exp.Execute) -> exp.Expression:
         raise ValueError(_NOT_YET + f"EXEC of a string {_DYNAMIC}")
     name = target.name.lower()
     if name == "sp_executesql":
-        raise ValueError(_NOT_YET + f"sp_executesql isn't mapped yet: it {_DYNAMIC}")
+        raise ValueError(_NOT_YET + f"sp_executesql isn't mapped yet. It {_DYNAMIC}")
     if name == "sp_rename" and (target.db or "sys").lower() in ("sys", "dbo"):
         return _rename(tree)
     if name.startswith(("sp_", "xp_")):
         raise ValueError(_NOT_YET + f"the system procedure {target.name} isn't mapped yet. {_CATALOG}")
-    raise ValueError(_NOT_YET + f"EXEC {_name(target)} isn't mapped yet: stored procedures don't run on the local "
-                     f"engine. {_WAITS}")
+    raise ValueError(_NOT_YET + f"EXEC {_name(target)} isn't mapped yet. {_WAITS}")
 
 
 def _calls(tree: exp.Expression) -> None:
@@ -107,8 +104,7 @@ def _calls(tree: exp.Expression) -> None:
 
 
 def _function(name: str) -> None:
-    raise ValueError(_NOT_YET + f"{name} is a user-defined function, which isn't mapped yet: user-defined "
-                     f"functions don't run on the local engine. {_WAITS}")
+    raise ValueError(_NOT_YET + f"{name} is a user-defined function, which isn't mapped yet. {_WAITS}")
 
 
 # ---------- sp_rename
@@ -129,8 +125,8 @@ def _arguments(tree: exp.Execute) -> dict[str, str]:
                              "for a column.")
         if not (isinstance(value, (exp.Literal, exp.National)) and (isinstance(value, exp.National) or
                                                                      value.is_string)):
-            raise ValueError(_NOT_YET + "sp_rename's names have to be written in quotes here: a variable is "
-                             "refused, since variables wait on the local engine's support for variables.")
+            raise ValueError(_NOT_YET + "sp_rename's names have to be written in quotes here, because variables "
+                             "aren't mapped yet on the local engine.")
         found[key] = value.name
     if "objname" not in found or "newname" not in found:
         raise ValueError("Procedure or function 'sp_rename' expects parameters '@objname' and '@newname', which "
@@ -165,8 +161,8 @@ def _rename(tree: exp.Execute) -> exp.Expression:
     parts = _parts(args["objname"])
     new = args["newname"]
     if kind not in ("OBJECT", "COLUMN"):
-        raise ValueError(_NOT_YET + f"sp_rename of an {kind.lower()} isn't mapped yet. A Fabric Warehouse takes "
-                         "'OBJECT' for @objtype, and the local engine renames tables and columns only.")
+        raise ValueError(_NOT_YET + f"sp_rename with @objtype '{kind}' isn't mapped yet. A Fabric Warehouse takes "
+                         "'OBJECT', and the local engine renames tables and columns only.")
     if not new or "/" in new or "\\" in new or new.endswith("."):
         raise ValueError(f"'{new}' can't be a name in a Fabric Warehouse: a name can't be empty, contain / or \\, or "
                          "end with a period.")
@@ -200,7 +196,7 @@ def information_schema(view: str) -> None:
     """Refuse by name an INFORMATION_SCHEMA view the local engine doesn't have."""
     if view.lower() not in INFORMATION_VIEWS:
         raise ValueError(_NOT_YET + f"INFORMATION_SCHEMA.{view.upper()} isn't mapped yet"
-                         + (": the local engine has no procedures or functions" if view.lower() in
+                         + (". The local engine has no procedures or functions" if view.lower() in
                             ("routines", "parameters", "routine_columns") else "")
                          + f". {_CATALOG}")
 

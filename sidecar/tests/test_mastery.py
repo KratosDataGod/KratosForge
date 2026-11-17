@@ -11,6 +11,10 @@ import pytest
 
 from fabric_desktop import progress
 from fabric_desktop.mastery import catalog, levels
+from fabric_desktop.server import handle
+
+from test_profile import call, plain  # noqa: F401 - the signed-in service fixture
+from test_profile_learn import lab, passed
 
 CAT = catalog.load()
 WARDEN = CAT["classes"]["lakehouse-warden"]
@@ -356,3 +360,24 @@ def test_a_cloud_only_skill_says_why_it_stops_at_journeyman():
     skill = {"evidence": {"academy": ["dp-700/E18"]}, "cloud": True}
     assert levels.ceiling(skill, [])[0] == 3
     assert levels.ceiling({"evidence": {}, "cloud": False})[0] == 0
+
+
+# ---------------------------------------------------------------- the Skill trees tab's engine method
+
+def test_profile_mastery_shows_every_class_and_one_tree_from_the_profile(plain):  # noqa: F811 - the fixture
+    empty = call(plain, "profile_mastery")
+    assert len(empty["classes"]) == 14 and empty["class"]["id"] == "lakehouse-warden"
+    delta = next(s for s in empty["class"]["specializations"] if s["id"] == "delta")
+    assert [n["state"] for n in delta["nodes"]][:3] == ["available", "locked", "locked"]
+    assert all(n["level"] == 0 and n["next"] for n in delta["nodes"])
+    # One pass of the Delta log lesson's exercise lifts its talent; nothing is stored by asking.
+    p = progress.empty()
+    progress.add(p, progress.from_lab(passed(lab("LM-07", "ex")), lab("LM-07", "ex", kind="module")))
+    progress.save(plain._profile_path(), p)
+    before = plain._profile_path().read_bytes()
+    seen = call(plain, "profile_mastery", class_id="lakehouse-warden")
+    root = next(s for s in seen["class"]["specializations"] if s["id"] == "delta")["nodes"][0]
+    assert root["level"] >= 1 and root["evidence"] and "LM-07" in root["learn"]
+    assert plain._profile_path().read_bytes() == before
+    out = handle(plain, json.dumps({"id": 1, "method": "profile_mastery", "params": {"class_id": "no-such-class"}}))
+    assert "isn't a developer class" in str(out["error"])

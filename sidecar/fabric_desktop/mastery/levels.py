@@ -45,6 +45,17 @@ RULES_VERSION = 1
 LEVELS = ("Not started", "Initiate", "Apprentice", "Journeyman", "Adept", "Expert", "Master", "Grandmaster")
 CATEGORIES = ("knowledge", "practice", "engineering", "mastery", "community")
 
+# What the next level needs, by the current level: the Skill trees tab shows it beside each talent.
+NEXT_STEP = (
+    "Finish one of its lessons or pass one of its exercises.",
+    "Finish a lesson that teaches it, or pass a hands-on exercise.",
+    "Pass a hands-on exercise on this PC.",
+    "Pass exercises from 2 different lessons or labs, at least 7 days apart, one of them with no more than 1 hint.",
+    "Use it in 2 of your own notebooks that pass Validate, with one measured result such as a faster run.",
+    "Pass a capstone lab, a Prove match or an independent Academy challenge, and practise it again 30 days after you started.",
+    "Grandmaster needs reviewer verification, which KratosForge doesn't offer yet.",
+    "",
+)
 UNLOCK_LEVEL = 2          # every prerequisite at Apprentice or higher opens a talent
 MASTERED_LEVEL = 4        # a talent shows as mastered from Adept
 ADEPT_SOURCES = 2

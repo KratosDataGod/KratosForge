@@ -673,13 +673,79 @@ def _rewrite_arrays(statement: exp.Expression) -> None:
     Snowflake's does (DuckDB's LIST_DISTINCT doesn't keep the order). ARRAY_FLATTEN of an array holding
     a NULL in place of an array is NULL, as in Snowflake; DuckDB's FLATTEN skips it."""
     for distinct in list(statement.find_all(exp.ArrayDistinct)):
-        _put(distinct, "LIST_FILTER(fj_arg0, LAMBDA kf_x, kf_i: LIST_POSITION(fj_arg0, kf_x) = kf_i)",
+        # the array is worked out once (fj_arg0 is read once), then searched for each element's first place
+        _put(distinct, "LIST_TRANSFORM([fj_arg0], LAMBDA kf_l: "
+                       "LIST_FILTER(kf_l, LAMBDA kf_x, kf_i: LIST_POSITION(kf_l, kf_x) = kf_i))[1]",
              [distinct.this])
     for flatten in list(statement.find_all(exp.Flatten)):
         if flatten.expressions:
             continue
         _put(flatten, "CASE WHEN LEN(LIST_FILTER(fj_arg0, LAMBDA kf_e: kf_e IS NULL)) > 0 THEN NULL "
                       "ELSE FLATTEN(fj_arg0) END", [flatten.this])
+
+
+def _rewrite_variant_reads(statement: exp.Expression) -> None:
+    """SFX-023: GET and the : path read a VARIANT made with TO_VARIANT (or a cast to VARIANT) as JSON, as
+    Snowflake reads any VARIANT; DuckDB reads its own VARIANT as text that isn't JSON, and stops."""
+    for read in list(statement.find_all(exp.GetExtract, exp.JSONExtract)):
+        value = read.this
+        if isinstance(value, exp.ToVariant) or (isinstance(value, (exp.Cast, exp.TryCast))
+                                                and value.to.is_type(exp.DataType.Type.VARIANT)):
+            value.replace(exp.Cast(this=value.copy(), to=exp.DataType.build("JSON")))
+
+
+def _rewrite_semi_structured_types(statement: exp.Expression) -> None:
+    """SFX-024: Snowflake's ARRAY type, with no element type, is a list of VARIANT values here (VARIANT[]),
+    so an ARRAY column holds the lists ARRAY_CONSTRUCT makes and the array functions read it; a cast to it
+    goes through VARIANT, which also reads a JSON array. OBJECT is JSON, as OBJECT_CONSTRUCT makes it."""
+    for kind in list(statement.find_all(exp.DataType)):
+        if kind.this == exp.DataType.Type.OBJECT and not kind.expressions:
+            kind.replace(exp.DataType.build("JSON"))
+        elif kind.this == exp.DataType.Type.ARRAY and not kind.expressions:
+            cast = kind.parent
+            if isinstance(cast, (exp.Cast, exp.TryCast)) and cast.args.get("to") is kind:
+                cast.this.replace(exp.Cast(this=cast.this.copy(), to=exp.DataType.build("VARIANT")))
+            kind.replace(exp.DataType.build("VARIANT[]", dialect="duckdb"))
+
+
+def _variant_list_type(kind: exp.DataType) -> bool:
+    """Whether ``kind`` is VARIANT[], the type SFX-024 gives Snowflake's ARRAY."""
+    return (kind.this == exp.DataType.Type.ARRAY and len(kind.expressions) == 1
+            and isinstance(kind.expressions[0], exp.DataType) and kind.expressions[0].this == exp.DataType.Type.VARIANT)
+
+
+def _may_be_variant_list(value: object) -> bool:
+    """Whether ``value`` may be or hold a list of VARIANT values: it reads a column or casts to VARIANT[], and
+    isn't a map, JSON value or literal, which never is (so a nested OBJECT_CONSTRUCT isn't copied)."""
+    if not isinstance(value, exp.Expression) or isinstance(value, (exp.Literal, exp.Map, exp.Null,
+                                                                   exp.MapFromEntries, exp.ParseJSON)):
+        return False
+    if isinstance(value, exp.Anonymous) and value.name.upper() in ("MAP_FROM_ENTRIES", "TO_JSON", "JSON"):
+        return False
+    return any(value.find_all(exp.Column)) or any(_variant_list_type(d) for d in value.find_all(exp.DataType))
+
+
+def _json_of_variant_lists(statement: exp.Expression) -> None:
+    """SFX-024: DuckDB's TO_JSON writes each element of a list of VARIANT values (an ARRAY column) as text
+    ("1"), so a value that may be such a list goes through VARIANT to JSON, which keeps each element's
+    type. Run last, on the DuckDB tree: TO_JSON may come from TO_JSON itself or from another rewrite
+    (OBJECT_CONSTRUCT). Only a value with a column or a VARIANT[] cast in it can be such a list."""
+    # innermost first, so an outer TO_JSON copies an inner one already rewritten
+    for node in reversed(list(statement.find_all(exp.JSONFormat, exp.Anonymous))):
+        if isinstance(node, exp.Anonymous) and (node.name.upper() != "TO_JSON" or len(node.expressions) != 1):
+            continue
+        value = node.this if isinstance(node, exp.JSONFormat) else node.expressions[0]
+        if not _may_be_variant_list(value):
+            continue
+        listed = exp.Case(ifs=[exp.If(
+            this=exp.and_(exp.Like(this=exp.Anonymous(this="typeof", expressions=[value.copy()]),
+                                   expression=exp.Literal.string("%VARIANT[]%")),
+                          exp.Not(this=exp.Is(this=value.copy(), expression=exp.Null()))),
+            true=exp.Cast(this=exp.Cast(this=value.copy(), to=exp.DataType.build("VARIANT")),
+                          to=exp.DataType.build("JSON")))],
+            default=exp.Anonymous(this="to_json", expressions=[value.copy()]))
+        node.replace(exp.Cast(this=listed, to=exp.DataType.build("VARCHAR")) if isinstance(node, exp.JSONFormat)
+                     else listed)
 
 
 def _rewrite_regexp_groups(statement: exp.Expression) -> None:
@@ -1476,6 +1542,8 @@ def _rewrite_typeof(statement: exp.Expression) -> None:
         template = (f"SELECT CASE WHEN _kf_v IS NULL THEN NULL "
                     f"WHEN typeof(_kf_v) = 'JSON' THEN CASE json_type(TRY_CAST(_kf_v AS JSON)) {json_case} "
                     f"ELSE {number} END "
+                    # a DuckDB VARIANT, such as an ARRAY column's element (SFX-024), by the value it holds
+                    f"WHEN typeof(_kf_v) = 'VARIANT' THEN {_KIND.replace('__sf_v', '_kf_v')} "
                     f"WHEN regexp_full_match(typeof(_kf_v), 'DECIMAL\\([0-9]+,0\\)') THEN 'INTEGER' "
                     f"WHEN typeof(_kf_v) LIKE 'DECIMAL(%' THEN 'DECIMAL' "
                     f"WHEN typeof(_kf_v) LIKE '%[]' THEN 'ARRAY' "
@@ -1693,6 +1761,10 @@ CATALOG = (
     ("SFX-022", "Rewritten", ("TO_TIMESTAMP of a string written in the query that holds a whole number reads it "
                 "as seconds, milliseconds, microseconds or nanoseconds by its size, as Snowflake does. A column "
                 "is read as before.")),
+    ("SFX-023", "Rewritten", ("GET and the : path read a VARIANT made with TO_VARIANT or a cast to VARIANT as JSON, "
+                "as Snowflake does.")),
+    ("SFX-024", "Rewritten", ("An ARRAY column or cast becomes a list of VARIANT values, so it holds what "
+                "ARRAY_CONSTRUCT makes and can read a JSON array. An OBJECT column or cast becomes JSON.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -1801,6 +1873,8 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_time(tree)
         _rewrite_timestamp_parts(tree)
         _rewrite_arrays(tree)
+        _rewrite_variant_reads(tree)
+        _rewrite_semi_structured_types(tree)
         _rewrite_regexp_groups(tree)
         _rewrite_string_epochs(tree)
         _rewrite_objects(tree)
@@ -1809,6 +1883,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         unknown_brackets = _type_values(tree, written)
         _rewrite_json_text(tree)
         _rewrite_division(tree)
+        _json_of_variant_lists(tree)
         sql = _duck(tree)
     except _Untranslatable as exc:
         return StatementReport(n, "not_translatable", None, (exc.note,))

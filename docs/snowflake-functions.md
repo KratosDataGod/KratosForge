@@ -21,11 +21,11 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 365 |
+| Runs | 368 |
 | Differs | 24 |
 | Refused | 82 |
-| Fails | 1 |
-| Not checked | 23 |
+| Fails | 0 |
+| Not checked | 21 |
 | **All** | **495** |
 
 ## String and binary
@@ -252,7 +252,7 @@ the known differences in more detail.
 | `TRY_TO_TIMESTAMP_TZ` | Differs | SFD-002 TIMESTAMP_TZ loses its offset |
 | `TO_ARRAY` | Runs | 1 value check |
 | `TO_OBJECT` | Runs | 2 value checks |
-| `TO_VARIANT` | Fails | TO_VARIANT: InvalidInputException: Invalid Input Error: Malformed JSON at byte 1 of input: unexpected character.  Input: "{'temperature': 31.5}" |
+| `TO_VARIANT` | Runs | 1 value check |
 
 ## Semi-structured
 
@@ -266,7 +266,7 @@ the known differences in more detail.
 | `PARSE_XML` | Refused |  | PARSE_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
 | `STRIP_NULL_VALUE` | Runs |  | 2 value checks |
 | `ARRAY_AGG` | Runs |  | 1 value check |
-| `ARRAY_APPEND` | Runs |  | 1 value check |
+| `ARRAY_APPEND` | Runs |  | 3 value checks; labelled SFD-001 Unquoted names keep their case, SFD-007 TYPEOF can't always name Snowflake's type |
 | `ARRAY_CAT` | Runs |  | 1 value check |
 | `ARRAY_COMPACT` | Runs |  | 1 value check |
 | `ARRAY_CONSTRUCT` | Runs |  | 1 value check |
@@ -568,8 +568,8 @@ the known differences in more detail.
 | `CREATE TRANSIENT TABLE` | Refused | `CREATE TRANSIENT TABLE n (a INT)` | Not rewritten for DuckDB. Unsupported property transientproperty. |
 | `INSERT INTO` | Runs |  | 2 value checks; labelled SFD-001 Unquoted names keep their case |
 | `INSERT OVERWRITE` | Refused | `INSERT OVERWRITE INTO t SELECT * FROM s` | INSERT OVERWRITE. Snowflake empties the table and inserts in one statement inside the current transaction; DuckDB has no INSERT OVERWRITE, and a DELETE then INSERT written here wouldn't be one statement. |
-| `UPDATE` | Not checked | `UPDATE t SET b = 0 WHERE a = 1` | its page prints no results, and the one UPDATE result documented (on ARRAY_APPEND's page) uses an ARRAY column, which CREATE TABLE here can't make yet |
-| `UPDATE FROM` | Not checked | `UPDATE t SET b = s.b FROM s WHERE t.a = s.a` | its page's examples read tables the page doesn't create |
+| `UPDATE` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `UPDATE FROM` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
 | `DELETE` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
 | `DELETE USING` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
 | `MERGE` | Runs |  | 2 value checks; labelled SFD-001 Unquoted names keep their case |

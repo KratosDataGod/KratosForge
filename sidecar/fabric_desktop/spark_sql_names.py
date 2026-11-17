@@ -460,6 +460,8 @@ class _Printer:
             return self.pretty(node.this)  # a wrapper sqlglot added (ts_or_ds_to_date)
         else:
             args = list(node.expressions) if isinstance(node, exp.Anonymous) else _arguments(node)
+        if name == "approx_count_distinct":
+            args = args[:1]  # rsd is a setting of Spark's estimator, not one of its arguments
         if isinstance(node, exp.StrPosition) and node.meta.get(_IN_FORM):
             name = "locate"
         if name in ("isnull", "isnotnull") and len(args) == 1:

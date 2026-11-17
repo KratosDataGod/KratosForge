@@ -545,7 +545,11 @@ def test_typeof_never_gives_a_confident_wrong_name(code, want):
 def test_typeof_reads_its_argument_as_a_tree_and_the_rule_is_listed():
     sql = sf.translate("select typeof(v:k.x) from t").duckdb_sql
     assert "LAMBDA" not in sql.upper() and "->" in sql  # a path stays a path (#1252)
-    assert "VARIANT" not in sf.translate("select typeof('a'::variant)").duckdb_sql
+    # the ::variant is read past: the value isn't cast to VARIANT, except where the VARIANT branch (a DuckDB
+    # VARIANT value, SFX-024) asks variant_typeof what it holds
+    sql = sf.translate("select typeof('a'::variant)").duckdb_sql
+    assert sql.count("AS VARIANT") == sql.upper().count("VARIANT_TYPEOF(CAST(")
+    assert _first("select typeof('a'::variant)") == "VARCHAR"
     assert "SFX-009" in [row[0] for row in sf.CATALOG] and "SFX-009" in sf.docs_table()
 
 
@@ -975,6 +979,8 @@ def test_alter_session_sets_the_time_zone_and_refuses_other_parameters():
 
 def test_array_distinct_keeps_first_places_and_flatten_of_a_null_is_null():
     assert _first("SELECT array_distinct([3, 1, 3, NULL, 2, NULL, 1])") == [3, 1, None, 2]
+    # the array is worked out once: random values aren't drawn again for each element
+    assert _first("SELECT array_size(array_distinct(array_construct(random(), random(), random())))") == 3
     assert _first("SELECT array_flatten([[1], NULL])") is None
     assert _first("SELECT array_flatten([[1], [NULL]])") == [1, None]
 
@@ -1012,3 +1018,41 @@ def test_timestamp_tz_from_parts_is_in_the_session_zone():
 def test_a_pattern_python_cannot_read_still_translates(pattern):
     translation = sf.translate(f"SELECT regexp_substr('a', '{pattern}', 1, 1, 'e')")
     assert translation.runnable, translation.first_refusal()
+
+
+def test_get_reads_a_to_variant_value_as_json():
+    assert _first("SELECT get(to_variant(object_construct('t', 31.5)), 't')::FLOAT") == 31.5
+    assert _first("SELECT to_variant(object_construct('a', 'x')):a::VARCHAR") == "x"
+    assert _first("SELECT get(object_construct('a', 2)::VARIANT, 'a')::INT") == 2
+    assert _first("SELECT get(to_variant(array_construct(1, 2)), 1)::INT") == 2
+
+
+def test_an_array_column_holds_arrays_and_an_object_column_holds_json():
+    rows = _rows("CREATE TABLE t (a ARRAY, o OBJECT); "
+                 "INSERT INTO t SELECT ARRAY_CONSTRUCT(1, 2), OBJECT_CONSTRUCT('k', 1); "
+                 "UPDATE t SET a = ARRAY_APPEND(a, 'x'); "
+                 "SELECT a, ARRAY_SIZE(a), TYPEOF(a[0]), TYPEOF(a[2]), o:k::INT FROM t")
+    assert rows == [([1, 2, "x"], 3, "INTEGER", "VARCHAR", 1)]
+
+
+def test_a_cast_to_array_reads_a_list_or_a_json_array_and_object_is_json():
+    assert _first("SELECT PARSE_JSON('[1, \"a\"]')::ARRAY") == [1, "a"]
+    assert _first("SELECT ARRAY_CONSTRUCT(1, 2)::ARRAY") == [1, 2]
+    assert _first("SELECT CAST(NULL AS ARRAY)") is None
+    assert _first("SELECT TYPEOF(CAST(NULL AS OBJECT))") is None
+    # a structured ARRAY(INT) keeps its element type
+    assert "INT[]" in sf.translate("SELECT CAST(NULL AS ARRAY(INT))").duckdb_sql
+
+
+def test_to_json_of_an_array_column_keeps_each_element_type():
+    rows = _rows("CREATE TABLE t (a ARRAY, n INT); INSERT INTO t SELECT ARRAY_CONSTRUCT(1, 2), 1; "
+                 "INSERT INTO t SELECT NULL, 2; UPDATE t SET a = ARRAY_APPEND(a, 'five') WHERE n = 1; "
+                 "SELECT TO_JSON(a), TO_JSON(ARRAY_APPEND(a, 3)), TO_JSON(OBJECT_CONSTRUCT('k', a)), TO_JSON(n) "
+                 "FROM t ORDER BY n")
+    assert rows == [('[1,2,"five"]', '[1,2,"five",3]', '{"k":[1,2,"five"]}', "1"), (None, None, "{}", "2")]
+    assert _first("SELECT TO_JSON(ARRAY_CONSTRUCT(1, 2)::ARRAY)") == "[1,2]"
+    # a list inside an object inside an object too, and the outer object isn't copied for the check
+    nested = "SELECT TO_JSON(OBJECT_CONSTRUCT('k', OBJECT_CONSTRUCT('j', a))) FROM t"
+    assert sf.translate(nested).duckdb_sql.upper().count("MAP_FROM_ENTRIES") == 1
+    assert _rows("CREATE TABLE t (a ARRAY); INSERT INTO t SELECT ARRAY_CONSTRUCT(1, 'x'::VARIANT); "
+                 + nested) == [('{"k":{"j":[1,"x"]}}',)]

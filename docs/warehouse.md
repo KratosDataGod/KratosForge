@@ -28,7 +28,7 @@ Tick **Allow changes** at the top of the Warehouse page to let **Run** change th
 
 A script you wrote as one transaction, `BEGIN TRAN` on its first line and `COMMIT` on its last, runs the same way: those two lines are what the run does anyway. If a batch fails, the error says which one, and nothing is kept.
 
-Some things are never run, even when changes are allowed: any other `BEGIN TRAN`, `COMMIT` or `ROLLBACK` (the run is the transaction), dynamic SQL, `EXECUTE AS`, permissions (`GRANT`, `REVOKE`, `DENY`, roles and users, which are managed in Fabric), `USE` and other databases, `COPY INTO` and database DDL. A script with one of these says which statement and why, and nothing is sent. A procedure's body is checked when you create it here, but a procedure already in the warehouse runs as it was written. The full list is in [SQL execution](sql-execution.md#changes-on-a-warehouse-wh-10).
+Some things are never run, even when changes are allowed: any other `BEGIN TRAN`, `COMMIT` or `ROLLBACK` (the run is the transaction), dynamic SQL, `EXECUTE AS`, permissions (`GRANT`, `REVOKE`, `DENY`, roles and users, which are managed in Fabric), `USE` and other databases, `COPY INTO` and `BULK INSERT` (see [Loading data with T-SQL](sql-compatibility.md#loading-data-with-t-sql)) and database DDL. A script with one of these says which statement and why, and nothing is sent. A procedure's body is checked when you create it here, but a procedure already in the warehouse runs as it was written. The full list is in [SQL execution](sql-execution.md#changes-on-a-warehouse-wh-10).
 
 ### When a run is cut off
 

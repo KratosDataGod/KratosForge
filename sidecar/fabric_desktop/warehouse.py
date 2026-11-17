@@ -20,8 +20,8 @@ confirmed it, naming the warehouse (sql_exec.py checks the name against Fabric's
 several statements, in batches split at ``GO`` lines like SSMS: DDL, DML, EXEC, variables. Still
 refused, before anything is sent: BEGIN TRAN, COMMIT and ROLLBACK (the run is the transaction; a BEGIN TRAN first
 line and COMMIT last line that wrap the whole script are taken off, see without_outer_transaction),
-USE (another database), GRANT, REVOKE and DENY (permissions belong in Fabric), COPY INTO (loading
-files comes with data loading), CREATE, ALTER or DROP DATABASE, and OPENROWSET, OPENQUERY and
+USE (another database), GRANT, REVOKE and DENY (permissions belong in Fabric), COPY INTO and BULK
+INSERT (loading files comes with data loading), CREATE, ALTER or DROP DATABASE, and OPENROWSET, OPENQUERY and
 OPENDATASOURCE. Also refused: dynamic SQL (EXEC of a string or a variable, sp_executesql), since
 what it runs can't be checked first (EXEC of a module named by a variable too); EXECUTE AS and
 REVERT; and roles, users and AUTHORIZATION. Every batch is checked by its text for these words,
@@ -106,6 +106,7 @@ _NEVER_WORDS = [(re.compile(p, re.IGNORECASE), why) for p, why in (
     (r"\b(?:CREATE|ALTER|DROP)\s+(?:ROLE|USER|LOGIN|APPLICATION\s+ROLE)\b", _PERMISSIONS),
     (r"\bUSE\b", "USE switches to another database: open that warehouse instead" + _AS_NAME),
     (r"\bCOPY\s+INTO\b", "COPY INTO loads files, which comes with loading data"),
+    (r"\bBULK\s+INSERT\b", "BULK INSERT loads files, which comes with loading data"),
     (r"\b(?:CREATE|ALTER|DROP)\s+DATABASE\b", "a database is created, changed or removed in Fabric"),
 )]
 _NEVER_NAMES = [(re.compile(p, re.IGNORECASE), why) for p, why in (
@@ -223,6 +224,15 @@ def verdicts(query: str, writes: bool = False) -> list[sql_policy.Verdict]:
     refused (fabric_mutation) for the reasons in this module's docstring."""
     if writes:
         return _change_verdicts(query)
+    bare, names = _bare_and_names(query)
+    # named before parsing: sqlglot can't read OPENROWSET(BULK ...) or BULK INSERT (WR-220)
+    outside = next((f for f in sorted(_OUTSIDE) if re.search(rf"\b{f}\b", names, re.IGNORECASE)), "")
+    if outside:
+        return [sql_policy.Verdict(1, "fabric_mutation", f"{outside.upper()} reads outside the warehouse")]
+    loads = re.search(r"\b(?:COPY\s+INTO|BULK\s+INSERT)\b", bare, re.IGNORECASE)
+    if loads:
+        word = " ".join(loads.group().upper().split())
+        return [sql_policy.Verdict(1, "fabric_mutation", f"{word} loads files, which comes with loading data")]
     try:
         statements = [cast(exp.Expression, s)  # sqlglot types parse as its Expr base
                       for s in sql_dialects.parse(_AS_OF.sub("", query), read="tsql", error_level=ErrorLevel.RAISE)

@@ -716,6 +716,8 @@ test("the result grid keeps a column layout for one set of names: widths, hidden
   g.hidden = [1];
   g.widths = { 2: 180.4 };
   assert.strictEqual(sqlGridWidthCss(g.widths), '.sql-result-table [data-col="2"] { width: 180px; min-width: 180px; max-width: 180px; }');
+  assert.strictEqual(sqlGridWidthCss(g.widths, "g7"), '.sql-result-table[data-grid="g7"] [data-col="2"] { width: 180px; min-width: 180px; max-width: 180px; }',
+    "a width belongs to its own grid: a notebook shows a table per cell");
   const next = sqlGridCarry(g);
   assert.deepStrictEqual(plain(sqlGridLayoutFor(next, cols)), [2, 0], "a new run with the same columns keeps the layout");
   assert.deepStrictEqual(plain(next.sort), []);

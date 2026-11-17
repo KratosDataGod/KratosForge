@@ -168,3 +168,24 @@ test("Clean filters every row in the engine and adds the Polars code as a new ce
   assert.match(cells[1], /^import polars as pl[\s\S]*df_clean = clean_data\(df\)\ndisplay\(df_clean\)\n$/);
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("resizing a column in one cell's table leaves another cell's table as it was", { skip }, async () => {
+  const first = page().locator(".table-output").first();
+  await first.getByRole("button", { name: "Table", exact: true }).click();
+  await first.locator(".result-range").waitFor();
+  await page().evaluate(() => {
+    state.selected = state.notebook.cells[0].id;
+    insertCell("import polars as pl\npl.DataFrame({'n': [1, 2], 'name': ['a', 'b']})");
+    return runCell(state.notebook.cells[1]);
+  });
+  const second = page().locator(".table-output").nth(1);
+  await second.locator(".result-range").waitFor({ timeout: 60000 });
+  const width = (out) => out.locator('th[data-col="1"]').evaluate((el) => Math.round(el.getBoundingClientRect().width));
+  const before = await width(second);
+  const w0 = await width(first);
+  await first.locator('th[data-col="1"] .sql-col-resize').focus();
+  for (let k = 0; k < 3; k++) await page().keyboard.press("ArrowRight");
+  await page().waitForFunction((w) => Math.abs(document.querySelectorAll('.table-output th[data-col="1"]')[0].getBoundingClientRect().width - w) <= 2, w0 + 48);
+  assert.strictEqual(await width(second), before, "the other table keeps its width");
+  assert.deepStrictEqual(app.errors, []);
+});

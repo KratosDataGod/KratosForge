@@ -45,7 +45,7 @@ function sqlGridCount(r, columns) {
 function sqlResultGrid(r, g, on) {
   const vis = sqlGridLayoutFor(g, r.columns);
   const sortOf = (i) => (r.sort || []).find((s) => s.column === i);
-  const widths = h("style", {}, sqlGridWidthCss(g.widths));
+  const widths = h("style", {}, sqlGridWidthCss(g.widths, sqlGridId(g)));
   const head = vis.map((i) => {
     const c = r.columns[i];
     const s = sortOf(i);
@@ -54,7 +54,7 @@ function sqlResultGrid(r, g, on) {
         title: `Sort by ${c.name} (${c.type}). Sorts every row of the result on this PC; nothing runs again.` },
       c.name, s ? h("span", { class: "sql-sort-mark", "aria-hidden": "true" }, s.desc ? " ▼" : " ▲") : null),
       sqlColumnResizer(c, i, g, () => {
-        widths.textContent = sqlGridWidthCss(g.widths);
+        widths.textContent = sqlGridWidthCss(g.widths, g.id);
         table.classList.toggle("sized", Object.keys(g.widths).length > 0);
       }));
   });
@@ -77,7 +77,7 @@ function sqlResultGrid(r, g, on) {
       return h("td", { "data-col": String(i) }, box);
     })) : null;
   // A column a person sized keeps its width: the table no longer stretches its columns to fill the grid.
-  const table = h("table", { tabindex: "0", class: `sql-result-table${Object.keys(g.widths).length ? " sized" : ""}`,
+  const table = h("table", { tabindex: "0", "data-grid": g.id, class: `sql-result-table${Object.keys(g.widths).length ? " sized" : ""}`,
     "aria-label": "Results. Arrow keys move, Shift and an arrow selects, Ctrl+C copies, Enter opens a value, Shift+F10 shows more." },
     h("thead", {}, h("tr", {}, h("th", { class: "i" }), head), filterRow),
     h("tbody", {}, r.rows.map((row, k) => h("tr", { "data-r": String(k) }, h("td", { class: "i" }, String(r.offset + k + 1)),
@@ -111,10 +111,17 @@ function sqlGridLayoutFor(g, columns) {
   return g.vis;
 }
 
-// The style that holds the widths a person set: { [column]: px }.
-function sqlGridWidthCss(widths) {
+// Each grid's own id, so the widths a person set in one table never reach another (a notebook shows many).
+function sqlGridId(g) {
+  sqlGridId.count = (sqlGridId.count || 0) + (g.id ? 0 : 1);
+  return (g.id ||= `g${sqlGridId.count}`);
+}
+
+// The style that holds the widths a person set in grid g: { [column]: px }, for that grid's table only.
+function sqlGridWidthCss(widths, id) {
+  const table = id ? `.sql-result-table[data-grid="${String(id).replace(/[^\w-]/g, "")}"]` : ".sql-result-table";
   return Object.entries(widths || {}).map(([k, w]) =>
-    `.sql-result-table [data-col="${Number(k)}"] { width: ${Math.round(w)}px; min-width: ${Math.round(w)}px; max-width: ${Math.round(w)}px; }`).join("\n");
+    `${table} [data-col="${Number(k)}"] { width: ${Math.round(w)}px; min-width: ${Math.round(w)}px; max-width: ${Math.round(w)}px; }`).join("\n");
 }
 
 // A column moved up or down in Columns...: the new order.

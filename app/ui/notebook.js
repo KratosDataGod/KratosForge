@@ -1355,15 +1355,15 @@ function renderResultViewer(o, wrap, bar, numeric, count, redraw = () => {}) {
   // The table, in the columns Columns... shows and its order, each with a handle to resize it.
   const gridTable = (rows) => {
     const vis = sqlGridLayoutFor(g, cols);
-    const style = h("style", {}, sqlGridWidthCss(g.widths));
-    const table = h("table", { tabindex: "0", class: `sql-result-table${Object.keys(g.widths).length ? " sized" : ""}`,
+    const style = h("style", {}, sqlGridWidthCss(g.widths, sqlGridId(g)));
+    const table = h("table", { tabindex: "0", "data-grid": g.id, class: `sql-result-table${Object.keys(g.widths).length ? " sized" : ""}`,
       "aria-label": "Result. Arrow keys move, Shift and an arrow selects, Ctrl+C copies, Enter opens a value, Shift+F10 shows more." },
     h("thead", {}, h("tr", {}, vis.map((i) => h("th", { class: numeric[i] ? "n" : null, "data-col": String(i) },
       h("button", { class: "th-sort", onclick: () => { v.sort = v.sort?.i === i ? { i, dir: -v.sort.dir } : { i, dir: 1 }; return load(0); } },
         o.columns[i], v.sort?.i === i ? (v.sort.dir > 0 ? " ▲" : " ▼") : ""),
       o.types?.[i] ? h("span", { class: "th-type" }, o.types[i]) : null,
       sqlColumnResizer(cols[i], i, g, () => {
-        style.textContent = sqlGridWidthCss(g.widths);
+        style.textContent = sqlGridWidthCss(g.widths, g.id);
         table.classList.toggle("sized", Object.keys(g.widths).length > 0);
       })))), v.filterOn ? filterBoxes() : null),
     h("tbody", {}, rows.map((r, k) => h("tr", { "data-r": String(k) }, vis.map((i, c) =>

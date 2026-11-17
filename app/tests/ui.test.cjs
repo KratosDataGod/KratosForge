@@ -3960,7 +3960,9 @@ test("the notebook result viewer pages, searches and sorts the whole result in t
 });
 
 test("a result the kernel no longer holds says to run the cell again; downloads name the file saved", async () => {
-  const { ctx, toasts, calls } = resultViewerHarness([{ frame: "f1", gone: true }, { path: "C:\\Users\\me\\Downloads\\Sales result.xlsx", rows: 5000, format: "xlsx" }]);
+  const { ctx, toasts, calls } = resultViewerHarness([{ frame: "f1", gone: true }, { path: "C:\\Users\\me\\Downloads\\Sales result.xlsx", rows: 5000, format: "xlsx" },
+    { path: "C:\\Users\\me\\Downloads\\Sales result.csv", rows: 2, format: "csv", notes: ["1 text cell started with = and was protected."] },
+    { path: "C:\\Users\\me\\Downloads\\Sales result 2.csv", rows: 2, format: "csv", raw: true, notes: [] }]);
   const o = { frame: "f1", columns: ["n"], rows: [[1]], total_rows: 1 };
   const wrap = ctx.h("div");
   const bar = ctx.h("div");
@@ -3968,10 +3970,16 @@ test("a result the kernel no longer holds says to run the cell again; downloads 
   await findAll(wrap, (n) => n.attrs?.class === "th-sort")[0].attrs.onclick();
   assert.match(findAll(wrap, (n) => n.attrs?.role === "status")[0].textContent, /^Run the cell again/);
   const items = findAll(bar, (n) => n.attrs?.role === "menuitem").map(texts);
-  assert.deepStrictEqual(plain(items), ["CSV", "Excel", "Parquet"]);
+  assert.deepStrictEqual(plain(items), ["CSV", "CSV, Keep raw values", "Excel", "Parquet"]);
   await ctx.download(o, "xlsx");
   assert.deepStrictEqual(plain(calls[1]), ["notebook_frame_download", { frame: "f1", format: "xlsx", name: "Sales", notebook: "Sales" }]);
   assert.deepStrictEqual(plain(toasts.at(-1)), ["Saved 5,000 rows to C:\\Users\\me\\Downloads\\Sales result.xlsx", false]);
+  // WR-228: a CSV says what it protected; Keep raw values asks the engine for the values as they are
+  await ctx.download(o, "csv");
+  assert.deepStrictEqual(plain(calls[2]), ["notebook_frame_download", { frame: "f1", format: "csv", name: "Sales", notebook: "Sales" }]);
+  assert.match(toasts.at(-1)[0], /Sales result\.csv\. 1 text cell started with = and was protected\.$/);
+  await ctx.download(o, "csv", true);
+  assert.deepStrictEqual(plain(calls[3]), ["notebook_frame_download", { frame: "f1", format: "csv", name: "Sales", notebook: "Sales", raw: true }]);
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
   assert.match(nb, /if \(o\.view === "table" && o\.frame\) \{\n    renderResultViewer\(o, wrap, bar, numeric, count, redraw\);/);
   assert.match(nb, /previewMarked\("resultViewer", menu\)/);

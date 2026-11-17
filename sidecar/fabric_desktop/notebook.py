@@ -872,8 +872,8 @@ class Kernel:
     def frame_query_profile(self, frame: str) -> dict[str, Any]:
         return self.frames.query_profile(frame)
 
-    def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
-        return self.frames.download(frame, format, path)
+    def frame_download(self, frame: str, format: str, path: str, raw: bool = False) -> dict[str, Any]:  # noqa: A002 - RPC name
+        return self.frames.download(frame, format, path, raw=raw)
 
     def _display_html(self, html: str | bytes) -> None:
         """displayHTML(html), as Fabric and Databricks have: shown in the cell's sandboxed frame."""

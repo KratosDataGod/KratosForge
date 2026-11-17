@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from . import model_dictionary, sql_exec
+from . import csv_cells, model_dictionary, sql_exec
 from .jsonfile import write_text
 from .meta import mesh
 from .redact import describe
@@ -57,8 +57,10 @@ class ModelDictionaryMixin:
         folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         path = sql_exec._reserve(folder, f"SM_{layer.title()} data dictionary", ".csv")
-        path.write_text(model_dictionary.to_csv(items), encoding="utf-8-sig")  # the mark tells Excel it's UTF-8
-        return {"path": str(path), "rows": len(items)}
+        cells = csv_cells.Cells()
+        path.write_text(model_dictionary.to_csv(items, cells), encoding="utf-8-sig")  # the mark tells Excel it's UTF-8
+        notes = [csv_cells.note(cells.protected, can_keep_raw=False)] if cells.protected else []
+        return {"path": str(path), "rows": len(items), "protected": cells.protected, "notes": notes}
 
     def meta_model_dictionary_save(self, layer: str | None = None) -> dict[str, Any]:
         """The dictionary as semantic/SM_<Layer>.dictionary.csv in the project's folder, ready to commit."""

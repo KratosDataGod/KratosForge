@@ -629,10 +629,11 @@ class ProcessKernel:
             raise FrameGone(GONE)
         return self._request("frame_wrangle", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, steps=steps, name=name)
 
-    def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
+    def frame_download(self, frame: str, format: str, path: str, raw: bool = False) -> dict[str, Any]:  # noqa: A002 - RPC name
         if not self.alive():
             raise FrameGone(GONE)
-        return self._request("frame_download", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, format=format, path=path)
+        return self._request("frame_download", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, format=format, path=path,
+                             **({"raw": True} if raw else {}))
 
     # ---- proofs (prove_service): the proof runtime lives where the cells run
 

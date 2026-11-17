@@ -1276,8 +1276,9 @@ function renderResultViewer(o, wrap, bar, numeric, count, redraw = () => {}) {
   const menu = h("details", { class: "sql-export result-download" },
     h("summary", { class: "tool outline small", "aria-label": "Download the whole result" }, "Download ▾"),
     h("div", { class: "sql-export-menu", role: "menu" },
-      [["csv", "CSV"], ["xlsx", "Excel"], ["parquet", "Parquet"]].map(([fmt, label]) =>
-        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; downloadResult(o, fmt); } }, label))));
+      [["csv", "CSV"], ["csv", "CSV, Keep raw values", true], ["xlsx", "Excel"], ["parquet", "Parquet"]].map(([fmt, label, raw]) =>
+        h("button", { role: "menuitem", title: raw ? "Each value exactly as it is. A spreadsheet runs a cell that starts with =, +, - or @ as a formula." : null,
+          onclick: (e) => { e.target.closest("details").open = false; downloadResult(o, fmt, raw); } }, label))));
   // Filter: a box under each header, read as the SQL page's result grid (sql_view.py), over every row.
   const filterBtn = btn("Filter", null, () => {
     v.filterOn = !v.filterOn;
@@ -1435,14 +1436,17 @@ function copyResultPage(o) {
   attempt(() => navigator.clipboard.writeText(text).then(() => toast(`Copied ${rows.length} row${rows.length === 1 ? "" : "s"}. Paste into Excel or a sheet.`)), "Could not copy");
 }
 
-// The whole result, written by the kernel to a new file in Downloads; a file there is never replaced.
-async function downloadResult(o, format) {
+// The whole result, written by the kernel to a new file in Downloads; a file there is never replaced. A CSV puts an
+// apostrophe in front of a text cell a spreadsheet would run as a formula, unless raw (Keep raw values, WR-228).
+async function downloadResult(o, format, raw = false) {
   const label = { csv: "CSV", xlsx: "Excel", parquet: "Parquet" }[format];
   toast(`Downloading the whole result as ${label}...`);
-  const out = await attempt(() => rpc("notebook_frame_download", { frame: o.frame, format, name: state.notebook?.name || "notebook", notebook: state.notebook?.name }), "Could not download");
+  const out = await attempt(() => rpc("notebook_frame_download", { frame: o.frame, format, name: state.notebook?.name || "notebook",
+    notebook: state.notebook?.name, ...(raw ? { raw: true } : {}) }), "Could not download");
   if (!out) return;
   if (out.gone) { toast(out.message, true); return; }
-  toast(`Saved ${out.rows.toLocaleString()} row${out.rows === 1 ? "" : "s"} to ${out.path}`);
+  const notes = out.notes?.length ? `. ${out.notes.join(" ")}` : "";
+  toast(`Saved ${out.rows.toLocaleString()} row${out.rows === 1 ? "" : "s"} to ${out.path}${notes}`);
 }
 
 function renderChart(o, numeric) {

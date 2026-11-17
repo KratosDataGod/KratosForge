@@ -69,6 +69,36 @@ These cases can still differ, and LOC-005 notes them:
 | `div` whose quotient is past the BIGINT range | Wraps around (ANSI off) | NULL |
 | ANSI mode on | A division by zero is an error | NULL |
 
+## Dates and times on this PC (LOC-003)
+
+Spark SQL run on this PC gives Spark's values and types for its date and time functions, with ANSI mode off as Fabric runs it. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_datetime.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `date_format`, `from_unixtime` with a pattern | Every pattern letter Spark takes is written as Java writes it, in the session's time zone: fractions (`SSS`), quarters (`Q` to `QQQQ`), `k` and `K` hours, offsets (`X`, `x`, `Z`, `O`), the zone's id (`VV`), and quoted text (`'T'`). Text that isn't a timestamp gives NULL |
+| `to_timestamp`, `to_date`, `unix_timestamp`, `to_unix_timestamp` with a pattern | Text is read with Spark's pattern, in the session's time zone unless it has an offset (`XXX` reads `Z` and `+05:30`). `yy` reads 00 to 99 as 2000 to 2099. A pattern without a year reads the date as 1970-01-01. Text that doesn't match gives NULL |
+| `to_timestamp`, `to_timestamp_ltz`, `try_to_timestamp`, `make_timestamp`, `timestamp_seconds`, `from_utc_timestamp`, `to_utc_timestamp`, `date_trunc` | Spark's `timestamp`, not `timestamp_ntz`, so the result can be written to a Delta table. `to_timestamp_ntz` and `make_timestamp_ntz` give `timestamp_ntz` |
+| `year`, `month`, `day`, `dayofyear`, `weekofyear`, `dayofweek`, `weekday`, `quarter`, `hour`, `minute`, `second`, `datediff`, `unix_date` | An `int`, as in Spark |
+| `date_add`, `date_sub`, `datediff`, `add_months`, `last_day`, `months_between` | Spark's dates at month ends and the leap day (`add_months(DATE'2019-02-28', 1)` is `2019-03-28`), and NULL for text that isn't a date |
+| `trunc`, `date_trunc` | NULL for a unit the function doesn't take. `trunc` takes `YEAR`, `YYYY`, `YY`, `QUARTER`, `MONTH`, `MM`, `MON` and `WEEK`; `date_trunc` also takes `DAY`, `DD`, `HOUR`, `MINUTE`, `SECOND`, `MILLISECOND` and `MICROSECOND` |
+| `next_day` | Takes `MO`, `MON` or `MONDAY` and so on for each day, in any case. Any other text gives NULL |
+| `make_date`, `make_timestamp` | NULL for a day that doesn't exist, such as `make_date(2023, 2, 29)` |
+
+Patterns that Spark refuses are refused here by name, and nothing runs: the week-based letters (`Y`, `w`, `W`, `u`, `e`, `c`), `F`, optional sections (`[ ]`) and letters that aren't pattern letters. These are refused too, because this PC can't give Spark's text for them:
+
+- Zone names (`z`, such as `EST`). Use `VV` for the zone's id or `XXX` for its offset.
+- When reading text, `G`, `Q`, `k`, `K`, `O` and `z`.
+
+These cases can still differ. LOC-003 warns wherever a pattern is used:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| Text with more fraction digits than the pattern's `S` letters, such as `.123` with `ss.SS` | NULL | Read, up to 6 digits |
+| Text with one digit where the pattern has two, such as `2024-2-9` with `yyyy-MM-dd` | Not read: see the next row | Read |
+| Text the pattern doesn't read the Spark 3 way, with `spark.sql.legacy.timeParserPolicy` at its default `EXCEPTION` | Stops with `SparkUpgradeException` when Spark 2's parser would have read it | NULL, as with the policy `CORRECTED`. The setting isn't read here |
+
+A cast of text that is only a year or a year and month, such as `CAST('2024-02' AS DATE)` or `to_timestamp('2024')`, also still differs. Spark reads it as the month's or the year's first day; here it is NULL. No rule warns about it yet.
+
 ## Local T-SQL changes
 
 When a project runs T-SQL on this PC, `MERGE`, `UPDATE`, `DELETE` and `INSERT` on a database table give a warehouse's rows, or stop by name. Each case below is checked against T-SQL's reference.
@@ -148,9 +178,9 @@ What still differs:
 - Any other collation (`COLLATE Latin1_General_100_CI_AS_KS_WS_SC_UTF8`, `SQL_Latin1_General_CP1_CI_AS`) is refused by name. Compare `UPPER(...)` on both sides to ignore case.
 - `PATINDEX` needs its pattern written out as text, and is refused otherwise.
 
-Not yet checked against a warehouse, since T-SQL's reference doesn't say:
+These aren't checked against a warehouse yet, since T-SQL's reference doesn't say. The warehouse live check, flow 17 of the [smoke test](product/smoke-test/README.md#flow-17-the-warehouse-live-check), runs them, and each section's other cases, against a test warehouse:
 
-- `LIKE` with a wildcard where the text has trailing spaces. Here the text matches either as written or without its trailing spaces. So `'abc  ' LIKE 'abc_'` is false, and `'abc  ' LIKE 'abc__'` is true.
+- `LIKE` with a wildcard where the text has trailing spaces. Here a match counts if the text matches as written, or with its trailing spaces removed. So `'abc  ' LIKE 'abc_'` is false, and `'abc  ' LIKE 'abc__'` is true.
 - `CHARINDEX` with a `NULL` start. Here the answer is `NULL`.
 
 ## Rules
@@ -222,7 +252,7 @@ Rule set **2026.10.3**, from Microsoft Learn and the Apache Spark 3.5 reference 
 | DES-005 | DROP COLUMN deletes the column's data | warning | Spark, Warehouse, Endpoint, SQL database, DuckDB | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 | LOC-001 | Changes data in Fabric, not here | warning | Spark | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 | LOC-002 | Regular expressions differ on this PC | warning | Spark | medium | [source](https://duckdb.org/docs/stable/sql/functions/regular_expressions) |
-| LOC-003 | Date pattern is translated on this PC | warning | Spark | medium | [source](https://spark.apache.org/docs/3.5.1/sql-ref-datetime-pattern.html) |
+| LOC-003 | Date pattern reads some text differently on this PC | warning | Spark | medium | [source](https://spark.apache.org/docs/3.5.1/sql-ref-datetime-pattern.html) |
 | LOC-004 | *name* gives a different value each run | information | Spark, DuckDB | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 | LOC-005 | Decimal results can differ | information | Spark | medium | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 | LOC-006 | *name* has no fixed order | warning | Spark | medium | [source](https://spark.apache.org/docs/3.5.1/sql-ref-functions-builtin.html) |
@@ -317,6 +347,29 @@ When a project runs T-SQL on this PC, these are checked against T-SQL's referenc
 | `ISNULL(a, b)`, `COALESCE(a, b)` | `ISNULL` takes `a`'s type, so `b` is converted to it: `ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')` is `'ab'`, and `ISNULL(int_column, 2.7)` is `2`. `COALESCE` takes the type that ranks highest: `2.7` and `'abcd'` |
 | `CAST`, `TRY_CAST` | A value that doesn't convert stops `CAST` and is `NULL` with `TRY_CAST`. A decimal or float to an integer is cut toward zero, and a decimal to a narrower decimal rounds |
 | `ROUND` | Keeps its value's type: `ROUND(150.75, 0)` is `151.00`, `ROUND(748.58, -1)` is `750.00`, and `ROUND(150.75, 0, 1)` cuts to `150.00`. A result that no longer fits the type stops with "Arithmetic overflow error" (`ROUND(748.58, -3)`, `ROUND(999.5, 0)`) |
+
+## Local T-SQL JSON
+
+When a project runs T-SQL on this PC, the JSON functions give a Fabric Warehouse's answers, as T-SQL's reference gives them (its pages for these functions apply to Warehouse in Microsoft Fabric):
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| `ISJSON(x)` | `1` for an object or array, `0` for anything else (`ISJSON('1')` is `0`), and `NULL` for `NULL`. With `VALUE`, `ARRAY`, `OBJECT` or `SCALAR` it tests for that kind: `ISJSON('"text"', SCALAR)` is `1` |
+| `JSON_VALUE(x, path)` | A scalar's text. In lax mode, the default, a path that isn't there, an object or array, or text longer than 4000 characters gives `NULL`. In `strict` mode each is an error. A JSON `null` gives `NULL` either way |
+| `JSON_QUERY(x, path)` | An object or array, and the whole text with no path. In lax mode a scalar or a path that isn't there gives `NULL`; in `strict` mode each is an error |
+| `JSON_OBJECT('a': x, ...)` | `{"a":...}`, keeping a `NULL` value as `null`, T-SQL's default |
+| `JSON_ARRAY(x, ...)` | `[...]`, leaving `NULL`s out, T-SQL's default: `JSON_ARRAY('a', 1, NULL)` is `["a",1]` |
+| One of these inside another | Nested as JSON, not as quoted text: `JSON_ARRAY(1, JSON_OBJECT('k': 'v'))` is `[1,{"k":"v"}]` |
+| JSON text that isn't JSON | `JSON_VALUE` and `JSON_QUERY` stop with an error, in lax mode too. The message is the local engine's ("Malformed JSON"), not T-SQL's |
+
+Refused by name: `OPENJSON`, with or without `WITH`, `FOR JSON PATH` and `FOR JSON AUTO`, `NULL ON NULL` and `ABSENT ON NULL` (leave the clause out to get T-SQL's default), `JSON_ARRAYAGG`, `JSON_OBJECTAGG`, `JSON_MODIFY` and `JSON_PATH_EXISTS`. A path that isn't written out as text is refused too.
+
+What can still differ, each with a note in the run's `translation.notes`:
+
+- `JSON_VALUE` gives a number in the local engine's form: `1.50` is `1.5`, and `1e2` is `100.0`. T-SQL gives it as written.
+- `JSON_OBJECT` and `JSON_ARRAY` write a decimal in its shortest form (`1.50` is `1.5`). T-SQL keeps its scale.
+- `ISJSON` counts JSON with a trailing comma, or `NaN`, as valid. T-SQL counts only standard JSON.
+- `JSON_QUERY` gives an object or array without the spaces between its parts (`[1,2]` for `[1, 2]`). Whether a warehouse keeps them hasn't been checked.
 
 ## Local T-SQL names, schemas and views
 

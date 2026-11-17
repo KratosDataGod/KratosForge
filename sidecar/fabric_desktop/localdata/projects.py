@@ -42,7 +42,7 @@ class Settings:
     def __post_init__(self) -> None:
         for key in ("memory_limit", "max_temp_size"):
             value = getattr(self, key)
-            if value and not _MEMORY.match(value):
+            if value and not _MEMORY.fullmatch(value):
                 raise ValueError(f"{key} must look like 4GB, 512MB or 60%, got {value!r}")
         if not 0 <= int(self.threads) <= 256:
             raise ValueError("threads must be between 0 and 256")

@@ -436,7 +436,7 @@ def test_unix_timestamp_reads_fractions_and_quoted_text_and_refuses_what_it_cant
                     F.unix_timestamp("c", "MMM d, yyyy"))
     assert rows(out) == [(1710075907, 1710075907, 1710028800)]
     assert rows(live.sql("SELECT unix_timestamp('2024-03-10 13:05:07.250', 'yyyy-MM-dd HH:mm:ss.SSS')")) == [(1710075907,)]
-    with pytest.raises(ValueError, match="can't read part of its format"):
+    with pytest.raises(ValueError, match="unix_timestamp can't read 'Q' in a pattern"):
         df.select(F.unix_timestamp("a", "yyyy-MM-dd Q"))
 
 

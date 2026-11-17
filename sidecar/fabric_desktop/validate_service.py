@@ -260,7 +260,7 @@ class ValidateMixin:
             record["_kernel"] = None
         # The sandbox is this run's own folder; it goes when the run ends. Its tables were checked
         # by running; the report lists them. None means the kernel couldn't say (it ended).
-        if bound and run.get("sandbox_tables") != [] and _ID.match(record["id"]):
+        if bound and run.get("sandbox_tables") != [] and _ID.fullmatch(record["id"]):
             try:
                 self._proof_delete_folder(lakehouse_ref, f"{PROOF_ROOT}/{record['id']}")  # type: ignore[attr-defined]
             except Exception as exc:  # noqa: BLE001 - the result stands; say what may be left behind

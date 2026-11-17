@@ -353,7 +353,7 @@ function profileTrees() {
     || spec.nodes.find((n) => n.state === "available") || spec.nodes[0];
   const picker = h("select", { "aria-label": "Developer class", onchange: (e) => loadTrees(e.target.value) },
     d.classes.map((x) => h("option", { value: x.id, selected: x.id === c.id ? true : null },
-      `${x.title} · ${x.professional}${x.mastered ? ` · ${x.mastered} of ${x.talents} mastered` : ""}`)));
+      `${x.title}${x.mastered ? ` (${x.mastered} of ${x.talents})` : ""}`)));
   const tabs = h("div", { class: "tree-specs", role: "tablist", "aria-label": "Specializations" },
     c.specializations.map((s) => h("button", { role: "tab", class: `tree-spec${s.id === spec.id ? " active" : ""}`,
       "aria-selected": s.id === spec.id ? "true" : "false",
@@ -362,13 +362,13 @@ function profileTrees() {
   const head = h("section", { class: "tree-head", "aria-label": c.title },
     h("div", { class: "tree-head-text" },
       h("h2", { class: "tree-title" }, c.title),
-      h("p", { class: "tree-sub" }, `${c.professional} · class mastery ${c.mastery_name} · ${c.mastered} ${c.mastered === 1 ? "talent" : "talents"} mastered`),
+      h("p", { class: "tree-sub" }, `${c.professional} · class mastery ${c.mastery_name.toLowerCase()} · ${c.mastered} ${c.mastered === 1 ? "talent" : "talents"} mastered`),
       h("p", { class: "tree-lore" }, c.fantasy)),
     h("label", { class: "tree-pick" }, "Class", picker), tabs);
   return h("div", { class: "profile-col" }, head,
     h("div", { class: "tree-body" }, treeCanvas(spec, talent), treeDetail(spec, talent)),
     h("p", { class: "muted-text small" }, `Levels show only work KratosForge verified on this PC (rules v${d.rules_version}). `
-      + "They aren't professional certifications. A talent opens when every talent before it reaches Apprentice; "
+      + "They aren't professional certifications. A talent counts as mastered from Adept. A talent opens when every talent before it reaches Apprentice; "
       + "evidence for a locked talent is kept and counts once it opens."));
 }
 
@@ -399,24 +399,45 @@ function treeCanvas(spec, selected) {
   const nodes = spec.nodes.map((n, i) => h("button", {
     class: `tree-node ${n.state}${n.id === selected.id ? " selected" : ""}${n.capstone ? " capstone" : ""}`,
     style: `left:${pos[n.id].x}%;top:${pos[n.id].y}%`,
-    "aria-label": `${n.title}${n.capstone ? " (capstone)" : ""}: ${n.level_name}, ${TREE_STATE[n.state].toLowerCase()}`,
+    "aria-label": `${n.title}${n.capstone ? " (capstone)" : ""}, ${n.state === "locked" ? "locked" : `${n.level_name}, ${TREE_STATE[n.state].toLowerCase()}`}`,
     "aria-pressed": n.id === selected.id ? "true" : "false",
     onclick: () => { t.talent = n.id; render(); } },
     h("span", { class: "tree-emblem", "aria-hidden": "true" }, svgIcon(n.state === "locked" ? BADGE_GLYPHS.lock : TREE_GLYPHS[i % TREE_GLYPHS.length], 28)),
     h("span", { class: "tree-node-name", "aria-hidden": "true" }, n.title),
-    h("span", { class: "tree-node-level", "aria-hidden": "true" }, n.state === "locked" && n.banked_name ? `${n.banked_name} banked` : n.level_name)));
-  return h("div", { class: "tree-canvas", role: "group", "aria-label": `${spec.title} talent tree`, style: `height:${tiers.length * 128}px` }, svg, nodes);
+    h("span", { class: "tree-node-level", "aria-hidden": "true" }, n.state === "locked" ? (n.banked_name ? `Locked · ${n.banked_name} banked` : "Locked") : n.level_name)));
+  // Arrow keys walk the tree: up to a talent it builds on, down to one it opens, left and right along a tier.
+  const move = (e) => {
+    const i = nodes.indexOf(document.activeElement);
+    if (i < 0) return;
+    const n = spec.nodes[i], here = pos[n.id];
+    const pick = (list) => list.sort((a, b) => Math.abs(pos[a.id].x - here.x) - Math.abs(pos[b.id].x - here.x))[0];
+    const to = { ArrowUp: () => pick(n.requires.map((r) => byId[r]).filter(Boolean)),
+      ArrowDown: () => pick(spec.nodes.filter((m) => m.requires.includes(n.id))),
+      ArrowLeft: () => spec.nodes.filter((m) => m.tier === n.tier && pos[m.id].x < here.x).sort((a, b) => pos[b.id].x - pos[a.id].x)[0],
+      ArrowRight: () => spec.nodes.filter((m) => m.tier === n.tier && pos[m.id].x > here.x).sort((a, b) => pos[a.id].x - pos[b.id].x)[0] }[e.key];
+    const next = to && to();
+    if (!next) return;
+    e.preventDefault();
+    nodes[spec.nodes.indexOf(next)].focus();
+  };
+  return h("div", { class: "tree-canvas", role: "group", "aria-label": `${spec.title} talent tree. Arrow keys move between talents.`,
+    style: `height:${tiers.length * 128}px`, onkeydown: move }, svg, nodes);
 }
 
 function treeDetail(spec, n) {
   const ev = n.evidence.slice().reverse();
   const where = [...n.learn.map((id) => btn(`Open ${id}`, null, () => learnOpen(id), "tool outline small")),
-    ...n.academy.slice(0, 3).map((id) => h("span", { class: "pill-s neu" }, `Academy ${id}`))];
+    ...n.academy.slice(0, 3).map((id) => btn(`Open ${id.split("/").pop()} in Academy`, null, () => { academyPage.pack = id.split("/")[0]; academyOpen(id.split("/").pop()); }, "tool outline small"))];
+  const byId = Object.fromEntries(spec.nodes.map((m) => [m.id, m]));
+  const needs = n.requires.map((r) => byId[r]).filter(Boolean);
+  const short = needs.filter((m) => m.state === "locked" || m.level < 2);
+  const names = (list) => list.map((m) => m.title).join(" and ");
   return h("aside", { class: "tree-detail", "aria-label": "Selected talent", "aria-live": "polite" },
     h("h3", { class: "tree-detail-title" }, n.title),
     h("div", { class: "row wrap" }, h("span", { class: `pill-s tree-pill ${n.state}` }, n.level_name),
       h("span", { class: "muted-text small" }, `${spec.title} · tier ${n.tier} · ${TREE_STATE[n.state]}`)),
-    n.state === "locked" ? h("p", { class: "small" }, "Opens when every talent before it reaches Apprentice."
+    needs.length ? h("p", { class: "small" }, `Builds on ${names(needs)}.`) : null,
+    n.state === "locked" ? h("p", { class: "small" }, `Opens when ${names(short)} ${short.length > 1 ? "reach" : "reaches"} Apprentice.`
       + (n.banked_name ? ` You already have ${n.banked_name} here; it counts as soon as it opens.` : "")) : null,
     n.next ? h("div", {}, h("b", { class: "small" }, n.level < n.ceiling ? `To reach ${profilePage.trees.data.levels[n.level + 1]}` : "Highest level here"),
       h("p", { class: "small" }, n.next)) : null,

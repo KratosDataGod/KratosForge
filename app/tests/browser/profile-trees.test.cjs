@@ -82,13 +82,25 @@ test("a mastered talent lights the path to the next one, and picking a talent sh
   const page = app.page;
   await openTrees();
   await page.getByRole("tab", { name: /Delta Smith/ }).click();
-  const merge = page.getByRole("button", { name: /^MERGE upserts: Adept, mastered$/ });
+  const merge = page.getByRole("button", { name: "MERGE upserts, Adept, mastered" });
   await merge.click();
   assert.strictEqual(await merge.getAttribute("aria-pressed"), "true");
   const detail = page.getByRole("complementary", { name: "Selected talent" });
   assert.match(await detail.textContent(), /MERGE upserts[\s\S]*To reach Expert[\s\S]*Evidence/);
   // Lines leave a mastered talent only toward one that has opened.
   assert.ok(await page.locator(".tree-line.lit").count() >= 1);
+  // Arrow keys walk the tree: down from MERGE upserts is the talent it opens, up goes back to its root.
+  await merge.focus();
+  await page.keyboard.press("ArrowDown");
+  assert.match(await page.evaluate(() => document.activeElement.getAttribute("aria-label")), /^Incremental loads with a watermark, /);
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowUp");
+  assert.match(await page.evaluate(() => document.activeElement.getAttribute("aria-label")), /^Files, Parquet and the Delta log, /);
+  // A locked talent says so, and the panel names what opens it.
+  const locked = page.getByRole("button", { name: "Reading a query plan, locked" });
+  assert.match(await locked.textContent(), /Locked/);
+  await locked.click();
+  assert.match(await detail.textContent(), /Builds on Partitioning and file pruning\.[\s\S]*Opens when Partitioning and file pruning reaches Apprentice\./);
 });
 
 test("another class opens from the picker", { skip }, async () => {

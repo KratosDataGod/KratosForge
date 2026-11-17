@@ -509,6 +509,8 @@ def _function(node: exp.Anonymous) -> exp.Expression:
     if name == "schema_of_json_agg":
         raise _refusal(name, "this PC works out schema_of_json for a literal as it reads the cell, and has no "
                              "merge of the schemas of many rows' JSON.", "use schema_of_json on one sample row")
+    if name == "sql_keywords":
+        raise _refusal(name, "this PC doesn't have Databricks' list of SQL keywords and which of them are reserved.")
     if name == "try_reflect":
         raise _refusal(name, "it calls a Java method, and this PC runs no Java.")
     if name in _XML:
@@ -522,6 +524,13 @@ def _function(node: exp.Anonymous) -> exp.Expression:
 
 def rewrite(statement: exp.Expression) -> exp.Expression:
     """``statement`` with Databricks' own functions written for DuckDB, or ValueError for one this PC refuses."""
+    # current_timezone() is the session's zone (DuckDB's TimeZone setting, UTC unless the cell sets another);
+    # DuckDB has no function of that name
+    for zone in list(statement.find_all(exp.CurrentTimezone)):
+        setting = exp.Anonymous(this="CURRENT_SETTING", expressions=[exp.Literal.string("TimeZone")])
+        if zone is statement:
+            return setting
+        zone.replace(setting)
     for node in statement.find_all(exp.Anonymous, *_TYPED_SKETCHES):
         name = node.name.lower() if isinstance(node, exp.Anonymous) else _TYPED_SKETCHES[type(node)]
         if name in _sketch_names():

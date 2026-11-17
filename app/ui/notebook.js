@@ -146,7 +146,7 @@ function renderNotebook() {
         if (!on) state.explorerTab = "outline";
         renderNotebook();
       }),
-      toggleBtn("Variables", "braces", state.showVariables, toggleVariables), depsToggle(), commentsToggle(nb), practicesToggle(nb),
+      toggleBtn("Variables", "braces", state.showVariables, toggleVariables), consoleToggle(nb), depsToggle(), commentsToggle(nb), practicesToggle(nb),
       h("div", { class: "sep" }),
       btn("Collapse all inputs", "up", () => setAll("source_hidden", true)), btn("Expand all inputs", "down", () => setAll("source_hidden", false)),
       btn("Collapse all outputs", "up", () => setAll("outputs_hidden", true)), btn("Expand all outputs", "down", () => setAll("outputs_hidden", false)),
@@ -169,7 +169,7 @@ function renderNotebook() {
       h("div", { class: "toolbar" }, toolbars[state.ribbonTab])),
     ...[nbNextLine(nb)].filter(Boolean),  // replaceChildren would write "null"
     h("div", { class: "nb-body" }, state.showExplorer ? renderExplorer() : null, cells,
-      state.showVariables ? renderVariables() : null, commentsPanel(nb), practicesPanel(nb), runsPanel(nb), provePanel(nb), validatePanel(nb)),
+      state.showVariables ? renderVariables() : null, consolePanel(nb), commentsPanel(nb), practicesPanel(nb), runsPanel(nb), provePanel(nb), validatePanel(nb)),
     h("footer", { class: "statusbar" },
       h("span", {}, h("span", { class: `dot ${state.kernel}` }), kernelLabel()),
       sessionsButton(), environmentButton(nb),

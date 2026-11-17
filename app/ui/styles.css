@@ -3741,6 +3741,17 @@ body[data-skin-cells="rounded"] .cells.editing .cell.selected .cell-box { box-sh
   .nbf-print img { max-width: 100%; margin: 8px 10px; }
 }
 
+/* Notebook > View > Scratch (nbconsole.js): a console in the notebook's session, beside the cells. */
+.consolepane { width: 340px; flex: none; display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; border-left: 1px solid var(--border); background: var(--surface); min-height: 0; }
+.consolepane > :not(.explorer-head) { margin: 0 10px; }
+.console-log { flex: 1; min-height: 80px; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.console-entry { display: flex; flex-direction: column; gap: 2px; }
+.console-in { margin: 0; font: 12.5px/1.5 Consolas, ui-monospace, monospace; white-space: pre-wrap; color: var(--text); }
+.console-in::before { content: "› "; color: var(--accent-ink); }
+.console-entry .output { margin-left: 14px; }
+.console-input { font: 12.5px/1.5 Consolas, ui-monospace, monospace; padding: 6px 8px; border: 1px solid var(--accent-ink); border-radius: 4px; background: var(--surface); color: var(--text); resize: vertical; }
+.console-actions { gap: 6px; align-items: center; }
+
 /* Notebook > Share > Open as report (nbreport.js): the export's page in report form, in its own window. */
 .nb-report { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
 .nb-report-bar { gap: 8px; align-items: center; }

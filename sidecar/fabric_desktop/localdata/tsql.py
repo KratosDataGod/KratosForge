@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Container
+from collections.abc import Callable, Container
 from typing import Any, cast
 
 import sqlglot
@@ -73,8 +73,14 @@ _LATER = ("Run the statements one at a time, with values in place of variables. 
           "control flow runs in a Fabric Warehouse, not on the local engine yet.")
 
 
+_GO_TIMES = re.compile(r"^[ \t]*GO[ \t]+(\d+)[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
+
+
 def split_batches(sql: str) -> list[str]:
-    """The script's batches: the text between ``GO`` lines."""
+    """The script's batches: the text between ``GO`` lines. ``GO n`` (run the batch n times) is refused by name."""
+    if (times := _GO_TIMES.search(sql)) is not None:
+        raise ValueError(_NOT_YET + f"GO {times[1]} (run the batch {times[1]} times) isn't mapped yet. Repeat the "
+                         "statements, or use GO on its own.")
     return [part for part in _GO.split(sql) if part.strip()]
 
 
@@ -88,10 +94,12 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
     catalog error. Raises ValueError for what isn't carried."""
     texts: list[str] = []
     notes: list[str] = []
+    skipped = False
     schema = _schema(columns or {})
     for batch in split_batches(sql):
         for tree in _parse(batch):
             if _harmless_setting(tree):
+                skipped = True
                 continue
             _refuse(tree)
             _temp_tables(tree)
@@ -114,7 +122,8 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             if text.strip():
                 texts.append(text)
     if not texts:
-        raise ValueError("The query is empty.")
+        raise ValueError("There's nothing to run: SET NOCOUNT, ANSI_NULLS and the other session options change "
+                         "nothing on the local engine, so they're skipped." if skipped else "The query is empty.")
     return texts, list(dict.fromkeys(notes))
 
 
@@ -138,7 +147,50 @@ class KfTSQL(TSQL):
                                                     expression=exp.Literal.number(2))}
 
 
+# T-SQL's reserved words for control flow and cursors: sqlglot read them as a column (RETURN) or a column with an
+# alias (GOTO x), which reached DuckDB as a syntax error.
+_RESERVED_STATEMENTS = {"RETURN": "RETURN", "BREAK": "BREAK", "CONTINUE": "CONTINUE", "GOTO": "GOTO",
+                        "WAITFOR": "WAITFOR", "CHECKPOINT": "CHECKPOINT", "OPEN": "cursors (OPEN)",
+                        "CLOSE": "cursors (CLOSE)", "DEALLOCATE": "cursors (DEALLOCATE)"}
+
+
+def _refuse_control(batch: str) -> None:
+    """Refuse by name the statements sqlglot misreads: the reserved words above anywhere (a reserved word can't be
+    an unquoted name), THROW where a statement starts (T-SQL wants a ; before it), SAVE TRANSACTION, SET
+    TRANSACTION and labels (``name:``)."""
+    try:
+        tokens = KfTSQL().tokenize(batch)
+    except SqlglotError:
+        return  # _parse reports it
+    routine = any(tok.token_type == TokenType.CREATE and i + 1 < len(tokens)
+                  and tokens[i + 1].text.upper() in ("PROCEDURE", "PROC", "FUNCTION", "TRIGGER")
+                  for i, tok in enumerate(tokens))
+    if routine:
+        return  # _refuse names CREATE PROCEDURE and the rest, whose bodies may RETURN
+    named = (TokenType.VAR, TokenType.SET)
+    for i, tok in enumerate(tokens):
+        if tok.token_type not in named:
+            continue
+        before = tokens[i - 1].token_type if i else None
+        after = tokens[i + 1] if i + 1 < len(tokens) else None
+        if before in (TokenType.DOT, TokenType.PARAMETER):
+            continue  # t.x, @x
+        word = tok.text.upper()
+        what = None
+        if tok.token_type == TokenType.VAR and word in _RESERVED_STATEMENTS:
+            what = _RESERVED_STATEMENTS[word]
+        elif word == "THROW" and before in (None, TokenType.SEMICOLON):
+            what = "THROW"
+        elif word in ("SAVE", "SET") and after is not None and after.text.upper() in ("TRAN", "TRANSACTION"):
+            what = "transactions (SAVE TRANSACTION)" if word == "SAVE" else "SET TRANSACTION"
+        elif tok.token_type == TokenType.VAR and after is not None and after.token_type == TokenType.COLON:
+            what = f"labels ({tok.text}:)"
+        if what is not None:
+            raise ValueError(f"The local engine doesn't run T-SQL {what} yet. {_LATER}")
+
+
 def _parse(batch: str) -> list[exp.Expression]:
+    _refuse_control(batch)
     unsupported: list[str] = []
 
     class Catch(logging.Handler):
@@ -240,6 +292,62 @@ def _schema(columns: dict[str, dict[str, dict[str, str]]]) -> Any:
 
 
 def _types(tree: exp.Expression, schema: Any) -> list[str]:
+    """``_typed`` for a query, and for an UPDATE's SET values and an UPDATE's or DELETE's FROM and WHERE: sqlglot
+    types no column of an UPDATE or a DELETE, so ``SET v = v + 'x'`` added text as numbers (a DuckDB binder error)
+    and a WHERE compared text with its trailing spaces. They are typed as a SELECT that lends them its scope."""
+    lent = _change_as_select(tree)
+    if lent is None:
+        return _typed(tree, schema)
+    proxy, give_back = lent
+    try:
+        return _typed(proxy, schema)
+    finally:
+        give_back()
+
+
+def _change_as_select(tree: exp.Expression) -> tuple[exp.Select, Callable[[], None]] | None:
+    """A SELECT of an UPDATE's SET values and WHERE (or a DELETE's WHERE), FROM its tables: the nodes themselves,
+    lent, so what ``_typed`` rewrites in them is rewritten in the statement, and a function that gives them back."""
+    if isinstance(tree, exp.Update):
+        sets = list(tree.expressions)
+        if not sets or not all(isinstance(e, exp.EQ) for e in sets):
+            return None
+        source = tree.args.get("from_")
+    elif isinstance(tree, exp.Delete):
+        sets, source = [], None
+        if tree.args.get("using") not in (None, False) or tree.args.get("tables") and len(tree.args["tables"]) > 1:
+            return None
+    else:
+        return None
+    where = tree.args.get("where")
+    if not sets and where is None:
+        return None
+    target = tree.this
+    if not isinstance(target, exp.Table):
+        return None
+    values = [e.expression for e in sets] + ([where.this] if where is not None else [])
+    proxy = exp.Select(expressions=values)
+    if source is None:
+        proxy.set("from_", exp.From(this=target.copy()))
+    else:
+        proxy.set("from_", source)
+        named = {t.alias_or_name.lower() for t in source.find_all(exp.Table)}
+        if target.alias_or_name.lower() not in named:  # UPDATE dbo.t SET ... FROM dbo.s: t is read too
+            proxy.set("joins", [exp.Join(this=target.copy())])
+
+    def give_back() -> None:
+        lent = list(proxy.expressions)
+        for eq, value in zip(sets, lent, strict=False):
+            eq.set("expression", value)
+        if where is not None:
+            where.set("this", lent[-1])
+        if source is not None:
+            tree.set("from_", proxy.args.get("from_"))
+
+    return proxy, give_back
+
+
+def _typed(tree: exp.Expression, schema: Any) -> list[str]:
     """Make integer division and averages, ``+`` on text, and casts to integers behave as in T-SQL. The types come from
     a qualified copy of the tree (qualifying renames output columns, so the copy isn't run)."""
     from sqlglot.optimizer.annotate_types import annotate_types

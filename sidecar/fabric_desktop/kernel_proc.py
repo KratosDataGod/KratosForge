@@ -600,7 +600,7 @@ class ProcessKernel:
         if not self.alive():
             raise FrameGone(GONE)
         return self._request("frame_page", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, offset=offset,
-                             limit=limit, sort=sort, desc=desc, q=q, filters=filters)
+                             limit=limit, sort=sort, desc=desc, q=q, **({"filters": filters} if filters else {}))
 
     def frame_chart(self, frame: str, **spec: Any) -> dict[str, Any]:
         if not self.alive():

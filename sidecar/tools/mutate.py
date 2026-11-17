@@ -21,7 +21,9 @@ re-run with the same seed mutates the same points; --only runs just the mutants 
 again (to re-check survivors once tests are added). --entries NAME instead deletes each entry of the
 module-level list or tuple NAME in turn, for a table of patterns the point mutations can't reach.
 
-For each mutant the given tests run with pytest -x and a 120 s timeout. A failing run is "killed",
+The tests first run once on the unmutated copy, and the run stops if they fail or time out there
+(as a test that reads docs/ or app/ does, since only sidecar/ is copied). For each mutant the given
+tests then run with pytest -x and a 120 s timeout. A failing run is "killed",
 a passing one "survived", and a run that hangs "timeout" (stopped along with every process it
 started), which counts as killed in the score. Each mutant prints
 `<index> <line> <kind> <change> <status>`, and --out gets the totals and every result.
@@ -224,6 +226,14 @@ def main(argv: list[str] | None = None) -> int:
         shutil.copytree(SIDECAR, work, ignore=_ignore)
         target = work / args.module
         src = target.read_text(encoding="utf-8")
+        # The tests must pass on the unmutated copy first. A test that reads a file outside sidecar/
+        # (docs/ or app/, say) fails in the copy whatever the mutant, which would count every
+        # mutant as killed and report a false 100%.
+        baseline = _run_tests(work, tests)
+        if baseline != "survived":
+            raise SystemExit(f"the tests {'time out' if baseline == 'timeout' else 'fail'} on the unmutated "
+                             f"module in the copy of sidecar/, so no mutant can be scored. Run them on their "
+                             f"own there, and leave out any test that reads a file outside sidecar/.")
         base = ast.parse(src)
         results = []
         if args.entries:

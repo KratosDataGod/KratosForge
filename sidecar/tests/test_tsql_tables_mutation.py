@@ -84,7 +84,8 @@ def test_top_100_percent_keeps_every_row_of_a_long_table(engine):
     assert len(out["rows"]) == 150
 
 
-@pytest.mark.parametrize("share, kept", [("ABS(0.5)", 1), ("ABS(-25)", 1), ("ABS(100)", 4)])
+@pytest.mark.parametrize("share, kept", [("ABS(0.5)", 1), ("ABS(-25)", 1), ("ABS(100)", 4), ("'50'", 2),
+                                         ("(ABS(-75))", 3), ("'100'", 4)])
 def test_a_percent_worked_out_per_query_inside_0_to_100_runs(engine, share, kept):
     out = run(engine, f"SELECT TOP ({share}) PERCENT value FROM GENERATE_SERIES(1, 4) ORDER BY value")
     assert len(out["rows"]) == kept
@@ -96,9 +97,7 @@ def test_a_percent_worked_out_per_query_outside_0_to_100_stops_as_a_warehouse_do
             "Percent values must be between 0 and 100.")
 
 
-@pytest.mark.xfail(strict=True, reason="a percent written as text, or in a second pair of parentheses, isn't "
-                                       "checked against 0 to 100, so every row comes back")
-@pytest.mark.parametrize("share", ["'150'", "(ABS(-150))"])
+@pytest.mark.parametrize("share", ["'150'", "(ABS(-150))", "'-1'", "((ABS(-101)))"])
 def test_a_percent_in_text_or_extra_parentheses_outside_0_to_100_stops(engine, share):
     refused(engine, f"SELECT TOP ({share}) PERCENT value FROM GENERATE_SERIES(1, 4) ORDER BY value",
             "Percent values must be between 0 and 100.")

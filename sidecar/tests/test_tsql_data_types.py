@@ -75,7 +75,7 @@ def test_a_type_with_no_local_form_is_refused_by_name_in_a_query(statement, writ
         translate(statement.format(t=written))
     message = str(err.value)
     assert message.startswith("This T-SQL can't be run on the local engine: the data type ")
-    assert "isn't mapped yet: the local engine has no form of it" in message and "Fabric Warehouse" in message
+    assert "isn't mapped yet. The local engine has no form of it" in message and "Fabric Warehouse" in message
 
 
 @pytest.mark.parametrize("sql", ["SELECT CAST(1 AS MONEY) AS c", "CREATE TABLE #t (c SMALLMONEY)"])
@@ -186,14 +186,15 @@ def test_types_with_the_same_values_here_work_in_a_query(engine):
 
 def test_a_temp_table_takes_them_with_a_note(engine):
     _, notes = translate("CREATE TABLE #t (a NVARCHAR(10), b TINYINT)")
-    assert any("#temp tables lists only the types its tables hold" in n and "nvarchar, tinyint" in n for n in notes)
+    assert any("#temp tables lists only the types its tables hold" in n and "nvarchar, tinyint" in n
+               and "smallint for tinyint" in n and "for nvarchar" in n for n in notes)
     assert rows(engine, "CREATE TABLE #n (a NVARCHAR(10), b TINYINT);\nINSERT INTO #n VALUES (N'é', 255);\n"
                         "SELECT a, b FROM #n") == [["é", 255]]
 
 
 @pytest.mark.parametrize("written", ["DATETIME", "SMALLDATETIME"])
 def test_a_temp_table_of_datetime_is_refused_since_stored_values_arent_rounded(written):
-    with pytest.raises(ValueError, match=f"a {written.lower()} column in a #temp table isn't mapped yet"):
+    with pytest.raises(ValueError, match=f"a {written.lower()} column in a #temp table isn't mapped yet. Here a stored value isn't rounded"):
         translate(f"CREATE TABLE #t (c {written})")
 
 

@@ -103,14 +103,14 @@ def check(tree: exp.Expression) -> list[str]:
     temp_kinds = [kind for kind, _, temp in _kept(tree) if temp]
     for kind in temp_kinds:
         if kind.this in _ROUNDED:
-            raise ValueError(_NOT_YET + f"a {_name(kind)} column in a #temp table isn't mapped yet: a stored value "
-                             "isn't rounded to T-SQL's steps here. Use datetime2(3), or datetime2(0) for "
+            raise ValueError(_NOT_YET + f"a {_name(kind)} column in a #temp table isn't mapped yet. Here a stored "
+                             "value isn't rounded to T-SQL's steps. Use datetime2(3), or datetime2(0) for "
                              "smalldatetime.")
     noted = [k for k in temp_kinds if k.this in _SAME_HERE]
     if noted:
         names = sorted({_name(k) for k in noted})
-        alternatives = sorted({_alternative(k) for k in noted})
-        notes.append(_TEMP_NOTE.format(names=", ".join(names), alternatives="; ".join(alternatives)))
+        pairs = sorted({f"{_alternative(k)} for {_name(k)}" for k in noted})
+        notes.append(_TEMP_NOTE.format(names=", ".join(names), alternatives=" and ".join(pairs)))
     for kind in list(tree.find_all(exp.DataType)):
         if kind.this == T.USERDEFINED and str(kind.args.get("kind") or "").upper() == "SYSNAME":
             kind.replace(exp.DataType.build("VARCHAR(128)"))  # sysname is nvarchar(128)
@@ -120,8 +120,8 @@ def check(tree: exp.Expression) -> list[str]:
             raise ValueError(_NOT_YET + "MONEY and SMALLMONEY aren't carried yet, and neither are their CONVERT "
                              "styles. Use DECIMAL(19, 4) for money and DECIMAL(10, 4) for smallmoney.")
         elif kind.this in _ALTERNATIVE_KEY and kind.this not in _SAME_HERE | _ROUNDED or kind.this == T.USERDEFINED:
-            raise ValueError(_NOT_YET + f"the data type {_name(kind)} isn't mapped yet: the local engine has no form "
-                             "of it. A Fabric Warehouse table can't hold it either; use "
+            raise ValueError(_NOT_YET + f"the data type {_name(kind)} isn't mapped yet. The local engine has no form "
+                             "of it, and a Fabric Warehouse table can't hold it either. Use "
                              f"{_alternative(kind)}, or run it in a Fabric Warehouse.")
     return notes
 

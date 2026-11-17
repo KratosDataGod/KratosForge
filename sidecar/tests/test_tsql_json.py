@@ -67,6 +67,8 @@ CASES = [
     ("""JSON_VALUE('{"a''b":1}', '$."a''b"')""", "1"),  # a key with an apostrophe, lax and strict
     ("""JSON_VALUE('{"a''b":1}', 'strict $."a''b"')""", "1"),
     ("""JSON_VALUE('{"a\\"b":1}', '$."a\\"b"')""", "1"),
+    ("""JSON_VALUE('{"a\\\\b":4}', '$."a\\\\b"')""", "4"),  # a key with a backslash
+    ("""JSON_VALUE('{"a\\\\b":4}', 'strict $."a\\\\b"')""", "4"),
     ("""JSON_VALUE('{"a":[1,2]}', 'strict $.a[1]')""", "2"),
     ("""JSON_VALUE('{"a":1}', '$.b')""", None),
     ("""JSON_VALUE('{"a":1}', 'lax $.b')""", None),

@@ -1938,7 +1938,7 @@ def _json_path(node: exp.Expression, name: str) -> tuple[str, bool]:
         elif isinstance(part, exp.JSONPathKey) and isinstance(part.this, str):
             key = part.this
             text += f".{key}" if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) else \
-                '."' + key.replace("\\", "\\\\").replace('"', '\\"') + '"'
+                '."' + key.replace('"', '\\"') + '"'  # jsonpath.parse unescapes only an escaped quote; a backslash stays as written
         elif isinstance(part, exp.JSONPathSubscript) and isinstance(part.this, int):
             text += f"[{part.this}]"
         else:

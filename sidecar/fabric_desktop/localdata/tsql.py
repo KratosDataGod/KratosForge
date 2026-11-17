@@ -214,8 +214,8 @@ def _refuse_dbcc(batch: str) -> None:
         raise ValueError(_NOT_YET + "DBCC isn't mapped yet. Run it in a Fabric Warehouse.")
 
 
-_SECURITY_NOTE = ("isn't applied on this PC: the local engine has no users, roles or permissions, so it's refused rather "
-                  "than skipped, and a script never looks as if it set them. Apply it in the Fabric Warehouse.")
+_SECURITY_NOTE = ("isn't applied on this PC, because the local engine has no users, roles or permissions. It's refused "
+                  "rather than skipped, so a script never looks as if it set them. Apply it in the Fabric Warehouse.")
 _PRINCIPALS = {"USER", "ROLE", "LOGIN", "APPLICATION"}
 
 
@@ -244,7 +244,7 @@ def _refuse_security(batch: str) -> None:
             what = "REVERT (impersonation)"
         elif word in ("CREATE", "ALTER", "DROP") and after == "SECURITY":
             what = f"{word} SECURITY POLICY (row-level security)"
-        elif word == "MASKED" and (after == "WITH" or before in ("ADD", "DROP")):
+        elif word == "MASKED" and (after == "WITH" or before == "DROP"):
             what = "MASKED WITH (dynamic data masking)"
         elif word in ("CREATE", "ALTER", "DROP") and after in _PRINCIPALS:
             what = f"{word} {after}"
@@ -254,10 +254,15 @@ def _refuse_security(batch: str) -> None:
             raise ValueError(_NOT_YET + f"{what} {_SECURITY_NOTE}")
 
 
+_COMPOUND = (TokenType.PLUS, TokenType.DASH, TokenType.STAR, TokenType.SLASH, TokenType.MOD, TokenType.PIPE,
+             TokenType.AMP, TokenType.CARET)
+
+
 def _refuse_session_options(batch: str) -> None:
     """``SET option value`` for an option the local engine doesn't run (ROWCOUNT, STATISTICS IO, LOCK_TIMEOUT, ...),
     refused by name. The ones it runs, with their values, are in _SETTINGS. ``SET @x = ...`` is a variable, and
-    ``UPDATE t SET col = ...`` an assignment: a name followed by = or a dot isn't an option."""
+    ``UPDATE t SET col = ...`` (or ``+=``) an assignment: a name followed by =, an operator and =, or a dot isn't an
+    option."""
     if "SET" not in batch.upper():
         return
     try:
@@ -271,6 +276,8 @@ def _refuse_session_options(batch: str) -> None:
         then = tokens[i + 2].token_type if i + 2 < len(tokens) else None
         if name.token_type != TokenType.VAR or then in (TokenType.EQ, TokenType.DOT):
             continue
+        if then in _COMPOUND and i + 3 < len(tokens) and tokens[i + 3].token_type == TokenType.EQ:
+            continue  # UPDATE t SET n += 1: an assignment, not an option
         option = name.text.upper()
         if option in _SETTINGS or option in ("DATEFIRST", "TRANSACTION"):
             continue

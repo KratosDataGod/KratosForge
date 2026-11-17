@@ -10,7 +10,7 @@ import pytest
 
 from fabric_desktop.localdata import LocalData
 
-SECURITY = "isn't applied on this PC: the local engine has no users, roles or permissions"
+SECURITY = "isn't applied on this PC, because the local engine has no users, roles or permissions"
 
 
 @pytest.fixture()
@@ -72,6 +72,18 @@ def test_the_words_as_names_or_text_are_left_alone(engine):
     assert run(engine, "SELECT masked, [user], 'GRANT SELECT TO x' FROM dbo.t") == [[2, "u", "GRANT SELECT TO x"]]
     assert run(engine, "UPDATE dbo.t SET masked = 3") == [[1]]
     assert run(engine, "SELECT t.masked FROM dbo.t AS t") == [[3]]
+    run(engine, "ALTER TABLE dbo.t ADD masked2 INT")
+    run(engine, "CREATE TABLE dbo.m (id INT)")
+    run(engine, "ALTER TABLE dbo.m ADD masked INT")
+    assert run(engine, "SELECT COUNT(masked) FROM dbo.m") == [[0]]
+
+
+@pytest.mark.parametrize("op", ["+", "-", "*", "/", "%", "|", "&", "^"])
+def test_a_compound_assignment_is_never_called_a_session_option(engine, op):
+    try:
+        engine.execute(f"UPDATE dbo.t SET masked {op}= 1", dialect="tsql")
+    except ValueError as exc:
+        assert "isn't mapped yet. Remove it" not in str(exc)
 
 
 @pytest.mark.parametrize("setting", [

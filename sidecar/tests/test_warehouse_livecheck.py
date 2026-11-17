@@ -15,7 +15,7 @@ import pytest
 
 from fabric_desktop import smoketest, warehouse_livecheck as w
 
-RUN = "abc123def456"
+RUN = "abc123def456"  # pragma: allowlist secret (a made-up run id, not a credential)
 SCRATCH = f"fdlt_{RUN}"
 TEST_WS = {"id": "ws1", "displayName": "kf test", "description": "fabric-desktop-live-test"}
 WAREHOUSE = {"id": "wh1", "type": "Warehouse", "displayName": "WH_Test", "workspaceId": "ws1"}

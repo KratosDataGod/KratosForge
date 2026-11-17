@@ -523,6 +523,21 @@ What can still differ:
 - In a warehouse, some run-time errors (dividing by zero, a value that doesn't convert) end only their own statement, and the batch goes on to the next one. Here the script stops at the first error, and the error says which statements didn't run.
 - A script of only session options (`SET NOCOUNT ON`) has nothing to run here, and says so.
 
+## Loading data with T-SQL
+
+Fabric Warehouse loads files with `COPY INTO`, `BULK INSERT` and `OPENROWSET(BULK ...)`. Each reads files from a URL in Azure Storage (Blob or Data Lake Storage Gen2) or OneLake, as Microsoft's T-SQL reference for Fabric describes them. Neither the local engine nor a run from the SQL page loads them, and each is refused by its name, so a script never looks as if it loaded something.
+
+| Statement | In a Fabric Warehouse | Here |
+| --- | --- | --- |
+| `COPY INTO t FROM '<url>' WITH (...)` | Loads CSV, Parquet or JSONL files into a table. Options include `FILE_TYPE`, `FIRSTROW`, `FIELDTERMINATOR`, `ROWTERMINATOR`, `FIELDQUOTE`, `ENCODING`, `DATEFORMAT`, `COMPRESSION`, `CREDENTIAL`, `MATCH_COLUMN_COUNT` and `IDENTITY_INSERT`. A column list maps fields by number (CSV) or JSON path (JSONL), with a default for each column. `MAXERRORS` (0 by default) lets up to that many rows be rejected while the rest load, and `ERRORFILE` writes the rejected rows to storage | Refused by name |
+| `BULK INSERT t FROM '<url>' WITH (...)` | Loads the same file types as `COPY INTO`, with SQL Server's options: `FORMAT`, `FIRSTROW`, `FIELDTERMINATOR` (a tab by default), `MAXERRORS` (10 by default), `ERRORFILE` and others. `DATAFILETYPE = 'native'` and `KEEPIDENTITY` aren't supported, and `TABLOCK`, `BATCHSIZE` and some others are accepted and ignored | Refused by name |
+| `SELECT ... FROM OPENROWSET(BULK '<url>', ...) AS r` | Reads CSV, Parquet or JSONL files as rows, with `FORMAT`, `HEADER_ROW`, `FIRSTROW`, `LASTROW`, `FIELDTERMINATOR`, `MAXERRORS` (10 by default) and others, a `WITH (column type ...)` list, and `r.filepath()` and `r.filename()` for the file each row came from | Refused by name |
+
+- **On this PC.** The local engine reads no URLs, so all three are refused with "... isn't mapped yet. It loads files from cloud storage ...", whatever their file type, options, error-row settings or column list. The whole script is refused before anything runs, so nothing is loaded, not even part of a file, and the statements before it don't run either. To load a file here, put it in one of the project's folders, where it's a table such as `dbo.orders`, and `INSERT INTO ... SELECT` from that table.
+- **On a warehouse, from the SQL page.** A read and a change both refuse `COPY INTO`, `BULK INSERT` and `OPENROWSET` before anything is sent: "COPY INTO loads files into the warehouse, which isn't run from the SQL page. Use the Load files with COPY INTO template and run it in Fabric's query editor.", or "OPENROWSET reads outside the warehouse".
+- **Rejected rows.** In a warehouse, a load with `MAXERRORS` above 0 can succeed with some rows left out. Since neither engine here runs a load, no load here leaves rows out.
+- A column, table or alias named `bulk`, `copy` or `openrowset` in brackets, and the words in strings and comments, aren't refused.
+
 ## How it's built and tested
 
 - `sidecar/fabric_desktop/sqlcompat/`: `profiles.py` describes each engine (statement categories, unsupported types and their alternatives, identifiers, transactions, DDL and DML, semantic differences, confidence and sources); `rules.py` holds the rules, each naming its engines, severity, confidence and source; `analyzer.py` splits the SQL into statements (at `;`, and at T-SQL's `GO` on a line of its own, with an optional count or comment), reads each with sqlglot and the engine's tokenizer, applies the rules and builds the report. Rules work on tokens first, so they still find problems, at exact positions, in statements sqlglot can't read.

@@ -30,9 +30,9 @@ class Magic(NamedTuple):
 
 def _match(text: str) -> tuple[str, str, str, str | None] | None:
     """(indent, name, rest, target) for a line magic or ``!`` line, else None."""
-    if m := _LINE.match(text):
+    if m := _LINE.fullmatch(text):
         return m["indent"], m["name"], m["rest"], m["target"]
-    if m := _BANG.match(text):
+    if m := _BANG.fullmatch(text):
         return m["indent"], "sx" if m["target"] else "system", m["rest"], m["target"]
     return None
 

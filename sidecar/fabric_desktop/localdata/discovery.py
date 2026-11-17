@@ -155,7 +155,7 @@ def _dataset_folder(folder: Path, extra: list[str]) -> tuple[str, bool] | None:
         return None
     for entry in entries:
         if entry.is_dir(follow_symlinks=False):
-            if _HIVE.match(entry.name):
+            if _HIVE.fullmatch(entry.name):
                 hive = True
             elif not _skip_dir(entry.name, extra):
                 return None  # a real sub-folder: this folder groups tables, it isn't one
@@ -178,7 +178,7 @@ def _dataset_folder(folder: Path, extra: list[str]) -> tuple[str, bool] | None:
 
 def _hive_format(folder: Path) -> str | None:
     for _root, dirs, files in os.walk(folder):
-        dirs[:] = [d for d in dirs if _HIVE.match(d)]
+        dirs[:] = [d for d in dirs if _HIVE.fullmatch(d)]
         for name in files:
             got = file_format(name)
             if got:
@@ -202,7 +202,7 @@ def _folder_stats(folder: Path) -> tuple[int, int, int]:
 def _part_files(folder: Path, fmt: str) -> list[str]:
     out = []
     for root, dirs, files in os.walk(folder):
-        dirs[:] = sorted(d for d in dirs if _HIVE.match(d))
+        dirs[:] = sorted(d for d in dirs if _HIVE.fullmatch(d))
         for name in sorted(files):
             got = file_format(name)
             if got and got[0] == fmt and not name.startswith((".", "_")):

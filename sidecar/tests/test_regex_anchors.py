@@ -14,9 +14,7 @@ ROOT = pathlib.Path(fabric_desktop.__file__).parent
 
 # Modules still to move, slice by slice. Remove a module when its patterns use fullmatch.
 NOT_YET = {
-    "governance_notices.py", "localdata/discovery.py", "localdata/transform.py", "magics.py", "notebook_formats.py",
-    "notebookutils_local.py", "optimize/local_runs.py", "spark_compat.py", "sql_queries_service.py", "sql_view.py",
-    "tmdl.py", "usage/reader.py", "workloads/deliver.py", "workloads/impact.py", "workloads/platform_notify.py",
+    "governance_notices.py", "workloads/deliver.py", "workloads/impact.py", "workloads/platform_notify.py",
 }
 
 # Deny lists: a match means "refuse", so match (which also takes a final line break) is the stricter check.

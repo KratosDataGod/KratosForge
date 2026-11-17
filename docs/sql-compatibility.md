@@ -183,6 +183,62 @@ These aren't checked against a warehouse yet, since T-SQL's reference doesn't sa
 - `LIKE` with a wildcard where the text has trailing spaces. Here a match counts if the text matches as written, or with its trailing spaces removed. So `'abc  ' LIKE 'abc_'` is false, and `'abc  ' LIKE 'abc__'` is true.
 - `CHARINDEX` with a `NULL` start. Here the answer is `NULL`.
 
+## Regular expressions and text on this PC (LOC-002)
+
+Spark reads a regular expression the Java way (`java.util.regex`), and DuckDB reads it with RE2. On this PC a pattern written in the query, or given as a Python string to the DataFrame API's `F.regexp_replace`, `F.regexp_extract`, `F.split` and `Column.rlike`, is translated for RE2 before it runs, in `rlike`, `regexp`, `regexp_like`, `regexp_extract`, `regexp_extract_all`, `regexp_replace`, `split`, `regexp_count`, `regexp_instr` and `regexp_substr`, in Spark SQL and Databricks SQL. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_strings.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
+
+| What | On this PC, as in Spark |
+| --- | --- |
+| Named groups `(?<name>...)` and `${name}` in a replacement | Read as Java reads them |
+| POSIX classes `\p{Alpha}`, `\p{Digit}`, `\p{Punct}` and the others, and `\P{...}` | ASCII only, as in Java |
+| `\s`, `\h`, `\v`, `\R`, `\uXXXX`, `\0nn`, `\e`, `\cX`, `\Q...\E` | Java's characters. `\s` takes the vertical tab, as Java's does |
+| `regexp_replace`'s replacement | Java's: `$1` and `${name}` are groups, and `\` takes the next character as it is (`\$` is a dollar sign). A `$` that refers to no group stops, as in Spark |
+| `regexp_replace` with a position | The first position is 1. Position 0 or less stops, as in Spark |
+| `regexp_extract`, `regexp_extract_all` | Group 1 unless you give one. A group index the pattern doesn't have, or below 0, stops by name. A NULL index gives NULL |
+| `regexp_count` | An `int`. An empty pattern counts each position, as Java does: `regexp_count('abc', '')` is 4 |
+| `regexp_instr` | An `int` |
+| `split` | Every match splits, and empty parts at the end are kept: `split('a,b,,', ',')` has 4 parts |
+| Any of these with a NULL | NULL |
+
+These are refused by name, and nothing runs, because RE2 has no reading for them:
+
+- Lookaheads and lookbehinds (`(?=`, `(?!`, `(?<=`, `(?<!`), atomic groups (`(?>`), backreferences (`\1`, `\k<name>`) and possessive quantifiers (`*+`, `++`, `?+`).
+- `\Z`. Use `\z` for the very end.
+- The flags `x`, `d` and `U` (`(?x)`). RE2's `U` means something else.
+- A class inside a class, such as `[a[b]]` or `[[:alpha:]]`, and class intersections (`&&`). Write the characters in one class, or use `\p{Alpha}`.
+- A group past 9 in `regexp_extract` or a replacement.
+- `\p{In...}` blocks, `\p{java...}` classes and binary properties such as `\p{IsAlphabetic}`. Use a category such as `\p{L}` or a script such as `\p{IsLatin}`.
+
+String functions that give Spark's answer on this PC, where DuckDB's own differs:
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `length`, `char_length`, `octet_length`, `bit_length`, `instr`, `locate`, `position`, `levenshtein` | An `int` |
+| `split_part` | An empty delimiter doesn't split the text: part 1 or -1 is the whole text. Index 0 stops, as in Spark |
+| `left`, `right` | A length of 0 or less gives `''` |
+| `lpad`, `rpad` with an empty pad | The text, cut to the length |
+| `locate(substr, str, pos)` | 0 for a position before 1, or a NULL position |
+| `chr`, `char` | `''` below 0, and the character for n % 256 from 256 on: `chr(321)` is `A` |
+| `LIKE`, `ILIKE` | `\` escapes the next `_` or `%`, as Spark's default escape does |
+| `concat` with a NULL | NULL, as a `string` |
+| `concat_ws` with an array, such as `array(...)`, `split(...)` or `collect_list(...)` | The array's elements joined, NULLs left out |
+
+These cases can still differ. LOC-002 warns wherever a pattern is used:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| A pattern taken from the data, not written in the query | Java's syntax | RE2's: not translated, and a lookaround stops with DuckDB's message |
+| `$` without the `m` flag, on text that ends in a line break | Matches just before the final line break | Matches only at the very end |
+| `.` and `\r`, `\u0085`, `\u2028`, `\u2029` | Doesn't match them | Matches them. Both leave out `\n` |
+| `(?i)` with letters outside ASCII | Without `(?u)`, only ASCII letters ignore case | Every letter ignores case |
+| `\b` next to a letter outside ASCII | Java counts it as a word character | RE2 doesn't |
+| `split` with a pattern that can match no text, such as `x*` | The array ends with an empty part | No empty part at the end |
+| `regexp_replace` with a replacement taken from the data that has a `$` or `\` | Read as groups and escapes | Refused by name |
+| `concat_ws` with an array column (not an array expression in SQL), or any array in the DataFrame API's `F.concat_ws` | The elements joined | The array written as text, such as `[a, b]` |
+| A pattern in the DataFrame API given as a column, such as `F.regexp_like(c, F.lit('...'))` | Java's syntax | RE2's: only a pattern given as a Python string is translated |
+| The DataFrame API's `F.split_part` with an empty delimiter, and `F.concat` with a NULL | As in the table above | `''`, and an `int` NULL. The DataFrame API's other string functions weren't compared. Use the SQL form, `F.expr(...)`, for Spark's |
+| `upper('ß')` | `SS` | `ẞ` |
+
 ## Rules
 
 Rule set **2026.10.3**, from Microsoft Learn and the Apache Spark 3.5 reference as they read on 2026-10-17. Each Microsoft page's "last updated" date is kept in `sidecar/fabric_desktop/sqlcompat/profiles.py`. DDL-007 (ALTER TABLE) is an error except ALTER COLUMN, which is a warning because it is in preview. 2026.10.3 stops reading T-SQL's `GRANT`, `DENY` or `REVOKE ... ON SCHEMA::name` (and the other securable classes after `ON`) as a Spark `::` cast, and `UPDATE STATISTICS` (with no `SET`) as an UPDATE without WHERE.
@@ -437,6 +493,21 @@ What can still differ:
 
 - In a warehouse, some run-time errors (dividing by zero, a value that doesn't convert) end only their own statement, and the batch goes on to the next one. Here the script stops at the first error, and the error says which statements didn't run.
 - A script of only session options (`SET NOCOUNT ON`) has nothing to run here, and says so.
+
+## Loading data with T-SQL
+
+Fabric Warehouse loads files with `COPY INTO`, `BULK INSERT` and `OPENROWSET(BULK ...)`. Each reads files from a URL in Azure Storage (Blob or Data Lake Storage Gen2) or OneLake, as Microsoft's T-SQL reference for Fabric describes them. Neither the local engine nor a run from the SQL page loads them, and each is refused by its name, so a script never looks as if it loaded something.
+
+| Statement | In a Fabric Warehouse | Here |
+| --- | --- | --- |
+| `COPY INTO t FROM '<url>' WITH (...)` | Loads CSV, Parquet or JSONL files into a table. Options include `FILE_TYPE`, `FIRSTROW`, `FIELDTERMINATOR`, `ROWTERMINATOR`, `FIELDQUOTE`, `ENCODING`, `DATEFORMAT`, `COMPRESSION`, `CREDENTIAL`, `MATCH_COLUMN_COUNT` and `IDENTITY_INSERT`. A column list maps fields by number (CSV) or JSON path (JSONL), with a default for each column. `MAXERRORS` (0 by default) lets up to that many rows be rejected while the rest load, and `ERRORFILE` writes the rejected rows to storage | Refused by name |
+| `BULK INSERT t FROM '<url>' WITH (...)` | Loads the same file types as `COPY INTO`, with SQL Server's options: `FORMAT`, `FIRSTROW`, `FIELDTERMINATOR` (a tab by default), `MAXERRORS` (10 by default), `ERRORFILE` and others. `DATAFILETYPE = 'native'` and `KEEPIDENTITY` aren't supported, and `TABLOCK`, `BATCHSIZE` and some others are accepted and ignored | Refused by name |
+| `SELECT ... FROM OPENROWSET(BULK '<url>', ...) AS r` | Reads CSV, Parquet or JSONL files as rows, with `FORMAT`, `HEADER_ROW`, `FIRSTROW`, `LASTROW`, `FIELDTERMINATOR`, `MAXERRORS` (10 by default) and others, a `WITH (column type ...)` list, and `r.filepath()` and `r.filename()` for the file each row came from | Refused by name |
+
+- **On this PC.** The local engine reads no URLs, so all three are refused with "... isn't mapped yet. It loads files from cloud storage ...", whatever their file type, options, error-row settings or column list. The whole script is refused before anything runs, so nothing is loaded, not even part of a file, and the statements before it don't run either. To load a file here, put it in one of the project's folders, where it's a table such as `dbo.orders`, and `INSERT INTO ... SELECT` from that table.
+- **On a warehouse, from the SQL page.** A read and a change both refuse `COPY INTO`, `BULK INSERT` and `OPENROWSET` before anything is sent: "COPY INTO loads files into the warehouse, which isn't run from the SQL page. Use the Load files with COPY INTO template and run it in Fabric's query editor.", or "OPENROWSET reads outside the warehouse".
+- **Rejected rows.** In a warehouse, a load with `MAXERRORS` above 0 can succeed with some rows left out. Since neither engine here runs a load, no load here leaves rows out.
+- A column, table or alias named `bulk`, `copy` or `openrowset` in brackets, and the words in strings and comments, aren't refused.
 
 ## How it's built and tested
 

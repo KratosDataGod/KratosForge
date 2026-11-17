@@ -378,7 +378,7 @@ def _html_output(o: dict[str, Any]) -> str:
         shown = len(o.get("rows") or [])
         note = f'<div class="skipped">{shown} of {html.escape(str(total))} rows</div>' if total not in (None, shown) else ""
         return f'<div class="out">{_table_html(o)}{note}</div>'
-    if kind == "image" and o.get("mime") in _IMAGE_TYPES and _B64.match(str(o.get("data", ""))):
+    if kind == "image" and o.get("mime") in _IMAGE_TYPES and _B64.fullmatch(str(o.get("data", ""))):
         return f'<div class="out"><img alt="Chart from this cell" src="data:{o["mime"]};base64,{o["data"]}"></div>'
     if kind == "html":
         return '<div class="out skipped">HTML output isn\'t included in the page, so nothing in it can run.</div>'
@@ -556,7 +556,7 @@ def _parse_percent(lines: list[str]) -> list[dict[str, Any]]:
                 break
     chunks: list[tuple[str, list[str]]] = [("", [])]
     for ln in lines:
-        m = _PERCENT.match(ln.rstrip())
+        m = _PERCENT.fullmatch(ln.rstrip())
         if m:
             chunks.append((m.group(1).strip(), []))
         else:
@@ -596,7 +596,7 @@ def parse_source(text: str, file_name: str = "") -> dict[str, Any]:
             notes: list[dict[str, Any]] = []
             cells = _parse_databricks(lines, comment, default, notes)
             return {"format": label, "cells": cells, "notes": _here_notes(cells, notes)}
-    if any(_PERCENT.match(ln.rstrip()) for ln in lines):
+    if any(_PERCENT.fullmatch(ln.rstrip()) for ln in lines):
         return {"format": "Percent-format script (# %%)", "cells": _parse_percent(lines)}
     source = _trim(lines)
     if ext == ".sql" and source:

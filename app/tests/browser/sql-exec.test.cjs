@@ -6,6 +6,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the S38 case below runs axe while this is open.
+// axe covers dialogs: query.js:renderQuery
 
 const LH = { workspace_id: "ws1", lakehouse_id: "lh1", name: "Sales" };
 const SHOTS = process.env.SCREENSHOT_DIR;

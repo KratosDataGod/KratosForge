@@ -70,56 +70,6 @@ fn on_drive(path: &str) -> bool {
     b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/')
 }
 
-#[cfg(test)]
-mod tests {
-    use super::start_folder;
-    use std::cell::RefCell;
-
-    /// Runs start_folder with stand-ins that record each question asked.
-    fn ask(start: Option<&str>, remote: bool, dir: bool) -> (Option<String>, Vec<String>) {
-        let asked = RefCell::new(Vec::new());
-        let got = start_folder(
-            start.map(str::to_string),
-            |s| { asked.borrow_mut().push(format!("local {s}")); !remote },
-            |s| { asked.borrow_mut().push(format!("is_dir {s}")); dir },
-        );
-        (got, asked.into_inner())
-    }
-
-    #[test]
-    fn a_local_folder_on_a_drive_letter_is_where_the_dialog_starts() {
-        assert_eq!(ask(Some("C:\\Data"), false, true), (Some("C:\\Data".into()), vec!["local C:\\Data".into(), "is_dir C:\\Data".into()]));
-        assert_eq!(ask(Some("d:/data"), false, true).0.as_deref(), Some("d:/data"));
-    }
-
-    #[test]
-    fn nothing_is_asked_about_a_path_that_isnt_on_a_drive_letter() {
-        for path in ["\\\\server\\share\\x", "\\\\?\\C:\\x", "//server/share", "relative", "C:", ""] {
-            assert_eq!(ask(Some(path), false, true), (None, vec![]), "{path}");
-        }
-        assert_eq!(ask(None, false, true), (None, vec![]));
-    }
-
-    #[test]
-    fn a_network_drive_is_never_looked_at() {
-        // A mapped drive: only its type is read, never the folder.
-        assert_eq!(ask(Some("Z:\\Team"), true, true), (None, vec!["local Z:\\Team".into()]));
-    }
-
-    #[test]
-    fn a_folder_that_isnt_there_leaves_the_dialog_where_windows_opens_it() {
-        assert_eq!(ask(Some("C:\\Gone"), false, false).0, None);
-    }
-
-    #[test]
-    fn starts_only_on_a_drive_letter() {
-        for ok in ["C:\\Users\\you", "d:/data", "E:\\"] { assert!(super::on_drive(ok), "{ok}"); }
-        for no in ["", "C:", "C:relative", "\\\\server\\share", "\\\\?\\C:\\x", "//server/share", "relative\\x", "1:\\x"] {
-            assert!(!super::on_drive(no), "{no}");
-        }
-    }
-}
-
 /// Off Windows the page doesn't show Browse…, so this only answers a stray call.
 #[cfg(not(windows))]
 pub fn pick(_owner: isize, _start: Option<String>) -> Result<Option<String>, String> {
@@ -196,4 +146,54 @@ pub fn pick_sql(owner: isize, start: Option<String>, save_name: Option<String>) 
 #[cfg(not(windows))]
 pub fn pick_sql(_owner: isize, _start: Option<String>, _save_name: Option<String>) -> Result<Option<String>, String> {
     Err("The file dialog is only on Windows".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::start_folder;
+    use std::cell::RefCell;
+
+    /// Runs start_folder with stand-ins that record each question asked.
+    fn ask(start: Option<&str>, remote: bool, dir: bool) -> (Option<String>, Vec<String>) {
+        let asked = RefCell::new(Vec::new());
+        let got = start_folder(
+            start.map(str::to_string),
+            |s| { asked.borrow_mut().push(format!("local {s}")); !remote },
+            |s| { asked.borrow_mut().push(format!("is_dir {s}")); dir },
+        );
+        (got, asked.into_inner())
+    }
+
+    #[test]
+    fn a_local_folder_on_a_drive_letter_is_where_the_dialog_starts() {
+        assert_eq!(ask(Some("C:\\Data"), false, true), (Some("C:\\Data".into()), vec!["local C:\\Data".into(), "is_dir C:\\Data".into()]));
+        assert_eq!(ask(Some("d:/data"), false, true).0.as_deref(), Some("d:/data"));
+    }
+
+    #[test]
+    fn nothing_is_asked_about_a_path_that_isnt_on_a_drive_letter() {
+        for path in ["\\\\server\\share\\x", "\\\\?\\C:\\x", "//server/share", "relative", "C:", ""] {
+            assert_eq!(ask(Some(path), false, true), (None, vec![]), "{path}");
+        }
+        assert_eq!(ask(None, false, true), (None, vec![]));
+    }
+
+    #[test]
+    fn a_network_drive_is_never_looked_at() {
+        // A mapped drive: only its type is read, never the folder.
+        assert_eq!(ask(Some("Z:\\Team"), true, true), (None, vec!["local Z:\\Team".into()]));
+    }
+
+    #[test]
+    fn a_folder_that_isnt_there_leaves_the_dialog_where_windows_opens_it() {
+        assert_eq!(ask(Some("C:\\Gone"), false, false).0, None);
+    }
+
+    #[test]
+    fn starts_only_on_a_drive_letter() {
+        for ok in ["C:\\Users\\you", "d:/data", "E:\\"] { assert!(super::on_drive(ok), "{ok}"); }
+        for no in ["", "C:", "C:relative", "\\\\server\\share", "\\\\?\\C:\\x", "//server/share", "relative\\x", "1:\\x"] {
+            assert!(!super::on_drive(no), "{no}");
+        }
+    }
 }

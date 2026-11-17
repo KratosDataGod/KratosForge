@@ -67,13 +67,13 @@ def test_a_value_that_doesnt_fit_names_the_parameter(kind, value, match):
 
 
 def test_a_lakehouse_run_binds_typed_values_and_never_keeps_them(runs, lake):
-    secret = "West"
+    region = "West"
     status = wait(runs, runs.start("SELECT id FROM sales WHERE region = :region AND day >= {{start}} ORDER BY id", lake,
-                                   params=[{"name": "region", "type": "text", "value": secret},
+                                   params=[{"name": "region", "type": "text", "value": region},
                                            {"name": "start", "type": "date", "value": "2026-10-01"}])["id"])
     assert status["state"] == "completed", status["error"]
     assert runs.page(status["id"])["rows"] == [[3]]
-    assert secret not in repr(status) and secret not in repr(runs.lines) and runs._get(status["id"]).params == []
+    assert region not in repr(status) and region not in repr(runs.lines) and runs._get(status["id"]).params == []
 
 
 def test_a_value_is_never_sql(runs, lake):

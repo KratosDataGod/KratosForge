@@ -66,10 +66,10 @@ TS = "TIMESTAMP'2024-02-29 13:04:05.123456'"
 FORMATS = [
     (f"date_format({TS}, 'yyyy-MM-dd HH:mm:ss.SSS')", "string", "2024-02-29 13:04:05.123"),
     (f"date_format({TS}, 'y yy yyy yyyyy')", "string", "2024 24 2024 02024"),
-    (f"date_format({TS}, 'M MM MMM MMMM MMMMM L')", "string", "2 02 Feb February F 2"),
+    (f"date_format({TS}, 'M MM MMM MMMM L')", "string", "2 02 Feb February 2"),
     (f"date_format({TS}, 'd dd D DD DDD')", "string", "29 29 60 60 060"),
     (f"date_format({TS}, 'Q QQ QQQ QQQQ')", "string", "1 01 Q1 1st quarter"),
-    (f"date_format({TS}, 'E EEE EEEE EEEEE')", "string", "Thu Thu Thursday T"),
+    (f"date_format({TS}, 'E EEE EEEE')", "string", "Thu Thu Thursday"),
     (f"date_format({TS}, 'h hh K k H HH a')", "string", "1 01 1 13 13 13 PM"),
     ("date_format(TIMESTAMP'2024-02-29 00:04:05', 'h K k H a')", "string", "12 0 24 0 AM"),
     (f"date_format({TS}, 'm mm s ss')", "string", "4 04 5 05"),
@@ -239,6 +239,10 @@ REFUSED = [
     ("date_format(DATE'2024-02-29', 'F')", "'F'", "Spark refuses"),
     ("date_format(DATE'2024-02-29', '[yyyy]')", "'['", "optional sections"),
     ("date_format(DATE'2024-02-29', 'ddd')", "'ddd'", "too many"),
+    # Spark stops on five of a text letter and on seven or more y: "Too many pattern letters".
+    *[(f"date_format(DATE'2024-02-29', '{r}')", f"'{r}'", f"(\"Too many pattern letters: {r[0]}\")")
+      for r in ("GGGGG", "MMMMM", "LLLLL", "EEEEE", "QQQQQ", "qqqqq", "yyyyyyy", "yyyyyyyyyy")],
+    ("to_timestamp('2024', 'yyyyyyy')", "'yyyyyyy'", "Spark stops on it too"),
     ("date_format(DATE'2024-02-29', 'b')", "'b'", "isn't a pattern letter"),
     ("date_format(DATE'2024-02-29', 'yyyy at')", "'t'", "isn't a pattern letter"),  # Spark: unknown pattern letter
     ("date_format(DATE'2024-02-29', \"'open\")", "'open", "isn't closed"),

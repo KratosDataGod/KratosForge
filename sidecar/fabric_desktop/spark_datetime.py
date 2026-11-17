@@ -23,6 +23,10 @@ _RESERVED = set("[]{}#")
 # The most letters java.time takes in a run of each.
 _MOST = {"G": 5, "M": 5, "L": 5, "d": 2, "D": 3, "Q": 5, "q": 5, "E": 5, "a": 1, "h": 2, "K": 2, "k": 2,
          "H": 2, "m": 2, "s": 2, "S": 9, "O": 4, "X": 5, "x": 5, "Z": 5}
+# Runs Spark itself stops on with "Too many pattern letters" (DateTimeFormatterHelper's
+# unsupportedPatternLengths): five of a text letter, whose narrow form was the full form in Spark 2
+# (SPARK-31771), and seven or more y (SPARK-31867).
+_SPARK_MOST = {"G": 4, "M": 4, "L": 4, "E": 4, "Q": 4, "q": 4, "y": 6}
 
 _REFUSED = ("date_format and from_unixtime can't use '{run}' in a pattern, so nothing ran: {why} "
             "See Spark's datetime patterns (sql-ref-datetime-pattern).")
@@ -86,6 +90,8 @@ def _check(run: str) -> None:
         raise ValueError(_REFUSED.format(run=run, why="the offset is written O or OOOO."))
     if c not in _MOST and c not in "yV":
         raise ValueError(_REFUSED.format(run=run, why=f"'{c}' isn't a pattern letter."))
+    if n > _SPARK_MOST.get(c, 99):
+        raise ValueError(_REFUSED.format(run=run, why=f"Spark stops on it too (\"Too many pattern letters: {c}\")."))
     if n > _MOST.get(c, 99):
         raise ValueError(_REFUSED.format(run=run, why=f"too many pattern letters: {c}."))
 
@@ -133,24 +139,24 @@ def _letter(run: str) -> str:
     c, n = run[0], len(run)
     hour = "HOUR(local)"
     if c == "G":
-        return "'Anno Domini'" if n == 4 else "'A'" if n == 5 else "'AD'"
+        return "'Anno Domini'" if n == 4 else "'AD'"
     if c == "y":
         if n == 2:
             return "STRFTIME(local, '%y')"
         return _pad("YEAR(local)", n) if n > 1 else "CAST(YEAR(local) AS VARCHAR)"
     if c in "ML":
         return {1: "CAST(MONTH(local) AS VARCHAR)", 2: "STRFTIME(local, '%m')", 3: "STRFTIME(local, '%b')",
-                4: "STRFTIME(local, '%B')", 5: "LEFT(STRFTIME(local, '%B'), 1)"}[n]
+                4: "STRFTIME(local, '%B')"}[n]
     if c == "d":
         return _pad("DAY(local)", n) if n > 1 else "CAST(DAY(local) AS VARCHAR)"
     if c == "D":
         return _pad("DAYOFYEAR(local)", n) if n > 1 else "CAST(DAYOFYEAR(local) AS VARCHAR)"
     if c in "Qq":
         q = "CAST(QUARTER(local) AS VARCHAR)"
-        return {1: q, 2: f"LPAD({q}, 2, '0')", 3: f"'Q' || {q}", 5: q,
+        return {1: q, 2: f"LPAD({q}, 2, '0')", 3: f"'Q' || {q}",
                 4: f"{q} || ['st', 'nd', 'rd', 'th'][QUARTER(local)] || ' quarter'"}[n]
     if c == "E":
-        return "STRFTIME(local, '%A')" if n == 4 else "LEFT(STRFTIME(local, '%A'), 1)" if n == 5 else "STRFTIME(local, '%a')"
+        return "STRFTIME(local, '%A')" if n == 4 else "STRFTIME(local, '%a')"
     if c == "a":
         return "STRFTIME(local, '%p')"
     if c in "hKkH":

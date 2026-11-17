@@ -186,15 +186,16 @@ def test_a_warehouse_run_cut_off_part_way_keeps_no_rows_and_says_why(tmp_path, h
 # ---- a snapshot that holds fewer rows than the run wrote
 
 def _cut_short(manager, run_id):
-    """Rewrite the run's snapshot with its first batch only, as a damaged or half-copied file would be."""
-    path = manager._get(run_id).snapshot
-    with pa.OSFile(str(path)) as source:
+    """Point the run at a copy of its snapshot that holds the first batch only, as a damaged or half-copied
+    file would. The run moves to a folder of its own, since Windows won't replace a file another handle has open."""
+    run = manager._get(run_id)
+    with pa.OSFile(str(run.snapshot)) as source:
         reader = pa.ipc.open_file(source)
         schema, first = reader.schema, reader.get_batch(0)
-    short = path.with_name("short.arrow")
-    with pa.ipc.new_file(str(short), schema) as writer:
+    run.folder = run.folder.with_name(run.folder.name + "-short")
+    run.folder.mkdir()
+    with pa.ipc.new_file(str(run.snapshot), schema) as writer:
         writer.write_batch(first)
-    short.replace(path)
 
 
 def test_a_snapshot_with_fewer_rows_than_the_run_wrote_is_never_shown_as_whole(runs):

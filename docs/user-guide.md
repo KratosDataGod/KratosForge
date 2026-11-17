@@ -226,6 +226,10 @@ The **Connections** tab beside **Pipelines** lists the Fabric connections you ca
 
 In a notebook, the explorer's **Resources** tab lists the notebook's **Built-in files** above the code snippets. **Add files** copies files from this PC into a folder beside the notebook (`<name>.resources/builtin/`), never over a file of the same name; each file's menu has Copy path, Show in folder, Rename and Delete. Cells read the files as `builtin/<file>`, as in Fabric, and `notebookutils.nbResPath` is the folder. Up to 100 files of up to 50 MB each. The files move with the notebook into a notebooks repository and Git; publishing to Fabric doesn't upload them yet. See [Notebook resources](notebook-resources.md).
 
+## Scratch console (Preview)
+
+**Scratch** (View tab) opens a console beside the cells. It runs in the notebook's own session, so it sees the same variables, DataFrames and imports as the cells, and what it sets shows in **Variables**; but nothing typed there is saved in the notebook. Type Python and press **Shift+Enter** (or **Run**); **Up** and **Down** at the start or end of the box step through what ran before. **Copy to a new cell** adds what's in the box, or else the last line that ran, as a new cell at the end of the notebook. **Clear** empties the console. A run counts like a cell's, so the next cell's run number moves on by one. It runs on this PC only, one run at a time: while a cell is running, run it again when the cell finishes, and a notebook that runs in Fabric or on another engine can't use it.
+
 ## Fabric and Databricks notebook formats (Preview)
 
 **Import from Fabric or Databricks** under **Start something** on Home reads Fabric or Databricks source (`.py`, `.sql`, `.scala`), a Databricks archive (`.dbc`), a percent-format script (`# %%`) or a `.ipynb`, shows each notebook it would create, and creates them as new notebooks in the app's notebooks folder. A notebook that already has the name is never replaced; the new one gets the next free name, such as `Sales (2)`, and the picked file is only read. In a notebook, **Export** (Home tab > Share) saves it as `.ipynb` (with or without the outputs on screen), Fabric source, Databricks source or a web page, as a new file in your Downloads folder; a file already there is never replaced. Nothing is sent to Fabric. See [Fabric and Databricks notebook formats](notebook-import-export.md).
@@ -501,17 +505,17 @@ Click a pipeline run to see its activities underneath: each one's status, its ty
 
 **Runs** also lists pipeline, copy job and dataflow runs in Fabric, from the run history of those items in the workspaces Monitor > Fabric > Schedules lists: pinned workspaces, your environments' workspaces and your notebooks' workspaces. They say **Pipeline run in Fabric**, how they were started (scheduled, by hand, or by another pipeline) and the workspace under **Ran on**. A run this app started is listed once. Copy job and dataflow runs say **Copy job run in Fabric** and **Dataflow refresh in Fabric**, and clicking one opens it in Fabric. Reading that history runs in the background, so Runs first says **Reading pipeline, copy job and dataflow runs in Fabric...** and fills in when it's done; after that it shows what it read until you press **Refresh**, and each row says **as of** when it was read. A run that was still going when it was read more than 10 minutes ago shows **Stale** instead of **Running**; with **Problems first**, Stale and Unknown rows come after real failures. Click a Fabric pipeline run to see its activities, read from Fabric when you open it and again only after **Refresh**: each one's status, type, start, how long it took and its error, with **Input** and **Output** to open. Secrets are removed from them, and a very long one is cut short. If your account can't read a run's activities, the row says **Not authorized to read activities**. **Open in Fabric** opens the pipeline in Fabric. All of this only reads: it starts no Fabric job and uses no capacity.
 
-### Run progress in Monitor (Preview)
+### Forge Activity view (Preview)
 
 **Runs** shows today's counts in the page header: **Running now**, **Succeeded today**, **Failed today**, and **Ran on this PC (24 h)**, how many of the runs in the last day ran here rather than in Fabric. Succeeded and failed count by when a run ended, so one that ran past midnight counts today. They are counted from the runs the page read, whatever the filters, so they cover the same runs as the table.
 
-Above the table, a panel has a lane for each of the three most recent running runs. Untick **Run progress** on the view row to hide it; your choice lasts for the session. A lane says what the run is doing in words, and only real progress moves:
+Tick **Forge view** on the view row for a band above the table with a lane for each of the three most recent running runs, beside the Monitor banner of Kratos and the wolf at the forge. The picture never moves; only the anvil's glow and sparks run, and only while a run is going. It is on by default unless **Living Experience** is Professional; your choice lasts for the session. A lane says what the run is doing in words, and only real progress moves:
 
-- **Run all** in a notebook on this PC shows **Running, cell N of M** with a bar.
+- **Run all** in a notebook on this PC shows **Running, cell N of M** with a bar, and the wolf on it when the wolf effects are on.
 - A run in Fabric shows a still ring and **Waiting on Fabric**, with the time since it started. Fabric doesn't report how far along it is, so there is no bar.
 - Any other run shows **Running, total not known yet** and the elapsed time only.
 
-More than three running runs adds **N more running, see the table below**. When nothing is running, the panel shows the last run that finished in the past ten minutes (**Last run succeeded** or **Last run failed**); otherwise it says **Nothing running**. The table stays the full record.
+More than three running runs adds **N more running, see the table below**. When nothing is running, the band shows the last run that finished in the past ten minutes: a success strikes the anvil once (**Forged clean**), a failure cools the forge (**The forge cooled**). Otherwise it says **The forge is quiet**. The table stays the full record. In Professional or Subtle, or with Windows reducing motion, the text and the bars stay and nothing moves.
 
 ### Pop-out windows (Preview)
 

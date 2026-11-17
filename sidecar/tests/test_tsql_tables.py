@@ -75,6 +75,12 @@ def test_trailing_blanks_past_the_length_pass_as_in_tsql(engine):
         engine.execute("INSERT INTO dbo.t (id, v) VALUES (2, 'abcdef ')", dialect="tsql")
 
 
+def test_only_spaces_pass_past_the_length(engine):
+    # A no-break space isn't a trailing blank in T-SQL: 'abcde' + NCHAR(160) is 7 bytes, too long for VARCHAR(5).
+    with pytest.raises(Exception, match=TRUNCATED.format("v")):
+        engine.execute("INSERT INTO dbo.t (id, v) VALUES (1, N'abcde\u00a0')", dialect="tsql")
+
+
 def test_dbcc_inside_a_string_is_just_text(engine):
     assert run(engine, "SELECT 'x;\n DBCC'") == [["x;\n DBCC"]]
 
@@ -151,7 +157,7 @@ def test_what_isnt_mapped_is_refused_by_name(engine, sql, words):
 def test_the_length_check_is_written_into_the_table():
     from fabric_desktop.localdata.tsql import translate
     texts, _ = translate("CREATE TABLE dbo.t (v VARCHAR(5), b VARBINARY(2), m VARCHAR(MAX))")
-    assert texts == [("CREATE TABLE dbo.t (v TEXT(5) CHECK (CASE WHEN STRLEN(RTRIM(v)) > 5 THEN ERROR('String or binary data "
+    assert texts == [("CREATE TABLE dbo.t (v TEXT(5) CHECK (CASE WHEN STRLEN(RTRIM(v, ' ')) > 5 THEN ERROR('String or binary data "
                      "would be truncated in table ''dbo.t'', column ''v''.') ELSE TRUE END), b BLOB CHECK (CASE WHEN "
                      "OCTET_LENGTH(b) > 2 THEN ERROR('String or binary data would be truncated in table ''dbo.t'', "
                      "column ''b''.') ELSE TRUE END), m TEXT)")]

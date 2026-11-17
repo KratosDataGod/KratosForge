@@ -48,6 +48,38 @@ test("the table pages through all 2,500 rows and sorts and searches every row", 
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "result-viewer.png") });
 });
 
+test("Filter shows a box under each header that filters every row, with the search, and says what to write", { skip }, async () => {
+  const out = page().locator(".table-output");
+  const range = out.locator(".result-range");
+  await out.getByRole("searchbox", { name: "Search all rows" }).fill("");
+  await out.getByText("Rows 1 to 100 of 2,500").waitFor();
+  await out.getByRole("button", { name: "Filter", exact: true }).click();
+  assert.strictEqual(await out.getByRole("button", { name: "Filter", exact: true }).getAttribute("aria-pressed"), "true");
+  const n = out.getByRole("textbox", { name: "Filter n", exact: true });
+  assert.ok(await n.evaluate((el) => el === document.activeElement), "the first box takes focus");
+  await n.fill("< 100");
+  await n.press("Enter");
+  await out.getByText("Rows 1 to 100 of 100 matching").waitFor();
+  await out.getByRole("textbox", { name: "Filter name" }).fill("9");  // applies as you stop typing
+  await out.getByText("Rows 1 to 19 of 19 matching").waitFor();
+  assert.ok(await out.getByRole("textbox", { name: "Filter name" }).evaluate((el) => el === document.activeElement), "focus stays in the box");
+  await out.getByRole("searchbox", { name: "Search all rows" }).fill("row 9");
+  await out.getByText("Rows 1 to 11 of 11 matching").waitFor();  // 9, 90 to 99
+  await n.fill("> lots");
+  await n.press("Enter");
+  await out.locator(".sql-grid-error").getByText(/Write a number after > in the filter on n/).waitFor();
+  assert.strictEqual(await n.getAttribute("aria-invalid"), "true");
+  assert.strictEqual(await range.innerText(), "Rows 1 to 11 of 11 matching", "the rows on screen stay");
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "result-viewer-filter.png") });
+  await out.getByRole("button", { name: "Filter", exact: true }).click();  // off: the boxes and their filters go
+  await out.getByRole("searchbox", { name: "Search all rows" }).fill("");
+  await out.getByText("Rows 1 to 100 of 2,500").waitFor();
+  assert.strictEqual(await out.locator(".sql-filter").count(), 0);
+  assert.ok(await out.locator(".sql-grid-error").isHidden());
+  const last = app.calls.filter((c) => c.method === "notebook_frame_page").at(-1).params;
+  assert.strictEqual(last.filters, undefined);
+});
+
 test("Download saves the whole result as a new file each time", { skip }, async () => {
   const out = page().locator(".table-output");
   const paths = [];

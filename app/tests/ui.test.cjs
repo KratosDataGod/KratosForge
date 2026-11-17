@@ -666,6 +666,68 @@ test("the result grid sends its sort and filters, cycles a header's sort, and co
   assert.strictEqual(sqlGridState(tab), tab.grid, "made once, kept with the tab");
 });
 
+test("the result grid selects a block of cells, moves with the keys, and copies or opens what is selected", () => {
+  const ctx = { sqlRowsAs: (format, columns, rows) => JSON.stringify({ format, names: columns.map((c) => c.name), rows }) };
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8")}; Object.assign(this, { sqlGridRect, sqlGridSelectionNote, sqlGridMove, sqlGridBlock, sqlGridCopyText, sqlValueText });`, ctx);
+  const { sqlGridRect, sqlGridSelectionNote, sqlGridMove, sqlGridBlock, sqlGridCopyText, sqlValueText } = ctx;
+  const sel = { a: { r: 2, c: 1 }, f: { r: 0, c: 2 } };
+  assert.deepStrictEqual(plain(sqlGridRect(sel)), { r0: 0, r1: 2, c0: 1, c1: 2 }, "dragged up and right: the same block");
+  assert.strictEqual(sqlGridRect(null), null);
+  assert.strictEqual(sqlGridSelectionNote(sel), "3 × 2 cells selected");
+  assert.strictEqual(sqlGridSelectionNote({ a: { r: 1, c: 1 }, f: { r: 1, c: 1 } }), "", "one cell: nothing to say");
+  const key = (k, mods = {}) => ({ key: k, shiftKey: false, ctrlKey: false, metaKey: false, ...mods });
+  const one = { a: { r: 1, c: 1 }, f: { r: 1, c: 1 } };
+  assert.deepStrictEqual(plain(sqlGridMove(one, key("ArrowDown"), 5, 3)), { a: { r: 2, c: 1 }, f: { r: 2, c: 1 } });
+  assert.deepStrictEqual(plain(sqlGridMove(one, key("ArrowRight", { shiftKey: true }), 5, 3)), { a: { r: 1, c: 1 }, f: { r: 1, c: 2 } }, "Shift extends");
+  assert.deepStrictEqual(plain(sqlGridMove(one, key("ArrowLeft", { ctrlKey: true }), 5, 3)).f, { r: 1, c: 0 });
+  assert.deepStrictEqual(plain(sqlGridMove(one, key("End", { ctrlKey: true }), 5, 3)).f, { r: 4, c: 2 });
+  assert.deepStrictEqual(plain(sqlGridMove(one, key("PageDown"), 5, 3)).f, { r: 4, c: 1 }, "stops at the last row");
+  assert.deepStrictEqual(plain(sqlGridMove(null, key("ArrowUp"), 5, 3)).f, { r: 0, c: 0 }, "no selection yet: the first cell");
+  assert.strictEqual(sqlGridMove(one, key("a"), 5, 3), null, "not a move");
+  assert.strictEqual(sqlGridMove(one, key("ArrowDown"), 0, 3), null, "no rows");
+  const r = { columns: [{ name: "region" }, { name: "orders" }, { name: "tags" }],
+    rows: [["West", 4812, ["a", "b"]], ["North", 3977, null], ["South", 3105, []]] };
+  const block = { a: { r: 0, c: 1 }, f: { r: 1, c: 2 } };
+  assert.deepStrictEqual(plain(sqlGridBlock(r, block)), { columns: [{ name: "orders" }, { name: "tags" }], rows: [[4812, ["a", "b"]], [3977, null]] });
+  assert.strictEqual(sqlGridBlock(r, null).rows.length, 3, "nothing selected: the page");
+  assert.strictEqual(sqlGridCopyText("cells", r, block), '4812\t["a","b"]\n3977\t', "values only, as a spreadsheet pastes them");
+  assert.deepStrictEqual(JSON.parse(sqlGridCopyText("csv", r, block)), { format: "csv", names: ["orders", "tags"], rows: [[4812, ["a", "b"]], [3977, null]] });
+  assert.strictEqual(sqlValueText(null), "NULL");
+  assert.strictEqual(sqlValueText('{"a":1,"b":[2]}'), '{\n  "a": 1,\n  "b": [\n    2\n  ]\n}', "JSON text, indented");
+  assert.strictEqual(sqlValueText("{not json"), "{not json");
+  assert.strictEqual(sqlValueText({ k: "v" }), '{\n  "k": "v"\n}');
+  assert.strictEqual(sqlValueText(1204330.5), "1204330.5");
+});
+
+test("the result grid keeps a column layout for one set of names: widths, hidden columns and order", () => {
+  const ctx = {};
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8")}; Object.assign(this, { sqlGridLayoutFor, sqlGridWidthCss, sqlGridMoveColumn, sqlGridCarry, sqlGridBlock });`, ctx);
+  const { sqlGridLayoutFor, sqlGridWidthCss, sqlGridMoveColumn, sqlGridCarry, sqlGridBlock } = ctx;
+  const cols = [{ name: "region" }, { name: "orders" }, { name: "revenue" }];
+  const g = {};
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(g, cols)), [0, 1, 2]);
+  g.hidden = [1];
+  g.order = sqlGridMoveColumn([0, 1, 2], 2, -2);
+  assert.deepStrictEqual(plain(g.order), [2, 0, 1]);
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(g, cols)), [2, 0], "revenue first, orders hidden");
+  assert.deepStrictEqual(plain(sqlGridMoveColumn([0, 1, 2], 0, -1)), [0, 1, 2], "the first can't go up");
+  g.hidden = [0, 1, 2];
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(g, cols)), [2, 0, 1], "never no columns at all");
+  g.hidden = [1];
+  g.widths = { 2: 180.4 };
+  assert.strictEqual(sqlGridWidthCss(g.widths), '.sql-result-table [data-col="2"] { width: 180px; min-width: 180px; max-width: 180px; }');
+  const next = sqlGridCarry(g);
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(next, cols)), [2, 0], "a new run with the same columns keeps the layout");
+  assert.deepStrictEqual(plain(next.sort), []);
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(next, [{ name: "x" }, { name: "y" }])), [0, 1], "other columns start again");
+  assert.deepStrictEqual(plain(next.widths), {});
+  assert.strictEqual(sqlGridCarry({ sort: [] }), null);
+  const r = { columns: cols, rows: [["West", 4812, 1.5], ["North", 3977, 2.5]] };
+  assert.deepStrictEqual(plain(sqlGridBlock(r, { a: { r: 0, c: 0 }, f: { r: 1, c: 1 } }, [2, 0])),
+    { columns: [{ name: "revenue" }, { name: "region" }], rows: [[1.5, "West"], [2.5, "North"]] }, "a selection is of the columns on screen");
+  assert.deepStrictEqual(plain(sqlGridBlock(r, null, [2])).columns, [{ name: "revenue" }]);
+});
+
 test("hovering finds the function, table, alias or column under the pointer", () => {
   const { sqlHoverTarget } = sqlEditorHelpers();
   const cols = { sales: [{ name: "amount", type: "decimal" }, { name: "Region Name", type: "string" }], budget: [{ name: "year", type: "int" }] };
@@ -5795,7 +5857,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
     runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
-    validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbReport: ["Notebook as a read-only report"], sqlDiagram: ["Table diagram"], nbFormats: ["Fabric and Databricks notebook formats"],
+    validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbConsole: ["Scratch console"], nbReport: ["Notebook as a read-only report"], sqlDiagram: ["Table diagram"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],
     fabricRun: ["Run in Fabric and schedules", "W6 Publish or run a notebook in Fabric"], notebookRuns: ["Recent runs", "Notebook runs"],
@@ -5806,7 +5868,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring", "Table detail"],
     pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Local pipeline coverage", "Pipelines",
       "Data Factory copy jobs", "Data Factory dataflows", "Data Factory connections"],
-    pipelineRuns: ["Pipeline runs in Monitor"], forgeActivity: ["Run progress in Monitor"], cancelFabricRun: ["Cancel a Fabric run"], sourceControl: ["Source control"], profile: ["Profile"],
+    pipelineRuns: ["Pipeline runs in Monitor"], forgeActivity: ["Forge Activity view"], cancelFabricRun: ["Cancel a Fabric run"], sourceControl: ["Source control"], profile: ["Profile"],
     platform: ["Owners", "Notices to Teams", "One landing workspace for Dev, Test and Prod", "One list of source systems",
       "Platform notices", "Semantic model rules"],
     mesh: ["Home: the mesh for who you are", "Products", "Requests", "Domains", "Members and joining a domain", "Follow a product",

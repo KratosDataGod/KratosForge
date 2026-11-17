@@ -178,7 +178,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Pipelines | Create > Pipeline ([user-guide.md](user-guide.md#pipelines-preview)) |
 | Pop-out windows | Monitor > Pop out on From KratosForge and In Fabric ([user-guide.md](user-guide.md#pop-out-windows-preview)) |
 | Pipeline runs in Monitor | Monitor > Runs, pipeline runs on this PC and in Fabric with their activities ([user-guide.md](user-guide.md#pipeline-runs-in-monitor-preview)) |
-| Run progress in Monitor | Monitor > Runs, today's counts and a lane for each running run ([user-guide.md](user-guide.md#run-progress-in-monitor-preview)) |
+| Forge Activity view in Monitor | Monitor > Runs, today's counts and a lane for each running run beside the forge ([user-guide.md](user-guide.md#forge-activity-view-preview)) |
 | Cancel a Fabric run | Monitor > Runs and the bell, Cancel on a running Fabric job this app started ([user-guide.md](user-guide.md#cancel-a-fabric-run-preview)) |
 | Publishing notebooks from folders | All notebooks > Move to folder; Publish names the item without its folder ([notebook-folders.md](notebook-folders.md)) |
 | New notebook wizard | Create > Notebook from a template |
@@ -233,6 +233,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Variable library | Data mesh > Source systems (always shown) |
 | Warehouse queries | Workspaces > a Warehouse or SQL analytics endpoint row > SQL query (the Warehouse page), and its Monitoring tab ([warehouse.md](warehouse.md#monitoring-preview)) |
 | Messages and Chart on the SQL page | SQL query > Messages, Chart above the result ([warehouse.md](warehouse.md#results-messages-and-chart)) |
+| Scratch console in notebooks | Notebook > View > Scratch ([user-guide.md](user-guide.md#scratch-console-preview)) |
 | Notebook as a report | Notebook > Share > Open as report ([user-guide.md](user-guide.md#notebook-as-a-read-only-report-preview)) |
 | Table diagram on the SQL page | SQL query > Explorer > Diagram ([user-guide.md](user-guide.md#table-diagram-preview)) |
 | SQL best practices | SQL query or Warehouse page, Best practices chip beside Compatibility, for T-SQL ([sql-best-practices.md](sql-best-practices.md)) |

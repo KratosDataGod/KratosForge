@@ -118,6 +118,12 @@ def _index(column: Any) -> int:
 
 
 def _where(table: pa.Table, cols: list[str], filters: list[dict[str, Any]] | None) -> tuple[str, list[Any]]:
+    parts, params = where_parts(table, cols, filters)
+    return (" WHERE " + " AND ".join(parts)) if parts else "", params
+
+
+def where_parts(table: pa.Table, cols: list[str], filters: list[dict[str, Any]] | None) -> tuple[list[str], list[Any]]:
+    """Each filled filter box's condition, in parentheses, and their parameters in order."""
     parts: list[str] = []
     params: list[Any] = []
     for f in filters or []:
@@ -129,7 +135,7 @@ def _where(table: pa.Table, cols: list[str], filters: list[dict[str, Any]] | Non
         sql, p = filter_sql(cols[i], table.schema.field(i), i, str(f["text"]))
         parts.append(f"({sql})")
         params.extend(p)
-    return (" WHERE " + " AND ".join(parts)) if parts else "", params
+    return parts, params
 
 
 def _order(table: pa.Table, cols: list[str], sort: list[dict[str, Any]] | None) -> str:
@@ -188,4 +194,6 @@ def column_stats(table: pa.Table, column: int) -> dict[str, Any]:
         con.close()
     out["column"] = i
     out["rows"] = table.num_rows
+    # Distinct is counted approximately (HyperLogLog), so it can come out above the values there are.
+    out["distinct"] = min(int(out.get("distinct") or 0), table.num_rows - int(out.get("missing") or 0))
     return out

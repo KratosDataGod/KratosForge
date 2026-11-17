@@ -146,7 +146,7 @@ function renderNotebook() {
         if (!on) state.explorerTab = "outline";
         renderNotebook();
       }),
-      toggleBtn("Variables", "braces", state.showVariables, toggleVariables), depsToggle(), commentsToggle(nb), practicesToggle(nb),
+      toggleBtn("Variables", "braces", state.showVariables, toggleVariables), consoleToggle(nb), depsToggle(), commentsToggle(nb), practicesToggle(nb),
       h("div", { class: "sep" }),
       btn("Collapse all inputs", "up", () => setAll("source_hidden", true)), btn("Expand all inputs", "down", () => setAll("source_hidden", false)),
       btn("Collapse all outputs", "up", () => setAll("outputs_hidden", true)), btn("Expand all outputs", "down", () => setAll("outputs_hidden", false)),
@@ -169,7 +169,7 @@ function renderNotebook() {
       h("div", { class: "toolbar" }, toolbars[state.ribbonTab])),
     ...[nbNextLine(nb)].filter(Boolean),  // replaceChildren would write "null"
     h("div", { class: "nb-body" }, state.showExplorer ? renderExplorer() : null, cells,
-      state.showVariables ? renderVariables() : null, commentsPanel(nb), practicesPanel(nb), runsPanel(nb), provePanel(nb), validatePanel(nb)),
+      state.showVariables ? renderVariables() : null, consolePanel(nb), commentsPanel(nb), practicesPanel(nb), runsPanel(nb), provePanel(nb), validatePanel(nb)),
     h("footer", { class: "statusbar" },
       h("span", {}, h("span", { class: `dot ${state.kernel}` }), kernelLabel()),
       sessionsButton(), environmentButton(nb),
@@ -1243,11 +1243,12 @@ function renderTableOutput(o, cell) {
 }
 
 // The table of a result: headers sort (▲ ▼), each with its column type, as Fabric and Databricks show.
-function resultTable(columns, types, rows, numeric, sort, onSort) {
+// filterRow: a row of filter boxes under the headers (the result viewer's Filter).
+function resultTable(columns, types, rows, numeric, sort, onSort, filterRow = null) {
   return h("table", {},
     h("thead", {}, h("tr", {}, columns.map((c, i) => h("th", { class: numeric[i] ? "n" : null },
       h("button", { class: "th-sort", onclick: () => onSort(i) }, c, sort?.i === i ? (sort.dir > 0 ? " ▲" : " ▼") : ""),
-      types?.[i] ? h("span", { class: "th-type" }, types[i]) : null)))),
+      types?.[i] ? h("span", { class: "th-type" }, types[i]) : null))), filterRow),
     h("tbody", {}, rows.map((r) => h("tr", {}, r.map((v, i) => h("td", { class: numeric[i] ? "n" : null }, v === null ? "null" : v))))));
 }
 
@@ -1257,6 +1258,7 @@ const RESULT_PAGE = 100;
 // 100, Copy and Download. The kernel holds the result; after a restart the cell must run again.
 function renderResultViewer(o, wrap, bar, numeric, count) {
   const v = o.viewer ||= { offset: 0, q: "", sort: null, page: null, gone: false, busy: false };
+  v.filters ||= {};
   const search = h("input", { type: "search", class: "out-search", placeholder: "Search all rows", value: v.q, "aria-label": "Search all rows" });
   const status = h("span", { class: "more result-range", role: "status" });
   const prev = btn("Previous", null, () => load(v.offset - RESULT_PAGE), "tool outline small");
@@ -1267,22 +1269,64 @@ function renderResultViewer(o, wrap, bar, numeric, count) {
     h("div", { class: "sql-export-menu", role: "menu" },
       [["csv", "CSV"], ["xlsx", "Excel"], ["parquet", "Parquet"]].map(([fmt, label]) =>
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; downloadResult(o, fmt); } }, label))));
-  bar.append(h("span", { class: "spacer" }), search, btn("Copy", "document", () => copyResultPage(o), "tool outline small"), previewMarked("resultViewer", menu));
-  wrap.append(body, h("div", { class: "row result-pager" }, prev, next, status));
+  // Filter: a box under each header, read as the SQL page's result grid (sql_view.py), over every row.
+  const filterBtn = btn("Filter", null, () => {
+    v.filterOn = !v.filterOn;
+    const had = Object.values(v.filters).some((t) => String(t).trim());
+    if (!v.filterOn) { Object.values(v.filterTimers || {}).forEach(clearTimeout); Object.assign(v, { filters: {}, filterError: null, filterTimers: {} }); }
+    if (!v.filterOn && had) load(0); else draw();
+    if (v.filterOn) body.querySelector(".sql-filter")?.focus();
+  }, "tool outline small", { title: "A filter box under each column. Filters apply to every row of the result; nothing runs again." });
+  const error = h("p", { class: "sql-grid-error", role: "alert", hidden: true });
+  bar.append(h("span", { class: "spacer" }), search, filterBtn, btn("Copy", "document", () => copyResultPage(o), "tool outline small"), previewMarked("resultViewer", menu));
+  wrap.append(body, error, h("div", { class: "row result-pager" }, prev, next, status));
+  const filtered = () => Object.values(v.filters).some((t) => String(t).trim());
+  const filterBoxes = () => {
+    const timers = (v.filterTimers ||= {});
+    const apply = (i, text) => {
+      clearTimeout(timers[i]);
+      delete timers[i];
+      if (!v.filterOn || (v.filters[i] || "") === text) return;
+      v.filters[i] = text;
+      load(0);
+    };
+    return h("tr", { class: "sql-filter-row" }, o.columns.map((c, i) => {
+      const box = h("input", { type: "text", class: "sql-filter", "data-column": String(i), value: v.filters[i] || "",
+        placeholder: "Filter", "aria-label": `Filter ${c}`, spellcheck: "false", ...(v.filterError?.column === i ? { "aria-invalid": "true" } : {}),
+        title: "Text to find, or an operator and a value (= != > >= < <=), or null or not null",
+        oninput: () => { clearTimeout(timers[i]); timers[i] = setTimeout(() => apply(i, box.value), 450); },
+        onkeydown: (e) => {
+          if (e.key === "Enter") apply(i, box.value);
+          if (e.key === "Escape" && box.value) { e.stopPropagation(); box.value = ""; apply(i, ""); }
+        } });
+      return h("td", {}, box);
+    }));
+  };
 
   const draw = () => {
     const p = v.page;
     const rows = p ? p.rows : o.rows.slice(0, RESULT_PAGE);
     const total = p ? p.total : (typeof o.total_rows === "number" ? o.total_rows : null);
+    // A redraw replaces the filter boxes: the one being typed in keeps its text, focus and caret.
+    const active = globalThis.document?.activeElement;
+    const typing = active && body.contains(active) && active.matches?.(".sql-filter") ? active : null;
+    const at = typing && { column: typing.dataset.column, value: typing.value, start: typing.selectionStart, end: typing.selectionEnd };
     body.replaceChildren(resultTable(o.columns, o.types, rows, numeric, v.sort, (i) => {
       v.sort = v.sort?.i === i ? { i, dir: -v.sort.dir } : { i, dir: 1 };
       return load(0);
-    }));
+    }, v.filterOn ? filterBoxes() : null));
+    const box = at && body.querySelector(`.sql-filter[data-column="${at.column}"]`);
+    if (box) { box.value = at.value; box.focus(); box.setSelectionRange(at.start, at.end); }
+    filterBtn.classList?.toggle("toggled", !!v.filterOn);
+    filterBtn.setAttribute?.("aria-pressed", String(!!v.filterOn));
+    error.hidden = !v.filterError;
+    error.textContent = v.filterError?.message || "";
     prev.disabled = v.busy || v.offset === 0;
     next.disabled = v.busy || (total !== null ? v.offset + rows.length >= total : !p && rows.length < RESULT_PAGE);
     status.textContent = v.gone ? "Run the cell again to page, search or download: the kernel no longer holds this result."
-      : !rows.length ? (v.q ? `No rows match "${v.q}"` : "No rows")
-        : `Rows ${(v.offset + 1).toLocaleString()} to ${(v.offset + rows.length).toLocaleString()} of ${total !== null ? total.toLocaleString() : count.toLowerCase()}${v.q ? " matching" : ""}`;
+      : !rows.length ? (v.q && !filtered() ? `No rows match "${v.q}"` : v.q ? "No rows match the search and filters"
+        : filtered() ? "No rows match the filters." : "No rows")
+        : `Rows ${(v.offset + 1).toLocaleString()} to ${(v.offset + rows.length).toLocaleString()} of ${total !== null ? total.toLocaleString() : count.toLowerCase()}${v.q || filtered() ? " matching" : ""}`;
   };
   async function load(offset) {
     const ask = (v.asked = (v.asked || 0) + 1);
@@ -1290,9 +1334,12 @@ function renderResultViewer(o, wrap, bar, numeric, count) {
     draw();
     try {
       const p = await rpc("notebook_frame_page", { frame: o.frame, notebook: state.notebook?.name, offset: Math.max(0, offset), limit: RESULT_PAGE,
-        sort: v.sort ? v.sort.i : null, desc: v.sort ? v.sort.dir < 0 : false, q: v.q });
+        sort: v.sort ? v.sort.i : null, desc: v.sort ? v.sort.dir < 0 : false, q: v.q,
+        ...(filtered() ? { filters: Object.entries(v.filters).filter(([, t]) => String(t).trim()).map(([c, t]) => ({ column: Number(c), text: String(t) })) } : {}) });
       if (ask !== v.asked) return; // a newer search or page was asked for while this one ran
+      v.filterError = p.filter_error || null;  // the rows on screen stay until the filter can be read
       if (p.gone) v.gone = true;
+      else if (p.filter_error) { /* keep the page */ }
       else { v.page = p; v.offset = p.offset; }
     } catch (err) {
       if (ask !== v.asked) return;
@@ -1619,7 +1666,7 @@ async function runCells(cells) {
   // Cells done of cells to run, in the status bar, with the wolf on it (motion.js).
   const track = code.length > 1 ? wolfTrack(() => document.querySelector(".statusbar"), "Notebook run", "Cell", "on this PC") : null;
   track?.set(0, code.length);
-  // Monitor's run progress (forge-activity.js) reads the same count, and how the run ended. Only a run in
+  // Monitor's Forge view (forge-activity.js) reads the same count, and how the run ended. Only a run in
   // this PC's kernel: a run on another engine isn't shown there as running on this PC.
   const forgeRun = { done: 0, total: code.length, started: Date.now(), result: null, ended: null };
   nb.forgeRun = !code.length || nbOnEngine(nb) ? null : forgeRun;

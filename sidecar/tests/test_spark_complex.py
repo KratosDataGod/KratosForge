@@ -145,6 +145,45 @@ print('RESULT' + json.dumps([r.dtypes, [list(x) for x in r.collect()]]))
     assert rows == [[1, 3, None, 2], [2, 0, False, 0], [3, -1, None, None]]
 
 
+def test_dataframe_maps_reverse_sequence_and_posexplode(kernel: Kernel) -> None:
+    text = run(kernel, """
+import json
+from pyspark.sql import functions as F
+df = spark.createDataFrame([(1, {'a': 1, 'b': 2}, [3, 1, 2]), (2, {}, []), (3, None, None)],
+                           "id int, m map<string,int>, arr array<int>")
+frames = [df.select("id", F.size("m"), F.cardinality("m"), (F.size("m") + 1).alias("n")),
+          df.withColumn("n", F.size("m")).select("id", "n"),
+          df.filter(F.size("m") > 1).select("id"),
+          df.select("id", F.explode("m")),
+          df.select("id", F.explode_outer("m")),
+          df.select("id", F.posexplode("arr")),
+          df.select("id", F.posexplode_outer("arr")),
+          df.select("id", F.posexplode("m")),
+          df.select("id", F.reverse("arr"), F.reverse(F.lit("abc"))),
+          df.limit(1).select(F.sequence(F.lit(3), F.lit(1)), F.sequence(F.lit(1), F.lit(5), F.lit(2)),
+                             F.sequence(F.lit(5).cast("bigint"), F.lit(3))),
+          df.limit(1).select(F.map_concat("m", F.expr("map('c', 3)")))]
+out = [[r.columns, [d[1] for d in r.dtypes], [list(x) for x in r.orderBy(*r.columns[:1]).collect()]] for r in frames]
+print('RESULT' + json.dumps(out))
+""")
+    got = json.loads(text.split("RESULT", 1)[1])
+    assert got == [
+        [["id", "size(m)", "cardinality(m)", "n"], ["int", "int", "int", "int"], [[1, 2, 2, 3], [2, 0, 0, 1], [3, -1, -1, 0]]],
+        [["id", "n"], ["int", "int"], [[1, 2], [2, 0], [3, -1]]],
+        [["id"], ["int"], [[1]]],
+        [["id", "key", "value"], ["int", "string", "int"], [[1, "a", 1], [1, "b", 2]]],
+        [["id", "key", "value"], ["int", "string", "int"], [[1, "a", 1], [1, "b", 2], [2, None, None], [3, None, None]]],
+        [["id", "pos", "col"], ["int", "int", "int"], [[1, 0, 3], [1, 1, 1], [1, 2, 2]]],
+        [["id", "pos", "col"], ["int", "int", "int"], [[1, 0, 3], [1, 1, 1], [1, 2, 2], [2, None, None], [3, None, None]]],
+        [["id", "pos", "key", "value"], ["int", "int", "string", "int"], [[1, 0, "a", 1], [1, 1, "b", 2]]],
+        [["id", "reverse(arr)", "reverse(abc)"], ["int", "array<int>", "string"],
+         [[1, [2, 1, 3], "cba"], [2, [], "cba"], [3, None, "cba"]]],
+        [["sequence(3, 1)", "sequence(1, 5, 2)", "sequence(CAST(5 AS BIGINT), 3)"], ["array<int>", "array<int>", "array<bigint>"],
+         [[[3, 2, 1], [1, 3, 5], [5, 4, 3]]]],
+        [["map_concat(m, map(c, 3))"], ["map<string,int>"], [[{"a": 1, "b": 2, "c": 3}]]],
+    ]
+
+
 def test_rewrite_fixes_only_the_querys_own_calls() -> None:
     # arrays_zip and array_repeat are written with sizes and ranges of their own; those stay as written.
     statement = sql.parse("SELECT arrays_zip(array(1, 2), array('a')), array_repeat('a', 2)")[0]

@@ -247,10 +247,10 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `BEGIN ... END` | Refused | `BEGIN SELECT 1 END` | The local engine doesn't run T-SQL BEGIN yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs  |
 | `TRY ... CATCH` | Refused | `BEGIN TRY SELECT 1 END TRY BEGIN CATCH SELECT 2 END CATCH` | The local engine doesn't run T-SQL BEGIN yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs  |
 | `Transactions` | Refused | `BEGIN TRANSACTION` | The local engine doesn't run T-SQL transactions (BEGIN TRAN) yet. Run the statements one at a time, with values in place of variables. A batch with variables an |
-| `EXEC` | Refused | `EXEC dbo.load_orders` | The local engine doesn't run T-SQL EXEC yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs i |
+| `EXEC` | Refused | `EXEC dbo.load_orders` | EXEC dbo.load_orders isn't mapped yet: stored procedures don't run on the local engine. A procedure or function tak |
 | `PRINT` | Refused | `PRINT 'hi'` | The local engine doesn't run T-SQL PRINT yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs  |
-| `CREATE PROCEDURE` | Refused | `CREATE PROCEDURE dbo.p AS SELECT 1` | T-SQL CREATE PROCEDURE doesn't run on the local engine. Procedures and functions run in a Fabric Warehouse. |
-| `CREATE FUNCTION` | Refused | `CREATE FUNCTION dbo.f() RETURNS INT AS BEGIN RETURN 1 END` | T-SQL CREATE FUNCTION doesn't run on the local engine. Procedures and functions run in a Fabric Warehouse. |
+| `CREATE PROCEDURE` | Refused | `CREATE PROCEDURE dbo.p AS SELECT 1` | CREATE PROCEDURE dbo.p isn't mapped yet: stored procedures don't run on the local engine. A procedure or function t |
+| `CREATE FUNCTION` | Refused | `CREATE FUNCTION dbo.f() RETURNS INT AS BEGIN RETURN 1 END` | CREATE FUNCTION dbo.f isn't mapped yet: user-defined functions don't run on the local engine. A procedure or functi |
 | `USE` | Refused | `USE sales` | The local engine doesn't run T-SQL USE yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs in |
 | `FOR JSON` | Refused | `SELECT a FROM dbo.t FOR JSON PATH` | FOR JSON PATH isn't mapped yet. Build each row's JSON with JSON_OBJECT or JSON_ARRAY, or run it in a Fabric Warehou |
 | `OPTION (...)` | Refused | `SELECT a FROM dbo.t OPTION (MAXDOP 1)` | Unsupported query option. |

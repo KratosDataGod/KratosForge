@@ -478,6 +478,28 @@ What can still differ:
 - `ALTER VIEW` on a view made earlier in the same script stops with "Invalid object name": the check reads the views that were there when the script started.
 - A name with a schema that a warehouse doesn't have, such as DuckDB's `main`, still runs here.
 
+## Local T-SQL procedures, functions and system procedures
+
+When a project runs T-SQL on this PC, procedures, functions and system procedures either run as a Fabric Warehouse documents them or are refused by their own name. None is skipped, so a script never looks as if it made, ran or dropped one. This was checked against Microsoft Learn's T-SQL surface area page for Fabric Data Warehouse and its `sp_rename` reference, as they read on 2026-11-17.
+
+| What | Here |
+| --- | --- |
+| `EXEC sp_rename 'dbo.old', 'new'` (`@objtype` left out or `'OBJECT'`) | Renames the table, as a warehouse does. Named parameters (`@objname`, `@newname`, `@objtype`) and `sp_rename` with no `EXEC` as a batch's first statement work too |
+| `EXEC sp_rename 'dbo.t.old', 'new', 'COLUMN'` | Renames the column. The T-SQL surface area page names `sp_rename` for renaming a warehouse column, though the `sp_rename` reference lists only `'OBJECT'` for a warehouse |
+| `INFORMATION_SCHEMA.TABLES`, `COLUMNS`, `VIEWS`, `SCHEMATA` | The project's own tables, views, columns and schemas: not the local engine's system views, and not #temp tables, which T-SQL keeps in tempdb. Their columns are as DuckDB describes them, with a note (see [Local T-SQL names, schemas and views](#local-t-sql-names-schemas-and-views)) |
+
+Refused by name:
+
+- `CREATE`, `ALTER`, `CREATE OR ALTER` and `DROP` of a `PROCEDURE` or `FUNCTION` (scalar, inline table-valued or multi-statement), `EXEC` of a procedure, and a call to a user-defined function (`dbo.f(1)`, `FROM dbo.tvf(1)`, `CROSS APPLY dbo.tvf(o.id)`). A procedure or function takes parameters, which are variables, and runs with control flow, so procedures and functions wait on the local engine's support for variables and control flow, which isn't built yet. Run them in a Fabric Warehouse, or run a procedure's statements one at a time with values in place of its parameters.
+- Dynamic SQL: `sp_executesql`, `EXEC ('...')` and `EXEC (@sql)`. The local engine never runs text as SQL.
+- Any other system procedure, such as `sp_help`, `sp_helptext`, `sp_columns`, `sp_tables`, `sp_spaceused` or `xp_cmdshell`. INFORMATION_SCHEMA lists the tables, columns and views.
+- `CREATE TRIGGER`: a warehouse has no triggers either.
+- `ALTER TABLE ... RENAME`, which isn't T-SQL (use `sp_rename`).
+- `sp_rename` of another object type (`'INDEX'`, `'DATABASE'`), with a new name that has a period in it (T-SQL would put the period in the name: `'dbo.t2'` names a table `[dbo.t2]`), or of a #temp table. A name a warehouse doesn't take (empty, with `/` or `\`, or ending with a period) stops too.
+- Renaming one of the project's Delta tables (its folder keeps its name; copy it with `CREATE TABLE new_name USING DELTA AS SELECT ...`), a table read from a registered folder, or a view (drop it and create it with the new name, as Microsoft recommends for views).
+- Renaming a table with a `VARCHAR(n)`, `CHAR(n)`, `VARBINARY(n)` or `BINARY(n)` column, or renaming such a column. The check that holds the column to its length names the table and column in its "would be truncated" message, and would keep the old name. Create the table with the new name and `INSERT ... SELECT` the rows.
+- An INFORMATION_SCHEMA view the local engine doesn't have, such as `ROUTINES`, `PARAMETERS` or `VIEW_TABLE_USAGE`. `sys` catalog views are refused as before.
+
 ## Local T-SQL security and session settings
 
 The local engine has no users, roles or permissions. Statements that set them are refused by name, never skipped, so a script that ran here never looks as if it applied permissions. Apply them in the Fabric Warehouse.

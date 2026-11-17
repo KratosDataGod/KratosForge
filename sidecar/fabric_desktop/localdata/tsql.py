@@ -50,7 +50,7 @@ from sqlglot.helper import seq_get
 from sqlglot.tokens import Token, TokenType
 
 from ..sql import KfDuckDB
-from . import tsql_format
+from . import tsql_format, tsql_routines
 from .. import sql_dialects
 
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
@@ -109,6 +109,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             if _harmless_setting(tree):
                 skipped = True
                 continue
+            tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
             _refuse(tree)
             _temp_tables(tree)
             _joined_changes(tree)
@@ -447,6 +448,12 @@ def _schema_authorization(batch: str) -> bool:
 
 
 def _parse(batch: str) -> list[exp.Expression]:
+    try:
+        tokens = KfTSQL().tokenize(batch)
+    except SqlglotError:
+        tokens = []  # the parse below reports it
+    batch = tsql_routines.bare_call(batch, tokens)  # WR-224: sp_rename 'a', 'b' with no EXEC
+    tsql_routines.refuse_routines(batch, tokens)
     _refuse_json_clauses(batch)
     _refuse_security(batch)
     _refuse_session_options(batch)
@@ -556,6 +563,7 @@ def _names(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] |
         tree.this if isinstance(tree, exp.Create) else None
     known = {s.lower(): {t.lower() for t in tables} for s, tables in (columns or {}).items()}
     notes: list[str] = []
+    listed: list[exp.Table] = []
     for table in tree.find_all(exp.Table):
         if isinstance(table.this, exp.Dot):
             parts = table.this
@@ -577,7 +585,9 @@ def _names(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] |
                              "INFORMATION_SCHEMA.TABLES and INFORMATION_SCHEMA.COLUMNS list the project's tables and "
                              "columns.")
         if schema.lower() == "information_schema":
+            tsql_routines.information_schema(name)
             notes.append(_INFORMATION_NOTE)
+            listed.append(table)
             continue
         if schema or table is made or name.startswith("#") or name.lower() in ctes or not known \
                 or _names_its_alias(tree, table):
@@ -589,6 +599,8 @@ def _names(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] |
             raise ValueError(f"Invalid object name '{name}': a name without a schema is looked for in dbo, as in "
                              f"T-SQL, and there's no dbo.{name}. Write {elsewhere[0]}.{name} for the one in "
                              f"{elsewhere[0]}.")
+    for table in listed:
+        tsql_routines.project_rows(table)
     return notes
 
 

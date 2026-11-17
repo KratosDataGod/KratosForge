@@ -570,9 +570,13 @@ class LocalEngine:
                 params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Run every statement in ``sql``; return the last one's result with timings. ``params`` are
         the values of ``$name`` (Spark SQL: ``:name`` or ``${name}``), bound, never pasted in."""
-        limit = max(0, min(int(limit), 100_000))
+        asked = int(limit)
+        limit = max(0, min(asked, MAX_QUERY_ROWS))
         with self._query(sql, dialect, timeout, query_id, params=params) as (result, run):
             payload = _collect(result, limit, count)
+        note = shown_rows_note(len(payload["rows"]), payload["row_count"], payload["truncated"], asked)
+        if note:
+            payload["note"] = note
         payload.update(seconds=round(time.monotonic() - run["started"], 3), **_about(run, self.project.id))
         return payload
 
@@ -837,6 +841,7 @@ class LocalEngine:
                 write.query, found = delta.rewrite_as_of(write.query, n)
             else:
                 self._refuse_drop(text)
+                self._refuse_rename(con, text)
                 text, found = delta.rewrite_as_of(text, n)
             n += len(found)
             steps.append({"sql": "" if write else text, "write": write, "change": None, "as_of": found,
@@ -877,6 +882,52 @@ class LocalEngine:
         for schema, table, column, kind in rows:
             found.setdefault(schema, {}).setdefault(table, {})[column] = kind
         return found
+
+    def _refuse_rename(self, con: duckdb.DuckDBPyConnection, statement: str) -> None:
+        """A rename (T-SQL's sp_rename, or ALTER ... RENAME) runs only on a database table, and not where a length
+        check names the table or column (WR-224): a Delta table's folder and a registered folder keep their names,
+        a view is dropped and made again, and the check's "would be truncated" message would name the old one."""
+        if not _RENAME.match(statement):
+            return
+        from sqlglot import exp, parse_one
+        from sqlglot.errors import SqlglotError
+        try:
+            tree = parse_one(statement, read="duckdb")
+        except SqlglotError:
+            return  # DuckDB reports what it can't read when the step runs
+        actions = (tree.args.get("actions") or []) if isinstance(tree, exp.Alter) else []
+        renames = [a for a in actions if isinstance(a, (exp.AlterRename, exp.RenameColumn))]
+        if not renames or not isinstance(tree.this, exp.Table):
+            return
+        schema, table = tree.this.db or "dbo", tree.this.name
+        name = f"{schema}.{table}"
+        if self._is_own(schema, table):
+            raise ValueError(f"Renaming {name} isn't mapped yet: it's one of the project's Delta tables, kept in a "
+                             f"folder of its name. Copy it under the new name (CREATE TABLE new_name USING DELTA AS "
+                             f"SELECT * FROM {name}) and drop the old one.")
+        if self.project.catalog.get(self._own_key(schema, table)) is not None:
+            raise ValueError(f"Renaming {name} isn't mapped yet: it's read from a registered folder, which keeps its "
+                             "name.")
+        views = con.execute("SELECT 1 FROM duckdb_views() WHERE NOT internal AND schema_name = ? AND view_name = ?",
+                            [schema, table]).fetchall()
+        if views:
+            raise ValueError(f"Renaming the view {name} isn't mapped yet. Drop it and create it with the new name, "
+                             "as Microsoft recommends for views.")
+        column = renames[0].this.name if isinstance(renames[0], exp.RenameColumn) else None
+        checks = con.execute("SELECT constraint_column_names FROM duckdb_constraints() WHERE schema_name = ? AND "
+                             "table_name = ? AND constraint_type = 'CHECK' AND expression LIKE "
+                             "'%would be truncated%'", [schema, table]).fetchall()
+        held = {c for (names,) in checks for c in names or []}
+        if column is not None and column in held:
+            raise ValueError(f"Renaming the column {name}.{column} isn't mapped yet: the check that holds it to its "
+                             "length names the column in its \"would be truncated\" message, and would keep the old "
+                             "name. Create the table with the new column name, INSERT ... SELECT the rows, and drop "
+                             "the old one.")
+        if column is None and held:
+            raise ValueError(f"Renaming {name} isn't mapped yet: the checks that hold its text and binary columns to "
+                             "their length name the table in their \"would be truncated\" message, and would keep "
+                             "the old name. Create the table with the new name, INSERT ... SELECT the rows, and drop "
+                             "the old one.")
 
     def _refuse_drop(self, statement: str) -> None:
         m = _DROP.fullmatch(statement)
@@ -1597,6 +1648,7 @@ def _render(plan: list[dict[str, Any]], depth: int = 0) -> list[str]:
     return lines
 
 
+_RENAME = re.compile(r"^\s*ALTER\s+(TABLE|VIEW)\b.*\bRENAME\b", re.IGNORECASE | re.DOTALL)
 _DROP = re.compile(r"^\s*DROP\s+(TABLE|VIEW)\s+(IF\s+EXISTS\s+)?(?P<name>[^\s;]+)\s*;?\s*$", re.IGNORECASE)
 
 
@@ -1760,6 +1812,24 @@ def _fabric_check(sql: str) -> dict[str, Any]:
 def _chain(first: pa.RecordBatch, rest: Any) -> Any:
     yield first
     yield from rest
+
+
+# The most rows local_query (and the deprecated local_query_status) returns in one answer.
+MAX_QUERY_ROWS = 100_000
+
+
+def shown_rows_note(shown: int, total: int | None, truncated: bool, asked: int) -> str:
+    """WR-225: the sentence a local_query answer carries when it holds fewer rows than the query returned:
+    both counts and what to change. "" when every row is there."""
+    if not truncated:
+        return ""
+    shown_of = (f"Showing the first {shown:,} of {total:,} rows." if total is not None
+                else f"Showing the first {shown:,} rows; the query returned more.")
+    over = (f" A limit of {asked:,} is more than one answer holds ({MAX_QUERY_ROWS:,})."
+            if asked > MAX_QUERY_ROWS else "")
+    more = (f"Pass a larger limit (up to {MAX_QUERY_ROWS:,}), or run" if shown < MAX_QUERY_ROWS else "Run")
+    return (f"{shown_of}{over} {more} it with sql_start (target \"local\") "
+            "to page through and export every row.")
 
 
 def _collect(result: Any, limit: int, count: bool) -> dict[str, Any]:

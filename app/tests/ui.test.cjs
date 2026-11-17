@@ -734,6 +734,16 @@ test("the result grid selects a block of cells, moves with the keys, and copies 
   assert.strictEqual(sqlValueText(1204330.5), "1204330.5");
 });
 
+test("Copy says how many rows the result has when it copied only this page of them (WR-225)", () => {
+  const ctx = {};
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8")}; Object.assign(this, { sqlCopiedPageNote });`, ctx);
+  const page = (n, total) => ({ rows: Array.from({ length: n }, (_, i) => [i]), total });
+  assert.strictEqual(ctx.sqlCopiedPageNote(page(2, 2)), "Copied the 2 rows on this page");
+  assert.strictEqual(ctx.sqlCopiedPageNote(page(1, 1), " as CSV"), "Copied the 1 row on this page as CSV");
+  assert.strictEqual(ctx.sqlCopiedPageNote(page(1000, 10000000), " as JSON"),
+    "Copied the 1,000 rows on this page as JSON. The result has 10,000,000 rows. Use Export to save them all.");
+});
+
 test("the result grid keeps a column layout for one set of names: widths, hidden columns and order", () => {
   const ctx = {};
   vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8")}; Object.assign(this, { sqlGridLayoutFor, sqlGridWidthCss, sqlGridMoveColumn, sqlGridCarry, sqlGridBlock });`, ctx);
@@ -6330,6 +6340,9 @@ const FABRIC_WRITES = {
   access_set_role: ["estate.js", "access", null, "app.js"], // the OneLake > Access tab
   access_save_role: ["estate.js", "access", null, "app.js"],
   access_delete_role: ["estate.js", "access", null, "app.js"],
+  // OneLake > Access > All workspaces, drawn only inside that tab
+  access_cache_refresh: ["access-cache.js", "access", null, "app.js"],
+  access_cache_protect: ["access-cache.js", "access", null, "app.js"],
   create_shortcut: ["shortcuts.js", "shortcuts", null, "app.js"], // the OneLake > Shortcuts tab
   delete_shortcut: ["shortcuts.js", "shortcuts", null, "app.js"],
   shortcut_undo: ["shortcuts.js", "shortcuts", null, "app.js"],
@@ -6352,6 +6365,8 @@ const FABRIC_WRITES = {
   workload_assign: ["workloads.js", "workloads", null],
   workload_link: ["workloads.js", "workloads", null],
   appstudio_publish: ["appstudio.js", "page", null],
+  // Settings' Motion sample also starts a run, but only Wait and SetVariable steps on this PC (checked below)
+  pipeline_run_start: ["pipelines.js", "page", null],
   optimize_create: ["optimize.js", "page", null],
   optimize_connect: ["optimize.js", "page", null],
   optimize_set_recommendation: ["optimize.js", "page", null],
@@ -6394,8 +6409,8 @@ const NOT_YET = [
   "meta_add_rules", "meta_delete_key_table", "meta_delete_source_system", "meta_drift_apply", "meta_new_entity",
   "meta_new_key_table", "meta_profile", "meta_save_entity", "meta_save_source_system", "meta_set_freshness",
   "meta_set_keys_workspace", "meta_set_maintenance", "meta_sources_move",
-  // no single Preview home: wait for a live check
-  "access_cache_protect", "access_cache_refresh", "pipeline_run_start", "save_sql",
+  // SQL editor Save as table, on the core Query page: wait for a live check
+  "save_sql",
   // the app's own background check (no screen); it tells Teams whether or not Preview features show
   "incidents_watch",
 ];
@@ -6449,4 +6464,13 @@ test("every Fabric write in the UI carries a Preview tag or has a recorded live 
   for (const [file, snippet] of [["meta.js", 'previewMarked("createWorkspace", btn("Create workspace"'], ["mesh.js", 'previewMarked("createWorkspace", btn("Create workspace"'],
     ["meta.js", 'fabricMarked(inFabric(p, m.env), btn(inFabric(p, m.env) ? "Run all in Fabric"'], ["dataops.js", 'previewMarked("quarantineReplay", btn("Discard selected"'],
     ["activity.js", 'previewMarked("cancelFabricRun", btn("Cancel run"']]) assert.ok(text[file].includes(snippet), `${file}: ${snippet}`);
+  // pipeline_run_start's other caller, Settings' Motion sample, runs steps that never reach Fabric.
+  const sample = text["settings.js"].match(/const MOTION_SAMPLE_PIPELINE = JSON\.stringify\(([\s\S]*?)\);\n/);
+  assert.ok(sample, "settings.js defines MOTION_SAMPLE_PIPELINE");
+  const types = [...sample[1].matchAll(/type: "([A-Za-z]+)"/g)].map((m) => m[1]).filter((t) => t !== "String");
+  assert.ok(types.length && types.every((t) => ["Wait", "SetVariable"].includes(t)), `the Motion sample runs only Wait and SetVariable, not ${types}`);
+  assert.deepStrictEqual(Object.values(text).map((t) => (t.match(/"pipeline_run_start"/g) || []).length).reduce((a, b) => a + b), 2,
+    "pipeline_run_start is called from Pipelines and the Motion sample only");
+  // The access cache's writes are drawn only from the Access tab.
+  assert.deepStrictEqual(files.filter((f) => f !== "access-cache.js" && /renderAccessAll\(/.test(text[f])), ["estate.js"], "only the Access tab draws the access cache");
 });

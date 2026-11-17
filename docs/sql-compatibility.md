@@ -601,6 +601,20 @@ Refused by name: the hint on `INSERT ... SELECT`, `SELECT ... INTO` or `CREATE T
 
 On a warehouse, from the SQL page, a `SELECT` ending in the hint is sent as written, and the warehouse answers for its own retention.
 
+## Table clones and warehouse snapshots
+
+In a Fabric Warehouse, `CREATE TABLE dbo.clone AS CLONE OF dbo.source [AT 'YYYY-MM-DDThh:mm:ss']` makes a zero-copy clone: only the table's metadata is copied, the clone shares the source's Parquet files as they were at that time (in UTC), and after that a change to either one isn't seen in the other. The clone keeps the source's primary and unique keys, its object-level security, row-level security and dynamic data masking. A warehouse can't clone across warehouses or workspaces, from its SQL analytics endpoint, or to a time older than its retention (30 days by default, at most 120). A warehouse snapshot is a read-only Fabric item showing a warehouse at a point in time; it is made in Fabric, and `ALTER DATABASE [snapshot] SET TIMESTAMP = ...` moves it. These come from Microsoft's [CREATE TABLE AS CLONE OF](https://learn.microsoft.com/sql/t-sql/statements/create-table-as-clone-of-transact-sql?view=fabric), [Clone table](https://learn.microsoft.com/fabric/data-warehouse/clone-table) and [Warehouse snapshots](https://learn.microsoft.com/fabric/data-warehouse/warehouse-snapshot) pages.
+
+| What | In a Fabric Warehouse | On a warehouse, from the SQL page | Here |
+| --- | --- | --- | --- |
+| `CREATE TABLE ... AS CLONE OF`, with or without `AT` | A zero-copy clone | Runs as a change; the confirm names the clone, its source and its UTC time | Refused by name: a clone here would be a full copy with a history of its own, never the zero-copy clone a warehouse makes. The message names the copy that does run (`CREATE TABLE dbo.c AS SELECT * FROM dbo.t`) and, with `AT`, the read of the source as it was (`SELECT ... OPTION (FOR TIMESTAMP AS OF ...)`) |
+| A clone or source named with its database | Only within the same warehouse | Refused before anything is sent | Refused, as above |
+| An `AT` time not written `'YYYY-MM-DDThh:mm:ss[.fff]'` | An error | Refused before anything is sent, naming the format | Refused, as above |
+| An `AT` time later than now, or more than 120 days ago | Nothing to clone from | Refused before anything is sent | Refused, as above |
+| An `AT` time inside 120 days but older than the warehouse's retention | An error | Sent: the warehouse refuses it | Refused, as above |
+| `ALTER DATABASE ... SET TIMESTAMP` (a warehouse snapshot) | Moves the snapshot | Refused: use **Capture new state** on the snapshot in Fabric | Refused by name: the local engine has no warehouse snapshots |
+| Querying a warehouse snapshot | Read-only, through the snapshot's own connection | The Warehouse page doesn't open snapshots yet | Not applicable |
+
 ## Loading data with T-SQL
 
 Fabric Warehouse loads files with `COPY INTO`, `BULK INSERT` and `OPENROWSET(BULK ...)`. Each reads files from a URL in Azure Storage (Blob or Data Lake Storage Gen2) or OneLake, as Microsoft's T-SQL reference for Fabric describes them. Neither the local engine nor a run from the SQL page loads them, and each is refused by its name, so a script never looks as if it loaded something.

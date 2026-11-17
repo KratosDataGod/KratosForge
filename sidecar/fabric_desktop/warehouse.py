@@ -54,7 +54,7 @@ from typing import Any, Callable, cast
 from sqlglot import exp
 from sqlglot.errors import ErrorLevel, ParseError
 
-from . import sql_dialects, sql_params, sql_policy
+from . import sql_dialects, sql_params, sql_policy, tsql_clone
 
 KINDS = ("warehouse", "endpoint")  # a Data warehouse, or a lakehouse's SQL analytics endpoint
 HOST_SUFFIX = ".datawarehouse.fabric.microsoft.com"
@@ -227,6 +227,13 @@ def verdicts(query: str, writes: bool = False) -> list[sql_policy.Verdict]:
     if writes:
         return _change_verdicts(query)
     bare, _names = _bare_and_names(query)
+    # WR-226: sqlglot reads neither as a statement, so they are named here
+    cloned = tsql_clone.clones(query)
+    if cloned:
+        return [sql_policy.Verdict(1, "fabric_mutation", f"{cloned[0].statement() if cloned[0].clone else 'CREATE TABLE ... AS CLONE OF'}"
+                                                         " makes a table in the warehouse, which is a change")]
+    if tsql_clone.snapshot_timestamp(query):
+        return [sql_policy.Verdict(1, "fabric_mutation", tsql_clone.SNAPSHOT_TIMESTAMP)]
     # named before parsing: sqlglot can't read OPENROWSET(BULK ...) or BULK INSERT (WR-220)
     # a call, with quoted names taken out, so a column called [openrowset] still reads
     outside = next((f for f in sorted(_OUTSIDE) if re.search(rf"\b{f}\s*\(", bare, re.IGNORECASE)), "")
@@ -294,7 +301,8 @@ def _change_verdicts(query: str) -> list[sql_policy.Verdict]:
         if outside:
             out.append(sql_policy.Verdict(n, "fabric_mutation", f"{outside.upper()} reads outside the warehouse"))
             continue
-        never = next((why.format(m.group().capitalize()) for rule, why in _NEVER_WORDS if (m := rule.search(bare))), "") or next(
+        never = (tsql_clone.SNAPSHOT_TIMESTAMP if tsql_clone.snapshot_timestamp(batch) else "") or next(
+            (why.format(m.group().capitalize()) for rule, why in _NEVER_WORDS if (m := rule.search(bare))), "") or next(
             (why for rule, why in _NEVER_NAMES if rule.search(names)), "")
         if never:
             out.append(sql_policy.Verdict(n, "fabric_mutation", never))
@@ -304,17 +312,51 @@ def _change_verdicts(query: str) -> list[sql_policy.Verdict]:
             out.append(sql_policy.Verdict(n, "warehouse_write", f"defines {defines.group(1).upper()} {defines.group(2)}"
                                           .rstrip()))
             continue
-        try:
-            statements = [cast(exp.Expression, st)  # sqlglot types parse as its Expr base
-                          for st in sql_dialects.parse(_AS_OF.sub("", batch), read="tsql", error_level=ErrorLevel.RAISE)
-                          if st is not None]
-        except ParseError:
-            out.append(sql_policy.Verdict(n, "fabric_mutation", "it couldn't be read as T-SQL, so it can't be checked; "
-                                                                 "a procedure or function definition can be"))
-            continue
-        for st in statements:
-            out.append(_change_verdict(len(out) + 1, st))
+        # WR-226: a clone is read from its tokens, in its place among the batch's other statements
+        cloned = tsql_clone.clones(batch)
+        at = 0
+        for piece in [*cloned, None]:
+            text = batch[at:piece.start if piece is not None else len(batch)]
+            if text.strip() and not _parsed_verdicts(text, out):
+                break
+            if piece is not None:
+                out.append(_clone_verdict(len(out) + 1, piece))
+                at = piece.end
     return out
+
+
+def _parsed_verdicts(text: str, out: list[sql_policy.Verdict]) -> bool:
+    """Add the verdicts of a change batch's text (or a part of it) to ``out``; False when it can't be read."""
+    try:
+        statements = [cast(exp.Expression, st)  # sqlglot types parse as its Expr base
+                      for st in sql_dialects.parse(_AS_OF.sub("", text), read="tsql", error_level=ErrorLevel.RAISE)
+                      if st is not None]
+    except ParseError:
+        out.append(sql_policy.Verdict(len(out) + 1, "fabric_mutation", "it couldn't be read as T-SQL, so it can't be "
+                                                                       "checked; a procedure or function definition can be"))
+        return False
+    for st in statements:
+        out.append(_change_verdict(len(out) + 1, st))
+    return True
+
+
+def _clone_verdict(n: int, c: tsql_clone.Clone) -> sql_policy.Verdict:
+    """CREATE TABLE ... AS CLONE OF (WR-226): a zero-copy clone in this warehouse, or refused by name before
+    anything is sent."""
+    if not c.clone:
+        return sql_policy.Verdict(n, "fabric_mutation", "CREATE TABLE ... AS CLONE OF couldn't be read: write it as "
+                                  "CREATE TABLE schema.clone AS CLONE OF schema.source [AT 'YYYY-MM-DDThh:mm:ss']")
+    other = next((name for name in (c.clone, c.source) if len(name) > 2), None)
+    if other is not None:
+        return sql_policy.Verdict(n, "fabric_mutation", f"{'.'.join(other)} names a database: a Fabric Warehouse "
+                                  "clones a table only within the same warehouse, so name it as schema.table")
+    if c.at is not None:
+        problem = tsql_clone.at_problem(c.at)
+        if problem:
+            return sql_policy.Verdict(n, "fabric_mutation", problem)
+    when = f" as it was at {c.at.replace('T', ' ')} UTC" if c.at is not None else " as it is now"
+    return sql_policy.Verdict(n, "warehouse_write", f"CREATE TABLE {c.clone_name} AS CLONE OF {c.source_name} makes "
+                              f"a zero-copy clone of {c.source_name}{when}")
 
 
 def _change_verdict(n: int, st: exp.Expression) -> sql_policy.Verdict:

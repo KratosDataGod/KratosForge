@@ -139,6 +139,11 @@ written in the same second, so a mutant could be scored as the one before it, in
 Scores from batches 1 to 77 were taken without the fix and may be off by such a mutant; batch 78 and
 later were taken with it. Two runs with the fix give the same result for every mutant.
 
+Before any mutant, the tests run once on the unmutated copy, and the run stops with a message if they
+fail or time out there. Only `sidecar/` is copied, so a test that reads `docs/` or `app/` fails in the
+copy whatever the mutant, and without this check every mutant would count as killed. Earlier batches
+left such tests out by hand; leave them out (or `--deselect` them) in the same way.
+
 # Mutation testing, batch 2
 
 The rest of the Delta write and commit paths: MERGE, UPDATE and DELETE (`delta_dml.py`), publishing a

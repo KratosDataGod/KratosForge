@@ -558,7 +558,7 @@ async function renderEntity() {
         errBox, editor),
       h("div", { class: "side" },
         h("div", { class: "card pad" }, h("b", {}, "Contract"), h("div", { class: "cols" }, cols)),
-        h("div", { class: "card pad" }, h("div", { class: "row" }, h("b", { class: "grow" }, "Lineage"),
+        h("div", { class: "card pad" }, h("div", { class: "row wrap lineage-head" }, h("b", { class: "grow" }, "Lineage"),
           preview("lineage", btn("Columns", "flow", () => columnLineage(e.name), "tool link small")),
           preview("lineage", btn("Impact", null, () => impactDialog(e.name), "tool link small", { title: "What a change to one of its columns would break" }))),
           h("div", { class: "lineage3" },

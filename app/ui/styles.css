@@ -2156,6 +2156,7 @@ button.git-name { padding: 0; border: 0; background: none; font: inherit; color:
 .lineage-col .mono { flex: 1; overflow-wrap: anywhere; }
 .lineage-col:hover, .lineage-col.on { border-color: var(--border); background: var(--surface); }
 .lineage-detail { display: flex; flex-direction: column; gap: 8px; overflow: auto; min-width: 0; }
+.lineage-head b { flex: 1 0 auto; }
 .impact-view { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .impact-view .lead { margin: 0; }
 .impact-view label.inline { display: inline-flex; gap: 6px; align-items: center; }

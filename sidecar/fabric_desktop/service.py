@@ -1313,8 +1313,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 break
             else:
                 raise ValueError("Couldn't find a free file name in Downloads for the export.")
-            protected = 0
-            with sink, pa_csv.CSVWriter(sink, result.schema or pa.schema([])) as out:
+            header, protected = csv_cells.protect_header(result.schema or pa.schema([]))
+            with sink, pa_csv.CSVWriter(sink, header) as out:
                 for batch in result:
                     batch, n = csv_cells.protect_batch(batch)  # WR-228: no cell runs as a formula when opened
                     out.write_batch(batch)

@@ -66,6 +66,8 @@ def _column(column: Any) -> tuple[Any, int]:
 
     if isinstance(column, pa.ChunkedArray):
         column = column.combine_chunks()
+    if pa.types.is_string_view(column.type):
+        column = column.cast(pa.string())
     if pa.types.is_dictionary(column.type):  # protect the dictionary's values, so the column keeps its type
         values, n_values = _column(column.dictionary)
         if not n_values:
@@ -81,30 +83,53 @@ def _column(column: Any) -> tuple[Any, int]:
     return pc.if_else(risky, marked, column), n
 
 
+def protect_header(schema: pa.Schema, raw: bool = False) -> tuple[pa.Schema, int]:
+    """The schema with its column names protected, for the header row Arrow's CSV writer takes from it, and how
+    many names were. Count it once per file; protect_batch gives every batch the same names."""
+    if raw:
+        return schema, 0
+    names = [protect(f.name) for f in schema]
+    n = sum(1 for f, name in zip(schema, names, strict=True) if f.name != name)
+    views = any(pa.types.is_string_view(f.type) for f in schema)
+    if not n and not views:
+        return schema, 0
+    return pa.schema([f.with_name(name).with_type(_written(f.type)) for f, name in zip(schema, names, strict=True)],
+                     schema.metadata), n
+
+
+def _written(t: pa.DataType) -> pa.DataType:
+    """The type a column is written as: Arrow's compute functions don't take string_view, so it goes as string."""
+    return pa.string() if pa.types.is_string_view(t) else t
+
+
 def protect_batch(batch: pa.RecordBatch, raw: bool = False) -> tuple[pa.RecordBatch, int]:
-    """A batch for Arrow's CSV writer: its text columns protected, and how many cells were."""
-    if raw or not any(_text(f.type) for f in batch.schema):
+    """A batch for Arrow's CSV writer: its text columns protected, and how many cells were. Its column names are
+    protected too, as protect_header protects the writer's (and counts them, once)."""
+    if raw:
         return batch, 0
+    schema, renamed = protect_header(batch.schema)
+    changed = renamed or schema != batch.schema
     total, columns = 0, []
     for column, f in zip(batch.columns, batch.schema, strict=True):
         if _text(f.type):
             column, n = _column(column)
             total += n
         columns.append(column)
-    return (pa.RecordBatch.from_arrays(columns, schema=batch.schema), total) if total else (batch, 0)
+    return (pa.RecordBatch.from_arrays(columns, schema=schema), total) if total or changed else (batch, 0)
 
 
 def protect_table(table: pa.Table, raw: bool = False) -> tuple[pa.Table, int]:
-    """A table for Arrow's CSV writer: its text columns protected, and how many cells were."""
+    """A table for Arrow's CSV writer: its column names and text columns protected, and how many were."""
     if raw:
         return table, 0
     total = 0
     for i, f in enumerate(table.schema):
         if _text(f.type):
             column, n = _column(table.column(i))
-            if n:
-                table, total = table.set_column(i, f, column), total + n
-    return table, total
+            if n or column.type != f.type:
+                table, total = table.set_column(i, f.with_type(column.type), column), total + n
+    schema, renamed = protect_header(table.schema)
+    return (table.rename_columns(schema.names), total + renamed) if renamed else (table, total)
 
 
 def unprotect(value: str) -> str:

@@ -66,7 +66,7 @@ class ModelDictionaryMixin:
         """The dictionary as semantic/SM_<Layer>.dictionary.csv in the project's folder, ready to commit."""
         project, layer, items, _ = self._dictionary(layer)
         target = Path(project.root, FOLDER, f"SM_{layer.title()}.dictionary.csv")
-        write_text(target, "﻿" + model_dictionary.to_csv(items))
+        write_text(target, "﻿" + model_dictionary.to_csv(items, csv_cells.Cells()))  # Import takes the ' off
         return {"path": target.relative_to(project.root).as_posix(), "rows": len(items)}
 
     def meta_model_dictionary_preview(self, text: str = "", layer: str | None = None) -> dict[str, Any]:

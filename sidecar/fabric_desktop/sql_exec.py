@@ -1016,7 +1016,10 @@ class SqlExecutions:
     def _write_batches(export: Export, reader: Any, schema: pa.Schema, sink: Any) -> None:
         """CSV or Parquet, through Arrow's own writers. CSV gets binary as hex and lists as JSON text (_csv_ready)."""
         csv = export.format == "csv"
-        writer = _writer(export.format, sink, csv_ready_schema(schema) if csv else schema)
+        header = schema
+        if csv:  # the header row's names are protected as the cells are (WR-228), counted once
+            header, export.protected = csv_cells.protect_header(csv_ready_schema(schema), raw=export.raw)
+        writer = _writer(export.format, sink, header)
         try:
             for i in range(reader.num_record_batches):
                 if export.cancel.is_set():

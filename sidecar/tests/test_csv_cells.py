@@ -7,6 +7,7 @@ one export. The guard at the bottom fails when a module writes CSV without going
 
 from __future__ import annotations
 
+import ast
 import csv
 import io
 import re
@@ -147,6 +148,8 @@ ENGINE = Path(__file__).resolve().parents[1] / "fabric_desktop"
 WRITES_CSV = re.compile(r"csv\.writer\(|csv\.DictWriter\(|CSVWriter\(|\.write_csv\(|\.to_csv\(|\bsink_csv\(|"
                         r"FORMAT\s+'?csv", re.IGNORECASE)
 
+CALLS_A_WRITER = re.compile(r"(\bcsv\.writer|\bcsv\.DictWriter|\bCSVWriter|\.write_csv|\.to_csv|\bsink_csv)$")
+
 # Modules that write CSV data files rather than exports someone opens in a spreadsheet, and why.
 DATA_FILES = {
     "spark_local.py": "DataFrame.write.csv on this PC: a Spark data file, written as Fabric's Spark writes it",
@@ -154,19 +157,96 @@ DATA_FILES = {
 }
 
 
-def test_every_module_that_writes_a_csv_protects_its_cells():
+# Functions that only open a CSV writer for a caller that protects every batch first.
+WRITER_FOR_A_CALLER = {
+    ("sql_exec.py", "_writer"): "SqlExecutions._write_batches protects the header and every batch it writes",
+}
+
+
+def _writers(path: Path) -> list[tuple[str, int]]:
+    """(function, line) for each CSV writer call in the module, by the innermost function holding it."""
+    text = path.read_text(encoding="utf-8")
+    tree = ast.parse(text)
+    found = []
+
+    def walk(node: ast.AST, inside: ast.AST | None) -> None:
+        for child in ast.iter_child_nodes(node):
+            here = child if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) else inside
+            if isinstance(child, ast.Call) and CALLS_A_WRITER.search(ast.get_source_segment(text, child.func) or ""):
+                found.append((here, child.lineno))
+            if isinstance(child, ast.Constant) and isinstance(child.value, str) and WRITES_CSV.search(child.value):
+                found.append((here, child.lineno))  # COPY ... (FORMAT csv) in SQL text
+            walk(child, here)
+
+    walk(tree, None)
+    out = []
+    for func, line in dict.fromkeys(found):
+        body = ast.get_source_segment(text, func) if func is not None else text
+        name = func.name if func is not None else "<module>"
+        if "csv_cells" not in body and "cells(" not in body:
+            out.append((name, line))
+    return out
+
+
+def test_every_csv_writer_protects_its_cells():
+    """Each call that writes CSV, in the function that makes it: that function protects its cells, opens the writer
+    for a caller that does (WRITER_FOR_A_CALLER), or its module writes Spark data files (DATA_FILES)."""
     unprotected = []
     for path in sorted(ENGINE.rglob("*.py")):
         rel = path.relative_to(ENGINE).as_posix()
         if rel == "csv_cells.py" or rel in DATA_FILES:
             continue
-        text = path.read_text(encoding="utf-8")
-        if WRITES_CSV.search(text) and "csv_cells" not in text:
-            unprotected.append(rel)
+        unprotected += [f"{rel}:{line} {name}" for name, line in _writers(path) if (rel, name) not in WRITER_FOR_A_CALLER]
     assert not unprotected, (f"{unprotected} write CSV without csv_cells: protect the cells (WR-228), or list the "
                              "module in DATA_FILES with the reason it writes a data file and not an export")
+
+
+def test_the_guard_catches_a_second_writer_in_a_module_that_protects_one(tmp_path):
+    module = tmp_path / "two.py"
+    module.write_text("import csv\nfrom . import csv_cells\n\ndef good(out, rows):\n    cells = csv_cells.Cells()\n"
+                      "    csv.writer(out).writerows([[cells(v) for v in r] for r in rows])\n\n"
+                      "def bad(out, rows):\n    csv.writer(out).writerows(rows)\n", encoding="utf-8")
+    assert _writers(module) == [("bad", 9)]
+
+
+def test_the_listed_writers_still_exist():
+    for rel, name in WRITER_FOR_A_CALLER:
+        tree = ast.parse((ENGINE / rel).read_text(encoding="utf-8"))
+        assert any(isinstance(n, ast.FunctionDef) and n.name == name for n in ast.walk(tree)), f"{rel} {name}: unlist it"
 
 
 def test_the_exempt_modules_still_exist_and_still_write_csv():
     for rel in DATA_FILES:
         assert WRITES_CSV.search((ENGINE / rel).read_text(encoding="utf-8")), f"{rel} no longer writes CSV: unlist it"
+
+
+def test_a_column_name_that_starts_like_a_formula_is_protected_in_the_header_row(local_runs, tmp_path):  # noqa: F811
+    status = wait(local_runs, start_local(local_runs, 'SELECT 1 AS "=HYPERLINK(1)", \'x\' AS s')["id"])
+    done = wait_export(local_runs, local_runs.export(status["id"], "csv")["id"])
+    assert _rows(done["path"]) == [["'=HYPERLINK(1)", "s"], ["1", "x"]] and done["protected"] == 1
+    raw = wait_export(local_runs, local_runs.export(status["id"], "csv", raw=True)["id"])
+    assert _rows(raw["path"])[0] == ["=HYPERLINK(1)", "s"] and raw["protected"] == 0
+    store = Frames()
+    target = tmp_path / "h.csv"
+    target.touch()
+    got = store.download(store.keep(pa.table({"@a": ["=b"], "n": [1]})), "csv", str(target))
+    assert _rows(target) == [["'@a", "n"], ["'=b", "1"]] and got["protected"] == 2
+    header, n = csv_cells.protect_header(pa.schema([("-x", pa.int64()), ("y", pa.string())]))
+    assert header.names == ["'-x", "y"] and n == 1
+    batch, n = csv_cells.protect_batch(pa.record_batch([pa.array([1])], names=["+n"]))
+    assert batch.schema.names == ["'+n"] and n == 0  # a batch's names match the header's; counted once, there
+
+
+def test_a_string_view_column_is_protected_and_written_as_string():
+    batch = pa.record_batch([pa.array(["=a", "b"], pa.string_view()), pa.array([-1, 2])], names=["v", "n"])
+    header, _ = csv_cells.protect_header(batch.schema)
+    out, n = csv_cells.protect_batch(batch)
+    assert n == 1 and out.schema == header and header.field("v").type == pa.string()
+    assert out.column(0).to_pylist() == ["'=a", "b"] and out.column(1).to_pylist() == [-1, 2]
+    table, n = csv_cells.protect_table(pa.Table.from_batches([batch]))
+    assert n == 1 and table.schema.field("v").type == pa.string()
+    import pyarrow.csv as pa_csv
+    sink = io.BytesIO()
+    with pa_csv.CSVWriter(sink, header) as w:
+        w.write_batch(out)
+    assert sink.getvalue().decode().splitlines() == ['"v","n"', '"\'=a",-1', '"b",2']

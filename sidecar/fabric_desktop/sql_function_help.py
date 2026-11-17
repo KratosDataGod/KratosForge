@@ -69,7 +69,7 @@ def _duckdb(name: str) -> tuple[tuple[str, str], ...]:
 def function_help(dialect: str, name: str) -> dict[str, Any] | None:
     """{"name", "forms": [{"signature", "summary"}], "more": int} for a function in a dialect, or None
     when there's nothing to show. ``more`` counts the forms left out (DuckDB lists one per type)."""
-    if not isinstance(name, str) or not NAME.match(name):
+    if not isinstance(name, str) or not NAME.fullmatch(name):
         return None
     key = name.lower()
     if dialect == "spark":

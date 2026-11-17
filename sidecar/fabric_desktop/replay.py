@@ -260,7 +260,7 @@ def _check_names(bundle: dict[str, Any], members: dict[str, int]) -> None:
         _check_table(t["table"])
     for s in bundle.get("samples") or []:
         _check_table(str(s["table"]).split("/", 1)[-1])
-        if not _SAMPLE_FILE.match(str(s["file"])) or s["file"] not in members:
+        if not _SAMPLE_FILE.fullmatch(str(s["file"])) or s["file"] not in members:
             raise ValueError(f"the sample file {s['file']!r} isn't in the bundle's samples folder")
         if members[s["file"]] > MAX_SAMPLE_FILE:
             raise ValueError(f"the sample file {s['file']} is too large")

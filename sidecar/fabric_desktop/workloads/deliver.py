@@ -60,7 +60,7 @@ def recipients(address: str) -> list[str]:
     for part in re.split(r"[;,\s]+", address[len(MAILTO):]):
         if not part:
             continue
-        if not _EMAIL.match(part) or len(part) > 254:
+        if not _EMAIL.fullmatch(part) or len(part) > 254:
             raise ValueError(f"{one_line(part, 80)} isn't an email address")
         seen.setdefault(part.lower(), part)
     if not seen:
@@ -115,7 +115,7 @@ class MailServer:
         if not isinstance(raw, dict) or not str(raw.get("host") or "").strip():
             return None
         host = str(raw["host"]).strip().lower()
-        if not _HOST.match(host):
+        if not _HOST.fullmatch(host):
             raise ValueError("The mail server is a host name, such as smtp.contoso.com")
         try:
             port = int(raw.get("port") or 587)
@@ -127,7 +127,7 @@ class MailServer:
         if security not in SECURITY:
             raise ValueError("Encryption is STARTTLS or TLS; mail is never sent unencrypted")
         sender = str(raw.get("sender") or "").strip()
-        if not _EMAIL.match(sender):
+        if not _EMAIL.fullmatch(sender):
             raise ValueError("The From address is an email address, such as kratosforge@contoso.com")
         username = one_line(str(raw.get("username") or "").strip(), 256)
         return MailServer(host, port, security, sender, username)

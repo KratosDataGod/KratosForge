@@ -11,6 +11,11 @@ avoided stays `calibration.py`, opportunities stay `opportunities/`, and assessm
 come from the Fabric Excellence Assessment (`excellence/`, plan in
 `docs/product/fabric-excellence-assessment-plan.md`, PR #2939).
 
+Standards followed: `KratosDataGod/ai-commons` `AGENTS.md`, its active `standards/`, the
+KratosForge project context, and the hard gates in
+`prompts/kratosforge/mission-and-engineering-philosophy.md` (ai-commons PR #3). Section 9
+lists the gates as they apply here.
+
 ## 1. Repository review (section 1 of the brief)
 
 ### 1.1 What exists and what this program reuses
@@ -66,7 +71,13 @@ Everything else in this plan follows existing rules and needs no new decision.
 ## 3. Principles carried from the existing code
 
 - Unknown stays Unknown (`None`), never 0. Missing evidence never becomes zero savings.
-- Measured, estimated, scenario and unknown figures are never added together. A total is as weak as its weakest part.
+- **One totals rule** (the one `measurement.total` already applies): measured and estimated
+  figures of the same metric may be added, and the total takes the weaker label (any estimated
+  part makes it Estimated) and shows how much of it is measured. Scenario figures (capacity
+  value, avoided future cost) are never added to either. Unknown parts are left out and the total
+  is marked Incomplete with how many were left out. So the brief's headline "Total CU-hours
+  avoided" is measured plus estimated, labelled accordingly, with its verified (measured) part
+  beside it.
 - CU is never derived from elapsed time. Local CU avoided only from Fabric runs of the same workload (`calibration.py`).
 - A price is not a charge. Capacity value is not cash. Realized savings need billing or capacity-change evidence.
 - Rows are insert-only and idempotent. Corrections are new rows that point at what they correct.
@@ -207,11 +218,19 @@ one developer never silently overwrites another (optimistic concurrency, test sc
 start and end, scope (tenant, workspace, capacity, artifact), measurement source,
 classification, CU-hours, money, currency, confidence, pricing version, baseline version,
 attribution category (`optimization`, `local_execution`, `capacity`), `corrects` (event id),
-created at, user id, installation id. The `record_id` is derived from (event type, execution or
-optimization id, period, attribution category, baseline version), so a second device or a
-retry produces the same row.
+created at, user id, installation id. The `record_id` is derived from (event type, execution
+id, workload key, attribution layer (the optimization id, or `local`), baseline version, pricing
+version, `corrects`), so a second device or a retry produces the same row, while two different
+corrections, or a re-valuation under a new pricing version, stay separate rows.
 
-**Waterfall, per execution or per reporting period of a workload:**
+**One grain.** Every accrual is per execution: one observed run of a workload, in Fabric or on a
+PC, by its stable execution id. A reporting period (day, week, month) is only a grouping of
+execution accruals by run time; nothing is accrued per period on its own, so a local run can
+never be counted once as an execution and again as part of a monthly figure. The "estimated
+recurring monthly benefit" is a projection computed at read time from recent executions and run
+frequency; it is shown as Estimated and is never written to the ledger.
+
+**Waterfall, per execution:**
 
 1. Baseline B = the workload's original cloud CU per run, from a versioned `fdopt_baseline`.
 2. Optimizations are applied in a fixed order (implementation time, then `ACTION_ORDER`).
@@ -224,14 +243,31 @@ retry produces the same row.
 5. Each layer is one `fdopt_attribution` row and one ledger event. A layer whose input is
    Unknown records Unknown and is left out of totals.
 
+Edge cases:
+
+- **Regression.** If an optimization's measured after is higher than its before (Oᵢ < 0), the
+  layer is recorded as a negative measured value with event type `regression`, the optimization
+  moves back to Validating, and later layers start from the higher figure. Gross avoided is still
+  never more than B and never less than 0.
+- **Local run with only pre-optimization Fabric runs.** `calibration.py` then estimates against
+  the original baseline. If the optimization's after is measured, L = min(calibrated, R). If it
+  isn't measured yet, the split between optimization and local is unknown: the run records one
+  gross figure, capped at B, under attribution `unattributed`, and is re-attributed (correction
+  events) once the after is measured. The total is the same either way, so nothing is counted
+  twice.
+- **Reversal.** A reverted optimization stops accruing from its revert time. Accruals for runs
+  before the revert stay, because those runs really used less. A reversal event is written only
+  to undo accruals that were wrong (for example an optimization that never actually deployed),
+  each one pointing at what it undoes through `corrects`.
+
 **Critical acceptance test (ESI-303)**: B = 10 CU-h; an optimization measured at 6 CU-h gives
 O = 4; the next run executes locally, L = up to 6; gross = 10, never 14. The same execution
 synced from a second desktop has the same record ids and adds nothing. A later assessment
 detects the same fingerprint, finds the optimization already verified, and writes no new
 accrual.
 
-**Continuing benefit**: accruals are written per reporting period (month) from observed runs in
-that period, not projected lifetime totals. When a workload stops running, retires or its
+**Continuing benefit**: accruals come only from observed runs (the one grain above), never from
+projected lifetime totals. When a workload stops running, retires or its
 definition changes materially, accruals stop and the baseline is re-evaluated (new baseline
 version; old events stay, tied to the old version).
 
@@ -243,8 +279,14 @@ version; old events stay, tied to the old version).
 | B. Capacity headroom | Estimated: CU avoided as a share of capacity over time, from timepoints, never from totals alone | `fdopt_cu_usage`, OE-040 |
 | C. Estimated capacity value | Scenario: CU × a named pricing scenario. Never labelled savings | `fdopt_pricing` |
 | D. Avoided future capacity cost | Scenario from the planner's forecast, with its assumptions | OE-041 |
-| E. Realized savings | Measured only: a Cost Management export showing lower billed cost, or a capacity SKU change or removal in `fdcap_` history, tied to optimizations by a person's confirmation | `usage/cost_management.py`, `capacity_history.py` |
+| E. Realized savings | Measured only: a Cost Management export showing lower billed cost, or a capacity SKU change or removal in `fdcap_` history, recorded at capacity scope with a person's confirmation of what caused it | `usage/cost_management.py`, `capacity_history.py` |
 | F. Net financial benefit | E minus attributable costs (sync and ingestion overhead, collector calls, any staged-merge runs, organization-entered KratosForge costs) | Ledger |
+
+**Allocating realized savings.** Realized savings are recorded once, at the capacity and period
+they were billed for. By default they are not split across optimizations. When an organization
+wants a split, it is pro rata to verified (measured) CU avoided on that capacity in that period,
+the method is recorded on each allocation row, and the allocations always add up to exactly the
+realized figure, never more.
 
 Developer time saved is kept apart and never turned into money unless the organization supplies
 a valuation model.
@@ -257,7 +299,8 @@ ships behind Preview until tested. The page answers four questions in order: wha
 how, how sure are we, what next.
 
 - **Overview**: the brief's ten headline figures, each with its evidence badge, grouped so
-  measured, estimated and scenario figures never share a total.
+  every total follows the one totals rule in section 3 (measured and estimated add under the
+  weaker label, scenario never adds, unknown is left out and marks the total Incomplete).
 - **Savings over time**: daily, weekly, monthly, cumulative; local versus optimization;
   estimated versus verified; 7, 30, 90 days, year to date, custom.
 - **By source**: device, user (only when allowed), workspace, capacity, artifact, engine,
@@ -286,6 +329,12 @@ optimization, ledger and sync columns from 4.1; new tables `fdopt_pricing`,
 - Acceptance: a v1 lakehouse upgrades to v2 with only added tables and nullable columns; v1 rows
   read back unchanged; a v1 app opens a v2 lakehouse read-only; the migration is safe to rerun.
 - Tests: scenario 20 (schema upgrade), half-finished migration finished by a rerun.
+- Rollout found in review: today a lakehouse at an older `fdopt_` version is in the Upgrade state,
+  and `central_family` refuses other families (access cache, `fdcap_`, `fdten_`) until someone
+  confirms the upgrade, while an app at version 2 builds rows with version 2 columns. So ESI-101
+  also makes writes use the columns of the version the lakehouse is at (or queue them with a
+  clear "upgrade needed" state), keeps other families working on an older core version, and
+  documents that installations still on version 1 open an upgraded lakehouse read-only.
 - Gate: Security read (Lakehouse write).
 
 **ESI-102 Identity on rows.** Read `tid` and `oid` from the token claims (`auth.py`), never from
@@ -348,8 +397,9 @@ rules in `calibration.py` (additive).
 **ESI-202 Overhead per execution.** Data transfer seconds and bytes, sync overhead, and any
 OneLake operations, as separate measurements; Unknown where not measured.
 
-**ESI-203 Local execution ledger accruals.** Gross, overhead and net CU avoided per execution as
-ledger events, through the attribution waterfall (single layer until Phase 3).
+**ESI-203 Execution ledger accruals.** Gross, overhead and net CU avoided per execution as
+ledger events, through the attribution waterfall (single layer until Phase 3). This is the
+ledger's only accrual grain (section 4.5).
 - Acceptance: net ≤ gross; Unknown overhead marks net incomplete; resync adds nothing.
 
 ### Phase 3: Optimization ledger
@@ -371,8 +421,9 @@ baseline, incremental allocation across several optimizations.
   past the baseline; a reversal writes reversal events that net the earlier accruals to zero.
 - Tests: scenarios 16, 17, 10, 19, plus a property test that gross ≤ baseline for any order.
 
-**ESI-304 Recurring benefit.** Monthly accruals from observed runs; stop on retirement; re-baseline
-on material change.
+**ESI-304 Recurring benefit.** Read-time projection of monthly benefit from recent executions and
+run frequency, labelled Estimated and never written to the ledger; period figures are groupings
+of ESI-203 execution accruals. Stop projecting on retirement; re-baseline on material change.
 - Tests: scenarios 11, 12.
 
 ### Phase 4: Financial intelligence

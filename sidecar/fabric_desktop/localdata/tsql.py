@@ -37,6 +37,7 @@ write in DuckDB SQL (``FOR JSON``, ``OPTION (...)``). ``GO`` lines split the scr
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import re
 from collections.abc import Callable, Container
@@ -115,6 +116,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             _joined_changes(tree)
             tree = _views(tree, columns)
             notes += _names(tree, columns)
+            notes += _as_of(tree)
             _table_columns(tree)
             for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
                 parts.replace(_timefromparts(parts))
@@ -450,7 +452,57 @@ def _schema_authorization(batch: str) -> bool:
                for i in range(len(words)))
 
 
+# Time travel (WR-222): Fabric's OPTION (FOR TIMESTAMP AS OF '<UTC time>') at the end of a SELECT reads every table
+# as it was then. Here each table is read from its Delta history at that time (delta.rewrite_as_of).
+_AS_OF_FORMAT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?")
+AS_OF_DEFAULT_DAYS = 30  # a warehouse's history by default
+AS_OF_MOST_DAYS = 120  # the most a warehouse keeps
+_AS_OF_META = "kf_as_of"
+_AS_OF_WORDS = ("OPTION", "(", "FOR", "TIMESTAMP", "AS", "OF")
+
+
+def _take_as_of(batch: str) -> tuple[str, str | None]:
+    """The batch without its OPTION (FOR TIMESTAMP AS OF '...'), and that time, or None when it has none. Tokens, so
+    the words in a string or a comment aren't read. A time that isn't written out as T-SQL wants it is refused with
+    T-SQL's own words; a variable or a second hint is refused by name."""
+    if "TIMESTAMP" not in batch.upper():
+        return batch, None
+    try:
+        tokens = KfTSQL().tokenize(batch)
+    except SqlglotError:
+        return batch, None  # _parse reports it
+    found = [i for i in range(len(tokens) - 2) if tokens[i].text.upper() == "OPTION"
+             and tokens[i + 1].token_type == TokenType.L_PAREN and tokens[i + 2].text.upper() == "FOR"]
+    hinted = any(tokens[i].text.upper() == "FOR" and tokens[i + 1].text.upper() == "TIMESTAMP"
+                 for i in range(len(tokens) - 1))
+    if not found and hinted:  # beside another hint, OPTION (MAXDOP 1, FOR TIMESTAMP AS OF ...)
+        raise ValueError(_NOT_YET + "OPTION (FOR TIMESTAMP AS OF ...) takes a time written out in quotes, such as "
+                         "'2026-11-01T09:30:00' (UTC), and nothing else in the OPTION.")
+    if not found:
+        return batch, None
+    if len(found) > 1:
+        raise ValueError(_NOT_YET + "FOR TIMESTAMP AS OF can be used only once in a batch here, at the end of its "
+                         "one SELECT, and this batch has it more than once. Put GO between the SELECTs.")
+    i = found[0]
+    words = [t.text.upper() for t in tokens[i:i + 6]]
+    if words != list(_AS_OF_WORDS) or i + 7 >= len(tokens) or tokens[i + 6].token_type != TokenType.STRING \
+            or tokens[i + 7].token_type != TokenType.R_PAREN:
+        raise ValueError(_NOT_YET + "OPTION (FOR TIMESTAMP AS OF ...) takes a time written out in quotes, such as "
+                         "'2026-11-01T09:30:00' (UTC), and nothing else in the OPTION. A warehouse doesn't take a "
+                         "variable there either.")
+    when = tokens[i + 6].text
+    try:  # the shape, then the date itself: 2026-02-30 has the shape but isn't a day
+        real = bool(_AS_OF_FORMAT.fullmatch(when)) and dt.datetime.fromisoformat(when) is not None
+    except ValueError:
+        real = False
+    if not real:
+        raise ValueError(f"FOR TIMESTAMP AS OF '{when}': An error occurred during timestamp conversion. Please "
+                         "provide a timestamp in the format yyyy-MM-ddTHH:mm:ss[.fff].")
+    return batch[:tokens[i].start] + " " + batch[tokens[i + 7].end + 1:], when
+
+
 def _parse(batch: str) -> list[exp.Expression]:
+    batch, when = _take_as_of(batch)
     _refuse_json_clauses(batch)
     _refuse_security(batch)
     _refuse_session_options(batch)
@@ -481,7 +533,50 @@ def _parse(batch: str) -> list[exp.Expression]:
         m = re.match(r"'(\S+)", unsupported[0])
         word = (m[1] if m else batch.strip().split(None, 1)[0]).upper()
         raise ValueError(f"The local engine doesn't run T-SQL {word} yet. {_LATER}")
+    if when is not None:
+        reads = (exp.Select, exp.Union, exp.Intersect, exp.Except)
+        if len(trees) != 1:
+            raise ValueError(_NOT_YET + "FOR TIMESTAMP AS OF is read here only in a batch that holds just that "
+                             "SELECT, and this batch has more statements. Put GO before and after the SELECT.")
+        if not isinstance(trees[0], reads) or trees[0].find(exp.Into) is not None:
+            raise ValueError(_NOT_YET + "FOR TIMESTAMP AS OF on INSERT ... SELECT, SELECT ... INTO or CREATE TABLE "
+                             "AS isn't mapped yet. Here it applies only to a plain SELECT. Run the SELECT with it, or "
+                             "run it in a Fabric Warehouse.")
+        trees[0].meta[_AS_OF_META] = when
     return cast(list[exp.Expression], trees)  # sqlglot types parse() as its Expr base
+
+
+def _as_of(tree: exp.Expression, now: dt.datetime | None = None) -> list[str]:
+    """Each table the SELECT reads, read as of its FOR TIMESTAMP AS OF time from the table's Delta history; a
+    table with no history (a database table or a file) is refused by delta.rewrite_as_of's caller, never read as it
+    is now. A #temp table and a CTE are read as they are, as in a warehouse. A time in the future, or further back
+    than any warehouse keeps, is refused, so neither is answered from the current data."""
+    when = tree.meta.get(_AS_OF_META)
+    if when is None:
+        return []
+    at = dt.datetime.fromisoformat(when).replace(tzinfo=dt.timezone.utc)
+    now = now or dt.datetime.now(dt.timezone.utc)
+    if at > now:
+        raise ValueError(f"FOR TIMESTAMP AS OF '{when}' is later than now (UTC). A time travel read is answered "
+                         "only from a table's history, so a later time is refused rather than read as the tables "
+                         "are now.")
+    if now - at > dt.timedelta(days=AS_OF_MOST_DAYS):
+        raise ValueError(f"FOR TIMESTAMP AS OF '{when}' is more than {AS_OF_MOST_DAYS} days ago, further back "
+                         f"than a warehouse keeps history ({AS_OF_DEFAULT_DAYS} days by default, at most "
+                         f"{AS_OF_MOST_DAYS}). Pick a later time.")
+    ctes = {c.alias_or_name.lower() for c in tree.find_all(exp.CTE)}
+    for table in tree.find_all(exp.Table):
+        if not isinstance(table.this, exp.Identifier) or table.name.startswith("#") \
+                or (not table.db and table.name.lower() in ctes):
+            continue
+        table.set("when", exp.HistoricalData(this="AT", kind="TIMESTAMP",
+                                             expression=exp.Literal.string(at.strftime("%Y-%m-%d %H:%M:%S.%f+00:00"))))
+    if now - at > dt.timedelta(days=AS_OF_DEFAULT_DAYS):
+        return [(f"FOR TIMESTAMP AS OF '{when}' is more than {AS_OF_DEFAULT_DAYS} days ago. A warehouse keeps "
+                 f"{AS_OF_DEFAULT_DAYS} days of history unless its retention was raised (to at most "
+                 f"{AS_OF_MOST_DAYS}), and doesn't answer for a time outside it. Here it's read from each table's "
+                 "Delta history.")]
+    return []
 
 
 def _harmless_setting(tree: exp.Expression) -> bool:

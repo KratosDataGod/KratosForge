@@ -125,6 +125,35 @@ These cases still differ:
 | A `sum` past a `bigint`'s range | Wraps around | Kept as a 128-bit number; writing it to a table stops with a message |
 | `histogram_numeric` | Spark's streaming bins | Refused by name |
 
+## Arrays, maps and structs on this PC
+
+Spark SQL run on this PC gives Spark's values and types for its array, map and struct functions and its generators, with ANSI mode off as Fabric runs it. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_complex.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `size`, `cardinality` | An `int`; -1 for NULL (Spark's `spark.sql.legacy.sizeOfNull`, on with ANSI off); a map's number of keys |
+| `element_at`, `[ ]` | NULL for an index past either end or a key the map doesn't have. `element_at(array, 0)` stops, as in Spark. `array[0]` is the first element |
+| `array_contains` | NULL when the value isn't found and the array holds a NULL, or when either is NULL |
+| `array_position` | A `bigint`; 0 when the value isn't found |
+| `flatten` | NULL when one of the inner arrays is NULL |
+| `array_sort`, `sort_array` | `array_sort` puts NULLs last; `sort_array` puts them first ascending and last descending |
+| `sequence` | Counts down when stop is below start; whole numbers give `array<int>` |
+| `reverse`, `concat` | Work on arrays as well as text |
+| `map_concat`, `map` | A key that repeats stops the query, as with Spark's default `spark.sql.mapKeyDedupPolicy` (EXCEPTION) |
+| `explode`, `explode_outer`, `inline` | One row per element; a map gives `key` and `value` columns. `explode` of an empty or NULL array gives no rows, `explode_outer` one row of NULLs |
+| `LATERAL VIEW explode(...)`, `LATERAL VIEW OUTER` | One row per element or map entry, joined to its row. `OUTER` keeps a row whose array or map is empty or NULL, with NULLs |
+| Struct fields | `s.a`, `named_struct`, `struct(1 AS a)`; written to a Delta table as Spark's `struct<a:int,b:string>`, with arrays and maps keeping their element types |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| `posexplode` and `LATERAL VIEW posexplode` | `pos` is an `int` | `pos` is a `bigint` |
+| A map that only comes from a computed expression, such as `size(map_filter(m, ...))` or `explode(map_from_arrays(...))`, in a view or subquery the types can't be read through | Counted or exploded as a map | Can stop with a DuckDB error naming the function. A map column, or a map written in the query, works |
+| `array(1, 'a')` and other arrays that mix types | The elements are cast to a common type (`array<string>`) | Stops with a conversion error. Cast the elements to one type first |
+| The DataFrame API: `F.size`, `F.explode` and `F.explode_outer` of a map column, `F.reverse` of an array, `F.sequence` counting down, and `F.posexplode` and `F.map_concat`, which aren't there | As in Spark SQL | Not given Spark's answer yet: a map or a count down stops or gives `[]`. Run that part through `spark.sql` |
+| Databricks SQL on the DuckDB engine | As in Spark SQL | The fixes that don't need column types apply; `size`, `explode` and `reverse` of a map or array column keep DuckDB's forms |
+
 ## Local T-SQL changes
 
 When a project runs T-SQL on this PC, `MERGE`, `UPDATE`, `DELETE` and `INSERT` on a database table give a warehouse's rows, or stop by name. Each case below is checked against T-SQL's reference.
@@ -550,6 +579,26 @@ What can still differ:
 
 - In a warehouse, some run-time errors (dividing by zero, a value that doesn't convert) end only their own statement, and the batch goes on to the next one. Here the script stops at the first error, and the error says which statements didn't run.
 - A script of only session options (`SET NOCOUNT ON`) has nothing to run here, and says so.
+
+## Time travel in local T-SQL
+
+In a Fabric Warehouse, `OPTION (FOR TIMESTAMP AS OF '2026-11-01T09:30:00')` at the end of a `SELECT` reads every table as it was at that time, in UTC, as Microsoft's time travel docs describe it. A warehouse keeps 30 days of history by default, and its retention can be set from 1 to 120 days. Here each table is read from its Delta history at that time.
+
+| What | In a Fabric Warehouse | Here |
+| --- | --- | --- |
+| A `SELECT` with the hint, its joins, CTEs, subqueries and `UNION`s | One time for every table | One time for every table, each read from its Delta history |
+| The time | `yyyy-MM-ddTHH:mm:ss[.fff]`, in UTC. Anything else is an error: "An error occurred during timestamp conversion. Please provide a timestamp in the format yyyy-MM-ddTHH:mm:ss[.fff]." | The same check, with the same words |
+| A variable in the hint | Not allowed | Refused by name |
+| A `#temp` table in the query | Read as it is now | Read as it is now |
+| A table with no history here (a database table, a file, a view) | Not applicable | Refused: "dbo.plain isn't a Delta table ..., so it has no versions." It's never read as it is now |
+| A time before the table's first version | Microsoft's docs don't say | Refused, naming the table's first version |
+| A time later than now | Microsoft's docs don't say | Refused, rather than read as the tables are now |
+| A time more than 120 days ago | Outside any warehouse's retention | Refused |
+| A time 30 to 120 days ago | Answered only if the warehouse's retention was raised | Runs, with a note that a warehouse with the default retention doesn't answer |
+
+Refused by name: the hint on `INSERT ... SELECT`, `SELECT ... INTO` or `CREATE TABLE AS` (Microsoft's pages disagree on whether a warehouse runs these), the hint beside another hint (`OPTION (MAXDOP 1, FOR TIMESTAMP AS OF ...)`), a batch with more than one statement beside a `SELECT` with the hint (put `GO` before and after it), and the hint twice in one batch. Other `OPTION (...)` hints are still refused.
+
+On a warehouse, from the SQL page, a `SELECT` ending in the hint is sent as written, and the warehouse answers for its own retention.
 
 ## Loading data with T-SQL
 

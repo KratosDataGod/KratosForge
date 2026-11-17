@@ -78,9 +78,9 @@ function dataHealthPanel() {
   loadDataHealth(box);
   return h("div", { class: "mon-how" }, withHowItWorks(box, howItWorks("monitor.datahealth", {
     reads: "The Delta log of each table you watch, in the environment you pick: the last 200 commits and the table's columns. On this PC for Dev; in OneLake for Test and Prod, with your sign-in. No Fabric job runs.",
-    changes: "Nothing in the tables. Watch, Acknowledge and Snooze change only this PC's list.",
+    changes: "Nothing in your tables changes. Watch, Acknowledge and Snooze change only this PC's list.",
     results: "The list of watched tables and the alerts you acknowledged or snoozed, in this app's folder on this PC.",
-    more: [["Usual", "The median rows written by the last 20 loads, and the spread is their median distance from it. A load is unusual more than 3 spreads from the median, or more than 10% above or below it when loads barely vary. With fewer than 10 loads that recorded their rows there's no usual yet, so there's no alert."],
+    more: [["Usual", "The usual is the median rows written by the last 20 loads, and the spread is their median distance from it. A load is unusual when it's more than 3 spreads from the median. When loads barely vary, it's unusual when it's more than 10% above or below the median. With fewer than 10 loads that recorded their rows there's no usual yet, so there's no alert."],
       ["Can't tell", "The log didn't hold that number, so none is shown. A number is never estimated."]],
     anchor: "data-health-preview",
   })));

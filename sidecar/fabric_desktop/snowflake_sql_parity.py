@@ -98,6 +98,10 @@ _MERGE_MULT = (
     "WHEN MATCHED THEN UPDATE SET val = merge_example_mult_source.newval "
     "WHEN NOT MATCHED THEN INSERT (id, val, status) VALUES (merge_example_mult_source.id, merge_example_mult_source.newval, "
     "merge_example_mult_source.newstatus);")
+_ARRAY_APPEND = ("CREATE OR REPLACE TABLE array_append_examples (array_column ARRAY); "
+                 "INSERT INTO array_append_examples (array_column) SELECT ARRAY_CONSTRUCT(1, 2, 3);")
+_APPEND_FOUR = "UPDATE array_append_examples SET array_column = ARRAY_APPEND(array_column, 4);"
+_APPEND_FIVE = "UPDATE array_append_examples SET array_column = ARRAY_APPEND(array_column, 'five');"
 _BICYCLES = (
     "CREATE TABLE leased_bicycles (bicycle_id INTEGER, \"customer_id\" INTEGER); "
     "CREATE TABLE returned_bicycles (bicycle_id INTEGER); "
@@ -934,6 +938,13 @@ CASES: tuple[Case, ...] = (
        ["Beta", "Production", "Production"], page="../sql/merge"),
     _c("MERGE (values)", "Statements", f"{_MERGE_MULT} SELECT list(val ORDER BY id) FROM merge_example_mult_target",
        [50, 60, 40], page="../sql/merge"),
+    _c("UPDATE", "Statements", f"{_ARRAY_APPEND} {_APPEND_FOUR} SELECT array_column FROM array_append_examples",
+       [1, 2, 3, 4], page="array_append"),
+    # the page's 1-to-1 join, over the target and src rows its nondeterministic example prints
+    _c("UPDATE FROM", "Statements", "CREATE TABLE target (k INT, v INT); CREATE TABLE src (k INT, v INT); "
+       "INSERT INTO target VALUES (0, 10); INSERT INTO src VALUES (0, 11), (0, 12), (0, 13); "
+       "UPDATE target SET v = b.v FROM (SELECT k, MIN(v) v FROM src GROUP BY k) b WHERE target.k = b.k; "
+       "SELECT list(v) FROM target", [11], page="../sql/update"),
     _c("DELETE", "Statements", f"{_BICYCLES} DELETE FROM leased_bicycles WHERE \"customer_id\" = 5555; "
        "SELECT list(bicycle_id ORDER BY bicycle_id) FROM leased_bicycles", [101, 102, 103, 104], page="../sql/delete"),
     _c("DELETE USING", "Statements", f"{_BICYCLES} DELETE FROM leased_bicycles WHERE \"customer_id\" = 5555; "
@@ -943,6 +954,13 @@ CASES: tuple[Case, ...] = (
        "INSERT INTO merge_example_target (id, description) VALUES (10, 'To be updated (this is the old value)'); "
        "TRUNCATE table merge_example_target; SELECT count(*) FROM merge_example_target", 0, page="../sql/merge"),
     _c("ARRAY_APPEND", "Semi-structured", "SELECT array_append(array_construct(1, 2, 3), 4)", [1, 2, 3, 4]),
+    # the page's ARRAY column example: two UPDATEs append 4, then 'five'
+    _c("ARRAY_APPEND (ARRAY column)", "Semi-structured", f"{_ARRAY_APPEND} {_APPEND_FOUR} {_APPEND_FIVE} "
+       "SELECT array_column FROM array_append_examples", [1, 2, 3, 4, "five"], page="array_append"),
+    _c("ARRAY_APPEND (element types)", "Semi-structured", f"{_ARRAY_APPEND} {_APPEND_FOUR} {_APPEND_FIVE} "
+       "SELECT ARRAY_CONSTRUCT(TYPEOF(array_column[0]), TYPEOF(array_column[1]), TYPEOF(array_column[2]), "
+       "TYPEOF(array_column[3]), TYPEOF(array_column[4])) AS type FROM array_append_examples",
+       ["INTEGER", "INTEGER", "INTEGER", "INTEGER", "VARCHAR"], page="array_append"),
     _c("ARRAY_COMPACT", "Semi-structured", "SELECT array_compact(array_construct(10, NULL, 30))", [10, 30]),
     _c("ARRAY_DISTINCT", "Semi-structured", "SELECT array_distinct(['A', 'A', 'B', NULL, NULL])", ["A", "B", None]),
     _c("ARRAY_DISTINCT (NULL)", "Semi-structured", "SELECT array_distinct(NULL)", None, page="array_distinct"),

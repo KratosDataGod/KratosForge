@@ -682,6 +682,20 @@ def _rewrite_arrays(statement: exp.Expression) -> None:
                       "ELSE FLATTEN(fj_arg0) END", [flatten.this])
 
 
+def _rewrite_semi_structured_types(statement: exp.Expression) -> None:
+    """SFX-024: Snowflake's ARRAY type, with no element type, is a list of VARIANT values here (VARIANT[]),
+    so an ARRAY column holds the lists ARRAY_CONSTRUCT makes and the array functions read it; a cast to it
+    goes through VARIANT, which also reads a JSON array. OBJECT is JSON, as OBJECT_CONSTRUCT makes it."""
+    for kind in list(statement.find_all(exp.DataType)):
+        if kind.this == exp.DataType.Type.OBJECT and not kind.expressions:
+            kind.replace(exp.DataType.build("JSON"))
+        elif kind.this == exp.DataType.Type.ARRAY and not kind.expressions:
+            cast = kind.parent
+            if isinstance(cast, (exp.Cast, exp.TryCast)) and cast.args.get("to") is kind:
+                cast.this.replace(exp.Cast(this=cast.this.copy(), to=exp.DataType.build("VARIANT")))
+            kind.replace(exp.DataType.build("VARIANT[]", dialect="duckdb"))
+
+
 def _rewrite_regexp_groups(statement: exp.Expression) -> None:
     """SFX-021: REGEXP_SUBSTR and REGEXP_SUBSTR_ALL with the 'e' parameter and no group number give the
     first group, as Snowflake does; sqlglot writes group 0, the whole match. (sqlglot reads group 0 written
@@ -1476,6 +1490,8 @@ def _rewrite_typeof(statement: exp.Expression) -> None:
         template = (f"SELECT CASE WHEN _kf_v IS NULL THEN NULL "
                     f"WHEN typeof(_kf_v) = 'JSON' THEN CASE json_type(TRY_CAST(_kf_v AS JSON)) {json_case} "
                     f"ELSE {number} END "
+                    # a DuckDB VARIANT, such as an ARRAY column's element (SFX-024), by the value it holds
+                    f"WHEN typeof(_kf_v) = 'VARIANT' THEN {_KIND.replace('__sf_v', '_kf_v')} "
                     f"WHEN regexp_full_match(typeof(_kf_v), 'DECIMAL\\([0-9]+,0\\)') THEN 'INTEGER' "
                     f"WHEN typeof(_kf_v) LIKE 'DECIMAL(%' THEN 'DECIMAL' "
                     f"WHEN typeof(_kf_v) LIKE '%[]' THEN 'ARRAY' "
@@ -1693,6 +1709,8 @@ CATALOG = (
     ("SFX-022", "Rewritten", ("TO_TIMESTAMP of a string written in the query that holds a whole number reads it "
                 "as seconds, milliseconds, microseconds or nanoseconds by its size, as Snowflake does. A column "
                 "is read as before.")),
+    ("SFX-024", "Rewritten", ("An ARRAY column or cast is a list of VARIANT values, which holds what ARRAY_CONSTRUCT "
+                "makes and reads a JSON array; an OBJECT column or cast is JSON.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -1801,6 +1819,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_time(tree)
         _rewrite_timestamp_parts(tree)
         _rewrite_arrays(tree)
+        _rewrite_semi_structured_types(tree)
         _rewrite_regexp_groups(tree)
         _rewrite_string_epochs(tree)
         _rewrite_objects(tree)

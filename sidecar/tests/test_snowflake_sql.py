@@ -545,7 +545,11 @@ def test_typeof_never_gives_a_confident_wrong_name(code, want):
 def test_typeof_reads_its_argument_as_a_tree_and_the_rule_is_listed():
     sql = sf.translate("select typeof(v:k.x) from t").duckdb_sql
     assert "LAMBDA" not in sql.upper() and "->" in sql  # a path stays a path (#1252)
-    assert "VARIANT" not in sf.translate("select typeof('a'::variant)").duckdb_sql
+    # the ::variant is read past: the value isn't cast to VARIANT, except where the VARIANT branch (a DuckDB
+    # VARIANT value, SFX-024) asks variant_typeof what it holds
+    sql = sf.translate("select typeof('a'::variant)").duckdb_sql
+    assert sql.count("AS VARIANT") == sql.upper().count("VARIANT_TYPEOF(CAST(")
+    assert _first("select typeof('a'::variant)") == "VARCHAR"
     assert "SFX-009" in [row[0] for row in sf.CATALOG] and "SFX-009" in sf.docs_table()
 
 
@@ -1012,3 +1016,26 @@ def test_timestamp_tz_from_parts_is_in_the_session_zone():
 def test_a_pattern_python_cannot_read_still_translates(pattern):
     translation = sf.translate(f"SELECT regexp_substr('a', '{pattern}', 1, 1, 'e')")
     assert translation.runnable, translation.first_refusal()
+
+
+def _rows(code):
+    translation = sf.translate(code)
+    assert translation.runnable, translation.first_refusal()
+    return duckdb.connect().sql(translation.duckdb_sql).fetchall()
+
+
+def test_an_array_column_holds_arrays_and_an_object_column_holds_json():
+    rows = _rows("CREATE TABLE t (a ARRAY, o OBJECT); "
+                 "INSERT INTO t SELECT ARRAY_CONSTRUCT(1, 2), OBJECT_CONSTRUCT('k', 1); "
+                 "UPDATE t SET a = ARRAY_APPEND(a, 'x'); "
+                 "SELECT a, ARRAY_SIZE(a), TYPEOF(a[0]), TYPEOF(a[2]), o:k::INT FROM t")
+    assert rows == [([1, 2, "x"], 3, "INTEGER", "VARCHAR", 1)]
+
+
+def test_a_cast_to_array_reads_a_list_or_a_json_array_and_object_is_json():
+    assert _first("SELECT PARSE_JSON('[1, \"a\"]')::ARRAY") == [1, "a"]
+    assert _first("SELECT ARRAY_CONSTRUCT(1, 2)::ARRAY") == [1, 2]
+    assert _first("SELECT CAST(NULL AS ARRAY)") is None
+    assert _first("SELECT TYPEOF(CAST(NULL AS OBJECT))") is None
+    # a structured ARRAY(INT) keeps its element type
+    assert "INT[]" in sf.translate("SELECT CAST(NULL AS ARRAY(INT))").duckdb_sql

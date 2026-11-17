@@ -185,6 +185,38 @@ print('RESULT' + json.dumps(out))
     assert [g[1] for g in got] == [2, 2, 4]
 
 
+# An argument holding rand() or shuffle() is read once, as Spark reads it, though the rewrite uses it
+# more than once: each function below writes its argument two to four times.
+ONCE = [
+    "array_contains(shuffle(array(1, 2, NULL)), 1)",
+    "array_contains(array(1, 2), CAST(rand() * 2 AS INT))",
+    "array_position(shuffle(array(1, 2)), 1)",
+    "flatten(array(array(rand()), array(rand())))",
+    "size(array_repeat(rand(), 3))",
+    "map_concat(map('a', rand()), map('b', rand()))",
+]
+
+
+@pytest.mark.parametrize("call", ONCE)
+def test_an_argument_holding_rand_is_read_once(call: str) -> None:
+    import duckdb
+    written = sql.duckdb_sql(sql.parse(f"SELECT {call}")[0])
+    assert written.count("RANDOM()") == call.count("rand()") + call.count("shuffle("), written
+    duckdb.connect().execute(written).fetchall()
+
+
+def test_typed_forms_read_rand_once(kernel: Kernel) -> None:
+    text = run(kernel, """
+import json
+qs = ["SELECT size(map('a', rand())) FROM range(3)",
+      "SELECT count(*) FROM (SELECT map('a', rand(), 'b', rand()) AS m) LATERAL VIEW explode(m) t AS k, v",
+      "SELECT count(*) FROM (SELECT 1) LATERAL VIEW OUTER explode(shuffle(array(1, 2))) t AS x",
+      "SELECT size(sequence(1, CAST(rand() * 3 AS INT) + 1)) BETWEEN 1 AND 3 FROM range(20)"]
+print('RESULT' + json.dumps([sorted({r[0] for r in spark.sql(q).collect()}) for q in qs]))
+""")
+    assert json.loads(text.split("RESULT", 1)[1]) == [[1], [2], [2], [True]]
+
+
 def test_untyped_statements_keep_array_forms() -> None:
     class Broken:
         def execute(self, *_a: object) -> object:

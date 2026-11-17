@@ -157,7 +157,9 @@ def _list_node(tree: ast.Module, name: str) -> ast.List | ast.Tuple:
 
 
 def _run_tests(work: Path, tests: list[str]) -> str:
-    env = {**os.environ, "PYTHONPATH": str(work)}
+    # No bytecode cache: two mutants of the same size written in the same second would otherwise
+    # look unchanged to Python, so the second would run the first one's cached code (#2836).
+    env = {**os.environ, "PYTHONPATH": str(work), "PYTHONDONTWRITEBYTECODE": "1"}
     # Its own process group (a new console group on Windows), so a timeout stops everything pytest
     # started too, such as an engine or kernel process, not just pytest.
     group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}

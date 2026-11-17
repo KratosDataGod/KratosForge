@@ -5894,8 +5894,8 @@ A mutant whose run times out counts as killed, as in earlier batches.
 | `spark_complex.py` | test_spark_complex, test_spark_higher_order (+ test_spark_complex_mutation) | 106 of 106 (105 + 1) | 89 / 17 | **84.0%** | 88/105 → 97/105 | 1/1 → 1/1 | 98 / 8 | **92.5%** | 8 equivalent |
 | `notebook_batch_service.py` | test_notebook_batch, test_notebook_batch_edges, test_notebook_batch_stop, test_regex_anchors (its batch id test) (+ test_notebook_batch_service_mutation) | 130 of 130 (124 + 6) | 91 / 39 | **70.0%** | 89/124 → 121/124 | 2/6 → 6/6 | 127 / 3 | **97.7%** | 3 equivalent |
 
-One bug was found, outside the three modules, and is marked `xfail` in `test_spark_complex_mutation.py` until it is fixed:
-- `LATERAL VIEW stack(...)` and `LATERAL VIEW json_tuple(...)` give each row's values as one struct column (`{'col0': 1}`), where Spark gives the values themselves (`1`). The rewrite is in `spark_builtins_sql.py`. In a select list both give the values.
+One bug was found, outside the three modules, and is fixed; its test in `test_spark_complex_mutation.py` now passes:
+- `LATERAL VIEW stack(...)` and `LATERAL VIEW json_tuple(...)` gave each row's values as one struct column (`{'col0': 1}`), where Spark gives the values themselves (`1`). The rewrite is in `spark_builtins_sql.py`. In a select list both gave the values. After `LATERAL VIEW` they, and `inline`, now give one column per name.
 
 ### What the survivors were, and the tests that now kill them
 

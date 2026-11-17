@@ -45,7 +45,7 @@ function sqlGridCount(r, columns) {
 function sqlResultGrid(r, g, on) {
   const vis = sqlGridLayoutFor(g, r.columns);
   const sortOf = (i) => (r.sort || []).find((s) => s.column === i);
-  const widths = h("style", {}, sqlGridWidthCss(g.widths));
+  const widths = h("style", {}, sqlGridWidthCss(g.widths, sqlGridId(g)));
   const head = vis.map((i) => {
     const c = r.columns[i];
     const s = sortOf(i);
@@ -54,7 +54,7 @@ function sqlResultGrid(r, g, on) {
         title: `Sort by ${c.name} (${c.type}). Sorts every row of the result on this PC; nothing runs again.` },
       c.name, s ? h("span", { class: "sql-sort-mark", "aria-hidden": "true" }, s.desc ? " ▼" : " ▲") : null),
       sqlColumnResizer(c, i, g, () => {
-        widths.textContent = sqlGridWidthCss(g.widths);
+        widths.textContent = sqlGridWidthCss(g.widths, g.id);
         table.classList.toggle("sized", Object.keys(g.widths).length > 0);
       }));
   });
@@ -77,7 +77,7 @@ function sqlResultGrid(r, g, on) {
       return h("td", { "data-col": String(i) }, box);
     })) : null;
   // A column a person sized keeps its width: the table no longer stretches its columns to fill the grid.
-  const table = h("table", { tabindex: "0", class: `sql-result-table${Object.keys(g.widths).length ? " sized" : ""}`,
+  const table = h("table", { tabindex: "0", "data-grid": g.id, class: `sql-result-table${Object.keys(g.widths).length ? " sized" : ""}`,
     "aria-label": "Results. Arrow keys move, Shift and an arrow selects, Ctrl+C copies, Enter opens a value, Shift+F10 shows more." },
     h("thead", {}, h("tr", {}, h("th", { class: "i" }), head), filterRow),
     h("tbody", {}, r.rows.map((row, k) => h("tr", { "data-r": String(k) }, h("td", { class: "i" }, String(r.offset + k + 1)),
@@ -111,10 +111,17 @@ function sqlGridLayoutFor(g, columns) {
   return g.vis;
 }
 
-// The style that holds the widths a person set: { [column]: px }.
-function sqlGridWidthCss(widths) {
+// Each grid's own id, so the widths a person set in one table never reach another (a notebook shows many).
+function sqlGridId(g) {
+  sqlGridId.count = (sqlGridId.count || 0) + (g.id ? 0 : 1);
+  return (g.id ||= `g${sqlGridId.count}`);
+}
+
+// The style that holds the widths a person set in grid g: { [column]: px }, for that grid's table only.
+function sqlGridWidthCss(widths, id) {
+  const table = id ? `.sql-result-table[data-grid="${String(id).replace(/[^\w-]/g, "")}"]` : ".sql-result-table";
   return Object.entries(widths || {}).map(([k, w]) =>
-    `.sql-result-table [data-col="${Number(k)}"] { width: ${Math.round(w)}px; min-width: ${Math.round(w)}px; max-width: ${Math.round(w)}px; }`).join("\n");
+    `${table} [data-col="${Number(k)}"] { width: ${Math.round(w)}px; min-width: ${Math.round(w)}px; max-width: ${Math.round(w)}px; }`).join("\n");
 }
 
 // A column moved up or down in Columns...: the new order.
@@ -159,6 +166,52 @@ function sqlColumnResizer(c, i, g, changed) {
       e.stopPropagation();
     } });
   return handle;
+}
+
+// The grid's right-click menu (the mockup's Copy as) at a cell: on.copy(format), on.open(), on.stats().
+// Each item gives focus back to the table first.
+function sqlGridMenu(td, table, on) {
+  const item = (label, key, action, first) => h("button", { type: "button", class: `tool${first ? " sql-menu-group" : ""}`,
+    ...(key ? { "aria-keyshortcuts": key.replace(/Ctrl/g, "Control") } : {}),
+    onclick: () => { table?.focus({ preventScroll: true }); action(); } },
+  h("span", {}, label), key ? h("span", { class: "sql-menu-key" }, key) : null);
+  td.tabIndex = -1;  // the menu gives focus back to the cell when it closes
+  showMenu(td, [
+    item("Copy", "Ctrl+C", () => on.copy("cells")),
+    item("Copy with headers", "Ctrl+Shift+C", () => on.copy("tsv")),
+    item("Copy as CSV", null, () => on.copy("csv"), true),
+    item("Copy as JSON", null, () => on.copy("json")),
+    item("Copy as INSERT statements", null, () => on.copy("insert")),
+    item("Open value", "Enter", on.open, true),
+    item("Column statistics", null, on.stats)]);
+}
+
+// The toast after a copy of the grid's selection: "Copied 6 cells", "Copied 3 rows as CSV".
+function sqlGridCopiedNote(format, block) {
+  const cells = block.rows.length * block.columns.length;
+  const as = { tsv: " with headers", csv: " as CSV", json: " as JSON", insert: " as INSERT statements" }[format] || "";
+  return format === "cells" ? `Copied ${cells.toLocaleString()} cell${cells === 1 ? "" : "s"}`
+    : `Copied ${block.rows.length.toLocaleString()} row${block.rows.length === 1 ? "" : "s"}${as}`;
+}
+
+// The Columns... dialog for a grid (the SQL page's results and a notebook's table): the list follows each
+// change, and focus stays on a moved column's button. changed() redraws the grid.
+function sqlColumnsDialog(columns, g, changed) {
+  sqlGridLayoutFor(g, columns);
+  const box = h("div", {});
+  const draw = (moved, dir) => {
+    box.replaceChildren(sqlColumnsBody(columns, g, { change: (k, d) => { g.sel = null; draw(k, d); changed(); } }));
+    if (moved !== undefined) {
+      const name = columns[moved].name;
+      const again = box.querySelector(`button[aria-label="Move ${CSS.escape(name)} ${dir}"]`);
+      (again && !again.disabled ? again : box.querySelector(`button[aria-label="Move ${CSS.escape(name)} ${dir === "up" ? "down" : "up"}"]`))?.focus();
+    }
+  };
+  draw();
+  showDialog("Columns", box, [
+    btn("Show all", null, () => { Object.assign(g, { hidden: [], order: null, widths: {}, sel: null }); draw(); changed(); }, "tool outline",
+      { title: "Every column, in the result's order, at its own width" }),
+    btn("Done", null, closeDialog, "tool primary")]);
 }
 
 // Columns...: a check box to show each column, and Up and Down to move it. Changes apply to the grid at
@@ -331,10 +384,11 @@ function sqlGridWire(table, r, g, on, vis = r.columns.map((_, k) => k)) {
   const set = (sel, scroll = true) => {
     g.sel = sel;
     sqlGridPaint(table, sel);
-    if (scroll && sel) table.tBodies[0].rows[sel.f.r]?.cells[sel.f.c + 1]?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    if (scroll && sel) cellOf(sel.f)?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
     on.select();
   };
-  const cellOf = (at) => table.tBodies[0].rows[at.r]?.cells[at.c + 1];
+  // A cell by its place on screen (a notebook's table has no row-number column).
+  const cellOf = (at) => table.tBodies[0].rows[at.r]?.querySelector(`td[data-c="${at.c}"]`);
   let dragging = false;
   table.addEventListener("mousedown", (e) => {
     const at = sqlGridCellAt(e.target.closest("td"));

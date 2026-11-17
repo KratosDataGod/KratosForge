@@ -596,11 +596,11 @@ class ProcessKernel:
     # ---- the result viewer (frames.py): results live where the cells ran
 
     def frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
-                   desc: bool = False, q: str = "") -> dict[str, Any]:
+                   desc: bool = False, q: str = "", filters: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         if not self.alive():
             raise FrameGone(GONE)
         return self._request("frame_page", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, offset=offset,
-                             limit=limit, sort=sort, desc=desc, q=q)
+                             limit=limit, sort=sort, desc=desc, q=q, **({"filters": filters} if filters else {}))
 
     def frame_chart(self, frame: str, **spec: Any) -> dict[str, Any]:
         if not self.alive():

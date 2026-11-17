@@ -442,7 +442,7 @@ test("Columns... hides and reorders the grid's columns, a header's edge resizes 
   assert.deepStrictEqual(await heads(), ["n", "twice"]);
   await dialog.getByRole("button", { name: "Move twice up" }).click();
   assert.deepStrictEqual(await heads(), ["twice", "n"]);
-  // axe covers dialogs: query.js:renderQuery
+  // axe covers dialogs: sqlgrid.js:sqlColumnsDialog
   if (axeSource) assert.deepStrictEqual(await axeFindings(page(), "#dialog-root"), []);  // CI installs axe-core
   await dialog.getByRole("button", { name: "Done" }).click();
   assert.match(await page().locator(".sql-grid-hidden").textContent(), /1 column is hidden/);

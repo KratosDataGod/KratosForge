@@ -741,7 +741,6 @@ function renderQuery() {
     const span = band.querySelector(".sql-run-msg");
     if (span && tab.result && !tab.error) span.textContent = resultMsg(tab.result);
   }
-  const COPY_SEL = { tsv: " with headers", csv: " as CSV", json: " as JSON", insert: " as INSERT statements" };
   async function copySelection(format) {
     const r = tab.result;
     if (!r || !r.rows.length) return;
@@ -750,51 +749,18 @@ function renderQuery() {
       { dialect: tab.dialect, table: format === "insert" ? sqlInsertTable(tab.resultQuery, tab.dialect) : undefined, vis: g.vis });
     const copied = await attempt(() => navigator.clipboard.writeText(text).then(() => true), "Could not copy");
     if (!copied) return;
-    const b = sqlGridBlock(r, g.sel, g.vis);
-    const cells = b.rows.length * b.columns.length;
-    toast(format === "cells" ? `Copied ${cells.toLocaleString()} cell${cells === 1 ? "" : "s"}`
-      : `Copied ${b.rows.length.toLocaleString()} row${b.rows.length === 1 ? "" : "s"}${COPY_SEL[format]}`);
+    toast(sqlGridCopiedNote(format, sqlGridBlock(r, g.sel, g.vis)));
   }
   // Right-click or Shift+F10 on a cell: the mockup's Copy as menu.
   function cellMenu(td) {
     const g = sqlGridState(tab);
     if (!td || !g.sel) return;
     const at = { r: g.sel.f.r, c: g.vis?.[g.sel.f.c] ?? g.sel.f.c };  // the result's column, not its place on screen
-    const table = grid.querySelector("table");
-    const item = (label, key, action, first) => h("button", { type: "button", class: `tool${first ? " sql-menu-group" : ""}`,
-      ...(key ? { "aria-keyshortcuts": key.replace(/Ctrl/g, "Control") } : {}),
-      onclick: () => { table?.focus({ preventScroll: true }); action(); } },
-    h("span", {}, label), key ? h("span", { class: "sql-menu-key" }, key) : null);
-    td.tabIndex = -1;  // the menu gives focus back to the cell when it closes
-    showMenu(td, [
-      item("Copy", "Ctrl+C", () => copySelection("cells")),
-      item("Copy with headers", "Ctrl+Shift+C", () => copySelection("tsv")),
-      item("Copy as CSV", null, () => copySelection("csv"), true),
-      item("Copy as JSON", null, () => copySelection("json")),
-      item("Copy as INSERT statements", null, () => copySelection("insert")),
-      item("Open value", "Enter", () => openValue(at), true),
-      item("Column statistics", null, () => columnStats(at.c))]);
+    sqlGridMenu(td, grid.querySelector("table"), { copy: copySelection, open: () => openValue(at), stats: () => columnStats(at.c) });
   }
   // Columns...: show, hide and reorder the grid's columns; the dialog's list follows each change.
   function columnsDialog() {
-    const r = tab.result;
-    if (!r?.columns.length) return;
-    const g = sqlGridState(tab);
-    sqlGridLayoutFor(g, r.columns);
-    const box = h("div", {});
-    const draw = (moved, dir) => {
-      box.replaceChildren(sqlColumnsBody(r.columns, g, { change: (k, d) => { g.sel = null; draw(k, d); drawResults(); } }));
-      if (moved !== undefined) {
-        const name = r.columns[moved].name;
-        const again = box.querySelector(`button[aria-label="Move ${CSS.escape(name)} ${dir}"]`);
-        (again && !again.disabled ? again : box.querySelector(`button[aria-label="Move ${CSS.escape(name)} ${dir === "up" ? "down" : "up"}"]`))?.focus();
-      }
-    };
-    draw();
-    showDialog("Columns", box, [
-      btn("Show all", null, () => { Object.assign(g, { hidden: [], order: null, widths: {}, sel: null }); draw(); drawResults(); }, "tool outline",
-        { title: "Every column, in the result's order, at its own width" }),
-      btn("Done", null, closeDialog, "tool primary")]);
+    if (tab.result?.columns.length) sqlColumnsDialog(tab.result.columns, sqlGridState(tab), drawResults);
   }
   function openValue(at) {
     sqlGridState(tab).side = { kind: "value", at };

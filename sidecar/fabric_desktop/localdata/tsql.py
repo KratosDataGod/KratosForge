@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Container
+from collections.abc import Callable, Container
 from typing import Any, cast
 
 import sqlglot
@@ -73,8 +73,14 @@ _LATER = ("Run the statements one at a time, with values in place of variables. 
           "control flow runs in a Fabric Warehouse, not on the local engine yet.")
 
 
+_GO_TIMES = re.compile(r"^[ \t]*GO[ \t]+(\d+)[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
+
+
 def split_batches(sql: str) -> list[str]:
-    """The script's batches: the text between ``GO`` lines."""
+    """The script's batches: the text between ``GO`` lines. ``GO n`` (run the batch n times) is refused by name."""
+    if (times := _GO_TIMES.search(sql)) is not None:
+        raise ValueError(_NOT_YET + f"GO {times[1]} (run the batch {times[1]} times) isn't mapped yet. Repeat the "
+                         "statements, or use GO on its own.")
     return [part for part in _GO.split(sql) if part.strip()]
 
 
@@ -88,10 +94,12 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
     catalog error. Raises ValueError for what isn't carried."""
     texts: list[str] = []
     notes: list[str] = []
+    skipped = False
     schema = _schema(columns or {})
     for batch in split_batches(sql):
         for tree in _parse(batch):
             if _harmless_setting(tree):
+                skipped = True
                 continue
             _refuse(tree)
             _temp_tables(tree)
@@ -115,7 +123,8 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             if text.strip():
                 texts.append(text)
     if not texts:
-        raise ValueError("The query is empty.")
+        raise ValueError("There's nothing to run: SET NOCOUNT, ANSI_NULLS and the other session options change "
+                         "nothing on the local engine, so they're skipped." if skipped else "The query is empty.")
     return texts, list(dict.fromkeys(notes))
 
 
@@ -139,6 +148,52 @@ class KfTSQL(TSQL):
                                                     expression=exp.Literal.number(2))}
 
 
+# T-SQL's reserved words for control flow and cursors: sqlglot read them as a column (RETURN) or a column with an
+# alias (GOTO x), which reached DuckDB as a syntax error.
+_RESERVED_STATEMENTS = {"RETURN": "RETURN", "BREAK": "BREAK", "CONTINUE": "CONTINUE", "GOTO": "GOTO",
+                        "WAITFOR": "WAITFOR", "CHECKPOINT": "CHECKPOINT", "OPEN": "cursors (OPEN)",
+                        "CLOSE": "cursors (CLOSE)", "DEALLOCATE": "cursors (DEALLOCATE)"}
+
+
+_NOT_SCRIPT_ADVICE = {"WAITFOR", "CHECKPOINT", "OPEN", "CLOSE", "DEALLOCATE"}  # nothing to run one at a time
+
+
+def _refuse_control(batch: str) -> None:
+    """Refuse by name the statements sqlglot misreads: the reserved words above anywhere (a reserved word can't be
+    an unquoted name), THROW where a statement starts (T-SQL wants a ; before it), SAVE TRANSACTION, SET
+    TRANSACTION and labels (``name:``)."""
+    try:
+        tokens = KfTSQL().tokenize(batch)
+    except SqlglotError:
+        return  # _parse reports it
+    routine = any(tok.token_type == TokenType.CREATE and i + 1 < len(tokens)
+                  and tokens[i + 1].text.upper() in ("PROCEDURE", "PROC", "FUNCTION", "TRIGGER")
+                  for i, tok in enumerate(tokens))
+    if routine:
+        return  # _refuse names CREATE PROCEDURE and the rest, whose bodies may RETURN
+    named = (TokenType.VAR, TokenType.SET)
+    for i, tok in enumerate(tokens):
+        if tok.token_type not in named:
+            continue
+        before = tokens[i - 1].token_type if i else None
+        after = tokens[i + 1] if i + 1 < len(tokens) else None
+        if before in (TokenType.DOT, TokenType.PARAMETER):
+            continue  # t.x, @x
+        word = tok.text.upper()
+        what = None
+        if tok.token_type == TokenType.VAR and word in _RESERVED_STATEMENTS:
+            what = _RESERVED_STATEMENTS[word]
+        elif word == "THROW" and before in (None, TokenType.SEMICOLON):
+            what = "THROW"
+        elif word in ("SAVE", "SET") and after is not None and after.text.upper() in ("TRAN", "TRANSACTION"):
+            what = "transactions (SAVE TRANSACTION)" if word == "SAVE" else "SET TRANSACTION"
+        elif tok.token_type == TokenType.VAR and after is not None and after.token_type == TokenType.COLON:
+            what = f"labels ({tok.text}:)"
+        if what is not None:
+            advice = "Run it in a Fabric Warehouse." if word in _NOT_SCRIPT_ADVICE else _LATER
+            raise ValueError(f"The local engine doesn't run T-SQL {what} yet. {advice}")
+
+
 def _refuse_dbcc(batch: str) -> None:
     """DBCC (CHECKIDENT, SHOW_STATISTICS, ...) starts a statement; sqlglot reads it as a command it passes through.
     Tokens, not text, so a string that holds "DBCC" isn't refused."""
@@ -153,6 +208,7 @@ def _refuse_dbcc(batch: str) -> None:
 
 def _parse(batch: str) -> list[exp.Expression]:
     _refuse_dbcc(batch)
+    _refuse_control(batch)
     unsupported: list[str] = []
 
     class Catch(logging.Handler):
@@ -310,7 +366,7 @@ def _table_columns(tree: exp.Expression) -> None:
             (name.name if isinstance(name, exp.Table) else "")
         value: exp.Expr = exp.column(column.name, quoted=column.this.quoted)
         if kind.this in _TEXT_COLUMNS:  # trailing blanks past the length are dropped, not an error, in T-SQL
-            value = exp.func("rtrim", value)
+            value = _rtrim(value)
         too_long = exp.GT(this=exp.func(_SIZED_COLUMNS[kind.this], value), expression=exp.Literal.number(size))
         message = exp.Literal.string(f"String or binary data would be truncated in table '{table}', column "
                                      f"'{column.name}'.")
@@ -337,6 +393,62 @@ def _schema(columns: dict[str, dict[str, dict[str, str]]]) -> Any:
 
 
 def _types(tree: exp.Expression, schema: Any) -> list[str]:
+    """``_typed`` for a query, and for an UPDATE's SET values and an UPDATE's or DELETE's FROM and WHERE: sqlglot
+    types no column of an UPDATE or a DELETE, so ``SET v = v + 'x'`` added text as numbers (a DuckDB binder error)
+    and a WHERE compared text with its trailing spaces. They are typed as a SELECT that lends them its scope."""
+    lent = _change_as_select(tree)
+    if lent is None:
+        return _typed(tree, schema)
+    proxy, give_back = lent
+    try:
+        return _typed(proxy, schema)
+    finally:
+        give_back()
+
+
+def _change_as_select(tree: exp.Expression) -> tuple[exp.Select, Callable[[], None]] | None:
+    """A SELECT of an UPDATE's SET values and WHERE (or a DELETE's WHERE), FROM its tables: the nodes themselves,
+    lent, so what ``_typed`` rewrites in them is rewritten in the statement, and a function that gives them back."""
+    if isinstance(tree, exp.Update):
+        sets = list(tree.expressions)
+        if not sets or not all(isinstance(e, exp.EQ) for e in sets):
+            return None
+        source = tree.args.get("from_")
+    elif isinstance(tree, exp.Delete):
+        sets, source = [], None
+        if tree.args.get("using") not in (None, False) or tree.args.get("tables") and len(tree.args["tables"]) > 1:
+            return None
+    else:
+        return None
+    where = tree.args.get("where")
+    if not sets and where is None:
+        return None
+    target = tree.this
+    if not isinstance(target, exp.Table):
+        return None
+    values = [e.expression for e in sets] + ([where.this] if where is not None else [])
+    proxy = exp.Select(expressions=values)
+    if source is None:
+        proxy.set("from_", exp.From(this=target.copy()))
+    else:
+        proxy.set("from_", source)
+        named = {t.alias_or_name.lower() for t in source.find_all(exp.Table)}
+        if target.alias_or_name.lower() not in named:  # UPDATE dbo.t SET ... FROM dbo.s: t is read too
+            proxy.set("joins", [exp.Join(this=target.copy())])
+
+    def give_back() -> None:
+        lent = list(proxy.expressions)
+        for eq, value in zip(sets, lent, strict=False):
+            eq.set("expression", value)
+        if where is not None:
+            where.set("this", lent[-1])
+        if source is not None:
+            tree.set("from_", proxy.args.get("from_"))
+
+    return proxy, give_back
+
+
+def _typed(tree: exp.Expression, schema: Any) -> list[str]:
     """Make integer division and averages, ``+`` on text, and casts to integers behave as in T-SQL. The types come from
     a qualified copy of the tree (qualifying renames output columns, so the copy isn't run)."""
     from sqlglot.optimizer.annotate_types import annotate_types
@@ -1180,10 +1292,11 @@ def _like_padded(node: exp.Like) -> None:
     whole.replace(exp.not_(either) if negate else either)
 
 
-def _rtrim(node: exp.Expression) -> exp.Expr:
+def _rtrim(node: exp.Expr) -> exp.Expr:
     if isinstance(node, exp.Literal) and node.is_string:
         return exp.Literal.string(node.name.rstrip(" "))
-    return exp.func("RTRIM", node)
+    # T-SQL takes off spaces only; DuckDB's RTRIM(x) also takes off other whitespace, such as a no-break space.
+    return exp.func("RTRIM", node, exp.Literal.string(" "))
 
 
 def _column_and_text(node: exp.EQ) -> bool:
@@ -1200,7 +1313,7 @@ def _padded_equal(node: exp.EQ) -> None:
     low, high = exp.Literal.string(value), exp.Literal.string(value + " " + _TOP)
     node.replace(exp.paren(exp.and_(
         exp.GTE(this=column.copy(), expression=low), exp.LTE(this=column.copy(), expression=high),
-        exp.EQ(this=exp.func("RTRIM", column), expression=low.copy())), copy=False))
+        exp.EQ(this=_rtrim(column), expression=low.copy())), copy=False))
 
 
 def _in_order(tree: exp.Expression, kinds: tuple) -> list[exp.Expression]:
@@ -1261,6 +1374,9 @@ _SPREADS = {"VAR": exp.Variance, "VARP": exp.VariancePop, "STDEVP": exp.StddevPo
 
 
 def _functions(tree: exp.Expression) -> None:
+    for trim in tree.find_all(exp.Trim):
+        if trim.args.get("expression") is None:  # RTRIM, LTRIM and TRIM take off spaces only, as in T-SQL
+            trim.set("expression", exp.Literal.string(" "))
     for kind in tree.find_all(exp.DataType):
         if kind.this == exp.DataType.Type.DOUBLE and kind.expressions:
             # FLOAT(n): 4 bytes up to 24 bits of mantissa, 8 from 25 to 53, as SQL Server stores it.
@@ -1298,7 +1414,7 @@ def _functions(tree: exp.Expression) -> None:
                 _sunday_week_start(node)
         elif isinstance(node, exp.Length):
             # LEN doesn't count trailing spaces.
-            node.set("this", exp.func("RTRIM", node.this))
+            node.set("this", _rtrim(node.this))
         elif isinstance(node, exp.Extract):
             unit = node.this.name.upper()
             if isinstance(node.expression, exp.Literal) and node.expression.is_string:

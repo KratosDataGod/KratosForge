@@ -66,8 +66,8 @@ def _row_ids(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression
                                                                   exp.Order)):
         clause = clause.parent
     if clause is not None and not isinstance(clause, exp.Select):
-        _refuse("monotonically_increasing_id", "in WHERE, HAVING, GROUP BY, ORDER BY or a JOIN condition this "
-                "PC can't number the rows.", "select it in a subquery and filter on that column outside it")(node, args)
+        _refuse("monotonically_increasing_id", "this PC can't number the rows in WHERE, HAVING, GROUP BY, "
+                "ORDER BY or a JOIN condition.", "select it in a subquery and filter on that column outside it")(node, args)
     return _with_args("(ROW_NUMBER() OVER () - 1)", args)
 
 
@@ -175,7 +175,7 @@ _LOG1P = ("CASE WHEN CAST(fj_arg0 AS DOUBLE) <= -1 THEN NULL WHEN ABS(CAST(fj_ar
           "ELSE LN(1 + CAST(fj_arg0 AS DOUBLE)) END")
 
 # Spark's typeof names: int, bigint, string, decimal(p,s), array<int>, ...
-_TYPE_NAMES = [("TINYINT", "tinyint"), ("SMALLINT", "smallint"), ("BIGINT", "bigint"), ("HUGEINT", "decimal(38,0)"),
+_TYPE_NAMES = [("TINYINT", "tinyint"), ("SMALLINT", "smallint"), ("BIGINT", "bigint"), ("HUGEINT", "bigint"),
                ("INTEGER", "int"), ("VARCHAR", "string"), ("DOUBLE", "double"), ("FLOAT", "float"),
                ("BOOLEAN", "boolean"), ("TIMESTAMP WITH TIME ZONE", "timestamp"), ("TIMESTAMP", "timestamp_ntz"),
                ("DATE", "date"), ("BLOB", "binary"), ("\"NULL\"", "void"), ("NULL", "void")]

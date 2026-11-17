@@ -145,9 +145,6 @@ NOT_CHECKED: dict[str, str] = {
     "CURRENT_SCHEMA": _SESSION, "CURRENT_SCHEMAS": _SESSION,
     "RANDOM": "its values are random; RANDOM with a seed is refused",
     "SAMPLE": "its page prints no results",
-    "UPDATE": ("its page prints no results, and the one UPDATE result documented (on ARRAY_APPEND's page) uses an "
-               "ARRAY column, which CREATE TABLE here can't make yet"),
-    "UPDATE FROM": "its page's examples read tables the page doesn't create",
     "DROP TABLE": "its page's examples drop a hybrid table or one the page doesn't create",
 }
 

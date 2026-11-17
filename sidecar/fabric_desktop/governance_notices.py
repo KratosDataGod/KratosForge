@@ -29,7 +29,7 @@ def _now() -> str:
 
 
 def _upns(values: Any) -> list[str]:
-    return sorted({v.strip().lower() for v in re.split(r"[,;]", str(values or "")) if _UPN.match(v.strip())})
+    return sorted({v.strip().lower() for v in re.split(r"[,;]", str(values or "")) if _UPN.fullmatch(v.strip())})
 
 
 def _title(req: dict[str, Any]) -> str:
@@ -173,7 +173,7 @@ def product_deprecated(product: dict[str, Any], consumers: list[dict[str, Any]])
             "detail": secrets(f"Read by {', '.join(links)}. Move these links to what replaces it before then; "
                               "after that date their promotes stop."),
             "to": {"people": sorted({u for c in readers for u in _upns(c.get("updated_by"))}),
-                   "roles": [f"project:{p}" for p in projects if _ROLE_NAME.match(p)] or ["platform_admin"]},
+                   "roles": [f"project:{p}" for p in projects if _ROLE_NAME.fullmatch(p)] or ["platform_admin"]},
             "open": {"view": "metadata", "tab": "links", "target": pid},
             "dedupe": f"product.deprecated:{pid}:{stops}"}
 
@@ -203,9 +203,9 @@ def exception_ending(exc: dict[str, Any], days_left: int) -> dict[str, Any] | No
         return None
     scope, target = str(exc.get("scope") or ""), str(exc.get("target") or "")
     roles = []
-    if scope == "project" and _ROLE_NAME.match(target):
+    if scope == "project" and _ROLE_NAME.fullmatch(target):
         roles.append(f"project:{target}")
-    elif scope == "domain" and _ROLE_NAME.match(target):
+    elif scope == "domain" and _ROLE_NAME.fullmatch(target):
         roles.append(f"domain_owner:{target}")
     asker = _upns(exc.get("requested_by"))
     when = "today" if days_left <= 0 else "tomorrow" if days_left == 1 else f"in {days_left} days"

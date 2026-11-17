@@ -2627,7 +2627,7 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 .sh-stack .card { display: flex; flex-direction: column; gap: 12px; }
 .sh-last { display: flex; flex-direction: column; gap: 2px; min-width: 220px; margin-right: 24px; }
 .sh-gap { background: var(--warn-soft-8); border-color: var(--warn-border-2); color: var(--warn-ink); }
-.sh-gap p { margin: 0; }
+.sh-gap p, .sh-setup p { margin: 0; }
 .sh-scroll { overflow-x: auto; }
 .sh-scope { min-height: 32px; border: 1px solid var(--border-input); border-radius: var(--r-sm); background: var(--surface); font: inherit; }
 /* Notebook find and replace (nbfind.js): a bar pinned over the cells. */

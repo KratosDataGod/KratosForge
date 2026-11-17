@@ -47,7 +47,7 @@ from sqlglot import ErrorLevel, exp, jsonpath
 from sqlglot.dialects.tsql import TSQL
 from sqlglot.errors import SqlglotError
 from sqlglot.helper import seq_get
-from sqlglot.tokens import TokenType
+from sqlglot.tokens import Token, TokenType
 
 from ..sql import KfDuckDB
 from . import tsql_format
@@ -308,6 +308,47 @@ def _refuse_json_clauses(batch: str) -> None:
                              "by default.")
 
 
+_LOADING_NOTE = ("isn't mapped yet. It loads files from cloud storage (an Azure Storage or OneLake URL), which the "
+                 "local engine doesn't read, so nothing was loaded. Put the file in one of this project's folders, "
+                 "where it becomes a table such as dbo.orders, and INSERT ... SELECT from that table, or run it in a "
+                 "Fabric Warehouse.")
+
+
+def _from_text(tokens: list[Token], at: int) -> bool:
+    """Whether the next FROM after ``at`` is followed by a string: COPY INTO's FROM 'url'. T-SQL reads no table
+    from a string, so ``SELECT 1 copy INTO t FROM x`` (copy as an alias) isn't COPY INTO."""
+    following = next((j for j in range(at, len(tokens)) if tokens[j].token_type == TokenType.FROM), None)
+    return following is not None and following + 1 < len(tokens) \
+        and tokens[following + 1].token_type in (TokenType.STRING, TokenType.NATIONAL_STRING)
+
+
+def _refuse_loading(batch: str) -> None:
+    """COPY INTO, BULK INSERT and OPENROWSET(BULK ...) load or read files from a URL (WR-220). sqlglot read COPY INTO
+    as DuckDB's COPY, which reads files on this PC, and couldn't read the other two, so each is refused by its T-SQL
+    name. Tokens, not text: a string or a bracketed name that holds the words isn't refused. COPY INTO starts a
+    statement, or reads FROM a string (T-SQL needs no ; between statements); BULK and OPENROWSET are reserved words in T-SQL, so neither is an unquoted name."""
+    try:
+        tokens = KfTSQL().tokenize(batch)
+    except SqlglotError:
+        return  # _parse reports it
+    for i, tok in enumerate(tokens):
+        word = tok.text.upper()
+        after = tokens[i + 1] if i + 1 < len(tokens) else None
+        start = i == 0 or tokens[i - 1].token_type == TokenType.SEMICOLON
+        what = None
+        if tok.token_type == TokenType.COPY and after is not None and after.token_type == TokenType.INTO \
+                and (start or _from_text(tokens, i + 2)):
+            what = "COPY INTO"
+        elif tok.token_type == TokenType.VAR and word == "BULK" and after is not None \
+                and after.token_type == TokenType.INSERT:
+            what = "BULK INSERT"
+        elif tok.token_type == TokenType.VAR and word == "OPENROWSET" and after is not None \
+                and after.token_type == TokenType.L_PAREN:
+            what = "OPENROWSET"
+        if what is not None:
+            raise ValueError(_NOT_YET + f"{what} {_LOADING_NOTE}")
+
+
 def _refuse_dbcc(batch: str) -> None:
     """DBCC (CHECKIDENT, SHOW_STATISTICS, ...) starts a statement; sqlglot reads it as a command it passes through.
     Tokens, not text, so a string that holds "DBCC" isn't refused."""
@@ -412,6 +453,7 @@ def _parse(batch: str) -> list[exp.Expression]:
     if _schema_authorization(batch):
         raise ValueError(_NOT_YET + "CREATE SCHEMA ... AUTHORIZATION isn't mapped yet: the local engine has no "
                          "users to own a schema. Use CREATE SCHEMA name, or run it in a Fabric Warehouse.")
+    _refuse_loading(batch)
     _refuse_dbcc(batch)
     _refuse_output(batch)
     _refuse_control(batch)

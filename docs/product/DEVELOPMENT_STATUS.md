@@ -3,10 +3,17 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-16 23:42 UTC, main 58a112e4.** Covers the PRs merged from #135 to #2800.
+**Product check of 2026-11-17 11:42 UTC, main 80cebf61.** Covers the PRs merged from #135 to #2852.
 
 ## Summary
 
+- Morning check, 2026-11-17: 47 PRs merged after 58a112e4. 3 were product data, docs audit and work queue PRs, and
+  the other 44 were linked. The SQL page gained several statements per run, query parameters, .sql files, result
+  history and a table diagram (Preview), and its result grid can sort, filter, select, copy and arrange columns.
+  Local T-SQL now matches a Fabric Warehouse, or refuses by name, for collation, percentiles, MERGE, scripts, names,
+  SET options and JSON functions (PB-106). Notebooks gained Open as report and a Scratch console (Preview) and the
+  same result table tools (PB-103). Databricks and Snowflake function checks moved on (PB-120), names and ids are
+  checked whole (PB-124), and the Monitor run banner is back (PB-102). No item changed status.
 - Evening check, 2026-11-16: 44 PRs merged after 7bd752a5. 3 were product data, work queue and weekly review PRs,
   and the other 41 were linked. Local T-SQL now matches a Fabric Warehouse at its edges for dates, arithmetic,
   conversion and decimals, a warehouse script in BEGIN TRAN ... COMMIT runs as one transaction, and the editor gained

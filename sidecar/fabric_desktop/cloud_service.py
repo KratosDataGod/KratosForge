@@ -538,7 +538,11 @@ class CloudMixin:
                                 if r.get("kind") == "Table maintenance" and r.get("env") == env][:20]}
 
     def _maintain(self, store: Any, rows: list[dict[str, Any]], env: str) -> list[dict[str, Any]]:
+        """OPTIMIZE and VACUUM each table: compaction with delta-rs on this PC, or Fabric's table maintenance job.
+        A workspace whose capacity check is Blocked (its last reading: a paused capacity, say) starts no job for
+        any of its tables, as X-ray's Optimize and a notebook's OPTIMIZE are stopped (FINOPS-004)."""
         out = []
+        blocked: dict[str, str | None] = {}
         for t in rows:
             label = f"{t['schema']}.{t['table']}"
             try:
@@ -549,13 +553,19 @@ class CloudMixin:
                     out.append({"table": label, "status": "Completed", **result})
                     continue
                 lh_id = store.lakehouse_ids[t["lakehouse"]]
+                ws = store.workspace_of(t["lakehouse"])
+                if ws not in blocked:
+                    blocked[ws] = self._maintenance_capacity_refusal(  # type: ignore[attr-defined]
+                        "optimize", ws, "this workspace's tables")
+                if blocked[ws]:
+                    out.append({"table": label, "status": "Failed", "blocked": True, "message": blocked[ws]})
+                    continue
                 maintenance.check_retention(days)  # before the retention below, which only warns when it fails
                 try:  # so Fabric's own engines keep the same history; the job below vacuums with it too
                     maintenance.set_retention(store.uri(t["lakehouse"], t["schema"], t["table"]), days, store.options())
                 except Exception as exc:  # noqa: BLE001 - the maintenance job still runs with the right retention
                     _log.warning("Couldn't set Delta retention before table maintenance; the job still sets it: %s",
                                  describe(exc))
-                ws = store.workspace_of(t["lakehouse"])
                 job_id = self.fabric_jobs.run_table_maintenance(  # type: ignore[attr-defined]
                     ws, lh_id, t["table"], t["schema"], vacuum_retention=maintenance.fabric_retention(days))
                 out.append(self._log_fabric_run({

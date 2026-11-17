@@ -289,7 +289,7 @@ def build(template: str, values: dict[str, Any]) -> dict[str, Any]:
         code(f"lakehouse.write_table(latest, {output!r}, mode={mode!r})")
     elif template == "flatten_json":
         path = str(v.get("json_file") or "").strip()
-        if not re.match(r"^Files/[^\\\x00]+\.json$", path, re.IGNORECASE) or ".." in path.split("/"):
+        if not re.fullmatch(r"^Files/[^\\\x00]+\.json$", path, re.IGNORECASE) or ".." in path.split("/"):
             raise ValueError("The file must be a .json file under Files/, like Files/raw/orders.json.")
         need_keys()
         md(f"# Flatten {path}\n\nReads `{path}`, turns each nested object into columns named after its path "

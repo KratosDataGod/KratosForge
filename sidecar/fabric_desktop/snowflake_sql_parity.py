@@ -1081,7 +1081,7 @@ CASES: tuple[Case, ...] = (
        page="../sql/insert"),
     # the page's object, holding only the key the call reads
     _c("TO_VARIANT", "Semi-structured", "SELECT get(to_variant(object_construct('temperature', 31.5)), 'temperature')::FLOAT",
-       31.5, "error", "TO_VARIANT of an OBJECT can't be read back with GET here yet.", page="get"),
+       31.5, page="get"),
     _c("CHECK_JSON", "Semi-structured", "SELECT check_json('{\"a\": 1}')", None),
     _c("TRY_PARSE_JSON", "Semi-structured", "SELECT try_parse_json('{\"x\": \"abc\", \"y\": false')", None),
 )

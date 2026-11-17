@@ -55,6 +55,22 @@ def _template(text: str, count: int | tuple[int, ...]) -> Callable[..., exp.Expr
     return build
 
 
+def _row_ids(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """monotonically_increasing_id() as a row number. DuckDB numbers rows this way only in a SELECT list: in
+    WHERE, HAVING, GROUP BY or a JOIN it stops with a window-function error, and in ORDER BY the numbers
+    don't follow the rows' order, so there it is refused by name."""
+    if args:
+        return None
+    clause = node.parent
+    while clause is not None and not isinstance(clause, (exp.Select, exp.Where, exp.Having, exp.Join, exp.Group,
+                                                                  exp.Order)):
+        clause = clause.parent
+    if clause is not None and not isinstance(clause, exp.Select):
+        _refuse("monotonically_increasing_id", "in WHERE, HAVING, GROUP BY, ORDER BY or a JOIN condition this "
+                "PC can't number the rows.", "select it in a subquery and filter on that column outside it")(node, args)
+    return _with_args("(ROW_NUMBER() OVER () - 1)", args)
+
+
 def _args(node: exp.Expression) -> list[exp.Expression]:
     """A typed node's arguments in call order (this, then the rest as the function lists them)."""
     out: list[exp.Expression] = []
@@ -749,9 +765,10 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
                                   "partitions, so there is no partition number to give."),
     # Increasing and unique, as Spark promises (its values have gaps between partitions), as
     # spark_compat.monotonically_increasing_id writes it for a DataFrame
-    "MONOTONICALLY_INCREASING_ID": _template("(ROW_NUMBER() OVER () - 1)", 0),
-    # Stops the query with the message, as Spark's does (Spark's error class is USER_RAISED_EXCEPTION)
-    "RAISE_ERROR": _template("ERROR(fj_arg0)", 1),
+    "MONOTONICALLY_INCREASING_ID": _row_ids,
+    # Stops the query with the message, as Spark's does (Spark's error class is USER_RAISED_EXCEPTION);
+    # a NULL message stops it too, with the message null, as Java prints it
+    "RAISE_ERROR": _template("ERROR(COALESCE(CAST(fj_arg0 AS VARCHAR), 'null'))", 1),
     "COUNT_MIN_SKETCH": _refuse("count_min_sketch", _SKETCH),
     "HISTOGRAM_NUMERIC": _refuse("histogram_numeric", "Spark's bins come from its own streaming algorithm, "
                                  "which this PC doesn't have.", "use width_bucket for fixed-width bins"),

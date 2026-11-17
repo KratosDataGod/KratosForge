@@ -975,6 +975,8 @@ def test_alter_session_sets_the_time_zone_and_refuses_other_parameters():
 
 def test_array_distinct_keeps_first_places_and_flatten_of_a_null_is_null():
     assert _first("SELECT array_distinct([3, 1, 3, NULL, 2, NULL, 1])") == [3, 1, None, 2]
+    # the array is worked out once: random values aren't drawn again for each element
+    assert _first("SELECT array_size(array_distinct(array_construct(random(), random(), random())))") == 3
     assert _first("SELECT array_flatten([[1], NULL])") is None
     assert _first("SELECT array_flatten([[1], [NULL]])") == [1, None]
 
@@ -1012,3 +1014,10 @@ def test_timestamp_tz_from_parts_is_in_the_session_zone():
 def test_a_pattern_python_cannot_read_still_translates(pattern):
     translation = sf.translate(f"SELECT regexp_substr('a', '{pattern}', 1, 1, 'e')")
     assert translation.runnable, translation.first_refusal()
+
+
+def test_get_reads_a_to_variant_value_as_json():
+    assert _first("SELECT get(to_variant(object_construct('t', 31.5)), 't')::FLOAT") == 31.5
+    assert _first("SELECT to_variant(object_construct('a', 'x')):a::VARCHAR") == "x"
+    assert _first("SELECT get(object_construct('a', 2)::VARIANT, 'a')::INT") == 2
+    assert _first("SELECT get(to_variant(array_construct(1, 2)), 1)::INT") == 2

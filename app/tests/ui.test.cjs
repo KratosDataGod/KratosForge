@@ -1883,6 +1883,9 @@ test("no raw HTML sinks in app/ui outside the reviewed list", () => {
     `notebook-formats.js: const doc = new DOMParser().parseFromString(String(html || ""), "text/html");`,
     // Data mesh map links: path coordinates are numbers from getBoundingClientRect, and the only data
     // (project and product ids in <title>) goes through esc().
+    // Table diagram: diagramSvg() escapes every name (& < > " ') and the rest is numbers and its own colors;
+    // the same text, without the clickable labels, is what Export as SVG writes.
+    `sqldiagram.js: holder.innerHTML = diagramSvg(view.tables, view.edges, view.keys, { dark });`,
     `meshmap.js: svg.innerHTML = \`<defs><marker id="mesh-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z"/></marker></defs>\${paths.join("")}\`;`
   ]);
   const found = [];
@@ -2692,7 +2695,7 @@ test("Motion & effects settings: four levels, family switches, reduced-motion ch
   assert.match(s, /previewShown\(\) \? row\("Achievement Reveal", [^\n]*\n\s+\(\) => forgeEvent\("achievement\.unlocked", award\)\) : null,/);
   assert.match(s, /\["motion_ambient", "Running indicators",/);
   assert.match(s, /const display = s\.motion_level \? motionSettingsCard\(s, locked\) : null;/);
-  assert.match(s, /\[account, updates, display, previews,/);
+  assert.match(s, /\[account, updates, display, editor, previews,/);
   assert.match(s, /if \(res\) state\.settings = res;\n  applyMotion\(\);/);
   assert.match(s, /state\.settings = await rpc\("app_settings"\)[^\n]*\n  applyMotion\(\);/);
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
@@ -3120,7 +3123,7 @@ test("Settings keeps App ID and engine limits in a folded Advanced section, read
   const account = render.slice(render.indexOf("// Account"), render.indexOf("// Updates"));
   assert.ok(!account.includes("App (client) ID"), "the App ID left Account");
   assert.ok(!render.includes("Cell time limit") && !render.includes("sqlSettingsSection("), "limits left the main page");
-  assert.match(render, /\[account, updates, display, previews, usage, platform, notify, about, advanced\]/);
+  assert.match(render, /\[account, updates, display, editor, previews, usage, platform, notify, about, advanced\]/);
   const adv = src.match(/function advancedSection\([\s\S]*?\n}\n/)[0];
   for (const text of ["App (client) ID", "Cell time limit", "Notebook memory limit", "Run notebooks in their own process", "sqlSettingsSection("]) assert.ok(adv.includes(text), text);
   assert.match(adv, /foldable\("settings\.advanced", h\("h2", \{\}, "Advanced"\)[\s\S]*\{ start: true/);
@@ -5027,7 +5030,7 @@ test("Format code (nbformat.js): the engine call, its hooks in notebook.js and t
   assert.ok(html.indexOf('src="nbformat.js"') > html.indexOf('src="notebook.js"'));
   assert.match(src, /rpc\("notebook_format", \{ sources: sent \}\)/);
   assert.match(src, /c\.source === sent\[i\]/, "a cell typed in while formatting keeps what was typed");
-  assert.match(nb, /\{ key: "Shift-Alt-f", run: \(\) => \{ formatCells\(\[cell\]\); return true; \} \}/);
+  assert.match(nb, /\{ id: "format", key: "Shift-Alt-f", run: \(\) => \{ formatCells\(\[cell\]\); return true; \} \}/);
   assert.match(nb, /btn\("Format notebook", "code", formatNotebook/);
   assert.match(nb, /label: "Format cell"/);
   assert.match(src, /registerShortcuts\("Notebook", \[\s*\{ keys: \["Shift\+Alt\+F"\]/);
@@ -5854,7 +5857,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
     runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
-    validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbFormats: ["Fabric and Databricks notebook formats"],
+    validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], sqlDiagram: ["Table diagram"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],
     fabricRun: ["Run in Fabric and schedules", "W6 Publish or run a notebook in Fabric"], notebookRuns: ["Recent runs", "Notebook runs"],
@@ -6198,4 +6201,44 @@ test("error toasts and plain-language errors name a next step (WR-503)", () => {
     "a new error with no next step: say what the person can do (try again, check, pick, ask an admin...)");
   assert.deepStrictEqual(baseline.filter((b) => !found.includes(b)), [],
     "a listed error now names a next step or is gone: remove it from error-next-step-baseline.json");
+});
+
+// The table diagram's pure helpers (sqldiagram.js), without the dialog.
+function diagramHelpers() {
+  const src = fs.readFileSync(path.join(ui, "sqldiagram.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.slice(0, src.indexOf("// Opens the diagram."))}; Object.assign(this, { diagramKeys, diagramStem, diagramEdges, diagramSvg });`, ctx);
+  return ctx;
+}
+
+test("the diagram reads keys from the catalog rows, and guesses a line only where one table fits", () => {
+  const { diagramKeys, diagramStem, diagramEdges } = diagramHelpers();
+  const keys = diagramKeys([["P", "gold", "dim_customer", "customer_id", null, null, null],
+    ["F", "gold", "fact_sales", "customer_id", "gold", "dim_customer", "customer_id"],
+    ["F", "gold", "fact_sales", "x_id", "dbo", "not_drawn", "id"]]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(keys.pks)), { "gold.dim_customer": ["customer_id"] });
+  assert.strictEqual(keys.fks.length, 2);
+  assert.deepStrictEqual(["dim_customer", "DimCustomers", "customers", "fact_sales"].map(diagramStem), ["customer", "customer", "customer", "sale"]);
+  const t = (name, ...cols) => ({ id: `gold.${name}`, name, columns: cols.map((c) => ({ name: c })) });
+  const tables = [t("dim_customer", "customer_id"), t("fact_sales", "customer_id", "store_id", "region_id", "x_id"), t("dim_store", "id"),
+    t("dim_region", "region_id"), t("regions", "region_id")];
+  const edges = [...diagramEdges(tables, keys)].map((e) => `${e.from}.${e.fromCol}>${e.to}.${e.toCol}:${e.kind}`);
+  // The key, not a guess on top of it; store_id to dim_store's id; region_id fits two tables, so no line, and is
+  // each region table's own id, not a link; a key to a table not drawn, none.
+  assert.deepStrictEqual(edges, ["gold.fact_sales.customer_id>gold.dim_customer.customer_id:key", "gold.fact_sales.store_id>gold.dim_store.id:guess"]);
+});
+
+test("the diagram's SVG escapes names and has nothing the engine's export refuses", () => {
+  const { diagramSvg } = diagramHelpers();
+  const tables = [{ id: "dbo.a", name: "<b onload=x>", columns: [{ name: "\"q\" & 'r'" }] }];
+  const svg = diagramSvg(tables, [], { pks: {}, fks: [] }, { interactive: false });
+  assert.ok(svg.startsWith("<svg ") && svg.endsWith("</svg>"));
+  assert.match(diagramSvg(tables, [], { pks: {}, fks: [] }), /aria-label="&lt;b onload=x&gt;: open it in the Explorer"/);
+  assert.ok(!svg.includes("<b ") && svg.includes("&lt;b onload=x&gt;") && svg.includes("&quot;q&quot; &amp; &#39;r&#39;"));
+  // Only what the engine's export allows (service.py, _DIAGRAM_TAGS and _DIAGRAM_ATTRS).
+  const tags = new Set([...svg.matchAll(/<(\w+)/g)].map((m) => m[1]));
+  const attrs = new Set([...svg.matchAll(/\s([\w:-]+)="/g)].map((m) => m[1]).filter((a) => a !== "xmlns"));
+  assert.deepStrictEqual([...tags].filter((t) => !["svg", "g", "rect", "path", "text", "title"].includes(t)), []);
+  assert.deepStrictEqual([...attrs].filter((a) => !["viewBox", "width", "height", "font-family", "font-size", "font-weight", "role",
+    "aria-label", "x", "y", "rx", "fill", "stroke", "stroke-width", "stroke-dasharray", "d"].includes(a)), []);
 });

@@ -1039,3 +1039,17 @@ def test_a_cast_to_array_reads_a_list_or_a_json_array_and_object_is_json():
     assert _first("SELECT TYPEOF(CAST(NULL AS OBJECT))") is None
     # a structured ARRAY(INT) keeps its element type
     assert "INT[]" in sf.translate("SELECT CAST(NULL AS ARRAY(INT))").duckdb_sql
+
+
+def test_to_json_of_an_array_column_keeps_each_element_type():
+    rows = _rows("CREATE TABLE t (a ARRAY, n INT); INSERT INTO t SELECT ARRAY_CONSTRUCT(1, 2), 1; "
+                 "INSERT INTO t SELECT NULL, 2; UPDATE t SET a = ARRAY_APPEND(a, 'five') WHERE n = 1; "
+                 "SELECT TO_JSON(a), TO_JSON(ARRAY_APPEND(a, 3)), TO_JSON(OBJECT_CONSTRUCT('k', a)), TO_JSON(n) "
+                 "FROM t ORDER BY n")
+    assert rows == [('[1,2,"five"]', '[1,2,"five",3]', '{"k":[1,2,"five"]}', "1"), (None, None, "{}", "2")]
+    assert _first("SELECT TO_JSON(ARRAY_CONSTRUCT(1, 2)::ARRAY)") == "[1,2]"
+    # a list inside an object inside an object too, and the outer object isn't copied for the check
+    nested = "SELECT TO_JSON(OBJECT_CONSTRUCT('k', OBJECT_CONSTRUCT('j', a))) FROM t"
+    assert sf.translate(nested).duckdb_sql.upper().count("MAP_FROM_ENTRIES") == 1
+    assert _rows("CREATE TABLE t (a ARRAY); INSERT INTO t SELECT ARRAY_CONSTRUCT(1, 'x'::VARIANT); "
+                 + nested) == [('{"k":{"j":[1,"x"]}}',)]

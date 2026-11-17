@@ -136,7 +136,7 @@ Rules 2026.11.11.
 | SFX-020 | Rewritten | ALTER SESSION SET TIMEZONE = '...' becomes DuckDB's SET TimeZone, for the statements after it. |
 | SFX-021 | Rewritten | REGEXP_SUBSTR and REGEXP_SUBSTR_ALL with the 'e' parameter and no group number, or group 0, give the first group, as in Snowflake, when the pattern is written in the query and has a group. |
 | SFX-022 | Rewritten | TO_TIMESTAMP of a string written in the query that holds a whole number reads it as seconds, milliseconds, microseconds or nanoseconds by its size, as Snowflake does. A column is read as before. |
-| SFX-024 | Rewritten | An ARRAY column or cast is a list of VARIANT values, which holds what ARRAY_CONSTRUCT makes and reads a JSON array; an OBJECT column or cast is JSON. |
+| SFX-024 | Rewritten | An ARRAY column or cast becomes a list of VARIANT values, so it holds what ARRAY_CONSTRUCT makes and can read a JSON array. An OBJECT column or cast becomes JSON. |
 | SFX-000 | Runs only in Snowflake | Anything else sqlglot can't write for DuckDB. |
 | SFD-001 | Runs, with a difference: Unquoted names keep their case | Snowflake stores an unquoted name in upper case (MyCol becomes MYCOL); DuckDB keeps it as typed. |
 | SFD-002 | Runs, with a difference: TIMESTAMP_TZ loses its offset | DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value is lost. |

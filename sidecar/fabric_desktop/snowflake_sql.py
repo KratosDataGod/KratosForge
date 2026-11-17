@@ -696,6 +696,46 @@ def _rewrite_semi_structured_types(statement: exp.Expression) -> None:
             kind.replace(exp.DataType.build("VARIANT[]", dialect="duckdb"))
 
 
+def _variant_list_type(kind: exp.DataType) -> bool:
+    """Whether ``kind`` is VARIANT[], the type SFX-024 gives Snowflake's ARRAY."""
+    return (kind.this == exp.DataType.Type.ARRAY and len(kind.expressions) == 1
+            and isinstance(kind.expressions[0], exp.DataType) and kind.expressions[0].this == exp.DataType.Type.VARIANT)
+
+
+def _may_be_variant_list(value: object) -> bool:
+    """Whether ``value`` may be or hold a list of VARIANT values: it reads a column or casts to VARIANT[], and
+    isn't a map, JSON value or literal, which never is (so a nested OBJECT_CONSTRUCT isn't copied)."""
+    if not isinstance(value, exp.Expression) or isinstance(value, (exp.Literal, exp.Map, exp.Null,
+                                                                   exp.MapFromEntries, exp.ParseJSON)):
+        return False
+    if isinstance(value, exp.Anonymous) and value.name.upper() in ("MAP_FROM_ENTRIES", "TO_JSON", "JSON"):
+        return False
+    return any(value.find_all(exp.Column)) or any(_variant_list_type(d) for d in value.find_all(exp.DataType))
+
+
+def _json_of_variant_lists(statement: exp.Expression) -> None:
+    """SFX-024: DuckDB's TO_JSON writes each element of a list of VARIANT values (an ARRAY column) as text
+    ("1"), so a value that may be such a list goes through VARIANT to JSON, which keeps each element's
+    type. Run last, on the DuckDB tree: TO_JSON may come from TO_JSON itself or from another rewrite
+    (OBJECT_CONSTRUCT). Only a value with a column or a VARIANT[] cast in it can be such a list."""
+    # innermost first, so an outer TO_JSON copies an inner one already rewritten
+    for node in reversed(list(statement.find_all(exp.JSONFormat, exp.Anonymous))):
+        if isinstance(node, exp.Anonymous) and (node.name.upper() != "TO_JSON" or len(node.expressions) != 1):
+            continue
+        value = node.this if isinstance(node, exp.JSONFormat) else node.expressions[0]
+        if not _may_be_variant_list(value):
+            continue
+        listed = exp.Case(ifs=[exp.If(
+            this=exp.and_(exp.Like(this=exp.Anonymous(this="typeof", expressions=[value.copy()]),
+                                   expression=exp.Literal.string("%VARIANT[]%")),
+                          exp.Not(this=exp.Is(this=value.copy(), expression=exp.Null()))),
+            true=exp.Cast(this=exp.Cast(this=value.copy(), to=exp.DataType.build("VARIANT")),
+                          to=exp.DataType.build("JSON")))],
+            default=exp.Anonymous(this="to_json", expressions=[value.copy()]))
+        node.replace(exp.Cast(this=listed, to=exp.DataType.build("VARCHAR")) if isinstance(node, exp.JSONFormat)
+                     else listed)
+
+
 def _rewrite_regexp_groups(statement: exp.Expression) -> None:
     """SFX-021: REGEXP_SUBSTR and REGEXP_SUBSTR_ALL with the 'e' parameter and no group number give the
     first group, as Snowflake does; sqlglot writes group 0, the whole match. (sqlglot reads group 0 written
@@ -1709,8 +1749,8 @@ CATALOG = (
     ("SFX-022", "Rewritten", ("TO_TIMESTAMP of a string written in the query that holds a whole number reads it "
                 "as seconds, milliseconds, microseconds or nanoseconds by its size, as Snowflake does. A column "
                 "is read as before.")),
-    ("SFX-024", "Rewritten", ("An ARRAY column or cast is a list of VARIANT values, which holds what ARRAY_CONSTRUCT "
-                "makes and reads a JSON array; an OBJECT column or cast is JSON.")),
+    ("SFX-024", "Rewritten", ("An ARRAY column or cast becomes a list of VARIANT values, so it holds what "
+                "ARRAY_CONSTRUCT makes and can read a JSON array. An OBJECT column or cast becomes JSON.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -1828,6 +1868,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         unknown_brackets = _type_values(tree, written)
         _rewrite_json_text(tree)
         _rewrite_division(tree)
+        _json_of_variant_lists(tree)
         sql = _duck(tree)
     except _Untranslatable as exc:
         return StatementReport(n, "not_translatable", None, (exc.note,))

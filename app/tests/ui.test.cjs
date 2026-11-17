@@ -1054,7 +1054,7 @@ function dbgHelpers() {
   const src = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgStackText, dbgKeyAction });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgBpRematch, dbgDroppedText, dbgStackText, dbgKeyAction });`, ctx);
   return ctx;
 }
 
@@ -2919,6 +2919,22 @@ test("breakpoints follow their lines, and the debugger keys match VS Code", () =
   assert.strictEqual(key("Enter"), null);
 });
 
+test("a cell replaced whole keeps its breakpoints by line text, and names the ones it can't", () => {
+  const { dbgBpRematch, dbgDroppedText } = dbgHelpers();
+  const old = ["x=1", "", "def f(a):", "    return a*2", "y = f(x)"];
+  const text = (n) => old[n - 1];
+  // Format cell: spacing changed, a blank line added above; same code.
+  const formatted = ["x = 1", "", "", "def f(a):", "    return a * 2", "", "y = f(x)"];
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(dbgBpRematch([1, 4, 5], text, formatted))), { lines: [1, 5, 7], dropped: [] });
+  // The line's code is gone, or the breakpoint was on a blank line: removed and named.
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(dbgBpRematch([2, 5], text, ["x = 1", "z = 2"]))), { lines: [], dropped: [2, 5] });
+  // Repeated text: the occurrence nearest where it was.
+  assert.deepStrictEqual([...dbgBpRematch([3], (n) => ["a", "b", "a", "b"][n - 1], ["a", "b", "a", "b", "a"]).lines], [3]);
+  assert.strictEqual(dbgDroppedText([4], "its line was deleted"), "Removed the breakpoint on line 4: its line was deleted.");
+  assert.strictEqual(dbgDroppedText([2, 5, 9], "their lines were deleted"), "Removed the breakpoints on lines 2, 5 and 9: their lines were deleted.");
+  assert.strictEqual(dbgDroppedText([], "x"), "");
+});
+
 test("the notebook editor wires breakpoints and the debugger through debugging.js", () => {
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
   const dbg = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
@@ -2934,11 +2950,15 @@ test("the notebook editor wires breakpoints and the debugger through debugging.j
   // Debug from here: the last way out of a pause decides how the next cell starts; Run in Fabric says it can't pause.
   assert.match(dbg, /if \(state\.notebook\.dbgRun && action !== "eval"\) state\.notebook\.dbgRun\.mode = action;/);
   assert.match(nb, /nb\.runningAll = false;\n    nb\.dbgRun = null;/);
+  // Hardening: lines past the end are named before a run; a restart unpauses and ends a Debug from here run.
+  assert.match(dbg, /function dbgStartArgs\(cell, debug\) \{\n  if \(dbgOn\(\) && cell\.type === "code"\) dbgCheckLines\(cell\);/);
+  assert.match(dbg, /if \(dropped\.length\) toast\(dbgDroppedText\(dropped, why\)\);/);
+  assert.match(dbg, /function dbgRestarted\(\) \{\n  const nb = state\.notebook;[\s\S]*?if \(nb\?\.dbgRun\) nb\.cancelRequested = true;/);
   assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /dbgRemoteNote\(nb, nb\.cells\);  \/\/ debugging\.js/);
   assert.match(dbg, /rpc\("debug_cell"/);
   // Breakpoints are a Preview feature: nothing is sent or shown while it is hidden.
   assert.match(dbg, /function dbgBreakpoints\(cell\) \{\n  return dbgOn\(\)/);
-  assert.match(dbg, /function dbgStartArgs\(cell, debug\) \{\n  const lines = dbgBreakpoints\(cell\);\n  if \(!dbgOn\(\)\) return \{\};/);
+  assert.match(dbg, /function dbgStartArgs\(cell, debug\) \{\n  if \(dbgOn\(\) && cell\.type === "code"\) dbgCheckLines\(cell\);\n  const lines = dbgBreakpoints\(cell\);\n  if \(!dbgOn\(\)\) return \{\};/);
   // The debugger keys are in the Keyboard shortcuts dialog, only while the Preview feature is shown.
   assert.match(dbg, /registerShortcuts\("Notebook debugger", \[[\s\S]*keys: \["F9"\][\s\S]*keys: \["Shift\+F11"\][\s\S]*\]\);/);
   assert.strictEqual((dbg.match(/when: \(\) => state\.view === "notebook" && dbgOn\(\)/g) || []).length, 5);

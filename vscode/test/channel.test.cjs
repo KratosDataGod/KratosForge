@@ -240,6 +240,21 @@ async function fakeApp(handle) {
   return { ch, close: () => new Promise((r) => server.close(r)) };
 }
 
+test("asking to pair after the app restarted says it restarted; a call with the token says the pairing ended", async () => {
+  const { HELLO_CHANGED, NOT_PAIRED } = require("../out/channel.js");
+  const app = await fakeApp((url, req, res, reply) => {
+    if (url.pathname === "/v1/hello") return false;
+    reply(401, { ok: false, error: { code: "unauthorized", message: "x" } });
+    return true;
+  });
+  try {
+    await assert.rejects(app.ch.ask("w", "c"), (err) => err.code === "unauthorized" && err.message === HELLO_CHANGED);
+    await assert.rejects(app.ch.status(), (err) => err.code === "unauthorized" && err.message === NOT_PAIRED);
+  } finally {
+    await app.close();
+  }
+});
+
 test("a busy app is asked again a few times, then the window says it's busy", async () => {
   let busy = 3;
   const seen = [];
@@ -592,7 +607,8 @@ test("the extension's own messages each say what to do next", () => {
 
 test("a refused hello reads as a restart only while asking to pair", () => {
   const ch = require("../out/channel.js");
-  assert.strictEqual(ch.refusal(401, "unauthorized", "x", true).message, ch.HELLO_CHANGED);
+  assert.strictEqual(ch.refusal(401, "unauthorized", "x", false, true).message, ch.HELLO_CHANGED);
+  assert.strictEqual(ch.refusal(401, "unauthorized", "x", true).message, ch.NOT_PAIRED);  // polling sends the token
   assert.strictEqual(ch.refusal(401, "unauthorized", "x").message, ch.NOT_PAIRED);
   assert.match(ch.refusal(404, "not_found", "").message, /couldn't find that notebook or cell/);
 });

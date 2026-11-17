@@ -85,12 +85,14 @@ const THEN_AGAIN = " Once that's sorted out, run the cell again.";
 /** The error the window shows for an answer the app refused: each with a name and a next step. Where the
  * app's own words already say what to do (a notebook outside the paired folder, too many windows asking
  * to pair), they're kept; elsewhere the window says it in its own words. */
-export function refusal(status: number, code: string | undefined, message: string | undefined, pairing = false): ChannelError {
+export function refusal(status: number, code: string | undefined, message: string | undefined, pairing = false,
+  hello = false): ChannelError {
   const said = message || "";
   switch (code) {
     case "not_paired": return new ChannelError(status, "not_paired", NOT_PAIRED);
-    // Only asking to pair checks the hello; anywhere else it means the window's pairing no longer holds.
-    case "unauthorized": return new ChannelError(status, "unauthorized", pairing ? HELLO_CHANGED : NOT_PAIRED);
+    // Only a call that sends the hello (asking to pair) is checked against it; anywhere else it means
+    // the window's pairing no longer holds.
+    case "unauthorized": return new ChannelError(status, "unauthorized", hello ? HELLO_CHANGED : NOT_PAIRED);
     case "off": return new ChannelError(status, "off", OFF);
     case "busy": return new ChannelError(status, "busy", BUSY);
     case "extension_too_old": return new ChannelError(status, "extension_too_old", EXTENSION_TOO_OLD);
@@ -240,7 +242,7 @@ export class Channel {
     if (!payload) throw new ChannelError(status, "bad_reply", BAD_REPLY);
     if (payload.ok) return payload.result;
     if (payload.error?.code === "busy" && status !== 503) throw new ChannelError(status, "failed", unexpected(`busy, status ${status}`));
-    throw refusal(status, payload.error?.code, payload.error?.message, url.startsWith("/v1/pair/"));
+    throw refusal(status, payload.error?.code, payload.error?.message, url.startsWith("/v1/pair/"), hello);
   }
 
   /** Asks to pair; the app shows the request with ``code``, which this window shows too. */

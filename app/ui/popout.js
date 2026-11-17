@@ -72,7 +72,7 @@ function popOutControls() {
   } });
   return h("div", { class: "pop-out-controls" },
     h("label", { class: "check" }, box, "Keep on top"),
-    btn("Dock back", null, () => dockBack(POP_OUT), "tool outline", { title: "Close this window and put it back in the main window" }));
+    POP_OUT === "report" ? null : btn("Dock back", null, () => dockBack(POP_OUT), "tool outline", { title: "Close this window and put it back in the main window" }));
 }
 
 // A pop-out window's start: no component check or update (the main window did that and owns the
@@ -80,6 +80,7 @@ function popOutControls() {
 async function startPopOut() {
   document.body.classList.add("pop-out", `pop-out-${POP_OUT}`);
   document.querySelector(".topbar")?.append(popOutControls());
+  if (POP_OUT === "report") { startReportWindow(); return; }  // nbreport.js
   state.view = "monitor";
   monitorPage.panel = "runs";
   nav.stack = [navEntry("monitor")];

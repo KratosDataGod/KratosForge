@@ -550,6 +550,9 @@ function renderQuery() {
         : "F12 goes to a table or view: put the cursor on its name, an alias or one of its columns.");
       return;
     }
+    await showInExplorer(table);
+  }
+  async function showInExplorer(table) {
     const row = wh ? await revealWarehouseObject(table) : await revealLakehouseTable(table);
     if (!row) return;
     row.scrollIntoView({ block: "nearest" });
@@ -580,6 +583,26 @@ function renderQuery() {
     if (p.whAside && p.whAside !== "explorer") { p.whAside = "explorer"; renderQuery(); } else whTree.draw();
     return document.querySelector(`.wh-tree [data-tid="${CSS.escape(p.whFocus)}"]`);
   }
+  // Parity item 15: the Explorer's Diagram, read only. A warehouse's lines come from its keys (one more
+  // catalog query in Fabric) and from names; a lakehouse's from names only, with each table's columns
+  // asked for as the Explorer asks.
+  function openDiagram() {
+    if (wh) {
+      const cat = p.catalog;
+      const tables = (cat?.objects || []).filter((o) => o.type === "U");
+      openSqlDiagram({ kind: "warehouse", name: ref.name, schemas: [...new Set(tables.map((o) => o.schema))],
+        tables: async (schema) => tables.filter((o) => o.schema === schema)
+          .map((o) => ({ schema: o.schema, name: o.name, columns: cat.cols[`${o.schema}.${o.name}`] || [] })),
+        keys: async () => diagramKeys((await whCatalogQuery(ref, WH_KEYS_SQL)).rows),
+        reveal: showInExplorer });
+      return;
+    }
+    openSqlDiagram({ kind: "lakehouse", name: ref.name, schemas: Object.keys(p.tables || {}),
+      tables: (schema) => Promise.all((p.tables[schema] || []).slice(0, DIAGRAM_MAX_TABLES)
+        .map(async (name) => ({ schema, name, columns: await provider.columns({ schema, name }) })))
+        .then((list) => list.concat((p.tables[schema] || []).slice(DIAGRAM_MAX_TABLES).map((name) => ({ schema, name, columns: [] })))),
+      reveal: showInExplorer });
+  }
   function loadTables() {
     drawTables();
     rpc("list_tables", { workspace_id: ref.workspace_id, lakehouse_id: ref.lakehouse_id })
@@ -594,6 +617,10 @@ function renderQuery() {
       return;
     }
     const rows = [];
+    if (previewShown() && Object.values(p.tables).some((names) => names.length)) {
+      rows.push(h("div", { class: "sql-explorer-actions" }, btn("Diagram", "flowchart", openDiagram, "tool outline small",
+        { title: "The tables of a schema and how their columns link, guessed from names. Read only." })));
+    }
     for (const [schema, names] of Object.entries(p.tables)) {
       const qualify = Object.keys(p.tables).length > 1 || schema !== "dbo";
       if (qualify) rows.push(h("div", { class: "tree-row muted", style: "padding-left:6px" }, schema));
@@ -1110,6 +1137,7 @@ function renderQuery() {
     query: (name) => queryTable(name),
     insert: (text) => insertAtCursor(text),
     open: (name, text) => openTab(name, text),
+    diagram: () => openDiagram(),
   }) : null;
   // WH-06: saved and shared queries, on the explorer's Queries tab. A saved query opens in its own
   // tab, or in the tab that already holds it.

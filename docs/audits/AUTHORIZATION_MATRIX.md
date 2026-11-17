@@ -128,7 +128,7 @@ Every call passes PermissionAuthorizer.check (integrations/permissions.py) befor
 | `fabric_desktop_start_pipeline_run` | `sidecar/fabric_desktop/integrations/services.py:296` | EXECUTE_LOCAL_CODE | yes | always |  |
 | `fabric_desktop_start_proof` | `sidecar/fabric_desktop/integrations/services.py:476` | MODIFY_FABRIC_ARTIFACTS | no (refused) | always |  |
 
-## 3. Engine methods that change something (415)
+## 3. Engine methods that change something (417)
 
 Reached only by the app window, over the engine's own pipe. "What it changes" and "Check" are found by reading the method and the methods it calls; "platform's check per operation" points at section 1.
 
@@ -320,6 +320,8 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `meta_build_model` | `sidecar/fabric_desktop/cloud_service.py:804` | Fabric or OneLake | Fabric's own rights; confirm or approve argument |
 | `meta_create_designation_workspace` | `sidecar/fabric_desktop/central/service.py:1477` | Fabric or OneLake | Fabric's own rights |
 | `meta_create_workspace` | `sidecar/fabric_desktop/meta_service.py:368` | Fabric or OneLake | Fabric's own rights |
+| `meta_data_health_quiet` | `sidecar/fabric_desktop/dataops_service.py:426` | this PC | the signed-in Windows user's own files |
+| `meta_data_health_watch` | `sidecar/fabric_desktop/dataops_service.py:407` | this PC | the signed-in Windows user's own files |
 | `meta_delete_entity` | `sidecar/fabric_desktop/meta_service.py:475` | this PC | the signed-in Windows user's own files |
 | `meta_delete_key_table` | `sidecar/fabric_desktop/meta_service.py:1002` | Fabric or OneLake | Fabric's own rights |
 | `meta_delete_schedule` | `sidecar/fabric_desktop/cloud_service.py:740` | Fabric or OneLake | Fabric's own rights |

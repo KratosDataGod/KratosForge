@@ -819,7 +819,9 @@ function renderQuery() {
     }
     tab.exporting = null;
     sqlPage.redraw?.();
-    if (st.state === "completed") toast(`Saved ${st.rows.toLocaleString()} rows to ${st.path}`);
+    // What the file couldn't keep exactly (a 19-digit ID in Excel, say) is said with it, never left silent.
+    const notes = st.notes?.length ? `. ${st.notes.join(" ")}` : "";
+    if (st.state === "completed") toast(`Saved ${st.rows.toLocaleString()} rows to ${st.path}${notes}`);
     else if (st.state === "cancelled") toast("Export stopped. No file was left behind.");
     else toast(`Could not export: ${st.error}`, true);
   }

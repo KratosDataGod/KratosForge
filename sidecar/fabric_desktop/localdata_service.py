@@ -148,12 +148,16 @@ class LocalDataMixin:
     def local_write_delta(self, project: str, table: str, query: str, mode: str = "create",
                           dialect: str = "duckdb", partition_by: list[str] | None = None,
                           schema_mode: str | None = None, dry_run: bool = False,
-                          timeout: float | None = None) -> dict[str, Any]:
+                          timeout: float | None = None, confirm: bool = False) -> dict[str, Any]:
         """Write a query's rows to a Delta table in the project, in one commit. ``dry_run`` runs the
         query and says what would be written, writing nothing. The query gets local_query's
-        statement checks first."""
+        statement checks first. ``mode`` overwrite replaces every row, so like INSERT OVERWRITE in
+        local_query it runs only with ``confirm`` (a dry run needs none)."""
         engine = self.local_data.engine(project)
         _check_local(query, dialect)
+        if mode == "overwrite" and not dry_run and not confirm:
+            raise PermissionError(f"Overwriting {table} replaces every row, so it runs only when confirmed. "
+                                  "Run it again with confirm, or with dry_run to see what it would write.")
         return engine.write_delta(table, query, mode=mode, dialect=dialect,
                                                            partition_by=partition_by, schema_mode=schema_mode,
                                                            dry_run=dry_run, timeout=timeout)

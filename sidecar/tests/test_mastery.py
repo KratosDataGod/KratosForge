@@ -1,4 +1,4 @@
-"""Developer classes and mastery (CM-02, CM-03): the catalog's graph rules, and mastery levels that only
+"""Developer classes and mastery (CM-02, CM-03, CM-05): the catalog's graph rules, and mastery levels that only
 verified evidence earns, the same every time, never from replaying an event."""
 
 from __future__ import annotations
@@ -29,6 +29,16 @@ def test_lakehouse_warden_has_three_specializations_of_ten_and_five_achievements
     assert len(WARDEN["achievements"]) == 5
     # The vertical slice: every talent can be verified with content that exists today.
     assert all(any(CAT["skills"][n["skill"]]["evidence"].values()) for sp in WARDEN["specializations"] for n in sp["nodes"])
+
+
+def test_all_fourteen_classes_ship_with_full_trees():
+    assert len(CAT["classes"]) == 14
+    for c in CAT["classes"].values():
+        assert len(c["specializations"]) >= catalog.MIN_SPECIALIZATIONS, c["id"]
+        assert all(len(sp["nodes"]) >= catalog.MIN_NODES for sp in c["specializations"]), c["id"]
+        assert len(c["achievements"]) >= catalog.MIN_ACHIEVEMENTS, c["id"]
+    # Each class is a different profession, so the Professional profile never shows two the same.
+    assert len({c["professional"] for c in CAT["classes"].values()}) == 14
 
 
 def test_no_name_is_or_resembles_a_god():

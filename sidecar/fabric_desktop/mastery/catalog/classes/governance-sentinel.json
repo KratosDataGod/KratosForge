@@ -1,0 +1,60 @@
+{
+ "schema": "kratosforge/mastery-class@1",
+ "id": "governance-sentinel",
+ "version": 1,
+ "title": "Governance Sentinel",
+ "professional": "Data Governance Engineer",
+ "fantasy": "Watcher on the wall. The Sentinel knows who may enter, what each treasure is worth and which promises the data keeps.",
+ "competency": "Implements data governance: least-privilege access, classification and sensitivity labels, endorsement, data contracts and policy checks.",
+ "platforms": ["Microsoft Fabric", "Databricks Unity Catalog", "Snowflake Horizon"],
+ "technologies": ["Workspace roles", "OneLake security", "Unity Catalog", "Data contracts"],
+ "emblem": "A tall shield with a closed eye that opens into a key, a wolf sitting watch at its base.",
+ "specializations": [
+  {"id": "access", "title": "Gatekeeper", "professional": "Access and permissions", "competency": "security",
+   "nodes": [
+    {"id": "access.01", "skill": "least-privilege-in-workspaces", "tier": 1, "requires": []},
+    {"id": "access.02", "skill": "item-sharing", "tier": 2, "requires": ["access.01"]},
+    {"id": "access.03", "skill": "row-level-security", "tier": 2, "requires": ["access.01"]},
+    {"id": "access.04", "skill": "column-and-object-security", "tier": 3, "requires": ["access.02"]},
+    {"id": "access.05", "skill": "onelake-security-roles", "tier": 3, "requires": ["access.03"]},
+    {"id": "access.06", "skill": "dynamic-data-masking", "tier": 4, "requires": ["access.04"]},
+    {"id": "access.07", "skill": "shortcuts-and-onelake-security", "tier": 4, "requires": ["access.04", "access.05"]},
+    {"id": "access.08", "skill": "access-reviews", "tier": 5, "requires": ["access.06"]},
+    {"id": "access.09", "skill": "unity-catalog-grants", "tier": 5, "requires": ["access.07"]},
+    {"id": "access.10", "skill": "capstone-a-least-privilege-estate", "tier": 6, "requires": ["access.08", "access.09"], "capstone": true}
+   ]},
+  {"id": "labels", "title": "Seal Bearer", "professional": "Classification and endorsement", "competency": "governance",
+   "nodes": [
+    {"id": "labels.01", "skill": "sensitivity-labels", "tier": 1, "requires": []},
+    {"id": "labels.02", "skill": "endorsement-promoted-and-certified", "tier": 2, "requires": ["labels.01"]},
+    {"id": "labels.03", "skill": "data-classification", "tier": 2, "requires": ["labels.01"]},
+    {"id": "labels.04", "skill": "glossary-and-definitions", "tier": 3, "requires": ["labels.02"]},
+    {"id": "labels.05", "skill": "ownership-and-stewardship", "tier": 3, "requires": ["labels.03"]},
+    {"id": "labels.06", "skill": "retention-rules", "tier": 4, "requires": ["labels.04"]},
+    {"id": "labels.07", "skill": "lineage-for-audits", "tier": 4, "requires": ["labels.04", "labels.05"]},
+    {"id": "labels.08", "skill": "policy-checks-before-publish", "tier": 5, "requires": ["labels.06"]},
+    {"id": "labels.09", "skill": "exceptions-with-an-expiry", "tier": 5, "requires": ["labels.07"]},
+    {"id": "labels.10", "skill": "capstone-a-governed-domain", "tier": 6, "requires": ["labels.08", "labels.09"], "capstone": true}
+   ]},
+  {"id": "contracts", "title": "Oathkeeper", "professional": "Data contracts and policy", "competency": "governance",
+   "nodes": [
+    {"id": "contracts.01", "skill": "data-contracts", "tier": 1, "requires": []},
+    {"id": "contracts.02", "skill": "schema-promises", "tier": 2, "requires": ["contracts.01"]},
+    {"id": "contracts.03", "skill": "freshness-promises", "tier": 2, "requires": ["contracts.01"]},
+    {"id": "contracts.04", "skill": "quality-promises", "tier": 3, "requires": ["contracts.02"]},
+    {"id": "contracts.05", "skill": "breaking-change-process", "tier": 3, "requires": ["contracts.03"]},
+    {"id": "contracts.06", "skill": "domains-and-data-products", "tier": 4, "requires": ["contracts.04"]},
+    {"id": "contracts.07", "skill": "shipping-a-domain-data-product", "tier": 4, "requires": ["contracts.04", "contracts.05"]},
+    {"id": "contracts.08", "skill": "contract-tests-in-ci", "tier": 5, "requires": ["contracts.06"]},
+    {"id": "contracts.09", "skill": "consumer-notifications", "tier": 5, "requires": ["contracts.07"]},
+    {"id": "contracts.10", "skill": "capstone-contracts-across-three-teams", "tier": 6, "requires": ["contracts.08", "contracts.09"], "capstone": true}
+   ]}
+ ],
+ "achievements": [
+  {"id": "first-watch", "name": "First Watch", "criteria": "Reach Journeyman in Least privilege in workspaces."},
+  {"id": "closed-gate", "name": "Closed Gate", "criteria": "Reach Adept in Row-level security."},
+  {"id": "oath-sworn", "name": "Oath Sworn", "criteria": "Reach Journeyman in Data contracts."},
+  {"id": "product-shipped", "name": "Product Shipped", "criteria": "Reach Journeyman in Shipping a domain data product."},
+  {"id": "sentinels-watch", "name": "Sentinel's Watch", "criteria": "Reach Adept in all ten talents of one Governance Sentinel specialization."}
+ ]
+}

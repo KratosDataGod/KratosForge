@@ -1,0 +1,60 @@
+{
+ "schema": "kratosforge/mastery-class@1",
+ "id": "devops-pathfinder",
+ "version": 1,
+ "title": "DevOps Pathfinder",
+ "professional": "Data Platform DevOps Engineer",
+ "fantasy": "Finder of the safe road to production. Every change the Pathfinder ships has a branch, a review and a way back.",
+ "competency": "Runs data platform delivery: Git integration, branching, code review, CI checks, deployment pipelines, environments and rollback.",
+ "platforms": ["Microsoft Fabric", "Databricks", "Snowflake", "GitHub", "Azure DevOps"],
+ "technologies": ["Git", "Fabric Git integration", "Deployment pipelines", "Asset bundles", "CI"],
+ "emblem": "A branching path carved into a stone marker, a wolf's pawprints along the main trail.",
+ "specializations": [
+  {"id": "git", "title": "Trailblazer", "professional": "Source control", "competency": "devops",
+   "nodes": [
+    {"id": "git.01", "skill": "workspaces-under-git", "tier": 1, "requires": []},
+    {"id": "git.02", "skill": "branches-and-commits", "tier": 2, "requires": ["git.01"]},
+    {"id": "git.03", "skill": "feature-workspaces", "tier": 2, "requires": ["git.01"]},
+    {"id": "git.04", "skill": "merge-conflicts", "tier": 3, "requires": ["git.02"]},
+    {"id": "git.05", "skill": "pull-requests-and-review", "tier": 3, "requires": ["git.03"]},
+    {"id": "git.06", "skill": "code-owners", "tier": 4, "requires": ["git.04"]},
+    {"id": "git.07", "skill": "commit-history-as-evidence", "tier": 4, "requires": ["git.04", "git.05"]},
+    {"id": "git.08", "skill": "environments-git-and-deployments", "tier": 5, "requires": ["git.06"]},
+    {"id": "git.09", "skill": "signed-and-traceable-changes", "tier": 5, "requires": ["git.07"]},
+    {"id": "git.10", "skill": "capstone-a-team-branching-model", "tier": 6, "requires": ["git.08", "git.09"], "capstone": true}
+   ]},
+  {"id": "release", "title": "Road Warden", "professional": "Deployment and CI/CD", "competency": "devops",
+   "nodes": [
+    {"id": "release.01", "skill": "deployment-pipelines", "tier": 1, "requires": []},
+    {"id": "release.02", "skill": "deployment-rules", "tier": 2, "requires": ["release.01"]},
+    {"id": "release.03", "skill": "database-projects", "tier": 2, "requires": ["release.01"]},
+    {"id": "release.04", "skill": "checks-in-ci", "tier": 3, "requires": ["release.02"]},
+    {"id": "release.05", "skill": "automated-tests-in-ci", "tier": 3, "requires": ["release.03"]},
+    {"id": "release.06", "skill": "release-approvals", "tier": 4, "requires": ["release.04"]},
+    {"id": "release.07", "skill": "rollback-plans", "tier": 4, "requires": ["release.04", "release.05"]},
+    {"id": "release.08", "skill": "databricks-asset-bundles", "tier": 5, "requires": ["release.06"]},
+    {"id": "release.09", "skill": "snowflake-change-management", "tier": 5, "requires": ["release.07"]},
+    {"id": "release.10", "skill": "capstone-a-release-with-a-rollback-drill", "tier": 6, "requires": ["release.08", "release.09"], "capstone": true}
+   ]},
+  {"id": "env", "title": "Waystation Keeper", "professional": "Environments and configuration", "competency": "devops",
+   "nodes": [
+    {"id": "env.01", "skill": "environments-and-libraries", "tier": 1, "requires": []},
+    {"id": "env.02", "skill": "workspace-settings", "tier": 2, "requires": ["env.01"]},
+    {"id": "env.03", "skill": "parameters-per-environment", "tier": 2, "requires": ["env.01"]},
+    {"id": "env.04", "skill": "secrets-handling", "tier": 3, "requires": ["env.02"]},
+    {"id": "env.05", "skill": "infrastructure-as-code", "tier": 3, "requires": ["env.03"]},
+    {"id": "env.06", "skill": "connections-per-environment", "tier": 4, "requires": ["env.04"]},
+    {"id": "env.07", "skill": "promotion-between-environments", "tier": 4, "requires": ["env.04", "env.05"]},
+    {"id": "env.08", "skill": "drift-detection", "tier": 5, "requires": ["env.06"]},
+    {"id": "env.09", "skill": "disaster-recovery", "tier": 5, "requires": ["env.07"]},
+    {"id": "env.10", "skill": "capstone-three-environments-one-source", "tier": 6, "requires": ["env.08", "env.09"], "capstone": true}
+   ]}
+ ],
+ "achievements": [
+  {"id": "first-commit", "name": "First Commit", "criteria": "Reach Journeyman in Workspaces under Git."},
+  {"id": "conflict-resolved", "name": "Conflict Resolved", "criteria": "Reach Adept in Merge conflicts."},
+  {"id": "safe-road", "name": "Safe Road", "criteria": "Reach Journeyman in Rollback plans."},
+  {"id": "same-everywhere", "name": "Same Everywhere", "criteria": "Reach Journeyman in Promotion between environments."},
+  {"id": "pathfinders-cairn", "name": "Pathfinder's Cairn", "criteria": "Reach Adept in all ten talents of one DevOps Pathfinder specialization."}
+ ]
+}

@@ -233,6 +233,10 @@ KratosForge is new, and it's honest about what has been proven.
 | Variable library | Data mesh > Source systems (always shown) |
 | Warehouse queries | Workspaces > a Warehouse or SQL analytics endpoint row > SQL query (the Warehouse page), and its Monitoring tab ([warehouse.md](warehouse.md#monitoring-preview)) |
 | Messages and Chart on the SQL page | SQL query > Messages, Chart above the result ([warehouse.md](warehouse.md#results-messages-and-chart)) |
+| Several SQL statements per run, a result for each | SQL query or Warehouse page, Run with several statements: a tab per statement above the result ([sql-execution.md](sql-execution.md#several-statements-in-one-run-preview)) |
+| Query parameters (:name and {{name}}) on the SQL page | SQL query or Warehouse page, Run on a query with parameters ([sql-execution.md](sql-execution.md#query-parameters-preview)) |
+| Open and save .sql files from the SQL page | SQL query or Warehouse page, Open .sql... and Save as .sql... in the toolbar ([sql-execution.md](sql-execution.md#sql-files-on-this-pc-preview)) |
+| Result history and pinned results on the SQL page | SQL query or Warehouse page, History beside Results ([sql-execution.md](sql-execution.md#result-history-and-pinned-results-preview)) |
 | Scratch console in notebooks | Notebook > View > Scratch ([user-guide.md](user-guide.md#scratch-console-preview)) |
 | Notebook as a report | Notebook > Share > Open as report ([user-guide.md](user-guide.md#notebook-as-a-read-only-report-preview)) |
 | Table diagram on the SQL page | SQL query > Explorer > Diagram ([user-guide.md](user-guide.md#table-diagram-preview)) |

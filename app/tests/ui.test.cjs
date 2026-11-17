@@ -548,8 +548,8 @@ function sqlEditorHelpers() {
   const code = src.slice(0, src.indexOf("// ---------- the editor ----------"));
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { SQL_DIALECTS, SQL_WORDS, sqlDialect, sqlQuoteIdent, sqlTableName,
-    sqlMask, sqlStatementAt, sqlRunnableStatementAt, sqlTableRefs, sqlHoverTarget, sqlCallAt, sqlSignatureParts, sqlPickForm, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
-    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics, sqlRowsAs, sqlLiteral, sqlInsertTable, sqlNextBookmark });`, ctx);
+    sqlMask, sqlStatementAt, sqlRunnableStatementAt, sqlSplitStatements, sqlParamNames, sqlParamProblem, sqlTableRefs, sqlHoverTarget, sqlCallAt, sqlSignatureParts, sqlPickForm, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
+    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics, sqlRowsAs, sqlLiteral, sqlInsertTable, sqlNextBookmark, SQL_PARAM_TYPES });`, ctx);
   return ctx;
 }
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -609,6 +609,41 @@ test("Ctrl+Shift+Enter finds the statement at the cursor, or the nearest one whe
   assert.strictEqual(sqlRunnableStatementAt("  ;\n -- x\n", 2), null);
   assert.strictEqual(sqlRunnableStatementAt("", 0), null);
   assert.strictEqual(sqlRunnableStatementAt(";;\nSELECT 9", 0).text, "SELECT 9", "falls forward when nothing is before");
+});
+
+test("a script splits into statements at ; and GO lines, outside strings and comments (S14)", () => {
+  const { sqlSplitStatements } = sqlEditorHelpers();
+  const texts = (t, o) => plain(sqlSplitStatements(t, o).map((u) => u.text));
+  const script = "SELECT 'a;b' -- c;d\nFROM t;\n\n-- only a note;\nSELECT 2 /* x; */;\n;\nSELECT 3";
+  assert.deepStrictEqual(texts(script), ["SELECT 'a;b' -- c;d\nFROM t;", "-- only a note;\nSELECT 2 /* x; */;", "SELECT 3"]);
+  const units = sqlSplitStatements(script, { base: 100, firstLine: 5 });
+  assert.deepStrictEqual(plain(units.map((u) => u.line)), [5, 8, 11]);
+  assert.strictEqual(units[2].from, 100 + script.indexOf("SELECT 3"));
+  assert.strictEqual(units[2].to - units[2].from, "SELECT 3".length);
+  assert.deepStrictEqual(texts("SELECT 1\nGO\nSELECT 2\n  go ;\nSELECT 3", { tsql: true }), ["SELECT 1", "SELECT 2", "SELECT 3"]);
+  assert.deepStrictEqual(texts("SELECT 1 AS go;\nSELECT 2"), ["SELECT 1 AS go;", "SELECT 2"], "GO only on a line of its own");
+  assert.deepStrictEqual(texts("UPDATE dbo.t SET a = 1; SELECT * FROM dbo.t;", { tsql: true }), ["UPDATE dbo.t SET a = 1;", "SELECT * FROM dbo.t;"]);
+  const vars = "DECLARE @n int = 1; SELECT @n;\nGO\nSELECT 2; SELECT 3";
+  assert.deepStrictEqual(texts(vars, { tsql: true }), ["DECLARE @n int = 1; SELECT @n;", "SELECT 2;", "SELECT 3"],
+    "a T-SQL batch with a variable stays whole");
+  assert.deepStrictEqual(texts("CREATE PROCEDURE dbo.p AS BEGIN SELECT 1; SELECT 2; END", { tsql: true }).length, 1);
+  assert.deepStrictEqual(texts("CREATE PROCEDURE dbo.p AS SELECT 1; SELECT 2"), ["CREATE PROCEDURE dbo.p AS SELECT 1;", "SELECT 2"],
+    "only T-SQL keeps a definition whole");
+  assert.deepStrictEqual(texts("  ;\n -- x\n"), []);
+});
+
+test("a query's parameters are :name and {{name}}, outside strings, comments and casts (S17)", () => {
+  const { sqlParamNames, sqlParamProblem } = sqlEditorHelpers();
+  const text = "SELECT ':no', a::int -- :nope\nFROM t /* {{nope}} */\nWHERE r = :region AND d >= {{ start_date }} AND x = :region AND p = c:path";
+  assert.deepStrictEqual(plain(sqlParamNames(text)), [{ name: "region", line: 3 }, { name: "start_date", line: 3 }]);
+  assert.strictEqual(sqlParamProblem("date", "1 Oct"), "Write a date as 2026-10-01.");
+  assert.strictEqual(sqlParamProblem("date", "2026-02-30"), "Write a date as 2026-10-01.");
+  assert.strictEqual(sqlParamProblem("date", "2026-10-01"), "");
+  assert.strictEqual(sqlParamProblem("datetime", "2026-10-01 14:30"), "");
+  assert.strictEqual(sqlParamProblem("number", "4,2"), "Write a number, such as 42 or 3.5.");
+  assert.strictEqual(sqlParamProblem("number", "-3.5"), "");
+  assert.strictEqual(sqlParamProblem("boolean", "TRUE"), "");
+  assert.strictEqual(sqlParamProblem("text", ""), "", "an empty text value is a value");
 });
 
 test("F2 and Shift+F2 go to the next and previous bookmark, wrapping around", () => {
@@ -716,6 +751,8 @@ test("the result grid keeps a column layout for one set of names: widths, hidden
   g.hidden = [1];
   g.widths = { 2: 180.4 };
   assert.strictEqual(sqlGridWidthCss(g.widths), '.sql-result-table [data-col="2"] { width: 180px; min-width: 180px; max-width: 180px; }');
+  assert.strictEqual(sqlGridWidthCss(g.widths, "g7"), '.sql-result-table[data-grid="g7"] [data-col="2"] { width: 180px; min-width: 180px; max-width: 180px; }',
+    "a width belongs to its own grid: a notebook shows a table per cell");
   const next = sqlGridCarry(g);
   assert.deepStrictEqual(plain(sqlGridLayoutFor(next, cols)), [2, 0], "a new run with the same columns keeps the layout");
   assert.deepStrictEqual(plain(next.sort), []);
@@ -3880,6 +3917,7 @@ function resultViewerHarness(pages) {
     attempt: async (fn) => fn(), setTimeout: (fn) => fn(), clearTimeout() {},
     rpc: async (method, args) => { calls.push([method, args]); return pages.shift(); } };
   vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8"), ctx);  // the table is the SQL page's grid
   vm.runInContext(["resultTable", "renderResultViewer", "copyResultPage", "downloadResult"].map(grab).join("\n") +
     "\nconst RESULT_PAGE = 100;\nthis.view = renderResultViewer; this.download = downloadResult;", ctx);
   return { ctx, calls, toasts };
@@ -3925,7 +3963,7 @@ test("a result the kernel no longer holds says to run the cell again; downloads 
   assert.deepStrictEqual(plain(calls[1]), ["notebook_frame_download", { frame: "f1", format: "xlsx", name: "Sales", notebook: "Sales" }]);
   assert.deepStrictEqual(plain(toasts.at(-1)), ["Saved 5,000 rows to C:\\Users\\me\\Downloads\\Sales result.xlsx", false]);
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
-  assert.match(nb, /if \(o\.view === "table" && o\.frame\) \{\n    renderResultViewer\(o, wrap, bar, numeric, count\);/);
+  assert.match(nb, /if \(o\.view === "table" && o\.frame\) \{\n    renderResultViewer\(o, wrap, bar, numeric, count, redraw\);/);
   assert.match(nb, /previewMarked\("resultViewer", menu\)/);
 });
 
@@ -5883,7 +5921,8 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
       "Databricks workspace discovery", "Connection profiles in Settings",
       "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
       "Databricks workspace sync", "Databricks Asset Bundles in Source control"],
-    embedStudio: ["Embed Studio"],
+    embedStudio: ["Embed Studio"], sqlStatements: ["Several statements in one run"], sqlParams: ["Query parameters"],
+    sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {

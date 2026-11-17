@@ -69,6 +69,24 @@ These cases can still differ, and LOC-005 notes them:
 | `div` whose quotient is past the BIGINT range | Wraps around (ANSI off) | NULL |
 | ANSI mode on | A division by zero is an error | NULL |
 
+## Local T-SQL changes
+
+When a project runs T-SQL on this PC, `MERGE`, `UPDATE`, `DELETE` and `INSERT` on a database table give a warehouse's rows, or stop by name. Each case below is checked against T-SQL's reference.
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| `MERGE` with `WHEN MATCHED`, `WHEN NOT MATCHED [BY TARGET]` and `WHEN NOT MATCHED BY SOURCE` | The same rows. The result is the number of rows inserted, updated and deleted, as `@@ROWCOUNT` would be |
+| A `MERGE` in which more than one source row would update or delete the same row | Refused with T-SQL's words, "The MERGE statement attempted to UPDATE or DELETE the same row more than once", and nothing changes. A source row that a `WHEN MATCHED ... AND` condition leaves out doesn't count, and source rows that are inserted can repeat |
+| `UPDATE t SET ... FROM dbo.a AS t JOIN dbo.b AS s ON ...` and `DELETE t FROM dbo.a AS t JOIN ...` | The table named in `FROM` is the one changed, and each inner join is a filter on it, so only the rows that join change |
+| `UPDATE dbo.a SET ... FROM dbo.a JOIN dbo.b ON ...` | The `dbo.a` in `FROM` is the table being changed, not a second copy of it, so rows that don't join stay as they are |
+| `INSERT`, `UPDATE`, `DELETE` | The result is the number of rows changed |
+
+What can still differ:
+
+- An `UPDATE ... FROM` in which a row of the table joins more than one row is refused. T-SQL takes the value from any one of them, and here that choice isn't made for you. Keep one row per key in `FROM`, or use a `MERGE`.
+- `OUTPUT` and `@@ROWCOUNT` are refused by name. Each statement's row count is its result instead.
+- An `UPDATE` or `DELETE` whose `FROM` has an outer join (`LEFT`, `RIGHT`, `FULL`), `JOIN ... USING`, or the changed table after another one, is refused by name.
+- On one of the project's Delta tables, `MERGE`, `UPDATE` and `DELETE` run through delta-rs, which has its own rules: see [Local data](local-data.md).
 ## Local T-SQL ordering and window functions
 
 When a project runs T-SQL on this PC, NULLs, ties and window functions give a warehouse's answers. Each case below is checked against T-SQL's reference.
@@ -294,6 +312,31 @@ When a project runs T-SQL on this PC, these are checked against T-SQL's referenc
 | `ISNULL(a, b)`, `COALESCE(a, b)` | `ISNULL` takes `a`'s type, so `b` is converted to it: `ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')` is `'ab'`, and `ISNULL(int_column, 2.7)` is `2`. `COALESCE` takes the type that ranks highest: `2.7` and `'abcd'` |
 | `CAST`, `TRY_CAST` | A value that doesn't convert stops `CAST` and is `NULL` with `TRY_CAST`. A decimal or float to an integer is cut toward zero, and a decimal to a narrower decimal rounds |
 | `ROUND` | Keeps its value's type: `ROUND(150.75, 0)` is `151.00`, `ROUND(748.58, -1)` is `750.00`, and `ROUND(150.75, 0, 1)` cuts to `150.00`. A result that no longer fits the type stops with "Arithmetic overflow error" (`ROUND(748.58, -3)`, `ROUND(999.5, 0)`) |
+
+## Local T-SQL names, schemas and views
+
+When a project runs T-SQL on this PC, names resolve as in a Fabric Warehouse, and a name that can't resolve here is refused by name, never answered from another table.
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| `t`, `dbo.t`, `[dbo].[t]`, `"dbo"."t"` | The project's table. A name without a schema means `dbo`: `SELECT * FROM t` reads `dbo.t`, and if there's no `dbo.t` but another schema has a `t`, it stops with "Invalid object name 't'" and names that schema, where it used to read the other table |
+| `CREATE SCHEMA`, `DROP SCHEMA` | As in a warehouse. A schema with tables in it isn't dropped |
+| `CREATE VIEW`, `CREATE OR ALTER VIEW`, `ALTER VIEW`, `DROP VIEW` | As in a warehouse. `ALTER VIEW` changes a view that's there, and stops with "Invalid object name" otherwise. A name without a schema in a view's query is bound to `dbo` when the view is made, as T-SQL binds it |
+| A view whose table was dropped | Stops with an error when it's read |
+| `INFORMATION_SCHEMA.TABLES`, `.COLUMNS` | List the project's tables and columns, with a note: `TABLE_CATALOG` names the local database, not the warehouse, and some columns differ |
+
+Refused by name:
+
+- Three-part names (`otherwarehouse.dbo.t`, `mylakehouse.dbo.t`): on this PC a project is one database, so another warehouse or a lakehouse's SQL analytics endpoint can't be named. Write `dbo.t` for the project's own table.
+- Four-part names (`server.db.dbo.t`), which a warehouse doesn't take either: it has no linked servers.
+- `sys` catalog views (`sys.objects`, `sys.tables`). Use `INFORMATION_SCHEMA`.
+- `CREATE SCHEMA ... AUTHORIZATION`, since the local engine has no users to own a schema, and `CREATE VIEW ... WITH SCHEMABINDING`.
+
+What can still differ:
+
+- A view made with `SELECT *` picks up columns added to its table later. In a warehouse its columns stay as they were until the view is altered.
+- `ALTER VIEW` on a view made earlier in the same script stops with "Invalid object name": the check reads the views that were there when the script started.
+- A name with a schema that a warehouse doesn't have, such as DuckDB's `main`, still runs here.
 
 ## Local T-SQL security and session settings
 

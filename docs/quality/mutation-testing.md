@@ -5074,3 +5074,203 @@ No bugs were found.
 ### Left
 
 None.
+
+# Mutation testing, batch 72
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- The run logs on this PC that grow one line at a time and trim themselves (`runlog.py`).
+- Copy jobs from a Fabric workspace: the list, the definition and the runs (`workspace_copy_jobs_service.py`).
+- Who can read what: the workspace access review, OneLake data access roles and who can read a table (`access.py`).
+
+The run was at `main` 4c0ab9a0e (2026-11-17), with `sidecar/tools/mutate.py` and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used, and no test in these sets reads `docs/`, `examples/` or `app/`. `timeutil.py` and `workspace_pipelines_service.py` were also run and already scored 100% (16/16 and 12/12), so they are not in the table.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `runlog.py` | test_local_retention_gaps, test_local_schedules_mutation (+ test_runlog_mutation) | 23 of 23 (21 + 2) | 7 / 16 | **30.4%** | 7/21 → 21/21 | 0/2 → 2/2 | 23 / 0 | **100%** | none |
+| `workspace_copy_jobs_service.py` | test_workspace_copy_jobs (+ test_workspace_copy_jobs_mutation) | 9 of 9 (9 + 0) | 8 / 1 | **88.9%** | 8/9 → 9/9 | none | 9 / 0 | **100%** | none |
+| `access.py` | test_access_cache, test_access_cache_service_edges, test_access_cache_service_mutation, test_estate, test_estate_service_edges, test_fail_closed, test_shortcut_center, test_shortcut_fixes (+ test_access_mutation) | 84 of 84 (84 + 0) | 75 / 9 | **89.3%** | 75/84 → 84/84 | none | 84 / 0 | **100%** | none |
+
+One bug was found, in `access.py`, and filed as #2819: a data access role name ending in a line break passes the name check, though a role name is letters and digits only. A strict xfail pins it: `test_a_role_name_ending_in_a_line_break_is_refused`. Whoever fixes #2819 drops that xfail in the same PR.
+
+### What the survivors were, and the tests that now kill them
+
+- **runlog.py**:
+  - The default sizes are 8 MB and 10,000 rows.
+  - A log in folders that don't exist yet is created with them.
+  - A file exactly at the trim size is left alone; one row over it keeps half of it by default, the newest rows.
+  - Rows that add up to exactly the size kept are all kept, and one byte less keeps one row fewer.
+  - The row limit wins when it is smaller, and the newest row is kept even when it alone is over the size kept.
+  - → `test_runlog_mutation.py`.
+- **workspace_copy_jobs_service.py**:
+  - The newest 50 runs are listed: 49 and 50 are listed whole, and 51 or more are cut to the first 50.
+  - → `test_workspace_copy_jobs_mutation.py`.
+- **access.py**:
+  - A person is named by display name, then email, then id, and a guest account is recognised in any letter case.
+  - Which review notes each person gets, in Prod and Dev, and that people with notes come first, then users, then by name.
+  - A role's paths come only from its Permit rules about paths.
+  - How a read role is built, which names, paths and member lists are refused, and that an edited role keeps its item members.
+  - Which role paths reach a table: a path that only starts the same way doesn't.
+  - Which answers mean OneLake security is off, and who can read a table and why.
+  - → `test_access_mutation.py`.
+
+### Left
+
+None.
+
+# Mutation testing, batch 73
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- The decision patterns reader, which turns the decision patterns page into what the app ships (`learn/patterns.py`).
+- Which of a notebook's cells a run runs, and waiting for each cell (`notebook_cells.py`).
+- The Workspaces page previews: where a previewed file goes on this PC and which files are refused (`preview_service.py`).
+
+The run was at `main` 21f72ad25 (2026-11-17), with `sidecar/tools/mutate.py` and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used. The test file that checks `learn/patterns.py`, `test_decision_patterns.py`, reads `docs/`, so it was left out; the "before" run for that module used `test_notebook_cells.py`, which doesn't reach it, so its "before" score is 0. The new tests use small pages of their own and don't read `docs/`. `test_state_writes.py`, which lists the module's file write, also reads `docs/` and was left out too.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `learn/patterns.py` | test_notebook_cells (+ test_learn_patterns_mutation) | 21 of 21 (21 + 0) | 0 / 21 | **0%** | 0/21 → 21/21 | none | 21 / 0 | **100%** | none |
+| `notebook_cells.py` | test_notebook_cells, test_integrations_executions_mutation, test_pipeline_notebooks_edges, test_replay_edges, test_meaningful_diffs (+ test_notebook_cells_mutation) | 32 of 32 (32 + 0) | 29 / 3 | **90.6%** | 29/32 → 32/32 | none | 32 / 0 | **100%** | none |
+| `preview_service.py` | test_preview, test_audit (+ test_preview_service_mutation) | 26 of 26 (25 + 1) | 18 / 8 | **69.2%** | 18/25 → 25/25 | 0/1 → 1/1 | 26 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **learn/patterns.py**:
+  - Each `### DP-nn` section gives its title, body, language and example, and a section ends at the next `##` heading or at the end of the page.
+  - Only an id of two digits on a line of its own starts a pattern.
+  - A section with no bold title line uses its id as the title, and one with no example has an empty language and example. A bold line that isn't first, or has words after it, isn't the title.
+  - Only the first fenced block is the example, and a fence with no language keeps its example.
+  - A list item wrapped with two spaces joins its line; a deeper indent doesn't. One blank line stays, and two or more become one.
+  - `build` reads the page from the folder it's given and sorts by id, `load` reads the shipped file next to the module, and run as a script it writes the patterns next to itself, sorted, with a one-space indent and without escaping non-ASCII text.
+  - → `test_learn_patterns_mutation.py`.
+- **notebook_cells.py**:
+  - The first poll asks from version -1, and a snapshot with no version keeps the last one asked.
+  - A cell that finished or was stopped with no outputs gives an empty list, a cell stopped at once keeps the outputs it started with, and a last snapshot with no outputs gives the ones seen before it.
+  - → `test_notebook_cells_mutation.py`.
+- **preview_service.py**:
+  - A previewed file keeps its extension only when it is one to ten letters or digits.
+  - A destination outside the preview's own folder is refused.
+  - A file exactly at the size limit is read, and one byte over isn't.
+  - A path outside `Files/`, or with a `..` step, is refused before anything is downloaded; dots that are part of a name are allowed.
+  - Each preview gets a folder of its own, removed when the preview is read, when reading fails, and when the download stops at the limit. A download that fails before its folder exists still says why.
+  - A table preview attaches the lakehouse before reading the table, and a notebook preview asks for the notebook's `ipynb` definition.
+  - → `test_preview_service_mutation.py`.
+
+### Left
+
+None.
+
+# Mutation testing, batch 74
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- What Windows' application control refuses to load, and the line an error gets when it does (`app_control.py`).
+- The Warehouse page's Monitoring tab: finding the monitoring database, a view, and building the monitoring querysets (`warehouse_monitoring_service.py`).
+- Set up for VS Code: the files it plans and writes into a repository (`vscode_setup.py`).
+
+The run was at `main` 238a53d35 (2026-11-17), with `sidecar/tools/mutate.py` and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used, and no test in these sets reads `docs/`, `examples/` or `app/`. `test_vscode_setup.py` also reaches `vscode_setup.py` but reads `docs/`, so it was left out, which can only lower that module's "before" score.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `app_control.py` | test_app_control, test_app_control_policy, test_windows_folders_and_app_control_edges (+ test_app_control_mutation) | 73 of 73 (70 + 3) | 65 / 8 | **89.0%** | 63/70 → 70/70 | 2/3 → 3/3 | 73 / 0 | **100%** | none |
+| `warehouse_monitoring_service.py` | test_warehouse_monitoring, test_warehouse_monitoring_build_again (+ test_warehouse_monitoring_service_mutation) | 64 of 64 (63 + 1) | 49 / 15 | **76.6%** | 49/63 → 63/63 | 0/1 → 1/1 | 64 / 0 | **100%** | none |
+| `vscode_setup.py` | test_vscode_setup_edges (+ test_vscode_setup_mutation) | 33 of 33 (33 + 0) | 12 / 21 | **36.4%** | 12/33 → 32/33 | none | 32 / 1 | **97.0%** | 1 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **app_control.py**:
+  - The file is mapped with the flag that skips its dependencies (1), and the kernel32 handle keeps the last error.
+  - The scan checks at most 5,000 binaries.
+  - The 20th error in a chain is read and the 21st is not, and an error raised while handling another is followed to the reason.
+  - An import names the package without its leading underscore.
+  - An engine inside the folder the engine_folder policy names is not the person's own.
+  - → `test_app_control_mutation.py`.
+- **warehouse_monitoring_service.py**:
+  - A queryset is the app's only when its description starts and ends as the app's does.
+  - At most 10 databases are tried, names ending in `_Database` first, then by name.
+  - The first probe row gives when and how many; no rows is monitored with nothing seen.
+  - The views are listed once monitoring is found, not before, and at most three problems are reported.
+  - A view with nothing recorded yet is empty and not cut short; one that fails for another reason says so.
+  - 100 warehouses are built and 101 refused; a created queryset keeps the id Fabric gave it, or an empty one when Fabric gives none.
+  - A remembered workspace is added to the ones already there.
+  - → `test_warehouse_monitoring_service_mutation.py`.
+- **vscode_setup.py**:
+  - JSON files are indented two spaces and end with a line break, and each file has its text.
+  - The problem matcher reads each group of a finding, and the Problems panel is cleared.
+  - A plan tells new, the same and already there apart, a folder where a file would go included, and counts the new ones.
+  - Only a list of the listed files is accepted.
+  - Files are written into folders that don't exist yet or already do.
+  - → `test_vscode_setup_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `vscode_setup.py` | 125 | `state == "exists" and path.is_file()` to `or` | Equivalent: a path that isn't there isn't a file, so `or` gives the same answer for a new file; for a folder that is there, reading it fails, the error is caught and the state stays "exists", as it does when the read is skipped. |
+
+# Mutation testing, batch 75
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- Sorting, filtering and column statistics on a SQL result as the grid shows it (`sql_view.py`).
+- Notebook export to Downloads, import from a picked file, the page to print and the read-only report (`notebook_formats_service.py`).
+- The semantic model best practices check: its notebook, run parameters, saved errors and findings (`model_bpa.py`).
+
+The run was at `main` 8b8919a18 (2026-11-17), with `sidecar/tools/mutate.py` and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used. `test_sql_exec.py` reads `app/`, so it was left out of the `sql_view.py` set; no other test in these sets reads `docs/`, `examples/` or `app/`.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `sql_view.py` | test_sql_view, test_regex_anchors (+ test_sql_view_mutation) | 115 of 115 (107 + 8) | 106 / 9 | **92.2%** | 101/107 → 107/107 | 5/8 → 8/8 | 115 / 0 | **100%** | none |
+| `notebook_formats_service.py` | test_notebook_formats_service_edges, test_notebook_report, test_notebook_formats, test_chart_libraries (+ test_notebook_formats_service_mutation) | 124 of 124 (121 + 3) | 100 / 24 | **80.6%** | 100/121 → 120/121 | 0/3 → 3/3 | 123 / 1 | **99.2%** | 1 equivalent |
+| `model_bpa.py` | test_model_bpa, test_fips, test_not_set_up (+ test_model_bpa_mutation) | 36 of 36 (36 + 0) | 27 / 9 | **75.0%** | 27/36 → 36/36 | none | 36 / 0 | **100%** | none |
+
+No bug was found.
+
+### What the survivors were, and the tests that now kill them
+
+- **sql_view.py**:
+  - At most three sort keys are read, and a fourth is ignored even when it names a column the result lacks.
+  - A duration column is filtered as its text, not refused as a date.
+  - A filter of exactly 200 characters is read, and 201 is refused.
+  - A filter or sort on the position just past the last column is refused as a column the result doesn't have, even when the filter box is empty.
+  - The distinct count is never above the rows that have a value, and a missing count reads as 0.
+  - → `test_sql_view_mutation.py`.
+- **notebook_formats_service.py**:
+  - A report is at most 64 MB, and a page exactly at the limit is kept while one byte more is refused, keeping the report from before.
+  - An archive exactly at its size limit is read, and one character more is refused.
+  - A free notebook name is looked for up to number 9999, both when checking and when importing; a free file name in Downloads up to number 999, for an export and for a report.
+  - An imported notebook is written as ipynb JSON indented by one space.
+  - Notes are kept under the name of the notebook they belong to.
+  - A failed write whose file is already gone keeps the write's own error.
+  - The page to print and the report need a list of cells: a tuple, or a list holding text, is refused.
+  - The run line is at most 200 characters.
+  - → `test_notebook_formats_service_mutation.py`.
+- **model_bpa.py**:
+  - The check notebook is nbformat 4.5.
+  - The notebook hash doesn't depend on key order.
+  - A saved error's type is capped at 200 characters.
+  - A finding with empty, missing or other empty-valued fields reads them as empty text, and filled fields keep their text.
+  - → `test_model_bpa_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it stays |
+| --- | --- | --- | --- |
+| `notebook_formats_service.py` | 83 | `strict=True` to `strict=False` in `notebook_formats_import_check` | Equivalent: the names are made one for each notebook of the same list, so both sides always have the same length. |

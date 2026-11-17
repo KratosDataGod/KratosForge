@@ -223,7 +223,7 @@ def from_platform(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _key(k: str) -> str:
-    return k if _BARE_KEY.match(k) else _str(k)
+    return k if _BARE_KEY.fullmatch(k) else _str(k)
 
 
 def _str(v: str) -> str:
@@ -281,7 +281,7 @@ def to_files(defs: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, Any]]
     refused = []
     for kind, folder in FOLDERS.items():
         for ident, rec in sorted((defs[kind] or {}).items()):
-            if not _FILE_NAME.match(ident) or ".." in ident:
+            if not _FILE_NAME.fullmatch(ident) or ".." in ident:
                 refused.append({"kind": kind, "id": ident, "why": "its name can't be a file name"})
                 continue
             files[f"{folder}/{ident}.toml"] = dumps(rec, _HEADER)

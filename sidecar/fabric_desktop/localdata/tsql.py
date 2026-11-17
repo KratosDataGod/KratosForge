@@ -111,6 +111,9 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
                 continue
             _refuse(tree)
             _temp_tables(tree)
+            _joined_changes(tree)
+            tree = _views(tree, columns)
+            notes += _names(tree, columns)
             _table_columns(tree)
             for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
                 parts.replace(_timefromparts(parts))
@@ -156,6 +159,79 @@ class KfTSQL(TSQL):
                                                     expression=exp.Literal.number(2))}
 
 
+def _refuse_output(batch: str) -> None:
+    """T-SQL's OUTPUT clause names the rows a change wrote as ``inserted`` and ``deleted``. sqlglot reads it as
+    RETURNING, which can't name either, so DuckDB stopped with its own binder error, or the query didn't read at
+    all (DELETE ... OUTPUT). It is refused by name instead. OUTPUT is a reserved word in T-SQL, so a column called
+    output is always bracketed or quoted, and isn't refused."""
+    if "OUTPUT" not in batch.upper():
+        return
+    try:
+        tokens = KfTSQL().tokenize(batch)
+    except SqlglotError:
+        return  # left to the parser, which says what it can't read
+    if any(t.token_type == TokenType.RETURNING and t.text.upper() == "OUTPUT" for t in tokens):
+        raise ValueError(_NOT_YET + "OUTPUT isn't mapped yet: run the INSERT, UPDATE, DELETE or MERGE, then SELECT "
+                         "the rows it changed.")
+
+
+def _joined_changes(tree: exp.Expression) -> None:
+    """T-SQL names the table an UPDATE or DELETE changes in its FROM: ``UPDATE t SET ... FROM dbo.a AS t JOIN dbo.b
+    AS s ON ...``, ``DELETE t FROM dbo.a AS t JOIN ...``. DuckDB names it once, after UPDATE or DELETE FROM, with
+    the other tables in FROM (UPDATE) or USING (DELETE): ``UPDATE dbo.a AS t SET ... FROM dbo.b AS s WHERE ...``.
+    Each JOIN becomes a filter in WHERE, which gives the same rows for an inner join. Read as written, DuckDB
+    stopped (alias not found), or joined the table to itself and changed every row."""
+    if isinstance(tree, exp.Update):
+        what, named, source = "UPDATE", tree.this, tree.args.get("from_")
+    elif isinstance(tree, exp.Delete) and tree.args.get("tables"):
+        what, named, source = "DELETE", tree.args["tables"][0], exp.From(this=tree.this)
+    else:
+        return
+    if not isinstance(source, exp.From) or not isinstance(named, exp.Table) or not isinstance(source.this, exp.Table):
+        return
+    first: exp.Table = source.this
+    joins = first.args.get("joins") or []
+    items = [first] + [j.this for j in joins]
+
+    def is_target(item: exp.Expression) -> bool:
+        if not isinstance(item, exp.Table):
+            return False
+        if item.alias:
+            return not named.db and named.name.lower() == item.alias.lower()
+        return named.name.lower() == item.name.lower() and (named.db or "dbo").lower() == (item.db or "dbo").lower()
+
+    found = [i for i, item in enumerate(items) if is_target(item)]
+    if not found:
+        if what == "DELETE":  # DELETE dbo.a FROM dbo.b AS s WHERE dbo.a.id = s.id: the other tables are its USING
+            tree.set("this", named.copy())
+            tree.set("tables", None)
+            tree.set("using", [first.copy()])
+        return  # UPDATE dbo.a SET ... FROM dbo.b AS s WHERE ...: DuckDB reads it as T-SQL does
+    if found != [0]:
+        raise ValueError(_NOT_YET + f"{what} isn't mapped yet when the table it changes isn't the first one in FROM: "
+                         "name it first, as FROM table AS t JOIN ...")
+    if any(j.side or (j.kind and j.kind.upper() not in ("INNER", "CROSS")) for j in joins):
+        raise ValueError(_NOT_YET + f"{what} isn't mapped yet with an outer join (LEFT, RIGHT or FULL JOIN) in its "
+                         "FROM: use WHERE [NOT] EXISTS (...), or a MERGE.")
+    filters = [j.args["on"] for j in joins if j.args.get("on") is not None]
+    if any(j.args.get("using") for j in joins):
+        raise ValueError(_NOT_YET + f"{what} isn't mapped yet with JOIN ... USING in its FROM: use JOIN ... ON.")
+    where = tree.args.get("where")
+    if where is not None:
+        filters.append(where.this)
+    target = first.copy()
+    target.set("joins", None)
+    others = [j.this.copy() for j in joins]
+    tree.set("where", exp.Where(this=exp.and_(*[exp.paren(f.copy(), copy=False) for f in filters])) if filters else None)
+    if what == "UPDATE":
+        tree.set("this", target)
+        if others:
+            others[0].set("joins", [exp.Join(this=o) for o in others[1:]] or None)
+        tree.set("from_", exp.From(this=others[0]) if others else None)
+    else:
+        tree.set("this", target)
+        tree.set("tables", None)
+        tree.set("using", others or None)
 # T-SQL's reserved words for control flow and cursors: sqlglot read them as a column (RETURN) or a column with an
 # alias (GOTO x), which reached DuckDB as a syntax error.
 _RESERVED_STATEMENTS = {"RETURN": "RETURN", "BREAK": "BREAK", "CONTINUE": "CONTINUE", "GOTO": "GOTO",
@@ -286,10 +362,27 @@ def _refuse_session_options(batch: str) -> None:
         raise ValueError(_NOT_YET + f"SET {option} isn't mapped yet. Remove it, or run it in a Fabric Warehouse.")
 
 
+def _schema_authorization(batch: str) -> bool:
+    """CREATE SCHEMA name AUTHORIZATION owner, read by tokens, so a string that holds the words isn't refused."""
+    if "AUTHORIZATION" not in batch.upper():
+        return False
+    try:
+        tokens = KfTSQL().tokenize(batch)
+    except SqlglotError:
+        return False  # _parse reports it
+    words = [t.text.upper() if t.token_type != TokenType.STRING else "" for t in tokens]
+    return any(words[i:i + 2] == ["CREATE", "SCHEMA"] and i + 3 < len(words) and words[i + 3] == "AUTHORIZATION"
+               for i in range(len(words)))
+
+
 def _parse(batch: str) -> list[exp.Expression]:
     _refuse_security(batch)
     _refuse_session_options(batch)
+    if _schema_authorization(batch):
+        raise ValueError(_NOT_YET + "CREATE SCHEMA ... AUTHORIZATION isn't mapped yet: the local engine has no "
+                         "users to own a schema. Use CREATE SCHEMA name, or run it in a Fabric Warehouse.")
     _refuse_dbcc(batch)
+    _refuse_output(batch)
     _refuse_control(batch)
     unsupported: list[str] = []
 
@@ -368,6 +461,111 @@ def _refuse(tree: exp.Expression) -> None:
     for p in tree.find_all(exp.Parameter, exp.SessionParameter):
         name = p.sql(dialect="tsql")
         raise ValueError(f"The local engine doesn't run T-SQL variables ({name}) yet. {_LATER}")
+
+
+_SYSTEM_SCHEMAS = {"sys"}
+_INFORMATION_NOTE = ("INFORMATION_SCHEMA lists this project's local database as DuckDB describes it: TABLE_CATALOG "
+                     "names the local database, not the warehouse, and some columns a warehouse has aren't there.")
+
+
+def _names(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] | None) -> list[str]:
+    """Names as a Fabric Warehouse resolves them, or refused by name, so a query never reads the wrong table.
+
+    - ``warehouse.dbo.t`` (another warehouse or a lakehouse's SQL analytics endpoint) is refused: a project on
+      this PC is one database. ``server.db.dbo.t`` is refused too; a warehouse has no linked servers.
+    - ``sys.objects`` and the other catalog views are refused; INFORMATION_SCHEMA runs, with a note.
+    - A name without a schema means dbo in T-SQL. DuckDB also looked in main, so ``SELECT * FROM m`` read main.m
+      where a warehouse says "Invalid object name 'm'"; it is refused when dbo has no such table and another
+      schema has. (A table the script makes before it reads it isn't known yet, and is left to DuckDB.)"""
+    ctes = {cte.alias_or_name.lower() for cte in tree.find_all(exp.CTE)}
+    made = tree.this.this if isinstance(tree, exp.Create) and isinstance(tree.this, exp.Schema) else \
+        tree.this if isinstance(tree, exp.Create) else None
+    known = {s.lower(): {t.lower() for t in tables} for s, tables in (columns or {}).items()}
+    notes: list[str] = []
+    for table in tree.find_all(exp.Table):
+        if isinstance(table.this, exp.Dot):
+            parts = table.this
+            last = parts.expression.name if isinstance(parts.expression, exp.Identifier) else table.name
+            schema_part = parts.this.name if isinstance(parts.this, exp.Identifier) else "dbo"
+            raise ValueError(_NOT_YET + f"four-part names ({table.sql(dialect='tsql')}) aren't supported in a Fabric "
+                             f"Warehouse either, because it has no linked servers. Write {schema_part}.{last} for this "
+                             "project's table.")
+        if not isinstance(table.this, exp.Identifier):
+            continue  # a table function
+        name, schema = table.name, table.db
+        if table.catalog:
+            raise ValueError(_NOT_YET + f"three-part names ({table.catalog}.{schema}.{name}) aren't mapped yet: on "
+                             "this PC a project is one database, so another warehouse or a SQL analytics endpoint "
+                             f"can't be named. Write {schema or 'dbo'}.{name} for this project's table, or run it in a "
+                             "Fabric Warehouse.")
+        if schema.lower() in _SYSTEM_SCHEMAS:
+            raise ValueError(_NOT_YET + f"catalog views ({schema}.{name}) aren't mapped yet. "
+                             "INFORMATION_SCHEMA.TABLES and INFORMATION_SCHEMA.COLUMNS list the project's tables and "
+                             "columns.")
+        if schema.lower() == "information_schema":
+            notes.append(_INFORMATION_NOTE)
+            continue
+        if schema or table is made or name.startswith("#") or name.lower() in ctes or not known \
+                or _names_its_alias(tree, table):
+            continue
+        if name.lower() in known.get("dbo", set()):
+            continue
+        elsewhere = sorted(s for s, tables in known.items() if name.lower() in tables and s != "information_schema")
+        if elsewhere:
+            raise ValueError(f"Invalid object name '{name}': a name without a schema is looked for in dbo, as in "
+                             f"T-SQL, and there's no dbo.{name}. Write {elsewhere[0]}.{name} for the one in "
+                             f"{elsewhere[0]}.")
+    return notes
+
+
+def _names_its_alias(tree: exp.Expression, table: exp.Table) -> bool:
+    """True for T-SQL's ``UPDATE x ... FROM dbo.t AS x`` and ``DELETE x FROM dbo.t AS x``: the x after UPDATE or
+    DELETE names an alias in the statement's own FROM, not a table. Only that target, with no alias of its own."""
+    if table.alias or table.db:
+        return False
+    if isinstance(tree, exp.Update) and table is tree.this:
+        source = tree.args.get("from_")
+        first = source.this if isinstance(source, exp.From) else None
+    elif isinstance(tree, exp.Delete) and any(table is t for t in tree.args.get("tables") or []):
+        first = tree.this
+    else:
+        return False
+    if not isinstance(first, exp.Table):
+        return False
+    aliases = {t.alias.lower() for t in [first, *(j.this for j in first.args.get("joins") or [])]
+               if isinstance(t, exp.Table) and t.alias}
+    return table.name.lower() in aliases
+
+
+def _views(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] | None) -> exp.Expression:
+    """``ALTER VIEW v AS ...`` as ``CREATE OR REPLACE VIEW`` (DuckDB has no ALTER VIEW ... AS), once v is known to
+    be there. In a view's query a name without a schema is written as dbo.name, as T-SQL binds it when the view is
+    made: DuckDB binds a view's names each time it's read, so it could later read another schema's table."""
+    if isinstance(tree, exp.Alter) and (tree.args.get("kind") or "").upper() == "VIEW":
+        actions = tree.args.get("actions") or []
+        if len(actions) != 1 or not isinstance(actions[0], exp.Query):
+            raise ValueError(_NOT_YET + "this ALTER VIEW isn't mapped yet. Use ALTER VIEW name AS SELECT ...")
+        target = tree.this
+        known = {s.lower(): {t.lower() for t in tables} for s, tables in (columns or {}).items()}
+        if columns is not None and target.name.lower() not in known.get((target.db or "dbo").lower(), set()):
+            raise ValueError(f"Invalid object name '{target.db or 'dbo'}.{target.name}': ALTER VIEW changes a view "
+                             "that's there. Use CREATE VIEW, or CREATE OR ALTER VIEW.")
+        tree = exp.Create(this=target, kind="VIEW", replace=True, expression=actions[0])
+    if not (isinstance(tree, exp.Create) and (tree.args.get("kind") or "").upper() == "VIEW"):
+        return tree
+    props = tree.args.get("properties")
+    for prop in (props.expressions if isinstance(props, exp.Properties) else []):
+        if isinstance(prop, exp.ViewAttributeProperty):
+            raise ValueError(_NOT_YET + f"CREATE VIEW ... WITH {prop.name.upper()} isn't mapped yet. Remove it, or "
+                             "run it in a Fabric Warehouse.")
+    query = tree.expression
+    if isinstance(query, exp.Expression):
+        ctes = {cte.alias_or_name.lower() for cte in query.find_all(exp.CTE)}
+        for table in query.find_all(exp.Table):
+            if isinstance(table.this, exp.Identifier) and not table.db and not table.name.startswith("#") \
+                    and table.name.lower() not in ctes:
+                table.set("db", exp.to_identifier("dbo"))
+    return tree
 
 
 def _temp_tables(tree: exp.Expression) -> None:

@@ -341,7 +341,7 @@ class CloudMixin:
         index = fabric_step.step_index(cells)
         if index is None:
             raise ValueError(f"No cell in {name} is marked Run on Fabric.")
-        if not lakehouse_ref or not all(_GUID.match(str(lakehouse_ref.get(k) or "")) for k in ("workspace_id", "lakehouse_id")):
+        if not lakehouse_ref or not all(_GUID.fullmatch(str(lakehouse_ref.get(k) or "")) for k in ("workspace_id", "lakehouse_id")):
             raise ValueError("Fabric can't reach this notebook's lakehouse. Attach a OneLake lakehouse to run "
                              "the last cell on Fabric. Nothing was sent.")
         return {"index": index, "item_name": fabric_step.step_name(name),

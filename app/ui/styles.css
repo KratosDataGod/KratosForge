@@ -797,6 +797,55 @@ h2.flush { margin: 0; }
 .sql-practice .link-btn { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
 .sql-practice-sev.error { color: var(--danger); } .sql-practice-sev.warning { color: var(--warn-strong); } .sql-practice-sev.info { color: var(--accent); }
 .sql-compat-note { margin: 0; font-size: 12px; }
+/* S14: a result tab for each statement of a run with several, and why a run stopped */
+.sql-rtabs-row { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.sql-rtabs-row[hidden] { display: none; }
+.sql-rtabs-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sql-rtabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.sql-rtab { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 10px; border: 1px solid var(--border-input); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.sql-rtab.on { border-color: var(--accent); background: var(--accent-soft-2); font-weight: 600; }
+.sql-rtab.bad { border-color: var(--danger-border); color: var(--danger); }
+.sql-rtab.skip { border-style: dashed; color: var(--muted); }
+.sql-rtab.busy { color: var(--text-2); }
+.sql-stop-note { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--warn-soft-4); color: var(--warn-ink); font-size: 13px; }
+.sql-stop-note .row { display: flex; flex-wrap: wrap; gap: 8px; }
+/* S27: the result history, and an earlier result shown again */
+.sql-history { overflow: auto; }
+.sql-history-list { width: 100%; border-collapse: collapse; font-size: 13px; }
+.sql-history-list th, .sql-history-list td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
+.sql-history-list th { font-size: 12px; font-weight: 600; color: var(--text-2); }
+.sql-history-list td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sql-history-list tr.on td { background: var(--accent-soft-2); }
+.sql-history-list .link-btn { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; text-align: left; }
+.sql-history-list .sql-chip { margin-left: 6px; }
+.sql-history-list .sql-pin-cell { white-space: nowrap; }
+.sql-history-list .sql-pin { margin-right: 8px; color: var(--warn-strong); font-weight: 600; }
+.sql-old-note { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--accent-soft-2); color: var(--accent); font-size: 13px; }
+.sql-old-note .row { display: flex; flex-wrap: wrap; gap: 8px; }
+/* S17: query parameters */
+.sql-params { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.sql-params[hidden] { display: none; }
+.sql-params h3 { margin: 0; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.sql-param-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.sql-param-fields label { display: flex; flex-direction: column; gap: 3px; }
+.sql-param-fields .sql-param-name { font-weight: 600; font-family: var(--mono, monospace); }
+.sql-param-fields .f { display: flex; gap: 6px; }
+.sql-param-fields .f input { flex: 1; min-width: 0; }
+.sql-param-fields input, .sql-param-fields select { padding: 5px 8px; border: 1px solid var(--border-input); border-radius: var(--r-sm); background: var(--surface); color: var(--text); font: inherit; }
+.sql-param-fields input[aria-invalid="true"] { border-color: var(--danger); }
+.sql-params .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sql-param-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 10px; border: 1px solid var(--border-input); border-radius: 999px; font-size: 12.5px; }
+.sql-param-chip[hidden] { display: none; }
+.sql-param-chip .link-btn { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
+/* S38: .sql files on this PC */
+.sql-file-row { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--border); }
+.sql-file-chip { display: inline-flex; align-items: center; min-height: 24px; padding: 0 10px; border: 1px solid var(--border-input); border-radius: 999px; font-size: 12px; max-width: 100%; overflow-wrap: anywhere; }
+.sql-disk-note { flex-basis: 100%; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--warn-soft-2); color: var(--warn); font-size: 13px; }
+.sql-disk-note[hidden] { display: none; }
+.sql-disk-note .row { display: flex; flex-wrap: wrap; gap: 8px; }
+.sql-dirty { display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--text-2); vertical-align: middle; }
+.sql-dirty[hidden] { display: none; }
 .sql-local-note { flex-basis: 100%; padding: 6px 10px; border-radius: var(--r-sm); background: var(--warn-soft-4); color: var(--warn-ink); font-size: 12.5px; }
 /* WH-01: the Warehouse page */
 .sql-target-note { font-size: 13px; color: var(--text-2); }
@@ -1024,11 +1073,11 @@ h2.flush { margin: 0; }
 /* The grid's selection, and the value viewer or a column's statistics beside it (sqlgrid.js). */
 .sql-grid-row { flex: 1; display: flex; min-height: 120px; }
 .sql-grid-row > .sql-grid { min-width: 0; }
-.sql-grid .sql-result-table { outline: none; }
-.sql-grid .sql-result-table tbody td:not(.i) { cursor: cell; user-select: none; }
-.sql-grid td.sel { background: var(--accent-soft); }
-.sql-grid .sql-result-table:focus-visible td.cur, .sql-grid td.cur:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
-.sql-grid td.cur { outline: 1px solid var(--accent); outline-offset: -1px; }
+.sql-result-table { outline: none; }
+.sql-result-table tbody td:not(.i) { cursor: cell; user-select: none; }
+.sql-result-table td.sel { background: var(--accent-soft); }
+.sql-result-table:focus-visible td.cur, .sql-result-table td.cur:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+.sql-result-table td.cur { outline: 1px solid var(--accent); outline-offset: -1px; }
 .sql-side-box { flex: none; width: 280px; border-left: 1px solid var(--border); overflow: auto; background: var(--surface); }
 .sql-side { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; min-width: 0; }
 .sql-side-head { display: flex; align-items: center; gap: 6px; }
@@ -1042,10 +1091,10 @@ h2.flush { margin: 0; }
 .menu .tool .sql-menu-key { margin-left: auto; padding-left: 16px; color: var(--muted); font-size: 12px; }
 .menu .tool.sql-menu-group { margin-top: 5px; position: relative; }
 .menu .tool.sql-menu-group::before { content: ""; position: absolute; left: 6px; right: 6px; top: -3px; border-top: 1px solid var(--border-soft); }
-.sql-grid .sql-result-table.sized { min-width: 0; }
-.sql-grid th .sql-col-resize { position: absolute; top: 0; right: -1px; bottom: 0; width: 7px; cursor: col-resize; touch-action: none; }
-.sql-grid th .sql-col-resize:hover, .sql-grid th .sql-col-resize:focus-visible { background: var(--accent); opacity: 0.5; outline: none; }
-.sql-grid th[data-col] { padding-right: 14px; }
+.sql-result-table.sized { min-width: 0; }
+.sql-result-table th .sql-col-resize { position: absolute; top: 0; right: -1px; bottom: 0; width: 7px; cursor: col-resize; touch-action: none; }
+.sql-result-table th .sql-col-resize:hover, .sql-result-table th .sql-col-resize:focus-visible { background: var(--accent); opacity: 0.5; outline: none; }
+.sql-result-table th[data-col] { padding-right: 14px; }
 .sql-grid-hidden { padding: 6px 12px; font-size: 12px; }
 .sql-columns { display: flex; flex-direction: column; gap: 8px; min-width: 320px; }
 .sql-columns p { margin: 0; font-size: 12.5px; }
@@ -1054,7 +1103,7 @@ h2.flush { margin: 0; }
 .sql-columns-list li:last-child { border-bottom: 0; }
 .sql-columns-list label { flex: 1; display: flex; align-items: baseline; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
 .sql-columns-list label .muted-text { font-size: 12px; }
-@media (forced-colors: active) { .sql-grid td.sel { forced-color-adjust: none; background: Highlight; color: HighlightText; } }
+@media (forced-colors: active) { .sql-result-table td.sel { forced-color-adjust: none; background: Highlight; color: HighlightText; } }
 @media (max-width: 760px) { .sql-side-box { width: 200px; } }
 .sql-table-row { display: flex; align-items: center; }
 .sql-table-row .tree-row { width: auto; }

@@ -6293,7 +6293,7 @@ const FABRIC_WRITES = {
   readiness_write_test: ["settings.js", null, "Write, list, read and delete a file in OneLake"],
   run_notebook_in_fabric: ["app.js", "fabricRun", "notebook.run"],
   run_notebook_fabric_step: ["fabricstep.js", "fabricStep", null],
-  cancel_fabric_run: ["activity.js", "fabricRun", null],
+  cancel_fabric_run: ["activity.js", "cancelFabricRun", null],
   add_notebook_schedule: ["app.js", "schedules", null], // from notebook.js, under preview("schedules")
   delete_notebook_schedule: ["app.js", "schedules", null],
   notebook_batch_fabric: ["home-notebooks.js", "runSeveral", null],
@@ -6349,7 +6349,7 @@ test("every Fabric write in the UI carries a Preview tag or has a recorded live 
   // The untagged buttons this finding named now carry their tags.
   for (const [file, text] of [["meta.js", 'previewMarked("createWorkspace", btn("Create workspace"'], ["mesh.js", 'previewMarked("createWorkspace", btn("Create workspace"'],
     ["meta.js", 'fabricMarked(inFabric(p, m.env), btn(inFabric(p, m.env) ? "Run all in Fabric"'], ["dataops.js", 'previewMarked("quarantineReplay", btn("Discard selected"'],
-    ["activity.js", 'previewMarked("fabricRun", btn("Cancel run"'], ["app.js", '["fabric_schedules", ["Schedules", previewTag()]']]) assert.ok(read(file).includes(text), `${file}: ${text}`);
+    ["activity.js", 'previewMarked("cancelFabricRun", btn("Cancel run"'], ["app.js", '["fabric_schedules", ["Schedules", previewTag()]']]) assert.ok(read(file).includes(text), `${file}: ${text}`);
   // A new call that looks like a Fabric write is listed.
   const called = new Set();
   for (const f of fs.readdirSync(ui).filter((x) => x.endsWith(".js"))) {

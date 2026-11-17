@@ -1269,7 +1269,7 @@ async function renderMonitor() {
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
       h("td", {}, runEnvCell(r)), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, r.tookText ?? took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
-      h("td", { class: "n" }, r.cancel ? previewMarked("fabricRun", btn("Cancel", null, async (e) => {
+      h("td", { class: "n" }, r.cancel ? previewMarked("cancelFabricRun", btn("Cancel", null, async (e) => {
         e.stopPropagation();
         if (await cancelFabricJob(r.cancel)) { monitorPage.refreshing = true; render(); }
       }, "tool small outline danger")) : null,

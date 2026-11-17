@@ -162,7 +162,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Preview feature | Where |
 | --- | --- |
 | Breakpoints, variable history and watches | Notebook line numbers (breakpoints, F5/F10/F11 stepping), Variables pane, View tab (with hidden-state warnings) |
-| Run in Fabric | Notebook ribbon, Data mesh > Environments (notebooks and environments) |
+| Run in Fabric | Notebook ribbon, Data mesh > Environments (notebooks and environments), Run all in Fabric and an entity page's Run in Fabric |
 | Notebook engine picker | Notebook ribbon: Engine beside Run all, which replaces Runs on ([engines.md](engines.md#engine-picker-preview)) |
 | Skins | Settings > Appearance > Skin: the KratosForge and Fabric-familiar skins ([skins.md](skins.md#choosing-a-skin-preview)) |
 | Schedules | Notebook ribbon, Data mesh, Monitor (on this PC and in Fabric) |
@@ -243,7 +243,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Table diagram on the SQL page | SQL query > Explorer > Diagram ([user-guide.md](user-guide.md#table-diagram-preview)) |
 | SQL best practices | SQL query or Warehouse page, Best practices chip beside Compatibility, for T-SQL ([sql-best-practices.md](sql-best-practices.md)) |
 | New build banner | Below the top bar while KratosForge is open; Settings > Updates ([user-guide.md](user-guide.md#a-new-build-while-the-app-is-open-preview)) |
-| Quarantine replay | Entity page, quarantined rows (always shown) |
+| Quarantine replay | Entity page, quarantined rows: Replay and Discard (always shown) |
 | Risk check before a run | Before a run in Workloads, Notebook > Run in Fabric and Data mesh ([risk-check.md](finops/risk-check.md); always shown) |
 | Embed Studio (Power BI) | Workspaces > Power BI tab and Embed Studio ([embed-studio.md](embed-studio.md)) |
 | VS Code pairing | Settings > Integrations > VS Code ([vscode.md](vscode.md); always shown, so a pairing that is on can always be turned off) |

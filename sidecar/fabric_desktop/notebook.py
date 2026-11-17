@@ -2806,10 +2806,12 @@ def _write_atomic(path: Path, text: str) -> None:
 
 
 def disk_stamp(nb: dict[str, Any]) -> str:
-    """A short hash of a saved notebook's cells (type and source), so a save can tell whether the
-    file was changed since the app read it, by VS Code or any other program. Metadata is left out:
-    the app's own metadata writes (comments, inputs, proofs) don't count as a change."""
-    cells = [[c["type"], c["source"]] for c in from_ipynb(nb)["cells"]]
+    """A short hash of a saved notebook's cells (type, source, and the cell settings the app reads,
+    such as a parameters tag), so a save can tell whether the file was changed since the app read it,
+    by VS Code or any other program. The rest is left out: the app's own notebook-level writes
+    (comments, inputs, proofs) and the outputs another tool saved don't count as a change."""
+    cells = [[c["type"], c["source"], c["meta"]] if c.get("meta") else [c["type"], c["source"]]
+             for c in from_ipynb(nb)["cells"]]
     return hashlib.sha256(json.dumps(cells, ensure_ascii=False).encode("utf-8")).hexdigest()[:32]
 
 

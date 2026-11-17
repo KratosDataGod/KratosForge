@@ -124,7 +124,7 @@ def test_the_translation_reads_each_table_at_the_time_in_utc():
 
 @pytest.mark.parametrize("written", [
     "2026-11-01 09:30:00", "2026-11-01T09:30:00.1234", "2026-11-01", "2026-11-01T09:30:00Z",
-    "2026-11-01T09:30:00+01:00", "yesterday",
+    "2026-11-01T09:30:00+01:00", "yesterday", "2026-02-30T00:00:00", "2026-11-01T24:00:00",
 ])
 def test_a_time_not_written_as_tsql_wants_is_refused_in_its_words(written):
     with pytest.raises(ValueError, match=r"An error occurred during timestamp conversion\. Please provide a timestamp "

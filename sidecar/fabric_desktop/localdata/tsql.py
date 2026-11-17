@@ -487,7 +487,11 @@ def _take_as_of(batch: str) -> tuple[str, str | None]:
                          "'2026-11-01T09:30:00' (UTC), and nothing else in the OPTION. A warehouse doesn't take a "
                          "variable there either.")
     when = tokens[i + 6].text
-    if not _AS_OF_FORMAT.fullmatch(when):
+    try:  # the shape, then the date itself: 2026-02-30 has the shape but isn't a day
+        real = bool(_AS_OF_FORMAT.fullmatch(when)) and dt.datetime.fromisoformat(when) is not None
+    except ValueError:
+        real = False
+    if not real:
         raise ValueError(f"FOR TIMESTAMP AS OF '{when}': An error occurred during timestamp conversion. Please "
                          "provide a timestamp in the format yyyy-MM-ddTHH:mm:ss[.fff].")
     return batch[:tokens[i].start] + " " + batch[tokens[i + 7].end + 1:], when

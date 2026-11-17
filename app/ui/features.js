@@ -102,6 +102,7 @@ const PREVIEW_FEATURES = {
   fabricStep: "Run the last cell on Fabric",
   popOut: "Pop-out windows",
   nbConsole: "Scratch console in notebooks",
+  nbReport: "Notebook as a report",
   pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",
   forgeActivity: "Run progress in Monitor",

@@ -51,10 +51,10 @@
    ]}
  ],
  "achievements": [
-  {"id": "first-watch", "name": "First Watch", "criteria": "Reach Journeyman in Least privilege in workspaces."},
-  {"id": "closed-gate", "name": "Closed Gate", "criteria": "Reach Adept in Row-level security."},
-  {"id": "oath-sworn", "name": "Oath Sworn", "criteria": "Reach Journeyman in Data contracts."},
-  {"id": "product-shipped", "name": "Product Shipped", "criteria": "Reach Journeyman in Shipping a domain data product."},
-  {"id": "sentinels-watch", "name": "Sentinel's Watch", "criteria": "Reach Adept in all ten talents of one Governance Sentinel specialization."}
+  {"id": "first-watch", "name": "First Watch", "criteria": "Reach Journeyman in Least privilege in workspaces.", "requires": {"level": 3, "talents": ["access.01"]}},
+  {"id": "closed-gate", "name": "Closed Gate", "criteria": "Reach Adept in Row-level security.", "requires": {"level": 4, "talents": ["access.03"]}},
+  {"id": "oath-sworn", "name": "Oath Sworn", "criteria": "Reach Journeyman in Data contracts.", "requires": {"level": 3, "talents": ["contracts.01"]}},
+  {"id": "product-shipped", "name": "Product Shipped", "criteria": "Reach Journeyman in Shipping a domain data product.", "requires": {"level": 3, "talents": ["contracts.07"]}},
+  {"id": "sentinels-watch", "name": "Sentinel's Watch", "criteria": "Reach Adept in all ten talents of one Governance Sentinel specialization.", "requires": {"level": 4, "any_specialization": true}}
  ]
 }

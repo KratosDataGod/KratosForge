@@ -51,10 +51,10 @@
    ]}
  ],
  "achievements": [
-  {"id": "first-question", "name": "First Question", "criteria": "Reach Journeyman in Data quality checks in code."},
-  {"id": "nothing-hidden", "name": "Nothing Hidden", "criteria": "Reach Adept in Capstone: every planted defect found."},
-  {"id": "trail-followed", "name": "Trail Followed", "criteria": "Reach Journeyman in Tracing a bad number to its source."},
-  {"id": "incident-closed", "name": "Incident Closed", "criteria": "Reach Journeyman in Incident response for late and broken data."},
-  {"id": "inquisitors-lantern", "name": "Inquisitor's Lantern", "criteria": "Reach Adept in all ten talents of one Quality Inquisitor specialization."}
+  {"id": "first-question", "name": "First Question", "criteria": "Reach Journeyman in Data quality checks in code.", "requires": {"level": 3, "talents": ["assert.01"]}},
+  {"id": "nothing-hidden", "name": "Nothing Hidden", "criteria": "Reach Adept in Capstone: every planted defect found.", "requires": {"level": 4, "talents": ["assert.10"]}},
+  {"id": "trail-followed", "name": "Trail Followed", "criteria": "Reach Journeyman in Tracing a bad number to its source.", "requires": {"level": 3, "talents": ["rootcause.05"]}},
+  {"id": "incident-closed", "name": "Incident Closed", "criteria": "Reach Journeyman in Incident response for late and broken data.", "requires": {"level": 3, "talents": ["rootcause.07"]}},
+  {"id": "inquisitors-lantern", "name": "Inquisitor's Lantern", "criteria": "Reach Adept in all ten talents of one Quality Inquisitor specialization.", "requires": {"level": 4, "any_specialization": true}}
  ]
 }

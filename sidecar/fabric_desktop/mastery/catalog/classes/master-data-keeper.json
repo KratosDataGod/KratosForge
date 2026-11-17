@@ -51,10 +51,10 @@
    ]}
  ],
  "achievements": [
-  {"id": "true-name-spoken", "name": "True Name Spoken", "criteria": "Reach Journeyman in Duplicate detection."},
-  {"id": "one-record", "name": "One Record", "criteria": "Reach Journeyman in Golden record tables."},
-  {"id": "branches-mapped", "name": "Branches Mapped", "criteria": "Reach Journeyman in Hierarchies."},
-  {"id": "keys-kept", "name": "Keys Kept", "criteria": "Reach Adept in Business and surrogate keys."},
-  {"id": "keepers-ring", "name": "Keeper's Ring", "criteria": "Reach Adept in all ten talents of one Master Data Keeper specialization."}
+  {"id": "true-name-spoken", "name": "True Name Spoken", "criteria": "Reach Journeyman in Duplicate detection.", "requires": {"level": 3, "talents": ["golden.01"]}},
+  {"id": "one-record", "name": "One Record", "criteria": "Reach Journeyman in Golden record tables.", "requires": {"level": 3, "talents": ["golden.06"]}},
+  {"id": "branches-mapped", "name": "Branches Mapped", "criteria": "Reach Journeyman in Hierarchies.", "requires": {"level": 3, "talents": ["reference.03"]}},
+  {"id": "keys-kept", "name": "Keys Kept", "criteria": "Reach Adept in Business and surrogate keys.", "requires": {"level": 4, "talents": ["keys.01"]}},
+  {"id": "keepers-ring", "name": "Keeper's Ring", "criteria": "Reach Adept in all ten talents of one Master Data Keeper specialization.", "requires": {"level": 4, "any_specialization": true}}
  ]
 }

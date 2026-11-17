@@ -199,10 +199,47 @@ def _class_problems(c: dict[str, Any], skills: dict[str, dict[str, Any]], out: l
                 out.append(f"{where}: node {nid} tier must be a whole number from 1")
             if not isinstance(n.get("requires"), list):
                 out.append(f"{where}: node {nid} requires must be a list")
+    for a in achievements:
+        _achievement_problems(where, a, nodes, spec_ids, out)
     for name in names:
         if BANNED_NAMES.search(name):
             out.append(f"{where}: the name {name!r} is or resembles a god")
     _graph_problems(where, nodes, out)
+
+
+def _achievement_problems(where: str, a: dict[str, Any], nodes: dict[str, dict[str, Any]], specs: set[str],
+                          out: list[str]) -> None:
+    """An achievement's ``requires``: a level from Apprentice to Master and exactly one of ``talents`` (all of
+    them, or ``any`` one), ``specialization`` (every talent up to ``max_tier``) or ``any_specialization``
+    (every talent of one specialization). levels.achievements() awards it from that, never from the text."""
+    at = f"{where}: achievement {a.get('id')}"
+    r = a.get("requires")
+    if not isinstance(r, dict):
+        out.append(f"{at} has no requires")
+        return
+    if not isinstance(r.get("level"), int) or not 2 <= r["level"] <= 6:
+        out.append(f"{at}: requires.level must be 2 to 6")
+    kinds = [k for k in ("talents", "specialization", "any_specialization") if k in r]
+    if len(kinds) != 1:
+        out.append(f"{at}: requires needs exactly one of talents, specialization or any_specialization")
+        return
+    if "talents" in r:
+        ts = r["talents"]
+        if not isinstance(ts, list) or not ts or any(t not in nodes for t in ts) or len(set(ts)) != len(ts):
+            out.append(f"{at}: requires.talents must name this class's talents, each once")
+    if "specialization" in r:
+        if r["specialization"] not in specs:
+            out.append(f"{at}: requires.specialization {r['specialization']!r} isn't in this class")
+        if not isinstance(r.get("max_tier"), int) or r["max_tier"] < 1:
+            out.append(f"{at}: requires.max_tier must be a whole number from 1")
+    if "any" in r and (r["any"] is not True or "talents" not in r):
+        out.append(f"{at}: requires.any must be true, and only with talents")
+    if "measured" in r and r["measured"] is not True:
+        out.append(f"{at}: requires.measured must be true when given")
+    if "any_specialization" in r and r["any_specialization"] is not True:
+        out.append(f"{at}: requires.any_specialization must be true")
+    for k in sorted(set(r) - {"level", "talents", "any", "measured", "specialization", "max_tier", "any_specialization"}):
+        out.append(f"{at}: requires.{k} isn't a known rule")
 
 
 def _graph_problems(where: str, nodes: dict[str, dict[str, Any]], out: list[str]) -> None:

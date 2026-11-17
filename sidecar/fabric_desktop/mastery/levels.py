@@ -227,10 +227,46 @@ def class_view(cls: dict[str, Any], skills: dict[str, dict[str, Any]]) -> dict[s
         at = [s for s in state.values() if s["level"] >= lv]
         if len(at) >= CLASS_MIN_TALENTS and all(sum(s["specialization"] == sp for s in at) >= CLASS_MIN_PER_SPEC for sp in specs):
             mastery = lv
-    return {"id": cls["id"], "version": cls["version"], "mastery": mastery, "mastery_name": LEVELS[mastery],
+    view = {"id": cls["id"], "version": cls["version"], "mastery": mastery, "mastery_name": LEVELS[mastery],
             "talents": [state[n["id"]] for sp in cls["specializations"] for n in sp["nodes"]],
             "mastered": sum(s["state"] == "mastered" for s in state.values()),
             "at_journeyman": sum(s["level"] >= 3 for s in state.values())}
+    view["achievements"] = achievements(cls, view, skills)
+    view["earned"] = sum(a["earned"] for a in view["achievements"])
+    return view
+
+
+def achievements(cls: dict[str, Any], view: dict[str, Any], skills: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """The class's achievements, each ``earned`` or not, from the talents' levels in ``view`` (class_view).
+
+    Worked out from the evidence every time, like everything here, so an achievement is earned once
+    however often it is evaluated or the app restarts, and it comes from its ``requires`` rule, never its
+    text. A locked talent counts at 0: its banked level adds once it opens. ``measured`` also needs one
+    counted row with a measured result among those talents. ``evidence`` is the rows behind it, by id."""
+    state = {t["id"]: t for t in view["talents"]}
+    by_spec: dict[str, list[dict[str, Any]]] = {}
+    for t in view["talents"]:
+        by_spec.setdefault(t["specialization"], []).append(t)
+    out = []
+    for a in cls["achievements"]:
+        r = a["requires"]
+        need = int(r["level"])
+        if "talents" in r:
+            groups = [[state[t]] for t in r["talents"]] if r.get("any") else [[state[t] for t in r["talents"]]]
+        elif "specialization" in r:
+            groups = [[t for t in by_spec[r["specialization"]] if t["tier"] <= int(r["max_tier"])]]
+        else:
+            groups = [by_spec[sp["id"]] for sp in cls["specializations"]]
+        met = [g for g in groups if all(t["level"] >= need for t in g)]
+        used = [t for g in met for t in g if t["level"] >= need]
+        if r.get("measured") and not any(row["measured"] for t in used for row in skills[t["skill"]]["evidence"]):
+            met = []
+        earned = bool(met)
+        best = max((sum(min(t["level"], need) for t in g) / (need * len(g)) for g in groups), default=0.0)
+        out.append({"id": a["id"], "name": a["name"], "criteria": a["criteria"], "earned": earned,
+                    "level": need, "level_name": LEVELS[need], "progress": 1.0 if earned else round(min(best, 0.99), 2),
+                    "evidence": sorted({row["evidence"] for t in used for row in skills[t["skill"]]["evidence"]}) if earned else []})
+    return out
 
 
 def xp_breakdown(profile: dict[str, Any]) -> dict[str, int]:

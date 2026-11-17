@@ -278,10 +278,10 @@ def _refuse_control(batch: str) -> None:
             raise ValueError(f"The local engine doesn't run T-SQL {what} yet. {advice}")
 
 
-_LOADING_NOTE = ("isn't mapped yet: it loads files from cloud storage (an Azure Storage or OneLake URL), which the "
-                 "local engine doesn't read, so nothing is loaded here, not even part of the file. Put the file in one "
-                 "of this project's folders, where it's a table such as dbo.orders, and INSERT ... SELECT from that "
-                 "table, or run it in a Fabric Warehouse.")
+_LOADING_NOTE = ("isn't mapped yet. It loads files from cloud storage (an Azure Storage or OneLake URL), which the "
+                 "local engine doesn't read, so nothing was loaded. Put the file in one of this project's folders, "
+                 "where it becomes a table such as dbo.orders, and INSERT ... SELECT from that table, or run it in a "
+                 "Fabric Warehouse.")
 
 
 def _from_text(tokens: list[Token], at: int) -> bool:

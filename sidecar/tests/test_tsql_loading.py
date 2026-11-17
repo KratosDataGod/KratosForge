@@ -58,7 +58,7 @@ def test_each_load_is_refused_by_its_name(word, sql):
         translate(sql)
     message = str(err.value)
     assert message.startswith("This T-SQL can't be run on the local engine: " + word + " isn't mapped yet")
-    assert "not even part of the file" in message and "Fabric Warehouse" in message
+    assert "so nothing was loaded" in message and "Fabric Warehouse" in message
     assert "Could not read" not in message and "COPY reads or writes files" not in message
 
 
@@ -107,8 +107,7 @@ def test_a_script_with_a_load_runs_nothing_so_nothing_loads_partly(engine, load)
 def test_a_warehouse_read_refuses_each_load_by_name(word, sql):
     found = warehouse.verdicts(sql)
     assert found[0].kind == "fabric_mutation"
-    assert found[0].reason in (f"{word} loads files, which comes with loading data",
-                               f"{word} reads outside the warehouse")
+    assert found[0].reason in (warehouse._LOADS.format(word), f"{word} reads outside the warehouse")
 
 
 @pytest.mark.parametrize("word, sql", LOADS)
@@ -116,10 +115,15 @@ def test_a_warehouse_change_refuses_each_load_by_name(word, sql):
     found = warehouse.verdicts(sql, writes=True)
     refused = [v for v in found if v.kind == "fabric_mutation"]
     assert refused, found
-    assert refused[0].reason in (f"{word} loads files, which comes with loading data",
-                                 f"{word} reads outside the warehouse")
+    assert refused[0].reason in (warehouse._LOADS.format(word), f"{word} reads outside the warehouse")
 
 
-def test_a_warehouse_read_still_runs_a_column_named_bulk():
-    found = warehouse.verdicts("SELECT [bulk], 'COPY INTO x' AS c FROM dbo.orders")
+@pytest.mark.parametrize("sql", [
+    "SELECT [bulk], 'COPY INTO x' AS c FROM dbo.orders",
+    "SELECT [openrowset], [OpenQuery] FROM dbo.orders",
+    'SELECT "openrowset" FROM dbo.orders',
+    "SELECT 'OPENROWSET(BULK ''u'')' AS a",
+])
+def test_a_warehouse_read_still_runs_the_words_as_names_or_text(sql):
+    found = warehouse.verdicts(sql)
     assert [v.kind for v in found] == ["read_only"]

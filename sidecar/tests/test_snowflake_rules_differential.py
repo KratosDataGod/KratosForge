@@ -25,14 +25,7 @@ SEED = 20261117
 WORDS = ["", "a", "abc", "mystring", "Hello World", "  pad  ", "11.22.33", "a,b,,c", "é", "banana"]
 
 # Families that still differ, and why. Delete an entry once it is fixed.
-KNOWN = {
-    "POSITION": "an empty search text with a start past the end gives the start, not 0 (\"If the specified "
-                "optional start_pos is beyond the end of the second argument ... returns 0\")",
-    "CHARINDEX": "as POSITION",
-    "LPAD": "an empty pad stops with DuckDB's \"Insufficient padding\" (\"If the pad argument is empty, no "
-            "padding is inserted, but the result is still truncated\")",
-    "RPAD": "as LPAD",
-}
+KNOWN: dict[str, str] = {}
 
 
 def q(s: str | None) -> str:
@@ -215,4 +208,4 @@ def test_order_by_puts_nulls_last_ascending_and_first_descending() -> None:
 def test_cases_are_seeded_and_cover_every_known_family() -> None:
     first = cases()
     assert first == cases() and len(first) > 1500
-    assert {f for f, _, _ in first} >= set(KNOWN)
+    assert {f for f, _, _ in first} >= set(KNOWN) | {"POSITION", "CHARINDEX", "LPAD", "RPAD"}

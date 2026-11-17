@@ -33,7 +33,6 @@ def test_every_refusal_in_spark_local_is_listed_with_how_the_check_finds_it():
 
 # One notebook per refusal in CHECKED_REFUSALS: the check blocks it on this PC.
 BLOCKED = {
-    "option": ("df.write.option('replaceWhere', 'd = 1').mode('overwrite').saveAsTable('dbo.t')", "replaceWhere"),
     "_check_options": ("df.write.option('someOption', 'x').saveAsTable('dbo.t')", "saveAsTable doesn't take"),
     "schema": ("df = spark.read.schema('a INT, b STRING').csv('Files/x.csv')", "DDL string"),
     "_no_schema": ("df = spark.read.schema(my_schema).table('dbo.t')", "read.schema() to a read of a table"),
@@ -148,11 +147,14 @@ def test_a_clean_run_doesnt_ask_to_confirm_what_the_check_cant_read():
     assert validate.run_plan(cells, LH, spark=True)["uncontained"] == []
 
 
-def test_a_refused_option_on_a_writer_held_in_a_variable_is_blocked():
+def test_replace_where_runs_here_on_save_as_table_and_is_refused_on_insert_into():
+    """replaceWhere runs on this PC (WR-115), on a writer held in a variable too; insertInto doesn't take it."""
     for source in ("w = df.write\nw.option('replaceWhere', 'd = 1').saveAsTable('dbo.t')",
-                   "w = df.write.mode('overwrite')\nw = w.option('replaceWhere', 'd = 1')\nw.saveAsTable('dbo.t')"):
-        local = check(source)["local"]
-        assert local["status"] == "blocked" and "write option" in local["reasons"][0]["text"], source
+                   "w = df.write.mode('overwrite')\nw = w.option('replaceWhere', 'd = 1')\nw.saveAsTable('dbo.t')",
+                   "df.write.option('replaceWhere', 'd = 1').mode('overwrite').saveAsTable('dbo.t')"):
+        assert check(source)["local"]["status"] != "blocked", source
+    local = check("df.write.option('replaceWhere', 'd = 1').insertInto('dbo.t')")["local"]
+    assert local["status"] == "blocked" and "insertInto doesn't take" in local["reasons"][0]["text"]
 
 
 def test_a_path_option_is_blocked_on_a_table_write_and_fine_on_save():

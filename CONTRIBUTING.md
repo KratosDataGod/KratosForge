@@ -62,7 +62,7 @@ The UI is plain HTML and JavaScript in `app/ui/` with no build step; reload the 
 - **Permissions in one place.** A change that asks for a new scope (`sidecar/fabric_desktop/auth.py`) or needs a new agent role adds it to [docs/permissions.md](docs/permissions.md) in alphabetical order, in the same pull request.
 - **Plain words.** Errors and labels say what happened and what to do, in words people use. Errors go through `friendlyError` in `activity.js`.
 - **No silent failures.** In `sidecar/fabric_desktop`, a broad handler (`except:`, `except Exception` or `except BaseException`) that only passes, continues or returns a constant fails `tests/test_silent_except.py`. Log it (`_log = logging.getLogger(__name__)`, with the exception passed through `redact.describe` so no token reaches the log), catch a narrower exception, or re-raise. Where silence really is right, such as best-effort cleanup, end the `except` line with `# silent-ok: <reason>`; the reason is required and reviewed.
-- **No secrets.** Never commit tokens, client secrets, tenant data or real connection strings, including in tests and screenshots.
+- **No secrets.** Never commit tokens, client secrets, tenant data or real connection strings, including in tests and screenshots. The CI `secrets` job scans the files a pull request changes (`.github/scripts/secret_scan.py`). A test value that looks like a secret either gets `pragma: allowlist secret` on its line, or is added to `.secrets.baseline` by `python .github/scripts/secret_scan.py baseline` (with the pinned scanner from `.github/requirements/secret-scan.txt` installed) and marked `"is_secret": false`, which the review sees.
 
 ## Code signing
 

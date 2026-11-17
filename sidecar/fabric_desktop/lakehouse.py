@@ -32,7 +32,7 @@ from deltalake.exceptions import TableNotFoundError
 
 from . import runlog
 from .onelake import FileStore, TableRef, storage_options
-from .publish import publish, refuse_conversions, resolve_schema_mode, stage_locally
+from .publish import WriteTokenExpired, publish, refuse_conversions, resolve_schema_mode, stage_locally
 from .redact import describe
 from .retrying import data_upload_dropped, log_commit_dropped
 
@@ -159,6 +159,14 @@ cell_write_checks: "weakref.WeakKeyDictionary[threading.Thread, Callable[[str, s
     weakref.WeakKeyDictionary()
 
 
+# Set by the app (and passed to a process kernel): why OPTIMIZE, VACUUM or RESTORE from notebook code may not
+# run on this table, as (operation, workspace id, "schema.table") -> reason, or None when it may. Unset, they
+# are refused (fail closed): only the app knows which workspaces are Test's or Prod's.
+maintenance_guard: Callable[[str, str, str], str | None] | None = None
+MAINTENANCE_NEEDS_APP = ("OPTIMIZE, VACUUM and RESTORE from notebook code run on this PC only inside KratosForge, "
+                         "which checks the workspace first. Nothing was changed.")
+
+
 def write_refusal(name: str, schema: str, table: str) -> str | None:
     """Why this write may not happen (the open metadata project, or the cell's own check), or None."""
     reason = write_guard(name, schema, table) if write_guard else None
@@ -189,10 +197,40 @@ def has_schemas() -> bool:
     return _current().schemas_enabled()
 
 
+def name_parts(table: str) -> list[str]:
+    """``table`` split at its dots, as Spark reads a multi-part name: a part in backticks is one name
+    (`` `dbo`.`sales` `` is dbo and sales; `` `dbo.sales` `` is one name with a dot in it), and two
+    backticks inside one stand for a backtick."""
+    parts, part, quoted, i = [], [], False, 0
+    while i < len(table):
+        c = table[i]
+        if c == "`" and quoted and table[i + 1:i + 2] == "`":
+            part.append("`")
+            i += 2
+            continue
+        if c == "`":
+            quoted = not quoted
+        elif c == "." and not quoted:
+            parts.append("".join(part))
+            part = []
+        else:
+            part.append(c)
+        i += 1
+    if quoted:
+        raise ValueError(f"{table!r} isn't a table name: a backtick isn't closed.")
+    return [*parts, "".join(part)]
+
+
 def table_ref(table: str) -> TableRef:
-    """``table``, ``schema.table``, or either with the lakehouse name in front, as Spark in Fabric allows."""
+    """``table``, ``schema.table``, or either with the lakehouse name in front, as Spark in Fabric allows.
+    Parts may be in backticks. Another catalog (a Unity Catalog name such as main.sales.orders) is refused."""
     lh = _current()
-    parts = table.split(".")
+    parts = name_parts(table)
+    if any("." in p for p in parts):
+        dotted = next(p for p in parts if "." in p)
+        raise ValueError(f"{table}: `{dotted}` is one name with a dot in it, and Spark looks for a table called "
+                         f"exactly that, so nothing was read or written. Put backticks around each part "
+                         f"(`{'`.`'.join(dotted.split('.'))}`) or leave them out.")
     # lakehouse.schema.table, or lakehouse.table when the lakehouse has no schemas.
     if parts[0].lower() == lh.name.lower() and (len(parts) == 3 or len(parts) == 2 and not lh.schemas_enabled()):
         parts = parts[1:]
@@ -201,7 +239,9 @@ def table_ref(table: str) -> TableRef:
     if not all(parts) or any(c in p for p in parts for c in "/\\"):
         raise ValueError(f"{table!r} isn't a table name: a schema or table name can't be empty or hold / or \\.")
     if len(parts) > 2:
-        raise ValueError(f"{table}: name tables as table or schema.table in the attached lakehouse ({lh.name}).")
+        raise ValueError(f"{table}: {parts[0]} isn't the attached lakehouse, and a catalog (such as a Unity Catalog "
+                         f"catalog) isn't on this PC, so nothing was read or written. Name tables as table or "
+                         f"schema.table in the attached lakehouse ({lh.name}), or run the cell where {parts[0]} is.")
     schema, name_ = (parts[0], parts[1]) if len(parts) == 2 else ("", parts[0])
     if lh.schemas_enabled():
         return TableRef(lh.workspace_id, lh.lakehouse_id, schema or "dbo", name_)
@@ -482,7 +522,8 @@ UPLOAD_RETRY_WAIT = 15.0  # seconds, then twice that
 
 
 def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str | None = "auto",
-                upload: str | None = None, skip_unchanged: bool | None = None) -> WriteResult | PendingWrite:
+                upload: str | None = None, skip_unchanged: bool | None = None,
+                predicate: str | None = None) -> WriteResult | PendingWrite:
     """Write ``data`` to the attached lakehouse as the Delta table ``schema.table``.
 
     ``data`` is a table (polars, pandas, Arrow, DuckDB) or a stream of batches (a RecordBatchReader,
@@ -498,12 +539,17 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
     when its writes are in. Elsewhere (scripts, Fabric) every write is direct.
 
     ``skip_unchanged``: an overwrite of exactly the rows this app last wrote to the table uploads
-    nothing; None follows the onelake_skip_unchanged setting."""
+    nothing; None follows the onelake_skip_unchanged setting.
+
+    ``predicate``: an overwrite replaces only the rows that match it (Delta SQL), in one commit, and
+    every written row must match it (a dynamic partition overwrite names the partitions written)."""
     from . import write_queue
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
     if upload not in (None, *UPLOADS):
         raise ValueError(f"upload must be one of {UPLOADS}, got {upload!r}")
+    if predicate is not None and mode != "overwrite":
+        raise ValueError("predicate goes with mode='overwrite'")
     resolve_schema_mode(mode, schema_mode)
     started = time.monotonic()
     lh = _current()
@@ -526,9 +572,11 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
     if (p := _proof()) is not None:
         if arrow is None:
             arrow = pa.concat_tables(list(streamed[1]), promote_options="none") if streamed else schema.empty_table()
-        return _write_proof(p, arrow, ref, mode, schema_mode)
+        return _write_proof(p, arrow, ref, mode, schema_mode, predicate)
     if skip_unchanged is None:
         skip_unchanged = bool(_setting("onelake_skip_unchanged", True))
+    if predicate is not None:
+        skip_unchanged = False  # the fingerprint is of the whole table; this write replaces part of it
     parts: list[tuple[int, int, int]] = []
     if arrow is not None:
         rows = arrow.num_rows
@@ -550,7 +598,8 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
             raise
         spill.close()
         rows = spill.rows
-    fingerprint = write_queue.fingerprint(schema, write_queue.combine(parts)) if mode == "overwrite" else None
+    fingerprint = write_queue.fingerprint(schema, write_queue.combine(parts)) \
+        if mode == "overwrite" and predicate is None else None
     name_ = f"{ref.schema}.{ref.table}"
     stats = write_queue.stats()  # the cell's, for its timing; a background write runs on another thread
 
@@ -559,9 +608,15 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
         try:
             for attempt in range(UPLOAD_ATTEMPTS):
                 try:
-                    delta = publish(arrow if arrow is not None else cast(write_queue.Spill, spill).reader(), ref, mode, lh.storage_token(),
-                                    schema_mode=schema_mode, rows=fingerprint, skip_unchanged=skip_unchanged)
+                    # The token function, not one token: the write lease is renewed with it (HD-034).
+                    delta = publish(arrow if arrow is not None else cast(write_queue.Spill, spill).reader(), ref, mode, lh.storage_token,
+                                    schema_mode=schema_mode, rows=fingerprint, skip_unchanged=skip_unchanged,
+                                    **({"predicate": predicate} if predicate is not None else {}))
                     break
+                except WriteTokenExpired as exc:  # nothing was committed: again at once, with a fresh token
+                    if attempt == UPLOAD_ATTEMPTS - 1:
+                        raise
+                    _log.warning("Writing %s again with a fresh token: %s", name_, describe(exc))
                 except Exception as exc:  # noqa: BLE001 - only a dropped data file upload is tried again
                     if log_commit_dropped(exc):
                         raise CommitOutcomeUnknown(
@@ -680,6 +735,119 @@ def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
     return result
 
 
+@dataclass(frozen=True)
+class MaintenanceResult:
+    table: str
+    operation: str  # optimize, vacuum or restore
+    delta_version: int
+    metrics: dict[str, Any]
+    files: list[str]  # VACUUM: the files it deleted (or, in a dry run, would delete)
+    note: str = ""
+
+
+MAINTENANCE_OPS = ("optimize", "vacuum", "restore")
+
+
+def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, Any]] | None = None,
+                   zorder: list[str] | None = None, retain_hours: float | None = None, dry_run: bool = False,
+                   version: int | None = None, timestamp: datetime | None = None) -> MaintenanceResult:
+    """OPTIMIZE, VACUUM or RESTORE on a table of the attached lakehouse, from notebook code, with delta-rs on
+    this PC (Preview). The same guards as a notebook's other table changes (write_refusal, the Fabric Delta
+    profile, the cell's uploads first) plus the app's maintenance_guard (Test and Prod workspaces refused;
+    refused when unset). VACUUM keeps at least maintenance.MIN_RETENTION_DAYS of history, as the app's own
+    Vacuum does. In a proof, OPTIMIZE and VACUUM change no rows, so they do nothing and say so; RESTORE is
+    refused there, since the proof's copy doesn't have the shared table's versions."""
+    from deltalake import CommitProperties
+
+    from . import delta_profile, maintenance
+    if operation not in MAINTENANCE_OPS:
+        raise ValueError(f"operation is one of {MAINTENANCE_OPS}, not {operation!r}")
+    lh = _current()
+    ref = table_ref(table)
+    name_ = f"{ref.schema}.{ref.table}"
+    reason = write_refusal(lh.name, ref.schema, ref.table)
+    if reason:
+        raise PermissionError(reason)
+    guard = maintenance_guard
+    reason = guard(operation, lh.workspace_id, name_) if guard is not None else MAINTENANCE_NEEDS_APP
+    if reason:
+        raise PermissionError(reason)
+    if operation == "vacuum" and retain_hours is not None and retain_hours < maintenance.MIN_RETENTION_DAYS * 24:
+        raise ValueError(f"VACUUM keeps at least {maintenance.MIN_RETENTION_DAYS} days ("
+                         f"{maintenance.MIN_RETENTION_DAYS * 24} hours) of history on this PC, not {retain_hours:g} "
+                         "hours: with less, it can delete files that readers or writers in other processes still "
+                         "use, and time travel to those versions stops working. Nothing was changed.")
+    if _proof() is not None:
+        if operation == "restore":
+            raise ValueError("RESTORE isn't run in a proof: the proof's copy of the table doesn't have the shared "
+                             "table's versions. Prove the notebook without it, or restore in the app first.")
+        return MaintenanceResult(name_, operation, -1, {}, [], note=f"{operation.upper()} changes no rows, so in a "
+                                 "proof it does nothing here and the proof's copy is left as it is.")
+    opts = storage_options(lh.storage_token())
+    if (queue := _queue()) is not None:
+        queue.wait()  # after the cell's own writes still uploading
+    t = _open_for_change(ref.uri, opts, name_)
+    try:
+        delta_profile.check_table(t)
+    except delta_profile.ProfileViolation as exc:
+        raise ValueError(f"{name_} isn't changed on this PC: {exc}. Changing it could make it unreadable in "
+                         "Fabric.") from None
+    before = t.version()
+    commit = CommitProperties(custom_metadata={"fabric_desktop.operation": operation})
+    files: list[str] = []
+    note = ""
+    if operation == "optimize":
+        parts = list(t.metadata().partition_columns)
+        bad = [c for c, _op, _v in (where or []) if c not in parts]
+        if bad:
+            raise ValueError(f"OPTIMIZE ... WHERE filters only on partition columns ({', '.join(parts) or 'none'}), "
+                             f"not {', '.join(bad)}. Nothing was changed.")
+        filters = [(c, op, v) for c, op, v in where] if where else None
+        if zorder:
+            missing = [c for c in zorder if c not in t.schema().to_arrow().names]
+            if missing:
+                raise ValueError(f"ZORDER BY names columns {name_} hasn't got: {', '.join(missing)}. Nothing was changed.")
+            metrics = t.optimize.z_order(zorder, partition_filters=filters, commit_properties=commit)
+        else:
+            metrics = t.optimize.compact(partition_filters=filters, commit_properties=commit)
+        note = "Compacted on this PC without V-Order; Fabric's table maintenance adds V-Order."
+    elif operation == "vacuum":
+        kept = maintenance.kept_days(t.metadata().configuration)
+        days = max(kept or maintenance.MIN_RETENTION_DAYS, maintenance.MIN_RETENTION_DAYS)
+        if retain_hours is not None and retain_hours < days * 24:
+            raise ValueError(f"{name_} keeps {days} days ({days * 24} hours) of deleted files "
+                             f"(delta.deletedFileRetentionDuration), so VACUUM can't RETAIN {retain_hours:g} hours: "
+                             "Fabric's Spark refuses it too. Nothing was changed.")
+        hours = retain_hours if retain_hours is not None else maintenance.retention_hours(days)
+        files = t.vacuum(retention_hours=int(hours), dry_run=dry_run, enforce_retention_duration=False,
+                         commit_properties=commit)
+        metrics = {"numDeletedFiles": 0 if dry_run else len(files), "retentionHours": int(hours), "dryRun": dry_run}
+    else:
+        target: int | datetime
+        if version is not None:
+            if version < 0 or version >= before:
+                raise ValueError(f"{name_} has versions 0 to {before}; RESTORE goes to an earlier one, not {version}. "
+                                 "Nothing was changed.")
+            target = version
+        elif timestamp is not None:
+            target = timestamp
+        else:
+            raise ValueError("RESTORE needs TO VERSION AS OF n or TO TIMESTAMP AS OF '...'.")
+        try:
+            metrics = t.restore(target, commit_properties=commit)
+        except Exception as exc:  # noqa: BLE001 - delta-rs reports a vacuumed version in its own words
+            raise ValueError(f"{name_} can't be restored to {target}: {describe(exc)}. Nothing was changed.") from None
+    after = DeltaTable(ref.uri, storage_options=opts)
+    delta_profile.note_after_write(after)
+    if after.version() > before:
+        _record_table(ref, before, "write", lh)
+        if lh.history_file:
+            runlog.append(lh.history_file, {"job": f"Notebook {operation.upper()} in {lh.name}", "table_uri": ref.uri,
+                                            "mode": operation, "rows": 0, "delta_version": after.version(),
+                                            "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+    return MaintenanceResult(name_, operation, after.version(), dict(metrics or {}), list(files), note)
+
+
 def _open_for_change(uri: str, opts: dict[str, str] | None, name: str) -> DeltaTable:
     try:
         return DeltaTable(uri, storage_options=opts)
@@ -688,21 +856,38 @@ def _open_for_change(uri: str, opts: dict[str, str] | None, name: str) -> DeltaT
                                  "(df.write.saveAsTable or CREATE TABLE ... AS SELECT).") from None
 
 
-def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str, schema_mode: str | None = "auto") -> WriteResult:
+def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str, schema_mode: str | None = "auto",
+                 predicate: str | None = None) -> WriteResult:
     """A write during a proof: to this run's sandbox, never the shared table."""
     from deltalake import write_deltalake
 
     from . import delta_profile
 
-    def write(uri: str, data: pa.Table, how: str = "overwrite", schema: str | None = "auto") -> DeltaTable:
+    def write(uri: str, data: pa.Table, how: str = "overwrite", schema: str | None = "auto",
+              where: str | None = None, partition_by: list[str] | None = None) -> DeltaTable:
         target = delta_profile.open_target(uri, proof.options())
         if target is not None and resolve_schema_mode(how, schema) != "overwrite":
             refuse_conversions(data.schema, target, f"{ref.schema}.{ref.table}")
+        extra: dict[str, Any] = {"predicate": where} if where is not None and target is not None else {}
+        if partition_by and target is None:
+            extra["partition_by"] = partition_by
         write_deltalake(uri, data, mode=how, storage_options=proof.options(),  # type: ignore[call-overload]  # how is a checked str
-                        schema_mode=resolve_schema_mode(how, schema))
+                        schema_mode=resolve_schema_mode(how, schema), **extra)
         table = DeltaTable(uri, storage_options=proof.options())
         delta_profile.note_after_write(table)
         return table
-    uri = proof.write_location(ref.schema, ref.table, mode, write)
-    table = write(uri, arrow, mode, schema_mode)
+
+    # A dynamic partition overwrite starts from the pinned table, partitioned as it is, so the copy keeps the
+    # partitions it doesn't write and a later dynamic overwrite in the same proof still finds them.
+    parts: list[str] = []
+    if predicate is not None:
+        try:
+            parts = list(_open_table(f"{ref.schema}.{ref.table}", record=False).metadata().partition_columns)
+        except TableNotFoundError:
+            parts = []
+
+    def seed(uri: str, data: pa.Table) -> DeltaTable:
+        return write(uri, data, partition_by=parts)
+    uri = proof.write_location(ref.schema, ref.table, mode, seed, **({"keeps_rows": True} if predicate is not None else {}))
+    table = write(uri, arrow, mode, schema_mode, predicate)
     return WriteResult(f"{ref.schema}.{ref.table}", arrow.num_rows, table.version(), uri)

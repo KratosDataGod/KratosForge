@@ -117,6 +117,22 @@ class KernelGone(RuntimeError):
     """The kernel's process ended or stopped answering."""
 
 
+def _attached_schemas() -> bool:
+    """Whether the attached lakehouse uses schemas, asked by the kernel only when a cell reads or
+    writes a table: finding out asks Fabric, which a cell that never touches OneLake shouldn't need
+    (offline, or signed out), as in the engine's own kernel."""
+    a = lakehouse._attached
+    if a is None:
+        raise RuntimeError("No lakehouse is attached. Use Add data items to attach one.")
+    return bool(a.schemas_enabled())
+
+
+def _maintenance_refusal(operation: str, workspace_id: str, table: str) -> str | None:
+    """A process kernel's OPTIMIZE, VACUUM or RESTORE, checked by the engine's guard; refused when there is none."""
+    guard = lakehouse.maintenance_guard
+    return guard(operation, workspace_id, table) if guard is not None else lakehouse.MAINTENANCE_NEEDS_APP
+
+
 class ProcessKernel:
     def __init__(self, token: Callable[[str], str] | None = None,
                  load_notebook: Callable[[str], list[dict[str, Any]]] | None = None,
@@ -128,7 +144,9 @@ class ProcessKernel:
             "load_notebook": load_notebook or _no("other notebooks"),
             "variable_libraries": variable_libraries or (lambda name: None),
             "write_guard": self._write_refusal,
+            "maintenance_guard": _maintenance_refusal,
             "proof_options": lambda: (self._proof_options or (lambda: {}))(),
+            "schemas_enabled": _attached_schemas,
         }
         self._proof_options = proof_options
         self.command = command or [sys.executable, "-m", "fabric_desktop.kernel_host"]
@@ -408,7 +426,7 @@ class ProcessKernel:
         context = None if a is None else {
             "workspace_id": a.workspace_id, "lakehouse_id": a.lakehouse_id, "name": a.name,
             "workspace_name": a.workspace_name, "work_dir": str(a.work_dir),
-            "history_file": str(a.history_file) if a.history_file else None, "schemas_enabled": bool(a.schemas_enabled())}
+            "history_file": str(a.history_file) if a.history_file else None}  # schemas: asked when a cell needs it
         key = (json.dumps(context, sort_keys=True), guard)
         if key != self._attached:
             self._request("attach", context=context, guard=guard)
@@ -578,11 +596,11 @@ class ProcessKernel:
     # ---- the result viewer (frames.py): results live where the cells ran
 
     def frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
-                   desc: bool = False, q: str = "") -> dict[str, Any]:
+                   desc: bool = False, q: str = "", filters: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         if not self.alive():
             raise FrameGone(GONE)
         return self._request("frame_page", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, offset=offset,
-                             limit=limit, sort=sort, desc=desc, q=q)
+                             limit=limit, sort=sort, desc=desc, q=q, **({"filters": filters} if filters else {}))
 
     def frame_chart(self, frame: str, **spec: Any) -> dict[str, Any]:
         if not self.alive():
@@ -741,7 +759,7 @@ def _parents() -> list[tuple[int, int]]:
                     continue  # it ended while being read
         return pairs
     try:
-        out = subprocess.run(["ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, errors="replace", timeout=10, check=False).stdout
+        out = subprocess.run(["/bin/ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, errors="replace", timeout=10, check=False).stdout
     except (OSError, subprocess.SubprocessError):
         return []
     return [(int(a), int(b)) for a, b in (line.split() for line in out.splitlines() if len(line.split()) == 2)]

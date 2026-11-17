@@ -252,6 +252,9 @@ class StreamReader:
     def load(self, path: str | None = None, format: str | None = None, **opts: Any) -> DataFrame:  # noqa: A002
         self.options(**opts)
         fmt = (format or self._format or "parquet").lower()
+        if fmt != "delta" and fmt not in _FILE_FORMATS:  # rate, socket, kafka...: named before the path they don't take
+            raise ValueError(f"Streaming from {fmt!r} runs in Fabric. On this PC, streams read Delta tables and "
+                             "csv, json, parquet or text files.")
         if not path:
             raise ValueError("readStream.load needs a path.")
         rel = lakehouse.relative_path(path)
@@ -259,9 +262,6 @@ class StreamReader:
             if rel and rel.startswith("Tables/"):
                 return self.table(".".join(p for p in rel.split("/")[1:] if p))
             return self._start("path", "delta", path)
-        if fmt not in _FILE_FORMATS:
-            raise ValueError(f"Streaming from {fmt!r} runs in Fabric. On this PC, streams read Delta tables and "
-                             "csv, json, parquet or text files.")
         return self._start("files", fmt, path)
 
     def csv(self, path: str, **opts: Any) -> DataFrame:
@@ -575,7 +575,7 @@ def _exists(conn: Any, name: str) -> bool:
 
 
 def _ident(name: str) -> str:
-    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
+    if not re.fullmatch(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
         raise ValueError(f"{name!r} can't be a view name: use letters, numbers and underscores.")
     return name
 

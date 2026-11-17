@@ -11,7 +11,6 @@ lists the differences known so far).
 from __future__ import annotations
 
 import base64
-import binascii
 import calendar
 import json
 import math
@@ -22,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Any, Callable
 
+from .. import b64
 from .expressions import tokens
 
 
@@ -593,8 +593,8 @@ def _base64(v: Any) -> str:
 
 def _from_base64(v: Any, fn: str) -> str:
     try:
-        return base64.b64decode(_text(v), validate=True).decode("utf-8")
-    except (binascii.Error, ValueError):
+        return b64.decode_exact(_text(v)).decode("utf-8")
+    except ValueError:
         raise ExpressionError(f"{fn}() was given text that isn't base64-encoded UTF-8 text") from None
 
 
@@ -608,10 +608,10 @@ def _data_uri_text(v: Any) -> str:
     params = [p.strip() for p in head[5:].split(";")]
     charset = next((p.split("=", 1)[1] for p in params if p.lower().startswith("charset=")), "utf-8")
     try:
-        raw = base64.b64decode(data, validate=True) if "base64" in (p.lower() for p in params) \
+        raw = b64.decode_exact(data) if "base64" in (p.lower() for p in params) \
             else urllib.parse.unquote_to_bytes(data)
         return raw.decode(charset)
-    except (binascii.Error, LookupError, ValueError):
+    except (LookupError, ValueError):
         raise ExpressionError("dataUriToString() couldn't read the data URI's text") from None
 
 

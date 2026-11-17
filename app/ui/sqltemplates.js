@@ -321,7 +321,7 @@ function openSqlTemplates(ref, open, opts = {}) {
     refresh();
     detail.replaceChildren(...head,
       fields.length ? h("div", { class: "sqlt-fields" }, fields) : null, script,
-      h("div", { class: "sqlt-actions" }, h("span", { class: "muted-text" }, "Opening a template runs nothing. Only a query that reads runs on this page; for now, run the rest in Fabric."), h("span", { class: "spacer" }), openBtn));
+      h("div", { class: "sqlt-actions" }, h("span", { class: "muted-text" }, "Opening a template runs nothing. A template that changes the warehouse runs only with Allow changes ticked, after you confirm."), h("span", { class: "spacer" }), openBtn));
   }
   // Write a new template, edit one of yours (t), or start one from a copy of any template (copy), in
   // place of the gallery.

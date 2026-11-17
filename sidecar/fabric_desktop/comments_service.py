@@ -168,7 +168,7 @@ class CommentsMixin:
         """Start a thread on a saved cell (save the notebook first), optionally on lines of its code.
         Writes the notebook file."""
         text = _text(text)
-        if not isinstance(cell_id, str) or not _CELL_ID.match(cell_id):
+        if not isinstance(cell_id, str) or not _CELL_ID.fullmatch(cell_id):
             raise ValueError("cell_id isn't a cell id.")
         me = self._comment_author()
 

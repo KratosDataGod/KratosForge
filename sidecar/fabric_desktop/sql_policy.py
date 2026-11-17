@@ -137,8 +137,8 @@ def _local(st: exp.Expression, made: set[str]) -> tuple[str, str, bool] | None:
     refused: a query reads and writes only the project's own tables."""
     source = _reads_files(st)
     if source:
-        return ("fabric_mutation", f"{source} reads a file on this PC outside the project; "
-                "add the file to the project first", False)
+        return ("fabric_mutation", (f"{source} reads a file on this PC outside the project; "
+                "add the file to the project first"), False)
     if isinstance(st, (exp.Set, exp.Pragma)) or (
             isinstance(st, exp.Command) and str(st.this or "").upper() in _LOCAL_SETTINGS_COMMANDS):
         return "fabric_mutation", "changes the project database's settings, which a query can't do", False
@@ -181,6 +181,9 @@ def _name(node: exp.Expression | None) -> str:
 
 
 def _one(st: exp.Expression, made: set[str]) -> tuple[str, str]:
+    # comments after the last ";" (sqlglot keeps them as a statement with no parts); one with parts is refused below
+    if isinstance(st, exp.Semicolon) and not any(st.args.values()):
+        return "read_only", "only comments"
     if isinstance(st, _READS) and not any(isinstance(n, _WRITES + (exp.Create, exp.Command)) for n in st.walk()):
         return "read_only", "reads tables"
     if isinstance(st, exp.Create):

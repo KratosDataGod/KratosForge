@@ -19,27 +19,76 @@ function homeLivingOn() {
   return previewShown() && chosenMotionLevel() > 0;
 }
 
-// Chris's approved title artwork (docs/design/assets.md): Kratos and the wolf at dawn, characters on the
-// right and a text-safe navy sky on the left. Static: nothing in it moves. The half-size file serves
-// ordinary windows and the full one high-density screens; object-position keeps the characters in view.
-function homeHeroArt() {
-  return h("img", { class: "home-hero-img", alt: "", "aria-hidden": "true", decoding: "async",
-    src: "art/experience/home/home-hero-1086.webp",
-    srcset: "art/experience/home/home-hero-1086.webp 1086w, art/experience/home/home-hero.webp 2172w",
+// Chris's approved header art (art/experience/heroes.js, logged in docs/design/assets.md): each page has
+// its own pool of 2172 x 724 pictures, characters on the right and a text-safe navy sky on the left, and
+// shows only its own. The pick is stable for a day: one picture per page all day, a new one tomorrow, so
+// it never changes while you work. A pool of one always shows that one. Static: nothing in it moves.
+const heroArtPin = {};  // page -> id, for tests and review screenshots
+
+function heroArtDay() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// FNV-1a: a small, even spread of page + day over the pool.
+function heroArtHash(text) {
+  let x = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) x = Math.imul(x ^ text.charCodeAt(i), 0x01000193) >>> 0;
+  return x;
+}
+
+// The picture a page shows today: published and not yet retired, else the pool's first; none without a pool.
+function heroArtPick(page, day = heroArtDay()) {
+  const pool = (typeof HERO_ART === "undefined" ? [] : HERO_ART).filter((e) => e.page === page);
+  if (!pool.length) return null;
+  const pinned = pool.find((e) => e.id === heroArtPin[page]);
+  if (pinned) return pinned;
+  const live = pool.filter((e) => (!e.published || e.published <= day) && (!e.retire || day < e.retire));
+  if (!live.length) return pool[0];
+  return live[heroArtHash(`${page}:${day}`) % live.length];
+}
+
+// The half-size file serves ordinary windows and the full one high-density screens; the CSS keeps the
+// whole picture in view. Decoration beside the page's real h1, so it has no name of its own.
+function lxHeroArt(art) {
+  const base = `art/experience/${art.file}`;
+  return h("img", { class: "home-hero-img", alt: art.alt || "", "aria-hidden": "true", decoding: "async", "data-art": art.id,
+    src: `${base}-1086.webp`, srcset: `${base}-1086.webp 1086w, ${base}.webp 2172w`,
     sizes: "(max-width: 720px) 0px, calc(100vw - 72px)" });
 }
 
-// The hero: full width under the top bar. The welcome and the primary actions are real UI in the navy
-// sky at left (Chris, 2026-11-07); the characters stay at right and nothing is drawn over them.
+// The hero band under the top bar, shared by Home and every page with header art: the page's words and
+// primary actions are real UI in the navy sky at left (Chris, 2026-11-07); the characters stay at right
+// and nothing is drawn over them. `heading` is the page's own h1; `line` is an optional sentence under it.
+// Null when the page has no art, so the page keeps its plain heading.
+function lxHero({ name, label, kicker = "KratosForge", title, heading, line, actions = [] }) {
+  const art = heroArtPick(name);
+  if (!art) return null;
+  return h("section", { class: `home-hero ${name}-hero`, "aria-label": label },
+    lxHeroArt(art),
+    h("div", { class: "home-hero-text" },
+      kicker ? h("span", { class: "home-hero-kicker" }, kicker) : null,
+      title ? h("span", { class: "home-hero-title" }, title) : null,
+      heading,
+      line ? h("p", { class: "home-hero-line" }, line) : null,
+      h("div", { class: "row wrap home-hero-actions" }, actions)));
+}
+
+// Home's hero: the welcome is the page's h1 under the KratosForge title.
 function homeHero({ welcome, actions = [] } = {}) {
   if (!homeLivingOn()) return null;
-  return h("section", { class: "home-hero", "aria-label": "KratosForge" },
-    homeHeroArt(),
-    h("div", { class: "home-hero-text" },
-      h("span", { class: "home-hero-kicker" }, "KratosForge"),
-      h("span", { class: "home-hero-title" }, "Build. Test. Optimize."),
-      h("h1", { class: "home-hero-welcome" }, welcome || "Welcome to KratosForge"),
-      h("div", { class: "row wrap home-hero-actions" }, actions)));
+  return lxHero({ name: "home", label: "KratosForge", title: "Build. Test. Optimize.",
+    heading: h("h1", { class: "home-hero-welcome" }, welcome || "Welcome to KratosForge"), actions });
+}
+
+// A progression page's header (Chris's art, 2026-11-07): Academy and Profile only, since RPG art is for
+// ranks, progression and achievements; working pages keep a plain heading. The tab's name is its h1 in
+// the title face, with the page's own actions under it. Off (Preview off, Professional) the
+// page keeps its plain heading, so callers fall back when this returns null.
+function pageHero(name, title, { actions = [], tag = null } = {}) {
+  if (!homeLivingOn()) return null;
+  // No KratosForge kicker: the page's own name is the whole title (UX, #2246).
+  return lxHero({ name, label: title.trim(), kicker: null, heading: h("h1", { class: "home-hero-title" }, title, tag), actions });
 }
 
 // The side column: the identity card, Your journey, Latest achievement and Forge stats, all from

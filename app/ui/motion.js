@@ -8,11 +8,13 @@
 // Experience mode (Settings > Appearance > Living Experience, engine setting motion_level). The
 // stored values are unchanged; only the names are new (they were Off, Minimal, Refined, Expressive):
 //   0 Professional  no decorative motion at all
-//   1 Subtle        functional transitions only: page changes, progress easing. No branded effects.
-//   2 Heroic        branded effects: sparks, the wolf, the forge strike (the default)
+//   1 Subtle        functional transitions, and the Achievement Reveal (the default)
+//   2 Heroic        branded effects on everyday work too: sparks, the wolf, the forge strike
 //   3 Legendary     the same moments with more character: extra sparks, halftone and offset rings
 // Windows' reduced-motion setting means level 0 unless the person unticked "Respect Windows'
 // reduced-motion setting". Each kind also belongs to a family the person can switch off on its own.
+// Subtle is the default: art and celebration belong to achievements and progression, so everyday
+// work stays plain unless the person picks Heroic or Legendary (Chris, 2026-11-09).
 const MOTION_LEVELS = ["Professional", "Subtle", "Heroic", "Legendary"];
 const MOTION = {
   spark: { ms: 400, gap: 300, level: 2, family: "sparks" },      // a cell succeeded
@@ -22,7 +24,7 @@ const MOTION = {
   settle: { ms: 450, level: 2, family: "ambient" },              // a pipeline activity finished
   strike: { ms: 650, gap: 1500, level: 2, family: "sparks", build: anvilParts, celebrate: true },  // a deployment succeeded
   wolfrun: { ms: 900, gap: 5000, level: 2, family: "wolf", build: wolfRunParts, celebrate: true },  // long work finished
-  achieve: { ms: 900, gap: 3000, level: 2, family: "achievements", celebrate: true },  // for the developer profile (#327)
+  achieve: { ms: 900, gap: 3000, level: 1, family: "achievements", celebrate: true },  // for the developer profile (#327)
   cool: { ms: 500, gap: 300, level: 2, family: "sparks" },       // a check passed: the badge glows orange and cools
 };
 // What happened -> the effect it plays. Only finished, real state changes are listed; nothing here
@@ -150,7 +152,7 @@ function motionSetting(key, fallback) {
 // The level the person chose, before reduced motion and load. Older settings had one switch,
 // forge_animations; off there still means Off.
 function chosenMotionLevel() {
-  const level = motionSetting("motion_level", motionSetting("forge_animations", true) === false ? 0 : 2);
+  const level = motionSetting("motion_level", motionSetting("forge_animations", true) === false ? 0 : 1);
   return Math.max(0, Math.min(3, Number(level) || 0));
 }
 
@@ -168,9 +170,9 @@ function motionLevel() {
   return level;
 }
 
-// Decorative (branded) motion is wanted: level 2 or 3, and the window can be seen.
+// Decorative (branded) motion is wanted: level 2 or 3 (achievements from 1), and the window can be seen.
 function motionOn(family) {
-  if (motionLevel() < 2 || document.hidden) return false;
+  if (motionLevel() < (family === "achievements" ? 1 : 2) || document.hidden) return false;
   return !family || motionSetting(`motion_${family}`, true) === true;
 }
 

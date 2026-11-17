@@ -115,8 +115,8 @@ def test_the_ui_sbom_matches_the_vendor_lock_files():
     hashed = next(c for c in sbom["components"] if c.get("hashes"))
     dropped = copy.deepcopy(sbom)
     dropped["components"] = [c for c in dropped["components"] if c["bom-ref"] != hashed["bom-ref"]]
-    assert check.check_ui(dropped) == [f"the UI's SBOM doesn't list {hashed['name']} {hashed['version']} "
-                                       f"from {hashed['properties'][0]['value']}"]
+    assert check.check_ui(dropped) == [(f"the UI's SBOM doesn't list {hashed['name']} {hashed['version']} "
+                                       f"from {hashed['properties'][0]['value']}")]
     changed = copy.deepcopy(sbom)
     next(c for c in changed["components"] if c["bom-ref"] == hashed["bom-ref"])["hashes"] = [{"alg": "SHA-512", "content": "00"}]
     assert check.check_ui(changed)[0].startswith(f"the UI's SBOM hash for {hashed['name']} ")

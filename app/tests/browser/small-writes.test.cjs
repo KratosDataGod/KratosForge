@@ -6,7 +6,7 @@
 //   the domain with the ticked environments, the subdomains choice and, for Save, the picked script.
 // - Validate notebook > Save report (validate.js): notebook_validate_save with that clean run's id,
 //   against the real engine, which writes the report to its Downloads folder.
-// - Home > Recent notebooks > Run several > Don't start the rest (home-notebooks.js): notebook_batch_stop
+// - Home > Recent notebooks > Run several > Stop (home-notebooks.js): notebook_batch_stop
 //   with that batch's id, against the real engine, which leaves its stop file.
 // Engine refusals read as a sentence, without the exception's name; opening each place sends no write;
 // axe finds nothing serious on each dialog and panel.
@@ -368,7 +368,7 @@ test("Save report that the engine can't write reads as a sentence", { skip }, as
   }
 });
 
-// ---------- Run several > Don't start the rest (real engine for the batch) ----------
+// ---------- Run several > Stop (real engine for the batch) ----------
 
 async function home() {
   await page().evaluate(() => { homeRun.picked.clear(); go("home"); });
@@ -398,27 +398,27 @@ async function endBatch(id) {
   await page().waitForFunction(() => ["done", "lost"].includes(homeRun.batch?.state), null, { timeout: 10000 });
 }
 
-test("Don't start the rest sends that batch's id, and the engine leaves its stop file", { skip }, async () => {
+test("Stop sends that batch's id, and the engine leaves its stop file", { skip }, async () => {
   const from = app.calls.length;
   const id = await runBatch(["Daily sales", "Stock levels"]);
   assert.deepStrictEqual(writes(from), [{ method: "notebook_batch_start", params: { names: ["Daily sales", "Stock levels"], parallel: 2 } }]);
   assert.match(id, /^[0-9a-f]{12}$/);
   const at = app.calls.length;
-  await page().locator(".home-run-bar").getByRole("button", { name: "Don't start the rest" }).click();
-  await page().locator(".home-run-bar", { hasText: "The rest won't start" }).waitFor();
+  await page().locator(".home-run-bar").getByRole("button", { name: "Stop", exact: true }).click();
+  await page().locator(".home-run-bar", { hasText: "Stopping" }).waitFor();
   assert.deepStrictEqual(writes(at), [{ method: "notebook_batch_stop", params: { id } }]);
   assert.ok(fs.existsSync(path.join(batchDir(), `${id}.stop`)), "the engine wrote the stop file");
-  assert.strictEqual(await page().locator(".home-run-bar").getByRole("button", { name: "Don't start the rest" }).count(), 0);
+  assert.strictEqual(await page().locator(".home-run-bar").getByRole("button", { name: "Stop", exact: true }).count(), 0);
   await endBatch(id);
 });
 
-test("Don't start the rest on a batch the engine no longer has reads as a sentence", { skip }, async () => {
+test("Stop on a batch the engine no longer has reads as a sentence", { skip }, async () => {
   const id = await runBatch(["Weekly returns", "Stock levels"]);
   fs.rmSync(path.join(batchDir(), `${id}.json`));  // gone from this PC, as after a cleanup
   const from = app.calls.length;
-  await page().locator(".home-run-bar").getByRole("button", { name: "Don't start the rest" }).click();
-  const said = await toastSays(/^Could not stop the rest/);
-  assert.strictEqual(said, "Could not stop the rest: That run of several notebooks isn't on this PC");
+  await page().locator(".home-run-bar").getByRole("button", { name: "Stop", exact: true }).click();
+  const said = await toastSays(/^Could not stop the run/);
+  assert.strictEqual(said, "Could not stop the run: That run of several notebooks isn't on this PC");
   assert.doesNotMatch(said, /LookupError/);
   assert.deepStrictEqual(writes(from), [{ method: "notebook_batch_stop", params: { id } }]);
   assert.ok(!fs.existsSync(path.join(batchDir(), `${id}.stop`)), "no stray stop file");

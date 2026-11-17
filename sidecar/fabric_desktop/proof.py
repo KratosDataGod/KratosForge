@@ -160,10 +160,10 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
             add(notes, n, c, "uses your credentials; the proof runs as you on both sides", source, m.start())
     limits = ["This check reads the code; it can't see calls built at run time."]
     if spark:
-        limits += ["In Fabric, Spark reads of a single file under Files/ are checked; files read as a whole folder "
-                   "aren't, so a change to them between the runs isn't found.",
-                   "In Fabric, Spark writes to Azure storage outside OneLake (abfss:// of another account) aren't "
-                   "stopped or compared.",
+        limits += [("In Fabric, Spark reads of a single file under Files/ are checked; files read as a whole folder "
+                   "aren't, so a change to them between the runs isn't found."),
+                   ("In Fabric, Spark writes to Azure storage outside OneLake (abfss:// of another account) aren't "
+                   "stopped or compared."),
                    "In Fabric, the copy needs sqlglot in the notebook's environment to read its SQL; it installs nothing."]
     return {"ok": not blockers, "blockers": blockers, "warnings": warnings, "notes": notes,
             "engine": "spark" if spark else "python", "limits": limits}
@@ -203,7 +203,8 @@ def fabric_cells(config: dict[str, Any], modules: list[str],
     if spark is None:
         source += "_fd_sys.modules['fabric_desktop.lakehouse']._bind_proof(_fd_proof)\n"
     else:
-        root = f"abfss://{spark['workspace_id']}@onelake.dfs.fabric.microsoft.com/{spark['lakehouse_id']}"
+        from .onelake import lakehouse_root
+        root = lakehouse_root(spark["workspace_id"], spark["lakehouse_id"])
         source += (
             "try:\n"
             "    import sqlglot as _fd_sqlglot  # nothing is installed here: a proof brings no code from outside\n"

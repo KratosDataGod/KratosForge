@@ -274,6 +274,36 @@ def _make_entry_point(host: Host) -> types.SimpleNamespace:
     return types.SimpleNamespace(getDbutils=lambda: types.SimpleNamespace(notebook=lambda: notebook))
 
 
+# A notebook that uses dbutils may be meant for Databricks, whose Runtime 17.0 and later run Spark SQL with
+# ANSI mode on; Spark here runs with it off, as Fabric does (spark_api.ANSI_NOTE). Which runtime a notebook
+# is meant for isn't known here, so the first use of dbutils in a session says which one Spark answers as.
+DATABRICKS_ANSI_NOTE = ("Note: this notebook uses dbutils, so it may be meant for Databricks. Spark SQL on this PC "
+                        "answers with ANSI mode off, as Fabric runs it. Databricks Runtime 17.0 and later run with "
+                        "ANSI mode on, where a CAST that fails or a division by zero stops the query instead of "
+                        "giving NULL. Use try_cast and try_divide where that matters, or run it on Databricks.")
+
+
+class _Dbutils(types.SimpleNamespace):
+    """dbutils, printing DATABRICKS_ANSI_NOTE the first time one of its parts is used once ``_kf_arm`` is called (not
+    while the kernel sets itself up)."""
+
+    def _kf_arm(self) -> None:
+        object.__getattribute__(self, "__dict__")["_kf_noted"] = False
+
+    def __getattribute__(self, name: str) -> Any:
+        if not name.startswith("_") and not object.__getattribute__(self, "__dict__").get("_kf_noted"):
+            object.__getattribute__(self, "__dict__")["_kf_noted"] = True
+            print(DATABRICKS_ANSI_NOTE)
+        return object.__getattribute__(self, name)
+
+
+def quiet_part(dbutils: Any, name: str) -> Any:
+    """``dbutils.<name>`` (None when it has none) read by the kernel itself, without the note."""
+    if isinstance(dbutils, _Dbutils):
+        return object.__getattribute__(dbutils, "__dict__").get(name)
+    return getattr(dbutils, name, None)
+
+
 def build(host: Host, notebookutils: types.ModuleType) -> types.SimpleNamespace:
     nbu = notebookutils
 
@@ -296,8 +326,8 @@ def build(host: Host, notebookutils: types.ModuleType) -> types.SimpleNamespace:
     notebook = types.SimpleNamespace(run=run, exit=nbu.notebook.exit, entry_point=_make_entry_point(host),
                                      help=lambda *_a: print("dbutils.notebook on this PC: run, exit"))
     aws = "AWS role credentials are a Databricks on AWS feature; this PC signs in to Microsoft as you."
-    return types.SimpleNamespace(
-        fs=_make_fs(nbu.fs), notebook=notebook, widgets=widgets,
+    return _Dbutils(
+        _kf_noted=True, fs=_make_fs(nbu.fs), notebook=notebook, widgets=widgets,
         secrets=_make_secrets(nbu.credentials.getSecret, nbu.credentials.getToken),
         jobs=types.SimpleNamespace(taskValues=_make_task_values(host)),
         library=types.SimpleNamespace(restartPython=restartPython, install=unsupported(

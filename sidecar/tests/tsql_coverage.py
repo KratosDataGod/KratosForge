@@ -109,8 +109,8 @@ class Runner:
             return outcome, f"{c['id']}: {got}"
         if "first" in c:
             same = bool(got and got[0]) and _cell_same(got[0][0], c["first"])
-            return ("same", "") if same else ("differs", f"{c['id']}: {got[0][0] if got and got[0] else None!r} here, "
-                                                          f"{c['first']!r} in T-SQL")
+            return ("same", "") if same else ("differs", (f"{c['id']}: {got[0][0] if got and got[0] else None!r} here, "
+                                                          f"{c['first']!r} in T-SQL"))
         if _rows_same(got, c["rows"]):
             return "same", ""
         return "differs", f"{c['id']}: {got!r} here, {c['rows']!r} in T-SQL"

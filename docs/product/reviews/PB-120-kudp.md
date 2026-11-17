@@ -11,13 +11,13 @@
 
 ## Outcome
 
-**Accepted with Documented Limitations** (recommended). The four criteria are met. Each engine adapter
+**Accepted with Documented Limitations**. The four criteria are met. Each engine adapter
 passes one contract check. Each platform has a manifest whose levels come from evidence. SQL gets a
 portability report per statement, and one query can be compared on two engines. The limits are about
 how far it is proven: only Fabric has live evidence (level 2), Databricks and Snowflake are verified
 at level 0, and the portability report and comparison have no screen yet.
 
-Recommended by: Product management thread. Decided by (product owner): pending.
+Recommended by: Product management thread. Decided by (product owner): Chris, 'Accept with limits' on the decision card on 2026-11-10 (project message cmsg_018T4o2pQdpbLBNhHpgVNNGpYRYGUPQ2mE64P6mQ1JuT64).
 
 ## Acceptance criteria
 
@@ -85,4 +85,5 @@ None blocking.
 ## Inventory and backlog changes
 
 - PB-120: In progress → In review. Acceptance lists the four KUDP lines; evidence links this review.
+- PB-120: In review → Accepted, 2026-11-10.
 - No feature row status changed.

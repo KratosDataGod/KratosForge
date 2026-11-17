@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "2bf8ea1b7278e1c84ce43c271b11dc10e49f68ef",
-    "date": "2026-11-09",
+    "commit": "80cebf6183a9f65910404f304e24c25563714910",
+    "date": "2026-11-17",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -49,7 +49,25 @@
       "Acceptance of PB-130 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-07 13:17 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpTcvHfkEFgjqcbKt2fwWMst).",
       "Product check 2026-11-07 23:42 at e5e6bec443b36ea22e6d9e0a8e76dbce147cd0ff: 74 PRs merged after 56e3826b; 4 were product data PRs and the other 70 were linked by title; other rows were not re-read.",
       "Product check 2026-11-09 11:42 at 2bf8ea1b7278e1c84ce43c271b11dc10e49f68ef: 41 PRs merged after e5e6bec4; 2 were product data and docs audit PRs and the other 39 were linked by title; other rows were not re-read.",
-      "Acceptance of PB-128 for the DP-700 track recorded (Chris chose 'Accept DP-700, split Databricks' on the decision card, 2026-11-09 11:53 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpWJvTSwjZgg8u8nKCFkg9vR); the Databricks track is PB-135."
+      "Acceptance of PB-128 for the DP-700 track recorded (Chris chose 'Accept DP-700, split Databricks' on the decision card, 2026-11-09 11:53 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpWJvTSwjZgg8u8nKCFkg9vR); the Databricks track is PB-135.",
+      "Product check 2026-11-09 23:42 at d5a867c0b32eff01f8d65b2b253be71dc81dc09f: 54 PRs merged after 2bf8ea1b; 5 were product data, docs audit and operations PRs and the other 49 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-10 11:42 at 5d2fc0454d489bb57e3adff7f56c5a4fd6ef7021: 17 PRs merged after d5a867c0; 1 was a product data PR and the other 16 were linked by title; other rows were not re-read.",
+      "Acceptance of PB-120 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-10 20:29 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpYRYGUPQ2mE64P6mQ1JuT64).",
+      "Product check 2026-11-10 23:42 at 17e7ea068acfb3106f338a1f1f4efde3cae96c3e: 21 PRs merged after 5d2fc045; 3 were product data PRs and the other 18 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-11 11:42 at 474164736561a04a1637810290e433ebe2ef96fc: 72 PRs merged after 17e7ea06; 2 were product data or docs audit PRs and the other 70 were linked by title; PB-073 moved to In review with an implementation review and PB-136 added; other rows were not re-read.",
+      "Product check 2026-11-11 23:42 at 86c07814d99d1cccc600cb9bcbb16636ecd6eab2: 19 PRs merged after 47416473; 2 were product data or docs audit PRs and the other 17 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-12 11:42 at 7c3dbd0ecb12dab92e4149d269293f922499cb00: 18 PRs merged after 86c07814; 1 were product data or docs audit PRs and the other 17 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-12 23:42 at 36844275c10e87af9085f113a2f7a90e4290fb41: 16 PRs merged after 7c3dbd0e; 1 were product data or docs audit PRs and the other 15 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-13 11:42 at 6cab0dc397f9c6b358ad0fc0b8fbddd370219260: 8 PRs merged after 36844275; 2 were product data or docs audit PRs and the other 6 were linked by title; other rows were not re-read.",
+      "Acceptance of PB-073 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-13 12:39 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp3ZUBsK6r4QNz6DBouE86Ey). PB-136 stays Proposed, waiting on a Windows trial and the product owner's go.",
+      "Product check 2026-11-13 23:42 at af7d786bfe11fb22b0e0e06237bc19f6d323c960: 38 PRs merged after 6cab0dc3; 3 were product data or docs audit PRs and the other 35 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-14 11:42 at 2dc0bc43e7877308a0ca2408dd7d8ec31453083d: 9 PRs merged after af7d786b; 1 were product data or docs audit PRs and the other 8 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-14 23:42 at 7178e900314a6e7835d2477605fe741cf73a3934: 27 PRs merged after 2dc0bc43; 3 were product data, docs audit or operations PRs and the other 24 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-15 11:42 at b76c42d29b79df1898b0f194687751e50b2aa122: 22 PRs merged after 7178e900; 1 were product data, docs audit or operations PRs and the other 21 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-15 23:42 (run 2026-11-16 01:03) at a13d0a0fc8840991fe4625e0b0d282ac464d8b15: 22 PRs merged after b76c42d2; 1 were product data, docs audit or operations PRs and the other 21 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-16 11:42 at 7bd752a5d30b4648621609b4c7b0b9f2d1ca2708: 36 PRs merged after a13d0a0f; 2 were product data, docs audit or operations PRs and the other 34 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-16 23:42 at 58a112e4de9b12f234b07f64f44cd7c01ba868a1: 44 PRs merged after 7bd752a5; 3 were product data, docs audit or operations PRs and the other 41 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-17 11:42 at 80cebf6183a9f65910404f304e24c25563714910: 47 PRs merged after 58a112e4; 3 were product data, docs audit or operations PRs and the other 44 were linked by title; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -148,6 +166,7 @@
         2188,
         2191,
         2196,
+        2198,
         2205,
         2207,
         2220,
@@ -163,7 +182,91 @@
         2281,
         2282,
         2285,
-        2287
+        2287,
+        2291,
+        2294,
+        2300,
+        2315,
+        2316,
+        2317,
+        2319,
+        2329,
+        2330,
+        2335,
+        2336,
+        2339,
+        2341,
+        2342,
+        2343,
+        2345,
+        2350,
+        2374,
+        2381,
+        2384,
+        2386,
+        2387,
+        2392,
+        2398,
+        2399,
+        2400,
+        2401,
+        2403,
+        2405,
+        2407,
+        2413,
+        2415,
+        2418,
+        2420,
+        2426,
+        2427,
+        2429,
+        2431,
+        2432,
+        2436,
+        2440,
+        2442,
+        2444,
+        2458,
+        2460,
+        2465,
+        2470,
+        2476,
+        2484,
+        2485,
+        2494,
+        2498,
+        2501,
+        2509,
+        2514,
+        2517,
+        2523,
+        2525,
+        2532,
+        2534,
+        2536,
+        2538,
+        2547,
+        2548,
+        2558,
+        2567,
+        2586,
+        2634,
+        2636,
+        2651,
+        2652,
+        2653,
+        2681,
+        2725,
+        2730,
+        2752,
+        2774,
+        2776,
+        2784,
+        2821,
+        2823,
+        2827,
+        2834,
+        2849
       ]
     },
     {
@@ -358,6 +461,8 @@
         1967,
         2056,
         2201,
+        2202,
+        2203,
         2211,
         2213,
         2215,
@@ -366,7 +471,16 @@
         2222,
         2225,
         2226,
-        2290
+        2246,
+        2290,
+        2410,
+        2411,
+        2503,
+        2600,
+        2602,
+        2603,
+        2684,
+        2809
       ]
     },
     {
@@ -455,7 +569,9 @@
         "Not fed by incidents or agent status"
       ],
       "prs": [
-        122
+        122,
+        2325,
+        2369
       ],
       "next_action": "Feed incidents and agent status into the bell once incident screens exist (PB-047).",
       "backlog": [
@@ -608,7 +724,11 @@
         1150,
         1441,
         1474,
-        1685
+        1685,
+        2305,
+        2569,
+        2577,
+        2585
       ],
       "workstream": "Enterprise readiness (FD-105)",
       "next_action": "Missing keys through the enterprise program (PB-061); #569 closed the ten audit bugs #411 to #420.",
@@ -816,7 +936,10 @@
         1387,
         1392,
         1679,
-        1870
+        1870,
+        2433,
+        2457,
+        2599
       ]
     },
     {
@@ -1085,7 +1208,10 @@
         939,
         944,
         1411,
-        1416
+        1416,
+        2382,
+        2391,
+        2394
       ]
     },
     {
@@ -1298,7 +1424,11 @@
         1868,
         1871,
         1897,
-        2037
+        2037,
+        2054,
+        2524,
+        2733,
+        2739
       ]
     },
     {
@@ -2319,7 +2449,8 @@
         115,
         1209,
         1212,
-        1215
+        1215,
+        2601
       ],
       "workstream": "Prove (FD-110)",
       "next_action": "Make it the default after a Windows trial; add per-cell time and memory limits (Prove FD-110).",
@@ -2491,7 +2622,62 @@
         2250,
         2266,
         2271,
-        2272
+        2272,
+        2302,
+        2328,
+        2340,
+        2372,
+        2373,
+        2379,
+        2383,
+        2388,
+        2389,
+        2416,
+        2446,
+        2449,
+        2454,
+        2456,
+        2459,
+        2477,
+        2535,
+        2539,
+        2551,
+        2553,
+        2561,
+        2581,
+        2584,
+        2588,
+        2589,
+        2594,
+        2597,
+        2608,
+        2615,
+        2617,
+        2619,
+        2620,
+        2626,
+        2627,
+        2631,
+        2633,
+        2635,
+        2637,
+        2639,
+        2667,
+        2680,
+        2690,
+        2692,
+        2745,
+        2747,
+        2759,
+        2760,
+        2766,
+        2772,
+        2785,
+        2797,
+        2803,
+        2818,
+        2822,
+        2846
       ]
     },
     {
@@ -3026,7 +3212,61 @@
         2212,
         2248,
         2273,
-        2277
+        2277,
+        2375,
+        2406,
+        2439,
+        2451,
+        2475,
+        2478,
+        2490,
+        2496,
+        2497,
+        2502,
+        2519,
+        2528,
+        2542,
+        2582,
+        2583,
+        2587,
+        2596,
+        2598,
+        2604,
+        2610,
+        2616,
+        2618,
+        2632,
+        2677,
+        2678,
+        2679,
+        2694,
+        2722,
+        2723,
+        2753,
+        2754,
+        2757,
+        2763,
+        2770,
+        2779,
+        2783,
+        2790,
+        2791,
+        2792,
+        2794,
+        2795,
+        2796,
+        2798,
+        2799,
+        2804,
+        2810,
+        2814,
+        2817,
+        2826,
+        2829,
+        2832,
+        2837,
+        2840,
+        2841
       ],
       "workstream": "SQL development sprint",
       "next_action": "SQL editor rows are tracked by the warehouse program now (WH-08 Messages and Chart merged).",
@@ -3693,7 +3933,9 @@
         1006,
         2063,
         2144,
-        2145
+        2145,
+        2434,
+        2486
       ],
       "workstream": "Staged roadmap (FD-114)",
       "next_action": "Build the run dialog (mockup first) and vacuum orphan files after a stopped batch (FD-114).",
@@ -5570,7 +5812,8 @@
         1996,
         2006,
         2007,
-        2044
+        2044,
+        2467
       ],
       "workstream": "Workloads (FD-123)",
       "next_action": "Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127",
@@ -5737,7 +5980,13 @@
         2061,
         2147,
         2163,
-        2165
+        2165,
+        2217,
+        2425,
+        2428,
+        2468,
+        2593,
+        2607
       ],
       "workstream": "Administration and FinOps sprint (FINOPS-001)",
       "next_action": "Calibrate against the Capacity Metrics app and label every number (PB-050)",
@@ -6721,7 +6970,7 @@
         1289
       ],
       "workstream": "Notebook development program",
-      "next_action": "Implementation review of PR #350; run on a tenant before the Preview tag comes off."
+      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #350 claimed no backlog item; the feature's review was done with PB-118 (Accepted)."
     },
     {
       "id": "FEAT-NB-13",
@@ -6944,7 +7193,7 @@
         650
       ],
       "workstream": "Notebook development program",
-      "next_action": "Implementation review of PR #320; run on a tenant before the Preview tag comes off.",
+      "next_action": "Run on a tenant before the Preview tag comes off, and the PB-109 implementation review when that item moves to In review. #320 claimed notebook program ids, not a backlog item.",
       "limitations": [
         "Edits made in another program while the notebook is open are kept: the app never saves over them (#650); VS Code integration builds on this"
       ]
@@ -7155,7 +7404,7 @@
         1765
       ],
       "workstream": "Notebook runtime",
-      "next_action": "Implementation review of PR #421, #539; run on a tenant before the Preview tag comes off."
+      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #421 and #539 claimed no backlog item, so no implementation review is owed."
     },
     {
       "id": "FEAT-NB-22",
@@ -7205,7 +7454,7 @@
         561
       ],
       "workstream": "Notebook runtime",
-      "next_action": "Implementation review of PR #561; run on a tenant before the Preview tag comes off."
+      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #561 claimed no backlog item, so no implementation review is owed."
     },
     {
       "id": "FEAT-NB-23",
@@ -7307,7 +7556,7 @@
         762
       ],
       "workstream": "Prove",
-      "next_action": "Implementation review of PR #282; run on a tenant before the Preview tag comes off."
+      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #282 claimed no backlog item, so no implementation review is owed."
     },
     {
       "id": "FEAT-NB-25",
@@ -7426,7 +7675,7 @@
         632
       ],
       "workstream": "Notebook outputs",
-      "next_action": "Implementation review of PR #385, #386, #427, #430, #448, #472, #479, #490, #546, #552; run on a tenant before the Preview tag comes off."
+      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #385 to #552 claimed no backlog item, so no implementation review is owed."
     },
     {
       "id": "FEAT-NB-26",
@@ -7716,7 +7965,7 @@
         276
       ],
       "workstream": "Administration and FinOps (FINOPS-005)",
-      "next_action": "Implementation review of PR #276; run on a tenant before the Preview tag comes off.",
+      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #276's review was done with PB-017 (Accepted).",
       "backlog": [
         "PB-017"
       ]
@@ -7759,7 +8008,7 @@
         1560
       ],
       "workstream": "Administration and FinOps (FINOPS-003)",
-      "next_action": "Implementation review of PR #153; run on a tenant before the Preview tag comes off.",
+      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #153's review was done with PB-089 (Accepted).",
       "backlog": [
         "PB-089"
       ]
@@ -8018,7 +8267,7 @@
         831
       ],
       "workstream": "UX and simplicity oversight",
-      "next_action": "Implementation review of PR #557, #558; run on a tenant before the Preview tag comes off."
+      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #557 and #558 claimed no backlog item, so no implementation review is owed."
     },
     {
       "id": "FEAT-EXT-05",
@@ -8153,7 +8402,18 @@
         2255,
         2263,
         2276,
-        2278
+        2278,
+        2293,
+        2332,
+        2338,
+        2665,
+        2666,
+        2669,
+        2671,
+        2689,
+        2771,
+        2844,
+        2852
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
@@ -8195,7 +8455,7 @@
       "limitations": [
         "Fabric API faked in tests; not run on a tenant"
       ],
-      "next_action": "Implementation review of #640, #653; run on a tenant before Preview comes off.",
+      "next_action": "Run on a tenant before Preview comes off, and #640 and #653 reviewed with PB-107 when that item moves to In review.",
       "evidence": [
         {
           "kind": "test",
@@ -8298,7 +8558,8 @@
         681,
         716,
         758,
-        777
+        777,
+        2592
       ],
       "workstream": "TMDL and OSI semantic model conversion",
       "limitations": [
@@ -8486,7 +8747,19 @@
         811,
         1569,
         1707,
-        1832
+        1832,
+        2292,
+        2303,
+        2307,
+        2309,
+        2377,
+        2402,
+        2404,
+        2412,
+        2421,
+        2422,
+        2481,
+        2531
       ],
       "workstream": "Bring VS Code developers to KratosForge",
       "limitations": [
@@ -8661,7 +8934,25 @@
         2247,
         2257,
         2265,
-        2269
+        2269,
+        2299,
+        2301,
+        2304,
+        2318,
+        2395,
+        2435,
+        2437,
+        2438,
+        2441,
+        2445,
+        2447,
+        2455,
+        2463,
+        2513,
+        2529,
+        2541,
+        2566,
+        2612
       ],
       "backlog": [
         "PB-119",

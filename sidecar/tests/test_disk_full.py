@@ -107,3 +107,50 @@ def test_a_run_log_that_cant_be_saved_on_a_full_disk_says_so(tmp_path):
     assert "couldn't save the run log, as the disk is full (" in res.message
     assert "The table's write stands; free some space before the next run" in res.message
     s.store.meta_append = real
+
+
+SPILL = "SELECT md5(i::VARCHAR) || md5((i + 1)::VARCHAR) AS s FROM range(3000000) t(i) ORDER BY s"
+
+
+def _local_run(svc, pid, query):
+    import time
+    eid = svc.sql_start(query, target="local", project=pid, dialect="duckdb")["id"]
+    deadline = time.monotonic() + 120
+    while (status := svc.sql_status(eid))["state"] in ("queued", "running") and time.monotonic() < deadline:
+        time.sleep(0.1)
+    return status
+
+
+def test_a_local_data_query_whose_temp_files_hit_the_projects_limit_says_so_not_memory(tmp_path):
+    from fabric_desktop.service import Service
+    svc = Service(root=tmp_path / "app")
+    try:
+        pid = svc.local_create_project("Sales")["id"]
+        svc.local_project_settings(pid, {"memory_limit": "32MB", "threads": 1, "max_temp_size": "1MB"})
+        status = _local_run(svc, pid, SPILL)
+        assert status["state"] == "failed" and status["error_kind"] == "disk", status
+        assert status["error"].startswith("Stopped: the query's temp files reached this project's limit (1MB, "
+                                          "in the project's settings)."), status["error"]
+        assert "memory" not in status["error"].lower()
+        assert _local_run(svc, pid, "SELECT 1 AS a")["state"] == "completed"  # the project still runs queries
+    finally:
+        svc.local_data.close_all()
+
+
+def test_a_local_data_query_on_a_full_temp_drive_or_disk_says_the_drive_is_full(tmp_path):
+    from types import SimpleNamespace
+
+    from fabric_desktop import sql_exec
+    con = duckdb.connect()
+    for setting in ("memory_limit = '32MB'", "threads = 1", f"temp_directory = '{tmp_path.as_posix()}'",
+                    "max_temp_directory_size = '1MB'"):  # as a full drive does when the project sets no limit
+        con.execute(f"SET {setting}")
+    with pytest.raises(duckdb.Error) as caught:
+        con.execute(SPILL).fetchall()
+    project = SimpleNamespace(settings=SimpleNamespace(max_temp_size=""), temp_dir=tmp_path, root=tmp_path)
+    kind, message = sql_exec.local_error(caught.value, project, None)
+    assert kind == "disk" and message.startswith("Stopped: the query ran out of room for its temp files, as the "
+                                                 "temp folder's drive is full (") and "memory" not in message.lower()
+    kind, message = sql_exec.local_error(OSError(errno.ENOSPC, "No space left on device"), project, None)
+    assert kind == "disk" and message.startswith("The disk is full (") and "didn't finish" in message
+    assert sql_exec.local_error(ValueError("syntax error at SELEC"), project, None) == ("sql", "syntax error at SELEC")

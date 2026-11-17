@@ -223,7 +223,7 @@ class DataOpsMixin:
             # Rows held before ids existed get one from their values, not their position: Delta
             # returns rows in no fixed order, so a position could point at another row next time.
             values = q.drop([c for c in ("_qid",) if c in q.columns])
-            ids = pl.Series([f"old-{hashlib.sha1(line.encode()).hexdigest()[:16]}"
+            ids = pl.Series([f"old-{hashlib.sha1(line.encode(), usedforsecurity=False).hexdigest()[:16]}"
                              for line in values.write_ndjson().splitlines()], dtype=pl.String)
             q = q.with_columns(pl.col("_qid").fill_null(ids) if "_qid" in q.columns else ids.alias("_qid"))
         return store, lh, table, q, version

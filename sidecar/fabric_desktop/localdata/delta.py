@@ -108,7 +108,7 @@ def split_name(name: str) -> tuple[str | None, str]:
 
 def check_name(schema: str, table: str) -> None:
     for kind, value in (("schema", schema), ("table", table)):
-        if not NAME.match(value or "") or value.lower().startswith("__fd_"):
+        if not NAME.fullmatch(value or "") or value.lower().startswith("__fd_"):
             raise ValueError(f"{value!r} can't be a Delta {kind} name: use letters, digits and underscores, "
                              "starting with a letter (as Fabric lakehouse tables do).")
 
@@ -191,7 +191,7 @@ def rewrite_as_of(sql: str, start: int = 0) -> tuple[str, list[AsOf]]:
     if not _AS_OF_HINT.search(sql):
         return sql, []
     try:
-        tree = sqlglot.parse_one(sql, read="duckdb")
+        tree = sql_dialects.parse_one(sql, read="duckdb")
     except sqlglot.errors.ParseError as exc:
         raise ValueError(f"Could not read the query's AT (VERSION/TIMESTAMP => ...) clause: {sql_dialects.parse_problem(exc)}") from None
     found = rewrite_tree(cast(exp.Expression, tree), start)  # sqlglot types parse_one as its Expr base

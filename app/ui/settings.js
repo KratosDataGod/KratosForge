@@ -26,6 +26,7 @@ async function loadSettings() {
   state.settings = await rpc("app_settings").catch(() => state.settings || null);
   applyMotion();  // motion.js
   applyAppearance();  // features.js
+  applyEditorPrefs();  // editorprefs.js
   if (!skinState.list) loadSkins().then(() => typeof render === "function" && render());  // skins.js: once; the rail then takes the skin's order
   return state.settings;
 }
@@ -35,6 +36,7 @@ async function saveSettings(changes, label = "Not saved") {
   if (res) state.settings = res;
   applyMotion();
   applyAppearance();  // features.js
+  applyEditorPrefs();  // editorprefs.js
   return res;
 }
 
@@ -129,6 +131,8 @@ function redactReport(text, level = "support") {
     .replace(/\bglpat-[A-Za-z0-9_\-]{20,}(?:\.[A-Za-z0-9_\-]+)*/g, "[removed]")
     .replace(/\bnpm_[A-Za-z0-9]{36}\b/g, "[removed]")
     .replace(/(?:https?:\/\/)?\bhooks\.slack\.com\/(?:services|workflows|triggers)\/[^\s"'<>]+/gi, "[removed]")
+    .replace(/\bH4sI[A-Za-z0-9+/_\-]{40,}={0,2}/g, "[removed]")
+    .replace(/(\b(?:ocp-apim-)?subscription[_-]?key"?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1[removed]")
     .replace(/-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)/g, "[removed]")
     .replace(/("(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)"\s*:\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
     .replace(/('(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)/gi, "$1[removed]")
@@ -194,6 +198,10 @@ function reportProblem() {
 
 // A zip for whoever is helping: the engine writes it (support_bundle.py) with every file redacted, to a
 // folder the person picks. Nothing is sent from the app.
+// What a bundle keeps on purpose, and where it should go (Chris, 2026-11-13): the same sentence is in
+// CONTENTS.txt (support_bundle.KEPT), kept in step by a test.
+const BUNDLE_KEPT = "Workspace, lakehouse, warehouse, table and notebook names, and the SQL that ran. "
+  + "Send the bundle to your IT or support contact, not to a public forum or GitHub issue.";
 const BUNDLE_FILES = {
   "about.json": "App and engine build, Python, Windows version, and where each setting comes from",
   "sidecar.log": "The last 2,000 lines of the engine's log",
@@ -267,12 +275,14 @@ async function saveSupportBundle() {
       h("li", {}, "Tenant, workspace and item ids"),
       h("li", {}, "Settings that hold a secret, such as a connection string, show only whether they're set")),
     h("p", { class: "muted-text small" }, "No table data, notebook contents or sign-in cache is read."),
+    h("h3", {}, "Kept, so whoever helps can find the problem"),
+    h("p", {}, BUNDLE_KEPT),
     h("div", {}, toggle), contents,
     h("h3", {}, "Where it's saved"),
     h("label", { class: "field", for: "sb-folder" }, "Folder"),
     h("div", { class: "row" }, folder, window.__TAURI__?.core ? choose : null),
     h("p", { class: "muted-text small" }, "Saved as ", h("span", { class: "mono" }, "fabric-desktop-support-….zip"),
-      ". Read it before you send it on: logs can name your notebooks and warehouses."),
+      "."),
     problem),
   [btn("Cancel", null, closeDialog, "tool outline"), save]);
 }
@@ -648,8 +658,8 @@ function whatsNewItems(notes, history) {
 // ---------- Settings page ----------
 
 const MOTION_LEVEL_HELP = ["No decorative effects. Progress, results and errors still show as text and bars.",
-  "Quick page and panel transitions only. No characters or sparks.",
-  "The wolf runs with your work, sparks when it succeeds, the forge strike on deploy. Recommended.",
+  "Quick page and panel transitions, and a short reveal when you earn an achievement. Everyday work stays plain. Recommended.",
+  "Adds the wolf on your runs, sparks when work succeeds and the forge strike on deploy.",
   "The same moments with more character: extra sparks, halftone and offset rings."];
 const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival, the Wolf Run after long work, and the navy wolf on work in Fabric or with a remote."],
   ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment or promote, the ember when something fails."],
@@ -667,7 +677,7 @@ function motionSettingsCard(s, locked) {
   const levelRow = (n) => h("label", { class: `choice-row${level === n ? " selected" : ""}` },
     h("input", { type: "radio", name: "motion_level", value: String(n), checked: level === n ? true : null,
       disabled: locked("motion_level") ? true : null, onchange: () => save({ motion_level: n }) }),
-    h("span", {}, h("b", {}, `${MOTION_LEVELS[n]}${n === 2 ? " (default)" : ""}`), h("span", { class: "muted-text small" }, MOTION_LEVEL_HELP[n])));
+    h("span", {}, h("b", {}, `${MOTION_LEVELS[n]}${n === 1 ? " (default)" : ""}`), h("span", { class: "muted-text small" }, MOTION_LEVEL_HELP[n])));
   const toggle = (key, label, on, disabled) => h("label", { class: "switch" },
     h("input", { type: "checkbox", checked: on ? true : null, disabled: disabled || locked(key) ? true : null, "aria-label": label,
       onchange: (e) => save({ [key]: e.target.checked }) }),
@@ -682,16 +692,20 @@ function motionSettingsCard(s, locked) {
   };
   return h("section", { class: "card pad motion-settings" }, h("h2", {}, "Appearance"),
     typeof skinChooser === "function" && previewShown() ? skinChooser(locked) : null,  // skins.js
+    previewShown() || source("ui_color_mode") ? choice("ui_color_mode") : null,
     h("h3", {}, "Layout"),
     h("p", { class: "muted-text small" }, "How much every page shows. Nothing is removed: what you tuck away is one click from where it was."),
-    Object.keys(LAYOUT_CHOICES).map(choice),
+    Object.keys(LAYOUT_CHOICES).filter((key) => key !== "ui_color_mode").map(choice),
     h("h3", {}, "Living Experience"),
     h("p", { class: "muted-text small" }, "Quiet while you work, epic when you achieve. Effects only follow real work as it finishes; they never delay a run, take focus or cover your code. ",
       reduced ? h("b", {}, "Still now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),
     h("div", { class: "choices motion-levels", role: "radiogroup", "aria-label": "Experience mode" }, [0, 1, 2, 3].map(levelRow)),
     source("motion_level") ? h("div", { class: "setting-source" }, SOURCE_TEXT.policy) : null,
-    motionFamilies().map(([key, label, help]) => settingRow(label, level < 2 ? `${help} Plays at Heroic and Legendary.` : help,
-      toggle(key, label, s[key]?.value ?? true, level < 2), source(key))),
+    motionFamilies().map(([key, label, help]) => {
+      const from = key === "motion_achievements" ? 1 : 2;  // achievements play from Subtle, the rest from Heroic
+      return settingRow(label, level < from ? `${help} ${from === 1 ? "Plays at Subtle and above." : "Plays at Heroic and Legendary."}` : help,
+        toggle(key, label, s[key]?.value ?? true, level < from), source(key));
+    }),
     settingRow("Respect Windows' reduced-motion setting",
       "When Windows' Animation effects are off, KratosForge shows no motion. Untick to keep the level you chose anyway.",
       toggle("motion_follow_system", "Respect Windows' reduced-motion setting", s.motion_follow_system?.value !== false), source("motion_follow_system")),
@@ -867,6 +881,7 @@ async function renderSettings() {
 
   // Appearance > Living Experience (motion.js, docs/forge-animations.md)
   const display = s.motion_level ? motionSettingsCard(s, locked) : null;
+  const editor = s.editor_word_wrap ? editorSettingsCard(s, locked) : null;  // editorprefs.js
 
   // Preview features
   const previews = h("section", { class: "card pad" }, h("h2", {}, "Preview features"),
@@ -944,7 +959,7 @@ async function renderSettings() {
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       pageIntro("How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
-    tabs, tab === "integrations" ? integrations : tab === "connections" ? connections : [account, updates, display, previews, usage, platform, notify, about, advanced].filter(Boolean)));
+    tabs, tab === "integrations" ? integrations : tab === "connections" ? connections : [account, updates, display, editor, previews, usage, platform, notify, about, advanced].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
     return;
@@ -983,8 +998,8 @@ function advancedSection(s, locked, limitRow) {
         if (await saveSettings({ client_id: "" })) { toast("Saved. Sign in again to use it."); render(); }
       }, "tool outline small") : null) : null);
   const kernel = s.kernel_process ? h("div", { class: "advanced-group" }, h("h3", {}, "Notebooks"),
-    settingRow("Run notebooks in their own process (Preview)",
-      "Cells run in a Python process of their own instead of inside the app's engine. Stop and a crash then end only that process, and the rest of the app keeps working. Variables are cleared when you switch.",
+    settingRow("Run notebooks in their own process",
+      "Cells run in a Python process of their own instead of inside the app's engine. Stop and a crash then end only that process, and the rest of the app keeps working. On by default; you or your organization can turn it off. Variables are cleared when you switch.",
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.kernel_process.value ? true : null, disabled: locked("kernel_process") ? true : null,
         onchange: async (e) => { await saveSettings({ kernel_process: e.target.checked }); render(); } }),
       h("span", {}, s.kernel_process.value ? "On" : "Off")),
@@ -1371,7 +1386,7 @@ function readinessCard() {
     box.replaceChildren(head, withHowItWorks(
       h("ol", {}, rows.map((r) => readinessRow(r, run)), readinessRow(write, run, tester)),
       howItWorks("home.ready", {
-        reads: "Your saved sign-in, the workspaces and capacities Fabric lists for you, and your organization's policy file on this PC. It reads when Home opens and when you press Check again, and no check opens a sign-in window.",
+        reads: "Your saved sign-in, the workspaces and capacities Fabric lists for you, your organization's policy file on this PC, and how much room the drive with your data folder has and whether it is a network share. It reads when Home opens and when you press Check again, and no check opens a sign-in window.",
         changes: "Nothing, unless you choose Test a write. That asks you first, then writes one small file, Files/_fabric_desktop_check/write-test.txt, to the lakehouse you pick, reads it back and deletes the folder. Workspaces named Prod are refused, and no table is touched.",
         results: "Only on this PC. A passed write test is remembered here for 7 days for the same account and lakehouse, and is forgotten when a test fails or you sign out. Nothing is sent anywhere.",
         anchor: "ready-to-work",

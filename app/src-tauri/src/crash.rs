@@ -68,6 +68,7 @@ impl CrashLoop {
         *self = Self::default();
     }
 
+    #[cfg(test)]
     pub fn strikes(&self) -> u32 {
         self.strikes
     }

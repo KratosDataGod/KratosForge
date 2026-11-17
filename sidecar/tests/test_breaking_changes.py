@@ -37,9 +37,9 @@ def test_dropping_a_column_another_project_reads_blocks_the_promote(svc):
     change(svc, 'email = "string"\n', "")
     check = svc.meta_promote_check("dev", "test")
     blocked = [e for e in check["errors"] if "drops" in e]
-    assert blocked == ["products/customers: port customers drops email, and 1 other project reads it in test "
+    assert blocked == [("products/customers: port customers drops email, and 1 other project reads it in test "
                        "(finance). Keep the column, or raise version in products/customers.toml to publish a "
-                       "breaking version"]
+                       "breaking version")]
     with pytest.raises(GateError, match="drops email"):
         svc.meta_promote("dev", "test")
 

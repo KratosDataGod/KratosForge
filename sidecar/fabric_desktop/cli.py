@@ -110,6 +110,9 @@ def main(argv: list[str] | None = None) -> None:
     smoke.add_argument("--platform-upgrade", action="store_true",
                        help="with --platform: start from the platform a previous build made in the test workspace; "
                             "its items are taken over and deleted at the end, unless --platform-keep")
+    smoke.add_argument("--warehouse",
+                       help="also run flow 17 (WR-218): the local T-SQL cases against this Warehouse item in the test "
+                            "workspace, in a scratch schema it drops at the end; uses the warehouse's capacity")
     smoke.add_argument("--platform-keep", action="store_true",
                        help="with --platform: leave the platform in place to look at; delete it by hand afterwards")
     drift = sub.add_parser("env-drift", help="compare a Fabric Environment item's published libraries and runtime "
@@ -134,6 +137,7 @@ def main(argv: list[str] | None = None) -> None:
     trail.add_argument("--limit", type=int, default=50, help="how many of the newest lines to show (default 50)")
     trail.add_argument("--action", default="", help="only this action, such as meta_promote")
     trail.add_argument("--folder", help="the audit folder (default: this PC's, or an agent home's audit folder)")
+    trail.add_argument("--agent-home", help="an agent's FABRIC_DESKTOP_HOME: use its trail (<home>\\audit) instead")
     trail.add_argument("--export", metavar="FILE", help="copy the trail to FILE with a manifest IT can check on its own")
     trail.add_argument("--since", default="", help="with --export: from this date (YYYY-MM-DD) or time on")
     trail.add_argument("--replace", action="store_true", help="with --export: replace an earlier export of that name")
@@ -152,8 +156,8 @@ def main(argv: list[str] | None = None) -> None:
     for name, text in (("validate", "list problems with their JSON paths; exit 1 if there are errors"),
                        ("inspect", "print the activities, dependencies, expressions and diagnostics as JSON"),
                        ("export", "print the definition in another format"),
-                       ("compat", "what this version can do with each activity (classification, capacity, "
-                                  "properties); exit 1 if there are errors")):
+                       ("compat", ("what this version can do with each activity (classification, capacity, "
+                                  "properties); exit 1 if there are errors"))):
         p = pipe_sub.add_parser(name, help=text)
         p.add_argument("path", help="pipeline-content.json, a getDefinition result, or a <name>.DataPipeline folder")
         if name == "export":
@@ -232,6 +236,28 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("path", nargs="?", help="an .ipynb file in the notebooks folder or a notebooks repository")
     p.add_argument("--path-from-env", metavar="NAME", help="read the file's path from this environment variable")
     p.add_argument("--print", action="store_true", help="print the link instead of opening it")
+    tpl = sub.add_parser("templates", help="enterprise notebook templates: Silver, Gold dimensions and facts "
+                                           "(nothing runs and nothing reaches a platform)")
+    tpl_sub = tpl.add_subparsers(dest="templates_command", required=True)
+    tpl_sub.add_parser("list", help="list the templates for each platform")
+    p = tpl_sub.add_parser("new", help="copy a template to a new notebook file to fill in")
+    p.add_argument("platform", choices=["fabric", "databricks", "snowflake"])
+    p.add_argument("kind", choices=["silver", "gold_dim_type1", "gold_dim_type2", "gold_fact"])
+    p.add_argument("out", help="the new .ipynb file (it must not exist yet)")
+    p = tpl_sub.add_parser("check", help="say whether a notebook still conforms to its template, so the enterprise "
+                                         "can support it, and list each change; exit 1 if it doesn't conform")
+    p.add_argument("path", help="an .ipynb file made from a template")
+    p.add_argument("--json", action="store_true", help="print the whole result as JSON")
+    p = tpl_sub.add_parser("handover", help="ask the enterprise to take over a conforming notebook: marks the "
+                                            "notebook and writes the handover record next to it")
+    p.add_argument("path", help="an .ipynb file made from a template")
+    p.add_argument("--domain", required=True, help="the domain handing it over")
+    p.add_argument("--owner", required=True, help="who in the domain owns its parameters")
+    p = tpl_sub.add_parser("accept", help="the enterprise accepts a requested handover; refused unless the notebook's "
+                                          "code and parameter values match the handover record")
+    p.add_argument("path", help="an .ipynb file whose handover was requested")
+    p.add_argument("--by", required=True, help="who in the enterprise accepts it")
+    p.add_argument("--record", help="the handover record the enterprise reviewed (default: <notebook>.handover.json)")
     args = parser.parse_args(argv)
 
     if args.command in DATA_COMMANDS:
@@ -257,6 +283,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(_pipeline(args))
     if args.command == "governance":
         raise SystemExit(_governance(args))
+    if args.command == "templates":
+        raise SystemExit(_templates(args))
     if args.command == "nb":
         raise SystemExit(_nb_open(args) if args.nb_command == "open" else _nb_validate(args))
     if args.command == "serve":
@@ -345,6 +373,7 @@ def _agent(args: argparse.Namespace) -> int:
         from .mailbox import ControlFolderInUse
         try:
             log = logs.setup(config.name, config.home / "logs", config.log_level)
+            logs.report_native_crashes(config.home / "logs")
             Agent(config, log=log).run_forever()
         except ControlFolderInUse as exc:
             return stopped(config.home, "start", exc)
@@ -367,7 +396,14 @@ def _agent(args: argparse.Namespace) -> int:
         return 0
     agent = Agent(config)
     if args.agent_command == "enqueue":
-        result: object = agent.enqueue(args.env, args.entities, args.backfill, args.cascade, source="cli")
+        from .jobqueue import QueueFull
+        try:
+            result: object = agent.enqueue(args.env, args.entities, args.backfill, args.cascade, source="cli")
+        except QueueFull as exc:
+            agent.audit.record("agent_enqueue", "error", 0.0, {"env": args.env, "entities": args.entities,
+                                                                "agent": config.name}, reason="refused", error=str(exc))
+            print(f"Not queued: {exc}. Wait for the agent to work through its queue, or raise agent.max_queued.")
+            return 1
         agent.audit.record(
             "agent_enqueue", "ok", 0.0, {"env": args.env, "entities": args.entities, "backfill": args.backfill,
                                          "cascade": args.cascade, "agent": config.name})
@@ -428,8 +464,9 @@ def _smoke_test(args: argparse.Namespace) -> int:
     if args.dry_run:
         print("The smoke test will:")
         dry_platform = (lambda out: None) if args.platform else None
+        dry_warehouse = (lambda out: None) if args.warehouse else None
         dry = smoketest.SmokeTest(args.workspace, None, None, Path(args.out), run_in_fabric=args.run_in_fabric,
-                                  platform_test=dry_platform)
+                                  platform_test=dry_platform, warehouse_check=dry_warehouse)
         for step in dry.plan():
             print(f"  - {step}")
         if args.platform:
@@ -438,6 +475,15 @@ def _smoke_test(args: argparse.Namespace) -> int:
                                                   client=lambda ws, fid: None, run_id=dry.run_id,
                                                   upgrade=args.platform_upgrade, keep=args.platform_keep).plan():
                 print(f"  - {step}")
+        if args.warehouse:
+            from . import warehouse_livecheck
+            check = warehouse_livecheck.WarehouseCheck(args.workspace, args.warehouse, None, None,
+                                                       dry.dir / "warehouse", run_id=dry.run_id)
+            print("The warehouse check will:")
+            for step in check.plan():
+                print(f"  - {step}")
+            for problem in warehouse_livecheck.problems(check.cases, check.scratch):
+                print(f"  ! Refused before connecting: {problem}")
         print("The live test it runs will:")
         for step in livetest.LiveTest(args.workspace, None, None, None, Path(args.out), bad_token_files=object(),
                                       extra=set(livetest.ALL_CHECKS), run_in_fabric=args.run_in_fabric).plan():
@@ -464,9 +510,20 @@ def _smoke_test(args: argparse.Namespace) -> int:
                                          keep=args.platform_keep,
                                          pause=None if args.yes else lambda text: input(f"{text}\n"))
 
+    def warehouse(out: Path) -> object:
+        from . import warehouse as wh
+        from . import warehouse_livecheck
+
+        def connect() -> object:
+            end = wh.resolve(fabric, {"workspace_id": args.workspace, "item_id": args.warehouse, "kind": "warehouse"})
+            return wh.open_connection(end.server, end.database, credential.warehouse_token)
+        return warehouse_livecheck.WarehouseCheck(args.workspace, args.warehouse, fabric, connect, out,
+                                                  protected_ids=livetest.policy_workspace_ids())
+
     test = smoketest.SmokeTest(args.workspace, credential, fabric, Path(args.out), live_test=live,
                                run_in_fabric=args.run_in_fabric, client_id=client_id,
-                               platform_test=platform if args.platform else None)
+                               platform_test=platform if args.platform else None,
+                               warehouse_check=warehouse if args.warehouse else None)
     print("The smoke test will:")
     for step in test.plan():
         print(f"  - {step}")
@@ -635,6 +692,75 @@ def _nb_open(args: argparse.Namespace) -> int:
         print(link)
         return 0
     os.startfile(link)  # type: ignore[attr-defined]  # Windows only
+    return 0
+
+
+def _templates(args: argparse.Namespace) -> int:
+    """Enterprise notebook templates (notebook_templates): list, copy, check and hand over."""
+    from pathlib import Path
+
+    from . import notebook_templates as nt
+    from .jsonfile import write_text
+
+    if args.templates_command == "list":
+        for t in nt.catalog():
+            print(f"{t['platform']:<11} {t['kind']:<15} {t['title']}: {t['description']} (v{t['version']})")
+        return 0
+    if args.templates_command == "new":
+        out = Path(args.out)
+        if out.suffix != ".ipynb":
+            print("The new notebook's name must end in .ipynb")
+            return 2
+        if out.exists():
+            print(f"{out} already exists; pick a new name")
+            return 2
+        write_text(out, nt.path(args.platform, args.kind).read_text(encoding="utf-8"), newline="\n")
+        print(f"Created {out}. Fill in its Parameters cell; leave the cells marked kratosforge:standard as they are.")
+        return 0
+    path = Path(args.path)
+    try:
+        nb = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(nb, dict) or not isinstance(nb.get("cells"), list):
+            raise ValueError("it isn't a Jupyter notebook (.ipynb) file")
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        print(f"Can't read {path}: {exc}")
+        return 2
+    if args.templates_command == "check":
+        result = nt.check(nb)
+        if args.json:
+            print(json.dumps(result, indent=2, default=str))
+        elif result["status"] == "not-a-template":
+            print(f"{path}: not made from a template, so it is domain-owned")
+        else:
+            label = {"conforms": "conforms: the enterprise can support it",
+                     "domain-owned": "domain-owned: the domain supports it"}[result["status"]]
+            print(f"{path}: {result['template']} {result['version']} for {result['platform']}, {label}")
+            for change in result["changes"]:
+                print(f"  - {change}")
+            if result.get("warning"):
+                print(f"  ! {result['warning']}")
+            if result["upgrade_available"]:
+                print(f"  Version {result['latest_version']} of the template is out; copy it and carry your parameters over.")
+        return 0 if result["status"] == "conforms" else 1
+    try:
+        if args.templates_command == "handover":
+            updated, record = nt.handover(nb, args.domain, args.owner, name=path.stem)
+            record_path = path.with_name(f"{path.stem}.handover.json")
+            write_text(record_path, json.dumps(record, indent=2) + "\n", newline="\n")
+            print(f"Handover requested. Send {record_path.name} with the notebook to the enterprise.")
+        else:
+            record_path = Path(args.record) if args.record else path.with_name(f"{path.stem}.handover.json")
+            try:
+                record = json.loads(record_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, ValueError) as exc:
+                print(f"Can't read the handover record {record_path}: {exc}")
+                return 2
+            updated = nt.accept(nb, args.by, record)
+            print(f"{path.name} is now enterprise-managed.")
+    except ValueError as exc:
+        print(str(exc))
+        return 1
+    write_text(path, json.dumps(updated, indent=1, ensure_ascii=False) + "\n", newline="\n")
     return 0
 
 
@@ -918,9 +1044,13 @@ def _audit(args: argparse.Namespace) -> int:
     from .audit import AuditLog
     from .service import data_dir
     from . import audit_chain
-    folder = Path(args.folder) if args.folder else data_dir() / "audit"
+    if args.folder and args.agent_home:
+        print("Give --folder or --agent-home, not both", file=sys.stderr)
+        return 2
+    named = Path(args.agent_home) / "audit" if args.agent_home else Path(args.folder) if args.folder else None
+    folder = named or data_dir() / "audit"
     if args.verify_export:
-        result = audit_chain.verify_export(Path(args.verify_export), folder if args.folder else None)
+        result = audit_chain.verify_export(Path(args.verify_export), named)
         print(json.dumps(result, indent=2))
         return 0 if result["ok"] else 1
     if args.export:

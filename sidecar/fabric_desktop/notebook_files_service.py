@@ -158,7 +158,7 @@ class NotebookFilesMixin:
             try:
                 self.set_pc_schedule_enabled(sid, True)  # type: ignore[attr-defined]
                 on.append(sid)
-            except (KeyError, ValueError):
+            except (LookupError, ValueError):  # LookupError: local_schedules' "no such schedule"
                 pass  # the schedule was deleted meanwhile
         return out | {"schedules_on": on, "schedules_left_off": left_off}
 

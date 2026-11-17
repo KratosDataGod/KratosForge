@@ -32,7 +32,7 @@ from typing import Any
 from .orchestration.adapters import ActivityFailed
 from .orchestration.definition import Activity
 from .pipeline_script import LocalScripts
-from .onelake import read_storage_options
+from .onelake import read_storage_options, table_uri
 from .redact import describe
 
 LOOKUP_ROWS = 5000                 # Fabric's Lookup returns at most this many rows
@@ -193,7 +193,7 @@ class LocalData:
         for name, version in lake["pins"].items():
             if name.lower() == key:
                 s, t = name.split(".", 1)
-                uri = f"{root}/Tables/{t}" if lake["flat"] else f"{root}/Tables/{s}/{t}"
+                uri = table_uri(root, s, t, lake["flat"])
                 return uri, version, name
         return None
 

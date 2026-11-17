@@ -58,6 +58,8 @@ def svc(tmp_path, monkeypatch):
     s = Service(root=tmp_path / "app")
     s.test_auth = Auth()
     monkeypatch.setattr(Service, "auth", property(lambda self: self.test_auth))
+    # The saved sign-in's account, which start-up reads from the cache file without MSAL.
+    monkeypatch.setattr(Service, "_saved_account", lambda self: {"username": self.test_auth.user} if self.test_auth.user else {})
     return s
 
 
@@ -115,7 +117,7 @@ def test_the_environment_without_a_sign_in_starts_the_clean_up_and_usage_send_on
         svc.environment()  # once per engine start
     assert env["user"] is None and env["tenant"] is None
     assert calls.count(("send",)) == 1 and [c for c in calls if c[0] == "sweep"] == [("sweep", svc.root, 30)]
-    assert "Not signed in" in caplog.text and PAT not in caplog.text
+    assert PAT not in caplog.text  # the saved sign-in is read from its file, never MSAL (test_offline_start)
 
 
 def test_a_clean_up_or_usage_send_that_fails_is_only_logged(svc, monkeypatch, caplog):
@@ -135,10 +137,33 @@ def test_a_clean_up_or_usage_send_that_fails_is_only_logged(svc, monkeypatch, ca
         svc._start_retention_sweep()
         svc._start_usage_send()
         assert done.wait(10)
+        svc._sweep_stop.set()  # the sweep repeats daily: end its wait
         for t in threading.enumerate():
-            if t.name in ("retention-sweep", "usage-send"):
+            if t.name == "usage-send" or t is svc._sweeper:
                 t.join(10)
     assert "Local copy cleanup failed" in caplog.text and "Usage data not sent: ConnectionError" in caplog.text
+
+
+def test_the_local_copy_sweep_repeats_while_the_engine_runs_under_the_policy_as_it_is_then(svc, monkeypatch):
+    swept = []
+    two = threading.Event()
+
+    def sweep(root, d):
+        swept.append(d)
+        if len(swept) >= 2:
+            two.set()
+        return {"removed": [], "bytes": 0, "days": d}
+    monkeypatch.setattr(retention, "sweep", sweep)
+    monkeypatch.setattr(service_mod.app_settings, "value", lambda key: 7 if swept else 30)  # IT shortens it
+    monkeypatch.setattr(service_mod, "SWEEP_EVERY", 0.05)
+    svc._start_retention_sweep()
+    svc._start_retention_sweep()  # a later call starts no second sweeper
+    try:
+        assert two.wait(10)
+    finally:
+        svc._sweep_stop.set()
+    svc._sweeper.join(10)
+    assert swept[:2] == [30, 7] and not svc._sweeper.is_alive()
 
 
 def test_a_scheduled_run_never_sends_usage_data(tmp_path, monkeypatch):
@@ -155,8 +180,8 @@ def test_a_scheduled_run_never_sends_usage_data(tmp_path, monkeypatch):
 def checked(monkeypatch):
     seen = {}
 
-    def checks(user, list_workspaces, capacities, settings):
-        seen.update(user=user, workspaces=list_workspaces(), capacities=capacities)
+    def checks(user, list_workspaces, capacities, settings, clock=lambda: None, folder=None):
+        seen.update(user=user, workspaces=list_workspaces(), capacities=capacities, clock=clock)
         return [{"id": "signed_in", "ok": bool(user)}]
     monkeypatch.setattr(readiness, "checks", checks)
     monkeypatch.setattr(service_mod, "FabricClient", lambda token, refresh=None: Fabric(capacities=[{"id": "c1"}]))

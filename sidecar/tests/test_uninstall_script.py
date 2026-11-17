@@ -121,6 +121,6 @@ def test_on_windows_it_removes_the_app_and_keeps_the_data_until_asked(tmp_path):
         assert (outside / "keep.txt").exists()
     finally:
         subprocess.run(["powershell.exe", "-NoProfile", "-Command",
-                        f"Remove-Item '{key}' -Recurse -Force -ErrorAction SilentlyContinue; "
+                        (f"Remove-Item '{key}' -Recurse -Force -ErrorAction SilentlyContinue; "
                         f"Get-ScheduledTask -TaskPath '{folder}' -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false; "
-                        f"cmdkey.exe /delete:{cred} | Out-Null"], timeout=120)
+                        f"cmdkey.exe /delete:{cred} | Out-Null")], timeout=120)

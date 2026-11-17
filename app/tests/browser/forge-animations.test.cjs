@@ -22,12 +22,13 @@ async function open({ cells = CELLS, reducedMotion = "no-preference", settings }
   const app = await openApp({ engine: ENGINE, mocks: settings ? { app_settings: settings } : {} });
   apps.push(app);
   await app.page.emulateMedia({ reducedMotion });
-  await app.page.evaluate(async (cells) => {
+  await app.page.evaluate(async ({ cells, heroic }) => {
     await loadSettings();
+    if (heroic) await saveSettings({ motion_level: 2 });  // everyday effects play from Heroic; Subtle is the default
     loadIntoState({ name: "Daily sales", cells });
     state.ribbonTab = "run";
     go("notebook");
-  }, cells);
+  }, { cells, heroic: !settings });
   // Every effect element made, whether or not it is still there when we look, with the cell it was in.
   // Effects drop a level while the machine is busy (motion.js, motionLoadWatch); a loaded CI runner
   // starting the page can trip that, so the load watch is stopped here and the effects these tests

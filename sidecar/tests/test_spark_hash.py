@@ -17,7 +17,8 @@ FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "spark_3_5_3_hash.jso
 
 
 def rows(query: str) -> list[list]:
-    return [list(r.values()) for r in sql.run(query).to_pylist()]
+    table = sql.run(query)  # by position: two calls can share Spark's name (hash(1, a) for 1 and 1L)
+    return [list(row) for row in zip(*(table.column(i).to_pylist() for i in range(table.num_columns)), strict=True)]
 
 
 @pytest.mark.parametrize("group", FIXTURE["groups"], ids=lambda g: g["type"])

@@ -194,10 +194,10 @@ def test_a_new_breaking_version_is_blocked_by_a_link_that_doesnt_accept_it(svc):
     _drop_email(svc)
     _version(svc, "2")
     errors, notes = _breaking(svc)
-    assert errors == ["products/customers: port customers drops email, and 1 other project reads it in test (finance). "
+    assert errors == [("products/customers: port customers drops email, and 1 other project reads it in test (finance). "
                       "Version 2 is outside what 1 link accepts: finance (link customers accepts 1). Its project can "
                       "widen accepts in the link's file (for example accepts = \"1-2\") and promote, once it reads the new version, or "
-                      "keep the column"]
+                      "keep the column")]
     _link(svc, accepts="1-2")  # widened by its project
     errors, notes = _breaking(svc)
     assert errors == [] and notes[0].endswith("publishing it as version 2")
@@ -210,8 +210,8 @@ def test_a_link_without_accepts_keeps_todays_note(svc):
     _link(svc)
     _drop_email(svc)
     _version(svc, "2")
-    assert _breaking(svc) == ([], ["products/customers: port customers drops email, and 1 other project reads it in "
-                                   "test (finance); publishing it as version 2"])
+    assert _breaking(svc) == ([], [("products/customers: port customers drops email, and 1 other project reads it in "
+                                   "test (finance); publishing it as version 2")])
 
 
 def test_a_passed_deprecation_date_turns_the_block_into_a_note(svc):
@@ -231,8 +231,8 @@ def test_a_passed_deprecation_date_turns_the_block_into_a_note(svc):
 def test_a_reader_that_listed_its_columns_isnt_broken_by_another_column(svc):
     _link(svc, columns={"customer_id": "int64"})
     _drop_email(svc)
-    assert _breaking(svc) == ([], ["products/customers: port customers drops email, which none of the 1 other "
-                                   "project reading it in test relies on (finance)"])
+    assert _breaking(svc) == ([], [("products/customers: port customers drops email, which none of the 1 other "
+                                   "project reading it in test relies on (finance)")])
     _link(svc, consumer="billing", columns={"email": "string"})  # this one relies on it
     errors, _ = _breaking(svc)
     assert errors and "1 other project reads it in test (billing)" in errors[0]

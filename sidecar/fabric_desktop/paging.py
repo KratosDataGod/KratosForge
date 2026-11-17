@@ -1,4 +1,4 @@
-"""A guard for paged reads (Fabric's ``continuationUri``, OneLake's ``x-ms-continuation``).
+"""A guard for paged reads (Fabric's ``continuationUri`` or ``continuationToken``, OneLake's ``x-ms-continuation``).
 
 A service that keeps sending the same next-page link, or one with no end, would otherwise keep a
 list call (and the user's token) going for ever. ``Pages`` stops it, and says the list was cut
@@ -28,7 +28,8 @@ class Pages:
             raise PagingError(f"Listing {self.what} stopped: the service sent the same next page twice, "
                               "so the list would never end. Try again later.")
         if self._pages >= self.max_pages:
-            raise PagingError(f"Listing {self.what} stopped after {self.max_pages:,} pages, so the list isn't complete.")
+            raise PagingError(f"Listing {self.what} stopped: it has more than {self.max_pages:,} pages, "
+                              "so the list isn't complete. Narrow the list or try again later.")
         self._seen.add(token)
         self._pages += 1
         return token

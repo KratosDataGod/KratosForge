@@ -8,7 +8,6 @@ descriptor; docs/engines.md lists the same table.
 from __future__ import annotations
 
 import importlib.metadata as md
-import shutil
 from typing import Any
 
 from .capabilities import EngineDescriptor
@@ -18,6 +17,7 @@ from .dbconnect import DATABRICKS_CONNECT, DatabricksConnectAdapter
 from .fabric_spark import FABRIC_SPARK, FabricSparkAdapter
 from .local_python import PYTHON, NotebookSessionsAdapter, PythonAdapter
 from .local_sql import DUCKDB, POLARS, SQLITE, DuckDBAdapter, PolarsAdapter, SQLiteAdapter
+from .runtimes import trusted_cli
 
 REGISTRY_VERSION = "9"
 
@@ -91,7 +91,7 @@ def local_spark_status() -> dict[str, Any]:
         version = md.version("pyspark")
     except md.PackageNotFoundError:
         version = None
-    java = shutil.which("java")
+    java = trusted_cli("java")
     missing = [n for n, ok in (("PySpark", version), ("Java", java)) if not ok]
     return {"pyspark": version, "java": bool(java), "ready": not missing,
             "detail": "Apache Spark could run on this PC." if not missing else f"Not installed: {', '.join(missing)}."}

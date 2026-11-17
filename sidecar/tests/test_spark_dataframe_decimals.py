@@ -79,7 +79,7 @@ def test_double_and_integer_expressions_are_unchanged():
     assert status == "ok", text
     scalars, aggregates = text.replace('"', "").strip().splitlines()
     assert scalars == "[('(d * 2)', 'double'), ('(i + 1)', 'int'), ('(d / i)', 'double'), ('(a * d)', 'double')]"
-    assert aggregates == "[('avg(d)', 'double'), ('sum(i)', 'hugeint')]"  # DuckDB's own, as before
+    assert aggregates == "[('avg(d)', 'double'), ('sum(i)', 'bigint')]"  # Spark's long (spark_aggregates)
 
 
 def test_column_names_stay_as_they_were():

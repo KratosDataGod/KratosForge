@@ -206,6 +206,10 @@ def _say(value: Any) -> str:
     if isinstance(value, str) and len(value) <= 40 and not _SECRETISH.search(value) and value.isprintable():
         return json.dumps(value, ensure_ascii=False)
     if isinstance(value, list):
+        shown = [_say(v) for v in value] if len(value) <= 8 and all(
+            v is None or isinstance(v, (bool, int, float, str)) for v in value) else []
+        if shown and "a different value" not in shown:   # short plain words only, as above
+            return "[" + ", ".join(shown) + "]"
         return f"a list of {len(value)}"
     if isinstance(value, dict):
         return "an object"

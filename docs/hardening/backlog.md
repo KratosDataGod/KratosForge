@@ -118,7 +118,7 @@ Complexity is S (under a day, one module), M (a few modules, new tests), L (cros
 | HD-031 | Fixed (#147) | EP-6: label "Block" as not enforced until GOV-002 | Governance | none | S |
 | HD-032 | Fixed (#141) | EP-7: T-SQL key import chunking; T-SQL contract test | Data mesh | none | S |
 | HD-033 | Fixed (#245) | DI-5: bounded previews | Staged roadmap (FD-114) | SQL-003 #134 covers desktop SQL | S |
-| HD-034 | Fixed (#243) | DI-6: fresh token before long writes (done: storage tokens have at least 30 minutes left) | Local data engine | none | S |
+| HD-034 | Fixed (#243, write-outlasts-token follow-up) | DI-6: fresh token before long writes (done: storage tokens have at least 30 minutes left; the lease renews with a current token and a refused write with nothing committed is sent again) | Local data engine | none | S |
 | HD-035 | Fixed (#306) | UI-2: bounded status polling | Prove | none | S |
 | HD-058 | Fixed (#272) | EN-12: followed URLs keep the token on Fabric, OneLake and Power BI hosts (done) | Hardening | none | S |
 

@@ -22,7 +22,8 @@ def test_the_ui_sbom_lists_every_vendor_bundle_and_no_build_tool(tmp_path):
     names = {(c["name"], c["properties"][0]["value"]) for c in data["components"]}
     vendor = [p for p in (ROOT / "app" / "ui" / "vendor").iterdir() if (p / "package-lock.json").is_file()]
     for folder in vendor:
-        roots = json.loads((folder / "package.json").read_text(encoding="utf-8"))["devDependencies"]
+        manifest = json.loads((folder / "package.json").read_text(encoding="utf-8"))
+        roots = {**manifest.get("dependencies", {}), **manifest.get("devDependencies", {})}  # as sbom_npm.py reads them
         for name in roots:
             if name in sbom.BUILD_TOOLS:
                 assert (name, f"app/ui/vendor/{folder.name}") not in names

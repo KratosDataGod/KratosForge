@@ -74,6 +74,16 @@ Files Fabric no longer returns are removed from that folder.
   which covers tables, columns, measures, hierarchies, partitions, relationships, expressions,
   roles, perspectives, calculation groups, annotations and descriptions. It doesn't read cultures
   and translations yet.
+- The engine also writes TMDL on this PC (Preview, PB-110): a model, or an Ossie file, becomes
+  TMDL files with no Fabric call. Every write is read back with the TMDL reader before it is
+  used. Anything that wouldn't come back exactly as it was, such as a blank first or last line in
+  a value, or translations, is listed in the report by name. A name with a line break, or an
+  expression with a line of three backticks, would break the TMDL layout, so it is refused and
+  the object is named. Table, role and perspective names never become file names as they are:
+  characters Windows doesn't allow, device names such as `CON`, and names that clash are changed
+  for the file name only. TMDL to Ossie and back keeps every object the reader reads. Roles,
+  perspectives, hierarchies and calculation groups travel in the Ossie file's Power BI section,
+  where other tools don't see them.
 
 ## From an AI tool
 

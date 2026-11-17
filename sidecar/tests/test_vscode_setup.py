@@ -246,7 +246,7 @@ def test_link_paths_built_from_traversal_and_odd_parts_only_ever_name_a_real_not
     (outside / "Daily.ipynb").write_text(home.read_text(encoding="utf-8"), encoding="utf-8")
     (top / "Folder.ipynb").mkdir()  # a folder named like a notebook
     pieces = ["..", ".", "Sales", "Daily.ipynb", "Daily", "outside", "x" * 300, "%2e%2e", "\\", "/", "//", "Daily.IPYNB",
-              "Daily.ipynb.", "Daily.ipynb ", "Folder.ipynb", "‮", "é", "*", "?", ":", "\x00", "\n"]
+              "Daily.ipynb.", "Daily.ipynb ", "Folder.ipynb", "\u202e", "é", "*", "?", ":", "\x00", "\n"]
     rng = random.Random(11)
     for _ in range(2000):
         rel = os.sep.join(rng.choice(pieces) for _ in range(rng.randrange(1, 7)))

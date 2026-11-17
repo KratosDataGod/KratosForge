@@ -19,7 +19,15 @@ def rows(query: str) -> list[tuple]:
 
 
 def one(query: str):
-    return rows(query)[0][0]
+    return wall_time(rows(query)[0][0])
+
+
+def wall_time(value):
+    """A timestamp as its wall time in UTC, the session's zone here: Spark's timestamp has a zone, which
+    DuckDB 1.x hands back with the value and 2.x leaves off."""
+    if isinstance(value, dt.datetime) and value.tzinfo is not None:
+        return value.astimezone(dt.timezone.utc).replace(tzinfo=None)
+    return value
 
 
 # (Spark SQL, Spark 3.5's value)
@@ -164,8 +172,8 @@ AGGREGATES = [
     ("SELECT skewness(col) FROM VALUES (1), (3) AS tab(col)", 0.0),
     ("SELECT approx_percentile(col, array(0.5, 0.4, 0.1), 100) FROM VALUES (0), (1), (2), (10) AS tab(col)", [1, 1, 0]),
     ("SELECT percentile_approx(col, 0.5) FROM VALUES (0), (6), (7), (9), (10) AS tab(col)", 7),
-    ("SELECT substring(hex(bitmap_construct_agg(bitmap_bit_position(col))), 0, 6) "
-     "FROM VALUES (1), (2), (3) AS tab(col)", "070000"),
+    (("SELECT substring(hex(bitmap_construct_agg(bitmap_bit_position(col))), 0, 6) "
+     "FROM VALUES (1), (2), (3) AS tab(col)"), "070000"),
 ]
 
 
@@ -210,7 +218,7 @@ def test_generators_give_sparks_rows_and_column_names():
 
 def test_a_selected_call_keeps_the_name_spark_gives_it():
     assert sql.run("SELECT isnull(1), substring_index('a.b', '.', 1)").column_names == [
-        "isnull(1)", "substring_index('a.b', '.', 1)"]
+        "(1 IS NULL)", "substring_index(a.b, ., 1)"]  # Spark 3.5.3's names
 
 
 @pytest.mark.parametrize("query, match", [
@@ -373,7 +381,7 @@ def test_to_char_of_another_type_is_refused_by_name():
 
 
 def test_to_char_is_named_as_spark_names_it():
-    assert sql.run("SELECT to_char(454, '999')").column_names == ["to_char(454, '999')"]
+    assert sql.run("SELECT to_char(454, '999')").column_names == ["to_char(454, 999)"]  # Spark 3.5.3's name
 
 
 def test_a_format_written_as_joined_literals_is_read_as_spark_joins_them():
@@ -576,7 +584,7 @@ CAST_FUNCTIONS = [
     ("SELECT regexp('abc', '^b')", False),
     ("SELECT regexp(NULL, 'a')", None),
     ("SELECT TIMESTAMP '2026-01-31 00:00:00' + make_interval(1, 2, 0, 3, 4, 5, 6.5)",
-     dt.datetime(2027, 4, 3, 4, 5, 6, 500000, tzinfo=dt.timezone.utc)),  # Spark's TIMESTAMP is the session's (UTC)
+     dt.datetime(2027, 4, 3, 4, 5, 6, 500000)),  # Spark's TIMESTAMP, as its wall time in the session's zone (UTC)
 ]
 
 

@@ -34,12 +34,12 @@ STATUSES = ("runs", "differs", "refused", "fails", "not checked")
 
 # Functions whose example's value changes from run to run or machine to machine, so no value check:
 # random values, the clock, the session and the file or partition a row came from.
+# The clock and random functions with an example of their own (tools/capture_spark_builtins.py) are checked
+# by what doesn't vary: the type, the range, the elements, a fixed time.
 VARYING = frozenset({
-    "aes_encrypt", "current_catalog", "current_database", "current_date", "current_schema", "current_timestamp",
-    "current_timezone", "current_user", "curdate", "input_file_block_length", "input_file_block_start",
-    "input_file_name", "localtimestamp", "monotonically_increasing_id", "now", "rand", "randn", "random",
-    "reflect", "java_method", "session_user", "shuffle", "spark_partition_id", "user", "uuid", "version",
-    "try_reflect", "unix_timestamp", "uniform", "randstr",
+    "aes_encrypt", "current_database", "current_schema", "current_user", "input_file_block_length",
+    "input_file_block_start", "input_file_name", "monotonically_increasing_id", "reflect", "java_method",
+    "session_user", "spark_partition_id", "user", "version", "try_reflect", "uniform", "randstr",
 })
 
 
@@ -158,8 +158,8 @@ def markdown(rows: list[dict[str, Any]]) -> str:
         "- **Differs**: runs, but gives another value. Check results that use it in Fabric.",
         "- **Refused**: stops with a message saying why, so nothing runs with another answer.",
         "- **Fails**: stops with an error. Run the cell in Fabric.",
-        "- **Not checked**: no example whose value can be compared (random values, the clock or the "
-        "session, or no example).",
+        ("- **Not checked**: no example whose value can be compared (random values, the clock or the "
+        "session, or no example)."),
         "",
         "One example per function is a first check, not proof: a function can match on its example and",
         "differ on other input. [Engines](engines.md) lists the differences known in more detail.",

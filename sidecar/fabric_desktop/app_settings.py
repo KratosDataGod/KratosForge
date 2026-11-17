@@ -22,10 +22,10 @@ Keys:
     show_preview     true to show features still in preview (default true)
     forge_animations  the first motion switch, kept so older settings and policy files still work:
                      false means motion_level 0 unless motion_level itself is set
-    motion_level     visual intensity (docs/forge-animations.md): 0 Off, 1 Minimal (functional
-                     transitions only), 2 Refined (default), 3 Expressive
+    motion_level     experience mode (docs/forge-animations.md): 0 Professional, 1 Subtle (functional
+                     transitions and the achievement reveal; default), 2 Heroic, 3 Legendary
     motion_wolf, motion_sparks, motion_ambient  true (default) to show that family of effects at
-                     levels 2 and 3; motion_achievements the same
+                     levels 2 and 3; motion_achievements the same at levels 1 to 3
     motion_follow_system  true (default): Windows' reduced-motion setting turns decorative motion
                      off whatever the level; false lets the chosen level apply anyway
     ui_explanations  "on_request" (default): each page's How this works panel and its one-line
@@ -36,7 +36,13 @@ Keys:
     ui_density       "comfortable" (default) or "compact": spacing in tables, lists and toolbars
     ui_skin          the platform skin's id (skins.py): "kratosforge" (default) or another built-in or
                      saved skin. A skin is appearance and page arrangement only
-    ui_color_mode    "skin" (default) follows the skin's own color mode; "light" or "dark" overrides it
+    ui_color_mode    "skin" (default), "light" or "dark": the app's color mode (skins.js colorMode); a policy value
+                     applies even with Preview features hidden
+    editor_word_wrap  "off" (default), "notebooks", "sql" or "both": which code editors wrap long lines
+    editor_font_size  the code font in notebook cells and SQL editors, 10 to 24 px; 0 (default) keeps each
+                     editor's own size
+    editor_keys      "default" or "vim" (Preview): Vim's modal editing in cells and SQL editors
+    editor_key_overrides  a map of editor command to its key, for the commands Settings > Editor lists
     learn_mode       how much learning guidance shows beside your work (docs/learn.md): "expert"
                      findings, About and Dismiss; "professional" (default) adds a line on why and
                      Explain and Show example on request; "guided" opens Explain, adds the lesson
@@ -46,7 +52,7 @@ Keys:
                      "same" (default) follows learn_mode; "expert", "professional" or "guided"
                      overrides it for that subject. Checks and policies are the same at every level
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
-                     and crashes end only that process (default false while in preview)
+                     and crashes end only that process (default true; false runs cells inside the engine)
     cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
                      0 (default) for no limit
     kernel_memory_limit_gb   with kernel_process: gigabytes the notebook's process may use before
@@ -81,6 +87,11 @@ Keys:
                      (replay.py), so a bundle never holds lakehouse data (default true)
     allowed_tenants  IT only: Microsoft Entra tenant ids people may sign in to; any other account is
                      signed out again (default: any)
+    audit_retention_days  IT only: days the audit trails on this PC (the app's, external AI tools' and
+                     an agent's) are kept; whole months older than this are deleted, each cleanup
+                     recorded first. 0 (default) keeps them; otherwise at least 30
+    receipt_retention_days  IT only: days run receipts are kept; 0 (default) keeps them; otherwise
+                     at least 30
     local_retention_days  IT only: local copies of lakehouse data (file previews, staged writes, the
                      metadata framework's download cache, replay bundle copies) are deleted after this
                      many days unused;
@@ -148,6 +159,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
@@ -158,8 +170,9 @@ from .auth import MICROSOFT_CLIENT_ID
 
 CHANNELS = ("stable", "preview")
 DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable", "show_preview": True, "support_url": "",
-                            "platform": {}, "kernel_process": False, "auto_update": True, "allow_fabric_runs": True,
+                            "platform": {}, "kernel_process": True, "auto_update": True, "allow_fabric_runs": True,
                             "allow_replay_samples": True, "allowed_tenants": [], "local_retention_days": 30, "telemetry": False,
+                            "audit_retention_days": 0, "receipt_retention_days": 0,
                             "telemetry_connection_string": "",
                             "cell_time_limit_minutes": 0, "kernel_memory_limit_gb": 0,
                             "kernel_max_sessions": 5, "kernel_idle_minutes": 0,
@@ -170,6 +183,7 @@ TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "
                                             "allow_fabric_runs": bool, "allow_replay_samples": bool,
                                             "allowed_tenants": list,
                                             "local_retention_days": int, "telemetry": bool,
+                                            "audit_retention_days": int, "receipt_retention_days": int,
                                             "telemetry_connection_string": str,
                                             "cell_time_limit_minutes": (int, float), "kernel_memory_limit_gb": (int, float),
                                             "kernel_max_sessions": (int, float), "kernel_idle_minutes": (int, float),
@@ -201,9 +215,10 @@ USER_KEYS += ("wh_monitoring_views", "wh_monitoring_auto")
 # Motion and effects (app/ui/motion.js): the visual intensity level and one switch per family.
 MOTION_LEVELS = (0, 3)
 MOTION_SWITCHES = ("motion_wolf", "motion_sparks", "motion_achievements", "motion_ambient", "motion_follow_system")
-# Every switch starts on, Achievement celebrations included (Chris, 2026-11-07). A choice someone
-# already saved stays: only people who never changed it get the new default.
-DEFAULTS.update({"motion_level": 2} | {key: True for key in MOTION_SWITCHES})
+# Subtle by default: everyday work stays plain and only achievements celebrate (Chris, 2026-11-09).
+# Every switch starts on (Chris, 2026-11-07). A choice someone already saved stays: only people who
+# never changed it get the new default.
+DEFAULTS.update({"motion_level": 1} | {key: True for key in MOTION_SWITCHES})
 TYPES.update({"motion_level": int} | {key: bool for key in MOTION_SWITCHES})
 USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 
@@ -242,6 +257,18 @@ CHOICES["ui_color_mode"] = ("skin", "light", "dark")
 DEFAULTS.update({"ui_skin": "kratosforge", "ui_color_mode": "skin"})
 TYPES.update({"ui_skin": str, "ui_color_mode": str})
 USER_KEYS += ("ui_skin", "ui_color_mode")
+# Editor settings (app/ui/editorprefs.js), for notebook cells and SQL editors. The defaults are the
+# editors as they were: no wrapping, each editor's own font size (0) and the default keys.
+CHOICES.update({"editor_word_wrap": ("off", "notebooks", "sql", "both"), "editor_keys": ("default", "vim")})
+EDITOR_FONT_SIZES = (10, 24)  # in px; 0 is each editor's own size
+EDITOR_KEY_OVERRIDES_MAX = 100
+_EDITOR_KEY = re.compile(r"^(?:(?:Mod|Ctrl|Alt|Shift|Meta)-)*[A-Za-z0-9\[\]\\;',./`=\-]$|"
+                         r"^(?:(?:Mod|Ctrl|Alt|Shift|Meta)-)*(?:F\d{1,2}|Enter|Space|Backspace|Delete|Home|End|PageUp|"
+                         r"PageDown|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|Insert)$")
+_EDITOR_COMMAND = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+DEFAULTS.update({"editor_word_wrap": "off", "editor_font_size": 0, "editor_keys": "default", "editor_key_overrides": {}})
+TYPES.update({"editor_word_wrap": str, "editor_font_size": int, "editor_keys": str, "editor_key_overrides": dict})
+USER_KEYS += ("editor_word_wrap", "editor_font_size", "editor_keys", "editor_key_overrides")
 # Learn (app/ui/learn.js): guidance beside findings. Checks run the same in every mode.
 CHOICES["learn_mode"] = ("expert", "professional", "guided")
 DEFAULTS["learn_mode"] = "professional"
@@ -269,7 +296,7 @@ INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integration
                     "integrations_editors", "receipt_redactions")
 # Read only by the shell (main.rs), which applies them itself; listed so the file has one list of
 # settings and policy_problems() can say what the shell will skip.
-SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_download_url")
+SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_download_url", "engine_folder")
 # Read by appstudio/policy.py: what App Studio may send to AI models (connections, providers, hosts, sample rows).
 APPSTUDIO_KEYS = ("appstudio_models", "appstudio_providers", "appstudio_hosts", "appstudio_sample_rows")
 POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *APPSTUDIO_KEYS, *SHELL_KEYS)
@@ -449,6 +476,8 @@ def policy_problems() -> list[str]:
             problems.extend(_sign_in_host_problems(value))
         elif key == "engine_download_url":
             problems.extend(_engine_url_problems(value, data.get("auto_update")))
+        elif key == "engine_folder":
+            problems.extend(_engine_folder_problems(value, data.get("auto_update")))
         elif key == "notebook_package_folder" and isinstance(value, str) and value:
             why = package_folder_problem(value)
             if why:
@@ -466,6 +495,11 @@ def policy_problems() -> list[str]:
             problems.append(f"channel must be one of {', '.join(CHANNELS)}")
         elif key in CHOICES and value not in (*CHOICES[key], *RENAMED.get(key, {})):
             problems.append(f"{key} must be one of {', '.join(CHOICES[key])}")
+        elif key == "editor_font_size" and value and not EDITOR_FONT_SIZES[0] <= value <= EDITOR_FONT_SIZES[1]:
+            problems.append(f"editor_font_size must be 0 (each editor's own size) or {EDITOR_FONT_SIZES[0]} to "
+                            f"{EDITOR_FONT_SIZES[1]}")
+        elif key == "editor_key_overrides" and _editor_keys_problem(value):
+            problems.append(f"editor_key_overrides {_editor_keys_problem(value)}")
         elif key == "motion_level" and not MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]:
             problems.append(f"motion_level must be between {MOTION_LEVELS[0]} and {MOTION_LEVELS[1]}")
         elif key in SQL_RANGES and not SQL_RANGES[key][0] <= value <= SQL_RANGES[key][1]:
@@ -474,6 +508,8 @@ def policy_problems() -> list[str]:
             problems.append("client_id isn't an app (client) ID")
         elif key == "ui_skin" and not _skin_id(value):
             problems.append("ui_skin must be a skin id: lower-case letters, digits or hyphens")
+        elif key in ("audit_retention_days", "receipt_retention_days") and value != 0 and value < 30:
+            problems.append(f"{key} is 0 (keep them) or at least 30 days")
         elif key == "local_retention_days" and value < 0:
             problems.append("local_retention_days can't be negative (0 keeps local copies)")
         elif key in LIMITS and not 0 <= value <= LIMITS[key]:
@@ -510,8 +546,8 @@ def dns_name(host: str) -> bool:
 def _sign_in_host_problems(value: Any) -> list[str]:
     """What the shell skips in fabric_view_sign_in_hosts (it reads the key itself)."""
     if not isinstance(value, list):
-        return [f"fabric_view_sign_in_hosts should be a list of host names, not {type(value).__name__}, "
-                "so the Fabric view opens no extra sign-in hosts"]
+        return [(f"fabric_view_sign_in_hosts should be a list of host names, not {type(value).__name__}, "
+                "so the Fabric view opens no extra sign-in hosts")]
     bad = [v for v in value if not (isinstance(v, str) and dns_name(v))]
     return [f"fabric_view_sign_in_hosts: {json.dumps(v)} isn't a host name like adfs.contoso.com "
             "(no *, https://, port or path), so it's skipped" for v in bad]
@@ -531,14 +567,29 @@ def engine_url_ok(url: str) -> bool:
 def _engine_url_problems(value: Any, auto_update: Any) -> list[str]:
     """What the shell skips in engine_download_url (it reads the key itself)."""
     if not (isinstance(value, str) and engine_url_ok(value.strip())):
-        return [f"engine_download_url: {json.dumps(value)} isn't an https folder address like "
-                "https://files.contoso.com/kratosforge (no user name, ? or #), so the engine comes from GitHub"]
+        return [(f"engine_download_url: {json.dumps(value)} isn't an https folder address like "
+                "https://files.contoso.com/kratosforge (no user name, ? or #), so the engine comes from GitHub")]
     if auto_update is not False:
         return ['engine_download_url is used only with "auto_update": false, so the engine comes from GitHub']
     ignored = os.environ.get("FABRIC_DESKTOP_ENGINE_URL_IGNORED", "")  # the shell's own check, at start
     if ignored:
-        return [f"engine_download_url is ignored, so the engine comes from GitHub: {ignored}. Push policy.json "
-                "as SYSTEM (Intune, Group Policy) or from an elevated prompt, so only administrators can change it"]
+        return [(f"engine_download_url is ignored, so the engine comes from GitHub: {ignored}. Push policy.json "
+                "as SYSTEM (Intune, Group Policy) or from an elevated prompt, so only administrators can change it")]
+    return []
+
+
+def _engine_folder_problems(value: Any, auto_update: Any) -> list[str]:
+    """What the shell refuses in engine_folder (Preview; it reads the key and checks the folder's
+    permissions itself, engine_folder.rs). The app then doesn't start its engine, so say why here too."""
+    text = value.strip() if isinstance(value, str) else ""
+    parts = text.split("\\")
+    if not (len(text) >= 3 and text[0].isascii() and text[0].isalpha() and text[1:3] == ":\\"
+            and "/" not in text and not any(p in (".", "..") for p in parts)
+            and not any(ord(c) < 32 or ord(c) == 127 for c in text)):
+        return [(f"engine_folder: {json.dumps(value)} isn't a full folder path on this PC like "
+                 "C:\\Program Files\\KratosForge\\engine, so the engine can't start until it's fixed")]
+    if auto_update is not False:
+        return ['engine_folder is used only with "auto_update": false, so the engine can\'t start until that is set']
     return []
 
 
@@ -601,6 +652,8 @@ def _typed(key: str, value: Any) -> bool:
 def _in_range(key: str, value: Any) -> bool:
     if key == "local_retention_days":
         return value >= 0
+    if key in ("audit_retention_days", "receipt_retention_days"):
+        return value == 0 or value >= 30
     if key in LIMITS:
         return 0 <= value <= LIMITS[key]
     if key == "motion_level":
@@ -609,6 +662,10 @@ def _in_range(key: str, value: Any) -> bool:
         return value in CHOICES[key]
     if key == "ui_skin":
         return _skin_id(value)
+    if key == "editor_font_size":
+        return value == 0 or EDITOR_FONT_SIZES[0] <= value <= EDITOR_FONT_SIZES[1]
+    if key == "editor_key_overrides":
+        return _editor_keys_problem(value) is None
     return True
 
 
@@ -706,12 +763,36 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"motion_level must be a whole number from {MOTION_LEVELS[0]} to {MOTION_LEVELS[1]}")
         if key in LIMITS:
             new = _limit(key, new)
+        if key == "editor_font_size" and new not in (None, ""):
+            if isinstance(new, bool) or not isinstance(new, int) or (new and not EDITOR_FONT_SIZES[0] <= new <= EDITOR_FONT_SIZES[1]):
+                raise ValueError(f"editor_font_size must be 0 (each editor's own size) or a whole number from "
+                                 f"{EDITOR_FONT_SIZES[0]} to {EDITOR_FONT_SIZES[1]}")
+            new = new or None
+        if key == "editor_key_overrides" and new not in (None, ""):
+            if (why := _editor_keys_problem(new)) is not None:
+                raise ValueError(f"editor_key_overrides {why}")
+            new = new or None
         if new in (None, ""):
             user.pop(key, None)
         else:
             user[key] = new
     jsonfile.write_json(user_path(), user)  # readers see the old file or the new one, never half (QA-011)
     return load()
+
+
+def _editor_keys_problem(value: Any) -> str | None:
+    """Why ``value`` isn't an editor_key_overrides map (command id to a CodeMirror key, such as "Mod-Shift-f"),
+    or None when it is one. Which keys are free is the editor's to say (editorprefs.js); this checks the shape."""
+    if not isinstance(value, dict):
+        return f"should be a map of command to key, not {type(value).__name__}"
+    if len(value) > EDITOR_KEY_OVERRIDES_MAX:
+        return f"can change at most {EDITOR_KEY_OVERRIDES_MAX} keys"
+    for command, key in value.items():
+        if not isinstance(command, str) or not _EDITOR_COMMAND.fullmatch(command):
+            return f"has a command name that isn't one: {str(command)[:40]!r}"
+        if not isinstance(key, str) or not _EDITOR_KEY.fullmatch(key):
+            return f"has a key for {command} that isn't one, such as Mod-Shift-f: {str(key)[:40]!r}"
+    return None
 
 
 def _limit(key: str, new: Any) -> float | None:
@@ -751,9 +832,12 @@ def sql_limits() -> dict[str, Any]:
     """The SQL page's limits as they apply now: a value out of range (an old file, a typo) falls
     back to the default."""
     out: dict[str, Any] = {}
+    settings = load()
     for key in (*SQL_RANGES, "sql_temp_dir"):
-        v = value(key)
+        v = settings[key]["value"]
         if key in SQL_RANGES and not SQL_RANGES[key][0] <= v <= SQL_RANGES[key][1]:
             v = DEFAULTS[key]
         out[key] = v
+    # The organization's limit is a ceiling: a caller's own time limit may be shorter, never longer.
+    out["sql_time_limit_by_policy"] = settings["sql_time_limit_minutes"]["source"] == "policy"
     return out

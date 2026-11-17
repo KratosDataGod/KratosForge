@@ -38,6 +38,7 @@ import json
 import math
 import secrets
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,8 @@ from . import __version__, jsonfile
 from .integrations import peer
 from .redact import secrets as redact_secrets
 
+DISCARD_BYTES = 64 << 10  # a refused request's body read and dropped, so Windows doesn't reset the answer
+DISCARD_SECONDS = 2.0  # at most this long, however slowly the body comes
 MAX_BODY_BYTES = 1024 * 1024
 MAX_CONNECTIONS = 16  # open at once; each holds an engine thread until it ends
 MAX_WAIT_SECONDS = 25.0
@@ -179,7 +182,10 @@ class Channel:
             return svc.editor_channel_pair(_field(body, "window", required=False), _field(body, "client", required=False))
         if method == "GET" and path.startswith("/v1/pair/"):
             return svc.editor_channel_collect(path[len("/v1/pair/"):])
-        assert pairing is not None  # authorize() let only the two calls above through without one
+        if pairing is None:  # authorize() lets only the calls above through without one. Checked here
+            # as well, and not with assert, which python -O removes.
+            raise Refused(401, "not_paired", "This VS Code window isn't paired with KratosForge, or its pairing ended. "
+                          "Pick KratosForge as the kernel again to pair it.")
         if method == "DELETE" and path == "/v1/pair":
             return svc.editor_channel_unpair(pairing)
         if method == "GET" and path == "/v1/status":
@@ -253,6 +259,7 @@ class _Handler(BaseHTTPRequestHandler):
         self._serve("DELETE")
 
     def _serve(self, method: str) -> None:
+        self._body_read = False
         try:
             self._guard()
             url = urlsplit(self.path)
@@ -297,6 +304,7 @@ class _Handler(BaseHTTPRequestHandler):
             raise Refused(413, "too_large", "Requests are at most 1 MiB.")
         if "application/json" not in (self.headers.get("Content-Type") or ""):
             raise Refused(415, "invalid_input", "Send JSON (Content-Type: application/json).")
+        self._body_read = True
         try:
             return json.loads(self.rfile.read(length) or b"{}")
         except ValueError:
@@ -304,7 +312,30 @@ class _Handler(BaseHTTPRequestHandler):
         except RecursionError:
             raise Refused(400, "invalid_input", "The body's JSON is nested too deeply.") from None
 
+    def _discard_body(self) -> None:
+        """Read a refused request's small body before answering. On Windows, closing a connection with
+        bytes still unread sends a reset, which can drop the answer before the window reads it."""
+        if getattr(self, "_body_read", True) or "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+            return
+        self._body_read = True
+        try:
+            left = int(self.headers.get("Content-Length") or 0)
+            if not 0 < left <= DISCARD_BYTES:
+                return
+            deadline = time.monotonic() + DISCARD_SECONDS  # one byte every few seconds can't hold the thread
+            while left > 0 and (wait := deadline - time.monotonic()) > 0:
+                self.connection.settimeout(wait)
+                chunk = self.rfile.read1(left)
+                if not chunk:
+                    break
+                left -= len(chunk)
+        except (ValueError, OSError):
+            pass  # silent-ok: the answer is sent either way; only its delivery on Windows is at stake
+        finally:
+            self.connection.settimeout(self.timeout)  # the answer is written with the usual timeout
+
     def _reply(self, status: int, payload: dict[str, Any]) -> None:
+        self._discard_body()
         data = json.dumps(payload, default=str).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")

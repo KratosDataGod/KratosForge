@@ -105,3 +105,40 @@ def test_a_write_that_went_in_with_a_warning_leaves_it_for_the_cell():
     q.submit("t", "ok", 0, lambda: SimpleNamespace(warning="lease lapsed after the commit"))
     q.submit("u", "plain", 0, lambda: None)
     assert q.flush() == [] and q.warnings == ["lease lapsed after the commit"]
+
+
+def test_a_cancel_while_flush_waits_leaves_the_writes_for_the_next_flush():
+    """Cancel can land while a cell waits on its writes. The cell then flushes again with cancel=True:
+    that flush must still drop the write that hadn't started and report the one that failed."""
+    import ctypes
+    import time
+
+    q = wq.Queue(workers=1)
+    first, second = threading.Event(), threading.Event()
+
+    def fail_when_released():
+        second.wait(30)
+        raise OSError("the lakehouse refused it")
+
+    q.submit("t1", "orders", 0, lambda: first.wait(30))
+    q.submit("t2", "customers", 0, fail_when_released)
+    q.submit("t3", "returns", 0, lambda: None)  # one worker: it waits behind customers
+    interrupted = threading.Event()
+
+    def flush():
+        try:
+            q.flush()
+        except KeyboardInterrupt:
+            interrupted.set()
+
+    flusher = threading.Thread(target=flush)
+    flusher.start()
+    time.sleep(0.3)  # the flush waits on orders
+    ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(flusher.ident), ctypes.py_object(KeyboardInterrupt))
+    first.set()  # orders is done, so the interrupt lands in the flush; customers starts and waits
+    flusher.join(30)
+    assert interrupted.is_set()
+    threading.Timer(0.3, second.set).start()
+    assert q.flush(cancel=True) == ["customers: OSError: the lakehouse refused it",
+                                    "returns: not written (the cell was cancelled)"]
+    assert q.flush() == []

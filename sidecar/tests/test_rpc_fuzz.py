@@ -119,3 +119,87 @@ def test_every_rpc_method_has_a_signature_the_check_can_read():
         except (TypeError, ValueError, NameError) as exc:
             unreadable.append(f"{name}: {exc}")
     assert not unreadable, unreadable
+
+
+# The reading loop: a line that can't be read gets an error reply, and the engine reads on.
+ANSWERED = b'{"id": "last", "method": "app_settings", "params": {}}\n'
+
+
+def _serve(svc, data: bytes) -> list[dict]:
+    import io
+    out = io.StringIO()
+    server.serve(svc, stdin=server._rpc_stdin(io.TextIOWrapper(io.BytesIO(data))), stdout=out)
+    return [json.loads(line) for line in out.getvalue().splitlines()]
+
+
+@pytest.mark.parametrize("line, error", [
+    (b"[" * 100_000, "invalid JSON: it's nested too deeply to read"),
+    (b'{"id": 1, "method": "app_settings", "params": ' + b"[" * 100_000 + b"}", "invalid JSON: it's nested too deeply to read"),
+    (b'{"id": ' + b"9" * 5000 + b', "method": "app_settings"}', "invalid JSON: Exceeds the limit"),
+    (b'{"id": 1, "method": "\xff\xfe"}', "invalid request: the line isn't UTF-8"),
+    (b'{"id": 1, "method": "app_settings", "params": {"name": "J\xf6hn"}}', "invalid request: the line isn't UTF-8"),
+    (b'{"id": 1, "method": ["app_settings"]}', "unknown method ['app_settings']"),
+], ids=["deep", "deep params", "huge number", "not utf-8", "not utf-8 in a param", "method a list"])
+def test_a_line_that_cant_be_read_is_answered_and_the_engine_reads_on(svc, line, error):
+    """Each of these used to end serve(), and the engine with it, with no reply."""
+    replies = _serve(svc, line + b"\n" + ANSWERED)  # serve's two lanes can answer in either order
+    assert len(replies) == 2
+    first = next(r for r in replies if r.get("id") != "last")
+    last = next(r for r in replies if r.get("id") == "last")
+    assert first["error"].startswith(error)
+    assert "result" in last
+
+
+def _junk(r) -> object:
+    """A random JSON value: deep, wide, huge, odd numbers and text."""
+    kind = r.randrange(9)
+    if kind == 0:
+        return [_junk(r)] if r.random() < 0.6 else []
+    if kind == 1:
+        return {r.choice(["id", "method", "params", "", "x" * r.randrange(300), "\u0000"]): _junk(r) for _ in range(r.randrange(4))}
+    if kind == 2:
+        return r.choice([0, -1, 2**63, -(2**80), 10**300, 1e308, 5e-324])
+    if kind == 3:
+        return "".join(chr(r.choice([r.randrange(32, 127), r.randrange(0x80, 0xD7FF), r.randrange(0xE000, 0x10FFFF)]))
+                       for _ in range(r.randrange(40)))
+    if kind == 4:
+        return "x" * r.choice([0, 1, 5000, 300_000])
+    return r.choice([None, True, False, "", "app_settings", "list_workspaces", "__init__", "_home"])
+
+
+def _line(r) -> bytes:
+    shape = r.randrange(7)
+    if shape == 0:  # raw bytes, not UTF-8 or not JSON
+        return bytes(r.randrange(256) for _ in range(r.randrange(1, 200))).replace(b"\n", b" ").replace(b"\r", b" ")
+    if shape == 1:  # deep
+        depth = r.choice([50, 900, 5000, 60_000])
+        return b"[" * depth + b"]" * r.choice([0, depth])
+    if shape == 2:  # cut short
+        whole = json.dumps({"id": r.randrange(9), "method": "app_settings", "params": _junk(r)}).encode()
+        return whole[: r.randrange(1, max(2, len(whole)))]
+    if shape == 3:  # NaN, Infinity and huge numbers where the id goes
+        return r.choice([b'{"id": NaN, "method": "x"}', b'{"id": -Infinity, "method": 1}', b'{"id": 1e999, "method": []}',
+                         b'{"id": ' + b"1" * r.randrange(4000, 6000) + b"}"])
+    # a well-formed request with junk in it; only names that can't run, or app_settings (refused odd params)
+    req = {"id": _junk(r), "method": r.choice(["app_settings", "nope", "__class__", "_home", "", "x" * 10_000]),
+           "params": _junk(r)}
+    if r.random() < 0.3:
+        req.pop(r.choice(list(req)))
+    return json.dumps(req).encode()
+
+
+def test_random_lines_each_get_one_plain_reply_and_the_engine_stays_usable(svc, tmp_path):
+    """Seeded, bounded fuzz of the reading loop: every non-blank line gets exactly one reply of strict
+    JSON, with no traceback or path from this machine, and a good request after them all is answered."""
+    import random
+    r = random.Random(20261111)
+    lines = [_line(r) for _ in range(300)]
+    replies = _serve(svc, b"\n".join(lines) + b"\n" + ANSWERED)
+    sent = [line for line in lines if line.decode("utf-8", "replace").strip()]
+    assert len(replies) == len(sent) + 1
+    for reply in replies:
+        text = json.dumps(reply, allow_nan=False)
+        assert "id" in reply and ("result" in reply or "error" in reply)
+        assert "Traceback" not in text and str(tmp_path) not in text
+    answered = [reply for reply in replies if reply.get("id") == "last"]  # its lane may answer before the rest
+    assert len(answered) == 1 and "result" in answered[0]

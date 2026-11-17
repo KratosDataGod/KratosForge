@@ -67,8 +67,8 @@ def test_an_overwrite_never_keeps_rows_appended_during_its_upload(tmp_path):
 
     def batches():
         yield pa.record_batch({"id": [10]}, schema=schema)
-        subprocess.run([sys.executable, "-c", "import pyarrow as pa, sys; from deltalake import write_deltalake as w; "
-                        "w(sys.argv[1], pa.table({'id': [99]}), mode='append')", ref.uri], check=True)
+        subprocess.run([sys.executable, "-c", ("import pyarrow as pa, sys; from deltalake import write_deltalake as w; "
+                        "w(sys.argv[1], pa.table({'id': [99]}), mode='append')"), ref.uri], check=True)
         yield pa.record_batch({"id": [11]}, schema=schema)
 
     try:

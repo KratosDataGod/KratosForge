@@ -19,8 +19,8 @@ from fabric_desktop.engines.contract import CellRequest, SessionConfig
 
 SETUP = [
     "CREATE TABLE t(id INT, grp VARCHAR, amt DOUBLE, ts TIMESTAMP, v JSON)",
-    """INSERT INTO t VALUES (1,'a',10,'2026-01-01 10:00','{"k":{"x":1},"arr":[1,2]}'),"""
-    """(2,'a',20,'2026-01-02','{"k":{"x":2},"arr":[3]}'),(3,'b',5,'2026-01-03','{"k":{"x":3},"arr":[]}')""",
+    ("""INSERT INTO t VALUES (1,'a',10,'2026-01-01 10:00','{"k":{"x":1},"arr":[1,2]}'),"""
+    """(2,'a',20,'2026-01-02','{"k":{"x":2},"arr":[3]}'),(3,'b',5,'2026-01-03','{"k":{"x":3},"arr":[]}')"""),
 ]
 
 # (name, Snowflake SQL, verdict, note ids)
@@ -43,8 +43,8 @@ PROBE = [
     ("TRY_TO_NUMBER", "select try_to_number('12x'), try_cast('5' as int)", "translated", []),
     ("SPLIT_PART/REGEXP_SUBSTR", "select split_part('a-b-c','-',2), regexp_substr('abc123','[0-9]+')",
      "translated", []),
-    ("MERGE", "merge into t using (select 1 id, 99.0 amt) s on t.id=s.id when matched then update set amt=s.amt "
-              "when not matched then insert (id, amt) values (s.id, s.amt)", "translated", []),
+    ("MERGE", ("merge into t using (select 1 id, 99.0 amt) s on t.id=s.id when matched then update set amt=s.amt "
+              "when not matched then insert (id, amt) values (s.id, s.amt)"), "translated", []),
     ("CREATE OR REPLACE TABLE AS", "create or replace table t2 as select * from t", "difference", ["SFD-001"]),
     ("Time travel AT", "select * from t at(offset => -60)", "not_translatable", ["SFN-006"]),
     ("GENERATOR/SEQ4", "select seq4() from table(generator(rowcount => 3))", "translated", []),
@@ -545,7 +545,11 @@ def test_typeof_never_gives_a_confident_wrong_name(code, want):
 def test_typeof_reads_its_argument_as_a_tree_and_the_rule_is_listed():
     sql = sf.translate("select typeof(v:k.x) from t").duckdb_sql
     assert "LAMBDA" not in sql.upper() and "->" in sql  # a path stays a path (#1252)
-    assert "VARIANT" not in sf.translate("select typeof('a'::variant)").duckdb_sql
+    # the ::variant is read past: the value isn't cast to VARIANT, except where the VARIANT branch (a DuckDB
+    # VARIANT value, SFX-024) asks variant_typeof what it holds
+    sql = sf.translate("select typeof('a'::variant)").duckdb_sql
+    assert sql.count("AS VARIANT") == sql.upper().count("VARIANT_TYPEOF(CAST(")
+    assert _first("select typeof('a'::variant)") == "VARCHAR"
     assert "SFX-009" in [row[0] for row in sf.CATALOG] and "SFX-009" in sf.docs_table()
 
 
@@ -816,8 +820,8 @@ def test_object_pick_with_one_key_column_reads_it_as_a_key():
 @pytest.mark.parametrize("code,rule", [
     ("SELECT to_decfloat('1.5')", "SFN-018"), ("SELECT try_to_decfloat(a) FROM t", "SFN-018"),
     ("SELECT CAST(a AS DECFLOAT) FROM t", "SFN-018"),
-    ("SELECT * FROM t MATCH_RECOGNIZE (ORDER BY a MEASURES FIRST(a) AS f ONE ROW PER MATCH PATTERN (x+) "
-     "DEFINE x AS a > 0)", "SFN-019"),
+    (("SELECT * FROM t MATCH_RECOGNIZE (ORDER BY a MEASURES FIRST(a) AS f ONE ROW PER MATCH PATTERN (x+) "
+     "DEFINE x AS a > 0)"), "SFN-019"),
     ("INSERT OVERWRITE INTO t SELECT * FROM s", "SFN-020"),
 ])
 def test_decfloat_match_recognize_and_insert_overwrite_are_refused_by_name(code, rule):
@@ -942,3 +946,113 @@ def test_sfx018_lag_and_running_count_read_tied_rows_in_one_order():
     rows = _rows("SELECT CONDITIONAL_CHANGE_EVENT(x) OVER (ORDER BY o) FROM VALUES (1, 'a'), (1, 'b'), (1, 'a'), "
                  "(2, 'a') AS t(o, x)")
     assert max(r[0] for r in rows) in (1, 2, 3)  # tied rows come in some order, but one order for LAG and count
+
+
+@pytest.mark.parametrize(("sql", "why"), [
+    ("SELECT hash(10)", "Snowflake's own hash"), ("SELECT hash(a, b) FROM t", "Snowflake's own hash"),
+    ("SELECT uniform(1, 10, 42)", "UNIFORM with a generator other than RANDOM()"),
+    ("SELECT uniform(1, 10, random(12))", "UNIFORM with a generator other than RANDOM()"),
+    ("SELECT uniform(1, 10, a) FROM t", "UNIFORM with a generator other than RANDOM()"),
+])
+def test_snowflake_own_hash_and_a_uniform_series_are_refused(sql, why):
+    translation = sf.translate(sql)
+    assert not translation.runnable and why in translation.first_refusal()
+
+
+def test_uniform_from_random_still_runs():
+    assert sf.translate("SELECT uniform(1, 10, random())").runnable
+
+
+def _first(sql):
+    translation = sf.translate(sql)
+    assert translation.runnable, translation.first_refusal()
+    return duckdb.sql(translation.duckdb_sql).fetchall()[0][0]
+
+
+def test_alter_session_sets_the_time_zone_and_refuses_other_parameters():
+    translation = sf.translate("ALTER SESSION SET TIMEZONE = 'America/New_York'")
+    assert translation.runnable and translation.duckdb_sql == "SET TimeZone = 'America/New_York'"
+    for sql in ("ALTER SESSION UNSET TIMESTAMP_OUTPUT_FORMAT", "ALTER SESSION SET TIMESTAMP_OUTPUT_FORMAT = 'x'"):
+        translation = sf.translate(sql)  # no longer an AttributeError
+        assert not translation.runnable and "Session parameters" in translation.first_refusal()
+
+
+def test_array_distinct_keeps_first_places_and_flatten_of_a_null_is_null():
+    assert _first("SELECT array_distinct([3, 1, 3, NULL, 2, NULL, 1])") == [3, 1, None, 2]
+    # the array is worked out once: random values aren't drawn again for each element
+    assert _first("SELECT array_size(array_distinct(array_construct(random(), random(), random())))") == 3
+    assert _first("SELECT array_flatten([[1], NULL])") is None
+    assert _first("SELECT array_flatten([[1], [NULL]])") == [1, None]
+
+
+def test_get_of_an_object_key_cast_to_text_has_no_json_quotes():
+    assert _first("SELECT get(object_construct('a', 'x'), 'a')::VARCHAR") == "x"
+    assert _first("SELECT strip_null_value(parse_json('{\"c\": \"3\"}'):c)::VARCHAR") == "3"
+    assert _first("SELECT get([2.5, 1], 0)") == 2.5  # an array's element is left as it is
+
+
+def test_the_e_parameter_gives_the_first_group_unless_one_is_named():
+    assert _first("SELECT regexp_substr('the best', 'the\\\\W+(\\\\w+)', 1, 1, 'e')") == "best"
+    assert _first("SELECT regexp_substr('ab', '(a)(b)', 1, 1, 'e', 2)") == "b"
+    assert _first("SELECT regexp_substr('ab', '(a)(b)')") == "ab"  # no 'e': the whole match
+    assert _first("SELECT regexp_substr('ab', 'a.', 1, 1, 'e')") == "ab"  # no group in the pattern: kept as before
+
+
+def test_a_whole_number_in_a_string_is_read_by_its_size():
+    import datetime as dt
+    for text in ("31536000", "31536000000", "31536000000000", "31536000000000000"):
+        assert _first(f"SELECT to_timestamp('{text}')") == dt.datetime(1971, 1, 1), text
+    assert _first("SELECT to_timestamp(31536000)") == dt.datetime(1971, 1, 1)  # a number is seconds
+
+
+def test_timestamp_tz_from_parts_is_in_the_session_zone():
+    con = duckdb.connect()
+    for statement in sf.translate("ALTER SESSION SET TIMEZONE = 'America/New_York'; "
+                                  "SELECT date_part(epoch_second, timestamp_tz_from_parts(2013, 4, 5, 12, 0, 0))"
+                                  ).statements:
+        last = con.execute(statement.duckdb_sql)
+    assert last.fetchall()[0][0] == 1365177600  # 12:00 -0400
+
+
+@pytest.mark.parametrize("pattern", ["(" * 1000 + "a" + ")" * 1000, "a{99999999999999999999}"])
+def test_a_pattern_python_cannot_read_still_translates(pattern):
+    translation = sf.translate(f"SELECT regexp_substr('a', '{pattern}', 1, 1, 'e')")
+    assert translation.runnable, translation.first_refusal()
+
+
+def test_get_reads_a_to_variant_value_as_json():
+    assert _first("SELECT get(to_variant(object_construct('t', 31.5)), 't')::FLOAT") == 31.5
+    assert _first("SELECT to_variant(object_construct('a', 'x')):a::VARCHAR") == "x"
+    assert _first("SELECT get(object_construct('a', 2)::VARIANT, 'a')::INT") == 2
+    assert _first("SELECT get(to_variant(array_construct(1, 2)), 1)::INT") == 2
+
+
+def test_an_array_column_holds_arrays_and_an_object_column_holds_json():
+    rows = _rows("CREATE TABLE t (a ARRAY, o OBJECT); "
+                 "INSERT INTO t SELECT ARRAY_CONSTRUCT(1, 2), OBJECT_CONSTRUCT('k', 1); "
+                 "UPDATE t SET a = ARRAY_APPEND(a, 'x'); "
+                 "SELECT a, ARRAY_SIZE(a), TYPEOF(a[0]), TYPEOF(a[2]), o:k::INT FROM t")
+    assert rows == [([1, 2, "x"], 3, "INTEGER", "VARCHAR", 1)]
+
+
+def test_a_cast_to_array_reads_a_list_or_a_json_array_and_object_is_json():
+    assert _first("SELECT PARSE_JSON('[1, \"a\"]')::ARRAY") == [1, "a"]
+    assert _first("SELECT ARRAY_CONSTRUCT(1, 2)::ARRAY") == [1, 2]
+    assert _first("SELECT CAST(NULL AS ARRAY)") is None
+    assert _first("SELECT TYPEOF(CAST(NULL AS OBJECT))") is None
+    # a structured ARRAY(INT) keeps its element type
+    assert "INT[]" in sf.translate("SELECT CAST(NULL AS ARRAY(INT))").duckdb_sql
+
+
+def test_to_json_of_an_array_column_keeps_each_element_type():
+    rows = _rows("CREATE TABLE t (a ARRAY, n INT); INSERT INTO t SELECT ARRAY_CONSTRUCT(1, 2), 1; "
+                 "INSERT INTO t SELECT NULL, 2; UPDATE t SET a = ARRAY_APPEND(a, 'five') WHERE n = 1; "
+                 "SELECT TO_JSON(a), TO_JSON(ARRAY_APPEND(a, 3)), TO_JSON(OBJECT_CONSTRUCT('k', a)), TO_JSON(n) "
+                 "FROM t ORDER BY n")
+    assert rows == [('[1,2,"five"]', '[1,2,"five",3]', '{"k":[1,2,"five"]}', "1"), (None, None, "{}", "2")]
+    assert _first("SELECT TO_JSON(ARRAY_CONSTRUCT(1, 2)::ARRAY)") == "[1,2]"
+    # a list inside an object inside an object too, and the outer object isn't copied for the check
+    nested = "SELECT TO_JSON(OBJECT_CONSTRUCT('k', OBJECT_CONSTRUCT('j', a))) FROM t"
+    assert sf.translate(nested).duckdb_sql.upper().count("MAP_FROM_ENTRIES") == 1
+    assert _rows("CREATE TABLE t (a ARRAY); INSERT INTO t SELECT ARRAY_CONSTRUCT(1, 'x'::VARIANT); "
+                 + nested) == [('{"k":{"j":[1,"x"]}}',)]

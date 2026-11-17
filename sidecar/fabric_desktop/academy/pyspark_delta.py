@@ -9,7 +9,7 @@ It runs in the learner's process as part of the generated ``kf_learner`` package
 
 Conditions and values are SQL text (or a Column), run by delta-rs's DataFusion: Spark SQL's
 comparisons, AND/OR, CASE and common functions read the same; a Spark-only function may not.
-One MERGE is one commit, and a source row that matches two target rows fails it, as in Spark.
+One MERGE is one commit, and a target row that two source rows match fails it, as in Delta.
 This is not delta-spark: there is no OPTIMIZE, VACUUM or RESTORE here.
 """
 
@@ -130,6 +130,8 @@ class MergeBuilder:
 
     def __init__(self, table: DeltaTable, source: Any, condition: Any):
         self._table, self._source, self._on = table, source, _sql(condition)
+        # The ON the one-match check runs on DuckDB: a Column is DuckDB's text already, SQL text is Spark's.
+        self._check_on = self._on if not isinstance(condition, str) else None
         self._clauses: list[tuple[str, dict[str, Any]]] = []
 
     def _add(self, method: str, condition: Any, **kw: Any) -> MergeBuilder:
@@ -166,6 +168,44 @@ class MergeBuilder:
     def whenNotMatchedBySourceDelete(self, condition: Any = None) -> MergeBuilder:  # noqa: N802
         return self._add("when_not_matched_by_source_delete", condition)
 
+    def _one_match_each(self, table: Any, data: pa.Table, alias: str, target: str) -> None:
+        """Delta's rule (MergeIntoCommandBase): a table row that ON matches with more than one source
+        row stops the MERGE, whatever the clauses' conditions say, unless the MERGE only inserts or its
+        only WHEN MATCHED is an unconditional delete. delta-rs checks only the rows a clause takes."""
+        import duckdb
+        methods = [m for m, _kw in self._clauses]
+        matched = [(m, kw) for m, kw in self._clauses if m.startswith("when_matched")]
+        if all(m.startswith("when_not_matched_insert") for m in methods) or \
+                (len(matched) == 1 and matched[0][0] == "when_matched_delete" and "predicate" not in matched[0][1]):
+            return
+        import sqlglot
+        con = duckdb.connect()
+        try:
+            con.register("kf_target", table.to_pyarrow_dataset())
+            con.register("kf_source", data)
+            ta, sa = ('"' + a.replace('"', '""') + '"' for a in (target, alias))
+            try:
+                ons = [self._check_on] if self._check_on else sqlglot.transpile(self._on, read="spark", write="duckdb")
+                if len(ons) != 1:
+                    raise sqlglot.errors.ParseError("the condition is more than one statement")
+                on = ons[0]
+                row = con.execute(f"SELECT count(*) FROM (SELECT *, row_number() OVER () AS kf_target_row FROM "
+                                  f"kf_target) AS {ta} JOIN kf_source AS {sa} ON {on} GROUP BY kf_target_row "
+                                  "HAVING count(*) > 1 LIMIT 1").fetchall()
+            except (duckdb.Error, sqlglot.errors.SqlglotError) as exc:
+                problem = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+                raise ValueError(f"The merge into {self._table._name} isn't run here, because this PC couldn't check "
+                                 "that each of its rows matches at most one source row, as Delta requires "
+                                 f"(DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE). The check stopped on: "
+                                 f"{problem}. Write the condition as column comparisons, such as t.key = s.key "
+                                 "AND ...") from None
+        finally:
+            con.close()
+        if row:
+            raise ValueError("[DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE] Cannot perform Merge as multiple "
+                             "source rows matched and attempted to modify the same target row in the Delta table in "
+                             "possibly conflicting ways. Keep one source row per key, then merge again.")
+
     def withSchemaEvolution(self) -> MergeBuilder:  # noqa: N802
         raise NotImplementedError("MERGE with schema evolution isn't in an Academy exercise: add the new columns "
                                   "first (an append with mergeSchema), then merge.")
@@ -175,7 +215,9 @@ class MergeBuilder:
             raise ValueError("The merge has no whenMatched or whenNotMatched clause, so there is nothing to do.")
         data, alias = _source(self._source)
         target = self._table._alias or self._table._name.rpartition(".")[2]
-        merger = self._table._table().merge(source=data, predicate=self._on, source_alias=alias, target_alias=target)
+        table = self._table._table()
+        self._one_match_each(table, data, alias, target)
+        merger = table.merge(source=data, predicate=self._on, source_alias=alias, target_alias=target)
         for method, kw in self._clauses:
             merger = getattr(merger, method)(**kw)
         merger.execute()

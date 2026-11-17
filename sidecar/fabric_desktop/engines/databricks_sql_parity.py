@@ -279,6 +279,8 @@ def same(got: Any, want: Any) -> bool:
         return isinstance(got, (list, tuple)) and len(got) == len(want) and all(same(g, w) for g, w in zip(got, want, strict=True))
     if isinstance(want, bool) or isinstance(got, bool):
         return type(got) is type(want) and got == want
+    if isinstance(want, int) and isinstance(got, int):
+        return got == want  # exactly: past 2**53 two different whole numbers can be the same float (#2646)
     if isinstance(want, (int, float, Decimal)) and isinstance(got, (int, float, Decimal)):
         return abs(float(got) - float(want)) < 1e-9
     if isinstance(want, dt.datetime) or isinstance(got, dt.datetime):
@@ -290,8 +292,8 @@ def table_markdown() -> str:
     """The docs text: the functions that don't answer the same, as a table, then the ones that do."""
     words = {"differs": "Different result", "varies": "Can differ", "error": "Doesn't run",
              "untranslated": "Not translated"}
-    rows = [f"Of {len(CASES)} checks on commonly used Databricks SQL built-in functions, these are the functions the "
-            "DuckDB engine doesn't answer the same way.", "",
+    rows = [(f"Of {len(CASES)} checks on commonly used Databricks SQL built-in functions, these are the functions the "
+            "DuckDB engine doesn't answer the same way."), "",
             "| Function | Group | On this PC | What to know |", "| --- | --- | --- | --- |"]
     rows += [f"| `{c.function}` | {c.group} | {words[c.outcome]} | {c.note} |" for c in CASES if c.outcome != "same"]
     same_ = [f"`{c.function}`" for c in CASES if c.outcome == "same"]

@@ -125,9 +125,9 @@ def asset_problems(ex: dict[str, Any]) -> list[str]:
     if not isinstance(notebooks, list) or not isinstance(files, list):
         return ["notebooks and files are lists of file names in the exercise's folder"]
     out += [f"notebook {n!r} is a .py file named like a notebook (clean_orders.py)" for n in notebooks
-            if not (isinstance(n, str) and n.endswith(".py") and _FOLDER.match(n[:-3]))]
+            if not (isinstance(n, str) and n.endswith(".py") and _FOLDER.fullmatch(n[:-3]))]
     folder = ex.get("files_folder")
-    if folder is not None and not (isinstance(folder, str) and all(_FOLDER.match(p) for p in folder.split("/"))):
+    if folder is not None and not (isinstance(folder, str) and all(_FOLDER.fullmatch(p) for p in folder.split("/"))):
         out.append("files_folder is a folder under Files/, like landing or landing/orders")
     return out
 
@@ -317,7 +317,7 @@ def _crash_frames(run: dict[str, Any]) -> str:
     for ln in lines[start + 1:]:
         if ln.startswith(("Thread 0x", "Extension modules:")):
             break   # the next thread's stack, or the module list: the crashing thread's ends here
-        if (m := _FRAME.match(ln)) and len(frames) < CRASH_FRAMES:
+        if (m := _FRAME.fullmatch(ln)) and len(frames) < CRASH_FRAMES:
             frames.append(f"{_SEP.split(m['path'])[-1]}:{m['line']} in {m['func']}")
     return f" Innermost frames: {'; '.join(frames)}." if frames else ""
 

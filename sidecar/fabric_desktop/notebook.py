@@ -1442,7 +1442,7 @@ class Kernel:
 
     def _magic(self, name: str, line: str) -> Any:
         if name == "run":
-            if m := _RUN_SCRIPT.match(line):
+            if m := _RUN_SCRIPT.fullmatch(line):
                 return self._run_builtin(m["flags"], m["rest"])
             target, args = _run_target(line)
             return self._run_notebook_in(target, self.namespace, args)
@@ -2504,7 +2504,7 @@ def assign_cell_ids(cells: list[dict[str, Any]], make: Callable[[int, dict[str, 
     ids = []
     for i, c in enumerate(cells):
         cid = c.get("cell_id")
-        if not isinstance(cid, str) or not _CELL_ID.match(cid) or cid in seen:
+        if not isinstance(cid, str) or not _CELL_ID.fullmatch(cid) or cid in seen:
             cid = (make or (lambda _i, _c: new_cell_id()))(i, c)
             while cid in seen:
                 cid = new_cell_id()

@@ -16,16 +16,13 @@ ROOT = pathlib.Path(fabric_desktop.__file__).parent
 NOT_YET = {
     "academy/exam.py", "academy/exercises.py", "academy/gitlab.py", "academy/guide_check.py",
     "academy/notebookutils_lab.py", "academy/pyspark_lab.py", "academy/quizlab.py", "academy/registry.py",
-    "academy/sqlprojlab.py", "comments_service.py", "governance_notices.py", "history.py",
-    "integrations/extensions.py", "integrations/registry.py", "learn/content.py", "learn/dismissals.py",
+    "academy/sqlprojlab.py", "governance_notices.py", "history.py", "learn/content.py", "learn/dismissals.py",
     "learn/fixes.py", "learn/guides.py", "localdata/discovery.py", "localdata/projects.py",
-    "localdata/transform.py", "magics.py", "meta/keys.py", "meta/mesh.py", "meta/project.py", "notebook.py",
-    "notebook_batch_service.py", "notebook_formats.py", "notebookutils_local.py", "optimize/local_runs.py",
-    "optimize/schema.py", "orchestration/activities.py", "orchestration/copyjob_build.py",
-    "orchestration/gotchas.py", "pip_magic.py", "replay.py", "semantic.py", "spark_compat.py",
+    "localdata/transform.py", "magics.py", "notebook_formats.py", "notebookutils_local.py",
+    "optimize/local_runs.py", "optimize/schema.py", "pip_magic.py", "replay.py", "semantic.py", "spark_compat.py",
     "sql_function_help.py", "sql_queries_service.py", "sql_templates_service.py", "sql_view.py", "tmdl.py",
     "usage/reader.py", "validate_service.py", "warehouse_compare.py", "warehouse_project_service.py",
-    "wizard.py", "workloads/deliver.py", "workloads/impact.py", "workloads/platform_notify.py",
+    "workloads/deliver.py", "workloads/impact.py", "workloads/platform_notify.py",
     "access.py",  # #2821
 }
 
@@ -121,3 +118,15 @@ def test_a_platform_key_ending_in_a_line_break_is_quoted_in_toml():
 def test_a_sign_in_name_ending_in_a_line_break_isnt_one():
     from fabric_desktop.central import core
     assert core.is_sign_in_name("ada@contoso.com") and not core.is_sign_in_name("ada@contoso.com\n")
+
+
+@pytest.mark.parametrize("value", ["2\n", "2-3\n", "2+\n"])
+def test_a_mesh_accepts_value_ending_in_a_line_break_is_still_read_after_its_strip(value):
+    from fabric_desktop.meta import mesh
+    assert mesh.parse_accepts(value)[0] == 2  # stripped first: the same answer as before
+
+
+def test_a_batch_or_cell_id_ending_in_a_line_break_is_refused():
+    from fabric_desktop import comments_service, notebook_batch_service
+    assert comments_service._CELL_ID.fullmatch("cell-1") and not comments_service._CELL_ID.fullmatch("cell-1\n")
+    assert not notebook_batch_service._BATCH_ID.fullmatch("0123456789ab\n")

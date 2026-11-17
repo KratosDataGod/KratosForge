@@ -69,15 +69,20 @@ def _once(template: str, **parts: exp.Expr) -> str:
     the parts are read once, through a one-element list, and the template reads them from there."""
     if not any(part.find(*_VOLATILE) for part in parts.values()):
         return template.format(**{name: _sql(part) for name, part in parts.items()})
-    fields = ", ".join(f"'{name}': {_sql(part)}" for name, part in parts.items())
-    body = template.format(**{name: f"kf_once.{name}" for name in parts})
+    fields = ", ".join(f"'kf_{name}': {_sql(part)}" for name, part in parts.items())
+    body = template.format(**{name: f"kf_once.kf_{name}" for name in parts})
     return f"(LIST_TRANSFORM([{{{fields}}}], kf_once -> {body}))[1]"
 
 
 def _once_arg(new: exp.Expr, name: str = "a") -> exp.Expr | None:
-    """The part named ``name`` that _once read once inside ``new``, or None when it wasn't needed."""
-    for field in new.find_all(exp.PropertyEQ):
-        if field.name == name and isinstance(field.parent, exp.Struct):
+    """The part named ``name`` that _once read once, when ``new`` is _once's wrapper; None when _once
+    wrote the template directly (a struct of the query's own is never taken for it)."""
+    transform = new.this.this if isinstance(new, exp.Bracket) and isinstance(new.this, exp.Paren) else None
+    if not isinstance(transform, exp.Transform) or not isinstance(transform.this, exp.Array):
+        return None
+    row = transform.this.expressions[0] if transform.this.expressions else None
+    for field in row.expressions if isinstance(row, exp.Struct) else []:
+        if isinstance(field, exp.PropertyEQ) and field.name == f"kf_{name}":
             return field.expression
     return None
 

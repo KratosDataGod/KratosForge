@@ -217,6 +217,18 @@ print('RESULT' + json.dumps([sorted({r[0] for r in spark.sql(q).collect()}) for 
     assert json.loads(text.split("RESULT", 1)[1]) == [[1], [2], [2], [True]]
 
 
+def test_a_struct_field_named_like_a_part_is_the_querys_own(kernel: Kernel) -> None:
+    text = run(kernel, f"""
+import json
+spark.sql({_VIEW!r})
+qs = ["SELECT size(named_struct('a', map('x', 1, 'y', 2, 'z', 3), 'b', m).b) FROM c ORDER BY id",
+      "SELECT size(named_struct('a', array(1, 2, 3), 'b', arr).b) FROM c ORDER BY id",
+      "SELECT size(named_struct('kf_a', array(1, 2, 3), 'b', arr).b) FROM c ORDER BY id"]
+print('RESULT' + json.dumps([[r[0] for r in spark.sql(q).collect()] for q in qs]))
+""")
+    assert json.loads(text.split("RESULT", 1)[1]) == [[2, 0, -1], [3, 0, -1], [3, 0, -1]]
+
+
 def test_untyped_statements_keep_array_forms() -> None:
     class Broken:
         def execute(self, *_a: object) -> object:

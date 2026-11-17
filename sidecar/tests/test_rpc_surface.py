@@ -142,6 +142,7 @@ def test_methods_no_screen_called_are_refused_over_rpc(tmp_path):
 # be (fail closed), the same as when a screen sends it. Every no-screen method that changes something
 # is listed here: with the parameter its destructive step needs, or with why it has none.
 NO_SCREEN_GATE: dict[str, str] = {
+    "meta_model_ossie_to_tmdl": "confirmed",   # without it, only the preview: files, removals, report
     "incidents_history_sync": "approve",       # sets up the central incident tables only when approved
     "incidents_measures": "approve",           # copies through incidents_history_sync first
     "local_change_delta": "confirm",           # UPDATE or DELETE without WHERE

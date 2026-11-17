@@ -181,12 +181,15 @@ class MetaMixin:
             project = self._project()
         except LookupError:
             project = None
+        refusal = None
         for env in ("test", "prod"):
             if project is not None and workspace_id in _env_workspaces(project.environments.get(env, {})):
-                return (f"{operation.upper()} on {table} from notebook code is refused: this workspace is "
-                        f"{env.title()}'s, which changes only by promote. Run Optimize or Vacuum from X-ray, which "
-                        "shows what it does first, or run the cell against a Dev workspace. Nothing was changed.")
-        refusal = self._maintenance_capacity_refusal(operation, workspace_id, table)
+                refusal = (f"{operation.upper()} on {table} from notebook code is refused: this workspace is "
+                           f"{env.title()}'s, which changes only by promote. Run Optimize or Vacuum from X-ray, which "
+                           "shows what it does first, or run the cell against a Dev workspace. Nothing was changed.")
+                break
+        if refusal is None:
+            refusal = self._maintenance_capacity_refusal(operation, workspace_id, table)
         return self._maintenance_audit(operation, workspace_id, table, refusal)
 
     def _maintenance_audit(self, operation: str, workspace_id: str, table: str, refusal: str | None) -> str | None:

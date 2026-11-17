@@ -124,7 +124,7 @@ def test_each_notebook_run_is_in_the_audit_before_it_changes_the_table(lake, tmp
     lakehouse.maintain_table("dbo.sales", "optimize", zorder=["id"])
     lakehouse.maintain_table("dbo.sales", "optimize")
     lakehouse.maintain_table("dbo.sales", "vacuum", dry_run=True)
-    assert recorded(m) == [("started", "optimize", "dbo.sales", "")] * 2 + [("started", "vacuum", "dbo.sales", "")]
+    assert recorded(m) == [("started", op, "dbo.sales", "") for op in ("zorder", "optimize", "vacuum")]
     assert sales(lake) == [1, 2, 3, 10, 11, 12]
 
 
@@ -137,7 +137,15 @@ def test_a_blocked_capacity_stops_zorder_and_vacuum_and_the_refusal_is_recorded(
         with pytest.raises(PermissionError, match="capacity check is Blocked"):
             lakehouse.maintain_table("dbo.sales", op, **kw)
     assert DeltaTable(str(lake / "dbo" / "sales")).version() == before
-    assert [(o, op, r) for o, op, _t, r in recorded(m)] == [("error", "optimize", "refused")] * 2 + [("error", "vacuum", "refused")]
+    assert [(o, op, r) for o, op, _t, r in recorded(m)] == [("error", op, "refused") for op in ("zorder", "optimize", "vacuum")]
+
+
+def test_a_test_or_prod_workspace_refusal_is_recorded_too(tmp_path):
+    m = engine(tmp_path, RUNNING)
+    m._project = lambda: SimpleNamespace(environments={"prod": {"workspace_id": "w-prod"}})
+    assert "Prod's" in MetaMixin._maintenance_refusal(m, "zorder", "w-prod", "dbo.t")
+    assert MetaMixin._maintenance_refusal(m, "vacuum", "w-dev", "dbo.t") is None
+    assert recorded(m) == [("error", "zorder", "dbo.t", "refused"), ("started", "vacuum", "dbo.t", "")]
 
 
 def test_an_audit_that_cant_be_written_stops_a_notebook_run(lake, tmp_path, monkeypatch):  # noqa: F811

@@ -549,6 +549,26 @@ What can still differ:
 - In a warehouse, some run-time errors (dividing by zero, a value that doesn't convert) end only their own statement, and the batch goes on to the next one. Here the script stops at the first error, and the error says which statements didn't run.
 - A script of only session options (`SET NOCOUNT ON`) has nothing to run here, and says so.
 
+## Time travel in local T-SQL
+
+In a Fabric Warehouse, `OPTION (FOR TIMESTAMP AS OF '2026-11-01T09:30:00')` at the end of a `SELECT` reads every table as it was at that time, in UTC, as Microsoft's time travel docs describe it. A warehouse keeps 30 days of history by default, and its retention can be set from 1 to 120 days. Here each table is read from its Delta history at that time.
+
+| What | In a Fabric Warehouse | Here |
+| --- | --- | --- |
+| A `SELECT` with the hint, its joins, CTEs, subqueries and `UNION`s | One time for every table | One time for every table, each read from its Delta history |
+| The time | `yyyy-MM-ddTHH:mm:ss[.fff]`, in UTC. Anything else is an error: "An error occurred during timestamp conversion. Please provide a timestamp in the format yyyy-MM-ddTHH:mm:ss[.fff]." | The same check, with the same words |
+| A variable in the hint | Not allowed | Refused by name |
+| A `#temp` table in the query | Read as it is now | Read as it is now |
+| A table with no history here (a database table, a file, a view) | Not applicable | Refused: "dbo.plain isn't a Delta table ..., so it has no versions." It's never read as it is now |
+| A time before the table's first version | Microsoft's docs don't say | Refused, naming the table's first version |
+| A time later than now | Microsoft's docs don't say | Refused, rather than read as the tables are now |
+| A time more than 120 days ago | Outside any warehouse's retention | Refused |
+| A time 30 to 120 days ago | Answered only if the warehouse's retention was raised | Runs, with a note that a warehouse with the default retention doesn't answer |
+
+Refused by name: the hint on `INSERT ... SELECT`, `SELECT ... INTO` or `CREATE TABLE AS` (Microsoft's pages disagree on whether a warehouse runs these), the hint beside another hint (`OPTION (MAXDOP 1, FOR TIMESTAMP AS OF ...)`), a batch with more than one statement beside a `SELECT` with the hint (put `GO` before and after it), and the hint twice in one batch. Other `OPTION (...)` hints are still refused.
+
+On a warehouse, from the SQL page, a `SELECT` ending in the hint is sent as written, and the warehouse answers for its own retention.
+
 ## Loading data with T-SQL
 
 Fabric Warehouse loads files with `COPY INTO`, `BULK INSERT` and `OPENROWSET(BULK ...)`. Each reads files from a URL in Azure Storage (Blob or Data Lake Storage Gen2) or OneLake, as Microsoft's T-SQL reference for Fabric describes them. Neither the local engine nor a run from the SQL page loads them, and each is refused by its name, so a script never looks as if it loaded something.

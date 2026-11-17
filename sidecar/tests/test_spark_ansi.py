@@ -11,6 +11,7 @@ Databricks' ANSI_MODE page. None of this was run on Fabric or Databricks: UNVERI
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 
 import duckdb
 import pytest
@@ -67,6 +68,7 @@ def run(kernel: Kernel, code: str) -> str:
 def test_spark_sql_answers_with_ansi_mode_off(kernel: Kernel) -> None:
     text = run(kernel, f"""
 import json
+from decimal import Decimal
 print('RESULT' + json.dumps([spark.sql('SELECT ' + q).collect()[0][0] for q in {[q for q, _ in ANSI_OFF]!r}],
                             default=str))
 """)
@@ -78,6 +80,7 @@ print('RESULT' + json.dumps([spark.sql('SELECT ' + q).collect()[0][0] for q in {
 def test_dataframe_casts_wrap_as_spark(kernel: Kernel) -> None:
     text = run(kernel, """
 import json
+from decimal import Decimal
 from pyspark.sql import functions as F
 df = spark.createDataFrame([(3000000000, 1e10, "x")], "b bigint, d double, s string")
 r = df.select(F.col("b").cast("int"), F.col("d").cast("int"), F.col("b").cast("tinyint"), F.col("s").cast("int")).collect()[0]
@@ -121,3 +124,40 @@ def test_databricks_sql_stops_on_a_failed_cast() -> None:
         _databricks_rows("SELECT CAST('2024-13-45' AS DATE)")
     with pytest.raises(duckdb.Error):
         _databricks_rows("SELECT 2147483647 + 1")
+
+
+# WR-113: decimal arithmetic on the DuckDB engine (Databricks SQL and Spark SQL) gives Spark's
+# DecimalPrecision types, as the Spark SQL path does (WR-105, spark_decimals); Databricks documents the
+# same rules (sql-ref-datatype-rules). Expected types are worked out from those rules.
+
+@pytest.fixture
+def engine():
+    from fabric_desktop.engines import local_sql
+    from fabric_desktop.engines.contract import CellRequest, SessionConfig
+    session = local_sql.DuckDBSession(SessionConfig("nb"))
+    session.execute(CellRequest(code="CREATE TABLE t AS SELECT CAST(1 AS DECIMAL(10,2)) AS a, CAST(3 AS DECIMAL(10,2)) "
+                                     "AS b, 7 AS i, CAST(0 AS DECIMAL(10,2)) AS z", language="sql", dialect="duckdb"))
+
+    def run(code: str, dialect: str = "databricks") -> object:
+        result = session.execute(CellRequest(code=code, language="sql", dialect=dialect, result_rows=100))
+        if result.status != "ok":
+            return result.outputs[0]["evalue"]
+        return [str(t) for t in result.table.schema.types], result.table.to_pylist()
+    yield run
+    session.close()
+
+
+@pytest.mark.parametrize("dialect", ["databricks", "spark"])
+def test_decimal_types_on_the_duckdb_engine(engine, dialect: str) -> None:
+    types, rows = engine("SELECT a / b, a * b, a + b, a % b, avg(a), sum(a), a div b, round(a / b, 2), "
+                         "sum(a) / count(*), a / i FROM t GROUP BY a, b, i", dialect)
+    assert types == ["decimal128(23, 13)", "decimal128(21, 4)", "decimal128(11, 2)", "decimal128(10, 2)",
+                     "decimal128(14, 6)", "decimal128(20, 2)", "int64", "decimal128(13, 2)", "decimal128(38, 20)",
+                     "decimal128(21, 13)"]
+    assert str(rows[0]["(a / b)"]) == "0.3333333333333"
+    assert engine("SELECT CAST(1 AS DECIMAL(10,2)) / 3 AS x", dialect) == (["decimal128(14, 6)"], [{"x": Decimal("0.333333")}])
+
+
+def test_a_decimal_division_by_zero_on_the_duckdb_engine(engine) -> None:
+    assert "[DIVIDE_BY_ZERO]" in engine("SELECT a / z FROM t")
+    assert engine("SELECT a / z FROM t", "spark") == (["decimal128(23, 13)"], [{"(a / z)": None}])

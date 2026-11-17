@@ -23,8 +23,8 @@ from sqlglot.dialects.duckdb import DuckDB
 from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
-from . import (spark_aggregates, spark_builtins_sql, spark_complex, spark_datetime, spark_sql_names, spark_strings,
-               sql_dialects)
+from . import (spark_aggregates, spark_builtins_sql, spark_complex, spark_datetime, spark_decimals, spark_sql_names,
+               spark_strings, sql_dialects)
 from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
 
 # sqlglot logs a warning when it reads a statement as a bare command ('SHOW TABLES' ...). With no
@@ -223,6 +223,7 @@ def _ansi_divisions(statement: exp.Expression) -> exp.Expression:
         guard = _with_args("CASE WHEN fj_arg0 = 0 THEN " + stop + " END", [divisor])
         new = exp.Case(ifs=guard.args["ifs"], default=node.copy())
         new.meta.update(spark_sql_names.kept(node))
+        new.meta[spark_decimals.ZERO_GUARD] = True  # typed as the division it holds
         node.replace(new)
     return cast(exp.Expression, holder.expressions[0])
 

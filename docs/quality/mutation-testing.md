@@ -5811,8 +5811,8 @@ A mutant whose run times out counts as killed, as in earlier batches.
 | `pipeline_notebooks.py` | test_pipeline_notebooks, test_pipeline_notebooks_edges, test_pipeline_script, test_fabric_step, test_notebook_cells, test_pipeline_data (+ test_pipeline_notebooks_mutation) | 140 of 140 (138 + 2) | 122 / 18 | **87.1%** | 121/138 → 138/138 | 1/2 → 2/2 | 140 / 0 | **100%** | none |
 | `spark_df_more.py` | test_spark_df_more, test_spark_api_mutation, test_spark_api_fails_cleared, test_prove_spark, test_prove_spark_install (+ test_spark_df_more_mutation) | 109 of 109 (107 + 2) | 76 / 33 | **69.7%** | 76/107 → 106/107 | 0/2 → 2/2 | 108 / 1 | **99.1%** | 1 equivalent |
 
-One bug was found, in `spark_df_more.py`, and is marked `xfail` in `test_spark_df_more_mutation.py` until it is fixed:
-- `inputFiles` leaves out a file when any part of its path contains `_delta_log`, not only the Delta log folder itself. So a plain folder named, for example, `orders_delta_log_archive` lists no files.
+One bug was found, in `spark_df_more.py`, and is fixed; its test in `test_spark_df_more_mutation.py` now passes:
+- `inputFiles` left out a file when any part of its path contains `_delta_log`, not only the Delta log folder itself. So a plain folder named, for example, `orders_delta_log_archive` listed no files. It now skips only the `_delta_log` folder inside the table.
 
 ### What the survivors were, and the tests that now kill them
 

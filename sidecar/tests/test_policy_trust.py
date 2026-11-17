@@ -25,10 +25,16 @@ def test_an_admin_owned_path_granting_write_only_to_admins_passes():
     (True, [(ALLOWED, 0, pt.WRITE_DAC, False)], "someone other than"),
     (True, [(ALLOWED, 0, pt.GENERIC_WRITE, False)], "someone other than"),
     (True, [(5, 0, pt.GENERIC_ALL, False)], "can't check"),                     # an object ACE: not trusted
-    (True, [(19, 0, 0, False)], "can't check"),                                 # a type newer than the rule
+    (True, [(22, 0, 0, False)], "can't check"),                                 # a type Windows doesn't define
+    (True, [(22, pt.INHERIT_ONLY, 0, False)], "can't check"),                   # even inherit-only
 ])
 def test_anything_else_fails(owner, dacl, why):
     assert why in pt.judge("p", owner, dacl, pt.FILE_RIGHTS)
+
+
+@pytest.mark.parametrize("kind", [2, 3, 6, 7, 8, 10, *range(12, 22)])
+def test_deny_audit_label_and_other_system_entries_grant_nothing(kind):
+    assert pt.judge("p", True, [(kind, 0, 0, False)], pt.FILE_RIGHTS) is None
 
 
 def test_entries_that_grant_nothing_are_skipped():

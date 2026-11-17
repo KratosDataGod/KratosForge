@@ -53,13 +53,13 @@ from __future__ import annotations
 import os
 import re
 import shlex
-import shutil
 import tempfile
 import time
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .. import jsonfile
+from ..engines.runtimes import PATH_HINT, trusted_cli
 from . import sandbox, validators
 from . import workspace as ws
 
@@ -245,9 +245,9 @@ def parse(text: str) -> list[dict[str, Any]]:
 # ---- running Git
 
 def git_exe() -> str:
-    exe = shutil.which("git")
+    exe = trusted_cli("git")  # never a git.exe in the exercise's folder
     if not exe:
-        raise Refused("Git isn't installed on this PC. Install Git for Windows (git-scm.com), then try again.")
+        raise Refused("Git isn't installed on this PC. Install Git for Windows (git-scm.com), then try again. " + PATH_HINT)
     return exe
 
 

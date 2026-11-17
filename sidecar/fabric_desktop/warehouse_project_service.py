@@ -117,7 +117,7 @@ def _key(kind: str, schema: str, name: str) -> tuple[str, str, str]:
 
 
 def _segment_ok(s: str) -> bool:
-    return (bool(_SEGMENT.match(s)) and s not in (".", "..") and not s.startswith(".") and not s.endswith((" ", "."))
+    return (bool(_SEGMENT.fullmatch(s)) and s not in (".", "..") and not s.startswith(".") and not s.endswith((" ", "."))
             and not _RESERVED.match(s.split(".")[0].strip()))
 
 

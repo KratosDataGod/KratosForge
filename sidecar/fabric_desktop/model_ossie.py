@@ -22,6 +22,8 @@ from typing import Any
 import sqlglot
 from sqlglot import exp
 
+from . import sql_dialects
+
 # PyYAML is needed only here and in the vendored converter. Both load on first use, not at engine start (they add
 # about 25 ms to every start, and service.py imports this module on every start). Without PyYAML (an engine installed
 # before the converter needed it, or a package removed by hand) Export to Ossie and Import from Ossie say what's
@@ -171,7 +173,7 @@ _SQL_DIALECTS = {"ANSI_SQL": None, "OSSIE_SQL_2026": None, "SNOWFLAKE": "snowfla
 
 def _qualified(expression: str, dataset: str, dialect: str | None) -> str:
     """A dataset-scoped SQL metric's unqualified field references written as ``dataset.field``."""
-    tree = sqlglot.parse_one(expression, read=dialect)
+    tree = sql_dialects.parse_one(expression, read=dialect)
     for col in tree.find_all(exp.Column):
         if not col.table:
             col.set("table", exp.to_identifier(dataset))
@@ -361,3 +363,33 @@ def bim_parts(bim: dict[str, Any]) -> dict[str, str]:
     """The definition parts updateDefinition takes for a model written as TMSL."""
     return {"model.bim": json.dumps(bim, indent=2, ensure_ascii=False),
             "definition.pbism": json.dumps({"version": "4.0", "settings": {}}, indent=2)}
+
+
+def round_trip(bim: dict[str, Any]) -> list[dict[str, str]]:
+    """What sending ``bim`` (a parsed ``model.bim``) to Ossie and back would not bring back, one row per object
+    by name: the round trip on this PC, run for real. Empty when every object comes back as it was."""
+    from . import tmdl
+    out = export(bim, translate_dax=False)
+    back, _ = to_tmsl(out["yaml"])
+    return [{"object": where, "kind": "lost", "message": "doesn't come back from Ossie as it was"}
+            for where in tmdl.differences(bim, back)]
+
+
+def tmdl_to_ossie(files: dict[str, str], name: str, translate_dax: bool = True) -> dict[str, Any]:
+    """A model's TMDL files (path -> text) as Ossie YAML, like ``export``; the report also lists what the TMDL
+    reader left out and anything that wouldn't come back from Ossie."""
+    from . import tmdl
+    bim, read_report = tmdl.to_bim(files, name)
+    out = export(bim, translate_dax=translate_dax)
+    out["report"] = read_report + out["report"] + round_trip(bim)
+    return out
+
+
+def ossie_to_tmdl(text: str, source: dict[str, str] | None = None) -> tuple[dict[str, str], list[dict[str, str]]]:
+    """An Ossie document as TMDL files (path -> text, as in a ``.SemanticModel`` folder) and the report, on this
+    PC with no Fabric call. The files are read back before they are returned; whatever wouldn't survive is
+    reported by name, and a name or expression that would break TMDL's layout is refused (ValueError)."""
+    from . import tmdl
+    bim, report = to_tmsl(text, source)
+    files, written = tmdl.from_bim(bim)
+    return files, report + written

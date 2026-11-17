@@ -99,7 +99,7 @@ def _text(spec: Any, struct_of: Any = None) -> str:
     if isinstance(spec, _Col):
         aliased = vars(spec.column).get("_fd_alias_of")
         if aliased is not None:
-            return f"{aliased} AS {_spark_text(spec.column)}"
+            return f"{_spark_text(aliased)} AS {_spark_text(spec.column)}"
         field = vars(spec.column).get("_fd_field")
         if field is not None and struct_of is not None and struct_of(field[0]):
             return f"{_spark_text(field[0])}.{field[1]}"

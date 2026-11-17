@@ -10,7 +10,7 @@ The app's **Learn more** links open the sections of this page. Two areas have th
 - **[Validate a notebook](validate-notebook.md):** checking a notebook works from the top with a clean run, and cleaning up its code.
 - **[Notebook files](notebook-files.md):** finding, opening, copying, deleting and restoring notebooks, and editing a Fabric notebook on this PC.
 - **[Notebook folders](notebook-folders.md):** grouping notebooks into folders, moving a notebook into one, renaming and deleting folders.
-- **[Fabric and Databricks notebook formats](notebook-import-export.md):** bringing in Fabric and Databricks source and .dbc archives (and .ipynb), and saving a notebook in those formats or as a web page.
+- **[Fabric and Databricks notebook formats](notebook-import-export.md):** bringing in Fabric and Databricks source and .dbc archives (and .ipynb), and saving a notebook in those formats, as a web page or as a PDF.
 - **[Notebook version history](notebook-versions.md):** earlier versions of a notebook, checkpoints, Compare and Restore.
 - **[Profile](profile.md):** a private record of work KratosForge verified, and a review-ready report.
 - **[Notebook comments](notebook-comments.md):** comment threads on cells and lines of code, kept in the notebook file.
@@ -226,9 +226,17 @@ The **Connections** tab beside **Pipelines** lists the Fabric connections you ca
 
 In a notebook, the explorer's **Resources** tab lists the notebook's **Built-in files** above the code snippets. **Add files** copies files from this PC into a folder beside the notebook (`<name>.resources/builtin/`), never over a file of the same name; each file's menu has Copy path, Show in folder, Rename and Delete. Cells read the files as `builtin/<file>`, as in Fabric, and `notebookutils.nbResPath` is the folder. Up to 100 files of up to 50 MB each. The files move with the notebook into a notebooks repository and Git; publishing to Fabric doesn't upload them yet. See [Notebook resources](notebook-resources.md).
 
+## Scratch console (Preview)
+
+**Scratch** (View tab) opens a console beside the cells. It runs in the notebook's own session, so it sees the same variables, DataFrames and imports as the cells, and what it sets shows in **Variables**; but nothing typed there is saved in the notebook. Type Python and press **Shift+Enter** (or **Run**); **Up** and **Down** at the start or end of the box step through what ran before. **Copy to a new cell** adds what's in the box, or else the last line that ran, as a new cell at the end of the notebook. **Clear** empties the console. A run counts like a cell's, so the next cell's run number moves on by one. It runs on this PC only, one run at a time: while a cell is running, run it again when the cell finishes, and a notebook that runs in Fabric or on another engine can't use it.
+
 ## Fabric and Databricks notebook formats (Preview)
 
 **Import from Fabric or Databricks** under **Start something** on Home reads Fabric or Databricks source (`.py`, `.sql`, `.scala`), a Databricks archive (`.dbc`), a percent-format script (`# %%`) or a `.ipynb`, shows each notebook it would create, and creates them as new notebooks in the app's notebooks folder. A notebook that already has the name is never replaced; the new one gets the next free name, such as `Sales (2)`, and the picked file is only read. In a notebook, **Export** (Home tab > Share) saves it as `.ipynb` (with or without the outputs on screen), Fabric source, Databricks source or a web page, as a new file in your Downloads folder; a file already there is never replaced. Nothing is sent to Fabric. See [Fabric and Databricks notebook formats](notebook-import-export.md).
+
+### Notebook as a read-only report (Preview)
+
+**Open as report** (Home tab > Share) shows the notebook's Markdown and the outputs from its last run, without the code, in a window of its own. The line at the top says which run the outputs are from. If you changed the notebook after that run, the window says so; run the notebook and open the report again to bring it up to date. It's the same page **Export** > **Web page** writes, with the code left out, so what you see is what someone you send it to gets. Nothing in it runs: HTML, Altair and plotly outputs are left out, as in the export. **Export as HTML** saves that page as a new file in your Downloads folder, and **Export as PDF** prints it, where you pick Save as PDF. **Open the notebook** closes the report. Opening a report from another notebook replaces the one in the window.
 
 ## Validate a notebook (Preview)
 
@@ -289,6 +297,10 @@ Opening a lakehouse shows its **Tables** (by schema) and **Files** (folders and 
 ### Warehouse queries (Preview)
 
 **SQL query** on a **Warehouse** or **SQL analytics endpoint** row in Workspaces opens the Warehouse page: the same editor and results, with T-SQL that runs in Fabric on the warehouse. It uses capacity, so the first run on each warehouse after the app starts asks first. It only reads until you tick **Allow changes**; then a script that changes the warehouse shows what it changes and runs after you confirm, in one transaction, and in Prod you type the warehouse's name first. It signs in as you, so the warehouse's own permissions apply. The explorer lists schemas, tables, views, procedures and functions from the warehouse's catalog, with column types, and completes names as you type. **SQL from a template** (the arrow beside **New SQL query**) opens T-SQL templates (tables, loads, views, procedures, time travel, security, statistics and accelerators such as an SCD type 2 merge) with fields to fill in; the script opens in a new tab and runs nothing. **New template** adds your own, kept on this PC or in a Git repository's `sql-templates` folder for your team, and **Import** and **Export** share them as `.sql` files. **Save query** keeps a tab as a `.sql` file in My queries or in a Git repository's `sql-queries` folder, and the explorer's **Queries** tab opens them again. The **History** tab lists your runs on this PC and opens Fabric's query insights (long running, frequently run, recent requests). The **Project** tab keeps the warehouse as `.sql` files in a Git repository, in the layout Fabric's Git integration uses: **Import** scripts the warehouse into it, and you edit, save and commit the files. **Table detail** on a table profiles its columns, opens a query that reads it as it was at a past time, and scripts a clone. **Estimated plan** shows how Fabric would run a query as a tree of operators with estimated rows and cost, without running it. **Compare** shows which objects differ between the project and the warehouse, side by side, and **Deploy** previews and runs the changes that make the warehouse match, with Test and Prod deploying only what's committed and pushed. More in [Warehouses](warehouse.md).
+
+### Table diagram (Preview)
+
+**Diagram** in the SQL page's Explorer draws the tables of one schema and how their columns link; pick another schema at the top. It's read only and never adds or changes a key. On a warehouse or SQL analytics endpoint, solid lines come from the warehouse's own primary and foreign keys, read with one more catalog query in Fabric (it uses a little capacity, after the explorer has listed the objects). Dashed lines are guessed from column names: a column such as `customer_id` links to the one other table named for it (`dim_customer`, `customers`) that has that column or an `id` column, and when two tables fit equally, no line is drawn. A lakehouse has no keys, so every line there is a guess, and each table's columns are read as the Explorer reads them. It shows the first 40 tables of a schema and 12 columns of each, plus any column a line uses. Click a table, or press Enter on it, to open it in the Explorer. **Export as SVG** saves the drawing as a new `.svg` file in your Downloads folder; it never replaces a file.
 
 ### Warehouse monitoring (Preview)
 
@@ -497,7 +509,7 @@ Click a pipeline run to see its activities underneath: each one's status, its ty
 
 **Runs** shows today's counts in the page header: **Running now**, **Succeeded today**, **Failed today**, and **Ran on this PC (24 h)**, how many of the runs in the last day ran here rather than in Fabric. Succeeded and failed count by when a run ended, so one that ran past midnight counts today. They are counted from the runs the page read, whatever the filters, so they cover the same runs as the table.
 
-Tick **Forge view** on the view row for a band above the table with a lane for each of the three most recent running runs, beside the Monitor banner of Kratos and the wolf at the forge. The picture never moves; only the anvil's glow and sparks run, and only while a run is going. It is on by default when **Living Experience** is Heroic or Legendary, and off in Professional or Subtle; your choice lasts for the session. A lane says what the run is doing in words, and only real progress moves:
+Tick **Forge view** on the view row for a band above the table with a lane for each of the three most recent running runs, beside the Monitor banner of Kratos and the wolf at the forge. The picture never moves; only the anvil's glow and sparks run, and only while a run is going. It is on by default unless **Living Experience** is Professional; your choice lasts for the session. A lane says what the run is doing in words, and only real progress moves:
 
 - **Run all** in a notebook on this PC shows **Running, cell N of M** with a bar, and the wolf on it when the wolf effects are on.
 - A run in Fabric shows a still ring and **Waiting on Fabric**, with the time since it started. Fabric doesn't report how far along it is, so there is no bar.
@@ -711,6 +723,25 @@ When your organization's policy file sets one of these, or the `FABRIC_DESKTOP_C
 - **Learning guidance** (Preview). **Expert**, **Professional** (the default) or **Guided**: how much explanation the best-practice panels and Learn show beside your work. See [Learn](learn.md#guidance).
 - **SQL guidance** and **Notebook guidance** (Preview). **Same** (the default) follows Learning guidance; **Expert**, **Professional** or **Guided** sets the level beside that subject's best-practice findings only. See [Learn](learn.md#guidance).
 
+### Editor settings
+
+**Settings > Editor** changes how notebook cells and SQL editors type and look. Changes apply at once to every
+open editor and are kept:
+
+- **Word wrap.** **Notebooks**, **SQL**, **Both** or **Off** (the default): long lines wrap instead of scrolling sideways.
+- **Font size.** The code font in cells and SQL editors, 10 to 24 px. **Each editor's own** (the default) keeps
+  13 px in cells and 13.5 px in SQL editors. The rest of the app follows Ctrl+= and Ctrl+-.
+- **Key bindings** (Preview). **Default** or **Vim**, which adds Vim's modal editing to cells and SQL editors. In a
+  cell, Esc in Vim's normal mode still leaves for command mode: in insert or visual mode, press Esc once to get back to normal mode, then again to leave.
+  Shift+Enter, Ctrl+Enter and the other run keys work in every mode.
+- **Shortcuts.** **Change keys...** lists the editor commands with their keys: running a cell or a query, format,
+  comment, change case, go to a line, bookmarks and more. **Change** waits for the new key (Esc cancels), and
+  **Reset** puts one back. A key needs Ctrl or Alt unless it's an F key. Keys the app already uses, such as Ctrl+K
+  (the command bar), Ctrl+C or Ctrl+Z, can't be taken, and neither can another command's key in the same editor.
+
+IT can set any of these for everyone with `editor_word_wrap`, `editor_font_size`, `editor_keys` and
+`editor_key_overrides` ([Push settings to everyone](azure-setup.md)); Settings then shows them locked.
+
 ### Motion and effects
 
 **Settings > Appearance > Living Experience** sets how much the app moves. The **Experience mode** is
@@ -833,6 +864,6 @@ fabric-desktop audit --verify-export D:\handover\audit.jsonl               # exi
 fabric-desktop audit --verify-export D:\handover\audit.jsonl --folder "%LOCALAPPDATA%\FabricDesktop\audit"
 ```
 
-`--export` copies the lines as they are, with no gaps, so the copy is a chain of its own, and writes `audit.jsonl.manifest.json` next to it: the line count, the first line's `prev`, the last line's `hash`, the file's SHA-256 and `trail_head` (the trail's `head.json` at the time). `--verify-export` checks the file against the manifest and every line against the one before, so a changed, deleted, reordered or added line fails, and so does a file cut short. The two files prove the copy wasn't changed after export, not where it came from: anyone could build a new file and a manifest that agree. Give `--folder` (the trail it came from) to check that its lines are that trail's own, or keep the manifest's `last_hash` somewhere the copy's holder can't change: lines cut from the end of a copy, with its manifest rebuilt to match, look like an earlier export even against the trail. `--export` refuses to save inside the audit folder it copies, where the copy would replace a month's file or be read as part of the trail, and won't replace an earlier export unless you add `--replace`. `--since` takes a date (`YYYY-MM-DD`) or an ISO time, in UTC unless it has an offset; anything else is refused. Exporting this PC's trail (with or without `--folder`) adds an `audit_export` line to it (after the copy, so not in it) with `since`, the line count and the copy's SHA-256. The integrations trail exports the same way with its own `--folder`.
+`--export` copies the lines as they are, with no gaps, so the copy is a chain of its own, and writes `audit.jsonl.manifest.json` next to it: the line count, the first line's `prev`, the last line's `hash`, the file's SHA-256 and `trail_head` (the trail's `head.json` at the time). `--verify-export` checks the file against the manifest and every line against the one before, so a changed, deleted, reordered or added line fails, and so does a file cut short. The two files prove the copy wasn't changed after export, not where it came from: anyone could build a new file and a manifest that agree. Give `--folder` (the trail it came from) to check that its lines are that trail's own, or keep the manifest's `last_hash` somewhere the copy's holder can't change: lines cut from the end of a copy, with its manifest rebuilt to match, look like an earlier export even against the trail. `--export` refuses to save inside the audit folder it copies, where the copy would replace a month's file or be read as part of the trail, and won't replace an earlier export unless you add `--replace`. `--since` takes a date (`YYYY-MM-DD`) or an ISO time, in UTC unless it has an offset; anything else is refused. Exporting this PC's trail (with or without `--folder`) adds an `audit_export` line to it (after the copy, so not in it) with `since`, the line count and the copy's SHA-256. The integrations trail exports the same way with its own `--folder`, and an agent's with `--agent-home` ([The agent's audit trail](agent.md#the-agents-audit-trail)).
 
 The files are plain JSON lines, so a log shipper (Azure Monitor agent, Splunk, Fluent Bit) can collect them. The trail is evidence, not a lock: someone who controls the PC can delete the whole folder, which `--verify` can't see. If that matters for you, ship the files to a store the PC can't change.

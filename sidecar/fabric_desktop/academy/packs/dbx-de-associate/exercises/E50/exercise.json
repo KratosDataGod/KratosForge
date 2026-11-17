@@ -1,0 +1,157 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "bundle.json",
+  "reset": "Reset puts the original bundle.json back.",
+  "id": "E50",
+  "title": "Broken: a deploy to prod changed dev resources",
+  "objectives": [
+    "5.2"
+  ],
+  "mode": "troubleshoot",
+  "minutes": 20,
+  "prerequisites": [
+    "E46"
+  ],
+  "objective_text": "Use bundle variables, targets and overrides to promote one codebase across dev, test and prod.",
+  "scenario": "The orders bundle deploys dev and prod to one workspace, kept apart by catalog. After databricks bundle deploy -t prod from main, there was still only one nightly_orders job: the dev job had been updated in place, with its [dev] prefix gone and its schedule running, and its runs overwrote tables in the dev catalog. Find out why and fix the bundle without changing anything else.",
+  "fault": {
+    "summary": "dev and prod share one deployment state, and prod has no catalog of its own.",
+    "symptom": "A prod deploy updated the dev job in place instead of creating a prod job, and that job wrote into the dev catalog.",
+    "planted": "workspace.root_path is /Workspace/Deployments/${bundle.name} with no ${bundle.target}, so both targets keep their state in the same folder; and targets.prod sets no catalog variable, so prod uses the default, dev."
+  },
+  "engine_label": "A model of a bundle's databricks.yml, checked on this PC",
+  "verifies": [
+    "Your bundle gives each target its own deployment folder under the team's folder, sends prod to the prod catalog through the variable, and keeps dev's and prod's other settings as they were, as the bundle docs describe, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That the bundle deploys, or what a deploy does to resources already recorded in a shared state: the Databricks CLI doesn't run here, and the file is JSON, not YAML.",
+    "Cleaning up after the bad deploy, such as databricks bundle destroy or binding an existing job to a target."
+  ],
+  "expected": {
+    "description": "workspace.root_path is /Workspace/Deployments/${bundle.name}/${bundle.target} (under the team folder, with the target in it); targets.prod.variables.catalog is prod; everything else as it was."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "pass": "Each target keeps its deployment state in its own folder under the team's folder.",
+      "fail": "dev and prod still share a deployment folder, or it isn't where the team needs it.",
+      "rules": [
+        {
+          "path": "workspace.root_path",
+          "contains": "${bundle.target}",
+          "why": "The deployment state lives under root_path. Without the target in the path, every target shares one state, so a prod deploy updates the resources the dev deploy recorded. The default root_path ends in ${bundle.target} for this reason."
+        },
+        {
+          "path": "workspace.root_path",
+          "contains": "/Workspace/Deployments/",
+          "why": "Every deploy writes under the team's deployment folder, whose permissions the platform team manages."
+        },
+        {
+          "path": "workspace.root_path",
+          "not_contains": "/Shared",
+          "why": "The bundle docs say not to use a /Shared path as production's root_path: every workspace user can write there."
+        },
+        {
+          "path": "targets.prod.workspace.root_path",
+          "absent": true,
+          "why": "Fix the folder once at the top level, so the planned test target gets its own state too."
+        },
+        {
+          "path": "targets.dev.workspace.root_path",
+          "absent": true,
+          "why": "Fix the folder once at the top level, so the planned test target gets its own state too."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "pass": "prod writes to the prod catalog; dev keeps the default.",
+      "fail": "A target still writes to the wrong catalog.",
+      "rules": [
+        {
+          "path": "targets.prod.variables.catalog",
+          "equals": "prod",
+          "why": "A target that doesn't set the variable gets its default, dev."
+        },
+        {
+          "path": "variables.catalog.default",
+          "equals": "dev",
+          "why": "Leave the default as it was: dev relies on it."
+        },
+        {
+          "path": "resources.jobs.nightly_orders.parameters.0.default",
+          "equals": "${var.catalog}"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "pass": "Nothing else changed: dev is still the default in development mode, prod is still protected.",
+      "fail": "The fix changed something that wasn't broken.",
+      "rules": [
+        {
+          "path": "targets.dev.default",
+          "equals": true
+        },
+        {
+          "path": "targets.dev.mode",
+          "equals": "development"
+        },
+        {
+          "path": "targets.prod.default",
+          "absent": true
+        },
+        {
+          "path": "targets.prod.mode",
+          "equals": "production",
+          "why": "Production mode checks the Git branch; it wasn't the cause."
+        },
+        {
+          "path": "targets.prod.git.branch",
+          "equals": "main"
+        },
+        {
+          "path": "targets.prod.run_as.service_principal_name",
+          "equals": "6f1c2a9e-3b7d-4e8a-9c21-5d0b7a4e1f33"
+        },
+        {
+          "path": "targets.dev.workspace.host",
+          "equals": "https://orders-ws.cloud.databricks.com",
+          "why": "There is one workspace; the fix is in the bundle's paths and variables."
+        },
+        {
+          "path": "targets.prod.workspace.host",
+          "equals": "https://orders-ws.cloud.databricks.com",
+          "why": "There is one workspace; the fix is in the bundle's paths and variables."
+        },
+        {
+          "path": "resources.jobs.nightly_orders.name",
+          "equals": "nightly_orders"
+        },
+        {
+          "path": "resources.jobs.nightly_orders.schedule.quartz_cron_expression",
+          "equals": "0 0 2 * * ?"
+        }
+      ]
+    }
+  ],
+  "explanation": "A bundle keeps its deployment state, the record of which resources it deployed and their IDs, in a state folder under workspace.root_path. The default root_path ends in ${bundle.target}, so each target has its own state. Here someone set root_path without the target, so on one workspace dev and prod read and wrote the same state: deploying prod found the dev job in it and updated that job with prod's settings, which removed the development-mode prefix and unpaused its schedule. Putting ${bundle.target} back in the path gives each target its own state. Separately, prod never set the catalog variable, so it took the default, dev; a variables mapping under the prod target fixes that. Nothing else was broken, so nothing else should change.",
+  "remediation": [
+    "https://docs.databricks.com/aws/en/dev-tools/bundles/reference",
+    "https://docs.databricks.com/aws/en/dev-tools/bundles/variables",
+    "https://docs.databricks.com/aws/en/dev-tools/bundles/deployment-modes"
+  ],
+  "hints": [
+    "Where does a bundle keep the record of what it deployed? Look at workspace.root_path: is it different for dev and prod?",
+    "The default root_path is /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}. Keep the team folder, but add the part that makes it per target.",
+    "Which catalog does prod write to? A target without its own variables mapping uses the variable's default.",
+    "Don't touch the modes, the branch, run_as or the hosts: they weren't the cause."
+  ]
+}

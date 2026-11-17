@@ -353,8 +353,8 @@ def test_a_databricks_export_lists_what_databricks_source_cant_hold():
     assert any("lakehouse" in w for w in whole) and any("Outputs" in w for w in whole)
     by = _by_cell(notes)
     assert {k for k, _ in by[1]} == {"dropped"} and any("widgets" in w for _, w in by[1]) and any("frozen" in w for _, w in by[1])
-    assert by[2] == [("check", "%%configure has no Databricks equivalent. The cell is kept as written, so it won't run "
-                               "there until it's rewritten.")]
+    assert by[2] == [("check", ("%%configure has no Databricks equivalent. The cell is kept as written, so it won't run "
+                               "there until it's rewritten."))]
     assert by[3] == [("changed", "%%sql became %sql, Databricks' way to mark the language.")]
     assert by[4][0][0] == "check" and "dbutils" in by[4][0][1]
     assert 5 not in by and 6 not in by

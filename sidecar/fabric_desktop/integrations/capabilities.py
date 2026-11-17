@@ -183,8 +183,8 @@ def register_core(reg: Registry) -> None:
 PIPELINE_LIMIT = ("Reads only the definition you pass; it doesn't fetch pipelines from Fabric.",
                   "Expressions are read, never evaluated; nothing in the pipeline runs.",
                   "Definitions up to 1 MB (the local API's request limit); the desktop app reads larger ones.")
-COMPAT_LIMIT = ("No activity runs on this PC yet: local execution arrives with ORCH-003. 'planned' is a proposal, "
-                "not support.",
+COMPAT_LIMIT = (("No activity runs on this PC yet: local execution arrives with ORCH-003. 'planned' is a proposal, "
+                "not support."),
                 "No entry has been compared against Fabric yet; Fabric-only type names are marked unverified.")
 DEFINITION = {"type": "string", "minLength": 2, "maxLength": 1_000_000,
               "description": "pipeline-content.json, or a getDefinition result with base64 parts, as text."}
@@ -313,11 +313,11 @@ RUN_INPUT = {
     "children": {"type": "object", "default": {}, "description": "Child pipeline definitions as text, by "
                  "referenceName or pipelineId."},
 }
-RUN_LIMIT = ("Runs control flow (variables, conditions, loops, waits, Fail, Filter) and child pipelines on this PC. "
+RUN_LIMIT = (("Runs control flow (variables, conditions, loops, waits, Fail, Filter) and child pipelines on this PC. "
              "Copy, Notebook, Lookup, Get Metadata, Script and other data or compute activities need a mock; "
-             "cloud-only and unknown activities refuse the run.",
-             "Nothing is sent to Fabric and no capacity is used. Behaviour follows Data Factory's documentation and "
-             "hasn't been compared with Fabric.",
+             "cloud-only and unknown activities refuse the run."),
+             ("Nothing is sent to Fabric and no capacity is used. Behaviour follows Data Factory's documentation and "
+             "hasn't been compared with Fabric."),
              "Activity outputs and variable values are left out; open the run in KratosForge to see them.")
 
 
@@ -370,8 +370,8 @@ def _pipeline_runs() -> list[Capability]:
     ]
 
 
-PROVE_LIMIT = ("Cell outputs and example rows are left out: they can contain data. Open the proof in "
-               "KratosForge to see them.",)
+PROVE_LIMIT = (("Cell outputs and example rows are left out: they can contain data. Open the proof in "
+               "KratosForge to see them."),)
 NAME_FILTER = {"name": {"type": "string", "maxLength": 200, "default": "", "description": "Only this notebook's; empty for all."}}
 
 

@@ -182,7 +182,10 @@ class Channel:
             return svc.editor_channel_pair(_field(body, "window", required=False), _field(body, "client", required=False))
         if method == "GET" and path.startswith("/v1/pair/"):
             return svc.editor_channel_collect(path[len("/v1/pair/"):])
-        assert pairing is not None  # authorize() let only the two calls above through without one
+        if pairing is None:  # authorize() lets only the calls above through without one. Checked here
+            # as well, and not with assert, which python -O removes.
+            raise Refused(401, "not_paired", "This VS Code window isn't paired with KratosForge, or its pairing ended. "
+                          "Pick KratosForge as the kernel again to pair it.")
         if method == "DELETE" and path == "/v1/pair":
             return svc.editor_channel_unpair(pairing)
         if method == "GET" and path == "/v1/status":

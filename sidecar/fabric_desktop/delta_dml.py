@@ -57,6 +57,7 @@ class Change:
     whens: list[When] = field(default_factory=list)
     sets: list[tuple[str, exp.Expression]] = field(default_factory=list)   # UPDATE
     where: exp.Expression | None = None                                     # UPDATE and DELETE
+    schema_evolution: bool = False  # MERGE: UPDATE SET * and INSERT * add the source's new columns
 
     @property
     def name(self) -> str:
@@ -90,7 +91,7 @@ def parse(statement: str, dialect: str = "spark") -> Change | None:
     if not looks_like(statement):
         return None
     try:
-        tree = sqlglot.parse_one(statement, read=dialect)
+        tree = sql_dialects.parse_one(statement, read=dialect)
     except sqlglot.errors.ParseError as exc:
         raise ValueError(f"Could not read the statement: {sql_dialects.parse_problem(exc)}") from None
     return parse_tree(cast(exp.Expression, tree))  # sqlglot types parse_one as its Expr base
@@ -145,7 +146,7 @@ def _merge(tree: exp.Merge) -> Change:
     if isinstance(source, exp.Subquery):
         source = source.this
     on = tree.args.get("on")
-    if on is None:
+    if not isinstance(on, exp.Expression):  # sqlglot gives on=False, not None, when ON is left out
         raise ValueError("MERGE INTO needs ON (how a source row finds its row in the table).")
     whens_node = tree.args.get("whens")
     whens: list[When] = []
@@ -271,7 +272,8 @@ def apply(change: Change, table: Any, source: Any = None, source_names: list[str
         return _result(metrics, updated="num_updated_rows")
     source = _keeping_values(change, source, names, pa.schema(table.schema().to_arrow()))
     merger = table.merge(source, names.render(cast(exp.Expression, change.on)), source_alias=change.source_alias,
-                         target_alias=change.alias, commit_properties=commit_properties)
+                         target_alias=change.alias, merge_schema=change.schema_evolution,
+                         commit_properties=commit_properties)
     for when in change.whens:
         condition = names.render(when.condition) if when.condition is not None else None
         sets = {names.key(col): names.render(value) for col, value in when.sets}

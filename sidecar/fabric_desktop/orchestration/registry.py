@@ -143,8 +143,8 @@ class ActivitySupport:
 
 UNKNOWN = ActivitySupport(
     "(unknown)", "Activity type this version doesn't know", "unsupported", "none", "metered_in_fabric",
-    limitations=("Kept exactly as it is in the definition, but not checked or run. A newer KratosForge "
-                 "may know it; otherwise it has to run in Fabric.",))
+    limitations=(("Kept exactly as it is in the definition, but not checked or run. A newer KratosForge "
+                 "may know it; otherwise it has to run in Fabric."),))
 
 
 class ActivityRegistry:
@@ -233,11 +233,11 @@ class ActivityRegistry:
             "diagnostics": [d.to_json() for d in diags], "counts": summary(diags),
             "notes": ["Classifications describe what this version does today; 'planned' is a proposal, not support.",
                       "Nothing here was run, and no Fabric call was made to produce this report.",
-                      "Fabric meters every activity run, control flow included. 'needs_fabric_capacity' lists the "
+                      ("Fabric meters every activity run, control flow included. 'needs_fabric_capacity' lists the "
                       "activities this version can't run on this PC, so running the pipeline today uses capacity "
-                      "for each of them; 'fabric_only' lists those that can only ever run in Fabric.",
-                      "Some warnings are known places where a pipeline that runs here fails in Fabric "
-                      "(fabric_differences in the registry). They never stop a local run."],
+                      "for each of them; 'fabric_only' lists those that can only ever run in Fabric."),
+                      ("Some warnings are known places where a pipeline that runs here fails in Fabric "
+                      "(fabric_differences in the registry). They never stop a local run.")],
         }
 
 

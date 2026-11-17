@@ -273,6 +273,11 @@ def _blocked_files(probe) -> dict | None:
 # certificates Windows trusts, so these name what's left for IT to change.
 CERT_HINT = ("HTTPS was refused because GitHub's certificate isn't trusted on this PC. If your network "
              "inspects HTTPS, ask IT to add its root certificate to Windows.")
+CLOCK_HINT = ("HTTPS was refused because GitHub's certificate isn't valid at this PC's date and time. Check that "
+              "Windows' date, time and time zone are right (Settings > Time & language > Set time automatically).")
+# A certificate refused for its dates, which a wrong PC clock causes: OpenSSL's and Windows' words (net_trust.py).
+_DATES_TEXT = ("certificate has expired", "certificate is not yet valid", "not within its validity period",
+               "CERT_E_EXPIRED", "0x800B0101")
 PROXY_HINT = ("The proxy server refused the connection or couldn't be reached. KratosForge uses the proxy "
               "Windows is set to, or HTTPS_PROXY; a proxy that asks for a Windows sign-in of its own (407) isn't supported.")
 TIMEOUT_HINT = "GitHub didn't answer in time. If your network uses a proxy, check that it allows github.com."
@@ -296,7 +301,8 @@ def explain(exc: BaseException, detail: str) -> str:
         todo += [e.__cause__, e.__context__, getattr(e, "reason", None)]
     text = " ".join(str(e) for e in chain)
     if "CERTIFICATE_VERIFY_FAILED" in text or any(type(e).__name__ == "SSLCertVerificationError" for e in chain):
-        return f"{CERT_HINT} ({detail})"
+        dates = any(t.lower() in text.lower() for t in _DATES_TEXT)
+        return f"{CLOCK_HINT if dates else CERT_HINT} ({detail})"
     if "Tunnel connection failed" in text or "Proxy Authentication Required" in text:
         return f"{PROXY_HINT} ({detail})"
     # A name that didn't resolve, or a connection refused or unreachable: no timeout involved.

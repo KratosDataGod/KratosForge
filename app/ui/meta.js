@@ -190,8 +190,8 @@ async function renderMetadata() {
       btn("New entity", "add", newEntityDialog, "tool outline"),
       preview("schedules", btn("Schedule", "history", () => scheduleMetaRuns(m.env), "tool outline",
         { title: `Run every entity in ${ENV_LABEL[m.env]} on a schedule, on this PC or in Fabric` })),
-      btn(inFabric(p, m.env) ? "Run all in Fabric" : "Run all", "play", () => runEntities(null), "tool primary",
-        { disabled: p.errors.length ? true : null })] : null,
+      fabricMarked(inFabric(p, m.env), btn(inFabric(p, m.env) ? "Run all in Fabric" : "Run all", "play", () => runEntities(null), "tool primary",
+        { disabled: p.errors.length ? true : null }))] : null,
     tabs: [h("div", { class: "subtabs meta-groups", role: "tablist", "aria-label": "Data mesh" }, shownGroups("mesh").map(groupTab),
       h("button", { class: `tab${inProject ? " active" : ""}`, role: "tab", "aria-selected": String(inProject), onclick: () => goMeta(m.projectTab || "entities") }, "Project")),
     inProject ? h("div", { class: "subtabs meta-project-groups", role: "tablist", "aria-label": "Project" }, shownGroups("project").map(groupTab)) : null],
@@ -543,8 +543,8 @@ async function renderEntity() {
         btn("Compare", "flow", () => compareDialog(e.name), "tool outline"),
         preview("history", btn("History", "history", () => historyDialog(e.name), "tool outline", { title: "Every version of the table; restore an earlier one" })),
         btn("Rebuild with downstream", "sync", () => runEntities([e.name], { cascade: true }), "tool outline"),
-        btn(inFabric(state.meta.project, state.meta.env) ? `Run in Fabric (${ENV_LABEL[state.meta.env]})` : `Run in ${ENV_LABEL[state.meta.env]}`, "play",
-          () => (dirty() ? save() : Promise.resolve()).then(() => runEntities([e.name])), "tool primary"))),
+        fabricMarked(inFabric(state.meta.project, state.meta.env), btn(inFabric(state.meta.project, state.meta.env) ? `Run in Fabric (${ENV_LABEL[state.meta.env]})` : `Run in ${ENV_LABEL[state.meta.env]}`, "play",
+          () => (dirty() ? save() : Promise.resolve()).then(() => runEntities([e.name])), "tool primary")))),
     h("div", { class: "card pad" },
       h("div", { class: "row" }, h("b", {}, "What happens on every run"), h("span", { class: "muted-text" }, "Grey steps are the framework. Purple is your code, at a fixed point.")),
       h("div", { class: "steps" }, stepsFor(e).map(([label, kind], i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null,
@@ -1038,7 +1038,7 @@ async function createEnvWorkspace(env, p) {
   showDialog(`New workspace for ${ENV_LABEL[env]}`, h("div", {},
     h("label", { class: "field" }, "Name", name),
     h("label", { class: "field" }, "Capacity", capacity), note),
-  [btn("Back", null, () => pickEnvWorkspace(env, p), "tool outline"), btn("Create workspace", "add", create, "tool primary")]);
+  [btn("Back", null, () => pickEnvWorkspace(env, p), "tool outline"), previewMarked("createWorkspace", btn("Create workspace", "add", create, "tool primary"))]);
   name.select();
   const caps = (await attempt(() => rpc("list_capacities"), "Could not list capacities")) || [];
   capacity.replaceChildren(...caps.map((c) => h("option", { value: c.id },

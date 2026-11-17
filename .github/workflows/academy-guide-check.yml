@@ -1,0 +1,85 @@
+# Academy certification change detection (ACD-020, docs/academy/architecture.md). Every Tuesday it
+# fetches each Academy pack's study guide from Learn, compares its skills list with the pack's registry
+# (sidecar/tools/academy_guide_check.py) and, when they differ, opens or updates a draft PR that adds
+# the report and a draft crosswalk under docs/academy/guide-changes/. It never edits the registry, the
+# app or anyone's results: people review the draft and update the registry by hand.
+# A page that can't be fetched or read is reported in the run summary; the run still passes, and this
+# workflow is separate from CI, so it never fails another check.
+name: Academy guide check
+
+on:
+  schedule:
+    # Off the hour: GitHub delays or drops scheduled runs at busy times, most of all at :00.
+    - cron: "23 6 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: academy-guide-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write        # push the report branch
+      pull-requests: write   # open or update its draft PR
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Install what the registry reads with
+        run: |
+          python -m pip install --disable-pip-version-check --only-binary=:all: --require-hashes -r .github/requirements/academy-guide.txt
+      - name: Compare each study guide with its registry
+        working-directory: sidecar
+        run: |
+          python tools/academy_guide_check.py --out "$RUNNER_TEMP/guide"
+          python - "$RUNNER_TEMP/guide/summary.json" >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          import json, sys
+          s = json.load(open(sys.argv[1], encoding="utf-8"))
+          print("## Academy study guide check\n")
+          for pack, r in s.items():
+              if isinstance(r, dict):
+                  print(f"- **{pack}**: {r['status']}. {r['detail']}")
+          EOF
+          if grep -q '"status": "failed"' "$RUNNER_TEMP/guide/summary.json"; then
+            echo "::warning title=Academy guide check::A study guide couldn't be checked; see the run summary."
+          fi
+      - name: Open or update a draft PR for each changed guide
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          base=$(git rev-parse HEAD)
+          for report in "$RUNNER_TEMP"/guide/*.md; do
+            pack=$(basename "$report" .md)
+            branch="academy/guide-change-$pack"
+            git checkout -q -B "$branch" "$base"
+            mkdir -p docs/academy/guide-changes
+            cp "$report" "docs/academy/guide-changes/$pack.md"
+            cp "$RUNNER_TEMP/guide/$pack.crosswalk.json" "docs/academy/guide-changes/$pack.crosswalk.json"
+            git add docs/academy/guide-changes
+            git commit -q -m "Academy: the $pack study guide changed (draft for review)"
+            # The same report as last week: leave the branch alone, so reviewers don't see a weekly force-push.
+            if git fetch -q origin "$branch" 2>/dev/null && git diff --quiet FETCH_HEAD HEAD -- docs/academy/guide-changes; then
+              echo "$pack: the open draft already has this report."
+              continue
+            fi
+            git push -q --force origin "$branch"
+            number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open --json number --jq '.[0].number // empty')
+            if [ -n "$number" ]; then
+              gh pr edit "$number" --repo "$GITHUB_REPOSITORY" --body-file "$report"
+            else
+              gh pr create --repo "$GITHUB_REPOSITORY" --draft --base "${GITHUB_REF_NAME}" --head "$branch" \
+                --title "Academy: the $pack study guide changed" --body-file "$report"
+            fi
+          done

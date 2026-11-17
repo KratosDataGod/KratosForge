@@ -12,7 +12,7 @@ from typing import Any, Callable, Iterator
 
 import polars as pl
 
-from . import duties, lakehouse, sealed_settings
+from . import duties, lakehouse, risk, sealed_settings
 from .meta import keys as keys_mod
 from .meta import lineage, release
 from .meta import mesh
@@ -170,6 +170,39 @@ class MetaMixin:
                 return (f"This workspace is {env.title()}'s, which changes only by promote. "
                         "Point the job at a Dev or scratch workspace.")
         return lakehouse.write_guard(lakehouse_name, schema, table) if lakehouse.write_guard else None
+
+    def _maintenance_refusal(self, operation: str, workspace_id: str, table: str) -> str | None:
+        """Why OPTIMIZE, VACUUM or RESTORE from notebook code may not run on ``table``: a Test or Prod workspace
+        of the open metadata project changes only by promote, and its maintenance runs from X-ray, where Vacuum and
+        Optimize show what they do and are confirmed first. A capacity whose risk check is Blocked stops them too,
+        as it stops X-ray's: they rewrite or delete OneLake files, which the capacity is billed for. None when they
+        may run (another workspace, or a capacity whose state isn't known)."""
+        try:
+            project = self._project()
+        except LookupError:
+            project = None
+        for env in ("test", "prod"):
+            if project is not None and workspace_id in _env_workspaces(project.environments.get(env, {})):
+                return (f"{operation.upper()} on {table} from notebook code is refused: this workspace is "
+                        f"{env.title()}'s, which changes only by promote. Run Optimize or Vacuum from X-ray, which "
+                        "shows what it does first, or run the cell against a Dev workspace. Nothing was changed.")
+        return self._maintenance_capacity_refusal(operation, workspace_id, table)
+
+    def _maintenance_capacity_refusal(self, operation: str, workspace_id: str, table: str) -> str | None:
+        """Blocked by the workspace's capacity, from its last reading (no refresh). A reading that fails is
+        an unknown state, which doesn't stop the run, as in every other risk check."""
+        if not workspace_id:
+            return None
+        try:
+            cap = self._risk_capacity(workspace_id, "", False, [])  # type: ignore[attr-defined]
+            found = risk.check_capacity({"where": "fabric", "capacity": cap}, dt.datetime.now(dt.timezone.utc))
+        except Exception as exc:  # noqa: BLE001 - unknown, as the risk check treats a failed read
+            _log.info("Capacity of %s unknown for %s: %s", workspace_id, operation, describe_error(exc))
+            return None
+        if found is None or found["outcome"] != risk.BLOCKED:
+            return None
+        return (f"{operation.upper()} on {table} is refused: the capacity check is Blocked ({found['title']}). "
+                f"{found.get('remedy') or ''} Nothing was changed.").replace("  ", " ")
 
     def meta_project(self) -> dict[str, Any]:
         try:
@@ -956,8 +989,8 @@ class MetaMixin:
             # One key system: the project uses a key table the platform has, it doesn't make its own.
             central = {t["name"] for t in self._keys_platform(env).call("list_key_tables")}  # type: ignore[attr-defined]
             if name not in central:
-                raise GateError("save", [f"{name} isn't one of the platform's key tables. Request it in "
-                                         "Platform > Set up > Business keys, or pick one from the list."])
+                raise GateError("save", [(f"{name} isn't one of the platform's key tables. Request it in "
+                                         "Platform > Set up > Business keys, or pick one from the list.")])
         owner = ""
         try:
             owner = self.auth.signed_in_user() or ""  # type: ignore[attr-defined]
@@ -1035,9 +1068,9 @@ class MetaMixin:
         if not keys_mod.entity_keys(e):
             raise ValueError(f"{name} has no [[keys]] block, so there is no key MERGE to start its notebook with")
         if db := self._keys_database(project, env):
-            raise GateError("save", [f"{env.title()}'s keys come from {db}, so a notebook that merges into LH_Keys "
+            raise GateError("save", [(f"{env.title()}'s keys come from {db}, so a notebook that merges into LH_Keys "
                                      "would give rows keys the rest of the platform doesn't have. Run "
-                                     f"{name} from Data mesh instead: its run takes the keys from {db}."])
+                                     f"{name} from Data mesh instead: its run takes the keys from {db}.")])
         src = project.entities[e.spec["source"]["entity"]]
         nb_name = f"nb_{src.layer}_to_{e.layer}_{e.table}"
         cells = keys_mod.template_cells(project, e, project.environments.get(env, {}).get("keys_workspace_name", ""))

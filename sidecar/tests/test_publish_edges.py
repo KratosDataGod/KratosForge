@@ -106,7 +106,7 @@ def test_a_onelake_table_takes_its_onelake_lease(monkeypatch):
     seen = []
     monkeypatch.setattr(P, "onelake_table_lease",
                         lambda ws, lh, schema, table, token, owner: seen.append((ws, lh, schema, table, token(), owner)))
-    P._lease(TableRef("ws1", "lh1", "dbo", "orders"), "tok")
+    P._lease(TableRef("ws1", "lh1", "dbo", "orders"), lambda: "tok")
     assert seen == [("ws1", "lh1", "dbo", "orders", "tok", "KratosForge")]
 
 
@@ -132,3 +132,33 @@ def test_a_job_runs_writes_its_table_and_keeps_a_record(tmp_path, monkeypatch):
     lines = [json.loads(line) for line in history.read_text().splitlines() if line.strip()]
     assert lines[-1]["job"] == "orders" and lines[-1]["rows"] == 1
     assert not any((tmp_path / "work" / "staging").glob("orders*"))  # the staged copy is gone
+
+
+def test_a_job_whose_token_expired_is_written_again_with_a_fresh_one(tmp_path, monkeypatch):
+    """HD-034: nothing was committed, so the job's write goes once more, asking for a new token."""
+    ref = Ref(tmp_path / "lake" / "orders")
+    monkeypatch.setattr(P, "resolve_target", lambda j, fabric: ref)
+    real, tokens = P.publish, []
+
+    def expires_once(data, ref_, mode, token, *a, **k):
+        tokens.append(token())
+        if len(tokens) == 1:
+            raise P.WriteTokenExpired("Writing dbo.orders: refused. Nothing was committed.")
+        return real(data, ref_, mode, token, *a, **k)
+    monkeypatch.setattr(P, "publish", expires_once)
+    fresh = iter(f"tok{n}" for n in range(100))
+    record = P.run_job(job(tmp_path), Fabric(), lambda: next(fresh), tmp_path / "work", guard=lambda *a: None)
+    assert tokens == ["tok0", "tok1"] and record.delta_version == 0  # the token function, not one token
+
+
+def test_a_job_whose_token_expired_twice_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr(P, "resolve_target", lambda j, fabric: Ref(tmp_path / "lake" / "orders"))
+    tries = []
+
+    def expires(*a, **k):
+        tries.append(1)
+        raise P.WriteTokenExpired("Writing dbo.orders: refused. Nothing was committed.")
+    monkeypatch.setattr(P, "publish", expires)
+    with pytest.raises(P.WriteTokenExpired):
+        P.run_job(job(tmp_path), Fabric(), lambda: "tok", tmp_path / "work", guard=lambda *a: None)
+    assert len(tries) == 2

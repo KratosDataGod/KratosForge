@@ -112,6 +112,20 @@
       <enabledValue><decimal value="1" /></enabledValue>
       <disabledValue><decimal value="0" /></disabledValue>
     </policy>
+    <policy name="audit_retention_days" class="Machine" displayName="$(string.audit_retention_days)" explainText="$(string.audit_retention_days_Help)" key="Software\Policies\KratosBI\KratosForge" presentation="$(presentation.audit_retention_days)">
+      <parentCategory ref="cat_fabric" />
+      <supportedOn ref="SUPPORTED_KratosForge" />
+      <elements>
+        <decimal id="audit_retention_days" valueName="audit_retention_days" required="true" minValue="0" maxValue="3650" />
+      </elements>
+    </policy>
+    <policy name="receipt_retention_days" class="Machine" displayName="$(string.receipt_retention_days)" explainText="$(string.receipt_retention_days_Help)" key="Software\Policies\KratosBI\KratosForge" presentation="$(presentation.receipt_retention_days)">
+      <parentCategory ref="cat_fabric" />
+      <supportedOn ref="SUPPORTED_KratosForge" />
+      <elements>
+        <decimal id="receipt_retention_days" valueName="receipt_retention_days" required="true" minValue="0" maxValue="3650" />
+      </elements>
+    </policy>
     <policy name="telemetry_connection_string" class="Machine" displayName="$(string.telemetry_connection_string)" explainText="$(string.telemetry_connection_string_Help)" key="Software\Policies\KratosBI\KratosForge" presentation="$(presentation.telemetry_connection_string)">
       <parentCategory ref="cat_fabric" />
       <supportedOn ref="SUPPORTED_KratosForge" />
@@ -368,6 +382,35 @@
           <item displayName="$(string.ui_color_mode_skin)"><value><string>skin</string></value></item>
           <item displayName="$(string.ui_color_mode_light)"><value><string>light</string></value></item>
           <item displayName="$(string.ui_color_mode_dark)"><value><string>dark</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="editor_word_wrap" class="Machine" displayName="$(string.editor_word_wrap)" explainText="$(string.editor_word_wrap_Help)" key="Software\Policies\KratosBI\KratosForge" presentation="$(presentation.editor_word_wrap)">
+      <parentCategory ref="cat_notebooks" />
+      <supportedOn ref="SUPPORTED_KratosForge" />
+      <elements>
+        <enum id="editor_word_wrap" valueName="editor_word_wrap" required="true">
+          <item displayName="$(string.editor_word_wrap_off)"><value><string>off</string></value></item>
+          <item displayName="$(string.editor_word_wrap_notebooks)"><value><string>notebooks</string></value></item>
+          <item displayName="$(string.editor_word_wrap_sql)"><value><string>sql</string></value></item>
+          <item displayName="$(string.editor_word_wrap_both)"><value><string>both</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="editor_font_size" class="Machine" displayName="$(string.editor_font_size)" explainText="$(string.editor_font_size_Help)" key="Software\Policies\KratosBI\KratosForge" presentation="$(presentation.editor_font_size)">
+      <parentCategory ref="cat_notebooks" />
+      <supportedOn ref="SUPPORTED_KratosForge" />
+      <elements>
+        <decimal id="editor_font_size" valueName="editor_font_size" required="true" minValue="0" maxValue="24" />
+      </elements>
+    </policy>
+    <policy name="editor_keys" class="Machine" displayName="$(string.editor_keys)" explainText="$(string.editor_keys_Help)" key="Software\Policies\KratosBI\KratosForge" presentation="$(presentation.editor_keys)">
+      <parentCategory ref="cat_notebooks" />
+      <supportedOn ref="SUPPORTED_KratosForge" />
+      <elements>
+        <enum id="editor_keys" valueName="editor_keys" required="true">
+          <item displayName="$(string.editor_keys_default)"><value><string>default</string></value></item>
+          <item displayName="$(string.editor_keys_vim)"><value><string>vim</string></value></item>
         </enum>
       </elements>
     </policy>

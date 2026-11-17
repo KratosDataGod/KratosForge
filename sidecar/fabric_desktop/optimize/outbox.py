@@ -84,8 +84,7 @@ class Outbox:
     def _db(self) -> Iterator[sqlite3.Connection]:
         """One connection per call, closed after it: X-ray writes from its own thread, and on Windows
         an open handle keeps the file locked."""
-        with sqlitefile.connect(self.path) as db:
-            db.execute("pragma synchronous=full")
+        with sqlitefile.connect(self.path) as db:  # synchronous=full, like every store
             yield db
 
     @contextmanager

@@ -18,3 +18,5 @@ export { python } from "@codemirror/lang-python";
 export { sql, StandardSQL, SQLDialect, MSSQL, PostgreSQL } from "@codemirror/lang-sql";
 export { html } from "@codemirror/lang-html";
 export { markdown } from "@codemirror/lang-markdown";
+// Vim key bindings (Settings > Editor > Key bindings, Preview): editorprefs.js adds vim() to every editor.
+export { vim, Vim, getCM } from "@replit/codemirror-vim";

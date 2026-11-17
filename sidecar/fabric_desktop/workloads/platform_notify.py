@@ -80,9 +80,9 @@ def validate(event: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(to, dict):
         raise ValueError("to is an object with people and roles")
     people, roles = _strs(to.get("people"), "to.people"), _strs(to.get("roles"), "to.roles")
-    if bad := [p for p in people if not _UPN.match(p)]:
+    if bad := [p for p in people if not _UPN.fullmatch(p)]:
         raise ValueError(f"to.people are UPNs (name@domain), not {bad[0]!r}")
-    if bad := [r for r in roles if not _ROLE.match(r)]:
+    if bad := [r for r in roles if not _ROLE.fullmatch(r)]:
         raise ValueError(f"to.roles are platform_admin, requester, domain_owner:<id>, product_owner:<id> or "
                          f"project:<name>, not {bad[0]!r}")
     if not people and not roles:
@@ -216,6 +216,13 @@ class Ledger:
     def forget(self, key: str) -> None:
         with self._db() as db:
             db.execute("DELETE FROM sent WHERE key = ?", (key,))
+
+    def prune(self, older_than: float) -> int:
+        """Delete closed and one-off keys last marked more than ``older_than`` seconds ago. Open keys (a
+        request still waiting, a shortcut still broken) are never deleted, so they're never posted twice.
+        The same one-off event reported again after that long is posted again."""
+        with self._db() as db:
+            return db.execute("DELETE FROM sent WHERE open = 0 AND at < ?", (self.clock() - older_than,)).rowcount
 
     def open_keys(self) -> list[dict[str, Any]]:
         with self._db() as db:

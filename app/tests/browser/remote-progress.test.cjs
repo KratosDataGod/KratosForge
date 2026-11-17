@@ -18,6 +18,7 @@ async function open({ reducedMotion = "no-preference" } = {}) {
   await app.page.emulateMedia({ reducedMotion });
   await app.page.evaluate(async () => {
     await loadSettings();
+    await saveSettings({ motion_level: 2 });  // the navy wolf is an everyday effect: Heroic and up
     logActivity({ id: "validate:v1", status: "running", title: "Daily sales · Validate", text: "Running every cell from the top on this PC" });
     logActivity({ id: "fabric:j1", status: "running", title: "Daily sales · Notebook run", text: "In Fabric on Sales" });
     toggleTray(true);

@@ -575,8 +575,8 @@ class EnginesMixin:
                 "decisions": ["close"], "message": ""}
         elif current == KERNEL and engine != KERNEL:
             transition = {"needed": True, "decisions": ["close", "keep"], "message": "",
-                          "loses": ["nothing: the Python session on this PC stays open, and comes back when you "
-                                    "switch back"]}
+                          "loses": [("nothing: the Python session on this PC stays open, and comes back when you "
+                                    "switch back")]}
         out: dict[str, Any] = {"engine": desc.as_dict() | {"bills": BILLS.get(desc.billing, "")}, "from": current,
                                "transition": transition, "confirm": False, "target": None, "cells": []}
         for i, source in enumerate(cells or []):

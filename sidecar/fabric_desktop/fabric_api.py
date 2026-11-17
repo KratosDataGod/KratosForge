@@ -104,6 +104,22 @@ def _part(value: Any) -> str:
     return redact.one_line(value or "", _PART_MAX).rstrip(".")
 
 
+# The same steps when Fabric sent no request id: they point at the id only when there is one to give.
+_WITHOUT_REQUEST_ID = {
+    "Try again, and give the request id to support if it keeps happening":
+        "Try again, and contact support if it keeps happening",
+    ", or give the request id to support": "",
+}
+
+
+def _step(hint: str, request_id: str) -> str:
+    """A next step that mentions the request id only when Fabric sent one."""
+    if not request_id:
+        for with_id, without in _WITHOUT_REQUEST_ID.items():
+            hint = hint.replace(with_id, without)
+    return hint
+
+
 def _request_id(value: Any) -> str:
     text = str(value or "")
     return text if _REQUEST_ID.fullmatch(text) else ""
@@ -145,6 +161,7 @@ def _error(method: str, url: str, resp: requests.Response, safe: bool | None = N
     read = method.upper() in SAFE_METHODS if safe is None else safe
     if (status >= 500 or status == 408) and not read:
         hint = _UNSURE  # a write that got a 5xx may have happened (HD-053): it isn't sent again
+    hint = _step(hint, request_id)
     parts = [p for p in parts if p] + ([hint] if hint else [])
     text = f"{method} {path} failed with {status}" + (f" {code}" if code else "")
     text += (": " + ". ".join(parts) + "." if parts else ".") + (f" Request id {request_id}." if request_id else "")
@@ -163,10 +180,11 @@ def _operation_failed(operation: str, state: dict[str, Any]) -> FabricError:
     hint = _HINTS.get(code or "", _OPERATION_NEXT_STEP)
     if code == "CapacityNotActive":
         message, hint = _CAPACITY_NOT_ACTIVE, ""
+    request_id = _request_id(error.get("requestId"))
+    hint = _step(hint, request_id)
     text = f"Fabric's operation {operation} {'failed' if state.get('status') == 'Failed' else 'ended in an unknown state'}"
     text += f": {message}" if message else " and gave no reason"
     text += "".join(f". {d}" for d in details[:3]) + (f" ({code})" if code else "") + (f". {hint}" if hint else "")
-    request_id = _request_id(error.get("requestId"))
     return FabricError(text + (f". Request id {request_id}." if request_id else "."), code, request_id=request_id)
 
 
@@ -237,6 +255,21 @@ def _check_fabric_runs_allowed(what: str) -> None:
     if not app_settings.value("allow_fabric_runs"):
         raise FabricError(f"Your organization doesn't allow {what} from KratosForge, so it wasn't "
                           "started. Run it on this PC instead, or ask your IT team.", POLICY_BLOCKED)
+
+
+_COOLDOWN_SECONDS = re.compile(r"wait (\d{1,4}) second", re.IGNORECASE)
+PUBLISH_COOLDOWN_MAX = 180  # seconds; a longer cooldown is reported instead of waited out
+
+
+def _publish_cooldown(exc: FabricError) -> float | None:
+    """How long to wait before publishing again, when Fabric refused a publish for its cooldown
+    (DeployCooldownBlock): the seconds it names plus one, or 60 if it names none. None for any other
+    error, or a cooldown longer than PUBLISH_COOLDOWN_MAX."""
+    if exc.code != "DeployCooldownBlock" and "DeployCooldownBlock" not in str(exc):
+        return None
+    found = _COOLDOWN_SECONDS.search(str(exc))
+    seconds = int(found.group(1)) + 1 if found else 60
+    return float(seconds) if seconds <= PUBLISH_COOLDOWN_MAX else None
 
 
 class FabricClient:
@@ -671,7 +704,18 @@ class FabricClient:
             return created | {"created": True}
         if definition:
             url = f"/workspaces/{workspace_id}/items/{existing['id']}/updateDefinition"
-            self._wait(self._request("POST", url, json={"definition": definition}))
+            try:
+                self._wait(self._request("POST", url, json={"definition": definition}))
+            except FabricError as exc:
+                wait = _publish_cooldown(exc)
+                if wait is None:
+                    raise
+                # Fabric refuses a second publish of some items (User Data Functions) for a short while
+                # after the last one (live run 9, 2026-11-11: DeployCooldownBlock, "Please wait 48
+                # second(s) before publishing again"). Nothing was changed, so it's sent once more after
+                # the wait Fabric names.
+                self._sleep(wait)
+                self._wait(self._request("POST", url, json={"definition": definition}))
         return existing | {"created": False}
 
     def refresh_sql_endpoint(self, workspace_id: str, sql_endpoint_id: str) -> dict[str, Any]:

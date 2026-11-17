@@ -151,3 +151,46 @@ def _result(root: Path, old: list[Path], days: int, dry_run: bool) -> dict[str, 
     removed = old if dry_run else [p for p in old if _remove(p)]
     return {"days": days, "removed": [p.relative_to(root).as_posix() for p in removed],
             "bytes": sum(sizes[p] for p in removed), "dry_run": dry_run}
+
+
+# ---- audit trails and run receipts (policy audit_retention_days, receipt_retention_days)
+#
+# Both are kept forever unless the organization sets a limit (IT only, at least MIN_RECORD_DAYS).
+# Each cleanup first writes an audit line saying what goes (``audit_pruned``, ``receipts_pruned``):
+# if that line can't be written, nothing is deleted.
+
+MIN_RECORD_DAYS = 30
+
+
+def prune_audit(folder: Path, days: int, record: Any, trail: str, now: float | None = None) -> dict[str, Any]:
+    """Delete the month files of the audit trail in ``folder`` whose month ended more than ``days``
+    days ago (audit_chain.prune), after ``record(action, params)`` wrote what goes."""
+    from . import audit_chain
+    if days <= 0:
+        return {"files": [], "lines": 0}
+    old = audit_chain.prunable(folder, days, now)
+    if not old:
+        return {"files": [], "lines": 0}
+    record("audit_pruned", {"trail": trail, "days": days, "files": len(old), "through": old[-1].stem[len("audit-"):]})
+    return audit_chain.prune(folder, days, now)
+
+
+def prune_receipts(folder: Path, days: int, record: Any, now: float | None = None) -> dict[str, Any]:
+    """Delete run receipts (``<id>.json``, written once) older than ``days`` days, after
+    ``record(action, params)`` wrote how many go. Links are never followed."""
+    if days <= 0 or not folder.is_dir() or _linked(folder):
+        return {"removed": 0}
+    cutoff = (now if now is not None else time.time()) - days * DAY
+    old = [p for p in folder.iterdir() if p.suffix == ".json" and p.is_file() and not p.is_symlink()
+           and p.stat().st_mtime < cutoff]
+    if not old:
+        return {"removed": 0}
+    record("receipts_pruned", {"days": days, "receipts": len(old)})
+    removed = 0
+    for p in old:
+        try:
+            p.unlink()
+            removed += 1
+        except FileNotFoundError:  # silent-ok: removed meanwhile
+            continue
+    return {"removed": removed}

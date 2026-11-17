@@ -53,7 +53,7 @@ def parse_accepts(value: Any) -> tuple[int, int | None]:
     """A link's ``accepts``: "2" (that version), "2-3" (a range) or "2+" (that version or later), as
     (lowest, highest), highest None for "or later". ValueError, in words a person can act on, otherwise."""
     text = str(value).strip()
-    m = _ACCEPTS.match(text)
+    m = _ACCEPTS.fullmatch(text)
     if not m or isinstance(value, bool):
         raise ValueError(f"accepts is a version (\"2\"), a range (\"2-3\") or a version and later (\"2+\"), not {text!r}")
     low = int(m.group(1))
@@ -355,7 +355,7 @@ def write_project_file(root: Path, fields: dict[str, Any]) -> Path:
 def write_product(root: Path, p: dict[str, Any]) -> Path:
     import json
     name = str(p.get("name", "")).strip()
-    if not _NAME.match(name):
+    if not _NAME.fullmatch(name):
         raise ValueError("A product name is lowercase letters, digits or _, like customer_360")
     lines = ["# A data product: the tables (ports) other teams may read, and the promise that comes with them.",
              f"name = {json.dumps(name)}"]
@@ -386,7 +386,7 @@ def write_product(root: Path, p: dict[str, Any]) -> Path:
 def write_link(root: Path, l: dict[str, Any]) -> Path:
     import json
     alias = str(l.get("alias", "")).strip()
-    if not _NAME.match(alias):
+    if not _NAME.fullmatch(alias):
         raise ValueError("A link's name is lowercase letters, digits or _, like sales_customer")
     lines = ["# A link to another team's data product. Entities read it with [source] link = \"<alias>\".",
              f"alias = {json.dumps(alias)}", f"product = {json.dumps(str(l.get('product', '')))}",
@@ -431,7 +431,7 @@ def validate(project: Project) -> list[str]:
     info = project.info
     if info:
         name = str(info.get("name") or "")
-        if name and not _PROJECT.match(name):
+        if name and not _PROJECT.fullmatch(name):
             errors.append(f"{PROJECT_FILE}: name {name!r} must be lowercase letters, digits, -, _ or .")
         if info.get("subdomain") and not info.get("domain"):
             errors.append(f"{PROJECT_FILE}: a subdomain needs its domain")
@@ -444,7 +444,7 @@ def validate(project: Project) -> list[str]:
                 errors.append(f"environments.toml: {env} has an unknown workspace designation {d}")
     for p in project.products.values():
         where = f"products/{p.name}"
-        if not _NAME.match(p.name):
+        if not _NAME.fullmatch(p.name):
             errors.append(f"{where}: name must be lowercase letters, digits or _")
         if p.access not in ACCESS:
             errors.append(f"{where}: access must be one of {', '.join(ACCESS)}")
@@ -455,7 +455,7 @@ def validate(project: Project) -> list[str]:
         seen = set()
         for port in p.ports:
             pn, ent = port.get("name", ""), port.get("entity", "")
-            if not _NAME.match(str(pn)):
+            if not _NAME.fullmatch(str(pn)):
                 errors.append(f"{where}: port name {pn!r} must be lowercase letters, digits or _")
             if pn in seen:
                 errors.append(f"{where}: port {pn} is listed twice")
@@ -467,7 +467,7 @@ def validate(project: Project) -> list[str]:
         errors += promise_problems(where, p.spec.get("promise"))
     for link in project.links.values():
         where = f"links/{link.alias}"
-        if not _NAME.match(link.alias):
+        if not _NAME.fullmatch(link.alias):
             errors.append(f"{where}: name must be lowercase letters, digits or _")
         if "/" not in link.product or not link.port:
             errors.append(f"{where}: product is \"<project>/<product>\" and port names one of its ports")
@@ -736,6 +736,6 @@ def change_window_notes(window: dict[str, Any] | None, project: Project, publish
     if day in (window.get("days") or []) and str(window.get("start")) <= hhmm < str(window.get("end")):
         return []
     agreed = f"{_days_text(window.get('days') or [])}, {window.get('start')} to {window.get('end')} ({zone})"
-    return [f"Outside the change window: {env.title()} changes to products other projects read are agreed for {agreed}, "
+    return [(f"Outside the change window: {env.title()} changes to products other projects read are agreed for {agreed}, "
             f"and it's {_DAY_NAMES[day]} {hhmm} there. {len(readers)} {_plural(len(readers), 'project reads', 'projects read')} "
-            f"what's changing: {', '.join(readers)}. You can still promote."]
+            f"what's changing: {', '.join(readers)}. You can still promote.")]

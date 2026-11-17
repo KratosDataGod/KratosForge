@@ -114,7 +114,7 @@ def test_history_of_the_lakehouses_own_table_still_reads(lake):  # noqa: F811
     assert run("spark.sql('DESCRIBE HISTORY `Sales`.`dbo`.`sales`').count()") == ("ok", "1")
 
 
-# ---- spark.catalog: answers about the attached lakehouse and temp views, or refuses by name
+# ---- spark.catalog: answers about the attached lakehouse and temp views
 
 def test_catalog_list_columns_reads_a_lakehouse_table_and_a_temp_view(lake):  # noqa: F811
     status, text = run("[(c.name, c.dataType) for c in spark.catalog.listColumns('sales', 'dbo')]")
@@ -128,11 +128,61 @@ def test_catalog_list_columns_of_a_missing_table_stops(lake):  # noqa: F811
     assert run("spark.catalog.listColumns('nope')")[0] == "error"
 
 
-@pytest.mark.parametrize("call", ["listTables()", "listDatabases()", "listCatalogs()", "listFunctions()",
-                                  "currentDatabase()"])
-def test_catalog_calls_that_would_answer_about_duckdb_are_refused(lake, call):  # noqa: F811
-    status, text = run(f"spark.catalog.{call}")
-    assert status == "error" and f"spark.catalog.{call.split('(')[0]} runs in Fabric" in text
+@pytest.fixture
+def listed(lake, monkeypatch):  # noqa: F811
+    """List the test lakehouse's folders from disk, as FileStore.list does from OneLake."""
+    from fabric_desktop import spark_local
+
+    def dirs(directory):
+        here = lake.parent / directory
+        return [{"name": p.name, "is_dir": True} for p in sorted(here.iterdir())
+                if p.is_dir() and not p.name.startswith(("_", "."))] if here.is_dir() else []
+    monkeypatch.setattr(spark_local, "_list_dirs", dirs)
+    return lake
+
+
+def test_catalog_list_tables_names_lakehouse_tables_and_temp_views(listed):
+    status, text = run("df.createOrReplaceTempView('v')\n"
+                       "[(t.name, t.database, t.isTemporary) for t in spark.catalog.listTables()]")
+    assert status == "ok", text
+    assert "('sales', 'dbo', False)" in text and "('v', None, True)" in text
+    assert "duckdb" not in text.lower() and "__kf_" not in text
+
+
+def test_catalog_list_tables_filters_by_schema_and_pattern(listed):
+    assert run("[t.name for t in spark.catalog.listTables('dbo')]") == ("ok", "['sales']")
+    assert run("[t.name for t in spark.catalog.listTables('crm')]") == ("ok", "[]")
+    assert run("df.createOrReplaceTempView('v')\n[t.name for t in spark.catalog.listTables(pattern='sa*')]") \
+        == ("ok", "['sales']")
+
+
+def test_catalog_list_tables_lists_global_temp_views(listed):
+    status, text = run("df.createOrReplaceGlobalTempView('g')\n"
+                       "[(t.name, t.database) for t in spark.catalog.listTables('global_temp')]")
+    assert (status, text) == ("ok", "[('g', 'global_temp')]")
+
+
+def test_catalog_list_databases_and_catalogs(listed):
+    assert run("[d.name for d in spark.catalog.listDatabases()]") == ("ok", "['dbo']")
+    assert run("[c.name for c in spark.catalog.listCatalogs()]") == ("ok", "['spark_catalog']")
+
+
+def test_catalog_list_functions_names_spark_builtins(listed):
+    status, text = run("names = [f.name for f in spark.catalog.listFunctions()]\n"
+                       "('upper' in names, 'date_add' in names, len(names) > 300)")
+    assert (status, text) == ("ok", "(True, True, True)")
+    assert run("[f.name for f in spark.catalog.listFunctions(pattern='upp*')]") == ("ok", "['upper']")
+    assert run("spark.catalog.listFunctions(pattern='upper(')") == ("ok", "[]")  # literal text, not a regex
+    status, text = run("spark.udf.register('kf_shout', lambda s: s.upper())\n"
+                       "[(f.name, f.className) for f in spark.catalog.listFunctions(pattern='kf_*')]")
+    assert (status, text) == ("ok", "[('kf_shout', 'python')]")
+
+
+def test_catalog_listings_with_no_lakehouse_are_empty_not_duckdbs(listed):
+    lakehouse.attach(None)
+    status, text = run("df.createOrReplaceTempView('v')\n"
+                       "([t.name for t in spark.catalog.listTables()], spark.catalog.listDatabases())")
+    assert (status, text) == ("ok", "(['v'], [])")
 
 
 def test_catalog_current_and_set_follow_use(lake):  # noqa: F811
@@ -142,3 +192,31 @@ def test_catalog_current_and_set_follow_use(lake):  # noqa: F811
     assert status == "error" and "setCurrentCatalog('main'): the catalog main" in text
     status, text = run("spark.catalog.setCurrentDatabase('crm')")
     assert status == "error" and "can't point it at crm" in text
+
+
+def test_catalog_current_database_is_the_lakehouse_without_schemas(lake, monkeypatch):  # noqa: F811
+    """In Fabric the current database is the default lakehouse. With schemas, which one this PC can't say: refused."""
+    assert run("spark.catalog.currentDatabase()")[0] == "error"  # the fixture's lakehouse has schemas
+    import dataclasses
+    monkeypatch.setattr(lakehouse, "_attached", dataclasses.replace(lakehouse._attached, schemas_enabled=lambda: False))
+    assert run("spark.catalog.currentDatabase()") == ("ok", "'Sales'")
+
+
+def test_catalog_list_columns_marks_a_lakehouse_tables_partition_columns(lake):  # noqa: F811
+    """A table Fabric wrote partitioned by region: listColumns says so, as Spark does."""
+    import pyarrow as pa
+    from deltalake import write_deltalake
+    write_deltalake(str(lake / "dbo" / "parts"), pa.table({"id": [1], "region": ["EU"]}), partition_by=["region"])
+    status, text = run("[(c.name, c.isPartition) for c in spark.catalog.listColumns('dbo.parts')]")
+    assert status == "ok" and "('region', True)" in text and "('id', False)" in text
+
+
+def test_catalog_list_tables_offline_or_signed_out_stops_rather_than_listing_less(lake, monkeypatch):  # noqa: F811
+    # A OneLake listing that fails (offline, signed out) must stop the cell, not quietly list only temp views.
+    from fabric_desktop import spark_local
+
+    def down(_directory):
+        raise ConnectionError("OneLake is unreachable")
+    monkeypatch.setattr(spark_local, "_list_dirs", down)
+    status, text = run("df.createOrReplaceTempView('v')\nspark.catalog.listTables()")
+    assert status == "error" and "OneLake is unreachable" in text

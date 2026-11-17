@@ -93,8 +93,8 @@ def ip(op: str, kind: str, hex_text: str | None) -> str | None:
     except _Bad:
         if safe:
             return None
-        raise ValueError(f"[{error}] {name}() can't read its argument as an IP address"
-                         f"{'' if must == 'host' else ' or CIDR block' if must == 'any' else ' CIDR block'}.") from None
+        wanted = {"host": "an IP address", "any": "an IP address or CIDR block", "cidr": "a CIDR block"}[must]
+        raise ValueError(f"[{error}] {name}() can't read its argument as {wanted}.") from None
     if out == "text" and kind == "BLOB":
         raise ValueError(f"{name}() gives BINARY for a BINARY argument in Databricks; this PC can't tell this one is "
                          "BINARY before it runs. Write the argument as CAST(... AS BINARY).")

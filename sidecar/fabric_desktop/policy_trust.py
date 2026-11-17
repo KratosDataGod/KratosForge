@@ -32,7 +32,10 @@ KEY_RIGHTS = KEY_SET_VALUE | KEY_CREATE_SUB_KEY | DELETE | WRITE_DAC | WRITE_OWN
 PARENT_KEY_RIGHTS = KEY_CREATE_SUB_KEY | WRITE_DAC | WRITE_OWNER | GENERIC_WRITE | GENERIC_ALL
 SE_FILE_OBJECT, SE_REGISTRY_WOW64_64KEY = 1, 13  # SE_OBJECT_TYPE; 13 is the 64-bit view, which Group Policy writes (12 is the 32-bit one)
 ACCESS_ALLOWED, ACCESS_DENIED, INHERIT_ONLY = 0, 1, 0x08
-GRANTS_NOTHING = {2, 3, 6, 7, 8, 10, 12, 13, 14, 15, 16, 17}  # deny, audit and alarm entries, the mandatory label
+# Deny, audit and alarm entries, the mandatory label, and the other system entries (resource attribute,
+# scoped policy, trust label, access filter). A type past 21 isn't one Windows defines: not trusted.
+GRANTS_NOTHING = {2, 3, 6, 7, 8, 10, *range(12, 22)}
+LAST_ACE_TYPE = 21
 
 
 def admin_only(file: Path) -> str | None:
@@ -81,6 +84,8 @@ def judge(path: str, owner_is_admin: bool, dacl: Iterable[tuple[int, int, int, b
     if dacl is None:
         return f"{path} has no permissions set, so anyone can change it"
     for kind, flags, mask, admin in dacl:
+        if kind > LAST_ACE_TYPE:
+            return f"{path} has a permission entry the app can't check"
         if kind == ACCESS_DENIED or flags & INHERIT_ONLY or kind in GRANTS_NOTHING:
             continue
         if kind != ACCESS_ALLOWED:

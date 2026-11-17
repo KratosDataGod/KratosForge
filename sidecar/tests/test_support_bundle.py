@@ -196,7 +196,7 @@ def test_the_agents_crash_log_is_included_only_when_the_agent_has_crashed(tmp_pa
     agent = tmp_path / "agent"
     (agent / "logs").mkdir(parents=True)
     (agent / "logs" / "agent.log").write_text("ok\n")
-    (agent / "logs" / "agent-crash.log").write_text("")  # opened at every start, written only by a crash
+    (agent / "logs" / "agent-crash.log").write_text("2026-11-10T19:00:00Z agent started, pid 7\n")  # a line per start
     first = _bundle(tmp_path, "--agent-home", str(agent))
     assert "agent-crash.log" not in first and "agent-crash.log" not in first["CONTENTS.txt"]
     (agent / "logs" / "agent-crash.log").write_text('Fatal Python error: Segmentation fault\n  File "x.py", line 1 in run\n')

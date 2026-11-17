@@ -25,8 +25,8 @@ def opened():
 
 
 @pytest.mark.parametrize("engine, code", [("local-duckdb", "SELECT * FROM range(100) t(i)"),
-                                          ("local-sqlite", "WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL "
-                                                           "SELECT i + 1 FROM r WHERE i < 100) SELECT i FROM r")])
+                                          ("local-sqlite", ("WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL "
+                                                           "SELECT i + 1 FROM r WHERE i < 100) SELECT i FROM r"))])
 def test_a_whole_result_with_more_rows_than_asked_is_an_error_never_a_cut_table(opened, engine, code):
     r = opened(engine).execute(CellRequest(code, "sql", result_rows=10))
     assert r.status == "error" and r.table is None

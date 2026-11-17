@@ -3,6 +3,6 @@
   "identifier": "default",
   "description": "Permissions for the main window and the app's own page in each pop-out window (not the Fabric views docked in them). Only what the pages use: listening for the shell's events. Everything else goes through the app's own commands.",
   "windows": ["main"],
-  "webviews": ["pop-out-runs", "pop-out-fabric"],
+  "webviews": ["pop-out-runs", "pop-out-fabric", "pop-out-report"],
   "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
 }

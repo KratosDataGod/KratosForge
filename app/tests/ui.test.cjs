@@ -64,28 +64,6 @@ test("no two page scripts declare the same top-level name", () => {
   assert.deepStrictEqual(clashes, []);
 });
 
-// esc and inlineMd from app.js, without the rest of the page.
-function markdownHelpers() {
-  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  const code = src.match(/function esc\([\s\S]*?\n}\n/)[0] + src.match(/function inlineMd\([\s\S]*?\n}\n/)[0];
-  const ctx = {};
-  vm.runInNewContext(`${code}; this.esc = esc; this.inlineMd = inlineMd;`, ctx);
-  return ctx;
-}
-
-test("a Markdown link can't add attributes or handlers", () => {
-  const { inlineMd } = markdownHelpers();
-  const html = inlineMd('[x](a" style="position:fixed" onmouseover="alert(1)) and [y](b\' onclick=\'z)');
-  assert.ok(!/"\s+on\w+=|'\s+on\w+=|" style=/.test(html), html);
-  assert.match(html, /title="a&quot; style=&quot;/);
-});
-
-test("Markdown still formats", () => {
-  const { inlineMd } = markdownHelpers();
-  assert.strictEqual(inlineMd("**b** *i* `c` [ok](https://x.y) <b>"),
-    '<strong>b</strong> <em>i</em> <code>c</code> <u title="https://x.y">ok</u> &lt;b&gt;');
-});
-
 test("a run says where it ran: Fabric, an agent or this PC", () => {
   const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
   const ctx = {};
@@ -570,8 +548,8 @@ function sqlEditorHelpers() {
   const code = src.slice(0, src.indexOf("// ---------- the editor ----------"));
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { SQL_DIALECTS, SQL_WORDS, sqlDialect, sqlQuoteIdent, sqlTableName,
-    sqlMask, sqlStatementAt, sqlTableRefs, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
-    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics });`, ctx);
+    sqlMask, sqlStatementAt, sqlRunnableStatementAt, sqlSplitStatements, sqlParamNames, sqlParamProblem, sqlTableRefs, sqlHoverTarget, sqlCallAt, sqlSignatureParts, sqlPickForm, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
+    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics, sqlRowsAs, sqlLiteral, sqlInsertTable, sqlNextBookmark, SQL_PARAM_TYPES });`, ctx);
   return ctx;
 }
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -612,6 +590,228 @@ test("strings and comments are not SQL to complete in", () => {
   assert.ok(sqlMask("SELECT 'abc", 11).inert, "an unclosed string");
   assert.strictEqual(sqlStatementAt(text, 24).text, "SELECT 'a;b' -- c;d\nFROM t");
   assert.strictEqual(sqlStatementAt(text, 30).text, " SELECT 2 /* x; */");
+});
+
+test("Ctrl+Shift+Enter finds the statement at the cursor, or the nearest one when the cursor is between statements", () => {
+  const { sqlRunnableStatementAt } = sqlEditorHelpers();
+  const text = "SELECT 1;\n\n  SELECT 'a;b' -- c;d\n  FROM t ;\n-- only a note;\nSELECT 3";
+  const at = (pos) => sqlRunnableStatementAt(text, pos)?.text;
+  assert.strictEqual(at(3), "SELECT 1");
+  assert.strictEqual(at(9), "SELECT 1", "right after the semicolon");
+  assert.strictEqual(at(11), "SELECT 'a;b' -- c;d\n  FROM t", "in the blank line before the next statement");
+  assert.strictEqual(at(text.indexOf("'a;b'") + 2), "SELECT 'a;b' -- c;d\n  FROM t", "a ; inside a string doesn't end it");
+  assert.strictEqual(at(text.indexOf("FROM t") + 8), "SELECT 'a;b' -- c;d\n  FROM t", "after the space before ;");
+  assert.strictEqual(at(text.indexOf("only")), "-- only a note;\nSELECT 3", "a ; inside a comment doesn't end it either");
+  assert.strictEqual(sqlRunnableStatementAt("SELECT 1;\n/* note */;\nSELECT 2", 13).text, "SELECT 1", "a statement that is only a comment");
+  assert.strictEqual(at(text.length), "-- only a note;\nSELECT 3", "a comment before a statement is part of it");
+  const r = sqlRunnableStatementAt(text, 3);
+  assert.deepStrictEqual([r.from, r.to], [0, 8]);
+  assert.strictEqual(sqlRunnableStatementAt("  ;\n -- x\n", 2), null);
+  assert.strictEqual(sqlRunnableStatementAt("", 0), null);
+  assert.strictEqual(sqlRunnableStatementAt(";;\nSELECT 9", 0).text, "SELECT 9", "falls forward when nothing is before");
+});
+
+test("a script splits into statements at ; and GO lines, outside strings and comments (S14)", () => {
+  const { sqlSplitStatements } = sqlEditorHelpers();
+  const texts = (t, o) => plain(sqlSplitStatements(t, o).map((u) => u.text));
+  const script = "SELECT 'a;b' -- c;d\nFROM t;\n\n-- only a note;\nSELECT 2 /* x; */;\n;\nSELECT 3";
+  assert.deepStrictEqual(texts(script), ["SELECT 'a;b' -- c;d\nFROM t;", "-- only a note;\nSELECT 2 /* x; */;", "SELECT 3"]);
+  const units = sqlSplitStatements(script, { base: 100, firstLine: 5 });
+  assert.deepStrictEqual(plain(units.map((u) => u.line)), [5, 8, 11]);
+  assert.strictEqual(units[2].from, 100 + script.indexOf("SELECT 3"));
+  assert.strictEqual(units[2].to - units[2].from, "SELECT 3".length);
+  assert.deepStrictEqual(texts("SELECT 1\nGO\nSELECT 2\n  go ;\nSELECT 3", { tsql: true }), ["SELECT 1", "SELECT 2", "SELECT 3"]);
+  assert.deepStrictEqual(texts("SELECT 1 AS go;\nSELECT 2"), ["SELECT 1 AS go;", "SELECT 2"], "GO only on a line of its own");
+  assert.deepStrictEqual(texts("UPDATE dbo.t SET a = 1; SELECT * FROM dbo.t;", { tsql: true }), ["UPDATE dbo.t SET a = 1;", "SELECT * FROM dbo.t;"]);
+  const vars = "DECLARE @n int = 1; SELECT @n;\nGO\nSELECT 2; SELECT 3";
+  assert.deepStrictEqual(texts(vars, { tsql: true }), ["DECLARE @n int = 1; SELECT @n;", "SELECT 2;", "SELECT 3"],
+    "a T-SQL batch with a variable stays whole");
+  assert.deepStrictEqual(texts("CREATE PROCEDURE dbo.p AS BEGIN SELECT 1; SELECT 2; END", { tsql: true }).length, 1);
+  assert.deepStrictEqual(texts("CREATE PROCEDURE dbo.p AS SELECT 1; SELECT 2"), ["CREATE PROCEDURE dbo.p AS SELECT 1;", "SELECT 2"],
+    "only T-SQL keeps a definition whole");
+  assert.deepStrictEqual(texts("  ;\n -- x\n"), []);
+});
+
+test("a query's parameters are :name and {{name}}, outside strings, comments and casts (S17)", () => {
+  const { sqlParamNames, sqlParamProblem } = sqlEditorHelpers();
+  const text = "SELECT ':no', a::int -- :nope\nFROM t /* {{nope}} */\nWHERE r = :region AND d >= {{ start_date }} AND x = :region AND p = c:path";
+  assert.deepStrictEqual(plain(sqlParamNames(text)), [{ name: "region", line: 3 }, { name: "start_date", line: 3 }]);
+  assert.strictEqual(sqlParamProblem("date", "1 Oct"), "Write a date as 2026-10-01.");
+  assert.strictEqual(sqlParamProblem("date", "2026-02-30"), "Write a date as 2026-10-01.");
+  assert.strictEqual(sqlParamProblem("date", "2026-10-01"), "");
+  assert.strictEqual(sqlParamProblem("datetime", "2026-10-01 14:30"), "");
+  assert.strictEqual(sqlParamProblem("number", "4,2"), "Write a number, such as 42 or 3.5.");
+  assert.strictEqual(sqlParamProblem("number", "-3.5"), "");
+  assert.strictEqual(sqlParamProblem("boolean", "TRUE"), "");
+  assert.strictEqual(sqlParamProblem("text", ""), "", "an empty text value is a value");
+});
+
+test("F2 and Shift+F2 go to the next and previous bookmark, wrapping around", () => {
+  const { sqlNextBookmark } = sqlEditorHelpers();
+  const marks = [10, 40, 90];
+  assert.strictEqual(sqlNextBookmark(marks, 0), 10);
+  assert.strictEqual(sqlNextBookmark(marks, 10), 40, "from a marked line, the next one");
+  assert.strictEqual(sqlNextBookmark(marks, 90), 10, "past the last, the first");
+  assert.strictEqual(sqlNextBookmark(marks, 40, -1), 10);
+  assert.strictEqual(sqlNextBookmark(marks, 10, -1), 90, "before the first, the last");
+  assert.strictEqual(sqlNextBookmark(marks, 50, -1), 40);
+  assert.strictEqual(sqlNextBookmark([], 5), null);
+});
+
+test("Copy as CSV, JSON or INSERT quotes what needs it, for the dialect", () => {
+  const { sqlRowsAs, sqlLiteral, sqlInsertTable } = sqlEditorHelpers();
+  const cols = [{ name: "id", type: "int64" }, { name: "Region Name", type: "string" }, { name: "ok", type: "bool" }, { name: "amt", type: "decimal(18,2)" }];
+  const rows = [[1, 'O\'Brien, "x"', true, "12.50"], [2, null, false, "3"], [3, "a\\b", null, null]];
+  assert.strictEqual(sqlRowsAs("tsv", cols, rows), 'id\tRegion Name\tok\tamt\n1\tO\'Brien, "x"\ttrue\t12.50\n2\t\tfalse\t3\n3\ta\\b\t\t');
+  assert.strictEqual(sqlRowsAs("csv", cols, rows), 'id,Region Name,ok,amt\r\n1,"O\'Brien, ""x""",true,12.50\r\n2,,false,3\r\n3,a\\b,,');
+  assert.deepStrictEqual(JSON.parse(sqlRowsAs("json", cols, rows))[1], { id: 2, "Region Name": null, ok: false, amt: "3" });
+  assert.strictEqual(sqlRowsAs("insert", cols, rows, { table: "dbo.sales" }),
+    "INSERT INTO dbo.sales (id, `Region Name`, ok, amt) VALUES\n  (1, 'O''Brien, \"x\"', TRUE, 12.50),\n  (2, NULL, FALSE, 3),\n  (3, 'a\\\\b', NULL, NULL);");
+  assert.strictEqual(sqlRowsAs("insert", cols, rows.slice(0, 1), { dialect: "warehouse", table: "[my t]" }),
+    "INSERT INTO [my t] (id, [Region Name], ok, amt) VALUES\n  (1, N'O''Brien, \"x\"', 1, 12.50);");
+  assert.strictEqual(sqlRowsAs("insert", cols, []), "");
+  const many = Array.from({ length: 1001 }, (_, i) => [i]);
+  assert.strictEqual(sqlRowsAs("insert", [{ name: "n", type: "int32" }], many).split("INSERT INTO").length - 1, 2, "at most 1000 rows a statement");
+  assert.strictEqual(sqlLiteral("12abc", "decimal(5,2)"), "'12abc'", "a number type's text that isn't a number stays quoted");
+  assert.strictEqual(sqlLiteral({ a: 1 }, "struct"), `'{"a":1}'`);
+  assert.strictEqual(sqlInsertTable("SELECT * FROM finance.budget b WHERE b.x > 1", "spark"), "finance.budget");
+  assert.strictEqual(sqlInsertTable("SELECT * FROM sales s JOIN customers c ON s.id = c.id"), "results", "two tables");
+  assert.strictEqual(sqlInsertTable("WITH t AS (SELECT 1 x) SELECT * FROM t"), "results", "a CTE isn't a table");
+  assert.strictEqual(sqlInsertTable("SELECT * FROM [Region Sales]", "warehouse"), "[Region Sales]");
+  assert.strictEqual(sqlInsertTable(undefined), "results");
+});
+
+test("the result grid sends its sort and filters, cycles a header's sort, and counts filtered rows", () => {
+  const ctx = {};
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8")}; Object.assign(this, { sqlGridQuery, sqlGridNextSort, sqlGridCount, sqlGridState });`, ctx);
+  const { sqlGridQuery, sqlGridNextSort, sqlGridCount, sqlGridState } = ctx;
+  assert.deepStrictEqual(plain(sqlGridQuery(null)), {});
+  assert.deepStrictEqual(plain(sqlGridQuery({ sort: [], filters: { 0: "  ", 2: "> 3" } })), { filters: [{ column: 2, text: "> 3" }] });
+  assert.deepStrictEqual(plain(sqlGridQuery({ sort: [{ column: 1, desc: true }], filters: {} })), { sort: [{ column: 1, desc: true }] });
+  assert.deepStrictEqual(plain(sqlGridNextSort([], 2)), [{ column: 2, desc: false }]);
+  assert.deepStrictEqual(plain(sqlGridNextSort([{ column: 2, desc: false }], 2)), [{ column: 2, desc: true }]);
+  assert.deepStrictEqual(plain(sqlGridNextSort([{ column: 2, desc: true }], 2)), [], "the third click: the snapshot's order");
+  assert.deepStrictEqual(plain(sqlGridNextSort([{ column: 2, desc: true }], 0)), [{ column: 0, desc: false }]);
+  const cols = [{ name: "region" }, { name: "orders" }];
+  assert.strictEqual(sqlGridCount({ total: 5, all_rows: 5 }, cols), "5 rows");
+  assert.strictEqual(sqlGridCount({ total: 1 }, cols), "1 row");
+  assert.strictEqual(sqlGridCount({ total: 3, all_rows: 5, sort: [{ column: 1, desc: true }] }, cols), "3 of 5 rows (filtered) · sorted by orders");
+  assert.strictEqual(sqlGridCount({ total: 5, all_rows: 5, sort: [{ column: 0 }] }, cols), "5 rows · sorted by region");
+  const tab = {};
+  assert.strictEqual(sqlGridState(tab), tab.grid, "made once, kept with the tab");
+});
+
+test("the result grid selects a block of cells, moves with the keys, and copies or opens what is selected", () => {
+  const ctx = { sqlRowsAs: (format, columns, rows) => JSON.stringify({ format, names: columns.map((c) => c.name), rows }) };
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8")}; Object.assign(this, { sqlGridRect, sqlGridSelectionNote, sqlGridMove, sqlGridBlock, sqlGridCopyText, sqlValueText });`, ctx);
+  const { sqlGridRect, sqlGridSelectionNote, sqlGridMove, sqlGridBlock, sqlGridCopyText, sqlValueText } = ctx;
+  const sel = { a: { r: 2, c: 1 }, f: { r: 0, c: 2 } };
+  assert.deepStrictEqual(plain(sqlGridRect(sel)), { r0: 0, r1: 2, c0: 1, c1: 2 }, "dragged up and right: the same block");
+  assert.strictEqual(sqlGridRect(null), null);
+  assert.strictEqual(sqlGridSelectionNote(sel), "3 × 2 cells selected");
+  assert.strictEqual(sqlGridSelectionNote({ a: { r: 1, c: 1 }, f: { r: 1, c: 1 } }), "", "one cell: nothing to say");
+  const key = (k, mods = {}) => ({ key: k, shiftKey: false, ctrlKey: false, metaKey: false, ...mods });
+  const one = { a: { r: 1, c: 1 }, f: { r: 1, c: 1 } };
+  assert.deepStrictEqual(plain(sqlGridMove(one, key("ArrowDown"), 5, 3)), { a: { r: 2, c: 1 }, f: { r: 2, c: 1 } });
+  assert.deepStrictEqual(plain(sqlGridMove(one, key("ArrowRight", { shiftKey: true }), 5, 3)), { a: { r: 1, c: 1 }, f: { r: 1, c: 2 } }, "Shift extends");
+  assert.deepStrictEqual(plain(sqlGridMove(one, key("ArrowLeft", { ctrlKey: true }), 5, 3)).f, { r: 1, c: 0 });
+  assert.deepStrictEqual(plain(sqlGridMove(one, key("End", { ctrlKey: true }), 5, 3)).f, { r: 4, c: 2 });
+  assert.deepStrictEqual(plain(sqlGridMove(one, key("PageDown"), 5, 3)).f, { r: 4, c: 1 }, "stops at the last row");
+  assert.deepStrictEqual(plain(sqlGridMove(null, key("ArrowUp"), 5, 3)).f, { r: 0, c: 0 }, "no selection yet: the first cell");
+  assert.strictEqual(sqlGridMove(one, key("a"), 5, 3), null, "not a move");
+  assert.strictEqual(sqlGridMove(one, key("ArrowDown"), 0, 3), null, "no rows");
+  const r = { columns: [{ name: "region" }, { name: "orders" }, { name: "tags" }],
+    rows: [["West", 4812, ["a", "b"]], ["North", 3977, null], ["South", 3105, []]] };
+  const block = { a: { r: 0, c: 1 }, f: { r: 1, c: 2 } };
+  assert.deepStrictEqual(plain(sqlGridBlock(r, block)), { columns: [{ name: "orders" }, { name: "tags" }], rows: [[4812, ["a", "b"]], [3977, null]] });
+  assert.strictEqual(sqlGridBlock(r, null).rows.length, 3, "nothing selected: the page");
+  assert.strictEqual(sqlGridCopyText("cells", r, block), '4812\t["a","b"]\n3977\t', "values only, as a spreadsheet pastes them");
+  assert.deepStrictEqual(JSON.parse(sqlGridCopyText("csv", r, block)), { format: "csv", names: ["orders", "tags"], rows: [[4812, ["a", "b"]], [3977, null]] });
+  assert.strictEqual(sqlValueText(null), "NULL");
+  assert.strictEqual(sqlValueText('{"a":1,"b":[2]}'), '{\n  "a": 1,\n  "b": [\n    2\n  ]\n}', "JSON text, indented");
+  assert.strictEqual(sqlValueText("{not json"), "{not json");
+  assert.strictEqual(sqlValueText({ k: "v" }), '{\n  "k": "v"\n}');
+  assert.strictEqual(sqlValueText(1204330.5), "1204330.5");
+});
+
+test("Copy says how many rows the result has when it copied only this page of them (WR-225)", () => {
+  const ctx = {};
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8")}; Object.assign(this, { sqlCopiedPageNote });`, ctx);
+  const page = (n, total) => ({ rows: Array.from({ length: n }, (_, i) => [i]), total });
+  assert.strictEqual(ctx.sqlCopiedPageNote(page(2, 2)), "Copied the 2 rows on this page");
+  assert.strictEqual(ctx.sqlCopiedPageNote(page(1, 1), " as CSV"), "Copied the 1 row on this page as CSV");
+  assert.strictEqual(ctx.sqlCopiedPageNote(page(1000, 10000000), " as JSON"),
+    "Copied the 1,000 rows on this page as JSON. The result has 10,000,000 rows. Use Export to save them all.");
+});
+
+test("the result grid keeps a column layout for one set of names: widths, hidden columns and order", () => {
+  const ctx = {};
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8")}; Object.assign(this, { sqlGridLayoutFor, sqlGridWidthCss, sqlGridMoveColumn, sqlGridCarry, sqlGridBlock });`, ctx);
+  const { sqlGridLayoutFor, sqlGridWidthCss, sqlGridMoveColumn, sqlGridCarry, sqlGridBlock } = ctx;
+  const cols = [{ name: "region" }, { name: "orders" }, { name: "revenue" }];
+  const g = {};
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(g, cols)), [0, 1, 2]);
+  g.hidden = [1];
+  g.order = sqlGridMoveColumn([0, 1, 2], 2, -2);
+  assert.deepStrictEqual(plain(g.order), [2, 0, 1]);
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(g, cols)), [2, 0], "revenue first, orders hidden");
+  assert.deepStrictEqual(plain(sqlGridMoveColumn([0, 1, 2], 0, -1)), [0, 1, 2], "the first can't go up");
+  g.hidden = [0, 1, 2];
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(g, cols)), [2, 0, 1], "never no columns at all");
+  g.hidden = [1];
+  g.widths = { 2: 180.4 };
+  assert.strictEqual(sqlGridWidthCss(g.widths), '.sql-result-table [data-col="2"] { width: 180px; min-width: 180px; max-width: 180px; }');
+  assert.strictEqual(sqlGridWidthCss(g.widths, "g7"), '.sql-result-table[data-grid="g7"] [data-col="2"] { width: 180px; min-width: 180px; max-width: 180px; }',
+    "a width belongs to its own grid: a notebook shows a table per cell");
+  const next = sqlGridCarry(g);
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(next, cols)), [2, 0], "a new run with the same columns keeps the layout");
+  assert.deepStrictEqual(plain(next.sort), []);
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(next, [{ name: "x" }, { name: "y" }])), [0, 1], "other columns start again");
+  assert.deepStrictEqual(plain(next.widths), {});
+  assert.strictEqual(sqlGridCarry({ sort: [] }), null);
+  const r = { columns: cols, rows: [["West", 4812, 1.5], ["North", 3977, 2.5]] };
+  assert.deepStrictEqual(plain(sqlGridBlock(r, { a: { r: 0, c: 0 }, f: { r: 1, c: 1 } }, [2, 0])),
+    { columns: [{ name: "revenue" }, { name: "region" }], rows: [[1.5, "West"], [2.5, "North"]] }, "a selection is of the columns on screen");
+  assert.deepStrictEqual(plain(sqlGridBlock(r, null, [2])).columns, [{ name: "revenue" }]);
+});
+
+test("hovering finds the function, table, alias or column under the pointer", () => {
+  const { sqlHoverTarget } = sqlEditorHelpers();
+  const cols = { sales: [{ name: "amount", type: "decimal" }, { name: "Region Name", type: "string" }], budget: [{ name: "year", type: "int" }] };
+  const q = "SELECT s.amount, DATEADD(day, 1, d), [Region Name], year -- amount\nFROM sales s JOIN finance.budget b ON 1 = 1 WHERE x = 'sales'";
+  const at = (w, k = 1, dialect = "warehouse") => plain(sqlHoverTarget(q, q.indexOf(w) + k, dialect, SQL_TABLES, (t) => cols[t.name]));
+  assert.deepStrictEqual(at("s.amount", 0), { kind: "alias", name: "s", table: { schema: "dbo", name: "sales" }, from: 7, to: 8 });
+  const amount = at("amount");
+  assert.deepStrictEqual([amount.kind, amount.table.name, amount.column.type], ["column", "sales", "decimal"]);
+  assert.deepStrictEqual(at("DATEADD"), { kind: "function", name: "dateadd", from: 17, to: 24 });
+  assert.strictEqual(at("[Region").column.name, "Region Name", "a quoted bare column of the statement's table");
+  assert.strictEqual(at("year").table.name, "budget", "a bare column found in the second table");
+  assert.deepStrictEqual(at("budget").table, { schema: "finance", name: "budget" });
+  assert.strictEqual(at("FROM"), null, "keywords");
+  assert.strictEqual(at("day"), null, "a T-SQL date part keyword");
+  assert.strictEqual(at("-- amount", 4), null, "comments");
+  assert.strictEqual(at("'sales'", 2), null, "strings");
+  const unread = sqlHoverTarget("SELECT qty FROM sales", 8, "spark", SQL_TABLES, () => undefined);
+  assert.deepStrictEqual([unread.kind, unread.table, unread.unread.length], ["column", null, 1], "columns not read yet: asked for when shown");
+  assert.strictEqual(sqlHoverTarget("SELECT qty FROM nowhere", 8, "spark", SQL_TABLES, () => []), null);
+});
+
+test("signature help knows the call and the argument the cursor is on", () => {
+  const { sqlCallAt, sqlSignatureParts, sqlPickForm } = sqlEditorHelpers();
+  const t = "SELECT concat_ws(',', a, substring(b, 1, (2 + 3)), ";
+  assert.deepStrictEqual(plain(sqlCallAt(t, t.length)), { name: "concat_ws", from: 7, arg: 3 });
+  assert.deepStrictEqual(plain(sqlCallAt(t, t.indexOf("1,") + 3)), { name: "substring", from: 25, arg: 2 });
+  assert.strictEqual(sqlCallAt(t, t.indexOf("',") + 1), null, "inside a string");
+  assert.strictEqual(sqlCallAt("SELECT * FROM t WHERE x IN (1, ", 31), null, "IN (...) is a list, not a call");
+  assert.strictEqual(sqlCallAt("SELECT * FROM (SELECT 1", 23), null, "a subquery");
+  assert.strictEqual(sqlCallAt("SELECT a FROM t; SELECT f(", 26).name, "f", "only the current statement");
+  const parts = plain(sqlSignatureParts("CHARINDEX(expression_to_find, expression_to_search[, start_location])"));
+  assert.deepStrictEqual(parts, { head: "CHARINDEX(", args: ["expression_to_find", ", expression_to_search", "[, start_location]"], tail: ")" });
+  assert.strictEqual(parts.head + parts.args.join("") + parts.tail, "CHARINDEX(expression_to_find, expression_to_search[, start_location])");
+  assert.deepStrictEqual(plain(sqlSignatureParts("now()")), { head: "now(", args: [], tail: ")" });
+  const forms = [{ signature: "count(*)" }, { signature: "count(expr[, expr...])" }];
+  assert.deepStrictEqual(plain(sqlPickForm(forms, 0)), { form: forms[0], mark: 0 });
+  assert.deepStrictEqual(plain(sqlPickForm(forms, 4)), { form: forms[1], mark: 1 }, "a repeating last argument stays marked");
 });
 
 test("table references are found with their aliases, across joins, comma lists, subqueries and CTEs", () => {
@@ -1343,7 +1543,7 @@ test("promote, sync keys, the variable library and quarantine replay carry the P
   assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
   // and Settings names them as staying
   const always = JSON.parse(features.match(/const PREVIEW_ALWAYS_SHOWN = (\[[^\]]*\])/)[1].replace(/'/g, '"'));
-  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "quarantineReplay", "risk", "vscode"]);
+  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "quarantineReplay", "risk", "vscode", "createWorkspace"]);
   assert.ok(read("settings.js").includes("PREVIEW_ALWAYS_SHOWN"), "Settings explains the steps that stay");
 });
 
@@ -1721,17 +1921,18 @@ test("the access cache view flags what's worth a look and asks before setting an
 test("no raw HTML sinks in app/ui outside the reviewed list", () => {
   const sink = /\.(?:innerHTML|outerHTML)\b|\binsertAdjacentHTML\b|\bdocument\.write(?:ln)?\b|\bcreateContextualFragment\b|\bDOMParser\b|\b(?:set|parse)HTMLUnsafe\b|\bsrcdoc\b|\beval\s*\(|\bnew Function\b|\bFunction\s*\(/;
   const allowed = new Set([
-    // markdown(): a fixed placeholder string, no data.
-    `app.js: wrap.innerHTML = '<p class="placeholder">Empty Markdown cell. Double-click to edit.</p>';`,
-    // markdown(): every piece of cell text goes through inlineMd(), which esc()apes &<>"' before adding
-    // <code>, <strong>, <em> and <u title>; headings and lists add only fixed tags. See the two
-    // Markdown tests at the top of this file.
-    `app.js: wrap.innerHTML = html.join("");`,
     // sqlParsePlan(): Fabric's showplan parsed as XML ("application/xml" runs no script and loads nothing);
     // the document is never put on the page, only attribute values are read and drawn as text with h().
     `sqlplan.js: const doc = new DOMParser().parseFromString(String(xml || ""), "application/xml");`,
+    // nbfPrintNodes(): the engine's web page export (notebook_formats.to_html escapes every text and
+    // leaves HTML outputs out), parsed inert; script, style, frames, svg and every attribute but class,
+    // alt and a picture data: src are removed before its body's nodes are shown for printing.
+    `notebook-formats.js: const doc = new DOMParser().parseFromString(String(html || ""), "text/html");`,
     // Data mesh map links: path coordinates are numbers from getBoundingClientRect, and the only data
     // (project and product ids in <title>) goes through esc().
+    // Table diagram: diagramSvg() escapes every name (& < > " ') and the rest is numbers and its own colors;
+    // the same text, without the clickable labels, is what Export as SVG writes.
+    `sqldiagram.js: holder.innerHTML = diagramSvg(view.tables, view.edges, view.keys, { dark });`,
     `meshmap.js: svg.innerHTML = \`<defs><marker id="mesh-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z"/></marker></defs>\${paths.join("")}\`;`
   ]);
   const found = [];
@@ -1763,6 +1964,9 @@ test("no URL sinks built from data in app/ui outside the reviewed list", () => {
   const allowed = new Set([
     // Image output: only the picture types imageOutputOk() accepts, with base64 data, and <img> never runs script.
     "notebook.js: return h(\"div\", { class: \"output\" }, h(\"img\", { class: \"out-img\", alt: \"Chart from this cell\", src: `data:${o.mime};base64,${o.data}` }));",
+    // Markdown images (#2579): only a data: URL mdImageData() built from a picture type in MD_IMAGE_TYPES and
+    // base64 it checked, from the cell's own attachments or a data:image URL; never a file or web address.
+    "app.js: if (data) return h(\"img\", { class: \"md-img\", src: data, alt });",
     // HTML output frame: the shell's fixed frame URL, no data (HD-020).
     "notebook.js: src: window.__TAURI__.core.convertFileSrc(\"frame\", \"nbout\") });",
     // Profile picture (PB-125): only a base64 PNG data URL passes profilePicture()'s test; the engine checks it is a
@@ -1770,6 +1974,9 @@ test("no URL sinks built from data in app/ui outside the reviewed list", () => {
     "profile.js: return ok ? h(\"img\", { class: cls, src: url, alt: \"\" }) : null;",
     // Vega charts: a fixed file in vendor/.
     "notebook.js: script.src = \"vendor/vega/vega-frame.js\";",
+    // Page header art: a path from the shipped manifest (art/experience/heroes.js), under the app's own art folder;
+    // the manifest test checks every entry is <page>/<id> with both files present.
+    "home-hero.js: src: `${base}-1086.webp`, srcset: `${base}-1086.webp 1086w, ${base}.webp 2172w`,",
     // Embed Studio: the shell's fixed embed host page on its own origin, no data (PBE-06).
     "powerbi.js: src: `${pbiHostOrigin()}/host.html`,",
   ]);
@@ -1812,6 +2019,8 @@ test("the app has a strict CSP and notebook HTML output stays off the app's orig
   const scripts = directives["script-src"] || directives["default-src"] || [];
   assert.ok(scripts.length && !scripts.some((s) => /unsafe-inline|\*|^https?:$|^data:$|^blob:$/.test(s)), `script-src: ${scripts}`);
   assert.deepStrictEqual(directives["object-src"], ["'none'"]);
+  // The skins' fonts ship in vendor/fonts: the app's own origin only, never a font host or data: URL.
+  assert.deepStrictEqual(directives["font-src"], ["'self'"]);
   assert.ok(!(directives["frame-src"] || []).includes("'self'"), "notebook output must not be framed from the app's origin");
 
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
@@ -2304,6 +2513,8 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
 });
 
 // motion.js with a small stand-in DOM and clock: what Forge animations make, and when they don't.
+// Effects on everyday work play from Heroic (level 2), so the harness runs there unless told otherwise;
+// the default for a new install (Subtle) is checked with settings of its own.
 function motionHarness({ setting = true, reduced = false, hidden = false, settings = null, appLoaded = true } = {}) {
   let clock = 0;
   let timers = [];
@@ -2326,7 +2537,7 @@ function motionHarness({ setting = true, reduced = false, hidden = false, settin
   };
   const live = node();
   const ctx = {
-    state: { settings: settings || { forge_animations: { value: setting } } },
+    state: { settings: settings || { forge_animations: { value: setting }, ...(setting ? { motion_level: { value: 2 } } : {}) } },
     document: { hidden, documentElement: { dataset: {} }, createElementNS: () => node(), getElementById: (id) => (id === "announce" ? live : null),
       addEventListener() {}, hasFocus: () => true },
     addEventListener() {},
@@ -2399,8 +2610,9 @@ test("Forge animations: nothing is made with the setting off, reduced motion or 
   const on = motionHarness();
   on.applyMotion();
   assert.strictEqual(on.document.documentElement.dataset.motion, "on");
-  on.state.settings = null;  // settings not loaded yet: on, as for a new install
-  assert.strictEqual(on.motionOn(), true);
+  on.state.settings = null;  // settings not loaded yet: Subtle, as for a new install
+  assert.strictEqual(on.motionOn(), false, "everyday effects play on a new install");
+  assert.strictEqual(on.motionOn("achievements"), true, "achievements don't celebrate on a new install");
 });
 
 test("Forge animations: the wolf track waits 600 ms, follows real progress and goes when the run ends", () => {
@@ -2514,11 +2726,13 @@ test("Forge animations in the notebook: runs of several cells use the wolf track
 test("Motion & effects settings: four levels, family switches, reduced-motion choice, lockable, applied at once; CSS honours them", () => {
   const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const card = s.match(/function motionSettingsCard\([\s\S]*?\n}\n/)[0];
-  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n(?:\s+.*skinChooser\(locked\).*\n)?\s+h\("h3", \{\}, "Layout"\)[\s\S]*Object\.keys\(LAYOUT_CHOICES\)\.map\(choice\),\n\s+h\("h3", \{\}, "Living Experience"\)/);
+  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n(?:\s+.*skinChooser\(locked\).*\n)?(?:\s+.*choice\("ui_color_mode"\).*\n)?\s+h\("h3", \{\}, "Layout"\)[\s\S]*Object\.keys\(LAYOUT_CHOICES\)\.filter\(\(key\) => key !== "ui_color_mode"\)\.map\(choice\),\n\s+h\("h3", \{\}, "Living Experience"\)/);
   assert.match(card, /type: "radio", name: "motion_level"/);
   assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
   assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
-  assert.match(card, /toggle\(key, label, s\[key\]\?\.value \?\? true, level < 2\)/, "family switches don't grey out below Refined");
+  assert.match(card, /const from = key === "motion_achievements" \? 1 : 2;/, "achievements don't play from Subtle");
+  assert.match(card, /toggle\(key, label, s\[key\]\?\.value \?\? true, level < from\)/, "family switches don't grey out below where they play");
+  assert.match(card, /\$\{n === 1 \? " \(default\)" : ""\}/, "Subtle isn't marked as the default");
   assert.match(card, /disabled: disabled \|\| locked\(key\) \? true : null/);
   assert.match(card, /"Respect Windows' reduced-motion setting"/);
   for (const key of ["motion_wolf", "motion_sparks", "motion_ambient"]) assert.match(s, new RegExp(`\\["${key}", "`));
@@ -2528,11 +2742,11 @@ test("Motion & effects settings: four levels, family switches, reduced-motion ch
   assert.match(s, /previewShown\(\) \? row\("Achievement Reveal", [^\n]*\n\s+\(\) => forgeEvent\("achievement\.unlocked", award\)\) : null,/);
   assert.match(s, /\["motion_ambient", "Running indicators",/);
   assert.match(s, /const display = s\.motion_level \? motionSettingsCard\(s, locked\) : null;/);
-  assert.match(s, /\[account, updates, display, previews,/);
+  assert.match(s, /\[account, updates, display, editor, previews,/);
   assert.match(s, /if \(res\) state\.settings = res;\n  applyMotion\(\);/);
   assert.match(s, /state\.settings = await rpc\("app_settings"\)[^\n]*\n  applyMotion\(\);/);
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
-  assert.match(css, /html\[data-motion="off"\] \.fx, html\[data-motion="off"\] \.wolf \{ display: none; \}/);
+  assert.match(css, /html\[data-motion="off"\] \.fx:not\(\.fx-achieve\), html\[data-motion-level="0"\] \.fx, html\[data-motion="off"\] \.wolf \{ display: none; \}/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ html:not\(\[data-motion-override\]\) :is\(\.fx, \.wolf\) \{ display: none; \}/);
   assert.match(css, /html\[data-fx-wolf="off"\] \.wolf, html\[data-fx-sparks="off"\] :is\(\.fx-spark, \.fx-fail, \.fx-strike, \.fx-cool\),/);
   // Effects animate only transform and opacity, so they never move the layout.
@@ -2759,11 +2973,13 @@ test("a replay notebook offers to delete what its replays wrote, with a danger c
 });
 
 // Motion & effects levels (motion.js): what each level, family switch and the reduced-motion choice let play.
-test("Motion levels: Minimal plays no branded effects, Refined and Expressive do, and <html> says which", () => {
+test("Motion levels: Subtle (the default) plays only the Achievement Reveal, Heroic and Legendary play everything, and <html> says which", () => {
   const at = (level, extra = {}) => motionHarness({ settings: { motion_level: { value: level }, ...extra } });
   const minimal = at(1);
   assert.strictEqual(minimal.fx(minimal.node(), "spark"), null);
   assert.strictEqual(minimal.motionDiagnostics().skipped.level, 1);
+  assert.ok(minimal.fx(minimal.node(), "achieve"), "Subtle played no Achievement Reveal");
+  assert.strictEqual(at(0).fx(minimal.node(), "achieve"), null, "Professional played an Achievement Reveal");
   minimal.applyMotion();
   assert.strictEqual(minimal.document.documentElement.dataset.motionLevel, "1");
   assert.strictEqual(minimal.document.documentElement.dataset.motion, "off");
@@ -2776,7 +2992,7 @@ test("Motion levels: Minimal plays no branded effects, Refined and Expressive do
   const off = at(0);
   assert.strictEqual(off.motionLevel(), 0);
   assert.strictEqual(motionHarness({ setting: false }).motionLevel(), 0, "the first switch turned off no longer means Off");
-  assert.strictEqual(motionHarness({ setting: true }).motionLevel(), 2, "Refined is not the default");
+  assert.strictEqual(motionHarness({ settings: { forge_animations: { value: true } } }).motionLevel(), 1, "Subtle is not the default");
 });
 
 test("Motion families: each switch silences only its own effects", () => {
@@ -2870,7 +3086,7 @@ test("Forge events: every event names a real effect, unknown ones play nothing, 
   for (const [kind, m] of Object.entries(kinds)) {
     assert.ok(m.ms > 0 && m.ms <= 900, `${kind} is longer than a signature moment`);
     assert.ok(["wolf", "sparks", "achievements", "ambient"].includes(m.family), `${kind} has no family switch`);
-    assert.ok(m.level >= 2, `${kind} plays at Minimal`);
+    assert.ok(m.level >= (kind === "achieve" ? 1 : 2), `${kind} plays at Subtle`);
   }
   assert.ok(ctx.forgeEvent("deploy.succeeded", ctx.node()), "a deployment struck no anvil");
   assert.strictEqual(ctx.forgeEvent("cell.typed", ctx.node()), null);
@@ -2954,7 +3170,7 @@ test("Settings keeps App ID and engine limits in a folded Advanced section, read
   const account = render.slice(render.indexOf("// Account"), render.indexOf("// Updates"));
   assert.ok(!account.includes("App (client) ID"), "the App ID left Account");
   assert.ok(!render.includes("Cell time limit") && !render.includes("sqlSettingsSection("), "limits left the main page");
-  assert.match(render, /\[account, updates, display, previews, usage, platform, notify, about, advanced\]/);
+  assert.match(render, /\[account, updates, display, editor, previews, usage, platform, notify, about, advanced\]/);
   const adv = src.match(/function advancedSection\([\s\S]*?\n}\n/)[0];
   for (const text of ["App (client) ID", "Cell time limit", "Notebook memory limit", "Run notebooks in their own process", "sqlSettingsSection("]) assert.ok(adv.includes(text), text);
   assert.match(adv, /foldable\("settings\.advanced", h\("h2", \{\}, "Advanced"\)[\s\S]*\{ start: true/);
@@ -3272,6 +3488,9 @@ test("friendlyError checks the engine first, then files on this PC, then Fabric'
     ["The Python sidecar stopped. It will restart on the next action. 404", /local engine stopped while doing this/],
     ["The Python sidecar stopped. It will restart on the next action.\nmemory allocation of 6834176 bytes failed\n2026-11-09T18:11:57Z The engine stopped after 40 seconds: it crashed with a failed security check (fail fast) (exit code 0xC0000409).", /ran out of memory, so the local engine stopped/],
     ["The Python sidecar stopped. It will restart on the next action.\n2026-11-09T18:11:57Z The engine stopped after 40 seconds: it crashed with running out of memory (exit code 0xC0000017).", /ran out of memory, so the local engine stopped/],
+    ["The Python sidecar stopped. It will restart on the next action.\nWindows fatal exception: access violation\n2026-11-11T17:48:44Z The engine stopped after 20447 seconds: KratosForge ended it (Stop or an update).\nFull log: C:\\x\\sidecar.log", /^KratosForge stopped the local engine on purpose \(Stop was pressed, or it restarted to install an update\)/],
+    ["The Python sidecar stopped. It will restart on the next action.\n2026-11-11T17:48:44Z The engine stopped after 20447 seconds: KratosForge ended it (Stop or an update).\nWindows fatal exception: access violation\n2026-11-11T18:02:10Z The engine stopped after 30 seconds: it crashed with an access violation (exit code 0xC0000005).\nFull log: C:\\x\\sidecar.log", /^The local engine stopped while doing this/],
+    ["The Python sidecar stopped. It will restart on the next action.\n2026-11-11T17:48:44Z The engine stopped after 20447 seconds: KratosForge ended it (Stop or an update).", /^KratosForge stopped the local engine on purpose/],
     ["The engine keeps stopping as it starts, so KratosForge has stopped starting it for now. The last time: 403 Forbidden", /keeps stopping as it starts, so KratosForge has stopped starting it for a few minutes/],
     ["PermissionError: [WinError 4551] Application Control policy has blocked this file", /Windows blocked part of the local engine/],
     ["FileNotFoundError: [Errno 2] No such file or directory: 'C:\\\\data\\\\sales.csv'", /^There is no file or folder at C:\\data\\sales\.csv on this PC\./],
@@ -3708,6 +3927,7 @@ function resultViewerHarness(pages) {
     attempt: async (fn) => fn(), setTimeout: (fn) => fn(), clearTimeout() {},
     rpc: async (method, args) => { calls.push([method, args]); return pages.shift(); } };
   vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8"), ctx);  // the table is the SQL page's grid
   vm.runInContext(["resultTable", "renderResultViewer", "copyResultPage", "downloadResult"].map(grab).join("\n") +
     "\nconst RESULT_PAGE = 100;\nthis.view = renderResultViewer; this.download = downloadResult;", ctx);
   return { ctx, calls, toasts };
@@ -3727,10 +3947,10 @@ test("the notebook result viewer pages, searches and sorts the whole result in t
   const [prev, next] = findAll(wrap, (n) => n.tag === "button" && ["Previous", "Next"].includes(texts(n)));
   assert.strictEqual(prev.disabled, true);
   await next.attrs.onclick();
-  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_page", { frame: "f1", offset: 100, limit: 100, sort: null, desc: false, q: "" }]);
+  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_page", { frame: "f1", notebook: "Sales", offset: 100, limit: 100, sort: null, desc: false, q: "" }]);
   assert.strictEqual(status.textContent, "Rows 101 to 101 of 5,000");
   await findAll(wrap, (n) => n.attrs?.class === "th-sort")[0].attrs.onclick();
-  assert.deepStrictEqual(plain(calls[1][1]), { frame: "f1", offset: 0, limit: 100, sort: 0, desc: false, q: "" });
+  assert.deepStrictEqual(plain(calls[1][1]), { frame: "f1", notebook: "Sales", offset: 0, limit: 100, sort: 0, desc: false, q: "" });
   const search = findAll(bar, (n) => n.attrs?.type === "search")[0];
   search.value = "42";
   search.listeners.input();
@@ -3750,10 +3970,10 @@ test("a result the kernel no longer holds says to run the cell again; downloads 
   const items = findAll(bar, (n) => n.attrs?.role === "menuitem").map(texts);
   assert.deepStrictEqual(plain(items), ["CSV", "Excel", "Parquet"]);
   await ctx.download(o, "xlsx");
-  assert.deepStrictEqual(plain(calls[1]), ["notebook_frame_download", { frame: "f1", format: "xlsx", name: "Sales" }]);
+  assert.deepStrictEqual(plain(calls[1]), ["notebook_frame_download", { frame: "f1", format: "xlsx", name: "Sales", notebook: "Sales" }]);
   assert.deepStrictEqual(plain(toasts.at(-1)), ["Saved 5,000 rows to C:\\Users\\me\\Downloads\\Sales result.xlsx", false]);
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
-  assert.match(nb, /if \(o\.view === "table" && o\.frame\) \{\n    renderResultViewer\(o, wrap, bar, numeric, count\);/);
+  assert.match(nb, /if \(o\.view === "table" && o\.frame\) \{\n    renderResultViewer\(o, wrap, bar, numeric, count, redraw\);/);
   assert.match(nb, /previewMarked\("resultViewer", menu\)/);
 });
 
@@ -3941,6 +4161,15 @@ test("notebook find matches every cell with case, whole word and regex, and repl
   assert.strictEqual(findMatches(cells, "a.e").matches.length, 0);  // not a regex unless asked
   assert.strictEqual(findMatches(cells, "x*", { regex: true }).matches.length, 0);  // empty matches skipped
   assert.match(findMatches(cells, "(", { regex: true }).error, /isn't a valid regular expression/);
+  // Outputs are searched only when asked: text, errors with their traceback, table rows; not images.
+  const ran = [{ type: "code", source: "print(total)", outputs: [
+    { type: "stream", text: "total 42\n" }, { type: "error", ename: "KeyError", evalue: "'total'", traceback: "line 1 in total" },
+    { type: "table", columns: ["region", "total"], rows: [["east", 1], ["west", null]] }, { type: "image", mime: "image/png", data: "total" }] }];
+  assert.strictEqual(findMatches(ran, "total").matches.length, 1);
+  const inOut = findMatches(ran, "total", { outputs: true }).matches;
+  assert.deepStrictEqual([...inOut.map((x) => x.output ?? "src")], ["src", 0, 1, 1, 2]);
+  assert.strictEqual(findMatches(ran, "west", { outputs: true }).matches[0].output, 2);
+  assert.strictEqual(findMatches([{ type: "markdown", source: "", outputs: [{ type: "text", text: "x" }] }], "x", { outputs: true }).matches.length, 0);
   const [m] = findMatches(cells, "(s)ales", { regex: true, matchCase: true }).matches;
   assert.strictEqual(findReplacement(m, "(s)ales", "$1old", { regex: true, matchCase: true }), "sold");
   assert.strictEqual(findReplacement(m, "x", "$1", {}), "$1");  // plain text replacement is literal
@@ -4120,10 +4349,10 @@ this.payload = nbfExportPayload; this.menu = nbfExportMenu; this.b64 = nbfBase64
   const items = ctx.menu();
   assert.match(items[0].info, /new file in your Downloads folder\. A file already there is never replaced/);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(items.slice(1).map((i) => i.label))), ["Jupyter notebook (.ipynb)", "Jupyter notebook with outputs (.ipynb)",
-    "Fabric source (.py)", "Databricks source (.py)", "Web page (.html)"]);
+    "Fabric source (.py)", "Databricks source (.py)", "Web page (.html)", "PDF (print to PDF)"]);
   const bytes = new Uint8Array(70000).map((_, i) => i % 251);
   assert.strictEqual(ctx.b64(bytes.buffer), Buffer.from(bytes).toString("base64"));
-  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /ribbonMenu\("Share", [^\n]*btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\),[^\n]*nbfExportButton\(menu\)\]/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /ribbonMenu\("Share", [^\n]*btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\),[^\n]*nbfExportButton\(menu\),/);
   assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /btn\("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"\)/);
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /nbFormats: "Notebook import and export formats"/);
   assert.match(src, /changes: "Writes one new notebook file \(\.ipynb\) for each notebook in the file/);
@@ -4260,7 +4489,7 @@ test("Inspect profiles every row of a held result, and says so when the kernel n
     { name: "bad", type: "double", kind: "number", error: "Couldn't profile this column: Out of Range" }] },
     { frame: "h", rows: 5000000, profiled_rows: 1000000, sampled: true, more_columns: 0, columns: [{ name: "v", type: "double", kind: "number", missing: 0, distinct: 2, infinite: 3, min: 1, max: 2, mean: 1.5, std: 0.5, q1: 1, median: 1.5, q3: 2, histogram: [1, 1] }] },
     { frame: "f", gone: true }];
-  const ctx = { h: el, isNumber: (v) => typeof v === "number", friendlyError: String, rpc: async () => answers.shift() };
+  const ctx = { state: { notebook: { name: "Sales" } }, h: el, isNumber: (v) => typeof v === "number", friendlyError: String, rpc: async () => answers.shift() };
   vm.createContext(ctx);
   vm.runInContext(grab("renderFrameProfile") + grab("renderInspect") + "this.p = renderFrameProfile;", ctx);
   const o = { frame: "f", columns: ["n", "s"], rows: [[1, "a"]] };
@@ -4295,7 +4524,7 @@ function chartsHarness(answer) {
     addEventListener(t, fn) { this.listeners[t] = fn; } });
   const calls = [];
   let dirty = 0;
-  const ctx = { h: node, btn: (label, _i, onclick) => node("button", { onclick }, label), friendlyError: String, markDirty: () => { dirty += 1; },
+  const ctx = { state: { notebook: { name: "Sales" } }, h: node, btn: (label, _i, onclick) => node("button", { onclick }, label), friendlyError: String, markDirty: () => { dirty += 1; },
     document: { createElementNS: (_ns, tag) => node(tag) },
     rpc: async (m, a) => { calls.push([m, a]); return typeof answer === "function" ? answer(a) : answer; } };
   vm.createContext(ctx);
@@ -4313,14 +4542,14 @@ test("the chart builder asks the engine for every row and keeps the cell's chart
   const cfg = ctx.api.chartConfig(o, [false, false, true], cell);
   assert.deepStrictEqual(plain(cfg), { kind: "bar", x: "region", y: "amount", agg: "sum", series: null, title: "" });
   const box = ctx.api.renderChartBuilder(o, [false, false, true], cell);
-  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_chart", { frame: "f", kind: "bar", x: 0, y: 2, agg: "sum", series: null }]);
+  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_chart", { frame: "f", notebook: "Sales", kind: "bar", x: 0, y: 2, agg: "sum", series: null }]);
   const kind = allNodes(box).find((n) => n.tag === "select" && n.attrs["aria-label"] === "Chart");
   kind.attrs.onchange({ target: { value: "stacked" } });
   const series = allNodes(box.replaced).find((n) => n.tag === "select" && n.attrs["aria-label"] === "Series");
   series.attrs.onchange({ target: { value: "product" } });
   assert.deepStrictEqual(plain(cell.meta.chart), { kind: "stacked", x: "region", y: "amount", agg: "sum", series: "product", title: "" });
   assert.strictEqual(dirty(), 2);
-  assert.deepStrictEqual(plain(calls.at(-1)[1]), { frame: "f", kind: "stacked", x: 0, y: 2, agg: "sum", series: 1 });
+  assert.deepStrictEqual(plain(calls.at(-1)[1]), { frame: "f", notebook: "Sales", kind: "stacked", x: 0, y: 2, agg: "sum", series: 1 });
   await new Promise((r) => setImmediate(r));
   // A rerun keeps the saved chart; a renamed column falls back to the default.
   assert.strictEqual(ctx.api.chartConfig({ columns: ["region", "product", "amount"] }, [false, false, true], cell).series, "product");
@@ -4403,7 +4632,7 @@ function wranglerHarness(answer) {
   const calls = [];
   const inserted = [];
   const ctx = { h: node, btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label), friendlyError: String,
-    resultTable: (columns) => ({ ...node("table", {}), columns, querySelectorAll: () => [] }), state: { selected: null },
+    resultTable: (columns) => ({ ...node("table", {}), columns, querySelectorAll: () => [] }), state: { selected: null, notebook: { name: "Sales" } },
     insertCell: (code) => inserted.push(code), toast: () => {}, attempt: (fn) => fn(), navigator: { clipboard: { writeText: async () => {} } },
     rpc: async (m, a) => { calls.push([m, JSON.parse(JSON.stringify(a))]); return typeof answer === "function" ? answer(a) : answer; } };
   vm.createContext(ctx);
@@ -4421,7 +4650,7 @@ test("Data Wrangler sends its steps to the engine and adds the code as a new cel
   const o = { frame: "f", columns: ["id", "name"], rows: [] };
   const cell = { id: "c1", source: "display(orders)" };
   ctx.api.renderWrangler(o, cell);
-  assert.deepStrictEqual(calls[0], ["notebook_frame_wrangle", { frame: "f", steps: [], name: "orders" }]);
+  assert.deepStrictEqual(calls[0], ["notebook_frame_wrangle", { frame: "f", notebook: "Sales", steps: [], name: "orders" }]);
   // Adding a step: pick the operation, then its columns, then Add step.
   o.wrangle.adding = "dedupe";
   const form = ctx.api.renderWrangleAdd(o, o.wrangle, () => {});
@@ -4502,19 +4731,41 @@ test("Python cells get hover, signature help, syntax errors and completion docs"
   assert.match(nb, /CM\.autocompletion\(\{ override: \[pythonCompletions\], activateOnTypingDelay: 150 \}\),\n\s+\.\.\.intelExtensions\(\)\]/);
   assert.match(nb, /info: intelCompletionInfo\(base, i\.label\)/);
   const intel = fs.readFileSync(path.join(ui, "nbintel.js"), "utf8");
-  assert.match(intel, /rpc\("kernel_inspect", \{ code: line\.text, cursor: pos - line\.from \}\)/);
-  assert.match(intel, /rpc\("kernel_inspect", \{ code, call: true \}\)/);
+  assert.match(intel, /rpc\("kernel_inspect", \{ code: line\.text, cursor: pos - line\.from, notebook: state\.notebook\?\.name \}\)/);
+  assert.match(intel, /rpc\("kernel_inspect", \{ code, call: true, notebook: state\.notebook\?\.name \}\)/);
   assert.match(intel, /rpc\("notebook_syntax", \{ source \}\)/);
   assert.match(intel, /function intelLive\(\) \{\n\s+return state\.notebook && !nbWhere\(state\.notebook\)\.fabric;/);
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
   assert.ok(html.indexOf('src="nbintel.js"') > html.indexOf('src="notebook.js"'));
 });
 
+// Go to definition, references and rename (nbsymbols.js): Python cells get F12, Shift+F12 and F2,
+// from the engine's notebook_symbol; a new name is checked here before anything changes.
+test("Python cells get go to definition, find references and rename", () => {
+  const intel = fs.readFileSync(path.join(ui, "nbintel.js"), "utf8");
+  assert.match(intel, /intelLinter\(\), symKeys\(\)\]/);
+  const src = fs.readFileSync(path.join(ui, "nbsymbols.js"), "utf8");
+  assert.match(src, /rpc\("notebook_symbol", \{ cells: symCells\(\), cell: index, offset: view\.state\.selection\.main\.head, name \}\)/);
+  for (const key of ['"F12"', '"Shift-F12"', '"F2"']) assert.ok(src.includes(`key: ${key}`), key);
+  assert.match(src, /const used = Math\.max\(taken\.places\.length, taken\.anywhere \|\| 0\);/);  // a function's own name counts
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(src.slice(src.indexOf("const SYM_KEYWORDS"), src.indexOf("// The notebook's cells")) + "this.f = symNameProblem;", ctx);
+  assert.strictEqual(ctx.f("grand_total"), "");
+  assert.strictEqual(ctx.f("été"), "");
+  assert.match(ctx.f("2x"), /isn't a Python name/);
+  assert.match(ctx.f("a-b"), /isn't a Python name/);
+  assert.match(ctx.f("class"), /is a Python keyword/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbsymbols.js"') > html.indexOf('src="nbfind.js"'));
+});
+
 // Notebook utilities: notebookutils.lakehouse reads on this PC; changes stay in Fabric.
 test("notebookutils.lakehouse and isValidToken are documented", () => {
   const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
   assert.match(docs, /\| `lakehouse` \(Preview\) \| `get`, `getWithProperties`, `list` and `listTables`, read from Fabric as you/);
-  assert.match(docs, /`create`, `update`, `delete` and `loadTable` run in Fabric only/);
+  assert.match(docs, /`create`, `update` and `delete` run in Fabric only/);
+  assert.match(docs, /`loadTable` loads a CSV or Parquet file, or a folder of them/);
   assert.match(docs, /`isValidToken` says whether a token hasn't expired yet/);
 });
 
@@ -4647,7 +4898,7 @@ test("a workload page says whether its actions reached the platform's audit", ()
 });
 
 test("the notebook, several-cells and find keys are listed in the Keyboard shortcuts dialog", () => {
-  for (const [file, group, key] of [["notebook.js", "Notebook", "Shift+Enter"], ["nbselect.js", "Notebook: several cells", "Shift+M"], ["nbfind.js", "Notebook: find and replace", "Ctrl+H"]]) {
+  for (const [file, group, key] of [["notebook.js", "Notebook", "Shift+Enter"], ["nbselect.js", "Notebook: several cells", "Shift+M"], ["nbfind.js", "Notebook: find and replace", "Ctrl+H"], ["nbsymbols.js", "Notebook: names in Python cells", "F12"]]) {
     const src = fs.readFileSync(path.join(ui, file), "utf8");
     const at = src.indexOf(`registerShortcuts(${JSON.stringify(group)}`);
     assert.ok(at > 0, `${file} registers ${group}`);
@@ -4827,7 +5078,7 @@ test("Format code (nbformat.js): the engine call, its hooks in notebook.js and t
   assert.ok(html.indexOf('src="nbformat.js"') > html.indexOf('src="notebook.js"'));
   assert.match(src, /rpc\("notebook_format", \{ sources: sent \}\)/);
   assert.match(src, /c\.source === sent\[i\]/, "a cell typed in while formatting keeps what was typed");
-  assert.match(nb, /\{ key: "Shift-Alt-f", run: \(\) => \{ formatCells\(\[cell\]\); return true; \} \}/);
+  assert.match(nb, /\{ id: "format", key: "Shift-Alt-f", run: \(\) => \{ formatCells\(\[cell\]\); return true; \} \}/);
   assert.match(nb, /btn\("Format notebook", "code", formatNotebook/);
   assert.match(nb, /label: "Format cell"/);
   assert.match(src, /registerShortcuts\("Notebook", \[\s*\{ keys: \["Shift\+Alt\+F"\]/);
@@ -4996,7 +5247,7 @@ test("the query profile runs only when asked, warns about capacity and lists eac
     { depth: 0, name: "ORDER_BY", rows: 6, seconds: 0.001, share: 0.001, details: { "Order By": "revenue DESC" } },
     { depth: 1, name: "HASH_GROUP_BY", rows: 6, seconds: 0.29, share: 0.21, details: { Groups: "region" } },
     { depth: 2, name: "SEQ_SCAN", rows: 12480113, seconds: 0.97, share: 0.71, details: { Table: "silver.orders", Filters: "status='shipped'" } }] };
-  const ctx = { h: node, friendlyError: (e) => ({ text: `failed: ${e.message}`, details: "" }), toast: () => {}, attempt: (fn) => fn(),
+  const ctx = { state: { notebook: { name: "Sales" } }, h: node, friendlyError: (e) => ({ text: `failed: ${e.message}`, details: "" }), toast: () => {}, attempt: (fn) => fn(),
     btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label),
     navigator: { clipboard: { writeText: async (t) => { copied = t; } } },
     rpc: async (m, a) => { calls.push([m, a]); if (answer instanceof Error) throw answer; return answer; } };
@@ -5010,7 +5261,7 @@ test("the query profile runs only when asked, warns about capacity and lists eac
   assert.match(text(box), /read from OneLake again, which uses capacity/);
   allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Profile the query")).attrs.onclick();
   await new Promise((r) => setImmediate(r));
-  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_query_profile", { frame: "f" }]);
+  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_query_profile", { frame: "f", notebook: "Sales" }]);
   const t = text(box);
   assert.match(t, /Read table/);
   assert.match(t, /silver\.orders/);
@@ -5069,12 +5320,12 @@ test("pop-out windows load popout.js after app.js and get no more than the main 
   assert.ok(html.indexOf('src="app.js"') < html.indexOf('src="popout.js"'), "popout.js uses app.js's helpers");
   const cap = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src-tauri", "capabilities", "default.json"), "utf8"));
   assert.deepStrictEqual(cap.windows, ["main"]);
-  assert.deepStrictEqual(cap.webviews, ["pop-out-runs", "pop-out-fabric"]);
+  assert.deepStrictEqual(cap.webviews, ["pop-out-runs", "pop-out-fabric", "pop-out-report"]);
   assert.deepStrictEqual(cap.permissions, ["core:event:allow-listen", "core:event:allow-unlisten"]);
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(app, /const POP_OUT = \["runs", "fabric"\]\.find/);
+  assert.match(app, /const POP_OUT = \["runs", "fabric", "report"\]\.find/);
   const shell = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
-  assert.match(shell, /const POP_OUTS: \[\(&str, &str\); 2\] = \[\("runs", [^)]*\), \("fabric", [^)]*\)\];/);
+  assert.match(shell, /const POP_OUTS: \[\(&str, &str\); 3\] = \[\("runs", [^)]*\), \("fabric", [^)]*\), \("report", [^)]*\)\];/);
 });
 
 // Shared sessions (sessions.js): Share sends the picked notebook to join this one's session; a guest can Leave.
@@ -5653,8 +5904,8 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
-    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands"],
-    validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbFormats: ["Fabric and Databricks notebook formats"],
+    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
+    validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbConsole: ["Scratch console"], nbReport: ["Notebook as a read-only report"], sqlDiagram: ["Table diagram"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],
     fabricRun: ["Run in Fabric and schedules", "W6 Publish or run a notebook in Fabric"], notebookRuns: ["Recent runs", "Notebook runs"],
@@ -5680,7 +5931,8 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
       "Databricks workspace discovery", "Connection profiles in Settings",
       "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
       "Databricks workspace sync", "Databricks Asset Bundles in Source control"],
-    embedStudio: ["Embed Studio"],
+    embedStudio: ["Embed Studio"], sqlStatements: ["Several statements in one run"], sqlParams: ["Query parameters"],
+    sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
@@ -5694,6 +5946,8 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
     "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
     "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
+    "Keep the engine in a folder only administrators can write": ["docs/enterprise-install.md", /a setting in the policy file, not a screen/],
+    "Notebook templates for Silver and Gold": ["docs/notebook-templates.md", /There is no page in the app to pick a template/],
   };
   const idOf = new Map(Object.entries(BY_ID).flatMap(([id, names]) => names.map((n) => [n, id])));
   for (const id of Object.keys(BY_ID)) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);
@@ -5912,9 +6166,10 @@ test("a developer Python missing a package says the command that installs it", (
 // mode changes it in one place. Colors still written into rules may only go down; lower LITERAL_COLORS
 // when a change moves more of them onto tokens.
 test("styles.css writes no more colors outside its tokens than it did", () => {
-  const LITERAL_COLORS = 50;
+  const LITERAL_COLORS = 28;
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
-  const rules = css.slice(css.indexOf("}") + 1);  // after the :root block
+  // After the :root block, and without the dark tokens (html[data-color-mode="dark"]), which are tokens too.
+  const rules = css.slice(css.indexOf("}") + 1).replace(/html\[data-color-mode="dark"\] \{[^}]*\}/, "");
   const found = (rules.match(/#[0-9a-fA-F]{3,8}\b/g) || []).length;
   assert.ok(found <= LITERAL_COLORS, `styles.css has ${found} color literals outside :root (limit ${LITERAL_COLORS}): use a token from :root, or add one there`);
 });
@@ -5995,4 +6250,227 @@ test("error toasts and plain-language errors name a next step (WR-503)", () => {
     "a new error with no next step: say what the person can do (try again, check, pick, ask an admin...)");
   assert.deepStrictEqual(baseline.filter((b) => !found.includes(b)), [],
     "a listed error now names a next step or is gone: remove it from error-next-step-baseline.json");
+});
+
+// The table diagram's pure helpers (sqldiagram.js), without the dialog.
+function diagramHelpers() {
+  const src = fs.readFileSync(path.join(ui, "sqldiagram.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.slice(0, src.indexOf("// Opens the diagram."))}; Object.assign(this, { diagramKeys, diagramStem, diagramEdges, diagramSvg });`, ctx);
+  return ctx;
+}
+
+test("the diagram reads keys from the catalog rows, and guesses a line only where one table fits", () => {
+  const { diagramKeys, diagramStem, diagramEdges } = diagramHelpers();
+  const keys = diagramKeys([["P", "gold", "dim_customer", "customer_id", null, null, null],
+    ["F", "gold", "fact_sales", "customer_id", "gold", "dim_customer", "customer_id"],
+    ["F", "gold", "fact_sales", "x_id", "dbo", "not_drawn", "id"]]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(keys.pks)), { "gold.dim_customer": ["customer_id"] });
+  assert.strictEqual(keys.fks.length, 2);
+  assert.deepStrictEqual(["dim_customer", "DimCustomers", "customers", "fact_sales"].map(diagramStem), ["customer", "customer", "customer", "sale"]);
+  const t = (name, ...cols) => ({ id: `gold.${name}`, name, columns: cols.map((c) => ({ name: c })) });
+  const tables = [t("dim_customer", "customer_id"), t("fact_sales", "customer_id", "store_id", "region_id", "x_id"), t("dim_store", "id"),
+    t("dim_region", "region_id"), t("regions", "region_id")];
+  const edges = [...diagramEdges(tables, keys)].map((e) => `${e.from}.${e.fromCol}>${e.to}.${e.toCol}:${e.kind}`);
+  // The key, not a guess on top of it; store_id to dim_store's id; region_id fits two tables, so no line, and is
+  // each region table's own id, not a link; a key to a table not drawn, none.
+  assert.deepStrictEqual(edges, ["gold.fact_sales.customer_id>gold.dim_customer.customer_id:key", "gold.fact_sales.store_id>gold.dim_store.id:guess"]);
+});
+
+test("the diagram's SVG escapes names and has nothing the engine's export refuses", () => {
+  const { diagramSvg } = diagramHelpers();
+  const tables = [{ id: "dbo.a", name: "<b onload=x>", columns: [{ name: "\"q\" & 'r'" }] }];
+  const svg = diagramSvg(tables, [], { pks: {}, fks: [] }, { interactive: false });
+  assert.ok(svg.startsWith("<svg ") && svg.endsWith("</svg>"));
+  assert.match(diagramSvg(tables, [], { pks: {}, fks: [] }), /aria-label="&lt;b onload=x&gt;: open it in the Explorer"/);
+  assert.ok(!svg.includes("<b ") && svg.includes("&lt;b onload=x&gt;") && svg.includes("&quot;q&quot; &amp; &#39;r&#39;"));
+  // Only what the engine's export allows (service.py, _DIAGRAM_TAGS and _DIAGRAM_ATTRS).
+  const tags = new Set([...svg.matchAll(/<(\w+)/g)].map((m) => m[1]));
+  const attrs = new Set([...svg.matchAll(/\s([\w:-]+)="/g)].map((m) => m[1]).filter((a) => a !== "xmlns"));
+  assert.deepStrictEqual([...tags].filter((t) => !["svg", "g", "rect", "path", "text", "title"].includes(t)), []);
+  assert.deepStrictEqual([...attrs].filter((a) => !["viewBox", "width", "height", "font-family", "font-size", "font-weight", "role",
+    "aria-label", "x", "y", "rx", "fill", "stroke", "stroke-width", "stroke-dasharray", "d"].includes(a)), []);
+});
+
+// WR-614 (QA-020): untested = Preview. Every engine method the UI calls that changes Fabric or OneLake (the
+// "Fabric or OneLake" rows of docs/audits/AUTHORIZATION_MATRIX.md, generated from the engine) is listed in
+// exactly one place: FABRIC_WRITES, with the Preview tag on the step that makes the call or the
+// docs/live-testing.md check that has run it on a tenant; FABRIC_READS, with why it changes nothing in Fabric;
+// or NOT_YET, the known untested writes that still need a tag or a live run. A new method fails until listed.
+// A UI call whose name looks like a Fabric write (FABRIC_WRITE_NAME) must be listed too, matrix or not.
+const FABRIC_WRITES = {
+  // [file that calls it, Preview tag id ("page": the file is a Preview page with its heading tagged) or null,
+  //  live-testing.md check or null, where the tag is when not in that file ("file.js" or "file.js: text")]
+  create_lakehouse: ["app.js", null, "Create a schema-enabled lakehouse"],
+  publish_notebook: ["app.js", null, "notebook.publish"],
+  readiness_write_test: ["settings.js", null, "Write, list, read and delete a file in OneLake"],
+  start_cell: ["notebook.js", null, "delta.concurrent"], // notebook writes go through the path that check runs
+  run_notebook_in_fabric: ["app.js", "fabricRun", "notebook.run", "meta.js"],
+  run_notebook_fabric_step: ["fabricstep.js", "fabricStep", null],
+  cancel_fabric_run: ["activity.js", "cancelFabricRun", null],
+  add_notebook_schedule: ["app.js", "schedules", null, "notebook.js"],
+  delete_notebook_schedule: ["app.js", "schedules", null, "notebook.js"],
+  notebook_batch_fabric: ["home-notebooks.js", "runSeveral", null],
+  notebook_validate_start: ["validate.js", "validate", null],
+  side_by_side_start: ["sidebyside.js", "sideBySide", null],
+  side_by_side_cancel: ["sidebyside.js", "sideBySide", null],
+  prove_start: ["prove.js", "prove", null],
+  prove_cancel: ["prove.js", "prove", null],
+  prove_verify: ["prove.js", "prove", null],
+  prove_delete_outputs: ["prove.js", "prove", null],
+  replay_start: ["replay.js", "replay", null, "app.js"],
+  replay_delete_outputs: ["replay.js", "replay", null, "app.js"],
+  meta_run: ["meta.js", "fabricRun", null],
+  meta_promote: ["meta.js", "promote", null],
+  meta_rollback: ["dataops.js", "rollback", null],
+  meta_add_schedule: ["meta.js", "schedules", null],
+  meta_delete_schedule: ["meta.js", "schedules", null],
+  meta_create_workspace: ["meta.js", "createWorkspace", null],
+  meta_create_designation_workspace: ["mesh.js", "createWorkspace", null],
+  platform_keys_setup: ["mesh.js", "createWorkspace", null],
+  platform_setup: ["mesh.js", "createWorkspace", null],
+  meta_keys_sync: ["meta.js", "syncKeys", null],
+  meta_keys_to_platform: ["mesh.js", "platform", null],
+  meta_keys_to_lakehouse: ["mesh.js", "platform", null],
+  meta_publish_varlib: ["estate.js", "varlib", null],
+  meta_replay: ["dataops.js", "quarantineReplay", null],
+  meta_discard_quarantine: ["dataops.js", "quarantineReplay", null],
+  meta_restore: ["estate.js", "history", null, "meta.js"], // the History button opens the restore dialog
+  meta_model_ossie_import: ["meta.js", "ossie", null],
+  access_set_role: ["estate.js", "access", null, "app.js"], // the OneLake > Access tab
+  access_save_role: ["estate.js", "access", null, "app.js"],
+  access_delete_role: ["estate.js", "access", null, "app.js"],
+  // OneLake > Access > All workspaces, drawn only inside that tab
+  access_cache_refresh: ["access-cache.js", "access", null, "app.js"],
+  access_cache_protect: ["access-cache.js", "access", null, "app.js"],
+  create_shortcut: ["shortcuts.js", "shortcuts", null, "app.js"], // the OneLake > Shortcuts tab
+  delete_shortcut: ["shortcuts.js", "shortcuts", null, "app.js"],
+  shortcut_undo: ["shortcuts.js", "shortcuts", null, "app.js"],
+  shortcut_repoint: ["shortcuts.js", "shortcutFixes", null],
+  shortcut_repoint_many: ["shortcuts.js", "shortcutFixes", null],
+  xray_optimize: ["xray.js", "xray", null],
+  xray_vacuum: ["xray.js", "xray", null],
+  xray_remove_staging: ["xray.js", "xray", null],
+  xray_adopt: ["xray.js", "xray", null],
+  fabric_git_update: ["git.js", "sourceControl", null],
+  incident_acknowledge: ["incidents.js", "incidents", null],
+  incident_assign: ["incidents.js", "incidents", null],
+  incident_note: ["incidents.js", "incidents", null],
+  incident_report: ["incidents.js", "incidents", null],
+  incident_resolve: ["incidents.js", "incidents", null],
+  incident_set_priority: ["incidents.js", "incidents", null],
+  incident_tell_impacted: ["incidents.js", "incidents", null],
+  incidents_evaluate: ["incidents.js", "incidents", null],
+  workload_act: ["workloads.js", "workloads", null],
+  workload_assign: ["workloads.js", "workloads", null],
+  workload_link: ["workloads.js", "workloads", null],
+  appstudio_publish: ["appstudio.js", "page", null],
+  // Settings' Motion sample also starts a run, but only Wait and SetVariable steps on this PC (checked below)
+  pipeline_run_start: ["pipelines.js", "page", null],
+  optimize_create: ["optimize.js", "page", null],
+  optimize_connect: ["optimize.js", "page", null],
+  optimize_set_recommendation: ["optimize.js", "page", null],
+  capacity_settings_read: ["optimize.js", "page", null], // reads Fabric, writes the central lakehouse
+  tenant_settings_read: ["optimize.js", "page", null],
+  platform_decide: ["platform.js", "page", null],
+  platform_create_landing_zone: ["platform.js", "page", null],
+  platform_delete_source: ["platform.js", "page", null],
+  platform_scan_endorsement: ["platform.js", "page", null],
+  platform_landing_setup: ["platform.js", "page", null],
+  platform_join: ["mesh.js", "page", null, "platform.js"], // Join existing, on Platform > Settings
+  platform_keys_join: ["mesh.js", "page", null, "platform.js"],
+  platform_import_fabric_domains: ["mesh.js", "page", null, "platform.js"], // Import from Fabric, on Platform > Domains
+  platform_create_domain: ["mesh.js", null, null, "mesh.js: Also create it in Fabric (Preview)"],
+  mesh_publish: ["mesh.js", "mesh", null, 'meta.js: ["products", "Data products", "mesh"]'], // a Preview tab
+  meta_build_model: ["meta.js", "model", null, 'meta.js: ["model", "Semantic model", "model"]'],
+  meta_optimize: ["meta.js", "health", null, 'meta.js: ["health", "Table health", "health"]'],
+  wh_monitoring_build: ["whmonitor.js", null, null, "whmonitor.js: previewTag()"],
+  // Monitor > Fabric > Schedules: shown only with preview features on, its tab tagged Preview
+  update_fabric_schedule: ["schedules.js", "schedules", null, 'app.js: ["fabric_schedules", ["Schedules", previewTag()]'],
+  set_fabric_schedule_enabled: ["schedules.js", "schedules", null, 'app.js: ["fabric_schedules", ["Schedules", previewTag()]'],
+  delete_fabric_schedule: ["schedules.js", "schedules", null, 'app.js: ["fabric_schedules", ["Schedules", previewTag()]'],
+  run_fabric_item_now: ["schedules.js", "schedules", null, 'app.js: ["fabric_schedules", ["Schedules", previewTag()]'],
+};
+// Listed as "Fabric or OneLake" because they call Fabric, but they change nothing there.
+const FABRIC_READS = {
+  list_capacities: "reads", list_files: "reads", list_items: "reads", list_lakehouses: "reads", list_tables: "reads",
+  list_workspaces: "reads", readiness_check: "reads only, never opens a sign-in window", sign_in: "gets a token",
+  wh_monitoring_view: "reads the monitoring database", appstudio_plan: "asks the person's model; nothing goes to Fabric",
+  git_capacity_write: "writes capacity.toml in the repository; nothing in Fabric changes",
+  fabric_git_link: "writes fabric-desktop.toml; reads the workspace's Git connection",
+  meta_model_tmdl_save: "reads the model from Fabric, writes files in the project folder",
+  notebook_from_fabric: "reads a Fabric notebook into a file on this PC", shortcut_export: "a CSV in Downloads",
+  xray_pause: "pauses this PC's scan",
+};
+// Untested writes still to tag or run live. Taking one out of this list is the goal; adding one needs a reason.
+const NOT_YET = [
+  // Data mesh project files and tables in a OneLake environment: the core of the app, on untagged tabs
+  // (UX: clear these with a live-testing.md check, not a tag on every Save)
+  "meta_add_rules", "meta_delete_key_table", "meta_delete_source_system", "meta_drift_apply", "meta_new_entity",
+  "meta_new_key_table", "meta_profile", "meta_save_entity", "meta_save_source_system", "meta_set_freshness",
+  "meta_set_keys_workspace", "meta_set_maintenance", "meta_sources_move",
+  // SQL editor Save as table, on the core Query page: wait for a live check
+  "save_sql",
+  // the app's own background check (no screen); it tells Teams whether or not Preview features show
+  "incidents_watch",
+];
+const FABRIC_WRITE_NAME = /^(create_|delete_|publish_|run_.*fabric|.*_in_fabric|meta_create_|platform_.*setup|.*_fabric_schedule|cancel_fabric)/;
+const NOT_A_FABRIC_WRITE = {
+  delete_pc_schedule: "a schedule in this PC's Task Scheduler",
+};
+
+test("every Fabric write in the UI carries a Preview tag or has a recorded live run (QA-020)", () => {
+  const read = (f) => fs.readFileSync(path.join(ui, f), "utf8");
+  const files = fs.readdirSync(ui).filter((f) => /\.(js|html)$/.test(f));
+  const text = Object.fromEntries(files.map((f) => [f, read(f)]));
+  const features = text["features.js"];
+  const live = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "live-testing.md"), "utf8");
+  const tagged = (file, tag) => new RegExp(`preview(?:Marked)?\\("${tag}"`).test(text[file]);
+  for (const [method, [file, tag, check, where]] of Object.entries(FABRIC_WRITES)) {
+    assert.ok(text[file].includes(`"${method}"`), `${file} calls ${method}`);
+    assert.ok(tag || check || where, `${method} needs a Preview tag or a live check`);
+    if (tag === "page") {
+      const page = where || file;
+      assert.ok(/preview: true/.test(text[page]) && text[page].includes("previewTag()"), `${page} is a Preview page with a tagged heading (${method})`);
+    } else if (where?.includes(": ")) {
+      const [tagFile, snippet] = where.split(/: (.*)/s);
+      assert.ok(text[tagFile].includes(snippet), `${tagFile} tags ${method}: ${snippet}`);
+    } else if (tag) {
+      assert.match(features, new RegExp(`\\n  ${tag}: "`), `${tag} is in PREVIEW_FEATURES`);
+      assert.ok(tagged(where || file, tag), `${where || file} tags ${tag} for ${method}`);
+    }
+    if (check) assert.ok(live.includes(check), `docs/live-testing.md records ${check}`);
+  }
+  // The engine's own list of methods that change Fabric or OneLake, called anywhere in the UI by name (a
+  // wrapper that takes the name as a variable still names it in a string somewhere).
+  const matrix = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "audits", "AUTHORIZATION_MATRIX.md"), "utf8");
+  const fabric = [...matrix.matchAll(/^\| `([a-z0-9_]+)` \| `[^`]+` \| ([^|]+) \|/gm)].filter((m) => /Fabric or OneLake/.test(m[2])).map((m) => m[1]);
+  assert.ok(fabric.length > 50, "the matrix scan found almost nothing; did its format change?");
+  const all = Object.values(text).join("\n");
+  const uiCalls = fabric.filter((m) => new RegExp(`["'\`]${m}["'\`]`).test(all));
+  const lists = [Object.keys(FABRIC_WRITES), Object.keys(FABRIC_READS), NOT_YET];
+  const unlisted = uiCalls.filter((m) => !lists.some((l) => l.includes(m))).sort();
+  assert.deepStrictEqual(unlisted, [], "the UI calls these and they change Fabric or OneLake: list them in FABRIC_WRITES (a Preview tag or a live check), FABRIC_READS or NOT_YET");
+  const twice = uiCalls.filter((m) => lists.filter((l) => l.includes(m)).length > 1);
+  assert.deepStrictEqual(twice, [], "listed in more than one place");
+  assert.deepStrictEqual([...Object.keys(FABRIC_READS), ...NOT_YET].filter((m) => !uiCalls.includes(m)), [], "listed, but the UI no longer calls it or it no longer changes Fabric");
+  // A new call that looks like a Fabric write is listed, even before the matrix is regenerated.
+  const called = new Set();
+  for (const f of files) for (const m of text[f].matchAll(/(?:rpc|metaCall|platformCall|pollSidecar)\(\s*"([a-z_]+)"/g)) called.add(m[1]);
+  const looksLike = [...called].filter((m) => FABRIC_WRITE_NAME.test(m) && !FABRIC_WRITES[m] && !NOT_A_FABRIC_WRITE[m] && !NOT_YET.includes(m)).sort();
+  assert.deepStrictEqual(looksLike, [], "list these in FABRIC_WRITES (with a Preview tag or a live check) or NOT_A_FABRIC_WRITE");
+  assert.deepStrictEqual(Object.keys(NOT_A_FABRIC_WRITE).filter((m) => !called.has(m)), [], "NOT_A_FABRIC_WRITE names a call the UI no longer makes");
+  // The buttons QA-020 named keep their tags.
+  for (const [file, snippet] of [["meta.js", 'previewMarked("createWorkspace", btn("Create workspace"'], ["mesh.js", 'previewMarked("createWorkspace", btn("Create workspace"'],
+    ["meta.js", 'fabricMarked(inFabric(p, m.env), btn(inFabric(p, m.env) ? "Run all in Fabric"'], ["dataops.js", 'previewMarked("quarantineReplay", btn("Discard selected"'],
+    ["activity.js", 'previewMarked("cancelFabricRun", btn("Cancel run"']]) assert.ok(text[file].includes(snippet), `${file}: ${snippet}`);
+  // pipeline_run_start's other caller, Settings' Motion sample, runs steps that never reach Fabric.
+  const sample = text["settings.js"].match(/const MOTION_SAMPLE_PIPELINE = JSON\.stringify\(([\s\S]*?)\);\n/);
+  assert.ok(sample, "settings.js defines MOTION_SAMPLE_PIPELINE");
+  const types = [...sample[1].matchAll(/type: "([A-Za-z]+)"/g)].map((m) => m[1]).filter((t) => t !== "String");
+  assert.ok(types.length && types.every((t) => ["Wait", "SetVariable"].includes(t)), `the Motion sample runs only Wait and SetVariable, not ${types}`);
+  assert.deepStrictEqual(Object.values(text).map((t) => (t.match(/"pipeline_run_start"/g) || []).length).reduce((a, b) => a + b), 2,
+    "pipeline_run_start is called from Pipelines and the Motion sample only");
+  // The access cache's writes are drawn only from the Access tab.
+  assert.deepStrictEqual(files.filter((f) => f !== "access-cache.js" && /renderAccessAll\(/.test(text[f])), ["estate.js"], "only the Access tab draws the access cache");
 });

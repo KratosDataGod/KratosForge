@@ -19,7 +19,7 @@ from . import magics
 from .fabric_compute import RESULTS_DIR
 from .fabric_run import fabric_sql_magics
 from .notebook import leaf_name, to_ipynb
-from .onelake import DFS_HOST
+from .onelake import lakehouse_root
 
 STEP_SUFFIX = " (Fabric step)"
 # OPTIMIZE leaves a file alone when it has nothing to compact it with (a table of one file, or
@@ -162,7 +162,9 @@ if _fd_error:
 def step_ipynb(name: str, cell: dict[str, Any], lakehouse: dict[str, Any], request_id: str) -> dict[str, Any]:
     """The companion Spark notebook: the cell's code, run with V-Order on, its printed output saved
     to the lakehouse. %%sql and ``%sql`` lines become ``spark.sql`` as when publishing."""
-    if magics.cell(cell.get("source", "")).language == "sql" or cell.get("source", "").lstrip().startswith("%"):
+    code = cell.get("source", "")
+    if (magics.cell(code).language == "sql" or code.lstrip().startswith("%")
+            or any(m.name == "sql" for m in magics.find(code))):  # a %sql line anywhere in the cell
         cell = fabric_sql_magics([magics.fabric_cell(cell)], spark=True)[0]
         if magics.cell(cell["source"]).language == "sql":  # a %%sql cell whose rows nothing reads
             cell = {**cell, "source": f"display(spark.sql({json.dumps(magics.cell(cell['source']).body.strip())}))"}
@@ -172,8 +174,7 @@ def step_ipynb(name: str, cell: dict[str, Any], lakehouse: dict[str, Any], reque
     except SyntaxError as exc:
         raise ValueError(f"The Fabric step isn't Python that Fabric Spark can run (line {exc.lineno}: {exc.msg}). "
                          "Magics other than %%sql don't run in the Fabric step.") from exc
-    target = (f"abfss://{lakehouse['workspace_id']}@{DFS_HOST}/{lakehouse['lakehouse_id']}/"
-              f"{result_path(request_id)}")
+    target = f"{lakehouse_root(lakehouse['workspace_id'], lakehouse['lakehouse_id'])}/{result_path(request_id)}"
     body = _STEP % {"name": json.dumps(name)[1:-1], "source": repr(source), "result": repr(target),
                     "request": repr(request_id)}
     return to_ipynb([{"type": "code", "source": body}], lakehouse)

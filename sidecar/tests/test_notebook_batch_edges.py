@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import time
 
 import pytest
@@ -73,12 +72,12 @@ def test_a_batch_that_isnt_on_this_pc_is_refused_for_the_background_run(svc):
 def test_a_run_without_a_result_line_or_that_cant_start_fails_only_its_own_notebook(svc, monkeypatch):
     batch = svc.notebook_batch_start(["A", "B"], parallel=1)
 
-    def run(args, **kw):
+    def run(args, root, stop):
         if args[-1] == "0":
-            return subprocess.CompletedProcess(args, 3, stdout="Traceback ...\n", stderr="boom")
+            return "Traceback ...\n", 3, False
         raise FileNotFoundError("python.exe")
 
-    monkeypatch.setattr(nbs.subprocess, "run", run)
+    monkeypatch.setattr(nbs, "_run_notebook_process", run)
     out = svc.run_notebook_batch(batch["id"])
     a, b = out["items"]
     assert out["state"] == "done"
@@ -98,11 +97,11 @@ def test_the_heartbeat_saves_while_notebooks_run(svc, monkeypatch):
 
     monkeypatch.setattr(nbs.jsonfile, "write_json", counting)
 
-    def slow(args, **kw):
+    def slow(args, root, stop):
         time.sleep(0.2)
-        return subprocess.CompletedProcess(args, 0, stdout='{"status": "ok", "message": "1 cell ran"}\n', stderr="")
+        return '{"status": "ok", "message": "1 cell ran"}\n', 0, False
 
-    monkeypatch.setattr(nbs.subprocess, "run", slow)
+    monkeypatch.setattr(nbs, "_run_notebook_process", slow)
     out = svc.run_notebook_batch(batch["id"])
     assert out["items"][0]["status"] == "ok"
     # running, the item running, at least one beat, the item done, done

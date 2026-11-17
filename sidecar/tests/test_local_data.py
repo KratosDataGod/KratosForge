@@ -300,8 +300,8 @@ def test_another_process_cant_open_the_database_for_writing(local, data, tmp_pat
     assert out.startswith("refused")
     # And this app reports it in words when it is the one locked out.
     local.close(pid)
-    holder = subprocess.Popen([sys.executable, "-c", "import duckdb, sys, time\nc = duckdb.connect(sys.argv[1])\n"
-                               "print('ready', flush=True)\ntime.sleep(30)", db], stdout=subprocess.PIPE, text=True)
+    holder = subprocess.Popen([sys.executable, "-c", ("import duckdb, sys, time\nc = duckdb.connect(sys.argv[1])\n"
+                               "print('ready', flush=True)\ntime.sleep(30)"), db], stdout=subprocess.PIPE, text=True)
     try:
         assert holder.stdout.readline().strip() == "ready"
         with pytest.raises(EngineBusy, match="open in another program"):

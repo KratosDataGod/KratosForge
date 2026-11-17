@@ -25,7 +25,7 @@ Everything here is read from files on this PC. Nothing is asked of Fabric to dra
 
 **On Fabric.** Each notebook is published to its Fabric item (replacing what is there), then run on its workspace's capacity, as you, the same way as its own **Run in Fabric**. The [risk check](finops/risk-check.md) runs for each one first and its findings are shown in the confirm. A notebook the check blocks isn't run. A notebook set to run on Fabric with no workspace yet isn't run either; the confirm names it. **Run only the N on this PC** leaves the Fabric ones out.
 
-While they run, **Last run** shows each notebook as waiting, or running with the cell it is on, and the bell follows the whole run. **Don't start the rest** leaves the notebooks still waiting unstarted; ones already running finish. At the end, a notice says how many succeeded and names any that failed.
+While they run, **Last run** shows each notebook as waiting, or running with the cell it is on, and the bell follows the whole run. **Stop** ends the whole run: notebooks still waiting don't start, and each running notebook's process, with every process its cells started, is ended and logged as stopped. One still running 30 seconds after Stop is ended from outside. At the end, a notice says how many succeeded and names any that failed.
 
 Each run is listed on the notebook's **Recent runs** and in **Monitor > Runs** as **Run from Home**, with the notebooks run on Fabric listed as Fabric runs.
 

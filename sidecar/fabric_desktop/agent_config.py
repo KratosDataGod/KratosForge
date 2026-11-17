@@ -8,6 +8,7 @@
     concurrency = 1                       # jobs at once
     status_seconds = 60                   # how often to publish agents/<name>.json to each LH_Meta
     queue_retention_days = 30             # finished jobs older than this leave the queue (at start, then daily)
+    max_queued = 1000                     # jobs waiting at most; past it new work is deferred or refused, never dropped
     workspaces = ["<workspace id>"]       # optional allowlist: refuse to write anywhere else
 
     [auth]
@@ -79,6 +80,7 @@ from .fabric_run import MAX_EVERY_MINUTES, schedule_configuration
 from .local_schedules import local_configuration
 from .meta.project import ENVIRONMENTS
 from .redact import one_line
+from .shared_schedules import MAX_ID
 
 # Keys whose value would be a secret itself. Give the name of an environment variable instead.
 _SECRET_KEYS = {"client_secret", "password", "secret", "certificate_password", "teams_webhook", "token", "api_key"}
@@ -171,6 +173,7 @@ class AgentConfig:
     table_lease_seconds: float = 120.0
     status_seconds: float = 60.0
     queue_retention_days: float = 30.0
+    max_queued: int = 1000
     max_attempts: int = 3
     backoff_seconds: float = 60.0
     max_backoff_seconds: float = 1800.0
@@ -296,8 +299,8 @@ def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None
     if not isinstance(shared, bool):
         errors.append(f"{where}: shared is true or false")
         return None
-    if shared and len(sid) > 40:
-        errors.append(f"{where}: a shared schedule's id is at most 40 characters")
+    if shared and len(sid) > MAX_ID:
+        errors.append(f"{where}: a shared schedule's id is at most {MAX_ID} characters")
         return None
     minutes = raw.get("every_minutes")
     if shared and minutes is not None and (isinstance(minutes, bool) or not isinstance(minutes, int) or minutes < 1):
@@ -452,6 +455,7 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
         table_lease_seconds=number(agent, "table_lease_seconds", 120, 15, "agent"),
         status_seconds=number(agent, "status_seconds", 60, 5, "agent"),
         queue_retention_days=number(agent, "queue_retention_days", 30, 1, "agent"),
+        max_queued=int(number(agent, "max_queued", 1000, 1, "agent")),
         max_attempts=int(number(retry, "max_attempts", 3, 1, "retry")),
         backoff_seconds=number(retry, "backoff_seconds", 60, 0, "retry"),
         max_backoff_seconds=number(retry, "max_backoff_seconds", 1800, 0, "retry"),

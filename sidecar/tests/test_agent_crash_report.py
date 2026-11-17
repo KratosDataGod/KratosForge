@@ -32,6 +32,8 @@ def test_a_native_crash_leaves_a_traceback_in_the_agents_crash_log(tmp_path):
     text = (tmp_path / "logs" / logs.CRASH_LOG).read_text(errors="replace")
     assert "Fatal Python error" in text or "fatal exception" in text, text
     assert "File " in text and "<string>" in text, text  # where it happened
+    start = text.index(logs.START_LINE)
+    assert start < text.index("File "), text  # the start line comes first, so a trace after it is this run's
 
 
 def test_a_big_crash_log_is_set_aside_at_the_next_start(tmp_path, monkeypatch):
@@ -44,7 +46,22 @@ def test_a_big_crash_log_is_set_aside_at_the_next_start(tmp_path, monkeypatch):
     (folder / logs.CRASH_LOG).write_bytes(b"x" * (logs.CRASH_LOG_BYTES + 1))
     assert logs.report_native_crashes(folder)
     assert (folder / "agent-crash.prev.log").stat().st_size == logs.CRASH_LOG_BYTES + 1
-    assert (folder / logs.CRASH_LOG).stat().st_size == 0 and turned_on == [str(folder / logs.CRASH_LOG)]
+    assert turned_on == [str(folder / logs.CRASH_LOG)]
+    [line] = (folder / logs.CRASH_LOG).read_text(encoding="utf-8").splitlines()
+    assert logs.START_LINE in line and f"pid {os.getpid()}" in line
+    logs._crash_file.close()
+
+
+def test_each_start_adds_one_line_and_keeps_what_was_there(tmp_path, monkeypatch):
+    monkeypatch.setattr(faulthandler, "is_enabled", lambda: False)
+    monkeypatch.setattr(faulthandler, "enable", lambda file, all_threads: None)
+    monkeypatch.setattr(logs, "_crash_file", None)
+    folder = tmp_path / "logs"
+    folder.mkdir()
+    (folder / logs.CRASH_LOG).write_text("Windows fatal exception: access violation\n", encoding="utf-8")
+    assert logs.report_native_crashes(folder) and logs.report_native_crashes(folder)
+    lines = (folder / logs.CRASH_LOG).read_text(encoding="utf-8").splitlines()
+    assert lines[0].startswith("Windows fatal exception") and [logs.START_LINE in x for x in lines[1:]] == [True, True]
     logs._crash_file.close()
 
 
@@ -52,6 +69,19 @@ def test_a_folder_that_cant_be_written_still_starts_the_agent(tmp_path, monkeypa
     monkeypatch.setattr(faulthandler, "is_enabled", lambda: False)
     (tmp_path / "logs").write_text("a file where the folder would be", encoding="utf-8")
     assert logs.report_native_crashes(tmp_path / "logs") is False
+
+
+def test_a_crash_file_faulthandler_refused_is_closed(tmp_path, monkeypatch):
+    monkeypatch.setattr(faulthandler, "is_enabled", lambda: False)
+    opened = []
+
+    def refuse(file, all_threads):
+        opened.append(file)
+        raise ValueError("no usable file descriptor")
+    monkeypatch.setattr(faulthandler, "enable", refuse)
+    monkeypatch.setattr(logs, "_crash_file", None)
+    assert logs.report_native_crashes(tmp_path / "logs") is False
+    assert opened[0].closed and logs._crash_file is None
 
 
 def test_faulthandler_already_on_is_left_as_it_is(tmp_path, monkeypatch):

@@ -191,7 +191,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-006](PRODUCT_BACKLOG.md#pb-006) | Content Security Policy for the main window | 1 | 1 | 5 | 1 | 4 | 3 | 3 | 2.45 | 3.0 | 1.47 | required | M | Medium | none | Enterprise readiness |
 | [PB-104](PRODUCT_BACKLOG.md#pb-104) | Optimize central lakehouse program | 3 | 5 | 4 | 5 | 5 | 5 | 4 | 4.25 | 4.5 | 1.27 | none | XL | Low | none | Optimize central lakehouse |
 
-### P2 (59 items)
+### P2 (60 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -224,6 +224,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-027](PRODUCT_BACKLOG.md#pb-027) | Column completion for attached tables | 4 | 1 | 2 | 2 | 3 | 2 | 1 | 2.45 | 1.5 | 2.21 | none | S | High | none | Prove |
 | [PB-049](PRODUCT_BACKLOG.md#pb-049) | Run the pipeline mailbox once on a tenant | 2 | 3 | 4 | 4 | 3 | 2 | 3 | 3.15 | 2.5 | 2.21 | none | S | Medium | PB-002 | Staged roadmap |
 | [PB-019](PRODUCT_BACKLOG.md#pb-019) | Late-arriving rows and source deletes in incremental loads | 4 | 3 | 4 | 3 | 4 | 3 | 3 | 3.65 | 3.0 | 2.19 | none | M | Medium | none | Staged roadmap |
+| [PB-136](PRODUCT_BACKLOG.md#pb-136) | Process kernel by default after a clean Windows trial | 4 | 1 | 4 | 2 | 4 | 2 | 3 | 3.1 | 2.5 | 2.17 | none | S | Medium | none | Prove |
 | [PB-018](PRODUCT_BACKLOG.md#pb-018) | Publish matches Fabric items by id, not display name | 4 | 1 | 3 | 1 | 4 | 2 | 2 | 2.7 | 2.0 | 2.16 | none | S | Medium | none | Master product (unassigned) |
 | [PB-035](PRODUCT_BACKLOG.md#pb-035) | Pipeline definition engine | 4 | 4 | 4 | 5 | 5 | 4 | 3 | 4.3 | 3.5 | 2.15 | none | L | Medium | none | Local Fabric pipeline execution |
 | [PB-053](PRODUCT_BACKLOG.md#pb-053) | Scheduled shortcut health check with alerts | 2 | 2 | 4 | 2 | 3 | 2 | 2 | 2.65 | 2.0 | 2.12 | none | S | Medium | none | Master product (unassigned) |

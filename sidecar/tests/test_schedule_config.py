@@ -231,9 +231,10 @@ def test_schtasks_is_called_quietly_and_its_errors_come_back_in_words(monkeypatc
         return subprocess.CompletedProcess(args, 0 if ok else 1, "", "" if ok else "ERROR: The task doesn't exist.\n")
     monkeypatch.setattr(local_schedules.subprocess, "run", run)
     monkeypatch.setattr(TaskScheduler, "available", True)
+    monkeypatch.setenv("SystemRoot", r"C:\Windows")
     ts = TaskScheduler()
     ts.unregister("abc")
-    assert calls[0][0] == ["schtasks", "/Delete", "/TN", "\\FabricDesktop\\abc", "/F"]
+    assert calls[0][0] == [r"C:\Windows\System32\schtasks.exe", "/Delete", "/TN", "\\FabricDesktop\\abc", "/F"]
     assert calls[0][1]["timeout"] == local_schedules.SCHTASKS_SECONDS and calls[0][1]["capture_output"]
     with pytest.raises(RuntimeError, match="Task Scheduler: ERROR: The task doesn't exist."):
         ts.run_now("abc")

@@ -29,6 +29,7 @@ from typing import Any, cast
 
 from . import calibration
 from . import measurement as ms
+from .timeutil import parse_time as _parse
 
 DEFAULTS: dict[str, Any] = {"price_per_cu_hour": 0.18, "currency": "USD", "python_cu": 1.0, "spark_cu": 8.0}
 # F SKUs: F2 has 2 CUs, F64 has 64.
@@ -48,14 +49,6 @@ def sku_cu(sku: str | None) -> int | None:
     return _SKU_CU.get(str(sku or "").upper())
 
 
-def _parse(at: Any) -> dt.datetime | None:
-    if not at:
-        return None
-    try:
-        t = dt.datetime.fromisoformat(str(at).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
 
 
 def _seconds(started: Any, finished: Any) -> float | None:

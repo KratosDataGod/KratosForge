@@ -25,8 +25,8 @@ def test_the_docs_example(dialect, want):
 @pytest.mark.parametrize("text, want", [
     # fields sorted by name; null and "" are STRING; an empty object field is dropped; [] is ARRAY<STRING>
     ('{"b":[1,2.5],"a":{"x":null,"y":"s"},"c":[],"d":{},"e":[1,"x"],"f":true,"g":""}',
-     "STRUCT<a: STRUCT<x: STRING, y: STRING>, b: ARRAY<DOUBLE>, c: ARRAY<STRING>, e: ARRAY<STRING>, "
-     "f: BOOLEAN, g: STRING>"),
+     ("STRUCT<a: STRUCT<x: STRING, y: STRING>, b: ARRAY<DOUBLE>, c: ARRAY<STRING>, e: ARRAY<STRING>, "
+     "f: BOOLEAN, g: STRING>")),
     ('[{"a":1},{"b":2.0,"a":1.5}]', "ARRAY<STRUCT<a: DOUBLE, b: DOUBLE>>"),   # array elements merge
     ('[{"a":{"x":1}},{"a":{"y":"s"}}]', "ARRAY<STRUCT<a: STRUCT<x: BIGINT, y: STRING>>>"),
     ("[[1],[2.5,null]]", "ARRAY<ARRAY<DOUBLE>>"),

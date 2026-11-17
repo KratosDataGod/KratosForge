@@ -148,3 +148,28 @@ def test_the_flush_costs_a_fraction_of_the_write(tmp_path, monkeypatch):
         # Also in the job's log (its warnings summary), which can be read where the step summary can't.
         warnings.warn(line, stacklevel=1)
     assert f < 2 * w + 200, (w, f)
+
+
+def test_a_local_data_project_s_delta_writes_and_changes_are_flushed(tmp_path, synced):
+    from fabric_desktop.localdata import LocalData
+    data = LocalData(tmp_path)
+    engine = data.engine(data.create("Flushed")["id"])
+    uri = str(engine.tables_dir / "dbo" / "sales")
+    try:
+        engine.execute("CREATE TABLE sales USING DELTA AS SELECT i AS id, i * 1.5 AS amount FROM range(10) t(i)")
+        flushed(synced, uri, 0)
+        for sql in ("INSERT INTO sales SELECT 100, 1.0",
+                    "INSERT OVERWRITE sales SELECT i AS id, 2.0 AS amount FROM range(5) t(i)",
+                    "UPDATE sales SET amount = 3.0 WHERE id = 1",
+                    ("MERGE INTO sales t USING (SELECT 2 AS id, 9.0 AS amount UNION ALL SELECT 50, 1.0) s ON t.id = s.id "
+                     "WHEN MATCHED THEN UPDATE SET amount = s.amount WHEN NOT MATCHED THEN INSERT *")):
+            synced.clear()
+            engine.execute(sql)
+            flushed(synced, uri, DeltaTable(uri).version())
+        synced.clear()
+        engine.execute("DELETE FROM sales WHERE id = 3")
+        log = Path(uri) / "_delta_log" / f"{DeltaTable(uri).version():020d}.json"
+        assert (log, False) in synced and (Path(uri) / "_delta_log", True) in synced
+        assert engine.execute("SELECT count(*), sum(amount)::INT FROM sales")["rows"] == [[5, 17]]
+    finally:
+        data.close_all()

@@ -12,11 +12,16 @@ const skip = !playwright && "Playwright is not installed";
 const ENGINE = ["app_settings", "save_app_settings", "pipeline_run_start", "pipeline_run_status"];
 
 const apps = [];
-async function open({ reducedMotion = "no-preference" } = {}) {
+// heroic: start at Heroic, where everyday effects play (Subtle, the default, plays only achievements).
+async function open({ reducedMotion = "no-preference", heroic = true } = {}) {
   const app = await openApp({ engine: ENGINE });
   apps.push(app);
   await app.page.emulateMedia({ reducedMotion });
-  await app.page.evaluate(async () => { await loadSettings(); go("settings"); });
+  await app.page.evaluate(async (heroic) => {
+    await loadSettings();
+    if (heroic) await saveSettings({ motion_level: 2 });
+    go("settings");
+  }, heroic);
   await app.page.getByRole("radiogroup", { name: "Experience mode" }).waitFor();
   await app.page.evaluate(() => {
     window.__fx = [];
@@ -29,11 +34,11 @@ async function open({ reducedMotion = "no-preference" } = {}) {
 
 after(async () => { for (const app of apps) await app.close(); });
 
-test("Settings > Appearance > Living Experience: Heroic by default, each level kept and applied at once", { skip }, async () => {
-  const app = await open();
+test("Settings > Appearance > Living Experience: Subtle by default, each level kept and applied at once", { skip }, async () => {
+  const app = await open({ heroic: false });
   const { page } = app;
-  assert.strictEqual(await page.getByRole("radio", { name: /^Heroic \(default\)/ }).isChecked(), true);
-  assert.strictEqual(await page.evaluate(() => document.documentElement.dataset.motionLevel), "2");
+  assert.strictEqual(await page.getByRole("radio", { name: /^Subtle \(default\)/ }).isChecked(), true);
+  assert.strictEqual(await page.evaluate(() => document.documentElement.dataset.motionLevel), "1");
   await page.evaluate(() => { document.getElementById("toast").hidden = true; });
   if (SHOTS) await page.locator(".motion-settings").screenshot({ path: path.join(SHOTS, "motion-settings.png") });
   await page.getByRole("radio", { name: /^Legendary/ }).check();

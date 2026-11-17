@@ -270,13 +270,12 @@ def _databricks(code: str) -> list[Any]:
     fixes sql.parse makes for Spark SQL (X '1010', substring from 0, date_add returning a date, trunc,
     unix_timestamp, Spark's column names), so a query answers here as it does on the warehouse. ValueError when
     it can't be read."""
-    import sqlglot
     from sqlglot import exp
     from sqlglot.errors import ParseError
 
     from .. import sql, sql_dialects
     try:  # every statement sqlglot returns is an Expression (a Command when it can't read it)
-        statements = [s for s in sqlglot.parse(sql.diff_spellings(sql._spark_spellings(code), databricks=True), read="databricks")
+        statements = [s for s in sql_dialects.parse(sql.diff_spellings(sql._spark_spellings(code), databricks=True), read="databricks")
                       if isinstance(s, exp.Expression)]
     except ParseError as exc:
         raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(exc)}") from None
@@ -285,7 +284,34 @@ def _databricks(code: str) -> list[Any]:
     # then Databricks' own functions, written for DuckDB or refused by name; not in sql.spark_fixes, which
     # the Academy's learner package carries without them
     from .. import databricks_builtins_sql
-    return [databricks_builtins_sql.rewrite(sql.spark_fixes(s, databricks=True)) for s in statements]
+    try:
+        rewritten = [databricks_builtins_sql.rewrite(sql.spark_fixes(s, databricks=True)) for s in statements]
+    except ValueError as exc:  # a Spark refusal names Fabric: this cell runs as Databricks SQL
+        text = str(exc)
+        if "the way it runs in Fabric" not in text:
+            raise
+        raise ValueError(_databricks_wording(text)) from None
+    # the same for a refusal written into the query, which stops it only when a row reaches it; only an
+    # ERROR(...) that carries a refusal's own words, so a message the cell's author wrote stays as written
+    for statement in rewritten:
+        for call in statement.find_all(exp.Anonymous):
+            pieces = [t for t in call.find_all(exp.Literal) if t.is_string]
+            if call.name.upper() != "ERROR" or not any(_REFUSAL in t.name for t in pieces):
+                continue
+            for piece in pieces:
+                piece.replace(exp.Literal.string(_databricks_wording(piece.name)))
+    return rewritten
+
+
+_REFUSAL = "can't run on this PC the way it runs in Fabric"
+
+
+def _databricks_wording(text: str) -> str:
+    """A Spark refusal's text, naming Databricks in place of Fabric."""
+    from .. import databricks_builtins_sql
+    return (text.replace("the way it runs in Fabric", "the way it runs in Databricks")
+            .replace(" run in Fabric only", " run on Databricks only")
+            .replace("Run the cell in Fabric", databricks_builtins_sql._WAREHOUSE))
 
 
 class DuckDBSession(_SqlSession):
@@ -316,9 +342,12 @@ class DuckDBSession(_SqlSession):
             raise Unsupported(f"DuckDB doesn't run the {dialect} dialect. Use Spark SQL, Databricks SQL, Snowflake SQL "
                               "or DuckDB SQL.")
         from .. import sql
+        from ..spark_decimals import spark_decimal_types
         statements = _databricks(code) if dialect == "databricks" else sql.parse(code, "spark")
         try:
-            return ";\n".join(sql.duckdb_sql(s) for s in statements)
+            # Spark's (and Databricks') decimal result types, from the session's tables as they are now: a
+            # table the same cell creates isn't there yet, so a statement reading it keeps DuckDB's types
+            return ";\n".join(sql.duckdb_sql(spark_decimal_types(s, self._con)) for s in statements)
         except ValueError as exc:
             raise Unsupported(str(exc)) from None
 
@@ -354,7 +383,7 @@ class DuckDBSession(_SqlSession):
         else:
             # On 1.x con.sql gives no result for a change, where execute gives its Count, so keep execute.
             cur = self._con.execute(code)
-            if cur.description is None:
+            if cur is None or cur.description is None:  # 1.x gives no cursor for a cell with no statement
                 return None, 0
             reader = (getattr(cur, "to_arrow_reader", None) or cur.fetch_record_batch)()
         table, total = _drain(reader, request.preview_rows, request.result_rows)

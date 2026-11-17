@@ -310,8 +310,8 @@ class RequestsMixin:
             return {"next": [f"{name} already existed in Fabric from this request, so it was kept"]}
         if in_fabric or parent is None:
             return {}
-        return {"next": [f"{parent['name']} isn't in Fabric, so {name} was saved in the platform only. Create "
-                         f"{parent['name']} and {name} in Fabric's admin portal, then choose Import from Fabric"]}
+        return {"next": [(f"{parent['name']} isn't in Fabric, so {name} was saved in the platform only. Create "
+                         f"{parent['name']} and {name} in Fabric's admin portal, then choose Import from Fabric")]}
 
     def _rq_domain_found(self, req: dict[str, Any], have: dict[str, Any], known: dict[str, Any]) -> None:
         """A retry finds the domain already saved but not recorded on the request: its progress record

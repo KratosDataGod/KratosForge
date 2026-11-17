@@ -39,6 +39,10 @@
       <string id="local_retention_days_Help">Days unused before local copies of lakehouse data are deleted; 0 keeps them. Policy file key: local_retention_days. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="telemetry">Telemetry</string>
       <string id="telemetry_Help">Whether daily usage counts are sent. Off unless turned on. People can also change it in Settings; this policy fixes it. Policy file key: telemetry. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="audit_retention_days">Audit retention days</string>
+      <string id="audit_retention_days_Help">Days the audit trails on this PC are kept; 0 keeps them, otherwise a whole number of at least 30. Trusted only from an admin-only source. Policy file key: audit_retention_days. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="receipt_retention_days">Receipt retention days</string>
+      <string id="receipt_retention_days_Help">Days run receipts are kept; 0 keeps them, otherwise a whole number of at least 30. Trusted only from an admin-only source. Policy file key: receipt_retention_days. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="telemetry_connection_string">Telemetry connection string</string>
       <string id="telemetry_connection_string_Help">An Application Insights connection string, so usage data goes to the organization's own Azure Monitor. Policy file key: telemetry_connection_string. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="cell_time_limit_minutes">Cell time limit minutes</string>
@@ -126,6 +130,18 @@
       <string id="ui_color_mode_skin">skin</string>
       <string id="ui_color_mode_light">light</string>
       <string id="ui_color_mode_dark">dark</string>
+      <string id="editor_word_wrap">Editor word wrap</string>
+      <string id="editor_word_wrap_Help">Which code editors wrap long lines: off, notebooks, sql or both. People can also change it in Settings; this policy fixes it. Policy file key: editor_word_wrap. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="editor_word_wrap_off">off</string>
+      <string id="editor_word_wrap_notebooks">notebooks</string>
+      <string id="editor_word_wrap_sql">sql</string>
+      <string id="editor_word_wrap_both">both</string>
+      <string id="editor_font_size">Editor font size</string>
+      <string id="editor_font_size_Help">The code font size in notebook cells and SQL editors, 10 to 24; 0 keeps each editor's own. People can also change it in Settings; this policy fixes it. Policy file key: editor_font_size. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="editor_keys">Editor keys</string>
+      <string id="editor_keys_Help">Editing keys in cells and SQL editors: default, or vim (Preview). People can also change it in Settings; this policy fixes it. Policy file key: editor_keys. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="editor_keys_default">default</string>
+      <string id="editor_keys_vim">vim</string>
       <string id="learn_mode">Learn mode</string>
       <string id="learn_mode_Help">How much learning guidance shows beside work: expert, professional or guided. People can also change it in Settings; this policy fixes it. Policy file key: learn_mode. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="learn_mode_expert">expert</string>
@@ -184,6 +200,8 @@
       <presentation id="support_url"><textBox refId="support_url"><label>support_url</label></textBox></presentation>
       <presentation id="allowed_tenants"><listBox refId="allowed_tenants">allowed_tenants</listBox></presentation>
       <presentation id="local_retention_days"><decimalTextBox refId="local_retention_days" defaultValue="0">local_retention_days</decimalTextBox></presentation>
+      <presentation id="audit_retention_days"><decimalTextBox refId="audit_retention_days" defaultValue="0">audit_retention_days</decimalTextBox></presentation>
+      <presentation id="receipt_retention_days"><decimalTextBox refId="receipt_retention_days" defaultValue="0">receipt_retention_days</decimalTextBox></presentation>
       <presentation id="telemetry_connection_string"><textBox refId="telemetry_connection_string"><label>telemetry_connection_string</label></textBox></presentation>
       <presentation id="cell_time_limit_minutes"><decimalTextBox refId="cell_time_limit_minutes" defaultValue="0">cell_time_limit_minutes</decimalTextBox></presentation>
       <presentation id="kernel_memory_limit_gb"><decimalTextBox refId="kernel_memory_limit_gb" defaultValue="0">kernel_memory_limit_gb</decimalTextBox></presentation>
@@ -205,6 +223,9 @@
       <presentation id="ui_density"><dropdownList refId="ui_density" noSort="true">ui_density</dropdownList></presentation>
       <presentation id="ui_skin"><textBox refId="ui_skin"><label>ui_skin</label></textBox></presentation>
       <presentation id="ui_color_mode"><dropdownList refId="ui_color_mode" noSort="true">ui_color_mode</dropdownList></presentation>
+      <presentation id="editor_word_wrap"><dropdownList refId="editor_word_wrap" noSort="true">editor_word_wrap</dropdownList></presentation>
+      <presentation id="editor_font_size"><decimalTextBox refId="editor_font_size" defaultValue="0">editor_font_size</decimalTextBox></presentation>
+      <presentation id="editor_keys"><dropdownList refId="editor_keys" noSort="true">editor_keys</dropdownList></presentation>
       <presentation id="learn_mode"><dropdownList refId="learn_mode" noSort="true">learn_mode</dropdownList></presentation>
       <presentation id="learn_mode_sql"><dropdownList refId="learn_mode_sql" noSort="true">learn_mode_sql</dropdownList></presentation>
       <presentation id="learn_mode_notebooks"><dropdownList refId="learn_mode_notebooks" noSort="true">learn_mode_notebooks</dropdownList></presentation>

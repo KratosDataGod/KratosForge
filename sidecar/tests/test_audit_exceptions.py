@@ -35,11 +35,12 @@ def test_a_lapsed_or_unexplained_exception_fails():
 
 
 def test_the_checked_in_file_is_valid_and_the_script_runs():
-    assert audit_exceptions.parse(audit_exceptions.FILE.read_text(encoding="utf-8"), dt.date.today())[1] == []
+    ids, problems = audit_exceptions.parse(audit_exceptions.FILE.read_text(encoding="utf-8"), dt.date.today())
+    assert problems == []
     for tool in ("pip", "cargo"):
         out = subprocess.run([sys.executable, str(ROOT / ".github" / "scripts" / "audit_exceptions.py"), tool],
                              capture_output=True, text=True, check=True)
-        assert out.stdout.strip() == ""  # no exceptions recorded today
+        assert out.stdout.strip() == " ".join(audit_exceptions.flags(ids, tool))  # the exceptions recorded today
     bad = subprocess.run([sys.executable, str(ROOT / ".github" / "scripts" / "audit_exceptions.py"), "npm"],
                          capture_output=True, text=True)
     assert bad.returncode == 2

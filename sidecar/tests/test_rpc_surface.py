@@ -36,8 +36,6 @@ _FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 
 NO_UI_CALLER: dict[str, str] = {
-    # The approved Data health mockup keeps alerts in the app; sending them to Teams waits on that call.
-    "meta_data_health_notify": "Data health alerts to Teams (platform notice routes); the approved mockup keeps them in-app for now",
     # OE-004: the Share button on Optimize > Assessment waits on its mockup.
     "optimization_share": "OE-004 engine call; the Assessment tab's Share button waits on its mockup",
     # Best practices check (semantic-link-labs in Fabric).
@@ -153,7 +151,6 @@ NO_SCREEN_GATE: dict[str, str] = {
     "optimize_share_local_runs": "confirm",
 }
 NOT_DESTRUCTIVE: dict[str, str] = {
-    "meta_data_health_notify": "posts open alerts once each to the platform notice routes' Teams channels; changes no data",
     "local_add_source": "adds views over a folder; the files are only read",
     "local_close_project": "closes the database file; nothing is deleted",
     "local_create_project": "makes a new project",

@@ -6,7 +6,7 @@ from fabric_desktop import app_settings, audit, backup, server
 from fabric_desktop import platform_notify_service as pns
 from fabric_desktop.service import Service
 from fabric_desktop.workloads.notify import Outbox, Quiet
-from fabric_desktop.workloads.platform_notify import (OPENS, Ledger, PlatformRoute, PlatformRouting, message, send,
+from fabric_desktop.workloads.platform_notify import (Ledger, PlatformRoute, PlatformRouting, message, send,
                                                        validate)
 
 HOOK = "https://contoso.webhook.office.com/hook"
@@ -343,19 +343,3 @@ def test_the_daily_sweep_runs_the_ledger_tidy_even_when_nothing_is_sent(svc, mon
         svc._sweep_stop.set()
     svc._sweeper.join(10)
     assert not svc._sweeper.is_alive()
-
-
-def test_a_data_health_alert_is_a_one_off_notice_for_the_projects_team():
-    e = validate({"kind": "data.health", "id": "dev:gold.sales:volume:12", "title": "gold.sales: Latest load wrote 1 rows",
-                  "at": "2026-11-17T10:00:00+00:00", "env": "dev", "severity": "warn",
-                  "detail": "Usual is the median rows written by the last 20 loads.",
-                  "to": {"people": [], "roles": ["project:sales"]},
-                  "open": {"view": "monitor", "tab": "data_health", "target": "gold.sales"},
-                  "dedupe": "data.health:dev|gold.sales|volume|12"})
-    assert e["kind"] not in OPENS and e["open"] == {"view": "monitor", "tab": "data_health", "target": "gold.sales"}
-    title, lines = message(e)
-    assert title == "Data health alert: gold.sales: Latest load wrote 1 rows"
-    assert lines == ["For the team of project sales.", "Dev", "Usual is the median rows written by the last 20 loads.",
-                     "Open it in KratosForge: Monitor > KratosForge > Operations > Data health."]
-    with pytest.raises(ValueError, match="open is"):
-        validate(dict(e, open={"view": "monitor", "tab": "runs"}))

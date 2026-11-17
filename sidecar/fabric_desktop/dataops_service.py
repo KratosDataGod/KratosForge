@@ -12,7 +12,6 @@ import datetime as dt
 import hashlib
 import json
 import logging
-import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -30,13 +29,12 @@ from .meta import diff as diff_mod
 from .meta import drift as drift_mod
 from .meta import data_health as data_health_mod
 from .meta import freshness as freshness_mod
-from .meta import mesh as mesh_mod
 from .meta import release
 from .meta import store as store_mod
 from .meta.project import ENVIRONMENTS
 from .meta_service import NoMetadataProject
 from . import sealed_settings
-from .redact import describe, one_line, secrets
+from .redact import describe, one_line
 from .retrying import send_with_retry
 from .workloads import deliver
 from .workloads.notify import LINE_MAX
@@ -61,8 +59,6 @@ def _rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
 DATA_HEALTH_FILE = "data_health.json"
 DATA_HEALTH_MAX = 100  # tables one PC watches
 _DH_LOCK = threading.Lock()
-DATA_HEALTH_REUSE = 120.0  # seconds a list read stays good enough to notify from
-_DH_ROLE = re.compile(r"^[A-Za-z0-9._-]+$")  # a project name platform_notify takes as a role
 
 
 def _dh_key(env: str, entity: str, kind: str, version: Any) -> str:
@@ -407,9 +403,7 @@ class DataOpsMixin:
                 if q and (not q.get("until") or _dh_time(q["until"]) > now):
                     a["quiet"] = q
         self._dh_prune(env, tables)
-        out = {"env": env, "tables": tables, "entities": names, "rule": data_health_mod.rule()}
-        self.__dict__.setdefault("_dh_last", {})[env] = (time.monotonic(), out)  # for meta_data_health_notify
-        return out
+        return {"env": env, "tables": tables, "entities": names, "rule": data_health_mod.rule()}
 
     def _dh_prune(self, env: str, tables: list[dict[str, Any]]) -> None:
         """Forget acknowledgements and snoozes that no current alert matches: an alert is only ever on a
@@ -426,34 +420,6 @@ class DataOpsMixin:
             if len(keep) != len(state["quiet"]):
                 state["quiet"] = keep
                 self._dh_write(state)
-
-    def meta_data_health_notify(self, env: str = "dev") -> dict[str, Any]:
-        """Send each open alert of the watched tables in ``env`` to Teams through the platform notice
-        routes (platform_notify, kind ``data.health``), once per table, alert kind and version, for the
-        project's team. Acknowledged and snoozed alerts aren't sent. The message names the table and
-        what was found; no row values or sample data. Without a platform route, nothing is posted."""
-        if env not in ENVIRONMENTS:
-            raise ValueError(f"env is one of {', '.join(ENVIRONMENTS)}")
-        at, cached = self.__dict__.get("_dh_last", {}).get(env, (0.0, None))
-        # The list the page just read, so the Delta logs aren't read twice; else read them now.
-        listed = cached if cached is not None and time.monotonic() - at < DATA_HEALTH_REUSE else self.meta_data_health_list(env)
-        try:
-            name = mesh_mod.project_name(self._project())  # type: ignore[attr-defined]
-        except NoMetadataProject:
-            return {"sent": 0, "events": []}
-        roles = [f"project:{name}"] if _DH_ROLE.fullmatch(name) else ["platform_admin"]
-        now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-        events = [{"kind": "data.health", "id": f"{env}:{t['entity']}:{a['kind']}:{a.get('version')}",
-                   "title": secrets(f"{t['entity']}: {a['title']}"), "at": now, "env": env,
-                   "severity": "info" if a["kind"] == "schema" else "warn",
-                   "detail": secrets(a.get("rule") or "Read from the table's Delta log; nothing in the table changed."),
-                   "to": {"people": [], "roles": roles},
-                   "open": {"view": "monitor", "tab": "data_health", "target": t["entity"]},
-                   "dedupe": f"data.health:{_dh_key(env, t['entity'], a['kind'], a.get('version'))}"}
-                  for t in listed["tables"] for a in t.get("alerts") or [] if not a.get("quiet")]
-        if not events:
-            return {"sent": 0, "events": []}
-        return self.platform_notify(events)  # type: ignore[attr-defined]
 
     def meta_data_health_watch(self, name: str, env: str, watch: bool = True) -> dict[str, Any]:
         """Add a table to (or take it off) this PC's Data health list. Changes nothing in the table."""

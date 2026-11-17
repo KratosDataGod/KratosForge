@@ -246,34 +246,3 @@ def test_acknowledgements_no_alert_matches_are_forgotten(svc, monkeypatch):
     # Kept: the one the current alert matches, the unreadable table's, and another environment's.
     assert sorted(svc._dh_read()["quiet"]) == ["dev|gold.dim_customer|volume|9", "dev|silver.customers|volume|6",
                                                "prod|silver.customers|volume|1"]
-
-
-def test_notify_sends_open_alerts_once_each_for_the_projects_team(svc, monkeypatch):
-    svc.meta_data_health_watch("silver.customers", "dev")
-    alerts = [{"kind": "volume", "version": 6, "title": "Latest load wrote 1 rows; usual is 500 ± 0", "rule": "Usual is the median."},
-              {"kind": "schema", "version": 6, "title": "Schema changed: 1 column added"}]
-    monkeypatch.setattr(svc, "meta_data_health", lambda name, env: {"entity": name, "env": env, "alerts": [dict(a) for a in alerts]})
-    sent = []
-    monkeypatch.setattr(svc, "platform_notify", lambda events: sent.append(events) or {"sent": len(events)})
-    svc.meta_data_health_quiet("silver.customers", "dev", "schema", 6)
-    svc.meta_data_health_notify("dev")
-    [events] = sent
-    [e] = events  # the acknowledged schema alert isn't sent
-    assert e["kind"] == "data.health" and e["severity"] == "warn" and e["dedupe"] == "data.health:dev|silver.customers|volume|6"
-    assert e["to"]["roles"][0].startswith("project:") and e["open"] == {"view": "monitor", "tab": "data_health", "target": "silver.customers"}
-    assert e["title"] == "silver.customers: Latest load wrote 1 rows; usual is 500 ± 0" and e["detail"] == "Usual is the median."
-    from fabric_desktop.workloads.platform_notify import validate
-    validate(e)  # the shape platform_notify takes
-    # Nothing open: nothing is sent.
-    alerts.clear()
-    svc.meta_data_health_list("dev")
-    assert svc.meta_data_health_notify("dev") == {"sent": 0, "events": []} and len(sent) == 1
-
-
-def test_notify_reuses_the_list_the_page_just_read(svc, monkeypatch):
-    svc.meta_data_health_watch("silver.customers", "dev")
-    reads = []
-    monkeypatch.setattr(svc, "meta_data_health", lambda name, env: reads.append(name) or {"entity": name, "env": env, "alerts": []})
-    svc.meta_data_health_list("dev")
-    svc.meta_data_health_notify("dev")
-    assert reads == ["silver.customers"]

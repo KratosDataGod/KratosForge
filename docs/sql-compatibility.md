@@ -148,6 +148,11 @@ What still differs:
 - Any other collation (`COLLATE Latin1_General_100_CI_AS_KS_WS_SC_UTF8`, `SQL_Latin1_General_CP1_CI_AS`) is refused by name. Compare `UPPER(...)` on both sides to ignore case.
 - `PATINDEX` needs its pattern written out as text, and is refused otherwise.
 
+Not yet checked against a warehouse, since T-SQL's reference doesn't say:
+
+- `LIKE` with a wildcard where the text has trailing spaces. Here the text matches either as written or without its trailing spaces. So `'abc  ' LIKE 'abc_'` is false, and `'abc  ' LIKE 'abc__'` is true.
+- `CHARINDEX` with a `NULL` start. Here the answer is `NULL`.
+
 ## Rules
 
 Rule set **2026.10.3**, from Microsoft Learn and the Apache Spark 3.5 reference as they read on 2026-10-17. Each Microsoft page's "last updated" date is kept in `sidecar/fabric_desktop/sqlcompat/profiles.py`. DDL-007 (ALTER TABLE) is an error except ALTER COLUMN, which is a warning because it is in preview. 2026.10.3 stops reading T-SQL's `GRANT`, `DENY` or `REVOKE ... ON SCHEMA::name` (and the other securable classes after `ON`) as a Spark `::` cast, and `UPDATE STATISTICS` (with no `SET`) as an UPDATE without WHERE.
@@ -337,6 +342,31 @@ What can still differ:
 - A view made with `SELECT *` picks up columns added to its table later. In a warehouse its columns stay as they were until the view is altered.
 - `ALTER VIEW` on a view made earlier in the same script stops with "Invalid object name": the check reads the views that were there when the script started.
 - A name with a schema that a warehouse doesn't have, such as DuckDB's `main`, still runs here.
+
+## Local T-SQL security and session settings
+
+The local engine has no users, roles or permissions. Statements that set them are refused by name, never skipped, so a script that ran here never looks as if it applied permissions. Apply them in the Fabric Warehouse.
+
+Refused by name, with "... isn't applied on this PC":
+
+- `GRANT`, `DENY` and `REVOKE`, `GRANT UNMASK` included
+- `EXECUTE AS` and `REVERT`
+- Row-level security: `CREATE`, `ALTER` and `DROP SECURITY POLICY`
+- Dynamic data masking: `MASKED WITH (FUNCTION = ...)` in `CREATE TABLE`, and `ADD MASKED` and `DROP MASKED` in `ALTER TABLE`
+- `CREATE`, `ALTER` and `DROP USER`, `ROLE` and `LOGIN`, `ALTER ROLE ... ADD MEMBER`, and `ALTER AUTHORIZATION`
+
+`SET` options run as a Fabric Warehouse's defaults:
+
+| Option | Runs here | Refused by name |
+| --- | --- | --- |
+| `NOCOUNT`, `XACT_ABORT` | `ON` and `OFF`. A script stops at its first error either way (see Local T-SQL scripts) | |
+| `ANSI_NULLS`, `QUOTED_IDENTIFIER`, `ANSI_WARNINGS`, `ANSI_PADDING`, `ARITHABORT`, `CONCAT_NULL_YIELDS_NULL` | `ON` | `OFF` |
+| `NUMERIC_ROUNDABORT` | `OFF` | `ON` |
+| `DATEFORMAT` | `mdy` | any other |
+| `LANGUAGE` | `us_english`, `English` | any other |
+| `DATEFIRST` | `7` | any other |
+
+Any other option (`ROWCOUNT`, `STATISTICS IO`, `STATISTICS TIME`, `SHOWPLAN_XML`, `NOEXEC`, `FMTONLY`, `LOCK_TIMEOUT`, `IMPLICIT_TRANSACTIONS`, `CONTEXT_INFO` and the rest) is refused by name. `SET TRANSACTION` is refused with the transactions.
 
 ## Local T-SQL scripts
 

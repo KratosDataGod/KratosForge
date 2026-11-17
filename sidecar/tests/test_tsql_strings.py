@@ -145,3 +145,14 @@ def test_a_like_on_a_value_whose_type_cant_be_told_is_noted():
     from fabric_desktop.localdata.tsql import translate
     _, notes = translate("SELECT 1 FROM q WHERE a LIKE 'x'")
     assert any("'a  ' LIKE 'a'" in n for n in notes), notes
+
+
+# Not in T-SQL's reference, so not yet checked against a warehouse. These pin the local answers that
+# sql-compatibility.md states, until Run 11's live check settles them.
+@pytest.mark.parametrize(("expr", "local"), [
+    ("CASE WHEN 'abc  ' LIKE 'abc_' THEN 1 ELSE 0 END", 0),
+    ("CASE WHEN 'abc  ' LIKE 'abc__' THEN 1 ELSE 0 END", 1),
+    ("CHARINDEX('b', 'abc', NULL)", None),
+])
+def test_unverified_text_edges_give_the_documented_local_answer(engine, expr, local):
+    assert one(engine, f"SELECT {expr}")[0] == local

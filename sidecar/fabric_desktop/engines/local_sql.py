@@ -284,7 +284,15 @@ def _databricks(code: str) -> list[Any]:
     # then Databricks' own functions, written for DuckDB or refused by name; not in sql.spark_fixes, which
     # the Academy's learner package carries without them
     from .. import databricks_builtins_sql
-    return [databricks_builtins_sql.rewrite(sql.spark_fixes(s, databricks=True)) for s in statements]
+    try:
+        return [databricks_builtins_sql.rewrite(sql.spark_fixes(s, databricks=True)) for s in statements]
+    except ValueError as exc:  # a Spark refusal names Fabric: this cell runs as Databricks SQL
+        text = str(exc)
+        if "the way it runs in Fabric" not in text:
+            raise
+        raise ValueError(text.replace("the way it runs in Fabric", "the way it runs in Databricks")
+                         .replace(" run in Fabric only", " run on Databricks only")
+                         .replace("Run the cell in Fabric", databricks_builtins_sql._WAREHOUSE)) from None
 
 
 class DuckDBSession(_SqlSession):

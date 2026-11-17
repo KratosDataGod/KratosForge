@@ -57,7 +57,15 @@ _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
 _INTEGERS = exp.DataType.INTEGER_TYPES
 _TEXT = exp.DataType.TEXT_TYPES
 _NUMBERS = exp.DataType.NUMERIC_TYPES
-_DROPPED_SETTINGS = {"NOCOUNT", "ANSI_NULLS", "QUOTED_IDENTIFIER", "ANSI_WARNINGS", "ANSI_PADDING", "XACT_ABORT"}
+# Session options the local engine honours, with the values it runs as: a warehouse's defaults. Another value is
+# refused by name, never dropped: SET ANSI_NULLS OFF makes "x = NULL" true in T-SQL, and was run as ON.
+_SETTINGS = {
+    "NOCOUNT": {"ON", "OFF"},  # only the "rows affected" messages
+    "XACT_ABORT": {"ON", "OFF"},  # a script stops at its first error either way (sql-compatibility.md)
+    "ANSI_NULLS": {"ON"}, "QUOTED_IDENTIFIER": {"ON"}, "ANSI_WARNINGS": {"ON"}, "ANSI_PADDING": {"ON"},
+    "ARITHABORT": {"ON"}, "CONCAT_NULL_YIELDS_NULL": {"ON"}, "NUMERIC_ROUNDABORT": {"OFF"},
+    "DATEFORMAT": {"MDY"}, "LANGUAGE": {"US_ENGLISH", "ENGLISH"},
+}
 
 _REFUSED = {
     exp.Declare: "variables (DECLARE)",
@@ -282,6 +290,78 @@ def _refuse_dbcc(batch: str) -> None:
         raise ValueError(_NOT_YET + "DBCC isn't mapped yet. Run it in a Fabric Warehouse.")
 
 
+_SECURITY_NOTE = ("isn't applied on this PC, because the local engine has no users, roles or permissions. It's refused "
+                  "rather than skipped, so a script never looks as if it set them. Apply it in the Fabric Warehouse.")
+_PRINCIPALS = {"USER", "ROLE", "LOGIN", "APPLICATION"}
+
+
+def _refuse_security(batch: str) -> None:
+    """Permissions, impersonation, row-level security, dynamic data masking, users and roles, refused by name (WR-217).
+    None of them may run as a no-op. GRANT, DENY, REVOKE and REVERT are reserved words in T-SQL; the rest are read
+    where a statement names them. Tokens, not text, so a string or a [bracketed] name that holds the words is
+    left alone."""
+    try:
+        tokens = KfTSQL().tokenize(batch)
+    except SqlglotError:
+        return  # _parse reports it
+    words = [t.text.upper() if t.token_type not in (TokenType.STRING, TokenType.IDENTIFIER, TokenType.NATIONAL_STRING)
+             else "" for t in tokens]
+    for i, word in enumerate(words):
+        before = words[i - 1] if i else ""
+        after = words[i + 1] if i + 1 < len(words) else ""
+        if before == "." or (i and tokens[i - 1].token_type == TokenType.PARAMETER):
+            continue  # t.user, @role
+        what = None
+        if word in ("GRANT", "DENY", "REVOKE"):
+            what = f"{word} (permissions)"
+        elif word in ("EXECUTE", "EXEC") and after == "AS":
+            what = f"{word} AS (impersonation)"
+        elif word == "REVERT":
+            what = "REVERT (impersonation)"
+        elif word in ("CREATE", "ALTER", "DROP") and after == "SECURITY":
+            what = f"{word} SECURITY POLICY (row-level security)"
+        elif word == "MASKED" and (after == "WITH" or before == "DROP"):
+            what = "MASKED WITH (dynamic data masking)"
+        elif word in ("CREATE", "ALTER", "DROP") and after in _PRINCIPALS:
+            what = f"{word} {after}"
+        elif word == "ALTER" and after == "AUTHORIZATION":
+            what = "ALTER AUTHORIZATION"
+        if what is not None:
+            raise ValueError(_NOT_YET + f"{what} {_SECURITY_NOTE}")
+
+
+_COMPOUND = (TokenType.PLUS, TokenType.DASH, TokenType.STAR, TokenType.SLASH, TokenType.MOD, TokenType.PIPE,
+             TokenType.AMP, TokenType.CARET)
+
+
+def _refuse_session_options(batch: str) -> None:
+    """``SET option value`` for an option the local engine doesn't run (ROWCOUNT, STATISTICS IO, LOCK_TIMEOUT, ...),
+    refused by name. The ones it runs, with their values, are in _SETTINGS. ``SET @x = ...`` is a variable, and
+    ``UPDATE t SET col = ...`` (or ``+=``) an assignment: a name followed by =, an operator and =, or a dot isn't an
+    option."""
+    if "SET" not in batch.upper():
+        return
+    try:
+        tokens = KfTSQL().tokenize(batch)
+    except SqlglotError:
+        return
+    for i, tok in enumerate(tokens[:-1]):
+        if tok.token_type != TokenType.SET:
+            continue
+        name = tokens[i + 1]
+        then = tokens[i + 2].token_type if i + 2 < len(tokens) else None
+        if name.token_type != TokenType.VAR or then in (TokenType.EQ, TokenType.DOT):
+            continue
+        if then in _COMPOUND and i + 3 < len(tokens) and tokens[i + 3].token_type == TokenType.EQ:
+            continue  # UPDATE t SET n += 1: an assignment, not an option
+        option = name.text.upper()
+        if option in _SETTINGS or option in ("DATEFIRST", "TRANSACTION"):
+            continue
+        if option in ("STATISTICS", "SHOWPLAN_ALL", "SHOWPLAN_TEXT", "SHOWPLAN_XML") and i + 2 < len(tokens):
+            option += f" {tokens[i + 2].text.upper()}" if option == "STATISTICS" else ""
+        raise ValueError(_NOT_YET + f"SET {option} isn't mapped yet. Remove it, or run it in a Fabric Warehouse.")
+
+
 def _schema_authorization(batch: str) -> bool:
     """CREATE SCHEMA name AUTHORIZATION owner, read by tokens, so a string that holds the words isn't refused."""
     if "AUTHORIZATION" not in batch.upper():
@@ -296,6 +376,8 @@ def _schema_authorization(batch: str) -> bool:
 
 
 def _parse(batch: str) -> list[exp.Expression]:
+    _refuse_security(batch)
+    _refuse_session_options(batch)
     if _schema_authorization(batch):
         raise ValueError(_NOT_YET + "CREATE SCHEMA ... AUTHORIZATION isn't mapped yet: the local engine has no "
                          "users to own a schema. Use CREATE SCHEMA name, or run it in a Fabric Warehouse.")
@@ -337,7 +419,18 @@ def _harmless_setting(tree: exp.Expression) -> bool:
             return True  # Fabric's default, which the translation already follows
         raise ValueError("The local engine counts weeks from Sunday (SET DATEFIRST 7, Fabric's default), and doesn't "
                          "run other DATEFIRST settings yet. Remove the SET DATEFIRST.")
-    return bool(items) and all(n in _DROPPED_SETTINGS for n in names)
+    if not items or not all(n in _SETTINGS for n in names):
+        return False  # _refuse names it
+    for item, name in zip(items, names, strict=True):
+        value = item.this.expression
+        written = (value.name if isinstance(value, (exp.Var, exp.Literal, exp.National, exp.Column, exp.Identifier))
+                   else value.sql(dialect="tsql")).upper()
+        if written not in _SETTINGS[name]:
+            runs_as = " or ".join(sorted(_SETTINGS[name]))
+            raise ValueError(_NOT_YET + f"SET {name} {written} isn't mapped yet: the local engine runs as SET {name} "
+                             f"{runs_as}, a Fabric Warehouse's default. Remove the SET, or run it in a Fabric "
+                             "Warehouse.")
+    return True
 
 
 def _refuse(tree: exp.Expression) -> None:

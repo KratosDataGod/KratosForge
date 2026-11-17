@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-16",
+  "updated": "2026-11-17",
   "about": "Machine-readable work queues for the six workstreams. GitHub Issues hold each story; this file says which story each workstream is on, what comes next and what blocks it. The orchestrator thread updates it at the weekly review and when a lead reports a story done. Check and render with: python docs/product/operations/tools/queues.py all",
   "rules": {
     "ready_minimum": 2,
@@ -31,11 +31,11 @@
         "Local TPC-H run slowdown"
       ],
       "active": {
-        "story": "WR-104"
+        "story": "WR-106"
       },
       "ready": [
         {
-          "story": "WR-103"
+          "story": "WR-107"
         }
       ],
       "backlog": [
@@ -48,8 +48,8 @@
       "blockers": [
         "PB-015 live Prove run waits on Chris's yes (state kept in the backlog; its issue is closed until approved)"
       ],
-      "last_completed": "WR-101 first-write race retry (#2273, #2277); WR-102 benchmark baseline gate (#2329, #2350); WR-103 full temp drive message (#2478) and real-volume test (#2413), out-of-memory part still open",
-      "next_action": "WR-104, then WR-103 (out-of-memory part). #2361's new profile options wait on Chris's go; the 8-hour soak and PB-015 wait on Chris."
+      "last_completed": "WR-101 (#2273, #2277), WR-103 (#2478, #2413, #2754), WR-104 (#2753), WR-105 (#2772); WR-101 first-write race retry (#2273, #2277); WR-102 benchmark baseline gate (#2329, #2350); WR-103 full temp drive message (#2478) and real-volume test (#2413), out-of-memory part still open",
+      "next_action": "WR-106, then WR-107. #2361 Delta profile waits on Chris's typed go; the 8-hour soak and PB-015 wait on Chris."
     },
     {
       "key": "fabric",
@@ -67,14 +67,11 @@
         "Sync pinned workspaces with Fabric"
       ],
       "active": {
-        "story": "WR-204"
+        "story": "WR-218"
       },
       "ready": [
         {
-          "story": "WR-206"
-        },
-        {
-          "story": "WR-207"
+          "story": "WR-219"
         }
       ],
       "backlog": [
@@ -88,8 +85,8 @@
         "PB-002, PB-003, PB-049 and PB-052 live runs wait on Chris's yes (issues closed until approved)",
         "#799 staging cleaner held"
       ],
-      "last_completed": "WR-201 long-running operations and throttling retries (#2342, #2394); WR-202 request id and next step (#2494, #2534, #2538, #2570)",
-      "next_action": "WR-204 (#2763) in review; WR-203 (#2757) with RM; WR-205 Best Practice Analyzer runs in the BPA thread; then WR-206, WR-207. Run 11 waits on Chris's typed yes."
+      "last_completed": "WR-203 to WR-217 (#2757, #2763, #2770, #2779, #2783, #2787, #2790, #2794, #2804, #2810, #2814, #2817, #2826, #2829); WR-201 long-running operations and throttling retries (#2342, #2394); WR-202 request id and next step (#2494, #2534, #2538, #2570)",
+      "next_action": "WR-218 (live check prepared, not run), WR-219. WR-205 runs in the BPA thread. Run 11 and the T-SQL variables and control-flow interpreter wait on Chris."
     },
     {
       "key": "dbx-snow",
@@ -101,14 +98,11 @@
         "Snowflake local-first development (to be opened)"
       ],
       "active": {
-        "story": "WR-302"
+        "story": "WR-306"
       },
       "ready": [
         {
-          "story": "WR-303"
-        },
-        {
-          "story": "WR-304"
+          "story": "WR-307"
         }
       ],
       "backlog": [],
@@ -120,8 +114,8 @@
         "Databricks live runs need a workspace and Chris's yes",
         "Snowflake sign-in and engine wait on Chris's D4 decision"
       ],
-      "last_completed": "WR-301 reader options (#1720, #2561); PySpark parity: UDFs, mapInPandas, the 5 missing DataFrame methods, MERGE schema evolution, spark.catalog (#2626 and the week's Notebook Spark PRs)",
-      "next_action": "WR-302 and WR-304 in parallel. Databricks live runs need a workspace and Chris's yes."
+      "last_completed": "WR-303 (#2332), WR-304, WR-305 (#2771); WR-301 reader options (#1720, #2561); PySpark parity: UDFs, mapInPandas, the 5 missing DataFrame methods, MERGE schema evolution, spark.catalog (#2626 and the week's Notebook Spark PRs)",
+      "next_action": "WR-306, then WR-307."
     },
     {
       "key": "enterprise",
@@ -200,24 +194,17 @@
         "Enterprise readiness program"
       ],
       "active": {
-        "story": "WR-605"
+        "story": "WR-611"
       },
-      "ready": [
-        {
-          "story": "WR-606"
-        },
-        {
-          "story": "PB-061"
-        }
-      ],
+      "ready": [],
       "backlog": [],
       "dependencies": [],
       "blockers": [
         "PB-001 / EA-009 code signing waits on Microsoft identity validation (Chris)",
         "#744 HD-030 waits on Chris's fail-closed decision"
       ],
-      "last_completed": "WR-604 flaky ledger has no open rows (2026-11-16); WR-601 dependency scanning; WR-602 VDI fixes (#2469, #2484); WR-603 cancelled runs apart; main audited every 6 h (#2681); shell coverage 67% to 75% with Windows-only security tests (#2682 to #2720)",
-      "next_action": "WR-604, WR-605. Signing waits on Chris's identity check."
+      "last_completed": "WR-605 (#2755), WR-606 (#2767), WR-607 (#2774), WR-608 (#2782), WR-609 (#2784), WR-610 (#2785); PB-061 already on main (#2585, #2577); WR-604 flaky ledger has no open rows (2026-11-16); WR-601 dependency scanning; WR-602 VDI fixes (#2469, #2484); WR-603 cancelled runs apart; main audited every 6 h (#2681); shell coverage 67% to 75% with Windows-only security tests (#2682 to #2720)",
+      "next_action": "WR-611 in four slices. PB-061 Group Policy templates come with #2258, which waits on Chris."
     }
   ],
   "new_stories": {
@@ -514,6 +501,230 @@
         "Each test job writes a short failed-tests summary (name and first error line) to the job summary",
         "A failing test in any job shows by name without reading the full log",
         "The flaky ledger's how-to points at the summary"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-105": {
+      "title": "Local Spark SQL decimal arithmetic gives Spark's result types",
+      "priority": "P2",
+      "problem": "docs/parity.md: decimal division was the one mismatch in the 11-03 live comparison.",
+      "acceptance": [
+        "Tests cover decimal division, multiplication, AVG and rounding against Spark's documented rules",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Local data engine and OneLake publishing"
+    },
+    "WR-106": {
+      "title": "Local Spark SQL date and time functions value-checked against Spark",
+      "priority": "P2",
+      "problem": "Date patterns are a documented source of local differences (sql-compatibility.md).",
+      "acceptance": [
+        "Value checks for date_add, datediff, months_between, date_format patterns, to_timestamp, trunc and time zones",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Local data engine and OneLake publishing"
+    },
+    "WR-107": {
+      "title": "Local Spark SQL regular expressions and string functions value-checked against Spark",
+      "priority": "P2",
+      "problem": "Regular expressions are a documented source of local differences (Java vs RE2 syntax).",
+      "acceptance": [
+        "Value checks for rlike, regexp_extract, regexp_replace, split, and string functions with NULLs",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Local data engine and OneLake publishing"
+    },
+    "WR-208": {
+      "title": "Local T-SQL date and time functions value-checked against the warehouse",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "DATEADD/DATEDIFF boundaries, EOMONTH, DATEFROMPARTS, FORMAT, CONVERT styles",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-209": {
+      "title": "Guard test: every warehouse write path to Prod asks for the typed name and writes a fail-closed audit line",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "A new write path that isn't listed fails the test",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-210": {
+      "title": "Local T-SQL strings and case-sensitive collation match the warehouse",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "Comparisons, ORDER BY, LIKE, LEN, CHARINDEX, CONCAT, STRING_AGG",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-211": {
+      "title": "Local T-SQL arithmetic and implicit conversion match the warehouse",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "Integer division, overflow, implicit casts, ISNULL vs COALESCE, TRY_CAST, ROUND",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-212": {
+      "title": "Local T-SQL NULL ordering and window functions match the warehouse",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "NULLs first ascending, ties, LAG/LEAD, default frames, PERCENTILE_*",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-213": {
+      "title": "Local T-SQL MERGE and multi-row writes match the warehouse or are refused",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "Several matching source rows refused; OUTPUT and @@ROWCOUNT; joined UPDATE/DELETE",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-214": {
+      "title": "Local T-SQL scripts: control flow refused by name, mid-script errors name their statement",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "Running variables and control flow is a new feature and waits on Chris's go",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-215": {
+      "title": "Local T-SQL temp tables, CTAS, SELECT INTO and IDENTITY match the warehouse or are refused",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "Column types and nullability; IDENTITY per current docs",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-216": {
+      "title": "Local T-SQL names, schemas and views resolve as in the warehouse or are refused",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "Default dbo; three-part names refused by name",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-217": {
+      "title": "Local T-SQL security statements refused by name; SET options honoured or refused",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "GRANT/DENY/REVOKE/EXECUTE AS/RLS/DDM never a no-op",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-218": {
+      "title": "Warehouse live check prepared for Run 11 (not run)",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "Every case marked unverified in WR-206 to WR-217 in one read-only script for kf_tenant_test, scratch schema dropped at the end",
+        "Dry-run against fakes; running it needs Chris's typed yes",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-219": {
+      "title": "Local T-SQL JSON functions value-checked against the warehouse",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "ISJSON, JSON_VALUE/QUERY lax and strict, OPENJSON, FOR JSON, JSON_OBJECT/ARRAY",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-305": {
+      "title": "Snowflake: value-check at least 100 Not checked functions",
+      "priority": "P2",
+      "problem": "docs/snowflake-functions.md had 227 of 495 functions Not checked.",
+      "acceptance": [
+        "Each moves to Runs, Differs or Refused on a value check, never a guess"
+      ],
+      "agent": "Fabric and Databricks unified development"
+    },
+    "WR-306": {
+      "title": "Databricks: shrink the Not checked function list",
+      "priority": "P2",
+      "problem": "Same gap as WR-305 on docs/databricks-functions.md.",
+      "acceptance": [
+        "Value checks from Databricks' SQL reference for the most-used Not checked functions",
+        "Each moves to Runs, Differs or Refused on a value check"
+      ],
+      "agent": "Fabric and Databricks unified development"
+    },
+    "WR-307": {
+      "title": "Snowflake: value-check the remaining Not checked functions",
+      "priority": "P2",
+      "problem": "WR-305 checked 119; the rest remain.",
+      "acceptance": [
+        "Each remaining function moves on a value check or is listed with why it can't be checked locally"
+      ],
+      "agent": "Fabric and Databricks unified development"
+    },
+    "WR-607": {
+      "title": "Every SQLite store commits durably through one helper",
+      "priority": "P2",
+      "problem": "findings.md QA-022: durability drift between stores.",
+      "acceptance": [
+        "Tests and a guard where the finding names one; Security read"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-608": {
+      "title": "Fake-backed tests for Fabric client writes and OneLake upload and delete",
+      "priority": "P2",
+      "problem": "findings.md QA-018.",
+      "acceptance": [
+        "Tests and a guard where the finding names one; Security read"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-609": {
+      "title": "Table URIs built in one validated place",
+      "priority": "P2",
+      "problem": "findings.md QA-025.",
+      "acceptance": [
+        "Tests and a guard where the finding names one; Security read"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-610": {
+      "title": "Date and time helpers follow one rule for naive times",
+      "priority": "P2",
+      "problem": "findings.md QA-024.",
+      "acceptance": [
+        "Tests and a guard where the finding names one; Security read"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-611": {
+      "title": "Validators match whole values (fullmatch), with a guard test",
+      "priority": "P2",
+      "problem": "A sweep found 116 $-anchored patterns used with .match(), which accept a trailing newline.",
+      "acceptance": [
+        "Tests and a guard where the finding names one; Security read"
       ],
       "agent": "Codebase audit and hardening"
     }

@@ -193,7 +193,9 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
 
 def _null_remainders(statement: exp.Expression) -> exp.Expression:
     """a % 0 is NULL with ANSI mode off, as / and div are; DuckDB 2.0 stops on it instead."""
-    for node in list(statement.find_all(exp.Mod)):
+    # Deepest first: a template (pmod) puts copies of its arguments in several places, so an inner % must be
+    # guarded before an outer one copies it, or the copies keep the unguarded % (pmod(x, 0.0D) was NaN inside).
+    for node in reversed(list(statement.find_all(exp.Mod))):
         divisor = node.expression
         if not (isinstance(divisor, exp.Literal) and divisor.is_number and float(divisor.name) != 0):
             node.set("expression", exp.Nullif(this=divisor.copy(), expression=exp.Literal.number(0)))
@@ -966,9 +968,18 @@ def spark_legacy_casts(statement: exp.Expression) -> exp.Expression:
             replacement = exp.TryCast(this=node.this, to=node.to)
             replacement.meta.update(spark_sql_names.kept(node))  # double(x) keeps the name Spark gives it
             if node is statement:
-                return replacement
+                return _mark_date_casts(replacement)
             node.replace(replacement)
-    return _spark_cast_functions(statement, legacy=True)
+    return _mark_date_casts(_spark_cast_functions(statement, legacy=True))
+
+
+def _mark_date_casts(statement: exp.Expression) -> exp.Expression:
+    """Mark the casts to DATE the person wrote (CAST, ::, date()), so spark_legacy_times reads their text as
+    Spark does; the rewrites in between write casts to DATE of their own, which keep DuckDB's cast."""
+    for date_cast in statement.find_all(exp.TryCast):
+        if date_cast.to.this == exp.DataType.Type.DATE:
+            date_cast.meta[_SPARK_DATE_CAST] = True
+    return statement
 
 
 def spark_timestamp_text(value: str) -> str:
@@ -1233,6 +1244,10 @@ _TIMESTAMPS = (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPTZ, exp.D
                exp.DataType.Type.TIMESTAMPNTZ)
 
 
+# Marks a CAST to DATE the person wrote (spark_legacy_casts), for spark_legacy_times.
+_SPARK_DATE_CAST = "kf_spark_date_cast"
+
+
 def spark_legacy_times(statement: exp.Expression) -> exp.Expression:
     """Spark's to_timestamp with ANSI off, as Fabric runs it: text that isn't a timestamp gives NULL
     (EA-015). sqlglot reads to_timestamp(x) as a CAST and to_timestamp(x, format) as a strptime,
@@ -1240,7 +1255,14 @@ def spark_legacy_times(statement: exp.Expression) -> exp.Expression:
     person wrote is read as a TryCast, so a plain Cast to a timestamp came from to_timestamp.
     Databricks SQL is ANSI, so its path (engines/local_sql.py) doesn't use this."""
     for node in list(statement.find_all(exp.StrToTime, exp.Cast)):
-        if isinstance(node, exp.StrToTime):
+        if isinstance(node, exp.TryCast) and node.meta.get(_SPARK_DATE_CAST):
+            # Spark reads text as a date by its own rules: '24-02-29' and '-7-7-7-7-7' are NULL, where DuckDB
+            # reads the year 24, or a date before year 1 that can't be fetched.
+            read: exp.Expression = exp.paren(spark_builtins_sql.text_date(node.this))
+            if node is statement:
+                return read
+            node.replace(read)
+        elif isinstance(node, exp.StrToTime):
             node.set("safe", True)
         elif type(node) is exp.Cast and node.to.this in _TIMESTAMPS:
             # to_timestamp gives Spark's timestamp: with time zone, text read in the session's zone
@@ -1569,7 +1591,25 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
         elif not isinstance(start, (exp.Literal, exp.Neg)):  # -3 counts from the end in both
             sub.set("start", exp.Case(ifs=[exp.If(this=exp.EQ(this=start.copy(), expression=exp.Literal.number(0)),
                                                   true=exp.Literal.number(1))], default=start.copy()))
+        _spark_negative_length(sub)
     return node
+
+
+def _spark_negative_length(sub: exp.Substring) -> None:
+    """substring(s, pos, len) with a len below 0 is empty in Spark (UTF8String.substringSQL: the end is pos + len,
+    before the start), and NULL when s or pos is NULL. DuckDB counts len back from pos instead:
+    substring('Hello World', -1, -6) was 'o Worl'. A len written as 0 or more needs nothing."""
+    length = sub.args.get("length")
+    if length is None or sub.meta.get("kf_negative_length") or (
+            isinstance(length, exp.Literal) and not length.is_string):
+        return
+    empty = exp.Substring(this=sub.this.copy(), start=exp.Add(
+        this=exp.Mul(this=exp.paren(sub.args["start"].copy()), expression=exp.Literal.number(0)),
+        expression=exp.Literal.number(1)), length=exp.Literal.number(0))  # '' of s's type, NULL for a NULL s or pos
+    kept = sub.copy()
+    kept.meta["kf_negative_length"] = True
+    sub.replace(exp.Case(ifs=[exp.If(this=exp.LT(this=exp.paren(length.copy()), expression=exp.Literal.number(0)),
+                                     true=empty)], default=kept))
 
 
 def _lakehouse() -> Any:
@@ -1767,6 +1807,7 @@ def prepare_sandboxed(query: str, dialect: str = "spark", memory_mb: int | None 
         views: dict[str, str] = {}
         statement = check_read_only([history_query(s, con, views) for s in parse(query, dialect)])
         bind_tables(statement, con, views)
+        statement = _decimal_types(statement, con, dialect)
         if memory_mb:
             con.execute(f"SET memory_limit = '{int(memory_mb)}MB'")
         if threads:
@@ -1785,6 +1826,14 @@ def execute_sandboxed(con: duckdb.DuckDBPyConnection, statement: str) -> pa.Tabl
     return _arrow(for_arrow(con, statement))
 
 
+def _decimal_types(statement: exp.Expression, con: duckdb.DuckDBPyConnection, dialect: str) -> exp.Expression:
+    """Spark SQL's decimal result types and div (spark_decimals), as a notebook's spark.sql gives them: without
+    them floor(-1.25) div 7 was DuckDB's double division, -0.2857..., where Spark gives 0."""
+    if sql_dialects.get(dialect)["id"] != "spark":
+        return statement
+    return cast(exp.Expression, spark_decimals.spark_decimal_types(statement, con))
+
+
 def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyConnection, Any]:
     """Run every statement in ``query``; the connection and the last one's result (None for none).
 
@@ -1801,7 +1850,7 @@ def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyCo
     for i, statement in enumerate(statements):
         statement = history_query(statement, con, views)
         bind_tables(statement, con, views, lambda name: is_local(con, name))
-        text = duckdb_sql(statement)
+        text = duckdb_sql(_decimal_types(statement, con, dialect))
         if i == len(statements) - 1:
             result = for_arrow(con, text)
         else:

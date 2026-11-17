@@ -191,7 +191,7 @@ function sqlGridMenu(td, table, on) {
 function sqlCopiedPageNote(r, as = "") {
   const n = r.rows.length;
   const copied = `Copied the ${n.toLocaleString()} row${n === 1 ? "" : "s"} on this page${as}`;
-  return r.total > n ? `${copied}. The result has ${r.total.toLocaleString()}: Export saves every row.` : copied;
+  return r.total > n ? `${copied}. The result has ${r.total.toLocaleString()} rows. Use Export to save them all.` : copied;
 }
 
 // The toast after a copy of the grid's selection: "Copied 6 cells", "Copied 3 rows as CSV".

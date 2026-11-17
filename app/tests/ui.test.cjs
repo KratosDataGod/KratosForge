@@ -741,7 +741,7 @@ test("Copy says how many rows the result has when it copied only this page of th
   assert.strictEqual(ctx.sqlCopiedPageNote(page(2, 2)), "Copied the 2 rows on this page");
   assert.strictEqual(ctx.sqlCopiedPageNote(page(1, 1), " as CSV"), "Copied the 1 row on this page as CSV");
   assert.strictEqual(ctx.sqlCopiedPageNote(page(1000, 10000000), " as JSON"),
-    "Copied the 1,000 rows on this page as JSON. The result has 10,000,000: Export saves every row.");
+    "Copied the 1,000 rows on this page as JSON. The result has 10,000,000 rows. Use Export to save them all.");
 });
 
 test("the result grid keeps a column layout for one set of names: widths, hidden columns and order", () => {

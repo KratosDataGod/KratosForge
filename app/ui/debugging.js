@@ -552,7 +552,7 @@ function dbgVariablesNote(p) {
     parts.push(`Showing the first ${p.variables.length} of ${p.variables_total} variables, by name. Evaluate a name to see one that isn't listed.`);
   }
   if ((p.variables || []).some((r) => /×/.test(r.size || ""))) {
-    parts.push("Data frames show their size and first columns only. Evaluate its head(), such as df.head(), to see rows.");
+    parts.push("Data frames show their size and first columns only. To see rows, evaluate head() on one, such as df.head().");
   }
   return parts.length ? h("div", { class: "muted-text dbg-note dbg-capped" }, parts.join(" ")) : null;
 }

@@ -33,6 +33,13 @@ from .jsonfile import read_json, write_json, write_text
 from . import known_folders
 
 _log = logging.getLogger(__name__)
+
+
+def _statement(operation: str) -> str:
+    """The statement a cell ran, as a refusal names it: "zorder" is only the audit's word for OPTIMIZE ... ZORDER BY."""
+    return "OPTIMIZE with ZORDER BY" if operation == "zorder" else operation.upper()
+
+
 _seal_failed: list[bool] = []  # the warning that settings.json couldn't be sealed was logged
 
 
@@ -184,7 +191,7 @@ class MetaMixin:
         refusal = None
         for env in ("test", "prod"):
             if project is not None and workspace_id in _env_workspaces(project.environments.get(env, {})):
-                refusal = (f"{operation.upper()} on {table} from notebook code is refused: this workspace is "
+                refusal = (f"{_statement(operation)} on {table} from notebook code is refused: this workspace is "
                            f"{env.title()}'s, which changes only by promote. Run Optimize or Vacuum from X-ray, which "
                            "shows what it does first, or run the cell against a Dev workspace. Nothing was changed.")
                 break
@@ -226,7 +233,7 @@ class MetaMixin:
             return None
         if found is None or found["outcome"] != risk.BLOCKED:
             return None
-        return (f"{operation.upper()} on {table} is refused: the capacity check is Blocked ({found['title']}). "
+        return (f"{_statement(operation)} on {table} is refused: the capacity check is Blocked ({found['title']}). "
                 f"{found.get('remedy') or ''} Nothing was changed.").replace("  ", " ")
 
     def meta_project(self) -> dict[str, Any]:

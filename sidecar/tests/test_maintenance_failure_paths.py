@@ -134,8 +134,9 @@ def test_a_blocked_capacity_stops_zorder_and_vacuum_and_the_refusal_is_recorded(
     more(lake)
     before = DeltaTable(str(lake / "dbo" / "sales")).version()
     for op, kw in (("optimize", {"zorder": ["id"]}), ("optimize", {}), ("vacuum", {})):
-        with pytest.raises(PermissionError, match="capacity check is Blocked"):
+        with pytest.raises(PermissionError, match="capacity check is Blocked") as said:
             lakehouse.maintain_table("dbo.sales", op, **kw)
+        assert str(said.value).startswith("OPTIMIZE with ZORDER BY on" if kw else f"{op.upper()} on")
     assert DeltaTable(str(lake / "dbo" / "sales")).version() == before
     assert [(o, op, r) for o, op, _t, r in recorded(m)] == [("error", op, "refused") for op in ("zorder", "optimize", "vacuum")]
 
@@ -143,7 +144,8 @@ def test_a_blocked_capacity_stops_zorder_and_vacuum_and_the_refusal_is_recorded(
 def test_a_test_or_prod_workspace_refusal_is_recorded_too(tmp_path):
     m = engine(tmp_path, RUNNING)
     m._project = lambda: SimpleNamespace(environments={"prod": {"workspace_id": "w-prod"}})
-    assert "Prod's" in MetaMixin._maintenance_refusal(m, "zorder", "w-prod", "dbo.t")
+    said = MetaMixin._maintenance_refusal(m, "zorder", "w-prod", "dbo.t")
+    assert said.startswith("OPTIMIZE with ZORDER BY on dbo.t") and "Prod's" in said and "ZORDER on" not in said
     assert MetaMixin._maintenance_refusal(m, "vacuum", "w-dev", "dbo.t") is None
     assert recorded(m) == [("error", "zorder", "dbo.t", "refused"), ("started", "vacuum", "dbo.t", "")]
 

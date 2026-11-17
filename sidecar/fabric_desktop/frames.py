@@ -649,7 +649,7 @@ _NOTES = {  # kind: (one value, several), {n} the count
             ("{n} whole numbers are beyond 9,007,199,254,740,991. They're exact in the file, but JavaScript and "
              "Power Query read them rounded")),
 }
-MAX_NOTES = 12
+MAX_NOTES = 4  # three notes and "And N more": the page shows them in a toast
 
 
 class ExportNotes:

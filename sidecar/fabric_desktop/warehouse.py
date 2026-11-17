@@ -713,14 +713,18 @@ def _time_note(scale: Any, aware: bool) -> str:
     """What a result keeps of a warehouse time (WR-221), said with its export. Times are kept to the microsecond,
     so the seventh digit of datetime2(7), time(7) or datetimeoffset(7) isn't (the driver's scale says how many it
     has); a datetimeoffset is kept in UTC, without the offset it was written with."""
-    parts = []
-    if isinstance(scale, int) and scale > 6:
-        parts.append("times are kept to the microsecond, so the seventh digit of their fraction isn't kept. To keep "
-                     "it, convert the column to text in the query, such as CAST(col AS VARCHAR(34))")
+    seventh = isinstance(scale, int) and scale > 6
+    if seventh and aware:
+        return ("times are kept to the microsecond and given in UTC, so the seventh digit of their fraction and the "
+                "offset each was written with aren't kept. To keep them, convert the column to text in the query, "
+                "such as CAST(col AS VARCHAR(34))")
+    if seventh:
+        return ("times are kept to the microsecond, so the seventh digit of their fraction isn't kept. To keep it, "
+                "convert the column to text in the query, such as CAST(col AS VARCHAR(34))")
     if aware:
-        parts.append("datetimeoffset values are given in UTC, without the offset each was written with. To keep the "
-                     "offset, convert the column to text in the query, such as CAST(col AS VARCHAR(34))")
-    return "; ".join(parts)
+        return ("datetimeoffset values are given in UTC, without the offset each was written with. To keep the "
+                "offset, convert the column to text in the query, such as CAST(col AS VARCHAR(34))")
+    return ""
 
 
 def _batch(schema: Any, rows: list[Any]) -> Any:

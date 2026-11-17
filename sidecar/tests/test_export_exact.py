@@ -26,7 +26,7 @@ import pyarrow.ipc as ipc
 import pyarrow.parquet as pq
 import pytest
 
-from fabric_desktop import sql_exec, warehouse
+from fabric_desktop import frames, sql_exec, warehouse
 from fabric_desktop.frames import NOTE_KEY, ExportNotes
 
 D = decimal.Decimal
@@ -177,7 +177,8 @@ def test_parquet_gives_every_value_back_exactly(tmp_path):
     assert status["notes"] == []
 
 
-def test_excel_keeps_what_it_can_hold_as_values_and_the_rest_as_exact_text(tmp_path):
+def test_excel_keeps_what_it_can_hold_as_values_and_the_rest_as_exact_text(tmp_path, monkeypatch):
+    monkeypatch.setattr(frames, "MAX_NOTES", 50)  # every note, to check each one
     data, status = export(source_table(), "xlsx", tmp_path)
     back = excel_back(data)
     assert back["amount"] == [str(NINES), str(LOWEST), 1e-06, 12.5, None, 0.0]  # 38 digits as text
@@ -244,10 +245,12 @@ def test_an_exact_result_has_no_notes_in_any_format(tmp_path):
         assert export(plain, fmt, tmp_path)[1]["notes"] == [], fmt
 
 
-def test_notes_stop_at_a_dozen(tmp_path):
+def test_notes_stop_at_three_and_a_count_of_the_rest(tmp_path):
     many = pa.table({f"c{i}": pa.array([10 ** 20 + 1], pa.decimal128(38, 0)) for i in range(20)})
     notes = export(many, "xlsx", tmp_path)[1]["notes"]
-    assert len(notes) == 12 and notes[-1] == "And 9 more notes like these."
+    assert len(notes) == 4 and notes[:3] == [
+        f"c{i}: 1 number has more than 15 digits, which Excel can't hold, so it's saved as text with every digit."
+        for i in range(3)] and notes[-1] == "And 17 more notes like these."
 
 
 # ---- what the warehouse result itself doesn't keep, said with every export
@@ -267,11 +270,25 @@ def test_a_warehouse_seventh_digit_and_offset_are_said_with_the_export(tmp_path)
         assert notes[0] == ("at: times are kept to the microsecond, so the seventh digit of their fraction isn't "
                             "kept. To keep it, convert the column to text in the query, such as "
                             "CAST(col AS VARCHAR(34)).")
-        assert notes[1].startswith("at_tz: times are kept to the microsecond") and notes[1].endswith(
-            "; datetimeoffset values are given in UTC, without the offset each was written with. To keep the "
-            "offset, convert the column to text in the query, such as CAST(col AS VARCHAR(34)).")
+        assert notes[1] == ("at_tz: times are kept to the microsecond and given in UTC, so the seventh digit of their "
+                            "fraction and the offset each was written with aren't kept. To keep them, convert the "
+                            "column to text in the query, such as CAST(col AS VARCHAR(34)).")
         assert notes[2].startswith("t: times are kept to the microsecond"), fmt
         assert not any(n.startswith("plain:") for n in notes)
+
+
+@pytest.mark.parametrize("scale, aware, start", [
+    (7, False, "times are kept to the microsecond, so the seventh digit of their fraction isn't kept. To keep it,"),
+    (3, True, "datetimeoffset values are given in UTC, without the offset each was written with. To keep the offset,"),
+    (None, True, "datetimeoffset values are given in UTC"),
+    (7, True, ("times are kept to the microsecond and given in UTC, so the seventh digit of their fraction and the "
+               "offset each was written with aren't kept. To keep them,")),
+    (6, False, ""), (None, False, ""),
+])
+def test_each_time_note_is_one_sentence_with_one_tip(scale, aware, start):
+    note = warehouse._time_note(scale, aware)
+    assert note.startswith(start) and ("; " not in note)
+    assert note.count("CAST(col AS VARCHAR(34))") == (1 if start else 0)
 
 
 def test_a_field_note_reads_back_from_the_snapshot():

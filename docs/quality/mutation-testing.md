@@ -5205,7 +5205,7 @@ No bugs were found.
   - The first probe row gives when and how many; no rows is monitored with nothing seen.
   - The views are listed once monitoring is found, not before, and at most three problems are reported.
   - A view with nothing recorded yet is empty and not cut short; one that fails for another reason says so.
-  - 100 warehouses are built and 101 refused; a created queryset keeps the id Fabric gave it, or none.
+  - 100 warehouses are built and 101 refused; a created queryset keeps the id Fabric gave it, or an empty one when Fabric gives none.
   - A remembered workspace is added to the ones already there.
   - → `test_warehouse_monitoring_service_mutation.py`.
 - **vscode_setup.py**:

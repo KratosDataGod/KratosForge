@@ -197,8 +197,9 @@ def _typeof(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression 
 
 
 def _sign(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
-    # Spark's signum is Java's Math.signum, a double: 1.0, -1.0 or 0.0, and NaN for NaN (DuckDB's SIGN gives 0).
-    return _with_args("CASE WHEN ISNAN(CAST(fj_arg0 AS DOUBLE)) THEN CAST('NaN' AS DOUBLE) "
+    # Spark's signum is Java's Math.signum, a double: 1.0 or -1.0, and the value itself for NaN, 0.0 and -0.0
+    # (DuckDB's SIGN gives 0 for NaN and loses the sign of -0.0).
+    return _with_args("CASE WHEN ISNAN(CAST(fj_arg0 AS DOUBLE)) OR CAST(fj_arg0 AS DOUBLE) = 0 THEN CAST(fj_arg0 AS DOUBLE) "
                       "ELSE CAST(SIGN(fj_arg0) AS DOUBLE) END", args) if len(args) == 1 else None
 
 

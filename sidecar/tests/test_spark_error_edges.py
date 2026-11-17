@@ -1,7 +1,7 @@
 """Spark SQL calls that stopped here where Spark answers, found by the differential test
 (tests/spark_differential.py). Each answer is Apache Spark 3.5.3's (local, UTC, ANSI off): initcap of any
 argument, soundex of a rewritten argument, trunc and make_date inside another call, sqrt of a negative
-number (NaN, as Java's Math.sqrt), and sign of NaN (NaN, as Java's Math.signum)."""
+number (NaN, as Java's Math.sqrt), and sign of NaN and -0.0 (themselves, as Java's Math.signum)."""
 
 from __future__ import annotations
 
@@ -37,6 +37,10 @@ def one(expression: str):
     ("isnan(sqrt(-2.5D))", True),
     ("string(sign(sqrt(-3.75D)))", "NaN"),
     ("sign(-3)", -1.0),
+    ("string(sign(-0.0D))", "-0.0"),
+    ("trim(string(sign((pmod(-2.5D, -2.5D)))))", "-0.0"),
+    ("string(sign(0))", "0.0"),
+    ("sign(2.5)", 1.0),
     ("sign(CAST(NULL AS INT))", None),
 ])
 def test_answers_as_spark(expression: str, spark) -> None:

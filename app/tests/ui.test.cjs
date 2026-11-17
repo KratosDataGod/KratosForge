@@ -3880,6 +3880,7 @@ function resultViewerHarness(pages) {
     attempt: async (fn) => fn(), setTimeout: (fn) => fn(), clearTimeout() {},
     rpc: async (method, args) => { calls.push([method, args]); return pages.shift(); } };
   vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8"), ctx);  // the table is the SQL page's grid
   vm.runInContext(["resultTable", "renderResultViewer", "copyResultPage", "downloadResult"].map(grab).join("\n") +
     "\nconst RESULT_PAGE = 100;\nthis.view = renderResultViewer; this.download = downloadResult;", ctx);
   return { ctx, calls, toasts };
@@ -3925,7 +3926,7 @@ test("a result the kernel no longer holds says to run the cell again; downloads 
   assert.deepStrictEqual(plain(calls[1]), ["notebook_frame_download", { frame: "f1", format: "xlsx", name: "Sales", notebook: "Sales" }]);
   assert.deepStrictEqual(plain(toasts.at(-1)), ["Saved 5,000 rows to C:\\Users\\me\\Downloads\\Sales result.xlsx", false]);
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
-  assert.match(nb, /if \(o\.view === "table" && o\.frame\) \{\n    renderResultViewer\(o, wrap, bar, numeric, count\);/);
+  assert.match(nb, /if \(o\.view === "table" && o\.frame\) \{\n    renderResultViewer\(o, wrap, bar, numeric, count, redraw\);/);
   assert.match(nb, /previewMarked\("resultViewer", menu\)/);
 });
 

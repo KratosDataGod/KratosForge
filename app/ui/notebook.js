@@ -339,6 +339,8 @@ function renderCell(cell) {
     class: `cell ${cell.type}${selected ? " selected" : ""}${meta.frozen ? " frozen" : ""}${multiSelected() && nbSel.ids.has(cell.id) ? " multi" : ""}`,
     "data-cell": cell.id, tabindex: "-1",
     onmousedown: (e) => {
+      // A result's grid (sqlgrid.js) has its own Shift+click and keeps focus: the cell is only selected.
+      if (e.target.closest?.(".sql-result-table")) { if (state.selected !== cell.id) selectCell(cell); return; }
       if (selectionClick(cell, e)) return;  // nbselect.js: Shift or Ctrl+click
       if (state.selected !== cell.id) selectCell(cell);
       else if (multiSelected()) clearSelection();
@@ -965,7 +967,8 @@ function cellKeymap(cell) {
 document.addEventListener("keydown", (e) => {
   if (state.view !== "notebook" || !state.notebook || document.getElementById("dialog-root").childElementCount) return;
   const t = e.target;
-  if (t.closest?.(".cm-editor") || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName) || t.isContentEditable) return;
+  // A result's grid (sqlgrid.js) has keys of its own: arrows, Ctrl+C, Enter.
+  if (t.closest?.(".cm-editor, .sql-result-table") || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName) || t.isContentEditable) return;
   // The view itself counts too: opening a notebook focuses it (focusPage), and a click on a cell
   // part that can't take focus (its gutter) leaves it there until the cell takes focus just after.
   if (!t.closest?.(".cells") && t !== document.body && t.id !== "view") return;
@@ -1203,7 +1206,7 @@ function renderTableOutput(o, cell) {
     : `Showing the first ${o.rows.length} rows (${o.total_rows})`;
 
   if (o.view === "table" && o.frame) {
-    renderResultViewer(o, wrap, bar, numeric, count);
+    renderResultViewer(o, wrap, bar, numeric, count, redraw);
   } else if (o.view === "table") {
     const search = h("input", { type: "search", class: "out-search", placeholder: "Search rows", value: o.q || "", "aria-label": "Search rows" });
     bar.append(h("span", { class: "spacer" }), search);
@@ -1256,14 +1259,20 @@ const RESULT_PAGE = 100;
 
 // The whole result behind a table output (frames.py): search and sort over every row, pages of
 // 100, Copy and Download. The kernel holds the result; after a restart the cell must run again.
-function renderResultViewer(o, wrap, bar, numeric, count) {
+// The table is the SQL page's grid (sqlgrid.js): select cells and copy them, open a value, resize and
+// rearrange columns. redraw() draws the whole output again (Column statistics opens Inspect).
+function renderResultViewer(o, wrap, bar, numeric, count, redraw = () => {}) {
   const v = o.viewer ||= { offset: 0, q: "", sort: null, page: null, gone: false, busy: false };
   v.filters ||= {};
+  const g = v.grid ||= {};  // the grid's selection, open value and column layout
+  const cols = o.columns.map((name, i) => ({ name, type: o.types?.[i] || "" }));
   const search = h("input", { type: "search", class: "out-search", placeholder: "Search all rows", value: v.q, "aria-label": "Search all rows" });
   const status = h("span", { class: "more result-range", role: "status" });
   const prev = btn("Previous", null, () => load(v.offset - RESULT_PAGE), "tool outline small");
   const next = btn("Next", null, () => load(v.offset + RESULT_PAGE), "tool outline small");
   const body = h("div", { class: "out-table-scroll" });
+  const sideBox = h("div", { class: "sql-side-box", hidden: true,
+    onkeydown: (e) => { if (e.key === "Escape" && closeSide()) { e.preventDefault(); e.stopPropagation(); body.querySelector("table")?.focus(); } } });
   const menu = h("details", { class: "sql-export result-download" },
     h("summary", { class: "tool outline small", "aria-label": "Download the whole result" }, "Download ▾"),
     h("div", { class: "sql-export-menu", role: "menu" },
@@ -1278,8 +1287,47 @@ function renderResultViewer(o, wrap, bar, numeric, count) {
     if (v.filterOn) body.querySelector(".sql-filter")?.focus();
   }, "tool outline small", { title: "A filter box under each column. Filters apply to every row of the result; nothing runs again." });
   const error = h("p", { class: "sql-grid-error", role: "alert", hidden: true });
-  bar.append(h("span", { class: "spacer" }), search, filterBtn, btn("Copy", "document", () => copyResultPage(o), "tool outline small"), previewMarked("resultViewer", menu));
-  wrap.append(body, error, h("div", { class: "row result-pager" }, prev, next, status));
+  const columnsBtn = btn("Columns...", null, () => sqlColumnsDialog(cols, g, draw), "tool outline small",
+    { title: "Show, hide and reorder the table's columns" });
+  bar.append(h("span", { class: "spacer" }), search, filterBtn, columnsBtn, btn("Copy", "document", () => copyResultPage(o), "tool outline small"), previewMarked("resultViewer", menu));
+  wrap.append(h("div", { class: "nb-grid-row" }, body, sideBox), error, h("div", { class: "row result-pager" }, prev, next, status));
+  const shown = () => {  // the page on screen, as the grid reads it
+    const p = v.page;
+    return { columns: cols, rows: p ? p.rows : o.rows.slice(0, RESULT_PAGE), offset: v.offset };
+  };
+  async function copySelection(format) {
+    const r = shown();
+    if (!r.rows.length) return;
+    const text = sqlGridCopyText(format, r, g.sel, { dialect: "duckdb", vis: g.vis });
+    if (await attempt(() => navigator.clipboard.writeText(text).then(() => true), "Could not copy")) toast(sqlGridCopiedNote(format, sqlGridBlock(r, g.sel, g.vis)));
+  }
+  function openValue(at) { g.side = at; drawSide(); }
+  function closeSide() {
+    if (!g.side) return false;
+    g.side = null;
+    drawSide();
+    return true;
+  }
+  function drawSide() {
+    const r = shown();
+    const panel = g.side && r.rows[g.side.r] ? sqlValuePanel(r, g.side, {
+      close: () => { closeSide(); body.querySelector("table")?.focus(); },
+      copy: (text) => attempt(() => navigator.clipboard.writeText(text).then(() => toast("Copied the value")), "Could not copy") }) : null;
+    sideBox.hidden = !panel;
+    sideBox.replaceChildren(...(panel ? [panel] : []));
+  }
+  const grid = {
+    select: () => { status.textContent = statusText(); },
+    copy: copySelection,
+    open: openValue,
+    close: closeSide,
+    menu: (td) => {
+      if (!td || !g.sel) return;
+      const at = { r: g.sel.f.r, c: g.vis?.[g.sel.f.c] ?? g.sel.f.c };  // the result's column, not its place on screen
+      sqlGridMenu(td, body.querySelector("table"), { copy: copySelection, open: () => openValue(at),
+        stats: () => { o.view = "inspect"; redraw(); } });  // Inspect profiles every column over every row
+    },
+  };
   const filtered = () => Object.values(v.filters).some((t) => String(t).trim());
   const filterBoxes = () => {
     const timers = (v.filterTimers ||= {});
@@ -1290,7 +1338,8 @@ function renderResultViewer(o, wrap, bar, numeric, count) {
       v.filters[i] = text;
       load(0);
     };
-    return h("tr", { class: "sql-filter-row" }, o.columns.map((c, i) => {
+    return h("tr", { class: "sql-filter-row" }, sqlGridLayoutFor(g, cols).map((i) => {
+      const c = o.columns[i];
       const box = h("input", { type: "text", class: "sql-filter", "data-column": String(i), value: v.filters[i] || "",
         placeholder: "Filter", "aria-label": `Filter ${c}`, spellcheck: "false", ...(v.filterError?.column === i ? { "aria-invalid": "true" } : {}),
         title: "Text to find, or an operator and a value (= != > >= < <=), or null or not null",
@@ -1303,6 +1352,37 @@ function renderResultViewer(o, wrap, bar, numeric, count) {
     }));
   };
 
+  // The table, in the columns Columns... shows and its order, each with a handle to resize it.
+  const gridTable = (rows) => {
+    const vis = sqlGridLayoutFor(g, cols);
+    const style = h("style", {}, sqlGridWidthCss(g.widths));
+    const table = h("table", { tabindex: "0", class: `sql-result-table${Object.keys(g.widths).length ? " sized" : ""}`,
+      "aria-label": "Result. Arrow keys move, Shift and an arrow selects, Ctrl+C copies, Enter opens a value, Shift+F10 shows more." },
+    h("thead", {}, h("tr", {}, vis.map((i) => h("th", { class: numeric[i] ? "n" : null, "data-col": String(i) },
+      h("button", { class: "th-sort", onclick: () => { v.sort = v.sort?.i === i ? { i, dir: -v.sort.dir } : { i, dir: 1 }; return load(0); } },
+        o.columns[i], v.sort?.i === i ? (v.sort.dir > 0 ? " ▲" : " ▼") : ""),
+      o.types?.[i] ? h("span", { class: "th-type" }, o.types[i]) : null,
+      sqlColumnResizer(cols[i], i, g, () => {
+        style.textContent = sqlGridWidthCss(g.widths);
+        table.classList.toggle("sized", Object.keys(g.widths).length > 0);
+      })))), v.filterOn ? filterBoxes() : null),
+    h("tbody", {}, rows.map((r, k) => h("tr", { "data-r": String(k) }, vis.map((i, c) =>
+      h("td", { "data-c": String(c), "data-col": String(i), class: numeric[i] ? "n" : null }, r[i] === null ? "null" : r[i]))))));
+    if (table.tBodies) sqlGridWire(table, shown(), g, grid, vis);  // a real table (the unit tests draw plain objects)
+    const hidden = cols.length - vis.length;
+    return [style, table, hidden ? h("p", { class: "muted-text sql-grid-hidden" },
+      `${hidden.toLocaleString()} column${hidden === 1 ? " is" : "s are"} hidden. Columns... shows ${hidden === 1 ? "it" : "them"}.`) : null].filter(Boolean);
+  };
+  const statusText = () => {
+    const p = v.page;
+    const rows = p ? p.rows : o.rows.slice(0, RESULT_PAGE);
+    const total = p ? p.total : (typeof o.total_rows === "number" ? o.total_rows : null);
+    const note = sqlGridSelectionNote(g.sel);
+    return v.gone ? "Run the cell again to page, search or download: the kernel no longer holds this result."
+      : !rows.length ? (v.q && !filtered() ? `No rows match "${v.q}"` : v.q ? "No rows match the search and filters"
+        : filtered() ? "No rows match the filters." : "No rows")
+        : `Rows ${(v.offset + 1).toLocaleString()} to ${(v.offset + rows.length).toLocaleString()} of ${total !== null ? total.toLocaleString() : count.toLowerCase()}${v.q || filtered() ? " matching" : ""}${note ? ` · ${note}` : ""}`;
+  };
   const draw = () => {
     const p = v.page;
     const rows = p ? p.rows : o.rows.slice(0, RESULT_PAGE);
@@ -1311,10 +1391,8 @@ function renderResultViewer(o, wrap, bar, numeric, count) {
     const active = globalThis.document?.activeElement;
     const typing = active && body.contains(active) && active.matches?.(".sql-filter") ? active : null;
     const at = typing && { column: typing.dataset.column, value: typing.value, start: typing.selectionStart, end: typing.selectionEnd };
-    body.replaceChildren(resultTable(o.columns, o.types, rows, numeric, v.sort, (i) => {
-      v.sort = v.sort?.i === i ? { i, dir: -v.sort.dir } : { i, dir: 1 };
-      return load(0);
-    }, v.filterOn ? filterBoxes() : null));
+    body.replaceChildren(...gridTable(rows));
+    drawSide();
     const box = at && body.querySelector(`.sql-filter[data-column="${at.column}"]`);
     if (box) { box.value = at.value; box.focus(); box.setSelectionRange(at.start, at.end); }
     filterBtn.classList?.toggle("toggled", !!v.filterOn);
@@ -1323,10 +1401,7 @@ function renderResultViewer(o, wrap, bar, numeric, count) {
     error.textContent = v.filterError?.message || "";
     prev.disabled = v.busy || v.offset === 0;
     next.disabled = v.busy || (total !== null ? v.offset + rows.length >= total : !p && rows.length < RESULT_PAGE);
-    status.textContent = v.gone ? "Run the cell again to page, search or download: the kernel no longer holds this result."
-      : !rows.length ? (v.q && !filtered() ? `No rows match "${v.q}"` : v.q ? "No rows match the search and filters"
-        : filtered() ? "No rows match the filters." : "No rows")
-        : `Rows ${(v.offset + 1).toLocaleString()} to ${(v.offset + rows.length).toLocaleString()} of ${total !== null ? total.toLocaleString() : count.toLowerCase()}${v.q || filtered() ? " matching" : ""}`;
+    status.textContent = statusText();
   };
   async function load(offset) {
     const ask = (v.asked = (v.asked || 0) + 1);
@@ -1340,7 +1415,7 @@ function renderResultViewer(o, wrap, bar, numeric, count) {
       v.filterError = p.filter_error || null;  // the rows on screen stay until the filter can be read
       if (p.gone) v.gone = true;
       else if (p.filter_error) { /* keep the page */ }
-      else { v.page = p; v.offset = p.offset; }
+      else { Object.assign(v, { page: p, offset: p.offset }); Object.assign(g, { sel: null, side: null }); }  // another page
     } catch (err) {
       if (ask !== v.asked) return;
       toast(`Could not load rows: ${friendlyError(err).text}`, true);

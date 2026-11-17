@@ -646,6 +646,26 @@ test("Copy as CSV, JSON or INSERT quotes what needs it, for the dialect", () => 
   assert.strictEqual(sqlInsertTable(undefined), "results");
 });
 
+test("the result grid sends its sort and filters, cycles a header's sort, and counts filtered rows", () => {
+  const ctx = {};
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8")}; Object.assign(this, { sqlGridQuery, sqlGridNextSort, sqlGridCount, sqlGridState });`, ctx);
+  const { sqlGridQuery, sqlGridNextSort, sqlGridCount, sqlGridState } = ctx;
+  assert.deepStrictEqual(plain(sqlGridQuery(null)), {});
+  assert.deepStrictEqual(plain(sqlGridQuery({ sort: [], filters: { 0: "  ", 2: "> 3" } })), { filters: [{ column: 2, text: "> 3" }] });
+  assert.deepStrictEqual(plain(sqlGridQuery({ sort: [{ column: 1, desc: true }], filters: {} })), { sort: [{ column: 1, desc: true }] });
+  assert.deepStrictEqual(plain(sqlGridNextSort([], 2)), [{ column: 2, desc: false }]);
+  assert.deepStrictEqual(plain(sqlGridNextSort([{ column: 2, desc: false }], 2)), [{ column: 2, desc: true }]);
+  assert.deepStrictEqual(plain(sqlGridNextSort([{ column: 2, desc: true }], 2)), [], "the third click: the snapshot's order");
+  assert.deepStrictEqual(plain(sqlGridNextSort([{ column: 2, desc: true }], 0)), [{ column: 0, desc: false }]);
+  const cols = [{ name: "region" }, { name: "orders" }];
+  assert.strictEqual(sqlGridCount({ total: 5, all_rows: 5 }, cols), "5 rows");
+  assert.strictEqual(sqlGridCount({ total: 1 }, cols), "1 row");
+  assert.strictEqual(sqlGridCount({ total: 3, all_rows: 5, sort: [{ column: 1, desc: true }] }, cols), "3 of 5 rows (filtered) · sorted by orders");
+  assert.strictEqual(sqlGridCount({ total: 5, all_rows: 5, sort: [{ column: 0 }] }, cols), "5 rows · sorted by region");
+  const tab = {};
+  assert.strictEqual(sqlGridState(tab), tab.grid, "made once, kept with the tab");
+});
+
 test("hovering finds the function, table, alias or column under the pointer", () => {
   const { sqlHoverTarget } = sqlEditorHelpers();
   const cols = { sales: [{ name: "amount", type: "decimal" }, { name: "Region Name", type: "string" }], budget: [{ name: "year", type: "int" }] };

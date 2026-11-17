@@ -207,19 +207,24 @@ def _mark_divisions(statement: exp.Expression) -> None:
 
 def _ansi_divisions(statement: exp.Expression) -> exp.Expression:
     """The query's own /, div and % stop on a zero divisor, as with ANSI mode on (see _DIVIDE_BY_ZERO). The
-    divisor is read once: through a lambda argument unless it is a column or a literal."""
-    stop = exp.Literal.string(_DIVIDE_BY_ZERO).sql("duckdb")
+    division itself is left as it is, inside a CASE, so spark_decimals can still type it; a divisor that
+    can change between reads (rand()) is read once through a lambda argument instead."""
+    stop = "ERROR(" + exp.Literal.string(_DIVIDE_BY_ZERO).sql("duckdb") + ")"
+    holder = exp.Tuple(expressions=[statement])  # so the statement itself can be replaced
     for node in list(statement.find_all(*_DIVISIONS)):
         if not node.meta.pop(_USER_DIVISION, False):
             continue
         divisor = node.expression
-        if isinstance(divisor, (exp.Column, exp.Literal)):
-            text = "CASE WHEN fj_arg0 = 0 THEN ERROR(" + stop + ") ELSE fj_arg0 END"
-        else:
-            text = "(LIST_TRANSFORM([fj_arg0], kf_divisor -> CASE WHEN kf_divisor = 0 THEN ERROR(" + stop + \
-                   ") ELSE kf_divisor END))[1]"
-        node.set("expression", exp.paren(_with_args(text, [divisor])))
-    return statement
+        if divisor.find(exp.Rand, exp.Randn, exp.Uuid):
+            text = "(LIST_TRANSFORM([fj_arg0], kf_divisor -> CASE WHEN kf_divisor = 0 THEN " + stop + \
+                   " ELSE kf_divisor END))[1]"
+            node.set("expression", exp.paren(_with_args(text, [divisor])))
+            continue
+        guard = _with_args("CASE WHEN fj_arg0 = 0 THEN " + stop + " END", [divisor])
+        new = exp.Case(ifs=guard.args["ifs"], default=node.copy())
+        new.meta.update(spark_sql_names.kept(node))
+        node.replace(new)
+    return cast(exp.Expression, holder.expressions[0])
 
 
 # Spark's date and time functions that return an int (sqlglot's DuckDB SQL gives a BIGINT).

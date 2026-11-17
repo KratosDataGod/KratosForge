@@ -1611,7 +1611,7 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
         if key not in views:
             views[key] = f"__lakehouse_table_{next(_VIEW_NAMES)}"
             opened = opened or _lakehouse().open_table(name, **at)
-            con.register(views[key], opened.to_pyarrow_dataset())
+            con.register(views[key], _lakehouse().table_dataset(opened))
         # Keep the name the query used as the alias, so sales.Country still resolves.
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier(table.name))
         table.replace(exp.Table(this=exp.to_identifier(views[key]), alias=alias))

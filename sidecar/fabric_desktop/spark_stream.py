@@ -72,6 +72,11 @@ class _Source:
             # Files are read by path, which would bring back rows a deletion vector marks deleted.
             raise ValueError(f"{self.target} uses deletion vectors, which a stream on this PC can't read: it would "
                              "bring back deleted rows. Run the stream in Fabric.")
+        from .delta_read import column_mapping
+        if column_mapping(dt):
+            # Files are read by their own column names, which column mapping keeps apart from the table's.
+            raise ValueError(f"{self.target} uses column mapping, which a stream on this PC can't read: its files "
+                             "name the columns differently from the table. Run the stream in Fabric.")
         return dt
 
     def _delta_batch(self, state: dict[str, Any]) -> tuple[pa.Table | None, dict[str, Any], str]:

@@ -42,7 +42,7 @@ from urllib.parse import unquote
 import duckdb
 import pyarrow as pa
 
-from .. import delta_dml, delta_profile, durable, sql_dialects
+from .. import delta_dml, delta_profile, delta_read, durable, sql_dialects
 from . import delta, tsql
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
@@ -75,7 +75,7 @@ def _paths(paths: list[str]) -> str:
 
 
 # Delta features a read of the data files alone would get wrong.
-_UNREADABLE = {"deletionVectors": "deletion vectors", "columnMapping": "column mapping",
+_UNREADABLE = {"deletionVectors": None, "columnMapping": None,  # applied in delta_select
                "typeWidening": "type widening", "v2Checkpoint": None, "timestampNtz": None,
                "invariants": None, "appendOnly": None, "checkConstraints": None, "generatedColumns": None,
                "changeDataFeed": None, "identityColumns": None, "domainMetadata": None, "rowTracking": None,
@@ -83,17 +83,26 @@ _UNREADABLE = {"deletionVectors": "deletion vectors", "columnMapping": "column m
                "icebergCompatV2": None, "variantType": "variant columns", "variantType-preview": "variant columns"}
 
 
+# Deleted-row ranges a view holds in its own text. A table past this is refused with the reason, so
+# the view never grows to megabytes; compacting the table in Fabric (OPTIMIZE) folds the vectors in.
+MAX_DELETED_RANGES = 50_000
+_FILE_COL = "__kf_file"
+_ROW_COL = "file_row_number"
+
+
 def delta_select(folder: str, version: int | None = None, timestamp: str | None = None,
                  name: str = "") -> tuple[str, dict[str, Any]]:
     """A SELECT over the Delta table in ``folder`` (its current version, or as of ``version`` or
-    ``timestamp``), and facts about it."""
+    ``timestamp``), and facts about it.
+
+    Deletion vectors are applied (each deleted row is left out by its row number in its file), and
+    column mapping is applied (each column is read by its physical name and named as the table
+    names it)."""
     table = _load(folder, version, timestamp, name)
     protocol = table.protocol()
     features = set(protocol.reader_features or []) | set(protocol.writer_features or [])
-    config = table.metadata().configuration or {}
+    mapping = delta_read.column_mapping(table)
     problems = sorted({label for f in features if (label := _UNREADABLE.get(f, f"the {f} feature"))})
-    if str(config.get("delta.columnMapping.mode", "none")).lower() not in ("", "none"):
-        problems.append("column mapping")
     if protocol.min_reader_version > 3:
         problems.append(f"reader version {protocol.min_reader_version}")
     info = {"version": table.version(), "reader_version": protocol.min_reader_version,
@@ -103,22 +112,91 @@ def delta_select(folder: str, version: int | None = None, timestamp: str | None 
         raise ValueError("This Delta table uses " + ", ".join(sorted(set(problems))) +
                          ", which a local read can't apply yet, so it isn't queryable here.")
     schema = _arrow_schema(table)
+    physical = _physical_names(schema) if mapping else {f.name: f.name for f in schema}
     files = _data_files(table, folder)
     info.update(files=len(files), bytes=sum(_size(f) for f in files))
     if not files:
-        return _empty_select(schema), info
+        return _empty_select(_plain(schema)), info
     partitions = info["partitions"]
     for part in partitions:
-        if not all(f"/{part}=" in f.replace("\\", "/") for f in files):
-            raise ValueError(f"The table's files aren't in {part}=... folders, so its partition column "
+        if not all(f"/{physical[part]}=" in f.replace("\\", "/") for f in files):
+            raise ValueError(f"The table's files aren't in {physical[part]}=... folders, so its partition column "
                              f"{part} can't be read locally yet.")
     options = "union_by_name = true"
     if partitions:
-        types = _duckdb_types(pa.schema([schema.field(p) for p in partitions]))
+        types = _duckdb_types(pa.schema([pa.field(physical[p], schema.field(p).type) for p in partitions]))
         options += ", hive_partitioning = true, hive_types = {" + \
-            ", ".join(f"{lit(p)}: {lit(types[p])}" for p in partitions) + "}"
-    columns = ", ".join(q(f.name) for f in schema)
-    return f"SELECT {columns} FROM read_parquet({_paths(files)}, {options})", info
+            ", ".join(f"{lit(physical[p])}: {lit(types[physical[p]])}" for p in partitions) + "}"
+    deleted = _deleted_ranges(table, folder, files, name)
+    if deleted:
+        clash = {_FILE_COL, _ROW_COL} & {n.lower() for n in physical.values()}
+        if clash:
+            raise ValueError(f"{name or folder} has a column named {sorted(clash)[0]}, which the local read of its "
+                             "deletion vectors needs for itself, so it isn't queryable here.")
+        options += f", filename = {lit(_FILE_COL)}, file_row_number = true"
+        info["deleted_rows"] = sum(hi - lo + 1 for ranges in deleted.values() for lo, hi in ranges)
+    columns = ", ".join(q(physical[f.name]) + ("" if physical[f.name] == f.name else f" AS {q(f.name)}")
+                        for f in schema)
+    scan = f"read_parquet({_paths(files)}, {options})"
+    if not deleted:
+        return f"SELECT {columns} FROM {scan}", info
+    rows = ", ".join(f"({lit(Path(path).as_posix())}, {lo}, {hi})"
+                     for path, ranges in deleted.items() for lo, hi in ranges)
+    return (f"SELECT {columns} FROM {scan} AS kf_rows WHERE NOT EXISTS (SELECT 1 FROM (VALUES {rows}) "
+            f"AS kf_deleted(f, lo, hi) WHERE kf_deleted.f = kf_rows.{q(_FILE_COL)} "
+            f"AND kf_rows.{q(_ROW_COL)} BETWEEN kf_deleted.lo AND kf_deleted.hi)"), info
+
+
+def _physical_names(schema: pa.Schema) -> dict[str, str]:
+    """Each column's name in the data files, for a table with column mapping. A struct column is
+    refused: its fields have physical names too, and a local read names only top-level columns."""
+    out = {}
+    for field in schema:
+        if _has_struct(field.type):
+            raise ValueError(f"Column {field.name} is a struct in a table with column mapping, which a local read "
+                             "can't apply to nested fields yet, so the table isn't queryable here.")
+        meta = field.metadata or {}
+        physical = meta.get(b"delta.columnMapping.physicalName")
+        out[field.name] = physical.decode() if physical else field.name
+    return out
+
+
+def _has_struct(kind: pa.DataType) -> bool:
+    if pa.types.is_struct(kind):
+        return True
+    if pa.types.is_list(kind) or pa.types.is_large_list(kind) or pa.types.is_fixed_size_list(kind):
+        return _has_struct(kind.value_type)
+    if pa.types.is_map(kind):
+        return _has_struct(kind.key_type) or _has_struct(kind.item_type)
+    return False
+
+
+def _plain(schema: pa.Schema) -> pa.Schema:
+    return pa.schema([pa.field(f.name, f.type, f.nullable) for f in schema])
+
+
+def _deleted_ranges(table: Any, folder: str, files: list[str], name: str) -> dict[str, list[tuple[int, int]]]:
+    """The deleted rows of each data file, keyed by the file's path as the view reads it."""
+    by_uri = delta_read.deleted_positions(table)
+    if not by_uri:
+        return {}
+    ranges = sum(len(r) for r in by_uri.values())
+    if ranges > MAX_DELETED_RANGES:
+        raise ValueError(f"{name or folder} has {ranges:,} runs of deleted rows in its deletion vectors, more than "
+                         f"a local read holds ({MAX_DELETED_RANGES:,}). Compacting the table in Fabric (OPTIMIZE) "
+                         "applies them; then it can be read here.")
+    known = {os.path.normcase(os.path.normpath(f)): f for f in files}
+    out: dict[str, list[tuple[int, int]]] = {}
+    for uri, rows in by_uri.items():
+        path = unquote(uri)
+        path = _local_path(path) if "://" in path else path
+        match = known.get(os.path.normcase(os.path.normpath(path)))
+        if match is None:
+            # A vector for a file the view doesn't read would mean the two lists disagree; never guess.
+            raise ValueError(f"{name or folder} has a deletion vector for a file that isn't in its file list, so it "
+                             "isn't queryable here.")
+        out[match] = rows
+    return out
 
 
 def _load(folder: str, version: int | None, timestamp: str | None, name: str) -> Any:

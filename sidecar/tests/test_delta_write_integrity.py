@@ -289,7 +289,7 @@ def test_replace_where_wins_over_the_sessions_dynamic_overwrite(lake):
     ("nope = 1", "has no column nope"),
     ("id IN (SELECT id FROM src)", "no subquery"),
     ("1 = 1", "must compare the table's columns"),
-    ("region = 'EU'; DROP TABLE dbo.sales", "must be one condition, not statements"),
+    ("region = 'EU'; DROP TABLE dbo.sales", "must be a single condition"),
     ("amount > 0;", None),
     ("no_such_fn(region) = 1", "couldn't check the rows against it"),
 ])

@@ -522,7 +522,7 @@ def _replace_where(condition: str, name: str) -> str:
                          f"({sql_dialects.parse_problem(exc)}). Nothing was "
                          "written.") from None
     if len(nodes) != 1 or not isinstance(nodes[0], exp.Condition):  # "dt = 1; DROP TABLE t" is two statements
-        raise ValueError(f"replaceWhere {condition!r} must be one condition, not statements. Nothing was written.")
+        raise ValueError(f"replaceWhere {condition!r} must be a single condition, such as region = 'EU'. Nothing was written.")
     node = nodes[0]
     if node.find(exp.Subquery, exp.Select) or not node.find(exp.Column):
         raise ValueError(f"replaceWhere {condition!r} must compare the table's columns, with no subquery. Nothing "

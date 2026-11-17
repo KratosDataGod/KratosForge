@@ -161,6 +161,30 @@ def test_databricks_sql_path_has_the_untyped_fixes() -> None:
     assert duckdb.connect().execute(sql.duckdb_sql(_databricks(query)[-1])).fetchone() == (None, 0, -1)
 
 
+# LATERAL VIEW names holding a double quote stay one name each: nothing in them runs as SQL.
+QUOTED_NAMES = [
+    ("SELECT * FROM c LATERAL VIEW explode(m) t AS `k\" , getenv('HOME') AS \"z`, v ORDER BY id",
+     ["id", "arr", "m", "s", "e", "k\" , getenv('HOME') AS \"z", "v"]),
+    ("SELECT * FROM c LATERAL VIEW explode(m) t AS `k\"`, v ORDER BY id", ["id", "arr", "m", "s", "e", "k\"", "v"]),
+    ("SELECT `t\"x`.k FROM c LATERAL VIEW OUTER explode(m) `t\"x` AS k, v ORDER BY id", ["k"]),
+]
+
+
+def test_lateral_view_names_with_quotes_stay_names(kernel: Kernel) -> None:
+    text = run(kernel, f"""
+import json
+spark.sql({_VIEW!r})
+out = []
+for q in {[q for q, _ in QUOTED_NAMES]!r}:
+    r = spark.sql(q)
+    out.append([r.columns, len(r.collect())])
+print('RESULT' + json.dumps(out))
+""")
+    got = json.loads(text.split("RESULT", 1)[1])
+    assert [g[0] for g in got] == [want for _, want in QUOTED_NAMES]
+    assert [g[1] for g in got] == [2, 2, 4]
+
+
 def test_untyped_statements_keep_array_forms() -> None:
     class Broken:
         def execute(self, *_a: object) -> object:

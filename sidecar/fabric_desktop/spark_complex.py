@@ -33,9 +33,9 @@ log = logging.getLogger(__name__)
 _KEY = "kf_complex"
 _ARG = "kf_complex_arg"
 _ID = "kf_complex_id"
-_MAP_KEYS = ("The key is already in the first map ([DUPLICATED_MAP_KEY]): Spark stops on a map key that "
-             "repeats (spark.sql.mapKeyDedupPolicy is EXCEPTION), so nothing ran. Remove the duplicate keys, "
-             "or set the policy to LAST_WIN in Fabric.")
+_MAP_KEYS = ("map_concat found a key in more than one of its maps, so nothing ran: Spark stops on it too "
+             "([DUPLICATED_MAP_KEY]), since spark.sql.mapKeyDedupPolicy is EXCEPTION by default. Remove the "
+             "repeated keys, or run it in Fabric with the policy set to LAST_WIN.")
 
 
 def _sql(node: exp.Expr) -> str:
@@ -200,6 +200,11 @@ def _explode_map(node: exp.Expr, a: str) -> None:
     select.set("expressions", select.expressions[:at] + pair + select.expressions[at + 1:])
 
 
+def _quoted(name: str) -> str:
+    """``name`` as a quoted DuckDB identifier, its own quotes doubled, so it stays one name."""
+    return _sql(exp.to_identifier(name, quoted=True))
+
+
 def _lateral_map(lateral: exp.Expr, a: str) -> None:
     """LATERAL VIEW explode(map) t AS k, v: one row per entry, joined to its row."""
     alias = lateral.args.get("alias")
@@ -210,8 +215,9 @@ def _lateral_map(lateral: exp.Expr, a: str) -> None:
     outer = bool(lateral.args.get("outer"))
     keys = f"CASE WHEN {a} IS NULL OR CARDINALITY({a}) = 0 THEN [NULL] ELSE MAP_KEYS({a}) END" if outer else f"MAP_KEYS({a})"
     values = f"CASE WHEN {a} IS NULL OR CARDINALITY({a}) = 0 THEN [NULL] ELSE MAP_VALUES({a}) END" if outer else f"MAP_VALUES({a})"
-    join = _parse(f"SELECT 1 FROM kf_x CROSS JOIN LATERAL (SELECT UNNEST({keys}) AS \"{names[0]}\", "
-                  f"UNNEST({values}) AS \"{names[1]}\") AS \"{table}\"").args["joins"][0]
+    k, v, t = (_quoted(n) for n in (names[0], names[1], table))
+    join = _parse(f"SELECT 1 FROM kf_x CROSS JOIN LATERAL (SELECT UNNEST({keys}) AS {k}, "
+                  f"UNNEST({values}) AS {v}) AS {t}").args["joins"][0]
     select = lateral.parent
     if not isinstance(select, exp.Select):
         return

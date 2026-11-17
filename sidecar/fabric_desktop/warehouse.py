@@ -344,8 +344,8 @@ def _clone_verdict(n: int, c: tsql_clone.Clone) -> sql_policy.Verdict:
     """CREATE TABLE ... AS CLONE OF (WR-226): a zero-copy clone in this warehouse, or refused by name before
     anything is sent."""
     if not c.clone:
-        return sql_policy.Verdict(n, "fabric_mutation", "CREATE TABLE ... AS CLONE OF couldn't be read: write it as "
-                                  "CREATE TABLE schema.clone AS CLONE OF schema.source [AT 'YYYY-MM-DDThh:mm:ss']")
+        return sql_policy.Verdict(n, "fabric_mutation", "CREATE TABLE ... AS CLONE OF couldn't be read. Write it as "
+                                  "CREATE TABLE schema.clone AS CLONE OF schema.source [AT 'YYYY-MM-DDThh:mm:ss'].")
     other = next((name for name in (c.clone, c.source) if len(name) > 2), None)
     if other is not None:
         return sql_policy.Verdict(n, "fabric_mutation", f"{'.'.join(other)} names a database: a Fabric Warehouse "

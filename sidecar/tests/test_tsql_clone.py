@@ -159,7 +159,7 @@ def test_a_local_clone_is_refused_and_leaves_no_table_while_the_copy_it_names_ru
     try:
         engine.execute("CREATE TABLE t USING DELTA AS SELECT 1 AS id")
         engine.execute("INSERT INTO t SELECT 2")
-        with pytest.raises(ValueError, match="refused rather than made one"):
+        with pytest.raises(ValueError, match="so it isn't made here"):
             engine.execute("CREATE TABLE dbo.c AS CLONE OF dbo.t", dialect="tsql")
         assert "c" not in [r[0] for r in engine.execute("SELECT table_name FROM information_schema.tables")["rows"]]
         engine.execute("CREATE TABLE dbo.c AS SELECT * FROM dbo.t", dialect="tsql")  # the copy the message names

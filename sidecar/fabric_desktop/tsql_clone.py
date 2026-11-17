@@ -148,7 +148,7 @@ def at_problem(at: str, now: dt.datetime | None = None) -> str:
             when = None
     if when is None:
         return (f"AT '{at}' isn't a time a clone can take. Write the UTC time as 'YYYY-MM-DDThh:mm:ss', with up to "
-                "three digits of seconds' fractions, such as '2026-11-01T14:30:00.000'.")
+                "three decimal places for the seconds, such as '2026-11-01T14:30:00.000'.")
     now = now or dt.datetime.now(dt.timezone.utc)
     if when > now:
         return f"AT '{at}' is later than now (UTC). A clone can be made as of now or a time in the past."
@@ -164,7 +164,7 @@ def local_refusal(batch: str) -> str:
     if found:
         c = found[0]
         if not c.clone:
-            return ("CREATE TABLE ... AS CLONE OF isn't mapped yet, and this one couldn't be read: write it as "
+            return ("CREATE TABLE ... AS CLONE OF isn't mapped yet, and this one couldn't be read. Write it as "
                     "CREATE TABLE schema.clone AS CLONE OF schema.source [AT 'YYYY-MM-DDThh:mm:ss'].")
         past = ""
         if c.at is not None:
@@ -172,7 +172,7 @@ def local_refusal(batch: str) -> str:
                     f"OPTION (FOR TIMESTAMP AS OF '{c.at}').")
         return (f"{c.statement()} isn't mapped yet. In a Fabric Warehouse a clone is zero-copy: it shares "
                 f"{c.source_name}'s files as they were, and after that the two change on their own. Here it would have "
-                "to be a full copy with a history of its own, so it's refused rather than made one. For a copy of the "
+                "to be a full copy with its own history, so it isn't made here. For a copy of the "
                 f"rows now, use CREATE TABLE {c.clone_name} AS SELECT * FROM {c.source_name}, or run it in a Fabric "
                 f"Warehouse.{past}")
     if snapshot_timestamp(batch):

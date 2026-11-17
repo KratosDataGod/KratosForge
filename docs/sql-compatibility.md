@@ -313,6 +313,29 @@ When a project runs T-SQL on this PC, these are checked against T-SQL's referenc
 | `CAST`, `TRY_CAST` | A value that doesn't convert stops `CAST` and is `NULL` with `TRY_CAST`. A decimal or float to an integer is cut toward zero, and a decimal to a narrower decimal rounds |
 | `ROUND` | Keeps its value's type: `ROUND(150.75, 0)` is `151.00`, `ROUND(748.58, -1)` is `750.00`, and `ROUND(150.75, 0, 1)` cuts to `150.00`. A result that no longer fits the type stops with "Arithmetic overflow error" (`ROUND(748.58, -3)`, `ROUND(999.5, 0)`) |
 
+## Local T-SQL JSON
+
+When a project runs T-SQL on this PC, the JSON functions give a Fabric Warehouse's answers, as T-SQL's reference gives them (its pages for these functions apply to Warehouse in Microsoft Fabric):
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| `ISJSON(x)` | `1` for an object or array, `0` for anything else (`ISJSON('1')` is `0`), and `NULL` for `NULL`. With `VALUE`, `ARRAY`, `OBJECT` or `SCALAR` it tests for that kind: `ISJSON('"text"', SCALAR)` is `1` |
+| `JSON_VALUE(x, path)` | A scalar's text. In lax mode, the default, a path that isn't there, an object or array, or text longer than 4000 characters gives `NULL`. In `strict` mode each is an error. A JSON `null` gives `NULL` either way |
+| `JSON_QUERY(x, path)` | An object or array, and the whole text with no path. In lax mode a scalar or a path that isn't there gives `NULL`; in `strict` mode each is an error |
+| `JSON_OBJECT('a': x, ...)` | `{"a":...}`, keeping a `NULL` value as `null`, T-SQL's default |
+| `JSON_ARRAY(x, ...)` | `[...]`, leaving `NULL`s out, T-SQL's default: `JSON_ARRAY('a', 1, NULL)` is `["a",1]` |
+| One of these inside another | Nested as JSON, not as quoted text: `JSON_ARRAY(1, JSON_OBJECT('k': 'v'))` is `[1,{"k":"v"}]` |
+| JSON text that isn't JSON | `JSON_VALUE` and `JSON_QUERY` stop with an error, in lax mode too. The message is the local engine's ("Malformed JSON"), not T-SQL's |
+
+Refused by name: `OPENJSON`, with or without `WITH`, `FOR JSON PATH` and `FOR JSON AUTO`, `NULL ON NULL` and `ABSENT ON NULL` (leave the clause out to get T-SQL's default), `JSON_ARRAYAGG`, `JSON_OBJECTAGG`, `JSON_MODIFY` and `JSON_PATH_EXISTS`. A path that isn't written out as text is refused too.
+
+What can still differ, each with a note in the run's `translation.notes`:
+
+- `JSON_VALUE` gives a number in the local engine's form: `1.50` is `1.5`, and `1e2` is `100.0`. T-SQL gives it as written.
+- `JSON_OBJECT` and `JSON_ARRAY` write a decimal in its shortest form (`1.50` is `1.5`). T-SQL keeps its scale.
+- `ISJSON` counts JSON with a trailing comma, or `NaN`, as valid. T-SQL counts only standard JSON.
+- `JSON_QUERY` gives an object or array without the spaces between its parts (`[1,2]` for `[1, 2]`). Whether a warehouse keeps them hasn't been checked.
+
 ## Local T-SQL names, schemas and views
 
 When a project runs T-SQL on this PC, names resolve as in a Fabric Warehouse, and a name that can't resolve here is refused by name, never answered from another table.

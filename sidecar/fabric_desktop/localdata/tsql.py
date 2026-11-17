@@ -122,6 +122,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             _percentiles(tree)
             notes += _likes(tree)
             _patindex(tree)
+            notes += _json(tree)
             _functions(tree)
             _gaps(tree)
             _string_edges(tree)
@@ -278,6 +279,29 @@ def _refuse_control(batch: str) -> None:
             raise ValueError(f"The local engine doesn't run T-SQL {what} yet. {advice}")
 
 
+def _refuse_json_clauses(batch: str) -> None:
+    """``FOR JSON PATH`` or ``AUTO`` at a query's end, and ``NULL ON NULL`` or ``ABSENT ON NULL`` in JSON_OBJECT and
+    JSON_ARRAY, refused by name (WR-219): sqlglot drops the first and can't read the second. Tokens, not text."""
+    if "JSON" not in batch.upper():
+        return
+    try:
+        tokens = KfTSQL().tokenize(batch)
+    except SqlglotError:
+        return  # _parse reports it
+    words = [t.text.upper() if t.token_type not in (TokenType.STRING, TokenType.IDENTIFIER, TokenType.NATIONAL_STRING)
+             else "" for t in tokens]
+    for i, word in enumerate(words):
+        if word == "FOR" and words[i + 1:i + 2] == ["JSON"]:
+            mode = words[i + 2] if i + 2 < len(words) else ""
+            raise ValueError(_NOT_YET + f"FOR JSON {mode if mode in ('PATH', 'AUTO') else ''}".rstrip()
+                             + " isn't mapped yet. JSON_OBJECT gives one row's object and JSON_ARRAY an array; "
+                             "or run it in a Fabric Warehouse.")
+        if word in ("NULL", "ABSENT") and words[i + 1:i + 3] == ["ON", "NULL"]:
+            raise ValueError(_NOT_YET + f"{word} ON NULL in JSON_OBJECT or JSON_ARRAY isn't mapped yet. Leave it "
+                             "out: JSON_OBJECT keeps a NULL value as null and JSON_ARRAY leaves it out, as T-SQL does "
+                             "by default.")
+
+
 def _refuse_dbcc(batch: str) -> None:
     """DBCC (CHECKIDENT, SHOW_STATISTICS, ...) starts a statement; sqlglot reads it as a command it passes through.
     Tokens, not text, so a string that holds "DBCC" isn't refused."""
@@ -376,6 +400,7 @@ def _schema_authorization(batch: str) -> bool:
 
 
 def _parse(batch: str) -> list[exp.Expression]:
+    _refuse_json_clauses(batch)
     _refuse_security(batch)
     _refuse_session_options(batch)
     if _schema_authorization(batch):
@@ -388,7 +413,8 @@ def _parse(batch: str) -> list[exp.Expression]:
 
     class Catch(logging.Handler):
         def emit(self, record: logging.LogRecord) -> None:
-            unsupported.append(record.getMessage())
+            if not record.getMessage().startswith("Invalid JSON path syntax"):  # the path stays text; _json reads it
+                unsupported.append(record.getMessage())
 
     handler = Catch(logging.WARNING)
     log = logging.getLogger("sqlglot")
@@ -1867,6 +1893,123 @@ def _str(args: list[exp.Expression]) -> exp.Expression:
                           true=exp.func("LPAD", text, width.copy(), exp.Literal.string(" "))))
     return exp.Case(ifs=[exp.If(this=exp.Is(this=value.copy(), expression=exp.Null()), true=exp.Null()), *ifs],
                     default=exp.Literal.string("*" * length))
+
+
+_JSON_NOTE = ("JSON_VALUE gives a JSON number in the local engine's form, which can differ from the text: 1.50 is "
+              "1.5, and 1e2 is 100.0. T-SQL gives the number as written.")
+_JSON_QUERY_NOTE = ("JSON_QUERY gives the object or array without the spaces between its parts here ([1,2] for "
+                    "[1, 2]). It hasn't been checked whether a warehouse keeps them.")
+_JSON_BUILD_NOTE = ("JSON_OBJECT and JSON_ARRAY write a decimal in its shortest form here (1.50 is 1.5). T-SQL keeps "
+                    "its scale.")
+_ISJSON_NOTE = ("ISJSON counts JSON with a trailing comma, or NaN, as valid here. T-SQL counts only standard JSON.")
+_ISJSON_TYPES = {"VALUE": None, "ARRAY": ("ARRAY",), "OBJECT": ("OBJECT",),
+                 "SCALAR": ("BIGINT", "UBIGINT", "HUGEINT", "DOUBLE", "VARCHAR")}
+
+
+def _json_path(node: exp.Expression, name: str) -> tuple[str, bool]:
+    """A JSON_VALUE or JSON_QUERY path as DuckDB reads it, and whether it's strict. T-SQL's path may start with
+    ``lax`` (the default) or ``strict``. A path that isn't written out is refused by name."""
+    path = node.expression
+    if isinstance(path, exp.JSONPath):
+        return path.sql(dialect=KfTSQL).strip("'"), False  # the path T-SQL was given, written back as text
+    if not (isinstance(path, exp.Literal) and path.is_string):
+        raise ValueError(_NOT_YET + f"{name} with a path that isn't written out as text isn't mapped yet.")
+    m = re.fullmatch(r"\s*(lax|strict)\s+(\$.*)", path.name, re.IGNORECASE | re.DOTALL)
+    if not m:
+        raise ValueError(f"{name}: '{path.name}' isn't a JSON path. A path starts with $, or with lax or strict "
+                         "and then $.")
+    return m.group(2).strip(), m.group(1).lower() == "strict"
+
+
+def _fail(message: str) -> exp.Expression:
+    return exp.Anonymous(this="error", expressions=[exp.Literal.string(message)])
+
+
+def _json(tree: exp.Expression) -> list[str]:
+    """T-SQL's JSON functions with T-SQL's answers (WR-219):
+
+    - ``ISJSON(x)`` is 1 for an object or array, 0 for anything else, and NULL for NULL. With ``VALUE``, ``ARRAY``,
+      ``OBJECT`` or ``SCALAR`` (a number or a string) it tests for that kind.
+    - ``JSON_VALUE`` gives a scalar's text. In lax mode (the default) a path that isn't there, an object or array, or
+      text past 4000 characters gives NULL; in strict mode each is an error, as in T-SQL.
+    - ``JSON_QUERY`` gives an object or array. In lax mode a scalar or a path that isn't there gives NULL; in strict
+      mode an error.
+    - ``JSON_ARRAY`` leaves NULLs out, T-SQL's default (DuckDB's keeps them). ``JSON_OBJECT`` keeps them as null,
+      which is T-SQL's default and DuckDB's.
+    """
+    notes: list[str] = []
+    if any(True for _ in tree.find_all(exp.JSONArrayAgg, exp.JSONObjectAgg)):
+        raise ValueError(_NOT_YET + "JSON_ARRAYAGG and JSON_OBJECTAGG aren't mapped yet. JSON_ARRAY and JSON_OBJECT "
+                         "build one row's JSON.")
+    if any(True for _ in tree.find_all(exp.JSONObject)):
+        notes.append(_JSON_BUILD_NOTE)
+    for node in reversed(list(tree.find_all(exp.Anonymous))):  # innermost first, so a nested call is replaced too
+        name = node.name.upper()
+        if name == "ISJSON":
+            args = node.expressions
+            if not 1 <= len(args) <= 2:
+                raise ValueError("ISJSON takes the text, and optionally VALUE, ARRAY, OBJECT or SCALAR.")
+            wanted = "" if len(args) == 1 else (args[1].name.upper() if isinstance(args[1], exp.Column) else "?")
+            if wanted and wanted not in _ISJSON_TYPES:
+                raise ValueError(f"ISJSON's second argument is VALUE, ARRAY, OBJECT or SCALAR, not {args[1].sql()}.")
+            text = args[0]
+            types = ("OBJECT", "ARRAY") if not wanted else _ISJSON_TYPES[wanted]
+            test: exp.Expression = exp.true() if types is None else exp.In(
+                this=exp.Anonymous(this="json_type", expressions=[text.copy()]),
+                expressions=[exp.Literal.string(t) for t in types])
+            node.replace(exp.Case(ifs=[
+                exp.If(this=exp.Is(this=text.copy(), expression=exp.Null()), true=exp.Null()),
+                exp.If(this=exp.Not(this=exp.Anonymous(this="json_valid", expressions=[text.copy()])),
+                       true=exp.Literal.number(0)),
+                exp.If(this=test, true=exp.Literal.number(1))], default=exp.Literal.number(0)))
+            notes.append(_ISJSON_NOTE)
+        elif name == "JSON_ARRAY":
+            parts = [exp.Anonymous(this="to_json", expressions=[a.copy()]) for a in node.expressions]
+            inner = exp.Anonymous(this="concat_ws", expressions=[exp.Literal.string(","), *parts]) if parts \
+                else exp.Literal.string("")
+            notes.append(_JSON_BUILD_NOTE)
+            node.replace(exp.Cast(this=exp.DPipe(this=exp.DPipe(this=exp.Literal.string("["), expression=inner),
+                                                 expression=exp.Literal.string("]")),
+                                  to=exp.DataType.build("JSON")))  # JSON, so an outer JSON_ARRAY or JSON_OBJECT nests it
+    for value in reversed(list(tree.find_all(exp.JSONExtractScalar))):
+        path, strict = _json_path(value, "JSON_VALUE")
+        doc, p = value.this, exp.Literal.string(path)
+        kind = exp.Anonymous(this="json_type", expressions=[doc.copy(), p.copy()])
+        text = exp.Anonymous(this="json_extract_string", expressions=[doc.copy(), p.copy()])
+        long = exp.GT(this=exp.Anonymous(this="length", expressions=[text.copy()]), expression=exp.Literal.number(4000))
+        nested = exp.In(this=kind.copy(), expressions=[exp.Literal.string("OBJECT"), exp.Literal.string("ARRAY")])
+        if strict:
+            ifs = [exp.If(this=exp.Is(this=doc.copy(), expression=exp.Null()), true=exp.Null()),
+                   exp.If(this=exp.Is(this=kind.copy(), expression=exp.Null()),
+                          true=_fail(f"JSON_VALUE: the property at strict path '{path}' doesn't exist.")),
+                   exp.If(this=nested, true=_fail(f"JSON_VALUE: the value at strict path '{path}' isn't a scalar. "
+                                                  "Use JSON_QUERY instead.")),
+                   exp.If(this=long, true=_fail(f"JSON_VALUE: the value at strict path '{path}' is longer than "
+                                                "4000 characters."))]
+        else:
+            ifs = [exp.If(this=nested, true=exp.Null()), exp.If(this=long, true=exp.Null())]
+        value.replace(exp.Case(ifs=ifs, default=text))
+        notes.append(_JSON_NOTE)
+    for query in reversed(list(tree.find_all(exp.JSONExtract))):
+        if not query.args.get("json_query"):
+            continue
+        path, strict = _json_path(query, "JSON_QUERY")
+        doc, p = query.this, exp.Literal.string(path)
+        kind = exp.Anonymous(this="json_type", expressions=[doc.copy(), p.copy()])
+        nested = exp.In(this=kind.copy(), expressions=[exp.Literal.string("OBJECT"), exp.Literal.string("ARRAY")])
+        got = exp.Anonymous(this="json_extract", expressions=[doc.copy(), p.copy()])  # JSON, so it nests as JSON
+        if strict:
+            ifs = [exp.If(this=exp.Is(this=doc.copy(), expression=exp.Null()), true=exp.Null()),
+                   exp.If(this=exp.Is(this=kind.copy(), expression=exp.Null()),
+                          true=_fail(f"JSON_QUERY: the property at strict path '{path}' doesn't exist.")),
+                   exp.If(this=nested, true=got)]
+            default: exp.Expression = _fail(f"JSON_QUERY: the value at strict path '{path}' isn't an object or "
+                                            "array. Use JSON_VALUE instead.")
+        else:
+            ifs, default = [exp.If(this=nested, true=got)], exp.Null()
+        query.replace(exp.Case(ifs=ifs, default=default))
+        notes.append(_JSON_QUERY_NOTE)
+    return notes
 
 
 def _refused_by_name(tree: exp.Expression) -> None:

@@ -1006,3 +1006,9 @@ def test_timestamp_tz_from_parts_is_in_the_session_zone():
                                   ).statements:
         last = con.execute(statement.duckdb_sql)
     assert last.fetchall()[0][0] == 1365177600  # 12:00 -0400
+
+
+@pytest.mark.parametrize("pattern", ["(" * 1000 + "a" + ")" * 1000, "a{99999999999999999999}"])
+def test_a_pattern_python_cannot_read_still_translates(pattern):
+    translation = sf.translate(f"SELECT regexp_substr('a', '{pattern}', 1, 1, 'e')")
+    assert translation.runnable, translation.first_refusal()

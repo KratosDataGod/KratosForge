@@ -703,7 +703,7 @@ def _pattern_groups(pattern: exp.Expression | None) -> int:
         with warnings.catch_warnings():  # POSIX classes such as [[:alpha:]] warn in Python's re
             warnings.simplefilter("ignore")
             return re.compile(pattern.name).groups
-    except re.error:  # silent-ok: a pattern Python can't read is left unchanged
+    except (re.error, OverflowError, RecursionError):  # silent-ok: a pattern Python can't read is left unchanged
         return 0
 
 

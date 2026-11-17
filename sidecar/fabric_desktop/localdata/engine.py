@@ -176,6 +176,66 @@ def _local_path(uri: str) -> str:
     return path
 
 
+def _dml_target(text: str) -> tuple[str | None, str] | None:
+    """(schema, table) that an UPDATE, DELETE or MERGE in DuckDB SQL changes; None if it can't be read."""
+    import sqlglot
+    from sqlglot import exp
+
+    try:
+        tree = sqlglot.parse_one(text, read=KfDuckDB)
+    except sqlglot.errors.SqlglotError:
+        return None
+    table = tree.this if isinstance(tree, (exp.Update, exp.Delete, exp.Merge)) else None
+    if not isinstance(table, exp.Table) or not table.name or table.catalog:
+        return None
+    return (table.db or None), table.name
+
+
+def _updated_once(con: duckdb.DuckDBPyConnection, text: str) -> None:
+    """Refuse an ``UPDATE ... FROM`` on a database table in which a row of the table joins more than one row of
+    FROM. Which of them sets its new value is undefined: T-SQL takes any one, and DuckDB took one and counted
+    the row once for each match. A DELETE removes the row once whatever it joins, so it isn't checked."""
+    import sqlglot
+    from sqlglot import exp
+
+    tree = sqlglot.parse_one(text, read=KfDuckDB)
+    source = tree.args.get("from_")
+    if not isinstance(tree, exp.Update) or not isinstance(tree.this, exp.Table) or not isinstance(source, exp.From):
+        return
+    target = tree.this
+    where = tree.args.get("where")
+    row = first_row(con.execute(
+        f"SELECT 1 FROM {target.sql(dialect=KfDuckDB)}, {source.this.sql(dialect=KfDuckDB)}"
+        f"{' ' + where.sql(dialect=KfDuckDB) if where is not None else ''} "
+        f"GROUP BY {q(target.alias or target.name)}.rowid HAVING count(*) > 1 LIMIT 1"))
+    if row is not None:
+        name = f"{target.db}.{target.name}" if target.db else target.name
+        raise ValueError(f"The UPDATE would set a row of {name} from more than one row of its FROM, so which one "
+                         f"it gets is undefined. Make FROM give at most one row for each row of {name}, for example "
+                         "with GROUP BY or ROW_NUMBER(), or use a MERGE.")
+
+
+def _matched_once(con: duckdb.DuckDBPyConnection, c: "delta_dml.Change") -> None:
+    """Refuse a MERGE on a database table in which one of its rows would be updated or deleted by more than one
+    source row. T-SQL and Spark refuse it, since which source row wins is undefined; DuckDB's MERGE let the
+    last one win. A pair counts when a WHEN MATCHED clause would act on it."""
+    from sqlglot import exp
+
+    conditions = [w.condition for w in c.whens if w.match == "matched"]
+    acted = "" if any(x is None for x in conditions) else \
+        " WHERE " + delta._duckdb(exp.or_(*[cast(exp.Expression, x).copy() for x in conditions]))
+    target = q(c.schema) + "." + q(c.table) if c.schema else q(c.table)
+    row = first_row(con.execute(
+        f"SELECT 1 FROM (SELECT *, row_number() OVER () AS __fd_row FROM {target}) AS {q(c.alias)} "
+        f"JOIN ({c.source_sql(KfDuckDB)}) AS {q(c.source_alias)} ON {delta._duckdb(cast(exp.Expression, c.on))}"
+        f"{acted} GROUP BY __fd_row HAVING count(*) > 1 LIMIT 1"))
+    if row is not None:
+        raise ValueError(f"The MERGE statement attempted to UPDATE or DELETE the same row more than once: a row of "
+                         f"{c.name} matches more than one source row, so which one changes it is undefined. Keep "
+                         "one source row per row of the table, for example with GROUP BY or ROW_NUMBER() in the "
+                         "source.")
+
+
 def _duckdb_types(schema: pa.Schema) -> dict[str, str]:
     if not len(schema):  # DuckDB can't register a table without columns
         return {}
@@ -210,7 +270,7 @@ def with_overrides(select: str, overrides: dict[str, str]) -> str:
     if not overrides:
         return select
     for column, type_ in overrides.items():
-        if not _TYPE_OK.match(type_ or ""):
+        if not _TYPE_OK.fullmatch(type_ or ""):
             raise ValueError(f"{type_!r} is not a column type (for {column}).")
     casts = ", ".join(f"CAST({q(c)} AS {t}) AS {q(c)}" for c, t in overrides.items())
     return f"SELECT * REPLACE ({casts}) FROM ({select})"
@@ -491,7 +551,7 @@ class LocalEngine:
         if entry is None:
             raise KeyError(f"{table} is not a discovered file in {self.project.name}.")
         for type_ in columns.values():
-            if not _TYPE_OK.match(type_ or ""):
+            if not _TYPE_OK.fullmatch(type_ or ""):
                 raise ValueError(f"{type_!r} is not a column type.")
         if columns:
             self.project.overrides[key] = dict(columns)
@@ -623,6 +683,10 @@ class LocalEngine:
                     step_started = time.monotonic()
                     try:
                         as_of += self._make_as_of(con, step["as_of"])
+                        if explain is None and step.get("matched") is not None:
+                            _matched_once(con, step["matched"])
+                        if explain is None and step.get("joined") is not None:
+                            _updated_once(con, step["joined"])
                         if step["write"] is not None and step["write"].mode == "table":
                             summary = self._make_table(con, step["write"], params)
                             run["write"] = summary
@@ -742,9 +806,22 @@ class LocalEngine:
     def _duckdb_steps(self, con: duckdb.DuckDBPyConnection, texts: list[str], n: int) -> list[dict[str, Any]]:
         steps: list[dict[str, Any]] = []
         for text in texts:
+            matched: delta_dml.Change | None = None
+            joined: str | None = None
             if delta_dml.looks_like(text):
                 rewritten, found = delta.rewrite_as_of(text, n)
-                change = self._own_change(delta_dml.parse(rewritten, "duckdb"))
+                try:
+                    parsed = delta_dml.parse(rewritten, "duckdb")
+                except ValueError:
+                    # What delta-rs can't run (UPDATE ... FROM, DELETE ... USING) runs in DuckDB on a database table.
+                    if not self._database_table(_dml_target(rewritten)):
+                        raise
+                    parsed = None
+                    joined = rewritten  # an UPDATE ... FROM is checked before it runs (_updated_once)
+                change = self._own_change(parsed)
+                if change is None and parsed is not None and parsed.kind == "merge" \
+                        and any(w.match == "matched" for w in parsed.whens):
+                    matched = parsed  # a MERGE on a database table: checked before it runs (_matched_once)
                 if change is not None:
                     n += len(found)
                     steps.append({"sql": "", "write": None, "change": change, "as_of": found,
@@ -763,8 +840,14 @@ class LocalEngine:
                 text, found = delta.rewrite_as_of(text, n)
             n += len(found)
             steps.append({"sql": "" if write else text, "write": write, "change": None, "as_of": found,
-                          "kind": "write delta" if write else _kind(text)})
+                          "kind": "write delta" if write else _kind(text), "matched": matched,
+                          "joined": joined})
         return steps
+
+    def _database_table(self, target: tuple[str | None, str] | None) -> bool:
+        """``target`` is a table of the database, not one of the project's Delta tables or registered folders."""
+        return target is not None and not self._is_own(*target) and \
+            self.project.catalog.get(self._own_key(*target)) is None
 
     def _own_change(self, change: "delta_dml.Change | None") -> "delta_dml.Change | None":
         """``change`` when it changes one of the project's Delta tables; None when it is ordinary SQL
@@ -796,7 +879,7 @@ class LocalEngine:
         return found
 
     def _refuse_drop(self, statement: str) -> None:
-        m = _DROP.match(statement)
+        m = _DROP.fullmatch(statement)
         if m and self._is_own(*delta.split_name(m["name"])):
             raise ValueError(f"{m['name']} is one of the project's Delta tables. Dropping it deletes its folder "
                              "and every version, so it's done as its own step (local_drop_delta), not in SQL.")

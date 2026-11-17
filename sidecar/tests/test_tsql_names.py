@@ -78,6 +78,17 @@ def test_an_alias_never_lets_a_name_reach_another_schema(engine, sql):
     assert run(engine, "SELECT x FROM sales.only_here") == [[1]]
 
 
+@pytest.mark.parametrize("schema", ["main", "sales"])
+def test_update_through_an_alias_changes_the_aliased_table_only(engine, schema):
+    if schema != "main":
+        run(engine, f"CREATE SCHEMA {schema}")
+    run(engine, f"CREATE TABLE {schema}.orders (id INT, [my col] VARCHAR(10))")
+    run(engine, f"INSERT INTO {schema}.orders VALUES (1, 'keep')")
+    run(engine, "UPDATE orders SET [my col] = 'changed' FROM dbo.t AS orders WHERE orders.id = 1")
+    assert run(engine, "SELECT id, [my col] FROM dbo.t") == [[1, "changed"]]
+    assert run(engine, f"SELECT id, [my col] FROM {schema}.orders") == [[1, "keep"]]
+
+
 def test_a_string_that_holds_create_schema_authorization_is_text(engine):
     assert run(engine, "SELECT 'CREATE SCHEMA x AUTHORIZATION y'") == [["CREATE SCHEMA x AUTHORIZATION y"]]
 
@@ -89,10 +100,10 @@ def test_a_cte_a_temp_table_and_an_alias_are_not_schema_names(engine):
     run(engine, "CREATE TABLE #c (x INT)")
     assert run(engine, "SELECT COUNT(*) FROM #c") == [[0]]
     assert run(engine, "SELECT c.id FROM dbo.t AS c") == [[1]]
-    from fabric_desktop.localdata.tsql import translate  # UPDATE ... FROM runs on a database table with WR-213
+    from fabric_desktop.localdata.tsql import translate  # the alias c names dbo.t, never sales.c
     texts, _ = translate("UPDATE c SET id = 2 FROM dbo.t AS c", {"dbo": {"t": {"id": "INTEGER"}},
                                                                    "sales": {"c": {"x": "INTEGER"}}})
-    assert texts == ["UPDATE c SET id = 2 FROM dbo.t AS c"]
+    assert texts == ["UPDATE dbo.t AS c SET id = 2"]
 
 
 @pytest.mark.parametrize(("sql", "words"), [

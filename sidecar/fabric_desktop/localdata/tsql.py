@@ -103,6 +103,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
                 continue
             _refuse(tree)
             _temp_tables(tree)
+            _joined_changes(tree)
             tree = _views(tree, columns)
             notes += _names(tree, columns)
             _table_columns(tree)
@@ -150,6 +151,79 @@ class KfTSQL(TSQL):
                                                     expression=exp.Literal.number(2))}
 
 
+def _refuse_output(batch: str) -> None:
+    """T-SQL's OUTPUT clause names the rows a change wrote as ``inserted`` and ``deleted``. sqlglot reads it as
+    RETURNING, which can't name either, so DuckDB stopped with its own binder error, or the query didn't read at
+    all (DELETE ... OUTPUT). It is refused by name instead. OUTPUT is a reserved word in T-SQL, so a column called
+    output is always bracketed or quoted, and isn't refused."""
+    if "OUTPUT" not in batch.upper():
+        return
+    try:
+        tokens = KfTSQL().tokenize(batch)
+    except SqlglotError:
+        return  # left to the parser, which says what it can't read
+    if any(t.token_type == TokenType.RETURNING and t.text.upper() == "OUTPUT" for t in tokens):
+        raise ValueError(_NOT_YET + "OUTPUT isn't mapped yet: run the INSERT, UPDATE, DELETE or MERGE, then SELECT "
+                         "the rows it changed.")
+
+
+def _joined_changes(tree: exp.Expression) -> None:
+    """T-SQL names the table an UPDATE or DELETE changes in its FROM: ``UPDATE t SET ... FROM dbo.a AS t JOIN dbo.b
+    AS s ON ...``, ``DELETE t FROM dbo.a AS t JOIN ...``. DuckDB names it once, after UPDATE or DELETE FROM, with
+    the other tables in FROM (UPDATE) or USING (DELETE): ``UPDATE dbo.a AS t SET ... FROM dbo.b AS s WHERE ...``.
+    Each JOIN becomes a filter in WHERE, which gives the same rows for an inner join. Read as written, DuckDB
+    stopped (alias not found), or joined the table to itself and changed every row."""
+    if isinstance(tree, exp.Update):
+        what, named, source = "UPDATE", tree.this, tree.args.get("from_")
+    elif isinstance(tree, exp.Delete) and tree.args.get("tables"):
+        what, named, source = "DELETE", tree.args["tables"][0], exp.From(this=tree.this)
+    else:
+        return
+    if not isinstance(source, exp.From) or not isinstance(named, exp.Table) or not isinstance(source.this, exp.Table):
+        return
+    first: exp.Table = source.this
+    joins = first.args.get("joins") or []
+    items = [first] + [j.this for j in joins]
+
+    def is_target(item: exp.Expression) -> bool:
+        if not isinstance(item, exp.Table):
+            return False
+        if item.alias:
+            return not named.db and named.name.lower() == item.alias.lower()
+        return named.name.lower() == item.name.lower() and (named.db or "dbo").lower() == (item.db or "dbo").lower()
+
+    found = [i for i, item in enumerate(items) if is_target(item)]
+    if not found:
+        if what == "DELETE":  # DELETE dbo.a FROM dbo.b AS s WHERE dbo.a.id = s.id: the other tables are its USING
+            tree.set("this", named.copy())
+            tree.set("tables", None)
+            tree.set("using", [first.copy()])
+        return  # UPDATE dbo.a SET ... FROM dbo.b AS s WHERE ...: DuckDB reads it as T-SQL does
+    if found != [0]:
+        raise ValueError(_NOT_YET + f"{what} isn't mapped yet when the table it changes isn't the first one in FROM: "
+                         "name it first, as FROM table AS t JOIN ...")
+    if any(j.side or (j.kind and j.kind.upper() not in ("INNER", "CROSS")) for j in joins):
+        raise ValueError(_NOT_YET + f"{what} isn't mapped yet with an outer join (LEFT, RIGHT or FULL JOIN) in its "
+                         "FROM: use WHERE [NOT] EXISTS (...), or a MERGE.")
+    filters = [j.args["on"] for j in joins if j.args.get("on") is not None]
+    if any(j.args.get("using") for j in joins):
+        raise ValueError(_NOT_YET + f"{what} isn't mapped yet with JOIN ... USING in its FROM: use JOIN ... ON.")
+    where = tree.args.get("where")
+    if where is not None:
+        filters.append(where.this)
+    target = first.copy()
+    target.set("joins", None)
+    others = [j.this.copy() for j in joins]
+    tree.set("where", exp.Where(this=exp.and_(*[exp.paren(f.copy(), copy=False) for f in filters])) if filters else None)
+    if what == "UPDATE":
+        tree.set("this", target)
+        if others:
+            others[0].set("joins", [exp.Join(this=o) for o in others[1:]] or None)
+        tree.set("from_", exp.From(this=others[0]) if others else None)
+    else:
+        tree.set("this", target)
+        tree.set("tables", None)
+        tree.set("using", others or None)
 # T-SQL's reserved words for control flow and cursors: sqlglot read them as a column (RETURN) or a column with an
 # alias (GOTO x), which reached DuckDB as a syntax error.
 _RESERVED_STATEMENTS = {"RETURN": "RETURN", "BREAK": "BREAK", "CONTINUE": "CONTINUE", "GOTO": "GOTO",
@@ -226,6 +300,7 @@ def _parse(batch: str) -> list[exp.Expression]:
         raise ValueError(_NOT_YET + "CREATE SCHEMA ... AUTHORIZATION isn't mapped yet: the local engine has no "
                          "users to own a schema. Use CREATE SCHEMA name, or run it in a Fabric Warehouse.")
     _refuse_dbcc(batch)
+    _refuse_output(batch)
     _refuse_control(batch)
     unsupported: list[str] = []
 

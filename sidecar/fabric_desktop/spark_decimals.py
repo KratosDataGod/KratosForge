@@ -473,13 +473,14 @@ def _rounding(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]
     if not operands or operands[0] is None:
         return None
     operand = operands[0]
-    if isinstance(node, (exp.Ceil, exp.Floor)) and node.args.get("decimals") is None and _is_double(operand, annotated):
+    found = _decimal(operand, typed, annotated)
+    if (isinstance(node, (exp.Ceil, exp.Floor)) and node.args.get("decimals") is None and found is None
+            and _is_double(operand, annotated)):  # sqlglot types 0.1 as a DOUBLE: _decimal reads it as Spark's decimal
         # Spark's ceil and floor of a double are a BIGINT (math.ceil(d).toLong: NaN is 0, past the range the
         # nearest end); DuckDB's are a DOUBLE, so CAST(ceil(1.0E3D) AS STRING) was '1000.0' and div divided.
         fn = "CEIL" if isinstance(node, exp.Ceil) else "FLOOR"
         from .sql import _java_narrowed
         return _with_args(_java_narrowed(f"{fn}(fj_arg0)", "BIGINT", from_double=True), [operand]), node, ("int", 20)  # type: ignore[return-value]
-    found = _decimal(operand, typed, annotated)
     places = _places(operands[1] if len(operands) > 1 else node.args.get("decimals"))
     if found is not None and found[0] == "int" and isinstance(node, (exp.Ceil, exp.Floor)) and node.args.get("decimals") is None:
         return _with_args("CAST(fj_arg0 AS BIGINT)", [operand]), node, ("int", 20)  # type: ignore[return-value]  # a whole number's ceil is itself, a BIGINT in Spark

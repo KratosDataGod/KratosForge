@@ -54,7 +54,7 @@ from typing import Any, Callable, cast
 from sqlglot import exp
 from sqlglot.errors import ErrorLevel, ParseError
 
-from . import sql_dialects, sql_policy
+from . import sql_dialects, sql_params, sql_policy
 
 KINDS = ("warehouse", "endpoint")  # a Data warehouse, or a lakehouse's SQL analytics endpoint
 HOST_SUFFIX = ".datawarehouse.fabric.microsoft.com"
@@ -178,6 +178,35 @@ def without_outer_transaction(query: str) -> tuple[str, bool]:
 def change_batches(query: str) -> list[str]:
     """A change's batches, as they are sent: without the BEGIN TRAN and COMMIT lines that wrap it."""
     return batches(without_outer_transaction(query)[0])
+
+
+# S14: a script the page split into statements, each with a result of its own. The statements are sent one
+# after the other on one connection, as batches are. A change's statements are its batches.
+_BEGIN_UNIT = re.compile(r"\A\s*BEGIN\s+TRAN(?:SACTION)?\s*;?\s*\Z", re.IGNORECASE)
+_COMMIT_UNIT = re.compile(r"\A\s*COMMIT(?:\s+(?:TRAN(?:SACTION)?|WORK))?\s*;?\s*\Z", re.IGNORECASE)
+
+
+def change_units(units: list[str]) -> list[str]:
+    """A change's statements as they are sent: without a BEGIN TRAN first and COMMIT last that wrap the
+    rest, as change_batches takes those lines off a script (the run is already the transaction)."""
+    if len(units) > 2 and _BEGIN_UNIT.match(units[0]) and _COMMIT_UNIT.match(units[-1]):
+        return units[1:-1]
+    return list(units)
+
+
+def join_units(units: list[str]) -> str:
+    """The statements as one script of batches, one per statement, for the checks and the audit."""
+    return "\nGO\n".join(u.strip("\n") for u in units)
+
+
+def unit_verdicts(units: list[str], writes: bool = False) -> list[sql_policy.Verdict]:
+    """What each of a split script's statements is, numbered by statement (S14). Without ``writes`` each
+    must be one query that reads, as a run of one is; with it, each is checked as a change's batch."""
+    out: list[sql_policy.Verdict] = []
+    for n, unit in enumerate(units, 1):
+        found = _change_verdicts(unit) if writes else verdicts(unit)
+        out.extend(sql_policy.Verdict(n, v.kind, v.reason, v.confirm) for v in found)
+    return out
 
 
 # A read at a past time (time travel): Fabric's query hint OPTION (FOR TIMESTAMP AS OF '<UTC time>') at
@@ -457,17 +486,17 @@ def _first_line(batch: str) -> str:
     return f"{first[:80]}{'…' if len(first) > 80 else ''}"
 
 
-def _interrupted(exc: BaseException, at: int, sent: list[str], writes: bool) -> BaseException:
+def _interrupted(exc: BaseException, at: int, sent: list[str], writes: bool, unit: str = "batch") -> BaseException:
     """The error a run ends with when batch ``at`` of ``sent`` failed: named, with what was kept and what to
     do next. A read's own SQL error stays the driver's, as before."""
     why = interruption(exc)
     if why is None and isinstance(exc, (OSError, MemoryError)):
         return exc  # this PC's own trouble writing the result (a full disk), not the batch's: its own message says so
     if why is None:
-        return Interrupted("sql", _failed_batch(at, sent, exc), at) if writes else exc
+        return Interrupted("sql", _failed_batch(at, sent, exc, unit), at) if writes else exc
     kind, number = why
     if writes:
-        where = f"during batch {at} of {len(sent)} ({_first_line(sent[at - 1])})" if len(sent) > 1 else \
+        where = f"during {unit} {at} of {len(sent)} ({_first_line(sent[at - 1])})" if len(sent) > 1 else \
             f"during the change ({_first_line(sent[at - 1])})"
         kept = "so the whole change was rolled back and nothing was kept"
     else:
@@ -524,7 +553,8 @@ def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None])
     import pyarrow as pa
 
     writes = bool(job.get("writes"))
-    checked = verdicts(job["query"], writes=writes)
+    units: list[str] = list(job.get("statements") or [])  # S14: each statement's result is a part of its own
+    checked = unit_verdicts(units, writes=writes) if units else verdicts(job["query"], writes=writes)
     stop = sql_policy.refused(checked, ("read_only", "warehouse_write") if writes else ("read_only",))
     if stop is not None:
         say("error", kind="permission", permission=stop.kind, statement=stop.statement,
@@ -552,22 +582,40 @@ def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None])
             return
         if plan:
             cursor.execute("SET SHOWPLAN_XML ON")  # its own batch, as T-SQL requires
-        sent = change_batches(job["query"]) if writes else [job["query"]]
+        values = sql_params.typed(job.get("params"))  # S17: each sent to the driver as a ? parameter
+        sent = units or (change_batches(job["query"]) if writes else [job["query"]])
         for at, batch in enumerate(sent, 1):
+            began, mine, changed = time.monotonic(), None, None
+            if units:
+                say("statement", statement=at)
             try:
-                cursor.execute(batch)
+                text, ordered = sql_params.as_positional(batch, values) if values or sql_params.find(batch, True) else (batch, [])
+                cursor.execute(text, *ordered) if ordered else cursor.execute(text)
                 while True:
                     if cursor.description:
-                        result = _write_result(cursor, out, say)  # each result replaces the one before: the last is shown
-                    elif writes and isinstance(getattr(cursor, "rowcount", -1), int) and cursor.rowcount > 0:
-                        affected += cursor.rowcount
-                    if not writes or not cursor.nextset():
+                        # each result replaces the one before: the last is shown (and, S14, is the statement's part)
+                        result = mine = _write_result(cursor, Path(job["parts_dir"]) / f"result-{at}.arrow" if units else out, say)
+                    elif (writes or units) and isinstance(getattr(cursor, "rowcount", -1), int) and cursor.rowcount >= 0:
+                        if writes and cursor.rowcount > 0:
+                            affected += cursor.rowcount
+                        changed = (changed or 0) + cursor.rowcount
+                    if not (writes or units) or not cursor.nextset():
                         break
             except Exception as exc:
-                failure = _interrupted(exc, at, sent, writes)
+                failure = _interrupted(exc, at, sent, writes, "statement" if units else "batch")
                 if failure is exc:
                     raise
                 raise failure from exc
+            if units:
+                if mine is None:  # a statement with no rows: an empty part, with what it changed
+                    import pyarrow.ipc as ipc
+                    with ipc.new_file(str(Path(job["parts_dir"]) / f"result-{at}.arrow"), pa.schema([])):
+                        pass
+                    mine = (0, [], pa.schema([]))
+                rows_n, sizes, schema = mine
+                say("part", statement=at, rows=rows_n, batches=sizes, seconds=round(time.monotonic() - began, 2),
+                    columns=[{"name": f.name, "type": str(f.type)} for f in schema],
+                    **({"affected": changed} if changed is not None and not schema.names else {}))
         if plan:
             cursor.execute("SET SHOWPLAN_XML OFF")
         if result is None:
@@ -585,11 +633,12 @@ def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None])
         _end(con, committed)
 
 
-def _failed_batch(at: int, sent: list[str], exc: BaseException) -> str:
-    """Which batch of a change failed, its first line, and that nothing was kept (the run rolls back)."""
+def _failed_batch(at: int, sent: list[str], exc: BaseException, unit: str = "batch") -> str:
+    """Which batch (or statement, S14) of a change failed, its first line, and that nothing was kept (the run
+    rolls back)."""
     first = _first_line(sent[at - 1])
-    where = f"Batch {at} of {len(sent)} ({first})" if len(sent) > 1 else f"The change ({first})"
-    fix = "Fix that batch and run the change again." if len(sent) > 1 else "Fix it and run it again."
+    where = f"{unit.capitalize()} {at} of {len(sent)} ({first})" if len(sent) > 1 else f"The change ({first})"
+    fix = f"Fix that {unit} and run the change again." if len(sent) > 1 else "Fix it and run it again."
     return (f"{where} failed, so the whole change was rolled back and nothing was kept. {fix} "
             f"{str(exc).strip() or type(exc).__name__}")
 

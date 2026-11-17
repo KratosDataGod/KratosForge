@@ -125,14 +125,18 @@ def test_update_and_delete_compare_text_without_trailing_spaces(engine):
     assert run(engine, "SELECT id FROM dbo.t") == [[1]]
 
 
-def test_update_from_another_table_is_typed():
-    # Run on a database table once UPDATE ... FROM is (WR-213); here, the translation.
+def test_update_from_another_table_is_typed(engine):
     columns = {"dbo": {"t": {"id": "INTEGER", "v": "VARCHAR"}, "s": {"id": "INTEGER", "w": "VARCHAR"}}}
     texts, notes = translate("UPDATE x SET v = x.v + s.w FROM dbo.t AS x JOIN dbo.s AS s ON s.w = x.v "
                              "WHERE x.id = 1", columns)
-    assert texts == [("UPDATE x SET v = x.v || s.w FROM dbo.t AS x JOIN dbo.s AS s ON RTRIM(s.w, ' ') = RTRIM(x.v, ' ') "
-                      "WHERE x.id = 1")]
+    assert texts == [("UPDATE dbo.t AS x SET v = x.v || s.w FROM dbo.s AS s WHERE (RTRIM(s.w, ' ') = RTRIM(x.v, ' ')) "
+                      "AND (x.id = 1)")]
     assert notes == []
+    run(engine, "CREATE TABLE dbo.s (id INT, w VARCHAR(5))")
+    run(engine, "INSERT INTO dbo.s VALUES (1, 'z'), (2, 'y')")
+    assert run(engine, "UPDATE x SET v = x.v + s.w FROM dbo.t AS x JOIN dbo.s AS s ON s.id = x.id "
+                       "WHERE x.id = 1") == [[1]]
+    assert run(engine, "SELECT v FROM dbo.t ORDER BY id") == [["az"], ["b  "]]
 
 
 def test_the_set_side_is_never_read_as_a_comparison():

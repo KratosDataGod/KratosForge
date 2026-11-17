@@ -23,7 +23,6 @@ NOT_YET = {
     "sql_function_help.py", "sql_queries_service.py", "sql_templates_service.py", "sql_view.py", "tmdl.py",
     "usage/reader.py", "validate_service.py", "warehouse_compare.py", "warehouse_project_service.py",
     "workloads/deliver.py", "workloads/impact.py", "workloads/platform_notify.py",
-    "access.py",  # #2821
 }
 
 # Deny lists: a match means "refuse", so match (which also takes a final line break) is the stricter check.

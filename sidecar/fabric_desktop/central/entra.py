@@ -100,7 +100,7 @@ def mail_nickname(name: str) -> str:
 
 def owners_of(domain: dict[str, Any]) -> list[str]:
     """The domain's owners that are emails, so a script can make them the groups' owners."""
-    return [x.strip() for x in re.split(r"[,;]", str(domain.get("owners") or "")) if _EMAIL.match(x.strip())]
+    return [x.strip() for x in re.split(r"[,;]", str(domain.get("owners") or "")) if _EMAIL.fullmatch(x.strip())]
 
 
 def plan(domains: list[dict[str, Any]], domain_id: str, links: list[dict[str, Any]], naming: dict[str, Any],

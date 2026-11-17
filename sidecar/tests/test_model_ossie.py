@@ -544,6 +544,10 @@ def test_an_ossie_file_over_tmdl_already_in_the_project_is_an_update(svc):
     assert {"fact_sales", "dim_customer", "dim_channel"} <= names and back["model"]["roles"][0]["name"] == "EU only"
     fact = next(t for t in back["model"]["tables"] if t["name"] == "fact_sales")
     assert {m["name"] for m in fact["measures"]} >= {"fact_sales rows", "net revenue"}  # the hand-written one stays
+    changed = {f["path"]: f["change"] for f in plan["file_changes"]}
+    assert changed["definition/tables/dim_channel.tmdl"] == "new" and changed["definition/tables/fact_sales.tmdl"] == "changed"
+    assert changed["definition/roles/EU only.tmdl"] == "same"
     again = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
     assert again["unchanged"] == len(again["files"]) and again["removed"] == []
+    assert {f["change"] for f in again["file_changes"]} == {"same"}
     assert done["counts"] == again["counts"]

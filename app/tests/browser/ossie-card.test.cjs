@@ -186,6 +186,8 @@ const toTmdl = (calls, exists) => (p) => {
   const out = { name: p.name || "orders", folder: `semantic/${p.name || "orders"}.SemanticModel`, exists, counts: TMDL_COUNTS,
     files: ["semantic/orders.SemanticModel/definition/model.tmdl"], removed: (p.remove || []).length ? ["semantic/orders.SemanticModel/definition/tables/dim_customer.tmdl"] : [],
     report: TMDL_REPORT, unchanged: 14, removable: exists ? ["dim_customer"] : [],
+    file_changes: [{ path: "definition/tables/fact_sales.tmdl", change: "changed" }, { path: "definition/tables/dim_channel.tmdl", change: "new" },
+      { path: "definition/roles/EU only.tmdl", change: "same" }],
     changes: [...(exists ? [{ change: "add", kind: "table", object: "dim_channel", detail: "2 columns, 0 measures" }] : []),
       { change: "needs_dax", kind: "measure", object: "fact_sales[repeat rate]", detail: "" }] };
   return p.confirmed ? out : { confirm: { ...out, token: "t0k" } };
@@ -233,8 +235,9 @@ test("Ossie file to TMDL over a folder already there: Keep it ticks, then a dang
   assert.deepStrictEqual(calls.filter(([n]) => n === "to_tmdl").pop()[1].remove, ["dim_customer"]);
   await shot(page, "7-tmdl-existing", ".dialog");
   await dialog.locator("button:has-text('Replace TMDL in orders...')").click();
-  const confirm = page.locator(".dialog:has-text('Replace the TMDL in orders?')");
+  const confirm = page.locator(".dialog:has-text('Replace TMDL in orders?')");
   await confirm.waitFor();
+  assert.match(await confirm.textContent(), /definition\/tables\/fact_sales\.tmdlChanged.*definition\/tables\/dim_channel\.tmdlNew.*definition\/roles\/EU only\.tmdlSame/);
   assert.ok(calls.filter(([n]) => n === "to_tmdl").every(([, p]) => !p.confirmed), "nothing is written before the confirm");
   assert.match(await confirm.textContent(), /Nothing in Fabric changes/);
   assert.strictEqual(await confirm.locator("button.danger-solid:has-text('Replace TMDL')").count(), 1, "danger styling");

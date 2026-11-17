@@ -354,14 +354,17 @@ class ModelOssieMixin:
             targets[path] = content
         stale = sorted(f for f in (_tmdl_files(definition) if _real(definition, stat.S_ISDIR) else [])
                        if f not in targets and f.relative_to(definition).parts[0] != "cultures")
-        unchanged = sum(1 for p, c in targets.items() if _real(p, stat.S_ISREG) and _same_text(p, c))
+        status = {p: ("same" if _same_text(p, c) else "changed") if _real(p, stat.S_ISREG) else "new" for p, c in targets.items()}
+        unchanged = sum(1 for v in status.values() if v == "same")
         changes = model_ossie.plan(current, final)
         out = {"name": name, "folder": folder.relative_to(root).as_posix(), "exists": current is not None,
                "files": sorted(p.relative_to(root).as_posix() for p in targets),
                "removed": [p.relative_to(root).as_posix() for p in stale], "report": report,
                "changes": changes if current else [r for r in changes if r["change"] == "needs_dax"],
                "removable": model_ossie.removable(current, incoming) if current else [],
-               "unchanged": unchanged, "counts": _model_counts(final)}
+               "unchanged": unchanged, "counts": _model_counts(final),
+               "file_changes": [{"path": p.relative_to(folder).as_posix(), "change": status[p]} for p in sorted(targets)]
+               + [{"path": p.relative_to(folder).as_posix(), "change": "removed"} for p in stale]}
         digest = hashlib.sha256(json.dumps([out["folder"], out["removed"], sorted(
             (p.relative_to(root).as_posix(), c) for p, c in targets.items())], ensure_ascii=False).encode()).hexdigest()
         if not confirmed:

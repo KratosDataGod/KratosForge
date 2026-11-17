@@ -2000,8 +2000,13 @@ function ossieToTmdlDialog(result) {
     if (res.exists) {
       const needs = res.changes.filter((r) => r.change === "needs_dax").map((r) => r.object);
       const n = (k) => res.changes.filter((r) => r.change === k).length;
-      const ok = await confirmDialog(`Replace the TMDL in ${res.name}?`,
-        `This rewrites the files in ${res.folder}/ on this PC: ${n("add")} objects added, ${n("change")} changed, ${keep.size} removed; ${res.removable.length - keep.size} kept that the Ossie file doesn't have, as you ticked.${needs.length ? ` ${needs.length} measure${needs.length === 1 ? " has" : "s have"} no expression: ${needs.join(", ")}.` : ""} Nothing in Fabric changes. If the folder is committed, Source control can bring the old files back; changes not yet committed can't be brought back.`,
+      const FILE_CHANGE = { new: ["New", "pass"], changed: ["Changed", "info"], same: ["Same", "neu"], removed: ["Removed", "fail"] };
+      const files = h("table", { class: "list" }, h("thead", {}, h("tr", {}, h("th", {}, "File"), h("th", {}, "Change"))),
+        h("tbody", {}, (res.file_changes || []).map((f) => h("tr", {}, h("td", { class: "mono" }, f.path),
+          h("td", {}, h("span", { class: `pill-s ${(FILE_CHANGE[f.change] || [f.change, "neu"])[1]}` }, (FILE_CHANGE[f.change] || [f.change])[0]))))));
+      const ok = await confirmDialog(`Replace TMDL in ${res.name}?`,
+        h("div", {}, h("p", {}, `${res.folder}/ is already in this project. Writing replaces these files: ${n("add")} objects added, ${n("change")} changed, ${keep.size} removed; ${res.removable.length - keep.size} kept that the Ossie file doesn't have, as you ticked.${needs.length ? ` ${needs.length} measure${needs.length === 1 ? " has" : "s have"} no expression: ${needs.join(", ")}.` : ""} Nothing in Fabric changes; you can still undo it in Source control before you commit.`),
+          h("div", { class: "scroll" }, files)),
         "Replace TMDL", { danger: true });
       if (!ok) return;
     }

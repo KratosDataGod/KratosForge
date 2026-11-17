@@ -65,8 +65,10 @@ Spark SQL and the DataFrame API on this PC run with ANSI mode off (`spark.sql.an
 | A `CAST` of a number past the type's range | A whole number keeps its low bits, as Java's cast does: `CAST(2147483648 AS INT)` is -2147483648. A double past the range becomes the range's nearest end: `CAST(1e10 AS INT)` is 2147483647, and NaN is 0. Text past the range is NULL | Stops |
 | A division by zero (`/`, `div`, `%`) | NULL | Stops with `[DIVIDE_BY_ZERO]` |
 | `try_cast`, `try_divide` | NULL | NULL |
+| `try_divide` of decimals | A decimal, typed as `/` is: `decimal(23,13)` for two `decimal(10,2)` | The same |
+| A decimal `sum` or `avg` past its result type, `decimal(p + 10, s)` | NULL | Stops with `[ARITHMETIC_OVERFLOW] Overflow in sum of decimals` |
 
-`spark.conf.set("spark.sql.ansi.enabled", "true")` is kept for when the notebook runs in Fabric, and prints a note naming it: this PC still answers with ANSI mode off.
+`spark.conf.set("spark.sql.ansi.enabled", "true")` is kept for when the notebook runs in Fabric, and prints a note saying this PC still answers with ANSI mode off.
 
 These cases still differ:
 
@@ -76,8 +78,9 @@ These cases still differ:
 | `abs(-2147483648)` or `-(-2147483648)` on an int, with ANSI off | Wraps around: -2147483648 | 2147483648, a `bigint` |
 | A notebook in Databricks Runtime 17.0 or later, which runs Spark SQL with ANSI mode on | A failed `CAST` or a division by zero stops | Gives NULL, as with ANSI mode off. The first use of `dbutils` in a session prints a note saying so, since which runtime a notebook is meant for isn't known here. Run it as Databricks SQL on the DuckDB engine, or on Databricks |
 | `pmod(x, 0)` in Databricks SQL | Stops with `[DIVIDE_BY_ZERO]` | NULL |
-| A decimal sum past its type's range in Databricks SQL on the DuckDB engine | Stops (`[ARITHMETIC_OVERFLOW]`, ANSI on) | NULL, as with ANSI off |
-| `try_divide` of decimals | A decimal, typed as `/` is | A `double` |
+| A decimal `sum` or `avg` whose running total passes about 1.7 × 10^38 | NULL with ANSI off, `[ARITHMETIC_OVERFLOW]` with ANSI on | Stops with DuckDB's "Overflow in HUGEINT addition" |
+| On DuckDB 2.0 (not yet the version this PC installs): a decimal `sum` or `avg` of a `decimal(38, s)` column past its type | NULL with ANSI off, `[ARITHMETIC_OVERFLOW]` with ANSI on | Stops with DuckDB's "Overflow in SUM of DECIMAL" |
+| On DuckDB 2.0: `pmod(x, 0)` in Databricks SQL | Stops with `[DIVIDE_BY_ZERO]` | Stops with DuckDB's own division-by-zero error |
 
 ## Decimal results on this PC (LOC-005)
 
@@ -145,7 +148,7 @@ These cases still differ:
 | --- | --- | --- |
 | Rows that tie in a window's `ORDER BY`, for `row_number`, `lag`, `lead`, `first` and `last` | Any order | Any order, which can differ from Spark's. Add a column that tells them apart when the order matters |
 | A window given by name in a `WINDOW` clause | Checked as above | Not checked here: a missing `ORDER BY` or a frame isn't refused |
-| A DataFrame window function Spark stops on | Stops at the `select` | Stops at `.over(...)`, a line earlier |
+| A DataFrame window function Spark stops on | Stops at the `select` | Stops when `.over(...)` is called, before the `select` |
 | A DataFrame window with `rangeBetween` and numbers, such as `rangeBetween(-1, 0)` | Named after its frame as Spark writes it for the column's type | Named `... RANGE BETWEEN 1 PRECEDING AND CURRENT ROW`. Give it an `alias` |
 | `ntile(0)`, or `ntile` of a column | Stops with Spark's message | Stops with DuckDB's message |
 

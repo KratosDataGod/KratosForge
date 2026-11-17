@@ -108,6 +108,10 @@ def test_another_family_sets_up_beside_an_older_core_without_upgrading_it(tmp_pa
     assert lake.rows("fdtst_event")["what"].to_list() == ["opened"]
     # Optimize's own upgrade stays its own confirmed step.
     assert setup.inspect(lake)["state"] == setup.UPGRADE
+    # Rows of the shared tables name the version they went into, not this app's.
+    audit = lake.rows("fdopt_audit").filter(pl.col("target") == "fdtst_ schema 1")
+    assert audit["schema_version"].to_list() == [1]
+    assert set(lake.rows("fdopt_config")["schema_version"].to_list()) == {1}
 
 
 def test_central_family_works_on_an_older_core(svc, monkeypatch):  # noqa: F811 - fixture

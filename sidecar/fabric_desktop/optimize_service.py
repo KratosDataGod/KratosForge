@@ -363,7 +363,7 @@ class OptimizeMixin:
         setup.write(lake, installation, "audit", [{
             "record_id": f"{installation.id}:restrict:{family.prefix}:{now()}", "at": now(), "action": "restrict",
             "target": f"{found['family_path']} role {role_name}", "outcome": "ok",
-            "message": "; ".join(found["changes"])}])
+            "message": "; ".join(found["changes"])}], setup.core_version(lake))
         return summary | {"changes": found["changes"], "default_reader_paths": found["default_reader_paths"],
                           "changed": True}
 

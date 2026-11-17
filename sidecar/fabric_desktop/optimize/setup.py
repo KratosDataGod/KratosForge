@@ -120,6 +120,12 @@ def _rows(name: str, rows: list[dict[str, Any]], family: Family = CORE, version:
     return pl.DataFrame([{c: r.get(c) for c in cols} for r in rows], schema=cols)
 
 
+def core_version(lake: Any) -> int | None:
+    """The Optimize schema version the lakehouse is at, for rows of the shared tables (installations,
+    audit, config) that any family writes: their provenance names the version they went into."""
+    return max(applied_versions(lake), default=0) or None
+
+
 def write(lake: Any, installation: Installation, name: str, rows: list[dict[str, Any]], version: int | None = None,
           family: Family = CORE) -> None:
     """Insert rows into ``<prefix><name>``, each with provenance; rows already there are skipped.
@@ -167,12 +173,12 @@ def initialize(lake: Any, installation: Installation, approve: bool = False, fam
         # Another family's keys carry its prefix, so two families' settings never share a row.
         keys = [(k if family is CORE else family.prefix + k, v) for k, v in family.default_config]
         write(lake, installation, "config", [{"record_id": f"default:{k}", "key": k, "value": v, "at": now()}
-                                             for k, v in keys])
+                                             for k, v in keys], core_version(lake))
     action = "upgrade" if before["state"] == UPGRADE else "initialize"
     write(lake, installation, "audit", [{"record_id": f"{installation.id}:{action}:{family.prefix}:{now()}",
                                          "at": now(), "action": action,
                                          "target": f"{family.prefix} schema {family.latest()}", "outcome": "ok",
-                                         "message": f"from {before['state']}"}])
+                                         "message": f"from {before['state']}"}], core_version(lake))
     register(lake, installation)
     return inspect(lake, family)
 
@@ -180,7 +186,8 @@ def initialize(lake: Any, installation: Installation, approve: bool = False, fam
 def register(lake: Any, installation: Installation) -> None:
     """Record this installation once (record_id is its id, so connecting again adds nothing)."""
     write(lake, installation, "installations",
-          [{"record_id": installation.id, "label": installation.label, "os": os_family(), "registered_at": now()}])
+          [{"record_id": installation.id, "label": installation.label, "os": os_family(), "registered_at": now()}],
+          core_version(lake))
 
 
 def denied(exc: BaseException) -> bool:

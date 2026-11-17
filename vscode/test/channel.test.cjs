@@ -590,6 +590,13 @@ test("the extension's own messages each say what to do next", () => {
   assert.match(ch.unexpected("x"), NEXT_STEP);
 });
 
+test("a refused hello reads as a restart only while asking to pair", () => {
+  const ch = require("../out/channel.js");
+  assert.strictEqual(ch.refusal(401, "unauthorized", "x", true).message, ch.HELLO_CHANGED);
+  assert.strictEqual(ch.refusal(401, "unauthorized", "x").message, ch.NOT_PAIRED);
+  assert.match(ch.refusal(404, "not_found", "").message, /couldn't find that notebook or cell/);
+});
+
 test("a pairing ended in the app says so, and to run the cell again to pair", async () => {
   await engine.call("editor_set_enabled", { enabled: true });
   const ch = new Channel(dir);

@@ -58,11 +58,11 @@ export function unreachable(code: string): string {
 const POLL_RETRIES = 3;
 // A poll that got no answer at all is asked again only once, so a hung app fails the cell in about two minutes.
 const POLL_TIMEOUT_RETRIES = 1;
-export const NOT_PAIRED = "This window's pairing with KratosForge ended: it ran out, was ended in KratosForge, or KratosForge "
-  + "restarted. Run the cell again to pair this window.";
+export const NOT_PAIRED = "This window's pairing with KratosForge has ended. It ran out, was ended in KratosForge, or "
+  + "KratosForge restarted. Run the cell again to pair this window.";
 export const HELLO_CHANGED = "KratosForge restarted while this window was asking to pair. Run the cell again to ask again.";
 export const OFF = "Let VS Code run notebooks is off in KratosForge's Settings > Integrations, or your organization doesn't "
-  + "allow it. Turn it on there, then run the cell again.";
+  + "allow it. Turn it on there, or ask your admin if your organization turned it off, then run the cell again.";
 export const PAIR_DENIED = "Pairing was denied in KratosForge. To pair this window, run the cell again and choose Pair this "
   + "window in KratosForge.";
 export const PAIR_UNANSWERED = "Nobody answered in KratosForge, so this window isn't paired. Run the cell again, then choose "
@@ -89,12 +89,13 @@ export function refusal(status: number, code: string | undefined, message: strin
   const said = message || "";
   switch (code) {
     case "not_paired": return new ChannelError(status, "not_paired", NOT_PAIRED);
-    case "unauthorized": return new ChannelError(status, "unauthorized", HELLO_CHANGED);
+    // Only asking to pair checks the hello; anywhere else it means the window's pairing no longer holds.
+    case "unauthorized": return new ChannelError(status, "unauthorized", pairing ? HELLO_CHANGED : NOT_PAIRED);
     case "off": return new ChannelError(status, "off", OFF);
     case "busy": return new ChannelError(status, "busy", BUSY);
     case "extension_too_old": return new ChannelError(status, "extension_too_old", EXTENSION_TOO_OLD);
     case "not_found": return pairing ? new ChannelError(status, "expired", PAIR_EXPIRED)
-      : new ChannelError(status, "not_found", said ? (hasNextStep(said) ? said : said + THEN_AGAIN) : "KratosForge couldn't find that." + OUT_OF_STEP);
+      : new ChannelError(status, "not_found", said ? (hasNextStep(said) ? said : said + THEN_AGAIN) : "KratosForge couldn't find that notebook or cell." + OUT_OF_STEP);
     case "invalid_input": case "too_large": return new ChannelError(status, code, (said ? `${said}` : "KratosForge refused the request.") + OUT_OF_STEP);
     case "internal": return new ChannelError(status, "internal", unexpected(said || `status ${status}`));
     case "refused": case "failed": if (said) return new ChannelError(status, code, hasNextStep(said) ? said : said + THEN_AGAIN);

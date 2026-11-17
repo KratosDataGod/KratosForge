@@ -134,7 +134,7 @@ def _names(value: Any) -> list[str]:
 
 def _table(value: Any, label: str) -> str:
     text = str(value or "").strip()
-    if not _TABLE.match(text):
+    if not _TABLE.fullmatch(text):
         raise ValueError(f"{label} must be a table name like dbo.orders.")
     return text
 
@@ -359,7 +359,7 @@ def build(template: str, values: dict[str, Any]) -> dict[str, Any]:
         keys = keys + ["snapshot_date"]
     elif template == "load_file":
         path = str(v.get("file") or "").strip()
-        if not _FILE.match(path) or ".." in path.split("/"):
+        if not _FILE.fullmatch(path) or ".." in path.split("/"):
             raise ValueError("The file must be a .csv, .parquet or .json file under Files/, like Files/raw/orders.csv.")
         if not keys:
             raise ValueError("Name the columns that identify a row, so the load can be checked and proven.")

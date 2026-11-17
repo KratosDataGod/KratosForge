@@ -6362,6 +6362,13 @@ const FABRIC_WRITES = {
   platform_delete_source: ["platform.js", "page", null],
   platform_scan_endorsement: ["platform.js", "page", null],
   platform_landing_setup: ["platform.js", "page", null],
+  platform_join: ["mesh.js", "page", null, "platform.js"], // Join existing, on Platform > Settings
+  platform_keys_join: ["mesh.js", "page", null, "platform.js"],
+  platform_import_fabric_domains: ["mesh.js", "page", null, "platform.js"], // Import from Fabric, on Platform > Domains
+  platform_create_domain: ["mesh.js", null, null, "mesh.js: Also create it in Fabric (Preview)"],
+  mesh_publish: ["mesh.js", "mesh", null, 'meta.js: ["products", "Data products", "mesh"]'], // a Preview tab
+  meta_build_model: ["meta.js", "model", null, 'meta.js: ["model", "Semantic model", "model"]'],
+  meta_optimize: ["meta.js", "health", null, 'meta.js: ["health", "Table health", "health"]'],
   wh_monitoring_build: ["whmonitor.js", null, null, "whmonitor.js: previewTag()"],
   // Monitor > Fabric > Schedules: shown only with preview features on, its tab tagged Preview
   update_fabric_schedule: ["schedules.js", "schedules", null, 'app.js: ["fabric_schedules", ["Schedules", previewTag()]'],
@@ -6383,12 +6390,14 @@ const FABRIC_READS = {
 // Untested writes still to tag or run live. Taking one out of this list is the goal; adding one needs a reason.
 const NOT_YET = [
   // Data mesh project files and tables in a OneLake environment: the core of the app, on untagged tabs
-  "meta_add_rules", "meta_build_model", "meta_delete_key_table", "meta_delete_source_system", "meta_drift_apply",
-  "meta_new_entity", "meta_new_key_table", "meta_optimize", "meta_profile", "meta_save_entity", "meta_save_source_system",
-  "meta_set_freshness", "meta_set_keys_workspace", "meta_set_maintenance", "meta_sources_move",
-  // shared by preview and core screens, or set up from a screen without a tag
-  "mesh_publish", "platform_create_domain", "platform_import_fabric_domains", "platform_join", "platform_keys_join",
-  "access_cache_protect", "access_cache_refresh", "incidents_watch", "pipeline_run_start", "save_sql",
+  // (UX: clear these with a live-testing.md check, not a tag on every Save)
+  "meta_add_rules", "meta_delete_key_table", "meta_delete_source_system", "meta_drift_apply", "meta_new_entity",
+  "meta_new_key_table", "meta_profile", "meta_save_entity", "meta_save_source_system", "meta_set_freshness",
+  "meta_set_keys_workspace", "meta_set_maintenance", "meta_sources_move",
+  // no single Preview home: wait for a live check
+  "access_cache_protect", "access_cache_refresh", "pipeline_run_start", "save_sql",
+  // the app's own background check (no screen); it tells Teams whether or not Preview features show
+  "incidents_watch",
 ];
 const FABRIC_WRITE_NAME = /^(create_|delete_|publish_|run_.*fabric|.*_in_fabric|meta_create_|platform_.*setup|.*_fabric_schedule|cancel_fabric)/;
 const NOT_A_FABRIC_WRITE = {
@@ -6406,7 +6415,8 @@ test("every Fabric write in the UI carries a Preview tag or has a recorded live 
     assert.ok(text[file].includes(`"${method}"`), `${file} calls ${method}`);
     assert.ok(tag || check || where, `${method} needs a Preview tag or a live check`);
     if (tag === "page") {
-      assert.ok(/preview: true/.test(text[file]) && text[file].includes("previewTag()"), `${file} is a Preview page with a tagged heading (${method})`);
+      const page = where || file;
+      assert.ok(/preview: true/.test(text[page]) && text[page].includes("previewTag()"), `${page} is a Preview page with a tagged heading (${method})`);
     } else if (where?.includes(": ")) {
       const [tagFile, snippet] = where.split(/: (.*)/s);
       assert.ok(text[tagFile].includes(snippet), `${tagFile} tags ${method}: ${snippet}`);

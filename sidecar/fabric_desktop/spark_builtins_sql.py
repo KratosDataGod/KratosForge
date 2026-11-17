@@ -66,8 +66,8 @@ def _row_ids(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression
                                                                   exp.Order)):
         clause = clause.parent
     if clause is not None and not isinstance(clause, exp.Select):
-        _refuse("monotonically_increasing_id", "in WHERE, HAVING, GROUP BY, ORDER BY or a JOIN condition this "
-                "PC can't number the rows.", "select it in a subquery and filter on that column outside it")(node, args)
+        _refuse("monotonically_increasing_id", "this PC can't number the rows in WHERE, HAVING, GROUP BY, "
+                "ORDER BY or a JOIN condition.", "select it in a subquery and filter on that column outside it")(node, args)
     return _with_args("(ROW_NUMBER() OVER () - 1)", args)
 
 

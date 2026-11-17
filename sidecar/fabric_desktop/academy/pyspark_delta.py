@@ -185,7 +185,10 @@ class MergeBuilder:
             con.register("kf_source", data)
             ta, sa = ('"' + a.replace('"', '""') + '"' for a in (target, alias))
             try:
-                on = self._check_on or sqlglot.transpile(self._on, read="spark", write="duckdb")[0]
+                ons = [self._check_on] if self._check_on else sqlglot.transpile(self._on, read="spark", write="duckdb")
+                if len(ons) != 1:
+                    raise sqlglot.errors.ParseError("the condition is more than one statement")
+                on = ons[0]
                 row = con.execute(f"SELECT count(*) FROM (SELECT *, row_number() OVER () AS kf_target_row FROM "
                                   f"kf_target) AS {ta} JOIN kf_source AS {sa} ON {on} GROUP BY kf_target_row "
                                   "HAVING count(*) > 1 LIMIT 1").fetchall()

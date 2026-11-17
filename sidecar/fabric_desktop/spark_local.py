@@ -516,11 +516,14 @@ def _replace_where(condition: str, name: str) -> str:
     import sqlglot
     from sqlglot import exp
     try:
-        node = sqlglot.parse_one(condition, read="spark")
+        nodes = [n for n in sqlglot.parse(condition, read="spark") if n is not None]
     except sqlglot.errors.ParseError as exc:
         raise ValueError(f"replaceWhere {condition!r} isn't a condition this PC reads "
                          f"({sql_dialects.parse_problem(exc)}). Nothing was "
                          "written.") from None
+    if len(nodes) != 1 or not isinstance(nodes[0], exp.Condition):  # "dt = 1; DROP TABLE t" is two statements
+        raise ValueError(f"replaceWhere {condition!r} must be one condition, not statements. Nothing was written.")
+    node = nodes[0]
     if node.find(exp.Subquery, exp.Select) or not node.find(exp.Column):
         raise ValueError(f"replaceWhere {condition!r} must compare the table's columns, with no subquery. Nothing "
                          "was written.")
@@ -549,8 +552,10 @@ def _rows_match(data: pa.Table, predicate: str, replace: str, name: str) -> None
         con.register("kf_rows", data)
         try:
             bad = first_row(con.execute(f"SELECT count(*) FROM kf_rows WHERE ({predicate}) IS NOT TRUE"))
-        except duckdb.Error:
-            return  # a condition DuckDB reads differently: delta-rs's own check still stops the write
+        except duckdb.Error as exc:  # fail closed: every row written must be checked against it
+            raise ValueError(f"replaceWhere '{replace}' isn't run here, because this PC couldn't check the rows "
+                             f"against it. The check stopped on: {str(exc).splitlines()[0]}. Nothing was written to "
+                             f"{name}. Write the condition as column comparisons, such as region = 'EU'.") from None
     finally:
         con.close()
     if bad and bad[0]:

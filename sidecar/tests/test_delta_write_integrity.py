@@ -289,11 +289,17 @@ def test_replace_where_wins_over_the_sessions_dynamic_overwrite(lake):
     ("nope = 1", "has no column nope"),
     ("id IN (SELECT id FROM src)", "no subquery"),
     ("1 = 1", "must compare the table's columns"),
+    ("region = 'EU'; DROP TABLE dbo.sales", "must be one condition, not statements"),
+    ("amount > 0;", None),
+    ("no_such_fn(region) = 1", "couldn't check the rows against it"),
 ])
 def test_a_replace_where_this_pc_cant_honor_is_refused_and_writes_nothing(lake, condition, reason):
     path = lake / "dbo" / "sales"
     before = _state(path)
     status, text = run(f"df.write.mode('overwrite').option('replaceWhere', {condition!r}).saveAsTable('dbo.sales')")
+    if reason is None:  # one statement with a trailing ";" is one condition: here every row matches
+        assert status == "ok", text
+        return
     assert status == "error" and reason in text, text
     _unchanged(path, before)
 
@@ -423,3 +429,17 @@ def test_a_spark_on_is_checked_on_the_sql_path_too(delta, on):
     _unchanged(delta, before)
     _apply(delta, "WHEN MATCHED THEN UPDATE SET *", on=on, source=SOURCE.slice(1))
     assert _committed(delta, before, "MERGE")["num_target_rows_updated"] == 1
+
+
+def test_the_academy_builder_refuses_an_on_of_two_statements(delta):
+    import duckdb
+
+    from fabric_desktop.academy import pyspark_delta
+
+    class Source:
+        relation = duckdb.connect().from_arrow(SOURCE.slice(2)).set_alias("s")
+    before = _state(delta)
+    with pytest.raises(ValueError, match="couldn't check"):
+        pyspark_delta.DeltaTable("sales", delta, "t").merge(Source(), "t.id = s.id; SELECT 1") \
+            .whenMatchedUpdateAll().execute()
+    _unchanged(delta, before)

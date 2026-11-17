@@ -383,3 +383,43 @@ def test_the_academy_merge_builder_follows_deltas_rule(delta, clauses, refused):
     else:
         builder.execute()
         _committed(delta, before, "MERGE")
+
+
+@pytest.mark.parametrize("on, updated", [("t.id = s.id AND nvl(t.amount, 0) >= 0", 1), ("t.id <=> s.id", 1)])
+def test_the_academy_builder_reads_a_spark_on(tmp_path, on, updated):
+    """Spark SQL in ON (nvl, <=>) is read as Spark's for the check, as delta-rs runs it for the MERGE."""
+    import duckdb
+
+    from fabric_desktop.academy import pyspark_delta
+    path = tmp_path / "sales"
+    write_deltalake(str(path), TABLE)
+
+    class Source:
+        relation = duckdb.connect().from_arrow(pa.table({"id": [2], "region": ["US"], "amount": [25]})).set_alias("s")
+    before = _state(path)
+    pyspark_delta.DeltaTable("sales", path, "t").merge(Source(), on).whenMatchedUpdateAll().execute()
+    assert _committed(path, before, "MERGE")["num_target_rows_updated"] == updated
+
+
+def test_the_academy_builder_refuses_an_on_it_cant_check(delta):
+    import duckdb
+
+    from fabric_desktop.academy import pyspark_delta
+
+    class Source:
+        relation = duckdb.connect().from_arrow(SOURCE).set_alias("s")
+    before = _state(delta)
+    with pytest.raises(ValueError, match="couldn't check that each of its rows matches at most one source row"):
+        pyspark_delta.DeltaTable("sales", delta, "t").merge(Source(), "t.id = no_such_fn(s.id)") \
+            .whenMatchedUpdateAll().execute()
+    _unchanged(delta, before)
+
+
+@pytest.mark.parametrize("on", ["t.id = s.id AND nvl(t.amount, 0) >= 0", "t.id <=> s.id"])
+def test_a_spark_on_is_checked_on_the_sql_path_too(delta, on):
+    before = _state(delta)
+    with pytest.raises(ValueError, match="DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE"):
+        _apply(delta, "WHEN MATCHED THEN UPDATE SET *", on=on)
+    _unchanged(delta, before)
+    _apply(delta, "WHEN MATCHED THEN UPDATE SET *", on=on, source=SOURCE.slice(1))
+    assert _committed(delta, before, "MERGE")["num_target_rows_updated"] == 1

@@ -130,6 +130,8 @@ class MergeBuilder:
 
     def __init__(self, table: DeltaTable, source: Any, condition: Any):
         self._table, self._source, self._on = table, source, _sql(condition)
+        # The ON the one-match check runs on DuckDB: a Column is DuckDB's text already, SQL text is Spark's.
+        self._check_on = self._on if not isinstance(condition, str) else None
         self._clauses: list[tuple[str, dict[str, Any]]] = []
 
     def _add(self, method: str, condition: Any, **kw: Any) -> MergeBuilder:
@@ -176,14 +178,24 @@ class MergeBuilder:
         if all(m.startswith("when_not_matched_insert") for m in methods) or \
                 (len(matched) == 1 and matched[0][0] == "when_matched_delete" and "predicate" not in matched[0][1]):
             return
+        import sqlglot
         con = duckdb.connect()
         try:
             con.register("kf_target", table.to_pyarrow_dataset())
             con.register("kf_source", data)
             ta, sa = ('"' + a.replace('"', '""') + '"' for a in (target, alias))
-            row = con.execute(f"SELECT count(*) FROM (SELECT *, row_number() OVER () AS kf_target_row FROM kf_target) "
-                              f"AS {ta} JOIN kf_source AS {sa} ON {self._on} GROUP BY kf_target_row "
-                              "HAVING count(*) > 1 LIMIT 1").fetchall()
+            try:
+                on = self._check_on or sqlglot.transpile(self._on, read="spark", write="duckdb")[0]
+                row = con.execute(f"SELECT count(*) FROM (SELECT *, row_number() OVER () AS kf_target_row FROM "
+                                  f"kf_target) AS {ta} JOIN kf_source AS {sa} ON {on} GROUP BY kf_target_row "
+                                  "HAVING count(*) > 1 LIMIT 1").fetchall()
+            except (duckdb.Error, sqlglot.errors.SqlglotError) as exc:
+                problem = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+                raise ValueError(f"The merge into {self._table._name} isn't run here, because this PC couldn't check "
+                                 "that each of its rows matches at most one source row, as Delta requires "
+                                 f"(DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE). The check stopped on: "
+                                 f"{problem}. Write the condition as column comparisons, such as t.key = s.key "
+                                 "AND ...") from None
         finally:
             con.close()
         if row:

@@ -110,7 +110,7 @@ def test_a_stop_mid_send_loses_nothing_and_the_replay_says_it_may_be_a_repeat(tm
     t[0] += SENDING_GRACE + 1
     send([], _routing(), outbox, ledger, teams, now=NOON)
     [(_, title, lines)] = teams.posted
-    assert title == "Delayed: Waiting on you: Access to LH_Sales" and "may already be in this channel" in lines[0]
+    assert title == "Delayed: Waiting on you: Access to LH_Sales" and "may have arrived already" in lines[0]
     send([], _routing(), outbox, ledger, teams, now=NOON)
     assert len(teams.posted) == 1 and outbox.count() == 0
 
@@ -164,7 +164,7 @@ def test_incident_alerts_are_kept_before_they_are_posted_too(tmp_path):
     t[0] += SENDING_GRACE + 1
     notify.send([], single(HOOK), outbox, "KratosForge", teams)
     [(_, title, lines)] = teams.posted
-    assert title.startswith("Delayed: ") and "may already be in this channel" in lines[0] and outbox.count() == 0
+    assert title.startswith("Delayed: ") and "may have arrived already" in lines[0] and outbox.count() == 0
 
 
 # ---- the audit
@@ -243,3 +243,15 @@ def test_the_agents_failed_and_dropped_alerts_have_audit_lines(setup, monkeypatc
     lines = [r for r in agent.audit.recent(20, notify.NOT_DELIVERED)]
     assert sorted((r["target"]["queued"], r["target"]["dropped"]) for r in lines) == [(0, 1), (1, 0)]
     assert "SECRET" not in json.dumps(lines) and "webhook.office.com" not in json.dumps(lines)
+
+
+def test_an_email_address_in_a_mail_error_is_kept_out_of_the_audit():
+    lines = []
+
+    class Audit:
+        def record(self, *a, **kw):
+            lines.append(kw["error"])
+
+    notify.audit_trouble(Audit(), {"error": "SMTPRecipientsRefused: {'ops.team@contoso.com': (550, b'no such user')}",
+                                   "queued": 1}, "platform_outbox.sqlite")
+    assert lines == ["SMTPRecipientsRefused: {'<address>': (550, b'no such user')}"]

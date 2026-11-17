@@ -16,7 +16,7 @@ recovery, at most MAX_PER_TRY waiting messages go to a route in one call, the re
 A message is written to the outbox before it is posted and deleted once Teams takes it, so a process
 that stops mid-send (a crash, a kill, the PC losing power) never loses it: the next send after
 SENDING_GRACE posts it, marked as delayed and as possibly already in the channel, since a post cut
-off on the way may have reached Teams. That is the only way one message can go out twice. Until the
+off on the way may have reached Teams or the inbox. That is the only way one message can go out twice. Until the
 grace ends, no other process sends it, so two windows sending at once don't post it twice.
 """
 
@@ -50,7 +50,7 @@ LINE_MAX = 500  # characters in one title or line of a Teams message
 # Longer than any one post can take (Teams: 3 tries of 5 + 15 s with two 10 s waits for throttling;
 # email: 20 s), so a message still marked sending after this was cut off by a stop, not slow.
 SENDING_GRACE = 600.0
-CUT_OFF = "From {when}; sending it was cut off, so it may already be in this channel."
+CUT_OFF = "From {when}; sending it was cut off, so it may have arrived already."
 
 
 @dataclass(frozen=True)
@@ -289,7 +289,7 @@ def flush(outbox: Outbox, by_name: Callable[[str], Any], post: Callable[[str, st
 
 
 NOT_DELIVERED = "notice_not_delivered"  # the audit action for a send that failed or dropped messages
-_ADDRESS = re.compile(r"(?:flow:)?https?://\S+|/workflows/\S+|mailto:\S+")
+_ADDRESS = re.compile(r"(?:flow:)?https?://\S+|/workflows/\S+|mailto:\S+|[\w.%+-]+@[\w-]+(?:\.[\w-]+)+")
 
 
 def audit_trouble(audit: Any, result: dict[str, Any], outbox: str) -> None:

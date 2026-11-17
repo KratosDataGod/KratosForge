@@ -734,6 +734,16 @@ test("the result grid selects a block of cells, moves with the keys, and copies 
   assert.strictEqual(sqlValueText(1204330.5), "1204330.5");
 });
 
+test("Copy says how many rows the result has when it copied only this page of them (WR-225)", () => {
+  const ctx = {};
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8")}; Object.assign(this, { sqlCopiedPageNote });`, ctx);
+  const page = (n, total) => ({ rows: Array.from({ length: n }, (_, i) => [i]), total });
+  assert.strictEqual(ctx.sqlCopiedPageNote(page(2, 2)), "Copied the 2 rows on this page");
+  assert.strictEqual(ctx.sqlCopiedPageNote(page(1, 1), " as CSV"), "Copied the 1 row on this page as CSV");
+  assert.strictEqual(ctx.sqlCopiedPageNote(page(1000, 10000000), " as JSON"),
+    "Copied the 1,000 rows on this page as JSON. The result has 10,000,000: Export saves every row.");
+});
+
 test("the result grid keeps a column layout for one set of names: widths, hidden columns and order", () => {
   const ctx = {};
   vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8")}; Object.assign(this, { sqlGridLayoutFor, sqlGridWidthCss, sqlGridMoveColumn, sqlGridCarry, sqlGridBlock });`, ctx);

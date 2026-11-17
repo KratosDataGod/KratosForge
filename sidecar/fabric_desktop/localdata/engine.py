@@ -570,9 +570,13 @@ class LocalEngine:
                 params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Run every statement in ``sql``; return the last one's result with timings. ``params`` are
         the values of ``$name`` (Spark SQL: ``:name`` or ``${name}``), bound, never pasted in."""
-        limit = max(0, min(int(limit), 100_000))
+        asked = int(limit)
+        limit = max(0, min(asked, MAX_QUERY_ROWS))
         with self._query(sql, dialect, timeout, query_id, params=params) as (result, run):
             payload = _collect(result, limit, count)
+        note = shown_rows_note(len(payload["rows"]), payload["row_count"], payload["truncated"], asked)
+        if note:
+            payload["note"] = note
         payload.update(seconds=round(time.monotonic() - run["started"], 3), **_about(run, self.project.id))
         return payload
 
@@ -1760,6 +1764,24 @@ def _fabric_check(sql: str) -> dict[str, Any]:
 def _chain(first: pa.RecordBatch, rest: Any) -> Any:
     yield first
     yield from rest
+
+
+# The most rows local_query (and the deprecated local_query_status) returns in one answer.
+MAX_QUERY_ROWS = 100_000
+
+
+def shown_rows_note(shown: int, total: int | None, truncated: bool, asked: int) -> str:
+    """WR-225: the sentence a local_query answer carries when it holds fewer rows than the query returned:
+    both counts and what to change. "" when every row is there."""
+    if not truncated:
+        return ""
+    shown_of = (f"Showing the first {shown:,} of {total:,} rows." if total is not None
+                else f"Showing the first {shown:,} rows; the query returned more.")
+    over = (f" A limit of {asked:,} is more than one answer holds ({MAX_QUERY_ROWS:,})."
+            if asked > MAX_QUERY_ROWS else "")
+    more = (f"Pass a larger limit (up to {MAX_QUERY_ROWS:,}), or run" if shown < MAX_QUERY_ROWS else "Run")
+    return (f"{shown_of}{over} {more} it with sql_start (target \"local\") "
+            "to page through and export every row.")
 
 
 def _collect(result: Any, limit: int, count: bool) -> dict[str, Any]:

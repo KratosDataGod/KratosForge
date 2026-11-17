@@ -18,6 +18,8 @@ A query that runs here runs in DuckDB on this PC, not in Fabric. It is not proof
 | **Stopped** | You pressed **Stop**. |
 | **Timed out** | It ran past the time limit (10 minutes by default, or your organization's limit if it sets one) and was stopped. The message says which limit stopped it. |
 
+**A result is never shorter than the query's without saying so.** A run that Stop, the time limit or its process ending cuts off part way keeps none of the rows it read, and says why in place of them; it never shows the first part as the result. The page, sorting, filtering, column statistics, Compare and every export read the whole snapshot, and a snapshot that holds fewer rows than the run wrote (a damaged or half-copied file) is never shown or exported as if it were whole: the page says to run the query again, and an export stops with both counts and removes its file. **Copy ▾** copies the page on screen, and when the result has more rows its message says how many and that **Export** saves every row. Sorting, filtering and statistics on a result of more than 5,000,000 rows, and Excel on one of more than 1,048,575, are refused with the result's row count.
+
 **Stop** ends that query's own process and nothing else: no notebook kernel, no other query, no other part of the app. A query that was still queued simply never starts. If the app closes, its queries stop with it.
 
 Column names that repeat (`SELECT id, id FROM ...`), `NULL`s and column types are kept as the query returned them.

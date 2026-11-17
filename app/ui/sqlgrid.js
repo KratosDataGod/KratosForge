@@ -186,6 +186,14 @@ function sqlGridMenu(td, table, on) {
     item("Column statistics", null, on.stats)]);
 }
 
+// The toast after Copy (S23): the rows on this page, and (WR-225) how many the result has when it has more,
+// since Copy never takes the other pages.
+function sqlCopiedPageNote(r, as = "") {
+  const n = r.rows.length;
+  const copied = `Copied the ${n.toLocaleString()} row${n === 1 ? "" : "s"} on this page${as}`;
+  return r.total > n ? `${copied}. The result has ${r.total.toLocaleString()}: Export saves every row.` : copied;
+}
+
 // The toast after a copy of the grid's selection: "Copied 6 cells", "Copied 3 rows as CSV".
 function sqlGridCopiedNote(format, block) {
   const cells = block.rows.length * block.columns.length;

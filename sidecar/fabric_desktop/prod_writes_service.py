@@ -84,7 +84,9 @@ class ProdWritesMixin:
         except LookupError:  # no project open
             return False
         except Exception as exc:  # noqa: BLE001 - an unreadable project names nothing; the remembered ids still hold
-            _log.info("Couldn't read the metadata project for the Prod check: %s", describe_error(exc))
+            # A warning: a Prod workspace the broken project names and no earlier one did goes unguarded meanwhile.
+            _log.warning("Couldn't read the metadata project for the Prod check, so only the Prod workspaces "
+                         "remembered on this PC are asked about: %s", describe_error(exc))
             return False
         return wanted in self._remember_prod_workspaces(project)
 

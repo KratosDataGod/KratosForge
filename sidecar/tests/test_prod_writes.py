@@ -151,3 +151,17 @@ def test_a_process_kernel_asks_the_engine_with_its_notebook_and_its_runs_allowan
     k.prod_allowed = frozenset({"ws1"})
     assert k.calls["prod_guard"]("delete", "WS1", "Sales Prod", "dbo.sales") is None
     assert len(seen) == 1
+
+
+def test_an_unreadable_project_is_warned_about_and_the_remembered_ids_still_hold(tmp_path, caplog):
+    (tmp_path / "prod_workspaces.json").write_text(json.dumps({"prod": ["ws-prod"]}))
+
+    class Broken(Svc):
+        def _project(self):
+            raise ValueError("layers.toml line 3: bad value")
+
+    svc = Broken(tmp_path)
+    with caplog.at_level("WARNING", logger="fabric_desktop.prod_writes_service"):
+        assert svc._prod_write_refusal("delete", "other-ws", "Other", "dbo.sales", "nb") is None
+    assert any(r.levelname == "WARNING" and "only the Prod workspaces remembered" in r.getMessage() for r in caplog.records)
+    assert svc._prod_write_refusal("delete", "ws-prod", "Sales Prod", "dbo.sales", "nb") is not None

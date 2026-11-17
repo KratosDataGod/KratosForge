@@ -1324,7 +1324,8 @@ function renderResultViewer(o, wrap, bar, numeric, count) {
     prev.disabled = v.busy || v.offset === 0;
     next.disabled = v.busy || (total !== null ? v.offset + rows.length >= total : !p && rows.length < RESULT_PAGE);
     status.textContent = v.gone ? "Run the cell again to page, search or download: the kernel no longer holds this result."
-      : !rows.length ? (v.q && !filtered() ? `No rows match "${v.q}"` : v.q || filtered() ? "No rows match the search and filters" : "No rows")
+      : !rows.length ? (v.q && !filtered() ? `No rows match "${v.q}"` : v.q ? "No rows match the search and filters"
+        : filtered() ? "No rows match the filters." : "No rows")
         : `Rows ${(v.offset + 1).toLocaleString()} to ${(v.offset + rows.length).toLocaleString()} of ${total !== null ? total.toLocaleString() : count.toLowerCase()}${v.q || filtered() ? " matching" : ""}`;
   };
   async function load(offset) {

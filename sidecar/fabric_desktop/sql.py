@@ -189,7 +189,16 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
         _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_concat_text(_spark_cast_functions(spark_strings.spark_text_results(spark_aggregates.spark_aggregate_results(spark_complex.mark_calls(_spark_names(spark_windows.check_windows(statement)))))))))))),
         ansi=databricks))
     statement = spark_windows.spark_window_results(spark_complex.spark_complex_results(statement))
-    return _ansi_divisions(statement) if databricks else _spark_session_functions(statement)
+    return _ansi_divisions(statement) if databricks else _spark_session_functions(_null_remainders(statement))
+
+
+def _null_remainders(statement: exp.Expression) -> exp.Expression:
+    """a % 0 is NULL with ANSI mode off, as / and div are; DuckDB 2.0 stops on it instead."""
+    for node in list(statement.find_all(exp.Mod)):
+        divisor = node.expression
+        if not (isinstance(divisor, exp.Literal) and divisor.is_number and float(divisor.name) != 0):
+            node.set("expression", exp.Nullif(this=divisor.copy(), expression=exp.Literal.number(0)))
+    return statement
 
 
 # Databricks SQL runs with ANSI mode on (a SQL warehouse's ANSI_MODE, and Databricks Runtime 17.0 and

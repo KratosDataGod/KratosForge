@@ -152,8 +152,10 @@ def test_kratosforge_dark_is_the_styles_dark_block():
     dark = {k: v.strip().lower() for k, v in re.findall(r"(--[\w-]+):\s*([^;]+);", block)}
     mine = skins.KRATOSFORGE["appearance"]["tokens"]["dark"]
     assert {k: v.lower() for k, v in mine.items()} == {k: dark[k] for k in skins.TOKENS}
-    # Every color on :root has a dark value. Fonts and corner sizes (--font-ui, --r-*) are the same in both modes.
-    same = ("--lx-", "--mono", "--font-", "--r-")
+    # Every color on :root has a dark value. Fonts and corner sizes (--font-ui, --r-*) are the same in both modes,
+    # and so are the art bands' own palettes: the Living Experience hero (--lx-*) and Monitor's Forge band
+    # (--forge-*) sit on the picture's navy in either mode.
+    same = ("--lx-", "--forge-", "--mono", "--font-", "--r-")
     colors = {k for k in _root_tokens() if not k.startswith(same)}
     assert colors <= set(dark), sorted(colors - set(dark))
 

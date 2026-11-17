@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-16",
+  "updated": "2026-11-17",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -4601,7 +4601,8 @@
         "Mutation testing batches 20 to 31 (#2649, #2654 to #2657, #2659 to #2661, #2664, #2668, #2670, #2672); editor parity docs rows (#2658) on main at b76c42d2",
         "Mutation testing batches 32 to 38; shell tests for the engine bridge, shutdown, refused links, update signatures, policy trust and restores, with Windows line coverage measured daily (#2682, #2685, #2686); a Windows proxy test against a local PAC file (#2697) on main at a13d0a0f",
         "Mutation batches 39 to 54; shell code split out so it can be tested (#2705 to #2718); Windows tests for signature and policy checks, the engine folder, disk space and shortcuts (#2696, #2703); shell coverage notes (#2720) on main at 7bd752a5",
-        "Mutation batches 55 to 67; every Fabric and OneLake write tested failing (#2782); a guard test for warehouse write paths (#2787); failed tests named on CI's summary page (#2767); a new-advisory runbook dry run (#2755) on main at 58a112e4"
+        "Mutation batches 55 to 67; every Fabric and OneLake write tested failing (#2782); a guard test for warehouse write paths (#2787); failed tests named on CI's summary page (#2767); a new-advisory runbook dry run (#2755) on main at 58a112e4",
+        "Mutation batches 68 to 80 and a no-bytecode-cache fix to the mutation tool (#2839); a main fix for windowed percentile tests (#2812) on main at 80cebf61"
       ],
       "features": [
         "FEAT-SHL-09",
@@ -5115,7 +5116,22 @@
         2782,
         2787,
         2788,
-        2800
+        2800,
+        2801,
+        2805,
+        2811,
+        2812,
+        2815,
+        2820,
+        2824,
+        2830,
+        2831,
+        2833,
+        2835,
+        2838,
+        2839,
+        2843,
+        2848
       ],
       "issues": [
         910,
@@ -5143,7 +5159,8 @@
         "Header art only on Academy and Profile, with a rotating pool (#2246); Monitor run progress is a plain panel (#2411) on main at 47416473",
         "Skins choose their look from fixed choices: typefaces, corners, icon weight, header, rail, tabs and cells (#2202, #2203, #2600, #2602, Preview) on main at af7d786b",
         "Each skin card's picture shows that skin's real look, finishing the five-part skin look series (#2603, Preview) on main at 2dc0bc43",
-        "Home's banner art and progress panel are back (#2684) on main at a13d0a0f"
+        "Home's banner art and progress panel are back (#2684) on main at a13d0a0f",
+        "The Monitor run banner is back in the Forge Activity view (#2809) on main at 80cebf61"
       ],
       "features": [
         "FEAT-SHL-04",
@@ -5237,7 +5254,8 @@
         2600,
         2602,
         2603,
-        2684
+        2684,
+        2809
       ],
       "issues": [
         928,
@@ -5271,7 +5289,8 @@
         "Notebook Spark on this PC (Preview): Python UDFs (#2617), mapInPandas, mapInArrow, applyInPandas and foreach (#2619), freqItems, inputFiles, to, withMetadata and writeTo (#2626), spark.catalog listings (#2627), dynamic partition overwrite (#2635), MERGE with schema evolution (#2631), OPTIMIZE, VACUUM and RESTORE (#2639), notebookutils.lakehouse.loadTable (#2637); go to definition, find references and rename across cells (#2615) on main at 7178e900",
         "Spark decimals find mixed-case table and column names (#2667) on main at b76c42d2",
         "Cancel resends its interrupt when a cell never caught it (#2690) and keeps a cell's writes when it lands while the cell waits on them (#2692); Column.cast(\"string\") writes a double as Spark does (#2680) on main at a13d0a0f",
-        "Spark on this PC: the last Fails rows of the DataFrame API list cleared (#2766), file writes are folders of part files (#2760), decimal %, pmod, div, round and floor give Spark's types (#2772); %sql lines in Fabric step cells become spark.sql (#2759); the Runs panel reads Fabric end times (#2785); two notebook editor syntax fixes (#2745, #2747) on main at 58a112e4"
+        "Spark on this PC: the last Fails rows of the DataFrame API list cleared (#2766), file writes are folders of part files (#2760), decimal %, pmod, div, round and floor give Spark's types (#2772); %sql lines in Fabric step cells become spark.sql (#2759); the Runs panel reads Fabric end times (#2785); two notebook editor syntax fixes (#2745, #2747) on main at 58a112e4",
+        "Notebooks: Open as report (#2797, Preview), Scratch console (#2803, Preview), result table filter, select, copy and column layout (#2818, #2822); Spark SQL date and time functions give Spark's values (#2846) on main at 80cebf61"
       ],
       "features": [
         "FEAT-NB-04",
@@ -5477,7 +5496,12 @@
         2760,
         2766,
         2772,
-        2785
+        2785,
+        2797,
+        2803,
+        2818,
+        2822,
+        2846
       ]
     },
     {
@@ -5628,7 +5652,8 @@
         "SQL page: Plan and Profile for lakehouse queries (#2604, Preview), Copy as rows, CSV, JSON or INSERT statements (#2616); F12 shows the table under the cursor (#2610) on main at 2dc0bc43",
         "SQL editor bookmarks with Ctrl+F2, F2 and Shift+F2 (#2618); the SQL compatibility check reads db..table names and handles SELECT ... INTO (#2632) on main at 7178e900",
         "SQL check: GO splits only on its own line and syntax findings point at the failing token (#2679), clearer Spark SQL wording (#2678); local T-SQL FORMAT N and F keep the whole part at high precision (#2694) on main at a13d0a0f",
-        "Local T-SQL matches a Fabric Warehouse at its edges: dates and times (#2783), arithmetic and conversion (#2794), decimal precision and scale (#2770), functions DuckDB runs with another meaning refused by name (#2757); warehouse scripts in BEGIN TRAN ... COMMIT run as one transaction (#2763), a run cut off part way ends with a named error (#2779); editor settings for word wrap, font size and Vim (#2791, Preview) on main at 58a112e4"
+        "Local T-SQL matches a Fabric Warehouse at its edges: dates and times (#2783), arithmetic and conversion (#2794), decimal precision and scale (#2770), functions DuckDB runs with another meaning refused by name (#2757); warehouse scripts in BEGIN TRAN ... COMMIT run as one transaction (#2763), a run cut off part way ends with a named error (#2779); editor settings for word wrap, font size and Vim (#2791, Preview) on main at 58a112e4",
+        "SQL page (Preview): several statements per run, query parameters, .sql files and result history (#2799), a read-only table diagram (#2795); result grid sort, filter, select, Copy as, value viewer, column statistics and column layout (#2792, #2796, #2798). Local T-SQL matches a Fabric Warehouse or refuses by name: collation (#2790), percentiles (#2804), MERGE and joined UPDATE/DELETE (#2810), declared lengths (#2814), scripts and control flow (#2817), names and views (#2826), security and SET options (#2829), JSON functions (#2841); a live check against a test warehouse as smoke-test flow 17 (#2840) on main at 80cebf61"
       ],
       "features": [
         "FEAT-FAB-11",
@@ -5729,8 +5754,24 @@
         2770,
         2779,
         2783,
+        2790,
         2791,
-        2794
+        2792,
+        2794,
+        2795,
+        2796,
+        2798,
+        2799,
+        2804,
+        2810,
+        2814,
+        2817,
+        2826,
+        2829,
+        2832,
+        2837,
+        2840,
+        2841
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -6607,7 +6648,9 @@
         2669,
         2671,
         2689,
-        2771
+        2771,
+        2844,
+        2852
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
@@ -6623,7 +6666,8 @@
         "Implementation review docs/product/reviews/PB-120-kudp.md: Accepted with Documented Limitations (Chris chose 'Accept with limits' on the decision card, 2026-11-10 20:29 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpYRYGUPQ2mE64P6mQ1JuT64); limitations: only Fabric is proven live, to level 2, with Databricks and Snowflake verified at level 0; the portability report and two-engine comparison have no screen; function checks use one documented example per function on this PC",
         "Databricks parity: Databricks SQL cells read widgets (#2666), parse_json keeps decimals of up to 38 digits (#2665), concat and || write timestamps and doubles as Spark does (#2669), review follow-ups for getArgument, unreadable SQL cells and wide decimals (#2671) on main at b76c42d2",
         "IP functions name the CIDR block they need when they refuse an argument (#2689) on main at a13d0a0f",
-        "Snowflake: 119 more functions checked against documented values (#2771) on main at 58a112e4"
+        "Snowflake: 119 more functions checked against documented values (#2771) on main at 58a112e4",
+        "Databricks: the last 24 functions checked against the SQL reference (#2844); Snowflake: 85 more functions checked (#2852) on main at 80cebf61"
       ],
       "features": [
         "FEAT-EXT-05",
@@ -6848,7 +6892,8 @@
         "Correctness fixes: a rooted source path is local on Windows (#2651), shortcut request times compared as times (#2652), SQL parity checks compare whole numbers exactly (#2653) on main at b76c42d2",
         "CI audits main's dependency locks every 6 hours (#2681) on main at a13d0a0f",
         "A data dictionary file csv can't parse is refused with the usual error (#2730); the shared schedule id limit is read from one place (#2725) on main at 7bd752a5",
-        "Every SQLite store commits durably through one helper (#2774); OneLake table addresses are built in one checked place (#2784); each agent start-log stop names its runbook section (#2752); an install line below blank lines is reported on its own line (#2776) on main at 58a112e4"
+        "Every SQLite store commits durably through one helper (#2774); OneLake table addresses are built in one checked place (#2784); each agent start-log stop names its runbook section (#2752); an install line below blank lines is reported on its own line (#2776) on main at 58a112e4",
+        "Names, ids and sign-ins are checked whole, so a value ending in a line break is refused (#2821, #2823, #2827, #2834, #2849) on main at 80cebf61"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -7062,7 +7107,12 @@
         2752,
         2774,
         2776,
-        2784
+        2784,
+        2821,
+        2823,
+        2827,
+        2834,
+        2849
       ],
       "issues": [],
       "computed": {

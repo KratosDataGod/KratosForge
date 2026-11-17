@@ -234,12 +234,17 @@ _RULES = [
        "In Fabric Spark it changes the table.", "Run it in Fabric (a notebook or Run in Fabric), or use Save as table "
        "to write a result.", "local"),
     _r("LOC-002", "warning", "local", (SP,), "Regular expressions differ on this PC",
-       "Fabric Spark uses Java regular expressions; this PC runs them with DuckDB's RE2. Lookarounds and "
-       "backreferences don't work here, and some patterns match differently.", "Compare the results in Fabric, or "
-       "keep to simple patterns.", "duckdb_regex", "medium"),
-    _r("LOC-003", "warning", "local", (SP,), "Date pattern is translated on this PC",
-       "{name} uses a Spark date pattern. On this PC the pattern is translated for DuckDB, and unusual pattern "
-       "letters can give different text.", "Compare the results in Fabric.", "spark_datetime", "medium"),
+       "Fabric Spark reads regular expressions the Java way. On this PC a pattern written in the query is "
+       "translated for DuckDB's RE2, and what RE2 can't read (lookarounds, backreferences) is refused by name. A "
+       "pattern taken from the data isn't translated, and $ and . treat line breaks differently.",
+       "Compare the results in Fabric if a pattern comes from the data or the text has line breaks.",
+       "duckdb_regex", "medium"),
+    _r("LOC-003", "warning", "local", (SP,), "Date pattern reads some text differently on this PC",
+       "{name} uses a Spark date pattern. On this PC it is read as Spark reads it, with two exceptions. Text with "
+       "more fraction digits than the pattern has, or one digit where the pattern has two, is still read here. "
+       "Text that stops Spark 3's parser with an error (spark.sql.legacy.timeParserPolicy set to EXCEPTION) gives "
+       "NULL here.",
+       "Compare the results in Fabric.", "spark_datetime", "medium"),
     _r("LOC-004", "information", "local", (SP, DK), "{name} gives a different value each run",
        "{name} doesn't return the same value on every run, so results here and in Fabric won't match.",
        "Don't compare these values between runs.", "local"),

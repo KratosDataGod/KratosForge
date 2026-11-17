@@ -69,6 +69,36 @@ These cases can still differ, and LOC-005 notes them:
 | `div` whose quotient is past the BIGINT range | Wraps around (ANSI off) | NULL |
 | ANSI mode on | A division by zero is an error | NULL |
 
+## Dates and times on this PC (LOC-003)
+
+Spark SQL run on this PC gives Spark's values and types for its date and time functions, with ANSI mode off as Fabric runs it. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_datetime.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `date_format`, `from_unixtime` with a pattern | Every pattern letter Spark takes is written as Java writes it, in the session's time zone: fractions (`SSS`), quarters (`Q` to `QQQQ`), `k` and `K` hours, offsets (`X`, `x`, `Z`, `O`), the zone's id (`VV`), and quoted text (`'T'`). Text that isn't a timestamp gives NULL |
+| `to_timestamp`, `to_date`, `unix_timestamp`, `to_unix_timestamp` with a pattern | Text is read with Spark's pattern, in the session's time zone unless it has an offset (`XXX` reads `Z` and `+05:30`). `yy` reads 00 to 99 as 2000 to 2099. A pattern without a year reads the date as 1970-01-01. Text that doesn't match gives NULL |
+| `to_timestamp`, `to_timestamp_ltz`, `try_to_timestamp`, `make_timestamp`, `timestamp_seconds`, `from_utc_timestamp`, `to_utc_timestamp`, `date_trunc` | Spark's `timestamp`, not `timestamp_ntz`, so the result can be written to a Delta table. `to_timestamp_ntz` and `make_timestamp_ntz` give `timestamp_ntz` |
+| `year`, `month`, `day`, `dayofyear`, `weekofyear`, `dayofweek`, `weekday`, `quarter`, `hour`, `minute`, `second`, `datediff`, `unix_date` | An `int`, as in Spark |
+| `date_add`, `date_sub`, `datediff`, `add_months`, `last_day`, `months_between` | Spark's dates at month ends and the leap day (`add_months(DATE'2019-02-28', 1)` is `2019-03-28`), and NULL for text that isn't a date |
+| `trunc`, `date_trunc` | NULL for a unit the function doesn't take. `trunc` takes `YEAR`, `YYYY`, `YY`, `QUARTER`, `MONTH`, `MM`, `MON` and `WEEK`; `date_trunc` also takes `DAY`, `DD`, `HOUR`, `MINUTE`, `SECOND`, `MILLISECOND` and `MICROSECOND` |
+| `next_day` | Takes `MO`, `MON` or `MONDAY` and so on for each day, in any case. Any other text gives NULL |
+| `make_date`, `make_timestamp` | NULL for a day that doesn't exist, such as `make_date(2023, 2, 29)` |
+
+Patterns that Spark refuses are refused here by name, and nothing runs: the week-based letters (`Y`, `w`, `W`, `u`, `e`, `c`), `F`, optional sections (`[ ]`) and letters that aren't pattern letters. These are refused too, because this PC can't give Spark's text for them:
+
+- Zone names (`z`, such as `EST`). Use `VV` for the zone's id or `XXX` for its offset.
+- When reading text, `G`, `Q`, `k`, `K`, `O` and `z`.
+
+These cases can still differ. LOC-003 warns wherever a pattern is used:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| Text with more fraction digits than the pattern's `S` letters, such as `.123` with `ss.SS` | NULL | Read, up to 6 digits |
+| Text with one digit where the pattern has two, such as `2024-2-9` with `yyyy-MM-dd` | Not read: see the next row | Read |
+| Text the pattern doesn't read the Spark 3 way, with `spark.sql.legacy.timeParserPolicy` at its default `EXCEPTION` | Stops with `SparkUpgradeException` when Spark 2's parser would have read it | NULL, as with the policy `CORRECTED`. The setting isn't read here |
+
+A cast of text that is only a year or a year and month, such as `CAST('2024-02' AS DATE)` or `to_timestamp('2024')`, also still differs. Spark reads it as the month's or the year's first day; here it is NULL. No rule warns about it yet.
+
 ## Local T-SQL changes
 
 When a project runs T-SQL on this PC, `MERGE`, `UPDATE`, `DELETE` and `INSERT` on a database table give a warehouse's rows, or stop by name. Each case below is checked against T-SQL's reference.
@@ -148,10 +178,66 @@ What still differs:
 - Any other collation (`COLLATE Latin1_General_100_CI_AS_KS_WS_SC_UTF8`, `SQL_Latin1_General_CP1_CI_AS`) is refused by name. Compare `UPPER(...)` on both sides to ignore case.
 - `PATINDEX` needs its pattern written out as text, and is refused otherwise.
 
-Not yet checked against a warehouse, since T-SQL's reference doesn't say:
+These aren't checked against a warehouse yet, since T-SQL's reference doesn't say. The warehouse live check, flow 17 of the [smoke test](product/smoke-test/README.md#flow-17-the-warehouse-live-check), runs them, and each section's other cases, against a test warehouse:
 
-- `LIKE` with a wildcard where the text has trailing spaces. Here the text matches either as written or without its trailing spaces. So `'abc  ' LIKE 'abc_'` is false, and `'abc  ' LIKE 'abc__'` is true.
+- `LIKE` with a wildcard where the text has trailing spaces. Here a match counts if the text matches as written, or with its trailing spaces removed. So `'abc  ' LIKE 'abc_'` is false, and `'abc  ' LIKE 'abc__'` is true.
 - `CHARINDEX` with a `NULL` start. Here the answer is `NULL`.
+
+## Regular expressions and text on this PC (LOC-002)
+
+Spark reads a regular expression the Java way (`java.util.regex`), and DuckDB reads it with RE2. On this PC a pattern written in the query, or given as a Python string to the DataFrame API's `F.regexp_replace`, `F.regexp_extract`, `F.split` and `Column.rlike`, is translated for RE2 before it runs, in `rlike`, `regexp`, `regexp_like`, `regexp_extract`, `regexp_extract_all`, `regexp_replace`, `split`, `regexp_count`, `regexp_instr` and `regexp_substr`, in Spark SQL and Databricks SQL. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_strings.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
+
+| What | On this PC, as in Spark |
+| --- | --- |
+| Named groups `(?<name>...)` and `${name}` in a replacement | Read as Java reads them |
+| POSIX classes `\p{Alpha}`, `\p{Digit}`, `\p{Punct}` and the others, and `\P{...}` | ASCII only, as in Java |
+| `\s`, `\h`, `\v`, `\R`, `\uXXXX`, `\0nn`, `\e`, `\cX`, `\Q...\E` | Java's characters. `\s` takes the vertical tab, as Java's does |
+| `regexp_replace`'s replacement | Java's: `$1` and `${name}` are groups, and `\` takes the next character as it is (`\$` is a dollar sign). A `$` that refers to no group stops, as in Spark |
+| `regexp_replace` with a position | The first position is 1. Position 0 or less stops, as in Spark |
+| `regexp_extract`, `regexp_extract_all` | Group 1 unless you give one. A group index the pattern doesn't have, or below 0, stops by name. A NULL index gives NULL |
+| `regexp_count` | An `int`. An empty pattern counts each position, as Java does: `regexp_count('abc', '')` is 4 |
+| `regexp_instr` | An `int` |
+| `split` | Every match splits, and empty parts at the end are kept: `split('a,b,,', ',')` has 4 parts |
+| Any of these with a NULL | NULL |
+
+These are refused by name, and nothing runs, because RE2 has no reading for them:
+
+- Lookaheads and lookbehinds (`(?=`, `(?!`, `(?<=`, `(?<!`), atomic groups (`(?>`), backreferences (`\1`, `\k<name>`) and possessive quantifiers (`*+`, `++`, `?+`).
+- `\Z`. Use `\z` for the very end.
+- The flags `x`, `d` and `U` (`(?x)`). RE2's `U` means something else.
+- A class inside a class, such as `[a[b]]` or `[[:alpha:]]`, and class intersections (`&&`). Write the characters in one class, or use `\p{Alpha}`.
+- A group past 9 in `regexp_extract` or a replacement.
+- `\p{In...}` blocks, `\p{java...}` classes and binary properties such as `\p{IsAlphabetic}`. Use a category such as `\p{L}` or a script such as `\p{IsLatin}`.
+
+String functions that give Spark's answer on this PC, where DuckDB's own differs:
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `length`, `char_length`, `octet_length`, `bit_length`, `instr`, `locate`, `position`, `levenshtein` | An `int` |
+| `split_part` | An empty delimiter doesn't split the text: part 1 or -1 is the whole text. Index 0 stops, as in Spark |
+| `left`, `right` | A length of 0 or less gives `''` |
+| `lpad`, `rpad` with an empty pad | The text, cut to the length |
+| `locate(substr, str, pos)` | 0 for a position before 1, or a NULL position |
+| `chr`, `char` | `''` below 0, and the character for n % 256 from 256 on: `chr(321)` is `A` |
+| `LIKE`, `ILIKE` | `\` escapes the next `_` or `%`, as Spark's default escape does |
+| `concat` with a NULL | NULL, as a `string` |
+| `concat_ws` with an array, such as `array(...)`, `split(...)` or `collect_list(...)` | The array's elements joined, NULLs left out |
+
+These cases can still differ. LOC-002 warns wherever a pattern is used:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| A pattern taken from the data, not written in the query | Java's syntax | RE2's: not translated, and a lookaround stops with DuckDB's message |
+| `$` without the `m` flag, on text that ends in a line break | Matches just before the final line break | Matches only at the very end |
+| `.` and `\r`, `\u0085`, `\u2028`, `\u2029` | Doesn't match them | Matches them. Both leave out `\n` |
+| `(?i)` with letters outside ASCII | Without `(?u)`, only ASCII letters ignore case | Every letter ignores case |
+| `\b` next to a letter outside ASCII | Java counts it as a word character | RE2 doesn't |
+| `split` with a pattern that can match no text, such as `x*` | The array ends with an empty part | No empty part at the end |
+| `regexp_replace` with a replacement taken from the data that has a `$` or `\` | Read as groups and escapes | Refused by name |
+| `concat_ws` with an array column (not an array expression in SQL), or any array in the DataFrame API's `F.concat_ws` | The elements joined | The array written as text, such as `[a, b]` |
+| A pattern in the DataFrame API given as a column, such as `F.regexp_like(c, F.lit('...'))` | Java's syntax | RE2's: only a pattern given as a Python string is translated |
+| The DataFrame API's `F.split_part` with an empty delimiter, and `F.concat` with a NULL | As in the table above | `''`, and an `int` NULL. The DataFrame API's other string functions weren't compared. Use the SQL form, `F.expr(...)`, for Spark's |
+| `upper('ß')` | `SS` | `ẞ` |
 
 ## Rules
 
@@ -222,7 +308,7 @@ Rule set **2026.10.3**, from Microsoft Learn and the Apache Spark 3.5 reference 
 | DES-005 | DROP COLUMN deletes the column's data | warning | Spark, Warehouse, Endpoint, SQL database, DuckDB | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 | LOC-001 | Changes data in Fabric, not here | warning | Spark | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 | LOC-002 | Regular expressions differ on this PC | warning | Spark | medium | [source](https://duckdb.org/docs/stable/sql/functions/regular_expressions) |
-| LOC-003 | Date pattern is translated on this PC | warning | Spark | medium | [source](https://spark.apache.org/docs/3.5.1/sql-ref-datetime-pattern.html) |
+| LOC-003 | Date pattern reads some text differently on this PC | warning | Spark | medium | [source](https://spark.apache.org/docs/3.5.1/sql-ref-datetime-pattern.html) |
 | LOC-004 | *name* gives a different value each run | information | Spark, DuckDB | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 | LOC-005 | Decimal results can differ | information | Spark | medium | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 | LOC-006 | *name* has no fixed order | warning | Spark | medium | [source](https://spark.apache.org/docs/3.5.1/sql-ref-functions-builtin.html) |
@@ -408,6 +494,7 @@ What can still differ:
 - In a warehouse, some run-time errors (dividing by zero, a value that doesn't convert) end only their own statement, and the batch goes on to the next one. Here the script stops at the first error, and the error says which statements didn't run.
 - A script of only session options (`SET NOCOUNT ON`) has nothing to run here, and says so.
 
+<<<<<<< HEAD
 ## Time travel in local T-SQL
 
 In a Fabric Warehouse, `OPTION (FOR TIMESTAMP AS OF '2026-11-01T09:30:00')` at the end of a `SELECT` reads every table as it was at that time, in UTC, as Microsoft's time travel docs describe it. A warehouse keeps 30 days of history by default, and its retention can be set from 1 to 120 days. Here each table is read from its Delta history at that time.
@@ -428,6 +515,24 @@ Refused by name: the hint on `INSERT ... SELECT`, `SELECT ... INTO` or `CREATE T
 
 On a warehouse, from the SQL page, a `SELECT` ending in the hint is sent as written, and the warehouse answers for its own retention.
 
+=======
+## Loading data with T-SQL
+
+Fabric Warehouse loads files with `COPY INTO`, `BULK INSERT` and `OPENROWSET(BULK ...)`. Each reads files from a URL in Azure Storage (Blob or Data Lake Storage Gen2) or OneLake, as Microsoft's T-SQL reference for Fabric describes them. Neither the local engine nor a run from the SQL page loads them, and each is refused by its name, so a script never looks as if it loaded something.
+
+| Statement | In a Fabric Warehouse | Here |
+| --- | --- | --- |
+| `COPY INTO t FROM '<url>' WITH (...)` | Loads CSV, Parquet or JSONL files into a table. Options include `FILE_TYPE`, `FIRSTROW`, `FIELDTERMINATOR`, `ROWTERMINATOR`, `FIELDQUOTE`, `ENCODING`, `DATEFORMAT`, `COMPRESSION`, `CREDENTIAL`, `MATCH_COLUMN_COUNT` and `IDENTITY_INSERT`. A column list maps fields by number (CSV) or JSON path (JSONL), with a default for each column. `MAXERRORS` (0 by default) lets up to that many rows be rejected while the rest load, and `ERRORFILE` writes the rejected rows to storage | Refused by name |
+| `BULK INSERT t FROM '<url>' WITH (...)` | Loads the same file types as `COPY INTO`, with SQL Server's options: `FORMAT`, `FIRSTROW`, `FIELDTERMINATOR` (a tab by default), `MAXERRORS` (10 by default), `ERRORFILE` and others. `DATAFILETYPE = 'native'` and `KEEPIDENTITY` aren't supported, and `TABLOCK`, `BATCHSIZE` and some others are accepted and ignored | Refused by name |
+| `SELECT ... FROM OPENROWSET(BULK '<url>', ...) AS r` | Reads CSV, Parquet or JSONL files as rows, with `FORMAT`, `HEADER_ROW`, `FIRSTROW`, `LASTROW`, `FIELDTERMINATOR`, `MAXERRORS` (10 by default) and others, a `WITH (column type ...)` list, and `r.filepath()` and `r.filename()` for the file each row came from | Refused by name |
+
+- **On this PC.** The local engine reads no URLs, so all three are refused with "... isn't mapped yet. It loads files from cloud storage ...", whatever their file type, options, error-row settings or column list. The whole script is refused before anything runs, so nothing is loaded, not even part of a file, and the statements before it don't run either. To load a file here, put it in one of the project's folders, where it's a table such as `dbo.orders`, and `INSERT INTO ... SELECT` from that table.
+- **On a warehouse, from the SQL page.** A read and a change both refuse `COPY INTO`, `BULK INSERT` and `OPENROWSET` before anything is sent: "COPY INTO loads files into the warehouse, which isn't run from the SQL page. Use the Load files with COPY INTO template and run it in Fabric's query editor.", or "OPENROWSET reads outside the warehouse".
+- **Rejected rows.** In a warehouse, a load with `MAXERRORS` above 0 can succeed with some rows left out. Since neither engine here runs a load, no load here leaves rows out.
+- A column, table or alias named `bulk`, `copy` or `openrowset` in brackets, and the words in strings and comments, aren't refused.
+
+## How it's built and tested
+>>>>>>> origin/main
 
 - `sidecar/fabric_desktop/sqlcompat/`: `profiles.py` describes each engine (statement categories, unsupported types and their alternatives, identifiers, transactions, DDL and DML, semantic differences, confidence and sources); `rules.py` holds the rules, each naming its engines, severity, confidence and source; `analyzer.py` splits the SQL into statements (at `;`, and at T-SQL's `GO` on a line of its own, with an optional count or comment), reads each with sqlglot and the engine's tokenizer, applies the rules and builds the report. Rules work on tokens first, so they still find problems, at exact positions, in statements sqlglot can't read.
 - The engine methods are `sql_analyze` and `sql_compat_export`. `Service.sql_compat_profiles` lists the rules in-process; the app doesn't call it.

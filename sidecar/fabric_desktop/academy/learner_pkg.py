@@ -33,6 +33,8 @@ SOURCES: dict[str, Path] = {
     "spark_hash.py": _ENGINE / "spark_hash.py",
     "spark_number_format.py": _ENGINE / "spark_number_format.py",
     "spark_struct_fields.py": _ENGINE / "spark_struct_fields.py",
+    "spark_strings.py": _ENGINE / "spark_strings.py",
+    "spark_datetime.py": _ENGINE / "spark_datetime.py",
     "notebook_dag.py": _ENGINE / "notebook_dag.py",
     "pyspark_shim.py": _HERE / "pyspark_shim.py",
     "pyspark_stream.py": _HERE / "pyspark_stream.py",

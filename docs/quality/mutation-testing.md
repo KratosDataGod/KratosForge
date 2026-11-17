@@ -5488,3 +5488,119 @@ No bug was found.
 | --- | --- | --- | --- |
 | `comments_service.py` | 110 | `return ""` dropped (returns `None`) | Equivalent: this PC's id is only used as a condition and in `f"pc:{pc}" if pc else ""`, where `None` and `""` act the same. |
 | `comments_service.py` | 127 | `time.monotonic() > deadline` to `>=` | Equivalent: the wait stops at the deadline either way. The two differ only if the clock reads exactly the deadline, and then the next read, 20 ms later, is past it. |
+
+# Mutation testing, batch 80
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds.
+- Connections for the Data Factory page: the cloud and gateway connections the person can use, and what uses each one in each environment's workspace (`fabric_connections_service.py`).
+- Pipeline, copy job and dataflow runs for Monitor > Runs, and one run's activities (`fabric_pipeline_runs_service.py`).
+- The Direct Lake check's service half: a Delta table's numbers from its log and Parquet footers, relationship keys, and the check itself (`model_directlake_service.py`).
+
+The run was at `main` 1b1e47552 (2026-11-17), with `sidecar/tools/mutate.py` and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`), so every run was made with `PYTHONDONTWRITEBYTECODE=1`. Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against each module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used, and no test in these sets reads `docs/`, `examples/` or `app/`.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `fabric_connections_service.py` | test_fabric_connections, test_fabric_connections_service_edges, test_workspace_dataflows (+ test_fabric_connections_mutation) | 79 of 79 (79 + 0) | 70 / 9 | **88.6%** | 70/79 → 78/79 | none | 78 / 1 | **98.7%** | 1 equivalent |
+| `fabric_pipeline_runs_service.py` | test_fabric_pipeline_runs, test_fabric_pipeline_runs_service_edges, test_remote_text_lines (+ test_fabric_pipeline_runs_mutation) | 105 of 105 (104 + 1) | 84 / 21 | **80.0%** | 84/104 → 100/104 | 0/1 → 1/1 | 101 / 4 | **96.2%** | 4 equivalent |
+| `model_directlake_service.py` | test_model_directlake, test_model_directlake_service_edges (+ test_model_directlake_service_mutation) | 104 of 104 (101 + 3) | 92 / 12 | **88.5%** | 91/101 → 100/101 | 1/3 → 2/3 | 102 / 2 | **98.1%** | 2 equivalent |
+
+No bugs were found in these modules.
+
+### What the survivors were, and the tests that now kill them
+
+- **fabric_connections_service.py**:
+  - A connection row keeps its path and privacy level as Fabric gives them, and a connection without details has empty fields.
+  - Environments come in the order dev, test, prod, then any other environment by name.
+  - At most 500 definitions are read in one scan, and the rest are counted as skipped.
+  - The scan runs on a daemon thread with the three tokens.
+  - A long workspace or item id in what was missed is cut to 100 characters.
+  - → `test_fabric_connections_mutation.py`.
+- **fabric_pipeline_runs_service.py**:
+  - Times are parsed to the exact microsecond, and a value that isn't text is no time.
+  - A duration is rounded to the millisecond.
+  - Activity text is capped at 16,000 characters: exactly 16,000 isn't marked as cut, and an empty value isn't either.
+  - Activity JSON is indented by two spaces and keeps letters such as ü as they are.
+  - An activity row keeps its start and end times, and an error with only a code is still shown.
+  - A run with no times is looked up over the last day, with five minutes either side.
+  - At most 20 runs per item and 300 in all are listed, newest first.
+  - The scan runs on a daemon thread, and a long id in what was missed is cut to 100 characters.
+  - → `test_fabric_pipeline_runs_mutation.py`.
+- **model_directlake_service.py**:
+  - Row groups are sampled across the table, every second file when half the footers are read, and the total is scaled up.
+  - Row groups are exact when every footer is read.
+  - At most 200 footers are read by default.
+  - A Delta log without record counts leaves the row count unknown.
+  - A relationship whose key types differ isn't matched row by row.
+  - A model with no Direct Lake tables reports no findings and zero counts, and a model that isn't there is named with its workspace.
+  - → `test_model_directlake_service_mutation.py`.
+
+### Left
+
+- **fabric_connections_service.py**, 1 equivalent: the thread pool's 8 workers becoming 9 changes how many definitions are read at once, not what the scan finds.
+- **fabric_pipeline_runs_service.py**, 4 equivalent:
+  - The thread pool's 8 workers becoming 9, as above.
+  - The fraction rewrite's `count=1` becoming `0` (every match): a time has only one fraction, and an offset has no dot.
+  - Keeping 7 fractional digits instead of 6, or padding to 7: on Python 3.11 and later, `fromisoformat` takes any number of digits and drops those past the sixth, so the time is the same.
+- **model_directlake_service.py**, 2 equivalent:
+  - `get_add_actions(flatten=False)`: in deltalake 1.6.6 the path, size and record count are top-level columns either way.
+  - `len(sample) < len(paths)` becoming `<=`: when every file is read, the count scaled by the same number of files is the count itself.
+
+# Mutation testing, batch 81
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- The optimization assessment of a workspace or a capacity, its read budget, and sharing it (`opportunities_service.py`).
+- Databricks job runs and Lakeflow pipeline updates for Monitor (`engines/databricks_jobs.py`).
+- Which engine each notebook runs on, switching it, and closing its sessions (`engines/sessions.py`).
+
+The run was at `main` fccfe5bb2 (2026-11-17), with `sidecar/tools/mutate.py` as fixed in #2839, so each mutant ran without a bytecode cache, and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used, and no test in these sets reads `docs/`, `examples/` or `app/`. `test_rpc_surface.py` also calls `optimization_assess`, but it was left out because two of its tests read the app's own files under `app/`.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `opportunities_service.py` | test_opportunities, test_opportunities_share (+ test_opportunities_service_mutation) | 81 of 81 (77 + 4) | 53 / 28 | **65.4%** | 51/77 → 77/77 | 2/4 → 4/4 | 81 / 0 | **100%** | none |
+| `engines/databricks_jobs.py` | test_databricks_jobs, test_databricks_jobs_edges, test_databricks_runs_service (+ test_databricks_jobs_mutation) | 133 of 133 (131 + 2) | 106 / 27 | **79.7%** | 106/131 → 130/131 | 0/2 → 1/2 | 131 / 2 | **98.5%** | 2 equivalent |
+| `engines/sessions.py` | test_engines, test_engines_service, test_engine_switch_failures, test_kudp_guardrails (+ test_engine_sessions_mutation) | 64 of 64 (64 + 0) | 62 / 2 | **96.9%** | 62/64 → 64/64 | none | 64 / 0 | **100%** | none |
+
+No bug was found.
+
+### What the survivors were, and the tests that now kill them
+
+- **opportunities_service.py**:
+  - A capacity reads at most 25 workspaces, in name order ignoring case, and says how many were left out (none for one workspace).
+  - One workspace keeps the id, name and capacity Fabric gave, or the id asked for when Fabric gives none.
+  - Days are kept between 1 and 90, and default to 30; the demonstration also uses 30.
+  - Past 300 items the rest are listed as not read; a small workspace has no problem.
+  - Reads run on four workers.
+  - The read budget allows exactly its calls, stops at its deadline even with calls left, and reports 1,500 calls, not reached, when unspent.
+  - A workspace, its definitions or its histories past the budget, or that can't be read, are reported as not read, never raised.
+  - An assessment is kept under its run id; five are kept, and a sixth drops the oldest.
+  - Sharing rebuilds the rows from the kept assessment and passes approve and confirm through; one that isn't kept says so and shares nothing.
+  - → `test_opportunities_service_mutation.py`.
+- **engines/databricks_jobs.py**:
+  - At most 100 job runs and 50 pipelines are read, with 5 updates each.
+  - A task's error is cut to 1,000 characters, and a run page or notebook path to 500.
+  - A state with no words of its own is title-cased, or reads as Unknown.
+  - A missing or negative time is 0, and a run without a start or an end took nothing.
+  - Compute is Serverless with an environment or no task list; a run whose tasks name no compute uses its own.
+  - A failed run without a failed task says only "Failed".
+  - A pipeline update took 0 s and says its trigger, and one made exactly at the window's start is kept.
+  - Fewer than one day reads one day, and a failed sign-in marks both lists not ok.
+  - → `test_databricks_jobs_mutation.py`.
+- **engines/sessions.py**:
+  - A session that can't be closed, on an engine no longer registered, gets the short local note.
+  - The logged close failure is cut to 300 characters.
+  - → `test_engine_sessions_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `engines/databricks_jobs.py` | 172 | default `days=1` to `0` | Equivalent: `list` keeps days between 1 and 30, so a default of 0 reads one day too. |
+| `engines/databricks_jobs.py` | 77 | `end >= start` to `end > start` | Equivalent: when the end equals the start, both give 0 seconds. |

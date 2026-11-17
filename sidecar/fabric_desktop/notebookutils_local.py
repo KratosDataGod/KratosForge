@@ -923,7 +923,7 @@ def _make_variable_library(host: Host) -> types.SimpleNamespace:
         return VariableLibrary(variableLibraryName, values)
 
     def get(variableReference: str) -> Any:  # noqa: N803
-        m = _REFERENCE.match(str(variableReference).strip())
+        m = _REFERENCE.fullmatch(str(variableReference).strip())
         if not m:
             raise ValueError('Use a reference like "$(/**/VL_Sources/CRM_server_host)"')
         return getattr(getLibrary(m.group(1)), m.group(2))

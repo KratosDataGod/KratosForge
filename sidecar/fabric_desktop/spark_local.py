@@ -108,18 +108,16 @@ def _spark_types(rel: Any) -> Any:
 
 
 # Writer options this PC honors, by lower-case name. Anything else is refused by name, so an
-# option that changes what gets written (replaceWhere) can never be dropped and turn into a full
-# overwrite. A path option is save()'s path, as in Spark; a table write
+# option that changes what gets written can never be dropped and turn into a full overwrite.
+# A path option is save()'s path, as in Spark; a table write
 # refuses it (_TABLE_PATH).
 _SCHEMA_OPTIONS = ("overwriteschema", "mergeschema")
 # Options that only change how files are laid out, not which rows end up in the table.
 _LAYOUT_OPTIONS = ("optimizewrite", "maxrecordsperfile", "compression")
 # partitionOverwriteMode: static or dynamic, as the session setting (_overwrite_mode).
 _MODE_OPTIONS = ("partitionoverwritemode",)
-_REFUSED = {
-    "replacewhere": "replaceWhere (replace only matching rows) isn't supported on this PC, and ignoring it would "
-                    "replace the whole table. Run the cell in Fabric, or filter, union and overwrite the table yourself.",
-}
+# replaceWhere: an overwrite replaces only the rows that match it, and the data must match it (_replace_where).
+_REPLACE_OPTIONS = ("replacewhere",)
 _TABLE_PATH = "Writing a table to its own path (an external table) runs in Fabric. Leave out the path option."
 
 
@@ -295,8 +293,6 @@ class LakehouseWriter:
 
     def option(self, key: str, value: Any) -> LakehouseWriter:
         name = str(key).lower()
-        if name in _REFUSED:
-            raise NotImplementedError(_REFUSED[name])
         if name in _MODE_OPTIONS:
             _overwrite_mode(None, {name: value})  # static or dynamic, else refused here
         self._options[name] = value
@@ -382,7 +378,24 @@ class LakehouseWriter:
 
     def _write(self, data: pa.Table, name: str, how: str, schema_mode: str | None) -> None:
         predicate = None
-        if how == "overwrite" and _overwrite_mode(self._df.session, self._options) == "dynamic" \
+        replace = self._options.get("replacewhere")
+        if replace is not None and how != "overwrite":
+            print("Note: replaceWhere only applies to an overwrite; this append adds the rows, as Delta does.")
+            replace = None
+        if replace is not None and not lakehouse.table_exists(name):
+            replace = None  # a new table gets every row, as in Delta (there is nothing to replace yet)
+        if replace is not None:
+            if str(self._options.get("partitionoverwritemode", "")).strip().lower() == "dynamic" \
+                    and lakehouse.open_table(name).metadata().partition_columns:  # Delta ignores it unpartitioned
+                raise ValueError("[DELTA_REPLACE_WHERE_WITH_DYNAMIC_PARTITION_OVERWRITE] A 'replaceWhere' expression "
+                                 "and 'partitionOverwriteMode'='dynamic' cannot both be set in the DataFrameWriter "
+                                 "options. Nothing was written.")
+            if schema_mode == "overwrite":  # Delta's canOverwriteSchema is false with replaceWhere
+                print("Note: overwriteSchema doesn't apply with replaceWhere; the table keeps its schema, as in Delta.")
+                schema_mode = "merge" if _true(self._options.get("mergeschema")) else None
+            predicate = _replace_where(str(replace), name)
+            _rows_match(data, predicate, str(replace), name)
+        elif how == "overwrite" and _overwrite_mode(self._df.session, self._options) == "dynamic" \
                 and lakehouse.table_exists(name):
             parts = list(lakehouse.open_table(name).metadata().partition_columns)
             if parts and schema_mode == "overwrite":
@@ -408,7 +421,7 @@ class LakehouseWriter:
                     ".option(\"mergeSchema\", \"true\").")
         if schema_mode != "overwrite" and lakehouse.table_exists(name):
             _check_types(data, name, how)  # mergeSchema adds columns; it never changes a column's type
-        print(_write_table(data, name, how, schema_mode, predicate))
+        print(_write_table(data, name, how, schema_mode, predicate, replace))
 
     def saveAsTable(self, name: str, format: str | None = None, mode: str | None = None,  # noqa: A002
                     partitionBy: Any = None, **options: Any) -> None:  # noqa: N803
@@ -420,7 +433,7 @@ class LakehouseWriter:
         if (format or self._format) not in ("delta", None):
             raise ValueError("Lakehouse tables are Delta tables. Leave out format, or use format(\"delta\").")
         self._table_partitions_note()
-        self._check_options(_SCHEMA_OPTIONS + _MODE_OPTIONS, "a Delta table")
+        self._check_options(_SCHEMA_OPTIONS + _MODE_OPTIONS + _REPLACE_OPTIONS, "a Delta table")
         how = self._write_mode(name)
         if how != "skip":
             self._write(_arrow(self._df), name, how, self._schema_mode(how))
@@ -497,8 +510,56 @@ class LakehouseWriter:
         self.save(path, format="orc", mode=mode, partitionBy=partitionBy, **options)
 
 
-def _write_table(data: pa.Table, name: str, how: str, schema_mode: str | None, predicate: str | None = None) -> Any:
-    from deltalake.exceptions import SchemaMismatchError
+def _replace_where(condition: str, name: str) -> str:
+    """replaceWhere's condition, Spark SQL, as the predicate delta-rs replaces by: the table's column
+    names quoted as the table spells them. A subquery, or a column the table hasn't, is refused."""
+    import sqlglot
+    from sqlglot import exp
+    try:
+        node = sqlglot.parse_one(condition, read="spark")
+    except sqlglot.errors.ParseError as exc:
+        raise ValueError(f"replaceWhere {condition!r} isn't a condition this PC reads "
+                         f"({sql_dialects.parse_problem(exc)}). Nothing was "
+                         "written.") from None
+    if node.find(exp.Subquery, exp.Select) or not node.find(exp.Column):
+        raise ValueError(f"replaceWhere {condition!r} must compare the table's columns, with no subquery. Nothing "
+                         "was written.")
+    cased = {c.lower(): c for c in _columns(name) or []}
+    for column in node.find_all(exp.Column):
+        actual = cased.get(column.name.lower())
+        if actual is None or column.table:
+            raise ValueError(f"replaceWhere {condition!r}: table {name} has no column {column.sql('spark')}. Its "
+                             f"columns are {', '.join(cased.values())}. Nothing was written.")
+        column.set("this", exp.to_identifier(actual, quoted=True))
+    return node.sql(dialect="postgres")
+
+
+def _replace_mismatch(replace: str, name: str, detail: str = "") -> ValueError:
+    return ValueError(f"[DELTA_REPLACE_WHERE_MISMATCH] Written data does not conform to partial table overwrite "
+                      f"condition or constraint '{replace}'.{detail} Every row written must match replaceWhere, so "
+                      f"nothing was written to {name}.")
+
+
+def _rows_match(data: pa.Table, predicate: str, replace: str, name: str) -> None:
+    """Delta's check, made before the write is queued: every row written must make replaceWhere true
+    (a NULL fails it, as in Delta's CheckDeltaInvariant). delta-rs checks again as it writes."""
+    import duckdb
+    con = duckdb.connect()
+    try:
+        con.register("kf_rows", data)
+        try:
+            bad = first_row(con.execute(f"SELECT count(*) FROM kf_rows WHERE ({predicate}) IS NOT TRUE"))
+        except duckdb.Error:
+            return  # a condition DuckDB reads differently: delta-rs's own check still stops the write
+    finally:
+        con.close()
+    if bad and bad[0]:
+        raise _replace_mismatch(replace, name, f" {bad[0]} of the {data.num_rows} rows don't match it.")
+
+
+def _write_table(data: pa.Table, name: str, how: str, schema_mode: str | None, predicate: str | None = None,
+                 replace: Any = None) -> Any:
+    from deltalake.exceptions import DeltaError, SchemaMismatchError
     try:
         if predicate is not None:
             return lakehouse.write_table(data, name, mode=how, schema_mode=schema_mode, predicate=predicate)
@@ -507,6 +568,10 @@ def _write_table(data: pa.Table, name: str, how: str, schema_mode: str | None, p
         raise ValueError(f"The data doesn't match table {name}'s schema ({e}). Nothing was written. To replace "
                          "the schema, add .option(\"overwriteSchema\", \"true\") to an overwrite; to add columns, "
                          "add .option(\"mergeSchema\", \"true\").") from None
+    except DeltaError as e:
+        if replace is None or "failed validation check" not in str(e):
+            raise
+        raise _replace_mismatch(str(replace), name) from None
 
 
 _KINDS = (("a whole number", pa.types.is_integer), ("a decimal", pa.types.is_decimal),
@@ -535,7 +600,6 @@ def _check_types(data: pa.Table, table: str, how: str) -> None:
                          f"written. To write it, {fix}.")
 
 
-_MERGE_SOURCES = itertools.count(1)
 _AUTO_MERGE = "spark.databricks.delta.schema.autoMerge.enabled"
 _SPARK_SET = re.compile(r"\s*SET\s+(?P<key>spark\.[\w.]+)\s*=\s*(?P<value>[^;]*?)\s*;?\s*", re.I)
 _SCHEMA_EVOLUTION = re.compile(r"\s*MERGE\s+WITH\s+SCHEMA\s+EVOLUTION\b", re.I)
@@ -571,7 +635,6 @@ def change_runs_here(query: str, lakehouse_name: str | None = None) -> bool:
 # behind Runs on finds it in a notebook's code. tests/test_spark_refusals.py fails when a refusal is
 # added here without an entry, so Runs on can't say "runs on this PC" for code this PC refuses.
 CHECKED_REFUSALS = {
-    "option": "a refused writer option, by its literal name (writer_option_refusal)",
     "_check_options": "an option saveAsTable or insertInto doesn't take, by its literal name (writer_option_refusal)",
     "_preview_on": "change_runs_here, with Preview features off",
     "schema": "read.schema() given a string (READ_SCHEMA_TEXT)",
@@ -601,25 +664,19 @@ REFUSED_CODE: list[tuple[re.Pattern[str], str]] = [
 # DeltaTable maintenance (spark_maint, Preview): runs on this PC only with Preview features on (_preview_on).
 DELTA_MAINTENANCE = ("restoreToVersion", "restoreToTimestamp", "vacuum", "optimize")
 MAINTENANCE_PREVIEW_TEXT = "runs {}, which this PC runs only with Preview features on"
-# For a cell Python can't read: the refused writer options that only a writer takes (a reader's
-# "path" option is fine, so it isn't here). A cell Python reads goes through writer_option_refusal.
-REFUSED_OPTION_TEXT = re.compile(r"""\.option\(\s*["'](replaceWhere)["']""", re.I)
 READ_SCHEMA_TEXT = "gives read.schema() a DDL string, which this PC's Spark refuses (give it a StructType)"
 READ_SCHEMA_ON = "applies read.schema() to a read of {}, which this PC's Spark refuses (leave it out and cast the columns after)"
 READ_FORMATS = ("delta", "csv", "json", "parquet", "text")
 READ_FORMAT_TEXT = "reads format {!r}, which this PC's Spark doesn't have (it reads csv, json, parquet, text and delta)"
 TABLE_FORMAT_TEXT = "saves a lakehouse table as {!r}, which this PC's Spark refuses: lakehouse tables are Delta tables"
 # The options each table write takes on this PC (_check_options), by lower-case name.
-WRITE_TAKES = {"saveAsTable": _SCHEMA_OPTIONS + _LAYOUT_OPTIONS + _MODE_OPTIONS, "insertInto": _LAYOUT_OPTIONS + _MODE_OPTIONS}
+WRITE_TAKES = {"saveAsTable": _SCHEMA_OPTIONS + _LAYOUT_OPTIONS + _MODE_OPTIONS + _REPLACE_OPTIONS, "insertInto": _LAYOUT_OPTIONS + _MODE_OPTIONS}
 
 
 def writer_option_refusal(name: str, terminal: str | None) -> str | None:
     """Why this PC's writer refuses option ``name`` on a write that ends in ``terminal`` (saveAsTable,
     insertInto, or None when the check can't tell), or None when it takes it."""
     key = name.lower()
-    if key in _REFUSED:
-        first = _REFUSED[key].split(". ")[0]
-        return f"uses the {name} write option: {first[0].lower()}{first[1:].rstrip('.')}"
     takes = WRITE_TAKES.get(terminal or "")
     if takes is not None and key == "path":
         return f"uses the {name} write option on {terminal}: writing a table to its own path (an external table) runs in Fabric"
@@ -1487,7 +1544,6 @@ class LocalSparkSession(SparkSession):
                 local_delta.fabric_schema(pa.schema(new), names=True)
         names = [cased.get(f.name.lower(), f.name) for f in safe]
         source = source.rename_columns(names).cast(pa.schema([pa.field(n, f.type) for n, f in zip(names, safe, strict=True)]))
-        self._one_match_each(change, source)
         result = lakehouse.change_table(change, source)
         affected = result.rows_inserted + result.rows_updated + result.rows_deleted
         return self._from_arrow_dataset(pa.table({
@@ -1512,37 +1568,6 @@ class LocalSparkSession(SparkSession):
         result = lakehouse.change_table(change)
         return self._from_arrow_dataset(pa.table({
             "num_affected_rows": [result.rows_updated if change.kind == "update" else result.rows_deleted]}))
-
-    def _one_match_each(self, change: Any, source: pa.Table) -> None:
-        """Spark refuses a MERGE in which one row of the table matches two source rows (which one
-        would change it is undefined); delta-rs doesn't, so it is checked here for ON t.a = s.a [AND ...]."""
-        import sqlglot
-
-        from . import delta_dml
-        keys = delta_dml.equi_keys(change)
-        matched = [w for w in change.whens if w.match == "matched"]
-        if not keys or not matched or not source.num_rows:
-            return
-        if len(matched) == 1 and matched[0].action == "delete" and matched[0].condition is None:
-            return  # Spark allows it: every source row deletes the same table row, so the result is defined
-        view = f"__merge_source_{next(_MERGE_SOURCES)}"
-        self.conn.register(view, source)
-        try:
-            sa, ta = change.source_alias or "s", change.alias or change.table
-            group = ", ".join(f"`{sa}`.`{s_col}`" for _t, s_col in keys)
-            target = f"`{change.schema}`.`{change.table}`" if change.schema else f"`{change.table}`"
-            check = sqlglot.parse_one(
-                f"SELECT {group} FROM {view} AS `{sa}` WHERE EXISTS (SELECT 1 FROM {target} AS `{ta}` WHERE "
-                f"{change.on.sql(dialect='spark')}) GROUP BY {group} HAVING count(*) > 1 LIMIT 1", read="spark")
-            self._bind(check)
-            duplicate = first_row(self.conn.execute(_sql.duckdb_sql(check)))
-        finally:
-            self.conn.unregister(view)
-        if duplicate is not None:
-            raise ValueError(f"More than one source row matches the same row of {change.name} (source key "
-                             f"{', '.join(str(v) for v in duplicate)}), so which one changes it is undefined, and "
-                             "Spark refuses it too. Keep one source row per key, for example with QUALIFY "
-                             "row_number() OVER (PARTITION BY key ORDER BY ...) = 1.")
 
     def createDataFrame(self, data: Any, schema: Any = None, samplingRatio: Any = None,  # noqa: N802, N803
                         verifySchema: bool = True) -> DataFrame:  # noqa: N803

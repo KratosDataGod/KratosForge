@@ -151,7 +151,7 @@ These cases still differ:
 | `posexplode` and `LATERAL VIEW posexplode` | `pos` is an `int` | `pos` is a `bigint` |
 | A map that only comes from a computed expression, such as `size(map_filter(m, ...))` or `explode(map_from_arrays(...))`, in a view or subquery the types can't be read through | Counted or exploded as a map | Can stop with a DuckDB error naming the function. A map column, or a map written in the query, works |
 | `array(1, 'a')` and other arrays that mix types | The elements are cast to a common type (`array<string>`) | Stops with a conversion error. Cast the elements to one type first |
-| The DataFrame API: `F.size`, `F.explode` and `F.explode_outer` of a map column, `F.reverse` of an array, `F.sequence` counting down, and `F.posexplode` and `F.map_concat`, which aren't there | As in Spark SQL | Not given Spark's answer yet: a map or a count down stops or gives `[]`. Run that part through `spark.sql` |
+| The DataFrame API's `F.size`, `F.cardinality`, `F.reverse` and `F.sequence` used in `agg`, `groupBy` or `orderBy`, and `F.explode` or `F.posexplode` of a map used anywhere but `select` | As in Spark SQL | They're read as arrays here: a map stops with a DuckDB error, and a count down gives `[]`. In `select`, `withColumn`, `withColumns` and `filter` they give Spark's answer. Work the column out in a `select` first |
 | Databricks SQL on the DuckDB engine | As in Spark SQL | The fixes that don't need column types apply; `size`, `explode` and `reverse` of a map or array column keep DuckDB's forms |
 | `explode` of a map that holds `rand()` or `shuffle()`, in a select list | The map is read once | Its keys and values are read separately, so they can come from different reads. Use `LATERAL VIEW explode`, which reads it once |
 

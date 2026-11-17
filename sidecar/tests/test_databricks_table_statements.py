@@ -4,6 +4,8 @@ TBLPROPERTIES), or is refused by name so nothing runs with another answer."""
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from fabric_desktop.engines import local_sql
@@ -169,3 +171,19 @@ def test_a_plan_of_an_identity_column_leaves_no_sequence():
         assert session._con.execute("SELECT count(*) FROM duckdb_sequences()").fetchall() == [(0,)]
     finally:
         session.close()
+
+@pytest.mark.parametrize(("text", "what"), [
+    ("TABLE t DROP CONSTRAINT pos", "ALTER TABLE ... DROP CONSTRAINT"),
+    ("TABLE t ADD CONSTRAINT pos CHECK (a > 0)", "ALTER TABLE ... ADD CONSTRAINT"),
+    ("TABLE t SET TBLPROPERTIES ('a' = 'b')", "ALTER TABLE ... SET TBLPROPERTIES"),
+    ("TABLE t UNSET TBLPROPERTIES ('a')", "ALTER TABLE ... UNSET TBLPROPERTIES"),
+])
+def test_an_alter_sqlglot_reads_only_as_a_command_is_refused_by_name_too(text, what):
+    # some builds of sqlglot give up on these clauses and keep the statement as text
+    from sqlglot import exp
+
+    from fabric_desktop import databricks_builtins_sql
+    with pytest.raises(ValueError, match=rf"^{re.escape(what)} can't run on this PC"):
+        databricks_builtins_sql.table_statements(exp.Command(this="ALTER", expression=text))
+    assert databricks_builtins_sql.table_statements(exp.Command(this="ALTER", expression="TABLE t RENAME TO u")) \
+        == [exp.Command(this="ALTER", expression="TABLE t RENAME TO u")]

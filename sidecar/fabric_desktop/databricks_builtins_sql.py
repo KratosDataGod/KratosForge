@@ -682,28 +682,42 @@ def _comment(target: exp.Expression, text: str) -> exp.Expression:
     return comment
 
 
+_ALTER_CLAUSES = ((r"\bUNSET\s+TBLPROPERTIES\b", "UNSET TBLPROPERTIES"), (r"\bSET\s+TBLPROPERTIES\b", "SET TBLPROPERTIES"),
+                  (r"\bADD\s+CONSTRAINT\b", "ADD CONSTRAINT"), (r"\bDROP\s+CONSTRAINT\b", "DROP CONSTRAINT"))
+
+
+def _alter_refusal(clause: str) -> ValueError:
+    """The refusal for an ALTER TABLE clause a DuckDB table can't take."""
+    if clause.endswith("TBLPROPERTIES"):
+        return _statement_refusal(f"ALTER TABLE ... {clause}", f"{_LOCAL_TABLE}, which has no table properties",
+                                  "leave the statement out")
+    if clause == "ADD CONSTRAINT":
+        return _statement_refusal("ALTER TABLE ... ADD CONSTRAINT", "DuckDB can't add a constraint to a table that "
+                                  "already exists", "put the CHECK in the table's CREATE TABLE, where every write is "
+                                  "checked against it as on Databricks")
+    return _statement_refusal("ALTER TABLE ... DROP CONSTRAINT", "DuckDB can't drop a constraint from a table",
+                              "make the table again without it")
+
+
 def table_statements(statement: exp.Expression) -> list[exp.Expression]:
     """``statement`` with Databricks' table definitions written for DuckDB: a generated column as DuckDB's
     GENERATED ALWAYS AS (expression), an identity column as a sequence (which comes first), USING DELTA
     dropped. What a DuckDB table can't do is a ValueError that names it: TBLPROPERTIES, another format,
     and adding or dropping a constraint on a table that exists (a CHECK in CREATE TABLE is checked on every
     write, as Databricks checks it)."""
-    if isinstance(statement, exp.Command) and statement.name.upper() == "ALTER" and re.search(
-            r"\bUNSET\s+TBLPROPERTIES\b", str(statement.expression or ""), re.IGNORECASE):
-        raise _statement_refusal("ALTER TABLE ... UNSET TBLPROPERTIES", f"{_LOCAL_TABLE}, which has no table "
-                                 "properties", "leave the statement out")
+    if isinstance(statement, exp.Command) and statement.name.upper() == "ALTER":
+        # sqlglot can fall back to a Command for some of these, so the text is read as well as the tree
+        for pattern, clause in _ALTER_CLAUSES:
+            if re.search(pattern, str(statement.expression or ""), re.IGNORECASE):
+                raise _alter_refusal(clause)
     if isinstance(statement, exp.Alter):
         for action in statement.args.get("actions") or []:
             if isinstance(action, exp.AlterSet) and action.find(exp.Properties):
-                raise _statement_refusal("ALTER TABLE ... SET TBLPROPERTIES", f"{_LOCAL_TABLE}, which has no table "
-                                         "properties", "leave the statement out")
+                raise _alter_refusal("SET TBLPROPERTIES")
             if isinstance(action, exp.AddConstraint):
-                raise _statement_refusal("ALTER TABLE ... ADD CONSTRAINT", "DuckDB can't add a constraint to a "
-                                         "table that already exists", "put the CHECK in the table's CREATE TABLE, "
-                                         "where every write is checked against it as on Databricks")
+                raise _alter_refusal("ADD CONSTRAINT")
             if isinstance(action, exp.Drop) and str(action.args.get("kind") or "").upper() == "CONSTRAINT":
-                raise _statement_refusal("ALTER TABLE ... DROP CONSTRAINT", "DuckDB can't drop a constraint from "
-                                         "a table", "make the table again without it")
+                raise _alter_refusal("DROP CONSTRAINT")
         return [statement]
     if not (isinstance(statement, exp.Create) and str(statement.args.get("kind") or "").upper() == "TABLE"):
         return [statement]

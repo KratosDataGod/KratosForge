@@ -890,7 +890,7 @@ function renderQuery() {
     const text = sqlRowsAs(format, r.columns, r.rows,
       { dialect: tab.dialect, table: format === "insert" ? sqlInsertTable(tab.resultQuery, tab.dialect) : undefined });
     const copied = await attempt(() => navigator.clipboard.writeText(text).then(() => true), "Could not copy");
-    if (copied) toast(`Copied the ${r.rows.length.toLocaleString()} row${r.rows.length === 1 ? "" : "s"} on this page${COPY_AS[format]}`);
+    if (copied) toast(sqlCopiedPageNote(r, COPY_AS[format]));
   }
 
   // Explorer: click a table to query it, a column to type its name.

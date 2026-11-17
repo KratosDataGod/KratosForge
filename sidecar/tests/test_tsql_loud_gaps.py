@@ -32,9 +32,9 @@ SQ, DQ = "'", '"'
 
 # (case, T-SQL, SQL Server's documented answer as the first cell). These run on the local engine now.
 MAPPED = [  # decimals come back as text, as the engine sends them
-    ("ROUND truncate mode", "SELECT ROUND(123.456, 1, 1)", "123.4"),
-    ("ROUND truncate mode, negative", "SELECT ROUND(-123.456, 1, 1)", "-123.4"),
-    ("ROUND mode 0 rounds", "SELECT ROUND(123.456, 1, 0)", "123.5"),
+    ("ROUND truncate mode", "SELECT ROUND(123.456, 1, 1)", "123.400"),
+    ("ROUND truncate mode, negative", "SELECT ROUND(-123.456, 1, 1)", "-123.400"),
+    ("ROUND mode 0 rounds", "SELECT ROUND(123.456, 1, 0)", "123.500"),
     ("CHOOSE", "SELECT CHOOSE(2, 'a', 'b', 'c')", "b"),
     ("CHOOSE out of range", "SELECT CHOOSE(4, 'a', 'b', 'c')", None),
     ("CAST 'true' AS bit", "SELECT CAST('true' AS bit)", True),

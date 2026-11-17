@@ -3687,3 +3687,15 @@ body[data-skin-cells="rounded"] .cells.editing .cell.selected .cell-box { box-sh
 .console-entry .output { margin-left: 14px; }
 .console-input { font: 12.5px/1.5 Consolas, ui-monospace, monospace; padding: 6px 8px; border: 1px solid var(--accent-ink); border-radius: 4px; background: var(--surface); color: var(--text); resize: vertical; }
 .console-actions { gap: 6px; align-items: center; }
+
+/* SQL page > Explorer > Diagram (sqldiagram.js) */
+.sql-explorer-actions { margin: 4px 8px; }
+.sql-diagram-body { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; }
+.sql-diagram { flex: 1; min-height: 240px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.sql-diagram svg { display: block; }
+.sql-diagram .diagram-table { cursor: pointer; }
+.sql-diagram .diagram-table:focus-visible rect:first-child, .sql-diagram .diagram-table:hover rect:first-child { stroke: var(--accent-ink); stroke-width: 2; }
+.sql-diagram .diagram-table:focus { outline: none; }
+.sql-diagram-legend { margin: 0; }
+.sql-diagram-solid, .sql-diagram-dashed { display: inline-block; width: 24px; vertical-align: middle; border-top: 2px solid var(--accent-ink); }
+.sql-diagram-dashed { border-top: 2px dashed var(--muted); margin-left: 8px; }

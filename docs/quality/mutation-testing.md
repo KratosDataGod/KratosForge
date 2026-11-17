@@ -5604,3 +5604,121 @@ No bug was found.
 | --- | --- | --- | --- |
 | `engines/databricks_jobs.py` | 172 | default `days=1` to `0` | Equivalent: `list` keeps days between 1 and 30, so a default of 0 reads one day too. |
 | `engines/databricks_jobs.py` | 77 | `end >= start` to `end > start` | Equivalent: when the end equals the start, both give 0 seconds. |
+
+# Mutation testing, batch 82
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds.
+- Notebook files on this PC: where a notebook's file is, which notebook a file path names (for VS Code and kratosforge:// links), delete and restore, and a Fabric notebook saved here (`notebook_files_service.py`).
+- What an Azure Databricks workspace offers: warehouses, clusters, the Unity Catalog metastore and catalogs, what to try first, and the summary for the command line (`engines/databricks_discovery.py`).
+- The central lakehouse's tables and their migrations (`optimize/schema.py`).
+
+The run was at `main` e88bc60e9 (2026-11-17), with `sidecar/tools/mutate.py` and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`), so every run was made with `PYTHONDONTWRITEBYTECODE=1`. Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run. None of the three modules changed between e88bc60e9 and the `main` this branch was last brought up to.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against each module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used, and no test in these sets reads `docs/`, `examples/` or `app/` (`test_vscode_setup.py`, which reads `docs/`, was left out).
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `notebook_files_service.py` | test_audit, test_editor_channel, test_notebook_files, test_notebook_files_service_edges, test_notebook_folders, test_notebook_resources (+ test_notebook_files_service_mutation) | 89 of 89 (87 + 2) | 66 / 23 | **74.2%** | 66/87 → 86/87 | 0/2 → 2/2 | 88 / 1 | **98.9%** | 1 equivalent |
+| `engines/databricks_discovery.py` | test_databricks_discovery, test_databricks_discovery_replies, test_engine_connections_settings, test_cli_tenant_commands (+ test_databricks_discovery_mutation) | 91 of 91 (89 + 2) | 70 / 21 | **76.9%** | 70/89 → 87/89 | 0/2 → 2/2 | 89 / 2 | **97.8%** | 2 equivalent |
+| `optimize/schema.py` | test_access_cache, test_capacity_history, test_optimize_lakehouse_stores, test_optimize_roles, test_optimize_service, test_optimize_service_mutation, test_optimize_setup, test_optimize_shared, test_optimize_shared_edges, test_tenant_history (+ test_optimize_schema_mutation) | 57 of 57 (55 + 2) | 56 / 1 | **98.2%** | 54/55 → 55/55 | 2/2 → 2/2 | 57 / 0 | **100%** | none |
+
+No bugs were found in these modules.
+
+### What the survivors were, and the tests that now kill them
+
+- **notebook_files_service.py**:
+  - A path's reason for not opening starts at 260 characters and stops past 32,767, and a path that isn't a notebook gets no reason.
+  - Only a symbolic link or a reparse tag with the name-surrogate bit counts as a link; a OneDrive placeholder doesn't.
+  - A path that isn't text, or holds a NUL character, is never local. Off Windows, a relative path and a `//host` or `/\host` path aren't either.
+  - A relative path has no name, even when the current folder is the notebooks folder.
+  - A missing part, or a link, below the notebooks folder stops the walk.
+  - A folder named like a notebook has no name.
+  - Only a link to the same item in the same workspace, whose notebook is still here, counts as already here.
+  - A copy of Fabric's version is saved where the notebook is, unless a place is given.
+  - → `test_notebook_files_service_mutation.py`.
+- **engines/databricks_discovery.py**:
+  - A name of exactly 200 characters is kept, and one past it is cut to 200 with the `…`. An error in the summary is cut the same way at 600.
+  - A cluster with auto-termination has no note, and one without has one.
+  - An access mode that isn't set is named "not set".
+  - After a failed sign-in, every part is not ok.
+  - Running compute comes before starting, and starting before anything else.
+  - The summary lists 20 catalogs and marks more with ` …`, says which clusters Databricks Connect can use, and names whatever was suggested under "Try first", or leaves the line out.
+  - → `test_databricks_discovery_mutation.py`.
+- **optimize/schema.py**:
+  - A migration can't be changed once made (the dataclass is frozen).
+  - → `test_optimize_schema_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `notebook_files_service.py` | 249 | `getattr(st, "st_reparse_tag", 0)` default to `1` | Equivalent: the default is only used where there is no reparse tag, and `1 & 0x20000000` is 0, the same as `0 & 0x20000000`. |
+| `engines/databricks_discovery.py` | 168 | `rank.get(w["state"], 2)` default to `3` | Equivalent: any state other than RUNNING (0) or STARTING (1) ranks after both either way, and all such states rank the same. |
+| `engines/databricks_discovery.py` | 171 | `rank.get(c["state"], 2)` default to `3` | Equivalent, as above, for clusters. |
+
+# Mutation testing, batch 83
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- Spark's datetime patterns for `date_format`, `from_unixtime`, `to_date`, `to_timestamp` and `unix_timestamp`, as DuckDB SQL (`spark_datetime.py`).
+- Databricks `dbutils` for notebooks on this PC: `fs`, widgets, secrets, task values and the notebook context (`dbutils_local.py`).
+- Lookup and Get Metadata in local pipeline runs (`pipeline_data.py`).
+
+The run was at `main` 70da27aad (2026-11-17), with `sidecar/tools/mutate.py` as fixed in #2839, so each mutant ran without a bytecode cache, and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. `dbutils_local.py` has fewer than 150 mutants, so all were run; the other two were sampled to 150.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used, and no test in these sets reads `docs/`, `examples/` or `app/`, with one exception, handled as follows:
+- `test_spark_datetime.py::test_what_still_differs_is_listed_in_the_compatibility_docs` reads `docs/`, so it was left out with `--deselect`.
+- From `test_spark_compat.py`, only its four date and time tests were run, by node id. The rest of that file runs no datetime pattern and takes about 30 s per mutant.
+
+A mutant whose run times out counts as killed, as in earlier batches. So does one whose run used up memory and was stopped.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `spark_datetime.py` | test_spark_datetime (one test deselected), test_spark_local, test_sqlcompat_rules_mutation, the four date and time tests of test_spark_compat (+ test_spark_datetime_mutation) | 150 of 291 (142 + 8) | 120 / 30 | **80.0%** | 115/142 → 141/142 | 5/8 → 6/8 | 147 / 3 | **98.0%** | 3 equivalent |
+| `dbutils_local.py` | test_dbutils, test_dbutils_parity, test_sql_cell_widgets, test_databricks_notebook_helpers_mutation (+ test_dbutils_local_mutation) | 118 of 118 (117 + 1) | 104 / 14 | **88.1%** | 103/117 → 114/117 | 1/1 → 1/1 | 115 / 3 | **97.5%** | 3 equivalent |
+| `pipeline_data.py` | test_pipeline_data, test_pipeline_data_edges, test_pipeline_script, test_pipeline_runner_edges, test_pipeline_gotchas, test_orchestration_runner_mutation (+ test_pipeline_data_mutation) | 150 of 211 (149 + 1) | 134 / 16 | **89.3%** | 134/149 → 149/149 | 0/1 → 1/1 | 150 / 0 | **100%** | none |
+
+No bug was found.
+
+### What the survivors were, and the tests that now kill them
+
+- **spark_datetime.py**:
+  - Each pattern letter takes up to the most letters java.time takes (G, M, L, Q, q, E, X, x and Z five; S nine; D three; d, h, K, k, H, m and s two; a one) and is refused by name past that. A year takes up to 99.
+  - The localized offset is written O or OOOO only, and A, the first letter, is read as a letter Spark refuses.
+  - The day and the day of the year are padded to the letters given.
+  - Five era letters give the narrow era.
+  - The localized and ISO offsets come out right in every width, with Z for a zero offset where java.time writes it.
+  - An empty pattern gives empty text, and formatting is lenient unless asked to be strict.
+  - Reading takes LLLL and yyyy, and refuses LLLLL and an offset of four letters.
+  - → `test_spark_datetime_mutation.py`.
+- **dbutils_local.py**:
+  - A `%fs` drive path is this PC's disk, and other paths are checked as `dbutils.fs` checks them.
+  - A widget's label is its name unless one is given, including a combobox.
+  - A multiselect value set in the app is kept only when every item is a choice; a dropdown value is one choice, even with a comma in it.
+  - A task value is kept under the task running now.
+  - The context's user is the Windows user first, then `USER`, then empty.
+  - A notebook run without a timeout passes 0.
+  - Listing secrets asks each page with a 30-second timeout, sends the API version on the first page only, and stops when Key Vault repeats a page.
+  - → `test_dbutils_local_mutation.py`.
+- **pipeline_data.py**:
+  - A Lookup output of exactly 4 MB is returned, and one byte more fails.
+  - A connection type known only at run time passes the check, and `@@` text is not an expression.
+  - The check's message names the activity's kind, "a connection" when the connection has no type, and "a dataset" when the dataset has none.
+  - Only runs with a Lookup, a Get Metadata or a Script on a lakehouse sign in first.
+  - Get Metadata's `exists` and `itemName` don't read the table, and `structure` and `columnCount` each read its schema.
+  - A missing table without a schema is named in `dbo`, and a missing file fails unless `exists` is asked.
+  - → `test_pipeline_data_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `spark_datetime.py` | 100 | `n <= 1` to `n <= 0` in `_pad` | Equivalent: `_pad` is only called with more than one letter. |
+| `spark_datetime.py` | 145 | `n > 1` to `n >= 1` for `d` | Equivalent: one letter then goes through `_pad` with 1, which gives the same unpadded text. |
+| `spark_datetime.py` | 162 | `n > 1` to `n >= 1` for `m` and `s` | Equivalent, for the same reason. |
+| `dbutils_local.py` | 76 | default `recurse=False` to `True` in `fs.mv` | Equivalent: `recurse` is not used, because folders move whole. |
+| `dbutils_local.py` | 292 | default `precise=False` to `True` in `data.summarize` | Equivalent: `precise` is not used. |
+| `dbutils_local.py` | 86 | `cp` checks its first 2 arguments as paths, to 3 | Equivalent in practice: the third argument of `cp` is `recurse`, a flag, which the path check lets through. |

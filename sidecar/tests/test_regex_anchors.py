@@ -22,6 +22,12 @@ DENY = {
 }
 
 
+# Inline calls that keep match: parsers whose last group must not fail on an odd line, never validators.
+INLINE_KEEP = {
+    ("notebook.py", r"((?:\s*-(?:[nr]\s*\d+|[A-Za-z])(?=\s|$))*)\s*(.*)$"),  # %timeit: every line splits into options and code
+}
+
+
 def _anchored(tree):
     """Module-level ``NAME = re.compile("...$")`` patterns."""
     out = set()
@@ -149,3 +155,57 @@ def test_a_platform_notice_to_a_person_or_role_ending_in_a_line_break_is_refused
 def test_a_mail_recipient_ending_in_a_line_break_is_refused():
     from fabric_desktop.workloads import deliver
     assert deliver._EMAIL.fullmatch("ada@contoso.com") and not deliver._EMAIL.fullmatch("ada@contoso.com\n")
+
+
+def _ends_in_dollar(text):
+    return text.endswith("$") and not text.endswith("\\$")
+
+
+def _multiline(call):
+    flags = list(call.args[2:3]) + [k.value for k in call.keywords if k.arg == "flags"]
+    return any(isinstance(n, ast.Attribute) and n.attr in ("M", "MULTILINE") for f in flags for n in ast.walk(f))
+
+
+def _inline(source, rel=""):
+    """Lines of ``re.match("...$", ...)``, and of ``re.search("^...$", ...)`` without MULTILINE (the same check)."""
+    out = []
+    for n in ast.walk(ast.parse(source)):
+        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ("match", "search")
+                and isinstance(n.func.value, ast.Name) and n.func.value.id == "re" and n.args
+                and isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str)
+                and _ends_in_dollar(n.args[0].value) and (rel, n.args[0].value) not in INLINE_KEEP):
+            pattern = n.args[0].value
+            if n.func.attr == "match" or (pattern.startswith("^") and not _multiline(n)):
+                out.append(n.lineno)
+    return sorted(out)
+
+
+def test_no_inline_pattern_ending_in_dollar_is_used_with_match():
+    found = []
+    for path in sorted(ROOT.rglob("*.py")):
+        rel = path.relative_to(ROOT).as_posix()
+        if not rel.startswith("_vendor/"):
+            found += [f"{rel}:{n}" for n in _inline(path.read_text(encoding="utf-8"), rel)]
+    assert found == [], "use re.fullmatch: a pattern ending in $ also takes a value ending in a line break: " + ", ".join(found)
+
+
+def test_inline_keep_entries_still_exist():
+    for rel, pattern in INLINE_KEEP:
+        assert _inline((ROOT / rel).read_text(encoding="utf-8")) != [], (rel, pattern)
+
+
+def test_the_inline_guard_sees_match_and_whole_value_search_only():
+    src = ('import re\nre.match(r"^a$", x)\nre.fullmatch(r"^a$", x)\nre.match(r"^a\\$", x)\n'
+           're.search(r"^a$", x)\nre.search(r"^a$", x, re.M)\nre.search(r"a$", x)\nre.search(r"^a$", x, flags=re.MULTILINE)\n')
+    assert _inline(src) == [2, 5]
+
+
+def test_inline_validators_refuse_a_final_line_break():
+    from fabric_desktop import spark_stream
+    from fabric_desktop.academy import registry
+    assert spark_stream._ident("view_1") == "view_1"
+    with pytest.raises(ValueError):
+        spark_stream._ident("view_1\n")
+    plat = registry.PLATFORMS[registry.DEFAULT_PLATFORM]
+    link = f"https://{sorted(plat['doc_hosts'])[0]}/fabric/overview"
+    assert registry._doc_ok(link, plat) and not registry._doc_ok(link + "\n", plat)

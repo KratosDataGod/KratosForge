@@ -278,6 +278,8 @@ def test_deleting_a_branch_that_isnt_there_and_put_aside_changes_by_name(repo): 
         repo.delete_branch("nowhere")
     with pytest.raises(GitError, match="Choose a set of put-aside changes"):
         repo.restore_stash("HEAD")
+    with pytest.raises(GitError, match="Choose a set of put-aside changes"):
+        repo.restore_stash("stash@{0}\n")
 
 
 # ---- notebooks and conflicts as text

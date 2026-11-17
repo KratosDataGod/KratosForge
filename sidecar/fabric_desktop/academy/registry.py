@@ -147,7 +147,7 @@ def coverage(cert: dict[str, Any]) -> dict[str, Any]:
 
 
 def _doc_ok(link: Any, plat: dict[str, Any]) -> bool:
-    m = re.match(r"^https://([^/]+)/\S+$", str(link))
+    m = re.fullmatch(r"^https://([^/]+)/\S+$", str(link))
     return bool(m and m.group(1) in plat["doc_hosts"])
 
 

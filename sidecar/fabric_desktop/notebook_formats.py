@@ -509,7 +509,7 @@ def _databricks_cell(text: str, comment: str, default: str | None,
 def _databricks_magic(body: list[str], notes: list[dict[str, Any]] | None = None, n: int = 0) -> dict[str, Any]:
     """A Databricks cell whose first line is a magic: %md, %sql, %scala, %r, %python, %run, %pip..."""
     first = body[0].strip() if body else ""
-    m = re.match(r"^%([A-Za-z_-]+)\s*(.*)$", first)
+    m = re.fullmatch(r"^%([A-Za-z_-]+)\s*(.*)$", first)
     if not m:
         return _code("\n".join(body))
     name, rest = m.group(1).lower(), m.group(2)

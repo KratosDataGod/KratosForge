@@ -67,6 +67,9 @@ For each dimension, over the controls that apply:
 **Rankings and comparisons use the assured score.** A workspace where only 20% could be checked can't
 rank above one checked at 95% just because fewer problems were found.
 
+A dimension whose only applicable controls are informational (weight 0) has nothing to score, so it
+shows as not applicable; its informational findings are still listed.
+
 The **overall** score weights the dimension scores by the profile's dimension weights. A dimension with
 nothing that applies is left out and the other weights are scaled back up to 100.
 

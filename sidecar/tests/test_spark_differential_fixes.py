@@ -135,3 +135,22 @@ def test_shift_java_rules(case_sql: str) -> None:
 def test_shift_java_rules_on_longs(expression: str, want) -> None:
     check("shiftleft(-7, 3)")
     assert one(expression) == want
+
+
+@pytest.mark.parametrize(("case_sql", "spark"), [
+    ("(ceil(1.0E3D) div if(false, 10, 7))", 142),
+    ("CAST(ceil(1.0E3D) AS STRING)", "1000"),
+    ("((10 ^ ceil(CAST(NULL AS DOUBLE))) / -100)", None),
+])
+def test_ceil_floor_of_a_double(case_sql: str, spark) -> None:
+    """Spark's ceil and floor of a double or a whole number are a bigint (math.ceil(d).toLong). These answers are
+    Spark 3.5.3's from the SQL differential thread's 3,000-case run (seed 99); that fixture isn't checked in."""
+    assert one(case_sql) == spark
+
+
+@pytest.mark.parametrize(("expression", "want"), [
+    ("typeof(floor(-2.5D))", "bigint"), ("floor(-2.5D)", -3), ("ceil(CAST('NaN' AS DOUBLE))", 0),
+    ("ceil(1e30D)", 9223372036854775807), ("typeof(ceil(7))", "bigint"), ("floor(CAST(NULL AS DOUBLE))", None),
+])
+def test_ceil_floor_of_a_double_edges(expression: str, want) -> None:
+    assert one(expression) == want

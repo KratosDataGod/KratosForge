@@ -239,8 +239,8 @@ def parse_sql(pattern: str, fn: str, strict: bool = False) -> str:
     Spark with ANSI off; ``strict`` (ANSI on) stops instead."""
     fmt, has_year, has_offset, two_digit = parse_format(pattern, fn)
     text = "CAST(fj_arg0 AS VARCHAR)"
-    if has_offset:  # Spark's X reads 'Z' for +00:00; strptime's %z doesn't
-        text = f"REGEXP_REPLACE({text}, 'Z', '+00:00')"
+    if has_offset:  # Spark's X reads 'Z' for +00:00; strptime's %z doesn't. Only a Z on its own, not one in a word
+        text = f"REGEXP_REPLACE({text}, '(^|[^A-Za-z])Z($|[^A-Za-z])', '\\1+00:00\\2')"
     parsed = f"{'STRPTIME' if strict else 'TRY_STRPTIME'}({text}, {_quote(fmt)})"
     if not has_year:  # strptime starts from 1900-01-01
         parsed = f"({parsed} + INTERVAL 70 YEAR)"

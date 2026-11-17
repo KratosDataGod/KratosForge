@@ -237,10 +237,11 @@ _RULES = [
        "Fabric Spark uses Java regular expressions; this PC runs them with DuckDB's RE2. Lookarounds and "
        "backreferences don't work here, and some patterns match differently.", "Compare the results in Fabric, or "
        "keep to simple patterns.", "duckdb_regex", "medium"),
-    _r("LOC-003", "warning", "local", (SP,), "Date pattern is translated on this PC",
-       "{name} uses a Spark date pattern. On this PC it is read as Spark reads it, except text with more fraction "
-       "digits than the pattern has, or one digit where it has two, which is read here, and text Spark 3's parser "
-       "would stop on (spark.sql.legacy.timeParserPolicy EXCEPTION), which is NULL here.",
+    _r("LOC-003", "warning", "local", (SP,), "Date pattern reads some text differently on this PC",
+       "{name} uses a Spark date pattern. On this PC it is read as Spark reads it, with two exceptions. Text with "
+       "more fraction digits than the pattern has, or one digit where the pattern has two, is still read here. "
+       "Text that stops Spark 3's parser with an error (spark.sql.legacy.timeParserPolicy set to EXCEPTION) gives "
+       "NULL here.",
        "Compare the results in Fabric.", "spark_datetime", "medium"),
     _r("LOC-004", "information", "local", (SP, DK), "{name} gives a different value each run",
        "{name} doesn't return the same value on every run, so results here and in Fabric won't match.",

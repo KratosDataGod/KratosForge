@@ -125,6 +125,8 @@ PARSED = [
     ("to_timestamp('2024-02-29 13:04:05.123456', 'yyyy-MM-dd HH:mm:ss.SSSSSS')", "timestamp", "2024-02-29 13:04:05.123456"),
     ("to_timestamp('2024-02-29T13:04:05Z', \"yyyy-MM-dd'T'HH:mm:ssX\")", "timestamp", "2024-02-29 13:04:05"),
     ("to_timestamp('2024-02-29T13:04:05+05:30', \"yyyy-MM-dd'T'HH:mm:ssXXX\")", "timestamp", "2024-02-29 07:34:05"),
+    # a Z in quoted text isn't an offset: only the Z standing on its own is read as +00:00
+    ("to_timestamp('Zone 2024-02-29 13:04:05Z', \"'Zone' yyyy-MM-dd HH:mm:ssX\")", "timestamp", "2024-02-29 13:04:05"),
     ("to_timestamp('2024-02-29 13:04:05+0530', 'yyyy-MM-dd HH:mm:ssZ')", "timestamp", "2024-02-29 07:34:05"),
     ("to_timestamp('2024 060', 'yyyy DDD')", "timestamp", "2024-02-29 00:00:00"),
     ("to_timestamp('99-02-28', 'yy-MM-dd')", "timestamp", "2099-02-28 00:00:00"),  # Spark's base year is 2000

@@ -128,7 +128,7 @@ def safe_path(rel: str) -> str:
     parts = PurePosixPath(text).parts
     for part in parts:
         bare = part.rstrip(". ").lower()
-        if (part in (".", "..") or bare in (".git", ".gitattributes") or _SHORT_NAME.match(bare) or not bare
+        if (part in (".", "..") or bare in (".git", ".gitattributes") or _SHORT_NAME.fullmatch(bare) or not bare
                 or ws._DEVICE.match(part)):
             raise Refused(f"{rel!r} isn't a path this lab writes: it must stay in the repository, out of .git, "
                           "not be .gitattributes, and use names Windows allows.")

@@ -14,10 +14,7 @@ ROOT = pathlib.Path(fabric_desktop.__file__).parent
 
 # Modules still to move, slice by slice. Remove a module when its patterns use fullmatch.
 NOT_YET = {
-    "academy/exam.py", "academy/exercises.py", "academy/gitlab.py", "academy/guide_check.py",
-    "academy/notebookutils_lab.py", "academy/pyspark_lab.py", "academy/quizlab.py", "academy/registry.py",
-    "academy/sqlprojlab.py", "governance_notices.py", "history.py", "learn/content.py", "learn/dismissals.py",
-    "learn/fixes.py", "learn/guides.py", "localdata/discovery.py", "localdata/projects.py",
+    "governance_notices.py", "history.py", "localdata/discovery.py", "localdata/projects.py",
     "localdata/transform.py", "magics.py", "notebook_formats.py", "notebookutils_local.py",
     "optimize/local_runs.py", "optimize/schema.py", "pip_magic.py", "replay.py", "semantic.py", "spark_compat.py",
     "sql_function_help.py", "sql_queries_service.py", "sql_templates_service.py", "sql_view.py", "tmdl.py",
@@ -129,3 +126,8 @@ def test_a_batch_or_cell_id_ending_in_a_line_break_is_refused():
     from fabric_desktop import comments_service, notebook_batch_service
     assert comments_service._CELL_ID.fullmatch("cell-1") and not comments_service._CELL_ID.fullmatch("cell-1\n")
     assert not notebook_batch_service._BATCH_ID.fullmatch("0123456789ab\n")
+
+
+def test_academy_and_learn_ids_ending_in_a_line_break_are_refused():
+    from fabric_desktop.learn import content
+    assert content.is_id("LM-01") and not content.is_id("LM-01\n")

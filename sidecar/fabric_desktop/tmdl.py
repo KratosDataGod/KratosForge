@@ -435,7 +435,7 @@ class _Writer:
         for key, value in obj.items():
             value = _joined(value)
             if not _KEY.fullmatch(key):
-                self.lost(f"{where} {key[:80]}".strip(), "this property name can't be written as TMDL")
+                self.lost(f"{where} property {key[:80]}".strip(), "this property name can't be written as TMDL")
             elif value is None:
                 continue
             elif isinstance(value, str) and (key in _EXPRESSION_KEYS or _breaks(value)):
@@ -640,7 +640,8 @@ def _from_bim(bim: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, str]]
     back, read_report = to_bim(files, str(bim.get("name") or ""))
     report += [r for r in read_report if r not in report]
     report += [{"object": where, "kind": "lost", "message": "wouldn't read back from TMDL as it was"}
-               for where in differences(bim, back) if not any(where.startswith(r["object"]) for r in report)]
+               for where in differences(bim, back)
+               if not any(where.startswith(r["object"].replace(" property ", " ", 1)) for r in report)]
     return files, report
 
 

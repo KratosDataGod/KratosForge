@@ -244,4 +244,4 @@ def test_a_model_nested_too_deeply_is_refused_not_a_crash():
 def test_a_property_name_that_cant_be_written_is_reported_once():
     bim = {"name": "m", "model": {"tables": [{"name": "T", "bad key": 1}]}}
     _, report = tmdl.from_bim(bim)
-    assert report == [{"object": "table 'T' bad key", "kind": "lost", "message": "this property name can't be written as TMDL"}]
+    assert report == [{"object": "table 'T' property bad key", "kind": "lost", "message": "this property name can't be written as TMDL"}]

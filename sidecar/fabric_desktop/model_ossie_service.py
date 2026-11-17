@@ -324,7 +324,7 @@ class ModelOssieMixin:
             (p.relative_to(root).as_posix(), c) for p, c in targets.items())], ensure_ascii=False).encode()).hexdigest()
         if not confirmed:
             return {"confirm": out | {"token": digest}}
-        if not hmac.compare_digest(token, digest):
+        if not hmac.compare_digest(str(token).encode(), digest.encode()):
             raise ValueError("The folder or the Ossie file changed since the preview; nothing was written. Preview again.")
         for path, content in targets.items():
             write_text(path, content, newline="\n")

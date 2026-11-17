@@ -441,6 +441,8 @@ def test_an_ossie_file_becomes_tmdl_in_the_project_with_no_fabric_call(svc, monk
     with pytest.raises(ValueError, match="changed since the preview"):
         svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token=plan["token"])
     assert stale.exists() and other.exists()
+    with pytest.raises(ValueError, match="changed since the preview"):
+        svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token="é" * 64)  # not ASCII: still the plain refusal
     other.unlink()
     out = svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token=plan["token"])
     assert out == {k: v for k, v in plan.items() if k != "token"}

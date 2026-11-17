@@ -79,7 +79,7 @@ test("a note read from the policy package says how old the package is", { skip }
   await box.waitFor();
   const said = await box.innerText();
   assert.ok(said.includes("From the policy Sales data standards, version 1."), said);
-  assert.ok(said.includes("From the project's policy package taken 3 days ago: the platform couldn't be reached."), said);
+  assert.ok(said.includes("The platform couldn't be reached, so this note is from the project's policy package, taken 3 days ago."), said);
 });
 
 test("a package note with no recorded age still reads as a sentence", { skip }, async () => {
@@ -87,6 +87,6 @@ test("a package note with no recorded age still reads as a sentence", { skip }, 
   const box = sm003().locator(".learn-team-notes");
   await box.waitFor();
   const said = await box.innerText();
-  assert.ok(said.includes("From the project's policy package, taken earlier, while the platform couldn't be reached."), said);
+  assert.ok(said.includes("The platform couldn't be reached, so this note is from the project's policy package, taken earlier."), said);
   assert.ok(!said.includes("earlier ago"), said);
 });

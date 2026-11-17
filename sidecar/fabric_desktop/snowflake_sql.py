@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import warnings
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -175,6 +176,11 @@ SFD_MOMENTS = _n("SFD-013", "SKEW and STDDEV_POP can differ from the seventh dig
                  "used, so which digits Snowflake returns today isn't known.",
                  "Round SKEW and STDDEV_POP to six significant digits where results are compared with Snowflake's.",
                  f"{_DOCS}/functions/stddev_pop")
+SFD_KEYS = _n("SFD-014", "TO_JSON keeps an object's keys in their order",
+              "Snowflake keeps an OBJECT's keys sorted, so TO_JSON(PARSE_JSON('{\"b\":1,\"a\":2}')) is "
+              "{\"a\":2,\"b\":1} there. Here the keys stay in the order they were written.",
+              "Compare JSON text by its values, not as text, or sort the keys before comparing.",
+              f"{_DOCS}/functions/to_json")
 SFD_NUMBER = _n("SFD-008", "A JSON fraction counts as a decimal",
                 "Snowflake's PARSE_JSON keeps a number written with a fraction (123.12) as DECIMAL and one written "
                 "with an exponent (1.912e2) as DOUBLE; DuckDB's JSON reads both as DOUBLE. So IS_DECIMAL, AS_DECIMAL "
@@ -238,6 +244,7 @@ _TEXT_FEATURES = {
     "SEARCH": "SEARCH and SEARCH_IP match with Snowflake's search analyzers, which DuckDB doesn't have.",
     "SEARCH_IP": "SEARCH and SEARCH_IP match with Snowflake's search analyzers, which DuckDB doesn't have.",
     "COLLATE": "Snowflake's collation specifications ('en-ci', for example) have no DuckDB equivalent.",
+    "HASH": "HASH uses Snowflake's own hash, which DuckDB's hash doesn't reproduce.",
     "HASH_AGG": "HASH_AGG uses Snowflake's own hash, which DuckDB's hash doesn't reproduce.",
     "CHECK_XML": "DuckDB has no XML type.", "PARSE_XML": "DuckDB has no XML type.",
     "XMLGET": "DuckDB has no XML type.", "TO_XML": "DuckDB has no XML type."}
@@ -302,6 +309,11 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
                        "session on this PC has one database.")
     if isinstance(statement, (exp.Show, exp.Describe)):
         return _refuse("SFN-009", "SHOW and DESCRIBE", "These list Snowflake's own objects.")
+    if isinstance(statement, exp.Alter) and (statement.args.get("kind") or "").upper() == "SESSION" \
+            and _session_time_zone(statement) is None:
+        return _refuse("SFN-022", "Session parameters", "Only ALTER SESSION SET TIMEZONE = '...' is rewritten "
+                       "(to DuckDB's SET TimeZone). Other session parameters, and UNSET, change how Snowflake "
+                       "itself reads or prints values.", f"{_DOCS}/sql/alter-session")
     if isinstance(statement, exp.Alter):
         text = statement.sql("snowflake").upper()
         if any(k in text for k in (" SET MASKING POLICY", " ROW ACCESS POLICY", " SET TAG", " SUSPEND", " RESUME")) \
@@ -321,6 +333,12 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
         if isinstance(node, (exp.Func, exp.Collate)) and _function_name(node) in _TEXT_FEATURES:
             return _refuse("SFN-017", f"{_function_name(node)}: a Snowflake feature DuckDB lacks",
                            _TEXT_FEATURES[_function_name(node)], f"{_DOCS}/functions/{_function_name(node).lower()}")
+        if isinstance(node, exp.Uniform) and not (isinstance(node.args.get("gen"), exp.Rand)
+                                                  and node.args["gen"].this is None):
+            return _refuse("SFN-021", "UNIFORM with a generator other than RANDOM()",
+                           "Snowflake turns any other generator (a number, a column or a seeded RANDOM) into its own series, "
+                           "which this PC can't reproduce. UNIFORM(min, max, RANDOM()) runs here.",
+                           f"{_DOCS}/functions/uniform")
         if isinstance(node, (exp.ToDecfloat, exp.TryToDecfloat)) or (
                 isinstance(node, exp.DataType) and node.this == exp.DataType.Type.DECFLOAT):
             return _refuse("SFN-018", "DECFLOAT", "DuckDB has no decimal floating-point type to hold Snowflake's "
@@ -650,11 +668,66 @@ def _rewrite_time(statement: exp.Expression) -> None:
         node.replace(exp.Cast(this=value, to=exp.DataType.build("TIME")))
 
 
+def _rewrite_arrays(statement: exp.Expression) -> None:
+    """SFX-019: ARRAY_DISTINCT keeps each value's first place and one NULL where the first NULL was, as
+    Snowflake's does (DuckDB's LIST_DISTINCT doesn't keep the order). ARRAY_FLATTEN of an array holding
+    a NULL in place of an array is NULL, as in Snowflake; DuckDB's FLATTEN skips it."""
+    for distinct in list(statement.find_all(exp.ArrayDistinct)):
+        _put(distinct, "LIST_FILTER(fj_arg0, LAMBDA kf_x, kf_i: LIST_POSITION(fj_arg0, kf_x) = kf_i)",
+             [distinct.this])
+    for flatten in list(statement.find_all(exp.Flatten)):
+        if flatten.expressions:
+            continue
+        _put(flatten, "CASE WHEN LEN(LIST_FILTER(fj_arg0, LAMBDA kf_e: kf_e IS NULL)) > 0 THEN NULL "
+                      "ELSE FLATTEN(fj_arg0) END", [flatten.this])
+
+
+def _rewrite_regexp_groups(statement: exp.Expression) -> None:
+    """SFX-021: REGEXP_SUBSTR and REGEXP_SUBSTR_ALL with the 'e' parameter and no group number give the
+    first group, as Snowflake does; sqlglot writes group 0, the whole match. (sqlglot reads group 0 written
+    in the query the same way, so it gives the first group too.) Only a pattern written in the query with
+    at least one group is changed; any other pattern keeps the whole match, as before."""
+    for node in list(statement.find_all(exp.RegexpExtract, exp.RegexpExtractAll)):
+        params, group = node.args.get("parameters"), node.args.get("group")
+        if isinstance(params, exp.Literal) and "e" in params.name.lower() and (
+                group is None or (isinstance(group, exp.Literal) and group.name == "0")) \
+                and _pattern_groups(node.expression) > 0:
+            node.set("group", exp.Literal.number(1))
+
+
+def _pattern_groups(pattern: exp.Expression | None) -> int:
+    """The number of capture groups in a pattern written in the query as a string, else 0."""
+    if not (isinstance(pattern, exp.Literal) and pattern.is_string):
+        return 0
+    try:
+        with warnings.catch_warnings():  # POSIX classes such as [[:alpha:]] warn in Python's re
+            warnings.simplefilter("ignore")
+            return re.compile(pattern.name).groups
+    except (re.error, OverflowError, RecursionError):  # silent-ok: a pattern Python can't read is left unchanged
+        return 0
+
+
+def _rewrite_string_epochs(statement: exp.Expression) -> None:
+    """SFX-022: TO_TIMESTAMP of a string holding a whole number reads it by its size, as Snowflake does:
+    seconds below 31536000000, then milliseconds, microseconds, and nanoseconds from 31536000000000000.
+    Only a string written in the query is read this way here; a column is read as before."""
+    for node in list(statement.find_all(exp.UnixToTime)):
+        value = node.this
+        if not (isinstance(value, exp.Literal) and value.is_string and re.fullmatch(r"-?\d+", value.name)):
+            continue
+        number = int(value.name)
+        scale = next(s for limit, s in ((31536000000, 0), (31536000000000, 3), (31536000000000000, 6), (None, 9))
+                     if limit is None or number < limit)
+        node.set("this", exp.Literal.number(number))
+        node.set("scale", exp.Literal.number(scale) if scale else None)
+
+
 def _rewrite_timestamp_parts(statement: exp.Expression) -> None:
     """SFX-017: TIMESTAMP_FROM_PARTS and TIMESTAMP_NTZ_FROM_PARTS from numbers take a month, day, hour,
     minute or second outside its range and carry it over, as Snowflake does (seconds of -3600 is an hour
     earlier); DuckDB's MAKE_TIMESTAMP stops on them. TO_TIMESTAMP and TO_TIMESTAMP_NTZ of a number written
-    in the query (40 * 365.25 * 86400) are seconds since 1970 with no time zone."""
+    in the query (40 * 365.25 * 86400) are seconds since 1970 with no time zone. TIMESTAMP_TZ_FROM_PARTS with
+    no time zone argument is in the session's time zone."""
     for node in list(statement.find_all(exp.TimestampFromParts)):
         parts = [node.args.get(k) for k in ("year", "month", "day", "hour", "min", "sec")]
         if any(p is None for p in parts) or node.args.get("zone") is not None or node.args.get("milli") is not None:
@@ -666,6 +739,12 @@ def _rewrite_timestamp_parts(statement: exp.Expression) -> None:
             template += " + INTERVAL (CAST(fj_arg6 AS BIGINT) // 1000) MICROSECOND"
             parts.append(nano)
         _put(node, template, [p for p in parts if p is not None])
+    # TIMESTAMP_TZ_FROM_PARTS with no time zone is in the session's zone, as TIMESTAMP_LTZ_FROM_PARTS is;
+    # sqlglot writes a plain MAKE_TIMESTAMP, which DuckDB reads as UTC
+    for tz_parts in list(statement.find_all(exp.TimestampTzFromParts)):
+        if tz_parts.args.get("zone") is None:
+            ltz = exp.TimestampLtzFromParts(**{k: v for k, v in tz_parts.args.items() if v is not None})
+            tz_parts.replace(ltz)
     for anonymous in list(statement.find_all(exp.Anonymous)):
         if str(anonymous.this).upper() in ("TO_TIMESTAMP", "TO_TIMESTAMP_NTZ") and len(anonymous.expressions) == 1 \
                 and _written_number(anonymous.expressions[0]):
@@ -1166,8 +1245,10 @@ def _json_valued(node: exp.Expression) -> bool:
     bracket that _type_values found JSON, or [...] on one of those, maybe in parentheses?"""
     while isinstance(node, exp.Paren):
         node = node.this
-    if isinstance(node, (exp.JSONExtract, exp.ParseJSON)) or _is_json(node):
+    if isinstance(node, (exp.JSONExtract, exp.ParseJSON, exp.StripNullValue)) or _is_json(node):
         return True
+    if isinstance(node, exp.GetExtract) and isinstance(node.expression, exp.Literal) and node.expression.is_string:
+        return True  # GET(object, 'key') is JSON; GET(array, 0) is the list's element
     return isinstance(node, exp.Bracket) and _json_valued(node.this)
 
 
@@ -1481,8 +1562,8 @@ _DATE_UNITS = {"YEAR", "YEARS", "Y", "YY", "YYY", "YYYY", "YR", "YRS", "QUARTER"
 def _differences(statement: exp.Expression) -> list[Note]:
     notes = []
     if isinstance(statement, (exp.Create, exp.Alter)):
-        target = statement.this
-        if any(not i.args.get("quoted") for i in target.find_all(exp.Identifier)):
+        target = statement.this  # None for ALTER SESSION, which names no object
+        if target is not None and any(not i.args.get("quoted") for i in target.find_all(exp.Identifier)):
             notes.append(SFD_CASE)
     types = {d.this for d in statement.find_all(exp.DataType)}
     if exp.DataType.Type.TIMESTAMPTZ in types:
@@ -1509,6 +1590,8 @@ def _differences(statement: exp.Expression) -> list[Note]:
         notes.append(SFD_JARO)
     if any(statement.find_all(exp.Skewness, exp.StddevPop)):
         notes.append(SFD_MOMENTS)
+    if any(statement.find_all(exp.JSONFormat)):
+        notes.append(SFD_KEYS)
     return notes
 
 
@@ -1556,7 +1639,7 @@ CATALOG = (
                 "the type it was made from. AS_<type> gives NULL for any other type. A JSON integer too big for 64 "
                 "bits is DOUBLE here.")),
     ("SFX-012", "Rewritten", ("A JSON value cast to text (v:a::string, v['a']::string, TO_VARCHAR(v:a), "
-                "PARSE_JSON(...)::varchar) gives a string without its JSON quotes, and JSON null gives SQL NULL, as "
+                "PARSE_JSON(...)::varchar, GET(o, 'key')::varchar, STRIP_NULL_VALUE(...)::varchar) gives a string without its JSON quotes, and JSON null gives SQL NULL, as "
                 "in Snowflake: DuckDB's cast keeps the quotes and writes 'null'. A table's column whose type the "
                 "statement doesn't show is cast as written.")),
     ("SFX-013", "Rewritten", ("[i] on a value read from PARSE_JSON stays 0-based, and [i] with an integer column on "
@@ -1591,7 +1674,8 @@ CATALOG = (
                 "local time; a TIMESTAMP_TZ column stops with DuckDB's cast error, since its type isn't known "
                 "here. TIMESTAMP_FROM_PARTS and TIMESTAMP_NTZ_FROM_PARTS carry a part outside its range over "
                 "(seconds of -3600 is an hour earlier). TO_TIMESTAMP and TO_TIMESTAMP_NTZ of a number written "
-                "in the query are seconds since 1970, with no time zone.")),
+                "in the query are seconds since 1970, with no time zone. TIMESTAMP_TZ_FROM_PARTS with no time zone "
+                "argument is in the session's time zone.")),
     ("SFX-018", "Rewritten", ("CONDITIONAL_TRUE_EVENT and CONDITIONAL_CHANGE_EVENT count events from each "
                 "partition's first row in ORDER BY order (a NULL is neither true nor a change), and "
                 "INTERPOLATE_FFILL, INTERPOLATE_BFILL and INTERPOLATE_LINEAR fill a NULL from the rows before "
@@ -1600,6 +1684,15 @@ CATALOG = (
                 "one table or subquery without JOIN, GROUP BY, HAVING or an aggregate. A window frame isn't "
                 "allowed, as in Snowflake, and INTERPOLATE_LINEAR needs one ORDER BY expression: a number, DATE "
                 "or timestamp.")),
+    ("SFX-019", "Rewritten", ("ARRAY_DISTINCT keeps each value where it first appears, and one NULL, as "
+                "Snowflake does. ARRAY_FLATTEN of an array with a NULL in place of an array is NULL.")),
+    ("SFX-020", "Rewritten", "ALTER SESSION SET TIMEZONE = '...' becomes DuckDB's SET TimeZone, for the statements after it."),
+    ("SFX-021", "Rewritten", ("REGEXP_SUBSTR and REGEXP_SUBSTR_ALL with the 'e' parameter and no group number, "
+                "or group 0, give the first group, as in Snowflake, when the pattern is written in the query "
+                "and has a group.")),
+    ("SFX-022", "Rewritten", ("TO_TIMESTAMP of a string written in the query that holds a whole number reads it "
+                "as seconds, milliseconds, microseconds or nanoseconds by its size, as Snowflake does. A column "
+                "is read as before.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -1613,6 +1706,7 @@ CATALOG = (
     ("SFD-011", "Runs, with a difference: " + SFD_LINEAR.title, SFD_LINEAR.reason),
     ("SFD-012", "Runs, with a difference: " + SFD_JARO.title, SFD_JARO.reason),
     ("SFD-013", "Runs, with a difference: " + SFD_MOMENTS.title, SFD_MOMENTS.reason),
+    ("SFD-014", "Runs, with a difference: " + SFD_KEYS.title, SFD_KEYS.reason),
     ("SFN-001", "Runs only in Snowflake", "Streams."),
     ("SFN-002", "Runs only in Snowflake", "Tasks."),
     ("SFN-003", "Runs only in Snowflake", "Dynamic tables (their SELECT can be tried on its own)."),
@@ -1642,13 +1736,17 @@ CATALOG = (
                 "APPROXIMATE_SIMILARITY, APPROXIMATE_JACCARD_INDEX, BITMAP_CONSTRUCT_AGG, BITMAP_COUNT and "
                 "BITMAP_OR_AGG.")),
     ("SFN-017", "Runs only in Snowflake", ("SEARCH and SEARCH_IP (Snowflake's search analyzers), COLLATE (Snowflake "
-                "collation specifications), HASH_AGG (Snowflake's own hash), and XML: CHECK_XML, PARSE_XML, "
+                "collation specifications), HASH and HASH_AGG (Snowflake's own hash), and XML: CHECK_XML, PARSE_XML, "
                 "XMLGET, TO_XML.")),
     ("SFN-018", "Runs only in Snowflake", ("DECFLOAT, TO_DECFLOAT and TRY_TO_DECFLOAT: DuckDB has no decimal "
                 "floating-point type.")),
     ("SFN-019", "Runs only in Snowflake", "MATCH_RECOGNIZE: DuckDB has no row pattern matching."),
     ("SFN-020", "Runs only in Snowflake", ("INSERT OVERWRITE: DuckDB has none, and a DELETE then INSERT wouldn't be "
                 "one statement.")),
+    ("SFN-021", "Runs only in Snowflake", ("UNIFORM with a generator other than RANDOM() (a number, a column or "
+                "a seeded RANDOM): Snowflake's series from it can't be reproduced here.")),
+    ("SFN-022", "Runs only in Snowflake", ("ALTER SESSION, other than SET TIMEZONE: other session parameters "
+                "and UNSET change how Snowflake itself reads or prints values.")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 
@@ -1663,10 +1761,27 @@ def docs_table() -> str:
 # ---------------------------------------------------------------- translate
 
 
+def _session_time_zone(statement: exp.Expression) -> str | None:
+    """SFX-020: the zone of ALTER SESSION SET TIMEZONE = 'zone', which becomes DuckDB's SET TimeZone."""
+    if not (isinstance(statement, exp.Alter) and (statement.args.get("kind") or "").upper() == "SESSION"):
+        return None
+    actions = statement.args.get("actions") or []
+    items = [i for a in actions if isinstance(a, exp.AlterSession) and not a.args.get("unset")
+             for i in a.expressions]
+    if len(actions) == 1 and len(items) == 1 and isinstance(items[0], exp.SetItem) \
+            and isinstance(items[0].this, exp.EQ) and items[0].this.this.name.upper() == "TIMEZONE" \
+            and isinstance(items[0].this.expression, exp.Literal) and items[0].this.expression.is_string:
+        return str(items[0].this.expression.name)
+    return None
+
+
 def _statement(n: int, statement: exp.Expression) -> StatementReport:
     refusal = _not_translatable(statement)
     if refusal:
         return StatementReport(n, "not_translatable", None, (refusal,))
+    zone = _session_time_zone(statement)
+    if zone is not None:  # SFX-020
+        return StatementReport(n, "translated", f"SET TimeZone = {exp.Literal.string(zone).sql('duckdb')}", ())
     tree = statement.copy()
     notes = _differences(tree)
     brackets = list(tree.find_all(exp.Bracket))  # held, so no new node can reuse one of these ids
@@ -1685,6 +1800,9 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_strings(tree)
         _rewrite_time(tree)
         _rewrite_timestamp_parts(tree)
+        _rewrite_arrays(tree)
+        _rewrite_regexp_groups(tree)
+        _rewrite_string_epochs(tree)
         _rewrite_objects(tree)
         _rewrite_typeof(tree)
         _rewrite_variant_types(tree)

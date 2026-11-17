@@ -79,6 +79,50 @@ def _no_links(root: Path, target: Path) -> None:
             raise ValueError(f"{here.relative_to(root).as_posix()} is a link, a junction or a file, so nothing is written there")
 
 
+def _same_text(path: Path, content: str) -> bool:
+    try:
+        return path.read_text(encoding="utf-8-sig").replace("\r\n", "\n") == content
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def _model_counts(bim: dict[str, Any]) -> dict[str, int]:
+    model = bim.get("model") or {}
+    tables = [t for t in model.get("tables") or [] if isinstance(t, dict)]
+    return {"tables": len(tables), "columns": sum(len(t.get("columns") or []) for t in tables),
+            "measures": sum(len(t.get("measures") or []) for t in tables),
+            "relationships": len(model.get("relationships") or []), "roles": len(model.get("roles") or []),
+            "hierarchies": sum(len(t.get("hierarchies") or []) for t in tables)}
+
+
+def _folder_bim(folder: Path, name: str, path: str) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """The model kept in ``folder`` (semantic/<name>.SemanticModel) as a parsed model.bim, read on this PC from its
+    TMDL (or its model.bim), and the reader's report. ``path`` names it in messages."""
+    definition = folder / "definition"
+    if _real(definition, stat.S_ISDIR):
+        files: dict[str, str] = {}
+        total = 0
+        for f in sorted(_tmdl_files(definition)):
+            total += f.stat().st_size
+            if total > tmdl.MAX_CHARS * 4:
+                raise ValueError(f"{name}'s TMDL is too large to read on this PC")
+            files[f.relative_to(folder).as_posix()] = f.read_text(encoding="utf-8-sig")
+        bim, read_report = tmdl.to_bim(files, name)
+    elif _real(folder / "model.bim", stat.S_ISREG):
+        if (folder / "model.bim").stat().st_size > tmdl.MAX_CHARS * 4:
+            raise ValueError(f"{name}'s model.bim is too large to read on this PC")
+        try:
+            bim, read_report = json.loads((folder / "model.bim").read_text(encoding="utf-8-sig")), []
+        except RecursionError:
+            raise ValueError(f"{path}/model.bim is nested too deeply to be a semantic model") from None
+        if not isinstance(bim, dict):
+            raise ValueError(f"{path}/model.bim isn't a semantic model")
+        bim["name"] = name
+    else:
+        raise ValueError(f"{path} has neither definition/ (TMDL) nor model.bim")
+    return bim, read_report
+
+
 class ModelOssieMixin:
     def _ossie_workspace(self, env: str) -> tuple[Any, dict[str, Any]]:
         project = self._project()  # type: ignore[attr-defined]
@@ -147,30 +191,9 @@ class ModelOssieMixin:
         if folder is None:
             raise LookupError(f"There's no model folder {path}; pick one from {FOLDER}/<name>.SemanticModel")
         name = folder.name.removesuffix(".SemanticModel")
-        definition = folder / "definition"
-        if _real(definition, stat.S_ISDIR):
-            files: dict[str, str] = {}
-            total = 0
-            for f in sorted(_tmdl_files(definition)):
-                total += f.stat().st_size
-                if total > tmdl.MAX_CHARS * 4:
-                    raise ValueError(f"{name}'s TMDL is too large to read on this PC")
-                files[f.relative_to(folder).as_posix()] = f.read_text(encoding="utf-8-sig")
-            bim, read_report = tmdl.to_bim(files, name)
-        elif _real(folder / "model.bim", stat.S_ISREG):
-            if (folder / "model.bim").stat().st_size > tmdl.MAX_CHARS * 4:
-                raise ValueError(f"{name}'s model.bim is too large to read on this PC")
-            try:
-                bim, read_report = json.loads((folder / "model.bim").read_text(encoding="utf-8-sig")), []
-            except RecursionError:
-                raise ValueError(f"{path}/model.bim is nested too deeply to be a semantic model") from None
-            if not isinstance(bim, dict):
-                raise ValueError(f"{path}/model.bim isn't a semantic model")
-            bim["name"] = name
-        else:
-            raise ValueError(f"{path} has neither definition/ (TMDL) nor model.bim")
+        bim, read_report = _folder_bim(folder, name, path)
         out = model_ossie.export(bim, translate_dax=translate_dax)
-        return out | {"model": name, "report": read_report + out["report"],
+        return out | {"model": name, "report": read_report + out["report"], "round_trip": model_ossie.round_trip(bim),
                       "path": f"{FOLDER}/{_SAFE.sub('_', name).strip() or 'model'}.ossie.yaml"}
 
     def _ossie_path(self, project: Any, path: str, suffixes: tuple[str, ...]) -> Path:
@@ -288,7 +311,7 @@ class ModelOssieMixin:
         return {"folder": folder.relative_to(project.root).as_posix(), "files": len(written), "removed": removed}
 
     def meta_model_ossie_to_tmdl(self, text: str = "", name: str = "", confirmed: bool = False,
-                                 token: str = "") -> dict[str, Any]:
+                                 token: str = "", remove: list[str] | None = None) -> dict[str, Any]:
         """An Ossie document saved as TMDL under semantic/<name>.SemanticModel/ in the project's folder (the Power BI
         project layout), converted on this PC with no Fabric call (Preview, PB-110).
 
@@ -297,16 +320,29 @@ class ModelOssieMixin:
         it and the preview's ``token``, every file is written whole (temporary file, then swapped in), and only
         regular .tmdl files under definition/ that this write didn't produce are removed. The token binds the
         confirm to what the preview showed: if the files or the removals changed since, nothing is written.
-        Links and junctions are never followed."""
+        Links and junctions are never followed.
+
+        When the folder already holds the model, the file is laid over it like an Import update
+        (``model_ossie.merge``): what the file doesn't have stays (roles, hierarchies, measures written by hand)
+        unless named in ``remove``, and ``changes`` and ``removable`` say what changes, as Import's preview does.
+        Translations (cultures/), which TMDL isn't written with here, are left as they are."""
         model_ossie.require()
         project = self._project()  # type: ignore[attr-defined]
         name = (name or str(model_ossie.parse(text)["name"])).strip()
-        files, report = model_ossie.ossie_to_tmdl(text)
-        files["definition.pbism"] = json.dumps({"version": "4.0", "settings": {}}, indent=2) + "\n"
         root = Path(project.root)
         folder = root / FOLDER / f"{_folder_name(name)}.SemanticModel"
         definition = folder / "definition"
         _no_links(root, definition)
+        incoming, report = model_ossie.to_tmsl(text)
+        current = None
+        if (_real(definition, stat.S_ISDIR) and _tmdl_files(definition)) or _real(folder / "model.bim", stat.S_ISREG):
+            current, read_report = _folder_bim(folder, name, folder.relative_to(root).as_posix())
+            report = read_report + report
+        final = model_ossie.merge(current, incoming, remove) if current else incoming
+        final["name"] = name
+        files, written = tmdl.from_bim(final)
+        report = report + [r for r in written if not r["object"].startswith("culture ")]
+        files["definition.pbism"] = json.dumps({"version": "4.0", "settings": {}}, indent=2) + "\n"
         targets = {}
         for rel, content in files.items():
             path = folder.joinpath(*PurePosixPath(rel).parts)
@@ -316,10 +352,16 @@ class ModelOssieMixin:
             if not path.resolve().is_relative_to(folder.resolve()):  # never outside the model's folder
                 raise ValueError(f"{rel} would be written outside {folder.relative_to(root).as_posix()}")
             targets[path] = content
-        stale = sorted(f for f in (_tmdl_files(definition) if _real(definition, stat.S_ISDIR) else []) if f not in targets)
-        out = {"name": name, "folder": folder.relative_to(root).as_posix(), "exists": _real(folder, stat.S_ISDIR),
+        stale = sorted(f for f in (_tmdl_files(definition) if _real(definition, stat.S_ISDIR) else [])
+                       if f not in targets and f.relative_to(definition).parts[0] != "cultures")
+        unchanged = sum(1 for p, c in targets.items() if _real(p, stat.S_ISREG) and _same_text(p, c))
+        changes = model_ossie.plan(current, final)
+        out = {"name": name, "folder": folder.relative_to(root).as_posix(), "exists": current is not None,
                "files": sorted(p.relative_to(root).as_posix() for p in targets),
-               "removed": [p.relative_to(root).as_posix() for p in stale], "report": report}
+               "removed": [p.relative_to(root).as_posix() for p in stale], "report": report,
+               "changes": changes if current else [r for r in changes if r["change"] == "needs_dax"],
+               "removable": model_ossie.removable(current, incoming) if current else [],
+               "unchanged": unchanged, "counts": _model_counts(final)}
         digest = hashlib.sha256(json.dumps([out["folder"], out["removed"], sorted(
             (p.relative_to(root).as_posix(), c) for p, c in targets.items())], ensure_ascii=False).encode()).hexdigest()
         if not confirmed:

@@ -425,7 +425,9 @@ def test_an_ossie_file_becomes_tmdl_in_the_project_with_no_fabric_call(svc, monk
     stale.write_text("table gone\n", encoding="utf-8")
     keep = root / "semantic" / "orders.SemanticModel" / "definition" / "notes.txt"
     keep.write_text("mine", encoding="utf-8")
-    preview = svc.meta_model_ossie_to_tmdl(_ossie())
+    kept = svc.meta_model_ossie_to_tmdl(_ossie())["confirm"]
+    assert kept["exists"] is True and kept["removable"] == ["gone"] and kept["removed"] == []  # an update keeps it
+    preview = svc.meta_model_ossie_to_tmdl(_ossie(), remove=["gone"])
     assert set(preview) == {"confirm"}
     plan = preview["confirm"]
     assert len(plan["token"]) == 64
@@ -435,16 +437,16 @@ def test_an_ossie_file_becomes_tmdl_in_the_project_with_no_fabric_call(svc, monk
     assert "semantic/orders.SemanticModel/definition.pbism" in plan["files"]
     assert stale.exists() and not (root / "semantic" / "orders.SemanticModel" / "definition.pbism").exists()
     with pytest.raises(ValueError, match="changed since the preview"):
-        svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True)
+        svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, remove=["gone"])
     other = root / "semantic" / "orders.SemanticModel" / "definition" / "other.tmdl"
     other.write_text("table other\n", encoding="utf-8")  # a stale file the preview didn't list
     with pytest.raises(ValueError, match="changed since the preview"):
-        svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token=plan["token"])
+        svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token=plan["token"], remove=["gone"])
     assert stale.exists() and other.exists()
     with pytest.raises(ValueError, match="changed since the preview"):
         svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token="é" * 64)  # not ASCII: still the plain refusal
     other.unlink()
-    out = svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token=plan["token"])
+    out = svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token=plan["token"], remove=["gone"])
     assert out == {k: v for k, v in plan.items() if k != "token"}
     assert not stale.exists() and keep.read_text(encoding="utf-8") == "mine"
     back = svc.meta_model_ossie_export_folder("semantic/orders.SemanticModel")
@@ -513,3 +515,35 @@ def test_a_model_folder_too_deep_or_too_full_is_refused(svc, monkeypatch):
         (tables / f"t{i}.tmdl").write_text(f"table t{i}\n", encoding="utf-8")
     with pytest.raises(ValueError, match="more than 3 TMDL files"):
         svc.meta_model_ossie_to_tmdl(_ossie())
+
+
+def test_an_ossie_file_over_tmdl_already_in_the_project_is_an_update(svc):
+    from fabric_desktop import tmdl as tmdl_mod
+    root = Path(svc._project().root)
+    files, _ = tmdl_mod.from_bim(_bim() | {"name": "orders"})
+    folder = root / "semantic" / "orders.SemanticModel"
+    for rel, text in files.items():
+        (folder / rel).parent.mkdir(parents=True, exist_ok=True)
+        (folder / rel).write_text(text, encoding="utf-8")
+    culture = folder / "definition" / "cultures" / "fr-FR.tmdl"
+    culture.parent.mkdir()
+    culture.write_text("culture fr-FR\n", encoding="utf-8")
+    plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    assert plan["exists"] is True
+    rows = {(r["change"], r["object"]) for r in plan["changes"]}
+    assert ("add", "dim_channel") in rows and ("add", "fact_sales[net revenue]") in rows
+    assert "dim_customer" in plan["removable"] and ("remove", "dim_customer") not in rows  # kept: offered in removable
+    assert plan["removed"] == []  # kept unless named in remove
+    assert plan["counts"]["roles"] == 1 and plan["counts"]["hierarchies"] == 1
+    assert any(r["object"].startswith("culture") for r in plan["report"])  # named: not read, left as it is
+    done = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
+    assert culture.read_text(encoding="utf-8") == "culture fr-FR\n"
+    back, _ = tmdl_mod.to_bim({p.relative_to(folder).as_posix(): p.read_text(encoding="utf-8")
+                               for p in folder.rglob("*.tmdl") if "cultures" not in p.parts}, "orders")
+    names = {t["name"] for t in back["model"]["tables"]}
+    assert {"fact_sales", "dim_customer", "dim_channel"} <= names and back["model"]["roles"][0]["name"] == "EU only"
+    fact = next(t for t in back["model"]["tables"] if t["name"] == "fact_sales")
+    assert {m["name"] for m in fact["measures"]} >= {"fact_sales rows", "net revenue"}  # the hand-written one stays
+    again = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    assert again["unchanged"] == len(again["files"]) and again["removed"] == []
+    assert done["counts"] == again["counts"]

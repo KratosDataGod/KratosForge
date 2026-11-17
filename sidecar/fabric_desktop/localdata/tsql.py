@@ -23,7 +23,9 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
   decimals, in en-US; see tsql_format), and refuses by name a function DuckDB doesn't have;
 - gives ``POWER`` its first argument's type (an integer base gives an integer; a decimal base is refused);
 - matches ``LIKE`` patterns with ``[a-c]`` and ``[^a-c]`` character ranges, as a regular expression;
-- compares text without trailing spaces (``'a' = 'a  '``) when both sides are known to be text;
+- compares text without trailing spaces (``'a' = 'a  '``) when both sides are known to be text, matches
+  ``LIKE`` without the text's trailing spaces, notes that ``GROUP BY``, ``DISTINCT`` and ``UNION`` keep
+  them apart, runs a binary ``COLLATE`` and refuses any other by name (WR-210);
 - keeps ``#temp`` tables apart from ordinary tables of the same name (as temporary ``"#name"``);
 - returns ``GETDATE()`` and friends as UTC times without a zone, as a Fabric Warehouse does.
 
@@ -93,10 +95,12 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
                 continue
             _refuse(tree)
             _temp_tables(tree)
+            _table_columns(tree)
             for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
                 parts.replace(_timefromparts(parts))
             notes += _converts(tree)
             notes += _types(tree, schema)
+            _percentiles(tree)
             notes += _likes(tree)
             _patindex(tree)
             _functions(tree)
@@ -135,7 +139,20 @@ class KfTSQL(TSQL):
                                                     expression=exp.Literal.number(2))}
 
 
+def _refuse_dbcc(batch: str) -> None:
+    """DBCC (CHECKIDENT, SHOW_STATISTICS, ...) starts a statement; sqlglot reads it as a command it passes through.
+    Tokens, not text, so a string that holds "DBCC" isn't refused."""
+    try:
+        tokens = KfTSQL().tokenize(batch)
+    except SqlglotError:
+        return  # _parse reports it
+    starts = [tok for i, tok in enumerate(tokens) if i == 0 or tokens[i - 1].token_type == TokenType.SEMICOLON]
+    if any(tok.token_type == TokenType.VAR and tok.text.upper() == "DBCC" for tok in starts):
+        raise ValueError(_NOT_YET + "DBCC isn't mapped yet. Run it in a Fabric Warehouse.")
+
+
 def _parse(batch: str) -> list[exp.Expression]:
+    _refuse_dbcc(batch)
     unsupported: list[str] = []
 
     class Catch(logging.Handler):
@@ -191,6 +208,14 @@ def _refuse(tree: exp.Expression) -> None:
         if written.this in (exp.DataType.Type.MONEY, exp.DataType.Type.SMALLMONEY):
             raise ValueError(_NOT_YET + "MONEY and SMALLMONEY aren't carried yet, and neither are their CONVERT "
                              "styles. Use DECIMAL(19, 4) for money and DECIMAL(10, 4) for smallmoney.")
+    for collate in list(tree.find_all(exp.Collate)):
+        name = collate.expression.sql(dialect="tsql").strip("[]\"'")
+        if not re.search(r"_BIN2?(_|$)", name, re.IGNORECASE):
+            raise ValueError(_NOT_YET + f"COLLATE {name} isn't mapped yet: text here compares as a Fabric Warehouse's "
+                             "default collation (Latin1_General_100_BIN2_UTF8) does, by code point and case-sensitive. "
+                             "Use UPPER or LOWER on both sides to compare without case, or run it in a Fabric "
+                             "Warehouse.")
+        collate.replace(collate.this)  # a binary collation is how text compares here already (WR-210)
     for p in tree.find_all(exp.Parameter, exp.SessionParameter):
         name = p.sql(dialect="tsql")
         raise ValueError(f"The local engine doesn't run T-SQL variables ({name}) yet. {_LATER}")
@@ -210,6 +235,89 @@ def _temp_tables(tree: exp.Expression) -> None:
             if not any(isinstance(p, exp.TemporaryProperty) for p in props.expressions):
                 props.append("expressions", exp.TemporaryProperty())
                 tree.set("properties", props)
+
+
+_SIZED_COLUMNS = {exp.DataType.Type.VARCHAR: "strlen", exp.DataType.Type.CHAR: "strlen",
+                  exp.DataType.Type.VARBINARY: "octet_length", exp.DataType.Type.BINARY: "octet_length"}
+
+
+_TEXT_COLUMNS = (exp.DataType.Type.VARCHAR, exp.DataType.Type.CHAR)
+
+
+def _sized(column: exp.ColumnDef) -> int | None:
+    """n for a VARCHAR(n), CHAR(n), VARBINARY(n) or BINARY(n) column; None for any other (VARCHAR(MAX) too)."""
+    kind = column.args.get("kind")
+    if not (isinstance(kind, exp.DataType) and kind.this in _SIZED_COLUMNS and kind.expressions):
+        return None
+    size = kind.expressions[0].this
+    return int(size.name) if isinstance(size, exp.Literal) and size.is_int else None
+
+
+def _table_columns(tree: exp.Expression) -> None:
+    """``CREATE TABLE`` as a Fabric Warehouse defines it.
+
+    - ``VARCHAR(n)``, ``CHAR(n)``, ``VARBINARY(n)`` and ``BINARY(n)`` hold at most n bytes (a warehouse's text is
+      UTF-8). DuckDB ignores the length, so a longer value was kept whole; a CHECK now stops it with T-SQL's
+      "String or binary data would be truncated", on INSERT and UPDATE. Trailing blanks past the length pass, as
+      in T-SQL (which drops them; locally they're kept). DuckDB can't add a column with a CHECK, so ``ALTER TABLE
+      ... ADD`` of a sized column is refused by name.
+    - ``IDENTITY`` is refused by name: a warehouse takes only ``BIGINT IDENTITY`` with no seed or increment, and
+      the local engine doesn't number rows that way yet.
+    - ``##name`` is refused anywhere, since a warehouse has no global temporary tables (sqlglot read it as an
+      ordinary table), and ``WITH (DISTRIBUTION = ...)``,
+      which a warehouse takes only on a #temp table, is dropped there (it changes how the table is stored, not
+      what it holds)."""
+    for ident in tree.find_all(exp.Identifier):
+        if ident.args.get("global_"):  # sqlglot reads ##g as g: it made and read an ordinary table
+            raise ValueError(f"This T-SQL can't be run on the local engine: global temporary tables (##{ident.name}) "
+                             "aren't supported in a Fabric Warehouse either. Use a #temp table.")
+    if isinstance(tree, exp.Alter) and (tree.args.get("kind") or "").upper() == "TABLE":
+        for column in tree.args.get("actions") or []:
+            if isinstance(column, exp.ColumnDef) and _sized(column) is not None:
+                raise ValueError(_NOT_YET + f"ALTER TABLE ... ADD of a column with a length ({column.name}) isn't "
+                                 "mapped yet: the local engine can't hold an added column to its length. Declare "
+                                 "the column in CREATE TABLE, or run it in a Fabric Warehouse.")
+        return
+    if not (isinstance(tree, exp.Create) and (tree.args.get("kind") or "").upper() == "TABLE"):
+        return
+    name = tree.this.this if isinstance(tree.this, exp.Schema) else tree.this
+    temporary = isinstance(name, exp.Table) and name.name.startswith("#")
+    props = tree.args.get("properties")
+    if isinstance(props, exp.Properties):
+        for prop in list(props.expressions):
+            if isinstance(prop, exp.Property) and prop.name.upper() == "DISTRIBUTION":
+                if not temporary:
+                    raise ValueError("This T-SQL can't be run on the local engine: WITH (DISTRIBUTION = ...) is only "
+                                     "for #temp tables in a Fabric Warehouse. Remove it, or make the table a #temp table.")
+                prop.pop()
+    if not isinstance(tree.this, exp.Schema):
+        return
+    for column in tree.this.expressions:
+        if not isinstance(column, exp.ColumnDef):
+            continue
+        constraints = column.args.get("constraints") or []
+        identity = [c for c in constraints if isinstance(c.args.get("kind"), (exp.AutoIncrementColumnConstraint,
+                                                                              exp.GeneratedAsIdentityColumnConstraint))]
+        if identity:
+            raise ValueError(_NOT_YET + f"IDENTITY isn't mapped yet (column {column.name}). A Fabric Warehouse takes "
+                             "only BIGINT IDENTITY, with no seed or increment; until the local engine numbers rows "
+                             "that way, give the column its values in the INSERT.")
+        size = _sized(column)
+        if size is None:
+            continue
+        kind = column.args["kind"]
+        table = f"{name.db}.{name.name}" if isinstance(name, exp.Table) and name.db else \
+            (name.name if isinstance(name, exp.Table) else "")
+        value: exp.Expr = exp.column(column.name, quoted=column.this.quoted)
+        if kind.this in _TEXT_COLUMNS:  # trailing blanks past the length are dropped, not an error, in T-SQL
+            value = exp.func("rtrim", value)
+        too_long = exp.GT(this=exp.func(_SIZED_COLUMNS[kind.this], value), expression=exp.Literal.number(size))
+        message = exp.Literal.string(f"String or binary data would be truncated in table '{table}', column "
+                                     f"'{column.name}'.")
+        check = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=exp.true())
+        column.append("constraints", exp.ColumnConstraint(kind=exp.CheckColumnConstraint(this=check)))
+        if kind.this in (exp.DataType.Type.VARBINARY, exp.DataType.Type.BINARY):
+            kind.set("expressions", [])  # DuckDB's BLOB takes no length: VARBINARY(4) stopped CREATE TABLE
 
 
 def _schema(columns: dict[str, dict[str, dict[str, str]]]) -> Any:
@@ -236,10 +344,11 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
 
     kinds = (exp.Div, exp.Avg, exp.Add, exp.Sub, exp.Mul, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow,
              exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
-             tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce)
+             tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup)
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
-    if not here and not compared:
+    grouped = any(True for _ in tree.find_all(exp.Group, exp.Distinct, exp.SetOperation))
+    if not here and not compared and not grouped:
         return []
     sized = [n for n in here if isinstance(n, (exp.Cast, exp.TryCast))]
     typed = tree.copy()
@@ -257,7 +366,7 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                 "floats joined into text are done as DuckDB does them (T-SQL divides and averages integers as "
                 "integers, cuts a decimal cast to an integer toward zero, ignores trailing spaces when it compares "
                 "text, and writes a float in CONCAT with at most 6 significant digits).")]
-    notes = _padded(compared, _in_order(typed, _COMPARISONS))
+    notes = _padded(compared, _in_order(typed, _COMPARISONS)) + _grouped_text(typed)
     there = _in_order(typed, kinds)
     if len(there) != len(here):
         for cast_node in sized:
@@ -286,6 +395,10 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
             continue
         if isinstance(node, exp.Sub | exp.Mul):
             pass  # numbers, as DuckDB does them; only decimals need T-SQL's precision and scale
+        elif isinstance(node, exp.WithinGroup):
+            ordered = info.expression.expressions if isinstance(info.expression, exp.Order) else []
+            if ordered:
+                node.meta[_ORDER_TYPE] = ordered[0].this.type  # for _percentiles
         elif isinstance(node, exp.Div):
             a, b = info.this.type, info.expression.type
             if _is(a, _INTEGERS) and _is(b, _INTEGERS):
@@ -624,13 +737,23 @@ def _floats_joined(node: exp.Expression, info: exp.Expression) -> list[str]:
     DuckDB writes its shortest exact form. An argument whose type can't be told is left as it is, with a note."""
     notes = []
     for arg, typed in zip(list(node.expressions), info.expressions, strict=True):
-        if _is(typed.type, _FLOATS):
+        if _is(typed.type, _FLOATS) and not _written_decimal(arg):  # 1.50 is a decimal: '1.50' (WR-210)
             arg.replace(_float_text(arg.copy()))
+        elif _is(typed.type, _BITS):
+            arg.replace(_bit_text(arg.copy()))
         elif _unknown(typed.type) and not isinstance(arg, (exp.Literal, exp.Null)):
             notes.append(f"Couldn't tell the type of {arg.sql(dialect='tsql')} in {node.sql(dialect='tsql')}: a float "
                          "there is written as DuckDB does (0.3333333333333333), and T-SQL writes at most 6 "
                          "significant digits (0.333333).")
     return notes
+
+
+_BITS = {exp.DataType.Type.BIT, exp.DataType.Type.BOOLEAN}
+
+
+def _bit_text(value: exp.Expression) -> exp.Expr:
+    """A BIT as text is ``1`` or ``0`` in T-SQL; DuckDB writes its boolean as ``true`` (WR-210)."""
+    return exp.cast(exp.cast(value, "INT"), "VARCHAR")
 
 
 def _power(node: exp.Pow, base: exp.DataType | None) -> list[str]:
@@ -778,11 +901,14 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
         to.set("expressions", [])  # VARCHAR(MAX): DuckDB's VARCHAR has no limit and takes no MAX
         return
     n = int(size.name)
-    text = exp.Cast(this=node.this, to=exp.DataType.build("VARCHAR"), safe=isinstance(node, exp.TryCast))
+    text: exp.Expr = exp.Cast(this=node.this, to=exp.DataType.build("VARCHAR"), safe=isinstance(node, exp.TryCast))
     if isinstance(node, exp.TryCast):
         text = exp.TryCast(this=node.this, to=exp.DataType.build("VARCHAR"))
+    if _is(source, _BITS):
+        text = _bit_text(node.this)
     if _is(source, _NUMBERS):
-        shown = _float_text(node.this) if _is(source, _FLOATS) else text
+        # A float in T-SQL's style; a number written with a point (1.50) is a decimal there, and keeps its digits.
+        shown = _float_text(node.this) if _is(source, _FLOATS) and not _written_decimal(node.this) else text
         too_long = exp.GT(this=exp.func("LENGTH", shown.copy()), expression=exp.Literal.number(n))
         message = exp.Literal.string(f"The number doesn't fit in {to.sql(dialect='tsql')}.")
         cut: exp.Expr = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=shown)
@@ -966,9 +1092,9 @@ def _in_class(ch: str) -> str:
     return "\\" + ch if ch in "\\[]^-" else ch
 
 
-_COMPARISONS = (exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.In)
+_COMPARISONS = (exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.In, exp.Like)
 _PADDED_NOTE = ("Couldn't tell the types in some comparisons, so they are done as DuckDB does them: T-SQL ignores "
-                "trailing spaces when it compares text ('a' = 'a  '), and here they count.")
+                "trailing spaces when it compares text ('a' = 'a  ', and 'a  ' LIKE 'a'), and here they count.")
 _TOP = "\U0010ffff"  # the last character: 'ab ' and then it sorts after 'ab', any spaces, and anything after them
 
 
@@ -981,6 +1107,12 @@ def _padded(here: list[exp.Expression], there: list[exp.Expression]) -> list[str
         return [_PADDED_NOTE] if here else []
     unsure = False
     for node, info in zip(here, there, strict=True):
+        if isinstance(node, exp.Like):
+            if _is(info.this.type, _TEXT):
+                _like_padded(node)
+            elif _unknown(info.this.type) and _is(info.expression.type, _TEXT):
+                unsure = True  # as for =: a text pattern on a value whose type can't be told
+            continue
         if isinstance(node, exp.In):
             if info.args.get("query") is not None or not info.expressions:
                 continue
@@ -1001,6 +1133,51 @@ def _padded(here: list[exp.Expression], there: list[exp.Expression]) -> list[str
         elif (_is(a, _TEXT) or _is(b, _TEXT)) and (_unknown(a) or _unknown(b)):
             unsure = True
     return [_PADDED_NOTE] if unsure else []
+
+
+_GROUPED_NOTE = ("T-SQL counts text that differs only in trailing spaces ('a' and 'a  ') as one value in GROUP BY, "
+                 "DISTINCT, UNION, INTERSECT and EXCEPT, and here they stay apart. If the text can end in spaces, "
+                 "group on RTRIM(...) to get T-SQL's groups.")
+
+
+def _grouped_text(typed: exp.Expression) -> list[str]:
+    """T-SQL's padding also makes ``'a'`` and ``'a  '`` one group, one distinct value and one row of a
+    ``UNION``; here they are two. That isn't rewritten (T-SQL shows either one), so a query that groups
+    text says so (WR-210). Text already trimmed with RTRIM, and a literal without trailing spaces, can't
+    differ."""
+    def risky(node: exp.Expression) -> bool:
+        if isinstance(node, exp.Alias):
+            node = node.this
+        if isinstance(node, (exp.Trim, exp.Literal)) or (isinstance(node, exp.Anonymous) and node.name.upper() == "RTRIM"):
+            return isinstance(node, exp.Literal) and node.is_string and node.name.endswith(" ")
+        return _is(node.type, _TEXT)
+    sets: list[list[Any]] = []
+    for node in typed.find_all(exp.Group, exp.Distinct, exp.SetOperation):
+        if isinstance(node, exp.SetOperation):
+            if node.args.get("distinct") is False:
+                continue  # UNION ALL keeps every row anyway
+            sets += [side.selects for side in (node.left, node.right) if isinstance(side, exp.Query)]
+        elif isinstance(node, exp.Distinct) and not node.expressions and isinstance(node.parent, exp.Select):
+            sets.append(node.parent.selects)  # SELECT DISTINCT: its columns
+        else:
+            sets.append(node.expressions)
+    return [_GROUPED_NOTE] if any(risky(e) for exprs in sets for e in exprs) else []
+
+
+def _like_padded(node: exp.Like) -> None:
+    """``x LIKE p`` ignores the trailing spaces of ``x`` in T-SQL (every character of ``p`` counts):
+    ``'abc  ' LIKE 'abc'`` is true, and so is ``'abc ' LIKE 'abc_'``. So it matches as written or
+    without them (WR-210)."""
+    if isinstance(node.this, exp.Literal) and node.this.is_string and not node.this.name.endswith(" "):
+        return
+    whole: exp.Expression = node.parent if isinstance(node.parent, exp.Escape) else node
+    negate = bool(node.args.get("negate"))  # x NOT LIKE p: neither form matches
+    node.set("negate", None)
+    trimmed = whole.copy()
+    like = trimmed.this if isinstance(trimmed, exp.Escape) else trimmed
+    like.set("this", _rtrim(like.this))
+    either: exp.Expression = exp.paren(exp.or_(whole.copy(), trimmed), copy=False)
+    whole.replace(exp.not_(either) if negate else either)
 
 
 def _rtrim(node: exp.Expression) -> exp.Expr:
@@ -1037,6 +1214,47 @@ def _is(kind: exp.DataType | None, group: set) -> bool:
 
 def _unknown(kind: exp.DataType | None) -> bool:
     return kind is None or kind.this in (exp.DataType.Type.UNKNOWN, exp.DataType.Type.NULL)
+
+
+_ORDER_TYPE = "kf_order_type"
+
+
+def _percentiles(tree: exp.Expression) -> None:
+    """``PERCENTILE_CONT`` and ``PERCENTILE_DISC`` as T-SQL gives them.
+
+    - ``PERCENTILE_CONT`` is a float in T-SQL. DuckDB kept a decimal's type, so 0.25 of 1.25, 2.50 and
+      4.00 came back as 1.88, not 1.875: the values are made floats first.
+    - With ``ORDER BY x DESC``, p counts from the largest value. DuckDB's windowed QUANTILE ignores the
+      DESC and counted from the smallest, so the 0.25 percentile came back as the 0.75 one. Here the
+      values are negated, so ascending order is T-SQL's descending one, and the answer is negated back:
+      integers in a wider type, so the smallest one doesn't overflow, then returned to their own type."""
+    for group in list(tree.find_all(exp.WithinGroup)):
+        window = group.parent
+        if not (isinstance(group.this, (exp.PercentileCont, exp.PercentileDisc)) and isinstance(window, exp.Window)
+                and window.this is group and isinstance(group.expression, exp.Order)
+                and len(group.expression.expressions) == 1):
+            continue
+        ordered = group.expression.expressions[0]
+        cont = isinstance(group.this, exp.PercentileCont)
+        if cont:
+            ordered.set("this", exp.Cast(this=ordered.this, to=exp.DataType.build("DOUBLE")))
+        if not ordered.args.get("desc"):
+            continue
+        kind: exp.DataType | None = group.meta.get(_ORDER_TYPE)
+        if not cont and not _unknown(kind) and (not _is(kind, _NUMBERS) or _is(kind, {exp.DataType.Type.BIT})):
+            raise ValueError(_NOT_YET + "PERCENTILE_DISC with ORDER BY ... DESC on a value that isn't a number "
+                             "isn't mapped yet. Run it in a Fabric Warehouse.")
+        value = ordered.this
+        if not cont and _is(kind, _INTEGERS):
+            value = exp.Cast(this=value, to=exp.DataType.build("HUGEINT"))
+        ordered.set("this", exp.Neg(this=exp.paren(value, copy=False)))
+        ordered.set("desc", False)
+        ordered.set("nulls_first", True)
+        answer: exp.Expression = exp.Neg(this=exp.paren(window.copy(), copy=False))
+        if not cont and _is(kind, _INTEGERS):
+            assert kind is not None
+            answer = exp.Cast(this=answer, to=kind.copy())
+        window.replace(answer)
 
 
 _SPREADS = {"VAR": exp.Variance, "VARP": exp.VariancePop, "STDEVP": exp.StddevPop}
@@ -1357,9 +1575,15 @@ def _string_edges(tree: exp.Expression) -> None:
     - ``TRANSLATE(s, a, b)`` with ``a`` and ``b`` of different lengths is an error (DuckDB drops the
       characters of ``a`` that have no partner in ``b``).
 
+    - ``CHARINDEX(x, s, start)`` searches from the start when ``start`` is 0 or negative (DuckDB counted
+      from the end), and is 0 for an empty ``x`` (DuckDB found it at 1) (WR-210).
+
     Literal starts and lengths that can't hit an edge are left as they are."""
-    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Left, exp.Right, exp.Translate)):
-        if isinstance(node, (exp.Left, exp.Right)):
+    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Left, exp.Right, exp.Translate,
+                                   exp.StrPosition)):
+        if isinstance(node, exp.StrPosition):
+            _charindex(node)
+        elif isinstance(node, (exp.Left, exp.Right)):
             name = "LEFT" if isinstance(node, exp.Left) else "RIGHT"
             length = node.expression
             message = f"Invalid length parameter passed to the {name} function."
@@ -1420,6 +1644,26 @@ def _string_edges(tree: exp.Expression) -> None:
             times = node.args["times"]
             negative = exp.LT(this=times.copy(), expression=exp.Literal.number(0))
             node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy()))
+
+
+def _charindex(node: exp.StrPosition) -> None:
+    """``CHARINDEX`` as T-SQL answers it at its edges (see _string_edges)."""
+    start, find, text = node.args.get("position"), node.args["substr"], node.this
+    if start is not None:
+        value = _number(start)
+        if value is not None and value <= 1:
+            node.set("position", None)  # 0, negative or 1: from the start
+        elif value is None and not isinstance(start, exp.Null):
+            # A NULL start keeps the answer NULL, as GREATEST alone (which skips NULLs) wouldn't.
+            node.set("position", exp.Case(ifs=[exp.If(this=exp.Is(this=start.copy(), expression=exp.null()),
+                                                       true=exp.null())],
+                                          default=exp.func("GREATEST", start.copy(), exp.Literal.number(1))))
+    if isinstance(find, exp.Literal) and find.is_string and find.name:
+        return
+    empty = exp.EQ(this=exp.func("LENGTH", find.copy()), expression=exp.Literal.number(0))
+    unknown = exp.Is(this=text.copy(), expression=exp.null())
+    node.replace(exp.Case(ifs=[exp.If(this=unknown, true=exp.null()), exp.If(this=empty, true=exp.Literal.number(0))],
+                          default=node.copy()))
 
 
 _DATEDIFF_OVERFLOW = ("The datediff function resulted in an overflow. The number of dateparts separating two "

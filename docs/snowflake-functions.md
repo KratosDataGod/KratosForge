@@ -21,10 +21,10 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 365 |
+| Runs | 366 |
 | Differs | 24 |
 | Refused | 82 |
-| Fails | 1 |
+| Fails | 0 |
 | Not checked | 23 |
 | **All** | **495** |
 
@@ -252,7 +252,7 @@ the known differences in more detail.
 | `TRY_TO_TIMESTAMP_TZ` | Differs | SFD-002 TIMESTAMP_TZ loses its offset |
 | `TO_ARRAY` | Runs | 1 value check |
 | `TO_OBJECT` | Runs | 2 value checks |
-| `TO_VARIANT` | Fails | TO_VARIANT: InvalidInputException: Invalid Input Error: Malformed JSON at byte 1 of input: unexpected character.  Input: "{'temperature': 31.5}" |
+| `TO_VARIANT` | Runs | 1 value check |
 
 ## Semi-structured
 

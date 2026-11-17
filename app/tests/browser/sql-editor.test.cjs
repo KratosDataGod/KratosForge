@@ -471,9 +471,9 @@ test("T-SQL is formatted but not run on this PC, and the dialect is kept with th
   await page().locator("select.sql-dialect").selectOption("spark");
 });
 
-test("Messages, Chart, Plan and Profile carry the Preview tag on a lakehouse page and go when preview features are hidden", { skip }, async () => {
+test("Messages, Chart, Plan, Profile and History carry the Preview tag on a lakehouse page and go when preview features are hidden", { skip }, async () => {
   const views = () => page().locator(".sql-views [role=tab]").allTextContents();
-  assert.deepStrictEqual(await views(), ["Results", "MessagesPreview", "ChartPreview", "PlanPreview", "ProfilePreview"]);
+  assert.deepStrictEqual(await views(), ["Results", "MessagesPreview", "ChartPreview", "PlanPreview", "ProfilePreview", "HistoryPreview"]);
   await page().evaluate(() => { state.settings = { ...state.settings, show_preview: { value: false } }; sqlPage.redraw(); });
   assert.deepStrictEqual(await views(), ["Results"]);
   await page().evaluate(() => { state.settings.show_preview = { value: true }; sqlPage.redraw(); });

@@ -24,7 +24,7 @@ from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator, cached_account
 from .fabric_api import FabricClient
-from . import app_settings, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_format, sql_function_help, sql_view, sqlcompat, warehouse
+from . import app_settings, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_files, sql_format, sql_function_help, sql_view, sqlcompat, warehouse
 from .learn import evidence
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
@@ -1179,7 +1179,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                   confirm: bool = False, dry_run: bool = False,
                   warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
                   estimated_plan: bool = False, precondition: dict[str, Any] | None = None,
-                  profile: bool = False) -> dict[str, Any]:
+                  profile: bool = False, statements: list[str] | None = None,
+                  params: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """Queue a query on this PC. ``allow`` adds "local_mutation" after the person confirmed it;
         lakehouse writes and Fabric changes are never allowed here (sql_policy.py).
 
@@ -1194,11 +1195,16 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         ``dry_run`` only says what each statement would do; nothing runs. ``estimated_plan`` (warehouse,
         a query that reads) returns Fabric's estimated plan as showplan XML instead of running it; on a
         lakehouse, DuckDB's plan for one query that reads, as JSON, with nothing run. ``profile`` (a
-        lakehouse query that reads) runs it under DuckDB's profiler and returns its steps as JSON."""
+        lakehouse query that reads) runs it under DuckDB's profiler and returns its steps as JSON.
+
+        ``statements`` (S14, Preview) runs the script as these statements, one after the other in one
+        session, each with a result of its own (``parts`` in the status; ``part`` in sql_page and
+        sql_export), stopping at the first that fails. ``params`` (S17, Preview) are the query's ``:name``
+        and ``{{name}}`` parameters, [{name, type, value}], bound as typed values and never kept."""
         return self.sql_runs.start(query, lakehouse_ref, dialect, allow, target=target, project=project,
                                    confirm=confirm, dry_run=dry_run, warehouse_ref=warehouse_ref,
                                    confirm_name=confirm_name, estimated_plan=estimated_plan, precondition=precondition,
-                                   profile=profile)
+                                   profile=profile, statements=statements, params=params)
 
     def sql_status(self, execution: str) -> dict[str, Any]:
         return self.sql_runs.status(execution)
@@ -1208,31 +1214,54 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         return self.sql_runs.recent()
 
     def sql_page(self, execution: str, offset: int = 0, limit: int | None = None, sort: list[dict[str, Any]] | None = None,
-                 filters: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                 filters: list[dict[str, Any]] | None = None, part: int | None = None) -> dict[str, Any]:
         """A page of a run's result; with ``sort`` or ``filters``, of every row sorted and filtered on
-        this PC (the result grid, S19 and S20). A filter box that can't be read answers ``filter_error``
-        with its column, and no rows."""
+        this PC (the result grid, S19 and S20); with ``part``, of that statement's result (S14). A filter
+        box that can't be read answers ``filter_error`` with its column, and no rows."""
         try:
-            return self.sql_runs.page(execution, offset, limit, sort, filters)
+            return self.sql_runs.page(execution, offset, limit, sort, filters, part)
         except sql_exec.RerunNeeded as exc:
             return {"id": execution, "rerun_needed": True, "message": str(exc)}
         except sql_view.FilterError as exc:
             return {"id": execution, "filter_error": {"column": exc.column, "message": str(exc)}}
 
-    def sql_column_stats(self, execution: str, column: int) -> dict[str, Any]:
+    def sql_column_stats(self, execution: str, column: int, part: int | None = None) -> dict[str, Any]:
         """One column's statistics over every row of a run's result (the result grid, S26), read from
-        the run's snapshot on this PC; nothing runs again."""
+        the run's snapshot on this PC; with ``part``, of that statement's result (S14). Nothing runs again."""
         try:
-            return self.sql_runs.column_stats(execution, column)
+            return self.sql_runs.column_stats(execution, column, part)
         except sql_exec.RerunNeeded as exc:
             return {"id": execution, "rerun_needed": True, "message": str(exc)}
+
+    def sql_pin(self, execution: str, pinned: bool = True) -> dict[str, Any]:
+        """Keep a run's result on this PC until it is unpinned (S27, the SQL page's result history), or let
+        it go. Runs nothing."""
+        return self.sql_runs.pin(execution, bool(pinned))
+
+    def sql_file_info(self, path: str) -> dict[str, Any]:
+        """A .sql file's version, without reading it (S38, Preview): the page asks when it comes back into
+        view, to say the file changed on disk."""
+        return sql_files.info(path)
+
+    def sql_file_read(self, path: str) -> dict[str, Any]:
+        """Open a .sql file the user picked: its text, encoding, line endings and version."""
+        return sql_files.read(path)
+
+    def sql_file_write(self, path: str, text: str, expect: str = "", encoding: str = "utf-8",
+                       newline: str = "\r\n", overwrite: bool = False) -> dict[str, Any]:
+        """Save a tab to a .sql file. A file that changed on disk since ``expect`` (or one already there
+        on Save as, without ``overwrite``) is not written: the answer says ``conflict`` and the page asks."""
+        try:
+            return sql_files.write(path, text, expect, encoding, newline, bool(overwrite))
+        except sql_files.Conflict as exc:
+            return {**sql_files.info(path), "conflict": True, "message": str(exc)}
 
     def sql_cancel(self, execution: str) -> dict[str, Any]:
         """Stop one run: ends that run's own process and nothing else."""
         return self.sql_runs.cancel(execution)
 
-    def sql_export(self, execution: str, format: str = "csv", name: str = "") -> dict[str, Any]:
-        return self.sql_runs.export(execution, format, name)
+    def sql_export(self, execution: str, format: str = "csv", name: str = "", part: int | None = None) -> dict[str, Any]:
+        return self.sql_runs.export(execution, format, name, part)
 
     def sql_export_status(self, export: str) -> dict[str, Any]:
         return self.sql_runs.export_status(export)

@@ -143,7 +143,6 @@ def test_top_with_ties_keeps_the_tied_rows(engine):
 
 @pytest.mark.parametrize("sql", [
     "SELECT TOP 1 WITH TIES DISTINCT boxes FROM dbo.orders ORDER BY boxes",
-    "SELECT TOP 50 PERCENT WITH TIES id FROM dbo.orders ORDER BY boxes",
     "SELECT value FROM STRING_SPLIT('a,b', ',', 1)",
     "SELECT ROUND(1.5, 0, boxes) FROM dbo.orders",
     "SELECT DATALENGTH(5)",

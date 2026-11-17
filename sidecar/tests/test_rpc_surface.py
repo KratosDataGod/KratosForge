@@ -36,6 +36,8 @@ _FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 
 NO_UI_CALLER: dict[str, str] = {
+    # Editor parity item 8: the SQL result grid's Column statistics panel calls it in the next PR (#2796).
+    "sql_column_stats": "result grid column statistics; its panel lands in the PR stacked on this one",
     # OE-004: the Share button on Optimize > Assessment waits on its mockup.
     "optimization_share": "OE-004 engine call; the Assessment tab's Share button waits on its mockup",
     # Best practices check (semantic-link-labs in Fabric).

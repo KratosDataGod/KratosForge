@@ -1702,7 +1702,23 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
   if (state.notebook?.dirty) markDirty();
   if (!(last && await dbgAfterRun(cell, last))) refreshVariables();
   cellFx(cell);  // after dbgAfterRun, which draws the results again
+  // A change to a Prod workspace waits for its typed name; run on its own, the cell offers it and runs again.
+  if (cell.status === "error" && !nb.runningAll && cell.outputs.some((o) => o.ename === "ProdConfirmNeeded")) return nbProdConfirm(cell, nb);
   return ok;
+}
+
+// The cell's MERGE, UPDATE, DELETE, VACUUM or RESTORE would change a workspace marked Prod
+// (prod_writes_service.py). Typing the workspace's name lets the cell's next run change it, once.
+async function nbProdConfirm(cell, nb) {
+  const p = await rpc("notebook_prod_pending", { notebook: nb.name }).catch(() => null);
+  if (!p) return false;
+  const go = await confirmDialog(`Change ${p.workspace_name}?`,
+    `${p.operation} on ${p.table} changes ${p.workspace_name}, a Prod workspace. Nothing has changed yet. Type its name to run this cell once.`,
+    "Run in Prod", { danger: true, typeToConfirm: p.workspace_name });
+  if (!go) return false;
+  const allowed = await attempt(() => rpc("notebook_prod_confirm", { notebook: nb.name, workspace_id: p.workspace_id, confirm_name: p.workspace_name }));
+  if (!allowed) return false;
+  return runCell(cell, { nb });
 }
 
 // Forge animations (motion.js): a spark when a cell succeeds on its own (the Wolf Run in the status

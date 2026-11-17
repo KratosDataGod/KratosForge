@@ -75,7 +75,7 @@ def input_files(self: Any) -> list[str]:
                     except Exception:  # noqa: BLE001  # silent-ok: an unreadable Delta log lists its data files instead
                         pass
                 out += sorted(p for p in glob.glob(os.path.join(path, "**", "*"), recursive=True)
-                              if os.path.isfile(p) and "_delta_log" not in p)
+                              if os.path.isfile(p) and "_delta_log" not in os.path.relpath(p, path).split(os.sep))
             elif any(ch in path for ch in "*?["):
                 out += sorted(glob.glob(path, recursive=True))
             else:

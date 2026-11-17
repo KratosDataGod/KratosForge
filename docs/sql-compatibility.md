@@ -87,6 +87,24 @@ What can still differ:
 - `OUTPUT` and `@@ROWCOUNT` are refused by name. Each statement's row count is its result instead.
 - An `UPDATE` or `DELETE` whose `FROM` has an outer join (`LEFT`, `RIGHT`, `FULL`), `JOIN ... USING`, or the changed table after another one, is refused by name.
 - On one of the project's Delta tables, `MERGE`, `UPDATE` and `DELETE` run through delta-rs, which has its own rules: see [Local data](local-data.md).
+## Local T-SQL ordering and window functions
+
+When a project runs T-SQL on this PC, NULLs, ties and window functions give a warehouse's answers. Each case below is checked against T-SQL's reference.
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| `NULL` in an ordering | The smallest value: first in ascending order, last in descending order. This holds in `ORDER BY`, `TOP` (with or without `WITH TIES`), `OFFSET ... FETCH`, a window's `ORDER BY`, `STRING_AGG ... WITHIN GROUP` and `GROUP BY ... ORDER BY` |
+| `ROW_NUMBER`, `RANK`, `DENSE_RANK`, `NTILE` | Ties share a rank: `RANK` skips after a tie (1, 1, 3), `DENSE_RANK` doesn't (1, 1, 2). `PARTITION BY` puts NULLs in one partition |
+| `CUME_DIST`, `PERCENT_RANK` | Ties share a value, as in T-SQL |
+| `LAG`, `LEAD` | `NULL` past the edge of the partition, or the default you give: `LAG(x, 1, 0)` |
+| `SUM`, `COUNT`, `MAX` and the other aggregates `OVER (ORDER BY ...)` | The default frame is `RANGE`, so rows that tie share a running total. Write `ROWS UNBOUNDED PRECEDING` for one total per row |
+| `PERCENTILE_CONT` | A `float`, with `NULL`s left out, for a decimal column too: 0.25 of `1.25`, `2.50` and `4.00` is `1.875` |
+| `PERCENTILE_CONT` and `PERCENTILE_DISC` with `ORDER BY ... DESC` | p counts from the largest value: 0.25 of 1 to 5 descending is `4`. `PERCENTILE_DISC` keeps its value's type |
+
+What can still differ:
+
+- `PERCENTILE_DISC` with `ORDER BY ... DESC` on a date or text column is refused by name. Run it in a Fabric Warehouse.
+- Rows that tie in an `ORDER BY` can come back in any order, in a warehouse as here. Add a column that tells them apart when the order matters.
 
 ## Local T-SQL dates and times
 

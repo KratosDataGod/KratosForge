@@ -537,7 +537,7 @@ def _replace_where(condition: str, name: str) -> str:
 def _replace_mismatch(replace: str, name: str, detail: str = "") -> ValueError:
     return ValueError(f"[DELTA_REPLACE_WHERE_MISMATCH] Written data does not conform to partial table overwrite "
                       f"condition or constraint '{replace}'.{detail} Every row written must match replaceWhere, so "
-                      f"nothing was written to {name}.")
+                      f"nothing was written to {name}. Filter the rows to the condition first, or widen replaceWhere.")
 
 
 def _rows_match(data: pa.Table, predicate: str, replace: str, name: str) -> None:
@@ -554,7 +554,8 @@ def _rows_match(data: pa.Table, predicate: str, replace: str, name: str) -> None
     finally:
         con.close()
     if bad and bad[0]:
-        raise _replace_mismatch(replace, name, f" {bad[0]} of the {data.num_rows} rows don't match it.")
+        verb = "doesn't" if bad[0] == 1 else "don't"
+        raise _replace_mismatch(replace, name, f" {bad[0]} of the {data.num_rows} rows {verb} match it.")
 
 
 def _write_table(data: pa.Table, name: str, how: str, schema_mode: str | None, predicate: str | None = None,

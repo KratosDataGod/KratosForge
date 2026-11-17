@@ -230,7 +230,7 @@ def test_replace_where_stops_when_a_row_written_doesnt_match(lake, rows):
     before = _state(path)
     status, text = run(f"spark.createDataFrame({rows}, 'id long, region string, amount long').write"
                        ".mode('overwrite').option('replaceWhere', \"region = 'EU'\").saveAsTable('dbo.sales')")
-    assert status == "error" and "[DELTA_REPLACE_WHERE_MISMATCH]" in text and "1 of the 1 rows" in text, text
+    assert status == "error" and "[DELTA_REPLACE_WHERE_MISMATCH]" in text and "1 of the 1 rows doesn't match it" in text, text
     _unchanged(path, before)
 
 

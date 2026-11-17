@@ -268,9 +268,10 @@ def _one_match_each(change: Change, table: Any, source: Any, names: _Names) -> N
         try:
             detail = multiple_match(con, change, "kf_target", "kf_source", on)
         except duckdb.Error as exc:
-            raise ValueError(f"MERGE INTO {change.name} isn't run here: this PC couldn't check that each of its rows "
-                             f"matches one source row at most ({exc}), which Delta requires ({MULTIPLE_MATCH}). "
-                             "Write ON as column comparisons (t.key = s.key AND ...).") from None
+            raise ValueError(f"MERGE INTO {change.name} isn't run here, because this PC couldn't check that each of its "
+                             "rows matches at most one source row, as Delta requires "
+                             f"({MULTIPLE_MATCH}). The check stopped on: {exc}. Write ON as column comparisons, such "
+                             "as t.key = s.key AND ...") from None
     finally:
         con.close()
     if detail is not None:

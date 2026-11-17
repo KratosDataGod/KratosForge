@@ -12,7 +12,7 @@ from typing import Any, Callable, Iterator
 
 import polars as pl
 
-from . import duties, lakehouse, risk, sealed_settings
+from . import audit, duties, lakehouse, risk, sealed_settings
 from .meta import keys as keys_mod
 from .meta import lineage, release
 from .meta import mesh
@@ -186,7 +186,29 @@ class MetaMixin:
                 return (f"{operation.upper()} on {table} from notebook code is refused: this workspace is "
                         f"{env.title()}'s, which changes only by promote. Run Optimize or Vacuum from X-ray, which "
                         "shows what it does first, or run the cell against a Dev workspace. Nothing was changed.")
-        return self._maintenance_capacity_refusal(operation, workspace_id, table)
+        refusal = self._maintenance_capacity_refusal(operation, workspace_id, table)
+        return self._maintenance_audit(operation, workspace_id, table, refusal)
+
+    def _maintenance_audit(self, operation: str, workspace_id: str, table: str, refusal: str | None) -> str | None:
+        """The audit line for OPTIMIZE (with or without ZORDER), VACUUM or RESTORE from notebook code: the cell's own
+        line holds only "(given)" for its code, so this says which table was changed and how. A run that may go ahead
+        gets a ``started`` line first and is refused when it can't be written, as X-ray's Optimize and Vacuum are; a
+        refusal is recorded too, but never fails because of the log."""
+        log = getattr(self, "audit", None)
+        if log is None:
+            return refusal
+        params = {"operation": operation, "workspace_id": workspace_id, "table": table}
+        if refusal:
+            try:
+                log.record("notebook_maintenance", "error", 0.0, params, reason="refused")
+            except Exception as exc:  # noqa: BLE001 - the refusal stands whatever the log does
+                _log.warning("Couldn't record the refused %s on %s: %s", operation, table, describe_error(exc))
+            return refusal
+        try:
+            log.record("notebook_maintenance", "started", 0.0, params)
+        except Exception as exc:  # noqa: BLE001 - any failure to write refuses the run
+            return audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {describe_error(exc)}")
+        return None
 
     def _maintenance_capacity_refusal(self, operation: str, workspace_id: str, table: str) -> str | None:
         """Blocked by the workspace's capacity, from its last reading (no refresh). A reading that fails is

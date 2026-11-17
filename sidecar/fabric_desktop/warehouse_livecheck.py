@@ -155,7 +155,7 @@ CASES: tuple[Case, ...] = (
          statements=("ALTER TABLE {s}.vt ADD b INT", "INSERT INTO {s}.vt VALUES (1, 2)")),
     # WR-217 session settings
     Case("SET-01", "WR-217", "settings", "A warehouse's DATEFIRST is 7", "SELECT @@DATEFIRST", "7"),
-    Case("SET-02", "WR-217", "settings", "ANSI_NULLS is on", "SELECT SESSIONPROPERTY('ANSI_NULLS')", "1"),
+    Case("SET-02", "WR-217", "settings", "ANSI_NULLS is on", "SELECT CAST(SESSIONPROPERTY('ANSI_NULLS') AS INT)", "1"),
 )
 
 
@@ -186,15 +186,31 @@ def statement_problem(sql: str, scratch: str) -> str | None:
             return f"{type(tree).__name__.upper()} {kind or '?'} isn't allowed"
         if isinstance(tree, exp.Alter) and kind != "TABLE":
             return f"ALTER {kind or '?'} isn't allowed"
-        aliases = {a.alias_or_name.lower() for a in tree.find_all(exp.TableAlias)}
+        targets = _alias_targets(tree, scratch)
         for table in tree.find_all(exp.Table):
             if not table.name:
                 continue
-            if not table.db and table.name.lower() in aliases:
-                continue  # UPDATE t ... FROM scratch.x AS t
+            if any(table is t for t in targets):
+                continue  # UPDATE t ... FROM scratch.x AS t: t is that scratch table
             if table.db.lower() != scratch.lower() or table.catalog:
                 return f"it names {table.sql('tsql')}, outside the scratch schema {scratch}"
     return None
+
+
+def _alias_targets(tree: exp.Expression, scratch: str) -> list[exp.Table]:
+    """The bare target of an UPDATE or DELETE that names an alias of a scratch table in the same statement. Only
+    those targets bind to a FROM alias in T-SQL; an INSERT, CREATE or DROP target, or any other bare name, means
+    dbo."""
+    if isinstance(tree, exp.Update):
+        candidates = [tree.this]
+    elif isinstance(tree, exp.Delete):
+        candidates = [*(tree.args.get("tables") or []), tree.this]
+    else:
+        return []
+    bound = {t.alias.lower() for t in tree.find_all(exp.Table)
+             if t.alias and t.db.lower() == scratch.lower() and not t.catalog}
+    return [t for t in candidates if isinstance(t, exp.Table) and not t.db and not t.catalog and not t.alias
+            and t.name.lower() in bound]
 
 
 def sql_for(case: Case, scratch: str) -> list[str]:
@@ -203,6 +219,8 @@ def sql_for(case: Case, scratch: str) -> list[str]:
 
 
 def problems(cases: tuple[Case, ...], scratch: str) -> list[str]:
+    if not _SCRATCH.fullmatch(scratch):
+        return [f"{scratch!r} isn't a scratch schema name"]
     found = []
     for case in cases:
         for sql in sql_for(case, scratch):
@@ -277,6 +295,17 @@ def local_answers(cases: tuple[Case, ...], scratch: str, root: Path | None = Non
 
 # ---- the run
 
+def _drain(cur: Any, errors: list[str], limit: int = 20) -> None:
+    """Read the rest of a batch's results. An error between them is added to ``errors`` and reading goes on, up to
+    ``limit`` errors."""
+    while len(errors) < limit:
+        try:
+            if not cur.nextset():
+                return
+        except Exception as exc:  # noqa: BLE001 - noted, and the next result is read
+            errors.append(_error(exc))
+
+
 @dataclass
 class Result:
     id: str
@@ -288,6 +317,7 @@ class Result:
     local: str
     warehouse: str | None = None
     sql: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)  # errors the warehouse gave in the case's statements
 
     @property
     def verdict(self) -> str:
@@ -360,7 +390,7 @@ class WarehouseCheck:
             con.commit()
             try:
                 for r, case in zip(results, self.cases, strict=True):
-                    r.warehouse = self._one(con, case)
+                    r.warehouse = self._one(con, case, r.notes)
             finally:
                 self.cleanup = self._drop(con)
         finally:
@@ -371,14 +401,27 @@ class WarehouseCheck:
         return Result(case.id, case.wr, case.section, case.title, case.basis, case.documented,
                       local.get(case.id, ""), sql=sql_for(case, self.scratch))
 
-    def _one(self, con: Any, case: Case) -> str:
-        *before, query = sql_for(case, self.scratch)
+    def _one(self, con: Any, case: Case, notes: list[str]) -> str:
+        sent = sql_for(case, self.scratch)
+        setup, statements, query = sent[:len(case.setup)], sent[len(case.setup):-1], sent[-1]
         cur = con.cursor()
         try:
-            for sql in before:
+            for sql in setup:
                 cur.execute(sql)
-                while cur.nextset():
-                    pass
+                failed: list[str] = []
+                _drain(cur, failed)
+                if failed:
+                    return failed[0]  # the setup didn't run, so the case has no answer of its own
+            for sql in statements:
+                # A run-time error can end one statement of a batch while the rest runs on (SCR-01), so an
+                # error here is noted and the batch's other results are still read.
+                errors: list[str] = []
+                try:
+                    cur.execute(sql)
+                except Exception as exc:  # noqa: BLE001 - noted; the case's query gives its answer
+                    errors.append(_error(exc))
+                _drain(cur, errors)
+                notes += errors
             cur.execute(query)
             row = cur.fetchone()
             return answer(row[0]) if row else "no rows"

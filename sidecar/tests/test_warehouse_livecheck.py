@@ -53,6 +53,12 @@ class Cursor:
         self.row = answer
 
     def nextset(self):
+        pending = self.con.pending
+        if pending:
+            item = pending.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return True
         return False
 
     def fetchone(self):
@@ -65,6 +71,7 @@ class Cursor:
 class Connection:
     def __init__(self, answers=lambda sql: (1,), left=(), schema_stays=False):
         self.answers, self.left, self.schema_stays = answers, left, schema_stays
+        self.pending: list = []  # what nextset gives after the next statement: True, or an error to raise
         self.log: list[str] = []
         self.closed = False
 
@@ -98,7 +105,7 @@ def test_every_case_reads_or_writes_only_in_the_scratch_schema():
     ("SELECT 1 INTO dbo.x", "Select isn't allowed"),
     ("INSERT INTO dbo.t VALUES (1)", "names dbo.t, outside the scratch schema"),
     ("DELETE FROM t", "names t, outside the scratch schema"),
-    ("UPDATE t SET v = 1 FROM dbo.x AS t", "names dbo.x"),
+    ("UPDATE t SET v = 1 FROM dbo.x AS t", "outside the scratch schema"),
     ("DROP SCHEMA dbo", "DROP SCHEMA isn't allowed"),
     ("CREATE SCHEMA other", "CREATE SCHEMA isn't allowed"),
     ("DROP TABLE dbo.t", "names dbo.t"),
@@ -107,9 +114,27 @@ def test_every_case_reads_or_writes_only_in_the_scratch_schema():
     ("EXEC dbo.p", "isn't allowed"),
     ("TRUNCATE TABLE {s}.t", "isn't allowed"),
     ("SELECT 1; DELETE FROM dbo.t", "names dbo.t"),
+    # only an UPDATE or DELETE target binds to a FROM alias; any other bare name means dbo
+    ("INSERT INTO orders SELECT 1 FROM {s}.x AS orders", "names orders, outside"),
+    ("INSERT INTO t SELECT * FROM {s}.x AS t", "names t, outside"),
+    ("CREATE TABLE orders AS SELECT 1 AS a FROM {s}.x AS orders", "names orders, outside"),
+    ("CREATE VIEW v AS SELECT a FROM {s}.x AS v", "names v, outside"),
+    ("UPDATE t SET v = 1 FROM {s}.x AS c JOIN dbo.y AS t ON c.id = t.id", "outside the scratch schema"),
+    ("DELETE t FROM dbo.x AS t", "outside the scratch schema"),
+    ("UPDATE t SET v = 1 FROM {s}.x AS c", "names t, outside"),
 ])
 def test_anything_else_is_refused_before_connecting(sql, words):
     assert words in (w.statement_problem(sql.replace("{s}", SCRATCH), SCRATCH) or "")
+
+
+@pytest.mark.parametrize("sql", [
+    "UPDATE t SET v = b.v FROM {s}.ua AS t JOIN {s}.ub AS b ON t.id = b.id",
+    "DELETE t FROM {s}.x AS t",
+    "DELETE t FROM {s}.x AS t JOIN {s}.y AS u ON t.id = u.id",
+    "UPDATE {s}.x SET v = 1",
+])
+def test_an_update_or_delete_through_a_scratch_alias_is_allowed(sql):
+    assert w.statement_problem(sql.replace("{s}", SCRATCH), SCRATCH) is None
 
 
 def test_a_scratch_name_must_be_the_runs_own():
@@ -199,6 +224,33 @@ def test_a_run_rolls_back_each_case_and_drops_the_scratch_schema(tmp_path):
     assert saved["counts"] == result["counts"]
     report = (tmp_path / "wh" / "warehouse-check.md").read_text(encoding="utf-8")
     assert "| TXT-03 (WR-210) |" in report and "local differs" in report
+
+
+def test_an_error_part_way_through_a_batch_is_noted_and_the_rest_is_read(tmp_path):
+    case = next(c for c in w.CASES if c.id == "SCR-01")
+
+    def answers(sql):
+        if sql.startswith("INSERT INTO") and "VALUES (1)" in sql:
+            con.pending = [True, RuntimeError("Divide by zero error encountered."), True]
+        return (2,) if sql.startswith("SELECT COUNT(*)") else None
+
+    con = Connection(answers)
+    result = check(tmp_path, con, cases=(case,)).run()
+    got = result["cases"][0]
+    assert got["warehouse"] == "2" and got["verdict"] == "documented difference"
+    assert got["notes"] == ["error: Divide by zero error encountered."] and con.pending == []
+
+
+def test_a_setup_the_warehouse_refuses_is_the_cases_answer(tmp_path):
+    case = next(c for c in w.CASES if c.id == "TBL-02")
+    con = Connection(lambda sql: RuntimeError("The data type 'char' isn't supported.") if "CHAR(5)" in sql else (5,))
+    got = check(tmp_path, con, cases=(case,)).run()["cases"][0]
+    assert got["warehouse"] == "error: The data type 'char' isn't supported." and got["verdict"] == "docs are wrong"
+    assert not any(s.startswith("INSERT") for s in con.log)
+
+
+def test_a_bad_scratch_name_is_refused_even_with_no_cases():
+    assert w.problems((), "dbo") == ["'dbo' isn't a scratch schema name"]
 
 
 def test_docs_that_the_warehouse_contradicts_are_a_finding(tmp_path):

@@ -60,7 +60,8 @@ def test_a_refusal_a_difference_and_a_failure_are_told_apart(rows):
     assert status["CONDITIONAL_CHANGE_EVENT"] == "runs" and status["INTERPOLATE_LINEAR"] == "runs"  # SFX-018
     assert status["SOUNDEX_P123"] == "runs" and status["PARSE_XML"] == "refused"  # SFX-015, SFN-017
     assert status["HLL"] == "runs" and status["HLL_ACCUMULATE"] == "refused"  # SFX-014, SFN-016
-    assert status["MONTH"] == "not checked"  # runs, but no check compares its value yet
+    assert status["RANDOM"] == "not checked"  # runs, but no check compares its value (random)
+    assert status["UUID_STRING"] == "runs"  # a named UUID is the same every time
 
 
 def test_sqlglot_stopping_while_it_writes_is_a_refusal_not_a_crash():

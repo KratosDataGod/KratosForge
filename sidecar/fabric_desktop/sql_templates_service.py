@@ -53,7 +53,7 @@ def parse(text: str, stem: str = "") -> dict[str, Any]:
     lines = text.replace("\r\n", "\n").split("\n")
     i = 0
     while i < len(lines):
-        m = _HEADER.match(lines[i])
+        m = _HEADER.fullmatch(lines[i])
         if not m:
             break
         key = "title" if m.group(1).lower() == "template" else m.group(1).lower()
@@ -128,7 +128,7 @@ class SqlTemplatesMixin:
 
     def _template_file(self, place: str, name: str, folder: str = FOLDER, mine: str = "My templates",
                        what: str = "template") -> Path:
-        if (not isinstance(name, str) or not _NAME.match(name) or name.startswith((".", " ")) or ".." in name
+        if (not isinstance(name, str) or not _NAME.fullmatch(name) or name.startswith((".", " ")) or ".." in name
                 or _RESERVED.match(name.split(".")[0].strip())):
             raise ValueError(f"That isn't a {what} file name.")
         where = self._contained(self._template_place(place, folder, mine))

@@ -83,7 +83,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [notebook-editor/find-and-replace.md](notebook-editor/find-and-replace.md) | Engineers, analysts | Find and replace across every cell of a notebook, with Replace all and undo |
 | [notebook-editor/load-data-items.md](notebook-editor/load-data-items.md) | Engineers, analysts | Drag tables and files into cells; Load with Polars, Spark, SQL or pandas |
 | [notebook-editor/format-code.md](notebook-editor/format-code.md) | Engineers, analysts | Format a cell or the whole notebook: Python with ruff, SQL cells as Format SQL does |
-| [notebook-editor/intellisense.md](notebook-editor/intellisense.md) | Engineers, analysts | Hover docs, signature help and syntax errors in Python cells |
+| [notebook-editor/intellisense.md](notebook-editor/intellisense.md) | Engineers, analysts | Hover docs, signature help, syntax errors, go to definition and rename in Python cells |
 | [notebook-editor/variables.md](notebook-editor/variables.md) | Engineers, analysts | The Variables pane: filter, sort, memory, open data frames and containers |
 | [prove/how-proofs-work.md](prove/how-proofs-work.md) | Engineers, analysts | Proving a notebook: pinned inputs, sandboxed outputs, how results are verified, the scorecard and receipts (Preview) |
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
@@ -162,7 +162,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Preview feature | Where |
 | --- | --- |
 | Breakpoints, variable history and watches | Notebook line numbers (breakpoints, F5/F10/F11 stepping), Variables pane, View tab (with hidden-state warnings) |
-| Run in Fabric | Notebook ribbon, Data mesh > Environments (notebooks and environments) |
+| Run in Fabric | Notebook ribbon, Data mesh > Environments (notebooks and environments), Run all in Fabric and an entity page's Run in Fabric |
 | Notebook engine picker | Notebook ribbon: Engine beside Run all, which replaces Runs on ([engines.md](engines.md#engine-picker-preview)) |
 | Skins | Settings > Appearance > Skin: the KratosForge and Fabric-familiar skins ([skins.md](skins.md#choosing-a-skin-preview)) |
 | Schedules | Notebook ribbon, Data mesh, Monitor (on this PC and in Fabric) |
@@ -178,7 +178,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Pipelines | Create > Pipeline ([user-guide.md](user-guide.md#pipelines-preview)) |
 | Pop-out windows | Monitor > Pop out on From KratosForge and In Fabric ([user-guide.md](user-guide.md#pop-out-windows-preview)) |
 | Pipeline runs in Monitor | Monitor > Runs, pipeline runs on this PC and in Fabric with their activities ([user-guide.md](user-guide.md#pipeline-runs-in-monitor-preview)) |
-| Run progress in Monitor | Monitor > Runs, today's counts and a lane for each running run ([user-guide.md](user-guide.md#run-progress-in-monitor-preview)) |
+| Forge Activity view in Monitor | Monitor > Runs, today's counts and a lane for each running run beside the forge ([user-guide.md](user-guide.md#forge-activity-view-preview)) |
 | Cancel a Fabric run | Monitor > Runs and the bell, Cancel on a running Fabric job this app started ([user-guide.md](user-guide.md#cancel-a-fabric-run-preview)) |
 | Publishing notebooks from folders | All notebooks > Move to folder; Publish names the item without its folder ([notebook-folders.md](notebook-folders.md)) |
 | New notebook wizard | Create > Notebook from a template |
@@ -229,13 +229,21 @@ KratosForge is new, and it's honest about what has been proven.
 | Column lineage | Entity page, Columns |
 | Roll back a release | Data mesh > Deploy, Roll back... on a Test or Prod Last release card |
 | Promote | Data mesh > Deploy (always shown) |
+| Create workspace | Data mesh > Environments and Domains, Platform > Settings: Create workspace, Create platform and Finish setup (always shown) |
 | Sync keys | Data mesh > Surrogate keys, Sync to LH_Keys (always shown) |
 | Variable library | Data mesh > Source systems (always shown) |
 | Warehouse queries | Workspaces > a Warehouse or SQL analytics endpoint row > SQL query (the Warehouse page), and its Monitoring tab ([warehouse.md](warehouse.md#monitoring-preview)) |
 | Messages and Chart on the SQL page | SQL query > Messages, Chart above the result ([warehouse.md](warehouse.md#results-messages-and-chart)) |
+| Several SQL statements per run, a result for each | SQL query or Warehouse page, Run with several statements: a tab per statement above the result ([sql-execution.md](sql-execution.md#several-statements-in-one-run-preview)) |
+| Query parameters (:name and {{name}}) on the SQL page | SQL query or Warehouse page, Run on a query with parameters ([sql-execution.md](sql-execution.md#query-parameters-preview)) |
+| Open and save .sql files from the SQL page | SQL query or Warehouse page, Open .sql... and Save as .sql... in the toolbar ([sql-execution.md](sql-execution.md#sql-files-on-this-pc-preview)) |
+| Result history and pinned results on the SQL page | SQL query or Warehouse page, History beside Results ([sql-execution.md](sql-execution.md#result-history-and-pinned-results-preview)) |
+| Scratch console in notebooks | Notebook > View > Scratch ([user-guide.md](user-guide.md#scratch-console-preview)) |
+| Notebook as a report | Notebook > Share > Open as report ([user-guide.md](user-guide.md#notebook-as-a-read-only-report-preview)) |
+| Table diagram on the SQL page | SQL query > Explorer > Diagram ([user-guide.md](user-guide.md#table-diagram-preview)) |
 | SQL best practices | SQL query or Warehouse page, Best practices chip beside Compatibility, for T-SQL ([sql-best-practices.md](sql-best-practices.md)) |
 | New build banner | Below the top bar while KratosForge is open; Settings > Updates ([user-guide.md](user-guide.md#a-new-build-while-the-app-is-open-preview)) |
-| Quarantine replay | Entity page, quarantined rows (always shown) |
+| Quarantine replay | Entity page, quarantined rows: Replay and Discard (always shown) |
 | Risk check before a run | Before a run in Workloads, Notebook > Run in Fabric and Data mesh ([risk-check.md](finops/risk-check.md); always shown) |
 | Embed Studio (Power BI) | Workspaces > Power BI tab and Embed Studio ([embed-studio.md](embed-studio.md)) |
 | VS Code pairing | Settings > Integrations > VS Code ([vscode.md](vscode.md); always shown, so a pairing that is on can always be turned off) |
@@ -243,7 +251,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Learn | Lessons, practice labs on this PC and the best-practice rules, opened from Academy > Practice ([learn.md](learn.md)) |
 | App Studio | Create > Applications: build an app from a template, preview it on sample data on this PC, and keep every version ([app-studio.md](app-studio.md)) |
 
-Two notebook settings are also in Preview: **Run notebooks in their own process**, and the **notebook cell time and memory limits** that need it (both in Settings > Preview features).
+Notebooks run in a process of their own by default (**Run notebooks in their own process**, Settings > Advanced), which the **notebook cell time and memory limits** need.
 
 **Local data projects** (Preview) run on your PC and don't call Fabric. Their tests use real files, DuckDB and Delta tables on every build; there are no screens for them yet ([local-data.md](local-data.md)).
 

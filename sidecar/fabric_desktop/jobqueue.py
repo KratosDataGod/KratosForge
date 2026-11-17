@@ -23,6 +23,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from . import sqlitefile
+
 STATES = ("queued", "running", "succeeded", "failed", "dead", "cancelled")
 ACTIVE = ("queued", "running")
 PRUNABLE = ("succeeded", "failed", "cancelled")  # dead jobs stay until a person requeues them
@@ -118,13 +120,9 @@ class JobQueue:
     def _db(self) -> Iterator[sqlite3.Connection]:
         """A connection for one read or change, closed after it. One kept per thread was never closed
         when its thread ended, and on Windows an open handle keeps the queue file locked."""
-        db = sqlite3.connect(self.path, timeout=30, isolation_level=None)
-        try:
-            db.row_factory = sqlite3.Row
-            db.execute("pragma synchronous=full")  # a job that says succeeded stays succeeded after a power cut
+        # synchronous=full (sqlitefile): a job that says succeeded stays succeeded after a power cut
+        with sqlitefile.connect(self.path) as db:
             yield db
-        finally:
-            db.close()
 
     def _rows(self, sql: str, args: Any = ()) -> list[sqlite3.Row]:
         with self._db() as db:

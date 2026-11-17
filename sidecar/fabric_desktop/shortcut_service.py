@@ -9,6 +9,7 @@ entry of the shortcut's folder through OneLake.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -748,12 +749,39 @@ class ShortcutMixin:
                 f"{found['target_type']} {found['target'] or '(no path)'}, not where this request asks. Decline the "
                 "request, or remove that shortcut and approve it again.") from conflict
         sid = core.shortcut_id(d["item_id"], f"{where}/{d['name']}")
-        since = str(req.get("requested_at") or "")
         logged = self._catalog().call("shortcut_changes", days=3650, shortcut=sid)  # type: ignore[attr-defined]
-        ours = any(c.get("kind") == "added" and str(c.get("at") or "") >= since for c in logged)
+        ours = _added_since(logged, str(req.get("requested_at") or ""))
         if not ours:
             ref = {"workspace_id": d["workspace_id"], "lakehouse_id": d["item_id"], "path": where, "name": d["name"],
                    "workspace_name": d.get("workspace_name", ""), "lakehouse_name": d.get("lakehouse_name", "")}
             self._sc_log("added", ref, None, self._sc_def(d["workspace_id"], d["item_id"], where, d["name"], wanted), why)
         self._all_shortcuts = None
         return ours
+
+
+def _at(value: Any) -> dt.datetime | None:
+    try:
+        at = dt.datetime.fromisoformat(str(value or ""))
+    except ValueError:
+        return None
+    return at if at.tzinfo else at.replace(tzinfo=dt.timezone.utc)
+
+
+
+def _added_since(logged: list[dict[str, Any]], requested_at: str) -> bool:
+    """Whether an "added" change at or after the request, with no "removed" after it, is logged. The times
+    are compared as times: a request's is kept to the second and a change's to the microsecond, so as text
+    "16:01:58.8" sorts after "16:01:58+00:00" (#2640). Within the request's own second, a shortcut made and
+    removed again before the request isn't taken for the request's own: the removal after it rules it out."""
+    since = _at(requested_at)
+    if since is None:
+        return False
+    changes = sorted(((at, str(c.get("kind") or "")) for c in logged if (at := _at(c.get("at"))) is not None),
+                     key=lambda t: t[0])
+    added = False
+    for at, kind in changes:
+        if kind == "added" and at >= since:
+            added = True
+        elif kind == "removed":
+            added = False
+    return added

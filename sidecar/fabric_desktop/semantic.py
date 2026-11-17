@@ -44,7 +44,7 @@ def left_out(t: "ModelTable") -> list[dict[str, str]]:
 
 
 def quote(name: str) -> str:
-    return name if _PLAIN.match(name) else "'" + name.replace("'", "''") + "'"
+    return name if _PLAIN.fullmatch(name) else "'" + name.replace("'", "''") + "'"
 
 
 def tag(*parts: str) -> str:

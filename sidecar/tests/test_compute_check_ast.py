@@ -302,7 +302,7 @@ def resources(tmp_path):
     (builtin / "lib").mkdir(parents=True)
     (builtin / "setup.py").write_text(MOUNT, encoding="utf-8")
     (builtin / "lib" / "ok.py").write_text("x = 1", encoding="utf-8")
-    (builtin / "fix.sql").write_text("RESTORE TABLE dbo.t TO VERSION AS OF 2", encoding="utf-8")
+    (builtin / "fix.sql").write_text("RESTORE TABLE dbo.t", encoding="utf-8")
     (builtin / "data.csv").write_text("a\n1", encoding="utf-8")
     return str(tmp_path / "Main.resources")
 

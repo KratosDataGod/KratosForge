@@ -137,15 +137,32 @@ def test_values_sent_to_the_app_are_plain(value, plain):
     assert W._plain(value) == plain
 
 
+def test_installing_again_keeps_this_ipywidgets_and_needs_none_loaded(monkeypatch):
+    monkeypatch.setattr(sys, "meta_path", list(sys.meta_path))
+    monkeypatch.delitem(sys.modules, "ipywidgets", raising=False)
+    monkeypatch.delitem(sys.modules, "ipywidgets.widgets", raising=False)
+    monkeypatch.setattr(W.registry, "show", None)
+    monkeypatch.setattr(W.registry, "capture", None)
+    W.install(lambda v: None, lambda out: W.nothing())  # nothing loaded: nothing to drop
+    import ipywidgets
+    ours = ipywidgets
+    W.install(lambda v: None, lambda out: W.nothing())
+    assert sys.modules["ipywidgets"] is ours
+
+
 def test_a_real_ipywidgets_already_imported_is_replaced_by_this_one(monkeypatch):
     monkeypatch.setattr(sys, "meta_path", list(sys.meta_path))
-    real = types.ModuleType("ipywidgets")
-    real.__kratosforge__ = False
+    real = types.ModuleType("ipywidgets")  # a real ipywidgets has no __kratosforge__ attribute at all
+    widgets = types.ModuleType("ipywidgets.widgets")
     monkeypatch.setitem(sys.modules, "ipywidgets", real)
+    monkeypatch.setitem(sys.modules, "ipywidgets.widgets", widgets)
     monkeypatch.setattr(W.registry, "show", None)
     monkeypatch.setattr(W.registry, "capture", None)
     W.install(lambda v: None, lambda out: W.nothing())
     assert "ipywidgets" not in sys.modules or sys.modules["ipywidgets"] is not real
+    assert "ipywidgets.widgets" not in sys.modules or sys.modules["ipywidgets.widgets"] is not widgets
     assert sys.meta_path[0] is W._finder
+    import ipywidgets
+    assert ipywidgets is not real and ipywidgets.__kratosforge__ is True  # cells import this one
     with W.nothing():
         pass

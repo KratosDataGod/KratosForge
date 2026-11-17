@@ -70,7 +70,7 @@ test("every picture is in the asset log, and every page that shows art has a poo
   const log = fs.readFileSync(path.join(ROOT, "docs", "design", "assets.md"), "utf8");
   for (const e of heroArt()) assert.ok(log.includes(e.original), `${e.id}: add it to docs/design/assets.md`);
   const pages = new Set(heroArt().map((e) => e.page));
-  for (const page of ["academy", "profile"]) {
+  for (const page of ["home", "academy", "profile"]) {
     assert.ok(pages.has(page), `${page} has no header art`);
   }
 });

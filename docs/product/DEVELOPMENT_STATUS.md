@@ -3,10 +3,55 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-13 11:42 UTC, main 6cab0dc3.** Covers the PRs merged from #135 to #2573.
+**Product check of 2026-11-17 11:42 UTC, main 80cebf61.** Covers the PRs merged from #135 to #2852.
 
 ## Summary
 
+- Morning check, 2026-11-17: 47 PRs merged after 58a112e4. 3 were product data, docs audit and work queue PRs, and
+  the other 44 were linked. The SQL page gained several statements per run, query parameters, .sql files, result
+  history and a table diagram (Preview), and its result grid can sort, filter, select, copy and arrange columns.
+  Local T-SQL now matches a Fabric Warehouse, or refuses by name, for collation, percentiles, MERGE, scripts, names,
+  SET options and JSON functions (PB-106). Notebooks gained Open as report and a Scratch console (Preview) and the
+  same result table tools (PB-103). Databricks and Snowflake function checks moved on (PB-120), names and ids are
+  checked whole (PB-124), and the Monitor run banner is back (PB-102). No item changed status.
+- Evening check, 2026-11-16: 44 PRs merged after 7bd752a5. 3 were product data, work queue and weekly review PRs,
+  and the other 41 were linked. Local T-SQL now matches a Fabric Warehouse at its edges for dates, arithmetic,
+  conversion and decimals, a warehouse script in BEGIN TRAN ... COMMIT runs as one transaction, and the editor gained
+  word wrap, font size and Vim settings (Preview) (PB-106). Spark on this PC cleared the last Fails rows of the
+  DataFrame API list and writes files as folders of part files (PB-103). Every SQLite store now commits durably
+  through one helper (PB-124), and every Fabric and OneLake write is tested failing (PB-101). No item changed status.
+- Morning check, 2026-11-16: 36 PRs merged after a13d0a0f. 2 were product data and docs audit PRs, and the other
+  34 were linked. Local data gained a Delta reader matrix for the Fabric-safe profile, and a table outside it now names
+  the feature and the readers it would break (PB-099). App Studio checks PBIR page ids as folder-safe names (PB-127).
+  Most of the rest was test work: mutation batches 39 to 54, shell code split out for tests, and Windows tests for
+  signature, policy, engine folder and disk checks (PB-101). No item changed status.
+- Evening check, 2026-11-15 (run 01:03 on 11-16): 22 PRs merged after b76c42d2. 1 was a product data PR, and the
+  other 21 were linked. Cancel now resends its interrupt when a cell missed it and keeps writes that were in flight
+  (PB-103). The SQL check splits on GO only on its own line and points at the failing token (PB-106). Home's banner
+  art and progress panel are back (PB-102). The shell gained tests and Windows coverage, and mutation testing batches
+  32 to 38 landed (PB-101). No item changed status.
+- Morning check, 2026-11-15: 22 PRs merged after 7178e900. 1 was a product data PR, and the other 21 were linked.
+  Databricks parity moved on: Databricks SQL cells read widgets, parse_json keeps decimals of up to 38 digits, and
+  concat writes timestamps and doubles as Spark does (PB-120). Three correctness fixes landed (PB-124), Spark decimals
+  find mixed-case names (PB-103), and mutation testing batches 20 to 31 landed (PB-101). No item changed status.
+- Evening check, 2026-11-14: 27 PRs merged after 2dc0bc43. 3 were product data, docs audit or operations PRs, and the
+  other 24 were linked. Notebook Spark on this PC (Preview) gained Python UDFs, mapInPandas and applyInPandas,
+  spark.catalog listings, dynamic partition overwrite, MERGE with schema evolution, OPTIMIZE, VACUUM and RESTORE, and
+  notebookutils.lakehouse.loadTable; notebooks also gained go to definition, find references and rename across cells
+  (PB-103). The SQL editor gained bookmarks (PB-106). Base64 from the app is decoded strictly everywhere (PB-124), and
+  mutation testing batches 11 to 19 landed (PB-101). No item changed status.
+- Morning check, 2026-11-14: 9 PRs merged after af7d786b. 1 was a product data PR, and the other 8 were linked. The
+  SQL page shows Plan and Profile for lakehouse queries (Preview), copies results as CSV, JSON or INSERT statements,
+  and F12 finds the table under the cursor (PB-106). Notebook templates for Silver and Gold tables landed (PB-103),
+  and the skin look series finished with real previews on each skin card (PB-102, Preview). No item changed state;
+  PB-136's acceptance waits on the product owner.
+- Evening check, 2026-11-13: 38 PRs merged after 6cab0dc3. 3 were product data and operations PRs, and the other 35
+  were linked. Notebooks now run in a process of their own by default (PB-136, now In review: the Windows trial on
+  Python 3.12 passed in every area). Settings has a color mode IT can set, and audit trails and receipts take an IT
+  time limit (PB-061; the Group Policy templates are left). The SQL editor gained run-at-cursor, hover help, Excel and
+  JSON export and Open in SSMS (PB-106). Notebooks export as PDF and render Markdown tables and math (PB-103). The
+  optimization engine assesses a workspace for duplicate work (PB-104, Preview), skins choose their look from fixed
+  choices (PB-102, Preview), and the engine can live in an admin-only folder by policy (PB-124, Preview).
 - Acceptance, 2026-11-13: the product owner accepted PB-073 (notebook cell time and memory limits) with documented
   limitations. Notebooks still share the in-engine kernel unless **Run notebooks in their own process** is on; making
   it the default is PB-136, which waits on a clean Windows trial and the product owner's go. The 19 feature request
@@ -217,7 +262,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 124 items (7 P0, 33 P1, 60 P2, 24 P3). 15 are Proposed, 30 In progress, 2 In review and 77 Accepted.
+- Backlog: 124 items (7 P0, 33 P1, 60 P2, 24 P3). 14 are Proposed, 30 In progress, 3 In review and 77 Accepted.
 - PB-125 (Learn ranks and profile pictures) and PB-126 (Learn curriculum content batches) are new and Proposed, from the
   product owner's ask of 2026-11-02; they build once the rank ladder is approved.
 - PB-124 (new, In progress, P0 like PB-101): the enterprise audit's EA remediation backlog (docs/audits/), tracked as its own item.
@@ -244,7 +289,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 2 In review items (PB-024, PB-045), a tenant run of
+two release gates. Also waiting: acceptance of the 3 In review items (PB-024, PB-045, PB-136), a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

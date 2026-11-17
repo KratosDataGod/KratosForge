@@ -34,7 +34,8 @@ def test_everyday_tsql_runs_and_gives_tsql_answers(engine):
 
 def test_integers_divide_and_average_as_integers(engine):
     r = tsql(engine, "SELECT qty / boxes AS per, 7 / 2 AS lit, price / boxes AS dec FROM dbo.orders ORDER BY id")
-    assert r["rows"] == [[3, 3, 1.25], [-3, 3, 2.0]]  # truncated toward zero, as T-SQL does
+    # Integers truncate toward zero; decimal(2,1) / int is decimal(13,12), as in a Warehouse.
+    assert r["rows"] == [[3, 3, "1.250000000000"], [-3, 3, "2.000000000000"]]
     assert tsql(engine, "SELECT AVG(boxes + id) AS a FROM dbo.orders")["rows"] == [[3]]  # (3 + 4) / 2
 
 
@@ -42,7 +43,8 @@ def test_an_integer_average_over_a_window_is_an_integer(engine):
     # The whole AVG(...) OVER (...) is cut, not the AVG inside it (that was a parser error).
     r = tsql(engine, "SELECT AVG(id) OVER () AS a, AVG(qty - id) OVER (ORDER BY id ROWS BETWEEN 1 PRECEDING "
                      "AND CURRENT ROW) AS b, AVG(price) OVER () AS c FROM dbo.orders ORDER BY id")
-    assert r["rows"] == [[1, 6, 3.25], [1, -1, 3.25]]  # 1.5 and -1.5 toward zero; non-integers are not cut
+    # 1.5 and -1.5 toward zero; a decimal average is decimal(38, 6), as in a Warehouse.
+    assert r["rows"] == [[1, 6, "3.250000"], [1, -1, "3.250000"]]
 
 
 def test_len_weekday_week_and_plus_on_text(engine):
@@ -543,7 +545,7 @@ def test_a_text_column_compares_without_trailing_spaces(engine):
 
 def test_an_equality_on_a_text_column_keeps_a_range_for_skipping_row_groups():
     texts, _ = translate("SELECT id FROM dbo.orders WHERE name = 'Ann '", {"dbo": {"orders": {"id": "INTEGER", "name": "VARCHAR"}}})
-    assert texts == ["SELECT id FROM dbo.orders WHERE (name >= 'Ann' AND name <= 'Ann \U0010ffff' AND RTRIM(name) = 'Ann')"]
+    assert texts == ["SELECT id FROM dbo.orders WHERE (name >= 'Ann' AND name <= 'Ann \U0010ffff' AND RTRIM(name, ' ') = 'Ann')"]
 
 
 def test_numbers_compare_as_before_and_unknown_text_comparisons_are_noted():
@@ -552,7 +554,7 @@ def test_numbers_compare_as_before_and_unknown_text_comparisons_are_noted():
     texts, notes = translate("SELECT 1 FROM q WHERE a = 'x' OR b = 'y'")
     assert texts == ["SELECT 1 FROM q WHERE a = 'x' OR b = 'y'"]
     assert notes == [("Couldn't tell the types in some comparisons, so they are done as DuckDB does them: T-SQL "
-                     "ignores trailing spaces when it compares text ('a' = 'a  '), and here they count.")]
+                     "ignores trailing spaces when it compares text ('a' = 'a  ', and 'a  ' LIKE 'a'), and here they count.")]
 
 
 def test_the_function_list_is_read_only_when_a_query_calls_an_unknown_function(engine, monkeypatch):

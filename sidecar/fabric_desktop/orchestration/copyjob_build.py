@@ -49,7 +49,7 @@ def check(copy: Any) -> dict[str, Any]:
     if not isinstance(copy, dict):
         raise CopyRequestError("Say which connection and which tables to copy")
     conn = str(copy.get("connection_id") or "").strip().lower()
-    if not _ID.match(conn):
+    if not _ID.fullmatch(conn):
         raise CopyRequestError("Pick the Fabric connection to read from")
     rows = copy.get("tables")
     if not isinstance(rows, list) or not rows:
@@ -61,13 +61,13 @@ def check(copy: Any) -> dict[str, Any]:
     for row in rows:
         row = row if isinstance(row, dict) else {"table": row}
         name = str(row.get("table") or "").strip()
-        if not _TABLE.match(name):
+        if not _TABLE.fullmatch(name):
             raise CopyRequestError(f"{name or '(blank)'}: name a table as schema.table, like dbo.Customer")
         mode = str(row.get("mode") or "full").strip()
         if mode not in MODES:
             raise CopyRequestError(f"{name}: each run copies the whole table (full) or new and changed rows (incremental)")
         column = str(row.get("column") or "").strip()
-        if mode == "incremental" and not _COLUMN.match(column):
+        if mode == "incremental" and not _COLUMN.fullmatch(column):
             raise CopyRequestError(f"{name}: say which column tells new and changed rows, like ModifiedAt")
         where = folder(name)
         if where in folders:
@@ -76,7 +76,7 @@ def check(copy: Any) -> dict[str, Any]:
         folders[where] = name
         tables.append({"table": name, "mode": mode, "column": column if mode == "incremental" else "", "folder": where})
     times = copy.get("times") or []
-    if not isinstance(times, list) or not all(isinstance(t, str) and _TIME.match(t.strip()) for t in times):
+    if not isinstance(times, list) or not all(isinstance(t, str) and _TIME.fullmatch(t.strip()) for t in times):
         raise CopyRequestError("Times of day are HH:MM in UTC, like 02:00")
     return {"connection_id": conn, "connection_name": str(copy.get("connection_name") or "").strip()[:200],
             "tables": tables, "times": sorted({t.strip() for t in times})}

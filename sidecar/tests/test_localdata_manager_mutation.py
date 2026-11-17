@@ -121,3 +121,29 @@ def test_a_failed_background_query_reports_its_error(local, pid, monkeypatch):
     out = local.status(qid)
     assert out["state"] == "error" and "no_such_table" in out["error"]
     assert abs(time.time() - out["finished_at"]) < 60
+
+
+def test_a_query_that_fails_is_never_collected_before_its_error_is_in(local, pid, monkeypatch):
+    # The query's thread finishes its record while status() reads it: the state and the error go in together,
+    # so a poll in between sees "running", not an "error" with no message that is then collected and lost.
+    entered, release = threading.Event(), threading.Event()
+
+    class SlowToSay(Exception):
+        def __str__(self):
+            entered.set()
+            release.wait(10)
+            return "boom"
+
+    def execute(self, sql, **options):
+        raise SlowToSay()
+    monkeypatch.setattr(M.LocalEngine, "execute", execute)
+    qid = local.start(pid, "SELECT 1")["query_id"]
+    assert entered.wait(10)
+    try:
+        assert local.status(qid)["state"] == "running"
+    finally:
+        release.set()
+    deadline = time.time() + 10
+    while (out := local.status(qid))["state"] == "running" and time.time() < deadline:
+        time.sleep(0.01)
+    assert out["state"] == "error" and out["error"] == "boom"

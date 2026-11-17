@@ -13,7 +13,7 @@ the session side:
 - ``spark.catalog.tableExists`` against the attached lakehouse (and temp views).
 - DataFrame: isEmpty, tail, explain, createTempView, toLocalIterator, offset, corr / cov /
   approxQuantile / stat, randomSplit, sortWithinPartitions, rdd / isLocal / sparkSession.
-- RDDs, foreach and row-by-row Python raise with a pointer to Fabric.
+- RDDs raise with a pointer to Fabric.
 
 COVERAGE lists PySpark 3.5's DataFrame and SparkSession methods and whether each works here;
 docs/notebook-spark-on-this-pc.md is generated from it (tests keep the two in step).
@@ -47,9 +47,18 @@ KNOWN_CONF: dict[str, tuple[str, str]] = {
     "spark.microsoft.delta.optimizeWrite.enabled": ("true", "fabric"),
     "spark.databricks.delta.optimizeWrite.enabled": ("true", "fabric"),
     "spark.databricks.delta.autoCompact.enabled": ("false", "fabric"),
-    "spark.sql.sources.partitionOverwriteMode": ("static", "fabric"),
+    "spark.sql.sources.partitionOverwriteMode": ("static", "honored"),
     "spark.app.name": ("KratosForge", "honored"),
 }
+
+
+# Spark SQL on this PC runs with ANSI mode off, as Fabric does: Runtime 1.3 (Spark 3.5) by Spark's default,
+# and Runtime 2.0 (Spark 4.1) by Microsoft's override of Spark 4's (Runtime 2.0 migration guide). A
+# notebook that turns it on would stop in Fabric where it gives NULL here, so it is told by name.
+ANSI_NOTE = ("Note: spark.sql.ansi.enabled = true is kept for Fabric, but this PC runs Spark SQL with ANSI mode "
+             "off, as Fabric does by default. Here a CAST that fails and a division by zero give NULL, and an int "
+             "or bigint that overflows a CAST wraps around; with ANSI mode on, Fabric stops on each. Run the "
+             "notebook in Fabric to see ANSI mode's answers.")
 
 
 class LocalRuntimeConfig:
@@ -61,13 +70,12 @@ class LocalRuntimeConfig:
 
     def set(self, key: str, value: Any) -> None:
         text = str(value).lower() if isinstance(value, bool) else str(value)
-        if key.lower() == "spark.sql.sources.partitionoverwritemode" and text.strip().lower() == "dynamic":
-            # Kept and ignored, an overwrite with partitionBy would replace the whole table, where
-            # Fabric replaces only the partitions it writes.
-            raise ValueError("partitionOverwriteMode=dynamic isn't supported on this PC, and ignoring it would "
-                             "replace the whole table. Run the cell in Fabric.")
+        if key.lower() == "spark.sql.sources.partitionoverwritemode" and text.strip().lower() not in ("static", "dynamic"):
+            raise ValueError(f"partitionOverwriteMode is static or dynamic, not {text!r}.")
         if key == "spark.sql.session.timeZone":
             self._session.conn.execute("SET TimeZone = ?", [text])  # fails, with DuckDB's reason, for an unknown zone
+        if key.lower() == "spark.sql.ansi.enabled" and text.strip().lower() == "true":
+            print(ANSI_NOTE)
         self._set[key] = text
 
     def get(self, key: str, default: Any = ...) -> str | None:
@@ -455,8 +463,8 @@ class _Stat:
 
 
 def _rdd(self: DataFrame, *_a: Any, **_kw: Any) -> Any:
-    raise NotImplementedError("RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in "
-                              "Fabric. On this PC, use DataFrame methods, SQL or toPandas().")
+    raise NotImplementedError("RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), "
+                              "or foreach, foreachPartition and mapInPandas, which run here.")
 
 
 ADDED: dict[str, Any] = {
@@ -512,11 +520,10 @@ PYSPARK_SESSION = (
 
 # Why a method isn't here, when it isn't.
 NOT_HERE = {
-    "rdd": "RDDs run in Fabric", "foreach": "row-by-row Python runs in Fabric", "foreachPartition": "runs in Fabric",
-    "mapInPandas": "runs in Fabric", "mapInArrow": "runs in Fabric",
+    "rdd": "RDDs run in Fabric",
     "withWatermark": "streaming runs in Fabric", "dropDuplicatesWithinWatermark": "streaming runs in Fabric",
     "streams": "streaming runs in Fabric",
-    "udf": "Python UDFs run in Fabric", "udtf": "Python UDTFs run in Fabric", "pandas_api": "pandas-on-Spark runs in Fabric; use toPandas()",
+    "udtf": "Python UDTFs run in Fabric", "pandas_api": "pandas-on-Spark runs in Fabric; use toPandas()",
 }
 
 # Fabric-only until this PC's streaming (spark_stream.py) adds them; then they're counted as they work.
@@ -537,6 +544,10 @@ def coverage() -> list[dict[str, str]]:
     install()
     spark_stream.install()  # readStream, writeStream and isStreaming, as a notebook has them
     spark_df_extras.install()  # persist, storageLevel, sameSemantics, observe
+    from . import spark_map
+    spark_map.install()  # mapInPandas, mapInArrow, foreach, foreachPartition
+    from . import spark_df_more
+    spark_df_more.install()  # freqItems, inputFiles, to, withMetadata, writeTo
     rows = []
     for area, names, owner in (("DataFrame", PYSPARK_DATAFRAME, DataFrame), ("SparkSession", PYSPARK_SESSION, LocalSparkSession)):
         for name in names:

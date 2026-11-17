@@ -1,9 +1,9 @@
 # Page header art: adding next month's pictures
 
-Header art is for progression only: Academy and Profile each have their own pool of pictures.
-Home and the working pages (Create, Workspaces, Platform, Data mesh, Optimize, Monitor, Source control, Settings)
-keep a plain heading and get no art; a new page with art needs Chris's explicit go (his rule of
-2026-11-09: RPG art only for ranks, progression and achievements). A page only ever shows a picture
+Home, Academy and Profile each have their own pool of pictures (Chris brought Home's banner back on
+2026-11-15). The working pages (Create, Workspaces, Platform, Data mesh, Optimize, Monitor, Source control,
+Settings) keep a plain heading and get no art; a new page with art needs Chris's explicit go (his rule of
+2026-11-09: RPG art for ranks, progression and achievements). A page only ever shows a picture
 from its own pool. Each pool is meant to grow to 5 to 13 pictures, with new ones added monthly.
 Adding a picture changes data only, never code.
 
@@ -41,7 +41,7 @@ These are Chris's approved-artwork rules. The tests check the parts marked *(tes
 
 ## Steps
 
-1. Put Chris's PNG at `docs/design/art/<page>/<page>-hero-v<N>.png`, unchanged. `<page>` is `academy` or `profile`.
+1. Put Chris's PNG at `docs/design/art/<page>/<page>-hero-v<N>.png`, unchanged. `<page>` is `home`, `academy` or `profile`.
 2. Measure the sky. Open the PNG and find the first column, from the left, where the characters or
    props start (cape, sparks, table, rock). Divide that x by the width, then subtract about 0.01.
    Background mountains and clouds may sit under the text.
@@ -72,4 +72,5 @@ These are Chris's approved-artwork rules. The tests check the parts marked *(tes
    ```
 
    `page-heroes` checks every picture in every pool at 12 widths and saves `shots/<id>-<width>.png`.
+   Home's own checks are in `home-living.test.cjs`.
 7. Open one pull request for the month's pictures. UX signs off on the screenshots before it merges.

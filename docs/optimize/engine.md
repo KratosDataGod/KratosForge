@@ -1,4 +1,4 @@
-# Optimization engine (OE-001 and OE-003, Preview)
+# Optimization engine (OE-001, OE-003 and OE-004, Preview)
 
 The optimization engine looks at a Fabric workspace, or every workspace on a capacity that you can
 see, and finds work that doesn't need to run, runs twice, or could run better. Every finding is an
@@ -87,9 +87,35 @@ nothing is found it says that isn't proof there is nothing.
 fixture on the result and on every opportunity. It makes no Fabric call. It shows how the engine works;
 nothing in it is a finding or a saving.
 
+## Sharing an assessment (OE-004)
+
+`optimization_share(share_id, approve=False, confirm="")` adds an assessment made on this PC to the
+central Optimize lakehouse, so a team sees one list. An assessment returns its `share_id`. This PC keeps
+its last 5 assessments in memory. After a restart, or once 5 newer ones are made, assess again. The rows
+are rebuilt from what this PC kept, never taken from the app.
+
+- Optimize's own writer and ask do the writing (the Opportunities tab reads the same tables). Without
+  `approve`, nothing is written: the call says what it would add and gives a `confirm`. It writes only
+  with `approve` and that `confirm`. If the assessment changed since, it asks again. The call is
+  audited fail-closed: its audit line is written first, and it is refused if that line can't be written.
+- Each opportunity becomes one finding and one recommendation in `fdopt_findings` and
+  `fdopt_recommendations`:
+  - rule `oe.<rule>` (for example `oe.dup-nb`);
+  - the item to keep, or else the first by id, as its item;
+  - the opportunity id as its target.
+  The same rule on the same items is the same finding on every PC. If one is **dismissed** in Optimize,
+  it stays dismissed when it's found again. If the set of items changes, it is a new opportunity.
+- Severity: High for proven or high confidence, then Medium and Low. Info is for an opportunity not
+  counted in the totals.
+- The evidence and impact are kept as JSON. Anything that looks like a secret is removed from them
+  and from all text, both before the rows reach the writer and again in the writer. No code or data
+  is shared.
+- A demonstration fixture is never shared.
+
+The Share button on the Assessment tab comes next, after its mockup.
+
 ## Not done yet
 
-A background job with progress and Stop for large capacities, sharing opportunities to the central lakehouse, rejecting one so it isn't
-raised again, near-duplicate notebooks, duplicate tables and semantic models, SQL and Spark analyzers,
+A background job with progress and Stop for large capacities, the Share button on the Assessment tab, near-duplicate notebooks, duplicate tables and semantic models, SQL and Spark analyzers,
 local execution classes and the network model, the capacity planner and the savings ledger. See the
 backlog in [engine-plan.md](engine-plan.md).

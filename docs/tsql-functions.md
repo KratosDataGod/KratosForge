@@ -21,11 +21,11 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 67 |
+| Runs | 72 |
 | Differs | 0 |
 | Refused | 35 |
 | Fails | 0 |
-| Not checked | 76 |
+| Not checked | 71 |
 | **All** | **178** |
 
 ## String
@@ -187,12 +187,12 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 
 | Name | Status | Sample | Note |
 | --- | --- | --- | --- |
-| `ISJSON` | Refused | `SELECT ISJSON('{"a": 1}')` | ISJSON isn't mapped yet. |
-| `JSON_ARRAY` | Not checked | `SELECT JSON_ARRAY(1, 2)` |  |
+| `ISJSON` | Runs |  | 2 value checks |
+| `JSON_ARRAY` | Runs |  | 1 value check |
 | `JSON_MODIFY` | Refused | `SELECT JSON_MODIFY('{"a": 1}', '$.a', 2)` | JSON_MODIFY isn't mapped yet. |
-| `JSON_OBJECT` | Not checked | `SELECT JSON_OBJECT('a': 1)` |  |
-| `JSON_QUERY` | Not checked | `SELECT JSON_QUERY('{"a": [1]}', '$.a')` |  |
-| `JSON_VALUE` | Not checked | `SELECT JSON_VALUE('{"a": 1}', '$.a')` |  |
+| `JSON_OBJECT` | Runs |  | 1 value check |
+| `JSON_QUERY` | Runs |  | 2 value checks |
+| `JSON_VALUE` | Runs |  | 2 value checks |
 | `OPENJSON` | Refused | `SELECT [key], value FROM OPENJSON('{"a": 1}')` | OPENJSON isn't mapped yet. JSON_VALUE and JSON_QUERY read one value or object from JSON text. |
 
 ## Other
@@ -201,7 +201,7 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | --- | --- | --- | --- |
 | `BINARY_CHECKSUM` | Refused | `SELECT BINARY_CHECKSUM(a) FROM dbo.t` | BINARY_CHECKSUM isn't mapped yet. |
 | `CHECKSUM` | Refused |  | CHECKSUM isn't mapped yet. |
-| `HASHBYTES` | Not checked | `SELECT HASHBYTES('SHA2_256', 'abc')` |  |
+| `HASHBYTES` | Refused | `SELECT HASHBYTES('SHA2_256', 'abc')` | HASHBYTES isn't mapped yet: T-SQL gives the hash as bytes (VARBINARY), and here it would be hex text, so comparison |
 | `ISNUMERIC` | Refused |  | ISNUMERIC of a number: ISNUMERIC isn't mapped yet (its rules accept '$', ',' and '-' alone). Use TRY_CAST(x AS FLOAT) IS NOT NULL, or TRY_ |
 | `NEWID` | Not checked | `SELECT NEWID()` |  |
 
@@ -247,11 +247,11 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `BEGIN ... END` | Refused | `BEGIN SELECT 1 END` | The local engine doesn't run T-SQL BEGIN yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs  |
 | `TRY ... CATCH` | Refused | `BEGIN TRY SELECT 1 END TRY BEGIN CATCH SELECT 2 END CATCH` | The local engine doesn't run T-SQL BEGIN yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs  |
 | `Transactions` | Refused | `BEGIN TRANSACTION` | The local engine doesn't run T-SQL transactions (BEGIN TRAN) yet. Run the statements one at a time, with values in place of variables. A batch with variables an |
-| `EXEC` | Refused | `EXEC dbo.load_orders` | The local engine doesn't run T-SQL EXEC yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs i |
+| `EXEC` | Refused | `EXEC dbo.load_orders` | EXEC dbo.load_orders isn't mapped yet. Procedures and user-defined functions take parameters and use control flow,  |
 | `PRINT` | Refused | `PRINT 'hi'` | The local engine doesn't run T-SQL PRINT yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs  |
-| `CREATE PROCEDURE` | Refused | `CREATE PROCEDURE dbo.p AS SELECT 1` | T-SQL CREATE PROCEDURE doesn't run on the local engine. Procedures and functions run in a Fabric Warehouse. |
-| `CREATE FUNCTION` | Refused | `CREATE FUNCTION dbo.f() RETURNS INT AS BEGIN RETURN 1 END` | T-SQL CREATE FUNCTION doesn't run on the local engine. Procedures and functions run in a Fabric Warehouse. |
+| `CREATE PROCEDURE` | Refused | `CREATE PROCEDURE dbo.p AS SELECT 1` | CREATE PROCEDURE dbo.p isn't mapped yet. Procedures and user-defined functions take parameters and use control flow |
+| `CREATE FUNCTION` | Refused | `CREATE FUNCTION dbo.f() RETURNS INT AS BEGIN RETURN 1 END` | CREATE FUNCTION dbo.f isn't mapped yet. Procedures and user-defined functions take parameters and use control flow, |
 | `USE` | Refused | `USE sales` | The local engine doesn't run T-SQL USE yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs in |
-| `FOR JSON` | Refused | `SELECT a FROM dbo.t FOR JSON PATH` | Unsupported query option. |
+| `FOR JSON` | Refused | `SELECT a FROM dbo.t FOR JSON PATH` | FOR JSON PATH isn't mapped yet. Build each row's JSON with JSON_OBJECT or JSON_ARRAY, or run it in a Fabric Warehou |
 | `OPTION (...)` | Refused | `SELECT a FROM dbo.t OPTION (MAXDOP 1)` | Unsupported query option. |
 | `SET options` | Not checked | `SET NOCOUNT ON; SELECT 1` |  |

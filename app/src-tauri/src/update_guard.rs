@@ -657,6 +657,59 @@ mod tests {
     }
 
     #[test]
+    fn a_restore_that_cant_move_the_new_exe_aside_leaves_both_builds_where_they_are() {
+        let dir = scratch("restoreheld");
+        let (exe, old) = (dir.join("app.exe"), dir.join("app.exe.old"));
+        std::fs::write(&exe, "next").unwrap();
+        std::fs::write(&old, "previous").unwrap();
+        // The ended process still holds the new exe, so it can't be moved aside on any attempt.
+        let held = exe.clone();
+        let mut tries = 0;
+        let rename = |from: &Path, to: &Path| {
+            if from == held {
+                tries += 1;
+                Err(std::io::Error::other("still running"))
+            } else {
+                std::fs::rename(from, to)
+            }
+        };
+        assert!(restore_with(&exe, &old, rename, Duration::ZERO).unwrap_err().contains("still running"));
+        assert_eq!(tries, 20);
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "next");
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), "previous", "the previous build is kept to try again");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_restore_after_the_new_exe_is_gone_just_puts_the_previous_one_back() {
+        let dir = scratch("restoregone");
+        let (exe, old) = (dir.join("app.exe"), dir.join("app.exe.old"));
+        std::fs::write(&old, "previous").unwrap();
+        restore_previous(&exe, &old).unwrap();
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "previous");
+        assert!(!old.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_a_locked_file_is_retried() {
+        use std::io::{Error, ErrorKind};
+        for locked in [Error::from_raw_os_error(5), Error::from_raw_os_error(32), Error::from_raw_os_error(33),
+                       Error::from(ErrorKind::PermissionDenied)] {
+            assert!(super::is_lock(&locked), "{locked:?}");
+        }
+        for other in [Error::from(ErrorKind::NotFound), Error::from(ErrorKind::AlreadyExists), Error::other("disk full")] {
+            assert!(!super::is_lock(&other), "{other:?}");
+        }
+        // A missing file fails at once, without the 15 seconds of retries.
+        let dir = scratch("renamemissing");
+        let started = std::time::Instant::now();
+        assert!(rename_retrying(&dir.join("gone.exe"), &dir.join("to.exe")).is_err());
+        assert!(started.elapsed() < Duration::from_secs(2));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn restore_needs_the_previous_exe() {
         let dir = scratch("restore");
         let (exe, old) = (dir.join("app.exe"), dir.join("app.exe.old"));

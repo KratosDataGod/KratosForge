@@ -87,9 +87,17 @@ def split(query: str, target: str) -> tuple[list[Stmt], str]:
     except (TokenError, SqlglotError, ValueError) as exc:
         return [], f"The SQL couldn't be read: {str(exc).splitlines()[0] if str(exc) else type(exc).__name__}"
     statements: list[list[Any]] = [[]]
+    go_line_end = -1  # GO's count (GO 5) belongs to the separator, not to the next batch
     for t in raw:
-        is_go = (t.token_type == TokenType.COMMAND and t.text.upper() == "GO") or \
-                (p["sqlglot"] == "tsql" and t.token_type == TokenType.VAR and t.text.upper() == "GO" and _alone_on_line(query, t))
+        if t.start < go_line_end:
+            continue
+        # GO separates batches only on a line of its own (optionally with a count); a column or alias
+        # spelled go is a name
+        go_token = t.token_type == TokenType.COMMAND or (p["sqlglot"] == "tsql" and t.token_type == TokenType.VAR)
+        is_go = go_token and t.text.upper() == "GO" and _alone_on_line(query, t)
+        if is_go:
+            end = query.find("\n", t.end + 1)
+            go_line_end = len(query) if end == -1 else end
         if t.token_type == TokenType.SEMICOLON or is_go:
             statements.append([])
         else:
@@ -124,7 +132,11 @@ def _alone_on_line(query: str, t: Any) -> bool:
     line_start = query.rfind("\n", 0, t.start) + 1
     line_end = query.find("\n", t.end + 1)
     line = query[line_start:len(query) if line_end == -1 else line_end]
-    return line.strip().upper() == "GO"
+    return _GO_LINE.fullmatch(line.strip()) is not None
+
+
+# GO, an optional count, and comments (Microsoft's GO allows a comment on its line)
+_GO_LINE = re.compile(r"GO(?:\s+\d+)?\s*(?:(?:--.*|/\*.*?\*/)\s*)*", re.IGNORECASE)
 
 
 # Statements sqlglot doesn't read but that are ordinary commands of the engine: the token rules check
@@ -151,17 +163,34 @@ def parse(stmt: Stmt, dialect: str) -> None:
     try:
         trees = [t for t in sql_dialects.parse(text, read=dialect, error_level=sqlglot.ErrorLevel.RAISE) if t is not None]
         stmt.ast = cast(exp.Expression, trees[0]) if trees else None  # sqlglot types parse as its Expr base
-    except (ParseError, TokenError, SqlglotError, RecursionError, ValueError) as exc:
+    # sqlglot's T-SQL parser can also fail with AttributeError on a half-typed statement (SELECT a INTO)
+    except (ParseError, TokenError, SqlglotError, RecursionError, ValueError, AttributeError) as exc:
         if stmt.toks and stmt.toks[0].kw in COMMANDS.get(dialect, ()):
             return
         errors = getattr(exc, "errors", None) or []
         first = errors[0] if errors else {}
         stmt.error = (first.get("description") or str(exc).splitlines()[0] if str(exc) else type(exc).__name__)
         stmt.error = stmt.error.split("<Token")[0].strip().rstrip(":") or "unexpected syntax"
-        if first.get("start") is not None:
-            stmt.error_at = stmt.start + int(first["start"])
+        at = _error_offset(text, first)
+        if at is not None:
+            stmt.error_at = stmt.start + at
     finally:
         _log.setLevel(level)
+
+
+def _error_offset(text: str, error: dict[str, Any]) -> int | None:
+    """Where in ``text`` the parse error is. sqlglot gives the line and the 1-based column of the failing
+    token's last character, and the token's text as ``highlight``."""
+    if error.get("start") is not None:
+        return int(error["start"])
+    line, col, highlight = error.get("line"), error.get("col"), error.get("highlight") or ""
+    if not isinstance(line, int) or not isinstance(col, int) or line < 1:
+        return None
+    lines = text.split("\n")
+    if line > len(lines):
+        return None
+    at = sum(len(x) + 1 for x in lines[:line - 1]) + col - len(highlight)
+    return at if 0 <= at < len(text) and text[at:at + len(highlight)] == highlight else None
 
 
 def analyze(query: str, target: str | None = None) -> dict[str, Any]:

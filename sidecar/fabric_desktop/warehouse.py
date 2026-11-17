@@ -18,9 +18,10 @@ warehouse (below):
 A **change** (WH-10) is a run started with ``writes``: the person saw what it changes and
 confirmed it, naming the warehouse (sql_exec.py checks the name against Fabric's). Its script may be
 several statements, in batches split at ``GO`` lines like SSMS: DDL, DML, EXEC, variables. Still
-refused, before anything is sent: BEGIN TRAN, COMMIT and ROLLBACK (the run is the transaction),
-USE (another database), GRANT, REVOKE and DENY (permissions belong in Fabric), COPY INTO (loading
-files comes with data loading), CREATE, ALTER or DROP DATABASE, and OPENROWSET, OPENQUERY and
+refused, before anything is sent: BEGIN TRAN, COMMIT and ROLLBACK (the run is the transaction; a BEGIN TRAN first
+line and COMMIT last line that wrap the whole script are taken off, see without_outer_transaction),
+USE (another database), GRANT, REVOKE and DENY (permissions belong in Fabric), COPY INTO and BULK
+INSERT (they load files and aren't run from the SQL page), CREATE, ALTER or DROP DATABASE, and OPENROWSET, OPENQUERY and
 OPENDATASOURCE. Also refused: dynamic SQL (EXEC of a string or a variable, sp_executesql), since
 what it runs can't be checked first (EXEC of a module named by a variable too); EXECUTE AS and
 REVERT; and roles, users and AUTHORIZATION. Every batch is checked by its text for these words,
@@ -53,7 +54,7 @@ from typing import Any, Callable, cast
 from sqlglot import exp
 from sqlglot.errors import ErrorLevel, ParseError
 
-from . import sql_dialects, sql_policy
+from . import sql_dialects, sql_params, sql_policy, tsql_clone
 
 KINDS = ("warehouse", "endpoint")  # a Data warehouse, or a lakehouse's SQL analytics endpoint
 HOST_SUFFIX = ".datawarehouse.fabric.microsoft.com"
@@ -92,10 +93,13 @@ _DEFINES = re.compile(r"^\s*(?:CREATE|ALTER|CREATE\s+OR\s+ALTER)\s+(PROC|PROCEDU
 # procedure and function bodies included (they run the same way when called). The words are looked
 # for with quoted names taken out too, so a column called [User] is fine; the procedure names with
 # quoted names unwrapped, so [sys].[sp_executesql] is still sp_executesql.
-_TRANSACTION = "the run is one transaction the app commits: leave out BEGIN TRAN, COMMIT and ROLLBACK"
+_TRANSACTION = ("the run is one transaction the app commits: BEGIN TRAN may be the script's first line and COMMIT its "
+                "last, but not ROLLBACK, SAVE TRAN, a named transaction, or a COMMIT in the middle")
 _PERMISSIONS = "permissions, roles and users are managed in Fabric"
 _AS_NAME = "; a column or table with that name is written in brackets, such as [{}]"  # {}: the word found
 _DYNAMIC = "it runs SQL made from text, which can't be checked before it runs"
+_LOADS = ("{} loads files into the warehouse, which isn't run from the SQL page. Use the Load files with COPY INTO "
+          "template and run it in Fabric's query editor.")
 _NEVER_WORDS = [(re.compile(p, re.IGNORECASE), why) for p, why in (
     (r"\b(?:BEGIN\s+TRAN(?:SACTION)?|BEGIN\s+DISTRIBUTED|COMMIT|ROLLBACK|SAVE\s+TRAN(?:SACTION)?)\b", _TRANSACTION),
     (r"\bEXEC(?:UTE)?\s*\(|\bEXEC(?:UTE)?\s+(?:@\w+\s*=\s*)?@\w+\b(?!\s*=)", _DYNAMIC),
@@ -103,7 +107,8 @@ _NEVER_WORDS = [(re.compile(p, re.IGNORECASE), why) for p, why in (
     (r"\b(?:GRANT|REVOKE|DENY|AUTHORIZATION)\b", _PERMISSIONS + _AS_NAME),
     (r"\b(?:CREATE|ALTER|DROP)\s+(?:ROLE|USER|LOGIN|APPLICATION\s+ROLE)\b", _PERMISSIONS),
     (r"\bUSE\b", "USE switches to another database: open that warehouse instead" + _AS_NAME),
-    (r"\bCOPY\s+INTO\b", "COPY INTO loads files, which comes with loading data"),
+    (r"\bCOPY\s+INTO\b", _LOADS.format("COPY INTO")),
+    (r"\bBULK\s+INSERT\b", _LOADS.format("BULK INSERT")),
     (r"\b(?:CREATE|ALTER|DROP)\s+DATABASE\b", "a database is created, changed or removed in Fabric"),
 )]
 _NEVER_NAMES = [(re.compile(p, re.IGNORECASE), why) for p, why in (
@@ -151,6 +156,62 @@ def batches(query: str) -> list[str]:
     return [b.strip("\n") for b in _GO.split(query.replace("\r\n", "\n")) if b.strip()]
 
 
+# A change script written as one transaction (WR-204): BEGIN TRAN on its own first line and COMMIT on
+# its own last line (GO lines may follow either). The run is already one transaction the app commits
+# once every batch succeeded and rolls back otherwise, so those two lines are what it does anyway:
+# they are taken off and the rest runs as before. A named transaction, ROLLBACK, SAVE TRAN, or BEGIN
+# TRAN or COMMIT anywhere else is still refused (_NEVER_WORDS), since the app can't keep its promise
+# that a failed change keeps nothing with the script deciding when to commit.
+_BEGIN_LINE = re.compile(r"\A\s*BEGIN[ \t]+TRAN(?:SACTION)?[ \t]*;?[ \t]*(?:\n|\Z)", re.IGNORECASE)
+_COMMIT_LINE = re.compile(r"(?:\A|\n)[ \t]*COMMIT(?:[ \t]+(?:TRAN(?:SACTION)?|WORK))?[ \t]*;?[ \t]*"
+                          r"(?:\n[ \t]*GO[ \t]*;?[ \t]*)*\s*\Z", re.IGNORECASE)
+
+
+def without_outer_transaction(query: str) -> tuple[str, bool]:
+    """``query`` without a BEGIN TRAN first line and COMMIT last line that wrap all of it, and whether
+    they were there. Comments and strings are blanked first, so a COMMIT in one doesn't count."""
+    text = query.replace("\r\n", "\n")
+    bare = _TOKENS.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)  # same length, lines kept
+    begin, commit = _BEGIN_LINE.match(bare), _COMMIT_LINE.search(bare)
+    if not begin or not commit or commit.start() < begin.end():
+        return query, False
+    return text[begin.end():commit.start()], True
+
+
+def change_batches(query: str) -> list[str]:
+    """A change's batches, as they are sent: without the BEGIN TRAN and COMMIT lines that wrap it."""
+    return batches(without_outer_transaction(query)[0])
+
+
+# S14: a script the page split into statements, each with a result of its own. The statements are sent one
+# after the other on one connection, as batches are. A change's statements are its batches.
+_BEGIN_UNIT = re.compile(r"\A\s*BEGIN\s+TRAN(?:SACTION)?\s*;?\s*\Z", re.IGNORECASE)
+_COMMIT_UNIT = re.compile(r"\A\s*COMMIT(?:\s+(?:TRAN(?:SACTION)?|WORK))?\s*;?\s*\Z", re.IGNORECASE)
+
+
+def change_units(units: list[str]) -> list[str]:
+    """A change's statements as they are sent: without a BEGIN TRAN first and COMMIT last that wrap the
+    rest, as change_batches takes those lines off a script (the run is already the transaction)."""
+    if len(units) > 2 and _BEGIN_UNIT.match(units[0]) and _COMMIT_UNIT.match(units[-1]):
+        return units[1:-1]
+    return list(units)
+
+
+def join_units(units: list[str]) -> str:
+    """The statements as one script of batches, one per statement, for the checks and the audit."""
+    return "\nGO\n".join(u.strip("\n") for u in units)
+
+
+def unit_verdicts(units: list[str], writes: bool = False) -> list[sql_policy.Verdict]:
+    """What each of a split script's statements is, numbered by statement (S14). Without ``writes`` each
+    must be one query that reads, as a run of one is; with it, each is checked as a change's batch."""
+    out: list[sql_policy.Verdict] = []
+    for n, unit in enumerate(units, 1):
+        found = _change_verdicts(unit) if writes else verdicts(unit)
+        out.extend(sql_policy.Verdict(n, v.kind, v.reason, v.confirm) for v in found)
+    return out
+
+
 # A read at a past time (time travel): Fabric's query hint OPTION (FOR TIMESTAMP AS OF '<UTC time>') at
 # the end of a SELECT. sqlglot can't read it, so the check reads the query without it; the hint only
 # picks which version of the tables is read, and the query is sent with it as written. A change's
@@ -165,6 +226,23 @@ def verdicts(query: str, writes: bool = False) -> list[sql_policy.Verdict]:
     refused (fabric_mutation) for the reasons in this module's docstring."""
     if writes:
         return _change_verdicts(query)
+    bare, _names = _bare_and_names(query)
+    # WR-226: sqlglot reads neither as a statement, so they are named here
+    cloned = tsql_clone.clones(query)
+    if cloned:
+        return [sql_policy.Verdict(1, "fabric_mutation", f"{cloned[0].statement() if cloned[0].clone else 'CREATE TABLE ... AS CLONE OF'}"
+                                                         " makes a table in the warehouse, which is a change")]
+    if tsql_clone.snapshot_timestamp(query):
+        return [sql_policy.Verdict(1, "fabric_mutation", tsql_clone.SNAPSHOT_TIMESTAMP)]
+    # named before parsing: sqlglot can't read OPENROWSET(BULK ...) or BULK INSERT (WR-220)
+    # a call, with quoted names taken out, so a column called [openrowset] still reads
+    outside = next((f for f in sorted(_OUTSIDE) if re.search(rf"\b{f}\s*\(", bare, re.IGNORECASE)), "")
+    if outside:
+        return [sql_policy.Verdict(1, "fabric_mutation", f"{outside.upper()} reads outside the warehouse")]
+    loads = re.search(r"\b(?:COPY\s+INTO|BULK\s+INSERT)\b", bare, re.IGNORECASE)
+    if loads:
+        word = " ".join(loads.group().upper().split())
+        return [sql_policy.Verdict(1, "fabric_mutation", _LOADS.format(word))]
     try:
         statements = [cast(exp.Expression, s)  # sqlglot types parse as its Expr base
                       for s in sql_dialects.parse(_AS_OF.sub("", query), read="tsql", error_level=ErrorLevel.RAISE)
@@ -212,7 +290,7 @@ def _bare_and_names(batch: str) -> tuple[str, str]:
 
 
 def _change_verdicts(query: str) -> list[sql_policy.Verdict]:
-    parts = batches(query)
+    parts = change_batches(query)
     if not parts:
         raise ValueError("The query is empty.")
     out: list[sql_policy.Verdict] = []
@@ -223,7 +301,8 @@ def _change_verdicts(query: str) -> list[sql_policy.Verdict]:
         if outside:
             out.append(sql_policy.Verdict(n, "fabric_mutation", f"{outside.upper()} reads outside the warehouse"))
             continue
-        never = next((why.format(m.group().capitalize()) for rule, why in _NEVER_WORDS if (m := rule.search(bare))), "") or next(
+        never = (tsql_clone.SNAPSHOT_TIMESTAMP if tsql_clone.snapshot_timestamp(batch) else "") or next(
+            (why.format(m.group().capitalize()) for rule, why in _NEVER_WORDS if (m := rule.search(bare))), "") or next(
             (why for rule, why in _NEVER_NAMES if rule.search(names)), "")
         if never:
             out.append(sql_policy.Verdict(n, "fabric_mutation", never))
@@ -233,17 +312,51 @@ def _change_verdicts(query: str) -> list[sql_policy.Verdict]:
             out.append(sql_policy.Verdict(n, "warehouse_write", f"defines {defines.group(1).upper()} {defines.group(2)}"
                                           .rstrip()))
             continue
-        try:
-            statements = [cast(exp.Expression, st)  # sqlglot types parse as its Expr base
-                          for st in sql_dialects.parse(_AS_OF.sub("", batch), read="tsql", error_level=ErrorLevel.RAISE)
-                          if st is not None]
-        except ParseError:
-            out.append(sql_policy.Verdict(n, "fabric_mutation", "it couldn't be read as T-SQL, so it can't be checked; "
-                                                                 "a procedure or function definition can be"))
-            continue
-        for st in statements:
-            out.append(_change_verdict(len(out) + 1, st))
+        # WR-226: a clone is read from its tokens, in its place among the batch's other statements
+        cloned = tsql_clone.clones(batch)
+        at = 0
+        for piece in [*cloned, None]:
+            text = batch[at:piece.start if piece is not None else len(batch)]
+            if text.strip() and not _parsed_verdicts(text, out):
+                break
+            if piece is not None:
+                out.append(_clone_verdict(len(out) + 1, piece))
+                at = piece.end
     return out
+
+
+def _parsed_verdicts(text: str, out: list[sql_policy.Verdict]) -> bool:
+    """Add the verdicts of a change batch's text (or a part of it) to ``out``; False when it can't be read."""
+    try:
+        statements = [cast(exp.Expression, st)  # sqlglot types parse as its Expr base
+                      for st in sql_dialects.parse(_AS_OF.sub("", text), read="tsql", error_level=ErrorLevel.RAISE)
+                      if st is not None]
+    except ParseError:
+        out.append(sql_policy.Verdict(len(out) + 1, "fabric_mutation", "it couldn't be read as T-SQL, so it can't be "
+                                                                       "checked; a procedure or function definition can be"))
+        return False
+    for st in statements:
+        out.append(_change_verdict(len(out) + 1, st))
+    return True
+
+
+def _clone_verdict(n: int, c: tsql_clone.Clone) -> sql_policy.Verdict:
+    """CREATE TABLE ... AS CLONE OF (WR-226): a zero-copy clone in this warehouse, or refused by name before
+    anything is sent."""
+    if not c.clone:
+        return sql_policy.Verdict(n, "fabric_mutation", "CREATE TABLE ... AS CLONE OF couldn't be read. Write it as "
+                                  "CREATE TABLE schema.clone AS CLONE OF schema.source [AT 'YYYY-MM-DDThh:mm:ss'].")
+    other = next((name for name in (c.clone, c.source) if len(name) > 2), None)
+    if other is not None:
+        return sql_policy.Verdict(n, "fabric_mutation", f"{'.'.join(other)} names a database: a Fabric Warehouse "
+                                  "clones a table only within the same warehouse, so name it as schema.table")
+    if c.at is not None:
+        problem = tsql_clone.at_problem(c.at)
+        if problem:
+            return sql_policy.Verdict(n, "fabric_mutation", problem)
+    when = f" as it was at {c.at.replace('T', ' ')} UTC" if c.at is not None else " as it is now"
+    return sql_policy.Verdict(n, "warehouse_write", f"CREATE TABLE {c.clone_name} AS CLONE OF {c.source_name} makes "
+                              f"a zero-copy clone of {c.source_name}{when}")
 
 
 def _change_verdict(n: int, st: exp.Expression) -> sql_policy.Verdict:
@@ -382,6 +495,111 @@ def object_changed(cursor: Any, p: dict[str, Any]) -> bool:
     return not definition or definition_fingerprint(str(definition[0] or "")) != p["definition"]
 
 
+# ---- a run the warehouse or the network ended part way (WR-207)
+
+class Interrupted(RuntimeError):
+    """A run that ended part way, by name: ``kind`` is connection, signin, throttled, timeout, cancelled,
+    commit_unknown or sql (a change's batch failed on its own SQL); ``batch`` the batch that was running.
+    The message says what was kept and what to do next."""
+
+    def __init__(self, kind: str, message: str, batch: int | None = None):
+        super().__init__(message)
+        self.kind, self.batch = kind, batch
+
+
+_TIMED_OUT = re.compile(r"HYT00|query timeout expired", re.IGNORECASE)
+_CANCELLED = re.compile(r"HY008|operation (was )?cancel", re.IGNORECASE)
+_SIGNIN_EXPIRED = re.compile(r"token (is|has) expired|expired token|AADSTS70043|AADSTS700082|\(18456\)", re.IGNORECASE)
+_DROPPED = re.compile(r"communication link failure|08S01|08S02|08003|transport-level error|TCP Provider|"
+                      r"connection (was|has been) (forcibly )?closed|connection is (closed|broken)|forcibly closed|"
+                      r"physical connection is not usable|\(10054\)|\(10053\)", re.IGNORECASE)
+_THROTTLED = re.compile(r"throttl|too many requests|currently busy|capacity .*(limit|exceeded)|not currently available",
+                        re.IGNORECASE)
+
+
+def interruption(exc: BaseException) -> tuple[str, int | None] | None:
+    """Why the warehouse or the network ended a run part way, from the driver's error text, and the error
+    number when there is one; None for the SQL's own error. After the connection opened, so a 18456 means
+    the sign-in expired, not a refused login."""
+    text = str(exc)
+    numbers = sorted({int(n) for n in _ERROR_NUMBER.findall(text)} & set(TRANSIENT_LOGIN_ERRORS))
+    if _TIMED_OUT.search(text):
+        return "timeout", None
+    if _CANCELLED.search(text):
+        return "cancelled", None
+    if _SIGNIN_EXPIRED.search(text):
+        return "signin", None
+    if _DROPPED.search(text):
+        return "connection", None
+    if numbers or _THROTTLED.search(text):
+        return "throttled", numbers[0] if numbers else None
+    return None
+
+
+def _first_line(batch: str) -> str:
+    first = next((line.strip() for line in batch.splitlines() if line.strip() and not line.strip().startswith("--")), "")
+    return f"{first[:80]}{'…' if len(first) > 80 else ''}"
+
+
+def _interrupted(exc: BaseException, at: int, sent: list[str], writes: bool, unit: str = "batch") -> BaseException:
+    """The error a run ends with when batch ``at`` of ``sent`` failed: named, with what was kept and what to
+    do next. A read's own SQL error stays the driver's, as before."""
+    why = interruption(exc)
+    if why is None and isinstance(exc, (OSError, MemoryError)):
+        return exc  # this PC's own trouble writing the result (a full disk), not the batch's: its own message says so
+    if why is None:
+        return Interrupted("sql", _failed_batch(at, sent, exc, unit), at) if writes else exc
+    kind, number = why
+    if writes:
+        where = f"during {unit} {at} of {len(sent)} ({_first_line(sent[at - 1])})" if len(sent) > 1 else \
+            f"during the change ({_first_line(sent[at - 1])})"
+        kept = "so the whole change was rolled back and nothing was kept"
+    else:
+        where, kept = "while the query ran", "so no result was kept"
+    message = {
+        "connection": f"The connection to the warehouse dropped {where}, {kept}. Check this PC's network "
+                      "(and VPN, if you use one), then run it again.",
+        "signin": f"Your sign-in to Fabric expired {where}, {kept}. Sign in again, then run it again.",
+        "throttled": f"The warehouse stopped the run {where} because its capacity is busy"
+                     f"{f' (error {number})' if number else ''}, {kept}. Wait a few minutes and run it again; if "
+                     "it keeps happening, ask your Fabric capacity admin about the capacity's load.",
+        "timeout": f"The run reached its time limit {where}, {kept}. Narrow the query, or raise the time limit in "
+                   "Settings › SQL, then run it again.",
+        "cancelled": f"The warehouse cancelled the run {where}, {kept}. Run it again; if it's cancelled again, an "
+                     "admin may be stopping it: check the warehouse's activity in Fabric.",
+    }[kind]
+    return Interrupted(kind, message, at)
+
+
+def _commit(con: Any) -> None:
+    """Commit a change. If the connection drops while the commit is on its way, the warehouse may or may not
+    have kept the change, and the error says so; any other refusal means nothing was kept."""
+    try:
+        con.commit()
+    except Exception as exc:
+        why = interruption(exc)
+        if why is not None and why[0] in ("connection", "timeout", "cancelled"):
+            raise Interrupted("commit_unknown", "The connection to the warehouse was lost while the change was being "
+                              "committed, so it may or may not have been kept. Check the tables it changes before "
+                              "running it again.") from exc
+        raise Interrupted("sql", "The warehouse didn't commit the change, so nothing was kept. Fix what it "
+                          f"reports, then run it again: {str(exc).strip() or type(exc).__name__}") from exc
+
+
+def _end(con: Any, committed: bool) -> None:
+    """Roll back what wasn't committed and close. When the connection is already gone these fail too; the
+    warehouse rolls an open transaction back on its own then, and the run's own error is the one to keep."""
+    try:
+        if not committed:
+            con.rollback()
+    except Exception as exc:  # noqa: BLE001 - the connection may be gone, and the run's own error is the one to keep
+        _log.warning("Rolling back after the run failed: %s", type(exc).__name__)
+    try:
+        con.close()
+    except Exception as exc:  # noqa: BLE001 - closing a connection that is already gone mustn't hide the run's result
+        _log.warning("Closing the warehouse connection: %s", type(exc).__name__)
+
+
 def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None]) -> None:
     """Run the job's query and stream the last result's rows into the job's Arrow IPC file. A job
     with ``writes`` runs its batches in one transaction and commits it once they all succeeded. A job
@@ -390,7 +608,8 @@ def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None])
     import pyarrow as pa
 
     writes = bool(job.get("writes"))
-    checked = verdicts(job["query"], writes=writes)
+    units: list[str] = list(job.get("statements") or [])  # S14: each statement's result is a part of its own
+    checked = unit_verdicts(units, writes=writes) if units else verdicts(job["query"], writes=writes)
     stop = sql_policy.refused(checked, ("read_only", "warehouse_write") if writes else ("read_only",))
     if stop is not None:
         say("error", kind="permission", permission=stop.kind, statement=stop.statement,
@@ -418,15 +637,40 @@ def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None])
             return
         if plan:
             cursor.execute("SET SHOWPLAN_XML ON")  # its own batch, as T-SQL requires
-        for batch in (batches(job["query"]) if writes else [job["query"]]):
-            cursor.execute(batch)
-            while True:
-                if cursor.description:
-                    result = _write_result(cursor, out, say)  # each result replaces the one before: the last is shown
-                elif writes and isinstance(getattr(cursor, "rowcount", -1), int) and cursor.rowcount > 0:
-                    affected += cursor.rowcount
-                if not writes or not cursor.nextset():
-                    break
+        values = sql_params.typed(job.get("params"))  # S17: each sent to the driver as a ? parameter
+        sent = units or (change_batches(job["query"]) if writes else [job["query"]])
+        for at, batch in enumerate(sent, 1):
+            began, mine, changed = time.monotonic(), None, None
+            if units:
+                say("statement", statement=at)
+            try:
+                text, ordered = sql_params.as_positional(batch, values) if values or sql_params.find(batch, True) else (batch, [])
+                cursor.execute(text, *ordered) if ordered else cursor.execute(text)
+                while True:
+                    if cursor.description:
+                        # each result replaces the one before: the last is shown (and, S14, is the statement's part)
+                        result = mine = _write_result(cursor, Path(job["parts_dir"]) / f"result-{at}.arrow" if units else out, say)
+                    elif (writes or units) and isinstance(getattr(cursor, "rowcount", -1), int) and cursor.rowcount >= 0:
+                        if writes and cursor.rowcount > 0:
+                            affected += cursor.rowcount
+                        changed = (changed or 0) + cursor.rowcount
+                    if not (writes or units) or not cursor.nextset():
+                        break
+            except Exception as exc:
+                failure = _interrupted(exc, at, sent, writes, "statement" if units else "batch")
+                if failure is exc:
+                    raise
+                raise failure from exc
+            if units:
+                if mine is None:  # a statement with no rows: an empty part, with what it changed
+                    import pyarrow.ipc as ipc
+                    with ipc.new_file(str(Path(job["parts_dir"]) / f"result-{at}.arrow"), pa.schema([])):
+                        pass
+                    mine = (0, [], pa.schema([]))
+                rows_n, sizes, schema = mine
+                say("part", statement=at, rows=rows_n, batches=sizes, seconds=round(time.monotonic() - began, 2),
+                    columns=[{"name": f.name, "type": str(f.type)} for f in schema],
+                    **({"affected": changed} if changed is not None and not schema.names else {}))
         if plan:
             cursor.execute("SET SHOWPLAN_XML OFF")
         if result is None:
@@ -434,17 +678,24 @@ def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None])
                 pass
             result = (0, [], pa.schema([]))
         if writes:
-            con.commit()
+            say("committing")  # a Stop from here on may come after the warehouse kept the change
+            _commit(con)
             committed = True
         rows, batch_rows, schema = result
         say("done", rows=rows, batches=batch_rows, columns=[{"name": f.name, "type": str(f.type)} for f in schema],
             **({"affected": affected, "committed": True} if writes else {}))
     finally:
-        try:
-            if not committed:
-                con.rollback()
-        finally:
-            con.close()
+        _end(con, committed)
+
+
+def _failed_batch(at: int, sent: list[str], exc: BaseException, unit: str = "batch") -> str:
+    """Which batch (or statement, S14) of a change failed, its first line, and that nothing was kept (the run
+    rolls back)."""
+    first = _first_line(sent[at - 1])
+    where = f"{unit.capitalize()} {at} of {len(sent)} ({first})" if len(sent) > 1 else f"The change ({first})"
+    fix = f"Fix that {unit} and run the change again." if len(sent) > 1 else "Fix it and run it again."
+    return (f"{where} failed, so the whole change was rolled back and nothing was kept. {fix} "
+            f"{str(exc).strip() or type(exc).__name__}")
 
 
 def _write_result(cursor: Any, out: Path, say: Callable[..., None]) -> tuple[int, list[int], Any]:
@@ -469,9 +720,12 @@ def _write_result(cursor: Any, out: Path, say: Callable[..., None]) -> tuple[int
 def _schema(description: Any, sample: list[Any]) -> Any:
     import pyarrow as pa
 
+    from .frames import NOTE_KEY
+
     fields = []
     for i, d in enumerate(description):
         kind, precision, scale = d[1], d[4], d[5]
+        note = ""
         if kind is bool:
             t = pa.bool_()
         elif kind is int:
@@ -483,16 +737,36 @@ def _schema(description: Any, sample: list[Any]) -> Any:
         elif kind is dt.datetime:
             aware = next((r[i].tzinfo is not None for r in sample if r[i] is not None), False)
             t = pa.timestamp("us", tz="UTC" if aware else None)  # datetimeoffset comes back in UTC
+            note = _time_note(scale, aware)
         elif kind is dt.date:
             t = pa.date32()
         elif kind is dt.time:
             t = pa.time64("us")
+            note = _time_note(scale, False)
         elif kind is bytes:
             t = pa.binary()
         else:
             t = pa.string()  # text, uniqueidentifier, xml and anything new
-        fields.append(pa.field(str(d[0] or f"column{i + 1}"), t))
+        fields.append(pa.field(str(d[0] or f"column{i + 1}"), t, metadata={NOTE_KEY: note.encode()} if note else None))
     return pa.schema(fields)
+
+
+def _time_note(scale: Any, aware: bool) -> str:
+    """What a result keeps of a warehouse time (WR-221), said with its export. Times are kept to the microsecond,
+    so the seventh digit of datetime2(7), time(7) or datetimeoffset(7) isn't (the driver's scale says how many it
+    has); a datetimeoffset is kept in UTC, without the offset it was written with."""
+    seventh = isinstance(scale, int) and scale > 6
+    if seventh and aware:
+        return ("times are kept to the microsecond and given in UTC, so the seventh digit of their fraction and the "
+                "offset each was written with aren't kept. To keep them, convert the column to text in the query, "
+                "such as CAST(col AS VARCHAR(34))")
+    if seventh:
+        return ("times are kept to the microsecond, so the seventh digit of their fraction isn't kept. To keep it, "
+                "convert the column to text in the query, such as CAST(col AS VARCHAR(34))")
+    if aware:
+        return ("datetimeoffset values are given in UTC, without the offset each was written with. To keep the "
+                "offset, convert the column to text in the query, such as CAST(col AS VARCHAR(34))")
+    return ""
 
 
 def _batch(schema: Any, rows: list[Any]) -> Any:

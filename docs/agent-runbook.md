@@ -96,14 +96,24 @@ A stop before the agent's own log starts is also kept in `<home>/logs/agent-star
 
 **Recover.** Fix `agent.toml` and start the agent again. Until it starts, its schedules don't run. Other agents and the app report it as [offline](#agent-offline) once its last status record goes stale.
 
+### The agent's home was saved by a newer build
+
+- **Message** (`data_format.py`, at start): `The data in <home> was saved by a newer KratosForge (data format <n>; this build, <version>, reads up to <max>). This older build won't open it, so nothing the newer one saved is damaged. Run the newer build again, or restore a backup taken before that upgrade (docs/install.md, Going back to an older build).`
+
+**Means.** A newer build of KratosForge ran in this agent's home and changed how its data is stored, and this build is older, so it stopped rather than misread or overwrite what the newer one saved. The entry in `logs/agent-start.log` has `stage=data`. Usually the agent was rolled back by hand, or Task Scheduler points at an older install than the one that last ran.
+
+**Check first.** The entry's `version=` is the build that stopped. Which install does the scheduled task start, and did a newer build run in this home, for example a Preview tried on the same server?
+
+**Recover.** Run the newer build again. To stay on the older build, restore the agent's home from a [backup](backup.md) taken before the upgrade ([Going back to an older build](install.md#going-back-to-an-older-build)), then start the agent. Don't delete `data-format.json`: the older build would then open data it can misread.
+
 ### The agent stopped as it started
 
 - **Message** (`agent_start.py`, `agent-start.log`): `<time> agent run stopped: stage=<stage> exit=<code> version=<version>`
 - **Message** (`cli.py`, log): `agent stopped by an error`
 
-**Means.** `agent run` stopped before or as it started. Task Scheduler shows only "the task ended with code 2" (or 1) and restarts it every minute, so each stop adds an entry to `logs/agent-start.log` in the agent's home: when (UTC), the stage, the exit code, the version and the reason, made log-safe. `settings` is an `agent.toml` problem, `data` is a home written by a newer version, `start` is a refusal such as [another agent using the control folder](#another-agent-is-using-the-control-folder), and `crash` is an error nobody expected, with the files and lines it went through (no values). When `agent.toml` couldn't be read, the entry is in the default home (`%ProgramData%\FabricDesktop\agent`). The file stays under 256 KB and is never sent anywhere.
+**Means.** `agent run` stopped before or as it started. Task Scheduler shows only "the task ended with code 2" (or 1) and restarts it every minute, so each stop adds an entry to `logs/agent-start.log` in the agent's home: when (UTC), the stage, the exit code, the version and the reason, made log-safe. `settings` is an [`agent.toml` problem](#the-agents-settings-are-refused), `data` is a [home saved by a newer build](#the-agents-home-was-saved-by-a-newer-build), `start` is a refusal such as [another agent using the control folder](#another-agent-is-using-the-control-folder), and `crash` is an error nobody expected, with the files and lines it went through (no values). When `agent.toml` couldn't be read, the entry is in the default home (`%ProgramData%\FabricDesktop\agent`). The file stays under 256 KB and is never sent anywhere.
 
-**Check first.** Read the newest entry: its stage says which section below applies. For `crash`, `agent.log` has the same error with its stack.
+**Check first.** Read the newest entry. Its second line, `see docs/agent-runbook.md#<section>`, names the section of this page for its stage. For `crash`, `agent.log` has the same error with its stack.
 
 **Recover.** Fix what the entry names, then let Task Scheduler start it again or start the task by hand. Send `agent-start.log` with `agent.log` when you report a crash.
 

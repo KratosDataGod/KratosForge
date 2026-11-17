@@ -59,7 +59,7 @@ def blast_radius(products: list[dict[str, Any]], project: str, entity: str, env:
         for f in followers.get(p["id"]) or []:
             add(str(f).lower(), f"follows {p['id']}")
     me = (me or "").lower()
-    people = [{"upn": k, "why": v} for k, v in sorted(why.items()) if _UPN.match(k) and k != me]
+    people = [{"upn": k, "why": v} for k, v in sorted(why.items()) if _UPN.fullmatch(k) and k != me]
     return {"project": project, "entity": entity, "env": env, "products": hit,
             "consumers": sorted(consumers, key=lambda c: (c["project"], c["product_id"], c["port"])),
-            "people": people, "unreachable": sorted(k for k in why if not _UPN.match(k))}
+            "people": people, "unreachable": sorted(k for k in why if not _UPN.fullmatch(k))}

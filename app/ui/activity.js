@@ -291,7 +291,7 @@ function trayItem(i) {
   if (i.monitor) links.push(btn("Open in Monitor", null, () => { toggleTray(false); go("monitor"); }, "tool link small"));
   if (i.url) links.push(btn("Open in Fabric", null, () => { toggleTray(false); openInFabric(i.url); }, "tool link small"));
   if (i.status === "running" && !i.stale && remoteActivity(i) && cancelFabricRunShown()) {
-    links.push(btn("Cancel run", null, () => cancelFabricJob(i.id.slice("fabric:".length)), "tool link small danger"));
+    links.push(previewMarked("cancelFabricRun", btn("Cancel run", null, () => cancelFabricJob(i.id.slice("fabric:".length)), "tool link small danger")));
   }
   if (i.update) links.push(btn("Check for updates", null, () => { toggleTray(false); checkForUpdates(); }, "tool link small"));
   if (i.details) links.push(btn("Copy details", null, () => copyText(i.details, "Details"), "tool link small"));

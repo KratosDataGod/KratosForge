@@ -69,6 +69,8 @@ RICH_CHARS = 16_000_000
 # the start of the message, and the end of the traceback, where the error itself is.
 ERROR_CHARS = 200_000
 _CELL_FILE = "<cell>"
+# How long Cancel waits for the cell to catch its interrupt before sending it again (Kernel.interrupt).
+_RESEND_SECONDS = 0.5
 # Proxy and certificate settings the engine's own HTTP calls (with your Fabric token) read.
 _ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
                 "SSL_CERT_FILE", "SSL_CERT_DIR"}
@@ -328,6 +330,10 @@ class _Run:
         self.cancel_lock = threading.Lock()
         self.armed = False
         self.cancel_requested = False
+        # Set as the cell catches an interrupt. One that never gets there was lost: Python drops an
+        # exception raised in a callback (a weakref's, run by garbage collection on the cell's thread)
+        # or code in the cell caught it, so Cancel sends it again.
+        self.interrupted = False
         self.watches: list[dict[str, Any]] | None = None
         self._reset()
         self.debugger: Any = None  # debugger.Debugger when the cell runs with breakpoints
@@ -735,6 +741,7 @@ class Kernel:
             spark_local.install(ns)
         except Exception as exc:  # noqa: BLE001 - plain Python still works without it
             print(f"spark is not available on this PC: {exc}", file=sys.__stderr__)
+        dbutils._kf_arm()  # a cell's first use of it notes Databricks' ANSI mode (dbutils_local.DATABRICKS_ANSI_NOTE)
         return ns
 
     def restart(self) -> None:
@@ -850,8 +857,8 @@ class Kernel:
             self._widget_lock.release()
 
     def frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
-                   desc: bool = False, q: str = "") -> dict[str, Any]:
-        return self.frames.page(frame, offset, limit, sort, desc, q)
+                   desc: bool = False, q: str = "", filters: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        return self.frames.page(frame, offset, limit, sort, desc, q, filters)
 
     def frame_chart(self, frame: str, **spec: Any) -> dict[str, Any]:
         return self.frames.chart(frame, **spec)
@@ -943,7 +950,7 @@ class Kernel:
         self.check_free()
         if self._widget_lock.locked() or self._handler_alive():
             raise RuntimeError("A widget's handler is still running. Run the cell when it finishes, or restart the kernel.")
-        widgets = getattr(self.namespace.get("dbutils"), "widgets", None)
+        widgets = _widgets(self.namespace.get("dbutils"))
         if widgets is not None:
             widgets.set_in_app = dict(self.widget_values)
         from .debugger import Debugger, check_breakpoints
@@ -1003,11 +1010,17 @@ class Kernel:
         # thread's start-up, or before the handlers) would end the thread without finishing the run.
         # Such a cell stops itself as soon as it gets there.
         # The interrupt is sent under the lock, so the cell can't disarm between the check and the send.
+        # One the cell hasn't caught after a moment was lost (_Run.interrupted), so it is sent again.
+        ident = cast(int, run.thread.ident)
         with run.cancel_lock:
             run.cancel_requested = True
             if run.armed:
-                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(cast(int, run.thread.ident)), ctypes.py_object(KeyboardInterrupt))
-        run.done.wait(2.0)
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(ident), ctypes.py_object(KeyboardInterrupt))
+        deadline = time.monotonic() + 2.0
+        while not run.done.wait(min(_RESEND_SECONDS, max(0.0, deadline - time.monotonic()))) and time.monotonic() < deadline:
+            with run.cancel_lock:
+                if run.armed and not run.interrupted:
+                    ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(ident), ctypes.py_object(KeyboardInterrupt))
         return {"interrupted": True, "stopped": run.done.is_set()}
 
     def debug(self, action: str, expression: str | None = None) -> dict[str, Any]:
@@ -1047,7 +1060,7 @@ class Kernel:
         try:
             with run.cancel_lock:
                 run.armed = True
-                cancelled = run.cancel_requested
+                cancelled = run.interrupted = run.cancel_requested
             if cancelled:  # Cancel came before the cell got here
                 run.add({"type": "text", "text": "Cancelled. Variables are kept."})
                 raise KeyboardInterrupt
@@ -1065,6 +1078,7 @@ class Kernel:
                 status = "ok"
                 restart = isinstance(done, RestartPython)
             except KeyboardInterrupt:
+                run.interrupted = True
                 status = "cancelled"
                 run.add({"type": "text", "text": "Cancelled. Variables are kept."})
             if writes is not None:
@@ -1074,6 +1088,7 @@ class Kernel:
                 out.targets[ident] = err.targets[ident] = _Run(0)
                 self._watch(watches, run)
         except KeyboardInterrupt:  # an interrupt that landed while the first one was being handled
+            run.interrupted = True
             status = "cancelled"
         finally:
             try:
@@ -1090,6 +1105,8 @@ class Kernel:
             with contextlib.suppress(Exception):
                 from . import spark_local
                 spark_local.watch_connections(ident, None)
+                if status == "cancelled":
+                    spark_local.release_cancelled()
             self._local.run = None
             if restart and run.guest:
                 self._guests.pop(run.guest, None)  # a guest restarts only its own variables
@@ -1117,6 +1134,7 @@ class Kernel:
             with run.onelake.waiting():
                 failed = writes.flush(cancel=cancelled)
         except KeyboardInterrupt:
+            run.interrupted = True
             failed = writes.flush(cancel=True)
             cancelled = True
         for warning in getattr(writes, "warnings", []):
@@ -1141,6 +1159,7 @@ class Kernel:
                 shown = "hidden" if self._hidden(expr, value) else secrets(_preview(value))
                 results.append({"expr": expr, "value": shown, "type": type(value).__name__})
             except KeyboardInterrupt:
+                run.interrupted = True
                 results += [{"expr": e, "skipped": True} for e in watches[i:]]
                 break
             except Exception as exc:  # noqa: BLE001 - shown next to the watch
@@ -1345,7 +1364,7 @@ class Kernel:
         line = line.strip()
         if not line:
             return {k: "hidden" if _SECRET_NAME.search(k) else v for k, v in sorted(os.environ.items())}
-        m = re.match(r"([A-Za-z_]\w*)(?:\s*=\s*|\s+)(.*)$", line)
+        m = re.fullmatch(r"([A-Za-z_]\w*)(?:\s*=\s*|\s+)(.*)$", line)
         if m is None:
             if "=" in line or re.search(r"\s", line):  # 1BAD=x or 1BAD x would read "1BAD=x" and show nothing
                 bad = re.split(r"[=\s]", line, maxsplit=1)[0] or "a variable with no name"
@@ -1408,7 +1427,8 @@ class Kernel:
             self._emit(run, {"type": "stream", "text": text})
             return "ok"
         try:
-            from . import spark_local
+            from . import spark_local, spark_sql_params
+            query = spark_sql_params.bind_widgets(query, _widgets(namespace.get("dbutils")))
             result = spark_local.session().sql(query)
             if result is not None and result.columns:
                 if magics.returns_rows(query):  # DDL comes back as an empty frame; that isn't a result
@@ -1423,12 +1443,14 @@ class Kernel:
 
     def _magic(self, name: str, line: str) -> Any:
         if name == "run":
-            if m := _RUN_SCRIPT.match(line):
+            if m := _RUN_SCRIPT.fullmatch(line):
                 return self._run_builtin(m["flags"], m["rest"])
             target, args = _run_target(line)
             return self._run_notebook_in(target, self.namespace, args)
         if name == "sql":
-            return self._sql_value(line)
+            from . import spark_sql_params
+            return self._sql_value(spark_sql_params.bind_widgets(
+                line, _widgets(self.namespace.get("dbutils"))))
         if name in ("system", "sx", "sh"):
             from . import shell
             code, lines = shell.system(shell.expand(line, self.namespace),
@@ -1605,7 +1627,7 @@ class Kernel:
         from .notebookutils_local import NotebookExit
         cells = self.load_notebook(name.rsplit("/", 1)[-1])  # type: ignore[misc]
         has_parameters = any("parameters" in (c.get("meta") or {}).get("tags", []) for c in cells)
-        widgets = getattr(namespace.get("dbutils"), "widgets", None)
+        widgets = _widgets(namespace.get("dbutils"))
         if arguments and widgets is not None:
             widgets.bind(arguments)  # Databricks notebooks read their arguments as widgets
         if arguments and not has_parameters:
@@ -1904,6 +1926,12 @@ def _deadline(seconds: float | None, message: str) -> Iterator[threading.Event]:
         if fired.is_set():
             # The timer may have fired as the block ended: clear the exception it left pending.
             ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(ident), None)
+
+
+def _widgets(dbutils: Any) -> Any:
+    """dbutils.widgets as the kernel reads it, without the note a cell's first use of dbutils prints."""
+    from .dbutils_local import quiet_part
+    return quiet_part(dbutils, "widgets")
 
 
 def _databricks_runtime(dbutils: Any) -> None:
@@ -2483,7 +2511,7 @@ def assign_cell_ids(cells: list[dict[str, Any]], make: Callable[[int, dict[str, 
     ids = []
     for i, c in enumerate(cells):
         cid = c.get("cell_id")
-        if not isinstance(cid, str) or not _CELL_ID.match(cid) or cid in seen:
+        if not isinstance(cid, str) or not _CELL_ID.fullmatch(cid) or cid in seen:
             cid = (make or (lambda _i, _c: new_cell_id()))(i, c)
             while cid in seen:
                 cid = new_cell_id()
@@ -2545,6 +2573,29 @@ def _attachments_used(attachments: Any, source: str) -> dict[str, Any] | None:
         return None
     used = {k: v for k, v in attachments.items() if f"attachment:{k}" in source}
     return used or None
+
+
+ATTACHMENT_IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml")
+ATTACHMENT_IMAGE_MAX = 10 * 1024 * 1024  # base64 characters for one image, as the app's renderer allows
+
+
+def _attachment_images(attachments: Any, source: str) -> dict[str, dict[str, str]] | None:
+    """The images pasted into a Markdown cell (its ``attachments``) that its source shows, for the app
+    to draw: one image type each, base64 as text, each under ATTACHMENT_IMAGE_MAX. Saving never writes
+    these back; merge_saved keeps the file's own attachments."""
+    used = _attachments_used(attachments, source) or {}
+    out: dict[str, dict[str, str]] = {}
+    for name, bundle in used.items():
+        if not isinstance(name, str) or not isinstance(bundle, dict):
+            continue
+        for mime in ATTACHMENT_IMAGE_TYPES:
+            data = bundle.get(mime)
+            if isinstance(data, list):
+                data = "".join(x for x in data if isinstance(x, str))
+            if isinstance(data, str) and data and len(data) <= ATTACHMENT_IMAGE_MAX:
+                out[name] = {mime: data}
+                break
+    return out or None
 
 
 def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
@@ -2712,6 +2763,10 @@ def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
         meta = _cell_meta(c.get("metadata") or {})
         if meta:
             cell["meta"] = meta
+        if cell["type"] == "markdown":
+            images = _attachment_images(c.get("attachments"), cell["source"])
+            if images:
+                cell["attachments"] = images
         cells.append(cell)
     # Notebooks saved before cells had ids (or by tools that don't write them) get ids here, the
     # same on every load until the next save writes them.

@@ -40,6 +40,11 @@ def test_extract_reads_a_text_column_as_spark(query, name, values):
     assert text.splitlines() == [repr([name]), repr(values)]
 
 
+def test_an_extract_field_keeps_its_case_in_the_name_as_in_spark():
+    text = run("print(spark.sql(\"SELECT extract(YEAR FROM s), date_part('MONTH', s), extract(Hour FROM s) FROM t\").columns)")
+    assert text.strip() == "['extract(YEAR FROM s)', 'date_part(MONTH, s)', 'extract(Hour FROM s)']"
+
+
 def test_date_part_second_of_a_text_column_is_spark_s_decimal():
     text = run("print([row[0] for row in spark.sql(\"SELECT date_part('second', s) FROM t\").collect()])")
     assert text.strip() == repr([Decimal("30.000000"), None, None])

@@ -77,6 +77,12 @@ def test_unreadable_text_colors_are_refused():
     assert any("--muted on --surface" in p for p in _problems(_skin(appearance={"tokens": {"light": {"--surface": "#888888"}}})))
 
 
+def test_a_brand_bar_search_box_must_stay_readable():
+    # A brand header puts --on-accent text on --accent-dark (the search box), so that pair is checked too.
+    probs = _problems(_skin(appearance={"tokens": {"light": {"--accent-dark": "#d0d0d0"}}}))
+    assert any("--on-accent on --accent-dark has contrast" in p for p in probs)
+
+
 def test_contrast_matches_wcag():
     assert round(skins.contrast("#000", "#fff"), 1) == 21.0
     assert round(skins.contrast("#767676", "#ffffff"), 2) == 4.54
@@ -111,16 +117,47 @@ def test_labels_refuse_text_direction_marks():
     assert any("invisible formatting" in p for p in _problems(_skin(workflow={"labels": {"home": "\u202eemoH"}})))
 
 
-def test_a_mode_without_built_in_colors_must_set_both_sides_of_a_pair():
-    # No built-in dark colors yet, so a dark --text alone has nothing to be checked against.
-    probs = _problems(_skin(appearance={"tokens": {"dark": {"--text": "#ffffff"}}}))
-    assert any("dark sets --text, so it must also set --surface" in p for p in probs)
-    probs = _problems(_skin(appearance={"tokens": {"dark": {"--text": "#333333", "--surface": "#222222"}}}))
+def test_a_dark_token_is_checked_against_the_built_in_dark_colors():
+    # KratosForge's dark colors are the base, so a dark --text alone is checked on its dark --surface.
+    skins.validate(_skin(appearance={"tokens": {"dark": {"--text": "#ffffff"}}}), skins.BASE)
+    probs = _problems(_skin(appearance={"tokens": {"dark": {"--text": "#333333"}}}))
     assert any("--text on --surface has contrast" in p for p in probs)
 
 
-def test_a_dark_skin_needs_dark_tokens():
-    assert any("needs dark tokens" in p for p in _problems(_skin(appearance={"color_mode": "dark"})))
+def test_a_mode_without_built_in_colors_must_set_both_sides_of_a_pair():
+    light_only = {"light": skins.BASE["light"]}
+    with pytest.raises(skins.SkinError) as err:
+        skins.validate(_skin(appearance={"tokens": {"dark": {"--text": "#ffffff"}}}), light_only)
+    assert any("dark sets --text, so it must also set --surface" in p for p in err.value.problems)
+
+
+def test_a_dark_skin_builds_on_the_built_in_dark_colors():
+    skins.validate(_skin(appearance={"color_mode": "dark"}), skins.BASE)
+    with pytest.raises(skins.SkinError) as err:
+        skins.validate(_skin(appearance={"color_mode": "dark"}), {"light": skins.BASE["light"]})
+    assert any("needs dark tokens" in p for p in err.value.problems)
+
+
+def test_links_pass_on_the_surface_in_every_built_in_mode():
+    # --accent is link text as well as the primary button's fill.
+    for skin in skins.built_in():
+        for mode, tokens in skin["appearance"]["tokens"].items():
+            full = {**skins.BASE[mode], **tokens}
+            assert skins.contrast(full["--accent"], full["--surface"]) >= skins.CONTRAST_MIN, (skin["id"], mode)
+
+
+def test_kratosforge_dark_is_the_styles_dark_block():
+    css = STYLES.read_text(encoding="utf-8")
+    block = re.search(r'html\[data-color-mode="dark"\] \{(.*?)\}', css, re.S).group(1)
+    dark = {k: v.strip().lower() for k, v in re.findall(r"(--[\w-]+):\s*([^;]+);", block)}
+    mine = skins.KRATOSFORGE["appearance"]["tokens"]["dark"]
+    assert {k: v.lower() for k, v in mine.items()} == {k: dark[k] for k in skins.TOKENS}
+    # Every color on :root has a dark value. Fonts and corner sizes (--font-ui, --r-*) are the same in both modes,
+    # and so are the art bands' own palettes: the Living Experience hero (--lx-*) and Monitor's Forge band
+    # (--forge-*) sit on the picture's navy in either mode.
+    same = ("--lx-", "--forge-", "--mono", "--font-", "--r-")
+    colors = {k for k in _root_tokens() if not k.startswith(same)}
+    assert colors <= set(dark), sorted(colors - set(dark))
 
 
 def test_files_are_capped_and_must_be_json():

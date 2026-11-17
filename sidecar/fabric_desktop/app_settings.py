@@ -36,7 +36,13 @@ Keys:
     ui_density       "comfortable" (default) or "compact": spacing in tables, lists and toolbars
     ui_skin          the platform skin's id (skins.py): "kratosforge" (default) or another built-in or
                      saved skin. A skin is appearance and page arrangement only
-    ui_color_mode    "skin" (default), "light" or "dark": saved, not applied yet (the app uses the skin's light colors)
+    ui_color_mode    "skin" (default), "light" or "dark": the app's color mode (skins.js colorMode); a policy value
+                     applies even with Preview features hidden
+    editor_word_wrap  "off" (default), "notebooks", "sql" or "both": which code editors wrap long lines
+    editor_font_size  the code font in notebook cells and SQL editors, 10 to 24 px; 0 (default) keeps each
+                     editor's own size
+    editor_keys      "default" or "vim" (Preview): Vim's modal editing in cells and SQL editors
+    editor_key_overrides  a map of editor command to its key, for the commands Settings > Editor lists
     learn_mode       how much learning guidance shows beside your work (docs/learn.md): "expert"
                      findings, About and Dismiss; "professional" (default) adds a line on why and
                      Explain and Show example on request; "guided" opens Explain, adds the lesson
@@ -46,7 +52,7 @@ Keys:
                      "same" (default) follows learn_mode; "expert", "professional" or "guided"
                      overrides it for that subject. Checks and policies are the same at every level
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
-                     and crashes end only that process (default false while in preview)
+                     and crashes end only that process (default true; false runs cells inside the engine)
     cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
                      0 (default) for no limit
     kernel_memory_limit_gb   with kernel_process: gigabytes the notebook's process may use before
@@ -153,6 +159,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
@@ -163,7 +170,7 @@ from .auth import MICROSOFT_CLIENT_ID
 
 CHANNELS = ("stable", "preview")
 DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable", "show_preview": True, "support_url": "",
-                            "platform": {}, "kernel_process": False, "auto_update": True, "allow_fabric_runs": True,
+                            "platform": {}, "kernel_process": True, "auto_update": True, "allow_fabric_runs": True,
                             "allow_replay_samples": True, "allowed_tenants": [], "local_retention_days": 30, "telemetry": False,
                             "audit_retention_days": 0, "receipt_retention_days": 0,
                             "telemetry_connection_string": "",
@@ -250,6 +257,18 @@ CHOICES["ui_color_mode"] = ("skin", "light", "dark")
 DEFAULTS.update({"ui_skin": "kratosforge", "ui_color_mode": "skin"})
 TYPES.update({"ui_skin": str, "ui_color_mode": str})
 USER_KEYS += ("ui_skin", "ui_color_mode")
+# Editor settings (app/ui/editorprefs.js), for notebook cells and SQL editors. The defaults are the
+# editors as they were: no wrapping, each editor's own font size (0) and the default keys.
+CHOICES.update({"editor_word_wrap": ("off", "notebooks", "sql", "both"), "editor_keys": ("default", "vim")})
+EDITOR_FONT_SIZES = (10, 24)  # in px; 0 is each editor's own size
+EDITOR_KEY_OVERRIDES_MAX = 100
+_EDITOR_KEY = re.compile(r"^(?:(?:Mod|Ctrl|Alt|Shift|Meta)-)*[A-Za-z0-9\[\]\\;',./`=\-]$|"
+                         r"^(?:(?:Mod|Ctrl|Alt|Shift|Meta)-)*(?:F\d{1,2}|Enter|Space|Backspace|Delete|Home|End|PageUp|"
+                         r"PageDown|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|Insert)$")
+_EDITOR_COMMAND = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+DEFAULTS.update({"editor_word_wrap": "off", "editor_font_size": 0, "editor_keys": "default", "editor_key_overrides": {}})
+TYPES.update({"editor_word_wrap": str, "editor_font_size": int, "editor_keys": str, "editor_key_overrides": dict})
+USER_KEYS += ("editor_word_wrap", "editor_font_size", "editor_keys", "editor_key_overrides")
 # Learn (app/ui/learn.js): guidance beside findings. Checks run the same in every mode.
 CHOICES["learn_mode"] = ("expert", "professional", "guided")
 DEFAULTS["learn_mode"] = "professional"
@@ -277,7 +296,7 @@ INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integration
                     "integrations_editors", "receipt_redactions")
 # Read only by the shell (main.rs), which applies them itself; listed so the file has one list of
 # settings and policy_problems() can say what the shell will skip.
-SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_download_url")
+SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_download_url", "engine_folder")
 # Read by appstudio/policy.py: what App Studio may send to AI models (connections, providers, hosts, sample rows).
 APPSTUDIO_KEYS = ("appstudio_models", "appstudio_providers", "appstudio_hosts", "appstudio_sample_rows")
 POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *APPSTUDIO_KEYS, *SHELL_KEYS)
@@ -457,6 +476,8 @@ def policy_problems() -> list[str]:
             problems.extend(_sign_in_host_problems(value))
         elif key == "engine_download_url":
             problems.extend(_engine_url_problems(value, data.get("auto_update")))
+        elif key == "engine_folder":
+            problems.extend(_engine_folder_problems(value, data.get("auto_update")))
         elif key == "notebook_package_folder" and isinstance(value, str) and value:
             why = package_folder_problem(value)
             if why:
@@ -474,6 +495,11 @@ def policy_problems() -> list[str]:
             problems.append(f"channel must be one of {', '.join(CHANNELS)}")
         elif key in CHOICES and value not in (*CHOICES[key], *RENAMED.get(key, {})):
             problems.append(f"{key} must be one of {', '.join(CHOICES[key])}")
+        elif key == "editor_font_size" and value and not EDITOR_FONT_SIZES[0] <= value <= EDITOR_FONT_SIZES[1]:
+            problems.append(f"editor_font_size must be 0 (each editor's own size) or {EDITOR_FONT_SIZES[0]} to "
+                            f"{EDITOR_FONT_SIZES[1]}")
+        elif key == "editor_key_overrides" and _editor_keys_problem(value):
+            problems.append(f"editor_key_overrides {_editor_keys_problem(value)}")
         elif key == "motion_level" and not MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]:
             problems.append(f"motion_level must be between {MOTION_LEVELS[0]} and {MOTION_LEVELS[1]}")
         elif key in SQL_RANGES and not SQL_RANGES[key][0] <= value <= SQL_RANGES[key][1]:
@@ -552,6 +578,21 @@ def _engine_url_problems(value: Any, auto_update: Any) -> list[str]:
     return []
 
 
+def _engine_folder_problems(value: Any, auto_update: Any) -> list[str]:
+    """What the shell refuses in engine_folder (Preview; it reads the key and checks the folder's
+    permissions itself, engine_folder.rs). The app then doesn't start its engine, so say why here too."""
+    text = value.strip() if isinstance(value, str) else ""
+    parts = text.split("\\")
+    if not (len(text) >= 3 and text[0].isascii() and text[0].isalpha() and text[1:3] == ":\\"
+            and "/" not in text and not any(p in (".", "..") for p in parts)
+            and not any(ord(c) < 32 or ord(c) == 127 for c in text)):
+        return [(f"engine_folder: {json.dumps(value)} isn't a full folder path on this PC like "
+                 "C:\\Program Files\\KratosForge\\engine, so the engine can't start until it's fixed")]
+    if auto_update is not False:
+        return ['engine_folder is used only with "auto_update": false, so the engine can\'t start until that is set']
+    return []
+
+
 def user_can_change(path: Path) -> bool:
     """Whether the account running the app can change or replace ``path``: write it, delete it, or
     take over its permissions or its folder's (the folder's owner can do all of these). An
@@ -621,6 +662,10 @@ def _in_range(key: str, value: Any) -> bool:
         return value in CHOICES[key]
     if key == "ui_skin":
         return _skin_id(value)
+    if key == "editor_font_size":
+        return value == 0 or EDITOR_FONT_SIZES[0] <= value <= EDITOR_FONT_SIZES[1]
+    if key == "editor_key_overrides":
+        return _editor_keys_problem(value) is None
     return True
 
 
@@ -718,12 +763,36 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"motion_level must be a whole number from {MOTION_LEVELS[0]} to {MOTION_LEVELS[1]}")
         if key in LIMITS:
             new = _limit(key, new)
+        if key == "editor_font_size" and new not in (None, ""):
+            if isinstance(new, bool) or not isinstance(new, int) or (new and not EDITOR_FONT_SIZES[0] <= new <= EDITOR_FONT_SIZES[1]):
+                raise ValueError(f"editor_font_size must be 0 (each editor's own size) or a whole number from "
+                                 f"{EDITOR_FONT_SIZES[0]} to {EDITOR_FONT_SIZES[1]}")
+            new = new or None
+        if key == "editor_key_overrides" and new not in (None, ""):
+            if (why := _editor_keys_problem(new)) is not None:
+                raise ValueError(f"editor_key_overrides {why}")
+            new = new or None
         if new in (None, ""):
             user.pop(key, None)
         else:
             user[key] = new
     jsonfile.write_json(user_path(), user)  # readers see the old file or the new one, never half (QA-011)
     return load()
+
+
+def _editor_keys_problem(value: Any) -> str | None:
+    """Why ``value`` isn't an editor_key_overrides map (command id to a CodeMirror key, such as "Mod-Shift-f"),
+    or None when it is one. Which keys are free is the editor's to say (editorprefs.js); this checks the shape."""
+    if not isinstance(value, dict):
+        return f"should be a map of command to key, not {type(value).__name__}"
+    if len(value) > EDITOR_KEY_OVERRIDES_MAX:
+        return f"can change at most {EDITOR_KEY_OVERRIDES_MAX} keys"
+    for command, key in value.items():
+        if not isinstance(command, str) or not _EDITOR_COMMAND.fullmatch(command):
+            return f"has a command name that isn't one: {str(command)[:40]!r}"
+        if not isinstance(key, str) or not _EDITOR_KEY.fullmatch(key):
+            return f"has a key for {command} that isn't one, such as Mod-Shift-f: {str(key)[:40]!r}"
+    return None
 
 
 def _limit(key: str, new: Any) -> float | None:

@@ -133,6 +133,12 @@ so one mutant can't hang the run. Caches (anywhere) and a local `.venv` and buil
 temporary `sidecar/`, and `--only` names any index that isn't in the run's sample instead of quietly
 skipping it.
 
+Each mutant's tests run with no bytecode cache (`PYTHONDONTWRITEBYTECODE=1`), since #2836. Before
+that, Python could reuse the cached code of the previous mutant when the two were the same size and
+written in the same second, so a mutant could be scored as the one before it, in either direction.
+Scores from batches 1 to 77 were taken without the fix and may be off by such a mutant; batch 78 and
+later were taken with it. Two runs with the fix give the same result for every mutant.
+
 # Mutation testing, batch 2
 
 The rest of the Delta write and commit paths: MERGE, UPDATE and DELETE (`delta_dml.py`), publishing a
@@ -5274,3 +5280,271 @@ No bug was found.
 | Module | Line | Mutant | Why it stays |
 | --- | --- | --- | --- |
 | `notebook_formats_service.py` | 83 | `strict=True` to `strict=False` in `notebook_formats_import_check` | Equivalent: the names are made one for each notebook of the same list, so both sides always have the same length. |
+
+# Mutation testing, batch 76
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- Query parameters on the SQL page: finding `:name` and `{{name}}` outside strings, comments and quoted names, and reading each value as its type (`sql_params.py`).
+- Opening and saving `.sql` files on this PC from the SQL page (`sql_files.py`).
+- Reading base64 strictly, the same on every Python 3.12 patch release (`b64.py`).
+
+The run was at `main` e67fa8480 (2026-11-17), with `sidecar/tools/mutate.py` and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run. Two `sql_params.py` mutants loop for ever and are stopped at the time limit; as in earlier batches, they count as killed, before and after.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used, and no test in these sets reads `docs/`, `examples/` or `app/`. `test_shell_commands.py` also reaches `sql_files.py` but reads `docs/` and `app/`, so it was left out, which can only lower that module's "before" score.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `sql_params.py` | test_sql_params (+ test_sql_params_mutation) | 122 of 122 (113 + 9) | 83 / 39 | **68.0%** | 82/113 → 111/113 | 1/9 → 6/9 | 117 / 5 | **95.9%** | 5 equivalent |
+| `sql_files.py` | test_sql_files (+ test_sql_files_mutation) | 75 of 75 (73 + 2) | 55 / 20 | **73.3%** | 55/73 → 72/73 | 0/2 → 2/2 | 74 / 1 | **98.7%** | 1 equivalent |
+| `b64.py` | test_b64 (+ test_b64_mutation) | 17 of 17 (16 + 1) | 14 / 3 | **82.4%** | 13/16 → 15/16 | 1/1 → 1/1 | 16 / 1 | **94.1%** | 1 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **sql_params.py**:
+  - At most 50 parameters of at most 4,000 characters each: 50 and 4,000 are taken, 51 and 4,001 refused.
+  - Each malformed parameter list is refused by name: not a list, an entry that isn't `{name, type, value}`, a name that isn't text or isn't letters, digits and `_`, a value that isn't text.
+  - Finding names and writing `{{name}}` as `:name` read Spark SQL by default, where `[...]` isn't a quoted name; a positional query reads T-SQL by default, where it is.
+  - Strings and comments end exactly where they end: a string at the very start, `/*/` opening a comment, the shortest comment, a parameter just before or just after a comment ends, a string that never ends, `''` and `\'` inside a string, a doubled quote right before the closing one, a string closing on the last character, and a parameter right after a string.
+  - A backslash is an ordinary character in a T-SQL string.
+  - → `test_sql_params_mutation.py`.
+- **sql_files.py**:
+  - The limit is 5 MB: a file or a save of exactly 5 MB is taken, one byte more is refused, and the refusal names 5 MB.
+  - A folder named `.sql` isn't a file.
+  - A save with text that isn't text, another encoding or another line ending is refused and writes nothing.
+  - A Windows reparse point (a junction, a mount point) is refused as a link; a stat result without file attributes, or a Python without the reparse-point constant, reads nothing as one.
+  - → `test_sql_files_mutation.py`.
+- **b64.py**:
+  - A character outside the alphabet is refused even where skipping it would decode.
+  - Padding followed by data is refused without the standard library's help, and no padding at all is fine.
+  - → `test_b64_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `sql_params.py` | 34 | `j < 0` to `j < 1`, and to `j <= 0` | Equivalent: `j` is where the line break after a `--` is found, searching from the `--` itself, so it is at least 2 when found and -1 when not; it is never 0. |
+| `sql_params.py` | 37 | `j < 0` to `j < 1`, and to `j <= 0` | Equivalent: the same for the `*/` after a `/*`, searched from 2 past it. |
+| `sql_params.py` | 65 | `a <= at` to `a < at` | Equivalent: a span starts at a quote, `-`, `/` or `[`, and a parameter starts at `:` or `{`, so a parameter never starts where a span does. |
+| `sql_files.py` | 50 | `return False` dropped (returns `None`) | Equivalent: the result is only used as a condition, where `None` and `False` act the same. |
+| `b64.py` | 20 | `pad < len(text) - 2` to `- 3` | Equivalent: the two differ only when `=` is the third character from the end, and then what follows it is three characters, never `=` or `==`, so the next test refuses it either way. |
+
+# Mutation testing, batch 77
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- Power BI reports, paginated reports and dashboards shown in the app: their embed addresses, the sign-in token's expiry and what each kind can do (`powerbi_embed.py`).
+- Git repository addresses: which are accepted, the folder a clone gets, and the links to the repository, branch, commit and pull requests (`git/remote.py`).
+- Notebook environments and packages: listing, attaching, installing and removing, and the organization settings that allow or stop a package install (`environment_service.py`).
+
+The run was at `main` d177fe5b4 (2026-11-17), with `sidecar/tools/mutate.py` and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. `git/remote.py` has 185 mutants, so 150 were sampled; the other two have fewer than 150, so all were run.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used. `test_rpc_surface.py` reads `app/`, so it was left out of the `environment_service.py` set; no other test in these sets reads `docs/`, `examples/` or `app/`.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `powerbi_embed.py` | test_powerbi_embed, test_powerbi_embed_service_edges, test_credential_expiry (+ test_powerbi_embed_mutation) | 84 of 84 (84 + 0) | 58 / 26 | **69.0%** | 58/84 → 84/84 | none | 84 / 0 | **100%** | none |
+| `git/remote.py` | test_git_remote_links, test_git (+ test_git_remote_mutation) | 150 of 185 (143 + 7) | 129 / 21 | **86.0%** | 124/143 → 143/143 | 5/7 → 7/7 | 150 / 0 | **100%** | none |
+| `environment_service.py` | test_environments, test_fabric_environment, test_shared_sessions (+ test_environment_service_mutation) | 58 of 58 (58 + 0) | 42 / 16 | **72.4%** | 42/58 → 58/58 | none | 58 / 0 | **100%** | none |
+
+No bug was found.
+
+### What the survivors were, and the tests that now kill them
+
+- **powerbi_embed.py**:
+  - Each kind (report, paginated report, dashboard) has exactly its own list of what it can do, the events it sends and its limits.
+  - An error from Power BI other than 401, 403 or 404 comes through with its own status.
+  - A token already past its expiry has 0 seconds left, not a negative count.
+  - The expiry is read from a token whatever padding its claims need.
+  - A report or dashboard keeps the id, name and model Power BI gives, and falls back to the asked id and empty text when they are missing; so do a dashboard's tiles.
+  - An item with no type is called "this item" in the message.
+  - → `test_powerbi_embed_mutation.py`.
+- **git/remote.py**:
+  - An empty or blank address asks for one, an http address is refused with the reason, and a file address is kept as given.
+  - A sign-in name in the address of 30 characters or more, or starting like a GitHub token, is refused; 29 characters is accepted.
+  - A clone folder is named from the last part of an scp, https or Windows address.
+  - An address with no server has no host.
+  - GitHub, Bitbucket and GitLab addresses name their owner and repository, including GitLab's nested groups.
+  - An Azure DevOps address needs both a project and a repository, on either host name.
+  - Links with no branch have no branch or pull request links, and Azure DevOps links name the branch, commit and target branch.
+  - An address with only a password shows without it.
+  - → `test_git_remote_mutation.py`.
+- **environment_service.py**:
+  - Each organization setting that stops a package install (packages turned off, a package folder setting that can't be used, no PyPI and no folder) stops it with its own message, before anything starts.
+  - The package source is named for each combination of folder and PyPI settings, and an unset folder is no folder.
+  - Packages are allowed unless the setting is false.
+  - Removing packages starts a removal job, and a job is read as given.
+  - A new environment made for a notebook has a name of at most 50 characters.
+  - Attaching an environment looks up the notebook's session without making one.
+  - Only a process kernel for a named notebook gets the notebook's packages.
+  - → `test_environment_service_mutation.py`.
+
+# Mutation testing, batch 78
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. None of the three has a `<`, `<=`, `>` or `>=` comparison, so there are no boundary mutants this time.
+- Moving surrogate keys from LH_Keys into the platform's keys database, keeping or renumbering them, and checking the copy (`central/migrate.py`).
+- The demonstration fixture, turned into what Fabric's definition and job instance APIs return (`opportunities/fixture.py`).
+- Trust badges: reading endorsement with Fabric's admin tenant scan, and a product's semantic models and reports (`central/trust_service.py`).
+
+The run was at `main` 5279c61dc (2026-11-17), with `sidecar/tools/mutate.py` and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run.
+
+Every run in this batch, before and after, was made with `PYTHONDONTWRITEBYTECODE=1`. Without it, a mutant could be imported from the previous mutant's cached bytecode when the two have the same size and are written in the same second, so it took that mutant's result ([#2836](https://github.com/kratosdatagod/fabric-desktop/issues/2836)). With it, two runs gave the same result for every mutant.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against each module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used, and no test in these sets reads `docs/`, `examples/` or `app/`. `test_opportunities.py` also reaches `fixture.py` but reads `docs/`, so it was left out, which can only lower that module's "before" score.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `central/migrate.py` | test_central_migrate_edges (+ test_central_migrate_mutation) | 21 of 21 (21 + 0) | 17 / 4 | **81.0%** | 17/21 → 21/21 | none | 21 / 0 | **100%** | none |
+| `opportunities/fixture.py` | test_opportunities_share (+ test_opportunities_fixture_mutation) | 16 of 16 (16 + 0) | 8 / 8 | **50.0%** | 8/16 → 16/16 | none | 16 / 0 | **100%** | none |
+| `central/trust_service.py` | test_trust_badges, test_trust_service_edges (+ test_trust_service_mutation) | 53 of 53 (53 + 0) | 48 / 5 | **90.6%** | 48/53 → 53/53 | none | 53 / 0 | **100%** | none |
+
+No bugs were found in these modules. One was found in the mutation tool itself (#2836, above).
+
+### What the survivors were, and the tests that now kill them
+
+- **central/migrate.py**:
+  - Keys go to the platform in calls of 5,000, in order, with none left out: 12,001 keys go as 5,000, 5,000 and 2,001, and exactly 5,000 go in one call.
+  - An answer without a count counts nothing as copied.
+  - At most ten differing keys are listed, though every one of them counts against the match.
+  - Renumbered counts add up across tables, and a table without one adds nothing.
+  - → `test_central_migrate_mutation.py`.
+- **opportunities/fixture.py**:
+  - A notebook becomes an nbformat 4.5 `.ipynb` part, cell by cell, with its default lakehouse.
+  - A pipeline becomes one inline part.
+  - Daily runs go back one day at a time from the day before, each at 06:00:00 whatever the time of day the fixture is dated, and each ends its own number of seconds after it starts; one daily run is one run, and no schedule is none.
+  - The loaded demonstration has every scheduled run of every item, and only the price fields it uses.
+  - → `test_opportunities_fixture_mutation.py`.
+- **central/trust_service.py**:
+  - A published product's semantic models and reports are scanned with their own workspaces and reported by name.
+  - A draft product's semantic models and reports aren't scanned.
+  - A group entry for an item already behind one of the product's ports keeps the port's details.
+  - A group entry without a name is reported by its id, and fields it leaves out are recorded as blank.
+  - → `test_trust_service_mutation.py`.
+
+### Left
+
+Nothing is left: every mutant in the three modules is killed.
+
+# Mutation testing, batch 79
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- Your own SQL templates on the Warehouse page: reading and writing a template file, the places a template is kept, and saving, importing, exporting and deleting one (`sql_templates_service.py`).
+- Comments on notebook cells: adding, replying, editing, deleting and resolving, line ranges, and who wrote a comment (`comments_service.py`).
+- Metadata runs on Fabric capacity: the bundle the app uploads, the runner notebook, its run parameters, and the run inside Fabric (`fabric_compute.py`).
+
+The run was at `main` 1b1e47552 (2026-11-17), with `sidecar/tools/mutate.py` as fixed in #2839, so each mutant ran without a bytecode cache, and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run. One `sql_templates_service.py` mutant and two `comments_service.py` mutants loop for ever and are stopped at the time limit; as in earlier batches, they count as killed, before and after.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used, and no test in these sets reads `docs/`, `examples/` or `app/`.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `sql_templates_service.py` | test_sql_templates, test_sql_templates_edges, test_sql_queries_edges, test_sql_queries_mutation, test_file_replace (+ test_sql_templates_mutation) | 140 of 140 (132 + 8) | 112 / 28 | **80.0%** | 112/132 → 132/132 | 0/8 → 8/8 | 140 / 0 | **100%** | none |
+| `comments_service.py` | test_notebook_comments, test_notebook_comments_edges, test_regex_anchors (+ test_notebook_comments_mutation) | 138 of 138 (131 + 7) | 121 / 17 | **87.7%** | 118/131 → 130/131 | 3/7 → 6/7 | 136 / 2 | **98.6%** | 2 equivalent |
+| `fabric_compute.py` | test_fabric_compute, test_fabric_compute_edges, test_landing_zones, test_fips (+ test_fabric_compute_mutation) | 59 of 59 (59 + 0) | 49 / 10 | **83.1%** | 49/59 → 59/59 | none | 59 / 0 | **100%** | none |
+
+No bug was found.
+
+### What the survivors were, and the tests that now kill them
+
+- **sql_templates_service.py**:
+  - A title of 100 characters, a group or description of 200, and a template file of exactly 64 KB are taken; one more is refused, with the limit in the message.
+  - A place with exactly 200 templates lists them all with no note; with 201 the note says so.
+  - A file that is only header lines has no SQL, and a line of spaces right after the header is dropped.
+  - A template saved without saying so isn't an endpoint template, and a file that can't be read is never listed as one.
+  - Editing a template returns the file it wrote.
+  - An import that isn't text, or is over 64 KB, is refused with its own message.
+  - A repository place is labelled by its name, or by its folder when it has none, and one that no longer exists isn't a place.
+  - A link inside a place to another template there is still refused.
+  - An export is named after the template, then numbered from 2; new names are tried up to 999 and no further.
+  - → `test_sql_templates_mutation.py`.
+- **comments_service.py**:
+  - A comment of 4,000 characters, a notebook's 500th thread and a thread's 200th comment are taken; one more is refused, with the limit in the message.
+  - A thread keeps the first 500 characters of its lines, and ids are 12 hexadecimal characters.
+  - A range of one line, or of all of them, is taken; one from line 0, one that runs backwards, or one of `true` or text is refused.
+  - Signed out with nobody known to the sign-in, a comment is written as this PC.
+  - Resolve resolves unless told otherwise.
+  - This PC's id is made together with its folder, and a second first comment waits for the first one's id.
+  - → `test_notebook_comments_mutation.py`.
+- **fabric_compute.py**:
+  - The bundle's `config.json` is sorted and indented, so the same settings always give the same bundle hash.
+  - The runner notebook is nbformat 4.5.
+  - Run parameters send empty text for no entities and no backfill.
+  - One entity runs alone unless cascade is asked for, and the backfill asked for reaches the engine.
+  - The results folder is made with its parents, and the results file is indented.
+  - A temporary copy that can't all be removed never fails a finished run.
+  - → `test_fabric_compute_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `comments_service.py` | 110 | `return ""` dropped (returns `None`) | Equivalent: this PC's id is only used as a condition and in `f"pc:{pc}" if pc else ""`, where `None` and `""` act the same. |
+| `comments_service.py` | 127 | `time.monotonic() > deadline` to `>=` | Equivalent: the wait stops at the deadline either way. The two differ only if the clock reads exactly the deadline, and then the next read, 20 ms later, is past it. |
+
+# Mutation testing, batch 80
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds.
+- Connections for the Data Factory page: the cloud and gateway connections the person can use, and what uses each one in each environment's workspace (`fabric_connections_service.py`).
+- Pipeline, copy job and dataflow runs for Monitor > Runs, and one run's activities (`fabric_pipeline_runs_service.py`).
+- The Direct Lake check's service half: a Delta table's numbers from its log and Parquet footers, relationship keys, and the check itself (`model_directlake_service.py`).
+
+The run was at `main` 1b1e47552 (2026-11-17), with `sidecar/tools/mutate.py` and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`), so every run was made with `PYTHONDONTWRITEBYTECODE=1`. Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against each module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used, and no test in these sets reads `docs/`, `examples/` or `app/`.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `fabric_connections_service.py` | test_fabric_connections, test_fabric_connections_service_edges, test_workspace_dataflows (+ test_fabric_connections_mutation) | 79 of 79 (79 + 0) | 70 / 9 | **88.6%** | 70/79 → 78/79 | none | 78 / 1 | **98.7%** | 1 equivalent |
+| `fabric_pipeline_runs_service.py` | test_fabric_pipeline_runs, test_fabric_pipeline_runs_service_edges, test_remote_text_lines (+ test_fabric_pipeline_runs_mutation) | 105 of 105 (104 + 1) | 84 / 21 | **80.0%** | 84/104 → 100/104 | 0/1 → 1/1 | 101 / 4 | **96.2%** | 4 equivalent |
+| `model_directlake_service.py` | test_model_directlake, test_model_directlake_service_edges (+ test_model_directlake_service_mutation) | 104 of 104 (101 + 3) | 92 / 12 | **88.5%** | 91/101 → 100/101 | 1/3 → 2/3 | 102 / 2 | **98.1%** | 2 equivalent |
+
+No bugs were found in these modules.
+
+### What the survivors were, and the tests that now kill them
+
+- **fabric_connections_service.py**:
+  - A connection row keeps its path and privacy level as Fabric gives them, and a connection without details has empty fields.
+  - Environments come in the order dev, test, prod, then any other environment by name.
+  - At most 500 definitions are read in one scan, and the rest are counted as skipped.
+  - The scan runs on a daemon thread with the three tokens.
+  - A long workspace or item id in what was missed is cut to 100 characters.
+  - → `test_fabric_connections_mutation.py`.
+- **fabric_pipeline_runs_service.py**:
+  - Times are parsed to the exact microsecond, and a value that isn't text is no time.
+  - A duration is rounded to the millisecond.
+  - Activity text is capped at 16,000 characters: exactly 16,000 isn't marked as cut, and an empty value isn't either.
+  - Activity JSON is indented by two spaces and keeps letters such as ü as they are.
+  - An activity row keeps its start and end times, and an error with only a code is still shown.
+  - A run with no times is looked up over the last day, with five minutes either side.
+  - At most 20 runs per item and 300 in all are listed, newest first.
+  - The scan runs on a daemon thread, and a long id in what was missed is cut to 100 characters.
+  - → `test_fabric_pipeline_runs_mutation.py`.
+- **model_directlake_service.py**:
+  - Row groups are sampled across the table, every second file when half the footers are read, and the total is scaled up.
+  - Row groups are exact when every footer is read.
+  - At most 200 footers are read by default.
+  - A Delta log without record counts leaves the row count unknown.
+  - A relationship whose key types differ isn't matched row by row.
+  - A model with no Direct Lake tables reports no findings and zero counts, and a model that isn't there is named with its workspace.
+  - → `test_model_directlake_service_mutation.py`.
+
+### Left
+
+- **fabric_connections_service.py**, 1 equivalent: the thread pool's 8 workers becoming 9 changes how many definitions are read at once, not what the scan finds.
+- **fabric_pipeline_runs_service.py**, 4 equivalent:
+  - The thread pool's 8 workers becoming 9, as above.
+  - The fraction rewrite's `count=1` becoming `0` (every match): a time has only one fraction, and an offset has no dot.
+  - Keeping 7 fractional digits instead of 6, or padding to 7: on Python 3.11 and later, `fromisoformat` takes any number of digits and drops those past the sixth, so the time is the same.
+- **model_directlake_service.py**, 2 equivalent:
+  - `get_add_actions(flatten=False)`: in deltalake 1.6.6 the path, size and record count are top-level columns either way.
+  - `len(sample) < len(paths)` becoming `<=`: when every file is read, the count scaled by the same number of files is the count itself.

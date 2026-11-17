@@ -110,6 +110,9 @@ def main(argv: list[str] | None = None) -> None:
     smoke.add_argument("--platform-upgrade", action="store_true",
                        help="with --platform: start from the platform a previous build made in the test workspace; "
                             "its items are taken over and deleted at the end, unless --platform-keep")
+    smoke.add_argument("--warehouse",
+                       help="also run flow 17 (WR-218): the local T-SQL cases against this Warehouse item in the test "
+                            "workspace, in a scratch schema it drops at the end; uses the warehouse's capacity")
     smoke.add_argument("--platform-keep", action="store_true",
                        help="with --platform: leave the platform in place to look at; delete it by hand afterwards")
     drift = sub.add_parser("env-drift", help="compare a Fabric Environment item's published libraries and runtime "
@@ -461,8 +464,9 @@ def _smoke_test(args: argparse.Namespace) -> int:
     if args.dry_run:
         print("The smoke test will:")
         dry_platform = (lambda out: None) if args.platform else None
+        dry_warehouse = (lambda out: None) if args.warehouse else None
         dry = smoketest.SmokeTest(args.workspace, None, None, Path(args.out), run_in_fabric=args.run_in_fabric,
-                                  platform_test=dry_platform)
+                                  platform_test=dry_platform, warehouse_check=dry_warehouse)
         for step in dry.plan():
             print(f"  - {step}")
         if args.platform:
@@ -471,6 +475,15 @@ def _smoke_test(args: argparse.Namespace) -> int:
                                                   client=lambda ws, fid: None, run_id=dry.run_id,
                                                   upgrade=args.platform_upgrade, keep=args.platform_keep).plan():
                 print(f"  - {step}")
+        if args.warehouse:
+            from . import warehouse_livecheck
+            check = warehouse_livecheck.WarehouseCheck(args.workspace, args.warehouse, None, None,
+                                                       dry.dir / "warehouse", run_id=dry.run_id)
+            print("The warehouse check will:")
+            for step in check.plan():
+                print(f"  - {step}")
+            for problem in warehouse_livecheck.problems(check.cases, check.scratch):
+                print(f"  ! Refused before connecting: {problem}")
         print("The live test it runs will:")
         for step in livetest.LiveTest(args.workspace, None, None, None, Path(args.out), bad_token_files=object(),
                                       extra=set(livetest.ALL_CHECKS), run_in_fabric=args.run_in_fabric).plan():
@@ -497,9 +510,20 @@ def _smoke_test(args: argparse.Namespace) -> int:
                                          keep=args.platform_keep,
                                          pause=None if args.yes else lambda text: input(f"{text}\n"))
 
+    def warehouse(out: Path) -> object:
+        from . import warehouse as wh
+        from . import warehouse_livecheck
+
+        def connect() -> object:
+            end = wh.resolve(fabric, {"workspace_id": args.workspace, "item_id": args.warehouse, "kind": "warehouse"})
+            return wh.open_connection(end.server, end.database, credential.warehouse_token)
+        return warehouse_livecheck.WarehouseCheck(args.workspace, args.warehouse, fabric, connect, out,
+                                                  protected_ids=livetest.policy_workspace_ids())
+
     test = smoketest.SmokeTest(args.workspace, credential, fabric, Path(args.out), live_test=live,
                                run_in_fabric=args.run_in_fabric, client_id=client_id,
-                               platform_test=platform if args.platform else None)
+                               platform_test=platform if args.platform else None,
+                               warehouse_check=warehouse if args.warehouse else None)
     print("The smoke test will:")
     for step in test.plan():
         print(f"  - {step}")

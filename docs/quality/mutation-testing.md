@@ -5722,3 +5722,142 @@ No bug was found.
 | `dbutils_local.py` | 76 | default `recurse=False` to `True` in `fs.mv` | Equivalent: `recurse` is not used, because folders move whole. |
 | `dbutils_local.py` | 292 | default `precise=False` to `True` in `data.summarize` | Equivalent: `precise` is not used. |
 | `dbutils_local.py` | 86 | `cp` checks its first 2 arguments as paths, to 3 | Equivalent in practice: the third argument of `cp` is `recurse`, a flag, which the path check lets through. |
+
+# Mutation testing, batch 84
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- Engines that run in a Python runtime of their own: locked installs, the worker's environment, the CLI lookup and the worker session (`engines/runtimes.py`).
+- Optimize results waiting on this PC for a central lakehouse that couldn't be reached (`optimize/outbox.py`).
+- Estate X-ray: the scan over every lakehouse, its findings, their ranking and what a scan shares (`xray.py`).
+
+The run was at `main` e9097a765 (2026-11-17), with `sidecar/tools/mutate.py` as fixed in #2839, so each mutant ran without a bytecode cache, and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. `optimize/outbox.py` has fewer than 150 mutants, so all were run; the other two were sampled to 150. `engines/runtimes.py` and `optimize/outbox.py` have no `<`, `<=`, `>` or `>=` comparison, so they have no boundary mutants. Nothing merged to `main` between that run and this section touches these modules or their tests.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used, and no test in these sets reads `docs/`, `examples/` or `app/`. For `optimize/outbox.py`, the store-wide tests were given by node id, so only their outbox case ran: the crash-kill test, the durability test and one awkward-path test.
+
+A mutant whose run times out counts as killed, as in earlier batches.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `engines/runtimes.py` | test_runtimes, test_runtimes_edges, test_programs_from_path_only, test_dbconnect, test_engine_conformance (+ test_runtimes_mutation) | 150 of 162 (150 + 0) | 124 / 26 | **82.7%** | 124/150 → 150/150 | none | 150 / 0 | **100%** | none |
+| `optimize/outbox.py` | test_optimize_outbox, test_optimize_service, test_optimize_service_edges, test_optimize_service_mutation, test_optimize_share_analysis, test_store_upgrades, the outbox cases of test_store_crash_kills, test_sqlite_durability and test_awkward_paths (+ test_optimize_outbox_mutation) | 70 of 70 (70 + 0) | 58 / 12 | **82.9%** | 58/70 → 69/70 | none | 69 / 1 | **98.6%** | 1 equivalent |
+| `xray.py` | test_xray, test_xray_edges, test_xray_staging, test_optimize_service (+ test_xray_mutation) | 150 of 169 (142 + 8) | 95 / 55 | **63.3%** | 95/142 → 138/142 | 0/8 → 8/8 | 146 / 4 | **97.3%** | 4 equivalent |
+
+No bug was found.
+
+### What the survivors were, and the tests that now kill them
+
+- **engines/runtimes.py**:
+  - The time limits are 20 minutes for an install, 2 hours for a cell and 10 seconds to stop after a cancel.
+  - pip runs hidden, with its output captured as text, never raising on a failed exit, and its log is whatever it printed on either stream, cut to the last 20,000 characters.
+  - A CLI file that can't be run isn't used.
+  - The worker starts hidden, with text pipes, in a session of its own outside Windows, and its reader thread never keeps the app open.
+  - Cells are numbered from 1, and only that cell's result or error answers it.
+  - A closed session refuses a cell, and after a cell there is nothing to cancel.
+  - A cell's time is from its start to its answer, and a wait or a cell that runs out names its limit in minutes.
+  - Closing asks a process that still runs to quit, does nothing when it has ended and the session is closed, and always marks the session closed.
+  - → `test_runtimes_mutation.py`.
+- **optimize/outbox.py**:
+  - The default limits are 200 items and 30 days, an age in days is counted in seconds, and a cap below 1 still keeps the newest item.
+  - One trim that drops an item for its age and one past the cap counts both.
+  - A failure inside a write undoes it and is raised.
+  - Each failure doubles the wait, to the second, and the wait stops growing at an hour.
+  - A lakehouse never seen has dropped nothing.
+  - An error is kept to its first 500 characters when an item is added, fails or is dropped.
+  - → `test_optimize_outbox_mutation.py`.
+- **xray.py**:
+  - The thresholds are the documented ones, each tested at its edge: 200 small files is high, 30 days without a write is stale, 30 versions suggests a vacuum, a cost from a cent is listed and from $10 is medium, and only the five costliest notebooks are listed.
+  - Only small-files advice makes a small-files finding, and a kilobyte is shown as one.
+  - A staging name dated up to a day ahead can be the newest, and one a second later can't.
+  - Findings of one severity rank by kind before title, more files rank first, and `counts` counts each kind.
+  - A scanner reads 8 at a time, and reports its progress from 0 and every tenth table.
+  - A scan reads at most `MAX_TABLES` and says when it stopped, and each lakehouse row adds up its tables.
+  - A table whose log can't be read adds nothing and isn't called unidentified, and a health without sizes counts as none.
+  - Only a lakehouse with neither tables nor files is empty, and one that can't be listed is skipped, not called empty.
+  - What a scan shares leaves out people, costs and findings without a lakehouse, and names a table without a schema by its name alone.
+  - → `test_xray_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `optimize/outbox.py` | 193 | the attempts cap in the backoff, 16 to 17 | Equivalent: from 6 attempts the wait is already past the one-hour cap, so a higher exponent changes nothing. |
+| `xray.py` | 49 | `return str(n)` dropped in `_size` | Equivalent: the loop always returns at TB, so the line is never reached. |
+| `xray.py` | 75 | default versions since vacuum 0 to 1 | Equivalent: both are below the 30 that suggests a vacuum. |
+| `xray.py` | 179 | the rank of an unknown kind, 9 to 10 | Equivalent: both rank after every known kind, the last of which is 8. |
+| `xray.py` | 274 | `zip(..., strict=True)` to `strict=False` | Equivalent: the lakehouses walked and their listings are always the same length. |
+
+# Mutation testing, batch 85
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- The Python engine's session on this PC: its own kernel process behind the engine contract (`engines/local_python.py`).
+- Notebook steps of a local pipeline run, in a fresh kernel with the proof runtime bound (`pipeline_notebooks.py`).
+- The DataFrame methods added for Fabric notebook parity: `freqItems`, `inputFiles`, `to`, `withMetadata` and `writeTo` (`spark_df_more.py`).
+
+The run was at `main` 92c08926f (2026-11-17), with `sidecar/tools/mutate.py` as fixed in #2839, so each mutant ran without a bytecode cache, and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used, and no test in these sets reads `docs/`, `examples/` or `app/`.
+
+The first `spark_df_more.py` run used only `test_spark_df_more` and `test_spark_api_mutation`. Three more test files also call the module (`test_spark_api_fails_cleared`, `test_prove_spark`, `test_prove_spark_install`), so it was run again with them, and the "before" figures below are from that run.
+
+A mutant whose run times out counts as killed, as in earlier batches.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `engines/local_python.py` | test_engines, test_engine_registry_mutation (+ test_local_python_mutation) | 50 of 50 (49 + 1) | 46 / 4 | **92.0%** | 45/49 → 49/49 | 1/1 → 1/1 | 50 / 0 | **100%** | none |
+| `pipeline_notebooks.py` | test_pipeline_notebooks, test_pipeline_notebooks_edges, test_pipeline_script, test_fabric_step, test_notebook_cells, test_pipeline_data (+ test_pipeline_notebooks_mutation) | 140 of 140 (138 + 2) | 122 / 18 | **87.1%** | 121/138 → 138/138 | 1/2 → 2/2 | 140 / 0 | **100%** | none |
+| `spark_df_more.py` | test_spark_df_more, test_spark_api_mutation, test_spark_api_fails_cleared, test_prove_spark, test_prove_spark_install (+ test_spark_df_more_mutation) | 109 of 109 (107 + 2) | 76 / 33 | **69.7%** | 76/107 → 106/107 | 0/2 → 2/2 | 108 / 1 | **99.1%** | 1 equivalent |
+
+One bug was found, in `spark_df_more.py`, and is marked `xfail` in `test_spark_df_more_mutation.py` until it is fixed:
+- `inputFiles` leaves out a file when any part of its path contains `_delta_log`, not only the Delta log folder itself. So a plain folder named, for example, `orders_delta_log_archive` lists no files.
+
+### What the survivors were, and the tests that now kill them
+
+- **engines/local_python.py**:
+  - A kernel's first reply with no version is polled from -1, and one with a version is polled from it.
+  - A cell's seconds are the time between its start and its end.
+  - The engine has no catalog, and says to use the Data panel instead.
+  - The process adapter describes the Python engine and makes its session's kernel with the factory it was given.
+  - → `test_local_python_mutation.py`.
+- **pipeline_notebooks.py**:
+  - Only text names map activities to notebooks.
+  - Two notebook steps run at once, and a third waits.
+  - A cell that isn't contained needs `allow_uncontained`, which is off unless asked for.
+  - A step reports its seconds to the millisecond.
+  - Stopping a run stops only the kernels still alive.
+  - The notes:
+    - A run with no steps and no lakehouse has only the notes added after it.
+    - A count of steps reads "1 notebook step" or "2 notebook steps".
+    - A lakehouse is named by its name, or by its id when it has none.
+  - An unmapped step names the notebook id it runs, or says it has none.
+  - A cell with no deadline never times out, and one with a deadline times out only once the deadline has passed.
+  - A failed cell names the error and its value, or the cell's status when there is no error output. Its message is cut at 2,000 characters.
+  - A step on a lakehouse binds the proof runtime with the run's id, the pinned versions and seed 0, and reports the tables it wrote and the run's folder.
+  - → `test_pipeline_notebooks_mutation.py`.
+- **spark_df_more.py**:
+  - `freqItems` takes one name or a non-empty list of names.
+  - Its `support` runs from 1e-4 to 1, both ends included.
+  - It quotes a column name with a double quote in it.
+  - It replaces a view left from before.
+  - `inputFiles`:
+    - A plan DuckDB can't write as SQL reads no files.
+    - A folder lists its files in every subfolder and never a folder.
+    - A Delta folder lists only the files its log names. Remote file URIs are kept as they are, and a relative one is joined to the folder.
+    - An unreadable Delta log lists the data files and not the log.
+    - A glob lists what it matches, and `**` reaches any depth.
+    - A path scanned twice is listed once, with its quote unescaped.
+  - `to` takes only a StructType or a DDL string, and `withMetadata` takes only a dict.
+  - `select` keeps alias metadata when the columns come as a list.
+  - A sort by a column nothing has raises DuckDB's error.
+  - The select and sort wrappers are installed once, keep the docs, and leave the schema property as it was when installed again.
+  - `writeTo` chains through `tableProperty`, `partitionedBy`, `clusterBy` and `options`, and says what each ignored setting does.
+  - → `test_spark_df_more_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `spark_df_more.py` | 67 | `m.group(1)` to `m.group(0)` in `inputFiles` | Equivalent: the whole match adds only the scan's name and its opening bracket, which hold no quoted text, so the quoted paths found are the same. |

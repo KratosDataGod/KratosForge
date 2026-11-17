@@ -6292,24 +6292,34 @@ test("the diagram's SVG escapes names and has nothing the engine's export refuse
     "aria-label", "x", "y", "rx", "fill", "stroke", "stroke-width", "stroke-dasharray", "d"].includes(a)), []);
 });
 
-// WR-614 (QA-020): untested = Preview. Every UI call that writes to Fabric or OneLake is listed here, either
-// with the Preview tag its file puts on that step, or with the docs/live-testing.md check that has run it on a
-// tenant. A tag moves to a live check (or goes) once a live run records the step. A UI call whose name looks
-// like a Fabric write (FABRIC_WRITE_NAME) must be listed, or named in NOT_A_FABRIC_WRITE with why.
+// WR-614 (QA-020): untested = Preview. Every engine method the UI calls that changes Fabric or OneLake (the
+// "Fabric or OneLake" rows of docs/audits/AUTHORIZATION_MATRIX.md, generated from the engine) is listed in
+// exactly one place: FABRIC_WRITES, with the Preview tag on the step that makes the call or the
+// docs/live-testing.md check that has run it on a tenant; FABRIC_READS, with why it changes nothing in Fabric;
+// or NOT_YET, the known untested writes that still need a tag or a live run. A new method fails until listed.
+// A UI call whose name looks like a Fabric write (FABRIC_WRITE_NAME) must be listed too, matrix or not.
 const FABRIC_WRITES = {
-  // [file, Preview tag id or null, live-testing.md check or null]
+  // [file that calls it, Preview tag id ("page": the file is a Preview page with its heading tagged) or null,
+  //  live-testing.md check or null, where the tag is when not in that file ("file.js" or "file.js: text")]
   create_lakehouse: ["app.js", null, "Create a schema-enabled lakehouse"],
   publish_notebook: ["app.js", null, "notebook.publish"],
   readiness_write_test: ["settings.js", null, "Write, list, read and delete a file in OneLake"],
-  run_notebook_in_fabric: ["app.js", "fabricRun", "notebook.run"],
+  start_cell: ["notebook.js", null, "delta.concurrent"], // notebook writes go through the path that check runs
+  run_notebook_in_fabric: ["app.js", "fabricRun", "notebook.run", "meta.js"],
   run_notebook_fabric_step: ["fabricstep.js", "fabricStep", null],
   cancel_fabric_run: ["activity.js", "cancelFabricRun", null],
-  add_notebook_schedule: ["app.js", "schedules", null], // from notebook.js, under preview("schedules")
-  delete_notebook_schedule: ["app.js", "schedules", null],
+  add_notebook_schedule: ["app.js", "schedules", null, "notebook.js"],
+  delete_notebook_schedule: ["app.js", "schedules", null, "notebook.js"],
   notebook_batch_fabric: ["home-notebooks.js", "runSeveral", null],
+  notebook_validate_start: ["validate.js", "validate", null],
   side_by_side_start: ["sidebyside.js", "sideBySide", null],
+  side_by_side_cancel: ["sidebyside.js", "sideBySide", null],
   prove_start: ["prove.js", "prove", null],
+  prove_cancel: ["prove.js", "prove", null],
+  prove_verify: ["prove.js", "prove", null],
   prove_delete_outputs: ["prove.js", "prove", null],
+  replay_start: ["replay.js", "replay", null, "app.js"],
+  replay_delete_outputs: ["replay.js", "replay", null, "app.js"],
   meta_run: ["meta.js", "fabricRun", null],
   meta_promote: ["meta.js", "promote", null],
   meta_rollback: ["dataops.js", "rollback", null],
@@ -6320,23 +6330,85 @@ const FABRIC_WRITES = {
   platform_keys_setup: ["mesh.js", "createWorkspace", null],
   platform_setup: ["mesh.js", "createWorkspace", null],
   meta_keys_sync: ["meta.js", "syncKeys", null],
+  meta_keys_to_platform: ["mesh.js", "platform", null],
+  meta_keys_to_lakehouse: ["mesh.js", "platform", null],
   meta_publish_varlib: ["estate.js", "varlib", null],
   meta_replay: ["dataops.js", "quarantineReplay", null],
   meta_discard_quarantine: ["dataops.js", "quarantineReplay", null],
-  meta_restore: ["estate.js", "history", null], // opened from the History button, preview("history") in meta.js
+  meta_restore: ["estate.js", "history", null, "meta.js"], // the History button opens the restore dialog
   meta_model_ossie_import: ["meta.js", "ossie", null],
-  create_shortcut: ["shortcuts.js", "shortcuts", null],
-  delete_shortcut: ["shortcuts.js", "shortcuts", null],
+  access_set_role: ["estate.js", "access", null, "app.js"], // the OneLake > Access tab
+  access_save_role: ["estate.js", "access", null, "app.js"],
+  access_delete_role: ["estate.js", "access", null, "app.js"],
+  create_shortcut: ["shortcuts.js", "shortcuts", null, "app.js"], // the OneLake > Shortcuts tab
+  delete_shortcut: ["shortcuts.js", "shortcuts", null, "app.js"],
+  shortcut_undo: ["shortcuts.js", "shortcuts", null, "app.js"],
   shortcut_repoint: ["shortcuts.js", "shortcutFixes", null],
+  shortcut_repoint_many: ["shortcuts.js", "shortcutFixes", null],
   xray_optimize: ["xray.js", "xray", null],
   xray_vacuum: ["xray.js", "xray", null],
-  platform_landing_setup: ["platform.js", "platform", null],
-  // Monitor > Fabric > Schedules: shown only with preview features on, its tab tagged Preview (app.js)
-  update_fabric_schedule: ["schedules.js", "schedules", null],
-  set_fabric_schedule_enabled: ["schedules.js", "schedules", null],
-  delete_fabric_schedule: ["schedules.js", "schedules", null],
-  run_fabric_item_now: ["schedules.js", "schedules", null],
+  xray_remove_staging: ["xray.js", "xray", null],
+  xray_adopt: ["xray.js", "xray", null],
+  fabric_git_update: ["git.js", "sourceControl", null],
+  incident_acknowledge: ["incidents.js", "incidents", null],
+  incident_assign: ["incidents.js", "incidents", null],
+  incident_note: ["incidents.js", "incidents", null],
+  incident_report: ["incidents.js", "incidents", null],
+  incident_resolve: ["incidents.js", "incidents", null],
+  incident_set_priority: ["incidents.js", "incidents", null],
+  incident_tell_impacted: ["incidents.js", "incidents", null],
+  incidents_evaluate: ["incidents.js", "incidents", null],
+  workload_act: ["workloads.js", "workloads", null],
+  workload_assign: ["workloads.js", "workloads", null],
+  workload_link: ["workloads.js", "workloads", null],
+  appstudio_publish: ["appstudio.js", "page", null],
+  optimize_create: ["optimize.js", "page", null],
+  optimize_connect: ["optimize.js", "page", null],
+  optimize_set_recommendation: ["optimize.js", "page", null],
+  capacity_settings_read: ["optimize.js", "page", null], // reads Fabric, writes the central lakehouse
+  tenant_settings_read: ["optimize.js", "page", null],
+  platform_decide: ["platform.js", "page", null],
+  platform_create_landing_zone: ["platform.js", "page", null],
+  platform_delete_source: ["platform.js", "page", null],
+  platform_scan_endorsement: ["platform.js", "page", null],
+  platform_landing_setup: ["platform.js", "page", null],
+  platform_join: ["mesh.js", "page", null, "platform.js"], // Join existing, on Platform > Settings
+  platform_keys_join: ["mesh.js", "page", null, "platform.js"],
+  platform_import_fabric_domains: ["mesh.js", "page", null, "platform.js"], // Import from Fabric, on Platform > Domains
+  platform_create_domain: ["mesh.js", null, null, "mesh.js: Also create it in Fabric (Preview)"],
+  mesh_publish: ["mesh.js", "mesh", null, 'meta.js: ["products", "Data products", "mesh"]'], // a Preview tab
+  meta_build_model: ["meta.js", "model", null, 'meta.js: ["model", "Semantic model", "model"]'],
+  meta_optimize: ["meta.js", "health", null, 'meta.js: ["health", "Table health", "health"]'],
+  wh_monitoring_build: ["whmonitor.js", null, null, "whmonitor.js: previewTag()"],
+  // Monitor > Fabric > Schedules: shown only with preview features on, its tab tagged Preview
+  update_fabric_schedule: ["schedules.js", "schedules", null, 'app.js: ["fabric_schedules", ["Schedules", previewTag()]'],
+  set_fabric_schedule_enabled: ["schedules.js", "schedules", null, 'app.js: ["fabric_schedules", ["Schedules", previewTag()]'],
+  delete_fabric_schedule: ["schedules.js", "schedules", null, 'app.js: ["fabric_schedules", ["Schedules", previewTag()]'],
+  run_fabric_item_now: ["schedules.js", "schedules", null, 'app.js: ["fabric_schedules", ["Schedules", previewTag()]'],
 };
+// Listed as "Fabric or OneLake" because they call Fabric, but they change nothing there.
+const FABRIC_READS = {
+  list_capacities: "reads", list_files: "reads", list_items: "reads", list_lakehouses: "reads", list_tables: "reads",
+  list_workspaces: "reads", readiness_check: "reads only, never opens a sign-in window", sign_in: "gets a token",
+  wh_monitoring_view: "reads the monitoring database", appstudio_plan: "asks the person's model; nothing goes to Fabric",
+  git_capacity_write: "writes capacity.toml in the repository; nothing in Fabric changes",
+  fabric_git_link: "writes fabric-desktop.toml; reads the workspace's Git connection",
+  meta_model_tmdl_save: "reads the model from Fabric, writes files in the project folder",
+  notebook_from_fabric: "reads a Fabric notebook into a file on this PC", shortcut_export: "a CSV in Downloads",
+  xray_pause: "pauses this PC's scan",
+};
+// Untested writes still to tag or run live. Taking one out of this list is the goal; adding one needs a reason.
+const NOT_YET = [
+  // Data mesh project files and tables in a OneLake environment: the core of the app, on untagged tabs
+  // (UX: clear these with a live-testing.md check, not a tag on every Save)
+  "meta_add_rules", "meta_delete_key_table", "meta_delete_source_system", "meta_drift_apply", "meta_new_entity",
+  "meta_new_key_table", "meta_profile", "meta_save_entity", "meta_save_source_system", "meta_set_freshness",
+  "meta_set_keys_workspace", "meta_set_maintenance", "meta_sources_move",
+  // no single Preview home: wait for a live check
+  "access_cache_protect", "access_cache_refresh", "pipeline_run_start", "save_sql",
+  // the app's own background check (no screen); it tells Teams whether or not Preview features show
+  "incidents_watch",
+];
 const FABRIC_WRITE_NAME = /^(create_|delete_|publish_|run_.*fabric|.*_in_fabric|meta_create_|platform_.*setup|.*_fabric_schedule|cancel_fabric)/;
 const NOT_A_FABRIC_WRITE = {
   delete_pc_schedule: "a schedule in this PC's Task Scheduler",
@@ -6344,28 +6416,47 @@ const NOT_A_FABRIC_WRITE = {
 
 test("every Fabric write in the UI carries a Preview tag or has a recorded live run (QA-020)", () => {
   const read = (f) => fs.readFileSync(path.join(ui, f), "utf8");
-  const features = read("features.js");
+  const files = fs.readdirSync(ui).filter((f) => /\.(js|html)$/.test(f));
+  const text = Object.fromEntries(files.map((f) => [f, read(f)]));
+  const features = text["features.js"];
   const live = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "live-testing.md"), "utf8");
-  for (const [method, [file, tag, check]] of Object.entries(FABRIC_WRITES)) {
-    assert.ok(read(file).includes(`"${method}"`), `${file} calls ${method}`);
-    assert.ok(tag || check, `${method} needs a Preview tag or a live check`);
-    if (tag) {
+  const tagged = (file, tag) => new RegExp(`preview(?:Marked)?\\("${tag}"`).test(text[file]);
+  for (const [method, [file, tag, check, where]] of Object.entries(FABRIC_WRITES)) {
+    assert.ok(text[file].includes(`"${method}"`), `${file} calls ${method}`);
+    assert.ok(tag || check || where, `${method} needs a Preview tag or a live check`);
+    if (tag === "page") {
+      const page = where || file;
+      assert.ok(/preview: true/.test(text[page]) && text[page].includes("previewTag()"), `${page} is a Preview page with a tagged heading (${method})`);
+    } else if (where?.includes(": ")) {
+      const [tagFile, snippet] = where.split(/: (.*)/s);
+      assert.ok(text[tagFile].includes(snippet), `${tagFile} tags ${method}: ${snippet}`);
+    } else if (tag) {
       assert.match(features, new RegExp(`\\n  ${tag}: "`), `${tag} is in PREVIEW_FEATURES`);
-      const tagged = fs.readdirSync(ui).filter((f) => f.endsWith(".js")).some((f) => new RegExp(`preview(?:Marked)?\\("${tag}"`).test(read(f)));
-      assert.ok(tagged, `a screen tags ${tag}`);
+      assert.ok(tagged(where || file, tag), `${where || file} tags ${tag} for ${method}`);
     }
     if (check) assert.ok(live.includes(check), `docs/live-testing.md records ${check}`);
   }
-  // The untagged buttons this finding named now carry their tags.
-  for (const [file, text] of [["meta.js", 'previewMarked("createWorkspace", btn("Create workspace"'], ["mesh.js", 'previewMarked("createWorkspace", btn("Create workspace"'],
-    ["meta.js", 'fabricMarked(inFabric(p, m.env), btn(inFabric(p, m.env) ? "Run all in Fabric"'], ["dataops.js", 'previewMarked("quarantineReplay", btn("Discard selected"'],
-    ["activity.js", 'previewMarked("cancelFabricRun", btn("Cancel run"'], ["app.js", '["fabric_schedules", ["Schedules", previewTag()]']]) assert.ok(read(file).includes(text), `${file}: ${text}`);
-  // A new call that looks like a Fabric write is listed.
+  // The engine's own list of methods that change Fabric or OneLake, called anywhere in the UI by name (a
+  // wrapper that takes the name as a variable still names it in a string somewhere).
+  const matrix = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "audits", "AUTHORIZATION_MATRIX.md"), "utf8");
+  const fabric = [...matrix.matchAll(/^\| `([a-z0-9_]+)` \| `[^`]+` \| ([^|]+) \|/gm)].filter((m) => /Fabric or OneLake/.test(m[2])).map((m) => m[1]);
+  assert.ok(fabric.length > 50, "the matrix scan found almost nothing; did its format change?");
+  const all = Object.values(text).join("\n");
+  const uiCalls = fabric.filter((m) => new RegExp(`["'\`]${m}["'\`]`).test(all));
+  const lists = [Object.keys(FABRIC_WRITES), Object.keys(FABRIC_READS), NOT_YET];
+  const unlisted = uiCalls.filter((m) => !lists.some((l) => l.includes(m))).sort();
+  assert.deepStrictEqual(unlisted, [], "the UI calls these and they change Fabric or OneLake: list them in FABRIC_WRITES (a Preview tag or a live check), FABRIC_READS or NOT_YET");
+  const twice = uiCalls.filter((m) => lists.filter((l) => l.includes(m)).length > 1);
+  assert.deepStrictEqual(twice, [], "listed in more than one place");
+  assert.deepStrictEqual([...Object.keys(FABRIC_READS), ...NOT_YET].filter((m) => !uiCalls.includes(m)), [], "listed, but the UI no longer calls it or it no longer changes Fabric");
+  // A new call that looks like a Fabric write is listed, even before the matrix is regenerated.
   const called = new Set();
-  for (const f of fs.readdirSync(ui).filter((x) => x.endsWith(".js"))) {
-    for (const m of read(f).matchAll(/(?:rpc|metaCall|platformCall|pollSidecar)\(\s*"([a-z_]+)"/g)) called.add(m[1]);
-  }
-  const unlisted = [...called].filter((m) => FABRIC_WRITE_NAME.test(m) && !FABRIC_WRITES[m] && !NOT_A_FABRIC_WRITE[m]).sort();
-  assert.deepStrictEqual(unlisted, [], "list these in FABRIC_WRITES (with a Preview tag or a live check) or NOT_A_FABRIC_WRITE");
+  for (const f of files) for (const m of text[f].matchAll(/(?:rpc|metaCall|platformCall|pollSidecar)\(\s*"([a-z_]+)"/g)) called.add(m[1]);
+  const looksLike = [...called].filter((m) => FABRIC_WRITE_NAME.test(m) && !FABRIC_WRITES[m] && !NOT_A_FABRIC_WRITE[m] && !NOT_YET.includes(m)).sort();
+  assert.deepStrictEqual(looksLike, [], "list these in FABRIC_WRITES (with a Preview tag or a live check) or NOT_A_FABRIC_WRITE");
   assert.deepStrictEqual(Object.keys(NOT_A_FABRIC_WRITE).filter((m) => !called.has(m)), [], "NOT_A_FABRIC_WRITE names a call the UI no longer makes");
+  // The buttons QA-020 named keep their tags.
+  for (const [file, snippet] of [["meta.js", 'previewMarked("createWorkspace", btn("Create workspace"'], ["mesh.js", 'previewMarked("createWorkspace", btn("Create workspace"'],
+    ["meta.js", 'fabricMarked(inFabric(p, m.env), btn(inFabric(p, m.env) ? "Run all in Fabric"'], ["dataops.js", 'previewMarked("quarantineReplay", btn("Discard selected"'],
+    ["activity.js", 'previewMarked("cancelFabricRun", btn("Cancel run"']]) assert.ok(text[file].includes(snippet), `${file}: ${snippet}`);
 });

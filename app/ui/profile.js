@@ -499,8 +499,10 @@ function profileReport(p) {
   const preview = h("div", { class: "card pad profile-report", "aria-live": "polite" }, h("p", { class: "muted-text" }, "Loading..."));
   const params = () => ({ days: profilePage.days, include_achievements: profilePage.achievements });
   (async () => {
-    const out = profilePage.report || await attempt(() => rpc("profile_report", params()), "Could not put the report together");
-    if (!out) return;
+    const asked = params();
+    const out = profilePage.report || await attempt(() => rpc("profile_report", asked), "Could not put the report together");
+    // A report for a period or choice changed while it was being put together is not the one shown.
+    if (!out || asked.days !== profilePage.days || asked.include_achievements !== profilePage.achievements) return;
     profilePage.report = out;
     preview.replaceChildren(...markdownBlocks(out.markdown));
   })();

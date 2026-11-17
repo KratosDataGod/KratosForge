@@ -277,6 +277,24 @@ def test_app_calls_for_delta_tables(tmp_path):
     svc.local_data.close_all()
 
 
+def test_overwriting_a_delta_table_over_rpc_needs_confirm_like_insert_overwrite(tmp_path):
+    svc = Service(root=tmp_path / "app")
+
+    def call(method, **params):
+        return server.handle(svc, json.dumps({"id": 1, "method": method, "params": params}))
+    pid = call("local_create_project", name="RPC")["result"]["id"]
+    call("local_write_delta", project=pid, table="dbo.t", query="SELECT 1 AS a", mode="create")
+    refused = call("local_write_delta", project=pid, table="dbo.t", query="SELECT 9 AS a", mode="overwrite")
+    assert "only when confirmed" in refused["error"]
+    versions = call("local_delta_history", project=pid, table="t")["result"]["versions"]
+    assert [v["version"] for v in versions] == [0]  # nothing was written
+    assert call("local_write_delta", project=pid, table="dbo.t", query="SELECT 9 AS a", mode="overwrite",
+                dry_run=True)["result"]["rows"] == 1
+    assert call("local_write_delta", project=pid, table="dbo.t", query="SELECT 9 AS a", mode="overwrite",
+                confirm=True)["result"]["version"] == 1
+    svc.local_data.close_all()
+
+
 def test_queries_without_delta_still_take_the_plain_path(engine):
     # Scripts DuckDB parses on its own are run as before, statement by statement.
     r = engine.execute("CREATE TEMP TABLE x AS SELECT 1 AS a; INSERT INTO x VALUES (2); SELECT sum(a)::INT FROM x")

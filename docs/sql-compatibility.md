@@ -84,7 +84,7 @@ Spark SQL run on this PC gives Spark's values and types for its date and time fu
 | `next_day` | Takes `MO`, `MON` or `MONDAY` and so on for each day, in any case. Any other text gives NULL |
 | `make_date`, `make_timestamp` | NULL for a day that doesn't exist, such as `make_date(2023, 2, 29)` |
 
-Patterns that Spark refuses are refused here by name, and nothing runs: the week-based letters (`Y`, `w`, `W`, `u`, `e`, `c`), `F`, optional sections (`[ ]`) and letters that aren't pattern letters. These are refused too, because this PC can't give Spark's text for them:
+Patterns that Spark refuses are refused here by name, and nothing runs: the week-based letters (`Y`, `w`, `W`, `u`, `e`, `c`), `F`, optional sections (`[ ]`), letters that aren't pattern letters, and the runs Spark stops on with "Too many pattern letters": five or more of `G`, `M`, `L`, `E`, `Q` or `q`, and seven or more `y`. These are refused too, because this PC can't give Spark's text for them:
 
 - Zone names (`z`, such as `EST`). Use `VV` for the zone's id or `XXX` for its offset.
 - When reading text, `G`, `Q`, `k`, `K`, `O` and `z`.
@@ -153,6 +153,7 @@ These cases still differ:
 | `array(1, 'a')` and other arrays that mix types | The elements are cast to a common type (`array<string>`) | Stops with a conversion error. Cast the elements to one type first |
 | The DataFrame API: `F.size`, `F.explode` and `F.explode_outer` of a map column, `F.reverse` of an array, `F.sequence` counting down, and `F.posexplode` and `F.map_concat`, which aren't there | As in Spark SQL | Not given Spark's answer yet: a map or a count down stops or gives `[]`. Run that part through `spark.sql` |
 | Databricks SQL on the DuckDB engine | As in Spark SQL | The fixes that don't need column types apply; `size`, `explode` and `reverse` of a map or array column keep DuckDB's forms |
+| `explode` of a map that holds `rand()` or `shuffle()`, in a select list | The map is read once | Its keys and values are read separately, so they can come from different reads. Use `LATERAL VIEW explode`, which reads it once |
 
 ## Local T-SQL changes
 
@@ -429,6 +430,37 @@ What can still differ:
 - `CHAR(n)` isn't padded with spaces to n characters. `LEN` gives the same answer either way, but `DATALENGTH` of a stored `CHAR` value doesn't.
 - Trailing blanks past a text column's length are kept here. A warehouse drops them, so `DATALENGTH` differs.
 - A #temp table is shared by every query in the open project. In a warehouse it belongs to one connection.
+
+## Local T-SQL data types
+
+T-SQL run on this PC takes the data types Microsoft's "Data types in Fabric Data Warehouse" page lists, as it read on 2026-11-17, and refuses the rest by name with the type that page says to use instead.
+
+| Type | In a table or view | In a query (`CAST`, `CONVERT`) |
+| --- | --- | --- |
+| `bit`, `smallint`, `int`, `bigint`, `decimal`/`numeric`, `float`, `real`, `date`, `char`, `varchar`, `varbinary`, `uniqueidentifier` | Yes | Yes |
+| `datetime2(n)`, `time(n)` | Only with n up to 6: `datetime2` with no precision is `datetime2(7)` and is refused, naming `datetime2(6)` | Yes, kept to the microsecond (a 7th digit is cut) |
+| `datetime` | Refused: use `datetime2(6)` | Yes, rounded as T-SQL rounds it, to 1/300 of a second (`.002` is `.003`, `.005` is `.007`, `23:59:59.999` is the next day). Before 1753 or after 9999-12-31 23:59:59.997 is T-SQL's out-of-range error (`NULL` with `TRY_CAST` and `TRY_CONVERT`), and text with more than three digits of a second is T-SQL's conversion error. `CONVERT` with style 121 or 126 writes it to the millisecond, as T-SQL does |
+| `smalldatetime` | Refused: use `datetime2(0)` | Yes, rounded to the minute (29.998 seconds rounds down, 29.999 up), from 1900-01-01 to 2079-06-06 23:59 |
+| `nchar`, `nvarchar`, `text`, `ntext` | Refused: use `char`, `varchar` or `varchar(max)` | Yes, as text |
+| `image` | Refused: use `varbinary(max)` | Yes, as `varbinary` |
+| `tinyint` | Refused: use `smallint` | Yes, 0 to 255 |
+| `money`, `smallmoney` | Refused: use `decimal(19, 4)` or `decimal(10, 4)` | Refused by name (their conversion styles aren't carried) |
+| `datetimeoffset`, `xml`, `geography`, `geometry`, `json`, `sql_variant`, `rowversion` (`timestamp`), `hierarchyid`, `vector`, CLR types | Refused, with Microsoft's alternative | Refused by name: the local engine has no form of them. Run the query in a Fabric Warehouse |
+| `sysname` | As `nvarchar(128)`: refused | Yes, as `varchar(128)` |
+
+"In a table or view" covers `CREATE TABLE`, `ALTER TABLE ... ADD` and `ALTER COLUMN`, `CREATE TABLE ... AS SELECT` and `SELECT ... INTO` with a column cast to the type, and `CREATE VIEW` with a column cast to it.
+
+A `#temp` table takes `nchar`, `nvarchar`, `text`, `ntext`, `image` and `tinyint`, with a note in `translation.notes`: Microsoft's temp table page lists only the warehouse's table types for #temp tables, so a warehouse may refuse them there. A `datetime` or `smalldatetime` column in a #temp table is refused, because a stored value isn't rounded to T-SQL's steps here.
+
+Sizes T-SQL doesn't take stop with T-SQL's message: `varchar(8001)` is "The size (8001) given to the type 'varchar' exceeds the maximum allowed for any data type (8000)." (4000 for `nchar` and `nvarchar`), and `datetime2(8)` is "Specified scale 8 is invalid." A `decimal` with more than 38 digits, or a scale larger than its precision, is refused with a message of the local engine's own.
+
+**Through a Delta table.** Each supported type keeps its exact value when a T-SQL table is written as a local Delta table (`CREATE TABLE ... USING DELTA AS SELECT` in Spark SQL or DuckDB SQL) and read back in T-SQL: a decimal's precision and scale, every digit of a `float` and `real`, `datetime2(6)` to the microsecond from year 1 to 9999, text and bytes in full, and a `uniqueidentifier`. A Delta table keeps its timestamps in UTC, and T-SQL reads them as `datetime2`, the UTC clock time without a zone, as a warehouse's SQL analytics endpoint reads a Delta `TIMESTAMP`. Delta has no time-of-day type, so writing a `time` column to Delta is refused by name; cast it to `varchar` or join it to a date.
+
+What can still differ:
+
+- `CHAR(n)` isn't padded with spaces (see [Local T-SQL tables](#local-t-sql-tables)).
+- `GETDATE()` and `CURRENT_TIMESTAMP` give the time to the microsecond here. In T-SQL they're `datetime`, in 1/300-second steps.
+- A Delta table's own length limits aren't kept: a `varchar(10)` column written to Delta is text of any length there, as in a Spark table.
 
 ## Local T-SQL decimals
 

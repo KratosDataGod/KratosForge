@@ -718,7 +718,7 @@ def _unknown_functions(s: Stmt) -> Iterator[Hit]:
 
 # ---------- data types and DDL
 
-_TYPE_ALTERNATIVES = {
+TYPE_ALTERNATIVES = {  # also the local engine's words (localdata/tsql_types)
     "MONEY": "decimal(19, 4)", "SMALLMONEY": "decimal(10, 4)", "DATETIME": "datetime2(6)",
     "SMALLDATETIME": "datetime2(0)", "DATETIMEOFFSET": "datetime2(6), converted with AT TIME ZONE",
     "NCHAR": "char (the UTF-8 collation stores any character)", "NVARCHAR": "varchar (the UTF-8 collation stores any character)",
@@ -727,6 +727,7 @@ _TYPE_ALTERNATIVES = {
     "GEOMETRY": "varbinary (well-known binary) or varchar (well-known text)", "JSON": "varchar(max)",
     "XML": "varchar(max), if the XML can be kept as text", "SQL_VARIANT": "a column of one type",
     "HIERARCHYID": "varchar holding the path", "VECTOR": "varbinary or varchar; vectors aren't supported",
+    "ROWVERSION": "a bigint or datetime2(6) column the load sets",
 }
 _CREATE_TABLE = ("CREATE", "TABLE")
 
@@ -783,8 +784,8 @@ def _is_ctas(s: Stmt) -> bool:
 def _types(s: Stmt) -> Iterator[Hit]:
     for j, _col in _column_defs(s):
         t = s.toks[j]
-        if t.kw in _TYPE_ALTERNATIVES:
-            yield _hit("TYP-001", t, name=t.raw.lower(), fix=_TYPE_ALTERNATIVES[t.kw])
+        if t.kw in TYPE_ALTERNATIVES:
+            yield _hit("TYP-001", t, name=t.raw.lower(), fix=TYPE_ALTERNATIVES[t.kw])
         elif t.kw in ("DATETIME2", "TIME") and j + 3 < len(s.toks) and s.toks[j + 1].type == TokenType.L_PAREN \
                 and s.toks[j + 2].type == TokenType.NUMBER and s.toks[j + 2].text.isdigit() and int(s.toks[j + 2].text) > 6:
             yield _hit("TYP-003", t, s.toks[j + 3], name=t.raw.lower(), digits=s.toks[j + 2].text)
@@ -796,8 +797,8 @@ def _types(s: Stmt) -> Iterator[Hit]:
         for i, t in enumerate(s.toks[1:], 1):
             prev = s.toks[i - 1]
             in_convert = prev.type == TokenType.L_PAREN and i >= 2 and s.toks[i - 2].kw == "CONVERT"
-            if t.kw in _TYPE_ALTERNATIVES and (prev.kw == "AS" or in_convert):
-                yield _hit("TYP-002", t, name=t.raw.lower(), fix=_TYPE_ALTERNATIVES[t.kw])
+            if t.kw in TYPE_ALTERNATIVES and (prev.kw == "AS" or in_convert):
+                yield _hit("TYP-002", t, name=t.raw.lower(), fix=TYPE_ALTERNATIVES[t.kw])
 
 
 _NOT_SUPPORTED_OBJECTS = [

@@ -1533,7 +1533,7 @@ test("promote, sync keys, the variable library and quarantine replay carry the P
   assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
   // and Settings names them as staying
   const always = JSON.parse(features.match(/const PREVIEW_ALWAYS_SHOWN = (\[[^\]]*\])/)[1].replace(/'/g, '"'));
-  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "quarantineReplay", "risk", "vscode"]);
+  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "quarantineReplay", "risk", "vscode", "createWorkspace"]);
   assert.ok(read("settings.js").includes("PREVIEW_ALWAYS_SHOWN"), "Settings explains the steps that stay");
 });
 
@@ -6280,4 +6280,82 @@ test("the diagram's SVG escapes names and has nothing the engine's export refuse
   assert.deepStrictEqual([...tags].filter((t) => !["svg", "g", "rect", "path", "text", "title"].includes(t)), []);
   assert.deepStrictEqual([...attrs].filter((a) => !["viewBox", "width", "height", "font-family", "font-size", "font-weight", "role",
     "aria-label", "x", "y", "rx", "fill", "stroke", "stroke-width", "stroke-dasharray", "d"].includes(a)), []);
+});
+
+// WR-614 (QA-020): untested = Preview. Every UI call that writes to Fabric or OneLake is listed here, either
+// with the Preview tag its file puts on that step, or with the docs/live-testing.md check that has run it on a
+// tenant. A tag moves to a live check (or goes) once a live run records the step. A UI call whose name looks
+// like a Fabric write (FABRIC_WRITE_NAME) must be listed, or named in NOT_A_FABRIC_WRITE with why.
+const FABRIC_WRITES = {
+  // [file, Preview tag id or null, live-testing.md check or null]
+  create_lakehouse: ["app.js", null, "Create a schema-enabled lakehouse"],
+  publish_notebook: ["app.js", null, "notebook.publish"],
+  readiness_write_test: ["settings.js", null, "Write, list, read and delete a file in OneLake"],
+  run_notebook_in_fabric: ["app.js", "fabricRun", "notebook.run"],
+  run_notebook_fabric_step: ["fabricstep.js", "fabricStep", null],
+  cancel_fabric_run: ["activity.js", "cancelFabricRun", null],
+  add_notebook_schedule: ["app.js", "schedules", null], // from notebook.js, under preview("schedules")
+  delete_notebook_schedule: ["app.js", "schedules", null],
+  notebook_batch_fabric: ["home-notebooks.js", "runSeveral", null],
+  side_by_side_start: ["sidebyside.js", "sideBySide", null],
+  prove_start: ["prove.js", "prove", null],
+  prove_delete_outputs: ["prove.js", "prove", null],
+  meta_run: ["meta.js", "fabricRun", null],
+  meta_promote: ["meta.js", "promote", null],
+  meta_rollback: ["dataops.js", "rollback", null],
+  meta_add_schedule: ["meta.js", "schedules", null],
+  meta_delete_schedule: ["meta.js", "schedules", null],
+  meta_create_workspace: ["meta.js", "createWorkspace", null],
+  meta_create_designation_workspace: ["mesh.js", "createWorkspace", null],
+  platform_keys_setup: ["mesh.js", "createWorkspace", null],
+  platform_setup: ["mesh.js", "createWorkspace", null],
+  meta_keys_sync: ["meta.js", "syncKeys", null],
+  meta_publish_varlib: ["estate.js", "varlib", null],
+  meta_replay: ["dataops.js", "quarantineReplay", null],
+  meta_discard_quarantine: ["dataops.js", "quarantineReplay", null],
+  meta_restore: ["estate.js", "history", null], // opened from the History button, preview("history") in meta.js
+  meta_model_ossie_import: ["meta.js", "ossie", null],
+  create_shortcut: ["shortcuts.js", "shortcuts", null],
+  delete_shortcut: ["shortcuts.js", "shortcuts", null],
+  shortcut_repoint: ["shortcuts.js", "shortcutFixes", null],
+  xray_optimize: ["xray.js", "xray", null],
+  xray_vacuum: ["xray.js", "xray", null],
+  platform_landing_setup: ["platform.js", "platform", null],
+  // Monitor > Fabric > Schedules: shown only with preview features on, its tab tagged Preview (app.js)
+  update_fabric_schedule: ["schedules.js", "schedules", null],
+  set_fabric_schedule_enabled: ["schedules.js", "schedules", null],
+  delete_fabric_schedule: ["schedules.js", "schedules", null],
+  run_fabric_item_now: ["schedules.js", "schedules", null],
+};
+const FABRIC_WRITE_NAME = /^(create_|delete_|publish_|run_.*fabric|.*_in_fabric|meta_create_|platform_.*setup|.*_fabric_schedule|cancel_fabric)/;
+const NOT_A_FABRIC_WRITE = {
+  delete_pc_schedule: "a schedule in this PC's Task Scheduler",
+};
+
+test("every Fabric write in the UI carries a Preview tag or has a recorded live run (QA-020)", () => {
+  const read = (f) => fs.readFileSync(path.join(ui, f), "utf8");
+  const features = read("features.js");
+  const live = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "live-testing.md"), "utf8");
+  for (const [method, [file, tag, check]] of Object.entries(FABRIC_WRITES)) {
+    assert.ok(read(file).includes(`"${method}"`), `${file} calls ${method}`);
+    assert.ok(tag || check, `${method} needs a Preview tag or a live check`);
+    if (tag) {
+      assert.match(features, new RegExp(`\\n  ${tag}: "`), `${tag} is in PREVIEW_FEATURES`);
+      const tagged = fs.readdirSync(ui).filter((f) => f.endsWith(".js")).some((f) => new RegExp(`preview(?:Marked)?\\("${tag}"`).test(read(f)));
+      assert.ok(tagged, `a screen tags ${tag}`);
+    }
+    if (check) assert.ok(live.includes(check), `docs/live-testing.md records ${check}`);
+  }
+  // The untagged buttons this finding named now carry their tags.
+  for (const [file, text] of [["meta.js", 'previewMarked("createWorkspace", btn("Create workspace"'], ["mesh.js", 'previewMarked("createWorkspace", btn("Create workspace"'],
+    ["meta.js", 'fabricMarked(inFabric(p, m.env), btn(inFabric(p, m.env) ? "Run all in Fabric"'], ["dataops.js", 'previewMarked("quarantineReplay", btn("Discard selected"'],
+    ["activity.js", 'previewMarked("cancelFabricRun", btn("Cancel run"'], ["app.js", '["fabric_schedules", ["Schedules", previewTag()]']]) assert.ok(read(file).includes(text), `${file}: ${text}`);
+  // A new call that looks like a Fabric write is listed.
+  const called = new Set();
+  for (const f of fs.readdirSync(ui).filter((x) => x.endsWith(".js"))) {
+    for (const m of read(f).matchAll(/(?:rpc|metaCall|platformCall|pollSidecar)\(\s*"([a-z_]+)"/g)) called.add(m[1]);
+  }
+  const unlisted = [...called].filter((m) => FABRIC_WRITE_NAME.test(m) && !FABRIC_WRITES[m] && !NOT_A_FABRIC_WRITE[m]).sort();
+  assert.deepStrictEqual(unlisted, [], "list these in FABRIC_WRITES (with a Preview tag or a live check) or NOT_A_FABRIC_WRITE");
+  assert.deepStrictEqual(Object.keys(NOT_A_FABRIC_WRITE).filter((m) => !called.has(m)), [], "NOT_A_FABRIC_WRITE names a call the UI no longer makes");
 });

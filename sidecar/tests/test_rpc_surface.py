@@ -132,3 +132,54 @@ def test_methods_no_screen_called_are_refused_over_rpc(tmp_path):
         reply = server.handle(svc, json.dumps({"id": 1, "method": name, "params": {}}))
         assert reply == {"id": 1, "error": f"unknown method {name!r}"}, name
         assert callable(getattr(svc, name)), name
+
+
+# WR-613 (QA-017): a method with no screen can't lean on a screen's confirm dialog, so its destructive
+# step must wait for a go-ahead parameter the engine checks itself. That parameter is one of
+# audit.GUARD_PARAMS, so a call that passes it is recorded before it runs and refused when it can't
+# be (fail closed), the same as when a screen sends it. Every no-screen method that changes something
+# is listed here: with the parameter its destructive step needs, or with why it has none.
+NO_SCREEN_GATE: dict[str, str] = {
+    "incidents_history_sync": "approve",       # sets up the central incident tables only when approved
+    "incidents_measures": "approve",           # copies through incidents_history_sync first
+    "local_change_delta": "confirm",           # UPDATE or DELETE without WHERE
+    "local_drop_delta": "confirm",             # without it, only says what would be deleted
+    "local_query": "confirm",                  # DROP, TRUNCATE, CREATE OR REPLACE, INSERT OVERWRITE
+    "local_query_start": "confirm",
+    "local_write_delta": "confirm",            # mode overwrite, like INSERT OVERWRITE
+    "optimization_share": "confirm",
+    "optimize_share_local_runs": "confirm",
+}
+NOT_DESTRUCTIVE: dict[str, str] = {
+    "local_add_source": "adds views over a folder; the files are only read",
+    "local_close_project": "closes the database file; nothing is deleted",
+    "local_create_project": "makes a new project",
+    "local_forget_project": "takes the project off the list; its folder and database stay on disk",
+    "local_project_settings": "changes the project's own settings",
+    "local_query_cancel": "stops a query this PC started",
+    "local_refresh": "re-reads the project's source folders",
+    "local_remove_source": "drops the views over a folder; the files are never touched",
+    "local_set_types": "changes how a file's columns are read; the file is untouched",
+    "local_transform_run": "steps get local_query's checks with no confirm, so a destructive step is refused",
+    "model_bpa_check": ("reads a semantic model in Fabric; the risk check runs first, a blocked one stops it "
+                        "and a warning needs the risk_id the person acknowledged"),
+    "platform_notify": "posts notices only to routes an admin saved, once per dedupe key; changes no data",
+}
+
+
+def test_every_no_screen_method_that_changes_something_waits_for_a_recorded_go_ahead():
+    import inspect
+
+    from fabric_desktop import audit
+    from fabric_desktop.service import Service
+    changing = {m for m in NO_UI_CALLER if audit.audited(m)}
+    unlisted = sorted(changing - set(NO_SCREEN_GATE) - set(NOT_DESTRUCTIVE))
+    assert not unlisted, ("These methods have no screen and change something. Give each a go-ahead parameter "
+                          f"(audit.GUARD_PARAMS) in NO_SCREEN_GATE, or say in NOT_DESTRUCTIVE why it needs none: {unlisted}")
+    stale = sorted((set(NO_SCREEN_GATE) | set(NOT_DESTRUCTIVE)) - changing)
+    assert not stale, f"Listed but no longer a no-screen method that changes something: {stale}"
+    assert not set(NO_SCREEN_GATE) & set(NOT_DESTRUCTIVE)
+    for method, gate in NO_SCREEN_GATE.items():
+        assert gate in audit.GUARD_PARAMS, (method, gate)
+        assert gate in inspect.signature(getattr(Service, method)).parameters, (method, gate)
+        assert audit.fails_closed(method, {gate: True}), (method, gate)

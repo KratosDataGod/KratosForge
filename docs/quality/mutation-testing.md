@@ -5605,6 +5605,59 @@ No bug was found.
 | `engines/databricks_jobs.py` | 172 | default `days=1` to `0` | Equivalent: `list` keeps days between 1 and 30, so a default of 0 reads one day too. |
 | `engines/databricks_jobs.py` | 77 | `end >= start` to `end > start` | Equivalent: when the end equals the start, both give 0 seconds. |
 
+# Mutation testing, batch 82
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds.
+- Notebook files on this PC: where a notebook's file is, which notebook a file path names (for VS Code and kratosforge:// links), delete and restore, and a Fabric notebook saved here (`notebook_files_service.py`).
+- What an Azure Databricks workspace offers: warehouses, clusters, the Unity Catalog metastore and catalogs, what to try first, and the summary for the command line (`engines/databricks_discovery.py`).
+- The central lakehouse's tables and their migrations (`optimize/schema.py`).
+
+The run was at `main` e88bc60e9 (2026-11-17), with `sidecar/tools/mutate.py` and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`), so every run was made with `PYTHONDONTWRITEBYTECODE=1`. Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run. None of the three modules changed between e88bc60e9 and the `main` this branch was last brought up to.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against each module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used, and no test in these sets reads `docs/`, `examples/` or `app/` (`test_vscode_setup.py`, which reads `docs/`, was left out).
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `notebook_files_service.py` | test_audit, test_editor_channel, test_notebook_files, test_notebook_files_service_edges, test_notebook_folders, test_notebook_resources (+ test_notebook_files_service_mutation) | 89 of 89 (87 + 2) | 66 / 23 | **74.2%** | 66/87 → 86/87 | 0/2 → 2/2 | 88 / 1 | **98.9%** | 1 equivalent |
+| `engines/databricks_discovery.py` | test_databricks_discovery, test_databricks_discovery_replies, test_engine_connections_settings, test_cli_tenant_commands (+ test_databricks_discovery_mutation) | 91 of 91 (89 + 2) | 70 / 21 | **76.9%** | 70/89 → 87/89 | 0/2 → 2/2 | 89 / 2 | **97.8%** | 2 equivalent |
+| `optimize/schema.py` | test_access_cache, test_capacity_history, test_optimize_lakehouse_stores, test_optimize_roles, test_optimize_service, test_optimize_service_mutation, test_optimize_setup, test_optimize_shared, test_optimize_shared_edges, test_tenant_history (+ test_optimize_schema_mutation) | 57 of 57 (55 + 2) | 56 / 1 | **98.2%** | 54/55 → 55/55 | 2/2 → 2/2 | 57 / 0 | **100%** | none |
+
+No bugs were found in these modules.
+
+### What the survivors were, and the tests that now kill them
+
+- **notebook_files_service.py**:
+  - A path's reason for not opening starts at 260 characters and stops past 32,767, and a path that isn't a notebook gets no reason.
+  - Only a symbolic link or a reparse tag with the name-surrogate bit counts as a link; a OneDrive placeholder doesn't.
+  - A path that isn't text, or holds a NUL character, is never local. Off Windows, a relative path and a `//host` or `/\host` path aren't either.
+  - A relative path has no name, even when the current folder is the notebooks folder.
+  - A missing part, or a link, below the notebooks folder stops the walk.
+  - A folder named like a notebook has no name.
+  - Only a link to the same item in the same workspace, whose notebook is still here, counts as already here.
+  - A copy of Fabric's version is saved where the notebook is, unless a place is given.
+  - → `test_notebook_files_service_mutation.py`.
+- **engines/databricks_discovery.py**:
+  - A name of exactly 200 characters is kept, and one past it is cut to 200 with the `…`. An error in the summary is cut the same way at 600.
+  - A cluster with auto-termination has no note, and one without has one.
+  - An access mode that isn't set is named "not set".
+  - After a failed sign-in, every part is not ok.
+  - Running compute comes before starting, and starting before anything else.
+  - The summary lists 20 catalogs and marks more with ` …`, says which clusters Databricks Connect can use, and names whatever was suggested under "Try first", or leaves the line out.
+  - → `test_databricks_discovery_mutation.py`.
+- **optimize/schema.py**:
+  - A migration can't be changed once made (the dataclass is frozen).
+  - → `test_optimize_schema_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `notebook_files_service.py` | 249 | `getattr(st, "st_reparse_tag", 0)` default to `1` | Equivalent: the default is only used where there is no reparse tag, and `1 & 0x20000000` is 0, the same as `0 & 0x20000000`. |
+| `engines/databricks_discovery.py` | 168 | `rank.get(w["state"], 2)` default to `3` | Equivalent: any state other than RUNNING (0) or STARTING (1) ranks after both either way, and all such states rank the same. |
+| `engines/databricks_discovery.py` | 171 | `rank.get(c["state"], 2)` default to `3` | Equivalent, as above, for clusters. |
+
 # Mutation testing, batch 83
 
 Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
@@ -5633,10 +5686,10 @@ No bug was found.
 ### What the survivors were, and the tests that now kill them
 
 - **spark_datetime.py**:
-  - Each pattern letter takes up to the most letters java.time takes (G, M, L, Q, q, E, X, x and Z five; S nine; D three; d, h, K, k, H, m and s two; a one) and is refused by name past that. A year takes up to 99.
+  - Each pattern letter takes up to the most letters java.time takes (X, x and Z five; S nine; D three; d, h, K, k, H, m and s two; a one) and is refused by name past that. G, M, L, Q, q and E take four and a year six; past that Spark stops too ("Too many pattern letters"), and so does this PC (since #2868; before it they took five and a year 99).
   - The localized offset is written O or OOOO only, and A, the first letter, is read as a letter Spark refuses.
   - The day and the day of the year are padded to the letters given.
-  - Five era letters give the narrow era.
+  - One to four era letters give the short or full era (five gave the narrow era until #2868 refused them, as Spark does).
   - The localized and ISO offsets come out right in every width, with Z for a zero offset where java.time writes it.
   - An empty pattern gives empty text, and formatting is lenient unless asked to be strict.
   - Reading takes LLLL and yyyy, and refuses LLLLL and an offset of four letters.
@@ -5669,3 +5722,68 @@ No bug was found.
 | `dbutils_local.py` | 76 | default `recurse=False` to `True` in `fs.mv` | Equivalent: `recurse` is not used, because folders move whole. |
 | `dbutils_local.py` | 292 | default `precise=False` to `True` in `data.summarize` | Equivalent: `precise` is not used. |
 | `dbutils_local.py` | 86 | `cp` checks its first 2 arguments as paths, to 3 | Equivalent in practice: the third argument of `cp` is `recurse`, a flag, which the path check lets through. |
+
+# Mutation testing, batch 84
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- Engines that run in a Python runtime of their own: locked installs, the worker's environment, the CLI lookup and the worker session (`engines/runtimes.py`).
+- Optimize results waiting on this PC for a central lakehouse that couldn't be reached (`optimize/outbox.py`).
+- Estate X-ray: the scan over every lakehouse, its findings, their ranking and what a scan shares (`xray.py`).
+
+The run was at `main` e9097a765 (2026-11-17), with `sidecar/tools/mutate.py` as fixed in #2839, so each mutant ran without a bytecode cache, and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. `optimize/outbox.py` has fewer than 150 mutants, so all were run; the other two were sampled to 150. `engines/runtimes.py` and `optimize/outbox.py` have no `<`, `<=`, `>` or `>=` comparison, so they have no boundary mutants. Nothing merged to `main` between that run and this section touches these modules or their tests.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used, and no test in these sets reads `docs/`, `examples/` or `app/`. For `optimize/outbox.py`, the store-wide tests were given by node id, so only their outbox case ran: the crash-kill test, the durability test and one awkward-path test.
+
+A mutant whose run times out counts as killed, as in earlier batches.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `engines/runtimes.py` | test_runtimes, test_runtimes_edges, test_programs_from_path_only, test_dbconnect, test_engine_conformance (+ test_runtimes_mutation) | 150 of 162 (150 + 0) | 124 / 26 | **82.7%** | 124/150 → 150/150 | none | 150 / 0 | **100%** | none |
+| `optimize/outbox.py` | test_optimize_outbox, test_optimize_service, test_optimize_service_edges, test_optimize_service_mutation, test_optimize_share_analysis, test_store_upgrades, the outbox cases of test_store_crash_kills, test_sqlite_durability and test_awkward_paths (+ test_optimize_outbox_mutation) | 70 of 70 (70 + 0) | 58 / 12 | **82.9%** | 58/70 → 69/70 | none | 69 / 1 | **98.6%** | 1 equivalent |
+| `xray.py` | test_xray, test_xray_edges, test_xray_staging, test_optimize_service (+ test_xray_mutation) | 150 of 169 (142 + 8) | 95 / 55 | **63.3%** | 95/142 → 138/142 | 0/8 → 8/8 | 146 / 4 | **97.3%** | 4 equivalent |
+
+No bug was found.
+
+### What the survivors were, and the tests that now kill them
+
+- **engines/runtimes.py**:
+  - The time limits are 20 minutes for an install, 2 hours for a cell and 10 seconds to stop after a cancel.
+  - pip runs hidden, with its output captured as text, never raising on a failed exit, and its log is whatever it printed on either stream, cut to the last 20,000 characters.
+  - A CLI file that can't be run isn't used.
+  - The worker starts hidden, with text pipes, in a session of its own outside Windows, and its reader thread never keeps the app open.
+  - Cells are numbered from 1, and only that cell's result or error answers it.
+  - A closed session refuses a cell, and after a cell there is nothing to cancel.
+  - A cell's time is from its start to its answer, and a wait or a cell that runs out names its limit in minutes.
+  - Closing asks a process that still runs to quit, does nothing when it has ended and the session is closed, and always marks the session closed.
+  - → `test_runtimes_mutation.py`.
+- **optimize/outbox.py**:
+  - The default limits are 200 items and 30 days, an age in days is counted in seconds, and a cap below 1 still keeps the newest item.
+  - One trim that drops an item for its age and one past the cap counts both.
+  - A failure inside a write undoes it and is raised.
+  - Each failure doubles the wait, to the second, and the wait stops growing at an hour.
+  - A lakehouse never seen has dropped nothing.
+  - An error is kept to its first 500 characters when an item is added, fails or is dropped.
+  - → `test_optimize_outbox_mutation.py`.
+- **xray.py**:
+  - The thresholds are the documented ones, each tested at its edge: 200 small files is high, 30 days without a write is stale, 30 versions suggests a vacuum, a cost from a cent is listed and from $10 is medium, and only the five costliest notebooks are listed.
+  - Only small-files advice makes a small-files finding, and a kilobyte is shown as one.
+  - A staging name dated up to a day ahead can be the newest, and one a second later can't.
+  - Findings of one severity rank by kind before title, more files rank first, and `counts` counts each kind.
+  - A scanner reads 8 at a time, and reports its progress from 0 and every tenth table.
+  - A scan reads at most `MAX_TABLES` and says when it stopped, and each lakehouse row adds up its tables.
+  - A table whose log can't be read adds nothing and isn't called unidentified, and a health without sizes counts as none.
+  - Only a lakehouse with neither tables nor files is empty, and one that can't be listed is skipped, not called empty.
+  - What a scan shares leaves out people, costs and findings without a lakehouse, and names a table without a schema by its name alone.
+  - → `test_xray_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `optimize/outbox.py` | 193 | the attempts cap in the backoff, 16 to 17 | Equivalent: from 6 attempts the wait is already past the one-hour cap, so a higher exponent changes nothing. |
+| `xray.py` | 49 | `return str(n)` dropped in `_size` | Equivalent: the loop always returns at TB, so the line is never reached. |
+| `xray.py` | 75 | default versions since vacuum 0 to 1 | Equivalent: both are below the 30 that suggests a vacuum. |
+| `xray.py` | 179 | the rank of an unknown kind, 9 to 10 | Equivalent: both rank after every known kind, the last of which is 8. |
+| `xray.py` | 274 | `zip(..., strict=True)` to `strict=False` | Equivalent: the lakehouses walked and their listings are always the same length. |

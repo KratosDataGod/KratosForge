@@ -1363,7 +1363,7 @@ class Kernel:
         line = line.strip()
         if not line:
             return {k: "hidden" if _SECRET_NAME.search(k) else v for k, v in sorted(os.environ.items())}
-        m = re.match(r"([A-Za-z_]\w*)(?:\s*=\s*|\s+)(.*)$", line)
+        m = re.fullmatch(r"([A-Za-z_]\w*)(?:\s*=\s*|\s+)(.*)$", line)
         if m is None:
             if "=" in line or re.search(r"\s", line):  # 1BAD=x or 1BAD x would read "1BAD=x" and show nothing
                 bad = re.split(r"[=\s]", line, maxsplit=1)[0] or "a variable with no name"

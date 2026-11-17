@@ -278,7 +278,7 @@ class Repository:
         name, email = (name or "").strip(), (email or "").strip()
         if not name or "\n" in name or len(name) > 200:
             raise GitError("Enter your name as it should appear on commits.", kind="invalid")
-        if not re.match(r"^[^@\s]+@[^@\s]+$", email):
+        if not re.fullmatch(r"^[^@\s]+@[^@\s]+$", email):
             raise GitError("Enter an email address, such as you@company.com.", kind="invalid")
         self.git("config", "--local", "user.name", name)
         self.git("config", "--local", "user.email", email)
@@ -647,7 +647,7 @@ class Repository:
 
     def restore_stash(self, ref: str) -> dict[str, Any]:
         """Brings back changes put aside before a switch (git stash pop); kept if it can't apply cleanly."""
-        if not re.match(r"^stash@\{\d+\}$", ref or ""):
+        if not re.fullmatch(r"^stash@\{\d+\}$", ref or ""):
             raise GitError("Choose a set of put-aside changes.", kind="invalid")
         self.git(*_STASH, "pop", "--index", ref)
         return self.status()

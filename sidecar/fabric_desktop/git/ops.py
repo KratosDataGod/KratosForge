@@ -69,7 +69,7 @@ class Operations:
             raise GitError(f"{folder} is a file, not a folder.", kind="invalid")
         folder.mkdir(parents=True, exist_ok=True)  # such as source\repos the first time
         name = (name or repo_name(url)).strip()
-        if not re.match(r"^[A-Za-z0-9._ -]{1,100}$", name) or name in (".", ".."):
+        if not re.fullmatch(r"^[A-Za-z0-9._ -]{1,100}$", name) or name in (".", ".."):
             raise GitError("A folder name is letters, numbers, spaces, . _ and -.", kind="invalid")
         dest = folder / name
         if dest.exists() and any(dest.iterdir()):

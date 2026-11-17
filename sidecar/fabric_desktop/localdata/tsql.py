@@ -208,8 +208,21 @@ def _refuse_dbcc(batch: str) -> None:
         raise ValueError(_NOT_YET + "DBCC isn't mapped yet. Run it in a Fabric Warehouse.")
 
 
+def _schema_authorization(batch: str) -> bool:
+    """CREATE SCHEMA name AUTHORIZATION owner, read by tokens, so a string that holds the words isn't refused."""
+    if "AUTHORIZATION" not in batch.upper():
+        return False
+    try:
+        tokens = KfTSQL().tokenize(batch)
+    except SqlglotError:
+        return False  # _parse reports it
+    words = [t.text.upper() if t.token_type != TokenType.STRING else "" for t in tokens]
+    return any(words[i:i + 2] == ["CREATE", "SCHEMA"] and i + 3 < len(words) and words[i + 3] == "AUTHORIZATION"
+               for i in range(len(words)))
+
+
 def _parse(batch: str) -> list[exp.Expression]:
-    if re.search(r"\bCREATE\s+SCHEMA\s+\S+\s+AUTHORIZATION\b", batch, re.IGNORECASE):
+    if _schema_authorization(batch):
         raise ValueError(_NOT_YET + "CREATE SCHEMA ... AUTHORIZATION isn't mapped yet: the local engine has no "
                          "users to own a schema. Use CREATE SCHEMA name, or run it in a Fabric Warehouse.")
     _refuse_dbcc(batch)
@@ -297,15 +310,18 @@ def _names(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] |
       where a warehouse says "Invalid object name 'm'"; it is refused when dbo has no such table and another
       schema has. (A table the script makes before it reads it isn't known yet, and is left to DuckDB.)"""
     ctes = {cte.alias_or_name.lower() for cte in tree.find_all(exp.CTE)}
-    ctes |= {t.alias.lower() for t in tree.find_all(exp.Table) if t.alias}  # UPDATE x ... FROM dbo.t AS x
     made = tree.this.this if isinstance(tree, exp.Create) and isinstance(tree.this, exp.Schema) else \
         tree.this if isinstance(tree, exp.Create) else None
     known = {s.lower(): {t.lower() for t in tables} for s, tables in (columns or {}).items()}
     notes: list[str] = []
     for table in tree.find_all(exp.Table):
         if isinstance(table.this, exp.Dot):
+            parts = table.this
+            last = parts.expression.name if isinstance(parts.expression, exp.Identifier) else table.name
+            schema_part = parts.this.name if isinstance(parts.this, exp.Identifier) else "dbo"
             raise ValueError(_NOT_YET + f"four-part names ({table.sql(dialect='tsql')}) aren't supported in a Fabric "
-                             "Warehouse either: it has no linked servers.")
+                             f"Warehouse either, because it has no linked servers. Write {schema_part}.{last} for this "
+                             "project's table.")
         if not isinstance(table.this, exp.Identifier):
             continue  # a table function
         name, schema = table.name, table.db
@@ -321,7 +337,8 @@ def _names(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] |
         if schema.lower() == "information_schema":
             notes.append(_INFORMATION_NOTE)
             continue
-        if schema or table is made or name.startswith("#") or name.lower() in ctes or not known:
+        if schema or table is made or name.startswith("#") or name.lower() in ctes or not known \
+                or _names_its_alias(tree, table):
             continue
         if name.lower() in known.get("dbo", set()):
             continue
@@ -331,6 +348,25 @@ def _names(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] |
                              f"T-SQL, and there's no dbo.{name}. Write {elsewhere[0]}.{name} for the one in "
                              f"{elsewhere[0]}.")
     return notes
+
+
+def _names_its_alias(tree: exp.Expression, table: exp.Table) -> bool:
+    """True for T-SQL's ``UPDATE x ... FROM dbo.t AS x`` and ``DELETE x FROM dbo.t AS x``: the x after UPDATE or
+    DELETE names an alias in the statement's own FROM, not a table. Only that target, with no alias of its own."""
+    if table.alias or table.db:
+        return False
+    if isinstance(tree, exp.Update) and table is tree.this:
+        source = tree.args.get("from_")
+        first = source.this if isinstance(source, exp.From) else None
+    elif isinstance(tree, exp.Delete) and any(table is t for t in tree.args.get("tables") or []):
+        first = tree.this
+    else:
+        return False
+    if not isinstance(first, exp.Table):
+        return False
+    aliases = {t.alias.lower() for t in [first, *(j.this for j in first.args.get("joins") or [])]
+               if isinstance(t, exp.Table) and t.alias}
+    return table.name.lower() in aliases
 
 
 def _views(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] | None) -> exp.Expression:

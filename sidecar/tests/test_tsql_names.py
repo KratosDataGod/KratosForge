@@ -62,6 +62,26 @@ def test_a_name_without_a_schema_never_reads_another_schemas_table(engine):
     assert run(engine, "SELECT COUNT(*) FROM sales.only_here") == [[0]]
 
 
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM only_here AS only_here",
+    "SELECT * FROM only_here only_here",
+    "DELETE FROM only_here WHERE x IN (SELECT id FROM dbo.t AS only_here)",
+    "INSERT INTO only_here SELECT id FROM dbo.t AS only_here",
+    "UPDATE only_here SET x = 1 FROM dbo.t AS c",
+])
+def test_an_alias_never_lets_a_name_reach_another_schema(engine, sql):
+    run(engine, "CREATE SCHEMA sales")
+    run(engine, "CREATE TABLE sales.only_here (x INT)")
+    run(engine, "INSERT INTO sales.only_here VALUES (1)")
+    with pytest.raises(ValueError, match=r"Invalid object name 'only_here'"):
+        engine.execute(sql, dialect="tsql")
+    assert run(engine, "SELECT x FROM sales.only_here") == [[1]]
+
+
+def test_a_string_that_holds_create_schema_authorization_is_text(engine):
+    assert run(engine, "SELECT 'CREATE SCHEMA x AUTHORIZATION y'") == [["CREATE SCHEMA x AUTHORIZATION y"]]
+
+
 def test_a_cte_a_temp_table_and_an_alias_are_not_schema_names(engine):
     run(engine, "CREATE SCHEMA sales")
     run(engine, "CREATE TABLE sales.c (x INT)")
@@ -83,7 +103,7 @@ def test_a_cte_a_temp_table_and_an_alias_are_not_schema_names(engine):
     ("SELECT * FROM mylakehouse..t", r"three-part names \(mylakehouse\.\.t\).* Write dbo\.t"),
     ("INSERT INTO otherwh.dbo.t VALUES (1, 'a')", "three-part names"),
     ("SELECT * FROM srv.db.dbo.t", (r"four-part names \(srv\.db\.dbo\.t\) aren't supported in a Fabric Warehouse "
-                                   "either")),
+                                   r"either, because it has no linked servers\. Write dbo\.t")),
     ("SELECT * FROM sys.objects", r"catalog views \(sys\.objects\) aren't mapped yet\. INFORMATION_SCHEMA\.TABLES"),
     ("SELECT * FROM sys.tables", r"catalog views \(sys\.tables\)"),
     ("CREATE SCHEMA s AUTHORIZATION dbo", r"CREATE SCHEMA \.\.\. AUTHORIZATION isn't mapped yet"),

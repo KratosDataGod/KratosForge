@@ -575,7 +575,7 @@ def _exists(conn: Any, name: str) -> bool:
 
 
 def _ident(name: str) -> str:
-    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
+    if not re.fullmatch(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
         raise ValueError(f"{name!r} can't be a view name: use letters, numbers and underscores.")
     return name
 

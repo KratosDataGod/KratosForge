@@ -112,6 +112,13 @@ def test_databricks_sql_stops_on_a_division_by_zero(query: str) -> None:
         _databricks_rows(query)
 
 
+def test_databricks_sql_gives_null_for_a_null_dividend_over_zero() -> None:
+    """Spark's DivModLike returns NULL for a NULL dividend before it checks the divisor, ANSI or not."""
+    assert _databricks_rows("SELECT sum(y) / count(*) FROM (SELECT 1 AS x, 2 AS y) t WHERE x > 100") == [(None,)]
+    assert _databricks_rows("SELECT NULL / 0, CAST(NULL AS INT) div 0, CAST(NULL AS INT) % 0, "
+                            "CAST(NULL AS DOUBLE) / (rand() * 0)") == [(None, None, None, None)]
+
+
 def test_databricks_sql_divides_otherwise() -> None:
     assert _databricks_rows("SELECT 7 / 2, 7 div 2, 7 % 2, try_divide(1, 0)") == [(3.5, 3, 1, None)]
     assert _databricks_rows("SELECT avg(x) FROM (SELECT 1 AS x WHERE false)") == [(None,)]

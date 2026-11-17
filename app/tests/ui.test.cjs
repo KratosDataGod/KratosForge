@@ -549,7 +549,7 @@ function sqlEditorHelpers() {
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { SQL_DIALECTS, SQL_WORDS, sqlDialect, sqlQuoteIdent, sqlTableName,
     sqlMask, sqlStatementAt, sqlRunnableStatementAt, sqlSplitStatements, sqlParamNames, sqlParamProblem, sqlTableRefs, sqlHoverTarget, sqlCallAt, sqlSignatureParts, sqlPickForm, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
-    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics, sqlRowsAs, sqlLiteral, sqlInsertTable, sqlNextBookmark, SQL_PARAM_TYPES });`, ctx);
+    sqlRunnableStatementAt: sqlRunnableStatementAt, sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics, sqlRowsAs, sqlLiteral, sqlInsertTable, sqlNextBookmark, SQL_PARAM_TYPES });`, ctx);
   return ctx;
 }
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -630,6 +630,54 @@ test("a script splits into statements at ; and GO lines, outside strings and com
   assert.deepStrictEqual(texts("CREATE PROCEDURE dbo.p AS SELECT 1; SELECT 2"), ["CREATE PROCEDURE dbo.p AS SELECT 1;", "SELECT 2"],
     "only T-SQL keeps a definition whole");
   assert.deepStrictEqual(texts("  ;\n -- x\n"), []);
+});
+
+test("fuzz: the statement splitter never splits inside a string, a quoted name or a comment, in any dialect (WR-602b)", () => {
+  const { sqlSplitStatements, sqlRunnableStatementAt } = sqlEditorHelpers();
+  let seed = 602;
+  const rand = (n) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+  const pick = (a) => a[rand(a.length)];
+  // Pieces that hold a ; or a GO line where neither ends a statement, and the dialects each is read the same in.
+  const INERT = [
+    ["'a;b'"], ["'x\nGO\ny'"], ["'it''s; fine'"], ["N'a;b'", ["warehouse", "endpoint", "sqldb"]], ['"a;b"'], ['"x""y;z"'],
+    ["`a;b`", ["spark", "duckdb"]], ["`x``y;`", ["spark", "duckdb"]], ["[a;b]", ["warehouse", "endpoint", "sqldb"]],
+    ["[a]];b]", ["warehouse", "endpoint", "sqldb"]], ["[it's;]", ["warehouse", "endpoint", "sqldb"]], ['"it\'s;"'],
+    ["/* ; */"], ["/* a\nGO\n; */"], ["/* outer /* inner; */ still; */"], ["-- note; GO\n"], ["--;\n"],
+    ["'a\\';b'", ["spark"]], ['"a\\";b"', ["spark"]], ["'C:\\'", ["warehouse", "endpoint", "sqldb", "duckdb"]], ["$$a;b\nGO\n$$", ["duckdb"]],
+  ];
+  for (const dialect of ["spark", "duckdb", "warehouse", "endpoint", "sqldb"]) {
+    const tsql = !["spark", "duckdb"].includes(dialect);
+    const pieces = INERT.filter(([, only]) => !only || only.includes(dialect)).map(([t]) => t);
+    for (let round = 0; round < 300; round++) {
+      const want = [];
+      let script = pick(["", "\n", "  "]);
+      const n = 1 + rand(5);
+      for (let k = 0; k < n; k++) {
+        const parts = Array.from({ length: 1 + rand(4) }, () => pick(pieces));
+        const body = `SELECT ${parts.join(pick([", ", " ,\n", " + "]))} AS c${k}\nFROM t${k}`;
+        const viaGo = round % 2 === 1 && rand(3) === 0;  // odd rounds: a GO line can end it, with no ;
+        const last = k === n - 1;
+        want.push(viaGo || (last && rand(2)) ? body : `${body};`);
+        script += want[k] === body ? body + (last ? "" : pick(["\nGO\n", "\n  go\n", "\nGO;\n"])) : `${body};` + pick([" ", "\n", "\n\n", " ;\n"]);
+      }
+      const got = sqlSplitStatements(script, { tsql, dialect }).map((u) => u.text);
+      assert.deepStrictEqual(plain(got), want, `${dialect}, seed round ${round}:\n${script}`);
+      // Even rounds have no GO lines: the statement under the cursor (Ctrl+Shift+Enter) is the same one, from anywhere inside it.
+      if (round % 2 === 0) {
+        for (const u of sqlSplitStatements(script, { tsql, dialect })) {
+          const at = u.from + 1 + rand(Math.max(1, u.to - u.from - 2));  // inside it: right after a ; and spaces is the one before
+          assert.strictEqual(sqlRunnableStatementAt(script, at, dialect)?.text, u.text.replace(/;$/, ""), `${dialect}, at ${at}:\n${script}`);
+        }
+      }
+    }
+  }
+  // A T-SQL batch with a block keeps its quoted ; inside, and GO still ends it.
+  const block = "IF 1 = 1 BEGIN SELECT 'a;b'; SELECT [c;d]; END\nGO\nSELECT 2";
+  assert.deepStrictEqual(plain(sqlSplitStatements(block, { tsql: true, dialect: "warehouse" }).map((u) => u.text)),
+    ["IF 1 = 1 BEGIN SELECT 'a;b'; SELECT [c;d]; END", "SELECT 2"]);
+  // A string or comment that never closes keeps the rest of the script with it, rather than cutting it.
+  assert.deepStrictEqual(plain(sqlSplitStatements("SELECT 'open; SELECT 2", {}).map((u) => u.text)), ["SELECT 'open; SELECT 2"]);
+  assert.deepStrictEqual(plain(sqlSplitStatements("SELECT 1 /* open; SELECT 2", {}).map((u) => u.text)), ["SELECT 1 /* open; SELECT 2"]);
 });
 
 test("a query's parameters are :name and {{name}}, outside strings, comments and casts (S17)", () => {

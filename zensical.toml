@@ -92,6 +92,7 @@ nav = [
     { "Optimize lakehouse" = "optimize/README.md" },
     { "Optimize security and retention" = "optimize/security.md" },
     { "Optimization engine" = "optimize/engine.md" },
+    { "Fabric Excellence Assessment" = "optimize/excellence-assessment.md" },
     { "Metadata framework" = "metadata-guide.md" },
     { "Semantic model best practices" = "semantic-model-best-practices.md" },
     { "Source control" = "source-control.md" },

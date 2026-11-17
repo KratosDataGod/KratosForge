@@ -207,8 +207,10 @@ def _alias_targets(tree: exp.Expression, scratch: str) -> list[exp.Table]:
         candidates = [*(tree.args.get("tables") or []), tree.this]
     else:
         return []
+    # only the statement's own FROM and JOIN tables: an alias inside a subquery isn't visible to the target
     bound = {t.alias.lower() for t in tree.find_all(exp.Table)
-             if t.alias and t.db.lower() == scratch.lower() and not t.catalog}
+             if t.alias and t.db.lower() == scratch.lower() and not t.catalog
+             and t.find_ancestor(exp.Select, exp.Subquery, exp.Exists) is None}
     return [t for t in candidates if isinstance(t, exp.Table) and not t.db and not t.catalog and not t.alias
             and t.name.lower() in bound]
 

@@ -122,6 +122,12 @@ def test_every_case_reads_or_writes_only_in_the_scratch_schema():
     ("UPDATE t SET v = 1 FROM {s}.x AS c JOIN dbo.y AS t ON c.id = t.id", "outside the scratch schema"),
     ("DELETE t FROM dbo.x AS t", "outside the scratch schema"),
     ("UPDATE t SET v = 1 FROM {s}.x AS c", "names t, outside"),
+    # an alias inside a subquery isn't visible to the target, which then means dbo
+    ("UPDATE orders SET v = 1 WHERE EXISTS (SELECT 1 FROM {s}.y AS orders)", "names orders, outside"),
+    ("DELETE FROM orders WHERE id IN (SELECT id FROM {s}.y AS orders)", "names orders, outside"),
+    ("UPDATE orders SET v = 1 FROM {s}.x AS z WHERE EXISTS (SELECT 1 FROM {s}.y AS orders)", "names orders, outside"),
+    ("DELETE orders FROM {s}.x AS z WHERE z.id IN (SELECT id FROM {s}.y AS orders)", "names orders, outside"),
+    ("UPDATE orders SET v = (SELECT 1 FROM {s}.y AS orders) FROM {s}.x AS z", "names orders, outside"),
 ])
 def test_anything_else_is_refused_before_connecting(sql, words):
     assert words in (w.statement_problem(sql.replace("{s}", SCRATCH), SCRATCH) or "")

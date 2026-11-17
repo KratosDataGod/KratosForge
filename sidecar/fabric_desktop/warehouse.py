@@ -665,9 +665,12 @@ def _write_result(cursor: Any, out: Path, say: Callable[..., None]) -> tuple[int
 def _schema(description: Any, sample: list[Any]) -> Any:
     import pyarrow as pa
 
+    from .frames import NOTE_KEY
+
     fields = []
     for i, d in enumerate(description):
         kind, precision, scale = d[1], d[4], d[5]
+        note = ""
         if kind is bool:
             t = pa.bool_()
         elif kind is int:
@@ -679,16 +682,32 @@ def _schema(description: Any, sample: list[Any]) -> Any:
         elif kind is dt.datetime:
             aware = next((r[i].tzinfo is not None for r in sample if r[i] is not None), False)
             t = pa.timestamp("us", tz="UTC" if aware else None)  # datetimeoffset comes back in UTC
+            note = _time_note(scale, aware)
         elif kind is dt.date:
             t = pa.date32()
         elif kind is dt.time:
             t = pa.time64("us")
+            note = _time_note(scale, False)
         elif kind is bytes:
             t = pa.binary()
         else:
             t = pa.string()  # text, uniqueidentifier, xml and anything new
-        fields.append(pa.field(str(d[0] or f"column{i + 1}"), t))
+        fields.append(pa.field(str(d[0] or f"column{i + 1}"), t, metadata={NOTE_KEY: note.encode()} if note else None))
     return pa.schema(fields)
+
+
+def _time_note(scale: Any, aware: bool) -> str:
+    """What a result keeps of a warehouse time (WR-221), said with its export. Times are kept to the microsecond,
+    so the seventh digit of datetime2(7), time(7) or datetimeoffset(7) isn't (the driver's scale says how many it
+    has); a datetimeoffset is kept in UTC, without the offset it was written with."""
+    parts = []
+    if isinstance(scale, int) and scale > 6:
+        parts.append("times are kept to the microsecond, so the seventh digit of their fraction isn't kept. To keep "
+                     "it, convert the column to text in the query, such as CAST(col AS VARCHAR(34))")
+    if aware:
+        parts.append("datetimeoffset values are given in UTC, without the offset each was written with. To keep the "
+                     "offset, convert the column to text in the query, such as CAST(col AS VARCHAR(34))")
+    return "; ".join(parts)
 
 
 def _batch(schema: Any, rows: list[Any]) -> Any:

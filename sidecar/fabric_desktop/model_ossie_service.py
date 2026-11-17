@@ -51,7 +51,7 @@ def _tmdl_files(top: Path, depth: int = 0, found: list[Path] | None = None) -> l
     MAX_FILES files (a folder that holds more isn't a semantic model)."""
     found = [] if found is None else found
     if depth > MAX_DEPTH:
-        raise ValueError(f"{top.name} is nested too deeply to be a semantic model folder")
+        raise ValueError(f"{top.name} is nested too deeply to be a semantic model folder. Pick the model's own folder.")
     with os.scandir(top) as entries:
         for e in entries:
             here = Path(e.path)
@@ -60,7 +60,7 @@ def _tmdl_files(top: Path, depth: int = 0, found: list[Path] | None = None) -> l
             elif e.name.endswith(".tmdl") and _real(here, stat.S_ISREG):
                 found.append(here)
                 if len(found) > MAX_FILES:
-                    raise ValueError(f"There are more than {MAX_FILES} TMDL files here; that isn't one semantic model")
+                    raise ValueError(f"There are more than {MAX_FILES} TMDL files here, so this isn't one semantic model. Pick the model's own folder.")
     return found
 
 
@@ -350,7 +350,7 @@ class ModelOssieMixin:
             if os.path.lexists(path) and not _real(path, stat.S_ISREG):
                 raise ValueError(f"{path.relative_to(root).as_posix()} is a link or a folder, so it isn't overwritten")
             if not path.resolve().is_relative_to(folder.resolve()):  # never outside the model's folder
-                raise ValueError(f"{rel} would be written outside {folder.relative_to(root).as_posix()}")
+                raise ValueError(f"{rel} would be written outside {folder.relative_to(root).as_posix()}, so nothing was written.")
             targets[path] = content
         stale = sorted(f for f in (_tmdl_files(definition) if _real(definition, stat.S_ISDIR) else [])
                        if f not in targets and f.relative_to(definition).parts[0] != "cultures")
@@ -367,7 +367,7 @@ class ModelOssieMixin:
         if not confirmed:
             return {"confirm": out | {"token": digest}}
         if not hmac.compare_digest(str(token).encode(), digest.encode()):
-            raise ValueError("The folder or the Ossie file changed since the preview; nothing was written. Preview again.")
+            raise ValueError("The folder or the Ossie file changed since the preview, so nothing was written. Preview again.")
         for path, content in targets.items():
             write_text(path, content, newline="\n")
         for old in stale:

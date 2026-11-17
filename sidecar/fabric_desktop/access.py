@@ -13,7 +13,7 @@ from typing import Any
 
 ROLES = ("Admin", "Member", "Contributor", "Viewer")
 WRITE_ROLES = ("Admin", "Member", "Contributor")
-_ROLE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9]{0,127}$")
+_ROLE_NAME = re.compile(r"[A-Za-z][A-Za-z0-9]{0,127}")
 
 
 def principal(p: dict[str, Any]) -> dict[str, Any]:
@@ -80,7 +80,7 @@ def make_role(name: str, paths: list[str], object_ids: list[str], tenant_id: str
 
     ``keep`` is the role being edited: its item members (such as DefaultReader's "everyone
     with ReadAll") are kept as they are."""
-    if not _ROLE_NAME.match(name or ""):
+    if not _ROLE_NAME.fullmatch(name or ""):  # match with $ also takes a name ending in a line break
         raise ValueError("A role name is letters and digits only, starting with a letter (like SalesReaders).")
     paths = [p if p == "*" else "/" + p.strip("/") for p in paths if p]
     if not paths:

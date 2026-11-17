@@ -133,6 +133,12 @@ so one mutant can't hang the run. Caches (anywhere) and a local `.venv` and buil
 temporary `sidecar/`, and `--only` names any index that isn't in the run's sample instead of quietly
 skipping it.
 
+Each mutant's tests run with no bytecode cache (`PYTHONDONTWRITEBYTECODE=1`), since #2836. Before
+that, Python could reuse the cached code of the previous mutant when the two were the same size and
+written in the same second, so a mutant could be scored as the one before it, in either direction.
+Scores from batches 1 to 77 were taken without the fix and may be off by such a mutant; batch 78 and
+later were taken with it. Two runs with the fix give the same result for every mutant.
+
 # Mutation testing, batch 2
 
 The rest of the Delta write and commit paths: MERGE, UPDATE and DELETE (`delta_dml.py`), publishing a

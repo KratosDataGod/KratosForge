@@ -25,7 +25,8 @@ def cell():
 
 
 def _refused(answer, what):
-    assert answer.startswith(f"error: {what} can't run on this PC the way it runs in Databricks, so nothing ran:"), answer
+    assert answer.startswith(f"error: {what} can't run on this PC the way it runs in Databricks, because "), answer
+    assert ", so nothing ran. " in answer
     assert "Run the cell on a Databricks SQL warehouse, or " in answer
 
 

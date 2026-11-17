@@ -602,7 +602,7 @@ _BIGINT_RANGE = "MINVALUE -9223372036854775808 MAXVALUE 9223372036854775807"
 
 
 def _statement_refusal(what: str, why: str, instead: str) -> ValueError:
-    return ValueError(f"{what} can't run on this PC the way it runs in Databricks, so nothing ran: {why}. "
+    return ValueError(f"{what} can't run on this PC the way it runs in Databricks, because {why}, so nothing ran. "
                       f"{_WAREHOUSE}, or {instead}.")
 
 
@@ -651,7 +651,7 @@ def _table_properties(statement: exp.Create) -> None:
         if isinstance(prop, exp.FileFormatProperty):
             if prop.name.upper() != "DELTA":
                 raise _statement_refusal(f"USING {prop.name.upper()}", f"{_LOCAL_TABLE}, so it can't keep its "
-                                         f"rows as {prop.name.upper()} files", "leave out USING to make a Delta table")
+                                         f"rows as {prop.name.upper()} files", "leave out USING, or write USING DELTA")
             prop.pop()
         elif type(prop) is exp.Property:  # TBLPROPERTIES; its subclasses are the other clauses
             raise _statement_refusal("TBLPROPERTIES", f"{_LOCAL_TABLE}, so a table property such as "

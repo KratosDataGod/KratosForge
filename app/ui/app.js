@@ -1049,8 +1049,9 @@ function renderCreate() {
 const monitorPage = { env: "all", where: "any", problemsFirst: true, panel: "runs", opsView: "workloads",
   refreshing: false };
 // Pop-out windows (Preview, popout.js). In a pop-out window, POP_OUT is the one section it shows ("runs"
-// or "fabric"); in the main window it is null and popOuts holds the sections open in windows of their own.
-const POP_OUT = ["runs", "fabric"].find((s) => new URLSearchParams(location.search).get("popout") === s) || null;
+// "fabric" or a notebook's "report", nbreport.js); in the main window it is null and popOuts holds the
+// sections open in windows of their own.
+const POP_OUT = ["runs", "fabric", "report"].find((s) => new URLSearchParams(location.search).get("popout") === s) || null;
 const popOuts = new Set();
 // Monitor > Operations holds the workload views (UX-010). Each keeps its own panel id, so links to it still work.
 const MONITOR_OPS = [

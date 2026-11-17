@@ -99,6 +99,32 @@ These cases can still differ. LOC-003 warns wherever a pattern is used:
 
 A cast of text that is only a year or a year and month, such as `CAST('2024-02' AS DATE)` or `to_timestamp('2024')`, also still differs. Spark reads it as the month's or the year's first day; here it is NULL. No rule warns about it yet.
 
+## Aggregates on this PC
+
+Spark SQL and the DataFrame API run on this PC give Spark's values and types for its aggregates, with ANSI mode off as Fabric runs it. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_aggregates.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `collect_list`, `collect_set`, `array_agg` | NULLs are left out, and no value at all (no rows, or only NULLs) gives `[]`, not NULL, as an aggregate, with `FILTER` and over a window. The order of the values isn't fixed (LOC-006) |
+| `first`, `last` | NULLs count unless `ignoreNulls` is true (`first(x, true)`, `first(x) IGNORE NULLS`, `F.first(x, ignorenulls=True)`) |
+| `count(a, b)`, `count(DISTINCT a, b)` | Count the rows where none of the columns is NULL |
+| `percentile`, `median`, `percentile_cont` | Interpolated, and a `double` (an array of doubles for an array of percentages), whatever the column's type. `percentile_disc` and `percentile_approx` give a value from the column, in its type |
+| `stddev`, `stddev_samp`, `variance`, `var_samp` | NULL for a group of one row; `stddev_pop` and `var_pop` give 0.0 |
+| `sum` of an `int` or `bigint`, `count_if`, `regr_count` | A `bigint`, in the schema and in `typeof`. A table written from them has a `bigint` column |
+| `grouping` | A `tinyint`; `grouping_id` is a `bigint` |
+| `GROUP BY a, b WITH ROLLUP`, `WITH CUBE` | Run as `ROLLUP(a, b)` and `CUBE(a, b)`. A NULL in the data and a subtotal row both show NULL; `grouping(a)` is 1 only for the subtotal |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| `approx_count_distinct` | Spark's HyperLogLog++ estimate, within the `rsd` given (0.05 by default) | DuckDB's own estimate. `rsd` is taken but doesn't change it, and the estimate can be off by one even for a few distinct values. Use `count(DISTINCT x)` when the count must be exact |
+| `percentile_approx`, `approx_percentile` | Spark's estimate, within its `accuracy` | DuckDB's exact pick from the column's values. `accuracy` doesn't change it, so on many values the result can differ from Spark's slightly |
+| `collect_list` and `collect_set` order | The order the rows arrive in, which can change between runs | DuckDB's order, which can also change. Sort with `array_sort` before comparing |
+| `GROUP BY a, b GROUPING SETS ((a, b), a)` and `grouping__id` | Hive's form runs | Refused, and nothing runs. Write `GROUP BY GROUPING SETS ((a, b), (a))` and `grouping_id()` |
+| A `sum` past a `bigint`'s range | Wraps around | Kept as a 128-bit number; writing it to a table stops with a message |
+| `histogram_numeric` | Spark's streaming bins | Refused by name |
+
 ## Arrays, maps and structs on this PC
 
 Spark SQL run on this PC gives Spark's values and types for its array, map and struct functions and its generators, with ANSI mode off as Fabric runs it. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_complex.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.

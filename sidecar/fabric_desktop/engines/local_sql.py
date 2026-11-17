@@ -285,14 +285,33 @@ def _databricks(code: str) -> list[Any]:
     # the Academy's learner package carries without them
     from .. import databricks_builtins_sql
     try:
-        return [databricks_builtins_sql.rewrite(sql.spark_fixes(s, databricks=True)) for s in statements]
+        rewritten = [databricks_builtins_sql.rewrite(sql.spark_fixes(s, databricks=True)) for s in statements]
     except ValueError as exc:  # a Spark refusal names Fabric: this cell runs as Databricks SQL
         text = str(exc)
         if "the way it runs in Fabric" not in text:
             raise
-        raise ValueError(text.replace("the way it runs in Fabric", "the way it runs in Databricks")
-                         .replace(" run in Fabric only", " run on Databricks only")
-                         .replace("Run the cell in Fabric", databricks_builtins_sql._WAREHOUSE)) from None
+        raise ValueError(_databricks_wording(text)) from None
+    # the same for a refusal written into the query, which stops it only when a row reaches it; only an
+    # ERROR(...) that carries a refusal's own words, so a message the cell's author wrote stays as written
+    for statement in rewritten:
+        for call in statement.find_all(exp.Anonymous):
+            pieces = [t for t in call.find_all(exp.Literal) if t.is_string]
+            if call.name.upper() != "ERROR" or not any(_REFUSAL in t.name for t in pieces):
+                continue
+            for piece in pieces:
+                piece.replace(exp.Literal.string(_databricks_wording(piece.name)))
+    return rewritten
+
+
+_REFUSAL = "can't run on this PC the way it runs in Fabric"
+
+
+def _databricks_wording(text: str) -> str:
+    """A Spark refusal's text, naming Databricks in place of Fabric."""
+    from .. import databricks_builtins_sql
+    return (text.replace("the way it runs in Fabric", "the way it runs in Databricks")
+            .replace(" run in Fabric only", " run on Databricks only")
+            .replace("Run the cell in Fabric", databricks_builtins_sql._WAREHOUSE))
 
 
 class DuckDBSession(_SqlSession):

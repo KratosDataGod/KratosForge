@@ -11,6 +11,7 @@ name with a message, so a cell stops before anything runs with another answer.
 
 from __future__ import annotations
 
+import contextvars
 import functools
 import re
 from typing import Callable, cast
@@ -534,9 +535,10 @@ def _try_to_binary(node: exp.Expression, args: list[exp.Expression]) -> exp.Expr
 
 
 def _timestamp_from(scale: int) -> Callable[..., exp.Expression | None]:
-    """timestamp_seconds/millis/micros: the time that many units after 1970-01-01 00:00 UTC."""
+    """timestamp_seconds/millis/micros: the instant that many units after 1970-01-01 00:00 UTC, as Spark's
+    timestamp (with time zone)."""
     to_micros = "fj_arg0" if scale == 1 else f"TRUNC(CAST(fj_arg0 AS DECIMAL(38, 6)) * {scale})"
-    return _template(f"MAKE_TIMESTAMP(CAST({to_micros} AS BIGINT))", 1)
+    return _template(f"TIMEZONE('UTC', MAKE_TIMESTAMP(CAST({to_micros} AS BIGINT)))", 1)
 
 
 def _make_dt_interval(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
@@ -548,12 +550,18 @@ def _make_dt_interval(node: exp.Expression, args: list[exp.Expression]) -> exp.E
 
 
 def _to_timestamp(safe: bool) -> Callable[..., exp.Expression | None]:
-    """to_timestamp_ntz/ltz and try_to_timestamp read text as Spark's to_timestamp does."""
+    """to_timestamp_ntz/ltz and try_to_timestamp read text as Spark's to_timestamp does. to_timestamp_ltz
+    and try_to_timestamp give Spark's timestamp (with time zone, in the session's zone); to_timestamp_ntz
+    a timestamp without one."""
     def build(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+        from . import spark_datetime
+        ntz = node.name.upper() == "TO_TIMESTAMP_NTZ"
         if len(args) == 1:
-            return _with_args("TRY_CAST(fj_arg0 AS TIMESTAMP)", args)
+            return _with_args(f"TRY_CAST(fj_arg0 AS {'TIMESTAMP' if ntz else 'TIMESTAMPTZ'})", args)
         if len(args) != 2 or not args[1].is_string:
             return None  # sqlglot reads a format only when it is written out
+        if not ntz:
+            return _with_args(spark_datetime.parse_sql(args[1].name, node.name.lower()), args[:1])
         tree = sqlglot.parse_one(f"SELECT TO_TIMESTAMP(fj_arg0, {args[1].sql('spark')})", read="spark").expressions[0]
         for column in list(tree.find_all(exp.Column)):
             if column.name == "fj_arg0":
@@ -566,9 +574,16 @@ def _to_timestamp(safe: bool) -> Callable[..., exp.Expression | None]:
 
 
 def _make_timestamp(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
-    if len(args) != 6:
-        return None  # with a time zone: left to DuckDB, which refuses it
-    return _with_args("TRY(MAKE_TIMESTAMP(fj_arg0, fj_arg1, fj_arg2, fj_arg3, fj_arg4, fj_arg5))", args)
+    """make_timestamp, make_timestamp_ltz and make_timestamp_ntz: NULL for a date or time that doesn't
+    exist (ANSI off). make_timestamp and _ltz give Spark's timestamp: the wall time in the session's zone,
+    or in the zone given as the seventh argument; _ntz a timestamp without a zone."""
+    ntz = isinstance(node, exp.Anonymous) and node.name.upper() == "MAKE_TIMESTAMP_NTZ"
+    made = "TRY(MAKE_TIMESTAMP(fj_arg0, fj_arg1, fj_arg2, fj_arg3, fj_arg4, CAST(fj_arg5 AS DOUBLE)))"
+    if len(args) == 6:
+        return _with_args(made if ntz else f"CAST({made} AS TIMESTAMPTZ)", args)
+    if len(args) == 7 and not ntz:
+        return _with_args(f"TRY(TIMEZONE(CAST(fj_arg6 AS VARCHAR), {made}))", args)
+    return None  # left to DuckDB, which refuses it
 
 
 def _octet_length(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
@@ -782,6 +797,9 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("Shuffle", _template(_SHUFFLE, 1)),
         ("Randn", lambda n, a: _with_args(_RANDN, []) if not a else _SEEDED_RANDN(n, a)),
         ("TsOrDsToDate", _to_date_with_format),
+        ("TimeToStr", _date_format),
+        ("StrToTime", _to_timestamp_with_format),
+        ("UnixToStr", _date_format),
         ("ArraysZip", _arrays_zip),
         ("BitmapConstructAgg", _template(_BITMAP_CONSTRUCT_AGG, 1)),
         ("BitmapCount", _template(_BITMAP_COUNT, 1)),
@@ -789,10 +807,13 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("FirstValue", lambda n, a: None if n.find_ancestor(exp.Window) else _with_args("FIRST(fj_arg0)", [n.this])),
         ("LastValue", lambda n, a: None if n.find_ancestor(exp.Window) else _with_args("LAST(fj_arg0)", [n.this])),
         ("Format", _format_string),
-        ("AtTimeZone", lambda n, a: _with_args("TIMEZONE(fj_arg1, TIMEZONE('UTC', TRY_CAST(fj_arg0 AS TIMESTAMP)))",
-                                               [_uncast(n.this), n.args["zone"]])),
-        ("FromTimeZone", lambda n, a: _with_args("TIMEZONE('UTC', TIMEZONE(fj_arg1, TRY_CAST(fj_arg0 AS TIMESTAMP)))",
-                                                 [_uncast(n.this), n.args["zone"]])),
+        # from_utc_timestamp and to_utc_timestamp: Spark's timestamp (with time zone), whose wall time in
+        # the session's zone is the converted one
+        ("AtTimeZone", lambda n, a: _with_args("CAST(TIMEZONE(fj_arg1, TIMEZONE('UTC', TRY_CAST(fj_arg0 AS TIMESTAMP))) "
+                                               "AS TIMESTAMPTZ)", [_uncast(n.this), n.args["zone"]])),
+        ("FromTimeZone", lambda n, a: _with_args("CAST(TIMEZONE('UTC', TIMEZONE(fj_arg1, TRY_CAST(fj_arg0 AS TIMESTAMP))) "
+                                                 "AS TIMESTAMPTZ)", [_uncast(n.this), n.args["zone"]])),
+        ("TimestampFromParts", _make_timestamp),
         ("ToNumber", lambda n, a: _to_number(False)(n, [n.this, n.args["format"]] if n.args.get("format") else [n.this])),
         ("ToChar", lambda n, a: _to_char("to_char")(n, [n.this, n.args["format"]]) if n.args.get("format") else None),
         ("ParseUrl", _parse_url),
@@ -843,13 +864,60 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
     return [(cls, build) for name, build in table if (cls := getattr(exp, name, None)) is not None]
 
 
+def written_pattern(node: exp.Expression) -> str | None:
+    """A datetime pattern, the second argument, as the person wrote it (date_format(x, 'yyyy-MM-dd')),
+    before sqlglot turned it into strftime codes; None when it isn't a constant text."""
+    from . import spark_sql_names
+    written = node.meta.get(spark_sql_names._ARGS)
+    if not written or len(written) != 2:
+        return None
+    try:
+        literal = sqlglot.parse_one(written[1], read="spark")
+    except sqlglot.errors.ParseError:  # silent-ok: not a constant, so it stays as sqlglot reads it
+        return None
+    return literal.name if isinstance(literal, exp.Literal) and literal.is_string else None
+
+
+def _date_format(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """date_format(x, pattern) and from_unixtime(seconds, pattern) with Spark's datetime patterns, in
+    the session's time zone (spark_datetime). A pattern letter Spark refuses is refused here by name."""
+    from . import spark_datetime, spark_sql_names
+    name = node.meta.get(spark_sql_names._NAME)
+    pattern = written_pattern(node) if name in ("date_format", "from_unixtime") else None
+    if pattern is None:
+        return None
+    if isinstance(node, exp.UnixToStr):
+        value: exp.Expression = _with_args("TO_TIMESTAMP(TRUNC(CAST(fj_arg0 AS DOUBLE)))", [node.this])
+    else:
+        value = node.this.this if isinstance(node.this, exp.TimeStrToTime) else node.this
+    return _with_args(spark_datetime.format_sql(pattern, strict=_ANSI.get()), [value])
+
+
+def _to_timestamp_with_format(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """to_timestamp(text, pattern): Spark's timestamp (with time zone, in the session's zone), read with
+    Spark's datetime pattern (spark_datetime); NULL for text that doesn't match, as with ANSI off."""
+    from . import spark_datetime, spark_sql_names
+    if node.meta.get(spark_sql_names._NAME) != "to_timestamp":
+        return None
+    pattern = written_pattern(node)
+    if pattern is None:
+        return None
+    return _with_args(spark_datetime.parse_sql(pattern, "to_timestamp", strict=_ANSI.get()), [node.this])
+
+
 def _to_date_with_format(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
     """to_date(text, format) reads the text with the format, also when the format is sqlglot's
     default ('yyyy-MM-dd HH:mm:ss', 'yyyy-MM-dd'), which sqlglot otherwise writes as a plain cast
-    that ignores it: Spark gives NULL for '2026-03-02' with 'yyyy-MM-dd HH:mm:ss'."""
+    that ignores it: Spark gives NULL for '2026-03-02' with 'yyyy-MM-dd HH:mm:ss'. The pattern is read
+    as Spark reads it (spark_datetime) when it was written out."""
+    from . import spark_datetime
     fmt = node.args.get("format")
     if fmt is None or not fmt.is_string:
         return None
+    pattern = written_pattern(node)
+    if pattern is not None:
+        read = spark_datetime.parse_sql(pattern, "to_date", strict=_ANSI.get())
+        return _with_args(f"CAST({read} AS DATE)", [node.this])
     parsed = exp.StrToTime(this=node.this.copy(), format=fmt.copy(), safe=True)
     return exp.cast(exp.cast(parsed, exp.DataType.Type.TIMESTAMP), exp.DataType.Type.DATE)
 
@@ -1122,8 +1190,20 @@ def mark(statement: exp.Expression) -> exp.Expression:
     return statement
 
 
-def rewrite(statement: exp.Expression) -> exp.Expression:
-    """Every marked call above in ``statement``, deepest first, as DuckDB SQL that gives Spark's value."""
+def rewrite(statement: exp.Expression, ansi: bool = False) -> exp.Expression:
+    """Every marked call above in ``statement``, deepest first, as DuckDB SQL that gives Spark's value.
+    ``ansi``: Databricks SQL, where text that doesn't match a datetime pattern is an error, not NULL."""
+    token = _ANSI.set(ansi)
+    try:
+        return _rewrite(statement)
+    finally:
+        _ANSI.reset(token)
+
+
+_ANSI: contextvars.ContextVar[bool] = contextvars.ContextVar("kf_spark_ansi", default=False)
+
+
+def _rewrite(statement: exp.Expression) -> exp.Expression:
     _window_columns(statement)
     found = [n for n in _candidates(statement) if n.meta.get(_MARK)]
     for node in reversed(found):
@@ -1170,15 +1250,15 @@ def _no_duckdb_hash(statement: exp.Expression) -> None:
 
 
 def _truncated_time(node: exp.Expression) -> None:
-    """trunc(x, unit) reads x as a date and date_trunc(unit, 'text') reads text as a timestamp, as
-    Spark does (text that isn't one gives NULL). date_trunc of anything else is left as it is, so a
+    """trunc(x, unit) reads x as a date and date_trunc(unit, 'text') reads text as a timestamp (with
+    time zone, in the session's zone), as Spark does (text that isn't one gives NULL). date_trunc of anything else is left as it is, so a
     timestamp keeps its type."""
     value = node.this
     if isinstance(node, exp.TimestampTrunc):
         text = value.is_string or (isinstance(value, (exp.Cast, exp.TryCast)) and value.to.is_type(*exp.DataType.TEXT_TYPES))
         if not text:
             return
-        target = exp.DataType.Type.TIMESTAMP
+        target = exp.DataType.Type.TIMESTAMPTZ  # Spark's timestamp, read in the session's zone
     else:
         target = exp.DataType.Type.DATE
     if isinstance(value, (exp.Cast, exp.TryCast)) and value.to.this == target:

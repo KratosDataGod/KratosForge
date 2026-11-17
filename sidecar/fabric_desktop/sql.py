@@ -23,7 +23,7 @@ from sqlglot.dialects.duckdb import DuckDB
 from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
-from . import spark_builtins_sql, spark_sql_names, sql_dialects
+from . import spark_builtins_sql, spark_datetime, spark_sql_names, sql_dialects
 from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
 
 # sqlglot logs a warning when it reads a statement as a bare command ('SHOW TABLES' ...). With no
@@ -180,9 +180,73 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     Apache Spark 3.5 (Fabric) quotes only names that need it. timestampdiff counts whole units
     (_spark_timestampdiff)."""
     statement = spark_builtins_sql.mark(statement)
+    statement = _spark_date_results(statement, ansi=databricks)
     statement = _spark_timestampdiff(spark_builtins_sql.rewrite(
-        _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_concat_text(_spark_cast_functions(_spark_names(statement))))))))))
+        _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_concat_text(_spark_cast_functions(_spark_names(statement)))))))),
+        ansi=databricks))
     return statement if databricks else _spark_session_functions(statement)
+
+
+# Spark's date and time functions that return an int (sqlglot's DuckDB SQL gives a BIGINT).
+_SPARK_INTS = (exp.Year, exp.Month, exp.Day, exp.DayOfMonth, exp.DayOfYear, exp.WeekOfYear, exp.DayOfWeek,
+               exp.Quarter, exp.Hour, exp.Minute, exp.Second, exp.DateDiff, exp.UnixDate)
+# The units Spark's trunc(date, unit) and date_trunc(unit, ts) take (DateTimeUtils.parseTruncLevel);
+# any other is NULL with ANSI off.
+_TRUNC_UNITS = {"YEAR", "YYYY", "YY", "QUARTER", "MONTH", "MM", "MON", "WEEK"}
+_DATE_TRUNC_UNITS = _TRUNC_UNITS | {"DAY", "DD", "HOUR", "MINUTE", "SECOND", "MILLISECOND", "MICROSECOND"}
+# next_day's day names, as Spark reads them (DateTimeUtils.getDayOfWeekFromString), ISO numbered.
+_NEXT_DAY = ("CAST(TRY_CAST(fj_arg0 AS DATE) + TO_DAYS(CAST((((CASE UPPER(CAST(fj_arg1 AS VARCHAR)) "
+             + " ".join(f"WHEN '{n[:2]}' THEN {i} WHEN '{n[:3]}' THEN {i} WHEN '{n}' THEN {i}" for i, n in enumerate(
+                 ("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"), 1))
+             + " END) - ISODOW(TRY_CAST(fj_arg0 AS DATE)) + 6) % 7) + 1 AS INTEGER)) AS DATE)")
+
+
+def _spark_date_results(statement: exp.Expression, ansi: bool) -> exp.Expression:
+    """Spark's result types and NULLs for its date and time functions (WR-106). year, month, day,
+    dayofyear, weekofyear, dayofweek, quarter, hour, minute, second, datediff and unix_date are an
+    int, as in Spark (Databricks SQL too). With ANSI off, the Spark SQL path only: text that isn't a
+    date gives NULL in date_add, date_sub, datediff, last_day and the functions above; a unit trunc or
+    date_trunc doesn't take, and a day name next_day doesn't know, give NULL; make_date of a day
+    that doesn't exist is NULL."""
+    def wrap(node: exp.Expression, sql_text: str, args: list[exp.Expression]) -> exp.Expression:
+        new = _with_args(sql_text, args)
+        new.meta.update(spark_sql_names.kept(node))
+        node.replace(new)
+        return new
+    if not ansi:
+        for found in list(statement.find_all(exp.TsOrDsToDate, exp.TsOrDsAdd, exp.LastDay, exp.UnixDate,
+                                             exp.NextDay, exp.DateTrunc, exp.TimestampTrunc, exp.Anonymous)):
+            node = cast(exp.Expression, found)  # sqlglot's Func isn't typed as an Expression
+            if isinstance(node, exp.TsOrDsToDate):
+                if node.args.get("format") is None:
+                    node.set("safe", True)
+            elif isinstance(node, (exp.TsOrDsAdd, exp.LastDay, exp.UnixDate)):
+                if not isinstance(node.this, exp.Cast):
+                    node.set("this", exp.TryCast(this=node.this.copy(), to=exp.DataType.build("DATE")))
+            elif isinstance(node, exp.NextDay):
+                if node is not statement:
+                    wrap(node, _NEXT_DAY, [node.this, node.expression])
+            elif isinstance(node, (exp.DateTrunc, exp.TimestampTrunc)):
+                unit = node.args.get("unit")
+                trunc = isinstance(unit, exp.Literal)  # trunc(date, 'MM'); date_trunc('MM', ts) has a Var
+                allowed = _TRUNC_UNITS if trunc else _DATE_TRUNC_UNITS
+                if isinstance(unit, (exp.Literal, exp.Var)) and unit.name.upper() not in allowed and node is not statement:
+                    wrap(node, "CAST(NULL AS DATE)" if trunc else "CAST(NULL AS TIMESTAMPTZ)", [])
+            elif node.name.upper() == "MAKE_DATE" and len(node.expressions) == 3 and node is not statement:
+                wrap(node, "TRY(MAKE_DATE(CAST(fj_arg0 AS BIGINT), CAST(fj_arg1 AS BIGINT), CAST(fj_arg2 AS BIGINT)))",
+                     list(node.expressions))
+    ints = [cast(exp.Expression, n) for n in statement.find_all(*_SPARK_INTS, exp.Anonymous)
+            if not isinstance(n, exp.Anonymous) or n.name.upper() == "WEEKDAY"]
+    for node in ints:
+        if node is statement or (isinstance(node, exp.DateDiff) and node.args.get("unit") is not None):
+            continue
+        if isinstance(node.parent, exp.Cast) and node.parent.to.is_type(exp.DataType.Type.INT):
+            continue
+        new = exp.Cast(to=exp.DataType.build("INT"))
+        new.meta.update(spark_sql_names.kept(node))
+        node.replace(new)
+        new.set("this", node)
+    return statement
 
 
 def _spark_session_functions(statement: exp.Expression) -> exp.Expression:
@@ -879,6 +943,13 @@ def _spark_concat_text(statement: exp.Expression) -> exp.Expression:
     return statement
 
 
+def _to_timestamp_call(node: exp.Expression) -> bool:
+    """``node`` is sqlglot's reading of to_timestamp(x), a Cast to TIMESTAMP: Spark's timestamp has a
+    time zone (text is read in the session's zone), where DuckDB's TIMESTAMP has none."""
+    return (type(node) is exp.Cast and node.to.this == exp.DataType.Type.TIMESTAMP
+            and node.meta.get(spark_sql_names._NAME) == "to_timestamp")
+
+
 def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
     """Casts to TINYINT, SMALLINT, INT or BIGINT written out as Spark casts (EA-003, and EA-014 for a
     timestamp): see spark_integer_cast. Casts to a timestamp read a number as seconds (spark_timestamp_cast).
@@ -898,7 +969,8 @@ def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
             write = functools.partial(spark_integer_cast, duck_type=_INT_CASTS[kind][0],
                                       spark_type=_INT_CASTS[kind][1], mode=mode)
         elif kind in _TIMESTAMP_CASTS and not (isinstance(source, exp.Literal) and source.is_string):
-            write = functools.partial(spark_timestamp_cast, duck_type=duckdb_sql(node.to), mode=mode)
+            to = "TIMESTAMPTZ" if _to_timestamp_call(node) else duckdb_sql(node.to)
+            write = functools.partial(spark_timestamp_cast, duck_type=to, mode=mode)
         elif kind in _TEXT_CASTS and not (isinstance(source, exp.Literal) and source.is_string) and not node.to.expressions:
             write = functools.partial(spark_text_cast)
         else:
@@ -1068,7 +1140,9 @@ def spark_legacy_times(statement: exp.Expression) -> exp.Expression:
         if isinstance(node, exp.StrToTime):
             node.set("safe", True)
         elif type(node) is exp.Cast and node.to.this in _TIMESTAMPS:
-            replacement = exp.TryCast(this=node.this, to=node.to)
+            # to_timestamp gives Spark's timestamp: with time zone, text read in the session's zone
+            to = exp.DataType.build("TIMESTAMPTZ") if _to_timestamp_call(node) else node.to
+            replacement = exp.TryCast(this=node.this, to=to)
             replacement.meta.update(spark_sql_names.kept(node))  # double(x) keeps the name Spark gives it
             if node is statement:
                 return replacement
@@ -1370,9 +1444,14 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
         node = swapped if between is node else node
     for unix in list(node.find_all(exp.StrToUnix)):
         value = duckdb_sql(unix.this)
-        fmt, has_year = _strptime_format(unix) if unix.args.get("format") else ("'%Y-%m-%d %H:%M:%S'", True)
-        # Without a year Spark reads the date as 1970-01-01; strptime starts from 1900-01-01.
-        parsed = f"try_strptime(CAST({value} AS VARCHAR), {fmt})" + ("" if has_year else " + INTERVAL 70 YEAR")
+        pattern = spark_builtins_sql.written_pattern(unix) if unix.args.get("format") else None
+        if pattern is not None:  # read as Spark reads its pattern (spark_datetime)
+            name = unix.meta.get(spark_sql_names._NAME) or "unix_timestamp"
+            parsed = spark_datetime.parse_sql(pattern, name).replace("fj_arg0", f"({value})")
+        else:
+            fmt, has_year = _strptime_format(unix) if unix.args.get("format") else ("'%Y-%m-%d %H:%M:%S'", True)
+            # Without a year Spark reads the date as 1970-01-01; strptime starts from 1900-01-01.
+            parsed = f"try_strptime(CAST({value} AS VARCHAR), {fmt})" + ("" if has_year else " + INTERVAL 70 YEAR")
         swapped = unix.replace(cast(exp.Expression, sqlglot.parse_one(
             f"CAST(floor(epoch(CASE WHEN typeof({value}) IN ({_TIME_TYPES}) THEN TRY_CAST({value} AS TIMESTAMPTZ) "
             f"ELSE CAST({parsed} AS TIMESTAMPTZ) END)) AS BIGINT)", read="duckdb")))

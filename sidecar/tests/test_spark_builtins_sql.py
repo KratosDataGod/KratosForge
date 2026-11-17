@@ -19,7 +19,15 @@ def rows(query: str) -> list[tuple]:
 
 
 def one(query: str):
-    return rows(query)[0][0]
+    return wall_time(rows(query)[0][0])
+
+
+def wall_time(value):
+    """A timestamp as its wall time in UTC, the session's zone here: Spark's timestamp has a zone, which
+    DuckDB 1.x hands back with the value and 2.x leaves off."""
+    if isinstance(value, dt.datetime) and value.tzinfo is not None:
+        return value.astimezone(dt.timezone.utc).replace(tzinfo=None)
+    return value
 
 
 # (Spark SQL, Spark 3.5's value)
@@ -576,7 +584,7 @@ CAST_FUNCTIONS = [
     ("SELECT regexp('abc', '^b')", False),
     ("SELECT regexp(NULL, 'a')", None),
     ("SELECT TIMESTAMP '2026-01-31 00:00:00' + make_interval(1, 2, 0, 3, 4, 5, 6.5)",
-     dt.datetime(2027, 4, 3, 4, 5, 6, 500000, tzinfo=dt.timezone.utc)),  # Spark's TIMESTAMP is the session's (UTC)
+     dt.datetime(2027, 4, 3, 4, 5, 6, 500000)),  # Spark's TIMESTAMP, as its wall time in the session's zone (UTC)
 ]
 
 

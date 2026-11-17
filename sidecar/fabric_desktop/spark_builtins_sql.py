@@ -159,7 +159,7 @@ _LOG1P = ("CASE WHEN CAST(fj_arg0 AS DOUBLE) <= -1 THEN NULL WHEN ABS(CAST(fj_ar
           "ELSE LN(1 + CAST(fj_arg0 AS DOUBLE)) END")
 
 # Spark's typeof names: int, bigint, string, decimal(p,s), array<int>, ...
-_TYPE_NAMES = [("TINYINT", "tinyint"), ("SMALLINT", "smallint"), ("BIGINT", "bigint"), ("HUGEINT", "decimal(38,0)"),
+_TYPE_NAMES = [("TINYINT", "tinyint"), ("SMALLINT", "smallint"), ("BIGINT", "bigint"), ("HUGEINT", "bigint"),
                ("INTEGER", "int"), ("VARCHAR", "string"), ("DOUBLE", "double"), ("FLOAT", "float"),
                ("BOOLEAN", "boolean"), ("TIMESTAMP WITH TIME ZONE", "timestamp"), ("TIMESTAMP", "timestamp_ntz"),
                ("DATE", "date"), ("BLOB", "binary"), ("\"NULL\"", "void"), ("NULL", "void")]

@@ -85,6 +85,7 @@ Each case gets one of these verdicts:
 - **As documented:** local matches the warehouse and the docs.
 - **Documented difference:** the warehouse matches the docs, and local differs where the docs say it does.
 - **Docs are wrong:** the warehouse doesn't match the docs.
+- **Local matches the warehouse:** the case isn't documented, and local matches the warehouse. Its answer can go in the docs.
 - **Local differs:** the case isn't documented, and local doesn't match the warehouse.
 
 The last two are findings. They're recorded, but they don't fail the flow.

@@ -252,6 +252,6 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `CREATE PROCEDURE` | Refused | `CREATE PROCEDURE dbo.p AS SELECT 1` | T-SQL CREATE PROCEDURE doesn't run on the local engine. Procedures and functions run in a Fabric Warehouse. |
 | `CREATE FUNCTION` | Refused | `CREATE FUNCTION dbo.f() RETURNS INT AS BEGIN RETURN 1 END` | T-SQL CREATE FUNCTION doesn't run on the local engine. Procedures and functions run in a Fabric Warehouse. |
 | `USE` | Refused | `USE sales` | The local engine doesn't run T-SQL USE yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs in |
-| `FOR JSON` | Refused | `SELECT a FROM dbo.t FOR JSON PATH` | FOR JSON PATH isn't mapped yet. JSON_OBJECT gives one row's object and JSON_ARRAY an array; or run it in a Fabric W |
+| `FOR JSON` | Refused | `SELECT a FROM dbo.t FOR JSON PATH` | FOR JSON PATH isn't mapped yet. Build each row's JSON with JSON_OBJECT or JSON_ARRAY, or run it in a Fabric Warehou |
 | `OPTION (...)` | Refused | `SELECT a FROM dbo.t OPTION (MAXDOP 1)` | Unsupported query option. |
 | `SET options` | Not checked | `SET NOCOUNT ON; SELECT 1` |  |

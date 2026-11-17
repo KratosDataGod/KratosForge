@@ -64,6 +64,10 @@ CASES = [
     ("""JSON_VALUE('{"a":[1,2]}', '$.a[1]')""", "2"),
     ("""JSON_VALUE('{"a":{"b":[10,20]}}', '$.a.b[0]')""", "10"),
     ("""JSON_VALUE('{"a b":1}', '$."a b"')""", "1"),
+    ("""JSON_VALUE('{"a''b":1}', '$."a''b"')""", "1"),  # a key with an apostrophe, lax and strict
+    ("""JSON_VALUE('{"a''b":1}', 'strict $."a''b"')""", "1"),
+    ("""JSON_VALUE('{"a\\"b":1}', '$."a\\"b"')""", "1"),
+    ("""JSON_VALUE('{"a":[1,2]}', 'strict $.a[1]')""", "2"),
     ("""JSON_VALUE('{"a":1}', '$.b')""", None),
     ("""JSON_VALUE('{"a":1}', 'lax $.b')""", None),
     ("""JSON_VALUE('{"a":1}', 'strict $.a')""", "1"),
@@ -118,6 +122,8 @@ def test_isjson_and_json_value_read_a_column_row_by_row(engine):
     ("SELECT JSON_VALUE('not json', '$.a')", "Malformed JSON"),
     ("SELECT JSON_VALUE(j, '$.a') FROM dbo.docs", "Malformed JSON"),
     ("""SELECT JSON_VALUE('{"a":1}', 'bogus $.a')""", r"'bogus \$\.a' isn't a JSON path"),
+    ("""SELECT JSON_VALUE('{"a":1}', 'foo')""", r"'foo' isn't a JSON path"),
+    ("""SELECT JSON_VALUE('{"a":1}', 'lax foo')""", r"'lax foo' isn't a JSON path"),
     ("""SELECT ISJSON('{"a":1}', bogus)""", "ISJSON's second argument is VALUE, ARRAY, OBJECT or SCALAR"),
 ])
 def test_what_t_sql_makes_an_error_is_an_error(engine, sql, words):
@@ -137,6 +143,10 @@ def test_what_t_sql_makes_an_error_is_an_error(engine, sql, words):
     ("SELECT JSON_OBJECTAGG('a': id) FROM dbo.docs", "JSON_ARRAYAGG and JSON_OBJECTAGG aren't mapped yet"),
     ("""SELECT JSON_MODIFY('{"a":1}', '$.a', 2)""", "JSON_MODIFY isn't mapped yet"),
     ("""SELECT JSON_PATH_EXISTS('{"a":1}', '$.a')""", "JSON_PATH_EXISTS isn't mapped yet"),
+    ("""SELECT JSON_VALUE('{"a":[{"b":1}]}', '$.a[*].b')""", "JSON_VALUE with a wildcard, slice or filter"),
+    ("""SELECT JSON_QUERY('[1]', '$[*]')""", "JSON_QUERY with a wildcard, slice or filter"),
+    ("""SELECT JSON_VALUE('{"a":1}', '$..a')""", "JSON_VALUE with a wildcard, slice or filter"),
+    ("SELECT JSON_VALUE(j, j) FROM dbo.docs", "JSON_VALUE with a path that isn't written out as text"),
 ])
 def test_what_isnt_mapped_is_refused_by_name(engine, sql, words):
     with pytest.raises(ValueError, match=words):

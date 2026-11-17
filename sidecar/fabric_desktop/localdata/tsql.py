@@ -43,7 +43,7 @@ from collections.abc import Callable, Container
 from typing import Any, cast
 
 import sqlglot
-from sqlglot import ErrorLevel, exp
+from sqlglot import ErrorLevel, exp, jsonpath
 from sqlglot.dialects.tsql import TSQL
 from sqlglot.errors import SqlglotError
 from sqlglot.helper import seq_get
@@ -155,9 +155,15 @@ class KfTSQL(TSQL):
         # FORMAT is kept as written until its value's type is known (tsql_format).
         # SQUARE is a float in T-SQL; sqlglot reads it as POWER(x, 2), which keeps an integer's type and
         # refuses a decimal (_power).
+        # JSON_VALUE and JSON_QUERY keep their path as the text T-SQL was given; _json reads it (WR-219).
         FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build,
                      "SQUARE": lambda args: exp.Pow(this=exp.Cast(this=seq_get(args, 0), to=exp.DataType.build("DOUBLE")),
-                                                    expression=exp.Literal.number(2))}
+                                                    expression=exp.Literal.number(2)),
+                     "JSON_VALUE": lambda args: exp.JSONExtractScalar(this=seq_get(args, 0), expression=seq_get(args, 1),
+                                                                      scalar_only=True),
+                     "JSON_QUERY": lambda args: exp.JSONExtract(this=seq_get(args, 0),
+                                                                expression=seq_get(args, 1) or exp.Literal.string("$"),
+                                                                json_query=True)}
 
 
 def _refuse_output(batch: str) -> None:
@@ -294,8 +300,8 @@ def _refuse_json_clauses(batch: str) -> None:
         if word == "FOR" and words[i + 1:i + 2] == ["JSON"]:
             mode = words[i + 2] if i + 2 < len(words) else ""
             raise ValueError(_NOT_YET + f"FOR JSON {mode if mode in ('PATH', 'AUTO') else ''}".rstrip()
-                             + " isn't mapped yet. JSON_OBJECT gives one row's object and JSON_ARRAY an array; "
-                             "or run it in a Fabric Warehouse.")
+                             + " isn't mapped yet. Build each row's JSON with JSON_OBJECT or JSON_ARRAY, or run it "
+                             "in a Fabric Warehouse.")
         if word in ("NULL", "ABSENT") and words[i + 1:i + 3] == ["ON", "NULL"]:
             raise ValueError(_NOT_YET + f"{word} ON NULL in JSON_OBJECT or JSON_ARRAY isn't mapped yet. Leave it "
                              "out: JSON_OBJECT keeps a NULL value as null and JSON_ARRAY leaves it out, as T-SQL does "
@@ -1908,17 +1914,39 @@ _ISJSON_TYPES = {"VALUE": None, "ARRAY": ("ARRAY",), "OBJECT": ("OBJECT",),
 
 def _json_path(node: exp.Expression, name: str) -> tuple[str, bool]:
     """A JSON_VALUE or JSON_QUERY path as DuckDB reads it, and whether it's strict. T-SQL's path may start with
-    ``lax`` (the default) or ``strict``. A path that isn't written out is refused by name."""
+    ``lax`` (the default) or ``strict``, then ``$`` and keys and array positions. The path is written again from
+    its parts, so a key with a quote or a space reaches DuckDB as that key. A wildcard, slice or filter, which
+    T-SQL's paths don't take, and a path that isn't written out, are refused by name."""
     path = node.expression
-    if isinstance(path, exp.JSONPath):
-        return path.sql(dialect=KfTSQL).strip("'"), False  # the path T-SQL was given, written back as text
-    if not (isinstance(path, exp.Literal) and path.is_string):
-        raise ValueError(_NOT_YET + f"{name} with a path that isn't written out as text isn't mapped yet.")
-    m = re.fullmatch(r"\s*(lax|strict)\s+(\$.*)", path.name, re.IGNORECASE | re.DOTALL)
-    if not m:
-        raise ValueError(f"{name}: '{path.name}' isn't a JSON path. A path starts with $, or with lax or strict "
-                         "and then $.")
-    return m.group(2).strip(), m.group(1).lower() == "strict"
+    if isinstance(path, exp.Literal) and path.is_string:
+        m = re.fullmatch(r"\s*(?:(lax|strict)\s+)?(\$.*)", path.name, re.IGNORECASE | re.DOTALL)
+        try:
+            parts = jsonpath.parse(m.group(2).strip()).expressions if m else []
+        except (SqlglotError, ValueError):
+            parts = []
+        if not parts:
+            raise ValueError(f"{name}: '{path.name}' isn't a JSON path. A path starts with $, or with lax or strict "
+                             "and then $, such as '$.customer.id'.")
+        strict = bool(m and (m.group(1) or "").lower() == "strict")
+    else:
+        raise ValueError(_NOT_YET + f"{name} with a path that isn't written out as text isn't mapped yet. Write the "
+                         "path as text, such as '$.customer.id', or run it in a Fabric Warehouse.")
+    text = ""
+    for part in parts:
+        if isinstance(part, exp.JSONPathRoot):
+            text += "$"
+        elif isinstance(part, exp.JSONPathKey) and isinstance(part.this, str):
+            key = part.this
+            text += f".{key}" if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) else \
+                '."' + key.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        elif isinstance(part, exp.JSONPathSubscript) and isinstance(part.this, int):
+            text += f"[{part.this}]"
+        else:
+            raise ValueError(_NOT_YET + f"{name} with a wildcard, slice or filter in its path isn't mapped yet. "
+                             "T-SQL's paths take keys and array positions, such as '$.items[0].id'.")
+    if not text.startswith("$"):
+        raise ValueError(f"{name}: a JSON path starts with $, such as '$.customer.id'.")
+    return text, strict
 
 
 def _fail(message: str) -> exp.Expression:
@@ -1940,7 +1968,7 @@ def _json(tree: exp.Expression) -> list[str]:
     notes: list[str] = []
     if any(True for _ in tree.find_all(exp.JSONArrayAgg, exp.JSONObjectAgg)):
         raise ValueError(_NOT_YET + "JSON_ARRAYAGG and JSON_OBJECTAGG aren't mapped yet. JSON_ARRAY and JSON_OBJECT "
-                         "build one row's JSON.")
+                         "build one row's JSON, or run it in a Fabric Warehouse.")
     if any(True for _ in tree.find_all(exp.JSONObject)):
         notes.append(_JSON_BUILD_NOTE)
     for node in reversed(list(tree.find_all(exp.Anonymous))):  # innermost first, so a nested call is replaced too

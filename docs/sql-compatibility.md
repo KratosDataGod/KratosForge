@@ -115,7 +115,7 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 
 | What | Here, as in a warehouse |
 | --- | --- |
-| `=`, `<>`, `<`, `IN` | `'a' = 'a  '` is true and `'a' = 'A'` is false |
+| `=`, `<>`, `<`, `IN`, `JOIN ... ON` | `'a' = 'a  '` is true and `'a' = 'A'` is false. Only spaces are taken off: `'a' = 'a' + NCHAR(160)` (a no-break space) is false |
 | `LIKE` | Case counts. The text's trailing spaces don't count, but the pattern's do: `'abc  ' LIKE 'abc'` is true, and `'abc' LIKE 'abc '` is false |
 | `ORDER BY`, `STRING_AGG(...) WITHIN GROUP (ORDER BY ...)` | Code point order (`A`, `B`, `a`, `b`). `STRING_AGG` skips `NULL`s, and is `NULL` over no rows |
 | `LEN`, `DATALENGTH` | `LEN('ab  ')` is `2`, and `DATALENGTH('ab  ')` is `4`. `DATALENGTH` counts UTF-8 bytes (`'é'` is `2`) and two per character for `N'...'` |
@@ -294,6 +294,23 @@ When a project runs T-SQL on this PC, these are checked against T-SQL's referenc
 | `ISNULL(a, b)`, `COALESCE(a, b)` | `ISNULL` takes `a`'s type, so `b` is converted to it: `ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')` is `'ab'`, and `ISNULL(int_column, 2.7)` is `2`. `COALESCE` takes the type that ranks highest: `2.7` and `'abcd'` |
 | `CAST`, `TRY_CAST` | A value that doesn't convert stops `CAST` and is `NULL` with `TRY_CAST`. A decimal or float to an integer is cut toward zero, and a decimal to a narrower decimal rounds |
 | `ROUND` | Keeps its value's type: `ROUND(150.75, 0)` is `151.00`, `ROUND(748.58, -1)` is `750.00`, and `ROUND(150.75, 0, 1)` cuts to `150.00`. A result that no longer fits the type stops with "Arithmetic overflow error" (`ROUND(748.58, -3)`, `ROUND(999.5, 0)`) |
+
+## Local T-SQL scripts
+
+When a project runs a T-SQL script on this PC, it runs as a batch does in a Fabric Warehouse that nothing wraps in a transaction, and what the local engine can't run is refused by name before anything runs.
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| Several statements, or `GO` on a line of its own | Run in order. `GO` splits the script into batches |
+| An error part way through | The script stops at that statement. The error names it and says what ran: "Statement 2 of 3 (SELECT) failed: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run." |
+| `UPDATE ... SET v = v + 'x'` | The `SET` values and the `WHERE` of an `UPDATE` or `DELETE` follow T-SQL's types, as a `SELECT` does: two texts are joined, and text compares without its trailing spaces (`WHERE v = 'b'` finds `'b  '`) |
+
+Refused by name: variables (`DECLARE`, `@x`, `@@ROWCOUNT`), `IF`, `WHILE`, `BEGIN ... END`, `TRY ... CATCH`, `RETURN`, `BREAK`, `CONTINUE`, `GOTO` and labels, `THROW`, `RAISERROR`, `PRINT`, `WAITFOR`, `CHECKPOINT`, cursors (`DECLARE ... CURSOR`, `OPEN`, `FETCH`, `CLOSE`, `DEALLOCATE`), transactions (`BEGIN TRAN`, `COMMIT`, `ROLLBACK`, `SAVE TRANSACTION`, `SET TRANSACTION`), `EXEC` and `GO n` (run the batch n times). A script with variables and control flow runs in a Fabric Warehouse.
+
+What can still differ:
+
+- In a warehouse, some run-time errors (dividing by zero, a value that doesn't convert) end only their own statement, and the batch goes on to the next one. Here the script stops at the first error, and the error says which statements didn't run.
+- A script of only session options (`SET NOCOUNT ON`) has nothing to run here, and says so.
 
 ## How it's built and tested
 

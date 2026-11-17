@@ -210,7 +210,7 @@ def with_overrides(select: str, overrides: dict[str, str]) -> str:
     if not overrides:
         return select
     for column, type_ in overrides.items():
-        if not _TYPE_OK.match(type_ or ""):
+        if not _TYPE_OK.fullmatch(type_ or ""):
             raise ValueError(f"{type_!r} is not a column type (for {column}).")
     casts = ", ".join(f"CAST({q(c)} AS {t}) AS {q(c)}" for c, t in overrides.items())
     return f"SELECT * REPLACE ({casts}) FROM ({select})"
@@ -491,7 +491,7 @@ class LocalEngine:
         if entry is None:
             raise KeyError(f"{table} is not a discovered file in {self.project.name}.")
         for type_ in columns.values():
-            if not _TYPE_OK.match(type_ or ""):
+            if not _TYPE_OK.fullmatch(type_ or ""):
                 raise ValueError(f"{type_!r} is not a column type.")
         if columns:
             self.project.overrides[key] = dict(columns)
@@ -621,41 +621,46 @@ class LocalEngine:
                     if state["cancelled"] or state["timed_out"]:
                         raise duckdb.InterruptException("cancelled")
                     step_started = time.monotonic()
-                    as_of += self._make_as_of(con, step["as_of"])
-                    if step["write"] is not None and step["write"].mode == "table":
-                        summary = self._make_table(con, step["write"], params)
-                        run["write"] = summary
-                        result = for_arrow(con, 'SELECT ?::VARCHAR AS "table", ?::BIGINT AS rows_written',
-                                           [summary["table"], summary["rows"]])
-                    elif step["write"] is not None:
-                        summary = self._write(con, step["write"], state, query_id, dry_run=dry_run, params=params)
-                        run["write"] = summary
-                        result = for_arrow(
-                            con, 'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS mode, ?::BIGINT AS version, '
-                            '?::BIGINT AS rows_written',
-                            [summary["table"], summary["mode"], summary["version"], summary["rows"]])
-                    elif step["change"] is not None:
-                        summary = self._change(con, step["change"], state, query_id, dry_run=dry_run,
-                                               confirm=confirm)
-                        run["change"] = summary
-                        result = for_arrow(
-                            con, 'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS operation, ?::BIGINT AS version, '
-                            '?::BIGINT AS rows_inserted, ?::BIGINT AS rows_updated, ?::BIGINT AS rows_deleted',
-                            [summary["table"], summary["operation"], summary["version"], summary["rows_inserted"],
-                             summary["rows_updated"], summary["rows_deleted"]])
-                    elif explain == "analyze":
-                        result = _analyze(con, step["sql"])
-                    elif explain == "plan":
-                        result = con.execute("EXPLAIN (FORMAT JSON) " + step["sql"])
-                    elif lazy and i == len(statements) - 1 and step["kind"] == "select":
-                        # A relation runs as it's read. DuckDB 2.0's reader over an executed result copies
-                        # every row before the first batch, so a big result filled memory and Stop
-                        # couldn't end it (#1340). con.sql runs a statement that isn't a query at once.
-                        result = con.sql(step["sql"], params=_bound(con, step["sql"], params))
-                    elif i == len(statements) - 1:
-                        result = for_arrow(con, step["sql"], _bound(con, step["sql"], params))
-                    else:
-                        run_through(con, step["sql"], _bound(con, step["sql"], params))
+                    try:
+                        as_of += self._make_as_of(con, step["as_of"])
+                        if step["write"] is not None and step["write"].mode == "table":
+                            summary = self._make_table(con, step["write"], params)
+                            run["write"] = summary
+                            result = for_arrow(con, 'SELECT ?::VARCHAR AS "table", ?::BIGINT AS rows_written',
+                                               [summary["table"], summary["rows"]])
+                        elif step["write"] is not None:
+                            summary = self._write(con, step["write"], state, query_id, dry_run=dry_run, params=params)
+                            run["write"] = summary
+                            result = for_arrow(
+                                con, 'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS mode, ?::BIGINT AS version, '
+                                '?::BIGINT AS rows_written',
+                                [summary["table"], summary["mode"], summary["version"], summary["rows"]])
+                        elif step["change"] is not None:
+                            summary = self._change(con, step["change"], state, query_id, dry_run=dry_run,
+                                                   confirm=confirm)
+                            run["change"] = summary
+                            result = for_arrow(
+                                con, 'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS operation, ?::BIGINT AS version, '
+                                '?::BIGINT AS rows_inserted, ?::BIGINT AS rows_updated, ?::BIGINT AS rows_deleted',
+                                [summary["table"], summary["operation"], summary["version"], summary["rows_inserted"],
+                                 summary["rows_updated"], summary["rows_deleted"]])
+                        elif explain == "analyze":
+                            result = _analyze(con, step["sql"])
+                        elif explain == "plan":
+                            result = con.execute("EXPLAIN (FORMAT JSON) " + step["sql"])
+                        elif lazy and i == len(statements) - 1 and step["kind"] == "select":
+                            # A relation runs as it's read. DuckDB 2.0's reader over an executed result copies
+                            # every row before the first batch, so a big result filled memory and Stop
+                            # couldn't end it (#1340). con.sql runs a statement that isn't a query at once.
+                            result = con.sql(step["sql"], params=_bound(con, step["sql"], params))
+                        elif i == len(statements) - 1:
+                            result = for_arrow(con, step["sql"], _bound(con, step["sql"], params))
+                        else:
+                            run_through(con, step["sql"], _bound(con, step["sql"], params))
+                    except (duckdb.Error, ValueError) as exc:
+                        if dialect != "tsql" or len(statements) < 2 or isinstance(exc, duckdb.InterruptException):
+                            raise
+                        raise _in_script(exc, i, len(statements), step["kind"]) from None
                     steps.append({"statement": i + 1, "type": step["kind"],
                                   "seconds": round(time.monotonic() - step_started, 3)})
                 yield result, run
@@ -791,7 +796,7 @@ class LocalEngine:
         return found
 
     def _refuse_drop(self, statement: str) -> None:
-        m = _DROP.match(statement)
+        m = _DROP.fullmatch(statement)
         if m and self._is_own(*delta.split_name(m["name"])):
             raise ValueError(f"{m['name']} is one of the project's Delta tables. Dropping it deletes its folder "
                              "and every version, so it's done as its own step (local_drop_delta), not in SQL.")
@@ -1577,6 +1582,25 @@ def _remove_tree(folder: Path, tables_dir: Path) -> None:
         raise ValueError(f"{folder} isn't a table folder of this project, so it wasn't deleted.")
     if folder.is_dir():
         shutil.rmtree(folder)
+
+
+def _in_script(exc: Exception, i: int, n: int, kind: str) -> Exception:
+    """``exc`` from statement ``i`` (from 0) of a T-SQL script of ``n``, naming the statement and what already ran.
+    A script stops at the first error, and the statements before it stay done, as a batch does in a warehouse
+    when nothing wraps it in a transaction."""
+    ran = ("Nothing before it ran" if i == 0 else "Statement 1 ran, and what it changed is kept" if i == 1 else
+           f"Statements 1 to {i} ran, and what they changed is kept")
+    left = n - i - 1
+    if left:
+        ran += f"; {'the last statement' if left == 1 else f'the {left} after it'} didn't run"
+    error = _short(exc)
+    if not error.endswith((".", "!", "?")):
+        error += "."
+    words = f"Statement {i + 1} of {n} ({kind.split()[0].upper()}) failed: {error} {ran}."
+    try:
+        return type(exc)(words)
+    except TypeError:  # an error type that needs more than a message: as it was
+        return exc
 
 
 def _kind(statement: str) -> str:

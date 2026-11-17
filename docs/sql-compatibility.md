@@ -68,7 +68,7 @@ Spark SQL and the DataFrame API on this PC run with ANSI mode off (`spark.sql.an
 | `try_divide` of decimals | A decimal, typed as `/` is: `decimal(23,13)` for two `decimal(10,2)` | The same |
 | A decimal `sum` or `avg` past its type, `decimal(p + 10, s)` | NULL | Stops with `[ARITHMETIC_OVERFLOW] Overflow in sum of decimals` |
 
-`spark.conf.set("spark.sql.ansi.enabled", "true")` is kept for when the notebook runs in Fabric, and prints a note naming it: this PC still answers with ANSI mode off.
+`spark.conf.set("spark.sql.ansi.enabled", "true")` is kept for when the notebook runs in Fabric, and prints a note saying this PC still answers with ANSI mode off.
 
 These cases still differ:
 
@@ -146,7 +146,7 @@ These cases still differ:
 | --- | --- | --- |
 | Rows that tie in a window's `ORDER BY`, for `row_number`, `lag`, `lead`, `first` and `last` | Any order | Any order, which can differ from Spark's. Add a column that tells them apart when the order matters |
 | A window given by name in a `WINDOW` clause | Checked as above | Not checked here: a missing `ORDER BY` or a frame isn't refused |
-| A DataFrame window function Spark stops on | Stops at the `select` | Stops at `.over(...)`, a line earlier |
+| A DataFrame window function Spark stops on | Stops at the `select` | Stops when `.over(...)` is called, before the `select` |
 | A DataFrame window with `rangeBetween` and numbers, such as `rangeBetween(-1, 0)` | Named after its frame as Spark writes it for the column's type | Named `... RANGE BETWEEN 1 PRECEDING AND CURRENT ROW`. Give it an `alias` |
 | `ntile(0)`, or `ntile` of a column | Stops with Spark's message | Stops with DuckDB's message |
 

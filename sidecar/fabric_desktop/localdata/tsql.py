@@ -51,7 +51,7 @@ from sqlglot.helper import seq_get
 from sqlglot.tokens import Token, TokenType
 
 from ..sql import KfDuckDB
-from . import tsql_format
+from . import tsql_format, tsql_types
 from .. import sql_dialects
 
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
@@ -112,6 +112,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
                 continue
             _refuse(tree)
             _temp_tables(tree)
+            notes += tsql_types.check(tree)  # WR-223: types as a warehouse has them, before any rewrite
             _joined_changes(tree)
             tree = _views(tree, columns)
             notes += _names(tree, columns)
@@ -119,6 +120,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             _table_columns(tree)
             for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
                 parts.replace(_timefromparts(parts))
+            tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
             notes += _converts(tree)
             notes += _types(tree, schema)
             _percentiles(tree)
@@ -128,8 +130,10 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             _functions(tree)
             _gaps(tree)
             _string_edges(tree)
+            tsql_types.expand_datetimes(tree)
             if known is not None:
                 _unknown_functions(tree, known)
+            tsql_types.delta_times(tree, columns)  # last, so the passes above read the columns' own types
             try:
                 text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
             except SqlglotError as exc:
@@ -615,10 +619,6 @@ def _refuse(tree: exp.Expression) -> None:
                                                                                    "TRIGGER"):
         raise ValueError(f"T-SQL CREATE {tree.args['kind'].upper()} doesn't run on the local engine. "
                          "Procedures and functions run in a Fabric Warehouse.")
-    for written in tree.find_all(exp.DataType):
-        if written.this in (exp.DataType.Type.MONEY, exp.DataType.Type.SMALLMONEY):
-            raise ValueError(_NOT_YET + "MONEY and SMALLMONEY aren't carried yet, and neither are their CONVERT "
-                             "styles. Use DECIMAL(19, 4) for money and DECIMAL(10, 4) for smallmoney.")
     for collate in list(tree.find_all(exp.Collate)):
         name = collate.expression.sql(dialect="tsql").strip("[]\"'")
         if not re.search(r"_BIN2?(_|$)", name, re.IGNORECASE):
@@ -1448,9 +1448,14 @@ def _date_style(text: exp.TimeToStr, kind: exp.DataType | None, style: str) -> N
         return
     if _is(kind, {exp.DataType.Type.DATE}):
         text.set("format", exp.Literal.string("%Y-%m-%d"))
-    elif style == "126" and fmt.name.endswith(".%f"):
+        return
+    if (_is(kind, {exp.DataType.Type.DATETIME, exp.DataType.Type.SMALLDATETIME}) or tsql_types.is_rounded(text.this)) \
+            and fmt.name.endswith(".%f"):
+        fmt = exp.Literal.string(fmt.name[:-len(".%f")] + ".%g")  # datetime is written to the millisecond (WR-223)
+        text.set("format", fmt)
+    if style == "126" and fmt.name.endswith((".%f", ".%g")):
         whole = text.copy()
-        whole.set("format", exp.Literal.string(fmt.name[:-len(".%f")]))
+        whole.set("format", exp.Literal.string(fmt.name[:-len(".%f")]))  # .%g is as long
         # DuckDB's MICROSECOND counts the seconds too: the fraction is what's left of a whole second.
         fraction = exp.Mod(this=exp.func("MICROSECOND", text.this.copy()), expression=exp.Literal.number(1_000_000))
         zero = exp.EQ(this=exp.paren(fraction, copy=False), expression=exp.Literal.number(0))

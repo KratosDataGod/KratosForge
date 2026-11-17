@@ -431,6 +431,37 @@ What can still differ:
 - Trailing blanks past a text column's length are kept here. A warehouse drops them, so `DATALENGTH` differs.
 - A #temp table is shared by every query in the open project. In a warehouse it belongs to one connection.
 
+## Local T-SQL data types
+
+T-SQL run on this PC takes the data types Microsoft's "Data types in Fabric Data Warehouse" page lists, as it read on 2026-11-17, and refuses the rest by name with the type that page says to use instead.
+
+| Type | In a table or view | In a query (`CAST`, `CONVERT`) |
+| --- | --- | --- |
+| `bit`, `smallint`, `int`, `bigint`, `decimal`/`numeric`, `float`, `real`, `date`, `char`, `varchar`, `varbinary`, `uniqueidentifier` | Yes | Yes |
+| `datetime2(n)`, `time(n)` | Only with n up to 6: `datetime2` with no precision is `datetime2(7)` and is refused, naming `datetime2(6)` | Yes, kept to the microsecond (a 7th digit is cut) |
+| `datetime` | Refused: use `datetime2(6)` | Yes, rounded as T-SQL rounds it, to 1/300 of a second (`.002` is `.003`, `.005` is `.007`, `23:59:59.999` is the next day). Before 1753 or after 9999-12-31 23:59:59.997 is T-SQL's out-of-range error (`NULL` with `TRY_CAST` and `TRY_CONVERT`), and text with more than three digits of a second is T-SQL's conversion error. `CONVERT` with style 121 or 126 writes it to the millisecond, as T-SQL does |
+| `smalldatetime` | Refused: use `datetime2(0)` | Yes, rounded to the minute (29.998 seconds rounds down, 29.999 up), from 1900-01-01 to 2079-06-06 23:59 |
+| `nchar`, `nvarchar`, `text`, `ntext` | Refused: use `char`, `varchar` or `varchar(max)` | Yes, as text |
+| `image` | Refused: use `varbinary(max)` | Yes, as `varbinary` |
+| `tinyint` | Refused: use `smallint` | Yes, 0 to 255 |
+| `money`, `smallmoney` | Refused: use `decimal(19, 4)` or `decimal(10, 4)` | Refused by name (their conversion styles aren't carried) |
+| `datetimeoffset`, `xml`, `geography`, `geometry`, `json`, `sql_variant`, `rowversion` (`timestamp`), `hierarchyid`, `vector`, CLR types | Refused, with Microsoft's alternative | Refused by name: the local engine has no form of them. Run the query in a Fabric Warehouse |
+| `sysname` | As `nvarchar(128)`: refused | Yes, as `varchar(128)` |
+
+"In a table or view" covers `CREATE TABLE`, `ALTER TABLE ... ADD` and `ALTER COLUMN`, `CREATE TABLE ... AS SELECT` and `SELECT ... INTO` with a column cast to the type, and `CREATE VIEW` with a column cast to it.
+
+A `#temp` table takes `nchar`, `nvarchar`, `text`, `ntext`, `image` and `tinyint`, with a note in `translation.notes`: Microsoft's temp table page lists only the warehouse's table types for #temp tables, so a warehouse may refuse them there. A `datetime` or `smalldatetime` column in a #temp table is refused, because a stored value isn't rounded to T-SQL's steps here.
+
+Sizes T-SQL doesn't take stop with T-SQL's message: `varchar(8001)` is "The size (8001) given to the type 'varchar' exceeds the maximum allowed for any data type (8000)." (4000 for `nchar` and `nvarchar`), and `datetime2(8)` is "Specified scale 8 is invalid." A `decimal` with more than 38 digits, or a scale larger than its precision, is refused with a message of the local engine's own.
+
+**Through a Delta table.** Each supported type keeps its exact value when a T-SQL table is written as a local Delta table (`CREATE TABLE ... USING DELTA AS SELECT` in Spark SQL or DuckDB SQL) and read back in T-SQL: a decimal's precision and scale, every digit of a `float` and `real`, `datetime2(6)` to the microsecond from year 1 to 9999, text and bytes in full, and a `uniqueidentifier`. A Delta table keeps its timestamps in UTC, and T-SQL reads them as `datetime2`, the UTC clock time without a zone, as a warehouse's SQL analytics endpoint reads a Delta `TIMESTAMP`. Delta has no time-of-day type, so writing a `time` column to Delta is refused by name; cast it to `varchar` or join it to a date.
+
+What can still differ:
+
+- `CHAR(n)` isn't padded with spaces (see [Local T-SQL tables](#local-t-sql-tables)).
+- `GETDATE()` and `CURRENT_TIMESTAMP` give the time to the microsecond here. In T-SQL they're `datetime`, in 1/300-second steps.
+- A Delta table's own length limits aren't kept: a `varchar(10)` column written to Delta is text of any length there, as in a Spark table.
+
 ## Local T-SQL decimals
 
 When a project runs T-SQL on this PC, arithmetic with a decimal side gets the precision and scale a Fabric Warehouse gives it, by T-SQL's rules ("Precision, scale, and length" on Microsoft Learn). DuckDB's own rules differ: it widens decimals its own way, keeps every digit of scale, and divides decimals as doubles.

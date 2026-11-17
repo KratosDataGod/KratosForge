@@ -398,12 +398,18 @@ const SH_SETUP_KEY = "fd.settingsHistory.setup";
 
 // The setup a person turned down with Cancel, remembered on this PC for one lakehouse: the page then
 // offers "Set up history" inline, and a read button asks no more until it is set up.
+// Only the two reads are kept or replayed from storage, never their params (Set up history uses the
+// Include capacity overrides box as it is now); with no known
+// lakehouse (optimize_status failed) nothing is remembered, so the dialog asks next time.
+const SH_SETUP_METHODS = { capacity_settings_read: "Capacities", tenant_settings_read: "Tenant settings" };
 function settingsHistorySetup(value) {
+  const lakehouse = settingsHistoryPage.lakehouse;
   try {
     if (value === null) localStorage.removeItem(SH_SETUP_KEY);
-    else if (value) localStorage.setItem(SH_SETUP_KEY, JSON.stringify(value));
+    else if (value && lakehouse && SH_SETUP_METHODS[value.method]) localStorage.setItem(SH_SETUP_KEY, JSON.stringify(value));
     const saved = JSON.parse(localStorage.getItem(SH_SETUP_KEY) || "null");
-    return saved && saved.lakehouse === settingsHistoryPage.lakehouse ? saved : null;
+    if (!lakehouse || !saved || saved.lakehouse !== lakehouse || !SH_SETUP_METHODS[saved.method]) return null;
+    return { lakehouse, method: saved.method, label: SH_SETUP_METHODS[saved.method], text: String(saved.text || "") };
   } catch { return null; /* not remembered: the dialog asks again next time */ }
 }
 
@@ -477,7 +483,8 @@ function settingsHistoryBody(hist) {
   const setup = declined ? h("div", { class: "card pad sh-setup", role: "status" },
     h("p", { class: "small" }, `The settings history tables aren't set up yet. ${declined.text}`),
     h("div", { class: "row" }, btn("Set up history", null, () => settingsHistoryRead(declined.method, declined.label,
-      declined.params || {}, { approve: true }), "tool outline sh-read", shBusy()))) : null;
+      declined.method === "capacity_settings_read" && settingsHistoryPage.overrides ? { admin: true } : {}, { approve: true }),
+    "tool outline sh-read", shBusy()))) : null;
   const failed = settingsHistoryGaps(hist.gaps);
   const gaps = failed.length ? h("div", { class: "card pad sh-gap", role: "status" },
     h("b", {}, (hist.gaps || []).length === 1 ? "One read couldn't be completed" : `${hist.gaps.length} reads couldn't be completed`),
@@ -527,8 +534,8 @@ async function settingsHistoryRead(method, label, params = {}, opts = {}) {
     await settingsHistoryReadOnce(method, label, params, opts);
   } finally {
     settingsHistoryPage.busy = null;
+    render();  // even after a throw, so the buttons never stay off
   }
-  render();
 }
 
 async function settingsHistoryReadOnce(method, label, params, opts) {
@@ -542,12 +549,12 @@ async function settingsHistoryReadOnce(method, label, params, opts) {
     if (!/Confirm to continue\.$/.test(raw)) { attempt(() => Promise.reject(err), `${label} not read`); return; }
     const text = friendlyError(err).text.replace(/ Confirm to continue\.$/, "");
     if (settingsHistorySetup()) {
-      settingsHistorySetup({ lakehouse: settingsHistoryPage.lakehouse, method, label, params, text });
+      settingsHistorySetup({ lakehouse: settingsHistoryPage.lakehouse, method, text });
       toast("Set up history first: its tables aren't in the central lakehouse yet.");
       return;
     }
     if (!(await confirmDialog("Create the settings history tables?", text, "Create and read"))) {
-      settingsHistorySetup({ lakehouse: settingsHistoryPage.lakehouse, method, label, params, text });
+      settingsHistorySetup({ lakehouse: settingsHistoryPage.lakehouse, method, text });
       return;
     }
     res = await attempt(() => rpc(method, { ...params, approve: true }), `${label} not read`);

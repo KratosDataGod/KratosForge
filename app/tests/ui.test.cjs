@@ -4420,7 +4420,8 @@ test("Settings history names capacities, filters by scope and asks before creati
   ctx.localStorage = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
   ctx.document = { querySelectorAll: () => [] };
   vm.runInContext(`const settingsHistoryPage = { busy: null, lakehouse: "lh1" }; const SH_SETUP_KEY = "fd.settingsHistory.setup";
-    ${fn("settingsHistoryNames")}${fn("settingsHistoryRows")}${fn("settingsHistorySetup")}${fn("settingsHistoryRead")}${fn("settingsHistoryReadOnce")}
+    ${fn("settingsHistoryNames")}${fn("settingsHistoryRows")}const SH_SETUP_METHODS = { capacity_settings_read: "Capacities", tenant_settings_read: "Tenant settings" };
+    ${fn("settingsHistorySetup")}${fn("settingsHistoryRead")}${fn("settingsHistoryReadOnce")}
     this.names = settingsHistoryNames; this.rows = settingsHistoryRows; this.read = settingsHistoryRead; this.page = settingsHistoryPage;`, ctx);
   const changes = [  // newest first, as tenant_settings_history returns them
     { scope_type: "capacity", scope_id: "cap-1", setting: "sku", changed_after: "t1", changed_by_time: "t2", old_json: '"F64"', new_json: '"F128"' },
@@ -4474,6 +4475,17 @@ test("Settings history names capacities, filters by scope and asks before creati
   assert.strictEqual(ctx.asked, null);
   assert.strictEqual(ctx.calls.at(-1)[1], '{"approve":true}');
   assert.strictEqual(store["fd.settingsHistory.setup"], undefined, "set up: nothing left to offer");
+  // Storage is replayed only for the two reads, never their params, and nothing is kept without a lakehouse.
+  store["fd.settingsHistory.setup"] = JSON.stringify({ lakehouse: "lh1", method: "workspace_delete", params: { id: "x" }, text: "t" });
+  assert.strictEqual(vm.runInContext("settingsHistorySetup()", ctx), null);
+  store["fd.settingsHistory.setup"] = JSON.stringify({ lakehouse: "lh1", method: "capacity_settings_read", params: { admin: true, approve: true, x: 1 }, text: "t" });
+  const saved = vm.runInContext("settingsHistorySetup()", ctx);
+  assert.strictEqual(JSON.stringify([saved.method, saved.label, saved.params]), '["capacity_settings_read","Capacities",null]');
+  delete store["fd.settingsHistory.setup"];
+  ctx.page.lakehouse = null;
+  vm.runInContext('settingsHistorySetup({ lakehouse: null, method: "capacity_settings_read", params: {}, text: "t" })', ctx);
+  assert.strictEqual(store["fd.settingsHistory.setup"], undefined);
+  ctx.page.lakehouse = "lh1";
   // One read at a time: a press while one runs does nothing.
   let release;
   ctx.rpc = (method, args) => (ctx.calls.push([method, JSON.stringify(args)]), new Promise((r) => { release = r; }));
@@ -4485,11 +4497,21 @@ test("Settings history names capacities, filters by scope and asks before creati
   release({ outcome: "read", changes: [] });
   await first;
   assert.strictEqual(ctx.page.busy, null);
+  // A throw still ends the read and renders, so the buttons come back.
+  const renders = ctx.renders;
+  ctx.page.lakehouse = "lh3";
+  ctx.rpc = async () => { throw new Error("PermissionError: Setting up adds 3 tables. Confirm to continue."); };
+  const ask = ctx.confirmDialog;
+  ctx.confirmDialog = async () => { throw new Error("dialog broke"); };
+  await assert.rejects(ctx.read("capacity_settings_read", "Capacities"), /dialog broke/);
+  assert.strictEqual(ctx.page.busy, null);
+  assert.strictEqual(ctx.renders, renders + 1);
+  ctx.confirmDialog = ask; ctx.page.lakehouse = "lh1";
   // An unreadable read is recorded by the engine and shown as an error toast, not asked about again.
   ctx.rpc = async () => ({ outcome: "unreadable", reason: "Only a Fabric administrator can read tenant settings.", changes: [] });
   await ctx.read("tenant_settings_read", "Tenant settings");
   assert.strictEqual(JSON.stringify(ctx.toasts.at(-1)), '["Tenant settings: Only a Fabric administrator can read tenant settings.",true]');
-  assert.strictEqual(ctx.renders, 6);  // after every read that ran, the asked and declined ones too
+  assert.strictEqual(ctx.renders, 7);  // after every read that ran, the asked, declined and failed ones too
   // Include capacity overrides passes admin, and says when the capacities were read but the overrides weren't.
   ctx.calls.length = 0;
   for (const [overrides, toast] of [["read", '["Capacities read: nothing changed",false]'],

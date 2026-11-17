@@ -1056,3 +1056,59 @@ def test_to_json_of_an_array_column_keeps_each_element_type():
     assert sf.translate(nested).duckdb_sql.upper().count("MAP_FROM_ENTRIES") == 1
     assert _rows("CREATE TABLE t (a ARRAY); INSERT INTO t SELECT ARRAY_CONSTRUCT(1, 'x'::VARIANT); "
                  + nested) == [('{"k":{"j":[1,"x"]}}',)]
+
+
+_VARIANT_TABLE = ("CREATE TABLE t (id INT, g VARCHAR, v INT, j VARIANT); "
+                  "INSERT INTO t SELECT 1, 'a', 10, PARSE_JSON('{\"arr\": [1, 2], \"o\": {\"k\": 1}}'); "
+                  "INSERT INTO t SELECT 2, 'a', 20, PARSE_JSON('[5]'); "
+                  "INSERT INTO t SELECT 3, 'b', 30, TO_VARIANT('plain'); ")
+
+
+def test_a_variant_column_reads_its_paths_flattens_and_prints_as_json():
+    assert _rows(_VARIANT_TABLE + "SELECT j:arr[1]::INT, j:o.k::INT, GET_PATH(j, 'o.k')::INT FROM t WHERE id = 1") \
+        == [(2, 1, 1)]
+    assert _rows(_VARIANT_TABLE + "SELECT t.id, f.value::INT FROM t, LATERAL FLATTEN(INPUT => t.j:arr) f "
+                 "ORDER BY 1, 2") == [(1, 1), (1, 2)]
+    assert _rows(_VARIANT_TABLE + "SELECT f.key FROM t, LATERAL FLATTEN(INPUT => t.j) f WHERE t.id = 1 "
+                 "ORDER BY 1") == [("arr",), ("o",)]
+    assert _rows(_VARIANT_TABLE + "SELECT j::VARCHAR, TO_VARCHAR(j) FROM t ORDER BY id") == [
+        ('{"arr":[1,2],"o":{"k":1}}', '{"arr":[1,2],"o":{"k":1}}'), ("[5]", "[5]"), ("plain", "plain")]
+    # ARRAY_SIZE is NULL for a value that isn't an array, as Snowflake's page says
+    assert _rows(_VARIANT_TABLE + "SELECT ARRAY_SIZE(j), ARRAY_SIZE(j:arr), ARRAY_SIZE(j:o) FROM t ORDER BY id") \
+        == [(None, 2, None), (1, None, None), (None, None, None)]
+
+
+def test_merge_stops_when_a_target_row_matches_several_source_rows_for_an_update():
+    setup = _VARIANT_TABLE + "CREATE TABLE s (id INT, v INT); INSERT INTO s VALUES (1, 100), (1, 101), (4, 400); "
+    with pytest.raises(duckdb.Error, match="more than one source row"):
+        _rows(setup + "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET v = s.v")
+    with pytest.raises(duckdb.Error, match="more than one source row"):
+        _rows(setup + "MERGE INTO t USING (SELECT id, v FROM s) AS src ON t.id = src.id "
+              "WHEN MATCHED THEN UPDATE SET v = src.v")
+    # several deletes don't conflict, as on Snowflake's page; one match per row updates as before
+    assert _rows(setup + "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE; "
+                 "SELECT list(id ORDER BY id) FROM t") == [([2, 3],)]
+    assert _rows(setup + "MERGE INTO t AS tt USING (SELECT 1 AS id, 7 AS v) AS x ON tt.id = x.id "
+                 "WHEN MATCHED THEN UPDATE SET v = x.v; SELECT v FROM t WHERE id = 1") == [(7,)]
+
+
+def test_pivot_names_its_columns_with_the_quotes_and_any_is_refused_by_name():
+    translation = sf.translate(_VARIANT_TABLE + "SELECT * FROM (SELECT g, v FROM t) PIVOT (SUM(v) FOR g IN ('a', 'b'))")
+    con = duckdb.connect()
+    for statement in translation.statements[:-1]:
+        con.execute(statement.duckdb_sql)
+    result = con.sql(translation.statements[-1].duckdb_sql)
+    assert result.columns == ["'a'", "'b'"] and result.fetchall() == [(30, 30)]
+    for code in ("SELECT * FROM t PIVOT (SUM(v) FOR g IN (ANY ORDER BY g))",
+                 "SELECT * FROM t PIVOT (SUM(v) FOR g IN (SELECT g FROM t))"):
+        assert sf.translate(code).first_refusal().startswith("Statement 1 runs only in Snowflake: PIVOT on ANY")
+
+
+def test_session_variables_and_identifier_of_a_variable_the_cell_sets():
+    assert _rows("SET x = 5; SELECT $x + 1, $X") == [(6, 5)]
+    assert _rows(_VARIANT_TABLE + "SET tn = 't'; SET c = 'v'; SELECT SUM(IDENTIFIER($c)) FROM IDENTIFIER($tn)") \
+        == [(60,)]
+    assert "IDENTIFIER() of a variable this cell doesn't set" in sf.translate(
+        "SELECT * FROM IDENTIFIER($nope)").first_refusal()
+    # a value that isn't a plain name stays refused
+    assert not sf.translate("SET tn = 't; DROP TABLE x'; SELECT * FROM IDENTIFIER($tn)").runnable

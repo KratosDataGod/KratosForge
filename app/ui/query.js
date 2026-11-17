@@ -920,8 +920,8 @@ function renderQuery() {
   // S08: F12 shows the object under the cursor in the Explorer: on a lakehouse its table's row with its
   // columns open; on a warehouse its table, view, procedure or function in the tree, opened down to it.
   // Alt+F12 shows its definition in a panel under the cursor instead.
-  const NOT_AN_OBJECT = wh ? "F12 goes to a table, view, procedure or function: put the cursor on its name, an alias or one of its columns."
-    : "F12 goes to a table or view: put the cursor on its name, an alias or one of its columns.";
+  const NOT_AN_OBJECT = wh ? "Put the cursor on the name of a table, view, procedure or function, or on an alias or one of its columns."
+    : "Put the cursor on the name of a table or view, or on an alias or one of its columns.";
   // What the cursor names: { table } on a lakehouse, { object } (from the catalog) on a warehouse, or { message }.
   async function definitionTarget() {
     const text = editor.text();
@@ -961,7 +961,7 @@ function renderQuery() {
           : `${await whDefinition(ref, o)}\n`;
       peek.show({ title, kind, text, actions: actions(text) });
     } catch (err) {
-      peek.show({ title, kind, error: `Could not read the definition of ${title}: ${String(err?.message || err).replace(/^Error: /, "")}`,
+      peek.show({ title, kind, error: `Couldn't read the definition of ${title}: ${String(err?.message || err).replace(/^Error: /, "")}`,
         actions: [{ label: "Show in Explorer", run: () => showInExplorer(o) }] });
     }
   }

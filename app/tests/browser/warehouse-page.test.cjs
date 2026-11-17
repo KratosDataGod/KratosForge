@@ -303,7 +303,7 @@ test("F12 goes to a procedure too, and Alt+F12 peeks at a definition under the c
   await setDoc(text);
   await at(text, "EXEC");
   await page().keyboard.press("Alt+F12");
-  await page().waitForFunction(() => /F12 goes to a table, view, procedure or function/.test(document.querySelector(".toast")?.textContent || ""));
+  await page().waitForFunction(() => /Put the cursor on the name of a table, view, procedure or function/.test(document.querySelector(".toast")?.textContent || ""));
   assert.strictEqual(await page().locator(".sql-peek").count(), 0);
   assert.deepStrictEqual(app.errors, []);
 });

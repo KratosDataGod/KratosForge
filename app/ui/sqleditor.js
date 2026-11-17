@@ -617,7 +617,7 @@ function sqlCatalogObject(parts, objects) {
 // the table's Delta properties and partitioning aren't in it, and its first line says so.
 function sqlLakehouseCreate(t, cols) {
   const lines = cols.map((c) => `  ${sqlQuoteIdent(c.name)} ${String(c.type || "STRING").toUpperCase()}`);
-  return `-- ${sqlTableName(t.schema, t.name)}: its columns as the Explorer lists them, without its table properties or partitioning.\n` +
+  return `-- ${sqlTableName(t.schema, t.name)}, sketched from the columns the Explorer lists. Its table properties and partitioning aren't shown.\n` +
     `CREATE TABLE ${sqlQuoteIdent(t.schema)}.${sqlQuoteIdent(t.name)} (\n${lines.join(",\n")}\n) USING DELTA;\n`;
 }
 
@@ -757,6 +757,7 @@ function sqlPeekClose(refocus = true) {
   if (!open) return;
   sqlPeekOpen = null;
   document.removeEventListener("mousedown", open.outside, true);
+  clearInterval(open.gone);
   open.box.remove();
   if (refocus) open.view.focus();
 }
@@ -766,6 +767,8 @@ function sqlPeek(view, at = view.state.selection.main.head) {
   const open = sqlPeekOpen = { view, box, outside: (e) => { if (!box.contains(e.target)) sqlPeekClose(false); } };
   box.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); sqlPeekClose(); } });
   document.addEventListener("mousedown", open.outside, true);
+  // Leaving the page by keyboard (another view, another tab) hides the editor: the panel goes with it.
+  open.gone = setInterval(() => { if (!view.dom.isConnected || !view.dom.getClientRects().length) sqlPeekClose(false); }, 300);
   document.body.append(box);
   const coords = view.coordsAtPos(at) || view.dom.getBoundingClientRect();
   const show = ({ title, kind, text = "", error = null, actions = [] }) => {

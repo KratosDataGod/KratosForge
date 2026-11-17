@@ -815,7 +815,7 @@ test("go to and peek definition read the name under the cursor, find a warehouse
   assert.strictEqual(sqlCatalogObject(["wh", "etl", "usp_load"], objects), null, "three parts aren't looked up");
   assert.strictEqual(sqlCatalogObject(null, objects), null);
   assert.strictEqual(sqlLakehouseCreate({ schema: "dbo", name: "sales" }, [{ name: "id", type: "bigint" }, { name: "Region Name", type: "string" }]),
-    "-- sales: its columns as the Explorer lists them, without its table properties or partitioning.\n" +
+    "-- sales, sketched from the columns the Explorer lists. Its table properties and partitioning aren't shown.\n" +
     "CREATE TABLE dbo.sales (\n  id BIGINT,\n  `Region Name` STRING\n) USING DELTA;\n");
 });
 

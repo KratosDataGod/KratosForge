@@ -20,7 +20,7 @@ import pyarrow.parquet as pq
 import pytest
 from deltalake import write_deltalake
 
-from fabric_desktop import app_settings, sql, sql_exec, sql_policy
+from fabric_desktop import app_settings, sql, sql_exec, sql_policy, sql_view
 from fabric_desktop.measure import RunMeter
 
 SLOW = "SELECT sum(a.range * b.range) FROM range(200000000) a, range(1000) b"
@@ -541,10 +541,10 @@ def test_status_never_returns_the_sql(runs, lake):
 
 def test_service_calls_are_wired_and_audited_as_intended():
     from fabric_desktop import audit, server
-    for method in ("sql_start", "sql_status", "sql_page", "sql_cancel", "sql_export",
+    for method in ("sql_start", "sql_status", "sql_page", "sql_column_stats", "sql_cancel", "sql_export",
                    "sql_export_status", "sql_export_cancel"):
         assert method in server.METHODS
-    assert not audit.audited("sql_status") and not audit.audited("sql_page")
+    assert not audit.audited("sql_status") and not audit.audited("sql_page") and not audit.audited("sql_column_stats")
     assert audit.audited("sql_start") and audit.audited("sql_cancel") and audit.audited("sql_export")
     assert audit.target({"query": "SELECT secret", "lakehouse_ref": {"name": "LH"}})["query"] == "(given)"
     watchdog = (Path(__file__).parents[2] / "app" / "src-tauri" / "src" / "watchdog.rs").read_text()
@@ -978,3 +978,39 @@ def test_plan_steps_reads_estimates_and_caps_the_list():
         chain = {"name": "PROJECTION", "children": [chain]}
     big = sql_worker.plan_steps([chain])
     assert len(big["steps"]) == sql_worker.PLAN_NODES and big["more_steps"] == 5
+
+
+# ---- the result grid: sort, filter and column statistics over the snapshot (S19, S20, S26)
+
+def test_a_page_can_be_sorted_and_filtered_over_every_row_without_running_again(runs, lake):
+    status = wait(runs, runs.start("SELECT id, country, amount FROM sales", lake)["id"])
+    page = runs.page(status["id"], 0, 2, sort=[{"column": 2, "desc": True}])
+    assert page["rows"] == [[3, "US", 3.25], [1, "NL", 1.5]] and page["total"] == 3 and page["all_rows"] == 3
+    assert page["has_next"] is True and page["sort"] == [{"column": 2, "desc": True}]
+    page = runs.page(status["id"], 0, 10, filters=[{"column": 1, "text": "not null"}, {"column": 0, "text": "  "}])
+    assert [r[0] for r in page["rows"]] == [1, 3] and page["total"] == 2 and page["filters"] == [{"column": 1, "text": "not null"}]
+    assert runs.page(status["id"], 0, 10)["total"] == 3, "no sort or filter: the snapshot as it is"
+    stats = runs.column_stats(status["id"], 2)
+    assert stats["rows"] == 3 and stats["missing"] == 1 and stats["max"] == 3.25
+    assert len([a for a in runs.audit_lines if a[0] == "sql_start"]) <= 1, "nothing ran again"
+
+
+def test_the_service_answers_a_filter_it_can_t_read_with_its_column(tmp_path, runs, lake):
+    from fabric_desktop.service import Service
+    status = wait(runs, runs.start("SELECT id, country FROM sales", lake)["id"])
+    svc = Service.__new__(Service)
+    svc._sql_runs = runs  # type: ignore[attr-defined]
+    out = svc.sql_page(status["id"], filters=[{"column": 0, "text": "> many"}])
+    assert out["filter_error"] == {"column": 0, "message": "Write a number after > in the filter on id, as 3000 or 12.5."}
+    assert "rows" not in out
+    assert svc.sql_column_stats(status["id"], 1)["kind"] == "text"
+
+
+def test_sorting_a_result_over_the_grid_s_limit_is_refused(runs, lake, monkeypatch):
+    status = wait(runs, runs.start("SELECT id FROM sales", lake)["id"])
+    monkeypatch.setattr(sql_view, "VIEW_MAX_ROWS", 2)
+    with pytest.raises(ValueError, match="Sorting and filtering works on results of up to 2 rows"):
+        runs.page(status["id"], sort=[{"column": 0}])
+    with pytest.raises(ValueError, match="Column statistics works"):
+        runs.column_stats(status["id"], 0)
+    assert runs.page(status["id"])["total"] == 3, "plain paging still works"

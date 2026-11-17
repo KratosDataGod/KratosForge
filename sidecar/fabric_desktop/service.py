@@ -8,6 +8,7 @@ import logging
 import os
 import math
 import platform
+import re
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FutureTimeout
@@ -23,7 +24,7 @@ from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator, cached_account
 from .fabric_api import FabricClient
-from . import app_settings, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_files, sql_format, sql_function_help, sqlcompat, warehouse
+from . import app_settings, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_files, sql_format, sql_function_help, sql_view, sqlcompat, warehouse
 from .learn import evidence
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
@@ -1084,6 +1085,61 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             return {"path": str(path), "outcome": report["outcome"]["status"], "counts": report["counts"]}
         raise ValueError("Couldn't find a free file name in Downloads for the report.")
 
+    # A table diagram as the SQL page draws it: an <svg> with its colors written in. It is parsed and
+    # checked against what the page draws (an allowlist of SVG elements and attributes, no namespaced
+    # attribute, no script URL or url() in a value), and anything else is refused rather than cleaned,
+    # since the page never makes it. Doctypes, entities, comments and processing instructions are
+    # refused before parsing, so nothing expands.
+    DIAGRAM_SVG_MAX = 4 * 1024 * 1024
+    _SVG_NS = "{http://www.w3.org/2000/svg}"
+    _DIAGRAM_TAGS = frozenset({"svg", "g", "rect", "path", "text", "title"})
+    _DIAGRAM_ATTRS = frozenset({"viewBox", "width", "height", "font-family", "font-size", "font-weight", "role", "aria-label",
+                                "x", "y", "rx", "fill", "stroke", "stroke-width", "stroke-dasharray", "d"})
+    _DIAGRAM_BAD_VALUE = re.compile(r"javascript\s*:|url\s*\(", re.IGNORECASE)
+
+    @classmethod
+    def _diagram_problem(cls, svg: str) -> str | None:
+        import xml.etree.ElementTree as ET
+        if "<!" in svg or "<?" in svg:
+            return "a doctype, comment or processing instruction"
+        try:
+            root = ET.fromstring(svg)
+        except ET.ParseError:
+            return "text that isn't well-formed SVG"
+        if root.tag != f"{cls._SVG_NS}svg":
+            return "a root that isn't svg"
+        for el in root.iter():
+            if not isinstance(el.tag, str) or not el.tag.startswith(cls._SVG_NS) or el.tag[len(cls._SVG_NS):] not in cls._DIAGRAM_TAGS:
+                return f"an element a diagram never has ({el.tag})"
+            for name, value in el.attrib.items():
+                if name not in cls._DIAGRAM_ATTRS:
+                    return f"an attribute a diagram never has ({name})"
+                if cls._DIAGRAM_BAD_VALUE.search(value):
+                    return f"a link in {name}"
+        return None
+
+    def sql_diagram_export(self, svg: str, name: str = "") -> dict[str, Any]:
+        """Write a table diagram as a new .svg file in the Downloads folder. Never replaces a file."""
+        if not isinstance(svg, str) or not svg.startswith("<svg ") or not svg.rstrip().endswith("</svg>"):
+            raise ValueError("That isn't a diagram from the SQL page.")
+        if len(svg.encode("utf-8")) > self.DIAGRAM_SVG_MAX:
+            raise ValueError("The diagram is too big to save (over 4 MB).")
+        problem = self._diagram_problem(svg)
+        if problem:
+            raise ValueError(f"The diagram has {problem}, so it wasn't saved.")
+        folder = known_folders.downloads()
+        folder.mkdir(parents=True, exist_ok=True)
+        base = f"{file_stem(name, 'Diagram')} {time.strftime('%Y-%m-%d %H%M%S')}"
+        for n in range(1, 1000):
+            path = folder / (f"{base}.svg" if n == 1 else f"{base} ({n}).svg")
+            try:
+                with open(path, "x", encoding="utf-8") as f:
+                    f.write(svg)
+            except FileExistsError:
+                continue
+            return {"path": str(path)}
+        raise ValueError("Couldn't find a free file name in Downloads for the diagram.")
+
     # Managed runs (SQL-003, sql_exec.py): each query in a process of its own, with Stop, a time
     # limit, a memory limit, pages read from a snapshot and streamed export. run_sql below stays for
     # older callers (external tools, integrations) and returns the first rows in one call.
@@ -1154,9 +1210,23 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """This session's runs, newest first: states and timings, never the SQL."""
         return self.sql_runs.recent()
 
-    def sql_page(self, execution: str, offset: int = 0, limit: int | None = None, part: int | None = None) -> dict[str, Any]:
+    def sql_page(self, execution: str, offset: int = 0, limit: int | None = None, sort: list[dict[str, Any]] | None = None,
+                 filters: list[dict[str, Any]] | None = None, part: int | None = None) -> dict[str, Any]:
+        """A page of a run's result; with ``sort`` or ``filters``, of every row sorted and filtered on
+        this PC (the result grid, S19 and S20); with ``part``, of that statement's result (S14). A filter
+        box that can't be read answers ``filter_error`` with its column, and no rows."""
         try:
-            return self.sql_runs.page(execution, offset, limit, part)
+            return self.sql_runs.page(execution, offset, limit, sort, filters, part)
+        except sql_exec.RerunNeeded as exc:
+            return {"id": execution, "rerun_needed": True, "message": str(exc)}
+        except sql_view.FilterError as exc:
+            return {"id": execution, "filter_error": {"column": exc.column, "message": str(exc)}}
+
+    def sql_column_stats(self, execution: str, column: int, part: int | None = None) -> dict[str, Any]:
+        """One column's statistics over every row of a run's result (the result grid, S26), read from
+        the run's snapshot on this PC; with ``part``, of that statement's result (S14). Nothing runs again."""
+        try:
+            return self.sql_runs.column_stats(execution, column, part)
         except sql_exec.RerunNeeded as exc:
             return {"id": execution, "rerun_needed": True, "message": str(exc)}
 

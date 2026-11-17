@@ -69,6 +69,25 @@ These cases can still differ, and LOC-005 notes them:
 | `div` whose quotient is past the BIGINT range | Wraps around (ANSI off) | NULL |
 | ANSI mode on | A division by zero is an error | NULL |
 
+## Local T-SQL ordering and window functions
+
+When a project runs T-SQL on this PC, NULLs, ties and window functions give a warehouse's answers. Each case below is checked against T-SQL's reference.
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| `NULL` in an ordering | The smallest value: first in ascending order, last in descending order. This holds in `ORDER BY`, `TOP` (with or without `WITH TIES`), `OFFSET ... FETCH`, a window's `ORDER BY`, `STRING_AGG ... WITHIN GROUP` and `GROUP BY ... ORDER BY` |
+| `ROW_NUMBER`, `RANK`, `DENSE_RANK`, `NTILE` | Ties share a rank: `RANK` skips after a tie (1, 1, 3), `DENSE_RANK` doesn't (1, 1, 2). `PARTITION BY` puts NULLs in one partition |
+| `CUME_DIST`, `PERCENT_RANK` | Ties share a value, as in T-SQL |
+| `LAG`, `LEAD` | `NULL` past the edge of the partition, or the default you give: `LAG(x, 1, 0)` |
+| `SUM`, `COUNT`, `MAX` and the other aggregates `OVER (ORDER BY ...)` | The default frame is `RANGE`, so rows that tie share a running total. Write `ROWS UNBOUNDED PRECEDING` for one total per row |
+| `PERCENTILE_CONT` | A `float`, with `NULL`s left out, for a decimal column too: 0.25 of `1.25`, `2.50` and `4.00` is `1.875` |
+| `PERCENTILE_CONT` and `PERCENTILE_DISC` with `ORDER BY ... DESC` | p counts from the largest value: 0.25 of 1 to 5 descending is `4`. `PERCENTILE_DISC` keeps its value's type |
+
+What can still differ:
+
+- `PERCENTILE_DISC` with `ORDER BY ... DESC` on a date or text column is refused by name. Run it in a Fabric Warehouse.
+- Rows that tie in an `ORDER BY` can come back in any order, in a warehouse as here. Add a column that tells them apart when the order matters.
+
 ## Local T-SQL dates and times
 
 When a project runs T-SQL on this PC, these date and time functions are checked against the answers in T-SQL's reference, at their edges: month-end, the leap day, and the week's start (Sunday, Fabric's `DATEFIRST 7`).
@@ -89,6 +108,27 @@ What can still differ:
 - A date-and-time here is a warehouse's `datetime2(6)`: six digits of fraction (`.123000`), which is also the most a Fabric Warehouse column keeps. T-SQL's default `datetime2` has seven.
 - Any other `CONVERT` date style runs as translated, but its values haven't been checked. The run's `translation.notes` says so ("CONVERT style 104 runs as a translation that hasn't been checked ...").
 - `CAST(a_datetime AS VARCHAR)` with no style, and `nanosecond` in `DATEADD`, `DATEDIFF` and `DATETRUNC`: see [Local data](local-data.md#t-sql).
+
+## Local T-SQL text
+
+When a project runs T-SQL on this PC, text compares as it does with a Fabric Warehouse's default collation, `Latin1_General_100_BIN2_UTF8`: by code point, so case counts and `'B'` sorts before `'a'`, and with ANSI padding, so trailing spaces don't count. These are checked against T-SQL's reference:
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| `=`, `<>`, `<`, `IN` | `'a' = 'a  '` is true and `'a' = 'A'` is false |
+| `LIKE` | Case counts. The text's trailing spaces don't count, but the pattern's do: `'abc  ' LIKE 'abc'` is true, and `'abc' LIKE 'abc '` is false |
+| `ORDER BY`, `STRING_AGG(...) WITHIN GROUP (ORDER BY ...)` | Code point order (`A`, `B`, `a`, `b`). `STRING_AGG` skips `NULL`s, and is `NULL` over no rows |
+| `LEN`, `DATALENGTH` | `LEN('ab  ')` is `2`, and `DATALENGTH('ab  ')` is `4`. `DATALENGTH` counts UTF-8 bytes (`'é'` is `2`) and two per character for `N'...'` |
+| `CHARINDEX`, `PATINDEX` | Case counts, and the answer is `0` when the text isn't found. A `CHARINDEX` start of 0 or below searches from the start, and an empty search text gives `0` |
+| `CONCAT`, `CONCAT_WS`, `+` | `CONCAT` skips `NULL`, and `+` gives `NULL`. A number written with a point keeps its digits (`CONCAT('a', 1.50)` is `a1.50`), and a `bit` is `1` or `0` |
+| `TRIM`, `LTRIM`, `RTRIM`, `REPLACE` | Spaces only, or the characters you give. `REPLACE` matches case and leaves the text alone for an empty search |
+| `COLLATE` | A binary collation (`..._BIN2`, `..._BIN`) runs as written, since it's how text compares here already |
+
+What still differs:
+
+- `GROUP BY`, `DISTINCT`, `UNION`, `INTERSECT` and `EXCEPT` keep `'a'` and `'a  '` apart, where T-SQL counts them as one value. A query that groups text says so in `translation.notes`. Group on `RTRIM(...)` to get T-SQL's groups.
+- Any other collation (`COLLATE Latin1_General_100_CI_AS_KS_WS_SC_UTF8`, `SQL_Latin1_General_CP1_CI_AS`) is refused by name. Compare `UPPER(...)` on both sides to ignore case.
+- `PATINDEX` needs its pattern written out as text, and is refused otherwise.
 
 ## Rules
 
@@ -200,6 +240,32 @@ Fabric Warehouse has QUALIFY too, so there the rewrite is one way to run it, not
 Like the check above, it never runs the SQL or connects anywhere, and "compatible" is not proof that
 two platforms give the same answer. Comparing answers needs both runs.
 
+## Local T-SQL tables
+
+When a project runs T-SQL on this PC, tables are made and emptied as in a Fabric Warehouse, and what a warehouse doesn't have is refused by name. This was checked against Microsoft Learn's Fabric Data Warehouse pages for tables, temporary tables, IDENTITY and the T-SQL surface area, as they read on 2026-11-17.
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| `VARCHAR(n)`, `CHAR(n)`, `VARBINARY(n)`, `BINARY(n)` in `CREATE TABLE` | At most n bytes, as UTF-8 text: `'ééé'` doesn't fit in `VARCHAR(5)`. A longer value stops the `INSERT` or `UPDATE` with T-SQL's "String or binary data would be truncated in table 'dbo.t', column 'v'.", and nothing changes. Trailing blanks past the length don't count, as in T-SQL. `VARCHAR(MAX)` has no limit |
+| `NOT NULL` | Kept: a `NULL` stops the `INSERT` |
+| `#temp` tables | Last until the project is closed (the session), and are gone when it's opened again. `WITH (DISTRIBUTION = ROUND_ROBIN)`, which a warehouse takes only on a #temp table, is accepted and changes nothing here |
+| `CREATE TABLE ... AS SELECT`, `SELECT ... INTO` | A table with the select's columns and types: `1` is an `int`, `1.5` a `decimal(2,1)`, a cast keeps its type |
+| `DROP TABLE IF EXISTS`, `TRUNCATE TABLE` | As in a warehouse |
+
+Refused by name:
+
+- `IDENTITY`. A warehouse takes only `BIGINT IDENTITY`, with no seed or increment, and numbers rows uniquely but not always in order. The local engine doesn't number rows that way yet, so give the column its values in the `INSERT`. `SET IDENTITY_INSERT` and `DBCC` are refused too.
+- `##global` temporary tables, which a warehouse doesn't have either.
+- `WITH (DISTRIBUTION = ...)` on a table that isn't a #temp table.
+- `ALTER TABLE ... ADD` of a `VARCHAR(n)`, `CHAR(n)`, `VARBINARY(n)` or `BINARY(n)` column, since the local engine can't hold an added column to its length. Declare it in `CREATE TABLE`. Adding a column of another type, or `VARCHAR(MAX)`, works.
+
+What can still differ:
+
+- A table made by `CREATE TABLE ... AS SELECT` or `SELECT ... INTO` keeps no text length and no `NOT NULL`: every column accepts `NULL` and text of any length. In T-SQL, a column copied from a `NOT NULL` column stays `NOT NULL`.
+- `CHAR(n)` isn't padded with spaces to n characters. `LEN` gives the same answer either way, but `DATALENGTH` of a stored `CHAR` value doesn't.
+- Trailing blanks past a text column's length are kept here. A warehouse drops them, so `DATALENGTH` differs.
+- A #temp table is shared by every query in the open project. In a warehouse it belongs to one connection.
+
 ## Local T-SQL decimals
 
 When a project runs T-SQL on this PC, arithmetic with a decimal side gets the precision and scale a Fabric Warehouse gives it, by T-SQL's rules ("Precision, scale, and length" on Microsoft Learn). DuckDB's own rules differ: it widens decimals its own way, keeps every digit of scale, and divides decimals as doubles.
@@ -213,7 +279,21 @@ When a project runs T-SQL on this PC, arithmetic with a decimal side gets the pr
 | Numbers written in the query | `1.5` is `decimal(2,1)`, and a whole number meets a decimal as `decimal(its digits, 0)`, so `1.0 / 3` is `0.333333` | Nothing |
 | A result too big for its type | Stops, as in a warehouse ("Could not cast value ... to DECIMAL(38,6)" here, "Arithmetic overflow error" there) | The message's words |
 
-`money` and `smallmoney` are refused rather than given decimal rules (use `DECIMAL(19, 4)` and `DECIMAL(10, 4)`). An integer divided by an integer stays an integer, cut toward zero, and dividing integers by zero still gives `NULL` here.
+`money` and `smallmoney` are refused rather than given decimal rules (use `DECIMAL(19, 4)` and `DECIMAL(10, 4)`). An integer divided by an integer stays an integer, cut toward zero. Dividing by zero is an error for integers and floats too (see below).
+
+## Local T-SQL arithmetic and conversion
+
+When a project runs T-SQL on this PC, these are checked against T-SQL's reference:
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| `/` and `%` on integers | Cut toward zero, and the remainder takes the dividend's sign: `-7 / 2` is `-3`, and `-7 % 2` is `-1` |
+| Dividing by zero | `/` and `%` stop with "Divide by zero error encountered.", for integers, decimals and floats. `NULL / 0` is `NULL` |
+| A result past `int` or `bigint` | An error, as in T-SQL. The message is DuckDB's ("Overflow in addition of INT32"), not T-SQL's "Arithmetic overflow error" |
+| Text meets a number | The number's type wins: `'1' + 1` is `2` and `'' + 1` is `1`, while `'1.5' + 1` and `'x' + 1` stop with "Conversion failed". Two texts are concatenated (`'1' + '1'` is `'11'`) |
+| `ISNULL(a, b)`, `COALESCE(a, b)` | `ISNULL` takes `a`'s type, so `b` is converted to it: `ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')` is `'ab'`, and `ISNULL(int_column, 2.7)` is `2`. `COALESCE` takes the type that ranks highest: `2.7` and `'abcd'` |
+| `CAST`, `TRY_CAST` | A value that doesn't convert stops `CAST` and is `NULL` with `TRY_CAST`. A decimal or float to an integer is cut toward zero, and a decimal to a narrower decimal rounds |
+| `ROUND` | Keeps its value's type: `ROUND(150.75, 0)` is `151.00`, `ROUND(748.58, -1)` is `750.00`, and `ROUND(150.75, 0, 1)` cuts to `150.00`. A result that no longer fits the type stops with "Arithmetic overflow error" (`ROUND(748.58, -3)`, `ROUND(999.5, 0)`) |
 
 ## How it's built and tested
 

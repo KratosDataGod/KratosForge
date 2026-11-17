@@ -78,6 +78,17 @@ def test_a_refusal_names_the_script_statement_and_nothing_runs(runs, lake):
     assert status["parts"] == []
 
 
+def test_one_statements_result_sorts_filters_and_profiles_on_its_own(runs, lake):
+    status = wait(runs, runs.start("", lake, statements=["SELECT id, country FROM sales", "SELECT 'done' AS word"])["id"])
+    one = runs.page(status["id"], sort=[{"column": 0, "desc": True}], filters=[{"column": 1, "text": "!= NL"}], part=1)
+    assert one["rows"] == [[3, "US"], [2, "DE"]] and one["total"] == 2 and one["all_rows"] == 3 and one["part"] == 1
+    assert runs.page(status["id"], sort=[{"column": 0, "desc": True}])["rows"] == [["done"]], "without part: the last statement"
+    stats = runs.column_stats(status["id"], 0, part=1)
+    assert stats["part"] == 1 and "part" not in runs.column_stats(status["id"], 0)
+    with pytest.raises(ValueError, match="Statement 3 has no result"):
+        runs.column_stats(status["id"], 0, part=3)
+
+
 def test_one_statement_can_be_exported(runs, lake, tmp_path):
     status = wait(runs, runs.start("", lake, statements=["SELECT id FROM sales", "SELECT 1 AS one"])["id"])
     out = wait_export(runs, runs.export(status["id"], "csv", "q", part=1)["id"])

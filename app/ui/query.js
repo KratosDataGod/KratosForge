@@ -268,8 +268,15 @@ const sqlPartArg = (part) => (part ? { part } : {});
 
 async function loadPage(tab, offset) {
   try {
-    const page = await rpc("sql_page", { execution: tab.exec.id, offset, ...sqlPartArg(tab.multi?.part) });
+    // The grid's sort and filters (sqlgrid.js) apply to every row of the run's snapshot, or of the
+    // statement's (S14) when the run had several, on this PC.
+    const page = await rpc("sql_page", { execution: tab.exec.id, offset, ...sqlGridQuery(tab.grid), ...sqlPartArg(tab.multi?.part) });
     if (page.rerun_needed) { tab.result = null; tab.error = page.message; tab.errorRetry = null; return; }
+    if (page.filter_error) { sqlGridState(tab).filterError = page.filter_error; return; }  // the rows on screen stay
+    if (tab.grid) {  // another page: the selection and an open value were on the page before
+      Object.assign(tab.grid, { filterError: null, sel: null });
+      if (tab.grid.side?.kind === "value") tab.grid.side = null;
+    }
     Object.assign(tab, { result: page, error: null, errorRetry: null });
   } catch (err) {
     tab.error = String(err);
@@ -459,8 +466,8 @@ function renderQuery() {
     if (wh && !sqlPage.catalog) loadCatalog();
     tab.running = true;
     const startedAt = Date.now();
-    Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "", chart: null,
-      multi: multi ? { units, part: null, change } : null, old: null, ranParams: used });
+    Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "", chart: null, grid: sqlGridCarry(tab.grid),
+      multi: multi ? { units, part: null, change, grids: {} } : null, old: null, ranParams: used });
     drawResults();
     let status;
     try {
@@ -542,8 +549,10 @@ function renderQuery() {
   function selectPart(n) {
     const m = tab.multi;
     if (!m || m.part === n) return;
+    // Each statement's result keeps its own sort, filters and selection (the grid, sqlgrid.js).
+    (m.grids ||= {})[m.part] = tab.grid;
     m.part = n;
-    Object.assign(tab, { result: null, chart: null });
+    Object.assign(tab, { result: null, chart: null, grid: m.grids[n] || sqlGridCarry(tab.grid) });
     drawResults();
     if (tab.exec?.parts?.some((x) => x.statement === n)) loadPage(tab, 0).then(() => sqlPage.redraw?.());
   }
@@ -625,10 +634,10 @@ function renderQuery() {
       return;
     }
     if (!tab.old) tab.old = { latest: { exec: tab.exec, result: tab.result, multi: tab.multi, error: tab.error, errorRetry: tab.errorRetry,
-      ranNotice: tab.ranNotice, chart: tab.chart, ranParams: tab.ranParams } };
+      ranNotice: tab.ranNotice, chart: tab.chart, ranParams: tab.ranParams, grid: tab.grid } };
     tab.old.entry = entry;
     Object.assign(tab, { exec: st, result: null, chart: null, error: null, errorRetry: null, ranNotice: "", view: "results", ranParams: entry.params || [],
-      multi: entry.multi ? { ...entry.multi, part: sqlPickPart(st) } : null });
+      grid: sqlGridCarry(tab.grid), multi: entry.multi ? { ...entry.multi, part: sqlPickPart(st), grids: {} } : null });
     if (tab.multi ? st.parts?.some((x) => x.statement === tab.multi.part) : st.state === "completed") await loadPage(tab, 0);
     else tab.error = st.error || "That run has no result.";
     sqlPage.redraw?.();
@@ -692,6 +701,133 @@ function renderQuery() {
     await loadPage(tab, Math.max(0, offset));
     tab.paging = false;
     sqlPage.redraw?.();
+  }
+
+  // The result grid (sqlgrid.js): sort and filter read the first page again, over every row of the snapshot.
+  function gridSort(column) {
+    const g = sqlGridState(tab);
+    g.sort = sqlGridNextSort(g.sort, column);
+    goPageAgain();
+  }
+  function gridFilter(column, text) {
+    const g = sqlGridState(tab);
+    if (!g.filterOn || (g.filters[column] || "") === text) return;  // Filter turned off, or a new run, since it was typed
+    g.filters[column] = text;
+    goPageAgain();
+  }
+  function toggleFilter() {
+    const g = sqlGridState(tab);
+    g.filterOn = !g.filterOn;
+    const had = Object.values(g.filters).some((t) => String(t).trim());
+    if (!g.filterOn) {
+      for (const t of Object.values(g.filterTimers || {})) clearTimeout(t);
+      Object.assign(g, { filters: {}, filterError: null, filterTimers: {} });
+    }
+    if (!g.filterOn && had) goPageAgain();
+    else drawResults();
+    if (g.filterOn) grid.querySelector(".sql-filter")?.focus();
+  }
+  async function goPageAgain() {
+    if (!tab.result) return;
+    if (tab.paging) { tab.pageAgain = true; return; }  // the latest sort and filters are read when this page arrives
+    tab.paging = true;
+    do { tab.pageAgain = false; await loadPage(tab, 0); } while (tab.pageAgain);
+    tab.paging = false;
+    sqlPage.redraw?.();
+  }
+
+  // The grid's selection (sqlgrid.js): the band says how many cells, and Copy as copies them.
+  function noteSelection() {
+    const span = band.querySelector(".sql-run-msg");
+    if (span && tab.result && !tab.error) span.textContent = resultMsg(tab.result);
+  }
+  const COPY_SEL = { tsv: " with headers", csv: " as CSV", json: " as JSON", insert: " as INSERT statements" };
+  async function copySelection(format) {
+    const r = tab.result;
+    if (!r || !r.rows.length) return;
+    const g = sqlGridState(tab);
+    const text = sqlGridCopyText(format, r, g.sel,
+      { dialect: tab.dialect, table: format === "insert" ? sqlInsertTable(tab.resultQuery, tab.dialect) : undefined, vis: g.vis });
+    const copied = await attempt(() => navigator.clipboard.writeText(text).then(() => true), "Could not copy");
+    if (!copied) return;
+    const b = sqlGridBlock(r, g.sel, g.vis);
+    const cells = b.rows.length * b.columns.length;
+    toast(format === "cells" ? `Copied ${cells.toLocaleString()} cell${cells === 1 ? "" : "s"}`
+      : `Copied ${b.rows.length.toLocaleString()} row${b.rows.length === 1 ? "" : "s"}${COPY_SEL[format]}`);
+  }
+  // Right-click or Shift+F10 on a cell: the mockup's Copy as menu.
+  function cellMenu(td) {
+    const g = sqlGridState(tab);
+    if (!td || !g.sel) return;
+    const at = { r: g.sel.f.r, c: g.vis?.[g.sel.f.c] ?? g.sel.f.c };  // the result's column, not its place on screen
+    const table = grid.querySelector("table");
+    const item = (label, key, action, first) => h("button", { type: "button", class: `tool${first ? " sql-menu-group" : ""}`,
+      ...(key ? { "aria-keyshortcuts": key.replace(/Ctrl/g, "Control") } : {}),
+      onclick: () => { table?.focus({ preventScroll: true }); action(); } },
+    h("span", {}, label), key ? h("span", { class: "sql-menu-key" }, key) : null);
+    td.tabIndex = -1;  // the menu gives focus back to the cell when it closes
+    showMenu(td, [
+      item("Copy", "Ctrl+C", () => copySelection("cells")),
+      item("Copy with headers", "Ctrl+Shift+C", () => copySelection("tsv")),
+      item("Copy as CSV", null, () => copySelection("csv"), true),
+      item("Copy as JSON", null, () => copySelection("json")),
+      item("Copy as INSERT statements", null, () => copySelection("insert")),
+      item("Open value", "Enter", () => openValue(at), true),
+      item("Column statistics", null, () => columnStats(at.c))]);
+  }
+  // Columns...: show, hide and reorder the grid's columns; the dialog's list follows each change.
+  function columnsDialog() {
+    const r = tab.result;
+    if (!r?.columns.length) return;
+    const g = sqlGridState(tab);
+    sqlGridLayoutFor(g, r.columns);
+    const box = h("div", {});
+    const draw = (moved, dir) => {
+      box.replaceChildren(sqlColumnsBody(r.columns, g, { change: (k, d) => { g.sel = null; draw(k, d); drawResults(); } }));
+      if (moved !== undefined) {
+        const name = r.columns[moved].name;
+        const again = box.querySelector(`button[aria-label="Move ${CSS.escape(name)} ${dir}"]`);
+        (again && !again.disabled ? again : box.querySelector(`button[aria-label="Move ${CSS.escape(name)} ${dir === "up" ? "down" : "up"}"]`))?.focus();
+      }
+    };
+    draw();
+    showDialog("Columns", box, [
+      btn("Show all", null, () => { Object.assign(g, { hidden: [], order: null, widths: {}, sel: null }); draw(); drawResults(); }, "tool outline",
+        { title: "Every column, in the result's order, at its own width" }),
+      btn("Done", null, closeDialog, "tool primary")]);
+  }
+  function openValue(at) {
+    sqlGridState(tab).side = { kind: "value", at };
+    drawSide(true);
+  }
+  async function columnStats(column) {
+    const g = sqlGridState(tab);
+    const side = { kind: "stats", column, data: { busy: true } };
+    g.side = side;
+    drawSide(true);
+    try {
+      side.data = await rpc("sql_column_stats", { execution: tab.exec.id, column, ...sqlPartArg(tab.multi?.part) });
+    } catch (err) {
+      side.data = { error: String(err).replace(/^Error: /, "") };
+    }
+    if (g.side === side && tab === sqlPage.tabs[sqlPage.active] && here()) drawSide(true);
+  }
+  function closeSide() {
+    const g = tab.grid;
+    if (!g?.side) return false;
+    g.side = null;
+    drawSide(true);
+    return true;
+  }
+  function drawSide(shown) {
+    const r = tab.result;
+    const s = shown && r ? tab.grid?.side : null;
+    const close = () => { closeSide(); grid.querySelector("table")?.focus(); };
+    const panel = !s ? null : s.kind === "value" ? (r.rows[s.at.r] ? sqlValuePanel(r, s.at, { close,
+      copy: (text) => attempt(() => navigator.clipboard.writeText(text).then(() => toast("Copied the value")), "Could not copy") }) : null)
+      : sqlStatsPanel(r.columns[s.column], s.data, { close });
+    sideBox.hidden = !panel;
+    sideBox.replaceChildren(...(panel ? [panel] : []));
   }
 
   // Export ▾ CSV, Parquet, Excel or JSON: streamed from the run's snapshot to a new file in Downloads.
@@ -823,6 +959,9 @@ function renderQuery() {
         : "F12 goes to a table or view: put the cursor on its name, an alias or one of its columns.");
       return;
     }
+    await showInExplorer(table);
+  }
+  async function showInExplorer(table) {
     const row = wh ? await revealWarehouseObject(table) : await revealLakehouseTable(table);
     if (!row) return;
     row.scrollIntoView({ block: "nearest" });
@@ -853,6 +992,26 @@ function renderQuery() {
     if (p.whAside && p.whAside !== "explorer") { p.whAside = "explorer"; renderQuery(); } else whTree.draw();
     return document.querySelector(`.wh-tree [data-tid="${CSS.escape(p.whFocus)}"]`);
   }
+  // Parity item 15: the Explorer's Diagram, read only. A warehouse's lines come from its keys (one more
+  // catalog query in Fabric) and from names; a lakehouse's from names only, with each table's columns
+  // asked for as the Explorer asks.
+  function openDiagram() {
+    if (wh) {
+      const cat = p.catalog;
+      const tables = (cat?.objects || []).filter((o) => o.type === "U");
+      openSqlDiagram({ kind: "warehouse", name: ref.name, schemas: [...new Set(tables.map((o) => o.schema))],
+        tables: async (schema) => tables.filter((o) => o.schema === schema)
+          .map((o) => ({ schema: o.schema, name: o.name, columns: cat.cols[`${o.schema}.${o.name}`] || [] })),
+        keys: async () => diagramKeys((await whCatalogQuery(ref, WH_KEYS_SQL)).rows),
+        reveal: showInExplorer });
+      return;
+    }
+    openSqlDiagram({ kind: "lakehouse", name: ref.name, schemas: Object.keys(p.tables || {}),
+      tables: (schema) => Promise.all((p.tables[schema] || []).slice(0, DIAGRAM_MAX_TABLES)
+        .map(async (name) => ({ schema, name, columns: await provider.columns({ schema, name }) })))
+        .then((list) => list.concat((p.tables[schema] || []).slice(DIAGRAM_MAX_TABLES).map((name) => ({ schema, name, columns: [] })))),
+      reveal: showInExplorer });
+  }
   function loadTables() {
     drawTables();
     rpc("list_tables", { workspace_id: ref.workspace_id, lakehouse_id: ref.lakehouse_id })
@@ -867,6 +1026,10 @@ function renderQuery() {
       return;
     }
     const rows = [];
+    if (previewShown() && Object.values(p.tables).some((names) => names.length)) {
+      rows.push(h("div", { class: "sql-explorer-actions" }, btn("Diagram", "flowchart", openDiagram, "tool outline small",
+        { title: "The tables of a schema and how their columns link, guessed from names. Read only." })));
+    }
     for (const [schema, names] of Object.entries(p.tables)) {
       const qualify = Object.keys(p.tables).length > 1 || schema !== "dbo";
       if (qualify) rows.push(h("div", { class: "tree-row muted", style: "padding-left:6px" }, schema));
@@ -944,6 +1107,19 @@ function renderQuery() {
     rtabs.replaceChildren(...[oldNote, h("div", { class: "sql-rtabs-head" }, list, wh ? null : previewTag()), note].filter(Boolean));
   }
   const grid = h("div", { class: "sql-grid" });
+  // The value viewer or a column's statistics, beside the grid (sqlgrid.js).
+  const sideBox = h("div", { class: "sql-side-box", hidden: true,
+    onkeydown: (e) => { if (e.key === "Escape" && closeSide()) { e.preventDefault(); e.stopPropagation(); grid.querySelector("table")?.focus(); } } });
+  const gridRow = h("div", { class: "sql-grid-row" }, grid, sideBox);
+  // The band's message for a result: its rows, sort, time and where it ran, the page, and a selection.
+  function resultMsg(r) {
+    const last = r.offset + r.rows.length;
+    let msg = `${sqlGridCount(r, r.columns)} · ${tab.exec.seconds} s ${where}`;
+    if (r.total > r.rows.length) msg += ` · rows ${(r.offset + 1).toLocaleString()} to ${last.toLocaleString()}`;
+    if (tab.ranParams?.length) msg += ` · with ${sqlParamsText(tab.ranParams)}`;
+    const note = sqlGridSelectionNote(tab.grid?.sel);
+    return note ? `${msg} · ${note}` : msg;
+  }
   function drawResults() {
     drawPartTabs();
     const r = tab.result;
@@ -963,10 +1139,7 @@ function renderQuery() {
       msg = `${ex.seconds} s ${where}${m && ex.statement ? ` · statement ${ex.statement} of ${m.units.length}` : ""}` +
         `${ex.rows ? ` · ${ex.rows.toLocaleString()} rows so far` : ""}`;
     } else if (r) {
-      const last = r.offset + r.rows.length;
-      msg = `${r.total.toLocaleString()} row${r.total === 1 ? "" : "s"} · ${ex.seconds} s ${where}`;
-      if (r.total > r.rows.length) msg += ` · rows ${(r.offset + 1).toLocaleString()} to ${last.toLocaleString()}`;
-      if (tab.ranParams?.length) msg += ` · with ${sqlParamsText(tab.ranParams)}`;
+      msg = resultMsg(r);
     }
     const copyItem = (format, label) => h("button", { role: "menuitem",
       onclick: (e) => { e.target.closest("details").open = false; copyRows(format); } }, label);
@@ -1011,6 +1184,11 @@ function renderQuery() {
         { disabled: !r.has_previous || tab.paging, "aria-label": "Previous page" }) : null,
       r && (r.has_previous || r.has_next) ? btn("Next ›", null, () => goPage(r.offset + r.limit), "tool small",
         { disabled: !r.has_next || tab.paging, "aria-label": "Next page" }) : null,
+      r && r.columns.length ? btn("Filter", null, toggleFilter, `tool small${tab.grid?.filterOn ? " toggled" : ""}`,
+        { "aria-pressed": String(!!tab.grid?.filterOn),
+          title: "A filter box under each column. Filters and sort apply to every row of the result on this PC; nothing runs again." }) : null,
+      r && r.columns.length ? btn("Columns...", null, columnsDialog, "tool small",
+        { title: "Show, hide and reorder the grid's columns" }) : null,
       copyMenu,
       exportMenu,
       h("span", { class: "sql-sep", "aria-hidden": "true" }),
@@ -1020,6 +1198,7 @@ function renderQuery() {
         { "aria-keyshortcuts": "Control+R",
           title: p.pane === "hidden" ? "Show the results pane (Ctrl+R)" : "Hide the results pane and give the editor the room (Ctrl+R)" })].filter(Boolean));
     applyPane();
+    drawSide(view === "results" && !tab.error && !!r?.columns.length);
     if (view === "history") {
       grid.replaceChildren(historyView());
     } else if (view === "plan" && !wh) {
@@ -1050,10 +1229,14 @@ function renderQuery() {
       // The query's own error ("Binder Error: ..."), or why it stopped, is what the person needs to read.
       grid.replaceChildren(h("div", { class: "output error" }, h("pre", {}, tab.error.replace(/^Error: /, ""))));
     } else if (r && r.columns.length) {
-      grid.replaceChildren(h("table", {},
-        h("thead", {}, h("tr", {}, h("th", { class: "i" }), r.columns.map((c) => h("th", { title: c.type }, c.name)))),
-        h("tbody", {}, r.rows.map((row, i) => h("tr", {}, h("td", { class: "i" }, String(r.offset + i + 1)),
-          row.map((v) => h("td", { class: `${typeof v === "number" ? "n" : ""}${v === null ? " null" : ""}` }, cellText(v))))))));
+      // A redraw replaces the filter boxes: the one being typed in keeps its text (typed while a page was
+      // loading, and not applied yet: its filter is still waiting, sqlgrid.js), focus and caret.
+      const typing = document.activeElement?.matches?.(".sql-grid .sql-filter") ? document.activeElement : null;
+      const at = typing && { column: typing.dataset.column, value: typing.value, start: typing.selectionStart, end: typing.selectionEnd };
+      grid.replaceChildren(...sqlResultGrid(r, sqlGridState(tab), { sort: gridSort, filter: gridFilter,
+        select: noteSelection, copy: copySelection, open: openValue, menu: cellMenu, close: closeSide }));
+      const box = at && grid.querySelector(`.sql-filter[data-column="${at.column}"]`);
+      if (box) { box.value = at.value; box.focus(); box.setSelectionRange(at.start, at.end); }
     } else {
       grid.replaceChildren(h("p", { class: "muted-text", style: "padding:12px 16px" },
         r ? "The query ran and returned no columns."
@@ -1065,7 +1248,7 @@ function renderQuery() {
   // The results pane: as it is, maximized (the editor hidden) or hidden (the editor gets the room), as
   // SSMS's Ctrl+R. Kept for the page's tabs until the page is left; a run shows hidden results again.
   function applyPane() {
-    const card = grid.parentElement;
+    const card = grid.closest(".sql-card");
     card?.classList.toggle("sql-pane-max", p.pane === "max");
     card?.classList.toggle("sql-pane-hidden", p.pane === "hidden");
   }
@@ -1463,6 +1646,7 @@ function renderQuery() {
     query: (name) => queryTable(name),
     insert: (text) => insertAtCursor(text),
     open: (name, text) => openTab(name, text),
+    diagram: () => openDiagram(),
   }) : null;
   // WH-06: saved and shared queries, on the explorer's Queries tab. A saved query opens in its own
   // tab, or in the tab that already holds it.
@@ -1654,7 +1838,7 @@ function renderQuery() {
       h("section", { class: "sql-main" }, tabs,
         monitorOn ? whMonitorView(ref, { insight: openInsight })
           : compareOn ? whCompareView(ref, { open: openProjectFile })
-          : h("div", { class: "sql-card" }, actions, fileRow, h("div", { class: "sql-editor-row" }, edit, compat), paramsBox, band, rtabs, grid))))
+          : h("div", { class: "sql-card" }, actions, fileRow, h("div", { class: "sql-editor-row" }, edit, compat), paramsBox, band, rtabs, gridRow))))
     : h("div", { class: "sql-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
       btn("New SQL query", "add", addTab),
@@ -1669,7 +1853,7 @@ function renderQuery() {
           h("span", { class: "label" }, ref.name)),
         tablesBox),
       h("section", { class: "sql-main" }, tabs,
-        h("div", { class: "sql-card" }, actions, fileRow, h("div", { class: "sql-editor-row" }, edit, compat), paramsBox, band, rtabs, grid)))));
+        h("div", { class: "sql-card" }, actions, fileRow, h("div", { class: "sql-editor-row" }, edit, compat), paramsBox, band, rtabs, gridRow)))));
   drawResults();
   drawTables();
   if (tab.autorun) { delete tab.autorun; run(tab.sql); }

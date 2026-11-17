@@ -4774,3 +4774,303 @@ No bugs were found.
 | `model_directlake.py` | 256 | `"info": 2` to `3` in the sort order | Equivalent: fail 0, warn 1 and info 3 sort the same as 0, 1, 2, and the counts use the keys, not the numbers. |
 
 Neither involves text input, so leading or trailing whitespace and regex edge cases can't change them.
+
+# Mutation testing, batch 66
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- Comparing one table in two places, or now against an earlier Delta version: counts, keys on one side only, changed columns, totals and, for a table larger than memory, a checksum (`meta/compare.py`).
+- Best practices for a layer's semantic model, checked on this PC from the metadata project (`model_practices.py`).
+- The Learn lab checks: a learner's query against the answer, a table's shape, orphans, best-practice findings, speed and seeded defects (`learn/checks.py`).
+
+The run was at `main` 3ca056487 (2026-11-16), with `sidecar/tools/mutate.py` and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used. `test_learn_guides.py` and `test_practice_docs.py` reach `model_practices.py` but read `docs/`, so they were left out; that can only lower the "before" score.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `meta/compare.py` | test_meta_compare_edges, test_meta_compare_totals, test_dataops (+ test_meta_compare_mutation) | 124 of 124 (122 + 2) | 101 / 23 | **81.5%** | 100/122 → 118/122 | 1/2 → 2/2 | 120 / 4 | **96.8%** | 4 equivalent |
+| `model_practices.py` | test_model_practices, test_learn_labs (+ test_model_practices_mutation) | 79 of 79 (78 + 1) | 58 / 21 | **73.4%** | 58/78 → 78/78 | 0/1 → 1/1 | 79 / 0 | **100%** | none |
+| `learn/checks.py` | test_learn_labs, test_academy_dbsql_lab (+ test_learn_checks_mutation) | 114 of 114 (109 + 5) | 98 / 16 | **86.0%** | 97/109 → 109/109 | 1/5 → 5/5 | 114 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **meta/compare.py**:
+  - A missing table names the side it is missing on (either, the left or the right), with empty counts, rows and changes.
+  - Columns only on one side are listed on that side, in a full compare and a hashed one.
+  - A column that is a number on one side only gets no total.
+  - Samples stop at 20 rows; the counts don't.
+  - A keys-only table with the same keys on both sides has nothing changed.
+  - A hashed compare starts with empty one-side and changed lists, and its integer totals stay exact integers.
+  - Two integer columns hash as integers, so values that differ only past nine significant digits still differ; rounding applies only to an integer matched against a decimal.
+  - A checksum is 16 hex digits.
+  - Float totals equal within the tolerance (relative to the larger total on either side, or the absolute floor near zero) show no change, by size whatever the sign, and exactly at the bound still counts as the same.
+  - → `test_meta_compare_mutation.py`.
+- **model_practices.py**:
+  - Each rule links to its docs section, and a rule can't be changed once made.
+  - A column's model type comes from its contract first; without one, surrogate, key and looked-up columns are whole numbers, and Type 2 columns have their types only in a Type 2 entity.
+  - A list of names names five, then counts the rest.
+  - A described table with undescribed visible columns is found.
+  - An odd table name is found on the table, and an odd column name on the column.
+  - The model item takes each table's own columns and types.
+  - → `test_model_practices_mutation.py`.
+- **learn/checks.py**:
+  - An answer is compared row by row up to a million rows; an answer longer than the limit is refused, one at the limit is compared.
+  - Wrong columns are named, and the count of differing rows is how many answer rows are missing.
+  - The detail says "in the same order" only when order was checked.
+  - A defects query that doesn't run fails with why.
+  - Speed is measured over three runs each by default, at least one even when none is asked for; exactly the goal passes; times are rounded to four places and the speedup to two; a run too quick to time counts as infinitely faster, with no speedup number.
+  - → `test_learn_checks_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it stays |
+| --- | --- | --- | --- |
+| `meta/compare.py` | 27 | `if TYPE_CHECKING` negated | Equivalent: it only imports `pyarrow.dataset` at module load instead of for type checking; the annotations are strings, and the functions import it themselves. |
+| `meta/compare.py` | 186 | `left or 0` to `left or 1` | Equivalent while `FLOAT_TOLERANCE` equals `FLOAT_FLOOR` (both 1e-9): with a zero or missing left total, the scale `max(1, abs(right))` times the tolerance is never below the floor the original takes anyway. |
+| `meta/compare.py` | 186 | `right or 0` to `right or 1` | Equivalent for the same reason, with a zero or missing right total. |
+| `meta/compare.py` | 219 | `strict=True` to `strict=False` | Equivalent: both sides' totals come from the same list of columns, so the lists always have the same length. |
+
+# Mutation testing, batch 67
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- The access cache: snapshot ids, the rows a refresh writes, and the per-workspace view OneLake > Access shows (`access_cache.py`).
+- Opt-in usage data: counting, how long unsent days are kept, and what is sent (`telemetry.py`).
+- The Snowflake function list's status on this PC and the page made from it (`snowflake_coverage.py`).
+
+The run was at `main` 9911af348 (2026-11-16), with `sidecar/tools/mutate.py` and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used. `test_snowflake_coverage.py` compares the committed `docs/snowflake-functions.md`, so it was left out for `snowflake_coverage.py`, which is why that module's "before" score is low; no other test in these sets reads `docs/`, `examples/` or `app/`.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `access_cache.py` | test_access_cache, test_access_cache_service_edges (+ test_access_cache_mutation) | 76 of 76 (76 + 0) | 65 / 11 | **85.5%** | 65/76 → 76/76 | none | 76 / 0 | **100%** | none |
+| `telemetry.py` | test_telemetry, test_corrupt_state_reads (+ test_telemetry_mutation) | 81 of 81 (78 + 3) | 59 / 22 | **72.8%** | 58/78 → 77/78 | 1/3 → 3/3 | 80 / 1 | **98.8%** | 1 equivalent |
+| `snowflake_coverage.py` | test_snowflake_coverage_edges (+ test_snowflake_coverage_mutation) | 85 of 85 (84 + 1) | 22 / 63 | **25.9%** | 22/84 → 84/84 | 0/1 → 1/1 | 85 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **access_cache.py**:
+  - No scans means no snapshots.
+  - A snapshot id is the first 24 hex characters of the rows' SHA-256, and the same rows give the same id whatever the order of keys or rows.
+  - A scan keeps the workspace and lakehouse names, or blanks when there are none.
+  - A workspace seen only through one of its lakehouses is neither stale nor known.
+  - The workspace scan's name wins over a lakehouse scan's, unless it is blank.
+  - The summary counts people, groups, apps and guests exactly.
+  - A lakehouse role's paths, Entra ids and item members are read back from JSON, and blanks read as empty lists.
+  - → `test_access_cache_mutation.py`.
+- **telemetry.py**:
+  - Unsent days are kept for exactly 30 days: on 2026-10-17, 2026-09-17 is still sent and the day before it is dropped.
+  - The last day sent is the latest one, nothing is sent while usage data is off, and today waits until it's over.
+  - The build is the commit's first 12 characters, or "dev".
+  - The install id is made once and returned, and Settings shows the one on file.
+  - A file that can't be read reads as empty, and the file is key-sorted JSON with one-space indents.
+  - The Windows version is sent on Windows, and the platform elsewhere.
+  - An envelope is one custom event, version 2, with key-sorted string properties.
+  - A report is posted once, with a 15-second limit and the caller's wait. A status of 400 or more keeps the days queued, and 399 doesn't.
+  - → `test_telemetry_mutation.py`.
+- **snowflake_coverage.py**:
+  - The list is read from the JSON beside the module, the page is the repository's `docs/snowflake-functions.md`, and importing the module writes nothing.
+  - A case name drops the "(what)" and upper-cases a function. `parse_json path` becomes `Path (v:a)` and operators are left as written.
+  - An error is noted by its first line, cut to 160 characters, or by its type when it has no message.
+  - A check that differs gives its own note, or the value it got. Checks that all run are counted ("1 value check", "2 value checks"), and their labels are named once each.
+  - A function with checks takes its status from them, and one without is probed.
+  - A sample runs without the two small tables unless asked. One DuckDB can't run fails with its first line, and one sqlglot can't read is unread. A refused one gives the reason without the statement prefix, and a labelled one differs with every label.
+  - A listed sample runs once, on the two tables. A probe tries 0 to 4 NULLs, puts a window function inside `OVER`, stops at the first arity that runs, and prefers a refusal to DuckDB's errors.
+  - The sample is shown only for a function without checks.
+  - The page counts each status and gives each group a table with a Sample column only when the group has a sample. Pipes are escaped and lines joined.
+  - → `test_snowflake_coverage_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it stays |
+| --- | --- | --- | --- |
+| `telemetry.py` | 95 | `destination()[0]` to `destination()[1]` in `enabled()` | Equivalent: `destination()` returns a connection string and whose it is together, or two empty strings, so both parts are empty or both are set. |
+
+It doesn't involve text input, so leading or trailing whitespace and regex edge cases can't change it.
+
+# Mutation testing, batch 68
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- Which Databricks notebook helpers (`dbutils` calls and `%` magics) run on this PC, and the page that lists them (`databricks_notebook_helpers.py`).
+- A notebook's version history as the app calls it: list, open, compare, checkpoint, restore and delete (`notebook_versions_service.py`).
+- Saved and shared queries for the Warehouse page (`sql_queries_service.py`).
+
+The run was at `main` 9091dd082 (2026-11-16), with `sidecar/tools/mutate.py` and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used. The only test file that reaches `databricks_notebook_helpers.py`, `test_databricks_notebook_helpers.py`, compares the committed `docs/databricks-notebook-helpers.md`, so it was left out. Its "before" run used a test file that only imports the module, so every mutant survived it; the new tests don't read `docs/`.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `databricks_notebook_helpers.py` | an import-only file (+ test_databricks_notebook_helpers_mutation) | 44 of 44 (44 + 0) | 0 / 44 | **0%** | 0/44 → 44/44 | none | 44 / 0 | **100%** | none |
+| `notebook_versions_service.py` | test_notebook_versions_service_edges, test_notebook_versions, test_notebook_folders (+ test_notebook_versions_service_mutation) | 28 of 28 (28 + 0) | 24 / 4 | **85.7%** | 24/28 → 28/28 | none | 28 / 0 | **100%** | none |
+| `sql_queries_service.py` | test_sql_queries, test_sql_queries_edges (+ test_sql_queries_mutation) | 76 of 76 (70 + 6) | 62 / 14 | **81.6%** | 62/70 → 70/70 | 0/6 → 6/6 | 76 / 0 | **100%** | none |
+
+One `sql_queries_service.py` mutant (`i += 1` to `i += 0` in the header loop) never ends, so it is stopped at the timeout and counts as killed, before and after.
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **databricks_notebook_helpers.py**:
+  - The stand-in notebookutils raises on every call, so a probe never does real work.
+  - The walk over `dbutils` goes into namespaces and widgets, skips private names and `help`, and leaves out `bind` and `describe` only on widgets.
+  - A probe finds a missing part at any depth, reports a refusal with its message, counts any other error as running, and prints nothing.
+  - Each call, cell magic and line magic gets its status and note; Scala and R cells are refused.
+  - The page counts each status per group, lists every helper with its prefix, turns `|` in a note into `/`, and ends with the source.
+  - The list file is read from beside the module, and importing the module writes nothing.
+  - → `test_databricks_notebook_helpers_mutation.py`.
+- **notebook_versions_service.py**:
+  - A version and a compare read back their label, or an empty one.
+  - Unsaved cells keep their compute, and none means the default.
+  - A delete names the version it deleted.
+  - → `test_notebook_versions_service_mutation.py`.
+- **sql_queries_service.py**:
+  - A file of only header lines has no SQL; one line of spaces after the header is the gap and is dropped, a second one stays.
+  - A good query has an empty problem; a name, warehouse or description exactly at its limit is taken.
+  - The fingerprint is the first 16 hex digits of SHA-256.
+  - A query exactly at the size limit is saved and one byte more is refused, and a listed file exactly at the limit is read while a larger one says it is larger than 64 KB.
+  - → `test_sql_queries_mutation.py`.
+
+### Left
+
+None.
+
+# Mutation testing, batch 69
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- OneLake > Access across every workspace as the app calls it: read the cache, refresh it, and choose who may read it (`access_cache_service.py`).
+- The notebook explorer's calls: list, add, rename, delete and Show in File Explorer (`notebook_resources_service.py`).
+- The data dictionary card on the Semantic model tab: read, export, save, preview and import (`model_dictionary_service.py`).
+
+The run was at `main` 996b6ee54 (2026-11-16), with `sidecar/tools/mutate.py` and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used. `test_support_bundle_save.py` reaches `notebook_resources_service.py` but reads `app/`, and `test_state_writes.py` reaches `model_dictionary_service.py` but reads `docs/`, so both were left out, which can only lower the "before" scores.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `access_cache_service.py` | test_access_cache, test_access_cache_service_edges (+ test_access_cache_service_mutation) | 54 of 54 (54 + 0) | 48 / 6 | **88.9%** | 48/54 → 54/54 | none | 54 / 0 | **100%** | none |
+| `notebook_resources_service.py` | test_notebook_resources, test_notebook_resources_calls (+ test_notebook_resources_service_mutation) | 25 of 25 (25 + 0) | 22 / 3 | **88.0%** | 22/25 → 25/25 | none | 25 / 0 | **100%** | none |
+| `model_dictionary_service.py` | test_model_dictionary, test_model_dictionary_mutation, test_model_dictionary_service_edges (+ test_model_dictionary_service_mutation) | 22 of 22 (22 + 0) | 21 / 1 | **95.5%** | 21/22 → 22/22 | none | 22 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **access_cache_service.py**:
+  - The cache names each workspace and lakehouse as Fabric does, and a lakehouse with no name is kept with an empty one.
+  - A connection that doesn't say otherwise reads the lakehouse with schemas.
+  - Before and after the tables are set up, the cache says this PC may write only when its connection is for writing.
+  - Choosing no one, or only blanks, is refused even when confirming, and nothing is written.
+  - → `test_access_cache_service_mutation.py`.
+- **notebook_resources_service.py**:
+  - Showing the folder a second time shows the same folder.
+  - The program that shows a file starts with no flags where there is no no-window flag, and with it where there is one.
+  - Handles are closed for the program except on Windows.
+  - → `test_notebook_resources_service_mutation.py`.
+- **model_dictionary_service.py**:
+  - When a save fails part way, a column is named with its table, and a table on its own.
+  - → `test_model_dictionary_service_mutation.py`.
+
+### Left
+
+None.
+
+# Mutation testing, batch 70
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- The capacity settings history's app call: read the capacities the signed-in person can see, and their overrides for an administrator (`capacity_history_service.py`).
+- The tenant settings history's app calls: read Fabric's tenant settings, and show what changed (`tenant_history_service.py`).
+- Measured usage files as the app calls them: preview, import, list, remove and reconcile with this app's Fabric runs (`usage_service.py`).
+
+The run was at `main` 8403031ca (2026-11-16), with `sidecar/tools/mutate.py` and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used. `test_opportunities.py` and `test_rpc_surface.py` also reach `usage_service.py`, but they read `docs/` or `app/`, so they were left out, which can only lower the "before" score.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `capacity_history_service.py` | test_capacity_history (+ test_tenant_history_service_mutation) | 20 of 20 (20 + 0) | 19 / 1 | **95.0%** | 19/20 → 20/20 | none | 20 / 0 | **100%** | none |
+| `tenant_history_service.py` | test_tenant_history, test_capacity_history (+ test_tenant_history_service_mutation) | 37 of 37 (36 + 1) | 27 / 10 | **73.0%** | 27/36 → 36/36 | 0/1 → 1/1 | 37 / 0 | **100%** | none |
+| `usage_service.py` | test_usage_import, test_opportunities_share, test_estate_service_edges, test_risk_service_edges, test_platform_setup_steps, test_opportunities_assess_mutation (+ test_usage_service_mutation) | 31 of 31 (31 + 0) | 19 / 12 | **61.3%** | 19/31 → 31/31 | none | 31 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **capacity_history_service.py**:
+  - A 401 is recorded as unreadable, like a 403, for the capacities and for an administrator's overrides; a 404 is a failed read.
+  - → `test_tenant_history_service_mutation.py`.
+- **tenant_history_service.py**:
+  - A 401 or 403 is unreadable whether it comes as the status or only in the message; another status, or a number that only starts with 403, is a failed read.
+  - Without a known tenant, a read asks the person to sign in again.
+  - The history shows 200 changes by default, newest first, and says it is connected.
+  - The lakehouse is read with schemas unless its connection says otherwise.
+  - The last read is the newest successful one; a failure before it, or at the same moment, isn't a gap.
+  - → `test_tenant_history_service_mutation.py`.
+- **usage_service.py**:
+  - A file name is cut to 200 characters, and a missing one reads as `usage.csv`.
+  - A run names its workspace only with both an id and a name; without a metadata project the runs' names are kept, and a project's environment adds a name only when it has both, never over a run's own.
+  - Only Fabric runs with a run id give estimates.
+  - Capacity names map to their environments case-blind, and an environment without a capacity name is skipped.
+  - The reconciliation reads 30 days by default, from up to 500 runs already on this PC.
+  - → `test_usage_service_mutation.py`.
+
+### Left
+
+None.
+
+# Mutation testing, batch 71
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- Dataflow Gen2 from a Fabric workspace: the list, the queries and the refresh history (`workspace_dataflows_service.py`).
+- Where Windows keeps the Downloads and Documents folders (`known_folders.py`).
+- The record `agent run` leaves when it stops before or as it starts (`agent_start.py`).
+
+The run was at `main` 570e1faf6 (2026-11-17), with `sidecar/tools/mutate.py` and the same method as earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all were run.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used. `test_agent_runbook.py` reaches `agent_start.py` but reads `docs/`, so it was left out, which can only lower the "before" score.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workspace_dataflows_service.py` | test_workspace_dataflows (+ test_workspace_dataflows_mutation) | 13 of 13 (13 + 0) | 12 / 1 | **92.3%** | 12/13 → 13/13 | none | 13 / 0 | **100%** | none |
+| `known_folders.py` | test_windows_folders_and_app_control_edges, test_notebook_formats_service_edges, test_prove_service_mutation (+ test_known_folders_mutation) | 24 of 24 (24 + 0) | 21 / 3 | **87.5%** | 21/24 → 24/24 | none | 24 / 0 | **100%** | none |
+| `agent_start.py` | test_agent, test_agent_clock_and_folder (+ test_agent_start_mutation) | 26 of 26 (25 + 1) | 18 / 8 | **69.2%** | 18/25 → 25/25 | 0/1 → 1/1 | 26 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workspace_dataflows_service.py**:
+  - The newest 50 refreshes are listed: 49 and 50 are listed whole, and 51 or 52 are cut to the first 50.
+  - → `test_workspace_dataflows_mutation.py`.
+- **known_folders.py**:
+  - Windows is asked only where a folder is, never to create or check it, with no token.
+  - Windows is asked for the whole folder id, all 16 bytes of it.
+  - An answer Windows marks as failed is no answer, even when a path came back, and so is an empty one.
+  - → `test_known_folders_mutation.py`.
+- **agent_start.py**:
+  - The record is kept under 256 KB.
+  - A reason given as text keeps 2000 characters; a longer one is cut to 1999 and an ellipsis.
+  - Only a crash lists its frames, a crash given as text lists none, and a deep crash lists its last 12.
+  - A new entry that brings the file exactly to the limit is added with nothing dropped; one byte more drops the older half.
+  - The trim keeps the newer half from the first whole line after its middle.
+  - → `test_agent_start_mutation.py`.
+
+### Left
+
+None.

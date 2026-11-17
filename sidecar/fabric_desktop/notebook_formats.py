@@ -355,7 +355,7 @@ h1{font-size:20px;margin:0 0 4px}.note{color:#616161;margin:0 0 20px}
 .label{font-size:12px;color:#616161;padding:4px 10px;background:#fafafa;border-bottom:1px solid #e0e0e0}
 pre{margin:0;padding:10px;white-space:pre-wrap;word-break:break-word;font:13px/1.45 Consolas,monospace}
 .src{background:#f7f7f7}.md{padding:10px;white-space:pre-wrap}
-.out{border-top:1px dashed #e0e0e0}.err{color:#a4262c}.skipped{padding:8px 10px;color:#616161;font-style:italic}
+.out{border-top:1px dashed #e0e0e0}.report{margin:0 0 12px}.report .out{border-top:0}.md.report{padding:0}.err{color:#a4262c}.skipped{padding:8px 10px;color:#616161;font-style:italic}
 table{border-collapse:collapse;margin:10px;font-size:13px}th,td{border:1px solid #e0e0e0;padding:3px 8px;text-align:left}
 th{background:#fafafa}img{max-width:100%;margin:10px}
 @media print{body{margin:0;max-width:none;padding:0}.cell{break-inside:avoid-page}pre{white-space:pre-wrap}}
@@ -389,17 +389,30 @@ def _html_output(o: dict[str, Any]) -> str:
     return ""
 
 
-def to_html(name: str, cells: list[dict[str, Any]]) -> str:
+def to_html(name: str, cells: list[dict[str, Any]], report: str | None = None) -> str:
     """A page to read the notebook without KratosForge: the cells, then each one's outputs. Every
-    text is escaped, HTML outputs are left out, and the page's policy allows no script at all."""
+    text is escaped, HTML outputs are left out, and the page's policy allows no script at all.
+
+    ``report`` (a line saying which run the outputs are from) makes it the read-only report: the
+    Markdown and the outputs only, no code and no cell labels, under that line."""
     out = ["<!doctype html>", '<html lang="en"><head><meta charset="utf-8">',
            "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\">",
            '<meta name="viewport" content="width=device-width, initial-scale=1">',
            f"<title>{html.escape(name)}</title><style>{_PAGE_STYLE}</style></head><body>",
-           f"<h1>{html.escape(name)}</h1>", '<p class="note">Exported from KratosForge. Outputs are as they were on screen.</p>']
+           f"<h1>{html.escape(name)}</h1>",
+           f'<p class="note">{html.escape(report)}</p>' if report is not None
+           else '<p class="note">Exported from KratosForge. Outputs are as they were on screen.</p>']
     n = 0
     for c in cells:
         source = html.escape(c.get("source", ""))
+        if report is not None:
+            if c.get("type") == "markdown":
+                out.append(f'<div class="md report">{source}</div>')
+            else:
+                outs = "".join(_html_output(o) for o in c.get("outputs") or [] if isinstance(o, dict))
+                if outs:
+                    out.append(f'<div class="report">{outs}</div>')
+            continue
         if c.get("type") == "markdown":
             out.append(f'<div class="cell"><div class="label">Markdown</div><div class="md">{source}</div></div>')
             continue

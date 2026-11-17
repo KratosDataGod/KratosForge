@@ -681,6 +681,88 @@ test("Copy as CSV, JSON or INSERT quotes what needs it, for the dialect", () => 
   assert.strictEqual(sqlInsertTable(undefined), "results");
 });
 
+test("the result grid sends its sort and filters, cycles a header's sort, and counts filtered rows", () => {
+  const ctx = {};
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8")}; Object.assign(this, { sqlGridQuery, sqlGridNextSort, sqlGridCount, sqlGridState });`, ctx);
+  const { sqlGridQuery, sqlGridNextSort, sqlGridCount, sqlGridState } = ctx;
+  assert.deepStrictEqual(plain(sqlGridQuery(null)), {});
+  assert.deepStrictEqual(plain(sqlGridQuery({ sort: [], filters: { 0: "  ", 2: "> 3" } })), { filters: [{ column: 2, text: "> 3" }] });
+  assert.deepStrictEqual(plain(sqlGridQuery({ sort: [{ column: 1, desc: true }], filters: {} })), { sort: [{ column: 1, desc: true }] });
+  assert.deepStrictEqual(plain(sqlGridNextSort([], 2)), [{ column: 2, desc: false }]);
+  assert.deepStrictEqual(plain(sqlGridNextSort([{ column: 2, desc: false }], 2)), [{ column: 2, desc: true }]);
+  assert.deepStrictEqual(plain(sqlGridNextSort([{ column: 2, desc: true }], 2)), [], "the third click: the snapshot's order");
+  assert.deepStrictEqual(plain(sqlGridNextSort([{ column: 2, desc: true }], 0)), [{ column: 0, desc: false }]);
+  const cols = [{ name: "region" }, { name: "orders" }];
+  assert.strictEqual(sqlGridCount({ total: 5, all_rows: 5 }, cols), "5 rows");
+  assert.strictEqual(sqlGridCount({ total: 1 }, cols), "1 row");
+  assert.strictEqual(sqlGridCount({ total: 3, all_rows: 5, sort: [{ column: 1, desc: true }] }, cols), "3 of 5 rows (filtered) · sorted by orders");
+  assert.strictEqual(sqlGridCount({ total: 5, all_rows: 5, sort: [{ column: 0 }] }, cols), "5 rows · sorted by region");
+  const tab = {};
+  assert.strictEqual(sqlGridState(tab), tab.grid, "made once, kept with the tab");
+});
+
+test("the result grid selects a block of cells, moves with the keys, and copies or opens what is selected", () => {
+  const ctx = { sqlRowsAs: (format, columns, rows) => JSON.stringify({ format, names: columns.map((c) => c.name), rows }) };
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8")}; Object.assign(this, { sqlGridRect, sqlGridSelectionNote, sqlGridMove, sqlGridBlock, sqlGridCopyText, sqlValueText });`, ctx);
+  const { sqlGridRect, sqlGridSelectionNote, sqlGridMove, sqlGridBlock, sqlGridCopyText, sqlValueText } = ctx;
+  const sel = { a: { r: 2, c: 1 }, f: { r: 0, c: 2 } };
+  assert.deepStrictEqual(plain(sqlGridRect(sel)), { r0: 0, r1: 2, c0: 1, c1: 2 }, "dragged up and right: the same block");
+  assert.strictEqual(sqlGridRect(null), null);
+  assert.strictEqual(sqlGridSelectionNote(sel), "3 × 2 cells selected");
+  assert.strictEqual(sqlGridSelectionNote({ a: { r: 1, c: 1 }, f: { r: 1, c: 1 } }), "", "one cell: nothing to say");
+  const key = (k, mods = {}) => ({ key: k, shiftKey: false, ctrlKey: false, metaKey: false, ...mods });
+  const one = { a: { r: 1, c: 1 }, f: { r: 1, c: 1 } };
+  assert.deepStrictEqual(plain(sqlGridMove(one, key("ArrowDown"), 5, 3)), { a: { r: 2, c: 1 }, f: { r: 2, c: 1 } });
+  assert.deepStrictEqual(plain(sqlGridMove(one, key("ArrowRight", { shiftKey: true }), 5, 3)), { a: { r: 1, c: 1 }, f: { r: 1, c: 2 } }, "Shift extends");
+  assert.deepStrictEqual(plain(sqlGridMove(one, key("ArrowLeft", { ctrlKey: true }), 5, 3)).f, { r: 1, c: 0 });
+  assert.deepStrictEqual(plain(sqlGridMove(one, key("End", { ctrlKey: true }), 5, 3)).f, { r: 4, c: 2 });
+  assert.deepStrictEqual(plain(sqlGridMove(one, key("PageDown"), 5, 3)).f, { r: 4, c: 1 }, "stops at the last row");
+  assert.deepStrictEqual(plain(sqlGridMove(null, key("ArrowUp"), 5, 3)).f, { r: 0, c: 0 }, "no selection yet: the first cell");
+  assert.strictEqual(sqlGridMove(one, key("a"), 5, 3), null, "not a move");
+  assert.strictEqual(sqlGridMove(one, key("ArrowDown"), 0, 3), null, "no rows");
+  const r = { columns: [{ name: "region" }, { name: "orders" }, { name: "tags" }],
+    rows: [["West", 4812, ["a", "b"]], ["North", 3977, null], ["South", 3105, []]] };
+  const block = { a: { r: 0, c: 1 }, f: { r: 1, c: 2 } };
+  assert.deepStrictEqual(plain(sqlGridBlock(r, block)), { columns: [{ name: "orders" }, { name: "tags" }], rows: [[4812, ["a", "b"]], [3977, null]] });
+  assert.strictEqual(sqlGridBlock(r, null).rows.length, 3, "nothing selected: the page");
+  assert.strictEqual(sqlGridCopyText("cells", r, block), '4812\t["a","b"]\n3977\t', "values only, as a spreadsheet pastes them");
+  assert.deepStrictEqual(JSON.parse(sqlGridCopyText("csv", r, block)), { format: "csv", names: ["orders", "tags"], rows: [[4812, ["a", "b"]], [3977, null]] });
+  assert.strictEqual(sqlValueText(null), "NULL");
+  assert.strictEqual(sqlValueText('{"a":1,"b":[2]}'), '{\n  "a": 1,\n  "b": [\n    2\n  ]\n}', "JSON text, indented");
+  assert.strictEqual(sqlValueText("{not json"), "{not json");
+  assert.strictEqual(sqlValueText({ k: "v" }), '{\n  "k": "v"\n}');
+  assert.strictEqual(sqlValueText(1204330.5), "1204330.5");
+});
+
+test("the result grid keeps a column layout for one set of names: widths, hidden columns and order", () => {
+  const ctx = {};
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8")}; Object.assign(this, { sqlGridLayoutFor, sqlGridWidthCss, sqlGridMoveColumn, sqlGridCarry, sqlGridBlock });`, ctx);
+  const { sqlGridLayoutFor, sqlGridWidthCss, sqlGridMoveColumn, sqlGridCarry, sqlGridBlock } = ctx;
+  const cols = [{ name: "region" }, { name: "orders" }, { name: "revenue" }];
+  const g = {};
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(g, cols)), [0, 1, 2]);
+  g.hidden = [1];
+  g.order = sqlGridMoveColumn([0, 1, 2], 2, -2);
+  assert.deepStrictEqual(plain(g.order), [2, 0, 1]);
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(g, cols)), [2, 0], "revenue first, orders hidden");
+  assert.deepStrictEqual(plain(sqlGridMoveColumn([0, 1, 2], 0, -1)), [0, 1, 2], "the first can't go up");
+  g.hidden = [0, 1, 2];
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(g, cols)), [2, 0, 1], "never no columns at all");
+  g.hidden = [1];
+  g.widths = { 2: 180.4 };
+  assert.strictEqual(sqlGridWidthCss(g.widths), '.sql-result-table [data-col="2"] { width: 180px; min-width: 180px; max-width: 180px; }');
+  const next = sqlGridCarry(g);
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(next, cols)), [2, 0], "a new run with the same columns keeps the layout");
+  assert.deepStrictEqual(plain(next.sort), []);
+  assert.deepStrictEqual(plain(sqlGridLayoutFor(next, [{ name: "x" }, { name: "y" }])), [0, 1], "other columns start again");
+  assert.deepStrictEqual(plain(next.widths), {});
+  assert.strictEqual(sqlGridCarry({ sort: [] }), null);
+  const r = { columns: cols, rows: [["West", 4812, 1.5], ["North", 3977, 2.5]] };
+  assert.deepStrictEqual(plain(sqlGridBlock(r, { a: { r: 0, c: 0 }, f: { r: 1, c: 1 } }, [2, 0])),
+    { columns: [{ name: "revenue" }, { name: "region" }], rows: [[1.5, "West"], [2.5, "North"]] }, "a selection is of the columns on screen");
+  assert.deepStrictEqual(plain(sqlGridBlock(r, null, [2])).columns, [{ name: "revenue" }]);
+});
+
 test("hovering finds the function, table, alias or column under the pointer", () => {
   const { sqlHoverTarget } = sqlEditorHelpers();
   const cols = { sales: [{ name: "amount", type: "decimal" }, { name: "Region Name", type: "string" }], budget: [{ name: "year", type: "int" }] };
@@ -1836,6 +1918,9 @@ test("no raw HTML sinks in app/ui outside the reviewed list", () => {
     `notebook-formats.js: const doc = new DOMParser().parseFromString(String(html || ""), "text/html");`,
     // Data mesh map links: path coordinates are numbers from getBoundingClientRect, and the only data
     // (project and product ids in <title>) goes through esc().
+    // Table diagram: diagramSvg() escapes every name (& < > " ') and the rest is numbers and its own colors;
+    // the same text, without the clickable labels, is what Export as SVG writes.
+    `sqldiagram.js: holder.innerHTML = diagramSvg(view.tables, view.edges, view.keys, { dark });`,
     `meshmap.js: svg.innerHTML = \`<defs><marker id="mesh-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z"/></marker></defs>\${paths.join("")}\`;`
   ]);
   const found = [];
@@ -2645,7 +2730,7 @@ test("Motion & effects settings: four levels, family switches, reduced-motion ch
   assert.match(s, /previewShown\(\) \? row\("Achievement Reveal", [^\n]*\n\s+\(\) => forgeEvent\("achievement\.unlocked", award\)\) : null,/);
   assert.match(s, /\["motion_ambient", "Running indicators",/);
   assert.match(s, /const display = s\.motion_level \? motionSettingsCard\(s, locked\) : null;/);
-  assert.match(s, /\[account, updates, display, previews,/);
+  assert.match(s, /\[account, updates, display, editor, previews,/);
   assert.match(s, /if \(res\) state\.settings = res;\n  applyMotion\(\);/);
   assert.match(s, /state\.settings = await rpc\("app_settings"\)[^\n]*\n  applyMotion\(\);/);
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
@@ -3073,7 +3158,7 @@ test("Settings keeps App ID and engine limits in a folded Advanced section, read
   const account = render.slice(render.indexOf("// Account"), render.indexOf("// Updates"));
   assert.ok(!account.includes("App (client) ID"), "the App ID left Account");
   assert.ok(!render.includes("Cell time limit") && !render.includes("sqlSettingsSection("), "limits left the main page");
-  assert.match(render, /\[account, updates, display, previews, usage, platform, notify, about, advanced\]/);
+  assert.match(render, /\[account, updates, display, editor, previews, usage, platform, notify, about, advanced\]/);
   const adv = src.match(/function advancedSection\([\s\S]*?\n}\n/)[0];
   for (const text of ["App (client) ID", "Cell time limit", "Notebook memory limit", "Run notebooks in their own process", "sqlSettingsSection("]) assert.ok(adv.includes(text), text);
   assert.match(adv, /foldable\("settings\.advanced", h\("h2", \{\}, "Advanced"\)[\s\S]*\{ start: true/);
@@ -4254,7 +4339,7 @@ this.payload = nbfExportPayload; this.menu = nbfExportMenu; this.b64 = nbfBase64
     "Fabric source (.py)", "Databricks source (.py)", "Web page (.html)", "PDF (print to PDF)"]);
   const bytes = new Uint8Array(70000).map((_, i) => i % 251);
   assert.strictEqual(ctx.b64(bytes.buffer), Buffer.from(bytes).toString("base64"));
-  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /ribbonMenu\("Share", [^\n]*btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\),[^\n]*nbfExportButton\(menu\)\]/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /ribbonMenu\("Share", [^\n]*btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\),[^\n]*nbfExportButton\(menu\),/);
   assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /btn\("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"\)/);
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /nbFormats: "Notebook import and export formats"/);
   assert.match(src, /changes: "Writes one new notebook file \(\.ipynb\) for each notebook in the file/);
@@ -4980,7 +5065,7 @@ test("Format code (nbformat.js): the engine call, its hooks in notebook.js and t
   assert.ok(html.indexOf('src="nbformat.js"') > html.indexOf('src="notebook.js"'));
   assert.match(src, /rpc\("notebook_format", \{ sources: sent \}\)/);
   assert.match(src, /c\.source === sent\[i\]/, "a cell typed in while formatting keeps what was typed");
-  assert.match(nb, /\{ key: "Shift-Alt-f", run: \(\) => \{ formatCells\(\[cell\]\); return true; \} \}/);
+  assert.match(nb, /\{ id: "format", key: "Shift-Alt-f", run: \(\) => \{ formatCells\(\[cell\]\); return true; \} \}/);
   assert.match(nb, /btn\("Format notebook", "code", formatNotebook/);
   assert.match(nb, /label: "Format cell"/);
   assert.match(src, /registerShortcuts\("Notebook", \[\s*\{ keys: \["Shift\+Alt\+F"\]/);
@@ -5222,12 +5307,12 @@ test("pop-out windows load popout.js after app.js and get no more than the main 
   assert.ok(html.indexOf('src="app.js"') < html.indexOf('src="popout.js"'), "popout.js uses app.js's helpers");
   const cap = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src-tauri", "capabilities", "default.json"), "utf8"));
   assert.deepStrictEqual(cap.windows, ["main"]);
-  assert.deepStrictEqual(cap.webviews, ["pop-out-runs", "pop-out-fabric"]);
+  assert.deepStrictEqual(cap.webviews, ["pop-out-runs", "pop-out-fabric", "pop-out-report"]);
   assert.deepStrictEqual(cap.permissions, ["core:event:allow-listen", "core:event:allow-unlisten"]);
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(app, /const POP_OUT = \["runs", "fabric"\]\.find/);
+  assert.match(app, /const POP_OUT = \["runs", "fabric", "report"\]\.find/);
   const shell = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
-  assert.match(shell, /const POP_OUTS: \[\(&str, &str\); 2\] = \[\("runs", [^)]*\), \("fabric", [^)]*\)\];/);
+  assert.match(shell, /const POP_OUTS: \[\(&str, &str\); 3\] = \[\("runs", [^)]*\), \("fabric", [^)]*\), \("report", [^)]*\)\];/);
 });
 
 // Shared sessions (sessions.js): Share sends the picked notebook to join this one's session; a guest can Leave.
@@ -5807,7 +5892,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
     runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
-    validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbFormats: ["Fabric and Databricks notebook formats"],
+    validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbConsole: ["Scratch console"], nbReport: ["Notebook as a read-only report"], sqlDiagram: ["Table diagram"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],
     fabricRun: ["Run in Fabric and schedules", "W6 Publish or run a notebook in Fabric"], notebookRuns: ["Recent runs", "Notebook runs"],
@@ -5818,7 +5903,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring", "Table detail"],
     pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Local pipeline coverage", "Pipelines",
       "Data Factory copy jobs", "Data Factory dataflows", "Data Factory connections"],
-    pipelineRuns: ["Pipeline runs in Monitor"], forgeActivity: ["Run progress in Monitor"], cancelFabricRun: ["Cancel a Fabric run"], sourceControl: ["Source control"], profile: ["Profile"],
+    pipelineRuns: ["Pipeline runs in Monitor"], forgeActivity: ["Forge Activity view"], cancelFabricRun: ["Cancel a Fabric run"], sourceControl: ["Source control"], profile: ["Profile"],
     platform: ["Owners", "Notices to Teams", "One landing workspace for Dev, Test and Prod", "One list of source systems",
       "Platform notices", "Semantic model rules"],
     mesh: ["Home: the mesh for who you are", "Products", "Requests", "Domains", "Members and joining a domain", "Follow a product",
@@ -6152,4 +6237,44 @@ test("error toasts and plain-language errors name a next step (WR-503)", () => {
     "a new error with no next step: say what the person can do (try again, check, pick, ask an admin...)");
   assert.deepStrictEqual(baseline.filter((b) => !found.includes(b)), [],
     "a listed error now names a next step or is gone: remove it from error-next-step-baseline.json");
+});
+
+// The table diagram's pure helpers (sqldiagram.js), without the dialog.
+function diagramHelpers() {
+  const src = fs.readFileSync(path.join(ui, "sqldiagram.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.slice(0, src.indexOf("// Opens the diagram."))}; Object.assign(this, { diagramKeys, diagramStem, diagramEdges, diagramSvg });`, ctx);
+  return ctx;
+}
+
+test("the diagram reads keys from the catalog rows, and guesses a line only where one table fits", () => {
+  const { diagramKeys, diagramStem, diagramEdges } = diagramHelpers();
+  const keys = diagramKeys([["P", "gold", "dim_customer", "customer_id", null, null, null],
+    ["F", "gold", "fact_sales", "customer_id", "gold", "dim_customer", "customer_id"],
+    ["F", "gold", "fact_sales", "x_id", "dbo", "not_drawn", "id"]]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(keys.pks)), { "gold.dim_customer": ["customer_id"] });
+  assert.strictEqual(keys.fks.length, 2);
+  assert.deepStrictEqual(["dim_customer", "DimCustomers", "customers", "fact_sales"].map(diagramStem), ["customer", "customer", "customer", "sale"]);
+  const t = (name, ...cols) => ({ id: `gold.${name}`, name, columns: cols.map((c) => ({ name: c })) });
+  const tables = [t("dim_customer", "customer_id"), t("fact_sales", "customer_id", "store_id", "region_id", "x_id"), t("dim_store", "id"),
+    t("dim_region", "region_id"), t("regions", "region_id")];
+  const edges = [...diagramEdges(tables, keys)].map((e) => `${e.from}.${e.fromCol}>${e.to}.${e.toCol}:${e.kind}`);
+  // The key, not a guess on top of it; store_id to dim_store's id; region_id fits two tables, so no line, and is
+  // each region table's own id, not a link; a key to a table not drawn, none.
+  assert.deepStrictEqual(edges, ["gold.fact_sales.customer_id>gold.dim_customer.customer_id:key", "gold.fact_sales.store_id>gold.dim_store.id:guess"]);
+});
+
+test("the diagram's SVG escapes names and has nothing the engine's export refuses", () => {
+  const { diagramSvg } = diagramHelpers();
+  const tables = [{ id: "dbo.a", name: "<b onload=x>", columns: [{ name: "\"q\" & 'r'" }] }];
+  const svg = diagramSvg(tables, [], { pks: {}, fks: [] }, { interactive: false });
+  assert.ok(svg.startsWith("<svg ") && svg.endsWith("</svg>"));
+  assert.match(diagramSvg(tables, [], { pks: {}, fks: [] }), /aria-label="&lt;b onload=x&gt;: open it in the Explorer"/);
+  assert.ok(!svg.includes("<b ") && svg.includes("&lt;b onload=x&gt;") && svg.includes("&quot;q&quot; &amp; &#39;r&#39;"));
+  // Only what the engine's export allows (service.py, _DIAGRAM_TAGS and _DIAGRAM_ATTRS).
+  const tags = new Set([...svg.matchAll(/<(\w+)/g)].map((m) => m[1]));
+  const attrs = new Set([...svg.matchAll(/\s([\w:-]+)="/g)].map((m) => m[1]).filter((a) => a !== "xmlns"));
+  assert.deepStrictEqual([...tags].filter((t) => !["svg", "g", "rect", "path", "text", "title"].includes(t)), []);
+  assert.deepStrictEqual([...attrs].filter((a) => !["viewBox", "width", "height", "font-family", "font-size", "font-weight", "role",
+    "aria-label", "x", "y", "rx", "fill", "stroke", "stroke-width", "stroke-dasharray", "d"].includes(a)), []);
 });

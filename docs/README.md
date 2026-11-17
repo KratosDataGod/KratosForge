@@ -178,7 +178,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Pipelines | Create > Pipeline ([user-guide.md](user-guide.md#pipelines-preview)) |
 | Pop-out windows | Monitor > Pop out on From KratosForge and In Fabric ([user-guide.md](user-guide.md#pop-out-windows-preview)) |
 | Pipeline runs in Monitor | Monitor > Runs, pipeline runs on this PC and in Fabric with their activities ([user-guide.md](user-guide.md#pipeline-runs-in-monitor-preview)) |
-| Run progress in Monitor | Monitor > Runs, today's counts and a lane for each running run ([user-guide.md](user-guide.md#run-progress-in-monitor-preview)) |
+| Forge Activity view in Monitor | Monitor > Runs, today's counts and a lane for each running run beside the forge ([user-guide.md](user-guide.md#forge-activity-view-preview)) |
 | Cancel a Fabric run | Monitor > Runs and the bell, Cancel on a running Fabric job this app started ([user-guide.md](user-guide.md#cancel-a-fabric-run-preview)) |
 | Publishing notebooks from folders | All notebooks > Move to folder; Publish names the item without its folder ([notebook-folders.md](notebook-folders.md)) |
 | New notebook wizard | Create > Notebook from a template |
@@ -237,6 +237,9 @@ KratosForge is new, and it's honest about what has been proven.
 | Query parameters (:name and {{name}}) on the SQL page | SQL query or Warehouse page, Run on a query with parameters ([sql-execution.md](sql-execution.md#query-parameters-preview)) |
 | Open and save .sql files on this PC from the SQL page | SQL query or Warehouse page, Open .sql... and Save as .sql... in the toolbar ([sql-execution.md](sql-execution.md#sql-files-on-this-pc-preview)) |
 | Result history and pinned results on the SQL page | SQL query or Warehouse page, History beside Results ([sql-execution.md](sql-execution.md#result-history-and-pinned-results-preview)) |
+| Scratch console in notebooks | Notebook > View > Scratch ([user-guide.md](user-guide.md#scratch-console-preview)) |
+| Notebook as a report | Notebook > Share > Open as report ([user-guide.md](user-guide.md#notebook-as-a-read-only-report-preview)) |
+| Table diagram on the SQL page | SQL query > Explorer > Diagram ([user-guide.md](user-guide.md#table-diagram-preview)) |
 | SQL best practices | SQL query or Warehouse page, Best practices chip beside Compatibility, for T-SQL ([sql-best-practices.md](sql-best-practices.md)) |
 | New build banner | Below the top bar while KratosForge is open; Settings > Updates ([user-guide.md](user-guide.md#a-new-build-while-the-app-is-open-preview)) |
 | Quarantine replay | Entity page, quarantined rows (always shown) |

@@ -22,6 +22,38 @@ A query that runs here runs in DuckDB on this PC, not in Fabric. It is not proof
 
 Column names that repeat (`SELECT id, id FROM ...`), `NULL`s and column types are kept as the query returned them.
 
+### Sort and filter the result
+
+Click a column's header to sort the whole result by it: once for ascending, again for descending, a third time for the order the query returned. Empty values go last. **Filter** shows a box under each header; what you type applies to every row of the result, and the band says how many match, as "3 of 5 rows (filtered) · sorted by orders". Sorting and filtering read the snapshot on this PC; the query doesn't run again. They work on results of up to 5,000,000 rows.
+
+| In a filter box | Keeps rows where the column |
+| --- | --- |
+| `West` | contains it, ignoring case (on a number column, equals it) |
+| `= West`, `!= Central`, `<> Central` | equals it or not, ignoring case for text |
+| `> 3000`, `>= 3000`, `< 3000`, `<= 3000` | compares as a number, a date (`2026-10-01`), a time (`14:30`) or text, by the column's type |
+| `= true`, `!= false` | on a true/false column |
+| `null`, `not null` | is empty or not |
+
+`%` and `_` mean themselves, not wildcards. A filter that can't be read for its column, such as `> lots` on a number column, is marked, and its message says what to write; the rows on screen stay until it's fixed. Turning **Filter** off clears the filters.
+
+### Select, copy and look closer
+
+Click a cell to select it; Shift+click or drag selects a block, a row's number selects the row, and Ctrl+A selects the page. The arrow keys move (Shift and an arrow extends), and the band says how many cells are selected, as "3 × 2 cells selected".
+
+| Key or menu item | What it does |
+| --- | --- |
+| **Copy** (Ctrl+C) | The selected values, tab-separated, as a spreadsheet pastes them |
+| **Copy with headers** (Ctrl+Shift+C) | The same, with the column names first |
+| **Copy as CSV**, **JSON** or **INSERT statements** | The selection in that format, as **Copy ▾** does for the page |
+| **Open value** (Enter, or double-click) | The value in full beside the grid: JSON and long text formatted, with its type and length. Esc closes it |
+| **Column statistics** | Rows, empty values, distinct values (approximate), and for numbers min, max, mean and a histogram; for dates the range; for text the most common values |
+
+Right-click a cell, or press Shift+F10, for the menu. Column statistics are over every row of the result's snapshot on this PC, not just the page, and ignore the filters; nothing runs again.
+
+### Arrange the columns
+
+Drag the edge of a column's header to resize it, or focus the edge and use the left and right arrow keys; double-click the edge to fit the column again. **Columns...** shows, hides and reorders the columns. A hidden column isn't shown or copied, but sort, filters and Export still cover every column. The layout stays for the tab's next run while the query returns the same column names; **Show all** puts every column back, in order and at its own width.
+
 ## Export
 
 **Export ▾** saves the whole result, not just the page you see, to your Downloads folder:
@@ -149,4 +181,4 @@ Each run adds one `sql_execution` line to the [audit trail](user-guide.md#audit-
 
 ## For developers and other tools
 
-The engine calls are `sql_start`, `sql_status`, `sql_page`, `sql_pin`, `sql_cancel`, `sql_export`, `sql_export_status` and `sql_export_cancel` (`sidecar/fabric_desktop/sql_exec.py`). `sql_start` takes `target` (`lakehouse`, `local` or `warehouse`), `project`, `warehouse_ref`, `confirm`, `confirm_name` and `dry_run` as well, and `statements` (a list, one result each) and `params` (a list of `{name, type, value}`, see `sql_params.py`). `sql_page` and `sql_export` take `part`, the statement whose result to read. `sql_file_info`, `sql_file_read` and `sql_file_write` open and save `.sql` files (`sql_files.py`). `local_query_start`, `local_query_status` and `local_query_cancel` are deprecated: they forward to these runs and answer as before. `run_sql` and `save_sql`, which the page used before, still work unchanged for other callers (`export_sql_csv` is no longer an engine call; code inside the engine can still use it), as do `lakehouse.sql()` in notebooks and the read-only query that external AI tools use through the [local API](architecture/ai-integration.md).
+The engine calls are `sql_start`, `sql_status`, `sql_page`, `sql_column_stats`, `sql_pin`, `sql_cancel`, `sql_export`, `sql_export_status` and `sql_export_cancel` (`sidecar/fabric_desktop/sql_exec.py`). `sql_page` takes `sort` (up to three `{column, desc}`, by position, so repeated names are fine) and `filters` (`{column, text}`, the filter box's text) and answers with the matching page, `total` (rows that match) and `all_rows`; a filter it can't read answers `filter_error: {column, message}` instead of rows. `sql_column_stats(execution, column)` profiles one column over every row. Both read the run's result file on this PC with DuckDB, every typed value as a parameter (`sidecar/fabric_desktop/sql_view.py`), and work on results of up to 5,000,000 rows. `sql_start` takes `target` (`lakehouse`, `local` or `warehouse`), `project`, `warehouse_ref`, `confirm`, `confirm_name` and `dry_run` as well, and `statements` (a list, one result each) and `params` (a list of `{name, type, value}`, see `sql_params.py`). `sql_page`, `sql_column_stats` and `sql_export` take `part`, the statement whose result to read. `sql_file_info`, `sql_file_read` and `sql_file_write` open and save `.sql` files (`sql_files.py`). `local_query_start`, `local_query_status` and `local_query_cancel` are deprecated: they forward to these runs and answer as before. `run_sql` and `save_sql`, which the page used before, still work unchanged for other callers (`export_sql_csv` is no longer an engine call; code inside the engine can still use it), as do `lakehouse.sql()` in notebooks and the read-only query that external AI tools use through the [local API](architecture/ai-integration.md).

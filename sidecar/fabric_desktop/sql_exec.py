@@ -90,7 +90,7 @@ from typing import Any, Callable
 import pyarrow as pa
 from sqlglot import exp
 
-from . import app_settings, free_memory, jsonfile, sql, sql_params, sql_policy, warehouse
+from . import app_settings, free_memory, jsonfile, sql, sql_params, sql_policy, sql_view, warehouse
 from .filenames import file_stem
 from .frames import EXCEL_MAX_ROWS, write_xlsx_batches
 from . import known_folders
@@ -862,17 +862,29 @@ class SqlExecutions:
             raise ValueError(f"Statement {int(part)} has no result, so there {what}.")
         return _Result(run.part_file(found["statement"]), found["rows"], found["offsets"], found["columns"], found["statement"])
 
-    def page(self, run_id: str, offset: int = 0, limit: int | None = None, part: int | None = None) -> dict[str, Any]:
-        """Rows ``offset`` to ``offset + limit`` of a completed run's result, read from its snapshot; with
-        ``part``, of that statement's result (S14)."""
+    def page(self, run_id: str, offset: int = 0, limit: int | None = None, sort: list[dict[str, Any]] | None = None,
+             filters: list[dict[str, Any]] | None = None, part: int | None = None) -> dict[str, Any]:
+        """Rows ``offset`` to ``offset + limit`` of a completed run's result, read from its snapshot;
+        with ``sort`` or ``filters`` ([{column, desc}], [{column, text}]), of every row sorted and
+        filtered (sql_view.py); with ``part``, of that statement's result (S14). Nothing runs again."""
         run = self._get(run_id)
         res = self._result(run, part, "are no rows to show")
         if not res.path.exists():
             raise RerunNeeded("This result was cleaned up. Run the query again to see it.")
         limit = int(limit or self._limits()["sql_page_rows"])
         limit = max(1, min(limit, app_settings.SQL_RANGES["sql_page_rows"][1]))
+        part_of = {"part": res.part} if res.part is not None else {}
+        filters = [f for f in filters or [] if str(f.get("text") or "").strip()]
+        if sort or filters:
+            sql_view.check_size(res.rows, "Sorting and filtering")
+            with pa.memory_map(str(res.path)) as source:
+                rows, total = sql_view.view_page(pa.ipc.open_file(source).read_all(), max(0, int(offset)), limit, sort, filters)
+            offset = max(0, int(offset))
+            return {"id": run.id, "offset": offset, "limit": limit, "rows": [[_json_value(v) for v in r] for r in rows],
+                    "columns": res.columns, "total": total, "all_rows": res.rows, "sort": sort or [], "filters": filters,
+                    "has_previous": offset > 0, "has_next": offset + len(rows) < total, **part_of}
         offset = max(0, min(int(offset), max(0, res.rows - 1)))
-        rows: list[list[Any]] = []
+        rows = []
         if res.rows:
             with pa.memory_map(str(res.path)) as source:
                 reader = pa.ipc.open_file(source)
@@ -885,8 +897,20 @@ class SqlExecutions:
                     need -= batch.num_rows
                     skip, i = 0, i + 1
         return {"id": run.id, "offset": offset, "limit": limit, "rows": [[_json_value(v) for v in r] for r in rows],
-                "columns": res.columns, "total": res.rows, "has_previous": offset > 0,
-                "has_next": offset + len(rows) < res.rows, **({"part": res.part} if res.part is not None else {})}
+                "columns": res.columns, "total": res.rows, "all_rows": res.rows, "has_previous": offset > 0,
+                "has_next": offset + len(rows) < res.rows, **part_of}
+
+    def column_stats(self, run_id: str, column: int, part: int | None = None) -> dict[str, Any]:
+        """One column's statistics over every row of a completed run's result (sql_view.column_stats);
+        with ``part``, of that statement's result (S14)."""
+        run = self._get(run_id)
+        res = self._result(run, part, "are no rows to profile")
+        if not res.path.exists():
+            raise RerunNeeded("This result was cleaned up. Run the query again to see its statistics.")
+        sql_view.check_size(res.rows, "Column statistics")
+        with pa.memory_map(str(res.path)) as source:
+            stats = sql_view.column_stats(pa.ipc.open_file(source).read_all(), column)
+        return {"id": run.id, **stats, **({"part": res.part} if res.part is not None else {})}
 
     def query_of(self, run_id: str) -> str:
         """The SQL a run ran, for the engine's own checks (GD-06); never sent to the page."""

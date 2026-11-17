@@ -18,6 +18,7 @@ import json
 from typing import Any
 
 from .fabric_compute import MOUNT, RESULTS_DIR
+from .onelake import DFS_HOST
 
 NOTEBOOK = "nb_fabric_desktop_bpa"
 PACKAGE = "semantic-link-labs"
@@ -54,7 +55,7 @@ def _save(record):
         path.write_text(text, encoding="utf-8")
     except OSError:  # no default lakehouse mounted: write to it by its OneLake path
         import notebookutils
-        notebookutils.fs.put(f"abfss://{workspace}@onelake.dfs.fabric.microsoft.com/{lakehouse}/{name}", text, True)
+        notebookutils.fs.put(f"abfss://{workspace}@%(dfs_host)s/{lakehouse}/{name}", text, True)
 
 try:
     out = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "%(package)s==%(version)s"],
@@ -107,7 +108,7 @@ def bpa_ipynb(workspace_id: str, meta_lakehouse_id: str, meta_lakehouse: str = "
                 "changes here are replaced on the next check.\n")]},
                       code(params, ["parameters"]),
                       code(_CHECK % {"mount": MOUNT, "results": RESULTS_DIR, "package": PACKAGE, "version": VERSION,
-                                    "secret_patterns": _secret_patterns()})]}
+                                    "secret_patterns": _secret_patterns(), "dfs_host": DFS_HOST})]}
 
 
 def notebook_hash(ipynb: dict[str, Any]) -> str:

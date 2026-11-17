@@ -19,9 +19,12 @@ def test_dbutils_is_a_global_and_importable_like_databricks(tmp_path):
                 f"print(dbutils.fs.head('file:{folder}/a.txt'))\n"
                 "from databricks.sdk.runtime import dbutils as d\n"
                 f"[f.name for f in d.fs.ls('file:{folder}')]")
-    assert out["outputs"][0] == {"type": "stream", "text": "hello\n"}
+    # the first use of dbutils in a session names the ANSI mode Spark answers with here (WR-112)
+    assert out["outputs"][0] == {"type": "stream", "text": f"{dbutils_local.DATABRICKS_ANSI_NOTE}\nhello\n"}
     assert _last(out) == "['a.txt']"
     assert "dbutils" not in {v["name"] for v in k.variables()}
+    again = k.run("print(dbutils.fs.head('file:" + folder + "/a.txt'))")
+    assert again["outputs"][0] == {"type": "stream", "text": "hello\n"}
 
 
 @pytest.mark.parametrize("path", ["dbfs:/tmp/x", "/dbfs/tmp/x", "/Volumes/main/raw/x"])

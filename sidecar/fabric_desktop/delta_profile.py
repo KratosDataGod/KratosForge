@@ -25,6 +25,27 @@ _FORBIDDEN_CONFIG = {
 }
 
 
+# Who can't read each feature, from Microsoft's Delta Lake interoperability page (updated
+# 2026-10-07) and the other sources in docs/delta-reader-matrix.md. Only readers a source names.
+_UNREADABLE = {
+    ("delta.enableDeletionVectors", "true"): ("deletion vectors, which Fabric Python notebooks, pipelines "
+                                              "and eventstreams can't read"),
+    ("delta.columnMapping.mode", "name"): ("column mapping by name, which Fabric Python notebooks, pipelines "
+                                           "and eventstreams can't read"),
+    ("delta.columnMapping.mode", "id"): ("column mapping by ID, which Fabric's SQL analytics endpoint, "
+                                         "lakehouse explorer, Dataflows Gen2, KQL databases, Python notebooks, "
+                                         "pipelines and eventstreams can't read"),
+    ("delta.checkpointPolicy", "v2"): ("V2 checkpoints, which users report Fabric's SQL analytics endpoint "
+                                       "refusing (Microsoft's documentation doesn't say)"),
+}
+# A feature named in the protocol, as the setting that turns it on. Column mapping isn't here: its mode
+# (name or ID) decides who can't read it, and that is only in the table's settings.
+_FEATURE_SETTING = {
+    "deletionVectors": ("delta.enableDeletionVectors", "true"),
+    "v2Checkpoint": ("delta.checkpointPolicy", "v2"),
+}
+
+
 class ProfileViolation(ValueError):
     pass
 
@@ -47,10 +68,29 @@ def problems(table: DeltaTable) -> list[str]:
     return found
 
 
+def unreadable_by(table: DeltaTable) -> list[str]:
+    """The table's features outside the profile, each with the readers that can't read it."""
+    protocol = table.protocol()
+    config = table.metadata().configuration or {}
+    settings = [(key, str(config.get(key, "")).lower()) for key, _ in _UNREADABLE]
+    features = set(protocol.reader_features or []) | set(protocol.writer_features or [])
+    settings += [setting for name, setting in _FEATURE_SETTING.items() if name in features]
+    notes: list[str] = []
+    for setting in settings:
+        note = _UNREADABLE.get(setting)
+        if note and note not in notes:
+            notes.append(note)
+    return notes
+
+
 def check_table(table: DeltaTable) -> None:
     found = problems(table)
     if found:
-        raise ProfileViolation("Table is outside the Fabric-safe Delta profile: " + "; ".join(found))
+        message = "Table is outside the Fabric-safe Delta profile: " + "; ".join(found)
+        notes = unreadable_by(table)
+        if notes:
+            message += ". It uses " + "; and ".join(notes)
+        raise ProfileViolation(message)
 
 
 def check_target(uri: str, storage_options: dict[str, str] | None = None) -> None:

@@ -65,7 +65,7 @@ def paths(root: Path = ROOT) -> list[dict[str, Any]]:
 def modules(root: Path = ROOT, include_drafts: bool = True) -> list[dict[str, Any]]:
     """Every module and lab, sorted by id. Retired ones are left out; drafts only when asked for."""
     out = []
-    for folder in sorted(p for p in root.iterdir() if p.is_dir() and _ID.match(p.name)):
+    for folder in sorted(p for p in root.iterdir() if p.is_dir() and _ID.fullmatch(p.name)):
         m = _read_json(folder / "module.json")
         if m.get("status") == "retired" or (m.get("status") == "draft" and not include_drafts):
             continue
@@ -74,7 +74,7 @@ def modules(root: Path = ROOT, include_drafts: bool = True) -> list[dict[str, An
 
 
 def is_id(text: str) -> bool:
-    return bool(_ID.match(str(text)))
+    return bool(_ID.fullmatch(str(text)))
 
 
 def get(module_id: str, root: Path = ROOT) -> dict[str, Any]:
@@ -86,7 +86,7 @@ def get(module_id: str, root: Path = ROOT) -> dict[str, Any]:
 
 def file_text(module_id: str, name: str, root: Path = ROOT) -> str:
     """One of a module's own files. Only a plain file name inside the module's folder is accepted."""
-    if not _ID.match(module_id) or not _FILE.match(name) or ".." in name:
+    if not _ID.fullmatch(module_id) or not _FILE.fullmatch(name) or ".." in name:
         raise ValueError(f"Not a learning file: {module_id}/{name}")
     return (root / module_id / name).read_text(encoding="utf-8")
 
@@ -121,14 +121,14 @@ def _module_problems(folder: Path, m: dict[str, Any], rule_ids: set[str]) -> lis
         out.append(f"{mid}: size is one of {', '.join(_SIZES)}")
     if not isinstance(m["version"], int) or m["version"] < 1:
         out.append(f"{mid}: version is a whole number from 1")
-    if m["status"] == "live" and not _DATE.match(str(m.get("reviewed") or "")):
+    if m["status"] == "live" and not _DATE.fullmatch(str(m.get("reviewed") or "")):
         out.append(f"{mid}: a live module needs the date it was last reviewed (reviewed: YYYY-MM-DD)")
     out += [f"{mid}: unknown engine {e}" for e in m["engines"] if e not in ENGINES]
     out += [f"{mid}: unknown dataset {d}" for d in m.get("datasets") or [] if d not in DATASETS]
     out += [f"{mid}: unknown best-practice rule {r}" for r in m.get("rules") or [] if r not in rule_ids]
     for d in m.get("docs") or []:
         host = re.match(r"^https://([^/]+)/", str(d))
-        if not (_DOC_PAGE.match(str(d)) or (host and host.group(1) in DOC_HOSTS)):
+        if not (_DOC_PAGE.fullmatch(str(d)) or (host and host.group(1) in DOC_HOSTS)):
             out.append(f"{mid}: docs link {d} is neither a docs page nor a platform's documentation")
     files = [m["lesson"]]
     ex_ids = set()
@@ -157,7 +157,7 @@ def _module_problems(folder: Path, m: dict[str, Any], rule_ids: set[str]) -> lis
                 files.append(c["baseline"])
         files += [ex[k] for k in ("setup", "starter", "solution") if ex.get(k)]
     for name in files:
-        if not isinstance(name, str) or not _FILE.match(name) or ".." in name:
+        if not isinstance(name, str) or not _FILE.fullmatch(name) or ".." in name:
             out.append(f"{mid}: {name!r} isn't a plain file name in the module's folder")
         elif not (folder / name).is_file():
             out.append(f"{mid}: {name} is missing")
@@ -191,7 +191,7 @@ def problems(root: Path = ROOT, rule_ids: set[str] | None = None) -> list[str]:
     out: list[str] = []
     by_id: dict[str, dict[str, Any]] = {}
     for folder in sorted(p for p in root.iterdir() if p.is_dir()):
-        if not _ID.match(folder.name):
+        if not _ID.fullmatch(folder.name):
             out.append(f"{folder.name}: a content folder is named by its id, like LM-01 or LAB-02")
             continue
         try:

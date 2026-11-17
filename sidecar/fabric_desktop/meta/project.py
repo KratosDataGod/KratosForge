@@ -96,7 +96,7 @@ def parse_lookback(value: Any) -> dt.timedelta | int | None:
         if value < 0:
             raise ValueError(value)
         return value
-    m = _LOOKBACK.match(value) if isinstance(value, str) else None
+    m = _LOOKBACK.fullmatch(value) if isinstance(value, str) else None
     if not m:
         raise ValueError(value)
     n, unit = int(m.group(1)), m.group(2).lower()
@@ -114,7 +114,7 @@ def parse_max_deletes(value: Any) -> tuple[str, float]:
         if value < 0:
             raise ValueError(value)
         return "count", float(value)
-    m = _MAX_DELETES.match(value) if isinstance(value, str) else None
+    m = _MAX_DELETES.fullmatch(value) if isinstance(value, str) else None
     if not m or float(m.group(1)) > 100:
         raise ValueError(value)
     return "share", float(m.group(1)) / 100
@@ -417,7 +417,7 @@ class Project:
         if len(set(names)) != len(names):
             problems.append("layer names must be unique")
         for l in layers:
-            if not _LAYER_NAME.match(l.name):
+            if not _LAYER_NAME.fullmatch(l.name):
                 problems.append(f"layer name {l.name!r} must be lowercase letters, digits or _ and start with a letter")
             if l.drift not in DRIFT_POLICIES:
                 problems.append(f"layer {l.name}: drift must be one of {', '.join(DRIFT_POLICIES)}")
@@ -693,7 +693,8 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
                 errors.append(f"{e.name}: [model] date_column {e.date_column} must be a contract column of type date "
                               "or datetime")
         files = s.get("source", {}).get("files", "") or s.get("source", {}).get("landing", "")
-        if files and (Path(files).is_absolute() or re.match(r"^[A-Za-z]:", files)):
+        # rooted ("/data", "\\data", "\\\\server") or a drive: on Windows "/data" has no drive, so isn't is_absolute()
+        if files and (Path(files).is_absolute() or files.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", files)):
             errors.append(f"{e.name}: source path {files} only exists on this PC; put the files in the "
                           f"lakehouse Files area and use a relative path")
         errors += freshness_mod.problems(e.name, s, ENVIRONMENTS)

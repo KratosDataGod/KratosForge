@@ -126,12 +126,13 @@ def unchanged(table: DeltaTable | None, rows: str | None) -> bool:
 
 
 def publish(data: Any, ref: TableRef, mode: str, storage_token: str | Callable[[], str], schema_mode: str | None = "auto",
-            rows: str | None = None, skip_unchanged: bool = False) -> DeltaTable:
+            rows: str | None = None, skip_unchanged: bool = False, predicate: str | None = None) -> DeltaTable:
     """Write ``data`` (an Arrow table or a stream of batches) to ``ref``. ``schema_mode`` "auto" replaces
     the schema on overwrite (as jobs always have); None refuses a different schema, as Spark does without
     overwriteSchema; "merge" adds new columns. ``rows`` is the data's fingerprint, kept in an
     overwrite's commit; with ``skip_unchanged`` an overwrite of the same rows writes nothing, and the
-    returned table has ``skipped`` set.
+    returned table has ``skipped`` set. ``predicate`` makes an overwrite replace only the rows that
+    match it (each written row must match it too); it is never skipped as unchanged.
 
     ``storage_token`` is best passed as a function that returns a current token: the write lease is
     renewed with it for as long as the write takes, so a write that outlasts one token keeps its
@@ -147,16 +148,16 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str | Callable[[
             # table it was handed on to the version it committed. Loaded under the lease, so no other
             # KratosForge writer can commit in between.
             table = delta_profile.open_target(ref.uri, opts)
-            if mode == "overwrite" and skip_unchanged and unchanged(table, rows):
+            if mode == "overwrite" and skip_unchanged and predicate is None and unchanged(table, rows):
                 table.skipped = True  # type: ignore[union-attr]
                 return table  # type: ignore[return-value]
-            meta = CommitProperties(custom_metadata={ROWS_KEY: rows}) if rows and mode == "overwrite" else None
+            meta = CommitProperties(custom_metadata={ROWS_KEY: rows}) if rows and mode == "overwrite" and predicate is None else None
             had = _files(table) if table is not None and mode != "overwrite" else {}
             if table is not None and how != "overwrite":
                 refuse_conversions(data.schema, table, f"{ref.schema}.{ref.table}")
             # Replacing every row as a predicate makes Delta check for commits since the version loaded
             # (a plain overwrite doesn't, and would keep rows a writer outside the lease appended meanwhile).
-            extra = {"predicate": "true"} if mode == "overwrite" and table is not None else {}
+            extra = {"predicate": predicate or "true"} if mode == "overwrite" and table is not None else {}
             check_held()  # the lease is still ours, with time to commit (HD-016)
             before = table.version() if table is not None else None
             try:

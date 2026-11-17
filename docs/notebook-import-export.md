@@ -13,12 +13,13 @@ Open a notebook and select **Share > Export** on the **Home** tab, or search for
 | **Fabric source (.py)** | The `notebook-content.py` format a Git-connected Fabric workspace stores: `# Fabric notebook source`, a `# CELL ********************` line before each code cell (`# PARAMETERS CELL ********************` for the parameter cell), `# MARKDOWN ********************` before each markdown cell with its lines starting `# `, and a `# METADATA ********************` block giving each cell's language. A SQL, Scala or R cell's lines start with `# MAGIC`. The attached lakehouse is written as the notebook's default lakehouse. |
 | **Databricks source (.py)** | The file Databricks exports for a Python notebook: `# Databricks notebook source`, cells separated by `# COMMAND ----------`, markdown cells as `# MAGIC %md` lines and other languages as `# MAGIC %sql`, `# MAGIC %scala` or `# MAGIC %r`. A cell that starts with a line magic such as `%run`, `%fs` or `%pip` is written as `# MAGIC` lines too. Databricks has no parameter cell (it uses widgets), so that setting isn't carried. After saving, a dialog lists everything that [didn't carry over](#what-a-databricks-conversion-doesnt-carry-over), cell by cell. |
 | **Web page (.html)** | A page anyone can open in a browser: each cell's code, then its outputs as on screen. Every piece of text is escaped, HTML outputs are left out, and the page can't run any script. |
+| **PDF (print to PDF)** | The same page as **Web page**, sent to the Windows print dialog. Pick **Save as PDF** or **Microsoft Print to PDF** as the printer and choose where to save the file. Nothing is saved in Downloads, and the app looks the same on screen while the dialog is open. |
 
 Outputs are only what you see on screen: run the notebook first if you want them. Exporting doesn't save the notebook or change it.
 
 ### Where the file goes
 
-The file is saved in your **Downloads** folder, named after the notebook (for example `Daily sales.py`). A file that is already there is never replaced: the new one gets a number, such as `Daily sales (2).py`. The message after an export gives the full path. KratosForge doesn't ask where to save yet; move the file from Downloads to wherever you need it.
+The file is saved (except a PDF, which goes where you pick in the print dialog) in your **Downloads** folder, named after the notebook (for example `Daily sales.py`). A file that is already there is never replaced: the new one gets a number, such as `Daily sales (2).py`. The message after an export gives the full path. KratosForge doesn't ask where to save yet; move the file from Downloads to wherever you need it.
 
 ## Import Fabric and Databricks notebooks
 

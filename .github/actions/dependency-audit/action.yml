@@ -1,0 +1,48 @@
+# The audit job's checks of every lock file that ships, shared by ci.yml (on every pull request and
+# push to main) and dependency-audit.yml (main's locks every 6 hours, so a new advisory shows up
+# before a pull request runs into it). The job sets up Python 3.12, Node 22 and the cargo cache first.
+# A known vulnerability fails the step; .github/audit-exceptions.txt is the only way to let one
+# through (.github/scripts/audit_exceptions.py). docs/quality/new-advisory.md says what to do.
+name: Dependency audit
+description: pip-audit, npm audit and cargo audit over the lock files that ship
+runs:
+  using: composite
+  steps:
+    # constraints.txt is the engine's packages as tests run them; engine-requirements.txt is the set
+    # the release engine ships; dbconnect_locks are what "Install Databricks Connect" puts on a PC.
+    - name: Python packages (constraints, engine and Databricks Connect locks)
+      shell: bash
+      run: |
+        python -m pip install --quiet --only-binary=:all: --require-hashes -r .github/requirements/pip-audit.txt
+        ignore="$(python .github/scripts/audit_exceptions.py pip)"
+        failed=0
+        for lock in sidecar/constraints.txt sidecar/engine-requirements.txt sidecar/fabric_desktop/engines/dbconnect_locks/*.txt; do
+          echo "== $lock"
+          status=0
+          pip-audit -r "$lock" --no-deps --disable-pip --progress-spinner off $ignore \
+            --format json --output "$RUNNER_TEMP/pip-audit.json" || status=$?
+          [ "$status" -eq 0 ] || { failed=1; python .github/scripts/audit_exceptions.py hint pip "$RUNNER_TEMP/pip-audit.json"; }
+        done
+        exit $failed
+    # The UI's vendor bundles and the VS Code extension: every package in their lock files, build
+    # tools too (they make what ships). High and critical fail; moderate and low are warnings.
+    - name: npm packages (app/ui/vendor and vscode lock files)
+      shell: bash
+      run: |
+        failed=0
+        for lock in app/ui/vendor/*/package-lock.json vscode/package-lock.json; do
+          echo "== $lock"
+          rm -f "$RUNNER_TEMP/npm-audit.json"  # a failed audit must not leave the previous lock's report to read
+          (cd "$(dirname "$lock")" && npm audit --package-lock-only --json > "$RUNNER_TEMP/npm-audit.json") || true
+          python .github/scripts/audit_exceptions.py npm "$RUNNER_TEMP/npm-audit.json" "$lock" || failed=1
+        done
+        exit $failed
+    - name: Rust crates (app/src-tauri/Cargo.lock)
+      shell: bash
+      run: |
+        cargo audit --version 2>/dev/null | grep -qwF 0.22.2 || cargo install --locked cargo-audit --version 0.22.2
+        ignore="$(python .github/scripts/audit_exceptions.py cargo)"
+        status=0
+        cargo audit --file app/src-tauri/Cargo.lock $ignore --json > "$RUNNER_TEMP/cargo-audit.json" || status=$?
+        [ "$status" -eq 0 ] || python .github/scripts/audit_exceptions.py hint cargo "$RUNNER_TEMP/cargo-audit.json"
+        exit $status

@@ -174,9 +174,9 @@ class Registry:
     def register(self, cap: Capability, replace: bool = False) -> Capability:
         """Add ``cap`` after checking it is well formed. Raises ValueError otherwise, so a broken
         extension fails when it loads rather than when a client calls it."""
-        if not ID_PATTERN.match(cap.id):
+        if not ID_PATTERN.fullmatch(cap.id):
             raise ValueError(f"capability id {cap.id!r} must be lower case letters, digits and _ (3-64)")
-        if not SOURCE_PATTERN.match(cap.source):
+        if not SOURCE_PATTERN.fullmatch(cap.source):
             raise ValueError(f"{cap.id}: source {cap.source!r} isn't a valid extension id")
         if cap.permission not in PERMISSIONS:
             raise ValueError(f"{cap.id}: permission must be one of {', '.join(PERMISSIONS)}")

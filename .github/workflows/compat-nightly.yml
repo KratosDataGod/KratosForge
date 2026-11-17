@@ -43,3 +43,8 @@ jobs:
       - name: Engine tests on the next DuckDB major
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bash ../.github/scripts/compat_tests.sh duckdb
+      - name: Name the failed tests
+        if: failure()
+        run: python ../.github/scripts/failed_tests.py junit "$RUNNER_TEMP"/junit-*.xml
+        env:
+          FAILED_TESTS_TITLE: Package-version tests

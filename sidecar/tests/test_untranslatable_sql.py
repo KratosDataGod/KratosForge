@@ -10,14 +10,14 @@ from pathlib import Path
 import pytest
 
 from fabric_desktop import spark_compat, sql
-from fabric_desktop.engines.contract import Unsupported
+from fabric_desktop.engines.contract import SessionConfig, Unsupported
 from fabric_desktop.engines.local_sql import DuckDBSession
 
 PACKAGE = Path(__file__).resolve().parents[1] / "fabric_desktop"
 COMPARATOR = "SELECT array_sort(array(3, 1, 2), (l, r) -> r - l) AS a"
-# array_sort's comparator runs on the SQL paths since #1413; approx_count_distinct's accuracy is still
-# an argument sqlglot drops.
-DROPPED = "SELECT approx_count_distinct(x, 0.1) AS a FROM VALUES (1), (2) AS t(x)"
+# array_sort's comparator runs on the SQL paths since #1413, and approx_count_distinct's rsd since WR-108.
+# sqlglot reads levenshtein's third argument (Spark's threshold) as a cost DuckDB's levenshtein lacks.
+DROPPED = "SELECT levenshtein('kitten', 'sitting', 2) AS a"
 
 # DuckDB SQL written with sqlglot's default, which logs and drops what it can't write. Each one
 # writes something that isn't run as the person's query.
@@ -35,7 +35,7 @@ def _literal(node: ast.expr) -> bool:
 
 def test_an_argument_sqlglot_drops_is_refused_not_left_out():
     with pytest.raises(ValueError, match="can't run on this PC the way it runs in Fabric, so nothing ran: "
-                                         "Argument 'accuracy' is not supported"):
+                                         "Argument 'ins_cost' is not supported"):
         sql.run(DROPPED)
 
 
@@ -44,9 +44,12 @@ def test_a_query_that_translates_exactly_still_runs():
 
 
 def test_a_databricks_cell_on_the_duckdb_engine_is_refused_the_same_way():
-    session = DuckDBSession.__new__(DuckDBSession)
-    with pytest.raises(Unsupported, match="Argument 'accuracy' is not supported"):
-        session._sql(DROPPED, "databricks")
+    session = DuckDBSession(SessionConfig("nb"))  # a real one: decimal types read its tables (WR-113)
+    try:
+        with pytest.raises(Unsupported, match="Argument 'ins_cost' is not supported"):
+            session._sql(DROPPED, "databricks")
+    finally:
+        session.close()
 
 
 def test_a_pyspark_expression_is_refused_the_same_way():

@@ -81,7 +81,7 @@ def command(ns: dict[str, Any], line: str) -> str:
                 raise ValueError("%history -l needs a number, like: %history -l 5")
             i += 1
             last = int(args[i])
-        elif m := _RANGE.match(arg):
+        elif m := _RANGE.fullmatch(arg):
             start, end = int(m[1]), int(m[2] or m[1])
             if end < start:
                 raise ValueError(f"%history {arg}: the range runs backwards. Use {end}-{start}.")

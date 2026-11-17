@@ -75,7 +75,7 @@ def check(ext: Extension) -> list[Capability]:
     for what in ("name", "publisher", "description"):
         if not str(getattr(ext, what) or "").strip():
             raise ValueError(f"{ext.id}: {what} is required")
-    if not VERSION_PATTERN.match(ext.version or ""):
+    if not VERSION_PATTERN.fullmatch(ext.version or ""):
         raise ValueError(f"{ext.id}: version {ext.version!r} must look like 1.2.3")
     if not ext.permissions or any(p not in PERMISSIONS for p in ext.permissions):
         raise ValueError(f"{ext.id}: permissions must be one or more of {', '.join(PERMISSIONS)}")

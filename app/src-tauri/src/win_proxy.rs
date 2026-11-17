@@ -522,3 +522,97 @@ mod tests {
         assert!(pac_env[1].1.ends_with(",files.contoso.com"));
     }
 }
+
+/// WinHTTP's PAC handling for real: `routes` against a PAC file served from this PC, on an address
+/// no other test uses (Windows keeps a PAC file it fetched per address). No proxy named here is
+/// ever connected to: WinHTTP only runs the script and reports what it says.
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::{routes, windows_config, Route, WindowsProxy};
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::{Arc, Mutex};
+
+    /// Serves `status` and `body` to every request on 127.0.0.1 and keeps each request's headers.
+    fn serve(status: &'static str, extra: &'static str, body: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://127.0.0.1:{}/proxy.pac", listener.local_addr().unwrap().port());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+                let mut request = Vec::new();
+                let mut buf = [0u8; 4096];
+                while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match stream.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => request.extend_from_slice(&buf[..n]),
+                    }
+                }
+                log.lock().unwrap().push(String::from_utf8_lossy(&request).into_owned());
+                let reply = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/x-ns-proxy-autoconfig\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(reply.as_bytes());
+            }
+        });
+        (url, seen)
+    }
+
+    fn pac_at(url: &str) -> WindowsProxy {
+        WindowsProxy { pac_url: url.into(), ..Default::default() }
+    }
+
+    fn hosts(list: &[&str]) -> Vec<String> {
+        list.iter().map(|h| h.to_string()).collect()
+    }
+
+    const PAC: &str = r#"function FindProxyForURL(url, host) {
+        if (host == "github.com") return "DIRECT";
+        return "PROXY proxy.kf-test.invalid:8080; PROXY backup.kf-test.invalid:3128";
+    }"#;
+
+    #[test]
+    fn a_pac_file_decides_each_hosts_route() {
+        let (url, seen) = serve("200 OK", "", PAC);
+        let got = routes(&pac_at(&url), &hosts(&["github.com", "pypi.org", "api.fabric.microsoft.com"]));
+        assert_eq!(got.len(), 3, "{got:?}");
+        assert_eq!(got[0], Route::Direct, "{got:?}");
+        for route in &got[1..] {
+            let Route::Proxy(list) = route else { panic!("{got:?}") };
+            assert!(list.starts_with("proxy.kf-test.invalid:8080"), "{list}");
+            assert!(list.contains("backup.kf-test.invalid:3128"), "{list}");
+        }
+        assert!(!seen.lock().unwrap().is_empty(), "the PAC file was fetched from this test's server");
+    }
+
+    #[test]
+    fn a_pac_file_that_cant_be_fetched_leaves_every_host_unknown() {
+        let (url, _) = serve("404 Not Found", "", "");
+        let got = routes(&pac_at(&url), &hosts(&["github.com", "pypi.org", "graph.microsoft.com"]));
+        assert_eq!(got.len(), 3, "{got:?}");
+        let Route::Unknown(why) = &got[0] else { panic!("{got:?}") };
+        // After the first failure the rest aren't asked again: they carry the same reason.
+        assert!(got.iter().all(|r| *r == Route::Unknown(why.clone())), "{got:?}");
+    }
+
+    #[test]
+    fn a_pac_server_that_asks_for_a_sign_in_gets_none_on_the_first_try() {
+        let (url, seen) = serve("401 Unauthorized", "WWW-Authenticate: Negotiate\r\nWWW-Authenticate: NTLM\r\n", "");
+        let got = routes(&pac_at(&url), &hosts(&["github.com", "pypi.org"]));
+        assert!(got.iter().all(|r| matches!(r, Route::Unknown(_))), "{got:?}");
+        let seen = seen.lock().unwrap();
+        let first = seen.first().expect("the PAC server was asked");
+        assert!(!first.to_ascii_lowercase().contains("\r\nauthorization:"), "the first request signed in:\n{first}");
+    }
+
+    #[test]
+    fn windows_proxy_settings_can_be_read() {
+        // Whatever the runner is set to, WinHTTP answers, and anything it hands back is copied out.
+        let config = windows_config().expect("WinHttpGetIEProxyConfigForCurrentUser failed");
+        assert!(!config.pac_url.contains('\0') && !config.proxy.contains('\0') && !config.bypass.contains('\0'), "{config:?}");
+    }
+}

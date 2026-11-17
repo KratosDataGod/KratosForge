@@ -355,10 +355,11 @@ h1{font-size:20px;margin:0 0 4px}.note{color:#616161;margin:0 0 20px}
 .label{font-size:12px;color:#616161;padding:4px 10px;background:#fafafa;border-bottom:1px solid #e0e0e0}
 pre{margin:0;padding:10px;white-space:pre-wrap;word-break:break-word;font:13px/1.45 Consolas,monospace}
 .src{background:#f7f7f7}.md{padding:10px;white-space:pre-wrap}
-.out{border-top:1px dashed #e0e0e0}.err{color:#a4262c}.skipped{padding:8px 10px;color:#616161;font-style:italic}
+.out{border-top:1px dashed #e0e0e0}.report{margin:0 0 12px}.report .out{border-top:0}.md.report{padding:0}.err{color:#a4262c}.skipped{padding:8px 10px;color:#616161;font-style:italic}
 table{border-collapse:collapse;margin:10px;font-size:13px}th,td{border:1px solid #e0e0e0;padding:3px 8px;text-align:left}
 th{background:#fafafa}img{max-width:100%;margin:10px}
-@media (prefers-color-scheme:dark){body{background:#1f1f1f;color:#eee}.cell,.label,th,td,.out{border-color:#444}
+@media print{body{margin:0;max-width:none;padding:0}.cell{break-inside:avoid-page}pre{white-space:pre-wrap}}
+@media screen and (prefers-color-scheme:dark){body{background:#1f1f1f;color:#eee}.cell,.label,th,td,.out{border-color:#444}
 .label,th{background:#292929}.src{background:#262626}.note,.label,.skipped{color:#aaa}.err{color:#f1707b}}
 """
 
@@ -377,7 +378,7 @@ def _html_output(o: dict[str, Any]) -> str:
         shown = len(o.get("rows") or [])
         note = f'<div class="skipped">{shown} of {html.escape(str(total))} rows</div>' if total not in (None, shown) else ""
         return f'<div class="out">{_table_html(o)}{note}</div>'
-    if kind == "image" and o.get("mime") in _IMAGE_TYPES and _B64.match(str(o.get("data", ""))):
+    if kind == "image" and o.get("mime") in _IMAGE_TYPES and _B64.fullmatch(str(o.get("data", ""))):
         return f'<div class="out"><img alt="Chart from this cell" src="data:{o["mime"]};base64,{o["data"]}"></div>'
     if kind == "html":
         return '<div class="out skipped">HTML output isn\'t included in the page, so nothing in it can run.</div>'
@@ -388,17 +389,30 @@ def _html_output(o: dict[str, Any]) -> str:
     return ""
 
 
-def to_html(name: str, cells: list[dict[str, Any]]) -> str:
+def to_html(name: str, cells: list[dict[str, Any]], report: str | None = None) -> str:
     """A page to read the notebook without KratosForge: the cells, then each one's outputs. Every
-    text is escaped, HTML outputs are left out, and the page's policy allows no script at all."""
+    text is escaped, HTML outputs are left out, and the page's policy allows no script at all.
+
+    ``report`` (a line saying which run the outputs are from) makes it the read-only report: the
+    Markdown and the outputs only, no code and no cell labels, under that line."""
     out = ["<!doctype html>", '<html lang="en"><head><meta charset="utf-8">',
            "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\">",
            '<meta name="viewport" content="width=device-width, initial-scale=1">',
            f"<title>{html.escape(name)}</title><style>{_PAGE_STYLE}</style></head><body>",
-           f"<h1>{html.escape(name)}</h1>", '<p class="note">Exported from KratosForge. Outputs are as they were on screen.</p>']
+           f"<h1>{html.escape(name)}</h1>",
+           f'<p class="note">{html.escape(report)}</p>' if report is not None
+           else '<p class="note">Exported from KratosForge. Outputs are as they were on screen.</p>']
     n = 0
     for c in cells:
         source = html.escape(c.get("source", ""))
+        if report is not None:
+            if c.get("type") == "markdown":
+                out.append(f'<div class="md report">{source}</div>')
+            else:
+                outs = "".join(_html_output(o) for o in c.get("outputs") or [] if isinstance(o, dict))
+                if outs:
+                    out.append(f'<div class="report">{outs}</div>')
+            continue
         if c.get("type") == "markdown":
             out.append(f'<div class="cell"><div class="label">Markdown</div><div class="md">{source}</div></div>')
             continue
@@ -495,7 +509,7 @@ def _databricks_cell(text: str, comment: str, default: str | None,
 def _databricks_magic(body: list[str], notes: list[dict[str, Any]] | None = None, n: int = 0) -> dict[str, Any]:
     """A Databricks cell whose first line is a magic: %md, %sql, %scala, %r, %python, %run, %pip..."""
     first = body[0].strip() if body else ""
-    m = re.match(r"^%([A-Za-z_-]+)\s*(.*)$", first)
+    m = re.fullmatch(r"^%([A-Za-z_-]+)\s*(.*)$", first)
     if not m:
         return _code("\n".join(body))
     name, rest = m.group(1).lower(), m.group(2)
@@ -542,7 +556,7 @@ def _parse_percent(lines: list[str]) -> list[dict[str, Any]]:
                 break
     chunks: list[tuple[str, list[str]]] = [("", [])]
     for ln in lines:
-        m = _PERCENT.match(ln.rstrip())
+        m = _PERCENT.fullmatch(ln.rstrip())
         if m:
             chunks.append((m.group(1).strip(), []))
         else:
@@ -582,7 +596,7 @@ def parse_source(text: str, file_name: str = "") -> dict[str, Any]:
             notes: list[dict[str, Any]] = []
             cells = _parse_databricks(lines, comment, default, notes)
             return {"format": label, "cells": cells, "notes": _here_notes(cells, notes)}
-    if any(_PERCENT.match(ln.rstrip()) for ln in lines):
+    if any(_PERCENT.fullmatch(ln.rstrip()) for ln in lines):
         return {"format": "Percent-format script (# %%)", "cells": _parse_percent(lines)}
     source = _trim(lines)
     if ext == ".sql" and source:

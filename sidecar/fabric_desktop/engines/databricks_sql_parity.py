@@ -279,6 +279,8 @@ def same(got: Any, want: Any) -> bool:
         return isinstance(got, (list, tuple)) and len(got) == len(want) and all(same(g, w) for g, w in zip(got, want, strict=True))
     if isinstance(want, bool) or isinstance(got, bool):
         return type(got) is type(want) and got == want
+    if isinstance(want, int) and isinstance(got, int):
+        return got == want  # exactly: past 2**53 two different whole numbers can be the same float (#2646)
     if isinstance(want, (int, float, Decimal)) and isinstance(got, (int, float, Decimal)):
         return abs(float(got) - float(want)) < 1e-9
     if isinstance(want, dt.datetime) or isinstance(got, dt.datetime):

@@ -183,9 +183,9 @@ def register(family: Family) -> Family:
     that owns the tables. The prefix follows PREFIX_RULE and is unique; versions start at 1 with no
     gaps; the first migration creates ``schema_version`` like every family's; a later migration
     only adds tables or nullable columns. A schema of its own is not dbo and not another family's."""
-    if not PREFIX_RULE.match(family.prefix):
+    if not PREFIX_RULE.fullmatch(family.prefix):
         raise ValueError(f"A table family prefix is fd, 2 to 8 lowercase letters and _ (not {family.prefix!r}).")
-    if not SCHEMA_RULE.match(family.schema):
+    if not SCHEMA_RULE.fullmatch(family.schema):
         raise ValueError(f"A family's schema is lowercase letters, digits and _ (not {family.schema!r}).")
     owner = next((f for f in FAMILIES.values() if f.schema == family.schema and f.prefix != family.prefix), None)
     if family.schema != SCHEMA and owner:

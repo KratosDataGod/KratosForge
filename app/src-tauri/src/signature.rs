@@ -153,9 +153,119 @@ mod tests {
     }
 
     #[test]
+    fn the_publisher_must_match_exactly() {
+        let ours = Ok(Some(US.to_string()));
+        // Case, spacing and a missing or different Trusted Signing identity each name someone else.
+        for other in ["cn=KratosBI, O=KratosBI, L=Austin, S=Texas, C=US", "CN=KratosBI,O=KratosBI,L=Austin,S=Texas,C=US",
+                      "CN=KratosBI, O=KratosBI, L=Austin, S=Texas, C=US ", ""] {
+            assert!(update_allowed(&ours, &Ok(Some(other.to_string()))).is_err(), "{other:?}");
+        }
+        let with_identity = format!("{US} [1.3.6.1.4.1.311.97.1.2.3]");
+        let ours_with_identity = Ok(Some(with_identity.clone()));
+        assert_eq!(update_allowed(&ours_with_identity, &Ok(Some(with_identity))), Ok(()));
+        // The same subject from a certificate without the identity usage isn't the same publisher.
+        assert!(update_allowed(&ours_with_identity, &Ok(Some(US.to_string()))).is_err());
+        assert!(update_allowed(&ours, &Ok(Some(format!("{US} [1.3.6.1.4.1.311.97.9.9.9]")))).is_err());
+        assert!(update_allowed(&ours_with_identity, &Ok(Some(format!("{US} [1.3.6.1.4.1.311.97.9.9.9]")))).is_err());
+    }
+
+    #[test]
+    fn a_refusal_says_which_signature_failed_and_why() {
+        let ours = Ok(Some(US.to_string()));
+        let why = update_allowed(&ours, &Err("Windows doesn't trust its signature (0x800B0100)".into())).unwrap_err();
+        assert!(why.contains("0x800B0100") && why.contains("wasn't installed"), "{why}");
+        let why = update_allowed(&Err("Its signing certificate couldn't be read".into()), &Ok(Some(US.to_string()))).unwrap_err();
+        assert!(why.contains("couldn't be read") && why.contains("releases page"), "{why}");
+        let why = update_allowed(&ours, &Ok(Some("CN=Mallory".into()))).unwrap_err();
+        assert!(why.contains("CN=Mallory") && why.contains(US), "{why}");
+    }
+
+    #[test]
+    fn an_unsigned_file_has_no_signer() {
+        // This test binary is never signed: on Windows that is "no signature", not an error, and
+        // elsewhere nothing is checked.
+        let exe = std::env::current_exe().unwrap();
+        assert_eq!(super::signer(&exe), Ok(None));
+    }
+
+    #[test]
     fn a_build_whose_own_signature_cant_be_checked_installs_nothing() {
         for theirs in [Ok(None), Ok(Some(US.to_string()))] {
             assert!(update_allowed(&Err("0x800B0109".into()), &theirs).unwrap_err().contains("can't be checked"));
         }
+    }
+}
+
+/// WinVerifyTrust on real files: one this build made (unsigned), a Microsoft-signed exe the Windows
+/// CI image installs, and a copy of that exe with one byte changed.
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::signer;
+    use std::path::PathBuf;
+
+    /// An exe with a signature embedded in it (not only in a Windows catalog, which WinVerifyTrust's
+    /// file check doesn't read).
+    fn signed_exe() -> Option<PathBuf> {
+        let found = [r"C:\Program Files\PowerShell\7\pwsh.exe", r"C:\Program Files\dotnet\dotnet.exe"]
+            .into_iter()
+            .map(PathBuf::from)
+            .find(|p| p.is_file());
+        if found.is_none() {
+            assert!(std::env::var_os("CI").is_none(), "the Windows CI image should have pwsh.exe or dotnet.exe");
+            eprintln!("no embedded-signed exe found, so this test checks nothing here");
+        }
+        found
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("kf-signature-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join(name)
+    }
+
+    #[test]
+    fn an_unsigned_exe_has_no_signer() {
+        // The test binary itself: a real exe nobody signed.
+        assert_eq!(signer(&std::env::current_exe().unwrap()), Ok(None));
+    }
+
+    #[test]
+    fn a_file_that_isnt_an_exe_has_no_signer() {
+        let path = scratch("not-an.exe");
+        std::fs::write(&path, b"this is not a program").unwrap();
+        let got = signer(&path);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(got, Ok(None));
+    }
+
+    #[test]
+    fn a_signed_exe_names_its_publisher() {
+        let Some(exe) = signed_exe() else { return };
+        let who = signer(&exe).unwrap().unwrap_or_else(|| panic!("{} should be signed", exe.display()));
+        // CertNameToStrW lists the parts as the certificate stores them, most general first
+        // ("C=US, S=Washington, ..., CN=Microsoft Corporation").
+        assert!(who.contains("CN=Microsoft Corporation"), "{who}");
+        assert!(who.contains("O=Microsoft Corporation"), "{who}");
+        // Any identity usages listed are Trusted Signing's, and nothing else is.
+        if let Some((_, usages)) = who.split_once(" [") {
+            assert!(usages.trim_end_matches(']').split(", ").all(|u| u.starts_with("1.3.6.1.4.1.311.97.")), "{who}");
+        }
+        // The same file asked twice gives the same answer, which is what update_allowed compares.
+        assert_eq!(signer(&exe).unwrap().as_deref(), Some(who.as_str()));
+    }
+
+    #[test]
+    fn a_signed_exe_with_one_byte_changed_is_not_trusted() {
+        let Some(exe) = signed_exe() else { return };
+        let mut bytes = std::fs::read(&exe).unwrap();
+        // A quarter of the way in: inside the program, well before the signature at the end.
+        let at = bytes.len() / 4;
+        bytes[at] ^= 0xFF;
+        let path = scratch("tampered.exe");
+        std::fs::write(&path, &bytes).unwrap();
+        let got = signer(&path);
+        let _ = std::fs::remove_file(&path);
+        let why = got.unwrap_err();
+        assert!(why.starts_with("Windows doesn't trust its signature (0x"), "{why}");
     }
 }

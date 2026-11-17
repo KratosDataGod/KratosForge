@@ -18,6 +18,7 @@ from collections.abc import Callable, Collection
 from typing import Any
 
 from . import magics
+from .onelake import DFS_HOST
 from .notebook import _RUN_SCRIPT, MAX_RUN_DEPTH, _run_target, configure_report, to_ipynb
 
 SHIM_MARKER = "# Fabric Desktop setup"
@@ -45,7 +46,7 @@ _fd_conversions = {}
 exec(%(conversions)s, _fd_conversions)  # the PC's rule for which column types keep every value (EA-001)
 
 def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None, mount="/lakehouse/default"):
-    root = root or f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{lakehouse_id}"
+    root = root or f"abfss://{workspace_id}@%(dfs_host)s/{lakehouse_id}"
 
     def opts():
         return {"bearer_token": _nbu.credentials.getToken("storage"), "use_fabric_endpoint": "true"}
@@ -205,7 +206,8 @@ def uses_local_module(cells: list[dict[str, Any]]) -> bool:
 def shim_cell(lakehouse: dict[str, Any], schemas_enabled: bool = True) -> dict[str, Any]:
     return {"type": "code", "source": SHIM_MARKER + "\n" + _SHIM % {
         "workspace_id": lakehouse["workspace_id"], "lakehouse_id": lakehouse["lakehouse_id"],
-        "name": lakehouse.get("name", ""), "schemas": bool(schemas_enabled), "conversions": repr(_conversions_source())}}
+        "name": lakehouse.get("name", ""), "schemas": bool(schemas_enabled), "conversions": repr(_conversions_source()),
+        "dfs_host": DFS_HOST}}
 
 
 def _conversions_source() -> str:
@@ -294,7 +296,7 @@ def _is_sql(c: dict[str, Any]) -> bool:
 # ---- where a notebook can run
 
 # The notebookutils parts that need Fabric, after "notebookutils." (or "mssparkutils.").
-_UTILS_FABRIC = (r"(fs\.(mount|unmount)|lakehouse\.(create|update|delete|loadTable)|notebook\.(create|update|updateDefinition|delete)\b|"
+_UTILS_FABRIC = (r"(fs\.(mount|unmount)|lakehouse\.(create|update|delete)|notebook\.(create|update|updateDefinition|delete)\b|"
                  r"warehouse|udf|connections)\b")
 _UTILS_TEXT = "uses Fabric notebook utilities that need Fabric"
 
@@ -302,7 +304,7 @@ _UTILS_TEXT = "uses Fabric notebook utilities that need Fabric"
 # DuckDB's PySpark-compatible API and ``notebookutils`` covers fs, notebook, credentials,
 # runtime and variableLibrary, so most PySpark notebooks run here; these parts don't.
 _FABRIC_ONLY = [
-    (re.compile(r"\b(sparkContext|\.rdd\b|pandas_udf|spark\.udf|\.mapInPandas|\.applyInPandas)"),
+    (re.compile(r"\b(sparkContext|\.rdd\b|spark\.udf\.registerJavaFunction)"),
      "uses a Spark feature this PC's Spark doesn't have"),
     # Streams run here as trigger(availableNow=True) (spark_stream.py); these kinds don't.
     (re.compile(r"\.trigger\(\s*continuous\s*="), "runs a continuous stream"),
@@ -313,8 +315,6 @@ _FABRIC_ONLY = [
 _DBUTILS = re.compile(r"\bdbutils\.\w+|\bfrom\s+databricks\.sdk\.runtime\s+import\b")
 # MERGE INTO, UPDATE and DELETE run on this PC (spark_local.py, PB-015), into the attached lakehouse.
 _SQL_CHANGE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.I)
-# A MERGE, by SQL or by DeltaTable's merge builder: what turning on autoMerge changes.
-_MERGE = re.compile(r"\bMERGE\s+INTO\b|\.merge\(", re.I)
 # A spark.sql call on a plain string literal (an f-string's text isn't known until it runs).
 _SPARK_SQL_LITERAL = re.compile(r"""\bspark\.sql\(\s*(?P<lit>[rRuU]?(?P<q>\"\"\"|'''|"|')(?:\\.|(?!(?P=q)).)*(?P=q))""", re.S)
 
@@ -613,8 +613,9 @@ def _spark_refused(node: ast.Call, values: dict[str, list[ast.expr | None]],
         return
     method, links = node.func.attr, _chain(node)
     names = [n for n, _ in links]
-    if method in sl.DELTA_CHANGES and _is_delta_table(node.func.value, values):
-        out["fabric"].append((line, sl.DELTA_CHANGE_TEXT.format(method)))
+    if method in sl.DELTA_MAINTENANCE and _is_delta_table(node.func.value, values):
+        if not sl.lakehouse._setting("show_preview", True):
+            out["fabric"].append((line, sl.MAINTENANCE_PREVIEW_TEXT.format(f"DeltaTable.{method}")))
         return
     if "write" in names[1:] and method in ("option", "options"):
         keys = [_text(node.args[0]) if node.args else None] if method == "option" else \
@@ -840,8 +841,6 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
     sessions = _sessions(values)
     from . import spark_local
     refused_code = _FABRIC_ONLY + spark_local.REFUSED_CODE
-    if any(_MERGE.search(c.get("source", "")) for c in cells if c.get("type") != "markdown"):
-        refused_code = [*refused_code, (spark_local.AUTO_MERGE_CODE, spark_local.AUTO_MERGE_TEXT)]
     for n, c in enumerate(cells, 1):
         source = c.get("source", "")
         if c.get("type") == "markdown" or not source.strip():
@@ -871,8 +870,7 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
                     sql_unknown.append((1, refused[1]))
         else:
             hit = next(((m, text) for rx, text in refused_code if (m := rx.search(source))), None)
-            # A refused writer option by its name, in any cell: replaceWhere and partitionOverwriteMode are
-            # writer options only, so this also catches a writer held in a variable (w = df.write).
+            # A refused writer option by its name, in any cell: replaceWhere is a writer option only, so this also catches a writer held in a variable (w = df.write).
             hit = hit or next(((m, text) for m in spark_local.REFUSED_OPTION_TEXT.finditer(source)
                                if (text := spark_local.writer_option_refusal(m[1], None))), None)
             if read is None:  # not parsed: the literal spark.sql calls in its text

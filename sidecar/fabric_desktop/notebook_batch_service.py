@@ -112,7 +112,7 @@ class NotebookBatchMixin:
         return self.root / BATCHES
 
     def _batch_file(self, id: str) -> Path:  # noqa: A002
-        if not _BATCH_ID.match(str(id or "")):
+        if not _BATCH_ID.fullmatch(str(id or "")):
             raise ValueError("That isn't a run of several notebooks")
         return self._batch_dir() / f"{id}.json"
 

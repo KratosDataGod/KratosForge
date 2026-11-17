@@ -162,14 +162,17 @@ def syntax_problems(source: str) -> list[dict[str, Any]]:
     """The first Python syntax error in a cell, as {line, col, end_line, end_col, message} with
     1-based lines and 0-based columns in the cell's own text. Cells in another language (``%%sql``,
     ``%%html``...) and IPython syntax (``%magic``, ``!cmd``, ``x = %sql ...``) aren't errors."""
-    first = source.lstrip("\n").split("\n", 1)[0]
+    # The first line with text, as IPython finds a cell magic: lines of only spaces before it don't count (#2746).
+    head = source.split("\n")
+    blank = next((i for i, line in enumerate(head) if line.strip()), len(head))
+    first = head[blank] if blank < len(head) else ""
     m = _CELL_MAGIC.match(first)
     offset = 0
     if m:
         if m.group(1).lower() not in _PY_CELL_MAGICS:
             return []
-        offset = source[:source.index(first)].count("\n") + 1
-        source = source.split("\n", offset)[-1] if source.count("\n") >= offset else ""
+        offset = blank + 1
+        source = "\n".join(head[offset:])
     lines = []
     for line in source.split("\n"):
         stripped = line.lstrip()
@@ -189,8 +192,10 @@ def syntax_problems(source: str) -> list[dict[str, Any]]:
         err_line = (err.lineno or 1)
         col = max((err.offset or 1) - 1, 0)
         end_line = getattr(err, "end_lineno", None) or err_line
-        end_col = max((getattr(err, "end_offset", None) or col + 2) - 1, col + 1)
-        if end_line < err_line or (end_line == err_line and end_col <= col):
+        end_offset = getattr(err, "end_offset", None)
+        # The end column is on the end line: clamped against the start column only when that's the same line.
+        end_col = max((end_offset or col + 2) - 1, 0)
+        if end_line < err_line or (end_line == err_line and end_col <= col) or (end_line > err_line and not end_offset):
             end_line, end_col = err_line, col + 1
         return [{"line": err_line + offset, "col": col, "end_line": end_line + offset, "end_col": end_col,
                  "message": _message(err)}]

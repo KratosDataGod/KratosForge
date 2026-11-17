@@ -1,0 +1,9 @@
+{
+  "name": "kratosforge-ui-fonts",
+  "private": true,
+  "description": "Open-licence typefaces the skins' looks use (docs/skins.md, Look). Only the latin woff2 files below are copied into this folder; nothing is fetched at run time.",
+  "dependencies": {
+    "@fontsource/dm-sans": "5.2.8",
+    "@fontsource/inter": "5.2.8"
+  }
+}

@@ -12,14 +12,20 @@ operands' types are known:
 - ``/``: scale max(6, s1 + p2 + 1), precision p1 - s1 + s2 + scale;
 - a precision over 38 keeps the whole digits and drops scale down to 6 (DecimalType.adjustPrecisionScale);
 - ``sum``: decimal(min(38, p + 10), s), NULL when it overflows (ANSI off);
-- ``avg``: decimal(min(38, p + 4), min(38, s + 4)).
+- ``avg``: decimal(min(38, p + 4), min(38, s + 4));
+- ``%`` (and ``pmod``): scale max(s1, s2), precision min(p1 - s1, p2 - s2) + scale;
+- ``div``: BIGINT, the quotient truncated toward zero, NULL for a zero divisor;
+- ``round``, ``ceil`` and ``floor`` to ``d`` places (0 when not given): scale min(s, d) (0 for
+  a negative ``d``), precision p - s + 1 + scale (at least 1 - d for a negative ``d``); ``ceil`` and
+  ``floor`` of a decimal(p, 0) keep its type.
 
 An integer operand counts as decimal(3,0), (5,0), (10,0) or (20,0) for TINYINT to BIGINT, and an integer
 literal as decimal(digits, 0); a number literal with a point is a decimal, as in Spark. Division and avg
 are exact, rounded half up as Spark rounds, whenever the scaled dividend fits in 38 digits; a larger
 one is computed through DOUBLE and cast to Spark's type. ``+``, ``-`` and ``*`` are exact when Spark's
 precision fits in 38 digits; otherwise they keep DuckDB's own type. An operand of any other type, or one
-whose type can't be worked out, leaves the expression as it was.
+whose type can't be worked out, leaves the expression as it was. What still differs is listed in
+docs/sql-compatibility.md (LOC-005).
 """
 
 from __future__ import annotations
@@ -37,8 +43,48 @@ log = logging.getLogger(__name__)
 MAX = 38
 _INTEGERS = {exp.DataType.Type.TINYINT: 3, exp.DataType.Type.SMALLINT: 5, exp.DataType.Type.INT: 10,
              exp.DataType.Type.BIGINT: 20}
-_ARITHMETIC = (exp.Add, exp.Sub, exp.Mul, exp.Div)
+_ARITHMETIC = (exp.Add, exp.Sub, exp.Mul, exp.Div, exp.Mod, exp.IntDiv)
 _AGGREGATES = (exp.Sum, exp.Avg)
+_ROUNDING = (exp.Round, exp.Ceil, exp.Floor)
+# sql.parse writes pmod and bround out as a CASE (its template names the function in the node's meta);
+# the CASE as a whole takes Spark's type for the function: Remainder's for pmod, RoundBase's for bround.
+_WRITTEN = ("PMOD", "BROUND")
+
+
+def _targets(statement: exp.Expr) -> list[Any]:
+    """The nodes whose result type Spark's rules set, outermost first (as find_all walks)."""
+    return [n for n in statement.walk() if isinstance(n, (*_ARITHMETIC, *_AGGREGATES, *_ROUNDING)) or _written(n)]
+
+
+def _written(node: exp.Expr) -> str | None:
+    """"PMOD" or "BROUND" for the CASE sql.parse wrote that function out as, else None."""
+    from .sql import SPARK_FUNCTION
+    name = node.meta.get(SPARK_FUNCTION) if isinstance(node, exp.Case) else None
+    return name if name in _WRITTEN else None
+
+
+def _zero_guard(node: Any) -> bool:
+    """Whether ``node`` is Databricks SQL's check that a division's divisor isn't 0 (sql._ansi_divisions),
+    a CASE typed as the division it holds."""
+    return isinstance(node, exp.Case) and bool(node.meta.get(ZERO_GUARD))
+
+
+ZERO_GUARD = "kf_zero_guard"
+
+
+def _operands(node: exp.Expr) -> list[Any]:
+    if _written(node):
+        last = node.args.get("default")  # ELSE (a) % (b), or ELSE ROUND(x, places)
+        if isinstance(last, exp.Mod):
+            return [last.this, last.expression]
+        if isinstance(last, exp.Round):
+            return [last.this, last.args.get("decimals")]
+        return []
+    if isinstance(node, _ROUNDING):
+        return [node.this]
+    return [node.this, node.args.get("expression")]
+
+
 _KEY = "kf_decimal"
 # The rewrite's lambda parameters. DuckDB takes a column of the same name before a lambda parameter, so a
 # statement that can see a column of either name is left as it was.
@@ -67,8 +113,8 @@ def _decimal(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]]
              ) -> tuple[int, int] | tuple[str, int] | None:
     """Spark's (precision, scale) for ``node`` as a decimal operand, "int" for a whole-number column,
     or None when it is anything else."""
-    while isinstance(node, exp.Paren):
-        node = node.this
+    while isinstance(node, exp.Paren) or _zero_guard(node):
+        node = node.this if isinstance(node, exp.Paren) else node.args["default"]
     if id(node) in typed:
         return typed[id(node)]
     if isinstance(node, exp.Literal):
@@ -148,12 +194,13 @@ def _rewrap(top: exp.Expr, inner: exp.Expr, replacement: exp.Expr) -> exp.Expr:
 
 
 def _schema(conn: Any) -> MappingSchema:
-    """The connection's tables and views by name; a temp view wins over a table of the same name."""
+    """The connection's tables and views by name; a temp view wins over a table of the same name. Names
+    are kept in lower case, as qualify reads Spark's names (case-insensitive) in lower case (#2663)."""
     tables: dict[str, dict[str, str]] = {}
     rows = conn.execute("SELECT table_name, column_name, data_type FROM duckdb_columns() "
                         "WHERE NOT internal ORDER BY database_name = 'temp' DESC, column_index").fetchall()
     for table, column, kind in rows:
-        tables.setdefault(table, {}).setdefault(column, kind)
+        tables.setdefault(table.lower(), {}).setdefault(column.lower(), kind)
     return MappingSchema(cast(dict[str, object], tables), dialect="duckdb", normalize=False)
 
 
@@ -161,7 +208,7 @@ def spark_decimal_types(statement: exp.Expr, conn: Any) -> exp.Expr:
     """``statement`` with Spark's decimal result types (see the module docstring). Its tables must be
     bound to the connection's views already. A statement whose types can't be worked out is returned
     as it was."""
-    targets = [n for n in statement.find_all(*_ARITHMETIC, *_AGGREGATES)]
+    targets = _targets(statement)
     if not targets:
         return statement
     try:
@@ -204,12 +251,12 @@ def spark_decimal_columns(expressions: list[str], columns: list[tuple[str, str]]
         if not isinstance(statement, exp.Select) or len(statement.expressions) != len(expressions):
             return unchanged
         before = [duckdb_sql(p) for p in statement.expressions]
-        targets = [n for n in statement.find_all(*_ARITHMETIC, *_AGGREGATES)]
+        targets = _targets(statement)
         if not targets:
             return unchanged
         frame: dict[str, str] = {}
         for name, kind in columns:
-            frame.setdefault(name, kind)
+            frame.setdefault(name.lower(), kind)  # qualify reads Spark's names in lower case (#2663)
         schema = MappingSchema(cast(dict[str, object], {_FRAME: frame}), dialect="duckdb", normalize=False)
         if _sees_lambda_name(statement, schema):
             log.info("Spark decimal types not applied: a column is named like the rewrite's lambdas %s", _LAMBDAS)
@@ -233,8 +280,11 @@ def _retype(statement: exp.Expr, targets: list[Any], schema: MappingSchema) -> e
     against ``schema``. Raises when sqlglot can't qualify or type it."""
     marked = 0
     for node in targets:
-        for operand in (node.this, node.args.get("expression")):
-            while isinstance(operand, (exp.Paren, exp.Neg, exp.Distinct)):
+        for operand in _operands(node):
+            while isinstance(operand, (exp.Paren, exp.Neg, exp.Distinct)) or _zero_guard(operand):
+                if _zero_guard(operand):
+                    operand = operand.args["default"]
+                    continue
                 operand = operand.this if not isinstance(operand, exp.Distinct) else (
                     operand.expressions[0] if len(operand.expressions) == 1 else None)
             if isinstance(operand, exp.Expr):
@@ -254,10 +304,12 @@ def _retype(statement: exp.Expr, targets: list[Any], schema: MappingSchema) -> e
         if mark is not None and mark in by_mark:
             annotated[id(original)] = by_mark[mark]
     typed: dict[int, tuple[int, int] | tuple[str, int]] = {}
+    # A pmod's or bround's operands as they are now: they sit inside nodes rewritten before it.
+    written = {id(node): _operands(node) for node in targets if _written(node)}
     root = statement
     # Innermost first, so an operand that is itself rewritten has its Spark type.
     for node in reversed(targets):
-        replacement = _rewrite(node, typed, annotated)
+        replacement = _rewrite(node, typed, annotated, written.get(id(node)) or _operands(node))
         if replacement is None:
             continue
         top = replacement[1]
@@ -319,8 +371,8 @@ def _output_names(statement: exp.Expr, conn: Any, targets: list[Any]
     return named
 
 
-def _rewrite(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]], annotated: dict[int, exp.Expr]
-             ) -> tuple[exp.Expr, exp.Expr, tuple[int, int]] | None:
+def _rewrite(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]], annotated: dict[int, exp.Expr],
+             operands: list[Any]) -> tuple[exp.Expr, exp.Expr, tuple[int, int] | tuple[str, int]] | None:
     if isinstance(node, _AGGREGATES):
         argument = node.this
         bare = argument.expressions[0] if isinstance(argument, exp.Distinct) and len(argument.expressions) == 1 \
@@ -341,11 +393,30 @@ def _rewrite(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]]
         if mean is None:
             return None
         return _with_args(mean, [summed, counted]), top, result
-    left, right = node.this, node.expression
+    if isinstance(node, _ROUNDING) or _written(node) == "BROUND":
+        return _rounding(node, typed, annotated, operands)
+    if len(operands) != 2 or operands[0] is None or operands[1] is None:
+        return None
+    left, right = operands
     a, b = _decimal(left, typed, annotated), _decimal(right, typed, annotated)
-    if a is None or b is None or (a[0] == "int" and b[0] == "int"):
+    if a is None or b is None:
+        return None
+    if isinstance(node, exp.IntDiv):
+        return _integral_divide(node, left, right, a, b)
+    if a[0] == "int" and b[0] == "int":
         return None
     (p1, s1), (p2, s2) = _operand(a), _operand(b)
+    if isinstance(node, (exp.Mod, exp.Case)):  # % and pmod: Spark's Remainder rule
+        scale = max(s1, s2)
+        precision, scale = _adjust(min(p1 - s1, p2 - s2) + scale, scale)
+        if max(p1 - s1, p2 - s2) + scale > MAX:
+            return None  # an operand doesn't fit DECIMAL(38, scale): DuckDB's own type and value are kept
+        if isinstance(node, exp.Mod):
+            # NULL for a zero divisor, as Spark with ANSI off (DuckDB 2.0 raises an error).
+            text = (f"CAST(CAST(fj_arg0 AS DECIMAL(38, {scale})) % NULLIF(CAST(fj_arg1 AS DECIMAL(38, {scale})), 0) "
+                    f"AS DECIMAL({precision}, {scale}))")
+            return _with_args(text, [left, right]), node, (precision, scale)
+        return _with_args(f"CAST(fj_arg0 AS DECIMAL({precision}, {scale}))", [node]), node, (precision, scale)
     if isinstance(node, exp.Div):
         scale = max(6, s1 + p2 + 1)
         precision, scale = _adjust(p1 - s1 + s2 + scale, scale)
@@ -359,10 +430,86 @@ def _rewrite(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]]
         scale = max(s1, s2)
         precision = max(p1 - s1, p2 - s2) + scale + 1
     if precision > MAX:
-        return None  # Spark rounds to a narrower scale here; DuckDB's own type and value are kept
+        # Spark rounds to a narrower scale here (DecimalType.adjustPrecisionScale), and the exact result
+        # needs more than DuckDB's 38 digits: DuckDB's own type and value are kept (LOC-005).
+        return None
     op = "*" if isinstance(node, exp.Mul) else "+" if isinstance(node, exp.Add) else "-"
     text = (f"CAST(CAST(fj_arg0 AS DECIMAL(38, {s1})) {op} CAST(fj_arg1 AS DECIMAL(38, {s2})) "
             f"AS DECIMAL({precision}, {scale}))")
     return _with_args(text, [left, right]), node, (precision, scale)
+
+
+def _integral_divide(node: exp.Expr, left: exp.Expr, right: exp.Expr, a: tuple[int, int] | tuple[str, int],
+                     b: tuple[int, int] | tuple[str, int]) -> tuple[exp.Expr, exp.Expr, tuple[str, int]]:
+    """Spark's ``div``: a BIGINT, the quotient truncated toward zero, NULL for a zero divisor (ANSI off).
+    DuckDB's ``//`` of a decimal is a DOUBLE division (10.00 // 3 is 3.33...), and of integers an INTEGER."""
+    if a[0] == "int" and b[0] == "int":
+        return _with_args("CAST(fj_arg0 // NULLIF(fj_arg1, 0) AS BIGINT)", [left, right]), node, ("int", 20)
+    (p1, s1), (p2, s2) = _operand(a), _operand(b)
+    scale = max(s1, s2)
+    if max(p1 - s1, p2 - s2) + scale <= MAX:
+        # Both as whole numbers at one scale: their quotient is exact in HUGEINT, which truncates toward zero.
+        text = (f"TRY_CAST({_unscaled('fj_arg0', scale)} // NULLIF({_unscaled('fj_arg1', scale)}, 0) "
+                "AS BIGINT)")
+    else:
+        text = "TRY_CAST(TRUNC(CAST(fj_arg0 AS DOUBLE) / NULLIF(CAST(fj_arg1 AS DOUBLE), 0)) AS BIGINT)"
+    return _with_args(text, [left, right]), node, ("int", 20)
+
+
+def _places(arg: exp.Expr | None) -> int | None:
+    """The literal number of places a round, bround, ceil or floor rounds to: 0 when not given."""
+    if arg is None:
+        return 0
+    negative = isinstance(arg, exp.Neg)
+    literal = arg.this if negative else arg
+    if not isinstance(literal, exp.Literal) or literal.is_string or not literal.this.isdigit():
+        return None
+    return -int(literal.this) if negative else int(literal.this)
+
+
+def _rounding(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]], annotated: dict[int, exp.Expr],
+              operands: list[Any]) -> tuple[exp.Expr, exp.Expr, tuple[int, int]] | None:
+    """round, bround, ceil and floor of a decimal, typed by Spark's RoundBase (and Ceil, Floor) rules."""
+    if not operands or operands[0] is None:
+        return None
+    operand = operands[0]
+    found = _decimal(operand, typed, annotated)
+    places = _places(operands[1] if len(operands) > 1 else node.args.get("decimals"))
+    if found is None or found[0] == "int" or places is None:
+        return None
+    p, s = _operand(found)
+    plain = isinstance(node, (exp.Ceil, exp.Floor)) and node.args.get("decimals") is None
+    if plain and s == 0:
+        return None  # ceil and floor of decimal(p, 0) keep its type, as DuckDB's do
+    scale = max(0, min(s, places))
+    precision = min(MAX, max(p - s + 1, 1 - places) + scale)
+    if isinstance(node, (exp.Ceil, exp.Floor)) and not plain:
+        text = _ceil_floor("CEIL" if isinstance(node, exp.Ceil) else "FLOOR", p, s, places)
+        if text is None:
+            return None
+        return _with_args(f"CAST({text} AS DECIMAL({precision}, {scale}))", [operand]), node, (precision, scale)
+    return _with_args(f"CAST(fj_arg0 AS DECIMAL({precision}, {scale}))", [node]), node, (precision, scale)
+
+
+def _ceil_floor(fn: str, p: int, s: int, places: int) -> str | None:
+    """Spark's ceil(x, places) and floor(x, places) of a decimal(p, s), in decimals throughout:
+    sqlglot's translation goes through POWER, a DOUBLE."""
+    if places >= s:
+        return "fj_arg0"
+    if places >= 0:
+        if p + places > MAX:
+            return None  # the value moved left by ``places`` digits wouldn't fit DECIMAL(38)
+        up = f"CAST('1{'0' * places}' AS DECIMAL({places + 1}, 0))"
+        down = f"CAST('{_unit(places)}' AS DECIMAL({places + 1}, {places}))"
+    else:
+        if s - places > MAX:
+            return None
+        up = f"CAST('{_unit(-places)}' AS DECIMAL({1 - places}, {-places}))"
+        down = f"CAST('1{'0' * -places}' AS DECIMAL({1 - places}, 0))"
+    return f"{fn}(CAST(fj_arg0 AS DECIMAL(38, {s})) * {up}) * {down}"
+
+
+def _unit(places: int) -> str:
+    return "0." + "0" * (places - 1) + "1" if places else "1"
 
 

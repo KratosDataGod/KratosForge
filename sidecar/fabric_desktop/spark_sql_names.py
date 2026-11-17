@@ -25,6 +25,7 @@ _BEFORE = "fd_spark_before"  # meta: the word written before a constant (DATE in
 _IN_FORM = "fd_spark_in"    # meta: position('b' IN s), which Spark names locate(b, s, 1)
 _ARGS = "fd_spark_args"     # meta: a call's arguments as written, one text each
 _SPECIAL_FORM = "fd_spark_special"  # meta: a call written with FROM, IN, DISTINCT, a lambda...
+_FIELD = "fd_spark_field"   # meta: the field of extract(field FROM x) as written
 
 # Functions Spark names in capitals (their own sql), unless called by another name (ceiling, pow, sign).
 _UPPER = {"acos", "asin", "atan", "atan2", "acosh", "asinh", "atanh", "cos", "sin", "tan", "cot", "csc", "sec",
@@ -81,6 +82,8 @@ def remember(statements: list[Any], text: str) -> None:
             continue
         for node in statement.walk():
             start, end = node.meta.get("start"), node.meta.get("end")
+            if isinstance(node, exp.Extract):
+                _keep_field(node, text)
             if start is None and isinstance(node, (exp.Func, exp.Binary, exp.Bracket)) and not isinstance(node, exp.Column):
                 _recover_call(node, tokens, at, text)
                 continue
@@ -97,6 +100,14 @@ def remember(statements: list[Any], text: str) -> None:
                 if start in at:
                     _keep_arguments(node, tokens, at[start], text)
                 _check_call(node)
+
+
+def _keep_field(node: exp.Extract, text: str) -> None:
+    """Spark names extract(Hour FROM s) with the field as written; sqlglot keeps it in capitals."""
+    at = _position(node)
+    found = re.search(r"\(\s*([A-Za-z_]+)\s+FROM\s*$", text[:at], re.IGNORECASE) if at is not None else None
+    if found and found.group(1).upper() == str(node.this.name).upper():
+        node.meta[_FIELD] = found.group(1)
 
 
 def _recover_call(node: exp.Expr, tokens: list[Any], at: dict[int, int], text: str) -> None:
@@ -396,7 +407,7 @@ class _Printer:
         if isinstance(node, exp.Array):
             return f"array({self.args(node.expressions)})"
         if isinstance(node, exp.Extract):
-            return f"extract({str(node.this.name).lower()} FROM {self.pretty(node.expression)})"
+            return f"extract({node.meta.get(_FIELD) or str(node.this.name).lower()} FROM {self.pretty(node.expression)})"
         if isinstance(node, exp.Trim):
             position = node.args.get("position")
             chars = node.args.get("expression")
@@ -408,6 +419,16 @@ class _Printer:
             return self.window(node)
         if isinstance(node, exp.Filter):
             return f"{self.pretty(node.this)} FILTER (WHERE {self.pretty(node.expression.this)})"
+        if isinstance(node, exp.WithinGroup) and isinstance(node.this, (exp.PercentileCont, exp.PercentileDisc)):
+            # PercentileCont.sql: the fraction, then the ordering column, DESC when it is reversed
+            order = node.expression.expressions if isinstance(node.expression, exp.Order) else []
+            if len(order) != 1:
+                raise _Unknown
+            item = order[0]
+            by = self.pretty(item.this if isinstance(item, exp.Ordered) else item)
+            desc = " DESC" if isinstance(item, exp.Ordered) and item.args.get("desc") else ""
+            name = "percentile_cont" if isinstance(node.this, exp.PercentileCont) else "percentile_disc"
+            return f"{name}({self.pretty(node.this.this)}) WITHIN GROUP (ORDER BY {by}{desc})"
         if isinstance(node, exp.IgnoreNulls):
             return self.pretty(node.this)
         if isinstance(node, exp.Distinct):
@@ -449,6 +470,8 @@ class _Printer:
             return self.pretty(node.this)  # a wrapper sqlglot added (ts_or_ds_to_date)
         else:
             args = list(node.expressions) if isinstance(node, exp.Anonymous) else _arguments(node)
+        if name == "approx_count_distinct":
+            args = args[:1]  # rsd is a setting of Spark's estimator, not one of its arguments
         if isinstance(node, exp.StrPosition) and node.meta.get(_IN_FORM):
             name = "locate"
         if name in ("isnull", "isnotnull") and len(args) == 1:

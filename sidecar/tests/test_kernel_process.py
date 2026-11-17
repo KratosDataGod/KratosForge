@@ -253,6 +253,33 @@ def test_other_notebooks_and_the_managed_table_check_come_from_the_engine(tmp_pa
         k.close()
 
 
+def test_an_attached_lakehouse_asks_fabric_about_schemas_only_when_a_cell_needs_it(tmp_path):
+    """Signed out or offline, a cell that doesn't touch OneLake still runs (as in the engine's own
+    kernel); one that does asks once, through the engine."""
+    asked = []
+
+    def schemas() -> bool:
+        asked.append(1)
+        if len(asked) == 1:
+            raise RuntimeError("Couldn't ask Fabric whether this lakehouse uses schemas")
+        return False
+
+    k = ProcessKernel()
+    try:
+        lakehouse.attach(lakehouse.Attached(workspace_id="ws", lakehouse_id="lh", name="LH", storage_token=lambda: "t",
+                                            work_dir=tmp_path, schemas_enabled=schemas))
+        assert k.run("x = 6 * 7\nx")["outputs"][-1] == {"type": "text", "text": "42"}
+        assert asked == []
+        first = k.run("from fabric_desktop import lakehouse\nlakehouse.has_schemas()")
+        assert first["status"] == "error" and "uses schemas" in json.dumps(first["outputs"])
+        assert k.run("lakehouse.has_schemas()")["outputs"][-1] == {"type": "text", "text": "False"}
+        assert k.run("lakehouse.has_schemas()")["outputs"][-1] == {"type": "text", "text": "False"}
+        assert len(asked) == 2  # the answer is kept; a failed ask isn't
+    finally:
+        lakehouse.attach(None)
+        k.close()
+
+
 def test_the_setting_switches_the_kernel_and_stop_uses_it(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
     monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))

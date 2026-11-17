@@ -74,7 +74,7 @@ These cases still differ:
 | --- | --- | --- |
 | `int` or `bigint` arithmetic past the type's range, such as `2147483647 + 1`, with ANSI off | Wraps around: -2147483648 | Stops with DuckDB's "Overflow in addition of INT32". Cast to a wider type first, or use `try_add` |
 | `abs(-2147483648)` or `-(-2147483648)` on an int, with ANSI off | Wraps around: -2147483648 | 2147483648, a `bigint` |
-| A notebook in Databricks Runtime 17.0 or later, which runs Spark SQL with ANSI mode on | A failed `CAST` or a division by zero stops | Gives NULL, as with ANSI mode off. Run it as Databricks SQL on the DuckDB engine, or on Databricks |
+| A notebook in Databricks Runtime 17.0 or later, which runs Spark SQL with ANSI mode on | A failed `CAST` or a division by zero stops | Gives NULL, as with ANSI mode off. The first use of `dbutils` in a session prints a note saying so, since which runtime a notebook is meant for isn't known here. Run it as Databricks SQL on the DuckDB engine, or on Databricks |
 | `pmod(x, 0)` in Databricks SQL | Stops with `[DIVIDE_BY_ZERO]` | NULL |
 | A decimal division in Databricks SQL on the DuckDB engine, such as `CAST(1 AS DECIMAL(10,2)) / 3` | `decimal(14,6)` | A `double` |
 

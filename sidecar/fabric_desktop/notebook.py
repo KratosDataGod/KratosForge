@@ -741,6 +741,7 @@ class Kernel:
             spark_local.install(ns)
         except Exception as exc:  # noqa: BLE001 - plain Python still works without it
             print(f"spark is not available on this PC: {exc}", file=sys.__stderr__)
+        dbutils._kf_arm()  # a cell's first use of it notes Databricks' ANSI mode (dbutils_local.DATABRICKS_ANSI_NOTE)
         return ns
 
     def restart(self) -> None:
@@ -949,7 +950,7 @@ class Kernel:
         self.check_free()
         if self._widget_lock.locked() or self._handler_alive():
             raise RuntimeError("A widget's handler is still running. Run the cell when it finishes, or restart the kernel.")
-        widgets = getattr(self.namespace.get("dbutils"), "widgets", None)
+        widgets = _widgets(self.namespace.get("dbutils"))
         if widgets is not None:
             widgets.set_in_app = dict(self.widget_values)
         from .debugger import Debugger, check_breakpoints
@@ -1427,7 +1428,7 @@ class Kernel:
             return "ok"
         try:
             from . import spark_local, spark_sql_params
-            query = spark_sql_params.bind_widgets(query, getattr(namespace.get("dbutils"), "widgets", None))
+            query = spark_sql_params.bind_widgets(query, _widgets(namespace.get("dbutils")))
             result = spark_local.session().sql(query)
             if result is not None and result.columns:
                 if magics.returns_rows(query):  # DDL comes back as an empty frame; that isn't a result
@@ -1449,7 +1450,7 @@ class Kernel:
         if name == "sql":
             from . import spark_sql_params
             return self._sql_value(spark_sql_params.bind_widgets(
-                line, getattr(self.namespace.get("dbutils"), "widgets", None)))
+                line, _widgets(self.namespace.get("dbutils"))))
         if name in ("system", "sx", "sh"):
             from . import shell
             code, lines = shell.system(shell.expand(line, self.namespace),
@@ -1626,7 +1627,7 @@ class Kernel:
         from .notebookutils_local import NotebookExit
         cells = self.load_notebook(name.rsplit("/", 1)[-1])  # type: ignore[misc]
         has_parameters = any("parameters" in (c.get("meta") or {}).get("tags", []) for c in cells)
-        widgets = getattr(namespace.get("dbutils"), "widgets", None)
+        widgets = _widgets(namespace.get("dbutils"))
         if arguments and widgets is not None:
             widgets.bind(arguments)  # Databricks notebooks read their arguments as widgets
         if arguments and not has_parameters:
@@ -1925,6 +1926,12 @@ def _deadline(seconds: float | None, message: str) -> Iterator[threading.Event]:
         if fired.is_set():
             # The timer may have fired as the block ended: clear the exception it left pending.
             ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(ident), None)
+
+
+def _widgets(dbutils: Any) -> Any:
+    """dbutils.widgets as the kernel reads it, without the note a cell's first use of dbutils prints."""
+    from .dbutils_local import quiet_part
+    return quiet_part(dbutils, "widgets")
 
 
 def _databricks_runtime(dbutils: Any) -> None:

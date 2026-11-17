@@ -1807,13 +1807,13 @@ def prepare_sandboxed(query: str, dialect: str = "spark", memory_mb: int | None 
         views: dict[str, str] = {}
         statement = check_read_only([history_query(s, con, views) for s in parse(query, dialect)])
         bind_tables(statement, con, views)
-        statement = _decimal_types(statement, con, dialect)
         if memory_mb:
             con.execute(f"SET memory_limit = '{int(memory_mb)}MB'")
         if threads:
             con.execute(f"SET threads = {int(threads)}")
         con.execute("SET enable_external_access = false")
         con.execute("SET lock_configuration = true")
+        statement = _decimal_types(statement, con, dialect)  # only once the connection is locked
     except BaseException:
         con.close()
         raise

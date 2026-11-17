@@ -41,7 +41,7 @@ def from_history(rows: list[dict[str, Any]], installation_id: str) -> list[dict[
     """Notebook writes to OneLake tables; other history rows (publishes) are left out."""
     out = []
     for r in rows:
-        match = _TABLE_URI.match(str(r.get("table_uri") or ""))
+        match = _TABLE_URI.fullmatch(str(r.get("table_uri") or ""))
         finished = _at(r.get("finished_at"))
         if not str(r.get("job") or "").startswith("Notebook write") or not match or not finished:
             continue

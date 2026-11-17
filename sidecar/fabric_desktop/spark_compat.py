@@ -903,7 +903,7 @@ _IGNORING_NULLS = re.compile(r'^"?(first|last)"?\((.*)\) FILTER \(WHERE (\()?\2 
 
 def _over(self: Column, window: WindowSpec) -> Column:
     text = str(self.expr)
-    if m := _IGNORING_NULLS.match(text):  # F.first(x, True).over(w): a window takes IGNORE NULLS, not FILTER
+    if m := _IGNORING_NULLS.fullmatch(text):  # F.first(x, True).over(w): a window takes IGNORE NULLS, not FILTER
         text = f"{m.group(1)}_value({m.group(2)} IGNORE NULLS)"
     return _sql(f"{text} OVER ({window.sql()})")
 
@@ -1046,7 +1046,7 @@ def _cast_named(fn: Any) -> Any:
         simple = dataType if isinstance(dataType, str) else dataType.simpleString()
         type_sql = _TYPE_SQL.get(simple.lower(), simple.upper())
         named = _named(out, f"CAST({_spark_text(self)} AS {type_sql})")
-        if "_fd_name" not in vars(self) and _PLAIN_COLUMN.match(str(self.expr)):
+        if "_fd_name" not in vars(self) and _PLAIN_COLUMN.fullmatch(str(self.expr)):
             named._fd_top = _spark_text(self)  # type: ignore[attr-defined]  # selected, it keeps its name
         return named
     cast.__doc__ = fn.__doc__
@@ -1346,7 +1346,7 @@ def _star_prefix(c: Any) -> list[str] | None:
                 i += 1
         return parts if parts and all(parts) else None
     if isinstance(c, Column):
-        m = _STAR_REF.match(str(c.expr))
+        m = _STAR_REF.fullmatch(str(c.expr))
         if m is None:
             return None
         names = [p.group(1).replace('""', '"') if p.group(1) is not None else p.group(2)
@@ -1410,7 +1410,7 @@ def _fillable(dtype: str, value: Any) -> bool:
     if isinstance(value, bool):
         return dtype.lower() == "boolean"
     if isinstance(value, (int, float)):
-        return bool(_NUMERIC.match(dtype))
+        return bool(_NUMERIC.fullmatch(dtype))
     if isinstance(value, str):
         return dtype.lower() in ("varchar", "string")
     return False
@@ -1441,7 +1441,7 @@ def _number_aggregate(fn: str, col: str, type_: str) -> Column:
     """``fn(col)`` as GroupedData names it; the sum of whole numbers is a bigint, as in Spark (DuckDB 1.x
     makes it a hugeint)."""
     out = getattr(F, fn)(F.col(col))
-    return out.cast("bigint").alias(f"sum({col})") if fn == "sum" and _WHOLE.match(type_) else out
+    return out.cast("bigint").alias(f"sum({col})") if fn == "sum" and _WHOLE.fullmatch(type_) else out
 
 
 def _numeric_aggregate(name: str) -> Any:
@@ -1455,10 +1455,10 @@ def _numeric_aggregate(name: str) -> Any:
         types_ = dict(_types(df))
         names = _known(df, list(_flat(cols)))
         for c in names:
-            if not _NUMERIC.match(types_[c]):
+            if not _NUMERIC.fullmatch(types_[c]):
                 raise AnalysisException(message=f'"{c}" is not a numeric column. Aggregation function can only '
                                         "be applied on a numeric column.")
-        names = names or [c for c, t in _types(df) if _NUMERIC.match(t)]
+        names = names or [c for c, t in _types(df) if _NUMERIC.fullmatch(t)]
         return self.agg(*(_number_aggregate(fn, c, types_[c]) for c in names)) if names else self.agg()
 
     aggregate.__name__ = name
@@ -1537,7 +1537,7 @@ class DataFrameNaFunctions:
 
 def _describe(self: DataFrame, *cols: str) -> DataFrame:
     """count, mean, stddev, min and max of each column, as text, as Spark's describe() shows them."""
-    names = _known(self, list(_flat(cols))) or [c for c, t in _types(self) if _NUMERIC.match(t) or t.upper() == "VARCHAR"]
+    names = _known(self, list(_flat(cols))) or [c for c, t in _types(self) if _NUMERIC.fullmatch(t) or t.upper() == "VARCHAR"]
     return _stats(self, names, ("count", "mean", "stddev", "min", "max"))
 
 
@@ -1555,7 +1555,7 @@ def _summary(self: DataFrame, *statistics: str) -> DataFrame:
                 or (pct and float(pct.group(1)) <= 100)):
             raise ValueError(f"{stat} is not a recognised statistic. Use count, mean, stddev, min, max, "
                              "count_distinct, approx_count_distinct or a percentile such as 75%.")
-    names = [c for c, t in _types(self) if _NUMERIC.match(t) or t.upper() == "VARCHAR"]
+    names = [c for c, t in _types(self) if _NUMERIC.fullmatch(t) or t.upper() == "VARCHAR"]
     return _stats(self, names, stats)
 
 
@@ -1585,7 +1585,7 @@ def _stats(self: DataFrame, names: list[str], stats: Any) -> DataFrame:
         parts = []
         for c in names:
             q = _col_sql(c)
-            numeric = bool(_NUMERIC.match(types_[c]))
+            numeric = bool(_NUMERIC.fullmatch(types_[c]))
             # Spark takes the mean and stddev of text as numbers (NULL where it isn't one)
             x = f"CAST({q} AS DOUBLE)" if numeric else f"TRY_CAST({q} AS DOUBLE)"
             if pct := _PERCENT.fullmatch(stat):  # Spark's approximate percentile is an actual value, as quantile_disc

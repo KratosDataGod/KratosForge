@@ -86,6 +86,14 @@ def test_the_words_as_text_comments_names_or_built_ins_are_left_alone(sql):
     translate(sql)
 
 
+@pytest.mark.parametrize("sql", ["SELECT x.value('a', 'int') AS v FROM dbo.d x",
+                                 "SELECT d.value('a', 'int') AS v FROM dbo.d"])
+def test_a_method_on_a_tables_column_isnt_called_a_user_defined_function(sql):
+    with pytest.raises(ValueError, match="VALUE isn't mapped yet") as err:
+        translate(sql, known=set())  # as the engine runs it: a function DuckDB doesn't have is refused by name
+    assert "user-defined function" not in str(err.value)
+
+
 @pytest.mark.parametrize("sql", ["ALTER TABLE dbo.t RENAME TO t2", "ALTER TABLE dbo.t RENAME COLUMN a TO b"])
 def test_alter_table_rename_isnt_tsql(sql):
     with pytest.raises(ValueError, match="ALTER TABLE ... RENAME isn't T-SQL.*sp_rename"):

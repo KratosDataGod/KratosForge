@@ -95,8 +95,11 @@ def _execute(tree: exp.Execute) -> exp.Expression:
 
 def _calls(tree: exp.Expression) -> None:
     """A user-defined function's call (a schema-qualified call) is refused by its name."""
+    # x.value(...) on a table or its alias is a method on a column (XML's value, nodes), not a function in schema x
+    tables = {name.lower() for t in tree.find_all(exp.Table) for name in (t.alias, t.name) if name}
     for dot in tree.find_all(exp.Dot):
-        if isinstance(dot.expression, exp.Anonymous) and isinstance(dot.this, exp.Identifier):
+        if isinstance(dot.expression, exp.Anonymous) and isinstance(dot.this, exp.Identifier) \
+                and dot.this.name.lower() not in tables:
             _function(f"{dot.this.name}.{dot.expression.name}")
     for table in tree.find_all(exp.Table):
         if isinstance(table.this, exp.Anonymous) and table.db:

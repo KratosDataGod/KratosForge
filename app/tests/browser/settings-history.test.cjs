@@ -72,7 +72,7 @@ test("after Cancel, a read doesn't ask again; Set up history approves once", { s
   assert.ok((await p().locator(".sh-setup").textContent()).includes("fdcap_snapshot"));
   assert.ok(await p().evaluate(() => localStorage.getItem("fd.settingsHistory.setup")), "the answer is kept on this PC");
   await p().getByText("Read capacities now").click();
-  await p().waitForFunction(() => document.body.textContent.includes("Set up history first"));
+  await p().waitForFunction(() => document.body.textContent.includes("Nothing was read, because the settings history tables"));
   assert.strictEqual(await p().locator("[role=dialog]").count(), 0, "no dialog after Cancel");
   assert.strictEqual(approved, false);
   await p().getByRole("button", { name: "Set up history" }).click();

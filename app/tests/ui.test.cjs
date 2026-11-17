@@ -4462,7 +4462,7 @@ test("Settings history names capacities, filters by scope and asks before creati
   assert.strictEqual(ctx.asked, null, "a Cancel isn't asked again");
   assert.strictEqual(ctx.calls.length, 2);
   assert.ok(!ctx.calls.some(([, a]) => a.includes("approve")));
-  assert.match(ctx.toasts.at(-1)[0], /^Set up history first/);
+  assert.match(ctx.toasts.at(-1)[0], /^Nothing was read, because the settings history tables/);
   // Another lakehouse hasn't been answered: it asks there.
   ctx.page.lakehouse = "lh2";
   await ctx.read("capacity_settings_read", "Capacities");

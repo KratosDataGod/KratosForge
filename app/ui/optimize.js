@@ -550,7 +550,7 @@ async function settingsHistoryReadOnce(method, label, params, opts) {
     const text = friendlyError(err).text.replace(/ Confirm to continue\.$/, "");
     if (settingsHistorySetup()) {
       settingsHistorySetup({ lakehouse: settingsHistoryPage.lakehouse, method, text });
-      toast("Set up history first: its tables aren't in the central lakehouse yet.");
+      toast("Nothing was read, because the settings history tables aren't in the central lakehouse yet. Choose Set up history on this tab to create them and read.");
       return;
     }
     if (!(await confirmDialog("Create the settings history tables?", text, "Create and read"))) {

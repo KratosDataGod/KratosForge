@@ -400,6 +400,10 @@ OneLake operations, as separate measurements; Unknown where not measured.
 **ESI-203 Execution ledger accruals.** Gross, overhead and net CU avoided per execution as
 ledger events, through the attribution waterfall (single layer until Phase 3). This is the
 ledger's only accrual grain (section 4.5).
+- Gate: the 2026-11-06 decision stands: no savings rows are written until a measured Fabric
+  baseline source exists for the workload (imported Capacity Metrics CU matched to its runs, or
+  a measured Prove run). Until then the engine computes and shows estimates on this PC and writes
+  nothing to the ledger.
 - Acceptance: net ≤ gross; Unknown overhead marks net incomplete; resync adds nothing.
 
 ### Phase 3: Optimization ledger

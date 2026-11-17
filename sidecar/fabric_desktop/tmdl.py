@@ -218,7 +218,7 @@ class _Reader:
             if m and m.group(1) in OBJECTS:
                 self._object(m.group(1), unquote(m.group(2)), m.group(3), here, into, description)
                 continue
-            m = _EXPR.match(text)
+            m = _EXPR.fullmatch(text)
             if m and m.group(1) in SINGLE:
                 obj: dict[str, Any] = {SINGLE[m.group(1)]: self._expression(m.group(2), here + 1)}
                 self.block(here, obj)
@@ -231,11 +231,11 @@ class _Reader:
                 else:
                     into[key] = value
                 continue
-            m = _PROP.match(text)
+            m = _PROP.fullmatch(text)
             if m:
                 into[m.group(1)] = _value(m.group(1), m.group(2))
                 continue
-            m = _WORD.match(text)
+            m = _WORD.fullmatch(text)
             if m:
                 nxt = self._next_level()
                 if nxt is not None and nxt > here:

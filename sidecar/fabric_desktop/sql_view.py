@@ -47,7 +47,7 @@ class FilterError(ValueError):
 
 def _number(text: str) -> float | None:
     t = text.replace(",", "").strip()
-    return float(t) if _NUMBER.match(t) else None
+    return float(t) if _NUMBER.fullmatch(t) else None
 
 
 def _date(text: str) -> str | None:
@@ -63,16 +63,16 @@ def filter_sql(c: str, field: pa.Field, column: int, text: str) -> tuple[str, li
     text = (text or "").strip()
     if len(text) > MAX_FILTER_TEXT:
         raise FilterError(column, f"The filter on {name} is too long (at most {MAX_FILTER_TEXT} characters).")
-    if _NULL.match(text):
+    if _NULL.fullmatch(text):
         return f"{c} IS NULL", []
-    if _NOT_NULL.match(text):
+    if _NOT_NULL.fullmatch(text):
         return f"{c} IS NOT NULL", []
     kind = _kind(field.type)
     if pa.types.is_time(field.type):
         kind = "time"
     elif pa.types.is_duration(field.type) or pa.types.is_interval(field.type):
         kind = "text"  # compared as their text
-    m = _OP.match(text)
+    m = _OP.fullmatch(text)
     if not m:  # no operator: contains (a number column: equals, when the text is a number)
         n = _number(text) if kind == "number" else None
         if n is not None:

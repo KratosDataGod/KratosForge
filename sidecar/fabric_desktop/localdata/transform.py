@@ -97,7 +97,7 @@ class Transforms:
         for line in text.splitlines():
             if not line.strip():
                 continue
-            m = _SETTING.match(line)
+            m = _SETTING.fullmatch(line)
             if not m:
                 if line.lstrip().startswith("--"):
                     continue
@@ -114,7 +114,7 @@ class Transforms:
             elif key == "depends_on":
                 step.depends_on += [_key(v) for v in value.split(",") if v.strip()]
             else:
-                d = _DEFAULT.match(value)
+                d = _DEFAULT.fullmatch(value)
                 if not d:
                     raise ValueError(f"A default is written name = value, not {value!r}.")
                 try:

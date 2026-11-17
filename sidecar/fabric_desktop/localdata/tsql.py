@@ -52,7 +52,7 @@ from sqlglot.tokens import Token, TokenType
 
 from ..sql import KfDuckDB
 from . import tsql_format, tsql_types
-from .. import sql_dialects
+from .. import sql_dialects, tsql_clone
 
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
 _INTEGERS = exp.DataType.INTEGER_TYPES
@@ -503,6 +503,9 @@ def _take_as_of(batch: str) -> tuple[str, str | None]:
 
 def _parse(batch: str) -> list[exp.Expression]:
     batch, when = _take_as_of(batch)
+    cloned = tsql_clone.local_refusal(batch)  # WR-226: never a no-op, never a full copy in a clone's place
+    if cloned:
+        raise ValueError(_NOT_YET + cloned)
     _refuse_json_clauses(batch)
     _refuse_security(batch)
     _refuse_session_options(batch)

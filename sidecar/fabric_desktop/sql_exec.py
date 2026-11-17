@@ -153,6 +153,17 @@ class RerunNeeded(Exception):
     """The run's snapshot is gone; the query has to run again."""
 
 
+def _whole(path: Path, rows: int) -> pa.Table:
+    """Every row of a snapshot, or RerunNeeded when it holds fewer than the run wrote (WR-225): a sort, a
+    filter, a column's statistics or Compare never works on part of a result without saying so."""
+    with pa.memory_map(str(path)) as source:
+        table = pa.ipc.open_file(source).read_all()
+    if table.num_rows != rows:
+        raise RerunNeeded(f"This result's file on this PC holds {table.num_rows:,} of the {rows:,} rows the "
+                          "query returned. Run the query again to see them.")
+    return table
+
+
 @dataclass
 class Execution:
     id: str
@@ -879,8 +890,7 @@ class SqlExecutions:
         filters = [f for f in filters or [] if str(f.get("text") or "").strip()]
         if sort or filters:
             sql_view.check_size(res.rows, "Sorting and filtering")
-            with pa.memory_map(str(res.path)) as source:
-                rows, total = sql_view.view_page(pa.ipc.open_file(source).read_all(), max(0, int(offset)), limit, sort, filters)
+            rows, total = sql_view.view_page(_whole(res.path, res.rows), max(0, int(offset)), limit, sort, filters)
             offset = max(0, int(offset))
             return {"id": run.id, "offset": offset, "limit": limit, "rows": [[_json_value(v) for v in r] for r in rows],
                     "columns": res.columns, "total": total, "all_rows": res.rows, "sort": sort or [], "filters": filters,
@@ -898,6 +908,9 @@ class SqlExecutions:
                     rows.extend([list(r) for r in zip(*columns, strict=True)])
                     need -= batch.num_rows
                     skip, i = 0, i + 1
+            if len(rows) < min(limit, res.rows - offset):  # WR-225: a snapshot that holds fewer rows than were written
+                raise RerunNeeded(f"This result's file on this PC holds fewer rows than the {res.rows:,} the query "
+                                  "returned. Run the query again to see them.")
         return {"id": run.id, "offset": offset, "limit": limit, "rows": [[_json_value(v) for v in r] for r in rows],
                 "columns": res.columns, "total": res.rows, "all_rows": res.rows, "has_previous": offset > 0,
                 "has_next": offset + len(rows) < res.rows, **part_of}
@@ -910,8 +923,7 @@ class SqlExecutions:
         if not res.path.exists():
             raise RerunNeeded("This result was cleaned up. Run the query again to see its statistics.")
         sql_view.check_size(res.rows, "Column statistics")
-        with pa.memory_map(str(res.path)) as source:
-            stats = sql_view.column_stats(pa.ipc.open_file(source).read_all(), column)
+        stats = sql_view.column_stats(_whole(res.path, res.rows), column)
         return {"id": run.id, **stats, **({"part": res.part} if res.part is not None else {})}
 
     def query_of(self, run_id: str) -> str:
@@ -926,8 +938,7 @@ class SqlExecutions:
             raise ValueError(f"The query is {run.state.replace('_', ' ')}, so there are no rows to compare.")
         if not run.snapshot.exists():
             raise RerunNeeded("This result was cleaned up. Run the query again to compare it.")
-        with pa.memory_map(str(run.snapshot)) as source:
-            table = pa.ipc.open_file(source).read_all()
+        table = _whole(run.snapshot, run.rows)
         return run.status(), table.rename_columns(_unique_names(table.schema).names)
 
     # ---- export
@@ -983,6 +994,9 @@ class SqlExecutions:
                         self._write_rows(export, reader, schema, sink, notes)
                     else:
                         self._write_batches(export, reader, schema, sink)
+            if export.rows != export.total:  # WR-225: an export never holds fewer rows than the result without saying so
+                raise ValueError(f"The export read {export.rows:,} of the result's {export.total:,} rows from its "
+                                 "snapshot on this PC, so the file was removed. Run the query again and export it.")
             # After the file is closed: Windows can't rename a file that is still open.
             export.notes = notes.sentences()
             self._done(export, partial)

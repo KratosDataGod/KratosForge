@@ -96,7 +96,7 @@ def parse_lookback(value: Any) -> dt.timedelta | int | None:
         if value < 0:
             raise ValueError(value)
         return value
-    m = _LOOKBACK.match(value) if isinstance(value, str) else None
+    m = _LOOKBACK.fullmatch(value) if isinstance(value, str) else None
     if not m:
         raise ValueError(value)
     n, unit = int(m.group(1)), m.group(2).lower()
@@ -114,7 +114,7 @@ def parse_max_deletes(value: Any) -> tuple[str, float]:
         if value < 0:
             raise ValueError(value)
         return "count", float(value)
-    m = _MAX_DELETES.match(value) if isinstance(value, str) else None
+    m = _MAX_DELETES.fullmatch(value) if isinstance(value, str) else None
     if not m or float(m.group(1)) > 100:
         raise ValueError(value)
     return "share", float(m.group(1)) / 100
@@ -417,7 +417,7 @@ class Project:
         if len(set(names)) != len(names):
             problems.append("layer names must be unique")
         for l in layers:
-            if not _LAYER_NAME.match(l.name):
+            if not _LAYER_NAME.fullmatch(l.name):
                 problems.append(f"layer name {l.name!r} must be lowercase letters, digits or _ and start with a letter")
             if l.drift not in DRIFT_POLICIES:
                 problems.append(f"layer {l.name}: drift must be one of {', '.join(DRIFT_POLICIES)}")

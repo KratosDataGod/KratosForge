@@ -84,7 +84,7 @@ def _warn(a: Activity, code: str, message: str, path: str, hint: str) -> Diagnos
 
 def _notebook_by_name(a: Activity, imp: ImportedPipeline) -> list[Diagnostic]:
     nb = a.type_properties.get("notebookId")
-    if a.type not in NOTEBOOK_TYPES or not isinstance(nb, str) or not nb or _is_expression_text(nb) or _GUID.match(nb):
+    if a.type not in NOTEBOOK_TYPES or not isinstance(nb, str) or not nb or _is_expression_text(nb) or _GUID.fullmatch(nb):
         return []
     return [_warn(a, "notebook_not_an_item_id", f"{a.name}: notebookId {nb!r} isn't a Fabric item id. A local run "
                   "finds the notebook by the name you give it, but Fabric looks it up by id in the workspace, so this "
@@ -160,7 +160,7 @@ def _child_pipeline(a: Activity, imp: ImportedPipeline) -> list[Diagnostic]:
         raw_ref = tp.get("pipeline")
         ref: dict[str, Any] = raw_ref if isinstance(raw_ref, dict) else {}
         name = ref.get("referenceName")
-        if isinstance(name, str) and _GUID.match(name) and isinstance(tp.get("workspaceId"), str):
+        if isinstance(name, str) and _GUID.fullmatch(name) and isinstance(tp.get("workspaceId"), str):
             return []
         label = repr(name) if name else "nothing"
         return [_warn(a, "child_pipeline_by_name", f"{a.name}: names its child pipeline by {label}. A local run finds the child by the name you give it, but "

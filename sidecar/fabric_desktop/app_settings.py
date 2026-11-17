@@ -650,6 +650,8 @@ def _typed(key: str, value: Any) -> bool:
 
 
 def _in_range(key: str, value: Any) -> bool:
+    if key == "client_id":  # a hand-edited or mistyped ID would only break sign-in: the next source applies
+        return valid_client_id(value)
     if key == "local_retention_days":
         return value >= 0
     if key in ("audit_retention_days", "receipt_retention_days"):

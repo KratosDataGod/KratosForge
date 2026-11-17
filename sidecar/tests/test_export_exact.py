@@ -328,18 +328,23 @@ def _wait(check, seconds=60):
     raise AssertionError("still running")
 
 
+def _exported(manager, run_id, fmt):
+    export_id = manager.export(run_id, fmt)["id"]  # started once, then waited on (not a new export each poll)
+    return _wait(lambda: manager.export_status(export_id))
+
+
 def test_a_local_tsql_result_exports_exactly(local_runs):
     query = ("SELECT CAST('99999999999999999999999999999999.999999' AS DECIMAL(38, 6)) AS amount, "
              "CAST('2026-11-17 10:04:05.123456' AS DATETIME2(6)) AS at, CAST(9223372036854775807 AS BIGINT) AS big, "
              "'' AS empty, CAST(NULL AS VARCHAR(10)) AS nothing")
     run = local_runs.start(query, target="local", project=local_runs.pid, dialect="tsql")
     assert _wait(lambda: local_runs.status(run["id"]))["state"] == "completed"
-    csv = _wait(lambda: local_runs.export_status(local_runs.export(run["id"], "csv")["id"]))
+    csv = _exported(local_runs, run["id"], "csv")
     assert Path(csv["path"]).read_text().splitlines()[1] == \
         '99999999999999999999999999999999.999999,2026-11-17 10:04:05.123456,9223372036854775807,"",'
-    xlsx = _wait(lambda: local_runs.export_status(local_runs.export(run["id"], "xlsx")["id"]))
+    xlsx = _exported(local_runs, run["id"], "xlsx")
     assert [n.split(":")[0] for n in xlsx["notes"]] == ["amount", "at", "big", "empty"]
-    js = _wait(lambda: local_runs.export_status(local_runs.export(run["id"], "json")["id"]))
+    js = _exported(local_runs, run["id"], "json")
     row = json.loads(Path(js["path"]).read_text())[0]
     assert row == {"amount": "99999999999999999999999999999999.999999", "at": "2026-11-17T10:04:05.123456",
                    "big": 9223372036854775807, "empty": "", "nothing": None}

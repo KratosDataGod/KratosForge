@@ -549,7 +549,8 @@ function sqlEditorHelpers() {
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { SQL_DIALECTS, SQL_WORDS, sqlDialect, sqlQuoteIdent, sqlTableName,
     sqlMask, sqlStatementAt, sqlRunnableStatementAt, sqlSplitStatements, sqlParamNames, sqlParamProblem, sqlTableRefs, sqlHoverTarget, sqlCallAt, sqlSignatureParts, sqlPickForm, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
-    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics, sqlRowsAs, sqlLiteral, sqlInsertTable, sqlNextBookmark, SQL_PARAM_TYPES });`, ctx);
+    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics, sqlRowsAs, sqlLiteral, sqlInsertTable, sqlNextBookmark, SQL_PARAM_TYPES,
+    sqlNameAt, sqlCatalogObject, sqlLakehouseCreate });`, ctx);
   return ctx;
 }
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -794,6 +795,28 @@ test("hovering finds the function, table, alias or column under the pointer", ()
   const unread = sqlHoverTarget("SELECT qty FROM sales", 8, "spark", SQL_TABLES, () => undefined);
   assert.deepStrictEqual([unread.kind, unread.table, unread.unread.length], ["column", null, 1], "columns not read yet: asked for when shown");
   assert.strictEqual(sqlHoverTarget("SELECT qty FROM nowhere", 8, "spark", SQL_TABLES, () => []), null);
+});
+
+test("go to and peek definition read the name under the cursor, find a warehouse's procedure or function, and sketch a lakehouse table", () => {
+  const { sqlNameAt, sqlCatalogObject, sqlLakehouseCreate } = sqlEditorHelpers();
+  const q = "EXEC [etl].usp_load @day = 1; SELECT dbo.fn_tax(amount) FROM sales -- etl.usp_load";
+  assert.deepStrictEqual(plain(sqlNameAt(q, q.indexOf("usp_load") + 2)), ["etl", "usp_load"]);
+  assert.deepStrictEqual(plain(sqlNameAt(q, q.indexOf("[etl]") + 1)), ["etl", "usp_load"], "on the schema part too");
+  assert.deepStrictEqual(plain(sqlNameAt(q, q.indexOf("fn_tax") + 1)), ["dbo", "fn_tax"]);
+  assert.strictEqual(sqlNameAt(q, q.lastIndexOf("usp_load") + 1), null, "comments");
+  assert.strictEqual(sqlNameAt(q, q.indexOf("(amount") ), null, "punctuation");
+  const objects = [{ schema: "etl", name: "usp_load", type: "P" }, { schema: "dbo", name: "fn_tax", type: "FN" },
+    { schema: "dbo", name: "sales", type: "U" }, { schema: "finance", name: "sales", type: "U" }, { schema: "finance", name: "v_budget", type: "V" }];
+  assert.strictEqual(sqlCatalogObject(["etl", "usp_load"], objects).type, "P");
+  assert.strictEqual(sqlCatalogObject(["USP_LOAD"], objects).schema, "etl", "a bare name only one schema has");
+  assert.strictEqual(sqlCatalogObject(["sales"], objects).schema, "dbo", "dbo when several schemas have it");
+  assert.strictEqual(sqlCatalogObject(["v_budget"], objects).type, "V");
+  assert.strictEqual(sqlCatalogObject(["other", "usp_load"], objects), null);
+  assert.strictEqual(sqlCatalogObject(["wh", "etl", "usp_load"], objects), null, "three parts aren't looked up");
+  assert.strictEqual(sqlCatalogObject(null, objects), null);
+  assert.strictEqual(sqlLakehouseCreate({ schema: "dbo", name: "sales" }, [{ name: "id", type: "bigint" }, { name: "Region Name", type: "string" }]),
+    "-- sales: its columns as the Explorer lists them, without its table properties or partitioning.\n" +
+    "CREATE TABLE dbo.sales (\n  id BIGINT,\n  `Region Name` STRING\n) USING DELTA;\n");
 });
 
 test("signature help knows the call and the argument the cursor is on", () => {

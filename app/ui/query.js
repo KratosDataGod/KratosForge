@@ -361,6 +361,7 @@ function renderQuery() {
       },
       togglePane: () => togglePane(),
       definition: () => goToDefinition(),
+      peek: () => peekDefinition(),
       save: () => {
         if (tab.disk) { saveDisk(false); return; }
         if (tab.proj) { whProjectSave(tab).then((ok) => { if (ok) { saveQueryTabs(); p.whProjectView?.refresh(); } }); return; }
@@ -916,18 +917,53 @@ function renderQuery() {
     }
     if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) editor.refresh(); }
   }
-  // S08: F12 shows the table under the cursor, or an alias's or a column's table, in the Explorer: on a
-  // lakehouse its row with its columns open; on a warehouse its object in the tree, opened down to it.
-  async function goToDefinition() {
+  // S08: F12 shows the object under the cursor in the Explorer: on a lakehouse its table's row with its
+  // columns open; on a warehouse its table, view, procedure or function in the tree, opened down to it.
+  // Alt+F12 shows its definition in a panel under the cursor instead.
+  const NOT_AN_OBJECT = wh ? "F12 goes to a table, view, procedure or function: put the cursor on its name, an alias or one of its columns."
+    : "F12 goes to a table or view: put the cursor on its name, an alias or one of its columns.";
+  // What the cursor names: { table } on a lakehouse, { object } (from the catalog) on a warehouse, or { message }.
+  async function definitionTarget() {
     const text = editor.text();
-    const target = sqlHoverTarget(text, editor.selection().head, tab.dialect, provider.tables(), (t) => provider.cachedColumns(t));
+    const at = editor.selection().head;
+    const target = sqlHoverTarget(text, at, tab.dialect, provider.tables(), (t) => provider.cachedColumns(t));
     const table = await sqlTargetTable(target, provider);
-    if (!table) {
-      toast(target?.kind === "function" ? `${target.name} is built in: hover it to see its forms.`
-        : "F12 goes to a table or view: put the cursor on its name, an alias or one of its columns.");
-      return;
+    if (wh) {
+      const cat = p.catalog?.key === sqlRefKey(ref) && p.catalog.state === "done" ? p.catalog : null;
+      if (!cat) return { message: "List the warehouse's objects first: Explorer › List objects." };
+      const object = table ? cat.objects.find((o) => o.schema === table.schema && o.name === table.name)
+        : sqlCatalogObject(sqlNameAt(text, at), cat.objects);
+      if (object) return { object };
+    } else if (table) return { table };
+    return { message: target?.kind === "function" ? `${target.name} is built in: hover it to see its forms.` : NOT_AN_OBJECT };
+  }
+  async function goToDefinition() {
+    const found = await definitionTarget();
+    if (found.message) { toast(found.message); return; }
+    await showInExplorer(found.object || found.table);
+  }
+  async function peekDefinition() {
+    const at = editor.selection().head;
+    const found = await definitionTarget();
+    if (found.message) { toast(found.message); return; }
+    const o = found.object || found.table;
+    const title = sqlTableLabel(o);
+    const kind = { U: "table", V: "view", P: "procedure", FN: "function" }[o.type] || "table";
+    const peek = sqlPeek(editor.view, at);
+    const actions = (text) => [
+      { label: "Open in a new tab", run: () => openTab(`${o.name} (definition)`, wh ? `${whScriptHeader(ref, "CREATE")}${text}` : text) },
+      { label: "Show in Explorer", run: () => showInExplorer(o) },
+    ];
+    peek.show({ title, kind, text: wh && o.type !== "U" ? `Reading the definition of ${title}...` : "" });
+    try {
+      const text = !wh ? sqlLakehouseCreate(o, await provider.columns(o))
+        : o.type === "U" ? whCreateTable(o, p.catalog.cols[`${o.schema}.${o.name}`] || [])
+          : `${await whDefinition(ref, o)}\n`;
+      peek.show({ title, kind, text, actions: actions(text) });
+    } catch (err) {
+      peek.show({ title, kind, error: `Could not read the definition of ${title}: ${String(err?.message || err).replace(/^Error: /, "")}`,
+        actions: [{ label: "Show in Explorer", run: () => showInExplorer(o) }] });
     }
-    await showInExplorer(table);
   }
   async function showInExplorer(table) {
     const row = wh ? await revealWarehouseObject(table) : await revealLakehouseTable(table);

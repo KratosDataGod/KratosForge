@@ -2670,6 +2670,14 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 .nb-intel-kind { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
 .nb-intel-value { display: block; margin-top: 4px; color: var(--text-2); }
 .nb-intel-doc { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-soft); max-height: 220px; overflow: hidden; white-space: pre-wrap; color: var(--text-2); font-size: 12px; line-height: 1.45; }
+/* Peek definition (Alt+F12) on the SQL page: the object's definition in a panel under the cursor. */
+.sql-peek { position: fixed; z-index: 60; width: min(720px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12); color: var(--text); }
+.sql-peek[hidden] { display: none; }
+.sql-peek-head { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 10px; border-bottom: 1px solid var(--border-soft); font-size: 12.5px; }
+.sql-peek-head code { font-family: var(--mono); }
+.sql-peek-actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.sql-peek-code { margin: 0; padding: 8px 10px; max-height: 320px; overflow: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.45; white-space: pre; }
+.sql-peek-error { margin: 0; padding: 8px 10px; color: var(--danger); font-size: 12.5px; }
 .nb-intel-info { max-width: 460px; padding: 4px 2px; font-size: 12px; }
 .sql-intel-cols { display: grid; gap: 1px; white-space: normal; }
 /* F12 (S08): the Explorer row the editor went to, marked for a moment. */

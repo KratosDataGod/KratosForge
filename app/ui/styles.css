@@ -3709,6 +3709,22 @@ body[data-skin-cells="rounded"] .cells.editing .cell.selected .cell-box { box-sh
   .nbf-print img { max-width: 100%; margin: 8px 10px; }
 }
 
+/* Notebook > Share > Open as report (nbreport.js): the export's page in report form, in its own window. */
+.nb-report { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+.nb-report-bar { gap: 8px; align-items: center; }
+.nb-report-stale { background: var(--warn-soft-9); color: var(--warn-ink-2); }
+.nb-report-page { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 20px 28px; display: flex; flex-direction: column; gap: 12px; }
+.nb-report-page h1 { font-size: 20px; margin: 0; }
+.nb-report-page .nbfp-note { color: var(--muted); margin: 0; }
+.nb-report-page .nbfp-md { white-space: pre-wrap; }
+.nb-report-page pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: 12.5px/1.45 Consolas, monospace; }
+.nb-report-page .nbfp-err { color: var(--danger); }
+.nb-report-page .nbfp-skipped { color: var(--muted); font-style: italic; }
+.nb-report-page table { border-collapse: collapse; font-size: 13px; }
+.nb-report-page th, .nb-report-page td { border: 1px solid var(--border); padding: 3px 8px; text-align: left; }
+.nb-report-page th { background: var(--surface-2); }
+.nb-report-page img { max-width: 100%; }
+
 /* SQL page > Explorer > Diagram (sqldiagram.js) */
 .sql-explorer-actions { margin: 4px 8px; }
 .sql-diagram-body { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; }

@@ -258,6 +258,32 @@ Fabric Warehouse has QUALIFY too, so there the rewrite is one way to run it, not
 Like the check above, it never runs the SQL or connects anywhere, and "compatible" is not proof that
 two platforms give the same answer. Comparing answers needs both runs.
 
+## Local T-SQL tables
+
+When a project runs T-SQL on this PC, tables are made and emptied as in a Fabric Warehouse, and what a warehouse doesn't have is refused by name. This was checked against Microsoft Learn's Fabric Data Warehouse pages for tables, temporary tables, IDENTITY and the T-SQL surface area, as they read on 2026-11-17.
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| `VARCHAR(n)`, `CHAR(n)`, `VARBINARY(n)`, `BINARY(n)` in `CREATE TABLE` | At most n bytes, as UTF-8 text: `'ééé'` doesn't fit in `VARCHAR(5)`. A longer value stops the `INSERT` or `UPDATE` with T-SQL's "String or binary data would be truncated in table 'dbo.t', column 'v'.", and nothing changes. Trailing blanks past the length don't count, as in T-SQL. `VARCHAR(MAX)` has no limit |
+| `NOT NULL` | Kept: a `NULL` stops the `INSERT` |
+| `#temp` tables | Last until the project is closed (the session), and are gone when it's opened again. `WITH (DISTRIBUTION = ROUND_ROBIN)`, which a warehouse takes only on a #temp table, is accepted and changes nothing here |
+| `CREATE TABLE ... AS SELECT`, `SELECT ... INTO` | A table with the select's columns and types: `1` is an `int`, `1.5` a `decimal(2,1)`, a cast keeps its type |
+| `DROP TABLE IF EXISTS`, `TRUNCATE TABLE` | As in a warehouse |
+
+Refused by name:
+
+- `IDENTITY`. A warehouse takes only `BIGINT IDENTITY`, with no seed or increment, and numbers rows uniquely but not always in order. The local engine doesn't number rows that way yet, so give the column its values in the `INSERT`. `SET IDENTITY_INSERT` and `DBCC` are refused too.
+- `##global` temporary tables, which a warehouse doesn't have either.
+- `WITH (DISTRIBUTION = ...)` on a table that isn't a #temp table.
+- `ALTER TABLE ... ADD` of a `VARCHAR(n)`, `CHAR(n)`, `VARBINARY(n)` or `BINARY(n)` column, since the local engine can't hold an added column to its length. Declare it in `CREATE TABLE`. Adding a column of another type, or `VARCHAR(MAX)`, works.
+
+What can still differ:
+
+- A table made by `CREATE TABLE ... AS SELECT` or `SELECT ... INTO` keeps no text length and no `NOT NULL`: every column accepts `NULL` and text of any length. In T-SQL, a column copied from a `NOT NULL` column stays `NOT NULL`.
+- `CHAR(n)` isn't padded with spaces to n characters. `LEN` gives the same answer either way, but `DATALENGTH` of a stored `CHAR` value doesn't.
+- Trailing blanks past a text column's length are kept here. A warehouse drops them, so `DATALENGTH` differs.
+- A #temp table is shared by every query in the open project. In a warehouse it belongs to one connection.
+
 ## Local T-SQL decimals
 
 When a project runs T-SQL on this PC, arithmetic with a decimal side gets the precision and scale a Fabric Warehouse gives it, by T-SQL's rules ("Precision, scale, and length" on Microsoft Learn). DuckDB's own rules differ: it widens decimals its own way, keeps every digit of scale, and divides decimals as doubles.

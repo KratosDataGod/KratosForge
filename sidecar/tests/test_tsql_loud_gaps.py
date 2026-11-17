@@ -283,13 +283,16 @@ REFUSED_IN_THE_DOCS = {
     "OPENJSON": "SELECT [key] FROM OPENJSON('{}')",
     "OPTION (...)": "SELECT 1 OPTION (MAXDOP 1)",
     "OUTPUT": "DELETE FROM dbo.orders OUTPUT deleted.id WHERE id = 1",
+    "IDENTITY": "CREATE TABLE dbo.identity_test (id BIGINT IDENTITY, v INT)",
+    "DBCC": "DBCC CHECKIDENT ('dbo.orders', RESEED)",
+    "##global": "CREATE TABLE ##g (id INT)",
     "PERCENTILE_DISC": "SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY 'a' DESC) OVER ()",
     "ORDER BY ... DESC": "SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY CAST('2024-01-01' AS DATE) DESC) OVER ()",
     "DATEFIRST": "SET DATEFIRST 1",
 }
 ADVICE_IN_THE_DOCS = {"&", "|", "JSON_VALUE", "JSON_QUERY", "TRY_CAST(x AS FLOAT) IS NOT NULL", "POWER(2.5, 2)", "FLOAT", "SYSUTCDATETIME()",
                       "DECIMAL(19, 4)", "DECIMAL(10, 4)",
-                      "SET NOCOUNT ON", "SET DATEFIRST 7", "SELECT"}
+                      "SET NOCOUNT ON", "SET DATEFIRST 7", "SELECT", "INSERT", "#temp"}
 
 
 def _docs_refused_list() -> str:

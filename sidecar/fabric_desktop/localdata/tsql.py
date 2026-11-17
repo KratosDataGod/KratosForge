@@ -96,6 +96,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             _refuse(tree)
             _temp_tables(tree)
             _joined_changes(tree)
+            _table_columns(tree)
             for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
                 parts.replace(_timefromparts(parts))
             notes += _converts(tree)
@@ -214,7 +215,20 @@ def _joined_changes(tree: exp.Expression) -> None:
         tree.set("using", others or None)
 
 
+def _refuse_dbcc(batch: str) -> None:
+    """DBCC (CHECKIDENT, SHOW_STATISTICS, ...) starts a statement; sqlglot reads it as a command it passes through.
+    Tokens, not text, so a string that holds "DBCC" isn't refused."""
+    try:
+        tokens = KfTSQL().tokenize(batch)
+    except SqlglotError:
+        return  # _parse reports it
+    starts = [tok for i, tok in enumerate(tokens) if i == 0 or tokens[i - 1].token_type == TokenType.SEMICOLON]
+    if any(tok.token_type == TokenType.VAR and tok.text.upper() == "DBCC" for tok in starts):
+        raise ValueError(_NOT_YET + "DBCC isn't mapped yet. Run it in a Fabric Warehouse.")
+
+
 def _parse(batch: str) -> list[exp.Expression]:
+    _refuse_dbcc(batch)
     _refuse_output(batch)
     unsupported: list[str] = []
 
@@ -298,6 +312,89 @@ def _temp_tables(tree: exp.Expression) -> None:
             if not any(isinstance(p, exp.TemporaryProperty) for p in props.expressions):
                 props.append("expressions", exp.TemporaryProperty())
                 tree.set("properties", props)
+
+
+_SIZED_COLUMNS = {exp.DataType.Type.VARCHAR: "strlen", exp.DataType.Type.CHAR: "strlen",
+                  exp.DataType.Type.VARBINARY: "octet_length", exp.DataType.Type.BINARY: "octet_length"}
+
+
+_TEXT_COLUMNS = (exp.DataType.Type.VARCHAR, exp.DataType.Type.CHAR)
+
+
+def _sized(column: exp.ColumnDef) -> int | None:
+    """n for a VARCHAR(n), CHAR(n), VARBINARY(n) or BINARY(n) column; None for any other (VARCHAR(MAX) too)."""
+    kind = column.args.get("kind")
+    if not (isinstance(kind, exp.DataType) and kind.this in _SIZED_COLUMNS and kind.expressions):
+        return None
+    size = kind.expressions[0].this
+    return int(size.name) if isinstance(size, exp.Literal) and size.is_int else None
+
+
+def _table_columns(tree: exp.Expression) -> None:
+    """``CREATE TABLE`` as a Fabric Warehouse defines it.
+
+    - ``VARCHAR(n)``, ``CHAR(n)``, ``VARBINARY(n)`` and ``BINARY(n)`` hold at most n bytes (a warehouse's text is
+      UTF-8). DuckDB ignores the length, so a longer value was kept whole; a CHECK now stops it with T-SQL's
+      "String or binary data would be truncated", on INSERT and UPDATE. Trailing blanks past the length pass, as
+      in T-SQL (which drops them; locally they're kept). DuckDB can't add a column with a CHECK, so ``ALTER TABLE
+      ... ADD`` of a sized column is refused by name.
+    - ``IDENTITY`` is refused by name: a warehouse takes only ``BIGINT IDENTITY`` with no seed or increment, and
+      the local engine doesn't number rows that way yet.
+    - ``##name`` is refused anywhere, since a warehouse has no global temporary tables (sqlglot read it as an
+      ordinary table), and ``WITH (DISTRIBUTION = ...)``,
+      which a warehouse takes only on a #temp table, is dropped there (it changes how the table is stored, not
+      what it holds)."""
+    for ident in tree.find_all(exp.Identifier):
+        if ident.args.get("global_"):  # sqlglot reads ##g as g: it made and read an ordinary table
+            raise ValueError(f"This T-SQL can't be run on the local engine: global temporary tables (##{ident.name}) "
+                             "aren't supported in a Fabric Warehouse either. Use a #temp table.")
+    if isinstance(tree, exp.Alter) and (tree.args.get("kind") or "").upper() == "TABLE":
+        for column in tree.args.get("actions") or []:
+            if isinstance(column, exp.ColumnDef) and _sized(column) is not None:
+                raise ValueError(_NOT_YET + f"ALTER TABLE ... ADD of a column with a length ({column.name}) isn't "
+                                 "mapped yet: the local engine can't hold an added column to its length. Declare "
+                                 "the column in CREATE TABLE, or run it in a Fabric Warehouse.")
+        return
+    if not (isinstance(tree, exp.Create) and (tree.args.get("kind") or "").upper() == "TABLE"):
+        return
+    name = tree.this.this if isinstance(tree.this, exp.Schema) else tree.this
+    temporary = isinstance(name, exp.Table) and name.name.startswith("#")
+    props = tree.args.get("properties")
+    if isinstance(props, exp.Properties):
+        for prop in list(props.expressions):
+            if isinstance(prop, exp.Property) and prop.name.upper() == "DISTRIBUTION":
+                if not temporary:
+                    raise ValueError("This T-SQL can't be run on the local engine: WITH (DISTRIBUTION = ...) is only "
+                                     "for #temp tables in a Fabric Warehouse. Remove it, or make the table a #temp table.")
+                prop.pop()
+    if not isinstance(tree.this, exp.Schema):
+        return
+    for column in tree.this.expressions:
+        if not isinstance(column, exp.ColumnDef):
+            continue
+        constraints = column.args.get("constraints") or []
+        identity = [c for c in constraints if isinstance(c.args.get("kind"), (exp.AutoIncrementColumnConstraint,
+                                                                              exp.GeneratedAsIdentityColumnConstraint))]
+        if identity:
+            raise ValueError(_NOT_YET + f"IDENTITY isn't mapped yet (column {column.name}). A Fabric Warehouse takes "
+                             "only BIGINT IDENTITY, with no seed or increment; until the local engine numbers rows "
+                             "that way, give the column its values in the INSERT.")
+        size = _sized(column)
+        if size is None:
+            continue
+        kind = column.args["kind"]
+        table = f"{name.db}.{name.name}" if isinstance(name, exp.Table) and name.db else \
+            (name.name if isinstance(name, exp.Table) else "")
+        value: exp.Expr = exp.column(column.name, quoted=column.this.quoted)
+        if kind.this in _TEXT_COLUMNS:  # trailing blanks past the length are dropped, not an error, in T-SQL
+            value = exp.func("rtrim", value)
+        too_long = exp.GT(this=exp.func(_SIZED_COLUMNS[kind.this], value), expression=exp.Literal.number(size))
+        message = exp.Literal.string(f"String or binary data would be truncated in table '{table}', column "
+                                     f"'{column.name}'.")
+        check = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=exp.true())
+        column.append("constraints", exp.ColumnConstraint(kind=exp.CheckColumnConstraint(this=check)))
+        if kind.this in (exp.DataType.Type.VARBINARY, exp.DataType.Type.BINARY):
+            kind.set("expressions", [])  # DuckDB's BLOB takes no length: VARBINARY(4) stopped CREATE TABLE
 
 
 def _schema(columns: dict[str, dict[str, dict[str, str]]]) -> Any:

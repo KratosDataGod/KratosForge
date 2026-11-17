@@ -419,6 +419,16 @@ class _Printer:
             return self.window(node)
         if isinstance(node, exp.Filter):
             return f"{self.pretty(node.this)} FILTER (WHERE {self.pretty(node.expression.this)})"
+        if isinstance(node, exp.WithinGroup) and isinstance(node.this, (exp.PercentileCont, exp.PercentileDisc)):
+            # PercentileCont.sql: the fraction, then the ordering column, DESC when it is reversed
+            order = node.expression.expressions if isinstance(node.expression, exp.Order) else []
+            if len(order) != 1:
+                raise _Unknown
+            item = order[0]
+            by = self.pretty(item.this if isinstance(item, exp.Ordered) else item)
+            desc = " DESC" if isinstance(item, exp.Ordered) and item.args.get("desc") else ""
+            name = "percentile_cont" if isinstance(node.this, exp.PercentileCont) else "percentile_disc"
+            return f"{name}({self.pretty(node.this.this)}) WITHIN GROUP (ORDER BY {by}{desc})"
         if isinstance(node, exp.IgnoreNulls):
             return self.pretty(node.this)
         if isinstance(node, exp.Distinct):

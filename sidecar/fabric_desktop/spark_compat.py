@@ -14,6 +14,7 @@ import builtins
 import functools
 import inspect
 import itertools
+import logging
 import re
 import sys
 import types
@@ -26,11 +27,12 @@ from duckdb.experimental.spark.sql.column import Column
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.group import GroupedData
 from sqlglot import exp
-from . import spark_aggregates, spark_builtins_sql, spark_complex, spark_sql_names, sql_dialects
+from . import spark_aggregates, spark_builtins_sql, spark_complex, spark_sql_names, spark_windows, sql_dialects
 from . import sql as spark_sql
 from .duckdb_rows import one_row
 
 _ids = itertools.count()
+_log = logging.getLogger(__name__)
 
 
 def _sql(text: str) -> Column:
@@ -116,20 +118,61 @@ def ntile(n: int) -> Column:
 
 
 def lag(col: Any, offset: int = 1, default: Any = None) -> Column:
-    return _call(f"lag({{0}}, {int(offset)}, {_lit(default)})", col)
+    out = _call(f"lag({{0}}, {int(offset)}, {_lit(default)})", col)
+    out._fd_shift = -int(offset)  # type: ignore[attr-defined]  # Spark's frame for it (spark_windows)
+    return out
 
 
 def lead(col: Any, offset: int = 1, default: Any = None) -> Column:
-    return _call(f"lead({{0}}, {int(offset)}, {_lit(default)})", col)
+    out = _call(f"lead({{0}}, {int(offset)}, {_lit(default)})", col)
+    out._fd_shift = int(offset)  # type: ignore[attr-defined]
+    return out
 
 
 def explode(col: Any) -> Column:
-    return _call("explode({0})", col)
+    return _typed("explode", _call("explode({0})", col), col)
 
 
 def explode_outer(col: Any) -> Column:
     # A null or empty array gives one row with null, where explode gives none.
-    return _sql(f"unnest(CASE WHEN len({_col_sql(col)}) > 0 THEN {_col_sql(col)} ELSE [NULL] END)")
+    return _typed("explode_outer", _sql(f"unnest(CASE WHEN len({_col_sql(col)}) > 0 THEN {_col_sql(col)} ELSE [NULL] END)"),
+                  col)
+
+
+def posexplode(col: Any) -> Column:
+    """One row per element with its position from 0 (``pos`` and ``col``; a map gives ``pos``, ``key`` and
+    ``value``), as in Spark. The columns are made in select; anywhere else this is the element alone."""
+    return _typed("posexplode", explode(col), col)
+
+
+def posexplode_outer(col: Any) -> Column:
+    """posexplode, keeping a row of NULLs for an empty or NULL array or map, as in Spark."""
+    return _typed("posexplode_outer", explode_outer(col), col)
+
+
+def map_concat(*cols: Any) -> Column:
+    """The maps' entries together; a key in more than one map stops the query, as with Spark's default
+    spark.sql.mapKeyDedupPolicy (spark_complex)."""
+    cols = _flat(cols)
+    if len(cols) == 1:
+        return _call("{0}", cols[0])
+    return _call(f"map_concat({', '.join('{' + str(i) + '}' for i in range(len(cols)))})", *cols)
+
+
+def reverse(col: Any) -> Column:
+    """Text backwards, or an array's elements in reverse order, as in Spark."""
+    return _typed("reverse", _call("reverse({0})", col), col)
+
+
+def sequence(start: Any, stop: Any, step: Any = None) -> Column:
+    """Whole numbers (or dates) from start to stop, counting down when stop is below start, as in Spark."""
+    if step is not None:
+        return _typed("sequence", _call("sequence({0}, {1}, {2})", start, stop, step), start, stop, step)
+    return _typed("sequence", _call("sequence({0}, {1})", start, stop), start, stop)
+
+
+def cardinality(col: Any) -> Column:
+    return size(col)
 
 
 def current_timestamp() -> Column:
@@ -175,7 +218,104 @@ def unix_timestamp(timestamp: Any = None, format: str = "yyyy-MM-dd HH:mm:ss") -
 
 
 def size(col: Any) -> Column:
-    return _call("size({0})", col)
+    return _typed("size", _call("size({0})", col), col)
+
+
+# ---- functions whose answer for a map, or a count down, depends on a column's type (WR-110)
+
+# Each such function's Column SQL, written for an array, and what to work out from its arguments' types
+# when a select, withColumn or filter knows them. Kept by its SQL text, which stays the same inside any
+# expression built on it (size(m) + 1).
+_TYPED: dict[str, tuple[str, tuple[str, ...]]] = {}
+_TYPED_KEPT = 4096
+_GENERATORS = ("explode", "explode_outer", "posexplode", "posexplode_outer")
+
+
+def _typed(kind: str, col: Column, *args: Any) -> Column:
+    if len(_TYPED) >= _TYPED_KEPT:
+        _TYPED.pop(next(iter(_TYPED)))
+    _TYPED[str(col.expr)] = (kind, tuple(f"({_col_sql(a)})" for a in args))
+    return col
+
+
+def _typed_columns(df: DataFrame, cols: Any, generators: bool = True) -> list[Any]:
+    """``cols`` with each function in _TYPED given the form its arguments' types call for: size of a map
+    counts its keys, reverse of an array reverses it, sequence of whole numbers counts down, and explode
+    and posexplode give Spark's columns (``key`` and ``value`` for a map, ``pos`` first). A column whose
+    types can't be worked out keeps the array form."""
+    out: list[Any] = []
+    for c in cols:
+        text = str(c.expr) if isinstance(c, Column) else ""
+        found = [key for key in _TYPED if key in text] if text else []
+        if not found:
+            out.append(c)
+            continue
+        kind, args = _TYPED[text] if text in _TYPED else ("", ())
+        if generators and kind in _GENERATORS:
+            out.extend(_generator_columns(df, kind, args[0]) or [c])
+            continue
+        for key in found:
+            new = _typed_sql(df, *_TYPED[key])
+            if new is not None:
+                text = text.replace(key, new)
+        if text == str(c.expr):
+            out.append(c)
+            continue
+        made = Column(duckdb.SQLExpression(text).alias(c.expr.get_name()))
+        for attr in ("_fd_name", "_fd_alias", "_fd_top"):
+            if attr in vars(c):
+                setattr(made, attr, vars(c)[attr])
+        out.append(made)
+    return out
+
+
+def _arg_types(df: DataFrame, args: tuple[str, ...]) -> list[str] | None:
+    try:  # binding a projection runs nothing
+        return [str(t) for t in df.relation.project(", ".join(args)).types]
+    except duckdb.Error as exc:
+        _log.debug("Spark typed form not applied: %s", exc)
+        return None
+
+
+_WHOLE_TYPES = ("TINYINT", "SMALLINT", "INTEGER", "BIGINT")
+
+
+def _typed_sql(df: DataFrame, kind: str, args: tuple[str, ...]) -> str | None:
+    types = _arg_types(df, args)
+    if not types:
+        return None
+    a = args[0]
+    if kind == "size" and types[0].startswith("MAP("):
+        return f"CASE WHEN {a} IS NULL THEN -1 ELSE CAST(cardinality({a}) AS INTEGER) END"
+    if kind == "reverse" and types[0].endswith("[]"):
+        return f"list_reverse({a})"
+    if kind == "sequence" and all(t in _WHOLE_TYPES for t in types):
+        whole = "BIGINT" if "BIGINT" in types else "INTEGER"
+        s, e = args[:2]
+        by = args[2] if len(args) == 3 else f"CASE WHEN {s} <= {e} THEN 1 ELSE -1 END"
+        return f"CAST(generate_series({s}, {e}, {by}) AS {whole}[])"
+    return None
+
+
+def _generator_columns(df: DataFrame, kind: str, a: str) -> list[Column] | None:
+    types = _arg_types(df, (a,))
+    if types is None:
+        return None
+    is_map = types[0].startswith("MAP(")
+    outer = kind.endswith("_outer")
+
+    def items(of: str) -> str:
+        return f"CASE WHEN {a} IS NULL OR len({of}) = 0 THEN [NULL] ELSE {of} END" if outer else of
+    count = f"cardinality({a})" if is_map else f"len({a})"
+    pos = f"CASE WHEN {a} IS NULL THEN NULL ELSE CAST(range(CAST({count} AS BIGINT)) AS INTEGER[]) END"
+    made = [duckdb.SQLExpression(f"unnest({items(f'map_keys({a})')})").alias("key"),
+            duckdb.SQLExpression(f"unnest({items(f'map_values({a})')})").alias("value")] if is_map else \
+        [duckdb.SQLExpression(f"unnest({items(a)})").alias("col")]
+    if kind.startswith("pos"):
+        made.insert(0, duckdb.SQLExpression(f"unnest({items(pos)})").alias("pos"))
+    elif not is_map:
+        return None  # explode of an array is already right
+    return [Column(m) for m in made]
 
 
 def array_contains(col: Any, value: Any) -> Column:
@@ -925,11 +1065,51 @@ def _ordered(name: str, fn: Any) -> Any:
 _IGNORING_NULLS = re.compile(r'^"?(first|last)"?\((.*)\) FILTER \(WHERE (\()?\2 IS NOT NULL(?(3)\))\)$', re.S)
 
 
+# Spark's window functions, as DuckDB writes them: their checks and int types are spark_windows'.
+_WINDOW_CALL = re.compile(r'^"?(row_number|rank|dense_rank|ntile|percent_rank|cume_dist|lag|lead)"?\(', re.I)
+_SPARK_RANK_NAMES = {"rank": "RANK()", "dense_rank": "DENSE_RANK()", "percent_rank": "PERCENT_RANK()"}
+
+
 def _over(self: Column, window: WindowSpec) -> Column:
     text = str(self.expr)
     if m := _IGNORING_NULLS.fullmatch(text):  # F.first(x, True).over(w): a window takes IGNORE NULLS, not FILTER
         text = f"{m.group(1)}_value({m.group(2)} IGNORE NULLS)"
-    return _sql(f"{text} OVER ({window.sql()})")
+    called = m.group(1).lower() if (m := _WINDOW_CALL.match(text)) else None
+    if called is not None and (why := spark_windows.refusal(called, bool(window._order), window._frame or None)):
+        raise ValueError(why)
+    over = f"{text} OVER ({window.sql()})"
+    if called in ("row_number", "rank", "dense_rank", "ntile"):  # an int in Spark, a bigint in DuckDB
+        over = f"CAST({over} AS INTEGER)"
+    out = _sql(over)
+    name = _window_name(self, called, window)
+    return _named(out, name) if name is not None else out
+
+
+def _window_name(col: Column, called: str | None, window: WindowSpec) -> str | None:
+    """Spark's name for ``col`` over ``window``: its frame is written out, the one it was given or its
+    default. None for a RANGE frame with offsets, whose name depends on the ordering column's type."""
+    frame = window._frame
+    if frame:
+        if frame.startswith("RANGE") and re.search(r"\d", frame):
+            return None
+        frame = re.sub(r"\b(\d+) PRECEDING", r"-\1 FOLLOWING", frame)  # rowsBetween(-1, 1): a literal -1
+    elif called in ("lag", "lead"):
+        n = vars(col).get("_fd_shift", -1 if called == "lag" else 1)
+        frame = f"ROWS BETWEEN {n} FOLLOWING AND {n} FOLLOWING"
+    elif called is not None:
+        frame = spark_windows.required_frame(called)
+    elif window._order:
+        frame = "RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
+    else:
+        frame = "ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING"
+    parts = []
+    if window._partition:
+        parts.append("PARTITION BY " + ", ".join(_name_of(c) for c in window._partition))
+    if window._order:
+        parts.append("ORDER BY " + ", ".join(f"{_name_of(c)} {_order_of(c)}" for c in window._order))
+    parts.append(frame)
+    inner = _SPARK_RANK_NAMES.get(called or "") or _spark_text(col)
+    return f"{inner} OVER ({' '.join(parts)})"
 
 
 # ---- Spark's generated column names
@@ -1215,14 +1395,14 @@ def _bound_name(df: DataFrame, expression: Any) -> str:
 
 def _decimal_select(fn: Any) -> Any:
     def select(self: DataFrame, *cols: Any) -> DataFrame:
-        return fn(self, *_spark_decimals(self, _flat(cols)))
+        return fn(self, *_spark_decimals(self, _typed_columns(self, _flat(cols))))
     select.__doc__ = fn.__doc__
     return select
 
 
 def _decimal_with_column(fn: Any) -> Any:
     def withColumn(self: DataFrame, colName: str, col: Any) -> DataFrame:  # noqa: N802, N803
-        return fn(self, colName, *_spark_decimals(self, [col]))
+        return fn(self, colName, *_spark_decimals(self, _typed_columns(self, [col], generators=False)))
     withColumn.__doc__ = fn.__doc__
     return withColumn
 
@@ -1231,7 +1411,8 @@ def _decimal_with_columns(fn: Any) -> Any:
     def withColumns(self: DataFrame, *colsMap: Any) -> DataFrame:  # noqa: N802, N803
         if len(colsMap) == 1 and isinstance(colsMap[0], dict):
             names = list(colsMap[0])
-            colsMap = (dict(zip(names, _spark_decimals(self, [colsMap[0][n] for n in names]), strict=True)),)
+            typed = _typed_columns(self, [colsMap[0][n] for n in names], generators=False)
+            colsMap = (dict(zip(names, _spark_decimals(self, typed), strict=True)),)
         return fn(self, *colsMap)
     withColumns.__doc__ = fn.__doc__
     return withColumns
@@ -1771,6 +1952,7 @@ def _row_filter(fn: Any) -> Any:
     def filter(self: DataFrame, condition: Any) -> DataFrame:  # noqa: A001 - PySpark's name
         from .spark_struct_fields import refuse_unresolved
         refuse_unresolved([condition])
+        condition = _typed_columns(self, [condition], generators=False)[0]
         if isinstance(condition, Column) and "row_number() OVER ()" in str(condition.expr):
             cols = ", ".join(_col_sql(c) for c in self.columns)
             numbered = self.relation.project(f"*, ({condition.expr}) AS {_KEEP_ROW}")
@@ -2321,7 +2503,7 @@ def install() -> None:
         if name in ("count", "substring", "concat", "initcap", "first", "last", "slice", "add_months",
                     "months_between", "element_at", "to_date", "to_timestamp", "ln", "log2", "pow", "factorial",
                     "split", "rand", "isnan", "printf", "collect_list", "collect_set", "approx_count_distinct",
-                    "array_contains", "array_position", "flatten",
+                    "array_contains", "array_position", "flatten", "reverse", "sequence", "cardinality",
                     ) or not hasattr(F, name):
             setattr(F, name, fn)
     vars(F).update(expr=expr)  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)

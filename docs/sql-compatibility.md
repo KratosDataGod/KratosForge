@@ -99,6 +99,31 @@ These cases can still differ. LOC-003 warns wherever a pattern is used:
 
 A cast of text that is only a year or a year and month, such as `CAST('2024-02' AS DATE)` or `to_timestamp('2024')`, also still differs. Spark reads it as the month's or the year's first day; here it is NULL. No rule warns about it yet.
 
+## Window functions on this PC
+
+Spark SQL and the DataFrame API run on this PC give Spark's answers for window functions, with ANSI mode off as Fabric runs it. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_windows.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
+
+| What | On this PC, as in Spark |
+| --- | --- |
+| NULLs in a window's `ORDER BY` | First in ascending order and last in descending order, unless the window says `NULLS FIRST` or `NULLS LAST` |
+| `row_number`, `rank`, `dense_rank`, `ntile` | An `int`. Ties share a rank: `rank` skips after a tie (1, 1, 3), `dense_rank` doesn't (1, 1, 2). `ntile` gives the extra rows to the first groups: 7 rows in 3 groups are 3, 2 and 2 |
+| `percent_rank`, `cume_dist` | A `double`; ties share a value |
+| `lag`, `lead` | NULL past the edge of the partition, or the default given: `lag(x, 1, 0)`. A NULL value in range stays NULL; the default is only for rows past the edge |
+| Aggregates `OVER (ORDER BY ...)` | The default frame is `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`, so rows that tie share a running total. Without `ORDER BY` the frame is the whole partition |
+| Column names | Spark's, with the frame written out: `row_number() OVER (PARTITION BY p ORDER BY v ASC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)` |
+| A ranking function, `lag` or `lead` with no `ORDER BY` in its window | Stops, as in Spark: nothing runs |
+| `lag` or `lead` given a frame, or a ranking function given a frame other than its own | Stops, as in Spark: nothing runs |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| Rows that tie in a window's `ORDER BY`, for `row_number`, `lag`, `lead`, `first` and `last` | Any order | Any order, which can differ from Spark's. Add a column that tells them apart when the order matters |
+| A window given by name in a `WINDOW` clause | Checked as above | Not checked here: a missing `ORDER BY` or a frame isn't refused |
+| A DataFrame window function Spark stops on | Stops at the `select` | Stops at `.over(...)`, a line earlier |
+| A DataFrame window with `rangeBetween` and numbers, such as `rangeBetween(-1, 0)` | Named after its frame as Spark writes it for the column's type | Named `... RANGE BETWEEN 1 PRECEDING AND CURRENT ROW`. Give it an `alias` |
+| `ntile(0)`, or `ntile` of a column | Stops with Spark's message | Stops with DuckDB's message |
+
 ## Aggregates on this PC
 
 Spark SQL and the DataFrame API run on this PC give Spark's values and types for its aggregates, with ANSI mode off as Fabric runs it. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_aggregates.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
@@ -151,7 +176,7 @@ These cases still differ:
 | `posexplode` and `LATERAL VIEW posexplode` | `pos` is an `int` | `pos` is a `bigint` |
 | A map that only comes from a computed expression, such as `size(map_filter(m, ...))` or `explode(map_from_arrays(...))`, in a view or subquery the types can't be read through | Counted or exploded as a map | Can stop with a DuckDB error naming the function. A map column, or a map written in the query, works |
 | `array(1, 'a')` and other arrays that mix types | The elements are cast to a common type (`array<string>`) | Stops with a conversion error. Cast the elements to one type first |
-| The DataFrame API: `F.size`, `F.explode` and `F.explode_outer` of a map column, `F.reverse` of an array, `F.sequence` counting down, and `F.posexplode` and `F.map_concat`, which aren't there | As in Spark SQL | Not given Spark's answer yet: a map or a count down stops or gives `[]`. Run that part through `spark.sql` |
+| The DataFrame API's `F.size`, `F.cardinality`, `F.reverse` and `F.sequence` used in `agg`, `groupBy` or `orderBy`, and `F.explode` or `F.posexplode` of a map used anywhere but `select` | As in Spark SQL | They're read as arrays here: a map stops with a DuckDB error, and a count down gives `[]`. In `select`, `withColumn`, `withColumns` and `filter` they give Spark's answer. Work the column out in a `select` first |
 | Databricks SQL on the DuckDB engine | As in Spark SQL | The fixes that don't need column types apply; `size`, `explode` and `reverse` of a map or array column keep DuckDB's forms |
 | `explode` of a map that holds `rand()` or `shuffle()`, in a select list | The map is read once | Its keys and values are read separately, so they can come from different reads. Use `LATERAL VIEW explode`, which reads it once |
 
@@ -600,6 +625,20 @@ In a Fabric Warehouse, `OPTION (FOR TIMESTAMP AS OF '2026-11-01T09:30:00')` at t
 Refused by name: the hint on `INSERT ... SELECT`, `SELECT ... INTO` or `CREATE TABLE AS` (Microsoft's pages disagree on whether a warehouse runs these), the hint beside another hint (`OPTION (MAXDOP 1, FOR TIMESTAMP AS OF ...)`), a batch with more than one statement beside a `SELECT` with the hint (put `GO` before and after it), and the hint twice in one batch. Other `OPTION (...)` hints are still refused.
 
 On a warehouse, from the SQL page, a `SELECT` ending in the hint is sent as written, and the warehouse answers for its own retention.
+
+## Table clones and warehouse snapshots
+
+In a Fabric Warehouse, `CREATE TABLE dbo.clone AS CLONE OF dbo.source [AT 'YYYY-MM-DDThh:mm:ss']` makes a zero-copy clone: only the table's metadata is copied, the clone shares the source's Parquet files as they were at that time (in UTC), and after that a change to either one isn't seen in the other. The clone keeps the source's primary and unique keys, its object-level security, row-level security and dynamic data masking. A warehouse can't clone across warehouses or workspaces, from its SQL analytics endpoint, or to a time older than its retention (30 days by default, at most 120). A warehouse snapshot is a read-only Fabric item showing a warehouse at a point in time; it is made in Fabric, and `ALTER DATABASE [snapshot] SET TIMESTAMP = ...` moves it. These come from Microsoft's [CREATE TABLE AS CLONE OF](https://learn.microsoft.com/sql/t-sql/statements/create-table-as-clone-of-transact-sql?view=fabric), [Clone table](https://learn.microsoft.com/fabric/data-warehouse/clone-table) and [Warehouse snapshots](https://learn.microsoft.com/fabric/data-warehouse/warehouse-snapshot) pages.
+
+| What | In a Fabric Warehouse | On a warehouse, from the SQL page | Here |
+| --- | --- | --- | --- |
+| `CREATE TABLE ... AS CLONE OF`, with or without `AT` | A zero-copy clone | Runs as a change; the confirm names the clone, its source and its UTC time | Refused by name: a clone here would be a full copy with a history of its own, never the zero-copy clone a warehouse makes. The message names the copy that does run (`CREATE TABLE dbo.c AS SELECT * FROM dbo.t`) and, with `AT`, the read of the source as it was (`SELECT ... OPTION (FOR TIMESTAMP AS OF ...)`) |
+| A clone or source named with its database | Only within the same warehouse | Refused before anything is sent | Refused, as above |
+| An `AT` time not written `'YYYY-MM-DDThh:mm:ss[.fff]'` | An error | Refused before anything is sent, naming the format | Refused, as above |
+| An `AT` time later than now, or more than 120 days ago | Nothing to clone from | Refused before anything is sent | Refused, as above |
+| An `AT` time inside 120 days but older than the warehouse's retention | An error | Sent: the warehouse refuses it | Refused, as above |
+| `ALTER DATABASE ... SET TIMESTAMP` (a warehouse snapshot) | Moves the snapshot | Refused: use **Capture new state** on the snapshot in Fabric | Refused by name: the local engine has no warehouse snapshots |
+| Querying a warehouse snapshot | Read-only, through the snapshot's own connection | The Warehouse page doesn't open snapshots yet | Not applicable |
 
 ## Loading data with T-SQL
 

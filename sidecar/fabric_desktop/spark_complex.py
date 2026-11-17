@@ -141,7 +141,8 @@ def spark_complex_results(statement: exp.Expression) -> exp.Expression:
         _mark(node, "sequence", node.args["start"])
     for lateral in _mine(list(statement.find_all(exp.Lateral))):
         call = lateral.this
-        if isinstance(call, (exp.Explode, exp.Posexplode)) and not isinstance(call, exp.ExplodeOuter):
+        # exp.Inline: stack, json_tuple and inline, as spark_builtins_sql writes them after LATERAL VIEW
+        if isinstance(call, (exp.Explode, exp.Posexplode, exp.Inline)) and not isinstance(call, exp.ExplodeOuter):
             lateral.meta[_KEY] = "lateral"
             lateral.meta["kf_complex_source"] = call.this.copy()
             if lateral.args.get("outer"):

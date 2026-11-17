@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import warnings
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -335,7 +336,7 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
         if isinstance(node, exp.Uniform) and not (isinstance(node.args.get("gen"), exp.Rand)
                                                   and node.args["gen"].this is None):
             return _refuse("SFN-021", "UNIFORM with a generator other than RANDOM()",
-                           "Snowflake turns any other generator (a number or a seeded RANDOM) into its own series, "
+                           "Snowflake turns any other generator (a number, a column or a seeded RANDOM) into its own series, "
                            "which this PC can't reproduce. UNIFORM(min, max, RANDOM()) runs here.",
                            f"{_DOCS}/functions/uniform")
         if isinstance(node, (exp.ToDecfloat, exp.TryToDecfloat)) or (
@@ -684,12 +685,26 @@ def _rewrite_arrays(statement: exp.Expression) -> None:
 def _rewrite_regexp_groups(statement: exp.Expression) -> None:
     """SFX-021: REGEXP_SUBSTR and REGEXP_SUBSTR_ALL with the 'e' parameter and no group number give the
     first group, as Snowflake does; sqlglot writes group 0, the whole match. (sqlglot reads group 0 written
-    in the query the same way, so it gives the first group too.)"""
+    in the query the same way, so it gives the first group too.) Only a pattern written in the query with
+    at least one group is changed; any other pattern keeps the whole match, as before."""
     for node in list(statement.find_all(exp.RegexpExtract, exp.RegexpExtractAll)):
         params, group = node.args.get("parameters"), node.args.get("group")
         if isinstance(params, exp.Literal) and "e" in params.name.lower() and (
-                group is None or (isinstance(group, exp.Literal) and group.name == "0")):
+                group is None or (isinstance(group, exp.Literal) and group.name == "0")) \
+                and _pattern_groups(node.expression) > 0:
             node.set("group", exp.Literal.number(1))
+
+
+def _pattern_groups(pattern: exp.Expression | None) -> int:
+    """The number of capture groups in a pattern written in the query as a string, else 0."""
+    if not (isinstance(pattern, exp.Literal) and pattern.is_string):
+        return 0
+    try:
+        with warnings.catch_warnings():  # POSIX classes such as [[:alpha:]] warn in Python's re
+            warnings.simplefilter("ignore")
+            return re.compile(pattern.name).groups
+    except re.error:  # silent-ok: a pattern Python can't read is left unchanged
+        return 0
 
 
 def _rewrite_string_epochs(statement: exp.Expression) -> None:
@@ -1672,8 +1687,9 @@ CATALOG = (
     ("SFX-019", "Rewritten", ("ARRAY_DISTINCT keeps each value where it first appears, and one NULL, as "
                 "Snowflake does. ARRAY_FLATTEN of an array with a NULL in place of an array is NULL.")),
     ("SFX-020", "Rewritten", "ALTER SESSION SET TIMEZONE = '...' becomes DuckDB's SET TimeZone, for the statements after it."),
-    ("SFX-021", "Rewritten", ("REGEXP_SUBSTR and REGEXP_SUBSTR_ALL with the 'e' parameter and no group number "
-                "give the first group, as in Snowflake.")),
+    ("SFX-021", "Rewritten", ("REGEXP_SUBSTR and REGEXP_SUBSTR_ALL with the 'e' parameter and no group number, "
+                "or group 0, give the first group, as in Snowflake, when the pattern is written in the query "
+                "and has a group.")),
     ("SFX-022", "Rewritten", ("TO_TIMESTAMP of a string written in the query that holds a whole number reads it "
                 "as seconds, milliseconds, microseconds or nanoseconds by its size, as Snowflake does. A column "
                 "is read as before.")),

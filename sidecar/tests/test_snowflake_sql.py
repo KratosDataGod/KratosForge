@@ -962,7 +962,7 @@ def test_uniform_from_random_still_runs():
 def _first(sql):
     translation = sf.translate(sql)
     assert translation.runnable, translation.first_refusal()
-    return duckdb.sql(translation.duckdb_sql).fetchone()[0]
+    return duckdb.sql(translation.duckdb_sql).fetchall()[0][0]
 
 
 def test_alter_session_sets_the_time_zone_and_refuses_other_parameters():
@@ -989,6 +989,7 @@ def test_the_e_parameter_gives_the_first_group_unless_one_is_named():
     assert _first("SELECT regexp_substr('the best', 'the\\\\W+(\\\\w+)', 1, 1, 'e')") == "best"
     assert _first("SELECT regexp_substr('ab', '(a)(b)', 1, 1, 'e', 2)") == "b"
     assert _first("SELECT regexp_substr('ab', '(a)(b)')") == "ab"  # no 'e': the whole match
+    assert _first("SELECT regexp_substr('ab', 'a.', 1, 1, 'e')") == "ab"  # no group in the pattern: kept as before
 
 
 def test_a_whole_number_in_a_string_is_read_by_its_size():
@@ -1004,4 +1005,4 @@ def test_timestamp_tz_from_parts_is_in_the_session_zone():
                                   "SELECT date_part(epoch_second, timestamp_tz_from_parts(2013, 4, 5, 12, 0, 0))"
                                   ).statements:
         last = con.execute(statement.duckdb_sql)
-    assert last.fetchone()[0] == 1365177600  # 12:00 -0400
+    assert last.fetchall()[0][0] == 1365177600  # 12:00 -0400

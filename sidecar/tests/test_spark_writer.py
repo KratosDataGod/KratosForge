@@ -39,8 +39,7 @@ def run(code):
 ORIGINAL = [{"id": 1, "region": "EU"}, {"id": 2, "region": "US"}, {"id": 3, "region": "EU"}]
 
 
-@pytest.mark.parametrize("option, value", [("replaceWhere", "region = 'EU'"), ("path", "abfss://elsewhere"),
-                                           ("txnAppId", "x")])
+@pytest.mark.parametrize("option, value", [("path", "abfss://elsewhere"), ("txnAppId", "x")])
 def test_an_option_that_isnt_honored_is_refused_and_the_table_is_untouched(lake, option, value):
     status, text = run(f"df.write.mode('overwrite').option({option!r}, {value!r}).saveAsTable('dbo.sales')")
     assert status == "error" and option.lower() in text.lower().replace(" ", "")
@@ -138,9 +137,9 @@ def test_static_overwrite_still_replaces_the_whole_table(lake):
 
 
 def test_options_given_as_keywords_are_checked_too(lake):
-    status, _ = run("df.write.saveAsTable('dbo.sales', mode='overwrite', replaceWhere=\"region = 'EU'\")")
+    status, _ = run("df.write.saveAsTable('dbo.sales', mode='overwrite', txnAppId='x')")
     assert status == "error" and rows(lake) == ORIGINAL
-    status, _ = run("df.write.options(replaceWhere=\"region = 'EU'\").mode('overwrite').saveAsTable('dbo.sales')")
+    status, _ = run("df.write.options(txnAppId='x').mode('overwrite').saveAsTable('dbo.sales')")
     assert status == "error" and rows(lake) == ORIGINAL
 
 

@@ -23,7 +23,7 @@ const IMPACT = {
     { kind: "model", name: "SM_Gold", severity: "breaks", detail: "semantic model", entity: null,
       why: ["its relationship fact_sales[customer_sk] → dim_customer[customer_sk] loses a side"], chain: [] },
     { kind: "python", name: "transforms.churn:run", severity: "check", detail: "your Python, hook after_clean of gold.churn",
-      entity: "gold.churn", why: ["reads silver.orders (hook after_clean of gold.churn) without naming customer_id; it may still use every column"], chain: [] },
+      entity: "gold.churn", why: ["reads silver.orders without naming customer_id; it may still use every column"], chain: [] },
   ],
   counts: { breaks: 2, check: 1, table_only: 4 }, table_only: ["a", "b", "c", "d"], model_layer: "gold",
 };
@@ -45,7 +45,9 @@ before(async () => {
       meta_impact: (p) => { calls.push(["meta_impact", p]); return { ...structuredClone(IMPACT), column: p.column, change: p.change }; },
       meta_edit_impact: (p) => {
         calls.push(["meta_edit_impact", p]);
-        return { entity: p.name, changes: p.text.includes("customer_id") ? [] : [{ ...structuredClone(IMPACT), change: "rename", new_name: "cust_id" }] };
+        const renamed = structuredClone(IMPACT);
+        renamed.items[0].why = ["matches customer_sk on customer_id; once it's renamed to cust_id, building gold.fact_sales fails"];
+        return { entity: p.name, changes: p.text.includes("customer_id") ? [] : [{ ...renamed, change: "rename", new_name: "cust_id" }] };
       },
       meta_save_entity: (p) => { calls.push(["meta_save_entity", p]); return { ...structuredClone(ENTITY), text: p.text }; },
     },
@@ -62,6 +64,7 @@ test("Impact lists what breaks and what to check, with counts and the path to th
   assert.match(text, /Impact of a change: silver\.orders/);
   assert.match(text, /Breaks \(2\)/);
   assert.match(text, /Check \(1\)/);
+  assert.match(text, /Will break/);
   assert.match(text, /Read the table, not this column/);
   assert.match(text, /loses a side/);
   assert.match(text, /How .*fact_sales.* is reached/);
@@ -85,7 +88,8 @@ test("a save that breaks something asks first; Cancel saves nothing", { skip }, 
   await page().waitForSelector("#dialog-root .dialog .impact-row");
   const text = await page().locator("#dialog-root .dialog").innerText();
   assert.match(text, /This change breaks 2 things/);
-  assert.match(text, /You rename customer_id to cust_id in silver\.orders/);
+  assert.match(text, /You're renaming customer_id to cust_id in silver\.orders\. These read it by its old name:/);
+  assert.match(text, /once it's renamed to cust_id/);
   assert.deepStrictEqual(await axeFindings(page(), ".dialog"), []);
   await page().getByRole("button", { name: "Cancel" }).click();
   assert.ok(!calls.some((c) => c[0] === "meta_save_entity"), "nothing was saved");

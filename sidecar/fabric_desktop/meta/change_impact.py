@@ -212,7 +212,7 @@ def column_impact(project: Project, name: str, column: str, change: str, new_nam
                           "so whether it uses the column isn't known", entity=other, detail=detail)
             elif not own:
                 items.add("python", ref, "check",
-                          f"reads {name} ({where}) without naming {column}; it may still use every column",
+                          f"reads {name} without naming {column}; it may still use every column",
                           entity=other, detail=detail)
 
     # 6. The semantic model KratosForge builds over the last layer: its relationships and visible columns.

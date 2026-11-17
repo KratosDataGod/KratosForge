@@ -330,7 +330,7 @@ async function impactDialog(name, pick = null) {
     const first = r.items.find((i) => i.chain?.length > 1);
     out.replaceChildren(
       h("div", { class: "impact-tiles" },
-        h("div", { class: "impact-tile" }, h("b", { class: r.counts.breaks ? "bad" : null }, String(r.counts.breaks)), h("span", {}, r.counts.breaks === 1 ? "Breaks" : "Break")),
+        h("div", { class: "impact-tile" }, h("b", { class: r.counts.breaks ? "bad" : null }, String(r.counts.breaks)), h("span", {}, "Will break")),
         h("div", { class: "impact-tile" }, h("b", { class: r.counts.check ? "wrn" : null }, String(r.counts.check)), h("span", {}, "To check")),
         h("div", { class: "impact-tile" }, h("b", {}, String(r.counts.table_only)), h("span", {}, "Read the table, not this column"))),
       impactList(r),
@@ -343,7 +343,7 @@ async function impactDialog(name, pick = null) {
     h("div", { class: "row wrap" }, h("label", { class: "inline" }, "Column ", colSel), h("label", { class: "inline" }, "Change ", changeSel),
       h("span", { class: "muted-text small" }, "From this project's lineage. Nothing runs and nothing changes.")),
     out,
-    h("p", { class: "muted-text small" }, `Covers tables, your Python and the semantic model over the last layer in this project. Notebooks outside a project aren't traced yet.`)),
+    h("p", { class: "muted-text small" }, "Covers this project's tables, your Python, and the semantic model on its last layer. Notebooks outside a project aren't traced yet.")),
     [btn("Close", null, closeDialog, "tool outline")]);
   overlay.querySelector(".dialog").classList.add("wide");
   draw();
@@ -361,12 +361,12 @@ async function confirmContractChange(name, text) {
   const breaking = (res?.changes || []).filter((c) => c.counts.breaks);
   if (!breaking.length) return true;
   const total = breaking.reduce((n, c) => n + c.counts.breaks, 0);
-  const what = (c) => c.change === "rename" ? `rename ${c.column} to ${c.new_name}` : c.change === "drop" ? `drop ${c.column}` : `change ${c.column}'s type`;
+  const what = (c) => c.change === "rename" ? `renaming ${c.column} to ${c.new_name}` : c.change === "drop" ? `removing ${c.column}` : `changing the type of ${c.column}`;
   return new Promise((resolve) => {
     let settled = false;
     const done = (v) => { if (settled) return; settled = true; closeDialog(); resolve(v); };
     showDialog(`This change breaks ${total} thing${total === 1 ? "" : "s"}`, h("div", { class: "impact-view" },
-      breaking.map((c) => [h("p", { class: "lead" }, `You ${what(c)} in ${name}. ${c.change === "rename" ? "These read it by its old name:" : "These read it:"}`),
+      breaking.map((c) => [h("p", { class: "lead" }, `You're ${what(c)} in ${name}. ${c.change === "rename" ? "These read it by its old name:" : "These read it:"}`),
         impactList({ ...c, items: c.items })])),
     [btn("Cancel", null, () => done(false), "tool outline"), btn("Save anyway", null, () => done(true), "tool danger-solid")],
     () => done(false)).querySelector(".dialog").classList.add("wide");

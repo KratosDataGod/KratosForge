@@ -222,6 +222,62 @@ test("headers sort and Filter's boxes filter every row of the result, on this PC
   assert.strictEqual(pages.filters, undefined);
 });
 
+test("cells select with the mouse and keys, right-click copies them, a value opens in full, and a column's statistics cover every row", { skip }, async () => {
+  await setDoc(`SELECT range AS n, CASE WHEN range = 1 THEN '{"tier":"gold","tags":[1,2]}' ELSE 'r' || range END AS note FROM range(1200)`);
+  await page().keyboard.press("Control+Enter");
+  await waitPill("Succeeded");
+  const before = runs().length;
+  await page().evaluate(() => { window.__copied = []; Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (t) => { window.__copied.push(t); } } }); });
+  const cell = (r, c) => page().locator(`.sql-grid tbody tr[data-r="${r}"] td[data-c="${c}"]`);
+  await cell(0, 0).click();
+  await cell(2, 1).click({ modifiers: ["Shift"] });
+  assert.match(await band(), /3 × 2 cells selected/);
+  assert.strictEqual(await page().locator(".sql-grid td.sel").count(), 6);
+  await page().keyboard.press("Control+c");
+  await page().waitForFunction(() => window.__copied.length === 1);
+  assert.strictEqual(await page().evaluate(() => window.__copied[0]), 'r0\n1\t{"tier":"gold","tags":[1,2]}\n2\tr2'.replace(/^r0/, "0\tr0"));
+  await page().keyboard.press("Control+Shift+C");
+  await page().waitForFunction(() => window.__copied.length === 2);
+  assert.match(await page().evaluate(() => window.__copied[1]), /^n\tnote\n0\tr0/, "with headers");
+  // Right-click inside the selection keeps it; the menu is the mockup's.
+  await cell(1, 1).click({ button: "right" });
+  const items = await page().locator("#menu [role=menuitem]").evaluateAll((els) => els.map((e) => e.firstChild.textContent));
+  assert.deepStrictEqual(items, ["Copy", "Copy with headers", "Copy as CSV", "Copy as JSON", "Copy as INSERT statements", "Open value", "Column statistics"]);
+  await page().getByRole("menuitem", { name: "Copy as JSON" }).click();
+  await page().waitForFunction(() => window.__copied.length === 3);
+  assert.strictEqual(JSON.parse(await page().evaluate(() => window.__copied[2])).length, 3);
+  assert.ok(await page().locator(".sql-grid table").evaluate((t) => t === document.activeElement), "focus goes back to the grid");
+  // Arrow keys move one cell from the focused one (the block's last, row 3); Enter opens the value in full, formatted.
+  await page().keyboard.press("ArrowUp");
+  assert.doesNotMatch(await band(), /cells selected/);
+  await page().keyboard.press("Enter");
+  const side = page().locator(".sql-side");
+  await side.waitFor();
+  assert.strictEqual(await side.locator("h3").textContent(), "note, row 2");
+  assert.strictEqual(await side.locator("pre").textContent(), '{\n  "tier": "gold",\n  "tags": [\n    1,\n    2\n  ]\n}');
+  assert.match(await side.textContent(), /Length28 characters/);
+  await side.getByRole("button", { name: "Copy" }).click();
+  await page().waitForFunction(() => window.__copied.length === 4);
+  assert.strictEqual(await page().evaluate(() => window.__copied[3]), '{"tier":"gold","tags":[1,2]}', "the value as it is");
+  await page().locator(".sql-grid table").focus();
+  await page().keyboard.press("Escape");
+  await page().waitForFunction(() => !document.querySelector(".sql-side"));
+  // Column statistics: over all 1,200 rows, not the page.
+  await cell(0, 0).click({ button: "right" });
+  await page().getByRole("menuitem", { name: "Column statistics" }).click();
+  await page().waitForFunction(() => /Mean/.test(document.querySelector(".sql-side")?.textContent || ""));
+  const stats = await side.textContent();
+  assert.match(stats, /Rows1,200/);
+  assert.match(stats, /Max1,199/);
+  assert.match(stats, /Over the whole result snapshot/);
+  assert.strictEqual(await side.locator(".hist span").count() > 0, true);
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "grid-stats.png") });
+  await side.getByRole("button", { name: "Close" }).click();
+  await page().waitForFunction(() => !document.querySelector(".sql-side"));
+  assert.strictEqual(runs().length, before, "nothing ran again");
+  assert.strictEqual(app.calls.filter((c) => c.method === "sql_column_stats").at(-1).params.column, 0);
+});
+
 test("nothing on the page threw", { skip }, async () => {
   assert.deepStrictEqual(app.errors, []);
 });

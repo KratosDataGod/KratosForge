@@ -136,6 +136,12 @@ def test_column_statistics_cover_every_row():
         sql_view.column_stats(T, 6)
 
 
+def test_distinct_never_exceeds_the_values_there_are():
+    t = pa.table({"n": pa.array(range(1200), pa.int64())})
+    s = sql_view.column_stats(t, 0)
+    assert s["distinct"] <= 1200 and s["rows"] == 1200
+
+
 def test_results_over_the_limit_say_how_to_go_on():
     sql_view.check_size(sql_view.VIEW_MAX_ROWS, "Sorting")
     with pytest.raises(ValueError, match="up to 5,000,000 rows, and this one has 5,000,001"):

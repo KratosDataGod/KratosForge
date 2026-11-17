@@ -12,10 +12,8 @@ import fabric_desktop
 
 ROOT = pathlib.Path(fabric_desktop.__file__).parent
 
-# Modules still to move, slice by slice. Remove a module when its patterns use fullmatch.
-NOT_YET = {
-    "governance_notices.py", "workloads/deliver.py", "workloads/impact.py", "workloads/platform_notify.py",
-}
+# Modules still to move. Empty: a new pattern ending in $ uses fullmatch, or goes in DENY with its reason.
+NOT_YET: set[str] = set()  # every module now uses fullmatch (WR-611 done)
 
 # Deny lists: a match means "refuse", so match (which also takes a final line break) is the stricter check.
 DENY = {
@@ -138,3 +136,16 @@ def test_only_a_validate_run_id_names_a_sandbox_folder_to_remove():
     from fabric_desktop import validate_service
     good = "validate-20261117-070000-abc123"
     assert validate_service._ID.fullmatch(good) and not validate_service._ID.fullmatch(good + "\n")
+
+
+def test_a_platform_notice_to_a_person_or_role_ending_in_a_line_break_is_refused():
+    from fabric_desktop.workloads import platform_notify
+    for name in ("_UPN", "_ROLE"):
+        pattern = getattr(platform_notify, name)
+        good = "ada@contoso.com" if name == "_UPN" else "platform_admin"
+        assert pattern.fullmatch(good) and not pattern.fullmatch(good + "\n")
+
+
+def test_a_mail_recipient_ending_in_a_line_break_is_refused():
+    from fabric_desktop.workloads import deliver
+    assert deliver._EMAIL.fullmatch("ada@contoso.com") and not deliver._EMAIL.fullmatch("ada@contoso.com\n")

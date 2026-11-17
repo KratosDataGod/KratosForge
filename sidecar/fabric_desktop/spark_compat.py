@@ -26,7 +26,7 @@ from duckdb.experimental.spark.sql.column import Column
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.group import GroupedData
 from sqlglot import exp
-from . import spark_builtins_sql, spark_sql_names, sql_dialects
+from . import spark_aggregates, spark_builtins_sql, spark_sql_names, sql_dialects
 from . import sql as spark_sql
 from .duckdb_rows import one_row
 
@@ -191,7 +191,17 @@ def get_json_object(col: Any, path: str) -> Column:
 
 
 def collect_set(col: Any) -> Column:
-    return _call("collect_set({0})", col)
+    # No row with a value gives [], as in Spark (spark_aggregates); NULLs are left out.
+    return _sql(spark_aggregates.empty_array(str(_call("collect_set({0})", col).expr)))
+
+
+def collect_list(col: Any) -> Column:
+    return _sql(spark_aggregates.empty_array(str(_call("collect_list({0})", col).expr)))
+
+
+def approx_count_distinct(col: Any, rsd: float | None = None) -> Column:
+    # DuckDB's estimate has its own error; rsd doesn't change it (docs/sql-compatibility.md).
+    return _call("approx_count_distinct({0})", col)
 
 
 def count_distinct(col: Any, *cols: Any) -> Column:
@@ -1067,6 +1077,7 @@ _FUNCTION_NAMES = {
     "mean": "avg({args})", "variance": "var_samp({args})", "array_agg": "collect_list({args})",
     "sumDistinct": "sum(DISTINCT {args})", "sum_distinct": "sum(DISTINCT {args})",
     "countDistinct": "count(DISTINCT {args})", "count_distinct": "count(DISTINCT {args})",
+    "approx_count_distinct": "approx_count_distinct({0})",  # rsd is a setting, not shown
     "pow": "POWER({args})", "power": "POWER({args})", "positive": "(+ {0})", "isnull": "({0} IS NULL)",
     "isnotnull": "({0} IS NOT NULL)", "explode": "col", "explode_outer": "col", "lit": "{0}",
     **{f: f.upper() + "({args})" for f in ("sqrt", "exp", "log10", "log2", "log1p", "expm1", "ceil", "ceiling",
@@ -2290,10 +2301,13 @@ def install() -> None:
     from duckdb.experimental.spark.sql import column as column_module
     for module in (column_module, F):
         vars(module)["ConstantExpression"] = _constant  # lit(x) and col == x build their constants with it
+    from duckdb.experimental.spark.sql import type_utils, types as T
+    spark_aggregates.wide_ints_as_long(type_utils._sqltype_to_spark_class, T.LongType)
     for name, fn in FUNCTIONS.items():
         if name in ("count", "substring", "concat", "initcap", "first", "last", "slice", "add_months",
                     "months_between", "element_at", "to_date", "to_timestamp", "ln", "log2", "pow", "factorial",
-                    "split", "rand", "isnan", "printf") or not hasattr(F, name):
+                    "split", "rand", "isnan", "printf", "collect_list", "collect_set", "approx_count_distinct",
+                    ) or not hasattr(F, name):
             setattr(F, name, fn)
     vars(F).update(expr=expr)  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.alias = _alias_marked(Column.alias)  # type: ignore[method-assign]

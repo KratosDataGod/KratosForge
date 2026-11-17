@@ -51,7 +51,7 @@ from sqlglot.helper import seq_get
 from sqlglot.tokens import Token, TokenType
 
 from ..sql import KfDuckDB
-from . import tsql_format, tsql_routines, tsql_types
+from . import tsql_format, tsql_routines, tsql_tables, tsql_types
 from .. import sql_dialects, tsql_clone
 
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
@@ -128,6 +128,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             notes += _likes(tree)
             _patindex(tree)
             notes += _json(tree)
+            tsql_tables.rewrite(tree)  # WR-227: before _gaps, which reads TOP ... WITH TIES
             _functions(tree)
             _gaps(tree)
             _string_edges(tree)
@@ -2252,8 +2253,8 @@ def _with_ties(limit: exp.Limit) -> None:
     order = select.args.get("order") if isinstance(select, exp.Select) else None
     options = limit.args["limit_options"]
     if not isinstance(select, exp.Select) or order is None or options.args.get("percent") or select.args.get("distinct") or select.args.get("qualify"):
-        raise ValueError(_NOT_YET + "TOP ... WITH TIES runs here only with an ORDER BY and without PERCENT, "
-                         "DISTINCT or QUALIFY.")
+        raise ValueError(_NOT_YET + "TOP ... WITH TIES runs here only with an ORDER BY (as in T-SQL, which needs "
+                         "one) and without DISTINCT or QUALIFY.")
     rank = exp.Window(this=exp.Anonymous(this="RANK", expressions=[]), order=order.copy())
     select.set("limit", None)
     select.set("qualify", exp.Qualify(this=exp.LTE(this=rank, expression=limit.expression)))
@@ -2261,9 +2262,22 @@ def _with_ties(limit: exp.Limit) -> None:
 
 def _string_split(node: exp.Anonymous) -> None:
     """``STRING_SPLIT(text, separator)`` as a table of one ``value`` column, one row per part."""
+    if len(node.expressions) == 3:  # enable_ordinal (WR-227): 0 or NULL leave the ordinal column off, as in T-SQL
+        flag = node.expressions[2]
+        if isinstance(flag, exp.Null) or (isinstance(flag, exp.Literal) and not flag.is_string and flag.name == "0"):
+            node.set("expressions", node.expressions[:2])
+        elif isinstance(flag, exp.Literal) and not flag.is_string and flag.name == "1":
+            raise ValueError(_NOT_YET + "STRING_SPLIT with enable_ordinal 1 isn't mapped yet. Microsoft's page lists "
+                             "the ordinal column for Azure SQL and SQL Server, not for a Fabric Warehouse. Leave "
+                             "it out, or run it in a Fabric Warehouse to see whether it's there.")
+        else:
+            raise ValueError("STRING_SPLIT's enable_ordinal must be a constant 0 or 1, as in T-SQL.")
     if len(node.expressions) != 2:
-        raise ValueError(_NOT_YET + "STRING_SPLIT with enable_ordinal isn't mapped yet.")
+        raise ValueError("STRING_SPLIT takes text, a separator of one character and, optionally, enable_ordinal.")
     separator = node.expressions[1]
+    if isinstance(separator, exp.Null):
+        raise ValueError(_NOT_YET + "STRING_SPLIT with a NULL separator isn't mapped yet. Microsoft's page doesn't "
+                         "say what a warehouse returns. Give it a separator of one character.")
     if isinstance(separator, (exp.Literal, exp.National)) and len(separator.name) != 1:
         raise ValueError("STRING_SPLIT takes a separator of one character, as in T-SQL.")
     parts = exp.Unnest(expressions=[exp.func("STRING_SPLIT", *node.expressions)])

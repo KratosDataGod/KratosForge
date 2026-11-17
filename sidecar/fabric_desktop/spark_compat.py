@@ -26,7 +26,7 @@ from duckdb.experimental.spark.sql.column import Column
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.group import GroupedData
 from sqlglot import exp
-from . import spark_aggregates, spark_builtins_sql, spark_complex, spark_sql_names, sql_dialects
+from . import spark_aggregates, spark_builtins_sql, spark_complex, spark_sql_names, spark_windows, sql_dialects
 from . import sql as spark_sql
 from .duckdb_rows import one_row
 
@@ -116,11 +116,15 @@ def ntile(n: int) -> Column:
 
 
 def lag(col: Any, offset: int = 1, default: Any = None) -> Column:
-    return _call(f"lag({{0}}, {int(offset)}, {_lit(default)})", col)
+    out = _call(f"lag({{0}}, {int(offset)}, {_lit(default)})", col)
+    out._fd_shift = -int(offset)  # type: ignore[attr-defined]  # Spark's frame for it (spark_windows)
+    return out
 
 
 def lead(col: Any, offset: int = 1, default: Any = None) -> Column:
-    return _call(f"lead({{0}}, {int(offset)}, {_lit(default)})", col)
+    out = _call(f"lead({{0}}, {int(offset)}, {_lit(default)})", col)
+    out._fd_shift = int(offset)  # type: ignore[attr-defined]
+    return out
 
 
 def explode(col: Any) -> Column:
@@ -925,11 +929,51 @@ def _ordered(name: str, fn: Any) -> Any:
 _IGNORING_NULLS = re.compile(r'^"?(first|last)"?\((.*)\) FILTER \(WHERE (\()?\2 IS NOT NULL(?(3)\))\)$', re.S)
 
 
+# Spark's window functions, as DuckDB writes them: their checks and int types are spark_windows'.
+_WINDOW_CALL = re.compile(r'^"?(row_number|rank|dense_rank|ntile|percent_rank|cume_dist|lag|lead)"?\(', re.I)
+_SPARK_RANK_NAMES = {"rank": "RANK()", "dense_rank": "DENSE_RANK()", "percent_rank": "PERCENT_RANK()"}
+
+
 def _over(self: Column, window: WindowSpec) -> Column:
     text = str(self.expr)
     if m := _IGNORING_NULLS.fullmatch(text):  # F.first(x, True).over(w): a window takes IGNORE NULLS, not FILTER
         text = f"{m.group(1)}_value({m.group(2)} IGNORE NULLS)"
-    return _sql(f"{text} OVER ({window.sql()})")
+    called = m.group(1).lower() if (m := _WINDOW_CALL.match(text)) else None
+    if called is not None and (why := spark_windows.refusal(called, bool(window._order), window._frame or None)):
+        raise ValueError(why)
+    over = f"{text} OVER ({window.sql()})"
+    if called in ("row_number", "rank", "dense_rank", "ntile"):  # an int in Spark, a bigint in DuckDB
+        over = f"CAST({over} AS INTEGER)"
+    out = _sql(over)
+    name = _window_name(self, called, window)
+    return _named(out, name) if name is not None else out
+
+
+def _window_name(col: Column, called: str | None, window: WindowSpec) -> str | None:
+    """Spark's name for ``col`` over ``window``: its frame is written out, the one it was given or its
+    default. None for a RANGE frame with offsets, whose name depends on the ordering column's type."""
+    frame = window._frame
+    if frame:
+        if frame.startswith("RANGE") and re.search(r"\d", frame):
+            return None
+        frame = re.sub(r"\b(\d+) PRECEDING", r"-\1 FOLLOWING", frame)  # rowsBetween(-1, 1): a literal -1
+    elif called in ("lag", "lead"):
+        n = vars(col).get("_fd_shift", -1 if called == "lag" else 1)
+        frame = f"ROWS BETWEEN {n} FOLLOWING AND {n} FOLLOWING"
+    elif called is not None:
+        frame = spark_windows.required_frame(called)
+    elif window._order:
+        frame = "RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
+    else:
+        frame = "ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING"
+    parts = []
+    if window._partition:
+        parts.append("PARTITION BY " + ", ".join(_name_of(c) for c in window._partition))
+    if window._order:
+        parts.append("ORDER BY " + ", ".join(f"{_name_of(c)} {_order_of(c)}" for c in window._order))
+    parts.append(frame)
+    inner = _SPARK_RANK_NAMES.get(called or "") or _spark_text(col)
+    return f"{inner} OVER ({' '.join(parts)})"
 
 
 # ---- Spark's generated column names

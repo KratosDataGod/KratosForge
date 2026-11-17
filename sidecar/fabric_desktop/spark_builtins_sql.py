@@ -68,7 +68,10 @@ def _row_ids(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression
     if clause is not None and not isinstance(clause, exp.Select):
         _refuse("monotonically_increasing_id", "this PC can't number the rows in WHERE, HAVING, GROUP BY, "
                 "ORDER BY or a JOIN condition.", "select it in a subquery and filter on that column outside it")(node, args)
-    return _with_args("(ROW_NUMBER() OVER () - 1)", args)
+    numbered = _with_args("(ROW_NUMBER() OVER () - 1)", args)
+    for window in numbered.find_all(exp.Window):  # this PC's own window: spark_windows leaves it be
+        window.meta["kf_own_window"] = True
+    return numbered
 
 
 def _args(node: exp.Expression) -> list[exp.Expression]:

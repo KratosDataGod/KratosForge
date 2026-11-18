@@ -11,6 +11,7 @@ parsed (``remember``): sqlglot reads char_length and length into one node, and 1
 
 from __future__ import annotations
 
+import contextvars
 import re
 from typing import Any, cast
 
@@ -67,6 +68,10 @@ _SORTED_ARRAY = ("lambdafunction((IF(((namedlambdavariable() IS NULL) AND (named
                  "(IF((namedlambdavariable() < namedlambdavariable()), -1, (IF((namedlambdavariable() > "
                  "namedlambdavariable()), 1, 0)))))))))), namedlambdavariable(), namedlambdavariable())")
 _TYPED_WORDS = {"DATE", "TIMESTAMP", "TIMESTAMP_NTZ", "TIMESTAMP_LTZ"}
+# While remember() runs: each node's first place in the text (id(node) -> start), worked out once for the
+# whole tree. Without it every call and operator walked its own subtree again, so a long chain such as
+# a = 1 OR a = 2 OR ... took time that grew with the square of its length (3,000 terms: 48 seconds).
+_FIRST: contextvars.ContextVar[dict[int, int | None] | None] = contextvars.ContextVar("fd_spark_first", default=None)
 
 
 def remember(statements: list[Any], text: str) -> None:
@@ -77,29 +82,52 @@ def remember(statements: list[Any], text: str) -> None:
     except (TokenError, ParseError):  # silent-ok: unreadable text has no names to keep; the parse said why
         tokens = []
     at = {t.start: i for i, t in enumerate(tokens)}
-    for statement in statements:
-        if not isinstance(statement, exp.Expression):
+    first: dict[int, int | None] = {}
+    reset = _FIRST.set(first)
+    try:
+        for statement in statements:
+            if isinstance(statement, exp.Expression):
+                _remember(statement, tokens, at, text, first)
+    finally:
+        _FIRST.reset(reset)
+
+
+def _first_places(statement: exp.Expression, first: dict[int, int | None]) -> list[exp.Expression]:
+    """Every node of ``statement`` (as walk() gives them), with its first place in the text put in ``first``:
+    children come after their parent in walk(), so the reversed list has each child before its parent."""
+    nodes = list(statement.walk())
+    for node in reversed(nodes):
+        best = node.meta.get("start")
+        for child in node.iter_expressions():
+            at = first.get(id(child))
+            if at is not None and (best is None or at < best):
+                best = at
+        first[id(node)] = best
+    return nodes
+
+
+def _remember(statement: exp.Expression, tokens: list[Any], at: dict[int, int], text: str,
+              first: dict[int, int | None]) -> None:
+    for node in _first_places(statement, first):
+        start, end = node.meta.get("start"), node.meta.get("end")
+        if isinstance(node, exp.Extract):
+            _keep_field(node, text)
+        if start is None and isinstance(node, (exp.Func, exp.Binary, exp.Bracket)) and not isinstance(node, exp.Column):
+            _recover_call(node, tokens, at, text)
             continue
-        for node in statement.walk():
-            start, end = node.meta.get("start"), node.meta.get("end")
-            if isinstance(node, exp.Extract):
-                _keep_field(node, text)
-            if start is None and isinstance(node, (exp.Func, exp.Binary, exp.Bracket)) and not isinstance(node, exp.Column):
-                _recover_call(node, tokens, at, text)
-                continue
-            if start is None or end is None or not 0 <= start <= end < len(text):
-                continue
-            written = text[start:end + 1]
-            if isinstance(node, exp.Literal):
-                node.meta[_TEXT] = written
-                before = re.search(r"([A-Za-z_]+)\s*$", text[:start])
-                if before:
-                    node.meta[_BEFORE] = before.group(1).upper()
-            elif re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", written) and not isinstance(node, (exp.Identifier, exp.Var)):
-                node.meta[_NAME] = written.lower()
-                if start in at:
-                    _keep_arguments(node, tokens, at[start], text)
-                _check_call(node)
+        if start is None or end is None or not 0 <= start <= end < len(text):
+            continue
+        written = text[start:end + 1]
+        if isinstance(node, exp.Literal):
+            node.meta[_TEXT] = written
+            before = _word_before(text, start)
+            if before:
+                node.meta[_BEFORE] = before.upper()
+        elif re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", written) and not isinstance(node, (exp.Identifier, exp.Var)):
+            node.meta[_NAME] = written.lower()
+            if start in at:
+                _keep_arguments(node, tokens, at[start], text)
+            _check_call(node)
 
 
 def _keep_field(node: exp.Extract, text: str) -> None:
@@ -116,16 +144,52 @@ def _recover_call(node: exp.Expr, tokens: list[Any], at: dict[int, int], text: s
     first = _position(node)
     if first is None:
         return
-    found = re.search(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*$", text[:first])
-    if not found or found.group(1).lower() in ("cast", "try_cast", "in", "over", "filter", "exists", "when", "then",
+    found = _call_before(text, first)
+    if not found or found[1].lower() in ("cast", "try_cast", "in", "over", "filter", "exists", "when", "then",
                                                 "else", "and", "or", "not", "select", "where", "on", "as", "by"):
         return
-    start = found.start(1)
+    start = found[0]
     if start not in at:
         return
-    node.meta[_NAME] = found.group(1).lower()
+    node.meta[_NAME] = found[1].lower()
     _keep_arguments(node, tokens, at[start], text)
     _check_call(node)
+
+
+_LETTERS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_")
+_WORD = _LETTERS | frozenset("0123456789")
+
+
+def _skip_spaces(text: str, end: int) -> int:
+    while end > 0 and text[end - 1].isspace():
+        end -= 1
+    return end
+
+
+def _word_before(text: str, end: int) -> str | None:
+    """The word of letters written just before ``end`` (spaces between allowed), as
+    ``re.search(r"([A-Za-z_]+)\\s*$", text[:end])`` finds it, read back from ``end`` so each constant
+    costs its own few characters, not the whole query's text before it."""
+    end = _skip_spaces(text, end)
+    start = end
+    while start > 0 and text[start - 1] in _LETTERS:
+        start -= 1
+    return text[start:end] if start < end else None
+
+
+def _call_before(text: str, end: int) -> tuple[int, str] | None:
+    """Where the name before an opening parenthesis just before ``end`` starts, and the name, as
+    ``re.search(r"([A-Za-z_][A-Za-z0-9_]*)\\s*\\(\\s*$", text[:end])`` finds them (read back from ``end``)."""
+    end = _skip_spaces(text, end)
+    if end == 0 or text[end - 1] != "(":
+        return None
+    end = _skip_spaces(text, end - 1)
+    start = end
+    while start > 0 and text[start - 1] in _WORD:
+        start -= 1
+    while start < end and text[start] not in _LETTERS:  # a name starts with a letter or _
+        start += 1
+    return (start, text[start:end]) if start < end else None
 
 
 def _check_call(node: exp.Expr) -> None:
@@ -261,6 +325,9 @@ def _called(node: exp.Expression) -> str:
 
 
 def _position(node: exp.Expr) -> int | None:
+    known = _FIRST.get()
+    if known is not None and id(node) in known:
+        return known[id(node)]
     best = None
     for sub in node.walk():
         start = sub.meta.get("start")

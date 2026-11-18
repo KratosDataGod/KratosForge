@@ -55,6 +55,17 @@ Queries over 100,000 characters are checked when you press **Check now** in the 
 - Check every construct. Statements the engine treats as commands (GRANT, DBCC, SHOW, OPTIMIZE and similar) are checked only by the rules that read their words.
 - Put SQL text or findings in the security audit log, or put string literals in findings: a password in the SQL never shows in a message.
 
+## Queries this PC refuses to read
+
+Spark SQL that runs on this PC is read first, and a query that can't be read is refused with a message that
+says why; nothing runs. Besides SQL with a mistake in it, that is:
+
+- A query nested too deeply: brackets, operators or calls inside one another a few hundred levels deep, or
+  more than 12 calls named like a type (`string(`, `int(`, `struct(`, `decimal(`...) inside one another, which
+  would take the reader minutes. Split it into smaller parts, such as a WITH clause or a view.
+- A call missing an argument it needs, such as `datediff('2024-02-01')`, which Spark refuses too.
+- A number Spark SQL can't read, such as `1e10.5BD`.
+
 ## ANSI mode on this PC
 
 Spark SQL and the DataFrame API on this PC run with ANSI mode off (`spark.sql.ansi.enabled = false`). That is how Fabric runs them. Runtime 1.3 (Spark 3.5) keeps Spark's default, and Runtime 2.0 (Spark 4.1) is set to false by Microsoft, although Spark 4 turns it on. Databricks SQL on the DuckDB engine runs with ANSI mode on, as a Databricks SQL warehouse (`ANSI_MODE`) and Databricks Runtime 17.0 and later do. Each case below is checked against Spark 3.5's ANSI compliance page and Databricks' `ANSI_MODE` page in `sidecar/tests/test_spark_ansi.py`. None has been compared with a Fabric or Databricks run, so treat them as UNVERIFIED there.

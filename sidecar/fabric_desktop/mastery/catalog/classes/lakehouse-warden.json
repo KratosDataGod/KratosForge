@@ -51,10 +51,10 @@
    ]}
  ],
  "achievements": [
-  {"id": "three-tiers-raised", "name": "Three Tiers Raised", "criteria": "Reach Journeyman in Lakehouses and the medallion layers, Raw landing and Bronze tables and Gold star schema for reporting."},
-  {"id": "the-tide-holds", "name": "The Tide Holds", "criteria": "Reach Adept in Idempotent loads and Incremental loads with a watermark."},
+  {"id": "three-tiers-raised", "name": "Three Tiers Raised", "criteria": "Reach Journeyman in Lakehouses and the medallion layers, in Raw landing and Bronze tables, and in Gold star schema for reporting."},
+  {"id": "the-tide-holds", "name": "The Tide Holds", "criteria": "Reach Adept in Idempotent loads and in Incremental loads with a watermark."},
   {"id": "clean-ledger", "name": "Clean Ledger", "criteria": "Reach Journeyman in every Steadfast Loader talent up to tier 3."},
-  {"id": "lean-lake", "name": "Lean Lake", "criteria": "Reach Adept in Small files and compaction and Partitioning and file pruning, with a measured speed-up."},
+  {"id": "lean-lake", "name": "Lean Lake", "criteria": "Reach Adept in Small files and compaction and in Partitioning and file pruning, with a measured speed-up."},
   {"id": "warden-of-the-lake", "name": "Warden of the Lake", "criteria": "Reach Adept in all ten talents of one Lakehouse Warden specialization."}
  ]
 }

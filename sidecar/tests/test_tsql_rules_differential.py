@@ -116,6 +116,19 @@ def cases(prefix: str) -> list[tuple[str, str, object]]:
         out.append(("REPLICATE", f"REPLICATE({q(s)}, {n})", None if n < 0 else s * n))
     for s in WORDS:  # functions/len-transact-sql: trailing spaces aren't counted
         out.append(("LEN", f"LEN({q(s)})", len(s.rstrip(" "))))
+    codes = random.Random(SEED + 2)  # its own draws too
+    for _ in range(40):
+        # functions/ascii-transact-sql and unicode-transact-sql: the code of the first character; '' gives NULL.
+        s = codes.choice([w for w in WORDS if w.isascii()])
+        out.append(("ASCII", f"ASCII({q(s)})", ord(s[0]) if s else None))
+        s = codes.choice(WORDS)
+        out.append(("UNICODE", f"UNICODE({q(s)})", ord(s[0]) if s else None))
+        # functions/char-transact-sql: "CHAR returns a NULL value for integer expressions outside this input
+        # range" (0 to 255); a fraction is cut toward zero as the int conversion does. 128 to 255 depend on the
+        # collation's code page, so they aren't drawn.
+        n = codes.choice([codes.randint(-5, 127), codes.randint(256, 400), round(codes.uniform(-2.9, 127.9), 1)])
+        # + '|' keeps a digit's character from reading back as a number; NULL + '|' is NULL.
+        out.append(("CHAR", f"CHAR({n}) + '|'", chr(int(n)) + "|" if 0 <= int(n) <= 127 else None))
     counts = random.Random(SEED + 1)  # its own draws, so the families after it keep their inputs
     for _ in range(40):
         # functions/space-transact-sql and replicate-transact-sql: a negative count gives NULL, and a count

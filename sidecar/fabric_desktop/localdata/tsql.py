@@ -137,6 +137,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             _functions(tree)
             _gaps(tree)
             _string_edges(tree)
+            _char_codes(tree)
             tsql_types.expand_datetimes(tree)
             if known is not None:
                 _unknown_functions(tree, known)
@@ -2469,6 +2470,33 @@ def _repeat_count(node: exp.Repeat | exp.Space) -> None:
     node.set(key, whole)
     negative = exp.LT(this=whole.copy(), expression=exp.Literal.number(0))
     node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy()))
+
+
+def _char_codes(tree: exp.Expression) -> None:
+    """ASCII, UNICODE and CHAR at their edges, as T-SQL answers them:
+
+    - ``ASCII('')`` and ``UNICODE('')`` are NULL (DuckDB gave 0 and -1).
+    - ``CHAR(n)`` is NULL outside 0 to 255 ("CHAR returns a NULL value for integer expressions outside this
+      input range", functions/char-transact-sql), and a count with a fraction is made an int first, toward
+      zero (DuckDB gave the code point, stopped below 0, and didn't bind a decimal)."""
+    for node in list(tree.find_all(exp.Ascii, exp.Unicode, exp.Chr)):
+        if isinstance(node, (exp.Ascii, exp.Unicode)):
+            text = node.this
+            if not (isinstance(text, exp.Literal) and text.is_string and text.name):
+                node.set("this", exp.Nullif(this=text.copy(), expression=exp.Literal.string("")))
+            continue
+        if len(node.expressions) != 1:
+            continue
+        code = node.expressions[0]
+        value = _number(code)
+        if value is not None and math.isfinite(value):
+            whole = int(value)
+            node.replace(exp.Chr(expressions=[exp.Literal.number(whole)]) if 0 <= whole <= 255
+                         else exp.cast(exp.null(), "TEXT"))
+            continue
+        whole_code = exp.cast(exp.Trunc(this=code.copy()), "BIGINT")
+        inside = exp.Between(this=whole_code.copy(), low=exp.Literal.number(0), high=exp.Literal.number(255))
+        node.replace(exp.Case(ifs=[exp.If(this=inside, true=exp.Chr(expressions=[exp.cast(whole_code, "INT")]))]))
 
 
 def _charindex(node: exp.StrPosition) -> None:

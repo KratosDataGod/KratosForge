@@ -160,7 +160,7 @@ async function renderShortcuts() {
       btn("Export CSV", "arrowDownload", async () => {
         const rows = filtered();
         const res = await attempt(() => rpc("shortcut_export", { lakehouses: scRefs(lakehouses), ids: rows.map((s) => s.id) }), "Not exported");
-        if (res) toast(`Saved ${scPlural(res.rows, "shortcut")} to ${res.path}`, false, { log: true });
+        if (res) toast(`Saved ${scPlural(res.rows, "shortcut")} to ${res.path}${res.notes?.length ? `. ${res.notes.join(" ")}` : ""}`, false, { log: true });
       }, "tool outline small", { title: "The shortcuts listed here, with these filters, as a new CSV in Downloads" }));
     function drawTable() {
       const rows = filtered();

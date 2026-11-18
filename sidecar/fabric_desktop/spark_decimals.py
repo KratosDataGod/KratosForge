@@ -490,7 +490,16 @@ def _rounding(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]
         return None
     operand = operands[0]
     found = _decimal(operand, typed, annotated)
+    if (isinstance(node, (exp.Ceil, exp.Floor)) and node.args.get("decimals") is None and found is None
+            and _is_double(operand, annotated)):  # sqlglot types 0.1 as a DOUBLE: _decimal reads it as Spark's decimal
+        # Spark's ceil and floor of a double are a BIGINT (math.ceil(d).toLong: NaN is 0, past the range the
+        # nearest end); DuckDB's are a DOUBLE, so CAST(ceil(1.0E3D) AS STRING) was '1000.0' and div divided.
+        fn = "CEIL" if isinstance(node, exp.Ceil) else "FLOOR"
+        from .sql import _java_narrowed
+        return _with_args(_java_narrowed(f"{fn}(fj_arg0)", "BIGINT", from_double=True), [operand]), node, ("int", 20)  # type: ignore[return-value]
     places = _places(operands[1] if len(operands) > 1 else node.args.get("decimals"))
+    if found is not None and found[0] == "int" and isinstance(node, (exp.Ceil, exp.Floor)) and node.args.get("decimals") is None:
+        return _with_args("CAST(fj_arg0 AS BIGINT)", [operand]), node, ("int", 20)  # type: ignore[return-value]  # a whole number's ceil is itself, a BIGINT in Spark
     if found is None or found[0] == "int" or places is None:
         return None
     p, s = _operand(found)
@@ -505,6 +514,14 @@ def _rounding(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]
             return None
         return _with_args(f"CAST({text} AS DECIMAL({precision}, {scale}))", [operand]), node, (precision, scale)
     return _with_args(f"CAST(fj_arg0 AS DECIMAL({precision}, {scale}))", [node]), node, (precision, scale)
+
+
+def _is_double(node: exp.Expr, annotated: dict[int, exp.Expr]) -> bool:
+    while isinstance(node, (exp.Paren, exp.Neg)):
+        node = node.this
+    copy = annotated.get(id(node))
+    kind = copy.type if copy is not None else None
+    return isinstance(kind, exp.DataType) and kind.this in (exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT)
 
 
 def _ceil_floor(fn: str, p: int, s: int, places: int) -> str | None:

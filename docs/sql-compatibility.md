@@ -723,18 +723,11 @@ Besides the hand-picked cases above, three tests generate queries from a fixed s
 
 A different answer, or an error where the target answers, fails these tests unless it is named in the test's `KNOWN` list. An entry that no case needs any more fails too, so each list is what still differs. Today they are:
 
+Fixed since the first run, each with a test named after its case in `sidecar/tests/test_spark_differential_fixes.py` and `test_spark_string_edges.py`: `substring` with a negative length, `overlay` before the first character, `locate` on NULL text, `levenshtein` on text outside ASCII (characters are counted, as in Spark, and a third argument is Spark's threshold), `bit_count` of a negative `int` (64 bits), `pmod(x, 0.0D)` inside another `pmod`, `a div b` of decimals in the SQL editor, `isnan(NULL)` (false), `to_date` and `CAST(... AS DATE)` of text (Spark's reading: a year of 4 to 7 digits, so `'24-02-29'` is NULL), `date_format` past year 9999 (a leading `+`), `ceil` and `floor` of a double or a whole number (a `bigint`, as in Spark, so `CAST(ceil(1.0E3D) AS STRING)` is `1000`), and `shiftleft`/`shiftright` (Java's rules: the count mod 32 for an `int`, mod 64 for a `bigint`). A shift whose value isn't an `int` literal is typed `bigint` here when the value's type is only known as the query runs.
+
 | Engine | What differs here | How |
 | --- | --- | --- |
-| Spark SQL | `substring(s, pos, len)` with a negative `len` | Spark gives `''`. Here it counts back from `pos`: `substring('Hello World', -1, -6)` is `o Worl` |
-| Spark SQL | `overlay(... FROM pos)` with `pos` of 0 or below | Spark keeps its own substring rules: `overlay('abc' PLACING ',' FROM 0)` is `,abc`. Here it is `ab,abc` |
-| Spark SQL | `levenshtein` on text that isn't ASCII | Spark counts characters, here bytes |
-| Spark SQL | `locate(sub, NULL, pos)` with `pos` below 1 | Spark gives NULL, here 0 |
-| Spark SQL | `bit_count` of a negative `int` | Spark counts 64 bits (-1 gives 64), here 32 |
-| Spark SQL | `a div b` when `a` is a decimal (`floor(-1.25) div 7`) | Spark gives a whole number, here a double division |
-| Spark SQL | `isnan(NULL)` | Spark gives false, here NULL |
-| Spark SQL | `to_date('24-02-29')` | Spark gives NULL (a year needs 4 digits), here the year 24 |
-| Spark SQL | `date_format` of a year past 9999 | Spark writes a leading `+` (`+8535706`). Here there is none (`8535706`) |
-| Spark SQL | `initcap`, `trunc(date, 'MM')` and its other formats, `make_date` with a day that doesn't exist, `sqrt` of a negative number, `shiftleft`/`shiftright` of a negative number or by a negative count, `soundex` of a cast, `CAST` of text past a date's range | These stop here with an error, where Spark answers. On DuckDB 2.0 (not yet the version this PC installs), `sqrt` of a negative number and the `CAST` answer as Spark does, but `sign` of that `sqrt`'s NaN is 0.0 where Spark gives NaN |
+| Spark SQL | `initcap`, `trunc(date, 'MM')` and its other formats, `make_date` with a day that doesn't exist, `sqrt` of a negative number, `soundex` of a cast, `date_add` by about 2^31 days (past DuckDB's timestamp range) | These stop here with an error, where Spark answers. On DuckDB 2.0 (not yet the version this PC installs), `sqrt` of a negative number answers as Spark does, but `sign` of that `sqrt`'s NaN is 0.0 where Spark gives NaN |
 | Spark SQL | `split_part(s, d, 0)` | Refused by name before the query runs; Spark stops only when the call is reached |
 | T-SQL | `N'...'` text in `=`, `<`, `LIKE` and `+` | Trailing spaces count, `[a-c]` ranges don't match, and `N'a' + N'b'` stops. The same text without `N` answers as T-SQL does |
 | Snowflake | `POSITION` and `CHARINDEX` with an empty search text and a start past the end | Snowflake gives 0, here the start |

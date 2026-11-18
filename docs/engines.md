@@ -137,6 +137,7 @@ Rules 2026.11.11.
 | SFX-021 | Rewritten | REGEXP_SUBSTR and REGEXP_SUBSTR_ALL with the 'e' parameter and no group number, or group 0, give the first group, as in Snowflake, when the pattern is written in the query and has a group. |
 | SFX-022 | Rewritten | TO_TIMESTAMP of a string written in the query that holds a whole number reads it as seconds, milliseconds, microseconds or nanoseconds by its size, as Snowflake does. A column is read as before. |
 | SFX-023 | Rewritten | GET and the : path read a VARIANT made with TO_VARIANT or a cast to VARIANT as JSON, as Snowflake does. |
+| SFX-025 | Rewritten | MERGE with WHEN MATCHED ... UPDATE stops when a target row matches more than one source row, as Snowflake does by default (here also when those rows would give the same values, or a DELETE clause would take the row). PIVOT ... IN ('a', ...) names its columns 'a' with the quotes. $name reads the session variable, and IDENTIFIER($name) the name the same cell sets it to. ARRAY_SIZE of a JSON or VARIANT value is NULL when it isn't an array. A VARIANT column holding an object or array, cast to text, is JSON text. |
 | SFX-024 | Rewritten | An ARRAY column or cast becomes a list of VARIANT values, so it holds what ARRAY_CONSTRUCT makes and can read a JSON array. An OBJECT column or cast becomes JSON. |
 | SFX-000 | Runs only in Snowflake | Anything else sqlglot can't write for DuckDB. |
 | SFD-001 | Runs, with a difference: Unquoted names keep their case | Snowflake stores an unquoted name in upper case (MyCol becomes MYCOL); DuckDB keeps it as typed. |
@@ -174,6 +175,8 @@ Rules 2026.11.11.
 | SFN-020 | Runs only in Snowflake | INSERT OVERWRITE: DuckDB has none, and a DELETE then INSERT wouldn't be one statement. |
 | SFN-021 | Runs only in Snowflake | UNIFORM with a generator other than RANDOM() (a number, a column or a seeded RANDOM): Snowflake's series from it can't be reproduced here. |
 | SFN-022 | Runs only in Snowflake | ALTER SESSION, other than SET TIMEZONE: other session parameters and UNSET change how Snowflake itself reads or prints values. |
+| SFN-023 | Runs only in Snowflake | IDENTIFIER($name) where the same cell doesn't set the variable to a string first: its value isn't known here. |
+| SFN-024 | Runs only in Snowflake | PIVOT ... IN (ANY ...) or IN (subquery): DuckDB's PIVOT takes a list of values. |
 | SFN-099 | Runs only in Snowflake | Any other Snowflake command sqlglot can't read as a statement. |
 
 ### Snowflake functions checked value by value

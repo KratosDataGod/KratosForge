@@ -47,6 +47,64 @@ def _refuse(name: str, why: str, instead: str = "") -> Callable[..., exp.Express
     return refuse
 
 
+# base64 takes bytes, and text as its UTF-8 bytes (a NULL of no type is NULL); any other type is refused, as in
+# Spark. Spark 3.5 writes it as MIME does (spark.sql.chunkBase64String.enabled): a line break (CR LF) after
+# every 76 characters. Databricks SQL keeps one line.
+_BASE64_BYTES = ("TO_BASE64(CASE WHEN TYPEOF(fj_arg0) = 'BLOB' THEN CAST(fj_arg0 AS BLOB) "
+                 "WHEN TYPEOF(fj_arg0) = 'VARCHAR' THEN ENCODE(CAST(fj_arg0 AS VARCHAR)) "
+                 "WHEN TYPEOF(fj_arg0) = '\"NULL\"' THEN CAST(NULL AS BLOB) "
+                 "ELSE CAST(ERROR('base64() takes text or binary, as in Spark, so nothing ran. Cast the value to "
+                 "string first.') AS BLOB) END)")
+_BASE64_LINES = (f"(LIST_TRANSFORM([{_BASE64_BYTES}], kf_b -> ARRAY_TO_STRING(LIST_TRANSFORM(RANGE(0, LENGTH(kf_b), 76), "
+                 "kf_i -> SUBSTR(kf_b, kf_i + 1, 76)), CHR(13) || CHR(10))))[1]")
+
+
+def _base64(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    return _with_args(_BASE64_BYTES if _ANSI.get() else _BASE64_LINES, args) if len(args) == 1 else None
+
+
+# unbase64 as Spark 3.5 reads text (Java's MIME decoder): characters outside the base64 alphabet are skipped
+# and padding is optional, but padding that doesn't end a group of four ('YQ=', '=' alone), base64 after the
+# padding, or one character left over at the end stops, as in Spark.
+_UNBASE64_STOP = ("'unbase64() stops on this text, as Spark does, because its padding or its last group of characters "
+                  "isn''t valid base64 (Input byte array has wrong 4-byte ending unit). Check the end of the text for "
+                  "stray characters or misplaced ''=''.'")
+_UNBASE64 = ("(LIST_TRANSFORM([CAST(fj_arg0 AS VARCHAR)], kf_t -> CASE WHEN kf_t IS NULL THEN NULL ELSE "
+             "(LIST_TRANSFORM([{'s': REGEXP_REPLACE(SPLIT_PART(kf_t, '=', 1), '[^A-Za-z0-9+/]', '', 'g'), "
+             "'pad': STRPOS(kf_t, '=') > 0, 'after': SUBSTR(kf_t, LENGTH(SPLIT_PART(kf_t, '=', 1)) + 2)}], kf_u -> "
+             "CASE WHEN (kf_u.pad AND (LENGTH(kf_u.s) % 4 IN (0, 1) OR (LENGTH(kf_u.s) % 4 = 2 AND LEFT(kf_u.after, 1) <> '='))) "
+             "OR (NOT kf_u.pad AND LENGTH(kf_u.s) % 4 = 1) OR REGEXP_MATCHES(kf_u.after, '[A-Za-z0-9+/]') "
+             f"THEN CAST(ERROR({_UNBASE64_STOP}) AS BLOB) "
+             "ELSE FROM_BASE64(kf_u.s || REPEAT('=', (4 - LENGTH(kf_u.s) % 4) % 4)) END))[1] END))[1]")
+# hex takes a whole number (a double or decimal is cut toward zero first, as Spark casts it to a long), text
+# (its UTF-8 bytes) or binary.
+_HEX = ("CASE WHEN TYPEOF(fj_arg0) = 'BLOB' THEN HEX(TRY_CAST(fj_arg0 AS BLOB)) "
+        "WHEN TYPEOF(fj_arg0) = 'VARCHAR' THEN HEX(TRY_CAST(fj_arg0 AS VARCHAR)) "
+        "WHEN TYPEOF(fj_arg0) IN ('DOUBLE', 'FLOAT') OR TYPEOF(fj_arg0) LIKE 'DECIMAL%' "
+        "THEN HEX(kf_spark_whole) ELSE HEX(TRY_CAST(fj_arg0 AS BIGINT)) END")
+# unhex: an odd number of digits has a 0 put before them; anything that isn't all hex digits is NULL.
+_UNHEX = ("(LIST_TRANSFORM([CAST(fj_arg0 AS VARCHAR)], kf_x -> CASE WHEN REGEXP_FULL_MATCH(kf_x, '[0-9A-Fa-f]*') "
+          "THEN UNHEX(CASE WHEN LENGTH(kf_x) % 2 = 1 THEN '0' || kf_x ELSE kf_x END) END))[1]")
+
+
+def _sha2(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """sha2(x, bits): 0 or 256 is SHA-256, 224, 384 and 512 their SHA-2 (spark_hash.register), and any other
+    length NULL, as in Spark. Text is hashed as its UTF-8 bytes."""
+    if len(args) != 2:
+        return None
+    data = "CASE WHEN TYPEOF(fj_arg0) = 'BLOB' THEN CAST(fj_arg0 AS BLOB) ELSE ENCODE(CAST(fj_arg0 AS VARCHAR)) END"
+    bits = args[1]
+    if isinstance(bits, exp.Literal) and not bits.is_string:
+        n = int(bits.name) if bits.name.lstrip("-").isdigit() else None
+        if n in (0, 256):
+            return _with_args(f"SHA256({data})", args)
+        if n in (224, 384, 512):
+            return _with_args(f"__kf_sha2({data}, {n})", args)
+        return _with_args("CAST(NULL AS VARCHAR)", args)
+    return _with_args(f"(LIST_TRANSFORM([CAST(fj_arg1 AS INTEGER)], kf_n -> CASE WHEN kf_n IN (0, 256) THEN SHA256({data}) "
+                      f"WHEN kf_n IN (224, 384, 512) THEN __kf_sha2({data}, kf_n) END))[1]", args)
+
+
 def _template(text: str, count: int | tuple[int, ...]) -> Callable[..., exp.Expression | None]:
     counts = (count,) if isinstance(count, int) else count
 
@@ -188,17 +246,28 @@ def _typeof(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression 
     if len(args) != 1:
         return None
     # A scalar type, or a list of one (INTEGER[] -> array<int>); deeper types in lower case.
+    # A struct or map is named from its type where spark_complex_types can work it out; otherwise refused.
+    stop = ("'typeof() can''t run on this PC the way it runs in Fabric, because the struct or map''s type "
+            "couldn''t be worked out here, so nothing ran. Run the cell in Fabric.'")
     scalar = "CASE kf_t " + " ".join(f"WHEN '{d}' THEN '{s}'" for d, s in _TYPE_NAMES) + \
-             " ELSE CASE WHEN kf_t LIKE 'DECIMAL(%' THEN REPLACE(LOWER(kf_t), ' ', '') ELSE LOWER(kf_t) END END"
+             " ELSE CASE WHEN kf_t LIKE 'DECIMAL(%' THEN REPLACE(LOWER(kf_t), ' ', '') " \
+             f"WHEN kf_t LIKE 'STRUCT(%' OR kf_t LIKE 'MAP(%' THEN ERROR({stop}) ELSE LOWER(kf_t) END END"
     whole = (f"(LIST_TRANSFORM([TYPEOF(fj_arg0)], kf_x -> CASE WHEN kf_x LIKE '%[]' AND kf_x NOT LIKE '%[][]' "
              f"AND kf_x NOT LIKE '%(%' THEN 'array<' || (LIST_TRANSFORM([LEFT(kf_x, LENGTH(kf_x) - 2)], kf_t -> {scalar}))[1] "
              f"|| '>' ELSE (LIST_TRANSFORM([kf_x], kf_t -> {scalar}))[1] END))[1]")
-    return _with_args(whole, args)
+    arg = args[0].copy()
+    arg.meta["kf_complex_arg"] = True  # spark_complex._mark: named from its type there
+    named = _with_args(whole, [arg])
+    named.meta["kf_complex"] = "typeof"
+    return named
 
 
 def _sign(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
-    # Spark's signum is a double: 1.0, -1.0 or 0.0.
-    return _with_args("CAST(SIGN(fj_arg0) AS DOUBLE)", args) if len(args) == 1 else None
+    # Spark's signum is Java's Math.signum, a double: 1.0 or -1.0, and the value itself for NaN, 0.0 and -0.0
+    # (DuckDB's SIGN gives 0 for NaN and loses the sign of -0.0).
+    # The value is read once, through a lambda, so sign(rand() - 0.5) checks and signs the same sample.
+    return _with_args("(LIST_TRANSFORM([CAST(fj_arg0 AS DOUBLE)], kf_v -> CASE WHEN ISNAN(kf_v) OR kf_v = 0 THEN kf_v "
+                      "ELSE CAST(SIGN(kf_v) AS DOUBLE) END))[1]", args) if len(args) == 1 else None
 
 
 def _elt(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
@@ -289,6 +358,49 @@ def _text_this(fn: str) -> Callable[..., exp.Expression | None]:
             node.set("this", _with_args(spark_text_arg("fj_arg0", fn), [arg]))
         return None
     return build
+
+
+def _initcap(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """initcap(str) as Spark's InitCap: the text lower-cased, then each character after a space (and the first)
+    upper-cased; words are split at spaces only. sqlglot's own DuckDB SQL for it reads its argument back as text,
+    which fails once that argument is rewritten (initcap(upper(x)) and initcap('aaa') stopped with "Expecting )"),
+    so it is written here with the argument node put in, cast to text as Spark casts it."""
+    delimiter = node.args.get("expression")
+    if delimiter is not None and not (isinstance(delimiter, exp.Literal) and delimiter.is_string
+                                      and delimiter.name == " "):
+        return None
+    return _with_args("ARRAY_TO_STRING(LIST_TRANSFORM(STRING_SPLIT(LOWER(" + spark_text_arg("fj_arg0", "initcap")
+                      + "), ' '), kf_w -> UPPER(LEFT(kf_w, 1)) || SUBSTRING(kf_w, 2)), ' ')", [node.this])
+
+
+# levenshtein counts character edits in Spark (UTF8String.levenshteinDistance); DuckDB's LEVENSHTEIN counts
+# byte edits, so levenshtein('12', 'ÄÖü') was 6, not 3. ASCII text keeps DuckDB's; other text is worked out
+# here row by row over the characters (Wagner-Fischer: each row of the table from the one before). LIST_REDUCE
+# keeps one type, so each index is a list of one: [i], and a row starts as [i] too.
+_CHAR_LEVENSHTEIN = (
+    "(LIST_TRANSFORM([{'a': STRING_SPLIT(fj_arg0, ''), 'b': STRING_SPLIT(fj_arg1, '')}], kf_l -> "
+    "LIST_REDUCE(LIST_TRANSFORM(RANGE(1, LEN(kf_l.a) + 1), kf_x -> [kf_x]), (kf_p, kf_i) -> "
+    "LIST_REDUCE(LIST_TRANSFORM(RANGE(1, LEN(kf_l.b) + 1), kf_y -> [kf_y]), "
+    "(kf_r, kf_j) -> LIST_APPEND(kf_r, LEAST(kf_p[kf_j[1] + 1] + 1, kf_r[kf_j[1]] + 1, "
+    "kf_p[kf_j[1]] + CASE WHEN kf_l.a[kf_i[1]] = kf_l.b[kf_j[1]] THEN 0 ELSE 1 END)), kf_i), "
+    "RANGE(0, LEN(kf_l.b) + 1))[LEN(kf_l.b) + 1]))[1]")
+_LEVENSHTEIN = ("CAST(CASE WHEN fj_arg0 IS NULL OR fj_arg1 IS NULL THEN NULL WHEN fj_arg0 = '' THEN LENGTH(fj_arg1) "
+                "WHEN fj_arg1 = '' THEN LENGTH(fj_arg0) WHEN NOT REGEXP_MATCHES(fj_arg0 || fj_arg1, '[^[:ascii:]]') "
+                f"THEN LEVENSHTEIN(fj_arg0, fj_arg1) ELSE {_CHAR_LEVENSHTEIN} END AS INTEGER)")
+
+
+def _levenshtein(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """levenshtein(a, b[, threshold]) counting characters, as Spark does. sqlglot reads Spark's third argument,
+    the threshold, as ins_cost: with it the distance is -1 when it is past the threshold."""
+    if any(node.args.get(k) is not None for k in ("del_cost", "sub_cost", "max_dist")):
+        return None
+    texts = [_with_args(spark_text_arg("fj_arg0", "levenshtein"), [a]) for a in (node.this, node.expression)]
+    distance = _with_args(_LEVENSHTEIN, texts)
+    threshold = node.args.get("ins_cost")
+    if threshold is None:
+        return distance
+    return _with_args("(LIST_TRANSFORM([fj_arg0], kf_v -> CASE WHEN fj_arg1 IS NULL THEN NULL "
+                      "WHEN kf_v <= fj_arg1 THEN kf_v ELSE -1 END))[1]", [distance, threshold])
 
 
 def _split(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
@@ -483,9 +595,16 @@ def _json_tuple(node: exp.Expression, args: list[exp.Expression]) -> exp.Express
     (an object or list as its JSON), NULL when the key is missing or the text isn't JSON."""
     if len(args) < 2:
         return None
-    fields = ", ".join(f"'c{i}': CASE WHEN JSON_VALID(fj_arg0) THEN JSON_EXTRACT_STRING(fj_arg0, "
-                       f"'$.\"' || REPLACE(fj_arg{i + 1}, '\"', '\\\"') || '\"') END" for i in range(len(args) - 1))
-    return _with_args(f"UNNEST([{{{fields}}}], max_depth := 2)", args)
+    if any(isinstance(a, exp.Null) for a in args):
+        raise ValueError("json_tuple's arguments must all be strings, as in Spark, so nothing ran. Write a NULL "
+                         "as CAST(NULL AS STRING).")
+    # A key the object repeats gives its last value, as in Spark (json_keys and $.* list the object's
+    # members in order); a string value without its quotes.
+    fields = ", ".join(f"'c{i}': (LIST_TRANSFORM(LIST_FILTER(RANGE(1, LEN(fj_o.k) + 1), fj_n -> fj_o.k[fj_n] = "
+                       f"fj_arg{i + 1}), fj_n -> fj_o.v[fj_n] ->> '$'))[-1]" for i in range(len(args) - 1))
+    members = ("CASE WHEN JSON_VALID(fj_arg0) AND JSON_TYPE(fj_arg0) = 'OBJECT' THEN {'k': JSON_KEYS(fj_arg0), "
+               "'v': JSON_EXTRACT(fj_arg0, '$.*')} END")
+    return _with_args(f"UNNEST(LIST_TRANSFORM([{members}], fj_o -> {{{fields}}}), max_depth := 2)", args)
 
 
 def _mask(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
@@ -821,6 +940,52 @@ _SEEDED_RANDN = _refuse("randn", "with a seed Spark gives its own sequence of nu
                         "leave out the seed")
 
 
+def _spark_whole(value: str, duck_type: str) -> str:
+    """``value`` cast to a whole-number type as Spark casts it where a function takes one (a decimal or double
+    is cut toward zero, and one that doesn't fit keeps its low bits or the nearest end, as Java's casts:
+    sql.spark_integer_cast), evaluated once."""
+    from . import sql
+    spark_type = {"INTEGER": "INT", "BIGINT": "BIGINT"}[duck_type]
+    mode = "ansi" if _ANSI.get() else "legacy"
+    return f"(LIST_TRANSFORM([{value}], kf_w -> {sql.spark_integer_cast('kf_w', duck_type, spark_type, mode)}))[1]"
+
+
+_LONG_TYPES = "('BIGINT', 'HUGEINT', 'UBIGINT', 'UHUGEINT', 'UINTEGER')"
+# Java's shifts: the count is taken mod 32 for an int and mod 64 for a long (n & 31, n & 63), << keeps the low
+# bits, and >> is arithmetic. DuckDB stops on a negative count, and on << of a negative number.
+_SHIFT_LEFT = ("CAST((LIST_TRANSFORM([((kf_s.v::HUGEINT & {mask}) & ((1::HUGEINT << ({bits} - kf_s.k)) - 1)) << kf_s.k], "
+               "kf_r -> CASE WHEN kf_r >= {half} THEN kf_r - {size} ELSE kf_r END))[1] AS {duck})")
+_SHIFT_RIGHT = "CAST(CASE WHEN kf_s.v >= 0 THEN kf_s.v >> kf_s.k ELSE -1 - ((-1 - kf_s.v) >> kf_s.k) END AS {duck})"
+
+
+def _shift_sql(left: bool, bits: int) -> str:
+    duck = "BIGINT" if bits == 64 else "INTEGER"
+    body = (_SHIFT_LEFT if left else _SHIFT_RIGHT).format(mask=2 ** bits - 1, bits=bits, half=2 ** (bits - 1),
+                                                         size=2 ** bits, duck=duck)
+    return (f"(LIST_TRANSFORM([{{'v': CAST({_spark_whole('fj_arg0', duck)} AS BIGINT), "
+            f"'k': CAST({_spark_whole('fj_arg1', 'INTEGER')} AS BIGINT) & {bits - 1}}}], kf_s -> {body}))[1]")
+
+
+def _int_literal(node: exp.Expression) -> int | None:
+    inner = node.this if isinstance(node, exp.Neg) else node
+    if isinstance(inner, exp.Literal) and inner.is_int:
+        return -int(inner.name) if isinstance(node, exp.Neg) else int(inner.name)
+    return None
+
+
+def _shift(left: bool) -> Callable[..., exp.Expression | None]:
+    """shiftleft and shiftright as Spark's (Java's) on an int or a long. An int literal keeps the int path, so
+    the result is an int as in Spark; otherwise the value's type picks the path when the query runs."""
+    def build(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression:
+        operands = [node.this, node.expression]
+        literal = _int_literal(node.this)
+        if literal is not None:
+            return exp.paren(_with_args(_shift_sql(left, 32 if -2 ** 31 <= literal < 2 ** 31 else 64), operands))
+        return exp.paren(_with_args(f"CASE WHEN TYPEOF(fj_arg0) IN {_LONG_TYPES} THEN {_shift_sql(left, 64)} "
+                                    f"ELSE {_shift_sql(left, 32)} END", operands))
+    return build
+
+
 def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
     """Rewrites of nodes sqlglot reads into its own classes, looked up by name so a sqlglot without
     one of them still loads."""
@@ -869,11 +1034,11 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
             ("Repeat", "repeat"), ("Pad", "lpad"))),
         ("RegexpSplit", _split),
         ("Replace", _replace),
-        # base64 takes bytes, and text as its UTF-8 bytes; any other type is refused, as in Spark
-        ("ToBase64", _template("TO_BASE64(CASE WHEN TYPEOF(fj_arg0) = 'BLOB' THEN CAST(fj_arg0 AS BLOB) "
-                               "WHEN TYPEOF(fj_arg0) = 'VARCHAR' THEN ENCODE(CAST(fj_arg0 AS VARCHAR)) "
-                               "ELSE CAST(ERROR('base64() takes text or binary, as in Spark. Cast the value to "
-                               "string first.') AS BLOB) END)", 1)),
+        ("ToBase64", _base64),
+        ("FromBase64", lambda n, a: None if _ANSI.get() else _with_args(_UNBASE64, [n.this])),
+        ("Hex", lambda n, a: _with_args(_HEX.replace("kf_spark_whole", _spark_whole("fj_arg0", "BIGINT")), [n.this])),
+        ("Unhex", _template(_UNHEX, 1)),
+        ("SHA2", _sha2),
         ("Minute", _template(f"MINUTE({_TS})", 1)),
         ("Second", _template(f"SECOND({_TS})", 1)),
         ("Quarter", _template(f"QUARTER({_DATE})", 1)),
@@ -884,9 +1049,24 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
                             "ELSE CAST(fj_arg0 AS DOUBLE) END", 2)),
         ("Negative", _template("(-fj_arg0)", 1)),
         ("Overlay", lambda n, a: _with_args(
-            "LEFT(fj_arg0, fj_arg2 - 1) || fj_arg1 || SUBSTR(fj_arg0, fj_arg2 + "
+            # LEFT of 0 or less: Spark's substringSQL(1, pos - 1) is empty there, where DuckDB's LEFT(s, -n) drops
+            # the last n characters (overlay('abc' PLACING ',' FROM 0) is ',abc', not 'ab,abc').
+            "LEFT(fj_arg0, GREATEST(fj_arg2 - 1, 0)) || fj_arg1 || SUBSTR(fj_arg0, fj_arg2 + "
             + ("CASE WHEN fj_arg3 < 0 THEN LENGTH(fj_arg1) ELSE fj_arg3 END" if n.args.get("for_") else "LENGTH(fj_arg1)") + ")",
             [n.this, n.expression, n.args["from_"], *([n.args["for_"]] if n.args.get("for_") else [])])),
+        ("Initcap", _initcap),
+        # Spark's sqrt is Java's Math.sqrt: NaN below 0, where DuckDB's stops with "cannot take square root"
+        # (read once, so sqrt(rand() - 0.5) checks and takes the root of the same sample)
+        ("Sqrt", _template("(LIST_TRANSFORM([CAST(fj_arg0 AS DOUBLE)], kf_v -> CASE WHEN kf_v < 0 THEN "
+                           "CAST('NaN' AS DOUBLE) ELSE SQRT(kf_v) END))[1]", 1)),
+        ("Levenshtein", _levenshtein),
+        # bit_count counts the bits of the value as a long (Long.bitCount), so -1 gives 64 for an int too.
+        ("BitwiseCount", lambda n, a: _with_args(f"CAST(BIT_COUNT({_spark_whole('fj_arg0', 'BIGINT')}) AS INTEGER)",
+                                                 [n.this])),
+        ("BitwiseLeftShift", _shift(left=True)),
+        ("BitwiseRightShift", _shift(left=False)),
+        # isnan(NULL) is false in Spark (IsNaN isn't nullable)
+        ("IsNan", _template("COALESCE(ISNAN(fj_arg0), FALSE)", 1)),
         ("PosexplodeOuter", _template(_POSEXPLODE_OUTER, 1)),
         ("ExplodeOuter", _template(_EXPLODE_OUTER, 1)),
         ("RegexpSubstr", lambda n, a: None if len(a) != 2 else _with_args(
@@ -946,6 +1126,39 @@ def _to_timestamp_with_format(node: exp.Expression, args: list[exp.Expression]) 
     return _with_args(spark_datetime.parse_sql(pattern, "to_timestamp", strict=_ANSI.get()), [node.this])
 
 
+# Spark's reading of text as a date (DateTimeUtils.stringToDate): spaces and control characters trimmed, an
+# optional sign, a year of 4 to 7 digits, then optionally -month (1 or 2 digits) and -day (1 or 2), and after the
+# day ' ' or 'T' and anything. A part left out is 1; a date that doesn't exist, or anything else, is NULL.
+# DuckDB reads '24-02-29' as the year 24.
+_TEXT_DATE = ("^[\\s\\p{Cc}]*([+-]?)([0-9]{4,7})(?:-([0-9]{1,2})(?:-([0-9]{1,2})(?:[ T].*)?)?)?[\\s\\p{Cc}]*$")
+
+
+# Databricks SQL (ANSI on) stops on text that isn't a date, where Spark with ANSI off gives NULL.
+_DATE_MALFORMED = ("'[CAST_INVALID_INPUT] The value ''' || LEFT(CAST(kf_a.t AS VARCHAR), 200) || ''' of the type "
+                   "\"STRING\" cannot be cast to \"DATE\" because it is malformed. Correct the value as per the "
+                   "syntax, or change its target type. Use try_cast to tolerate malformed input and return NULL "
+                   "instead.'")
+
+
+def text_date(value: exp.Expression) -> exp.Expression:
+    """to_date(value), or Spark's CAST(value AS DATE), as Spark gives it (spark_text_date). In Databricks SQL
+    (ANSI on) text that isn't a date stops with CAST_INVALID_INPUT, as Databricks does."""
+    if not _ANSI.get():
+        return _with_args(spark_text_date("fj_arg0"), [value])
+    return _with_args(f"(LIST_TRANSFORM([{{'t': fj_arg0, 'd': {spark_text_date('fj_arg0')}}}], kf_a -> "
+                      f"CASE WHEN kf_a.t IS NOT NULL AND kf_a.d IS NULL THEN CAST(ERROR({_DATE_MALFORMED}) AS DATE) "
+                      "ELSE kf_a.d END))[1]", [value])
+
+
+def spark_text_date(value: str) -> str:
+    """DuckDB SQL for to_date(value) as Spark's: text read by Spark's rules (_TEXT_DATE), anything else cast."""
+    parts = f"REGEXP_EXTRACT(CAST({value} AS VARCHAR), '{_TEXT_DATE}', ['s', 'y', 'm', 'd'])"
+    date = ("CASE WHEN kf_dt.y = '' THEN NULL ELSE TRY(MAKE_DATE(CAST(kf_dt.s || kf_dt.y AS BIGINT), "
+            "CAST(COALESCE(NULLIF(kf_dt.m, ''), '1') AS BIGINT), CAST(COALESCE(NULLIF(kf_dt.d, ''), '1') AS BIGINT))) END")
+    return (f"CASE WHEN TYPEOF({value}) = 'VARCHAR' THEN (LIST_TRANSFORM([{parts}], kf_dt -> {date}))[1] "
+            f"ELSE TRY_CAST({value} AS DATE) END")
+
+
 def _to_date_with_format(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
     """to_date(text, format) reads the text with the format, also when the format is sqlglot's
     default ('yyyy-MM-dd HH:mm:ss', 'yyyy-MM-dd'), which sqlglot otherwise writes as a plain cast
@@ -953,7 +1166,9 @@ def _to_date_with_format(node: exp.Expression, args: list[exp.Expression]) -> ex
     as Spark reads it (spark_datetime) when it was written out."""
     from . import spark_datetime
     fmt = node.args.get("format")
-    if fmt is None or not fmt.is_string:
+    if fmt is None:
+        return text_date(node.this)
+    if not fmt.is_string:
         return None
     pattern = written_pattern(node)
     if pattern is not None:
@@ -1297,9 +1512,9 @@ def _no_duckdb_hash(statement: exp.Expression) -> None:
     for call in statement.find_all(exp.Anonymous):
         if call.name.upper() in ("HASH", "XXHASH64"):
             name = call.name.lower()
-            raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric here, so nothing ran: "
-                             f"written this way it would give another number than Spark's {name}. Run the cell "
-                             "in Fabric, or compute the hash in a column of its own first.")
+            raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric, because written this way "
+                             "it would give a different number from Spark's, so nothing ran. Compute the hash in a "
+                             "column of its own first, or run the cell in Fabric.")
 
 
 def _truncated_time(node: exp.Expression) -> None:

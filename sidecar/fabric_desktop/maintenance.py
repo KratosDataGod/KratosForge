@@ -40,7 +40,8 @@ STALE_STAGED_HOURS = 1
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _DATA_FILE = re.compile(rf"part-\d{{5}}-{_UUID}(-c\d{{3}})?(\.[a-z0-9]+)?\.parquet", re.I)
 _STAGED_DATA = re.compile(rf"{_DATA_FILE.pattern}#\d+", re.I)
-_STAGED_LOG = re.compile(r"\d{20}\.(json|checkpoint\.parquet)#\d+")
+# A commit, a checkpoint, or the _last_checkpoint pointer that a write killed while checkpointing never put in place
+_STAGED_LOG = re.compile(r"(\d{20}\.(json|checkpoint\.parquet)|_last_checkpoint)#\d+")
 _COMMIT = re.compile(r"\d{20}\.json")
 _FOREIGN = re.compile(r"[a-z][a-z0-9+.-]*:|[/\\]", re.I)  # a URI (abfss:, file:, C:) or a rooted path
 
@@ -204,7 +205,8 @@ def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[
     """OPTIMIZE (compaction, no V-Order) and VACUUM for a table on this PC, keeping ``days`` of history.
     Fewer than MIN_RETENTION_DAYS is refused before anything changes, unless ``allow_shorter``."""
     check_retention(days, allow_shorter)
-    before = DeltaTable(uri).version()
+    first = DeltaTable(uri)
+    before, files_before = first.version(), len(first.file_uris())
     set_retention(uri, days, allow_shorter=allow_shorter)
     table = DeltaTable(uri)
     metrics = table.optimize.compact()
@@ -213,8 +215,11 @@ def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[
     # history kept, the age at which VACUUM removes any file: a write still under way never loses one.
     unnamed = _remove(uri, _unnamed(uri, table, retention_hours(days)))
     staged = _remove(uri, _stale_staged(uri))
-    durable.sync_commits(uri, before + 1, DeltaTable(uri).version())  # the compacted files and their commits
+    after = DeltaTable(uri)
+    durable.sync_commits(uri, before + 1, after.version())  # the compacted files and their commits
+    # files_before and files_after are counted from the Delta log, before and after: measured, not estimated.
     return {"files_added": metrics.get("numFilesAdded", 0), "files_removed": metrics.get("numFilesRemoved", 0),
+            "files_before": files_before, "files_after": len(after.file_uris()),
             "vacuumed": len(removed), "unnamed_removed": unnamed, "staged_removed": staged}
 
 
@@ -255,7 +260,7 @@ def _older_than(entry: os.DirEntry[str], hours: float) -> bool:
 
 def _stale_staged(uri: str) -> list[str]:
     """Files still under delta-rs's staging name, untouched for STALE_STAGED_HOURS, as paths relative to
-    the table folder: data files and log commits a stopped write never put in place."""
+    the table folder: data files, log commits and checkpoint files a stopped write never put in place."""
     out = [e.path for e in _data_folder_files(uri)
            if _STAGED_DATA.fullmatch(e.name) and _older_than(e, STALE_STAGED_HOURS)]
     log = Path(uri) / "_delta_log"

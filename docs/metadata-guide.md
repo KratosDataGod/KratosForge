@@ -306,12 +306,22 @@ Criticality sets the rate when `success_rate` is left out: critical 99 %, high 9
 
 **Data mesh > Quality > Table health** reads every managed table's Delta log in the picked environment: files, size, average file size, V-Order, versions since the last VACUUM and the last OPTIMIZE, with advice.
 
-- In **Test and Prod**, **Optimize** runs Fabric's table maintenance job on the workspace's capacity: OPTIMIZE with V-Order (what Direct Lake and the SQL endpoint read fastest), then VACUUM keeping the layer's history days. Tables written from a PC have no V-Order until it runs, so by default every table a Test or Prod run writes is optimized right after the run. Untick **Optimize every table a run writes** to stop that.
+- In **Test and Prod**, **Optimize** runs Fabric's table maintenance job on the workspace's capacity: OPTIMIZE with V-Order (what Direct Lake and the SQL endpoint read fastest), then VACUUM keeping the layer's history days. Tables written from a PC have no V-Order until it runs, so by default every table a Test or Prod run writes is optimized right after the run. Untick **Optimize every table a run writes** to stop that. When the workspace's capacity check is Blocked (its last reading shows the capacity paused, say), no job starts for that workspace's tables, and each one says why; a capacity whose state isn't known doesn't stop it. Compacting on this PC reports how many files the table had before and after, counted from its Delta log.
 - In **Dev on this PC**, **Compact** does the same with delta-rs, without V-Order.
   - If a write on this PC stops part way, for example because the app was closed, it can leave files that no commit names. Table health lists them.
   - Compact removes unfinished files after an hour, and data files that no commit names once they're older than the layer's history days.
   - Compact only touches files named the way Delta names them. Anything else in the folder stays, such as a note or a CSV someone put there. Compact never goes into a linked folder (a symbolic link or a junction).
   - The project's own meta tables on this PC (the run log, watermarks and the rest) are compacted by themselves at every 100th commit, so runs don't slow down as they add up.
+
+### Data health (Preview)
+
+Data health checks one table from its Delta log, on this PC for Dev and in OneLake for Test and Prod: no Fabric job runs, and nothing in the table changes. It reports three things.
+
+- **Freshness**: how long ago the table's data last changed, against the `[freshness]` promise's `within_hours` for that environment. OPTIMIZE, VACUUM and settings changes don't count as a change. (The promise's `by` time is checked from runs, as above.)
+- **Volume**: rows written by each load (WRITE, MERGE, COPY INTO or a streaming batch), read from the commit's own metrics. The usual is the median of the last 20 loads, and the spread is their median distance from it. The latest load is unusual when it is more than 3 spreads from the median. When loads barely vary, it is unusual when it is more than 10% above or below the median. With fewer than 10 loads that recorded their rows, it says "Not enough history" and doesn't alert. A load that didn't record its rows is left out and counted, never estimated.
+- **Schema**: columns added, removed or retyped since the load before the latest.
+
+The rule is returned with every result, so the screen can show it beside each alert. Monitor > KratosForge > Operations > [Data health](user-guide.md#data-health-preview) shows it for the tables you watch.
 
 ## 7. Environments and promote
 
@@ -607,6 +617,16 @@ A [job file](notebooks.md) run with `fabric-desktop run job.toml` can't write a 
 ### Column lineage (Preview)
 
 KratosForge works out where every column comes from by reading the project's files, without running anything. Each column is one of: read from the source (by the same name, or through `rename`), a `[[derive]]` expression and the columns it uses, a `[[lookup]]` of a dimension's key, a `[[keys]]` surrogate key, or added by the framework. Each is labelled **declared** when a file states the link (a rename, an expression, a lookup, a key) or **inferred** when it is assumed from a matching name. Columns your Python adds (`[hooks] adds`, or every column of a `[step] custom`) are **opaque**: they're never guessed. Columns a hook runs after are flagged, because a hook can change any column. For one column, lineage follows the steps back to the landing files and finds every column built from it further on. On an entity's page, **Columns** in the Lineage card lists every column with how it's made and its label; pick one to see where it comes from and what reads it.
+
+### Impact of a column change (Preview)
+
+Before you drop, rename or retype a column, **Impact** in an entity's Lineage card shows what the change would touch, worked out from the same files. Nothing runs and nothing changes. Pick a column and a change; each consumer is marked **Breaks** or **Check**, with the reasons:
+
+- **Tables** in the project. One that reads the column by name, matches a `[[lookup]]` on it, uses it as a `[[keys]]` business key or in a `[[derive]]` expression, or looks it up with an `exists_in` check breaks when the column goes. Columns built from those further on are marked Check, with the path. A new type is a Check wherever it lands. The entity's own file breaks too when its key, watermark, `[scd]` lists, `[[clean]]` or `[[check]]` name the column.
+- **Your Python** in `transforms/` (hooks, custom steps, custom checks) for the entity and the tables that read it. Code that names the column breaks when it goes. Code that reads the table without naming it is a Check, because code can still use every column.
+- **The semantic model** KratosForge builds over the last layer (`SM_<Layer>`). A relationship on a column that goes, or on a lookup that breaks, loses a side. A visible column that goes or changes type is a Check for the reports that use it.
+
+Tables that read the entity but not this column are counted apart. Notebooks outside a project aren't traced yet. When you save an entity whose contract drops, renames or retypes a column that something reads, KratosForge shows the same list and asks before saving. One column gone and one of the same type added reads as a rename.
 
 ### Columns and tables the framework adds
 

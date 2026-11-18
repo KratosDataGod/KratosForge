@@ -134,6 +134,11 @@ class Host:
         setattr(lh, "write_guard", (lambda name, schema, table: self.channel.call("write_guard", name, schema, table)) if guard else None)  # noqa: B010 - a module hook
         # OPTIMIZE, VACUUM and RESTORE ask the engine every time: it knows the workspaces (and refuses when it can't say).
         setattr(lh, "maintenance_guard", lambda op, workspace_id, table: self.channel.call("maintenance_guard", op, workspace_id, table))  # noqa: B010 - a module hook
+        # MERGE, UPDATE, DELETE, VACUUM and RESTORE on a Prod-marked workspace: the engine answers, with the
+        # workspaces the person typed the name of for this run (kernel_proc.ProcessKernel._prod_refusal).
+        setattr(lh, "in_kernel_process", True)  # noqa: B010 - a module hook: every write here is a cell's
+        setattr(lh, "prod_guard", lambda op, workspace_id, workspace_name, table, _notebook: self.channel.call(  # noqa: B010 - a module hook
+            "prod_guard", op, workspace_id, workspace_name, table))
         return True
 
     def bind_proof(self, config: dict[str, Any], side: str, root: str) -> bool:

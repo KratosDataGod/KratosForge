@@ -447,8 +447,9 @@ function cellMenu(cell) {
     items.push({ label: cell.meta.outputs_hidden ? "Show output" : "Hide output", icon: "panel", action: () => setMeta(cell, "outputs_hidden", !cell.meta.outputs_hidden) });
     items.push({ label: "Clear output", icon: "clear", action: () => { cell.outputs = []; cell.status = null; updateCell(cell); } });
     items.push({ label: "Format cell", icon: "code", action: () => formatCells([cell]) });  // nbformat.js
-    if (dbgOn() && !nbWhere(state.notebook).fabric) {  // debugging.js
+    if (dbgOn()) {  // debugging.js; where cells can't pause, these say so instead of running
       items.push({ label: "Debug cell (pause at the first line)", icon: "play", action: () => debugCell(cell) });
+      items.push({ label: "Debug from here (this cell and below)", icon: "down", action: () => debugFromHere(cell) });
     }
   }
   items.push(...fabricStepMenuItems(cell));  // fabricstep.js
@@ -1276,8 +1277,9 @@ function renderResultViewer(o, wrap, bar, numeric, count, redraw = () => {}) {
   const menu = h("details", { class: "sql-export result-download" },
     h("summary", { class: "tool outline small", "aria-label": "Download the whole result" }, "Download ▾"),
     h("div", { class: "sql-export-menu", role: "menu" },
-      [["csv", "CSV"], ["xlsx", "Excel"], ["parquet", "Parquet"]].map(([fmt, label]) =>
-        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; downloadResult(o, fmt); } }, label))));
+      [["csv", "CSV"], ["csv", "CSV, Keep raw values", true], ["xlsx", "Excel"], ["parquet", "Parquet"]].map(([fmt, label, raw]) =>
+        h("button", { role: "menuitem", title: raw ? "Each value exactly as it is. A spreadsheet runs a cell that starts with =, +, - or @ as a formula." : null,
+          onclick: (e) => { e.target.closest("details").open = false; downloadResult(o, fmt, raw); } }, label))));
   // Filter: a box under each header, read as the SQL page's result grid (sql_view.py), over every row.
   const filterBtn = btn("Filter", null, () => {
     v.filterOn = !v.filterOn;
@@ -1435,14 +1437,17 @@ function copyResultPage(o) {
   attempt(() => navigator.clipboard.writeText(text).then(() => toast(`Copied ${rows.length} row${rows.length === 1 ? "" : "s"}. Paste into Excel or a sheet.`)), "Could not copy");
 }
 
-// The whole result, written by the kernel to a new file in Downloads; a file there is never replaced.
-async function downloadResult(o, format) {
+// The whole result, written by the kernel to a new file in Downloads; a file there is never replaced. A CSV puts an
+// apostrophe in front of a text cell a spreadsheet would run as a formula, unless raw (Keep raw values, WR-228).
+async function downloadResult(o, format, raw = false) {
   const label = { csv: "CSV", xlsx: "Excel", parquet: "Parquet" }[format];
   toast(`Downloading the whole result as ${label}...`);
-  const out = await attempt(() => rpc("notebook_frame_download", { frame: o.frame, format, name: state.notebook?.name || "notebook", notebook: state.notebook?.name }), "Could not download");
+  const out = await attempt(() => rpc("notebook_frame_download", { frame: o.frame, format, name: state.notebook?.name || "notebook",
+    notebook: state.notebook?.name, ...(raw ? { raw: true } : {}) }), "Could not download");
   if (!out) return;
   if (out.gone) { toast(out.message, true); return; }
-  toast(`Saved ${out.rows.toLocaleString()} row${out.rows === 1 ? "" : "s"} to ${out.path}`);
+  const notes = out.notes?.length ? `. ${out.notes.join(" ")}` : "";
+  toast(`Saved ${out.rows.toLocaleString()} row${out.rows === 1 ? "" : "s"} to ${out.path}${notes}`);
 }
 
 function renderChart(o, numeric) {
@@ -1625,7 +1630,10 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
   // engines.js: on another engine the cell runs there; Run this cell on Python sets onKernel for one run here.
   const kernel = cell.onKernel === true;
   delete cell.onKernel;
-  if (!kernel && nbOnEngine(nb) && !cell.meta?.frozen) return runEngineCell(cell, nb);
+  if (!kernel && nbOnEngine(nb) && !cell.meta?.frozen) {
+    if (!nb.runningAll) dbgRemoteNote(nb, [cell]);  // debugging.js: breakpoints can't pause there
+    return runEngineCell(cell, nb);
+  }
   // ``nb`` keeps running in its own session if another notebook is opened meanwhile.
   if (!kernel && nbWhere(nb).fabric) {
     toast("This notebook runs in Fabric, which runs the whole notebook. Use Run all, or switch Runs on to This PC to run one cell.");
@@ -1635,7 +1643,10 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
     toast("This cell is frozen, so it doesn't run. Unfreeze it on the Edit tab.");
     return true;
   }
-  if (isFabricStep(cell)) return runFabricStep(cell, nb);  // fabricstep.js: on Fabric Spark, not this PC
+  if (isFabricStep(cell)) {  // fabricstep.js: on Fabric Spark, not this PC
+    if (!nb.runningAll) dbgRemoteNote(nb, [cell]);
+    return runFabricStep(cell, nb);
+  }
   if (kernelBusy(nb) && cell.status !== "queued") {
     const other = nb.kernelStatus !== "busy" && [...openNotebooks.values()].find((o) => o.kernelStatus === "busy");
     if (other) toast(`A cell is running in ${other.name}. Notebooks share one kernel unless Run notebooks in their own process is on in Settings.`);
@@ -1702,7 +1713,23 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
   if (state.notebook?.dirty) markDirty();
   if (!(last && await dbgAfterRun(cell, last))) refreshVariables();
   cellFx(cell);  // after dbgAfterRun, which draws the results again
+  // A change to a Prod workspace waits for its typed name; run on its own, the cell offers it and runs again.
+  if (cell.status === "error" && !nb.runningAll && cell.outputs.some((o) => o.ename === "ProdConfirmNeeded")) return nbProdConfirm(cell, nb);
   return ok;
+}
+
+// The cell's MERGE, UPDATE, DELETE, VACUUM or RESTORE would change a workspace marked Prod
+// (prod_writes_service.py). Typing the workspace's name lets the cell's next run change it, once.
+async function nbProdConfirm(cell, nb) {
+  const p = await rpc("notebook_prod_pending", { notebook: nb.name }).catch(() => null);
+  if (!p) return false;
+  const go = await confirmDialog(`Change ${p.workspace_name}?`,
+    `${p.operation} on ${p.table} changes ${p.workspace_name}, a Prod workspace. Nothing has changed yet. Type its name to run this cell once.`,
+    "Run in Prod", { danger: true, typeToConfirm: p.workspace_name });
+  if (!go) return false;
+  const allowed = await attempt(() => rpc("notebook_prod_confirm", { notebook: nb.name, workspace_id: p.workspace_id, confirm_name: p.workspace_name }));
+  if (!allowed) return false;
+  return runCell(cell, { nb });
 }
 
 // Forge animations (motion.js): a spark when a cell succeeds on its own (the Wolf Run in the status
@@ -1720,10 +1747,14 @@ function cellFx(cell) {
     document.querySelector(`[data-cell="${cell.id}"] .cell-status > span`));
 }
 
-async function runCells(cells) {
+// `debug` (Debug from here, debugging.js): the first cell starts paused at its first line, and each
+// next one too unless the last command was Continue.
+async function runCells(cells, { debug = false } = {}) {
   const nb = state.notebook;
   const code = cells.filter((c) => c.type === "code" && c.source.trim() && !c.meta?.frozen);
   if (!(await fabricStepPrecheck(nb, code))) return;  // fabricstep.js: before any cell runs
+  if (!debug) dbgRemoteNote(nb, code);  // debugging.js: says so when breakpoints can't pause there
+  nb.dbgRun = debug && dbgOn() ? { mode: "step" } : null;
   nb.cancelRequested = false;
   const started = performance.now();
   const done = (ran) => {
@@ -1750,7 +1781,7 @@ async function runCells(cells) {
   nb.runningAll = true;
   try {
     for (const [i, cell] of code.entries()) {
-      const ok = await runCell(cell, { nb });  // goes on in nb's session if another notebook is opened
+      const ok = await runCell(cell, { nb, debug: dbgStepNext(nb) });  // goes on in nb's session if another notebook is opened
       if (!ok || nb.cancelRequested) {
         track?.stop();
         code.slice(i + 1).forEach((c) => { c.status = null; if (state.notebook === nb) updateResults(c); });
@@ -1770,6 +1801,7 @@ async function runCells(cells) {
     setKernel(nb.stopRequested ? "stopped" : "idle", nb);
   } finally {
     nb.runningAll = false;
+    nb.dbgRun = null;
     if (!forgeRun.result) ended("stopped", forgeRun.done);  // an error left the loop
   }
   done(code.length);

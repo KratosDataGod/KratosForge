@@ -1307,7 +1307,7 @@ body.pop-out .page.monitor { padding: 12px; }
   .home-body.with-aside { grid-template-columns: minmax(0, 1fr); }
   .home-hero { height: 230px; }
 }
-/* A progression page's header (pageHero: Academy, Profile): the same band at the top of the page; the page below keeps its plain layout. */
+/* A tab's header (pageHero: Create, Workspaces, Platform): the same band at the top of the page; the page below keeps its plain layout. */
 .page.living-head > .home-hero { margin-bottom: 18px; max-width: none; }
 .page.living-head .home-hero-text { padding-top: 40px; gap: 10px; }
 .page.living-head h1.home-hero-title { margin: 0; font-size: 64px; color: var(--lx-hero-title); font-weight: 800; letter-spacing: 0; }
@@ -1322,8 +1322,10 @@ body.pop-out .page.monitor { padding: 12px; }
 @media (max-width: 1250px) { .home-hero-title { font-size: 42px; } }
 @media (max-width: 1180px) { .home-hero-title { font-size: 32px; } }
 @media (max-width: 1040px) { .home-hero-title { font-size: 28px; } .page .home-hero-welcome { font-size: 18px; } }
-@media (max-width: 1250px) { .page.living-head h1.home-hero-title { font-size: 56px; } }
-@media (max-width: 1100px) { .page.living-head h1.home-hero-title { font-size: 48px; } }
+.page.living-head h1.home-hero-title.long { font-size: 52px; }
+@media (max-width: 1250px) { .page.living-head h1.home-hero-title { font-size: 56px; } .page.living-head h1.home-hero-title.long { font-size: 42px; } }
+@media (max-width: 1100px) { .page.living-head h1.home-hero-title { font-size: 48px; } .page.living-head h1.home-hero-title.long { font-size: 36px; } }
+@media (max-width: 1040px) { .page.living-head h1.home-hero-title.long { font-size: 30px; } }
 @media (max-width: 960px) { .home-hero-img { display: none; } }
 /* Without its art, a page's header band is only as tall as its title and buttons: no empty navy block. */
 @media (max-width: 960px) {
@@ -1335,7 +1337,7 @@ body.pop-out .page.monitor { padding: 12px; }
   .home-hero-img { display: none; }
   .home-hero-text { width: auto; padding: 18px 20px; }
   .home-hero-title { font-size: 28px; }
-  .page.living-head h1.home-hero-title { font-size: 40px; }
+  .page.living-head h1.home-hero-title, .page.living-head h1.home-hero-title.long { font-size: 40px; }
   .page.living-head .home-hero-text { padding-top: 18px; }
   .page.living-head h1.home-hero-title { white-space: normal; }
 }
@@ -2172,6 +2174,23 @@ button.git-name { padding: 0; border: 0; background: none; font: inherit; color:
 .lineage-col .mono { flex: 1; overflow-wrap: anywhere; }
 .lineage-col:hover, .lineage-col.on { border-color: var(--border); background: var(--surface); }
 .lineage-detail { display: flex; flex-direction: column; gap: 8px; overflow: auto; min-width: 0; }
+.lineage-head b { flex: 1 0 auto; }
+.impact-view { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.impact-view .lead { margin: 0; }
+.impact-view label.inline { display: inline-flex; gap: 6px; align-items: center; }
+.impact-out { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.impact-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.impact-tile { border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); padding: 8px 12px; }
+.impact-tile b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+.impact-tile b.bad { color: var(--danger); }
+.impact-tile b.wrn { color: var(--warn); }
+.impact-tile span { font-size: 12px; color: var(--muted); }
+.impact-list { display: flex; flex-direction: column; gap: 6px; }
+.impact-group { margin: 6px 0 0; font-size: 12px; font-weight: 600; }
+.impact-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); padding: 7px 10px; }
+.impact-name { overflow-wrap: anywhere; }
+.impact-why { grid-column: 2 / 4; margin: 0; padding-left: 16px; }
+.impact-chain { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .lineage-detail table td { vertical-align: top; overflow-wrap: anywhere; }
 @media (max-width: 640px) {
   .lineage-split { grid-template-columns: 1fr; overflow-y: auto; }
@@ -2643,7 +2662,7 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 .sh-stack .card { display: flex; flex-direction: column; gap: 12px; }
 .sh-last { display: flex; flex-direction: column; gap: 2px; min-width: 220px; margin-right: 24px; }
 .sh-gap { background: var(--warn-soft-8); border-color: var(--warn-border-2); color: var(--warn-ink); }
-.sh-gap p { margin: 0; }
+.sh-gap p, .sh-setup p { margin: 0; }
 .sh-scroll { overflow-x: auto; }
 .sh-scope { min-height: 32px; border: 1px solid var(--border-input); border-radius: var(--r-sm); background: var(--surface); font: inherit; }
 /* Notebook find and replace (nbfind.js): a bar pinned over the cells. */
@@ -2686,6 +2705,14 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 .nb-intel-kind { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
 .nb-intel-value { display: block; margin-top: 4px; color: var(--text-2); }
 .nb-intel-doc { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-soft); max-height: 220px; overflow: hidden; white-space: pre-wrap; color: var(--text-2); font-size: 12px; line-height: 1.45; }
+/* Peek definition (Alt+F12) on the SQL page: the object's definition in a panel under the cursor. */
+.sql-peek { position: fixed; z-index: 60; width: min(720px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12); color: var(--text); }
+.sql-peek[hidden] { display: none; }
+.sql-peek-head { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 10px; border-bottom: 1px solid var(--border-soft); font-size: 12.5px; }
+.sql-peek-head code { font-family: var(--mono); }
+.sql-peek-actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.sql-peek-code { margin: 0; padding: 8px 10px; max-height: 320px; overflow: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.45; white-space: pre; }
+.sql-peek-error { margin: 0; padding: 8px 10px; color: var(--danger); font-size: 12.5px; }
 .nb-intel-info { max-width: 460px; padding: 4px 2px; font-size: 12px; }
 .sql-intel-cols { display: grid; gap: 1px; white-space: normal; }
 /* F12 (S08): the Explorer row the editor went to, marked for a moment. */
@@ -3161,6 +3188,9 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .learn-dismissed-list { list-style: none; margin: 0; padding: 0; width: 100%; }
 .learn-dismissed-list li { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 6px 0; border-top: 1px solid var(--border); }
 .learn-why { margin: 4px 0 0; }
+.learn-team-notes { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; padding: 10px 12px; border-radius: 6px; background: var(--surface); border: 1px solid var(--accent-border); }
+.learn-team-notes > b { color: var(--accent); }
+.learn-team-notes p { margin: 0; white-space: pre-line; }
 .learn-fix .learn-code { padding-left: 8px; border-left: 3px solid var(--border); }
 .learn-fix .learn-code.before { border-left-color: var(--danger); }
 .learn-fix .learn-code.after { border-left-color: var(--success, var(--ok-2)); }
@@ -3883,6 +3913,24 @@ body[data-skin-cells="rounded"] .cells.editing .cell.selected .cell-box { box-sh
 .sql-diagram-legend { margin: 0; }
 .sql-diagram-solid, .sql-diagram-dashed { display: inline-block; width: 24px; vertical-align: middle; border-top: 2px solid var(--accent-ink); }
 .sql-diagram-dashed { border-top: 2px dashed var(--muted); margin-left: 8px; }
+
+/* Monitor > Operations > Data health (data-health.js) */
+.dh-alerts { display: flex; flex-direction: column; gap: 6px; padding: 4px 16px 10px; }
+.dh-alerts h3 { margin: 0; font-size: 13px; }
+.dh-alert { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 10px; padding: 7px 10px; border: 1px solid var(--border-soft); border-radius: var(--r-md); background: var(--surface); }
+.dh-row { cursor: pointer; }
+.dh-note { display: flex; flex-direction: column; gap: 8px; margin: 8px 16px; padding: 10px 12px; border: 1px solid var(--warn-border); border-radius: var(--r-md); background: var(--warn-soft-3); color: var(--text); }
+.dh-note.quiet { border-color: var(--border-soft); background: var(--surface-2); }
+.dh-chart { margin: 8px 16px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.dh-chart h3 { margin: 0 0 6px; font-size: 13px; }
+.dh-chart svg { display: block; width: 100%; height: auto; }
+.dh-chart text { fill: var(--muted); font-size: 11px; }
+.dh-band { fill: var(--accent-soft); }
+.dh-bar { fill: var(--accent-ink); opacity: .75; }
+.dh-bar.hi { fill: var(--danger); opacity: 1; }
+.dh-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin: 0 16px; }
+.dh-tile { display: flex; flex-direction: column; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.dh-tile b { font-size: 18px; font-variant-numeric: tabular-nums; }
 
 /* ---------- Profile > Skill trees (PB-134) ---------- */
 .tree-head { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; padding: 18px 20px 0;

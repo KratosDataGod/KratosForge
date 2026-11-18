@@ -37,8 +37,10 @@ from duckdb.experimental.spark.sql.session import SparkSession
 from . import lakehouse, spark_api, spark_compat, spark_infer, sql as _sql, sql_dialects
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
 from .duckdb_rows import first_row, keep_try_cast
+from . import spark_hash
 from .spark_complex import spark_complex_types
 from .spark_decimals import spark_decimal_types
+from . import trees
 
 
 def _arrow(df: DataFrame) -> pa.Table:
@@ -187,7 +189,6 @@ def _clear_output(path: str) -> None:
     """Remove a Spark write's folder (or a file) at ``path`` before an overwrite, as Spark does. A
     folder that holds anything a Spark write doesn't leave (part files, _SUCCESS, name=value folders),
     or a link, is refused instead, so an overwrite can't delete someone's own files."""
-    import shutil
     refused = "so overwrite didn't delete anything. Write to a new path, or empty the folder first."
     if _is_link(path):
         raise ValueError(f"{path} is a link, {refused}")
@@ -204,7 +205,7 @@ def _clear_output(path: str) -> None:
         foreign = [f for f in files if not _SPARK_OUTPUT.fullmatch(f)]
         if foreign:
             raise ValueError(f"{path} holds files a Spark write doesn't make ({foreign[0]}), {refused}")
-    shutil.rmtree(path)
+    trees.remove(path)
 
 
 def write_files(rel: Any, path: str, fmt: str, partition_by: list[str], header: bool = False,
@@ -1142,7 +1143,7 @@ class LakehouseReader:
     def table(self, name: str) -> DataFrame:
         self._no_schema("a table")
         if self._as_of():
-            data = lakehouse.open_table(name, **self._as_of()).to_pyarrow_dataset()
+            data = lakehouse.table_dataset(lakehouse.open_table(name, **self._as_of()))
             return self._session._from_arrow_dataset(data)
         return self._session.table(name)
 
@@ -1193,7 +1194,7 @@ class LakehouseReader:
             point = lakehouse.as_of(**self._as_of())
             if point is not None:
                 opened.load_as_version(point)
-            return self._session._from_arrow_dataset(opened.to_pyarrow_dataset())
+            return self._session._from_arrow_dataset(lakehouse.table_dataset(opened))
         if fmt == "csv":
             return self.csv(path)
         if fmt == "json":
@@ -1301,6 +1302,7 @@ class LocalSparkSession(SparkSession):
         super().__init__(SparkContext("local"))
         self.conn.execute("SET TimeZone = 'UTC'")  # like Fabric's Spark sessions, not this PC's zone
         keep_try_cast(self.conn)
+        spark_hash.register(self.conn)  # sha2 at 224, 384 and 512 bits
         # The running query's progress, for the line under a running cell (progress()); never printed.
         self.conn.execute("SET enable_progress_bar = true")
         self.conn.execute("SET enable_progress_bar_print = false")

@@ -484,14 +484,14 @@ When a project runs T-SQL on this PC, a hint, label or statistics statement eith
 | --- | --- |
 | `OPTION (LABEL = '...')` | Left out, with a note. A warehouse shows the label in query insights; it changes no rows |
 | `OPTION (...)` with `HASH GROUP`, `ORDER GROUP`, `MERGE UNION`, `HASH UNION`, `CONCAT UNION`, `FORCE ORDER`, `FORCE SINGLE NODE PLAN`, `FORCE DISTRIBUTED PLAN`, `DISABLE_RESULT_SET_CACHE`, or `USE HINT` with the four `ASSUME_..._FILTER_ESTIMATES` names | Left out, with a note. These are the hints Microsoft lists for a warehouse, and each changes how it plans, not the rows |
-| A join hint in `FROM`, such as `INNER HASH JOIN` | Left out, with a note |
+| A `LOOP`, `HASH` or `MERGE` join hint in `FROM`, such as `INNER HASH JOIN` | Left out, with a note |
 | A locking table hint: `NOLOCK`, `READUNCOMMITTED`, `HOLDLOCK`, `TABLOCK`, `ROWLOCK`, `READPAST` and the others, also written `t (NOLOCK)` | Left out, with a note. A warehouse always runs snapshot isolation, and reads here are snapshot reads too, so the hint changes no rows. Microsoft's pages don't say whether a warehouse takes it |
 | `CREATE STATISTICS s ON t (c)`, `UPDATE STATISTICS t [(s)]`, `DROP STATISTICS t.s`, with `WITH FULLSCAN` or `SAMPLE n PERCENT` | Changes nothing, with a note. It checks that the table (and for `CREATE`, the column) exist, so a name that isn't there is an error as in a warehouse. `DROP` doesn't check the statistic itself |
 
 Refused by name:
 
-- Any other query hint, such as `MAXDOP`, `RECOMPILE`, `LOOP JOIN`, `FAST n` or another `USE HINT` name, since Microsoft doesn't list it for a warehouse. `MAXRECURSION` is refused with recursive CTEs.
-- Index hints (`INDEX(...)`, `FORCESEEK`, `FORCESCAN`, `NOEXPAND`): a warehouse has no indexes to name.
+- Any other query hint, such as `MAXDOP`, `RECOMPILE`, `LOOP JOIN`, `FAST n` or another `USE HINT` name, since Microsoft doesn't list it for a warehouse. A `REMOTE` join hint in `FROM` is refused for the same reason. `MAXRECURSION` is refused with recursive CTEs.
+- Index hints (`INDEX(...)`, `FORCESEEK`, `FORCESCAN`, `NOEXPAND`), because a warehouse has no indexes to name.
 - A statistic on more than one column, which a warehouse refuses too, filtered statistics (`WHERE`), and statistics options other than `FULLSCAN` and `SAMPLE`.
 
 ## Local T-SQL tables

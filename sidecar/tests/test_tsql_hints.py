@@ -36,7 +36,8 @@ def refused(engine, sql, says):
 
 # ---- OPTION (LABEL = ...)
 
-@pytest.mark.parametrize("label", ["'nightly load'", "N'nächtlich'", "'it''s'", "'OPTION (MAXDOP 1)'"])
+@pytest.mark.parametrize("label", ["'nightly load'", "N'nächtlich'", "'it''s'", "'OPTION (MAXDOP 1)'",
+                                   "'\x01kf-statistics:ZZ'"])  # a typed label that looks like the local mark
 def test_a_label_changes_nothing_and_says_so(engine, label):
     rows, notes = run(engine, f"SELECT id FROM t WHERE id < 3 ORDER BY id OPTION (LABEL = {label})")
     assert rows == [[1], [2]] and notes == [tsql_hints.LABEL_NOTE]
@@ -95,6 +96,10 @@ def test_option_words_in_a_string_or_comment_are_left_alone(engine):
 def test_a_join_hint_changes_no_rows_and_says_so(engine, join):
     rows, notes = run(engine, f"SELECT a.id FROM t a {join} t b ON a.id = b.id ORDER BY a.id")
     assert rows == [[1], [2], [3]] and len(notes) == 1 and "join hint" in notes[0]
+
+
+def test_a_join_hint_a_warehouse_doesnt_list_is_refused_by_name(engine):
+    refused(engine, "SELECT t.id FROM t INNER REMOTE JOIN t u ON t.id = u.id", "the join hint REMOTE JOIN isn't carried")
 
 
 @pytest.mark.parametrize("sql", ["SELECT id FROM t WITH (NOLOCK) ORDER BY id", "SELECT id FROM t (NOLOCK) ORDER BY id",

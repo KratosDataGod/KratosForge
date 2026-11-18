@@ -281,7 +281,7 @@ def test_a_databricks_import_lists_each_dropped_or_changed_construct_with_its_ce
     # Widgets run here as written; cell 1 only loses its title, and Fabric would need a parameter cell.
     assert notes[1][0] == ("dropped", "The cell title 'Parameters': KratosForge cells have no titles.")
     assert [k for k, _ in notes[1][1:]] == ["fabric"] and "parameter cell" in notes[1][1][1]
-    assert notes[2] == [("changed", "%sh became %%sh, KratosForge's way to mark the language.")]
+    assert notes[2] == [("changed", "%sh became %%sh, KratosForge's way to mark the language." + nbf.SH_EXIT)]
     assert [k for k, _ in notes[3]] == ["check"] and "dbfs:/" in notes[3][0][1]
     assert [k for k, _ in notes[4]] == ["check"] and "mounts" in notes[4][0][1]
     assert notes[5][0][0] == "changed" and "md-sandbox" in notes[5][0][1]
@@ -373,7 +373,7 @@ def test_a_dbc_import_reports_titles_results_hidden_cells_and_dashboards():
     by = _by_cell(nb["notes"])
     assert [w for _, w in by[None]] == ["The notebook's dashboards: KratosForge has no notebook dashboards."]
     assert [k for k, _ in by[2]] == ["dropped"] * 3
-    assert by[3] == [("changed", "%sh became %%sh, KratosForge's way to mark the language.")]
+    assert by[3] == [("changed", "%sh became %%sh, KratosForge's way to mark the language." + nbf.SH_EXIT)]
 
 
 def test_import_check_and_import_carry_the_notes_and_other_formats_have_none(svc):

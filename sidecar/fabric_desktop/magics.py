@@ -238,6 +238,9 @@ FABRIC_HEADERS = {"%%sql": "sql", "%%pyspark": "python", "%%python": "python", "
 DATABRICKS_HEADERS = {"%sql": "sql", "%python": "python", "%scala": "scala", "%r": "r", "%md": "markdown",
                       "%sh": "shell"}
 # Script cells (IPython's, and Databricks' %sh): the cell runs in that shell on this PC (shell.py).
+# Databricks' "%sh -e" fails the cell on a non-zero exit status; a plain %sh cell doesn't
+# (https://docs.databricks.com/aws/en/notebooks/notebooks-code).
+SH_FAIL = "-e"
 SHELL_HEADERS = {"%%sh": "sh", "%%bash": "bash", "%%cmd": "cmd", "%%powershell": "powershell", "%sh": "sh"}
 # IPython's cell magics that wrap Python (the body runs as Python, timed or captured), and the
 # ones whose body isn't code at all.
@@ -266,6 +269,8 @@ def cell(source: str) -> Cell:
     if language is None:
         return Cell("python", "", source)
     args = first[len(word):].strip() if word in PYTHON_WRAPPERS or word in OTHER_HEADERS else ""
+    if word == "%sh" and first[len(word):].strip() == SH_FAIL:  # Databricks' %sh -e: an option, not a command
+        return Cell("shell", word, newline + rest, SH_FAIL)
     if word in OTHER_HEADERS:  # the first line holds arguments, not content
         return Cell(language, word, newline + rest, args)
     if language == "python":
@@ -288,3 +293,10 @@ def fabric_cell(c: dict) -> dict:
         return {**c, "source": parsed.body.lstrip("\n")}
     body = parsed.body.lstrip(" \t")
     return {**c, "source": _TO_FABRIC[parsed.language] + ("" if body.startswith("\n") else "\n") + body}
+
+
+def runs_in_fabric(header: str) -> str:
+    """Why a Scala, R or .NET cell stops on this PC, naming its header (%scala, %%spark, %r...)."""
+    named = f"This {header} cell" if header else "This cell"
+    return (f"{named} needs Fabric's Spark, which this PC doesn't have. Only Python, SQL, Markdown and shell "
+            "cells run here. Switch Runs on to Fabric to run it, or write the cell in Python or SQL.")

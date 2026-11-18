@@ -15,11 +15,24 @@ sys.path.insert(0, str(Path.cwd()))
 
 from fabric_desktop.integrations.capabilities import register_core  # noqa: E402
 from fabric_desktop.integrations.extensions import BUILT_IN, check  # noqa: E402
+from fabric_desktop.integrations.permissions import OFFERED  # noqa: E402
 from fabric_desktop.integrations.registry import Capability, Registry  # noqa: E402
 
 REGENERATE = "from sidecar/, run python ../.github/scripts/mcp_tools_doc.py > ../docs/ai/tools.md"
 ASKS = {"never": "No", "always": "Every time", "ask": "Unless pre-approved"}
 WHERE = {"this_pc": "This PC", "fabric": "Fabric"}
+# The names Settings > Integrations shows: PERMISSION_LABEL in app/ui/integrations.js.
+# tests/test_mcp_tools_doc.py checks the two stay the same.
+LABELS = {
+    "READ_METADATA": "Read metadata",
+    "READ_DATA": "Read data",
+    "WRITE_LOCAL_FILES": "Write notebooks",
+    "EXECUTE_LOCAL_CODE": "Run code on this PC",
+    "WRITE_ONELAKE": "Write to OneLake",
+    "MODIFY_FABRIC_ARTIFACTS": "Change Fabric items",
+    "DEPLOY_TO_FABRIC": "Deploy",
+    "MANAGE_CONNECTIONS": "Manage connections",
+}
 
 INTRO = f"""# Tools an AI tool can use
 
@@ -32,7 +45,10 @@ each tool's inputs and outputs, from the `fabric_desktop_list_capabilities` tool
 
 - **Permission** is what you give the tool when you add it in **Settings > Integrations**.
 - **Asks you** says whether KratosForge asks you to approve each call.
+- **Reads or changes** says whether the tool only reads, or changes or runs something.
 - **Where** is where the tool reads or changes things: this PC, Fabric, or both.
+- **Status** says **Preview** for a tool still in Preview. Tools that need a permission this release
+  doesn't offer are listed as **Not available yet**.
 - **Resource** is the address the tool is also served at as an MCP resource.
 """
 
@@ -55,11 +71,11 @@ def row(c: Capability) -> list[str]:
     return [
         f"`{c.id}`",
         _cell(c.title),
-        _cell(c.permission),
+        LABELS.get(c.permission, c.permission),
         asks,
         "Reads" if c.read_only else "Changes",
         ", ".join(WHERE.get(loc, loc) for loc in c.locations),
-        "Preview" if c.status == "preview" else "",
+        "Not available yet" if c.permission not in OFFERED else ("Preview" if c.status == "preview" else ""),
         f"`{_cell(c.resource)}`" if c.resource else "",
     ]
 

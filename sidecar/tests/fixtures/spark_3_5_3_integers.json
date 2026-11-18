@@ -1,0 +1,181 @@
+{
+ "spark": "3.5.3",
+ "ansi": false,
+ "time_zone": "UTC",
+ "cases": [
+  {
+   "sql": "SELECT 2147483647 + 1, 2147483647 + 1 + 1, -2147483647 - 2, 2147483647 * 2147483647",
+   "value": [
+    [
+     -2147483648,
+     -2147483647,
+     2147483647,
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT 2147483647 + 1L, 2147483647L + 1, 3000000000 * 4, 9223372036854775807 + 1",
+   "value": [
+    [
+     2147483648,
+     2147483648,
+     12000000000,
+     -9223372036854775808
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT 9223372036854775807L * 2, -9223372036854775807L - 2, 4611686018427387904L * 4",
+   "value": [
+    [
+     -2,
+     9223372036854775807,
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(100 AS TINYINT) + CAST(100 AS TINYINT), CAST(127 AS TINYINT) * CAST(2 AS TINYINT), CAST(-128 AS TINYINT) - CAST(1 AS TINYINT)",
+   "value": [
+    [
+     -56,
+     -2,
+     127
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(30000 AS SMALLINT) + CAST(30000 AS SMALLINT), CAST(200 AS SMALLINT) * CAST(200 AS SMALLINT)",
+   "value": [
+    [
+     -5536,
+     -25536
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(100 AS TINYINT) + 100, CAST(30000 AS SMALLINT) + 30000, CAST(100 AS TINYINT) + CAST(30000 AS SMALLINT) * CAST(2 AS SMALLINT)",
+   "value": [
+    [
+     200,
+     60000,
+     -5436
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT typeof(CAST(100 AS TINYINT) + CAST(100 AS TINYINT)), typeof(CAST(1 AS SMALLINT) + 1), typeof(1 + 1L), typeof(2147483647 + 1)",
+   "value": [
+    [
+     "tinyint",
+     "int",
+     "bigint",
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(id AS INT) + 2147483647 AS x FROM range(3)",
+   "value": [
+    [
+     -2147483647
+    ],
+    [
+     -2147483648
+    ],
+    [
+     2147483647
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT id * 4611686018427387904 AS x FROM range(4)",
+   "value": [
+    [
+     -4611686018427387904
+    ],
+    [
+     -9223372036854775808
+    ],
+    [
+     0
+    ],
+    [
+     4611686018427387904
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(id AS INT) * CAST(1073741824 AS INT) AS x, id - 9223372036854775807 - 3 AS y FROM range(4)",
+   "value": [
+    [
+     -1073741824,
+     -9223372036854775807
+    ],
+    [
+     -2147483648,
+     -9223372036854775808
+    ],
+    [
+     0,
+     9223372036854775806
+    ],
+    [
+     1073741824,
+     9223372036854775807
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT (2147483647 + 1) * 2, (2147483647 + 1) / 2, (2147483647 + 1) % 7, (2147483647 + 1) div 3",
+   "value": [
+    [
+     0,
+     "float:-1073741824",
+     -2,
+     -715827882
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT 2147483647 + 1.5, 2147483647 + 1.0D, 2147483647 + CAST(1 AS DECIMAL(10, 0))",
+   "value": [
+    [
+     "decimal:2147483648.5",
+     "float:2147483648",
+     "decimal:2147483648"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT sum(x) FROM (SELECT 2147483647 + id AS x FROM range(3))",
+   "value": [
+    [
+     6442450944
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT 5 - 7, -3 * 4, 0 * 2147483647, 1 + NULL, CAST(NULL AS INT) * 3",
+   "value": [
+    [
+     -2,
+     -12,
+     0,
+     null,
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT 2147483647 + 1 AS a, 2147483647 + 1",
+   "value": [
+    [
+     -2147483648,
+     -2147483648
+    ]
+   ]
+  }
+ ]
+}

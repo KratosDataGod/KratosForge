@@ -74,7 +74,6 @@ These cases still differ:
 
 | Case | Spark | This PC |
 | --- | --- | --- |
-| `int` or `bigint` arithmetic past the type's range, such as `2147483647 + 1`, with ANSI off | Wraps around: -2147483648 | Stops with DuckDB's "Overflow in addition of INT32". Cast to a wider type first, or use `try_add` |
 | `abs(-2147483648)` or `-(-2147483648)` on an int, with ANSI off | Wraps around: -2147483648 | 2147483648, a `bigint` |
 | A notebook in Databricks Runtime 17.0 or later, which runs Spark SQL with ANSI mode on | A failed `CAST` or a division by zero stops | Gives NULL, as with ANSI mode off. The first use of `dbutils` in a session prints a note saying so, since which runtime a notebook is meant for isn't known here. Run it as Databricks SQL on the DuckDB engine, or on Databricks |
 | `pmod(x, 0)` in Databricks SQL | Stops with `[DIVIDE_BY_ZERO]` | NULL |
@@ -96,6 +95,18 @@ These cases can still differ, and LOC-005 notes them:
 | `div` whose quotient is past the BIGINT range | Wraps around (ANSI off) | NULL |
 | `spark.sql.ansi.enabled` set to true in a notebook | A division by zero is an error | NULL |
 | On the DuckDB engine, a statement that reads a table made earlier in the same cell | Spark's decimal types | DuckDB's types: the table isn't there yet when the cell is read. Make the table in its own cell |
+
+## Whole-number arithmetic on this PC
+
+Spark SQL run on this PC, in a notebook or on the DuckDB engine, computes `+`, `-` and `*` of two whole numbers as Spark does with ANSI mode off: in the wider of the two types (`tinyint`, `smallint`, `int` or `bigint`; a whole-number literal is an `int` when it fits, else a `bigint`), wrapping around past the type's range as Java does. For example, `2147483647 + 1` is `-2147483648` and `CAST(100 AS TINYINT) + CAST(100 AS TINYINT)` is `-56`, where DuckDB stops with "Overflow in addition". The cases are checked against Apache Spark 3.5.3's own answers in `sidecar/tests/test_spark_integer_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric. Databricks SQL on the DuckDB engine, which runs with ANSI mode on, still stops on an overflow, as Databricks does.
+
+These cases can still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| `abs` or unary `-` of the smallest value of a type | Wraps around (the same value) | See "ANSI mode on this PC" above |
+| An operand whose type can't be worked out (the statement's types aren't known) | Wraps around | Stops with DuckDB's overflow error |
+| The DataFrame API, such as `F.col("id") + F.lit(9223372036854775807)` | Wraps around | Stops with DuckDB's overflow error |
 
 ## Dates and times on this PC (LOC-003)
 

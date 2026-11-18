@@ -22,8 +22,9 @@ on this PC"). A to_json whose argument can't be typed is refused by name, not wr
 """
 from __future__ import annotations
 
+import datetime as dt
 import logging
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 from sqlglot import exp
 
@@ -267,12 +268,68 @@ def _literal_type(arg: exp.Expr | None) -> exp.DataType | None:
     return None
 
 
+WRONG_WAY = ("The step of sequence goes the wrong way from start to stop, so nothing ran. Spark stops on it too "
+             "(illegal sequence boundaries). Use a positive step when start is less than stop, or a negative step "
+             "when start is more than stop.")
+_WRONG_WAY_SQL = f"ERROR({exp.Literal.string(WRONG_WAY).sql('duckdb')})"
+
+
+def _int_value(arg: exp.Expr | None) -> int | None:
+    """A whole-number literal's value (also negated), else None."""
+    if isinstance(arg, exp.Neg):
+        inner = _int_value(arg.this)
+        return None if inner is None else -inner
+    if isinstance(arg, exp.Literal) and not arg.is_string and arg.is_int:
+        return int(arg.this)
+    return None
+
+
+def _time_value(arg: exp.Expr | None) -> dt.datetime | None:
+    """A DATE'...' or TIMESTAMP'...' literal's value, when its text is plain ISO, else None."""
+    if not isinstance(arg, exp.Cast) or not isinstance(arg.this, exp.Literal) or not arg.this.is_string:
+        return None
+    try:
+        value = dt.datetime.fromisoformat(arg.this.this.strip())
+    except ValueError:
+        return None
+    return value if value.tzinfo is None else None
+
+
+def _interval_sign(arg: exp.Expr | None) -> int | None:
+    """The sign of an interval literal of one unit, such as INTERVAL 1 MONTH or INTERVAL '-3' DAY, else None."""
+    if not isinstance(arg, exp.Interval) or not isinstance(arg.args.get("unit"), exp.Var):
+        return None
+    amount = arg.this
+    text = amount.this if isinstance(amount, exp.Literal) else _int_value(amount)
+    try:
+        n = int(str(text).strip())
+    except ValueError:
+        return None
+    return (n > 0) - (n < 0)
+
+
+_Bound = TypeVar("_Bound", int, dt.datetime)
+
+
+def _checked(sign: int | None, first: _Bound | None, last: _Bound | None) -> bool | None:
+    """For literals, whether the step is 0 with start equal to stop (the sequence is [start]); raises WRONG_WAY
+    when the step goes the wrong way, or is 0 with start and stop apart, as Spark stops. None when any isn't a
+    literal."""
+    if sign is None or first is None or last is None:
+        return None
+    if (sign > 0 and first > last) or (sign < 0 and first < last) or (sign == 0 and first != last):
+        raise ValueError(WRONG_WAY)
+    return sign == 0
+
+
 def _sequence_sql(node: exp.Expr, types: list[exp.DataType | None]) -> str | None:
     """Spark's sequence(start, stop[, step]) as DuckDB SQL, from its arguments' types, or None when they aren't
     ones handled here. Whole numbers count down when stop is below start, and keep the wider of start's and stop's
     types. Dates and timestamps step by a day (or minus a day) by default; a step with months in it gives
     start + i * step for each i, as Spark does, not each element plus the step (Jan 30 + 2 months is Mar 30, not
-    Mar 29), and stops at stop. Dates stay dates."""
+    Mar 29), and stops at stop. Dates stay dates. A step that goes the wrong way, or a step of 0 with start and
+    stop apart, stops with WRONG_WAY (when the query is translated for literals, else when it runs); a step of 0
+    with start equal to stop gives [start]. Without a step nothing is checked, so a plain sequence costs no more."""
     start, end, step = (node.args.get(k) for k in _SEQUENCE_ARGS)
     s_type, e_type, b_type = types
     if start is None or end is None or s_type is None or e_type is None:
@@ -283,28 +340,41 @@ def _sequence_sql(node: exp.Expr, types: list[exp.DataType | None]) -> str | Non
     wholes = [_WHOLE.get(t.this) for t in (s_type, e_type)]
     if all(wholes) and (b_type is None or b_type.this in _WHOLE):
         whole = max(wholes, key=lambda w: _WHOLE_ORDER.index(w or ""))
-        by = "{b}" if step is not None else "CASE WHEN {s} <= {e} THEN 1 ELSE -1 END"
-        return _once(f"CAST(GENERATE_SERIES({{s}}, {{e}}, {by}) AS {whole}[])", **parts)
+        if step is None:
+            return _once(f"CAST(GENERATE_SERIES({{s}}, {{e}}, CASE WHEN {{s}} <= {{e}} THEN 1 ELSE -1 END) "
+                         f"AS {whole}[])", **parts)
+        b = _int_value(step)
+        single = _checked(None if b is None else (b > 0) - (b < 0), _int_value(start), _int_value(end))
+        if single is not None:
+            return _once(f"CAST([{{s}}] AS {whole}[])" if single
+                         else f"CAST(GENERATE_SERIES({{s}}, {{e}}, {{b}}) AS {whole}[])", **parts)
+        return _once(f"CAST(CASE WHEN ({{b}} > 0 AND {{s}} > {{e}}) OR ({{b}} < 0 AND {{s}} < {{e}}) "
+                     f"OR ({{b}} = 0 AND {{s}} <> {{e}}) THEN {_WRONG_WAY_SQL} WHEN {{b}} = 0 THEN [{{s}}] "
+                     f"ELSE GENERATE_SERIES({{s}}, {{e}}, {{b}}) END AS {whole}[])", **parts)
     times = [_TIMES.get(t.this) for t in (s_type, e_type)]
     if not all(times) or (step is not None and (b_type is None or not b_type.is_type(_T.INTERVAL))):
         return None
     out = "DATE" if times == ["DATE", "DATE"] else "TIMESTAMPTZ" if "TIMESTAMPTZ" in times else "TIMESTAMP"
     calc = "TIMESTAMP" if out == "DATE" else out
     s, e = f"CAST({{s}} AS {calc})", f"CAST({{e}} AS {calc})"
-    unit = step.args.get("unit") if isinstance(step, exp.Interval) else None
     if step is None:
-        series = f"GENERATE_SERIES({s}, {e}, CASE WHEN {s} <= {e} THEN INTERVAL 1 DAY ELSE INTERVAL -1 DAY END)"
-    elif isinstance(unit, exp.Var) and unit.name.upper() in _FIXED_UNITS:
+        return _once(f"CAST(GENERATE_SERIES({s}, {e}, CASE WHEN {s} <= {e} THEN INTERVAL 1 DAY "
+                     f"ELSE INTERVAL -1 DAY END) AS {out}[])", **parts)
+    # Spark's estimate of the step, a month counted as 28 days, gives its direction and the most elements there
+    # can be; those past stop are dropped. DuckDB's EPOCH counts a month as 30 days.
+    est = "(EPOCH({b}) - 172800 * (DATEPART('year', {b}) * 12 + DATEPART('month', {b})))"
+    unit = step.args.get("unit") if isinstance(step, exp.Interval) else None
+    if isinstance(unit, exp.Var) and unit.name.upper() in _FIXED_UNITS:
         series = f"GENERATE_SERIES({s}, {e}, {{b}})"
     else:
-        # Spark's estimate of the step, a month counted as 28 days, gives its direction and the most elements
-        # there can be; those past stop are dropped. DuckDB's EPOCH counts a month as 30 days.
-        est = "(EPOCH({b}) - 172800 * (DATEPART('year', {b}) * 12 + DATEPART('month', {b})))"
-        count = (f"CASE WHEN {s} = {e} THEN 1 WHEN ({est} > 0 AND {s} < {e}) OR ({est} < 0 AND {s} > {e}) "
-                 f"THEN CAST(FLOOR(ABS(EPOCH({e}) - EPOCH({s})) / ABS({est})) AS BIGINT) + 1 ELSE 0 END")
+        count = f"CAST(FLOOR(ABS(EPOCH({e}) - EPOCH({s})) / ABS({est})) AS BIGINT) + 1"
         series = (f"LIST_FILTER(LIST_TRANSFORM(RANGE(0, {count}), LAMBDA kf_i: {s} + {{b}} * kf_i), "
                   f"LAMBDA kf_v: CASE WHEN {est} > 0 THEN kf_v <= {e} ELSE kf_v >= {e} END)")
-    return _once(f"CAST({series} AS {out}[])", **parts)
+    single = _checked(_interval_sign(step), _time_value(start), _time_value(end))
+    if single is not None:
+        return _once(f"CAST([{s}] AS {out}[])" if single else f"CAST({series} AS {out}[])", **parts)
+    return _once(f"CAST(CASE WHEN ({est} > 0 AND {s} > {e}) OR ({est} < 0 AND {s} < {e}) OR ({est} = 0 AND {s} <> {e}) "
+                 f"THEN {_WRONG_WAY_SQL} WHEN {est} = 0 THEN [{s}] ELSE {series} END AS {out}[])", **parts)
 
 
 def _to_json(node: exp.Expr, dtype: exp.DataType | None) -> None:

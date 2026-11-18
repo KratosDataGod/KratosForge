@@ -191,7 +191,7 @@ Spark SQL run on this PC gives Spark's values and types for its array, map and s
 | `array_position` | A `bigint`; 0 when the value isn't found |
 | `flatten` | NULL when one of the inner arrays is NULL |
 | `array_sort`, `sort_array` | `array_sort` puts NULLs last; `sort_array` puts them first ascending and last descending |
-| `sequence` | Counts down when stop is below start; whole numbers keep their type (`array<int>`). Dates and timestamps step by a day by default and stay dates; a step in months gives start + i × step, so `sequence(DATE'2024-01-30', DATE'2024-04-30', INTERVAL 1 MONTH)` ends on the 30th of each month (checked against Apache Spark 3.5.3 in `sidecar/tests/test_spark_sequence_values.py`) |
+| `sequence` | Counts down when stop is below start; whole numbers keep their type (`array<int>`). Dates and timestamps step by a day by default and stay dates; a step in months gives start + i × step, so `sequence(DATE'2024-01-30', DATE'2024-04-30', INTERVAL 1 MONTH)` ends on the 30th of each month (checked against Apache Spark 3.5.3 in `sidecar/tests/test_spark_sequence_values.py`). A step that goes the wrong way from start to stop, or a step of 0 with start and stop apart, stops the query (illegal sequence boundaries); a step of 0 with start equal to stop gives `[start]` |
 | `reverse`, `concat` | Work on arrays as well as text |
 | `map_concat`, `map` | A key that repeats stops the query, as with Spark's default `spark.sql.mapKeyDedupPolicy` (EXCEPTION) |
 | `explode`, `explode_outer`, `inline` | One row per element; a map gives `key` and `value` columns. `explode` of an empty or NULL array gives no rows, `explode_outer` one row of NULLs |
@@ -207,7 +207,6 @@ These cases still differ:
 | `array(1, 'a')` and other arrays that mix types | The elements are cast to a common type (`array<string>`) | Stops with a conversion error. Cast the elements to one type first |
 | The DataFrame API's `F.size`, `F.cardinality`, `F.reverse` and `F.sequence` used in `agg`, `groupBy` or `orderBy`, and `F.explode` or `F.posexplode` of a map used anywhere but `select` | As in Spark SQL | They're read as arrays here: a map stops with a DuckDB error, and a count down gives `[]`. In `select`, `withColumn`, `withColumns` and `filter` they give Spark's answer. Work the column out in a `select` first |
 | Databricks SQL on the DuckDB engine | As in Spark SQL | The fixes that don't need column types apply; `size`, `explode` and `reverse` of a map or array column keep DuckDB's forms |
-| `sequence` with a step of the wrong sign, such as `sequence(1, 5, -1)`, or a step of 0 (UNVERIFIED in Fabric) | Stops: illegal sequence boundaries (with a step of 0, `[start]` when start equals stop) | `[]` |
 | `sequence` with a step written as `INTERVAL '1-2' YEAR TO MONTH` (UNVERIFIED in Fabric) | Steps by 1 year 2 months | Stops with a DuckDB parser error. Write `INTERVAL 14 MONTH` |
 | The DataFrame API's `F.sequence` of date or timestamp columns (UNVERIFIED in Fabric) | Dates from start to stop | Stops with a DuckDB error naming `generate_series`. `F.expr("sequence(...)")` does too. Run it in `spark.sql` |
 | `explode` of a map that holds `rand()` or `shuffle()`, in a select list | The map is read once | Its keys and values are read separately, so they can come from different reads. Use `LATERAL VIEW explode`, which reads it once |

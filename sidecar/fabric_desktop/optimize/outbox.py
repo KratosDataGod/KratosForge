@@ -15,7 +15,8 @@ Sync states (ESI-105). ``sync_state`` says, per kind and for the lakehouse as a 
 ``STATES`` the results are in: **synced** (nothing waiting), **synchronizing** (a send is running
 now), **pending** (waiting to try again after throttling or a lost commit race), **offline** (the
 lakehouse couldn't be reached), **failed** (the lakehouse refused: no permission, or read-only), or
-**conflict** (the lakehouse's schema is newer, older or not Optimize's, so a person has to act).
+**conflict** (the lakehouse's schema version doesn't fit this app: newer, or older and missing the
+table, so a person has to update the app or upgrade the lakehouse).
 Each item keeps the reason of its last failure; the caller classifies the error, this file doesn't.
 Dropped items are still counted beside the state.
 """
@@ -24,6 +25,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import sqlite3
 import time
 import uuid
@@ -32,6 +34,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from .. import redact, sqlitefile
+
+_log = logging.getLogger(__name__)
 
 ANALYSIS, LOCAL_EXECUTIONS = "analysis", "local_executions"
 KINDS = (ANALYSIS, LOCAL_EXECUTIONS)
@@ -260,7 +264,9 @@ class Outbox:
     @contextmanager
     def syncing(self, lakehouse_id: str) -> Iterator[None]:
         """Mark a send to the lakehouse as running while the block runs, so ``sync_state`` says
-        synchronizing. A mark left by a send that never ended goes stale after STALE_SYNC_SECONDS."""
+        synchronizing. A mark left by a send that never ended goes stale after STALE_SYNC_SECONDS.
+        There is one mark per lakehouse: if two sends overlap, the first to end clears it. Clearing
+        it never hides the send's own error: a failure to clear is logged and the mark goes stale."""
         with self._tx() as db:
             self._state(db, lakehouse_id)
             db.execute("update outbox_state set syncing_since = ? where lakehouse_id = ?",
@@ -268,8 +274,12 @@ class Outbox:
         try:
             yield
         finally:
-            with self._tx() as db:
-                db.execute("update outbox_state set syncing_since = null where lakehouse_id = ?", (lakehouse_id,))
+            try:
+                with self._tx() as db:
+                    db.execute("update outbox_state set syncing_since = null where lakehouse_id = ?",
+                               (lakehouse_id,))
+            except sqlite3.Error as exc:
+                _log.warning("Couldn't clear the sync mark for a lakehouse; it goes stale on its own: %s", exc)
 
     def sync_state(self, lakehouse_id: str) -> dict[str, Any]:
         """The lakehouse's sync state and each kind's (see the module docstring), with what is

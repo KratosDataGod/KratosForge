@@ -204,12 +204,11 @@ class OptimizeMixin:
     @staticmethod
     def _optimize_sync_reason(exc: BaseException) -> str:
         """Why a waiting item couldn't go, as an outbox reason (ESI-105): the lakehouse's schema
-        needs a person (conflict), it refused this person (failed), it couldn't be reached
-        (offline), or it asked to try again later (pending)."""
+        version doesn't fit this app (conflict), it refused this person (failed), it couldn't be
+        reached (offline), or it asked to try again later (pending)."""
         import requests
 
-        text = str(exc)
-        if any(setup.MESSAGES[s] in text for s in (setup.NEWER, setup.UPGRADE, setup.CONFLICT)):
+        if isinstance(exc, setup.SchemaMismatch):
             return ob.CONFLICT
         if isinstance(exc, PermissionError) or setup.denied(exc):
             return ob.FAILED

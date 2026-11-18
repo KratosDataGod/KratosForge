@@ -132,7 +132,7 @@ class Shared:
                                   "To add them, ask for Contributor on its workspace.")
         version = max(setup.applied_versions(self.lake), default=0)
         if version > schema.latest():
-            raise PermissionError(setup.MESSAGES[setup.NEWER])
+            raise setup.SchemaMismatch(setup.NEWER)
         # An older lakehouse is written with its own version's columns until someone upgrades it.
         self.version = version or None
 

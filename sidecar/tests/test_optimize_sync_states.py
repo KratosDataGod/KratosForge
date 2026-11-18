@@ -11,7 +11,7 @@ from deltalake.exceptions import CommitFailedError
 
 from fabric_desktop import sqlitefile
 from fabric_desktop.optimize import outbox as ob
-from fabric_desktop.optimize import setup
+from fabric_desktop.optimize import schema, setup
 from fabric_desktop.optimize.shared import Shared
 from test_optimize_outbox import Clock, _offline, _token, payload
 from test_optimize_service import svc, xray_result  # noqa: F401 - the fixture is used by name
@@ -147,8 +147,11 @@ def test_a_queued_write_says_why(svc, monkeypatch, exc, state):  # noqa: F811
 
 @pytest.mark.parametrize("exc, state", [
     (PermissionError("403 Forbidden"), ob.FAILED),
-    (PermissionError(setup.MESSAGES[setup.NEWER]), ob.CONFLICT),
-    (PermissionError(setup.MESSAGES[setup.UPGRADE]), ob.CONFLICT),
+    (PermissionError("This lakehouse is open read-only for you"), ob.FAILED),
+    (setup.SchemaMismatch(setup.NEWER), ob.CONFLICT),
+    (setup.SchemaMismatch(setup.UPGRADE), ob.CONFLICT),
+    # Typed, not matched on wording: the same text in a plain PermissionError is a refusal.
+    (PermissionError(setup.MESSAGES[setup.NEWER]), ob.FAILED),
 ])
 def test_a_waiting_item_the_lakehouse_refuses_this_person_or_schema_is_marked(svc, monkeypatch, exc, state):  # noqa: F811
     svc.optimize_create("w1", workspace_name="Platform")
@@ -185,3 +188,42 @@ def test_a_send_shows_synchronizing_while_it_runs_then_synced(svc, monkeypatch):
 
 def test_no_lakehouse_no_sync_state(svc):  # noqa: F811
     assert svc.optimize_status()["sync"] is None
+
+
+def test_a_newer_lakehouse_found_while_sending_is_a_conflict(svc, monkeypatch):  # noqa: F811
+    svc.optimize_create("w1", workspace_name="Platform")
+    lakehouse = svc.optimize_status()["active"]["lakehouse_id"]
+    _offline(monkeypatch, "record_analysis", ConnectionError("down"))
+    svc._xray_share(xray_result(), _token)
+    monkeypatch.undo()
+    # Another installation upgraded the lakehouse past what this app knows: the real check refuses.
+    monkeypatch.setattr(setup, "applied_versions", lambda lake: [schema.latest() + 1])
+    out = svc.optimize_switch(lakehouse)
+    assert out["sync"]["waiting"] == 1 and "newer Optimize schema" in out["sync"]["error"]
+    assert svc.optimize_status()["sync"]["state"] == ob.CONFLICT
+
+
+def test_a_table_an_older_lakehouse_lacks_is_a_typed_mismatch(tmp_path):
+    from fabric_desktop.optimize.installation import Installation
+    from fabric_desktop.optimize.lakehouse import LocalLakehouse
+
+    lake = LocalLakehouse(tmp_path / "lakehouse")
+    with pytest.raises(setup.SchemaMismatch, match="older Optimize schema") as err:
+        setup.write(lake, Installation(tmp_path / "pc" / "optimize"), "pricing", [{"record_id": "p1"}], version=1)
+    assert err.value.state == setup.UPGRADE
+    assert isinstance(err.value, PermissionError)  # callers that catch PermissionError still do
+
+
+def test_a_mark_that_cant_be_cleared_never_hides_the_sends_error(tmp_path, monkeypatch):
+    box = ob.Outbox(tmp_path / "o.sqlite")
+    real, calls = box._tx, []
+
+    def tx():
+        calls.append(1)
+        if len(calls) == 2:  # the clear
+            raise sqlite3.OperationalError("database is locked")
+        return real()
+    monkeypatch.setattr(box, "_tx", tx)
+    with pytest.raises(RuntimeError, match="send failed"):
+        with box.syncing("lh1"):
+            raise RuntimeError("send failed")

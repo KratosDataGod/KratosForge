@@ -48,6 +48,16 @@ MESSAGES = {
 }
 
 
+class SchemaMismatch(PermissionError):
+    """A write refused because the lakehouse's schema version doesn't fit this app: it is newer
+    (update the app) or older and lacks the table (upgrade the lakehouse). A person has to act, so
+    the outbox shows it as a conflict (ESI-105). ``state`` is NEWER or UPGRADE."""
+
+    def __init__(self, state: str, family: Family = CORE):
+        super().__init__(message(state, family))
+        self.state = state
+
+
 def _type_ok(have: pl.DataType, want: schema.Dtype) -> bool:
     if have == want:
         return True
@@ -115,7 +125,7 @@ def _rows(name: str, rows: list[dict[str, Any]], family: Family = CORE, version:
     tables = family.expected(version)
     if family.table(name) not in tables:
         # A table a later version adds, in a lakehouse not upgraded to it yet.
-        raise PermissionError(message(UPGRADE, family))
+        raise SchemaMismatch(UPGRADE, family)
     cols = tables[family.table(name)]
     return pl.DataFrame([{c: r.get(c) for c in cols} for r in rows], schema=cols)
 

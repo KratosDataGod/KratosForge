@@ -1,0 +1,56 @@
+# WR-122: Spark 3.5 functions docs/spark-functions.md listed as not checked whose answer is fixed: the same in any
+# session and on any cluster. Each case one query. Spark's answers: tests/fixtures/spark_3_5_3_functions.json
+# (tools/capture_spark_values.py functions), not captured yet. The session and cluster functions (current_database,
+# current_schema, current_user, user, spark_partition_id, version) aren't here: no fixed answer to compare.
+
+# aes_encrypt: ECB, and CBC or GCM with a given IV, give the same bytes every run (the default GCM draws a random IV)
+SELECT hex(aes_encrypt('Spark', '0000111122223333', 'ECB'))
+SELECT hex(aes_encrypt('Spark', '0000111122223333', 'ECB', 'PKCS'))
+SELECT hex(aes_encrypt('Spark SQL', '1234567890abcdef', 'ECB', 'PKCS'))
+SELECT hex(aes_encrypt('Spark', '000011112222333344445555', 'ECB', 'PKCS'))
+SELECT hex(aes_encrypt('Spark', 'abcdefghijklmnop12345678ABCDEFGH', 'ECB', 'PKCS'))
+SELECT hex(aes_encrypt(unhex('00112233'), '0000111122223333', 'ECB'))
+SELECT hex(aes_encrypt('', '0000111122223333', 'ECB'))
+SELECT base64(aes_encrypt('Spark', 'abcdefghijklmnop12345678ABCDEFGH', 'CBC', 'DEFAULT', unhex('00000000000000000000000000000000')))
+SELECT base64(aes_encrypt('Spark', 'abcdefghijklmnop12345678ABCDEFGH', 'GCM', 'DEFAULT', unhex('000000000000000000000000'), 'This is an AAD mixed into the input'))
+SELECT hex(aes_encrypt('Spark', '0000111122223333', 'GCM', 'DEFAULT', unhex('000000000000000000000000')))
+SELECT length(aes_encrypt('Spark', '0000111122223333')), length(aes_encrypt('Spark', '0000111122223333', 'CBC'))
+SELECT CAST(aes_decrypt(aes_encrypt('Spark', '0000111122223333'), '0000111122223333') AS STRING)
+SELECT CAST(aes_decrypt(aes_encrypt('Spark', '0000111122223333', 'CBC'), '0000111122223333', 'CBC') AS STRING)
+SELECT aes_encrypt(NULL, '0000111122223333', 'ECB'), aes_encrypt('Spark', NULL, 'ECB')
+SELECT typeof(aes_encrypt('Spark', '0000111122223333', 'ECB'))
+SELECT aes_encrypt('Spark', 'short', 'ECB')
+SELECT aes_encrypt('Spark', '0000111122223333', 'ECB', 'NONE')
+SELECT aes_encrypt('Spark', '0000111122223333', 'XTS')
+
+# input_file_name, input_file_block_start, input_file_block_length: a row that wasn't read from a file
+SELECT input_file_name(), input_file_block_start(), input_file_block_length()
+SELECT input_file_name(), input_file_block_start(), input_file_block_length() FROM range(2)
+SELECT typeof(input_file_name()), typeof(input_file_block_start()), typeof(input_file_block_length())
+
+# java_method and reflect: Java methods whose answer doesn't change from run to run
+SELECT java_method('java.lang.Math', 'abs', -5)
+SELECT java_method('java.lang.Math', 'max', 3, 7)
+SELECT reflect('java.lang.String', 'valueOf', 42)
+SELECT reflect('java.lang.Integer', 'parseInt', '123')
+SELECT java_method('java.lang.String', 'valueOf', true)
+SELECT typeof(reflect('java.lang.Math', 'abs', -5))
+SELECT reflect('java.lang.Math', 'abs', CAST(NULL AS INT))
+SELECT reflect('java.lang.NoSuchClass', 'valueOf', 1)
+
+# raise_error: stops with the message, only when a row reaches it
+SELECT raise_error('custom error message')
+SELECT raise_error(NULL)
+SELECT raise_error(concat('a', 'b'))
+SELECT raise_error(5)
+SELECT CASE WHEN 1 = 0 THEN raise_error('x') ELSE 1 END
+SELECT coalesce(1, raise_error('x'))
+SELECT if(id > 100, raise_error('big'), id) FROM range(3)
+SELECT if(id > 1, raise_error('big'), id) FROM range(3)
+SELECT typeof(raise_error('x'))
+
+# sql_keywords: Spark's keyword list, the same for a Spark version
+SELECT keyword, reserved FROM sql_keywords() ORDER BY keyword LIMIT 2
+SELECT count(*) FROM sql_keywords()
+SELECT keyword, reserved FROM sql_keywords() WHERE keyword IN ('SELECT', 'FROM', 'TABLE', 'LIMIT') ORDER BY keyword
+SELECT typeof(keyword), typeof(reserved) FROM sql_keywords() LIMIT 1

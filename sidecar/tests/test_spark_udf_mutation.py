@@ -259,3 +259,11 @@ def test_a_numpy_array_of_times_becomes_python_datetimes(spark):
     want = [r[0] for r in df.select(as_list("id")).collect()]  # what a list of Python datetimes gives
     assert want[0] and want[0][0] is not None
     assert [r[0] for r in df.select(times("id")).collect()] == want
+
+
+def test_a_numpy_array_of_dates_stays_dates(spark):
+    days = np.array(["2026-11-17", "2026-11-18"], dtype="datetime64[D]")
+    assert U._plain(days) == [dt.date(2026, 11, 17), dt.date(2026, 11, 18)]
+    df = spark.createDataFrame([(1,)], ["id"])
+    dates = U.pandas_udf(lambda s: s.apply(lambda v: days), T.ArrayType(T.DateType()))
+    assert [r[0] for r in df.select(dates("id")).collect()] == [[dt.date(2026, 11, 17), dt.date(2026, 11, 18)]]

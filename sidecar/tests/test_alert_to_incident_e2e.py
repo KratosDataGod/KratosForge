@@ -12,7 +12,7 @@ import pytest
 from fabric_desktop import dataops_service, incident_service
 from fabric_desktop.leases import _file_lock
 from fabric_desktop.workloads import incidents as incidents_mod
-from fabric_desktop.workloads.incidents import KEY, Conflict
+from fabric_desktop.workloads.incidents import KEY, Conflict, IncidentLog
 from fabric_desktop.workloads.notify import BACKOFF_FIRST, BACKOFF_MAX, Outbox
 
 from test_incident_partial_work import svc  # noqa: F401 - the app with a metadata project and a signed-in user
@@ -140,6 +140,49 @@ def test_an_alert_opened_as_an_incident_by_hand_is_kept_and_the_app_doesnt_post_
     assert all(c["id"] != inc["id"] for c in out["changes"])
     kept = {i["id"]: i for i in app.incidents_list("dev")["incidents"]}
     assert kept[inc["id"]]["state"] == "open" and kept[inc["id"]]["source"] == "reported"
+
+
+# ---- a crash between the incident write and the post
+
+
+def test_a_crash_after_the_incident_write_and_before_the_post_still_posts_once_on_the_next_check(app, monkeypatch):
+    real = IncidentLog.active
+    crash = [True]
+
+    def read_back(self):  # the list read again after the write (for product status) fails once
+        if crash[0]:
+            crash[0] = False
+            raise OSError("OneLake didn't answer")
+        return real(self)
+
+    monkeypatch.setattr(IncidentLog, "active", read_back)
+    try:
+        app.incidents_evaluate("dev", notify=True)
+    except OSError:
+        pass  # the check failed after the write: the incident is open in the shared list
+    assert [i["kind"] for i in app.incidents_list("dev")["incidents"]] == ["late"]
+    app.incidents_evaluate("dev", notify=True)  # the next check
+    app.incidents_evaluate("dev", notify=True)
+    assert _posted(app) == [f"New: {STALE} is late in Dev (KratosForge)"]  # once: not lost, not twice
+
+
+def test_a_crash_after_the_post_doesnt_post_it_again(app, monkeypatch):
+    real = app._report_product_status
+    crash = [True]
+
+    def report(env, incidents):
+        if crash[0]:
+            crash[0] = False
+            raise RuntimeError("the window closed")  # the check stops after Teams took the post
+        return real(env, incidents)
+
+    monkeypatch.setattr(app, "_report_product_status", report)
+    try:
+        app.incidents_evaluate("dev", notify=True)
+    except RuntimeError:
+        pass
+    app.incidents_evaluate("dev", notify=True)
+    assert _posted(app) == [f"New: {STALE} is late in Dev (KratosForge)"]
 
 
 # ---- a Teams post that fails

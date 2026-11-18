@@ -198,20 +198,23 @@ class IncidentMixin:
             _log.warning("Couldn't read agent records; their incidents stay as they are: %s", describe(exc))
         # Opened before the write: an outbox that can't be opened then fails the check with nothing
         # written, so the next check opens the incident again and posts it, rather than never.
+        # The same for where alerts go. Once the write is done, its changes go to the outbox before
+        # anything else that could fail (reading the list back for product status, say): an opening
+        # the write made is open on the next check, so that check has nothing new to post for it.
         outbox = Outbox(self.root / "alerts_outbox.sqlite") if notify else None  # type: ignore[attr-defined]
+        url = self._settings().get("teams_webhook", "") if notify else ""  # type: ignore[attr-defined]
+        post = self._notice_post() if notify else None  # type: ignore[attr-defined]  # Teams, a flow or email
         changes = log.sync(signals, evaluated=evaluated, by=f"KratosForge ({self._incident_user()})")
-        if evaluated & evaluate.WORKLOAD_KINDS:
-            self._report_product_status(env, log.active())
         out: dict[str, Any] = {"env": env, "evaluated": bool(evaluated & evaluate.WORKLOAD_KINDS), "signals": len(signals),
                                "changes": [{"change": c["change"], "id": c["incident"]["id"], "title": c["incident"]["title"]}
                                            for c in changes]}
         if not_set_up:
             out["not_set_up"] = not_set_up
-        if outbox is not None:
-            url = self._settings().get("teams_webhook", "")  # type: ignore[attr-defined]
-            out["notified"] = send(self._not_told_before(env, changes), single(url), outbox, "KratosForge",
-                                   self._notice_post())  # type: ignore[attr-defined]  # Teams, a flow or email
+        if outbox is not None and post is not None:
+            out["notified"] = send(self._not_told_before(env, changes), single(url), outbox, "KratosForge", post)
             audit_trouble(self.audit, out["notified"], "alerts_outbox.sqlite")  # type: ignore[attr-defined]
+        if evaluated & evaluate.WORKLOAD_KINDS:
+            self._report_product_status(env, log.active())
         out["at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         return out
 

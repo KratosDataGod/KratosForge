@@ -62,7 +62,7 @@ def culture(node: exp.Expression | None) -> Culture:
         raise ValueError(NOT_YET + "the culture has to be text written in the query, such as 'de-DE'.")
     found = CULTURES.get(node.name.strip().lower())
     if found is None:
-        raise ValueError(NOT_YET + f"the culture '{node.name}' isn't carried yet. These are: {_CARRIED}.")
+        raise ValueError(NOT_YET + f"the culture '{node.name}' isn't carried yet. The cultures carried are {_CARRIED}.")
     return found
 
 
@@ -189,7 +189,7 @@ def _standard_date(fmt: str, where: Culture) -> tuple[str, Culture]:
     own = {"d": where.short_date, "t": where.short_time, "T": where.long_time,
            "g": f"{where.short_date} {where.short_time}", "G": f"{where.short_date} {where.long_time}"}
     if fmt not in own:
-        raise ValueError(NOT_YET + f"FORMAT's date format '{fmt}' in '{where.name}' isn't carried yet: .NET's own "
+        raise ValueError(NOT_YET + f"FORMAT's date format '{fmt}' in '{where.name}' isn't carried yet. .NET's own "
                          "versions write it differently. 'd', 'g', 'G', 't', 'T', 's', 'u', 'o' and 'R' are, and custom "
                          "formats such as 'dd MMMM yyyy'.")
     return own[fmt], where
@@ -227,12 +227,12 @@ def _date(fmt: str, where: Culture = EN_US) -> exp.Expression:
                 text.append(fmt[end])
                 end += 1
             if end >= len(fmt):
-                raise ValueError(NOT_YET + f"FORMAT's date format {fmt!r} has a quote that isn't closed.")
+                raise ValueError(NOT_YET + f"FORMAT's date format {fmt!r} has a quote that isn't closed. Close the quote.")
             literal("".join(text))
             i = end + 1
         elif c == "\\":
             if i + 1 >= len(fmt):
-                raise ValueError(NOT_YET + f"FORMAT's date format {fmt!r} ends with a backslash.")
+                raise ValueError(NOT_YET + f"FORMAT's date format {fmt!r} ends with a backslash. Remove the backslash, or put a character after it.")
             literal(fmt[i + 1])
             i += 2
         elif c == "%":
@@ -261,7 +261,7 @@ def _date(fmt: str, where: Culture = EN_US) -> exp.Expression:
                 parts.append(digits if n == 1 else _at_least(digits, n))
             elif where is not EN_US and (c == "t" or (c in "dM" and n == 3)):
                 what = "AM/PM (t)" if c == "t" else f"abbreviated {'day' if c == 'd' else 'month'} name ({c * 3})"
-                raise ValueError(NOT_YET + f"FORMAT's {what} in '{where.name}' isn't carried yet: .NET's own versions "
+                raise ValueError(NOT_YET + f"FORMAT's {what} in '{where.name}' isn't carried yet. .NET's own versions "
                                  "write it differently. The full name (dddd, MMMM) is carried.")
             elif where.months is not None and c in "dM" and n >= 4:
                 flush()
@@ -314,7 +314,7 @@ def _number(fmt: str, kind: exp.DataType, where: Culture = EN_US) -> exp.Express
         return _custom(fmt, where)
     letter, digits = standard.group(1).upper(), standard.group(2)
     if len(digits) > 2:  # .NET Framework takes at most 99, .NET Core more
-        raise ValueError(NOT_YET + f"FORMAT's number format '{fmt}' isn't carried yet: a precision has at most two "
+        raise ValueError(NOT_YET + f"FORMAT's number format '{fmt}' isn't carried yet. A precision has at most two "
                          "digits.")
     if letter in "NF":
         return _fixed(int(digits) if digits else 2, letter == "N", where)
@@ -332,7 +332,7 @@ def _number(fmt: str, kind: exp.DataType, where: Culture = EN_US) -> exp.Express
         return _currency(int(digits) if digits else 2)
     if letter in "CP":
         what = "'C' (currency) outside 'en-US'" if letter == "C" else "'P' (percent)"
-        raise ValueError(NOT_YET + f"FORMAT's {what} isn't carried yet: .NET's own versions put the symbol and "
+        raise ValueError(NOT_YET + f"FORMAT's {what} isn't carried yet. .NET's own versions put the symbol and "
                          "spaces differently. A custom format such as '0.00%' or '#,##0.00 €' gives one answer.")
     raise ValueError(NOT_YET + f"FORMAT's number format '{fmt}' isn't carried yet. 'N2', 'F2', 'D5', 'X4', 'C2' "
                      "(en-US) and custom formats such as '#,##0.00' are.")
@@ -431,13 +431,13 @@ def _tokens(section: str) -> list[tuple[str, str]]:
         if c in "'\"":
             end = section.find(c, i + 1)
             if end < 0:
-                raise ValueError(NOT_YET + f"FORMAT's number format {section!r} has a quote that isn't closed.")
+                raise ValueError(NOT_YET + f"FORMAT's number format {section!r} has a quote that isn't closed. Close the quote.")
             out.append(("text", section[i + 1:end]))
             i = end + 1
             continue
         if c == "\\":
             if i + 1 >= len(section):
-                raise ValueError(NOT_YET + f"FORMAT's number format {section!r} ends with a backslash.")
+                raise ValueError(NOT_YET + f"FORMAT's number format {section!r} ends with a backslash. Remove the backslash, or put a character after it.")
             out.append(("text", section[i + 1]))
             i += 2
             continue
@@ -464,7 +464,7 @@ def _section(text: str) -> _Section:
     tokens = _tokens(text)
     marks = [i for i, (k, _) in enumerate(tokens) if k in "0#."]
     if not marks:
-        raise ValueError(NOT_YET + f"FORMAT's number format {text!r} isn't carried yet: it has no 0 or # for the "
+        raise ValueError(NOT_YET + f"FORMAT's number format {text!r} isn't carried yet. It has no 0 or # for the "
                          "number. Write the text in quotes next to one.")
     first, last = marks[0], marks[-1]
     inside = tokens[first:last + 1]
@@ -476,7 +476,7 @@ def _section(text: str) -> _Section:
                          "point, which isn't carried yet.")
     if whole and whole[-1][0] == ",":
         raise ValueError(NOT_YET + f"FORMAT's number format {text!r} has a ',' right before the point or the end, "
-                         "which divides by 1,000: that isn't carried yet.")
+                         "which divides by 1,000 and isn't carried yet.")
     outside = tokens[:first] + tokens[last + 1:]
     if any(k in ",." for k, _ in outside):
         raise ValueError(NOT_YET + f"FORMAT's number format {text!r} has a ',' or '.' away from the digits, which "
@@ -514,7 +514,7 @@ def _custom(fmt: str, where: Culture) -> exp.Expression:
     v = _var()
     below = exp.LT(this=v.copy(), expression=exp.Literal.number(0))
     gone = exp.func("ERROR", exp.Literal.string(
-        NOT_YET + f"FORMAT '{fmt}' of a negative number that rounds to zero isn't carried yet: .NET's own versions "
+        NOT_YET + f"FORMAT '{fmt}' of a negative number that rounds to zero isn't carried yet. .NET's own versions "
         "choose the section differently. Round the value first."))
     zero = exp.EQ(this=neg_rounded, expression=exp.Literal.number(0))
     del rounded
@@ -649,7 +649,7 @@ def _parse(node: TsqlParse) -> exp.Expression:
     except ValueError as exc:
         raise ValueError(str(exc).replace(NOT_YET, NOT_YET + f"{name}: ", 1)) from None
     if to.this in _PARSED_DATES:
-        raise ValueError(NOT_YET + f"{name} to a date or time isn't carried yet: .NET reads dates in many ways. Use "
+        raise ValueError(NOT_YET + f"{name} to a date or time isn't carried yet. .NET reads dates in many ways. Use "
                          "CONVERT with a style, such as CONVERT(DATE, x, 103) for dd/mm/yyyy.")
     if to.this in (exp.DataType.Type.MONEY, exp.DataType.Type.SMALLMONEY):
         raise ValueError(NOT_YET + f"{name} to MONEY or SMALLMONEY isn't carried yet, as MONEY and SMALLMONEY "
@@ -682,7 +682,7 @@ def _parse(node: TsqlParse) -> exp.Expression:
     unsure = exp.func("ERROR", exp.DPipe(this=exp.DPipe(
         this=exp.Literal.string(NOT_YET + f"{name} of '"), expression=v.copy(), safe=False),
         expression=exp.Literal.string(
-            f"' isn't carried yet: here {name} reads a sign, digits, '{where.group}' between thousands"
+            f"' isn't carried yet. Here {name} reads a sign, digits, '{where.group}' between thousands"
             + ("" if integer else f" and '{where.decimal}' before decimals")
             + ". .NET may read the rest another way."), safe=False))
     case = exp.Case(ifs=[exp.If(this=exp.Is(this=v.copy(), expression=exp.Null()), true=exp.Null()),

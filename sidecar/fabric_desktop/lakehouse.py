@@ -176,6 +176,9 @@ prod_guard: Callable[[str, str, str, str, str], str | None] | None = None
 # For the engine's own kernel: the notebook a cell runs for and the workspaces the person typed the name of
 # for that one run, by the cell's thread (notebook.Kernel). A process kernel answers the engine's call itself.
 cell_prod_context: "weakref.WeakKeyDictionary[threading.Thread, tuple[str, frozenset[str]]]" = weakref.WeakKeyDictionary()
+# Threads a cell started that were still running when it finished, and widget handlers' threads: their writes are
+# a cell's code but no running cell's own, so they are asked under NO_CELL for as long as they live (notebook.Kernel).
+cell_started_threads: "weakref.WeakSet[threading.Thread]" = weakref.WeakSet()
 # The notebook a write with no cell of its own is asked under: no notebook is named this, so nothing confirms it.
 NO_CELL = "\x00no cell"
 # The operations that ask: they delete or replace rows or files (OPTIMIZE rewrites files but keeps the rows).
@@ -196,7 +199,10 @@ def prod_refusal(operation: str, lh: "Attached", table: str, cells_only: bool = 
     guard = prod_guard
     if guard is None or operation not in PROD_CONFIRMED_OPS:
         return None
-    context = cell_prod_context.get(threading.current_thread())
+    current = threading.current_thread()
+    context = cell_prod_context.get(current)
+    if context is None and current in cell_started_threads:
+        context = (NO_CELL, frozenset())  # outlived its cell: a cell's code, asked with no cell's allowance
     if context is None:
         # A thread with no context of its own while any cell runs (one a cell started, a pool, a callback, another
         # notebook's or the app's own writer) is asked as a cell would be, and fails closed: it borrows no cell's

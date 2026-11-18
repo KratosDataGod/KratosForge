@@ -320,6 +320,7 @@ class _Run:
         self.version = 0
         self.status = "running"
         self.started = time.monotonic()
+        self.threads_before: set[threading.Thread] = set()  # running when the cell started (Kernel.run)
         self.seconds: float | None = None
         self.thread: threading.Thread | None = None
         self.guest: str | None = None  # the notebook whose cell this is, in a shared session (Kernel.as_guest)
@@ -840,6 +841,8 @@ class Kernel:
                     stderr.targets.pop(ident, None)
                     self._local.run = None
             thread = threading.Thread(target=work, daemon=True, name="widget-event")
+            from . import lakehouse as _lakehouse
+            _lakehouse.cell_started_threads.add(thread)  # a handler is a cell's code but no running cell's own
             self._widget_thread = thread
             thread.start()
             thread.join(WIDGET_SECONDS)
@@ -975,6 +978,7 @@ class Kernel:
             lakehouse.cell_write_checks[run.thread] = self.write_check
         from . import lakehouse as _lakehouse
         _lakehouse.cell_prod_context[run.thread] = (run.notebook or "", self.prod_allowed)
+        run.threads_before = set(threading.enumerate())  # what's running now wasn't started by this cell
         run.thread.start()
         return run.snapshot()
 
@@ -1110,6 +1114,10 @@ class Kernel:
             from . import lakehouse as _lakehouse
             # Before the run says it finished: a write after it isn't this cell's (lakehouse.prod_refusal).
             _lakehouse.cell_prod_context.pop(threading.current_thread(), None)
+            # Threads this cell started that outlive it stay a cell's code: asked under no cell (prod_refusal).
+            _lakehouse.cell_started_threads.update(
+                t for t in threading.enumerate()
+                if t not in run.threads_before and t is not threading.current_thread() and t.is_alive())
             with contextlib.suppress(Exception):
                 from . import spark_local
                 spark_local.watch_connections(ident, None)

@@ -570,6 +570,18 @@ What can still differ:
 - `BEGIN TRAN`, `COMMIT`, `ROLLBACK` and `SET TRANSACTION` are refused here (see Local T-SQL scripts), so a conflict here is always about one statement.
 - A commit delta-rs refuses for another reason, such as a change to a table with `delta.appendOnly`, isn't called a conflict. It stops with delta-rs's own reason and says nothing was committed.
 
+## Local T-SQL errors for a missing name
+
+When a T-SQL statement on this PC names a column or table that isn't there, the error uses SQL Server's own words, as a Fabric Warehouse does:
+
+| A warehouse says | When |
+| --- | --- |
+| `Invalid column name 'x'.` (error 207) | A column that isn't in the tables the statement reads, in `SELECT`, `WHERE`, `UPDATE ... SET` or an `INSERT` column list |
+| `Invalid object name 'dbo.x'.` (error 208) | A table or view that isn't there, with its schema as the statement wrote it, and a `#temp` table after it's dropped |
+| `Ambiguous column name 'x'.` (error 209) | A column two of the tables the statement reads both have |
+
+Any other error from the local engine keeps its own words, without a "Did you mean" that names one of DuckDB's system tables (such as `pg_catalog.pg_settings`), which a warehouse project never has. `DROP TABLE` of a table that isn't there, and a column prefixed by a table alias that isn't in `FROM` (`x.id`), keep the local engine's words too, because a warehouse answers those with other errors (3701 and 4104) whose text the local engine can't give in full. The error number isn't shown yet.
+
 ## Local T-SQL tables
 
 When a project runs T-SQL on this PC, tables are made and emptied as in a Fabric Warehouse, and what a warehouse doesn't have is refused by name. This was checked against Microsoft Learn's Fabric Data Warehouse pages for tables, temporary tables, IDENTITY and the T-SQL surface area, as they read on 2026-11-17.

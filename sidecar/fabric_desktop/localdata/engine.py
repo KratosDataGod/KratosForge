@@ -43,7 +43,7 @@ import duckdb
 import pyarrow as pa
 
 from .. import delta_dml, delta_profile, delta_read, durable, sql_dialects
-from . import delta, tsql
+from . import delta, tsql, tsql_errors
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
 from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
@@ -826,9 +826,14 @@ class LocalEngine:
                         else:
                             run_through(con, step["sql"], _bound(con, step["sql"], params))
                     except (duckdb.Error, ValueError) as exc:
-                        if dialect != "tsql" or len(statements) < 2 or isinstance(exc, duckdb.InterruptException):
+                        if dialect != "tsql" or isinstance(exc, duckdb.InterruptException):
                             raise
-                        raise _in_script(exc, i, len(statements), step["kind"]) from None
+                        said = _as_warehouse_says(exc, step)
+                        if len(statements) < 2:
+                            if said is exc:
+                                raise
+                            raise said from None
+                        raise _in_script(said, i, len(statements), step["kind"]) from None
                     steps.append({"statement": i + 1, "type": step["kind"],
                                   "seconds": round(time.monotonic() - step_started, 3)})
                 yield result, run
@@ -1831,6 +1836,24 @@ def _in_script(exc: Exception, i: int, n: int, kind: str) -> Exception:
     if not error.endswith((".", "!", "?")):
         error += "."
     words = f"Statement {i + 1} of {n} ({kind.split()[0].upper()}) failed: {error} {ran}."
+    try:
+        return type(exc)(words)
+    except TypeError:  # an error type that needs more than a message: as it was
+        return exc
+
+
+def _as_warehouse_says(exc: Exception, step: dict[str, Any]) -> Exception:
+    """WR-233: a DuckDB error from a T-SQL statement in SQL Server's words where they map with certainty, and
+    without a suggestion of DuckDB's own system tables; DuckDB's text goes to the log for support."""
+    if not isinstance(exc, duckdb.Error):
+        return exc
+    text = str(exc)
+    words = tsql_errors.warehouse(text, step.get("sql") or "", step.get("kind") or "")
+    if words is None:
+        words = tsql_errors.without_system_hint(text)
+        if words == text:
+            return exc
+    _log.info("Local T-SQL error shown as %r; DuckDB said: %s", words.split("\n", 1)[0], text)
     try:
         return type(exc)(words)
     except TypeError:  # an error type that needs more than a message: as it was

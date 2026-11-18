@@ -21,11 +21,11 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 72 |
+| Runs | 75 |
 | Differs | 0 |
-| Refused | 35 |
+| Refused | 33 |
 | Fails | 0 |
-| Not checked | 71 |
+| Not checked | 70 |
 | **All** | **178** |
 
 ## String
@@ -39,7 +39,7 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `CONCAT_WS` | Runs |  | 1 value check |
 | `DATALENGTH` | Runs |  | 3 value checks |
 | `DIFFERENCE` | Refused |  | DIFFERENCE isn't mapped yet. |
-| `FORMAT` | Runs |  | 4 value checks |
+| `FORMAT` | Runs |  | 5 value checks |
 | `LEFT` | Runs |  | 1 value check |
 | `LEN` | Runs |  | 1 value check |
 | `LOWER` | Not checked |  |  |
@@ -123,14 +123,14 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 
 ## Conversion
 
-| Name | Status | Sample | Note |
-| --- | --- | --- | --- |
-| `CAST` | Runs |  | 29 value checks |
-| `CONVERT` | Runs |  | 2 value checks |
-| `PARSE` | Refused | `SELECT PARSE('42' AS int)` | PARSE isn't mapped yet. |
-| `TRY_CAST` | Runs |  | 3 value checks |
-| `TRY_CONVERT` | Runs |  | 1 value check |
-| `TRY_PARSE` | Refused | `SELECT TRY_PARSE('42' AS int)` | TRY_PARSE isn't mapped yet. |
+| Function | Status | Note |
+| --- | --- | --- |
+| `CAST` | Runs | 30 value checks |
+| `CONVERT` | Runs | 2 value checks |
+| `PARSE` | Runs | 1 value check |
+| `TRY_CAST` | Runs | 3 value checks |
+| `TRY_CONVERT` | Runs | 1 value check |
+| `TRY_PARSE` | Runs | 1 value check |
 
 ## Logical and NULLs
 
@@ -231,7 +231,7 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `AT TIME ZONE` | Not checked | `SELECT CAST('2024-03-06' AS datetime2) AT TIME ZONE 'UTC'` |  |
 | `QUALIFY` | Runs |  | 1 value check |
 | `SELECT ... INTO` | Not checked | `SELECT a INTO dbo.t_copy FROM dbo.t` |  |
-| `Temporary tables (#t)` | Not checked | `CREATE TABLE #tmp (a INT)` |  |
+| `Temporary tables (#t)` | Runs |  | 1 value check |
 | `CREATE TABLE` | Not checked | `CREATE TABLE dbo.t2 (a INT)` |  |
 | `CREATE TABLE AS SELECT` | Not checked | `CREATE TABLE dbo.t3 AS SELECT a FROM dbo.t` |  |
 | `CREATE VIEW` | Not checked | `CREATE VIEW dbo.v AS SELECT a FROM dbo.t` |  |
@@ -253,5 +253,5 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `CREATE FUNCTION` | Refused | `CREATE FUNCTION dbo.f() RETURNS INT AS BEGIN RETURN 1 END` | CREATE FUNCTION dbo.f isn't mapped yet. Procedures and user-defined functions take parameters and use control flow, |
 | `USE` | Refused | `USE sales` | The local engine doesn't run T-SQL USE yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs in |
 | `FOR JSON` | Refused | `SELECT a FROM dbo.t FOR JSON PATH` | FOR JSON PATH isn't mapped yet. Build each row's JSON with JSON_OBJECT or JSON_ARRAY, or run it in a Fabric Warehou |
-| `OPTION (...)` | Refused | `SELECT a FROM dbo.t OPTION (MAXDOP 1)` | Unsupported query option. |
+| `OPTION (...)` | Refused | `SELECT a FROM dbo.t OPTION (MAXDOP 1)` | OPTION (MAXDOP) isn't carried yet. It isn't among the query hints Microsoft lists for a Fabric Warehouse; those tha |
 | `SET options` | Not checked | `SET NOCOUNT ON; SELECT 1` |  |

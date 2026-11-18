@@ -217,6 +217,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Agents | Monitor > KratosForge > Operations > Agents |
 | Queue | Monitor > KratosForge > Operations > Queue |
 | Run as | Monitor > KratosForge > Operations > Run as |
+| Data health | Monitor > KratosForge > Operations > Data health (freshness, rows per load and schema from the Delta log) |
 | External AI tools | Settings > Integrations |
 | Release records | Data mesh > Deploy, each environment's Last release card |
 | Chart builder | Notebook > a table output > Chart ([notebooks.md](notebooks.md)) |

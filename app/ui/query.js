@@ -498,7 +498,7 @@ function renderQuery() {
       // Local T-SQL: where this PC's answer can differ from a warehouse's (a decimal done in floating point, say).
       tab.ranNotice = wh ? "" : [localNotice(query), ...(status.notes || [])].filter(Boolean).join(" ");
       tab.resultQuery = query;  // for Copy › INSERT statements, which names the query's table
-      if (tab.exportAfter) { const fmt = tab.exportAfter; delete tab.exportAfter; exportResult(fmt); }
+      if (tab.exportAfter) { const [fmt, raw] = tab.exportAfter; delete tab.exportAfter; exportResult(fmt, raw); }
     } else if (status && !tab.errorRetry) {  // a failed engine call keeps its own message and Retry
       tab.error = status.error || `The query ${SQL_STATE[status.state]?.[1].toLowerCase() || status.state}.`;
       if (wh && !change && status.refused && whChangesAllowed()) tab.error += " To change the warehouse, tick Allow changes at the top of the page.";
@@ -761,7 +761,7 @@ function renderQuery() {
   }
   // Columns...: show, hide and reorder the grid's columns; the dialog's list follows each change.
   function columnsDialog() {
-    if (tab.result?.columns.length) sqlColumnsDialog(tab.result.columns, sqlGridState(tab), drawResults);
+    if (tab.result?.columns.length) sqlColumnsDialog(tab.result.columns, () => sqlGridState(tab), drawResults);
   }
   function openValue(at) {
     sqlGridState(tab).side = { kind: "value", at };
@@ -797,16 +797,18 @@ function renderQuery() {
     sideBox.replaceChildren(...(panel ? [panel] : []));
   }
 
-  // Export ▾ CSV, Parquet, Excel or JSON: streamed from the run's snapshot to a new file in Downloads.
-  async function exportResult(format) {
+  // Export ▾ CSV, Parquet, Excel or JSON: streamed from the run's snapshot to a new file in Downloads. A CSV puts an
+  // apostrophe in front of a text cell a spreadsheet would run as a formula, unless raw (Keep raw values, WR-228).
+  async function exportResult(format, raw = false) {
     if (!tab.exec || tab.exporting) return;
-    const out = await attempt(() => rpc("sql_export", { execution: tab.exec.id, format, name: tab.name, ...sqlPartArg(tab.multi?.part) }),
+    const out = await attempt(() => rpc("sql_export", { execution: tab.exec.id, format, name: tab.name, ...sqlPartArg(tab.multi?.part),
+      ...(raw ? { raw: true } : {}) }),
       "Could not export");
     if (!out) return;
     if (out.rerun_needed) {
       const again = await confirmDialog("Run the query again?",
         `${out.message} Running it again reads the tables as they are now, so the rows can differ.`, "Run again");
-      if (again && tab.ranSql) { tab.exportAfter = format; run(tab.ranSql); }
+      if (again && tab.ranSql) { tab.exportAfter = [format, raw]; run(tab.ranSql); }
       return;
     }
     tab.exporting = out;
@@ -1158,6 +1160,8 @@ function renderQuery() {
         onclick: (e) => { if (!r || x) e.preventDefault(); } }, "Export ▾"),
       h("div", { class: "sql-export-menu", role: "menu" },
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("csv"); } }, "CSV"),
+        h("button", { role: "menuitem", title: "Each value exactly as it is. A spreadsheet runs a cell that starts with =, +, - or @ as a formula.",
+          onclick: (e) => { e.target.closest("details").open = false; exportResult("csv", true); } }, "CSV, Keep raw values"),
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("parquet"); } }, "Parquet"),
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("xlsx"); } }, "Excel"),
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("json"); } }, "JSON")));

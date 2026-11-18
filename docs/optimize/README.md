@@ -26,7 +26,7 @@ Everyone else connects to the existing lakehouse, and nothing is created again. 
 | Nothing | It asks before creating Optimize's tables |
 | Other tables, none of Optimize's | It asks, then adds Optimize's tables beside them. The other tables are never read, changed or replaced |
 | An unfinished setup or upgrade | It asks, then adds only what is missing. Every row is kept |
-| An older Optimize schema | It asks, then upgrades. Upgrades only add tables and columns, and every row is kept |
+| An older Optimize schema | It asks, then upgrades. Upgrades only add tables and columns, and every row is kept. Until someone upgrades, newer installations keep writing with the older version's columns, and other features' tables keep working |
 | A newer Optimize schema | It opens read-only and asks you to update the app |
 | A table named `fdopt_...` that isn't Optimize's | It refuses to write and leaves the table alone |
 
@@ -94,6 +94,7 @@ Sharing runs normally reads which runs the lakehouse already has. With no networ
 - **Bounded.** At most 200 items per lakehouse, none older than 30 days. Past either, the oldest go. Every dropped item is counted.
 - **Disconnecting** keeps what waits for that lakehouse on this PC, to be sent if you connect to it again.
 - **Status.** `optimize_status` returns `outbox` for the active lakehouse: `pending` (items), `pending_rows`, `oldest`, `last_sync`, `last_error` (cleared by the next send that works) and `dropped`. Optimize shows it as one line under the lakehouse name: everything sent, results waiting on this PC with why, or how many were dropped, with **Details** for the figures. The line only reads; it never sends.
+- **Sync state.** `optimize_status` also returns `sync` for the active lakehouse: a `state` for the lakehouse and one per kind of result (`kinds`: `analysis`, `local_executions`), each one of **synced** (nothing waiting), **synchronizing** (a send is running now), **pending** (waiting to try again after throttling or a lost commit race), **offline** (the lakehouse couldn't be reached), **failed** (the lakehouse refused this person: no permission, or read-only) or **conflict** (its schema version doesn't fit this app: a newer one, so someone has to update the app, or an older one without the table being written, so someone has to upgrade the lakehouse). A lakehouse whose fdopt_ tables aren't Optimize's isn't written to at all, so nothing waits for it. The lakehouse's state is the worst of its kinds, and synchronizing while a send runs (`waiting_state` keeps the worst underneath). Each kind has `pending` and `pending_rows`; `dropped` and `last_sync` are as above. A send that never said it ended (the app closed mid-send) stops counting as running after 10 minutes. Engine only: no screen shows these yet.
 
 ## What syncing costs
 
@@ -134,9 +135,25 @@ CPU time and peak memory are filled in only where they were measured (a proof's 
 
 Code and table contents are never written. A run is added once: sharing again adds only the runs that are new since the last time, and two PCs never share each other's runs. The engine call is `optimize_share_local_runs`. Without `approve=True` it writes nothing and says how many runs it would add and what they contain, with a `confirm` value for exactly those runs. It writes only with `approve=True` and that `confirm`. If a run finished in between, it asks again rather than share a run nobody was shown. The button that calls it, in **Optimize > Cost and savings**, comes after a mockup. A run on a PC starts no Fabric job, but its OneLake reads and writes still use capacity, so these rows count work, not savings.
 
+## How one run's savings are split
+
+When a workload has been optimized and also runs on a PC, its savings could be counted twice. `sidecar/fabric_desktop/savings/attribution.py` splits one run into layers that never add up to more than the workload's baseline (the Fabric CU one run used before any optimization):
+
+1. Each optimization in effect when the run happened, in the order they took effect, takes its measured reduction from what was left. A notebook optimized from 10 to 6 CU hours has an optimization layer of 4.
+2. A run on a PC avoids at most what the optimized workload still needs (6 in that example), taken from [the calibrated estimate](../finops/cost-evidence.md#how-savings-on-this-pc-are-estimated). So the run avoids at most 10 in total, never 14.
+3. Fabric use the run still caused (OneLake reads and writes, sync) is subtracted for the net figure. When that isn't known, the net figure is marked incomplete.
+
+An optimization that made things worse has a negative layer. One whose after isn't measured yet can't be split from the ones after it, so the run's total goes to one unattributed layer until it is. Missing evidence stays Unknown, never 0. Each layer's id is the same on every PC, so a second desktop syncing the same run adds nothing. Nothing is written to the lakehouse yet: savings rows wait for a measured Fabric baseline.
+
+Savings are counted only per run. A day, week or month figure (`savings/recurring.py`, `by_period`, cut in UTC) is the runs in it added up, with each run counted once even if two PCs synced it, and runs whose figure is unknown counted beside the total, never as 0.
+
+The **recurring monthly benefit** (`project`) is the average net CU avoided per recent run times how often the workload ran in the last 30 days. It is always Estimated, because it is about runs that haven't happened, and it is never written. It stops when the workload is retired or hasn't run in the window, and it uses only runs under the workload's current baseline, so a re-baselined workload needs new runs first. Fewer than three runs with a known figure give Unknown with the reason. A run whose figure is unknown is left out, never filled in with an average, so the projection may be low; it says how many were left out and is marked incomplete.
+
+**What avoided CU is worth** (`savings/pricing.py`) is priced under a named pricing scenario: a rate per CU hour with its SKU, region, currency, pricing model (pay as you go, reserved, actual billing or an assumption), the dates it applies, its source and how confident it is. Each run is priced at the version in effect when it ran, so a price change applies only from its date and earlier runs keep their price. Today's single price (Monitor > Cost > Prices) is the first scenario, labelled an assumption. The figure is always a Scenario, a price applied to CU and not a change in what was billed, so it is never added to measured or estimated figures. Two versions of one scenario whose dates overlap, or one scenario in two currencies, are refused. Nothing is written to the lakehouse yet.
+
 ## The tables
 
-All are Delta tables in `dbo` (or directly under Tables in a lakehouse without schemas), named `fdopt_` so they can't collide with yours: `installations`, `analysis_runs`, `artifacts`, `findings`, `recommendations`, `actions`, `measurements`, `cu_usage`, `savings`, `local_execution`, `dependencies`, `rules`, `audit`, `config` and `schema_version`. Columns are in [`sidecar/fabric_desktop/optimize/schema.py`](https://github.com/KratosDataGod/KratosForge/blob/main/sidecar/fabric_desktop/optimize/schema.py). You never need to query them yourself.
+All are Delta tables in `dbo` (or directly under Tables in a lakehouse without schemas), named `fdopt_` so they can't collide with yours: `installations`, `analysis_runs`, `artifacts`, `findings`, `recommendations`, `actions`, `measurements`, `cu_usage`, `savings`, `local_execution`, `dependencies`, `rules`, `audit`, `config` and `schema_version`, and from schema version 2 `pricing`, `optimization_link`, `baseline`, `validation`, `attribution` and `sync`. Columns are in [`sidecar/fabric_desktop/optimize/schema.py`](https://github.com/KratosDataGod/KratosForge/blob/main/sidecar/fabric_desktop/optimize/schema.py). You never need to query them yourself.
 
 ## Table families
 
@@ -215,7 +232,7 @@ A read of the capacities you can see (`GET /v1/capacities`, `Capacity.Read.All`,
 **Optimize > Settings history** (Preview) shows both histories in one list. It only reads the six tables above until you press a button:
 
 - **Capacities last read** and **Tenant settings last read**: the newest successful read of each.
-- **Read capacities now** calls `capacity_settings_read`, with `admin=True` when **Include capacity overrides (administrators)** is ticked (off each time the app starts). When the capacities were read but the overrides weren't, the message says so instead of only "nothing changed"; **Read tenant settings (administrators)** calls `tenant_settings_read`. Each reads Fabric once and adds rows. The first read in a lakehouse asks before it creates the tables.
+- **Read capacities now** calls `capacity_settings_read`, with `admin=True` when **Include capacity overrides (administrators)** is ticked (off each time the app starts). When the capacities were read but the overrides weren't, the message says so instead of only "nothing changed"; **Read tenant settings (administrators)** calls `tenant_settings_read`. Each reads Fabric once and adds rows. The first read in a lakehouse asks once before it creates the tables. One read runs at a time: the buttons are off until it ends. Cancel is remembered on this PC for that lakehouse: later reads don't ask again, and the tab offers **Set up history** inline, which creates the tables and reads.
 - A warning lists reads that failed since the last good one, one line per kind with how many and the latest reason: changes made then weren't seen.
 - Anyone who can read the central lakehouse sees the tab's history, including tenant settings an administrator read; the tab says so.
 - **Changes** lists each change as "between" two reads, with the scope (Tenant, or the capacity's latest name), the setting and its old and new values. **Show** filters to the tenant, all capacities or one capacity.

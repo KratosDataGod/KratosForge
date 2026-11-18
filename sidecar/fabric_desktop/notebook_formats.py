@@ -204,7 +204,7 @@ def databricks_export_notes(cells: list[dict[str, Any]], lakehouse: dict[str, An
         if hidden:
             notes.append(_note(n, "dropped", f"The cell's {' and '.join(hidden)} setting: Databricks source doesn't keep it."))
         if c.get("type") == "code" and breakpoints_meta(meta.get("breakpoints")):
-            notes.append(_note(n, "dropped", "The cell's breakpoints: Databricks source doesn't keep them."))
+            notes.append(_note(n, "dropped", "The cell's breakpoints weren't kept, because Databricks source has no place for them."))
         if c.get("type") != "code":
             continue
         source = _magic_first(c.get("source", ""))

@@ -98,6 +98,17 @@ def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None,
         return _DeltaTable(uri(table), storage_options=opts())
     lh.open_table = open_table
 
+    def _fd_rows(t, dataset=False):
+        # The pyarrow reader refuses deletion vectors and reads column-mapped columns as NULL, so a table
+        # with either is read through delta-rs's DataFusion reader, as on the PC (delta_read.py).
+        p = t.protocol()
+        feats = set(p.reader_features or []) | set(p.writer_features or [])
+        mode = str((t.metadata().configuration or {}).get("delta.columnMapping.mode", "") or "").lower()
+        if not ({"deletionVectors", "columnMapping"} & feats) and mode in ("", "none"):
+            return t.to_pyarrow_dataset() if dataset else t.to_pyarrow_table()
+        from deltalake import QueryBuilder
+        return _fd_pa.table(QueryBuilder().register("kf_table", t).execute("SELECT * FROM kf_table"))
+
     def table_exists(table):
         # Only "not found" means no (a proof's ProofTableMissing is a LookupError): any other
         # failure is raised, so it can't turn into an overwrite. As on the PC.
@@ -107,7 +118,7 @@ def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None,
             return False
         return True
     lh.table_exists = table_exists
-    lh.read_table = lambda table: _pl.from_arrow(lh.open_table(table).to_pyarrow_table())
+    lh.read_table = lambda table: _pl.from_arrow(_fd_rows(lh.open_table(table)))
     lh.files = lambda directory="Files": sorted(f"{directory.rstrip('/')}/{n}" for n in _os.listdir(f"{mount}/{directory}"))
 
     def write_table(data, table, mode="overwrite", schema_mode=None, upload=None, skip_unchanged=None):
@@ -175,7 +186,7 @@ def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None,
                 key = ".".join(p for p in (t.catalog, t.db, t.name) if p).lower()
                 if key not in views:
                     views[key] = f"__t{len(views)}"
-                    con.register(views[key], lh.open_table(key).to_pyarrow_dataset())
+                    con.register(views[key], _fd_rows(lh.open_table(key), dataset=True))
                 alias = t.args.get("alias") or exp.TableAlias(this=exp.to_identifier(t.name))
                 t.replace(exp.Table(this=exp.to_identifier(views[key]), alias=alias))
             if two and i == len(statements) - 1:

@@ -25,14 +25,7 @@ SEED = 20261117
 WORDS = ["", "a", "abc", "mystring", "Hello World", "  pad  ", "11.22.33", "a,b,,c", "é", "banana"]
 
 # Families that still differ, and why. Delete an entry once it is fixed.
-KNOWN = {
-    "POSITION": "an empty search text with a start past the end gives the start, not 0 (\"If the specified "
-                "optional start_pos is beyond the end of the second argument ... returns 0\")",
-    "CHARINDEX": "as POSITION",
-    "LPAD": "an empty pad stops with DuckDB's \"Insufficient padding\" (\"If the pad argument is empty, no "
-            "padding is inserted, but the result is still truncated\")",
-    "RPAD": "as LPAD",
-}
+KNOWN: dict[str, str] = {}
 
 
 def q(s: str | None) -> str:
@@ -97,7 +90,7 @@ def _pad(s: str, n: int, pad: str, left: bool) -> str:
     # lpad: "If the base argument is longer than length_expr, it is truncated to length length_expr." "If the
     # pad argument is empty, no padding is inserted, but the result is still truncated".
     if len(s) >= n or not pad:
-        return s[:n]
+        return s[:max(n, 0)]  # a negative length gives ''
     fill = (pad * n)[:n - len(s)]
     return fill + s if left else s + fill
 
@@ -161,9 +154,24 @@ def cases() -> list[tuple[str, str, object]]:
         s, sep, part = r.choice(WORDS), r.choice([".", ",", " ", "a", "--", ""]), r.randint(-4, 4)
         out.append(("SPLIT_PART", f"SPLIT_PART({q(s)}, {q(sep)}, {part})", _split_part(s, sep, part)))
     for _ in range(80):
-        s, n, pad = r.choice(WORDS), r.randint(0, 12), r.choice(["0", "*_", "", " ", "ab"])
+        s, n, pad = r.choice(WORDS), r.randint(-2, 12), r.choice(["0", "*_", "", " ", "ab"])
         out.append(("LPAD", f"LPAD({q(s)}, {n}, {q(pad)})", _pad(s, n, pad, True)))
         out.append(("RPAD", f"RPAD({q(s)}, {n}, {q(pad)})", _pad(s, n, pad, False)))
+        # Nested: the inner call answers by the same rules as the outer one.
+        inner, outer, pad2 = r.randint(-2, 8), r.randint(-2, 12), r.choice(["", "-"])
+        out.append(("LPAD", f"LPAD(LPAD({q(s)}, {inner}, {q(pad)}), {outer}, {q(pad2)})",
+                    _pad(_pad(s, inner, pad, True), outer, pad2, True)))
+        out.append(("RPAD", f"RPAD(RPAD({q(s)}, {inner}, {q(pad)}), {outer}, {q(pad2)})",
+                    _pad(_pad(s, inner, pad, False), outer, pad2, False)))
+    nested = random.Random(SEED + 1)  # its own draws, so the cases above keep their inputs
+    for _ in range(40):
+        # A POSITION in the start of another: the inner one is checked past the end too.
+        text, find, word = nested.choice(WORDS), nested.choice(["a", "", "b", "ing"]), nested.choice(WORDS)
+        start = nested.randint(1, 12)
+        inner = _position("", word, start)  # 0 past the end, 1 from the start
+        want = None if inner is None else _position(find, text, inner + 1)
+        if want is not None:
+            out.append(("POSITION", f"POSITION({q(find)}, {q(text)}, POSITION('', {q(word)}, {start}) + 1)", want))
     return out
 
 
@@ -215,4 +223,4 @@ def test_order_by_puts_nulls_last_ascending_and_first_descending() -> None:
 def test_cases_are_seeded_and_cover_every_known_family() -> None:
     first = cases()
     assert first == cases() and len(first) > 1500
-    assert {f for f, _, _ in first} >= set(KNOWN)
+    assert {f for f, _, _ in first} >= set(KNOWN) | {"POSITION", "CHARINDEX", "LPAD", "RPAD"}

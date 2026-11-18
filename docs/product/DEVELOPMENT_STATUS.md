@@ -3,10 +3,27 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-17 11:42 UTC, main 80cebf61.** Covers the PRs merged from #135 to #2852.
+**Product check of 2026-11-18 11:42 UTC, main 7be2906d.** Covers the PRs merged from #135 to #2972.
 
 ## Summary
 
+- Acceptance, 2026-11-18: the product owner accepted PB-061 (missing policy keys) with documented limitations on
+  the decision card at 12:55 UTC. The Group Policy templates haven't been applied from a live domain or Intune yet, and
+  the sign-in tenant key (#2419) joins the trust-widening list when it lands.
+- Morning check, 2026-11-18: 52 PRs merged after 8838a247. 5 were product data, docs audit and plan PRs, and the
+  other 47 were linked. Two new programs have items: PB-137 Enterprise Savings Intelligence (plan #2940; schema v2 and
+  the attribution waterfall engine merged) and PB-138 Fabric Excellence Assessment (plan #2939; the assessment engine
+  merged). Group Policy ADMX templates (#2258) closed the last missing key, so PB-061 is now In review: its implementation review recommends Accept with documented limitations
+  (the Group Policy templates haven't been applied from a live domain). Run 11's
+  live check fed local T-SQL a warehouse's answers (PB-002). Data health watches table freshness, volume and schema
+  and can open an incident (PB-105). Notebook cells now wait for a Prod workspace's typed name, and CSV exports guard
+  against formula cells, as the product owner chose on 2026-11-17.
+- Evening check, 2026-11-17: 45 PRs merged after 80cebf61. 1 was a product data PR, and the other 44 were linked.
+  Spark on this PC now gives Spark's answers for strings, regular expressions, aggregates, arrays, maps, generators and
+  window functions, and casts as Spark's ANSI-off setting does (PB-103). Local T-SQL refuses COPY INTO, BULK INSERT and
+  OPENROWSET by name and matches a warehouse's data types, procedures and table-valued forms (PB-106). Untested
+  Fabric writes are tagged Preview and every Fabric write is guarded (PB-124), and FOR TIMESTAMP AS OF reads local
+  Delta tables as they were (PB-099). No item changed status in these merges.
 - PB-136 accepted, 2026-11-17: Chris chose 'Accept with limits'. Notebooks run in a process of their own by default;
   the trial gaps (a per-user 3.12 venv, the two #2601 fixes on his PC, a live tenant) stay listed as limits.
 - Morning check, 2026-11-17: 47 PRs merged after 58a112e4. 3 were product data, docs audit and work queue PRs, and
@@ -264,7 +281,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 124 items (7 P0, 33 P1, 60 P2, 24 P3). 14 are Proposed, 30 In progress, 2 In review and 78 Accepted.
+- Backlog: 126 items (7 P0, 33 P1, 60 P2, 26 P3). 14 are Proposed, 31 In progress, 2 In review and 79 Accepted.
 - PB-125 (Learn ranks and profile pictures) and PB-126 (Learn curriculum content batches) are new and Proposed, from the
   product owner's ask of 2026-11-02; they build once the rank ladder is approved.
 - PB-124 (new, In progress, P0 like PB-101): the enterprise audit's EA remediation backlog (docs/audits/), tracked as its own item.

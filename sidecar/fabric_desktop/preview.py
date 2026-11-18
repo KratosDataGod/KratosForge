@@ -17,6 +17,7 @@ import pyarrow.json as pa_json
 import pyarrow.parquet as pq
 from deltalake import DeltaTable
 
+from . import delta_read
 from .redact import describe
 
 _log = logging.getLogger(__name__)
@@ -47,8 +48,7 @@ def _rows(table: pa.Table, limit: int) -> dict[str, Any]:
 
 def table_preview(dt: DeltaTable, limit: int = ROWS) -> dict[str, Any]:
     """The first rows, Delta's own column types and the row count from the log (no full scan)."""
-    dataset = dt.to_pyarrow_dataset()
-    head = dataset.head(limit)
+    head = delta_read.head(dt, limit)
     out = _rows(head, limit)
     # Delta's type names (string, long, timestamp), as Fabric shows them.
     out["columns"] = [{"name": f.name, "type": f.type.type if isinstance(f.type.type, str) else str(f.type)}
@@ -67,7 +67,9 @@ def row_count(dt: DeltaTable) -> int | None:
     except Exception as exc:  # noqa: BLE001 - an older writer without stats, or a log this reader can't flatten
         _log.info("No row count from the Delta log's file stats: %s", describe(exc))
         return None
-    return None if any(c is None for c in counts) else int(sum(counts))
+    if any(c is None for c in counts):
+        return None
+    return int(sum(counts)) - delta_read.deleted_rows(dt)  # the stats count rows a deletion vector removed
 
 
 def file_kind(path: str) -> str:

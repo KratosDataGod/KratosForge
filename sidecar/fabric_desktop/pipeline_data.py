@@ -228,9 +228,10 @@ class LocalData:
         first = props.get("firstRowOnly", True) is not False
         _, options = self.svc._proof_location(ref)
         from deltalake import DeltaTable
-        data = DeltaTable(uri, version=version, storage_options=_short(options())).to_pyarrow_dataset()
+        from . import delta_read
+        data = DeltaTable(uri, version=version, storage_options=_short(options()))
         rows = [{k: _json_value(v) for k, v in r.items()}
-                for r in data.head(1 if first else LOOKUP_ROWS).to_pylist()]
+                for r in delta_read.head(data, 1 if first else LOOKUP_ROWS).to_pylist()]
         out: dict[str, Any] = ({"firstRow": rows[0]} if rows else {}) if first else {"count": len(rows), "value": rows}
         if len(json.dumps(out, default=str).encode()) > LOOKUP_BYTES:
             raise ActivityFailed(f"{a.name}: the Lookup output is larger than 4 MB, which Fabric doesn't allow.",
@@ -269,7 +270,8 @@ class LocalData:
         if "structure" in fields or "columnCount" in fields:
             _, options = self.svc._proof_location(ref)
             from deltalake import DeltaTable
-            schema = DeltaTable(uri, version=version, storage_options=_short(options())).to_pyarrow_dataset().schema
+            from . import delta_read
+            schema = delta_read.arrow_schema(DeltaTable(uri, version=version, storage_options=_short(options())))
             if "structure" in fields:
                 out["structure"] = [{"name": f.name, "type": _type_name(f.type)} for f in schema]
             if "columnCount" in fields:

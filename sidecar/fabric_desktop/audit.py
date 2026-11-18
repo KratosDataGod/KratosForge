@@ -48,7 +48,7 @@ governance_applicability governance_overview governance_policy governance_resolv
 governance_templates governance_last_check governance_practice_settings governance_product_checklist
 incidents_list incidents_summary kernel_complete kernel_inspect kernel_sessions kernel_variable_detail kernel_variables notebook_frame_page notebook_frame_profile notebook_frame_query_profile notebook_frame_chart notebook_frame_wrangle mesh_about mesh_home mesh_map mesh_members mesh_overview notebook_environments environment_job
 mesh_workspace_domains meta_alerts meta_compare meta_drift meta_entity meta_entity_shortcuts meta_fabric_result
-meta_freshness meta_health meta_last_release meta_releases meta_rollback_preview meta_key_lookup meta_key_notebook meta_keys meta_model_plan
+meta_data_health meta_data_health_list meta_freshness meta_health meta_last_release meta_releases meta_rollback_preview meta_key_lookup meta_key_notebook meta_keys meta_model_plan
 meta_model_ossie_models meta_model_ossie_export meta_model_ossie_read meta_model_ossie_preview
 meta_model_directlake_setup meta_model_directlake_check
 meta_model_ossie_folders meta_model_ossie_export_folder
@@ -74,7 +74,7 @@ usage_preview
 risk_check meta_risk_gate risk_settings
 model_bpa_status model_bpa_risk
 incidents_board incidents_for_me incident_sla_policy incidents_history incident_impact
-optimize_discover optimize_findings optimize_recommendations optimize_status optimization_assess
+optimize_discover optimize_findings optimize_recommendations optimize_status optimization_assess excellence_assess
 tenant_settings_history
 platform_notify_settings platform_notify_open
 pipeline_run_check pipeline_run_status pipeline_runs pipeline_list
@@ -85,7 +85,7 @@ notebook_resources
 local_writes
 notebook_folders
 notebook_file_path notebook_disk_stamp notebook_name_for_path notebook_listing notebook_search notebook_import_check notebook_delete_check notebook_deleted notebook_fabric_check notebook_fabric_step_check notebook_vorder_cell notebook_fabric_step_result notebook_publish_check
-notebook_formats_import_check notebook_print_page notebook_report_open notebook_report_page
+notebook_formats_import_check notebook_print_page notebook_report_open notebook_report_page notebook_prod_pending
 profile_get profile_report profile_avatar
 notebook_comments_list
 engine_catalog engine_connections engine_prepare engine_state engine_poll_cell engine_profiles engine_discover databricks_runs databricks_run databricks_billing_last databricks_sync_pairs databricks_sync_compare databricks_bundle_targets databricks_bundle_validate databricks_bundle_plan
@@ -129,18 +129,36 @@ def target(params: dict[str, Any]) -> dict[str, Any]:
 
 
 # Calls that must not run without a record: a "started" line is written before them, and they are
-# refused when it can't be (a full disk, a locked file). These Prod-reaching changes always; any other
-# call when it is aimed at Prod (an env or target of "prod"); and any other call when it is given a
-# confirmation, an approval, a typed name, a risk-check acknowledgement or an override (a non-empty
-# value). An ordinary query or edit still runs as before when its line can't be written.
+# refused when it can't be (a full disk, a locked file). These Prod-reaching changes, deletes in Fabric
+# and removals of someone's access always; any other call when it is aimed at Prod (an env or target of
+# "prod"); and any other call when it is given a confirmation, an approval, a typed name, a risk-check
+# acknowledgement, an override or a go-ahead to replace what is there (a non-empty value). An ordinary
+# query or edit still runs as before when its line can't be written.
 FAIL_CLOSED = frozenset({"meta_promote", "meta_rollback", "meta_restore", "xray_optimize", "xray_vacuum", "shortcut_repoint",
-                         "shortcut_repoint_many", "shortcut_undo", "shortcut_accept_risk"})
+                         "shortcut_repoint_many", "shortcut_undo", "shortcut_accept_risk",
+                         # a delete in Fabric or OneLake: a shortcut, a OneLake security role, a job schedule
+                         # (a pipeline's, a notebook's, the metadata project's runner), a leftover staging
+                         # lakehouse, a proof's or replay's outputs
+                         "delete_shortcut", "access_delete_role", "delete_fabric_schedule", "delete_notebook_schedule",
+                         "meta_delete_schedule", "xray_remove_staging", "prove_delete_outputs", "replay_delete_outputs",
+                         # a delete in the shared platform catalog, and a governance policy taken off a scope
+                         "platform_delete_domain", "platform_delete_landing_zone", "platform_delete_source",
+                         "platform_remove_product_item", "governance_template_delete", "governance_unassign",
+                         # someone's access taken away: a data product grant, a platform admin, an AI tool.
+                         # (academy_sandbox_remove_grants isn't: it takes the exercise sandbox's read
+                         # permission off this PC's Python, which only narrows access, and the next exercise
+                         # grants it again.)
+                         "platform_revoke", "platform_remove_admin", "integrations_revoke_client"})
 # Parameter names, matched exactly. test_audit lists every audited method's parameters that look like
 # one of these and fails on a name in neither set, so a new one is reviewed rather than missed.
 GUARD_PARAMS = frozenset({
     "confirm", "confirmed", "confirm_name", "confirm_deletes", "confirm_unknown", "confirm_writes",
     "approve", "approval_id", "typed", "risk_id", "require_acknowledgement",
-    "allow", "allow_commands", "allow_override", "allow_secrets", "allow_uncontained", "force"})
+    "allow", "allow_commands", "allow_override", "allow_secrets", "allow_uncontained", "force",
+    # a go-ahead to replace what is already there: a Fabric item changed since it was published from
+    # here, a report or model of that name, files of a warehouse project, a file picked on Save as,
+    # a saved engine connection (named by its id)
+    "replace", "replace_fabric_changes", "overwrite"})
 NOT_GUARD_PARAMS = frozenset({"expect"})        # the version a tab opened, not a go-ahead
 _PROD_PARAMS = ("env", "envs", "target")
 

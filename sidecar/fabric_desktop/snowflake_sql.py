@@ -333,6 +333,17 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
         if isinstance(node, (exp.Func, exp.Collate)) and _function_name(node) in _TEXT_FEATURES:
             return _refuse("SFN-017", f"{_function_name(node)}: a Snowflake feature DuckDB lacks",
                            _TEXT_FEATURES[_function_name(node)], f"{_DOCS}/functions/{_function_name(node).lower()}")
+        if isinstance(node, exp.DynamicIdentifier):
+            return _refuse("SFN-023", "IDENTIFIER() of a variable this cell doesn't set",
+                           "IDENTIFIER($name) is rewritten only when the same cell sets the variable to a string "
+                           "first (SET name = '...'); here its value isn't known. Set it in this cell, or write the name out.",
+                           f"{_DOCS}/identifier-literal")
+        if isinstance(node, exp.Pivot) and any(
+                isinstance(value, (exp.PivotAny, exp.Select, exp.Subquery))
+                for field in node.args.get("fields") or [] for value in field.expressions):
+            return _refuse("SFN-024", "PIVOT on ANY or a subquery",
+                           "DuckDB's PIVOT ... FOR ... IN takes a list of values; write the values out.",
+                           f"{_DOCS}/constructs/pivot")
         if isinstance(node, exp.Uniform) and not (isinstance(node.args.get("gen"), exp.Rand)
                                                   and node.args["gen"].this is None):
             return _refuse("SFN-021", "UNIFORM with a generator other than RANDOM()",
@@ -420,6 +431,7 @@ def _flattened(source: exp.Expression, path: str, outer: bool) -> exp.Expression
     person's. A scalar has nothing to flatten. With OUTER, a value with nothing to flatten gives one row: NULL KEY, INDEX and VALUE, and the
     value as THIS."""
     from .sql import _with_args
+    # a VARIANT column goes through JSON, which json_each reads (it reads a VARIANT as text that isn't JSON)
     this = source.copy()
     if path:
         this = _with_args(f"json_extract(CAST(fj_arg0 AS JSON), '{'$' if path.startswith('[') else '$.'}{path}')",
@@ -432,9 +444,10 @@ def _flattened(source: exp.Expression, path: str, outer: bool) -> exp.Expression
     return _with_args(f"(SELECT CASE WHEN {array} THEN NULL ELSE __sf_e.key END AS key, "
                       f"CASE WHEN {array} THEN '{path}[' || __sf_e.key || ']' ELSE {field} END AS path, "
                       f"CASE WHEN {array} THEN CAST(__sf_e.key AS INT) END AS index, __sf_e.value AS value, "
-                      f"CAST(fj_arg0 AS JSON) AS this FROM json_each(fj_arg0) AS __sf_e WHERE {compound}"
+                      f"CAST(fj_arg0 AS JSON) AS this FROM json_each(CAST(fj_arg0 AS JSON)) AS __sf_e WHERE {compound}"
                       + (f" UNION ALL SELECT NULL, '{path}', NULL, NULL, CAST(fj_arg0 AS JSON) WHERE NOT {compound} "
-                         "OR NOT EXISTS (SELECT 1 FROM json_each(fj_arg0))" if outer else "") + ")", [this])
+                         "OR NOT EXISTS (SELECT 1 FROM json_each(CAST(fj_arg0 AS JSON)))" if outer else "") + ")",
+                      [this])
 
 
 def _rewrite_flatten(statement: exp.Expression) -> None:
@@ -671,7 +684,8 @@ def _rewrite_time(statement: exp.Expression) -> None:
 def _rewrite_arrays(statement: exp.Expression) -> None:
     """SFX-019: ARRAY_DISTINCT keeps each value's first place and one NULL where the first NULL was, as
     Snowflake's does (DuckDB's LIST_DISTINCT doesn't keep the order). ARRAY_FLATTEN of an array holding
-    a NULL in place of an array is NULL, as in Snowflake; DuckDB's FLATTEN skips it."""
+    a NULL in place of an array is NULL, as in Snowflake; DuckDB's FLATTEN skips it. ARRAY_INSERT past the
+    end fills the gap with NULLs (Snowflake leaves empty elements); DuckDB's slices would close it."""
     for distinct in list(statement.find_all(exp.ArrayDistinct)):
         # the array is worked out once (fj_arg0 is read once), then searched for each element's first place
         _put(distinct, "LIST_TRANSFORM([fj_arg0], LAMBDA kf_l: "
@@ -682,16 +696,125 @@ def _rewrite_arrays(statement: exp.Expression) -> None:
             continue
         _put(flatten, "CASE WHEN LEN(LIST_FILTER(fj_arg0, LAMBDA kf_e: kf_e IS NULL)) > 0 THEN NULL "
                       "ELSE FLATTEN(fj_arg0) END", [flatten.this])
+    # ARRAY_INSERT past the end: Snowflake fills the gap with empty elements; DuckDB's slices would close it
+    for insert in list(statement.find_all(exp.ArrayInsert)):
+        position = insert.args.get("position")
+        if isinstance(position, exp.Literal) and not position.is_string and position.name.isdigit():
+            _put(insert.this, "LIST_RESIZE(fj_arg0, GREATEST(LEN(fj_arg0), fj_arg1))",
+                 [insert.this.copy(), position.copy()])
 
 
 def _rewrite_variant_reads(statement: exp.Expression) -> None:
-    """SFX-023: GET and the : path read a VARIANT made with TO_VARIANT (or a cast to VARIANT) as JSON, as
-    Snowflake reads any VARIANT; DuckDB reads its own VARIANT as text that isn't JSON, and stops."""
+    """SFX-023: GET and the : path read a VARIANT made with TO_VARIANT (or a cast to VARIANT), or a column
+    (a VARIANT column among them), as JSON, as Snowflake reads any VARIANT; DuckDB reads its own VARIANT as
+    text that isn't JSON, and stops. A JSON or text column holding JSON reads the same once cast."""
     for read in list(statement.find_all(exp.GetExtract, exp.JSONExtract)):
         value = read.this
-        if isinstance(value, exp.ToVariant) or (isinstance(value, (exp.Cast, exp.TryCast))
-                                                and value.to.is_type(exp.DataType.Type.VARIANT)):
+        if isinstance(value, (exp.ToVariant, exp.Column)) or (isinstance(value, (exp.Cast, exp.TryCast))
+                                                              and value.to.is_type(exp.DataType.Type.VARIANT)):
             value.replace(exp.Cast(this=value.copy(), to=exp.DataType.build("JSON")))
+
+
+_MERGE_DUPLICATE = ("A target row matches more than one source row, so the MERGE stopped without changing "
+                    "anything. Snowflake stops on it too (ERROR_ON_NONDETERMINISTIC_MERGE). Make the source one row "
+                    "per target row, for example with GROUP BY or QUALIFY ROW_NUMBER() OVER (PARTITION BY key "
+                    "ORDER BY ...) = 1.")
+
+
+def _rewrite_statements(statement: exp.Expression) -> None:
+    """SFX-025: what Snowflake's statements do that DuckDB's don't by themselves.
+    - MERGE with WHEN MATCHED ... UPDATE stops when a target row matches more than one source row, as
+      Snowflake does by default; DuckDB would update it from one of them. (It stops even when those rows
+      would give the same values, or when a DELETE clause would take the row: Snowflake's page doesn't
+      say what happens then.)
+    - PIVOT ... IN ('a', ...) names its columns 'a' with the quotes, as Snowflake does.
+    - $name reads the session variable (DuckDB's getvariable).
+    - ARRAY_SIZE of a JSON or VARIANT value counts a JSON array, and is NULL for anything else.
+    - SAMPLE ROW and SAMPLE BLOCK are Snowflake's names for BERNOULLI and SYSTEM, which DuckDB reads.
+    (A VARIANT column cast to text: _variant_text.)"""
+    for sample in statement.find_all(exp.TableSample):
+        method = sample.args.get("method")
+        if isinstance(method, exp.Var) and method.name.upper() in ("ROW", "BLOCK"):
+            method.replace(exp.var("BERNOULLI" if method.name.upper() == "ROW" else "SYSTEM"))
+    merge_whens = statement.args.get("whens") if isinstance(statement, exp.Merge) else None
+    if merge_whens is not None and any(
+            isinstance(when, exp.When) and when.args.get("matched") and isinstance(when.args.get("then"), exp.Update)
+            for when in merge_whens.expressions):
+        source = statement.args.get("using")
+        alias = source.alias_or_name if source is not None else ""
+        on = statement.args.get("on")
+        if source is not None and alias and on is not None:
+            inner = source.copy()
+            if not inner.alias:
+                inner.set("alias", exp.TableAlias(this=exp.to_identifier(alias)))
+            count = exp.select(exp.Count(this=exp.Star())).from_(inner).where(on.copy())
+            check = exp.When(matched=True, condition=exp.GT(this=exp.Subquery(this=count),
+                                                            expression=exp.Literal.number(1)),
+                             then=exp.var(f"ERROR {_quoted(_MERGE_DUPLICATE)}"))
+            merge_whens.expressions.insert(0, check)
+    for pivot in statement.find_all(exp.Pivot):
+        for field in pivot.args.get("fields") or []:
+            for value in list(field.expressions):
+                if isinstance(value, exp.Literal) and value.is_string:
+                    value.replace(exp.PivotAlias(this=value.copy(),
+                                                 alias=exp.to_identifier(f"'{value.name}'", quoted=True)))
+    for parameter in list(statement.find_all(exp.Parameter)):
+        if isinstance(parameter.this, exp.Var) and not isinstance(parameter.parent, exp.DynamicIdentifier):
+            parameter.replace(exp.Anonymous(this="getvariable",
+                                            expressions=[exp.Literal.string(parameter.this.name.upper())]))
+    for size in list(statement.find_all(exp.ArraySize)):
+        value = size.this
+        if isinstance(value, (exp.Column, exp.JSONExtract, exp.GetExtract, exp.ParseJSON, exp.ToVariant)) or (
+                isinstance(value, (exp.Cast, exp.TryCast)) and value.to.is_type(exp.DataType.Type.VARIANT,
+                                                                                 exp.DataType.Type.JSON)):
+            _keep_name(size)
+            _put(size, "CASE WHEN json_type(CAST(CAST(fj_arg0 AS VARIANT) AS JSON)) = 'ARRAY' "
+                       "THEN CAST(json_array_length(CAST(CAST(fj_arg0 AS VARIANT) AS JSON)) AS BIGINT) END", [value])
+
+
+def _variant_text(statement: exp.Expression) -> None:
+    """SFX-025: a VARIANT column holding an object or array, cast to text (or TO_VARCHAR with no format), is
+    JSON text, as Snowflake's TO_VARCHAR gives it; DuckDB writes its own VARIANT its own way ({'k': 1}).
+    Run first, so only a cast written in the query is read (not one another rewrite writes)."""
+    for to_text_node in list(statement.find_all(exp.Cast, exp.TryCast, exp.ToChar)):
+        to_text = (isinstance(to_text_node, exp.ToChar) and to_text_node.args.get("format") is None
+                   and not to_text_node.args.get("nlsparam")) or (isinstance(to_text_node, exp.Cast)
+                                                         and to_text_node.to.this in _TEXT_TYPES)
+        if isinstance(to_text_node.this, exp.Column) and to_text:
+            column = to_text_node.this
+            kind = exp.Anonymous(this="variant_typeof", expressions=[
+                exp.Cast(this=column.copy(), to=exp.DataType.build("VARIANT"))])
+            compound = exp.and_(
+                exp.EQ(this=exp.Anonymous(this="typeof", expressions=[column.copy()]),
+                       expression=exp.Literal.string("VARIANT")),
+                exp.RegexpLike(this=kind, expression=exp.Literal.string("^(OBJECT|ARRAY)")))
+            # TRY_CAST: DuckDB may work out a shared part of several columns once for every row, before the
+            # CASE picks its branch, and a text column that isn't JSON mustn't stop the query there
+            written: exp.Expression = exp.Case(ifs=[exp.If(this=compound, true=exp.Cast(
+                this=exp.TryCast(this=column.copy(), to=exp.DataType.build("JSON")),
+                to=to_text_node.to.copy() if isinstance(to_text_node, exp.Cast) else exp.DataType.build("VARCHAR")))],
+                default=to_text_node.copy())
+            _keep_name(to_text_node)
+            to_text_node.replace(written)
+
+
+def _keep_name(node: exp.Expr) -> None:
+    """Name the select-list item ``node`` is in as it reads now, when it has no name of its own, so a
+    rewrite that writes a long CASE in its place doesn't give the column that CASE's text as its name. The
+    same for each query it sits in, outward, so a scalar subquery in a select list keeps its name too."""
+    from . import sql
+    item = node
+    while item.parent is not None:
+        while isinstance(item.parent, exp.Expression) and not isinstance(item.parent, exp.Select):
+            item = item.parent
+        select = item.parent
+        if select is None:
+            return
+        if not isinstance(item, exp.Alias) and any(e is item for e in select.expressions):
+            named = exp.Alias(alias=exp.to_identifier(sql.duckdb_sql(item), quoted=True))
+            item.replace(named)
+            named.set("this", item)
+        item = select
 
 
 def _rewrite_semi_structured_types(statement: exp.Expression) -> None:
@@ -886,6 +1009,25 @@ def _rewrite_strings(statement: exp.Expression) -> None:
     from .sql import _from_template
     for soundex in list(statement.find_all(exp.SoundexP123)):
         soundex.replace(_from_template(_soundex_p123_template(), [soundex.this]))
+    # POSITION and CHARINDEX: "If the specified optional start_pos is beyond the end of the second argument (the
+    # string to search), the function returns 0." DuckDB's search from past the end found an empty search text
+    # there (POSITION('', 'a', 11) was 11). Binary values are left as they are.
+    # Deepest first in both loops, so a call nested in another is rewritten before the outer one is copied.
+    for found in reversed(list(statement.find_all(exp.StrPosition))):
+        start = found.args.get("position")
+        if start is None or _binary_valued(found.this):
+            continue
+        found.replace(_from_template("(CASE WHEN {1} > LENGTH({2}) THEN 0 ELSE {0} END)",
+                                     [found.copy(), start, found.this]))
+    # LPAD and RPAD: "If the pad argument is empty, no padding is inserted, but the result is still truncated to
+    # length length_expr." DuckDB's stopped with "Insufficient padding". A pad written as non-empty text needs nothing.
+    # A negative length gives '' (GREATEST), where DuckDB's LEFT would drop characters from the end.
+    for pad in reversed(list(statement.find_all(exp.Pad))):
+        fill = pad.args.get("fill_pattern")
+        if fill is None or (isinstance(fill, exp.Literal) and fill.is_string and fill.name) or _binary_valued(pad.this):
+            continue
+        pad.replace(_from_template("(CASE WHEN {2} = '' THEN LEFT({0}, GREATEST({1}, 0)) ELSE {3} END)",
+                                   [pad.this, pad.expression, fill, pad.copy()]))
 
 
 def _entries(obj: str) -> str:
@@ -1753,7 +1895,8 @@ CATALOG = (
                 "allowed, as in Snowflake, and INTERPOLATE_LINEAR needs one ORDER BY expression: a number, DATE "
                 "or timestamp.")),
     ("SFX-019", "Rewritten", ("ARRAY_DISTINCT keeps each value where it first appears, and one NULL, as "
-                "Snowflake does. ARRAY_FLATTEN of an array with a NULL in place of an array is NULL.")),
+                "Snowflake does. ARRAY_FLATTEN of an array with a NULL in place of an array is NULL. ARRAY_INSERT "
+                "past the end fills the gap with NULLs, where Snowflake leaves empty elements.")),
     ("SFX-020", "Rewritten", "ALTER SESSION SET TIMEZONE = '...' becomes DuckDB's SET TimeZone, for the statements after it."),
     ("SFX-021", "Rewritten", ("REGEXP_SUBSTR and REGEXP_SUBSTR_ALL with the 'e' parameter and no group number, "
                 "or group 0, give the first group, as in Snowflake, when the pattern is written in the query "
@@ -1763,6 +1906,12 @@ CATALOG = (
                 "is read as before.")),
     ("SFX-023", "Rewritten", ("GET and the : path read a VARIANT made with TO_VARIANT or a cast to VARIANT as JSON, "
                 "as Snowflake does.")),
+    ("SFX-025", "Rewritten", ("MERGE with WHEN MATCHED ... UPDATE stops when a target row matches more than one "
+                "source row, as Snowflake does by default (here also when those rows would give the same values, or a "
+                "DELETE clause would take the row). PIVOT ... IN ('a', ...) names its columns 'a' with the quotes. "
+                "$name reads the session variable, and IDENTIFIER($name) the name the same cell sets it to. "
+                "ARRAY_SIZE of a JSON or VARIANT value is NULL when it isn't an array. A VARIANT column holding an object or "
+                "array, cast to text, is JSON text. SAMPLE ROW and SAMPLE BLOCK are BERNOULLI and SYSTEM sampling.")),
     ("SFX-024", "Rewritten", ("An ARRAY column or cast becomes a list of VARIANT values, so it holds what "
                 "ARRAY_CONSTRUCT makes and can read a JSON array. An OBJECT column or cast becomes JSON.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
@@ -1819,6 +1968,9 @@ CATALOG = (
                 "a seeded RANDOM): Snowflake's series from it can't be reproduced here.")),
     ("SFN-022", "Runs only in Snowflake", ("ALTER SESSION, other than SET TIMEZONE: other session parameters "
                 "and UNSET change how Snowflake itself reads or prints values.")),
+    ("SFN-023", "Runs only in Snowflake", ("IDENTIFIER($name) where the same cell doesn't set the variable to a "
+                "string first: its value isn't known here.")),
+    ("SFN-024", "Runs only in Snowflake", "PIVOT ... IN (ANY ...) or IN (subquery): DuckDB's PIVOT takes a list of values."),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 
@@ -1859,6 +2011,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
     brackets = list(tree.find_all(exp.Bracket))  # held, so no new node can reuse one of these ids
     written = {id(b) for b in brackets}
     try:
+        _variant_text(tree)
         _rewrite_flatten(tree)
         _rewrite_to_char(tree)
         _rewrite_date_trunc(tree)
@@ -1874,6 +2027,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_timestamp_parts(tree)
         _rewrite_arrays(tree)
         _rewrite_variant_reads(tree)
+        _rewrite_statements(tree)
         _rewrite_semi_structured_types(tree)
         _rewrite_regexp_groups(tree)
         _rewrite_string_epochs(tree)
@@ -1899,4 +2053,34 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
 def translate(code: str) -> Translation:
     """Every statement of ``code`` rewritten for DuckDB, with its verdict. Nothing runs here.
     ValueError when the SQL can't be read at all."""
-    return Translation(tuple(_statement(i, s) for i, s in enumerate(parse(code), 1)))
+    return Translation(tuple(_statement(i, s) for i, s in enumerate(_with_identifiers(parse(code)), 1)))
+
+
+def _with_identifiers(statements: list[exp.Expression]) -> list[exp.Expression]:
+    """SFX-025: IDENTIFIER($name) as the name a SET earlier in the same cell gives the variable (a string);
+    any other stays, and is refused (SFN-023)."""
+    names: dict[str, str] = {}
+    for statement in statements:
+        for dynamic in list(statement.find_all(exp.DynamicIdentifier)):
+            parameter = dynamic.this
+            if isinstance(parameter, exp.Parameter) and isinstance(parameter.this, exp.Var) \
+                    and parameter.this.name.upper() in names:
+                value = names[parameter.this.name.upper()]
+                parts = value.split(".")
+                if all(_FLATTEN_PATH.fullmatch(part) for part in parts):  # a plain (dotted) name only
+                    named = exp.to_table(value, dialect="snowflake") if isinstance(dynamic.parent, exp.Table) \
+                        else exp.to_column(value, dialect="snowflake")
+                    target = dynamic.parent if isinstance(dynamic.parent, exp.Table) else dynamic
+                    if isinstance(target, exp.Table) and target.alias:
+                        named.set("alias", target.args.get("alias"))
+                    target.replace(named)
+        if isinstance(statement, exp.Set):
+            for item in statement.expressions:
+                assignment = item.this if isinstance(item, exp.SetItem) else None
+                if isinstance(assignment, exp.EQ) and isinstance(assignment.this, exp.Column):
+                    key = assignment.this.name.upper()
+                    if isinstance(assignment.expression, exp.Literal) and assignment.expression.is_string:
+                        names[key] = assignment.expression.name
+                    else:
+                        names.pop(key, None)
+    return statements

@@ -2646,7 +2646,7 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 .sh-stack .card { display: flex; flex-direction: column; gap: 12px; }
 .sh-last { display: flex; flex-direction: column; gap: 2px; min-width: 220px; margin-right: 24px; }
 .sh-gap { background: var(--warn-soft-8); border-color: var(--warn-border-2); color: var(--warn-ink); }
-.sh-gap p { margin: 0; }
+.sh-gap p, .sh-setup p { margin: 0; }
 .sh-scroll { overflow-x: auto; }
 .sh-scope { min-height: 32px; border: 1px solid var(--border-input); border-radius: var(--r-sm); background: var(--surface); font: inherit; }
 /* Notebook find and replace (nbfind.js): a bar pinned over the cells. */
@@ -3085,7 +3085,7 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
   .sql-edit .cm-line.sql-bookmarked { border-left: 3px solid Highlight; }  /* box-shadow and background are dropped */
   .cell.selected .cell-box, .sqlt-card.on, .mesh-node.me, .card.pad.mf-domain.me { border-color: Highlight; outline: 2px solid Highlight; outline-offset: -2px; }
   .pill, .pill-s, .badge, .preview-tag, .cell-head .tag { border: 1px solid CanvasText; }
-  :focus-visible, .search:focus-within, .palette-input:focus-within { outline: 2px solid Highlight; }
+  :focus-visible, .search:focus-within, .palette-input:focus-within, .nbf-search:focus-within, .pbi-frame.pbi-focus { outline: 2px solid Highlight; }
   .avatar { border: 1px solid CanvasText; }
   .seg button.on:disabled { color: HighlightText; }  /* a locked choice: outranks the normal-mode rule */
 }
@@ -3563,6 +3563,7 @@ tr.fg-conflict { background: var(--danger-soft); }
 .pbi-frame-wrap { position: relative; flex: 1; min-height: 480px; }
 .pbi-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--surface); }
 .pbi-frame.pbi-hidden { visibility: hidden; }
+.pbi-frame.pbi-focus { outline: 2px solid var(--accent); outline-offset: -2px; }  /* powerbi.js: focus is inside the report */
 .pbi-problem-slot { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; pointer-events: none; }
 .pbi-problem-slot:empty { display: none; }
 .pbi-problem { max-width: 520px; pointer-events: auto; display: flex; flex-direction: column; gap: 8px; }
@@ -3897,3 +3898,21 @@ body[data-skin-cells="rounded"] .cells.editing .cell.selected .cell-box { box-sh
 .sql-diagram-legend { margin: 0; }
 .sql-diagram-solid, .sql-diagram-dashed { display: inline-block; width: 24px; vertical-align: middle; border-top: 2px solid var(--accent-ink); }
 .sql-diagram-dashed { border-top: 2px dashed var(--muted); margin-left: 8px; }
+
+/* Monitor > Operations > Data health (data-health.js) */
+.dh-alerts { display: flex; flex-direction: column; gap: 6px; padding: 4px 16px 10px; }
+.dh-alerts h3 { margin: 0; font-size: 13px; }
+.dh-alert { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 10px; padding: 7px 10px; border: 1px solid var(--border-soft); border-radius: var(--r-md); background: var(--surface); }
+.dh-row { cursor: pointer; }
+.dh-note { display: flex; flex-direction: column; gap: 8px; margin: 8px 16px; padding: 10px 12px; border: 1px solid var(--warn-border); border-radius: var(--r-md); background: var(--warn-soft-3); color: var(--text); }
+.dh-note.quiet { border-color: var(--border-soft); background: var(--surface-2); }
+.dh-chart { margin: 8px 16px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.dh-chart h3 { margin: 0 0 6px; font-size: 13px; }
+.dh-chart svg { display: block; width: 100%; height: auto; }
+.dh-chart text { fill: var(--muted); font-size: 11px; }
+.dh-band { fill: var(--accent-soft); }
+.dh-bar { fill: var(--accent-ink); opacity: .75; }
+.dh-bar.hi { fill: var(--danger); opacity: 1; }
+.dh-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin: 0 16px; }
+.dh-tile { display: flex; flex-direction: column; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.dh-tile b { font-size: 18px; font-variant-numeric: tabular-nums; }

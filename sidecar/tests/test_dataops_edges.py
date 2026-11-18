@@ -56,6 +56,8 @@ def test_an_edit_to_a_column_the_row_doesnt_have_is_ignored(svc):
 def test_rows_are_counted_from_the_files_when_a_writer_left_out_the_statistics():
     table = types.SimpleNamespace(
         get_add_actions=lambda flatten: pa.table({"path": ["a.parquet"], "num_records": pa.array([None], pa.int64())}),
+        protocol=lambda: types.SimpleNamespace(reader_features=None, writer_features=None),
+        metadata=lambda: types.SimpleNamespace(configuration={}),
         to_pyarrow_dataset=lambda: types.SimpleNamespace(count_rows=lambda: 42))
     assert dataops_service._rows_in(table) == 42
 

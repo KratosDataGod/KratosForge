@@ -111,6 +111,7 @@ Spark SQL run on this PC gives Spark's values and types for its date and time fu
 | `trunc`, `date_trunc` | NULL for a unit the function doesn't take. `trunc` takes `YEAR`, `YYYY`, `YY`, `QUARTER`, `MONTH`, `MM`, `MON` and `WEEK`; `date_trunc` also takes `DAY`, `DD`, `HOUR`, `MINUTE`, `SECOND`, `MILLISECOND` and `MICROSECOND` |
 | `next_day` | Takes `MO`, `MON` or `MONDAY` and so on for each day, in any case. Any other text gives NULL |
 | `make_date`, `make_timestamp` | NULL for a day that doesn't exist, such as `make_date(2023, 2, 29)` |
+| `try_to_date` | Refused by name, and nothing runs. Spark 3.5 (Fabric Runtime 1.3) doesn't have it, so Fabric stops on it too. Use `to_date`, which gives NULL for text that isn't a date. Databricks SQL on this PC still runs it |
 
 Patterns that Spark refuses are refused here by name, and nothing runs: the week-based letters (`Y`, `w`, `W`, `u`, `e`, `c`), `F`, optional sections (`[ ]`), letters that aren't pattern letters, and the runs Spark stops on with "Too many pattern letters": five or more of `G`, `M`, `L`, `E`, `Q` or `q`, and seven or more `y`. These are refused too, because this PC can't give Spark's text for them:
 
@@ -208,6 +209,67 @@ These cases still differ:
 | Databricks SQL on the DuckDB engine | As in Spark SQL | The fixes that don't need column types apply; `size`, `explode` and `reverse` of a map or array column keep DuckDB's forms |
 | `explode` of a map that holds `rand()` or `shuffle()`, in a select list | The map is read once | Its keys and values are read separately, so they can come from different reads. Use `LATERAL VIEW explode`, which reads it once |
 
+## JSON functions on this PC (WR-118)
+
+Spark SQL run on this PC gives Spark's answers for its JSON functions, with ANSI mode off as Fabric runs it. 232 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_json_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `get_json_object` | Spark's path rules: `$.a`, `$['a']`, `$.a[0]`, and one `[*]`, which gives the one value it matches or a JSON array of all of them. A path Spark doesn't read, such as `a`, `$.` or `$["a"]`, gives NULL. Text with more after its first object or array is read up to that value, and text that isn't JSON gives NULL |
+| `json_tuple` | A repeated key gives its last value. A NULL argument must be typed, as in Spark: `CAST(NULL AS STRING)` |
+| `from_json` | Each field is read by its type; a value that doesn't fit gives NULL for that field, and an array or map with one such element is NULL as a whole. Text that isn't JSON, or isn't the schema's kind (an array for a struct schema), gives a struct of NULLs; an object on its own read with an `ARRAY<STRUCT<...>>` schema is an array of that one struct. A map keeps the last value of a key its object repeats. The `_corrupt_record` field, or the one `columnNameOfCorruptRecord` names, holds the whole text of a record that didn't read. `mode` takes `PERMISSIVE` (the default; an unknown mode is read as it) and `FAILFAST`, which stops on such a record; `DROPMALFORMED` stops, as in Spark. A date that doesn't exist, such as `2024-02-30`, stops with Spark's `INCONSISTENT_BEHAVIOR_CROSS_VERSION` error. `dateFormat` and `timestampFormat` are read; `MAP<STRING, ...>` schemas are read; `typeof` gives `struct<a:int>` |
+| `to_json` | Written from the value's type: a struct leaves out NULL fields (unless `ignoreNullFields` is `false`), arrays and maps keep NULLs as `null`, a decimal is written as Java writes it, keeping its scale (`1.50`) and in E form when it has more than 6 decimal places and its value is below 0.000001 (`1.2E-7`, `0E-8`), a double is written as Java writes it (`1.0E10`), `NaN` and `Infinity` are quoted, dates are `yyyy-MM-dd`, timestamps `yyyy-MM-dd'T'HH:mm:ss.SSSXXX` in the session's time zone (`dateFormat`, `timestampFormat` and `timestampNTZFormat` change them), binary is base64, and a date map key is its days since 1970-01-01 |
+| `schema_of_json` | Spark's inferred schema; a whole number past `bigint` is a `DECIMAL` of its digits (`DECIMAL(20,0)` for `99999999999999999999`), or a `DOUBLE` past 38 digits. `NaN` and `Infinity` are `DOUBLE`. `prefersDecimal` and `primitivesAsString` are read; with `prefersDecimal`, a number such as `1e5`, whose exponent leaves it no decimal places, stops, as in Spark |
+| `FROM range(...)` | Its column is `id`, a `bigint`, as in Spark |
+
+Refused by name, and nothing runs:
+
+| Case | Why |
+| --- | --- |
+| The `from_json` and `schema_of_json` options `allowComments`, `allowUnquotedFieldNames` and `allowNumericLeadingZeros` set to `true`, and other options that change how text is read | This PC reads only standard JSON. Leave the option out, or run the cell in Fabric |
+| The `to_json` option `pretty` | This PC writes JSON on one line only |
+| `to_json` of a value whose type can't be worked out here (such as `struct(*)` or a `to_json` inside another), and of a map whose keys aren't text, whole numbers, booleans, decimals or dates | Spark writes these in its own way |
+| `get_json_object` with more than one `[*]`, or `.*`, or a `[*]` that matches one string on its own or a null | Spark writes these in its own way |
+| `from_json` text that its `dateFormat` or `timestampFormat` doesn't match (text with no digit gives NULL, as in Spark, when every field of the pattern is a number) | Spark gives NULL or stops, depending on how its older parser reads the text |
+| `from_json` of a JSON object that repeats a key of its schema | Spark keeps the last value; this PC can't |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| `from_json` text in single quotes, such as `{'a':1}` | Read (`allowSingleQuotes` is on by default) | NULL |
+| Databricks SQL on the DuckDB engine | As in Spark SQL | `from_json` and `schema_of_json` options are refused, and `to_json` is DuckDB's own |
+
+## Hashing and encoding on this PC (WR-119)
+
+Spark SQL run on this PC gives Spark's answers for its hashing and encoding functions, with ANSI mode off as Fabric runs it. 84 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_hashing_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `hash`, `xxhash64` | Spark's Murmur3 and xxHash64 numbers with seed 42, for each type: whole numbers, doubles, decimals, booleans, text, binary, dates, timestamps, arrays, and several arguments. NULL keeps the seed. A map stops, as in Spark |
+| `md5`, `sha1`, `sha`, `crc32` | Of text's UTF-8 bytes, or of binary |
+| `sha2` | 0 and 256 bits are SHA-256; 224, 384 and 512 are those SHA-2 digests; any other length gives NULL |
+| `base64` | Text's UTF-8 bytes or binary; a line break (CR LF) after every 76 characters, as Spark 3.5 writes it |
+| `unbase64` | Characters outside the base64 alphabet are skipped and padding is optional. Padding that doesn't end a group of four, base64 after the padding, or one character left over at the end stops, as in Spark |
+| `hex`, `unhex` | `hex` of a double or decimal cuts it to a whole number first. `unhex` puts a `0` before an odd number of digits and gives NULL for anything that isn't hex digits |
+| `conv` | Spaces around the number are trimmed first |
+| `CAST(x AS BINARY)` | A whole number's big-endian bytes: 1 for a `tinyint`, 2 for a `smallint`, 4 for an `int` and 8 for a `bigint` |
+| `CAST(x AS STRING)` of binary | Its UTF-8 text |
+| `-9223372036854775808L`, `-2147483648` | Read as one literal of its type, as Spark reads them |
+
+Refused by name, and nothing runs:
+
+| Case | Why |
+| --- | --- |
+| `hash` or `xxhash64` of a struct, or of an array of structs or arrays | This PC can't yet hash a struct's fields in Spark's order. Hash its fields instead: `hash(s.a, s.b)` gives the same number as `hash(s)` |
+| A cast of binary to string where the bytes aren't UTF-8 | Spark reads them with replacement characters. Use `hex()` or `base64()` instead |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| Databricks SQL on the DuckDB engine | `base64` and `unbase64` as in Spark SQL | `base64` writes one line, and `unbase64` reads only strict base64 |
+
 ## Local T-SQL changes
 
 When a project runs T-SQL on this PC, `MERGE`, `UPDATE`, `DELETE` and `INSERT` on a database table give a warehouse's rows, or stop by name. Each case below is checked against T-SQL's reference.
@@ -256,7 +318,7 @@ When a project runs T-SQL on this PC, these date and time functions are checked 
 | `DATEDIFF_BIG` | The same counts as a `bigint`, with no overflow |
 | `EOMONTH` | The month's last day, with or without months to add: `EOMONTH('2024-01-31', 1)` is `2024-02-29` |
 | `DATEFROMPARTS` | A date, an error for a day that doesn't exist (`2023, 2, 29`), `NULL` for a `NULL` part |
-| `FORMAT` | .NET's date formats in `en-US`, on a `date` or a date-and-time column |
+| `FORMAT` | .NET's date formats in `en-US`, `en-GB` or `de-DE`, on a `date` or a date-and-time column. See [Local T-SQL formatting](#local-t-sql-formatting) |
 | `CONVERT` to text, styles 101, 103, 112, 120, 121, 126 | `02/29/2024`, `29/02/2024`, `20240229`, `2024-02-29 13:04:05`, `2024-02-29 13:04:05.123000`, `2024-02-29T13:04:05.123000`. A `date` gives only its date in 120, 121 and 126, and 126 leaves off a fraction of zero |
 | `CAST` of a `datetime2(n)` or `time(n)` to text | Its `n` digits of a second, zeros too: a `datetime2(6)` is `2024-02-29 13:04:05.000000`, as a Fabric Warehouse gave it in live run 11 |
 | `CONVERT` and `TRY_CONVERT` from text, the same styles | The date the style reads (`'29/02/2024'` with 103), to a `date`, `datetime` or `datetime2`. A date that doesn't exist is an error with `CONVERT` and `NULL` with `TRY_CONVERT`. Styles 120, 121 and 126 read ISO text with or without its time |
@@ -266,6 +328,31 @@ What can still differ:
 - A date-and-time here is a warehouse's `datetime2(6)`: six digits of fraction (`.123000`), which is also the most a Fabric Warehouse column keeps. T-SQL's default `datetime2` has seven.
 - Any other `CONVERT` date style runs as translated, but its values haven't been checked. The run's `translation.notes` says so ("CONVERT style 104 runs as a translation that hasn't been checked ...").
 - `CAST(a_datetime AS VARCHAR)` with no style, and `nanosecond` in `DATEADD`, `DATEDIFF` and `DATETRUNC`: see [Local data](local-data.md#t-sql).
+
+## Local T-SQL formatting
+
+When a project runs T-SQL on this PC, `FORMAT`, `PARSE` and `TRY_PARSE` give the answer .NET gives, as a warehouse's do. Where .NET's own versions answer differently, or the case isn't carried yet, the query stops and names it. It never gives another answer.
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| Cultures | `en-US` (a warehouse's default, also when none is named), `en-GB` and `de-DE`, written in the query in any case (`'DE-de'`). Any other culture is refused by name |
+| `FORMAT` of a number: `N`, `F`, `D` | `FORMAT(1234.5, 'N')` is `1,234.50`, and `1.234,50` in `de-DE`. Rounded half away from zero |
+| `FORMAT` of a number: `X` | Hexadecimal for an integer: `FORMAT(255, 'X4')` is `00FF`, and a negative `int` is its 32 bits, so `FORMAT(-1, 'X')` is `FFFFFFFF` |
+| `FORMAT` of a number: `C` | `en-US` only, at zero or above: `FORMAT(1234.5, 'C')` is `$1,234.50` |
+| `FORMAT` of a number: custom | `0`, `#`, `.`, `,` between digits, `%`, text in quotes or after `\`, and a second section for numbers below zero, written without their `-`: `'#,##0.00'`, `'0.0%'` (`25.0%`), `'000-00-0000'` (`123-45-6789`), `'$#,##0.00;($#,##0.00)'` (`($5.50)`). The culture's separators replace `,` and `.` |
+| `FORMAT` of a date | .NET's custom date formats, where `/` is the culture's date separator (`dd/MM/yyyy` is `05.03.2024` in `de-DE`) and `dddd` and `MMMM` are its day and month names (`Dienstag`, `März`). The standard formats `d`, `g`, `G`, `t` and `T` in each culture, `s`, `u`, `o` and `R` in all, and every other one in `en-US` |
+| `PARSE`, `TRY_PARSE` | Text read as a number (`int`, `bigint`, `smallint`, `tinyint`, `decimal`, `float`, `real`) in the culture: a sign, digits, the culture's separator between thousands and its decimal separator, with spaces around. `PARSE('1.234,5' AS DECIMAL(10, 2) USING 'de-DE')` is `1234.50`. Text with no digit is T-SQL's "Error converting string value" with `PARSE` and `NULL` with `TRY_PARSE`, as is a number too big for the type with `TRY_PARSE` |
+| `STR` | Right-aligned text of the length asked (10), rounded, with fewer decimals when they don't fit and asterisks when the whole number doesn't: `STR(1234.5)` is `'      1235'` |
+
+Refused, each by name:
+
+- `FORMAT`'s `P` (percent), `C` below zero or outside `en-US`, a culture's `D`, `f`, `F`, `M` and `Y` outside `en-US`, and its abbreviated names (`ddd`, `MMM`) and AM/PM (`tt`) outside `en-US`: .NET Framework and .NET (Core) write them differently, for instance `12.34 %` or `12.34%`, `($5.00)` or `-$5.00`. A custom format such as `'0.00%'` gives one answer.
+- `FORMAT` of a negative number that the format rounds to zero (`FORMAT(-0.001, '0.00')`, `FORMAT(-0.001, 'N2')`, `'F2'` too): one .NET writes `-0.00`, the other `0.00`. Round the value first.
+- `FORMAT`'s `E`, `G` and `R` number formats, a precision of more than two digits, a custom format with a third section, scientific notation, `‰`, more than one `%`, `,` right before the point (which divides by 1,000), text among the digits with `#` or `,`, and `FORMAT` of a `float`, `money` or `time`.
+- `PARSE` and `TRY_PARSE` of text .NET may read another way: a currency sign, parentheses, an exponent, a sign at the end, `Infinity`, decimals for an integer type, or separators away from groups of three. Text with no digit at all gives T-SQL's answer.
+- `PARSE` and `TRY_PARSE` to a date or time (use `CONVERT` with a style), and to `money`, which isn't carried (use `DECIMAL(19, 4)`). `CONVERT`'s `money` styles are refused with `money`.
+
+The static check and **Format SQL** can't read `PARSE`'s `AS ... USING` yet: they mark the query unverified and leave it as written. The live check (`fabric-desktop smoke-test`, flow 17) asks a test warehouse for the answers .NET's versions disagree on, so they can be carried once known.
 
 ## Local T-SQL text
 
@@ -280,6 +367,7 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 | `LEN`, `DATALENGTH` | `LEN('ab  ')` is `2`, and `DATALENGTH('ab  ')` is `4`. `DATALENGTH` counts UTF-8 bytes (`'é'` is `2`) and two per character for `N'...'` |
 | `CHARINDEX`, `PATINDEX` | Case counts, and the answer is `0` when the text isn't found. A `CHARINDEX` start of 0 or below searches from the start, and an empty search text gives `0` |
 | `CONCAT`, `CONCAT_WS`, `+` | `CONCAT` skips `NULL`, and `+` gives `NULL`. A number written with a point keeps its digits (`CONCAT('a', 1.50)` is `a1.50`), and a `bit` is `1` or `0` |
+| `N'...'` text | The same as `'...'` in comparisons, `LIKE` and `+`: `WHERE name = N'abc'` finds `'abc  '`, and `N'a' + N'b'` is `ab`. Only `DATALENGTH` counts it as nvarchar, two bytes a character, and only for an `N'...'` written directly inside it: `DATALENGTH(N'ab')` is `4`, but `DATALENGTH(N'a' + N'b')` is `2` here, where T-SQL gives `4` |
 | `TRIM`, `LTRIM`, `RTRIM`, `REPLACE` | Spaces only, or the characters you give. `REPLACE` matches case and leaves the text alone for an empty search |
 | `COLLATE` | A binary collation (`..._BIN2`, `..._BIN`) runs as written, since it's how text compares here already |
 
@@ -456,6 +544,61 @@ Fabric Warehouse has QUALIFY too, so there the rewrite is one way to run it, not
 
 Like the check above, it never runs the SQL or connects anywhere, and "compatible" is not proof that
 two platforms give the same answer. Comparing answers needs both runs.
+
+## Local T-SQL CTEs
+
+When a project runs T-SQL on this PC, common table expressions (`WITH ... AS`) run as in a Fabric Warehouse, and what a warehouse doesn't run is refused by name before anything runs. This was checked against Microsoft Learn's T-SQL surface area page for Fabric Data Warehouse, as it read on 2026-11-18.
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| Several CTEs in one `WITH` | Each sees the CTEs before it. A later CTE's name, used before it, is a table's name, as in T-SQL |
+| A column list, `WITH a (p, q) AS (...)` | Names the columns |
+| A CTE before `SELECT`, `INSERT`, `UPDATE ... FROM` and `DELETE ... WHERE` | Runs, and changes the table the statement names |
+| A `WITH` inside a CTE (a nested CTE) | Runs. A warehouse runs it as a preview feature, so the result's notes say so |
+| Two CTEs of one name | Stops with SQL Server's "Duplicate common table expression name 'a' was specified." |
+
+Refused by name:
+
+- A recursive CTE, one whose query names itself. A warehouse doesn't run recursive queries. It stops before it runs, so a CTE with no end can't run forever, and nothing changes. Unroll the levels you need with joins, or compute the hierarchy in a notebook.
+- `OPTION (MAXRECURSION n)`, which only limits a recursive CTE.
+- `WITH RECURSIVE`, which isn't T-SQL.
+- `UPDATE` or `DELETE` through a CTE (`WITH a AS (...) UPDATE a SET ...`). The local engine changes tables only, and Microsoft's page doesn't say whether a warehouse does. Name the table, and put the CTE's filter in `WHERE`.
+
+## Local T-SQL hints, labels and statistics
+
+When a project runs T-SQL on this PC, a hint, label or statistics statement either changes no rows and is left out of the run, with a note in the result that says so, or is refused by name. None is dropped without a note. This was checked against Microsoft Learn's Fabric Data Warehouse pages for the T-SQL surface area, query labels, statistics and transactions, and the Fabric section of Hints (Transact-SQL), as they read on 2026-11-18.
+
+| What | Here |
+| --- | --- |
+| `OPTION (LABEL = '...')` | Left out, with a note. A warehouse shows the label in query insights; it changes no rows |
+| `OPTION (...)` with `HASH GROUP`, `ORDER GROUP`, `MERGE UNION`, `HASH UNION`, `CONCAT UNION`, `FORCE ORDER`, `FORCE SINGLE NODE PLAN`, `FORCE DISTRIBUTED PLAN`, `DISABLE_RESULT_SET_CACHE`, or `USE HINT` with the four `ASSUME_..._FILTER_ESTIMATES` names | Left out, with a note. These are the hints Microsoft lists for a warehouse, and each changes how it plans, not the rows |
+| A `LOOP`, `HASH` or `MERGE` join hint in `FROM`, such as `INNER HASH JOIN` | Left out, with a note |
+| A locking table hint: `NOLOCK`, `READUNCOMMITTED`, `HOLDLOCK`, `TABLOCK`, `ROWLOCK`, `READPAST` and the others, also written `t (NOLOCK)` | Left out, with a note. A warehouse always runs snapshot isolation, and reads here are snapshot reads too, so the hint changes no rows. Microsoft's pages don't say whether a warehouse takes it |
+| `CREATE STATISTICS s ON t (c)`, `UPDATE STATISTICS t [(s)]`, `DROP STATISTICS t.s`, with `WITH FULLSCAN` or `SAMPLE n PERCENT` | Changes nothing, with a note. It checks that the table (and for `CREATE`, the column) exist, so a name that isn't there is an error as in a warehouse. `DROP` doesn't check the statistic itself |
+
+Refused by name:
+
+- Any other query hint, such as `MAXDOP`, `RECOMPILE`, `LOOP JOIN`, `FAST n` or another `USE HINT` name, since Microsoft doesn't list it for a warehouse. A `REMOTE` join hint in `FROM` is refused for the same reason. `MAXRECURSION` is refused with recursive CTEs.
+- Index hints (`INDEX(...)`, `FORCESEEK`, `FORCESCAN`, `NOEXPAND`), because a warehouse has no indexes to name.
+- A statistic on more than one column, which a warehouse refuses too, filtered statistics (`WHERE`), and statistics options other than `FULLSCAN` and `SAMPLE`.
+
+## Local T-SQL writes at the same time
+
+A Fabric Warehouse runs every transaction with snapshot isolation. When two transactions change the same table, the first to commit wins, and the other is rolled back with error 24556 ("Snapshot isolation transaction aborted due to update conflict"). An `INSERT` adds new files and rarely conflicts. This was checked against Microsoft Learn's Fabric Data Warehouse page for transactions, as it read on 2026-11-18.
+
+On this PC:
+
+| What | Here |
+| --- | --- |
+| Two sessions in the app (two SQL tabs, a tab and a pipeline step) changing one table at once | They take turns: a project runs one statement at a time, so every change lands and none is lost. A read sees a change whole or not at all |
+| Another writer (a notebook, another tool) commits to a project Delta table between this statement's read and its commit, with an `UPDATE`, `DELETE` or `MERGE` | This statement stops with "Nothing was committed to …, because another writer changed it after this statement read it" (a Fabric Warehouse reports this as error 24556). Nothing of it is committed, the table then shows the other writer's change, and running it again applies it on top |
+| Another writer's `INSERT` beside this statement's `UPDATE` | Both commit, as in a warehouse |
+
+What can still differ:
+
+- A warehouse finds conflicts by table, so two changes to different rows of one table can conflict there. Here delta-rs finds them by the files each change read, so two changes to different files of one table can both commit.
+- `BEGIN TRAN`, `COMMIT`, `ROLLBACK` and `SET TRANSACTION` are refused here (see Local T-SQL scripts), so a conflict here is always about one statement.
+- A commit delta-rs refuses for another reason, such as a change to a table with `delta.appendOnly`, isn't called a conflict. It stops with delta-rs's own reason and says nothing was committed.
 
 ## Local T-SQL tables
 
@@ -718,24 +861,14 @@ Fabric Warehouse loads files with `COPY INTO`, `BULK INSERT` and `OPENROWSET(BUL
 Besides the hand-picked cases above, three tests generate queries from a fixed seed and compare each answer here with the target's:
 
 - **Spark SQL** (`sidecar/tests/test_spark_differential.py` and `_more.py`): about 1,580 random scalar expressions over the functions this page lists (arithmetic, `div`, `pmod`, casts, text, dates, `LIKE`, three-valued logic), with NULLs mixed in. Each was run in Apache Spark 3.5.3 (local mode, UTC, ANSI mode off, as Fabric) by `sidecar/tools/capture_spark_differential.py`, and its answer is kept in `sidecar/tests/fixtures/spark_3_5_3_differential.json`. CI has no Spark, so the capture is run by hand and the fixture is checked in.
-- **T-SQL** (`sidecar/tests/test_tsql_rules_differential.py`): about 1,700 inputs for `SUBSTRING`, `LEFT`, `RIGHT`, `CHARINDEX`, `REPLICATE`, `LEN`, integer `/` and `%`, `ROUND`, `CAST` to `int`, `=` and `<` with trailing spaces, `LIKE` with `[a-c]` ranges, `DATEDIFF`, `DATEADD`, `EOMONTH`, `DATEPART`, `CONCAT`, `CONCAT_WS` and `+`, each with `'...'` and with `N'...'` text. The expected answer is a short model of the rule in T-SQL's reference. No warehouse was used.
+- **T-SQL** (`sidecar/tests/test_tsql_rules_differential.py`): about 1,700 inputs for `SUBSTRING`, `LEFT`, `RIGHT`, `CHARINDEX`, `REPLICATE`, `SPACE`, `ASCII`, `UNICODE`, `CHAR`, `LEN`, integer `/` and `%`, `ROUND`, `CAST` to `int`, `=` and `<` with trailing spaces, `LIKE` with `[a-c]` ranges, `DATEDIFF`, `DATEADD`, `EOMONTH`, `DATEPART`, `CONCAT`, `CONCAT_WS` and `+`, each with `'...'` and with `N'...'` text. The expected answer is a short model of the rule in T-SQL's reference. No warehouse was used.
 - **Snowflake** (`sidecar/tests/test_snowflake_rules_differential.py`): about 1,700 inputs for `SUBSTR`, `LEFT`, `RIGHT`, `REPEAT`, `CONCAT`, `||`, `CONCAT_WS`, `MOD`, `DIV0`, `DIV0NULL`, `ROUND` (both modes), `DATEDIFF`, `DAYOFWEEK`, `DAYOFWEEKISO`, `DATE_TRUNC('week')`, `WEEKISO`, `LAST_DAY`, `POSITION`, `CHARINDEX`, `SPLIT_PART`, `LPAD`, `RPAD` and `ORDER BY`'s NULL order, modeled on Snowflake's SQL reference with the default session parameters. No Snowflake account was used.
 
 A different answer, or an error where the target answers, fails these tests unless it is named in the test's `KNOWN` list. An entry that no case needs any more fails too, so each list is what still differs. Today they are:
 
+Fixed since the first run, each with a test named after its case in `sidecar/tests/test_spark_differential_fixes.py` and `test_spark_string_edges.py`: `substring` with a negative length, `overlay` before the first character, `locate` on NULL text, `levenshtein` on text outside ASCII (characters are counted, as in Spark, and a third argument is Spark's threshold), `bit_count` of a negative `int` (64 bits), `pmod(x, 0.0D)` inside another `pmod`, `a div b` of decimals in the SQL editor, `isnan(NULL)` (false), `to_date` and `CAST(... AS DATE)` of text (Spark's reading: a year of 4 to 7 digits, so `'24-02-29'` is NULL), `date_format` past year 9999 (a leading `+`), `ceil` and `floor` of a double or a whole number (a `bigint`, as in Spark, so `CAST(ceil(1.0E3D) AS STRING)` is `1000`), and `shiftleft`/`shiftright` (Java's rules: the count mod 32 for an `int`, mod 64 for a `bigint`). A shift whose value isn't an `int` literal is typed `bigint` here when the value's type is only known as the query runs.
+
 | Engine | What differs here | How |
 | --- | --- | --- |
-| Spark SQL | `substring(s, pos, len)` with a negative `len` | Spark gives `''`. Here it counts back from `pos`: `substring('Hello World', -1, -6)` is `o Worl` |
-| Spark SQL | `overlay(... FROM pos)` with `pos` of 0 or below | Spark keeps its own substring rules: `overlay('abc' PLACING ',' FROM 0)` is `,abc`. Here it is `ab,abc` |
-| Spark SQL | `levenshtein` on text that isn't ASCII | Spark counts characters, here bytes |
-| Spark SQL | `locate(sub, NULL, pos)` with `pos` below 1 | Spark gives NULL, here 0 |
-| Spark SQL | `bit_count` of a negative `int` | Spark counts 64 bits (-1 gives 64), here 32 |
-| Spark SQL | `a div b` when `a` is a decimal (`floor(-1.25) div 7`) | Spark gives a whole number, here a double division |
-| Spark SQL | `isnan(NULL)` | Spark gives false, here NULL |
-| Spark SQL | `to_date('24-02-29')` | Spark gives NULL (a year needs 4 digits), here the year 24 |
-| Spark SQL | `date_format` of a year past 9999 | Spark writes a leading `+` (`+8535706`). Here there is none (`8535706`) |
-| Spark SQL | `initcap`, `trunc(date, 'MM')` and its other formats, `make_date` with a day that doesn't exist, `sqrt` of a negative number, `shiftleft`/`shiftright` of a negative number or by a negative count, `soundex` of a cast, `CAST` of text past a date's range | These stop here with an error, where Spark answers. On DuckDB 2.0 (not yet the version this PC installs), `sqrt` of a negative number and the `CAST` answer as Spark does, but `sign` of that `sqrt`'s NaN is 0.0 where Spark gives NaN |
+| Spark SQL | `date_add` by about 2^31 days (past DuckDB's timestamp range) | This stops here with an error, where Spark gives a date millions of years away |
 | Spark SQL | `split_part(s, d, 0)` | Refused by name before the query runs; Spark stops only when the call is reached |
-| T-SQL | `N'...'` text in `=`, `<`, `LIKE` and `+` | Trailing spaces count, `[a-c]` ranges don't match, and `N'a' + N'b'` stops. The same text without `N` answers as T-SQL does |
-| Snowflake | `POSITION` and `CHARINDEX` with an empty search text and a start past the end | Snowflake gives 0, here the start |
-| Snowflake | `LPAD` and `RPAD` with an empty pad | Stops with "Insufficient padding", where Snowflake truncates |

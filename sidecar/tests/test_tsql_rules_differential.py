@@ -26,12 +26,7 @@ SEED = 20261117
 WORDS = ["", "a", "abc", "Hello World", "  pad  ", "ab  ", "aBc", "x_y%z", "é", "abcabc", "B", "b"]
 
 # (family, literal prefix) pairs that still differ, and why. Delete an entry once it is fixed.
-KNOWN = {
-    ("EQ", "N"): "N'...' text isn't typed as text, so trailing spaces count in = and <>",
-    ("LT", "N"): "N'...' text isn't typed as text, so trailing spaces count in < and >",
-    ("LIKE", "N"): "an N'...' pattern runs as DuckDB's LIKE: no [a-c] ranges, and trailing spaces count",
-    ("PLUS", "N"): "N'a' + N'b' stops with DuckDB's binder error instead of joining the text",
-}
+KNOWN: dict[tuple[str, str], str] = {}
 
 
 def _sub(s: str, start: int, length: int) -> str:
@@ -121,6 +116,28 @@ def cases(prefix: str) -> list[tuple[str, str, object]]:
         out.append(("REPLICATE", f"REPLICATE({q(s)}, {n})", None if n < 0 else s * n))
     for s in WORDS:  # functions/len-transact-sql: trailing spaces aren't counted
         out.append(("LEN", f"LEN({q(s)})", len(s.rstrip(" "))))
+    codes = random.Random(SEED + 2)  # its own draws too
+    for _ in range(40):
+        # functions/ascii-transact-sql and unicode-transact-sql: the code of the first character; '' gives NULL.
+        s = codes.choice([w for w in WORDS if w.isascii()])
+        out.append(("ASCII", f"ASCII({q(s)})", ord(s[0]) if s else None))
+        s = codes.choice(WORDS)
+        out.append(("UNICODE", f"UNICODE({q(s)})", ord(s[0]) if s else None))
+        # functions/char-transact-sql: "CHAR returns a NULL value for integer expressions outside this input
+        # range" (0 to 255); a fraction is cut toward zero as the int conversion does. 128 to 255 depend on the
+        # collation's code page, so they aren't drawn.
+        n = codes.choice([codes.randint(-5, 127), codes.randint(256, 400), round(codes.uniform(-2.9, 127.9), 1)])
+        # + '|' keeps a digit's character from reading back as a number; NULL + '|' is NULL.
+        out.append(("CHAR", f"CHAR({n}) + '|'", chr(int(n)) + "|" if 0 <= int(n) <= 127 else None))
+    counts = random.Random(SEED + 1)  # its own draws, so the families after it keep their inputs
+    for _ in range(40):
+        # functions/space-transact-sql and replicate-transact-sql: a negative count gives NULL, and a count
+        # with a fraction is made an int first, which cuts it toward zero (data-type-conversion-database-engine).
+        n = counts.choice([counts.randint(-3, 4), round(counts.uniform(-2.9, 3.9), 1)])
+        whole = int(n)
+        out.append(("SPACE", f"SPACE({n})", None if whole < 0 else " " * whole))
+        s = counts.choice(WORDS)
+        out.append(("REPLICATE", f"REPLICATE({q(s)}, {n})", None if whole < 0 else s * whole))
     for _ in range(80):
         a, b = r.randint(-30, 30), r.choice([x for x in range(-9, 10) if x])
         out.append(("INTDIV", f"{a} / {b}", _tdiv(a, b)))
@@ -209,4 +226,27 @@ def test_local_tsql_follows_the_documented_rules(engine, prefix: str) -> None:
 def test_cases_are_seeded_and_cover_every_family() -> None:
     first = cases("")
     assert first == cases("") and len(first) > 1500
-    assert {f for f, _, _ in first} >= {f for f, _ in KNOWN}
+    assert {f for f, _, _ in first} >= {f for f, _ in KNOWN} | {"EQ", "LT", "LIKE", "PLUS"}
+
+
+@pytest.mark.parametrize(("expression", "want"), [
+    # T-SQL makes text an int before CHAR, SPACE or REPLICATE use it (data-type-conversion-database-engine).
+    ("CHAR('66')", "B"), ("CHAR(' 67 ')", "C"), ("CHAR('300')", None), ("SPACE('2') + '|'", "  |"),
+    ("REPLICATE('ab', '3')", "ababab"), ("REPLICATE('ab', '-1')", None),
+    ("(SELECT CHAR(c) FROM (VALUES ('66')) AS t(c))", "B"),
+    ("(SELECT REPLICATE('ab', c) FROM (VALUES ('2')) AS t(c))", "abab"),
+    ("(SELECT SPACE(c) + '|' FROM (VALUES ('1')) AS t(c))", " |"),
+])
+def test_text_codes_and_counts_are_made_ints_as_tsql_does(engine, expression: str, want: object) -> None:
+    assert engine.execute(f"SELECT {expression} AS v", dialect="tsql")["rows"][0][0] == want
+
+
+@pytest.mark.parametrize("expression", [
+    "CHAR('6.5')", "REPLICATE('a', '2.5')", "(SELECT CHAR(c) FROM (VALUES ('6.5')) AS t(c))",
+    "(SELECT SPACE(c) FROM (VALUES ('x')) AS t(c))", "SPACE(1e400)",
+])
+def test_text_that_is_not_a_whole_number_stops_as_in_tsql(engine, expression: str) -> None:
+    # T-SQL: "Conversion failed when converting the varchar value '6.5' to data type int."; a float too
+    # large for an int is an overflow there.
+    with pytest.raises(Exception, match=r"Conversion failed when converting the varchar value|out of range"):
+        engine.execute(f"SELECT {expression} AS v", dialect="tsql")

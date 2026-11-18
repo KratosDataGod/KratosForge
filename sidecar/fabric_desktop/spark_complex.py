@@ -15,9 +15,10 @@ Some answers depend on whether a column is an array or a map, which only the bou
 spark.sql has bound them (spark_local), ``spark_complex_types`` types the statement and gives a map
 argument its own form: size and cardinality count its keys, explode gives ``key`` and ``value``
 columns (in the select list and in LATERAL VIEW), reverse of an array reverses it, and sequence of
-whole numbers counts down when stop is below start. A statement whose types can't be worked out keeps
+whole numbers counts down when stop is below start, and to_json writes its argument as Spark does
+(spark_json; WR-118). A statement whose types can't be worked out keeps
 the array forms; what still differs is listed in docs/sql-compatibility.md ("Arrays, maps and structs
-on this PC").
+on this PC"). A to_json whose argument can't be typed is refused by name, not written as DuckDB does.
 """
 from __future__ import annotations
 
@@ -26,13 +27,14 @@ from typing import Any, cast
 
 from sqlglot import exp
 
-from . import sql_dialects
+from . import spark_json, sql_dialects
 
 log = logging.getLogger(__name__)
 
 _KEY = "kf_complex"
 _ARG = "kf_complex_arg"
 _ID = "kf_complex_id"
+TYPED = "kf_complex_typed"  # a rewrite whose type is known, though sqlglot can't work it out from its SQL
 _MAP_KEYS = ("map_concat found a key in more than one of its maps, so nothing ran: Spark stops on it too "
              "([DUPLICATED_MAP_KEY]), since spark.sql.mapKeyDedupPolicy is EXCEPTION by default. Remove the "
              "repeated keys, or run it in Fabric with the policy set to LAST_WIN.")
@@ -93,7 +95,7 @@ def _size_sql(arg: exp.Expr, is_map: bool) -> str:
 
 
 _CALLS = (exp.ArrayContains, exp.ArrayPosition, exp.Flatten, exp.ArraySize, exp.Reverse, exp.GenerateSeries,
-          exp.Explode, exp.Lateral, exp.Anonymous)
+          exp.Explode, exp.Lateral, exp.Anonymous, exp.JSONFormat)
 _WRITTEN = "kf_complex_written"
 
 
@@ -153,6 +155,9 @@ def spark_complex_results(statement: exp.Expression) -> exp.Expression:
     for node in _mine(list(statement.find_all(exp.Explode))):
         if not isinstance(node.parent, exp.Lateral) and type(node) is exp.Explode:
             _mark(node, "explode", node.this)
+    for node in _mine(list(statement.find_all(exp.JSONFormat))):
+        spark_json.options_of(node)  # an option this PC doesn't read is refused before anything is typed
+        _mark(node, "to_json", node.this)
     statement = cast(exp.Expression, holder.expressions[0])
     statement.pop()
     for node in statement.walk():
@@ -160,12 +165,14 @@ def spark_complex_results(statement: exp.Expression) -> exp.Expression:
     return statement
 
 
-def spark_complex_types(statement: exp.Expr, conn: Any) -> exp.Expr:
+def spark_complex_types(statement: exp.Expr, conn: Any, kinds: tuple[str, ...] | None = None) -> exp.Expr:
     """``statement`` with the map forms and typed fixes in the module docstring. Its tables must be bound
-    to the connection's views already. When its types can't be worked out it is returned as it was."""
-    marked = [n for n in statement.walk() if _KEY in n.meta]
+    to the connection's views already. When its types can't be worked out it is returned as it was, but
+    a to_json in it is refused (spark_json.Refused). ``kinds``: only those fixes (the others' marks stay)."""
+    marked = [n for n in statement.walk() if _KEY in n.meta and (kinds is None or n.meta[_KEY] in kinds)]
     if not marked:
         return statement
+    to_json = [n for n in marked if n.meta[_KEY] == "to_json"]
     from sqlglot.optimizer.annotate_types import annotate_types
     from sqlglot.optimizer.qualify import qualify
 
@@ -177,12 +184,22 @@ def spark_complex_types(statement: exp.Expr, conn: Any) -> exp.Expr:
         schema = _schema(conn)
         copy = qualify(statement.copy(), schema=schema, dialect="spark", validate_qualify_columns=False,
                        quote_identifiers=False, identify=False)
-        annotate_types(copy, schema=schema, dialect="spark")
+        for n in copy.walk():  # only the types rewrites gave are kept; the rest are worked out here
+            if not n.meta.get(TYPED):
+                n.type = None
+        annotate_types(copy, schema=schema, dialect="spark", overwrite_types=False)
         types = {n.meta[_ID]: n.type for n in copy.walk() if _ID in n.meta}
     except Exception as exc:  # noqa: BLE001 - a type fix only: untyped statements keep the array forms; logged
         log.info("Spark map forms not applied: %s: %s", type(exc).__name__, exc)
+        if to_json:
+            raise spark_json.refused(spark_json.UNTYPED, spark_json.UNTYPED_STEP) from None
         return _unmark(statement)
+    # to_json is written last, innermost first, from its argument as the other fixes leave it
+    json_types = [(n, types.get(n.this.meta.get(_ID, -1))) for n in to_json]
     for node in marked:
+        if any(node is n for n in to_json):
+            node.meta.pop(_KEY)
+            continue
         kind = node.meta.pop(_KEY)
         source = node.meta.pop("kf_complex_source", None)
         found = next((a for a in node.walk() if a.meta.get(_ARG)), None)
@@ -211,12 +228,35 @@ def spark_complex_types(statement: exp.Expr, conn: Any) -> exp.Expr:
             _explode_map(node, a)
         elif kind == "lateral" and is_map:
             _lateral_map(node, value)
+        elif kind == "typeof" and (name := spark_json.type_name(dtype)) is not None:
+            node.replace(exp.Literal.string(name))
+    for node, json_type in reversed(json_types):
+        _to_json(node, json_type)
     return _unmark(statement)
+
+
+def _to_json(node: exp.Expr, dtype: exp.DataType | None) -> None:
+    """to_json ``node`` as Spark writes its argument of type ``dtype`` (spark_json)."""
+    if dtype is None or dtype.is_type(exp.DataType.Type.UNKNOWN, exp.DataType.Type.NULL):
+        raise spark_json.refused(spark_json.UNTYPED, spark_json.UNTYPED_STEP)
+    options = spark_json.options_of(node)
+    value = node.this
+    if isinstance(value, exp.Column):
+        node.replace(_parse(spark_json.to_json_sql(_sql(value), dtype, options)))
+        return
+    # The argument is written many times over, so it is read once, through a one-element list. It goes in
+    # as it is, not as SQL text read again: DuckDB's -> (json_extract) inside it would read as a lambda.
+    body = spark_json.to_json_sql("kf_once.kf_a", dtype, options)
+    new = _parse(f"(LIST_TRANSFORM([{{'kf_a': kf_json_value}}], kf_once -> {body}))[1]")
+    slot = next(c for c in new.find_all(exp.Column) if c.name == "kf_json_value")
+    value.pop()
+    slot.replace(value)
+    node.replace(new)
 
 
 def _unmark(statement: exp.Expr) -> exp.Expr:
     for node in statement.walk():
-        for key in (_KEY, _ARG, _ID, "kf_complex_source"):
+        for key in (_KEY, _ARG, _ID, TYPED, "kf_complex_source"):
             node.meta.pop(key, None)
     return statement
 

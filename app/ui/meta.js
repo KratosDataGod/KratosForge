@@ -1531,7 +1531,7 @@ function dictionaryCard(plan) {
   load();
   const exportCsv = btn("Export CSV", "arrowDownload", async () => {
     const res = await metaCall("meta_model_dictionary_export", { layer: plan.layer }, "Not exported");
-    if (res) toast(`Saved ${res.rows.toLocaleString()} rows to ${res.path}`);
+    if (res) toast(`Saved ${res.rows.toLocaleString()} rows to ${res.path}${res.notes?.length ? `. ${res.notes.join(" ")}` : ""}`);
   }, "tool primary small");
   const save = btn("Save to the project", "save", async () => {
     const res = await metaCall("meta_model_dictionary_save", { layer: plan.layer }, "Not saved");

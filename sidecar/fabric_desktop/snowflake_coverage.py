@@ -135,17 +135,12 @@ _SESSION = "its value describes the Snowflake session or account, which this PC 
 _TRADES = "its page's only example reads a trades table the page doesn't create"
 _MIXED = "its page's examples put values of different types in one array, which a DuckDB list can't hold"
 NOT_CHECKED: dict[str, str] = {
-    "TRY_TO_TIMESTAMP_NTZ": "its page wasn't read yet; TRY_TO_TIMESTAMP is checked",
-    "JSON_EXTRACT_PATH_TEXT": "its page's example tables weren't copied exactly enough to compare",
     "ARRAY_CONSTRUCT_COMPACT": _MIXED, "ARRAY_INSERT": _MIXED, "ARRAY_PREPEND": _MIXED,
-    "ARRAY_UNIQUE_AGG": "its page has no example (it points to a user guide)",
     "CUME_DIST": _TRADES, "NTILE": _TRADES, "PERCENT_RANK": _TRADES,
     "CURRENT_DATE": _CLOCK, "CURRENT_TIME": _CLOCK, "LOCALTIME": _CLOCK,
     "CURRENT_VERSION": _SESSION, "CURRENT_ROLE": _SESSION, "CURRENT_USER": _SESSION, "CURRENT_DATABASE": _SESSION,
     "CURRENT_SCHEMA": _SESSION, "CURRENT_SCHEMAS": _SESSION,
     "RANDOM": "its values are random; RANDOM with a seed is refused",
-    "SAMPLE": "its page prints no results",
-    "DROP TABLE": "its page's examples drop a hybrid table or one the page doesn't create",
 }
 
 

@@ -207,8 +207,9 @@ def _typeof(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression 
 def _sign(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
     # Spark's signum is Java's Math.signum, a double: 1.0 or -1.0, and the value itself for NaN, 0.0 and -0.0
     # (DuckDB's SIGN gives 0 for NaN and loses the sign of -0.0).
-    return _with_args("CASE WHEN ISNAN(CAST(fj_arg0 AS DOUBLE)) OR CAST(fj_arg0 AS DOUBLE) = 0 THEN CAST(fj_arg0 AS DOUBLE) "
-                      "ELSE CAST(SIGN(fj_arg0) AS DOUBLE) END", args) if len(args) == 1 else None
+    # The value is read once, through a lambda, so sign(rand() - 0.5) checks and signs the same sample.
+    return _with_args("(LIST_TRANSFORM([CAST(fj_arg0 AS DOUBLE)], kf_v -> CASE WHEN ISNAN(kf_v) OR kf_v = 0 THEN kf_v "
+                      "ELSE CAST(SIGN(kf_v) AS DOUBLE) END))[1]", args) if len(args) == 1 else None
 
 
 def _elt(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
@@ -997,8 +998,9 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
             [n.this, n.expression, n.args["from_"], *([n.args["for_"]] if n.args.get("for_") else [])])),
         ("Initcap", _initcap),
         # Spark's sqrt is Java's Math.sqrt: NaN below 0, where DuckDB's stops with "cannot take square root"
-        ("Sqrt", _template("CASE WHEN CAST(fj_arg0 AS DOUBLE) < 0 THEN CAST('NaN' AS DOUBLE) "
-                           "ELSE SQRT(CAST(fj_arg0 AS DOUBLE)) END", 1)),
+        # (read once, so sqrt(rand() - 0.5) checks and takes the root of the same sample)
+        ("Sqrt", _template("(LIST_TRANSFORM([CAST(fj_arg0 AS DOUBLE)], kf_v -> CASE WHEN kf_v < 0 THEN "
+                           "CAST('NaN' AS DOUBLE) ELSE SQRT(kf_v) END))[1]", 1)),
         ("Levenshtein", _levenshtein),
         # bit_count counts the bits of the value as a long (Long.bitCount), so -1 gives 64 for an int too.
         ("BitwiseCount", lambda n, a: _with_args(f"CAST(BIT_COUNT({_spark_whole('fj_arg0', 'BIGINT')}) AS INTEGER)",

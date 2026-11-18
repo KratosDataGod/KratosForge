@@ -338,10 +338,10 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `meta_model_dictionary_export` | `sidecar/fabric_desktop/model_dictionary_service.py:54` | this PC | the signed-in Windows user's own files |
 | `meta_model_dictionary_import` | `sidecar/fabric_desktop/model_dictionary_service.py:78` | platform: save_enrichment | platform's check per operation; confirm or approve argument |
 | `meta_model_dictionary_save` | `sidecar/fabric_desktop/model_dictionary_service.py:65` | this PC | the signed-in Windows user's own files |
-| `meta_model_ossie_import` | `sidecar/fabric_desktop/model_ossie_service.py:352` | Fabric or OneLake | Fabric's own rights; confirm or approve argument |
-| `meta_model_ossie_save` | `sidecar/fabric_desktop/model_ossie_service.py:294` | this PC | the signed-in Windows user's own files |
-| `meta_model_ossie_to_tmdl` | `sidecar/fabric_desktop/model_ossie_service.py:419` | this PC | confirm or approve argument |
-| `meta_model_tmdl_save` | `sidecar/fabric_desktop/model_ossie_service.py:374` | Fabric or OneLake | Fabric's own rights |
+| `meta_model_ossie_import` | `sidecar/fabric_desktop/model_ossie_service.py:375` | Fabric or OneLake | Fabric's own rights; confirm or approve argument |
+| `meta_model_ossie_save` | `sidecar/fabric_desktop/model_ossie_service.py:317` | this PC | the signed-in Windows user's own files |
+| `meta_model_ossie_to_tmdl` | `sidecar/fabric_desktop/model_ossie_service.py:442` | this PC | confirm or approve argument |
+| `meta_model_tmdl_save` | `sidecar/fabric_desktop/model_ossie_service.py:397` | Fabric or OneLake | Fabric's own rights |
 | `meta_new_entity` | `sidecar/fabric_desktop/meta_service.py:491` | Fabric or OneLake; runs code or a pipeline on this PC | Fabric's own rights |
 | `meta_new_key_table` | `sidecar/fabric_desktop/meta_service.py:1050` | Fabric or OneLake | Fabric's own rights |
 | `meta_open` | `sidecar/fabric_desktop/meta_service.py:277` | this PC | the signed-in Windows user's own files |

@@ -126,6 +126,29 @@ def _model_counts(bim: dict[str, Any]) -> dict[str, int]:
 _CULTURE_LINE = re.compile(r"^(?:cultureInfo|culture)[ \t]", re.M)  # only such files can define a culture
 
 
+def _refuse_unreadable(read_report: list[dict[str, str]]) -> None:
+    """Refuse the write when the reader couldn't read part of a TMDL file outside cultures/ (``read_report`` names
+    it in ``file``). Rewriting that file from what was read would drop those lines from the user's folder, and
+    keeping it as it was would leave it disagreeing with the model written, so nothing is written. The message
+    names each file and what in it KratosForge can't read. Culture files are kept instead (``_kept_cultures``)."""
+    lost: dict[str, list[str]] = {}
+    for r in read_report:
+        rel = str(r.get("file") or "")
+        if r.get("kind") == "lost" and rel and PurePosixPath(rel).parts[:2] != ("definition", "cultures"):
+            lost.setdefault(rel, []).append(str(r.get("object") or ""))
+    if not lost:
+        return
+    parts = []
+    for rel in sorted(lost):
+        short = PurePosixPath(rel).relative_to("definition").as_posix() if rel.startswith("definition/") else rel
+        what = list(dict.fromkeys(lost[rel]))
+        more = f" and {len(what) - 3} more" if len(what) > 3 else ""
+        parts.append(f"{short} holds lines KratosForge can't read ({', '.join(what[:3])}{more})")
+    them = "them" if len(parts) == 1 else "those lines"
+    raise ValueError(f"{'; '.join(parts)}, so it would lose {them} if rewritten; nothing was written. "
+                     "Take those lines out of the folder by hand, or keep it as it is, then preview again.")
+
+
 def _kept_cultures(folder: Path, read_report: list[dict[str, str]]) -> tuple[dict[str, list[str]], list[dict[str, str]]]:
     """The culture files under ``folder`` kept as they are, each with the cultures it defines, and one report row per
     file saying so. A file the reader couldn't read in full (``read_report`` names it in ``file``) is kept: rewriting
@@ -435,7 +458,10 @@ class ModelOssieMixin:
         have is kept, and one it has (from the Power BI section of an Ossie file this app wrote) is laid over.
         A culture file the reader can't read in full (a partition's or a KPI's translation, a property it doesn't
         know) is kept byte for byte: never rewritten or removed, shown as "same", with one report row naming what it
-        holds that KratosForge can't read (``_kept_cultures``)."""
+        holds that KratosForge can't read (``_kept_cultures``). Any other TMDL file the reader can't read in full
+        (a property or line it doesn't know) is refused, in the preview and the confirm alike, naming the file and
+        what it can't read: rewriting it would drop those lines, keeping it would disagree with the model written
+        (``_refuse_unreadable``)."""
         model_ossie.require()
         project = self._project()  # type: ignore[attr-defined]
         name = (name or str(model_ossie.parse(text)["name"])).strip()
@@ -448,6 +474,7 @@ class ModelOssieMixin:
         read_report: list[dict[str, str]] = []
         if (_real(definition, stat.S_ISDIR) and _tmdl_files(definition)) or _real(folder / "model.bim", stat.S_ISREG):
             current, read_report = _folder_bim(folder, name, folder.relative_to(root).as_posix())
+        _refuse_unreadable(read_report)  # before the confirm too, so an old token never writes over such a file
         kept, kept_rows = _kept_cultures(folder, read_report)
         report = [r for r in read_report if r.get("file") not in kept] + kept_rows + report
         final = model_ossie.merge(current, incoming, remove) if current else incoming

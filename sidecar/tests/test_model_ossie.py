@@ -812,3 +812,74 @@ def test_a_link_under_cultures_is_never_read_followed_or_removed(svc, tmp_path):
     svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
     assert cultures.is_symlink() and [p.name for p in (tmp_path / "elsewhere").iterdir()] == ["de-DE.tmdl"]
     assert (tmp_path / "elsewhere" / "de-DE.tmdl").read_text(encoding="utf-8") == PARTITION_CAPTION
+
+
+def _snapshot(folder):
+    return {p: p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+
+
+def test_a_table_file_with_a_line_it_cant_read_is_refused_and_nothing_is_written(svc):
+    folder = _orders_folder(svc)
+    table = folder / "definition" / "tables" / "fact_sales.tmdl"
+    # A calendar (newer TMDL than the reader knows) and a line it doesn't understand: rewriting would drop both.
+    table.write_text(table.read_text(encoding="utf-8").replace(
+        "\tlineageTag: t-fact\n", "\tlineageTag: t-fact\n\tcalendar 'Fiscal year'\n\t\tcolumn: customer_sk\n"
+        "\tsparkle mode on\n", 1), encoding="utf-8")
+    before = _snapshot(folder)
+    with pytest.raises(ValueError) as refused:
+        svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")
+    assert str(refused.value).startswith(
+        "tables/fact_sales.tmdl holds lines KratosForge can't read (calendar 'Fiscal year', sparkle mode on), "
+        "so it would lose them if rewritten; nothing was written.")
+    with pytest.raises(ValueError, match="tables/fact_sales.tmdl holds lines"):  # a confirm is refused the same way
+        svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token="anything")
+    assert _snapshot(folder) == before
+    # A property it doesn't know, written as key: value, is read and written back, so it isn't refused.
+    table.write_bytes(before[table].replace(b"\tcalendar 'Fiscal year'\n\t\tcolumn: customer_sk\n\tsparkle mode on\n", b""))
+    kept = folder / "definition" / "tables" / "dim_customer.tmdl"  # a table the file doesn't have: kept by the merge
+    kept.write_text(kept.read_text(encoding="utf-8").replace("\n", "\n\tsparkleMode: on\n", 1), encoding="utf-8")
+    plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
+    assert "\tsparkleMode: on\n" in kept.read_text(encoding="utf-8")
+
+
+def test_model_tmdl_with_a_line_it_cant_read_is_refused_naming_every_such_file(svc):
+    folder = _orders_folder(svc)
+    model = folder / "definition" / "model.tmdl"
+    model.write_text(model.read_text(encoding="utf-8") + "frobnicate the model\n", encoding="utf-8")
+    roles = folder / "definition" / "roles" / "EU only.tmdl"
+    roles.write_text(roles.read_text(encoding="utf-8") + "\t'??? one'\n\t'??? two'\n\t'??? three'\n\t'??? four'\n",
+                     encoding="utf-8")
+    (folder / "definition" / "cultures" / "de-DE.tmdl").write_text(PARTITION_CAPTION, encoding="utf-8")  # kept, not refused
+    before = _snapshot(folder)
+    with pytest.raises(ValueError) as refused:
+        svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")
+    message = str(refused.value)
+    assert message.startswith("model.tmdl holds lines KratosForge can't read (frobnicate the model); "
+                              "roles/EU only.tmdl holds lines KratosForge can't read ('??? one', '??? two', '??? three' "
+                              "and 1 more), so it would lose those lines if rewritten; nothing was written.")
+    assert "cultures/" not in message
+    assert _snapshot(folder) == before
+
+
+def test_a_clean_folder_still_updates_and_a_culture_it_cant_read_is_still_kept(svc):
+    folder = _orders_folder(svc)
+    culture = folder / "definition" / "cultures" / "de-DE.tmdl"
+    culture.write_text(PARTITION_CAPTION, encoding="utf-8")
+    plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    assert [r["object"] for r in plan["report"] if r.get("file")] == ["cultures/de-DE.tmdl"]
+    svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
+    assert (folder / "definition" / "tables" / "dim_channel.tmdl").exists()
+    assert "net revenue" in (folder / "definition" / "tables" / "fact_sales.tmdl").read_text(encoding="utf-8")
+    assert culture.read_text(encoding="utf-8") == PARTITION_CAPTION
+
+
+def test_a_line_it_cant_read_added_after_the_preview_is_refused_at_the_confirm(svc):
+    folder = _orders_folder(svc)
+    plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]  # clean: a token is given
+    table = folder / "definition" / "tables" / "dim_customer.tmdl"
+    table.write_text(table.read_text(encoding="utf-8") + "\tcalendar Fiscal\n", encoding="utf-8")
+    before = _snapshot(folder)
+    with pytest.raises(ValueError, match=r"^tables/dim_customer.tmdl holds lines KratosForge can't read \(calendar Fiscal\)"):
+        svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
+    assert _snapshot(folder) == before and not (folder / "definition" / "tables" / "dim_channel.tmdl").exists()

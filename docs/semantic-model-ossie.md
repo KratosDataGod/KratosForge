@@ -76,6 +76,16 @@ whether `semantic/<name>.SemanticModel/` is new or already there.
   compare them (ignoring case and Unicode normalisation), so a write never lands on a kept file
   under another spelling, and a file already there under another case is rewritten in place
   rather than removed.
+- Any other TMDL file in the folder (a table, `model.tmdl`, `relationships.tmdl`, a role, a
+  perspective...) that holds lines KratosForge can't read, such as an object kind newer than
+  it knows, refuses the write: the preview says, in red, which file and which lines, for
+  example "tables/Sales.tmdl holds lines KratosForge can't read (calendar 'Fiscal year'), so it
+  would lose them if rewritten; nothing was written.", and **Write TMDL** stays off. Such a
+  file isn't kept as it is either, because a table file left stale would disagree with the
+  model written. Take those lines out by hand, then preview again. A confirm is checked the
+  same way, so lines added after the preview are refused too. A property it doesn't know,
+  written as `name: value`, is read like the rest, so it doesn't refuse the write; as in an
+  Import update, a table the Ossie file has is laid over with the file's version of it.
 - The **Round-trip check** lists what is kept, what rides in the Power BI section, and what
   can't be carried, by name. A measure whose SQL has no DAX equivalent is written with no
   expression and shows blank until you add DAX.

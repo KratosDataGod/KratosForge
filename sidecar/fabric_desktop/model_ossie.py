@@ -213,7 +213,7 @@ def _lift_dataset_metrics(doc: dict[str, Any], report: list[dict[str, str]]) -> 
                     try:
                         entry["expression"] = _qualified(str(entry.get("expression") or ""), d["name"],
                                                          _SQL_DIALECTS[entry["dialect"]])
-                    except sqlglot.errors.ParseError:
+                    except sqlglot.errors.SqlglotError:  # ParseError or TokenError (e.g. an unclosed quote)
                         pass  # left as written: the converter reports SQL it can't translate
             stash = next((e for e in m.get("custom_extensions") or [] if e.get("vendor_name") == "POWER_BI"), None)
             data = json.loads(stash["data"]) if stash else {"_v": 2}

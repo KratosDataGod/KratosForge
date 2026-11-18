@@ -1113,3 +1113,11 @@ def test_ordinary_references_still_read():
     assert model_ossie._parse_ref("'Q''s'.h", "t") == ("q's", "h")
     assert model_ossie._parse_ref("T . h ", "t") == ("t", "h")
     assert model_ossie._parse_ref("amount", "t") == ("t", "amount")
+
+
+def test_a_dataset_metric_whose_sql_cant_be_tokenized_is_reported_not_raised():
+    """An unclosed quote makes sqlglot raise TokenError, not ParseError: the metric is still converted or named."""
+    bad = {"name": "broken", "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "SUM('amount)"}]}}
+    bim, report = model_ossie.to_tmsl(_ossie(extra_metric=bad))
+    names = {m["name"] for t in bim["model"]["tables"] for m in t.get("measures") or []}
+    assert "broken" in names or any("broken" in r["object"] for r in report)

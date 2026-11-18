@@ -11,13 +11,13 @@
 
 ## Outcome
 
-**Accepted with Documented Limitations** (recommended). The Windows trial on Python 3.12 passed in every area
+**Accepted with Documented Limitations**. The Windows trial on Python 3.12 passed in every area
 with no product defects, the default flipped in its own PR, and a test shows existing notebook cells give the same
 status, output and errors under the new default as inside the engine. The limits are on coverage: a per-user 3.12
 venv and the two fixes #2601 made were not run on that PC, and the trial results are in a project file, not yet on
 issue #896.
 
-Recommended by: Product management thread. Decided by (product owner): pending.
+Recommended by: Product management thread. Decided by (product owner): Chris, 'Accept with limits' on the decision card on 2026-11-17 (project message cmsg_018T4o2pQdpbLBNhHpgVNNGpEtcrZXWaMEYBQ8vWkddrHx).
 
 ## Acceptance criteria
 
@@ -60,4 +60,5 @@ None blocking.
 ## Inventory and backlog changes
 
 - PB-136: In progress → In review. Evidence links this review.
+- PB-136: In review → Accepted, 2026-11-17.
 - No feature row status changed.

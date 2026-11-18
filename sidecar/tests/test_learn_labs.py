@@ -213,7 +213,8 @@ def test_labs_import_nothing_that_reaches_fabric():
                "sqlcompat", "model_practices", "datasets", "checks", "content", "guides", "sys", "",
                # fixes.py (GD-02) reads SQL with the compatibility checker's tokens: a parser, no I/O
                "sqlglot.tokens", "sqlcompat.analyzer", "sqlcompat.profiles", "sqlcompat.rules",
-               "duckdb_rows"}  # one-row reads from DuckDB (#1341): no I/O of its own
+               "duckdb_rows",  # one-row reads from DuckDB (#1341): no I/O of its own
+               "trees"}  # deletes a lab folder on this PC (Windows read-only and busy files): no network
     for path in LEARN.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             names = []

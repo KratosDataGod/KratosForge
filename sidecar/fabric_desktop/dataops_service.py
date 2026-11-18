@@ -48,8 +48,10 @@ def _rows_in(table: Any) -> int:
     if "num_records" in actions.column_names and actions.column("num_records").null_count == 0:
         import pyarrow.compute as pc  # here, not at the top: it adds about 30 ms to every engine start
 
-        return int(pc.sum(actions.column("num_records")).as_py() or 0)
-    return table.to_pyarrow_dataset().count_rows()
+        from . import delta_read
+        return int(pc.sum(actions.column("num_records")).as_py() or 0) - delta_read.deleted_rows(table)
+    from . import delta_read
+    return delta_read.count(table)
 
 
 def _rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
@@ -109,7 +111,8 @@ class DataOpsMixin:
             result = compare_mod.missing(e, *(None if t is None else _rows_in(t) for t in sides))
         elif max(_rows_in(t) for t in sides) > compare_mod.LIMIT_ROWS:
             # Too many rows to load both sides: stream them for counts, totals and a checksum.
-            result = compare_mod.hashed(e, *(t.to_pyarrow_dataset() for t in sides))
+            from . import delta_read
+            result = compare_mod.hashed(e, *(delta_read.dataset(t) for t in sides))
         else:
             result = compare_mod.compare(e, self._table(project, name, left_env, left_version),
                                          self._table(project, name, right_env, right_version))

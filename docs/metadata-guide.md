@@ -618,6 +618,16 @@ A [job file](notebooks.md) run with `fabric-desktop run job.toml` can't write a 
 
 KratosForge works out where every column comes from by reading the project's files, without running anything. Each column is one of: read from the source (by the same name, or through `rename`), a `[[derive]]` expression and the columns it uses, a `[[lookup]]` of a dimension's key, a `[[keys]]` surrogate key, or added by the framework. Each is labelled **declared** when a file states the link (a rename, an expression, a lookup, a key) or **inferred** when it is assumed from a matching name. Columns your Python adds (`[hooks] adds`, or every column of a `[step] custom`) are **opaque**: they're never guessed. Columns a hook runs after are flagged, because a hook can change any column. For one column, lineage follows the steps back to the landing files and finds every column built from it further on. On an entity's page, **Columns** in the Lineage card lists every column with how it's made and its label; pick one to see where it comes from and what reads it.
 
+### Impact of a column change (Preview)
+
+Before you drop, rename or retype a column, **Impact** in an entity's Lineage card shows what the change would touch, worked out from the same files. Nothing runs and nothing changes. Pick a column and a change; each consumer is marked **Breaks** or **Check**, with the reasons:
+
+- **Tables** in the project. One that reads the column by name, matches a `[[lookup]]` on it, uses it as a `[[keys]]` business key or in a `[[derive]]` expression, or looks it up with an `exists_in` check breaks when the column goes. Columns built from those further on are marked Check, with the path. A new type is a Check wherever it lands. The entity's own file breaks too when its key, watermark, `[scd]` lists, `[[clean]]` or `[[check]]` name the column.
+- **Your Python** in `transforms/` (hooks, custom steps, custom checks) for the entity and the tables that read it. Code that names the column breaks when it goes. Code that reads the table without naming it is a Check, because code can still use every column.
+- **The semantic model** KratosForge builds over the last layer (`SM_<Layer>`). A relationship on a column that goes, or on a lookup that breaks, loses a side. A visible column that goes or changes type is a Check for the reports that use it.
+
+Tables that read the entity but not this column are counted apart. Notebooks outside a project aren't traced yet. When you save an entity whose contract drops, renames or retypes a column that something reads, KratosForge shows the same list and asks before saving. One column gone and one of the same type added reads as a rename.
+
 ### Columns and tables the framework adds
 
 | Where | What |

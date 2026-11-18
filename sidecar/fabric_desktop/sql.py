@@ -183,17 +183,38 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     statement = spark_builtins_sql.mark(statement)
     if databricks:
         _mark_divisions(statement)
+    statement = _try_divisions(statement)
     statement = _spark_date_results(statement, ansi=databricks)
     statement = _spark_timestampdiff(spark_builtins_sql.rewrite(
         _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_concat_text(_spark_cast_functions(spark_strings.spark_text_results(spark_aggregates.spark_aggregate_results(spark_complex.mark_calls(_spark_names(spark_windows.check_windows(statement)))))))))))),
         ansi=databricks))
     statement = spark_windows.spark_window_results(spark_complex.spark_complex_results(statement))
-    return _ansi_divisions(statement) if databricks else _spark_session_functions(_null_remainders(statement))
+    if databricks:
+        return _ansi_divisions(statement)
+    return _spark_session_functions(_null_remainders(_not_in_spark_3_5(statement)))
+
+
+# Databricks' own built-ins that Spark 3.5 (Fabric Runtime 1.3, which this path follows) doesn't have, so
+# Fabric stops on them with UNRESOLVED_ROUTINE. They are refused by name here rather than left to DuckDB's
+# "function does not exist" error, or answered where Fabric stops.
+_DATABRICKS_ONLY = {"try_to_date": "to_date instead. With ANSI mode off, as Fabric runs it, to_date gives NULL "
+                                   "for text that isn't a date"}
+
+
+def _not_in_spark_3_5(statement: exp.Expression) -> exp.Expression:
+    for node in statement.find_all(exp.Anonymous):
+        name = node.name.lower()
+        if name in _DATABRICKS_ONLY:
+            raise ValueError(f"{name} isn't a Spark 3.5 function, so nothing ran. Fabric Runtime 1.3 stops on it "
+                             f"too (UNRESOLVED_ROUTINE). Use {_DATABRICKS_ONLY[name]}.")
+    return statement
 
 
 def _null_remainders(statement: exp.Expression) -> exp.Expression:
-    """a % 0 is NULL with ANSI mode off, as / and div are; DuckDB 2.0 stops on it instead."""
-    for node in list(statement.find_all(exp.Mod)):
+    """a % 0 and a div 0 are NULL with ANSI mode off, as / is; DuckDB 2.0 stops on them instead."""
+    # Deepest first: a template (pmod) puts copies of its arguments in several places, so an inner % or div
+    # must be guarded before an outer one copies it, or the copies keep it unguarded (pmod(x, 0.0D) was NaN).
+    for node in reversed(list(statement.find_all(exp.Mod, exp.IntDiv))):
         divisor = node.expression
         if not (isinstance(divisor, exp.Literal) and divisor.is_number and float(divisor.name) != 0):
             node.set("expression", exp.Nullif(this=divisor.copy(), expression=exp.Literal.number(0)))
@@ -206,6 +227,19 @@ _DIVIDE_BY_ZERO = ("[DIVIDE_BY_ZERO] Division by zero. Use `try_divide` to toler
                    "instead. If necessary set ansi_mode to false to bypass this error.")
 _DIVISIONS = (exp.Div, exp.IntDiv, exp.Mod)
 _USER_DIVISION = "kf_user_division"
+
+
+def _try_divisions(statement: exp.Expression) -> exp.Expression:
+    """try_divide(a, b) as a division NULL for a zero divisor, typed as ``/`` is (spark_decimals reads through
+    the CASE): a decimal for decimals, as in Spark. sqlglot's own form hides the division from that typing."""
+    holder = exp.Tuple(expressions=[statement])  # so the statement itself can be replaced
+    for node in list(statement.find_all(exp.SafeDivide)):
+        guard = _with_args("CASE WHEN fj_arg0 = 0 THEN NULL END", [node.expression.copy()])
+        new = exp.Case(ifs=guard.args["ifs"], default=exp.Div(this=node.this, expression=node.expression))
+        new.meta.update(spark_sql_names.kept(node))
+        new.meta[spark_decimals.ZERO_GUARD] = True
+        node.replace(new)
+    return cast(exp.Expression, holder.expressions[0])
 
 
 def _mark_divisions(statement: exp.Expression) -> None:
@@ -254,6 +288,14 @@ _NEXT_DAY = ("CAST(TRY_CAST(fj_arg0 AS DATE) + TO_DAYS(CAST((((CASE UPPER(CAST(f
              + " END) - ISODOW(TRY_CAST(fj_arg0 AS DATE)) + 6) % 7) + 1 AS INTEGER)) AS DATE)")
 
 
+# make_date of a month or day that doesn't exist is NULL. The parts are checked rather than the call wrapped in
+# TRY, which DuckDB 2.0 refuses around anything volatile, such as the ERROR() of a Spark cast; each part is
+# read once, and the nested CASE keeps MAKE_DATE from seeing a month outside 1 to 12.
+_MAKE_DATE = ("(LIST_TRANSFORM([{'y': CAST(fj_arg0 AS BIGINT), 'm': CAST(fj_arg1 AS BIGINT), 'd': CAST(fj_arg2 AS BIGINT)}], "
+              "kf_md -> CASE WHEN kf_md.m BETWEEN 1 AND 12 AND kf_md.d >= 1 THEN CASE WHEN kf_md.d <= "
+              "DAYOFMONTH(LAST_DAY(MAKE_DATE(kf_md.y, kf_md.m, 1))) THEN MAKE_DATE(kf_md.y, kf_md.m, kf_md.d) END END))[1]")
+
+
 def _spark_date_results(statement: exp.Expression, ansi: bool) -> exp.Expression:
     """Spark's result types and NULLs for its date and time functions (WR-106). year, month, day,
     dayofyear, weekofyear, dayofweek, quarter, hour, minute, second, datediff and unix_date are an
@@ -286,8 +328,7 @@ def _spark_date_results(statement: exp.Expression, ansi: bool) -> exp.Expression
                 if isinstance(unit, (exp.Literal, exp.Var)) and unit.name.upper() not in allowed and node is not statement:
                     wrap(node, "CAST(NULL AS DATE)" if trunc else "CAST(NULL AS TIMESTAMPTZ)", [])
             elif node.name.upper() == "MAKE_DATE" and len(node.expressions) == 3 and node is not statement:
-                wrap(node, "TRY(MAKE_DATE(CAST(fj_arg0 AS BIGINT), CAST(fj_arg1 AS BIGINT), CAST(fj_arg2 AS BIGINT)))",
-                     list(node.expressions))
+                wrap(node, _MAKE_DATE, list(node.expressions))
     ints = [cast(exp.Expression, n) for n in statement.find_all(*_SPARK_INTS, exp.Anonymous)
             if not isinstance(n, exp.Anonymous) or n.name.upper() == "WEEKDAY"]
     for node in ints:
@@ -966,9 +1007,18 @@ def spark_legacy_casts(statement: exp.Expression) -> exp.Expression:
             replacement = exp.TryCast(this=node.this, to=node.to)
             replacement.meta.update(spark_sql_names.kept(node))  # double(x) keeps the name Spark gives it
             if node is statement:
-                return replacement
+                return _mark_date_casts(replacement)
             node.replace(replacement)
-    return _spark_cast_functions(statement, legacy=True)
+    return _mark_date_casts(_spark_cast_functions(statement, legacy=True))
+
+
+def _mark_date_casts(statement: exp.Expression) -> exp.Expression:
+    """Mark the casts to DATE the person wrote (CAST, ::, date()), so spark_legacy_times reads their text as
+    Spark does; the rewrites in between write casts to DATE of their own, which keep DuckDB's cast."""
+    for date_cast in statement.find_all(exp.TryCast):
+        if date_cast.to.this == exp.DataType.Type.DATE:
+            date_cast.meta[_SPARK_DATE_CAST] = True
+    return statement
 
 
 def spark_timestamp_text(value: str) -> str:
@@ -1233,6 +1283,10 @@ _TIMESTAMPS = (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPTZ, exp.D
                exp.DataType.Type.TIMESTAMPNTZ)
 
 
+# Marks a CAST to DATE the person wrote (spark_legacy_casts), for spark_legacy_times.
+_SPARK_DATE_CAST = "kf_spark_date_cast"
+
+
 def spark_legacy_times(statement: exp.Expression) -> exp.Expression:
     """Spark's to_timestamp with ANSI off, as Fabric runs it: text that isn't a timestamp gives NULL
     (EA-015). sqlglot reads to_timestamp(x) as a CAST and to_timestamp(x, format) as a strptime,
@@ -1240,7 +1294,14 @@ def spark_legacy_times(statement: exp.Expression) -> exp.Expression:
     person wrote is read as a TryCast, so a plain Cast to a timestamp came from to_timestamp.
     Databricks SQL is ANSI, so its path (engines/local_sql.py) doesn't use this."""
     for node in list(statement.find_all(exp.StrToTime, exp.Cast)):
-        if isinstance(node, exp.StrToTime):
+        if isinstance(node, exp.TryCast) and node.meta.get(_SPARK_DATE_CAST):
+            # Spark reads text as a date by its own rules: '24-02-29' and '-7-7-7-7-7' are NULL, where DuckDB
+            # reads the year 24, or a date before year 1 that can't be fetched.
+            read: exp.Expression = exp.paren(spark_builtins_sql.text_date(node.this))
+            if node is statement:
+                return read
+            node.replace(read)
+        elif isinstance(node, exp.StrToTime):
             node.set("safe", True)
         elif type(node) is exp.Cast and node.to.this in _TIMESTAMPS:
             # to_timestamp gives Spark's timestamp: with time zone, text read in the session's zone
@@ -1569,7 +1630,25 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
         elif not isinstance(start, (exp.Literal, exp.Neg)):  # -3 counts from the end in both
             sub.set("start", exp.Case(ifs=[exp.If(this=exp.EQ(this=start.copy(), expression=exp.Literal.number(0)),
                                                   true=exp.Literal.number(1))], default=start.copy()))
+        _spark_negative_length(sub)
     return node
+
+
+def _spark_negative_length(sub: exp.Substring) -> None:
+    """substring(s, pos, len) with a len below 0 is empty in Spark (UTF8String.substringSQL: the end is pos + len,
+    before the start), and NULL when s or pos is NULL. DuckDB counts len back from pos instead:
+    substring('Hello World', -1, -6) was 'o Worl'. A len written as 0 or more needs nothing."""
+    length = sub.args.get("length")
+    if length is None or sub.meta.get("kf_negative_length") or (
+            isinstance(length, exp.Literal) and not length.is_string):
+        return
+    empty = exp.Substring(this=sub.this.copy(), start=exp.Add(
+        this=exp.Mul(this=exp.paren(sub.args["start"].copy()), expression=exp.Literal.number(0)),
+        expression=exp.Literal.number(1)), length=exp.Literal.number(0))  # '' of s's type, NULL for a NULL s or pos
+    kept = sub.copy()
+    kept.meta["kf_negative_length"] = True
+    sub.replace(exp.Case(ifs=[exp.If(this=exp.LT(this=exp.paren(length.copy()), expression=exp.Literal.number(0)),
+                                     true=empty)], default=kept))
 
 
 def _lakehouse() -> Any:
@@ -1611,7 +1690,7 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
         if key not in views:
             views[key] = f"__lakehouse_table_{next(_VIEW_NAMES)}"
             opened = opened or _lakehouse().open_table(name, **at)
-            con.register(views[key], opened.to_pyarrow_dataset())
+            con.register(views[key], _lakehouse().table_dataset(opened))
         # Keep the name the query used as the alias, so sales.Country still resolves.
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier(table.name))
         table.replace(exp.Table(this=exp.to_identifier(views[key]), alias=alias))
@@ -1773,6 +1852,7 @@ def prepare_sandboxed(query: str, dialect: str = "spark", memory_mb: int | None 
             con.execute(f"SET threads = {int(threads)}")
         con.execute("SET enable_external_access = false")
         con.execute("SET lock_configuration = true")
+        statement = _decimal_types(statement, con, dialect)  # only once the connection is locked
     except BaseException:
         con.close()
         raise
@@ -1783,6 +1863,14 @@ def execute_sandboxed(con: duckdb.DuckDBPyConnection, statement: str) -> pa.Tabl
     """Run a statement from ``prepare_sandboxed``. ``con.interrupt()`` from another thread stops it
     (duckdb.InterruptException); an interrupt sent before DuckDB starts the statement is lost."""
     return _arrow(for_arrow(con, statement))
+
+
+def _decimal_types(statement: exp.Expression, con: duckdb.DuckDBPyConnection, dialect: str) -> exp.Expression:
+    """Spark SQL's decimal result types and div (spark_decimals), as a notebook's spark.sql gives them: without
+    them floor(-1.25) div 7 was DuckDB's double division, -0.2857..., where Spark gives 0."""
+    if sql_dialects.get(dialect)["id"] != "spark":
+        return statement
+    return cast(exp.Expression, spark_decimals.spark_decimal_types(statement, con))
 
 
 def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyConnection, Any]:
@@ -1801,7 +1889,7 @@ def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyCo
     for i, statement in enumerate(statements):
         statement = history_query(statement, con, views)
         bind_tables(statement, con, views, lambda name: is_local(con, name))
-        text = duckdb_sql(statement)
+        text = duckdb_sql(_decimal_types(statement, con, dialect))
         if i == len(statements) - 1:
             result = for_arrow(con, text)
         else:

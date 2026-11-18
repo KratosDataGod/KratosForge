@@ -12,9 +12,9 @@ from typing import Any, Callable, Iterator
 
 import polars as pl
 
-from . import duties, lakehouse, risk, sealed_settings
+from . import audit, duties, lakehouse, risk, sealed_settings
 from .meta import keys as keys_mod
-from .meta import lineage, release
+from .meta import change_impact, lineage, release
 from .meta import mesh
 from .meta import Engine, GateError, Layer, LocalStore, OneLakeStore, Project, impact, promote
 from .meta.engine import RunResult
@@ -33,6 +33,13 @@ from .jsonfile import read_json, write_json, write_text
 from . import known_folders
 
 _log = logging.getLogger(__name__)
+
+
+def _statement(operation: str) -> str:
+    """The statement a cell ran, as a refusal names it: "zorder" is only the audit's word for OPTIMIZE ... ZORDER BY."""
+    return "OPTIMIZE with ZORDER BY" if operation == "zorder" else operation.upper()
+
+
 _seal_failed: list[bool] = []  # the warning that settings.json couldn't be sealed was logged
 
 
@@ -146,6 +153,9 @@ class MetaMixin:
         # reload empties its entities before refilling them.
         project = Project(path)
         self._install_guard(project)
+        remember = getattr(self, "_remember_prod_workspaces", None)
+        if remember is not None:  # its Prod workspaces stay marked once it's closed (prod_writes_service.py)
+            remember(project)
         return project
 
     def _install_guard(self, project: Project) -> None:
@@ -181,12 +191,37 @@ class MetaMixin:
             project = self._project()
         except LookupError:
             project = None
+        refusal = None
         for env in ("test", "prod"):
             if project is not None and workspace_id in _env_workspaces(project.environments.get(env, {})):
-                return (f"{operation.upper()} on {table} from notebook code is refused: this workspace is "
-                        f"{env.title()}'s, which changes only by promote. Run Optimize or Vacuum from X-ray, which "
-                        "shows what it does first, or run the cell against a Dev workspace. Nothing was changed.")
-        return self._maintenance_capacity_refusal(operation, workspace_id, table)
+                refusal = (f"{_statement(operation)} on {table} from notebook code is refused: this workspace is "
+                           f"{env.title()}'s, which changes only by promote. Run Optimize or Vacuum from X-ray, which "
+                           "shows what it does first, or run the cell against a Dev workspace. Nothing was changed.")
+                break
+        if refusal is None:
+            refusal = self._maintenance_capacity_refusal(operation, workspace_id, table)
+        return self._maintenance_audit(operation, workspace_id, table, refusal)
+
+    def _maintenance_audit(self, operation: str, workspace_id: str, table: str, refusal: str | None) -> str | None:
+        """The audit line for OPTIMIZE (with or without ZORDER), VACUUM or RESTORE from notebook code: the cell's own
+        line holds only "(given)" for its code, so this says which table was changed and how. A run that may go ahead
+        gets a ``started`` line first and is refused when it can't be written, as X-ray's Optimize and Vacuum are; a
+        refusal is recorded too, but never fails because of the log."""
+        log = getattr(self, "audit", None)
+        if log is None:
+            return refusal
+        params = {"operation": operation, "workspace_id": workspace_id, "table": table}
+        if refusal:
+            try:
+                log.record("notebook_maintenance", "error", 0.0, params, reason="refused")
+            except Exception as exc:  # noqa: BLE001 - the refusal stands whatever the log does
+                _log.warning("Couldn't record the refused %s on %s: %s", operation, table, describe_error(exc))
+            return refusal
+        try:
+            log.record("notebook_maintenance", "started", 0.0, params)
+        except Exception as exc:  # noqa: BLE001 - any failure to write refuses the run
+            return audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {describe_error(exc)}")
+        return None
 
     def _maintenance_capacity_refusal(self, operation: str, workspace_id: str, table: str) -> str | None:
         """Blocked by the workspace's capacity, from its last reading (no refresh). A reading that fails is
@@ -201,7 +236,7 @@ class MetaMixin:
             return None
         if found is None or found["outcome"] != risk.BLOCKED:
             return None
-        return (f"{operation.upper()} on {table} is refused: the capacity check is Blocked ({found['title']}). "
+        return (f"{_statement(operation)} on {table} is refused: the capacity check is Blocked ({found['title']}). "
                 f"{found.get('remedy') or ''} Nothing was changed.").replace("  ", " ")
 
     def meta_project(self) -> dict[str, Any]:
@@ -686,6 +721,21 @@ class MetaMixin:
             except Exception as exc:  # noqa: BLE001 - the promote itself worked; the next run uploads again
                 result["fabric"] = f"not synced: {exc}"
         return result
+
+    def meta_impact(self, name: str, column: str, change: str = "drop", new_name: str | None = None,
+                    new_type: str | None = None) -> dict[str, Any]:
+        """What dropping, renaming or retyping ``name.column`` would break or should be checked, from the
+        project's files. Nothing runs and nothing changes."""
+        return change_impact.column_impact(self._project(), name, column, change, new_name, new_type)
+
+    def meta_edit_impact(self, name: str, text: str) -> dict[str, Any]:
+        """Before a save: what the contract changes in ``text`` would break. TOML that doesn't parse has
+        nothing to compare; the save itself says why."""
+        try:
+            spec = tomllib.loads(text)
+        except tomllib.TOMLDecodeError:
+            return {"entity": name, "changes": []}
+        return {"entity": name, "changes": change_impact.edit_impact(self._project(), name, spec)}
 
     def meta_lineage(self, name: str, column: str | None = None) -> dict[str, Any]:
         """Column lineage from the project's files: every column of ``name``, or, for one column,

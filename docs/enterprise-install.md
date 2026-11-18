@@ -22,7 +22,7 @@ Nothing needs admin rights at run time. The app writes to the registry only for 
 | **Self-updating** (default) | Leave out `auto_update` | A folder the user can write, such as `%LOCALAPPDATA%\Programs\FabricDesktop` | The app, at each start, from the channel's release |
 | **Managed** | `"auto_update": false` | Anywhere, including `C:\Program Files\FabricDesktop` | You, by deploying a new exe |
 
-A self-updating app replaces its own exe, so it must be in a folder the user can write. In `C:\Program Files` the update fails with "Could not move ... aside" and the app keeps running the old build. Use the managed model there.
+A self-updating app replaces its own exe, so it must be in a folder the user can write. In `C:\Program Files` the app says, before it downloads anything, that it can't update itself because it is in a folder the account can't change, and it keeps running the current build. Use the managed model there.
 
 With `"auto_update": false` the startup window says "Your organization rolls out updates", and when a newer build is out it names it, so you can see who is behind.
 
@@ -81,7 +81,9 @@ The MSI removes only what it installed. The app's scheduled tasks, its `kratosfo
 
    Save the file as UTF-8 (with or without a byte order mark). Windows PowerShell 5's `Out-File` and `>` write UTF-16 by default, which the app can't read, so the PC treats it as a broken file (the last copy it could read applies, or it fails closed); use `Set-Content -Encoding UTF8` or `Out-File -Encoding utf8`.
 
-   Settings come only from this file. KratosForge reads no registry policy (nothing under `HKLM\Software\Policies` or `HKCU\Software\Policies`) and has no ADMX template, so Group Policy deploys the file (a Files preference item) rather than setting values.
+   Group Policy can also set every setting except `platform` and `incident_sla`, through the ADMX templates in [`deploy/policy`](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/policy/README.md). KratosForge reads them from `HKLM\Software\Policies\KratosBI\KratosForge` only, never from HKCU, which a person can change. A value set there wins over the same key in this file, and the two can be used together: for example, Group Policy for the on/off settings and this file for `platform`. A Group Policy value of the wrong type is ignored and listed under **Settings > Help and about**, and this file's value applies instead. When the account using the PC can change that key, the app warns, as it does for this file, and the shell doesn't take `engine_download_url` from it.
+
+   Settings that widen what KratosForge trusts (`fabric_view_sign_in_hosts`, `dbconnect_index_url`, `notebook_package_folder`, `client_id`, `telemetry_connection_string`, `appstudio_hosts`, `integrations_http`, `support_url`, `audit_retention_days` and `receipt_retention_days`) apply only from a file or Group Policy key that only administrators could have written: owned by SYSTEM or Administrators, with no one else allowed to change or replace it, which is how Intune, Group Policy and an elevated copy leave them. From any other, such as a file another account created, or from the last good copy kept in their profile, they are ignored and listed under **Settings > Help and about**, while that source's restrictions still apply.
 
    If your tenant's sign-in goes through your own identity provider (AD FS, Okta, Ping and similar), add its host so people can sign in inside the app's Fabric pages, for example `"fabric_view_sign_in_hosts": ["adfs.contoso.com"]` ([the key](azure-setup.md#4-push-settings-to-everyone)).
 

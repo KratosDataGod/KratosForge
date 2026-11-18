@@ -81,14 +81,15 @@ function homeHero({ welcome, actions = [] } = {}) {
     heading: h("h1", { class: "home-hero-welcome" }, welcome || "Welcome to KratosForge"), actions });
 }
 
-// A progression page's header (Chris's art, 2026-11-07): Academy and Profile only, since RPG art is for
-// ranks, progression and achievements; working pages keep a plain heading. The tab's name is its h1 in
-// the title face, with the page's own actions under it. Off (Preview off, Professional) the
+// A tab's header (Chris's art, 2026-11-07; every tab with a pool in art/experience/heroes.js). The tab's name is
+// its h1 in the title face, with the page's own actions under it. Off (Preview off, Professional) the
 // page keeps its plain heading, so callers fall back when this returns null.
 function pageHero(name, title, { actions = [], tag = null } = {}) {
   if (!homeLivingOn()) return null;
+  // A long name (Source control) steps down a size, so it ends on the sky like the short ones.
+  const cls = title.trim().length > 10 ? "home-hero-title long" : "home-hero-title";
   // No KratosForge kicker: the page's own name is the whole title (UX, #2246).
-  return lxHero({ name, label: title.trim(), kicker: null, heading: h("h1", { class: "home-hero-title" }, title, tag), actions });
+  return lxHero({ name, label: title.trim(), kicker: null, heading: h("h1", { class: cls }, title, tag), actions });
 }
 
 // The side column: the identity card, Your journey, Latest achievement and Forge stats, all from

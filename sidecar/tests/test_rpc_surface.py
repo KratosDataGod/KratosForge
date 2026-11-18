@@ -38,6 +38,7 @@ _FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item
 NO_UI_CALLER: dict[str, str] = {
     # OE-004: the Share button on Optimize > Assessment waits on its mockup.
     "optimization_share": "OE-004 engine call; the Assessment tab's Share button waits on its mockup",
+    "excellence_assess": "FEA-105 engine call; the Excellence scorecard (FEA-108 mockup) waits on Chris's reaction",
     # Best practices check (semantic-link-labs in Fabric).
     "model_bpa_status": _BPA,
     "model_bpa_risk": _BPA,

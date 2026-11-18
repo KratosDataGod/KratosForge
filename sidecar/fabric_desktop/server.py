@@ -136,6 +136,11 @@ from .opportunities_service import METHODS as OPPORTUNITY_METHODS  # noqa: E402
 
 METHODS |= OPPORTUNITY_METHODS
 
+# The Fabric Excellence Assessment (excellence_service.py, engine only).
+from .excellence_service import METHODS as EXCELLENCE_METHODS  # noqa: E402
+
+METHODS |= EXCELLENCE_METHODS
+
 from .tenant_history_service import METHODS as TENANT_HISTORY_METHODS  # noqa: E402
 from .capacity_history_service import METHODS as CAPACITY_HISTORY_METHODS  # noqa: E402
 

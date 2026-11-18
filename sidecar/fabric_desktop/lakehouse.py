@@ -176,9 +176,29 @@ prod_guard: Callable[[str, str, str, str, str], str | None] | None = None
 # For the engine's own kernel: the notebook a cell runs for and the workspaces the person typed the name of
 # for that one run, by the cell's thread (notebook.Kernel). A process kernel answers the engine's call itself.
 cell_prod_context: "weakref.WeakKeyDictionary[threading.Thread, tuple[str, frozenset[str]]]" = weakref.WeakKeyDictionary()
-# Threads a cell started that were still running when it finished, and widget handlers' threads: their writes are
-# a cell's code but no running cell's own, so they are asked under NO_CELL for as long as they live (notebook.Kernel).
+# Threads a cell's code started (by the cell's thread, a widget handler's, or one of these in turn, at any depth,
+# a thread pool's workers included): their writes are a cell's code but not a running cell's own, so they are asked
+# under NO_CELL for as long as they live. Filled as each thread starts (tag_cell_threads), so only a thread whose
+# parent is a cell's or one of these is tagged: the app's own threads started meanwhile aren't.
 cell_started_threads: "weakref.WeakSet[threading.Thread]" = weakref.WeakSet()
+_untagged_start: Callable[[threading.Thread], None] | None = None
+
+
+def tag_cell_threads() -> None:
+    """Have every thread that a cell's thread, or a thread one started, starts join cell_started_threads. Once per
+    process (the engine's, or a notebook's own), from notebook.Kernel."""
+    global _untagged_start
+    if _untagged_start is not None:
+        return
+    _untagged_start = original = threading.Thread.start
+
+    def start(self: threading.Thread) -> None:
+        parent = threading.current_thread()
+        if parent in cell_prod_context or parent in cell_started_threads:
+            cell_started_threads.add(self)
+        original(self)
+
+    threading.Thread.start = start  # type: ignore[method-assign]
 # The notebook a write with no cell of its own is asked under: no notebook is named this, so nothing confirms it.
 NO_CELL = "\x00no cell"
 # The operations that ask: they delete or replace rows or files (OPTIMIZE rewrites files but keeps the rows).

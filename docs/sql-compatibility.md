@@ -505,7 +505,7 @@ On this PC:
 | What | Here |
 | --- | --- |
 | Two sessions in the app (two SQL tabs, a tab and a pipeline step) changing one table at once | They take turns: a project runs one statement at a time, so every change lands and none is lost. A read sees a change whole or not at all |
-| Another writer (a notebook, another tool) commits to a project Delta table between this statement's read and its commit, with an `UPDATE`, `DELETE` or `MERGE` | This statement stops with "another writer changed ... (a write-write conflict, which a Fabric Warehouse reports as error 24556)". Nothing of it is committed, the table then shows the other writer's change, and running it again applies it on top |
+| Another writer (a notebook, another tool) commits to a project Delta table between this statement's read and its commit, with an `UPDATE`, `DELETE` or `MERGE` | This statement stops with "Nothing was committed to …, because another writer changed it after this statement read it" (a Fabric Warehouse reports this as error 24556). Nothing of it is committed, the table then shows the other writer's change, and running it again applies it on top |
 | Another writer's `INSERT` beside this statement's `UPDATE` | Both commit, as in a warehouse |
 
 What can still differ:

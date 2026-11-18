@@ -110,7 +110,7 @@ def test_a_change_that_loses_to_another_writer_is_refused_by_name_and_commits_no
     with pytest.raises(ValueError) as caught:
         engine.execute("UPDATE lake SET n = n + 1 WHERE id = 1", dialect=dialect)
     text = str(caught.value)
-    assert "write-write conflict" in text and "nothing was committed" in text and "24556" in text, text
+    assert "write-write conflict" in text and "Nothing was committed to" in text and "24556" in text, text
     assert "Help:" not in text and "isolation level can" not in text  # delta-rs's own advice isn't ours
     table = DeltaTable(str(folder(engine)))
     assert table.version() == before + 1  # only the other writer's commit

@@ -366,9 +366,9 @@ def _lost_to_another_writer(exc: BaseException) -> bool:
 
 
 def _conflict(name: str) -> str:
-    return (f"Changing {name} failed, and nothing was committed: another writer changed {name} after this statement "
-            "read it, and the first to commit wins (a write-write conflict, which a Fabric Warehouse reports as error "
-            f"24556). {name} now shows that writer's change. Run the statement again.")
+    return (f"Nothing was committed to {name}, because another writer changed it after this statement read it, and "
+            "the first to commit wins. A Fabric Warehouse reports this write-write conflict as error 24556. "
+            f"{name} now shows that writer's change. Run the statement again to apply yours on top.")
 
 
 def _remove_leftover_spill(folder: Path) -> None:

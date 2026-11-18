@@ -358,9 +358,9 @@ class DuckDBSession(_SqlSession):
         from ..spark_decimals import spark_decimal_types
         statements = _databricks(code) if dialect == "databricks" else sql.parse(code, "spark")
         if dialect == "databricks":
-            from ..databricks_builtins_sql import refuse_identity_writes
+            from ..databricks_builtins_sql import table_writes
             try:
-                refuse_identity_writes(statements, self._con)
+                statements = table_writes(statements, self._con)
             except ValueError as exc:
                 raise Unsupported(str(exc)) from None
         try:

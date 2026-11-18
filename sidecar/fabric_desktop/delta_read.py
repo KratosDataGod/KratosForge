@@ -12,7 +12,7 @@ through it here. A table that uses neither is read exactly as before.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal, cast
 
 import pyarrow as pa
 
@@ -88,7 +88,7 @@ def _whole(table: Any, columns: list[str] | None) -> pa.Table:
     size = data_bytes(table)
     if size > MAX_WHOLE_READ_BYTES:
         raise ValueError(f"This table uses {' and '.join(reasons)}, so it is read whole into this PC's memory, and its "
-                         f"files hold {size / 1024**3:.1f} GB, more than {MAX_WHOLE_READ_BYTES / 1024**3:.0f} GB. "
+                         f"files hold {size / 1024**3:.2f} GB, more than {MAX_WHOLE_READ_BYTES / 1024**3:.0f} GB. "
                          "Read part of it in Fabric, or in a local data project, which reads it in place.")
     return _query(table, columns)
 
@@ -160,3 +160,32 @@ def deleted_positions(table: Any) -> dict[str, list[tuple[int, int]]]:
         if ranges:
             out[path] = ranges
     return out
+
+
+SchemaMode = Literal["merge", "overwrite"]
+
+
+def schema_mode_for(table: Any, columns: list[str], wanted: str | None, name: str = "") -> SchemaMode | None:
+    """The schema_mode to write ``columns`` to ``table`` with. delta-rs can't change the schema of a
+    column-mapped table ("Schema evolution on column-mapped tables is not yet supported"), so a write of
+    exactly the table's columns goes without one, and any other is refused before anything is written."""
+    if wanted not in (None, "merge", "overwrite"):
+        raise ValueError(f"schema_mode must be merge, overwrite or None, got {wanted!r}")
+    if table is None or wanted is None or not column_mapping(table):
+        return cast(SchemaMode | None, wanted)
+    have = arrow_schema(table).names
+    if sorted(columns) == sorted(have):
+        return None
+    table_name = name or "The table"
+    by_case = {c.lower(): c for c in have}
+    if sorted(c.lower() for c in columns) == sorted(by_case):
+        renamed = sorted(f"{c} where the table has {by_case[c.lower()]}" for c in columns if c not in have)
+        raise ValueError(f"{table_name} uses column mapping, and this write names {'; '.join(renamed)}. Nothing was "
+                         "written. Use the table's column names, with the same capital letters.")
+    added = sorted(set(columns) - set(have))
+    missing = sorted(set(have) - set(columns))
+    change = (f"adds {', '.join(added)}" if added else "") + ("; " if added and missing else "") + \
+        (f"leaves out {', '.join(missing)}" if missing else "")
+    raise ValueError(f"{table_name} uses column mapping, and this write {change}. KratosForge can't change a "
+                     "column-mapped table's columns yet, so nothing was written. Write the same columns, or change "
+                     "them in Fabric Spark first.")

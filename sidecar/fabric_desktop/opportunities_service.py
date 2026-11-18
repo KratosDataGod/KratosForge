@@ -70,7 +70,10 @@ class OpportunitiesMixin:
         """Find optimization opportunities in one workspace, or in every workspace on a capacity you can see.
 
         Reads only. With ``demo`` the demonstration fixture is assessed instead, labelled as a fixture."""
-        return self._optimization_assess(workspace_id, capacity_id, days, demo)
+        result = self._optimization_assess(workspace_id, capacity_id, days, demo)
+        if not demo:  # only a person's own assessment takes one of the slots kept for sharing
+            result["share_id"] = self._keep_assessment(result)
+        return result
 
     def _optimization_assess(self, workspace_id: str = "", capacity_id: str = "", days: int = 30,
                              demo: bool = False, *,
@@ -115,7 +118,6 @@ class OpportunitiesMixin:
         if budget.spent:
             result["scope"]["note"] = (f"The read budget ({MAX_CALLS} Fabric calls or {MAX_SECONDS:.0f} s) ran out; "
                                        "items past it are listed as not read. Assess fewer workspaces to cover them.")
-        result["share_id"] = self._keep_assessment(result)
         return result
 
     def optimization_share(self, share_id: str, approve: bool = False, confirm: str = "") -> dict[str, Any]:

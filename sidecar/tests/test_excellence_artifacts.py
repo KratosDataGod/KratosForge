@@ -121,7 +121,7 @@ def test_a_secret_is_kept_as_where_it_is_never_what_it_is():
 
 def test_notebook_inspection_keeps_rule_ids_and_places_only():
     got = inspect_items.inspect(notebook("nb", ["%pip install a b c\n" * 30]))
-    assert set(got) == {"read", "kind", "cells", "scheduled", "rules"}
+    assert set(got) == {"read", "kind", "cells", "scheduled", "rules", "unchecked"}
     nb009 = got["rules"]["NB009"]
     assert nb009["count"] == 30 and len(nb009["where"]) == inspect_items.MAX_PLACES
     assert set(nb009["where"][0]) == {"cell", "line"}
@@ -293,3 +293,24 @@ def test_the_demo_shows_the_new_controls_with_no_fabric_call(tmp_path, monkeypat
     decided = {o["control_id"] for o in r["outcomes"] if o["outcome"] in ("pass", "fail")}
     assert set(NOTEBOOK_CONTROLS) | set(PIPELINE_CONTROLS) <= decided
     assert assess.rescore(json.loads(json.dumps(r)), catalog.registry())["scores"] == r["scores"]
+
+
+
+def test_an_excellence_run_takes_no_slot_kept_for_sharing(tmp_path, monkeypatch):
+    fake = FakeFabric()
+    monkeypatch.setattr(Service, "fabric", property(lambda self: fake))
+    s = Service(root=tmp_path / "app")
+    kept = []
+    monkeypatch.setattr(s, "_keep_assessment", lambda result: kept.append(result) or "kept")
+    s.excellence_assess(workspace_id=WSID)
+    assert kept == []
+    assert s.optimization_assess(workspace_id=WSID)["share_id"] == "kept" and len(kept) == 1
+
+
+def test_an_unknown_schedule_leaves_the_scheduled_only_rules_unchecked():
+    from fabric_desktop.excellence import inspect_items
+    w = {"type": "Notebook", "definition": "read", "cells": ["display(df)"], "runs": {"read": False}}
+    got = inspect_items.inspect(w)
+    assert got["scheduled"] is None and "NB004" in got["unchecked"]
+    known = inspect_items.inspect({**w, "runs": {"read": True, "scheduled": 0}})
+    assert known["scheduled"] is False and known["unchecked"] == []

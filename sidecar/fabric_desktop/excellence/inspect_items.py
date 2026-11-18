@@ -52,8 +52,11 @@ def notebook(w: dict[str, Any]) -> dict[str, Any]:
         r["count"] += 1
         if len(r["where"]) < MAX_PLACES:
             r["where"].append({"cell": int(f["cell"]), "line": int(f["line"])})
+    # When the job history wasn't read, whether it's scheduled is unknown: the scheduled-only rules weren't
+    # checked, so their absence from ``rules`` is not a pass. ``unchecked`` names them.
+    unchecked = sorted(r.id for r in notebook_practices.RULES if r.scheduled_only) if scheduled is None else []
     return {"read": True, "kind": "notebook", "cells": len(cells), "scheduled": scheduled,
-            "rules": dict(sorted(rules.items()))}
+            "rules": dict(sorted(rules.items())), "unchecked": unchecked}
 
 
 def _literal_workspace(value: Any) -> bool:

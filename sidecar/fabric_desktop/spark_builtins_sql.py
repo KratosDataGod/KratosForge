@@ -324,12 +324,15 @@ def _java_text(a: str) -> str:
             f"ELSE CAST({a} AS VARCHAR) END)")
 
 
-def spark_text_arg(a: str, fn: str) -> str:
+def spark_text_arg(a: str, fn: str, bind: bool = False) -> str:
     """DuckDB SQL for Spark's implicit cast of ``a`` to text where ``fn`` takes text (upper(14) is
     upper('14')): a number, boolean, date or timestamp as Spark writes it. Binary, arrays, maps and
     structs are refused by name, where DuckDB would write them its own way. TYPEOF folds when the query
-    is planned, so text passes through at no cost; any other type is read once, in a lambda, so that
-    calls nested in each other (lower(trim(x))) don't repeat their argument's SQL many times over."""
+    is planned, so text passes through at no cost; any other type is read once, in a lambda.
+
+    Unbound, ``a`` is written three times, which suits a column or a literal. With ``bind`` the whole
+    cast is a lambda over ``a``, written once, so calls nested in each other (lower(trim(x))) don't
+    multiply their argument's SQL with each level, and an argument such as rand() is evaluated once."""
     kind = "TYPEOF(kf_t)"
     other = (f"CASE WHEN {kind} = 'BLOB' OR {kind} LIKE '%]' OR {kind} LIKE 'STRUCT(%' "
              f"OR {kind} LIKE 'MAP(%' OR {kind} LIKE 'UNION(%' THEN CAST(ERROR('{fn}() reads text here, and on this PC "
@@ -337,16 +340,73 @@ def spark_text_arg(a: str, fn: str) -> str:
              f"string first, or run the cell in Fabric.') AS VARCHAR) "
              f"WHEN {kind} = 'TIMESTAMP WITH TIME ZONE' THEN CAST(CAST(kf_t AS TIMESTAMP) AS VARCHAR) "
              f"ELSE {_java_text('kf_t')} END")
+    if bind:
+        return (f"(LIST_TRANSFORM([{a}], lambda kf_t: CASE WHEN {kind} = 'VARCHAR' THEN CAST(kf_t AS VARCHAR) "
+                f"ELSE {other} END))[1]")
     return (f"(CASE WHEN TYPEOF({a}) = 'VARCHAR' THEN CAST({a} AS VARCHAR) "
             f"ELSE (LIST_TRANSFORM([{a}], kf_t -> {other}))[1] END)")
+
+
+# A plain column, a parameter or a literal: cheap to write more than once in a rewrite.
+_CHEAP = (exp.Column, exp.Literal, exp.Null, exp.Boolean, exp.Placeholder, exp.Parameter)
+# Calls whose DuckDB SQL is text whatever their argument (that argument is made text, by _text_this).
+_TEXT_RESULTS = (exp.Upper, exp.Lower, exp.Trim, exp.Pad, exp.Repeat, exp.Left, exp.Right)
+_TEXT_KEY = "kf_text_result"  # meta of a rewrite whose SQL is text (initcap's)
+_TEXT_TYPES = (exp.DataType.Type.TEXT, exp.DataType.Type.VARCHAR)
+# A column as DuckDB writes one: a name, or quoted names joined by dots
+_PLAIN_COLUMN = re.compile(r'\w+|"(?:[^"]|"")*"(?:\."(?:[^"]|"")*")*')
+
+
+def _cheap(node: exp.Expression) -> bool:
+    return isinstance(node.unnest(), _CHEAP)
+
+
+def _is_text(node: exp.Expression) -> bool:
+    """``node`` is surely text in DuckDB, so Spark's implicit cast to text leaves it as it is."""
+    if node.meta.get("kf_complex_typed") and isinstance(node.type, exp.DataType):  # spark_complex.TYPED
+        return node.type.this in _TEXT_TYPES  # a Spark cast to string, as sql.spark_text_cast writes it
+    inner = node.unnest()
+    if isinstance(inner, _TEXT_RESULTS) or inner.meta.get(_TEXT_KEY):
+        return True
+    if isinstance(inner, (exp.Cast, exp.TryCast)) and isinstance(inner.to, exp.DataType):
+        return inner.to.this in _TEXT_TYPES
+    return False
+
+
+def _text_of(arg: exp.Expression, fn: str) -> exp.Expression:
+    """``arg`` cast to text as Spark casts it where ``fn`` takes text (spark_text_arg): as it is when it
+    is text already, written out for a column or literal, else bound once."""
+    if _is_text(arg):
+        return arg.copy()
+    return _with_args(spark_text_arg("fj_arg0", fn, bind=not _cheap(arg)), [arg])
+
+
+def _read_once(template: str, args: list[exp.Expression], cheap: list[bool] | None = None) -> exp.Expression:
+    """``template`` with ``args`` in place of fj_arg0, fj_arg1, ... (as _with_args), where an argument the
+    template names more than once and that isn't a column or literal (or, given ``cheap``, isn't marked
+    cheap there) is bound once, through a lambda over a one-element list: its SQL isn't repeated, and
+    rand() in it is one sample."""
+    def uses(i: int) -> int:
+        return len(re.findall(rf"\bfj_arg{i}\b", template))
+    marks = cheap if cheap is not None else [_cheap(a) for a in args]
+    bound = [i for i in range(len(args)) if uses(i) > 1 and not marks[i]]
+    if not bound:
+        return _with_args(template, args)
+    body = re.sub(r"\bfj_arg(\d+)\b",
+                  lambda m: f"kf_once.a{m.group(1)}" if int(m.group(1)) in bound else m.group(0), template)
+    fields = ", ".join(f"'a{i}': fj_arg{i}" for i in bound)
+    return _with_args(f"(LIST_TRANSFORM([{{{fields}}}], lambda kf_once: {body}))[1]", args)
 
 
 def spark_text_arg_sql(a: str, fn: str) -> str:
     """spark_text_arg over DuckDB SQL ``a``, ready to run (its lambdas written as this DuckDB reads them).
     Only the template goes through sqlglot: ``a`` is put in afterwards as it is, since DuckDB's own SQL
-    for an expression (its lambda x: ... syntax) needn't read back."""
+    for an expression (its lambda x: ... syntax) needn't read back. Anything but a column is bound once
+    (spark_text_arg), so F.upper(F.upper(...)) doesn't multiply its SQL with each level."""
     from .sql import duckdb_sql  # sql imports this module
-    template = duckdb_sql(cast(exp.Expression, sqlglot.parse_one(spark_text_arg("kf_text_arg", fn), read="duckdb")))
+    bind = not _PLAIN_COLUMN.fullmatch(a.strip())
+    template = duckdb_sql(cast(exp.Expression, sqlglot.parse_one(spark_text_arg("kf_text_arg", fn, bind),
+                                                                  read="duckdb")))
     return re.sub(r"\bkf_text_arg\b", lambda _m: f"({a})", template)
 
 
@@ -355,7 +415,7 @@ def _text_this(fn: str) -> Callable[..., exp.Expression | None]:
     def build(node: exp.Expression, args: list[exp.Expression]) -> None:
         arg = node.args.get("this")
         if isinstance(arg, exp.Expression):
-            node.set("this", _with_args(spark_text_arg("fj_arg0", fn), [arg]))
+            node.set("this", _text_of(arg, fn))
         return None
     return build
 
@@ -369,8 +429,10 @@ def _initcap(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression
     if delimiter is not None and not (isinstance(delimiter, exp.Literal) and delimiter.is_string
                                       and delimiter.name == " "):
         return None
-    return _with_args("ARRAY_TO_STRING(LIST_TRANSFORM(STRING_SPLIT(LOWER(" + spark_text_arg("fj_arg0", "initcap")
-                      + "), ' '), kf_w -> UPPER(LEFT(kf_w, 1)) || SUBSTRING(kf_w, 2)), ' ')", [node.this])
+    capped = _with_args("ARRAY_TO_STRING(LIST_TRANSFORM(STRING_SPLIT(LOWER(fj_arg0), ' '), "
+                        "kf_w -> UPPER(LEFT(kf_w, 1)) || SUBSTRING(kf_w, 2)), ' ')", [_text_of(node.this, "initcap")])
+    capped.meta[_TEXT_KEY] = True
+    return capped
 
 
 # levenshtein counts character edits in Spark (UTF8String.levenshteinDistance); DuckDB's LEVENSHTEIN counts
@@ -394,8 +456,9 @@ def _levenshtein(node: exp.Expression, args: list[exp.Expression]) -> exp.Expres
     the threshold, as ins_cost: with it the distance is -1 when it is past the threshold."""
     if any(node.args.get(k) is not None for k in ("del_cost", "sub_cost", "max_dist")):
         return None
-    texts = [_with_args(spark_text_arg("fj_arg0", "levenshtein"), [a]) for a in (node.this, node.expression)]
-    distance = _with_args(_LEVENSHTEIN, texts)
+    given = [node.this, node.expression]
+    # A column's text is cheap to write out again; anything else is bound once
+    distance = _read_once(_LEVENSHTEIN, [_text_of(a, "levenshtein") for a in given], [_cheap(a) for a in given])
     threshold = node.args.get("ins_cost")
     if threshold is None:
         return distance
@@ -525,7 +588,7 @@ def _format_string(node: exp.Expression, args: list[exp.Expression]) -> exp.Expr
     format that is a column is given to DuckDB's printf, which reads the same %d, %s, %f, %x, %05.2f
     but prints a NULL argument's whole result as NULL."""
     if args and isinstance(args[0], exp.Literal) and args[0].is_string:
-        return _with_args(java_format_sql(args[0].this, len(args) - 1), args[1:])
+        return _read_once(java_format_sql(args[0].this, len(args) - 1), args[1:])
     return exp.Anonymous(this="PRINTF", expressions=[a.copy() for a in args]) if args else None
 
 

@@ -198,6 +198,9 @@ def _python(tree: ast.AST, source: str, scheduled: bool, counts: dict[str, list[
     # lf = pl.scan_parquet(...).filter(...), then lf.collect() later in the cell: lf is a Polars lazy frame
     lazy = {tgt.id for node in ast.walk(tree) if isinstance(node, ast.Assign) and _chain(node.value) & _POLARS_LAZY
             for tgt in node.targets if isinstance(tgt, ast.Name)}
+    # totals = df.groupBy("r").agg(...), then totals.collect(): aggregated first, as NB003's advice says
+    summed = {tgt.id for node in ast.walk(tree) if isinstance(node, ast.Assign) and _aggregated(node.value)
+              for tgt in node.targets if isinstance(tgt, ast.Name)}
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(_is_udf(d) for d in node.decorator_list):
             decorators.update(id(d) for d in node.decorator_list)
@@ -222,7 +225,8 @@ def _python(tree: ast.AST, source: str, scheduled: bool, counts: dict[str, list[
         if chain & {"read", "readStream"} and any(a.lower().startswith(("http://", "https://")) for a in _str_args(node)):
             yield "NB019", node.lineno
         if name in {"collect", "toPandas"} and not chain & {"limit", "head", "take", "sample", "tail"} \
-                and not (name == "collect" and (chain & _POLARS_LAZY or chain & lazy)):  # a Polars lazy query's collect() runs it
+                and not (name == "collect" and (chain & _POLARS_LAZY or chain & lazy)) \
+                and not (_aggregated(node) or chain & summed):  # a Polars lazy query's collect() runs it; few rows once aggregated
             yield "NB003", node.lineno
         elif name == "display" and scheduled and node.args and not (_chain(node.args[0]) & {"limit", "head", "sample"}):
             yield "NB004", node.lineno
@@ -264,6 +268,33 @@ def _chain(node: ast.AST) -> set[str]:
             return names
         else:
             return names
+
+
+# Aggregating first: a grouped or summarised frame, or a select of aggregate functions, has few rows to bring back.
+_AGGREGATING = {"agg", "groupBy", "groupby", "group_by", "rollup", "cube", "describe", "summary"}
+_AGGREGATES = {"sum", "count", "countDistinct", "count_distinct", "approx_count_distinct", "avg", "mean", "min",
+               "max", "stddev", "variance", "percentile_approx", "median", "first", "last"}
+_EXPR_AGGREGATE = re.compile(r"(?i)\s*(?:sum|count|avg|mean|min|max|stddev|variance|percentile_approx|"
+                             r"approx_count_distinct)\s*\(")
+_SQL_AGGREGATE = re.compile(r"(?is)\bgroup\s+by\b|^\s*select\b(?:(?!\bfrom\b).)*\b(?:sum|count|avg|min|max)\s*\(")
+
+
+def _aggregated(node: ast.AST) -> bool:
+    """Whether the frame a chain ends in is aggregated: groupBy/agg/describe along it, a select whose every
+    column is an aggregate function, or spark.sql of a query with GROUP BY or aggregates in its SELECT list."""
+    if _chain(node) & _AGGREGATING:
+        return True
+    for call in _chain_calls(node):
+        method = call.func.attr if isinstance(call.func, ast.Attribute) else ""
+        if method == "select" and call.args and all(
+                isinstance(a, ast.Call) and _called(a) in _AGGREGATES for a in call.args):
+            return True
+        if method in {"selectExpr", "sql"} and call.args and all(
+                isinstance(a, ast.Constant) and isinstance(a.value, str) and
+                (_SQL_AGGREGATE.search(a.value) if method == "sql" else _EXPR_AGGREGATE.match(a.value))
+                for a in call.args):
+            return True
+    return False
 
 
 def _chain_calls(node: ast.AST) -> Iterator[ast.Call]:

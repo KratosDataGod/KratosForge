@@ -22,6 +22,24 @@ def test_collect_and_topandas_need_a_limit():
     assert ids(["rows = df.limit(10).collect()", "pdf = df.head(5)"]) == []
 
 
+def test_collect_after_aggregating_first_is_fine():
+    """NB003's own advice: aggregate first. A grouped, summarised or aggregate-only frame has few rows."""
+    assert ids(['rows = df.groupBy("region").agg(F.sum("amount")).collect()',
+                'pdf = df.groupBy("region").count().toPandas()',
+                'rows = df.agg(F.max("ts")).collect()',
+                'rows = df.select(F.count("*"), F.sum("amount")).collect()',
+                'rows = df.selectExpr("count(*) AS n", "max(ts)").collect()',
+                'pdf = df.describe().toPandas()',
+                'rows = spark.sql("SELECT region, SUM(amount) FROM sales GROUP BY region").collect()',
+                'rows = spark.sql("SELECT COUNT(*) FROM sales").collect()',
+                'totals = df.groupBy("region").agg(F.sum("amount"))\nrows = totals.collect()']) == []
+    # Not aggregated: a plain select, a non-aggregate expression, or a query with no aggregate still bring every row.
+    assert ids(['rows = df.select("id", F.upper("name")).collect()',
+                'rows = df.selectExpr("upper(name)").collect()',
+                'rows = spark.sql("SELECT id, amount FROM sales").collect()',
+                'rows = spark.sql("SELECT id FROM sales WHERE id IN (SELECT max(id) FROM s)").collect()']) == ["NB003"] * 4
+
+
 def test_csv_and_json_reads_need_a_schema():
     assert ids(['a = spark.read.option("header", True).csv("Files/a.csv")',
                 'b = spark.read.format("json").load("Files/b")']) == ["NB005", "NB005"]

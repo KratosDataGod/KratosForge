@@ -15,6 +15,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from . import win_paths
+
 CHECK_FOLDER = "Files/_fabric_desktop_check"
 CHECK_FILE = f"{CHECK_FOLDER}/write-test.txt"
 _PROD = re.compile(r"(?i)(?<![a-z])(prod|prd|production)(?![a-z])")
@@ -71,8 +73,8 @@ def checks(user: str | None, list_workspaces: Callable[[], list[dict[str, Any]]]
 
 def _on_network(folder: Path) -> bool:
     """Whether ``folder`` is on a share: a ``\\\\server\\share`` path, or a drive letter Windows maps to one."""
-    text = str(folder)
-    if text.startswith(("\\\\", "//")):
+    text = win_paths.plain(str(folder))  # the long-path form of a folder on this PC is not a share
+    if win_paths.is_share(text):
         return True
     if sys.platform != "win32" or len(text) < 2 or text[1] != ":":
         return False

@@ -789,6 +789,9 @@ class LocalEngine:
                         as_of += self._make_as_of(con, step["as_of"])
                         if explain is None and step.get("matched") is not None:
                             _matched_once(con, step["matched"])
+                        if dialect == "tsql" and step["kind"] in ("create", "alter") and step["write"] is None \
+                                and step["change"] is None:
+                            _within_column_limit(con, step["sql"])  # WR-235: before anything is made
                         if explain is None and step.get("joined") is not None:
                             _updated_once(con, step["joined"])
                         if step["write"] is not None and step["write"].mode == "table":
@@ -1835,6 +1838,50 @@ def _in_script(exc: Exception, i: int, n: int, kind: str) -> Exception:
         return type(exc)(words)
     except TypeError:  # an error type that needs more than a message: as it was
         return exc
+
+
+MAX_TABLE_COLUMNS = 1024  # a Fabric Warehouse table's most, as Microsoft's tables page gives it
+
+
+def _within_column_limit(con: duckdb.DuckDBPyConnection, sql: str) -> None:
+    """Refuse, in SQL Server's words (error 1702), a CREATE TABLE, SELECT ... INTO or ALTER TABLE ... ADD that
+    would give a table more than 1,024 columns, which a Fabric Warehouse table can't have. Nothing is made."""
+    import sqlglot
+    from sqlglot import exp
+    try:
+        tree = sqlglot.parse_one(sql, read=KfDuckDB)
+    except sqlglot.errors.SqlglotError:
+        return  # DuckDB reads it and says what's wrong
+    names: list[str] = []
+    verb = "CREATE"
+    if isinstance(tree, exp.Create) and str(tree.args.get("kind") or "").upper() == "TABLE":
+        target = tree.this.this if isinstance(tree.this, exp.Schema) else tree.this
+        if isinstance(tree.expression, exp.Query):
+            if len(tree.expression.selects) <= MAX_TABLE_COLUMNS and not any(
+                    isinstance(s, exp.Star) or isinstance(s, exp.Column) and isinstance(s.this, exp.Star)
+                    for s in tree.expression.selects):
+                return
+            try:
+                names = [r[0] for r in con.execute(f"DESCRIBE {tree.expression.sql(dialect=KfDuckDB)}").fetchall()]
+            except duckdb.Error:
+                return  # the statement's own run says what's wrong
+        elif isinstance(tree.this, exp.Schema):
+            names = [c.name for c in tree.this.expressions if isinstance(c, exp.ColumnDef)]
+    elif isinstance(tree, exp.Alter) and str(tree.args.get("kind") or "").upper() == "TABLE":
+        verb, target = "ALTER", tree.this
+        added = [a.name for a in tree.args.get("actions") or [] if isinstance(a, exp.ColumnDef)]
+        if not added:
+            return
+        try:
+            names = [r[0] for r in con.execute(f"DESCRIBE {target.sql(dialect=KfDuckDB)}").fetchall()] + added
+        except duckdb.Error:
+            return
+    else:
+        return
+    if len(names) > MAX_TABLE_COLUMNS:
+        table = target.name if isinstance(target, exp.Table) else str(target)
+        raise ValueError(f"{verb} TABLE failed because column '{names[MAX_TABLE_COLUMNS]}' in table '{table}' "
+                         f"exceeds the maximum of {MAX_TABLE_COLUMNS} columns.")
 
 
 def _kind(statement: str) -> str:

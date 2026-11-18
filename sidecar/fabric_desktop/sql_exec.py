@@ -92,7 +92,7 @@ from sqlglot import exp
 
 from . import app_settings, csv_cells, free_memory, jsonfile, sql, sql_params, sql_policy, sql_view, warehouse
 from .filenames import file_stem
-from .frames import EXCEL_MAX_ROWS, ExportNotes, csv_ready_batch, csv_ready_schema, write_xlsx_batches
+from .frames import EXCEL_MAX_COLUMNS, EXCEL_MAX_ROWS, ExportNotes, csv_ready_batch, csv_ready_schema, write_xlsx_batches
 from . import known_folders
 
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
@@ -957,6 +957,9 @@ class SqlExecutions:
         if fmt == "xlsx" and res.rows > EXCEL_MAX_ROWS:
             raise ValueError(f"Excel holds at most {EXCEL_MAX_ROWS:,} rows and this result has "
                              f"{res.rows:,}. Export it as CSV or Parquet instead.")
+        if fmt == "xlsx" and len(res.columns) > EXCEL_MAX_COLUMNS:
+            raise ValueError(f"Excel holds at most {EXCEL_MAX_COLUMNS:,} columns and this result has "
+                             f"{len(res.columns):,}. Export it as CSV or Parquet instead.")
         if not res.path.exists():
             return {"rerun_needed": True, "message": "This result was cleaned up. Run the query again to export it."}
         folder = self._downloads()

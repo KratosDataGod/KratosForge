@@ -116,13 +116,13 @@ they are then not applicable, never passed). Profiles are versioned and stored w
 
 | Profile | Arch. | Perf. | Security | Gov. | Data eng. | Models | Capacity | Reliab. | DevOps | Local |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Microsoft-aligned baseline (default) | 12 | 15 | 18 | 10 | 10 | 10 | 10 | 7 | 5 | 3 |
+| Baseline (default) | 12 | 15 | 18 | 10 | 10 | 10 | 10 | 7 | 5 | 3 |
 | Enterprise security | 8 | 5 | 35 | 20 | 5 | 5 | 5 | 7 | 8 | 2 |
 | Data engineering excellence | 10 | 18 | 10 | 8 | 24 | 8 | 5 | 10 | 5 | 2 |
 | Capacity optimization | 8 | 25 | 10 | 5 | 10 | 10 | 22 | 5 | 2 | 3 |
 | KratosForge local-first | 10 | 15 | 15 | 8 | 12 | 8 | 10 | 5 | 5 | 12 |
 
-These are KratosForge defaults. The baseline uses the weights from the product brief.
+These are KratosForge defaults, not Microsoft standards. The baseline uses the weights from the product brief and the applicable Microsoft guidance.
 
 ## Snapshots, rescoring and trends
 
@@ -141,11 +141,47 @@ a promised saving), effort, risk of change, how to validate, how to roll back, r
 confidence and the exact rule version. Findings are ranked by severity first, so a critical security
 finding is never listed below a minor one with a bigger estimate.
 
+## The engine call
+
+`excellence_assess(workspace_id, days, profile, demo)` assesses one workspace, and its capacity when you
+can see it. It reads only, with your own access, and makes no read the app didn't already make: the
+optimization engine's reads (the workspace, its items, notebook and pipeline definitions, job history),
+the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`) and the capacities you can see
+(`GET /capacities`). A read that fails is listed in `reads` and leaves its controls not evaluated.
+`demo=True` assesses a labelled demonstration fixture without calling Fabric.
+
+## Controls
+
+| Control | Dimension | Severity | Checks | Evidence |
+| --- | --- | --- | --- | --- |
+| FEA-SEC-001 | Security | Medium | At most 4 Admin assignments | Role assignments |
+| FEA-SEC-002 | Security | High | No guest account from another organization is Admin, Member or Contributor | Role assignments |
+| FEA-SEC-003 | Security | Medium | No app (service principal) is Admin | Role assignments |
+| FEA-SEC-004 | Security | Low | At most 5 people have a write role through their own account rather than a group | Role assignments |
+| FEA-GOV-001 | Governance | Low | The workspace has a description | Workspace settings |
+| FEA-CAP-001 | Capacity and FinOps | Medium | The workspace's capacity is Active (only a capacity you can see) | Capacities |
+| FEA-PERF-001 | Performance | Medium | A notebook doesn't run the same code on the same data as another (OE-DUP-NB) | Optimization engine |
+| FEA-PERF-002 | Performance | Medium | A pipeline doesn't copy a source another pipeline also copies (OE-DUP-COPY, OE-REPEAT-EXTRACT) | Optimization engine |
+| FEA-DE-001 | Data engineering | Medium | A scheduled notebook or pipeline doesn't rewrite whole tables (OE-FULL-REFRESH); not applicable when it isn't scheduled | Optimization engine |
+| FEA-DE-002 | Data engineering | Low | A notebook's code isn't copied into another one per lakehouse (OE-DUP-NB-PARAM) | Optimization engine |
+
+The thresholds (4 Admins, 5 direct writers) are KratosForge's: Microsoft's guidance asks for least
+privilege but gives no number. A profile can turn any control off, with a reason, or change its
+severity. Listing role assignments needs a workspace role that can see them; for anyone else the
+security controls are not evaluated.
+
+Role controls look at direct assignments only: members of a group aren't expanded. A user whose sign-in
+name Fabric didn't send can't be told apart from a guest, so FEA-SEC-002 is then not evaluated. The
+controls that compare an item with the others of its kind (FEA-PERF-001, FEA-PERF-002, FEA-DE-002)
+pass an item only when every other notebook or pipeline in the workspace was read; if one wasn't (no
+access, or the read budget ran out), they are not evaluated and name the ones that weren't read.
+
 ## Limitations
 
-- Phase 1 is the engine only. The controls themselves come in the next stories, starting with
-  controls built on evidence the app already reads (optimization engine, Estate X-ray, the workspace
-  role review, governance checks).
+- There is no screen yet. The scorecard waits on its approved mockup.
+- The first controls cover what the app already reads. Estate X-ray (table layout), governance checks,
+  semantic models, DevOps and reliability controls come in later stories; until then those dimensions
+  show as not applicable or not evaluated, never as passing.
 - Controls that need a Fabric administrator (tenant settings) are not evaluated for anyone else.
 - Live capacity utilization has no public API. Capacity controls use imported Capacity Metrics
   exports only; without one they are not evaluated.

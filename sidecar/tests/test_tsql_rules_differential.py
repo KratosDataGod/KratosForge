@@ -116,6 +116,15 @@ def cases(prefix: str) -> list[tuple[str, str, object]]:
         out.append(("REPLICATE", f"REPLICATE({q(s)}, {n})", None if n < 0 else s * n))
     for s in WORDS:  # functions/len-transact-sql: trailing spaces aren't counted
         out.append(("LEN", f"LEN({q(s)})", len(s.rstrip(" "))))
+    counts = random.Random(SEED + 1)  # its own draws, so the families after it keep their inputs
+    for _ in range(40):
+        # functions/space-transact-sql and replicate-transact-sql: a negative count gives NULL, and a count
+        # with a fraction is made an int first, which cuts it toward zero (data-type-conversion-database-engine).
+        n = counts.choice([counts.randint(-3, 4), round(counts.uniform(-2.9, 3.9), 1)])
+        whole = int(n)
+        out.append(("SPACE", f"SPACE({n})", None if whole < 0 else " " * whole))
+        s = counts.choice(WORDS)
+        out.append(("REPLICATE", f"REPLICATE({q(s)}, {n})", None if whole < 0 else s * whole))
     for _ in range(80):
         a, b = r.randint(-30, 30), r.choice([x for x in range(-9, 10) if x])
         out.append(("INTDIV", f"{a} / {b}", _tdiv(a, b)))

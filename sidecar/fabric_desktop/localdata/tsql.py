@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import math
 import re
 from collections.abc import Callable, Container
 from typing import Any, cast
@@ -2378,7 +2379,9 @@ def _string_edges(tree: exp.Expression) -> None:
       from the end. A negative length is an error.
     - ``STUFF(s, start, n, x)`` is NULL when the start is below 1 or past the end, or the length is
       negative; a NULL ``x`` deletes without inserting.
-    - ``REPLICATE(s, n)`` is NULL when ``n`` is negative.
+    - ``REPLICATE(s, n)`` and ``SPACE(n)`` are NULL when ``n`` is negative, and a count with a fraction is
+      cut toward zero first (``SPACE(1.7)`` is one space, ``SPACE(-0.5)`` is ''); DuckDB gave '' for a
+      negative count, rounded ``SPACE``'s and didn't bind ``REPLICATE``'s.
     - ``LEFT`` and ``RIGHT`` with a negative length are an error (DuckDB drops from the other end).
     - ``TRANSLATE(s, a, b)`` with ``a`` and ``b`` of different lengths is an error (DuckDB drops the
       characters of ``a`` that have no partner in ``b``).
@@ -2387,8 +2390,8 @@ def _string_edges(tree: exp.Expression) -> None:
       from the end), and is 0 for an empty ``x`` (DuckDB found it at 1) (WR-210).
 
     Literal starts and lengths that can't hit an edge are left as they are."""
-    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Left, exp.Right, exp.Translate,
-                                   exp.StrPosition)):
+    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Space, exp.Left, exp.Right,
+                                   exp.Translate, exp.StrPosition)):
         if isinstance(node, exp.StrPosition):
             _charindex(node)
         elif isinstance(node, (exp.Left, exp.Right)):
@@ -2448,10 +2451,24 @@ def _string_edges(tree: exp.Expression) -> None:
                            exp.LT(this=length.copy(), expression=exp.Literal.number(0)))
             node.set("expression", exp.func("COALESCE", node.expression, exp.Literal.string("")))
             node.replace(exp.Case(ifs=[exp.If(this=past, true=exp.null())], default=node.copy()))
-        elif not _whole(node.args.get("times"), 0):
-            times = node.args["times"]
-            negative = exp.LT(this=times.copy(), expression=exp.Literal.number(0))
-            node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy()))
+        elif isinstance(node, (exp.Repeat, exp.Space)):
+            _repeat_count(node)
+
+
+def _repeat_count(node: exp.Repeat | exp.Space) -> None:
+    """``REPLICATE``'s or ``SPACE``'s count as T-SQL takes it (see _string_edges)."""
+    key = "times" if isinstance(node, exp.Repeat) else "this"
+    count = node.args.get(key)
+    if count is None or _whole(count, 0):
+        return
+    value = _number(count)
+    if value is not None and math.isfinite(value) and int(value) >= 0:  # 1.7 is 1 and -0.5 is 0: toward zero, as T-SQL makes it an int
+        node.set(key, exp.Literal.number(int(value)))
+        return
+    whole = exp.cast(exp.Trunc(this=count.copy()), "BIGINT")
+    node.set(key, whole)
+    negative = exp.LT(this=whole.copy(), expression=exp.Literal.number(0))
+    node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy()))
 
 
 def _charindex(node: exp.StrPosition) -> None:

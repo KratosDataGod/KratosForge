@@ -6050,8 +6050,8 @@ The first `validate_service.py` run was stopped partway by a time limit and was 
 
 The two `tsql_clone.py` timeouts (a statement's index never moving on) and one `validate_service.py` timeout (a report's name number never moving on) count as killed, before and after.
 
-One bug was found, outside what the new tests pin, and is marked `xfail` in `test_spark_udf_mutation.py` until it is fixed:
-- A `pandas_udf` declared to return an `ArrayType` and returning numpy arrays (`s.apply(lambda v: np.array(...))`) gives null for every row, where Spark gives the arrays as lists. A numpy array isn't turned into a list before its fit is checked, so it doesn't fit the array type. Python lists work.
+One bug was found, outside what the new tests pin, and is fixed; its test in `test_spark_udf_mutation.py` now passes:
+- A `pandas_udf` declared to return an `ArrayType` and returning numpy arrays (`s.apply(lambda v: np.array(...))`) gave null for every row, where Spark gives the arrays as lists. A numpy array wasn't turned into a list before its fit was checked, so it didn't fit the array type. A numpy array with dimensions now becomes its list, one value or many.
 
 ### What the survivors were, and the tests that now kill them
 
@@ -6069,7 +6069,7 @@ One bug was found, outside what the new tests pin, and is marked `xfail` in `tes
   - Each type's fit: a boolean only for a bool; each integer type exactly its range, never a bool or a float; a decimal only for a `Decimal`; any value as its text for a string; a date but not a datetime for a date; a datetime for a timestamp; bytes and bytearray as bytes; a map with its keys and values fitted; a struct from a dict or a sequence of its length.
   - Structs inside a list arrive as rows.
   - Each Spark type's Arrow type, with string for any other.
-  - numpy and pandas scalars become Python values, a pandas array its list, and a numpy array of several values is left as it is; null is `None`, NaN or NaT, never an array.
+  - numpy and pandas scalars become Python values, a pandas array its list, and a numpy array its list (once left as it was: the bug above); null is `None`, NaN or NaT, never an array.
   - `udf` of a UDF is that UDF; a UDF's `evalType` is 100 and a `pandas_udf`'s 200.
   - `pandas_udf` called with the function returns the UDF, keeps a return type given by name, refuses a number as the return type after a function, and `functionType` 200 wins over iterator hints.
   - A UDF registers once per connection.
@@ -6124,8 +6124,8 @@ A mutant whose run times out counts as killed, as in earlier batches. One `local
 | `localdata/tsql_tables.py` | test_tsql_table_forms, test_tsql_windows, test_local_tsql_more_edges, test_tsql_loud_gaps (+ test_tsql_tables_mutation) | 148 of 148 (141 + 7) | 122 / 26 | **82.4%** | 117/141 → 136/141 | 5/7 → 7/7 | 143 / 5 | **96.6%** | 5 equivalent |
 | `spark_strings.py` | test_spark_strings, test_spark_missing_functions, test_spark_function_names, test_spark_sql_names, test_spark_views_text (+ test_spark_strings_mutation) | 150 of 458 (139 + 11) | 108 / 42 | **72.0%** | 103/139 → 131/139 | 5/11 → 9/11 | 140 / 10 | **93.3%** | 10 equivalent |
 
-One bug was found, in `localdata/tsql_tables.py`, and is pinned with `xfail(strict=True)` in test_tsql_tables_mutation:
-- `TOP ('150') PERCENT` and `TOP ((ABS(-150))) PERCENT` return every row. A percent written as text, or in a second pair of parentheses, is checked against 0 to 100 neither when the query is read nor when it runs, where a warehouse stops with "Percent values must be between 0 and 100." A percent worked out in one pair of parentheses, such as `TOP (ABS(-150)) PERCENT`, is checked and stops.
+One bug was found, in `localdata/tsql_tables.py`, and is fixed; its test in test_tsql_tables_mutation now passes:
+- `TOP ('150') PERCENT` and `TOP ((ABS(-150))) PERCENT` returned every row. A percent written as text, or in a second pair of parentheses, was checked against 0 to 100 neither when the query was read nor when it ran, where a warehouse stops with "Percent values must be between 0 and 100." Any percent that isn't a number written out is now checked, as a number, when it runs.
 
 ### What the survivors were, and the tests that now kill them
 
@@ -6316,3 +6316,56 @@ No bugs were found.
 | `engines/databricks_workspace_sync.py` | 151 | `len(parts) > 1` to `>=` | Equivalent, for the same reason as the line above. |
 | `engines/databricks_workspace_sync.py` | 342 | `>` to `>=` on the pull size limit | Equivalent: the limit's length isn't a multiple of 4, so no valid base64 has it, and content of that length fails to decode either way. |
 | `engines/databricks_workspace_sync.py` | 347 | `is_symlink() or parent != root` to `and` | Equivalent: the local listing never includes a link, and a plain name in the folder always has the folder as its parent. |
+
+# Mutation testing, batch 92
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- Protecting CSV cells a spreadsheet would run as a formula: dictionary columns, `string_view` columns and the count of protected cells (`csv_cells.py`).
+- Reading Delta tables that use deletion vectors or column mapping: when DataFusion's reader is needed, reading some columns, the memory cap and its message, and deleted positions (`delta_read.py`).
+- Excellence assessment scores: the rating floors, the coverage thresholds, dimensions with little or no weight and the confidence levels (`excellence/scoring.py`).
+
+The run was at `main` 9ab1d2721 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902: each mutant ran without a bytecode cache, and the tests were first run once on the unmutated copy of `sidecar/`, where they passed. The method is the same as earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all of them ran. Each test set was run with `-x`, so a mutant's run stops at its first failing test.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used. Two tests in `test_delta_profile_matrix.py` read `docs/`, so they were left out with `--deselect`. `test_csv_cells.py::test_every_csv_writer_protects_its_cells` scans the whole engine for CSV writers, takes about 40 s and doesn't call `csv_cells.py`'s functions, so it was left out with `--deselect` to keep each mutant's run short.
+
+No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `csv_cells.py` | test_csv_cells, test_export_exact, test_model_dictionary, test_shortcut_center (+ test_csv_cells_mutation) | 97 of 97 (97 + 0) | 88 / 9 | **90.7%** | 88/97 → 94/97 | none | 94 / 3 | **96.9%** | 3 equivalent |
+| `delta_read.py` | test_delta_read_spark_tables, test_delta_profile_matrix, test_delta_profile_readers (+ test_delta_read_mutation) | 78 of 78 (77 + 1) | 66 / 12 | **84.6%** | 65/77 → 75/77 | 1/1 → 1/1 | 76 / 2 | **97.4%** | 2 equivalent |
+| `excellence/scoring.py` | test_excellence (+ test_excellence_scoring_mutation) | 136 of 136 (123 + 13) | 123 / 13 | **90.4%** | 116/123 → 123/123 | 7/13 → 13/13 | 136 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **csv_cells.py**:
+  - A dictionary column with nothing to protect is left as it is, and counts no cell.
+  - A risky dictionary value that no row uses counts no cell; one that rows use is counted once per row.
+  - A `string_view` batch or table with nothing to protect still goes to the writer as plain strings.
+  - → `test_csv_cells_mutation.py`.
+- **delta_read.py**:
+  - Column mapping is found from the table setting alone and from the protocol alone, and a mode of `none` is no column mapping.
+  - The whole-read cap is 2 GiB.
+  - A read over the cap names the features and both sizes ("2000.0 GB, more than 1000 GB").
+  - Some columns of a table with deletion vectors are read in the order asked, through `arrow` and `head`.
+  - A table without deletion vectors has no deleted positions (an empty dict).
+  - → `test_delta_read_mutation.py`.
+- **excellence/scoring.py**:
+  - Each rating starts at its floor (90, 80, 70, 50 and 0).
+  - A rounded zero is never negative.
+  - Coverage exactly at the provisional and rated thresholds.
+  - A dimension with a weight of 1 still counts, and one with no weight is left out, also when it holds the only outcomes.
+  - Confidence exactly at its thresholds.
+  - → `test_excellence_scoring_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `csv_cells.py` | 92, 96, 113 | `zip(strict=True)` to `False` | Equivalent: both sides come from the same schema or batch, so they always have the same length. |
+| `delta_read.py` | 82 | `get_add_actions(flatten=True)` to `False` | Equivalent: in deltalake 1.6.6 `size_bytes` is a top-level column either way. |
+| `delta_read.py` | 149 | `zip(strict=True)` to `False` | Equivalent: both columns come from the same deletion-vector table, so they always have the same length. |

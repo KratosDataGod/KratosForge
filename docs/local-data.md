@@ -112,7 +112,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `price * qty`, `amount / 3`, `AVG(price)` with a decimal | The precision and scale a warehouse gives, and a quotient cut at that scale (`1.0 / 3` is `0.333333`). Dividing a decimal by zero stops with T-SQL's error. A value too wide to work out exactly here, and a decimal `AVG`, are done in floating point and `translation.notes` says so; see [Local T-SQL decimals](sql-compatibility.md#local-t-sql-decimals) |
 | `VAR(x)`, `STDEV(x)`, `VARP(x)`, `STDEVP(x)` | The sample variance and standard deviation, and the population's (one row: `NULL` for `VAR` and `STDEV`, `0` for `VARP` and `STDEVP`) |
 | `LEN('ab  ')` | `2`: trailing spaces aren't counted |
-| `SUBSTRING('abc', 0, 2)`, `STUFF('abc', 5, 1, 'x')`, `REPLICATE('ab', -1)` | `'a'`, `NULL`, `NULL`: a start below 1 counts the positions before 1, `STUFF` past the end or below 1 and `REPLICATE` of a negative count are `NULL`, and a negative `SUBSTRING` length is an error |
+| `SUBSTRING('abc', 0, 2)`, `STUFF('abc', 5, 1, 'x')`, `REPLICATE('ab', -1)`, `SPACE(1.7)` | `'a'`, `NULL`, `NULL`, one space: a start below 1 counts the positions before 1, `STUFF` past the end or below 1 and `REPLICATE` or `SPACE` of a negative count are `NULL`, a count with a fraction is cut toward zero, and a negative `SUBSTRING` length is an error |
 | `LEFT(s, -1)`, `RIGHT(s, -1)`, `TRANSLATE('abc', 'ab', 'x')` | An error, as in T-SQL: a negative length, or `TRANSLATE` lists of different lengths. With literal values the query is refused before it runs |
 | `DATEPART(weekday, d)` | `1` for Sunday to `7` for Saturday (DATEFIRST 7) |
 | `DATEPART(week, d)` | Week 1 is the week of 1 January; weeks start on Sunday |

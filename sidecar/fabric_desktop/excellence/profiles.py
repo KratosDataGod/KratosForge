@@ -95,8 +95,9 @@ def _w(architecture: float, performance: float, security: float, governance: flo
 
 
 BUILT_IN = {p.id: checked(p) for p in (
-    Profile("baseline", "1.0.0", "Microsoft-aligned baseline", _w(12, 15, 18, 10, 10, 10, 10, 7, 5, 3),
-            description="Applicable Microsoft Fabric and Power BI guidance, weighted as the product brief sets out."),
+    Profile("baseline", "1.1.0", "Baseline", _w(12, 15, 18, 10, 10, 10, 10, 7, 5, 3),
+            description="Applicable Microsoft Fabric and Power BI guidance, weighted as the product brief sets out. "
+                        "A KratosForge profile, not a Microsoft standard."),
     Profile("enterprise_security", "1.0.0", "Enterprise security", _w(8, 5, 35, 20, 5, 5, 5, 7, 8, 2),
             description="Least privilege, sharing controls, governance and auditability."),
     Profile("data_engineering", "1.0.0", "Data engineering excellence", _w(10, 18, 10, 8, 24, 8, 5, 10, 5, 2),

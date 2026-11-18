@@ -23,8 +23,8 @@ from sqlglot.dialects.duckdb import DuckDB
 from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
-from . import (spark_aggregates, spark_builtins_sql, spark_complex, spark_datetime, spark_decimals, spark_sql_names,
-               spark_strings, spark_time_zone, spark_windows, sql_dialects)
+from . import (spark_aggregates, spark_builtins_sql, spark_complex, spark_datetime, spark_decimals, spark_hash,
+               spark_sql_names, spark_strings, spark_time_zone, spark_windows, sql_dialects)
 from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
 
 # sqlglot logs a warning when it reads a statement as a bare command ('SHOW TABLES' ...). With no
@@ -409,10 +409,10 @@ _ANON_TEMPLATES = {
     # Half-even rounding (bround with one argument rounds to 0 places; see _spark_functions). DuckDB
     # returns a DOUBLE where Databricks keeps a decimal input decimal; the value is the same.
     "BROUND": "ROUND_EVEN({0}, {1})",
-    # conv(num, from, to), as Spark's NumberConverter: the digits up to the first invalid one, read
+    # conv(num, from, to), as Spark's NumberConverter: spaces trimmed, the digits up to the first invalid one, read
     # as an unsigned 64-bit number (more saturates to all ones); a negative number with a positive
     # target base is its two's complement, and a negative target base prints a signed number.
-    "CONV": "(LIST_TRANSFORM([{{'s': CAST({0} AS VARCHAR), 'f': CAST({1} AS INTEGER), 't': CAST({2} AS INTEGER)}}], "
+    "CONV": "(LIST_TRANSFORM([{{'s': TRIM(CAST({0} AS VARCHAR), ' '), 'f': CAST({1} AS INTEGER), 't': CAST({2} AS INTEGER)}}], "
             "kf_a -> CASE WHEN kf_a.s IS NULL OR kf_a.f IS NULL OR kf_a.t IS NULL OR kf_a.s = '' "
             "OR kf_a.f NOT BETWEEN 2 AND 36 OR ABS(kf_a.t) NOT BETWEEN 2 AND 36 THEN NULL ELSE "
             "(LIST_TRANSFORM([{{'neg': LEFT(kf_a.s, 1) = '-', 't': kf_a.t, 'u': LEAST(LIST_REDUCE("
@@ -1366,15 +1366,23 @@ def spark_timestamp_text(value: str) -> str:
             f"ELSE CAST({value} AS VARCHAR) END")
 
 
+_NOT_UTF8 = ("'A cast of binary to string can''t run on this PC the way it runs in Fabric, because the bytes "
+             "aren''t UTF-8 text, which Spark reads with replacement characters, so nothing ran. Use hex() or "
+             "base64() instead.'")
+
+
 def spark_text_cast(value: str) -> str:
     """CAST(value AS STRING) as Spark writes it: a timestamp as the session zone's wall time with no
     offset ('2026-01-02 03:04:05', where DuckDB writes '+00' after it), a double or float as Java
-    writes it ('1.0E20', where DuckDB writes '1e+20'). Every other type casts as DuckDB casts it."""
+    writes it ('1.0E20', where DuckDB writes '1e+20'), and binary as its UTF-8 text (bytes that aren't UTF-8
+    are refused). Every other type casts as DuckDB casts it."""
     java = spark_builtins_sql.java_double_text
     return (f"CASE WHEN typeof({value}) = 'TIMESTAMP WITH TIME ZONE' THEN "
             f"regexp_replace(CAST({value} AS VARCHAR), '[+-][0-9][0-9](:[0-9][0-9])?$', '') "
             f"WHEN typeof({value}) = 'DOUBLE' THEN {java(f'TRY_CAST({value} AS DOUBLE)')} "
             f"WHEN typeof({value}) = 'FLOAT' THEN {java(f'TRY_CAST({value} AS FLOAT)')} "
+            f"WHEN typeof({value}) = 'BLOB' THEN (LIST_TRANSFORM([TRY_CAST({value} AS BLOB)], lambda kf_bin: CASE WHEN kf_bin "
+            f"IS NULL THEN NULL ELSE COALESCE(TRY(DECODE(kf_bin)), ERROR({_NOT_UTF8})) END))[1] "
             f"ELSE CAST({value} AS VARCHAR) END")
 
 
@@ -1437,17 +1445,50 @@ def _past(source: exp.Expression, kind: Any) -> bool:
     return False
 
 
+_BINARY_CASTS = (exp.DataType.Type.BINARY, exp.DataType.Type.VARBINARY)
+_BINARY_WIDTHS = {"TINYINT": 1, "SMALLINT": 2, "INTEGER": 4, "BIGINT": 8}
+
+
+def spark_binary_cast(value: str) -> str:
+    """CAST(value AS BINARY) as Spark casts it: a whole number as its big-endian bytes (4 for an int, 8 for a
+    long), text as its UTF-8 bytes."""
+    whole = " ".join(f"WHEN '{t}' THEN UNHEX(RIGHT(LPAD(HEX(TRY_CAST({value} AS BIGINT)), 16, '0'), {2 * w}))"
+                     for t, w in _BINARY_WIDTHS.items())
+    return (f"CASE typeof({value}) {whole} WHEN 'VARCHAR' THEN ENCODE(TRY_CAST({value} AS VARCHAR)) "
+            f"ELSE TRY_CAST({value} AS BLOB) END")
+
+
+def _negative_literals(statement: exp.Expression) -> None:
+    """-9223372036854775808L, -2147483648 and the like: Spark reads the minus as part of the literal, so the
+    literal's type holds it, where negating 9223372036854775808 would be past a long. Negating a whole number wraps in
+    Spark with ANSI off, as the cast of the negative literal does, so every such literal is read this way."""
+    for neg in list(statement.find_all(exp.Neg)):
+        cast_ = neg.this
+        if isinstance(cast_, exp.Literal) and not cast_.is_string and cast_.name.isdigit():
+            negative: exp.Expression = exp.Literal.number(f"-{cast_.name}")
+            if int(cast_.name) == 2 ** 31:  # an int, as in Spark: DuckDB reads it as minus a bigint
+                negative = exp.Cast(this=negative, to=exp.DataType.build("INT"))
+            neg.replace(negative)
+            continue
+        if isinstance(cast_, (exp.Cast, exp.TryCast)) and isinstance(cast_.to, exp.DataType) \
+                and cast_.to.this in _INT_CASTS and isinstance(cast_.this, exp.Literal) \
+                and not cast_.this.is_string and cast_.this.name.isdigit():
+            cast_.set("this", exp.Literal.number(f"-{cast_.this.name}"))
+            neg.replace(cast_)
+
+
 def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
     """Casts to TINYINT, SMALLINT, INT or BIGINT written out as Spark casts (EA-003, and EA-014 for a
     timestamp): see spark_integer_cast. Casts to a timestamp read a number as seconds (spark_timestamp_cast).
     sqlglot reads Spark's CAST as a TryCast, try_cast as a TryCast marked safe, and Databricks SQL's
     CAST as a Cast."""
     done: set[int] = set()
+    _negative_literals(statement)
     for node in reversed(list(statement.find_all(exp.Cast, exp.TryCast))):
         kind = node.to.this if isinstance(node.to, exp.DataType) else None
         source = node.this
-        if id(source) in done or isinstance(source, exp.Null):
-            continue
+        if (id(source) in done and kind not in _BINARY_CASTS) or isinstance(source, exp.Null):
+            continue  # a cast already written here is a value of its type; only a cast to binary reads it again
         if isinstance(node, exp.TryCast):
             mode = "try" if node.args.get("safe") else "legacy"
         else:
@@ -1462,6 +1503,8 @@ def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
             write = functools.partial(spark_timestamp_cast, duck_type=to, mode=mode)
         elif kind in _TEXT_CASTS and not (isinstance(source, exp.Literal) and source.is_string) and not node.to.expressions:
             write = functools.partial(spark_text_cast)
+        elif kind in _BINARY_CASTS and not (isinstance(source, exp.Literal) and source.is_string):
+            write = functools.partial(spark_binary_cast)
         else:
             continue
         if isinstance(source, (exp.Column, exp.Literal)):
@@ -2236,6 +2279,7 @@ def _connect() -> duckdb.DuckDBPyConnection:
     # SET, not connect's config: config makes DuckDB try to download ICU, which fails offline.
     con = duckdb.connect()
     con.execute("SET TimeZone = 'UTC'")
+    spark_hash.register(con)  # sha2 at 224, 384 and 512 bits
     return keep_try_cast(con)
 
 

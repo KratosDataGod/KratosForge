@@ -105,7 +105,7 @@ class Route:
                 and ok(self.envs, inc.get("env")))
 
 
-_QUIET = re.compile(r"([01]?\d|2[0-3]):([0-5]\d)\s*-\s*([01]?\d|2[0-3]):([0-5]\d)")
+_QUIET = re.compile(r"([01]?\d|2[0-3]):([0-5]\d)-([01]?\d|2[0-3]):([0-5]\d)")  # as agent_config's _QUIET
 
 
 @dataclass(frozen=True)
@@ -121,9 +121,22 @@ class Quiet:
         refused with ValueError, as agent.toml refuses it, so every caller reads quiet hours alike."""
         match = _QUIET.fullmatch(text.strip())
         if not match:
-            raise ValueError('quiet hours are two times like "22:00-06:00"')
+            raise ValueError("quiet hours look like 22:00-07:00")
         a, b = (dt.time(int(h), int(m)) for h, m in (match.group(1, 2), match.group(3, 4)))
         return Quiet(a, b, exempt)
+
+    @staticmethod
+    def parse_saved(text: str, exempt: tuple[str, ...] = ("critical",)) -> "Quiet":
+        """Quiet hours read back from saved settings. Builds before hours-and-minutes were enforced
+        saved any ISO times (22:00:00-06:00:30): those still read, seconds kept, with a warning, so
+        an old setting never stops notices. Saving them again needs hours and minutes (``parse``)."""
+        try:
+            return Quiet.parse(text, exempt)
+        except ValueError:
+            a, b = (dt.time.fromisoformat(x.strip()) for x in text.split("-"))  # ValueError as before
+            _log.warning("Quiet hours %r were saved with seconds; read as %s-%s. Save them again as "
+                         "hours and minutes, like 22:00-06:00.", text, a.isoformat(), b.isoformat())
+            return Quiet(a, b, exempt)
 
     def until(self, now: dt.datetime, criticality: str) -> dt.datetime | None:
         """When quiet hours end, if ``now`` is inside them and ``criticality`` isn't exempt."""

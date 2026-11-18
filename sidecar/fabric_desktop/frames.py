@@ -36,7 +36,7 @@ import pyarrow as pa
 
 from .redact import describe
 from .duckdb_rows import for_arrow, one_row
-from . import jsonfile
+from . import csv_cells, jsonfile
 
 _log = logging.getLogger(__name__)
 
@@ -511,8 +511,9 @@ class Frames:
 
     # ---- downloads
 
-    def download(self, fid: str, fmt: str, path: str) -> dict[str, Any]:
-        """Write the whole result to ``path`` (a name the engine reserved, empty) in ``fmt``."""
+    def download(self, fid: str, fmt: str, path: str, raw: bool = False) -> dict[str, Any]:
+        """Write the whole result to ``path`` (a name the engine reserved, empty) in ``fmt``. A CSV protects text
+        cells that start like a formula unless ``raw`` (Keep raw values, WR-228)."""
         if fmt not in DOWNLOAD_FORMATS:
             raise ValueError(f"Download as {', '.join(DOWNLOAD_FORMATS)}.")
         table = self.table(fid)
@@ -521,11 +522,13 @@ class Frames:
                              f"{table.num_rows:,}. Download it as CSV or Parquet instead.")
         target = Path(path)
         partial = target.with_name(target.name + ".partial")
+        protected = 0
         try:
             with open(partial, "xb") as sink:
                 if fmt == "csv":
                     import pyarrow.csv as pa_csv
-                    pa_csv.write_csv(_csv_ready(table), sink)
+                    ready, protected = csv_cells.protect_table(_csv_ready(table), raw=raw)
+                    pa_csv.write_csv(ready, sink)
                 elif fmt == "parquet":
                     import pyarrow.parquet as pq
                     pq.write_table(table.rename_columns(_unique(table.schema.names)), sink)
@@ -535,7 +538,8 @@ class Frames:
         except BaseException:
             with_suppressed_unlink(partial)
             raise
-        return {"path": str(target), "rows": table.num_rows, "format": fmt}
+        return {"path": str(target), "rows": table.num_rows, "format": fmt, "raw": bool(raw) and fmt == "csv",
+                "protected": protected, "notes": [csv_cells.note(protected)] if protected else []}
 
 
 def _csv_ready(table: pa.Table) -> pa.Table:

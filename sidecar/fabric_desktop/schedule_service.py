@@ -24,7 +24,7 @@ from .redact import describe
 from .redact import without_webhook as _without_webhook
 from .time_zones import time_zones
 from .timeutil import now_iso as _now, seconds_between
-from .workloads.notify import Outbox, audit_trouble, send, single
+from .workloads.notify import UNCONFIRMED, Outbox, audit_trouble, send, settle_failed, single
 
 _log = logging.getLogger(__name__)
 _PIPELINE_POLL = 0.25  # seconds between looks at a scheduled pipeline run
@@ -497,10 +497,14 @@ class ScheduleMixin:
                 return ""
             except Exception as exc:  # noqa: BLE001 - kept, and sent after the next run here
                 why = _without_webhook(describe(exc), url).rstrip(".")
-                box.not_sent(item, why)
-                audit_trouble(self.audit, {"error": why, "queued": 1}, SCHEDULE_ALERTS)  # type: ignore[attr-defined]
-                problem = (f"Couldn't post the Teams alert: {why}. It waits on this PC and is sent, marked Delayed, "
-                           "after the next scheduled run here, for up to three days.")
+                if settle_failed(box, item, exc, why):
+                    audit_trouble(self.audit, {"error": UNCONFIRMED.format(error=why), "unconfirmed": 1},  # type: ignore[attr-defined]
+                                  SCHEDULE_ALERTS)
+                    problem = f"Couldn't confirm the Teams alert: {UNCONFIRMED.format(error=why)}"
+                else:
+                    audit_trouble(self.audit, {"error": why, "queued": 1}, SCHEDULE_ALERTS)  # type: ignore[attr-defined]
+                    problem = (f"Couldn't post the Teams alert: {why}. It waits on this PC and is sent, marked Delayed, "
+                               "after the next scheduled run here, for up to three days.")
         except Exception as exc:  # noqa: BLE001 - the run is still logged, with the webhook kept out of what it says
             if not failed:
                 _log.warning("Couldn't send waiting schedule alerts: %s", _without_webhook(describe(exc), url))

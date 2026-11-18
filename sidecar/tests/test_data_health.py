@@ -333,7 +333,7 @@ def test_a_save_waits_for_another_process_then_says_it_couldnt(svc, monkeypatch)
     t.start()
     held.wait(5)
     try:
-        with pytest.raises(TimeoutError, match="Another KratosForge window is saving the Data health list"):
+        with pytest.raises(TimeoutError, match="Another KratosForge window or tool is saving the Data health list"):
             svc.meta_data_health_watch("silver.customers", "dev")
     finally:
         release.set()
@@ -408,3 +408,62 @@ def test_the_same_problem_on_every_check_is_one_alert_and_it_clears_when_the_tab
     assert first["alerts"] == again["alerts"]  # the same load, the same one alert: never one per check
     pl.DataFrame({"a": list(range(100))}).write_delta(uri, mode="append")
     assert dh.check(lambda v: DeltaTable(uri, version=v))["alerts"] == []  # a usual load clears it
+
+
+def test_a_check_that_hangs_shows_as_not_finished_and_doesnt_hold_up_the_list(svc, monkeypatch):
+    import threading
+    import time
+    from fabric_desktop import dataops_service
+    monkeypatch.setattr(dataops_service, "DATA_HEALTH_LIST_SECONDS", 0.5)
+    svc.meta_data_health_watch("silver.customers", "dev")
+    svc.meta_data_health_watch("gold.dim_customer", "dev")
+    release = threading.Event()
+
+    def check(name, env):
+        if name == "gold.dim_customer":
+            release.wait(30)  # OneLake not answering
+        return {"entity": name, "env": env, "alerts": []}
+
+    monkeypatch.setattr(svc, "meta_data_health", check)
+    start = time.monotonic()
+    try:
+        tables = {t["entity"]: t for t in svc.meta_data_health_list()["tables"]}
+    finally:
+        release.set()
+    assert time.monotonic() - start < 20  # well under the 30 s hang, with room for a slow CI runner
+    hung = tables["gold.dim_customer"]
+    assert hung["state"] == "error" and "didn't finish within 0.5 s" in hung["why"] and "alerts" not in hung
+    assert tables["silver.customers"]["alerts"] == []
+    assert list(tables) == ["silver.customers", "gold.dim_customer"]  # the watched order is kept
+
+
+def test_refreshing_while_a_check_hangs_waits_on_it_again_rather_than_starting_another(svc, monkeypatch):
+    import threading
+    from fabric_desktop import dataops_service
+    monkeypatch.setattr(dataops_service, "DATA_HEALTH_LIST_SECONDS", 0.3)
+    svc.meta_data_health_watch("gold.dim_customer", "dev")
+    release = threading.Event()
+    calls = []
+
+    def check(name, env):
+        calls.append(name)
+        release.wait(30)
+        return {"entity": name, "env": env, "alerts": []}
+
+    monkeypatch.setattr(svc, "meta_data_health", check)
+    try:
+        for _ in range(3):
+            assert svc.meta_data_health_list()["tables"][0]["state"] == "error"
+        assert calls == ["gold.dim_customer"]  # one thread for the hung read, not one per refresh
+    finally:
+        release.set()
+    import time
+    deadline = time.monotonic() + 10
+    while svc.meta_data_health_list()["tables"][0].get("state") == "error" and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert svc.meta_data_health_list()["tables"][0]["alerts"] == []  # once it answers, the next refresh shows it
+
+
+def test_the_time_limit_reads_in_minutes():
+    from fabric_desktop.dataops_service import _dh_duration
+    assert (_dh_duration(120), _dh_duration(60), _dh_duration(0.5)) == ("2 minutes", "1 minute", "0.5 s")

@@ -2585,6 +2585,7 @@ async function runInFabric() {
     return;
   }
   if (!(await ensureSignedIn())) return;
+  if (typeof dbgRemoteNote === "function") dbgRemoteNote(nb, nb.cells);  // debugging.js: breakpoints don't pause in Fabric
   // The risk check (FINOPS-004) asks only when something should stop or slow the run. A notebook
   // not yet linked to its Fabric item can't be checked and runs as before.
   if (!(await riskGate({ id: `notebook:${nb.name}`, action: "run_in_fabric", title: `Run in Fabric ${nb.name}?`,

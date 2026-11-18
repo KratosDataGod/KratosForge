@@ -2946,9 +2946,18 @@ test("the notebook editor wires breakpoints and the debugger through debugging.j
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
   const dbg = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
   for (const hook of ["dbgEditorMarks(cell)", "dbgEdited(cell, u)", "dbgToggleAtCursor(cell)", "dbgStartArgs(cell, debug)",
-    "dbgSnapshot(cell, snap)", "dbgPausedPanel(cell)", "dbgGutterClick(cell, view, line)", "debugCell(cell)"]) {
+    "dbgSnapshot(cell, snap)", "dbgPausedPanel(cell)", "dbgGutterClick(cell, view, line)", "debugCell(cell)",
+    "debugFromHere(cell)", "runCell(cell, { nb, debug: dbgStepNext(nb) })", "dbgRemoteNote(nb, [cell])", "dbgRemoteNote(nb, code)"]) {
     assert.ok(nb.includes(hook), hook);
   }
+  // Breakpoints are a cell setting, saved with the notebook, and a change to them is a change to it.
+  assert.match(dbg, /cell\.meta\?\.breakpoints \|\| \[\]/);
+  assert.match(dbg, /dbgSetLines\(cell, \[\.\.\.set\]\.sort\(\(a, b\) => a - b\)\);\n  dbgRepaintMarks\(cell\);\n  markDirty\(\);/);
+  assert.ok(!/cell\.breakpoints\b/.test(dbg + nb), "no session-only breakpoints left");
+  // Debug from here: the last way out of a pause decides how the next cell starts; Run in Fabric says it can't pause.
+  assert.match(dbg, /if \(state\.notebook\.dbgRun && action !== "eval"\) state\.notebook\.dbgRun\.mode = action;/);
+  assert.match(nb, /nb\.runningAll = false;\n    nb\.dbgRun = null;/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /dbgRemoteNote\(nb, nb\.cells\);  \/\/ debugging\.js/);
   assert.match(dbg, /rpc\("debug_cell"/);
   // Breakpoints are a Preview feature: nothing is sent or shown while it is hidden.
   assert.match(dbg, /function dbgBreakpoints\(cell\) \{\n  return dbgOn\(\)/);
@@ -5913,7 +5922,7 @@ test("the engine picker is a Preview feature that asks before remote compute", (
   assert.match(fn("engineSwitchDialog"), /"Keep both"/);
   assert.match(fn("chooseKernel"), /confirmDialog\([\s\S]*"Switch and close session", \{ danger: true \}\)/);
   assert.match(fn("engineFlagPanel"), /btn\("Run this cell on Python", "play", \(\) => runCellOnKernel\(cell\)/);
-  assert.match(nbsrc, /if \(!kernel && nbOnEngine\(nb\) && !cell\.meta\?\.frozen\) return runEngineCell\(cell, nb\);/);
+  assert.match(nbsrc, /if \(!kernel && nbOnEngine\(nb\) && !cell\.meta\?\.frozen\) \{\n    if \(!nb\.runningAll\) dbgRemoteNote\(nb, \[cell\]\);  \/\/ debugging\.js: breakpoints can\'t pause there\n    return runEngineCell\(cell, nb\);/);
   for (const name of ["engines.js", "notebook.js"]) {
     assert.doesNotMatch(fs.readFileSync(path.join(ui, name), "utf8"), /no Fabric capacity/i, `${name}: local engines still use capacity for OneLake`);
   }
@@ -5930,7 +5939,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
     validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbConsole: ["Scratch console"], nbReport: ["Notebook as a read-only report"], sqlDiagram: ["Table diagram"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
-    debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],
+    debug: ["Variable history, watches and hidden state", "Breakpoints and stepping", "Debug a notebook"], replay: ["Failure replay bundles"],
     fabricRun: ["Run in Fabric and schedules", "W6 Publish or run a notebook in Fabric"], notebookRuns: ["Recent runs", "Notebook runs"],
     sideBySide: ["Side by side"], prove: ["Prove this notebook"], fabricEdit: ["Edit a Fabric notebook on this PC", "When Publish finds changes made in Fabric"],
     notebookFolderPublish: ["Publishing a notebook from a folder"], practices: ["Notebook best practices"], fabricStep: ["Run the last cell on Fabric"],

@@ -1,6 +1,6 @@
 """WR-218: the warehouse live check, dry-run against fakes. Nothing here connects to Fabric.
 
-The check runs each documented local T-SQL case (WR-206 to WR-217) in a test warehouse and records the local,
+The check runs each documented local T-SQL case (WR-206 to WR-217, and WR-229) in a test warehouse and records the local,
 documented and warehouse answers. These tests prove its guards: every case's SQL reads, or writes only in the
 scratch schema; an unmarked or production-looking workspace or warehouse is refused before connecting; each case
 is rolled back; and the scratch schema is dropped and checked gone at the end.
@@ -98,7 +98,7 @@ def check(tmp_path, con=None, fabric=None, cases=w.CASES):
 def test_every_case_reads_or_writes_only_in_the_scratch_schema():
     assert w.problems(w.CASES, SCRATCH) == []
     assert len({c.id for c in w.CASES}) == len(w.CASES)
-    assert {c.wr for c in w.CASES} <= {f"WR-2{n:02d}" for n in range(6, 18)}
+    assert {c.wr for c in w.CASES} <= {f"WR-2{n:02d}" for n in range(6, 18)} | {"WR-229"}
 
 
 @pytest.mark.parametrize(("sql", "words"), [
@@ -183,15 +183,18 @@ def test_the_dry_run_gives_local_answers_and_connects_nowhere(tmp_path):
                for i, c in enumerate(by.values()))
     # where the docs say local matches the warehouse, it gives the documented answer
     for id in ("DEC-01", "DEC-02", "DEC-03", "DT-01", "DT-02", "DT-03", "DT-04", "DT-05", "ORD-01", "ORD-03",
-               "TXT-02", "TXT-03", "TXT-04", "TXT-05", "AR-01", "AR-02", "AR-03", "AR-04", "DEC-04", "SET-02"):
+               "TXT-02", "TXT-03", "TXT-04", "TXT-05", "AR-01", "AR-02", "AR-03", "AR-04", "DEC-04", "SET-02",
+               "FMT-01", "FMT-02", "FMT-03"):
         assert w.same(by[id]["local"], by[id]["documented"]), (id, by[id]["local"])
     # where the docs say local differs, it gives the documented local answer or stops by name
     assert {id: by[id]["local"] for id in ("TXT-06", "TBL-01", "TBL-02", "TBL-03", "VW-01")} == {
         "TXT-06": "2", "TBL-01": "YES", "TBL-02": "2", "TBL-03": "5", "VW-01": "2"}
     for id in ("ORD-02", "TXT-01", "CHG-01", "CHG-02", "SCR-01", "SET-01"):
         assert by[id]["local"].startswith("error: "), id
-    # live run 11 settled every case the reference doesn't
-    assert not [c.id for c in w.CASES if c.documented is None]
+    # live run 11 settled every case the reference doesn't; WR-229's .NET splits wait for the next live run
+    assert [c.id for c in w.CASES if c.documented is None] == ["FMT-04", "FMT-05", "FMT-06", "FMT-07", "FMT-08"]
+    for id in ("FMT-04", "FMT-05", "FMT-06", "FMT-07", "FMT-08"):
+        assert by[id]["local"].startswith("error: "), id
 
 
 # ---- the run, against a fake warehouse

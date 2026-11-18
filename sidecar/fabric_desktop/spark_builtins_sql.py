@@ -188,17 +188,27 @@ def _typeof(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression 
     if len(args) != 1:
         return None
     # A scalar type, or a list of one (INTEGER[] -> array<int>); deeper types in lower case.
+    # A struct or map is named from its type where spark_complex_types can work it out; otherwise refused.
+    stop = ("'typeof() can''t run on this PC the way it runs in Fabric, because the struct or map''s type "
+            "couldn''t be worked out here, so nothing ran. Run the cell in Fabric.'")
     scalar = "CASE kf_t " + " ".join(f"WHEN '{d}' THEN '{s}'" for d, s in _TYPE_NAMES) + \
-             " ELSE CASE WHEN kf_t LIKE 'DECIMAL(%' THEN REPLACE(LOWER(kf_t), ' ', '') ELSE LOWER(kf_t) END END"
+             " ELSE CASE WHEN kf_t LIKE 'DECIMAL(%' THEN REPLACE(LOWER(kf_t), ' ', '') " \
+             f"WHEN kf_t LIKE 'STRUCT(%' OR kf_t LIKE 'MAP(%' THEN ERROR({stop}) ELSE LOWER(kf_t) END END"
     whole = (f"(LIST_TRANSFORM([TYPEOF(fj_arg0)], kf_x -> CASE WHEN kf_x LIKE '%[]' AND kf_x NOT LIKE '%[][]' "
              f"AND kf_x NOT LIKE '%(%' THEN 'array<' || (LIST_TRANSFORM([LEFT(kf_x, LENGTH(kf_x) - 2)], kf_t -> {scalar}))[1] "
              f"|| '>' ELSE (LIST_TRANSFORM([kf_x], kf_t -> {scalar}))[1] END))[1]")
-    return _with_args(whole, args)
+    arg = args[0].copy()
+    arg.meta["kf_complex_arg"] = True  # spark_complex._mark: named from its type there
+    named = _with_args(whole, [arg])
+    named.meta["kf_complex"] = "typeof"
+    return named
 
 
 def _sign(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
-    # Spark's signum is a double: 1.0, -1.0 or 0.0.
-    return _with_args("CAST(SIGN(fj_arg0) AS DOUBLE)", args) if len(args) == 1 else None
+    # Spark's signum is Java's Math.signum, a double: 1.0 or -1.0, and the value itself for NaN, 0.0 and -0.0
+    # (DuckDB's SIGN gives 0 for NaN and loses the sign of -0.0).
+    return _with_args("CASE WHEN ISNAN(CAST(fj_arg0 AS DOUBLE)) OR CAST(fj_arg0 AS DOUBLE) = 0 THEN CAST(fj_arg0 AS DOUBLE) "
+                      "ELSE CAST(SIGN(fj_arg0) AS DOUBLE) END", args) if len(args) == 1 else None
 
 
 def _elt(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
@@ -289,6 +299,19 @@ def _text_this(fn: str) -> Callable[..., exp.Expression | None]:
             node.set("this", _with_args(spark_text_arg("fj_arg0", fn), [arg]))
         return None
     return build
+
+
+def _initcap(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """initcap(str) as Spark's InitCap: the text lower-cased, then each character after a space (and the first)
+    upper-cased; words are split at spaces only. sqlglot's own DuckDB SQL for it reads its argument back as text,
+    which fails once that argument is rewritten (initcap(upper(x)) and initcap('aaa') stopped with "Expecting )"),
+    so it is written here with the argument node put in, cast to text as Spark casts it."""
+    delimiter = node.args.get("expression")
+    if delimiter is not None and not (isinstance(delimiter, exp.Literal) and delimiter.is_string
+                                      and delimiter.name == " "):
+        return None
+    return _with_args("ARRAY_TO_STRING(LIST_TRANSFORM(STRING_SPLIT(LOWER(" + spark_text_arg("fj_arg0", "initcap")
+                      + "), ' '), kf_w -> UPPER(LEFT(kf_w, 1)) || SUBSTRING(kf_w, 2)), ' ')", [node.this])
 
 
 # levenshtein counts character edits in Spark (UTF8String.levenshteinDistance); DuckDB's LEVENSHTEIN counts
@@ -513,9 +536,16 @@ def _json_tuple(node: exp.Expression, args: list[exp.Expression]) -> exp.Express
     (an object or list as its JSON), NULL when the key is missing or the text isn't JSON."""
     if len(args) < 2:
         return None
-    fields = ", ".join(f"'c{i}': CASE WHEN JSON_VALID(fj_arg0) THEN JSON_EXTRACT_STRING(fj_arg0, "
-                       f"'$.\"' || REPLACE(fj_arg{i + 1}, '\"', '\\\"') || '\"') END" for i in range(len(args) - 1))
-    return _with_args(f"UNNEST([{{{fields}}}], max_depth := 2)", args)
+    if any(isinstance(a, exp.Null) for a in args):
+        raise ValueError("json_tuple's arguments must all be strings, as in Spark, so nothing ran. Write a NULL "
+                         "as CAST(NULL AS STRING).")
+    # A key the object repeats gives its last value, as in Spark (json_keys and $.* list the object's
+    # members in order); a string value without its quotes.
+    fields = ", ".join(f"'c{i}': (LIST_TRANSFORM(LIST_FILTER(RANGE(1, LEN(fj_o.k) + 1), fj_n -> fj_o.k[fj_n] = "
+                       f"fj_arg{i + 1}), fj_n -> fj_o.v[fj_n] ->> '$'))[-1]" for i in range(len(args) - 1))
+    members = ("CASE WHEN JSON_VALID(fj_arg0) AND JSON_TYPE(fj_arg0) = 'OBJECT' THEN {'k': JSON_KEYS(fj_arg0), "
+               "'v': JSON_EXTRACT(fj_arg0, '$.*')} END")
+    return _with_args(f"UNNEST(LIST_TRANSFORM([{members}], fj_o -> {{{fields}}}), max_depth := 2)", args)
 
 
 def _mask(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
@@ -965,6 +995,10 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
             "LEFT(fj_arg0, GREATEST(fj_arg2 - 1, 0)) || fj_arg1 || SUBSTR(fj_arg0, fj_arg2 + "
             + ("CASE WHEN fj_arg3 < 0 THEN LENGTH(fj_arg1) ELSE fj_arg3 END" if n.args.get("for_") else "LENGTH(fj_arg1)") + ")",
             [n.this, n.expression, n.args["from_"], *([n.args["for_"]] if n.args.get("for_") else [])])),
+        ("Initcap", _initcap),
+        # Spark's sqrt is Java's Math.sqrt: NaN below 0, where DuckDB's stops with "cannot take square root"
+        ("Sqrt", _template("CASE WHEN CAST(fj_arg0 AS DOUBLE) < 0 THEN CAST('NaN' AS DOUBLE) "
+                           "ELSE SQRT(CAST(fj_arg0 AS DOUBLE)) END", 1)),
         ("Levenshtein", _levenshtein),
         # bit_count counts the bits of the value as a long (Long.bitCount), so -1 gives 64 for an int too.
         ("BitwiseCount", lambda n, a: _with_args(f"CAST(BIT_COUNT({_spark_whole('fj_arg0', 'BIGINT')}) AS INTEGER)",

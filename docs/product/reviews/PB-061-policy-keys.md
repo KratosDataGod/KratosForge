@@ -60,7 +60,8 @@ None blocking.
 
 | Limitation | Where users are told | Backlog item that tracks it |
 | --- | --- | --- |
-| Group Policy templates are tested against the schema and a simulated registry, not a live domain or Intune push | docs/enterprise-install.md | PB-002 (live harness), or a Windows check on the product owner's PC when he chooses |
+| Group Policy templates are tested against the schema and a simulated registry, not a live domain or Intune push | docs/enterprise-install.md | PB-002 (live harness), or a Windows check on the product owner's PC |
+| The sign-in tenant key (#2419) isn't on main yet; it widens trust, so it must join `app_settings.LOOSENING` when it lands | Not user-facing until it lands | PB-061 follow-up with #2419 |
 
 ## Inventory and backlog changes
 

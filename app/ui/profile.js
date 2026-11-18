@@ -4,7 +4,7 @@
 // Loaded after features.js; everything here runs after startup.
 
 const profilePage = { tab: "overview", data: null, days: 90, achievements: false, report: null,
-  trees: { classId: null, spec: null, talent: null, data: null } };
+  trees: { classId: null, spec: null, talent: null, data: null, error: false } };
 const RECORDING_ON = "Recording is on: notebooks that pass Validate, Prove or Side by side are kept in a private record on this PC. Turn it off in Profile > Settings.";
 // Badge glyphs (20x22), from the approved mockup. Locked achievements show the lock.
 const BADGE_GLYPHS = {
@@ -335,7 +335,8 @@ const TREE_STATE = { mastered: "Mastered", in_progress: "In progress", available
 async function loadTrees(classId) {
   const t = profilePage.trees;
   const out = await attempt(() => rpc("profile_mastery", classId ? { class_id: classId } : {}), "Couldn't open your skill trees");
-  if (!out) return;
+  t.error = !out;
+  if (!out) { if (state.view === "profile" && profilePage.tab === "trees") render(); return; }
   if (t.data?.class.id !== out.class.id) { t.spec = out.class.specializations[0].id; t.talent = null; }
   t.data = out; t.classId = out.class.id;
   if (state.view === "profile" && profilePage.tab === "trees") render();
@@ -343,6 +344,10 @@ async function loadTrees(classId) {
 
 function profileTrees() {
   const t = profilePage.trees;
+  if (!t.data && t.error) {
+    return h("p", { class: "muted-text" }, "Couldn't open your skill trees. ",
+      btn("Try again", null, () => { t.error = false; render(); }, "tool outline small"));
+  }
   if (!t.data) {
     loadTrees(t.classId);
     return h("p", { class: "muted-text" }, "Loading your skill trees...");

@@ -51,9 +51,9 @@ four original exam questions (ACD-013).
 | 2.2.3 | Create and manage shortcuts to data | E29 | SIM | Yes | LM-24 |
 | 2.2.4 | Implement mirroring | E30 | KO | Yes | |
 | 2.2.5 | Ingest data by using pipelines | E31 | SIM | Yes | |
-| 2.2.6 | Transform data by using PySpark, SQL, and KQL | E32, E33, E34, C1 | LV (PySpark API, SQL); KO (KQL) | Yes (KQL) | LM-08, LM-19 |
+| 2.2.6 | Transform data by using PySpark, SQL, and KQL | E32, E33, E34, E69, C1 | LV (PySpark API, SQL); KO (KQL) | Yes (KQL) | LM-08, LM-19 |
 | 2.2.7 | Denormalize data | E35, C1 | LV | No | LAB-07 |
-| 2.2.8 | Group and aggregate data | E36, C1 | LV | No | LM-04 |
+| 2.2.8 | Group and aggregate data | E36, E70, C1 | LV | No | LM-04 |
 | 2.2.9 | Handle duplicate, missing, and late-arriving data | E25, E37, E38, E39, E57, E58, C1, C2 | LV | No | LM-13, LM-17, LAB-04, LAB-06 |
 | 2.3.1 | Choose an appropriate streaming engine | E40 | KO | No | |
 | 2.3.2 | Process data by using eventstreams | E41 | SIM | Yes | |

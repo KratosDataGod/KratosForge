@@ -28,6 +28,10 @@ question on the roadmap.
   the cell, it is removed and a message names the line, such as "Removed the breakpoint on line 5,
   because its line was deleted." A breakpoint past the cell's end (its code was changed in another program)
   is removed and named the same way when the cell runs.
+- **Editing a cell while it's paused** doesn't change the run: the cell keeps running the code as it
+  started, and your edits and breakpoint changes take effect the next time it runs. The paused line
+  stays marked on its code wherever your edit moved it, and the panel says so. When that line's code
+  is gone, nothing is marked, so the mark is never on a line that isn't the one paused.
 - Breakpoints are **saved with the notebook**, so they're there after you close and reopen it.
   They're kept in each format KratosForge writes:
   - `.ipynb` (the notebook file, Git, Fabric Git sync and **Export > Jupyter**): in the cell's
@@ -68,7 +72,7 @@ The paused line is highlighted, and a panel under the cell shows:
 | Continue | F5 | Runs to the next breakpoint, or to the end of the cell. |
 | Step over | F10 | Runs to the next line, without going into calls. |
 | Step into | F11 | Goes into a function the cell defines. |
-| Step out | Shift+F11 | Runs until the current function returns. |
+| Step out | Shift+F11 | Runs until the current function returns. When the caller has no more lines to run, as in `return n * fact(n - 1)`, it pauses as the caller returns. |
 | Stop | | Cancels the cell, like **Cancel**. Variables the cell set so far are kept, and a Debug from here run stops there. |
 
 After **Stop**, nothing of the debugger is left behind: the next cell runs at full speed with the
@@ -83,6 +87,9 @@ variables the stopped cell left.
   a breakpoint in that cell and debug from there.
 - **Restarting the kernel while paused** ends the paused cell, as **Stop** does, but the variables
   go with the restart. A **Debug from here** run stops there and doesn't go on into the new kernel.
+- **If the notebook's own process ends while paused** (with **Run notebooks in their own process**
+  on, the process crashed or was ended), the cell ends with an error saying the process stopped,
+  nothing stays paused, and the next run starts a fresh process.
 - **No time limit while debugging.** Time spent paused counts as running, so the cell time limit is
   off for a cell under the debugger. The memory limit still applies.
 - **Evaluate waits up to 10 seconds** for an answer, then shows it when it finishes. **Stop** ends
@@ -97,7 +104,9 @@ variables the stopped cell left.
 The automated checks are `sidecar/tests/test_debugger.py`, `sidecar/tests/test_debugger_saved.py`
 (saved breakpoints in every format, and a three-cell debug run in both kernels) and
 `sidecar/tests/test_debugger_hardening.py` (stepping past library code, a restart while paused,
-large frames and values) and `app/tests/browser/debugger.test.cjs`. Before the feature leaves Preview, also go through this on
+large frames and values), `sidecar/tests/test_debugger_robust.py` (malformed debugger and process
+messages, a process that dies or a cell that hangs while paused, the stack through errors and
+recursion) and `app/tests/browser/debugger.test.cjs`. Before the feature leaves Preview, also go through this on
 Windows, with **Run notebooks in their own process** both on and off:
 
 1. Set breakpoints in two cells, save, close the notebook and reopen it. The red bars are on the
@@ -119,3 +128,7 @@ Windows, with **Run notebooks in their own process** both on and off:
 9. **Export** as Fabric source and import it again: the breakpoints come back. Export as
    Databricks source: the notes list the breakpoints as not carried over.
 10. Open the notebook in Fabric after publishing it: it opens and runs as before.
+11. While paused at a breakpoint, insert two lines above it: the paused mark moves with its line and
+    the panel says the pause is in the code as it ran. Delete that line: no line is marked.
+12. With **Run notebooks in their own process** on, end the notebook's Python process in Task
+    Manager while paused: the cell ends with an error, nothing stays paused, and the next cell runs.

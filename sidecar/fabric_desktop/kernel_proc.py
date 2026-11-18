@@ -363,8 +363,10 @@ class ProcessKernel:
         if self._running and self._last is not None:
             outputs = list(self._last.get("outputs") or []) + [{"type": "error", "ename": "KernelStopped", "evalue": why,
                                                                 "traceback": [why]}]
-            self._last = {**self._last, "status": "cancelled" if why == STOPPED_TEXT else "error",
-                          "version": self._last.get("version", 0) + 1, "outputs": outputs}
+            # A cell paused in the debugger isn't paused any more: its process is gone.
+            last = {k: v for k, v in self._last.items() if k != "paused"}
+            self._last = {**last, "status": "cancelled" if why == STOPPED_TEXT else "error",
+                          "version": last.get("version", 0) + 1, "outputs": outputs}
         self._running = False
         self._proc = None
 

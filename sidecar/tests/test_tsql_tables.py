@@ -40,7 +40,7 @@ def run(engine, sql):
 
 
 def test_values_that_fit_the_declared_length_are_kept(engine):
-    assert run(engine, "INSERT INTO dbo.t VALUES (1, 'abcde', 'ab', 0x0102, REPLICATE('x', 9000)), "
+    assert run(engine, "INSERT INTO dbo.t VALUES (1, 'abcde', 'ab', 0x0102, REPLICATE(CAST('x' AS VARCHAR(MAX)), 9000)), "
                        "(2, N'éé', NULL, NULL, NULL), (3, NULL, NULL, NULL, NULL)") == [[3]]
     assert run(engine, "SELECT id, v, c, LEN(m) FROM dbo.t ORDER BY id") == [[1, "abcde", "ab", 9000],
                                                                               [2, "éé", None, None],

@@ -220,3 +220,18 @@ def test_without_webhook_hides_the_urls_percent_encoded_forms_too():
                     "/WEBHOOKB2/abc-123%40DEF/IncomingWebhook/S3CR3T%20PATH/x"):
         out = redact.without_webhook(f"Max retries exceeded with url: {written}", url)
         assert "s3cr3t" not in out.lower() and "[webhook]" in out, written
+
+
+@pytest.mark.parametrize("text", [
+    "C:\\Users\\O'Brien\\proj", "C:\\Users\\ann'2\\proj", "/home/o'brien/proj", "/Users/o'brien/proj",
+    "/home/ann'2/proj", "C:\\Users\\Jo O'Neil\\OneDrive - O'Hare 2'Co\\x",
+])
+def test_a_user_name_with_an_apostrophe_is_taken_out_whole(text):
+    out = redact.for_support(text)
+    for part in ("Brien", "brien", "'2", "Neil", "Hare", "2'Co"):
+        assert part not in out, (text, out)
+
+
+def test_an_apostrophe_closing_a_quoted_path_still_closes_it():
+    out = redact.for_support("opened 'C:\\Users\\ann' and '/home/bob', then stopped")
+    assert out.endswith("', then stopped") and "ann" not in out and "bob" not in out

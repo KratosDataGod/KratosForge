@@ -19,3 +19,8 @@ SELECT CASE WHEN false THEN 1 ELSE '2x' END
 # if
 SELECT if(true, 1, 'x')
 SELECT typeof(if(true, 1, 'x'))
+# Spark stops: a boolean among other types, greatest or least of a number and a string
+SELECT greatest(1, '2')
+SELECT coalesce(true, 1)
+SELECT if(true, true, 1)
+SELECT CASE WHEN true THEN true ELSE 'false' END

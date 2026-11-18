@@ -98,6 +98,22 @@
      "string"
     ]
    ]
+  },
+  {
+   "sql": "SELECT greatest(1, '2')",
+   "error": "[DATATYPE_MISMATCH.DATA_DIFF_TYPES] Cannot resolve \"greatest(1, 2)\" due to data type mismatch: Input to `greatest` should all be the same type, but it's [\"INT\", \"STRING\"].; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT coalesce(true, 1)",
+   "error": "[DATATYPE_MISMATCH.DATA_DIFF_TYPES] Cannot resolve \"coalesce(true, 1)\" due to data type mismatch: Input to `coalesce` should all be the same type, but it's (\"BOOLEAN\" or \"INT\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT if(true, true, 1)",
+   "error": "[DATATYPE_MISMATCH.DATA_DIFF_TYPES] Cannot resolve \"(IF(true, true, 1))\" due to data type mismatch: Input to `if` should all be the same type, but it's [\"BOOLEAN\", \"INT\"].; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT CASE WHEN true THEN true ELSE 'false' END",
+   "error": "[DATATYPE_MISMATCH.DATA_DIFF_TYPES] Cannot resolve \"CASE WHEN true THEN true ELSE false END\" due to data type mismatch: Input to `casewhen` should all be the same type, but it's [\"BOOLEAN\", \"STRING\"].; line 1 pos 7;"
   }
  ]
 }

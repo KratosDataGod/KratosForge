@@ -239,25 +239,28 @@ def spark_complex_types(statement: exp.Expr, conn: Any, kinds: tuple[str, ...] |
 
 # CASE, if, nvl2 and coalesce (nvl, ifnull) whose values mix a string with a number, date or timestamp: Spark
 # (ANSI off) gives a string, each other value cast to STRING (TypeCoercion's stringPromotion), where DuckDB casts
-# the string to the other type. sql._spark_conditional_text rewrites those whose values' types it can read from
-# the SQL; one with a value it can't (a column, a call) is marked CONDITIONAL and typed here once bound.
+# the string to the other type. A boolean among other types, and greatest or least of a number and a string, stop
+# in Spark, where DuckDB answers: they stop here too. sql._spark_conditional_text handles those whose values' types
+# it can read from the SQL; one with a value it can't (a column, a call) is marked CONDITIONAL and typed here once
+# bound.
 CONDITIONAL = "kf_conditional"
 _STRINGS = (exp.DataType.Type.TEXT, exp.DataType.Type.VARCHAR, exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR,
             exp.DataType.Type.NVARCHAR)
-_PROMOTED = (*exp.DataType.INTEGER_TYPES, exp.DataType.Type.DECIMAL, exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT,
-             exp.DataType.Type.DATE, exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPTZ,
-             exp.DataType.Type.TIMESTAMPLTZ, exp.DataType.Type.TIMESTAMPNTZ)
+_NUMBERS = (*exp.DataType.INTEGER_TYPES, exp.DataType.Type.DECIMAL, exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT)
+_DATETIMES = (exp.DataType.Type.DATE, exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPTZ,
+              exp.DataType.Type.TIMESTAMPLTZ, exp.DataType.Type.TIMESTAMPNTZ)
 
 
 def conditional_values(node: exp.Expr) -> list[exp.Expr] | None:
-    """The values ``node`` picks from, when it is a CASE, if, nvl2 or coalesce (nvl, ifnull); else None."""
+    """The values ``node`` picks from, when it is a CASE, if, nvl2 or coalesce (nvl, ifnull), or compares, when
+    it is greatest or least; else None."""
     if isinstance(node, exp.Case):
         values = [i.args.get("true") for i in node.args.get("ifs") or []] + [node.args.get("default")]
     elif isinstance(node, exp.If) and node.arg_key != "ifs":
         values = [node.args.get("true"), node.args.get("false")]
     elif isinstance(node, exp.Nvl2):
         values = [node.args.get("true"), node.args.get("false")]
-    elif isinstance(node, exp.Coalesce):
+    elif isinstance(node, (exp.Coalesce, exp.Greatest, exp.Least)):
         values = [node.this, *node.expressions]
     else:
         return None
@@ -265,15 +268,44 @@ def conditional_values(node: exp.Expr) -> list[exp.Expr] | None:
 
 
 def text_kind(dtype: exp.DataType | None) -> str | None:
-    """How a value of ``dtype`` takes part: "string", "promoted" (cast to STRING beside a string), "null",
-    "other" (anything else; Spark doesn't make it a string), or None when the type isn't known."""
+    """How a value of ``dtype`` takes part: "string", "number", "datetime", "boolean", "null", "other", or None
+    when the type isn't known."""
     if dtype is None or dtype.is_type(exp.DataType.Type.UNKNOWN):
         return None
-    if dtype.is_type(exp.DataType.Type.NULL):
-        return "null"
-    if dtype.is_type(*_STRINGS):
-        return "string"
-    return "promoted" if dtype.is_type(*_PROMOTED) else "other"
+    for kind, types in (("null", (exp.DataType.Type.NULL,)), ("string", _STRINGS), ("number", _NUMBERS),
+                        ("datetime", _DATETIMES), ("boolean", (exp.DataType.Type.BOOLEAN,))):
+        if dtype.is_type(*types):
+            return kind
+    return "other"
+
+
+def _construct(node: exp.Expr) -> str:
+    """What the query typed for ``node``: CASE, if(), coalesce(), nvl(), ..."""
+    if isinstance(node, exp.Case):
+        return "CASE"
+    name = node.meta.get("fd_spark_name")
+    return f"{name}()" if isinstance(name, str) else "if()" if isinstance(node, exp.If) else f"{node.key}()"
+
+
+def conditional_plan(node: exp.Expr, kinds: list[str | None]) -> str | None:
+    """For ``node`` (see conditional_values) with its values of ``kinds``: "text" when its numbers, dates and
+    timestamps are cast to STRING, "typed" when that waits for the bound tables' types, or None. Raises
+    ValueError where Spark stops."""
+    known = {k for k in kinds if k is not None}
+    if isinstance(node, (exp.Greatest, exp.Least)):
+        if {"number", "string"} <= known:
+            name = node.meta.get("fd_spark_name") or node.key
+            raise ValueError(f"{name}() can't compare a number with a string, so nothing ran. Spark stops on it "
+                             "too. Cast the values to one type first, for example CAST('2' AS INT).")
+        return "typed" if None in kinds and sum(k != "null" for k in kinds) >= 2 else None
+    if "boolean" in known and known - {"boolean", "null"}:
+        raise ValueError(f"{_construct(node)} can't mix a boolean with another type, so nothing ran. Spark stops on "
+                         "it too. Cast the values to one type first.")
+    if None in kinds:
+        return "typed" if sum(k != "null" for k in kinds) >= 2 else None
+    if "string" in known and known & {"number", "datetime"} and known <= {"string", "number", "datetime", "null"}:
+        return "text"
+    return None
 
 
 def _conditional_texts(statement: exp.Expr, conn: Any) -> exp.Expr:
@@ -311,10 +343,10 @@ def _conditional_texts(statement: exp.Expr, conn: Any) -> exp.Expr:
         found = conditional_values(node) or []
         kinds = ["string" if id(v) in made else "null" if isinstance(v, exp.Null)
                  else text_kind(types.get(index.get(id(v), -1))) for v in found]
-        if None in kinds or "other" in kinds or "string" not in kinds or "promoted" not in kinds:
+        if conditional_plan(node, kinds) != "text":
             continue
         for value, kind in zip(found, kinds, strict=True):
-            if kind == "promoted":
+            if kind in ("number", "datetime"):
                 value.replace(spark_text_of(value.copy()))
         made.add(id(node))
     return statement

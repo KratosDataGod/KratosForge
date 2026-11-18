@@ -272,18 +272,21 @@ These cases still differ:
 
 ## CASE, if, nvl2 and coalesce on this PC
 
-Spark SQL run on this PC types `CASE`, `if`, `nvl2`, `coalesce`, `nvl` and `ifnull` as Spark does with ANSI mode off: when their values mix a string with a number, date or timestamp, the result is a string, each other value cast to STRING as Spark casts it. `CASE WHEN c THEN 1 ELSE '2x' END` is `'1'` or `'2x'`, and `typeof` says `string`, where DuckDB cast `'2x'` to an INTEGER and failed. A column's type is read from the bound tables. Values all of one type are run as before. 12 queries answered by Apache Spark 3.5.3 are checked against this PC in `sidecar/tests/test_spark_conditional_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+Spark SQL run on this PC types `CASE`, `if`, `nvl2`, `coalesce`, `nvl` and `ifnull` as Spark does with ANSI mode off: when their values mix a string with a number, date or timestamp, the result is a string, each other value cast to STRING as Spark casts it. `CASE WHEN c THEN 1 ELSE '2x' END` is `'1'` or `'2x'`, and `typeof` says `string`, where DuckDB cast `'2x'` to an INTEGER and failed. A column's type is read from the bound tables. Values all of one type are run as before.
+
+Where Spark stops on mixed types, this PC stops too, before anything runs, and says what to change: a boolean beside another type in `CASE`, `if`, `nvl2`, `coalesce`, `nvl` or `ifnull` (as `coalesce(true, 1)`), and `greatest` or `least` of a number and a string (as `greatest(1, '2')`). A boolean beside `NULL` still runs. This holds for columns too, once their types are known.
+
+16 queries answered by Apache Spark 3.5.3 are checked against this PC in `sidecar/tests/test_spark_conditional_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
 
 These cases still differ:
 
 | Case | Spark | This PC |
 | --- | --- | --- |
-| `greatest` or `least` of a number and a string, as `greatest(1, '2')`, or of one value | Stops (`DATA_DIFF_TYPES`, `WRONG_NUM_ARGS`) | Answers, as DuckDB does (`2`) |
-| A boolean beside a number or a string, as `coalesce(true, 1)` or `if(true, true, 1)` | Stops (`DATA_DIFF_TYPES`) | Answers, as DuckDB does |
+| `greatest` or `least` of one value, as `greatest(CAST(NULL AS INT))` | Stops (`WRONG_NUM_ARGS`) | Answers, as DuckDB does |
 | `CASE WHEN NULL THEN ...` | Stops (`UNEXPECTED_INPUT_TYPE`) | Answers, taking `NULL` as false |
-| A string beside a column whose type can't be worked out, such as one of a table the same cell creates | A string | DuckDB's type |
-| The DataFrame API: `F.when(...).otherwise(...)`, `F.coalesce`, `F.expr` | A string | DuckDB's type, or DuckDB's cast error |
-| Databricks SQL on the DuckDB engine (ANSI mode on) | Spark's ANSI rules | DuckDB's types |
+| A string or boolean beside a column whose type can't be worked out, such as one of a table the same cell creates | A string, or stops | DuckDB's type and answer |
+| The DataFrame API: `F.when(...).otherwise(...)`, `F.coalesce`, and `F.expr` with columns (`F.expr` of literals is as in Spark SQL) | A string, or stops | DuckDB's type and answer, or DuckDB's cast error |
+| Databricks SQL on the DuckDB engine (ANSI mode on) | Spark's ANSI rules | DuckDB's types and answers; nothing stops |
 | Numbers, decimals and doubles mixed without a string | Spark's wider type | DuckDB's wider type; not compared with Spark |
 
 ## Local T-SQL changes

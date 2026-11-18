@@ -1445,11 +1445,11 @@ def _written_kind(node: exp.Expr, made: set[int]) -> str | None:
     if isinstance(node, exp.Null):
         return "null"
     if isinstance(node, exp.Literal):
-        return "string" if node.is_string else "promoted"
+        return "string" if node.is_string else "number"
     if isinstance(node, exp.Neg) and isinstance(node.this, exp.Literal) and not node.this.is_string:
-        return "promoted"
+        return "number"
     if isinstance(node, exp.Boolean):
-        return "other"
+        return "boolean"
     if isinstance(node, (exp.Cast, exp.TryCast)) and isinstance(node.to, exp.DataType):
         return spark_complex.text_kind(node.to)
     return None
@@ -1459,8 +1459,9 @@ def _spark_conditional_text(statement: exp.Expression, databricks: bool) -> exp.
     """CASE, if, nvl2 and coalesce (nvl, ifnull) that mix a string with a number, date or timestamp give a
     string, as Spark (ANSI off) gives it: CASE WHEN c THEN 1 ELSE 'a' END is '1', where DuckDB cast 'a' to an
     INTEGER and failed. Each such value is cast to STRING as Spark casts it (spark_integer_casts writes the
-    cast). One whose values' types the SQL doesn't tell is marked for spark_complex_types, which types it once
-    the tables are bound. Values all of one type, or with a boolean among them, are left as they are.
+    cast). A boolean among other types, and greatest or least of a number and a string, stop as in Spark
+    (spark_complex.conditional_plan). One whose values' types the SQL doesn't tell is marked for
+    spark_complex_types, which types it once the tables are bound. Values all of one type are left as they are.
     Databricks SQL runs with ANSI on, where Spark's rules differ: left as it is."""
     if databricks:
         return statement
@@ -1470,16 +1471,13 @@ def _spark_conditional_text(statement: exp.Expression, databricks: bool) -> exp.
         if not values:
             continue
         kinds = [_written_kind(v, made) for v in values]
-        if "other" in kinds:
-            continue
-        if None in kinds:
-            if sum(k != "null" for k in kinds) >= 2:
-                node.meta[spark_complex.CONDITIONAL] = True
-            continue
-        if "string" not in kinds or "promoted" not in kinds:
+        plan = spark_complex.conditional_plan(node, kinds)
+        if plan == "typed":
+            node.meta[spark_complex.CONDITIONAL] = True
+        if plan != "text":
             continue
         for value, kind in zip(values, kinds, strict=True):
-            if kind != "promoted":
+            if kind not in ("number", "datetime"):
                 continue
             digits = value.this if isinstance(value, exp.Neg) else value
             if isinstance(digits, exp.Literal) and re.fullmatch(r"0|[1-9][0-9]*", digits.this):

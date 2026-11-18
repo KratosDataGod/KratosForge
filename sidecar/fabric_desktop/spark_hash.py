@@ -22,6 +22,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import itertools
 import threading
+from typing import Any
 
 _names = itertools.count()
 
@@ -306,3 +307,16 @@ def _hash_sql(name: str, count: int) -> str:
     top = 1 << (width - 1)
     return _let(_run(width, steps), lambda h: (
         f"(CASE WHEN {h} >= {top} THEN {h} - {2 * top} ELSE {h} END)::{'INTEGER' if width == 32 else 'BIGINT'}"))
+
+
+def sha2(data: bytes, bits: int) -> str:
+    """Spark's sha2 for 224, 384 and 512 bits (DuckDB has SHA-256 only): the digest as lower-case hex."""
+    import hashlib
+    return hashlib.new(f"sha{bits}", data).hexdigest()
+
+
+def register(con: Any) -> None:
+    """Add __kf_sha2 (sha2 above) to DuckDB connection ``con``, as each Spark SQL connection does. A NULL
+    argument gives NULL."""
+    from duckdb.sqltypes import BLOB, INTEGER, VARCHAR
+    con.create_function("__kf_sha2", sha2, [BLOB, INTEGER], VARCHAR, side_effects=False)

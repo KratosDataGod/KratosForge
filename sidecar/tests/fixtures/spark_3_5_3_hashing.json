@@ -1,0 +1,877 @@
+{
+ "spark": "3.5.3",
+ "ansi": false,
+ "time_zone": "UTC",
+ "cases": [
+  {
+   "sql": "SELECT hash('Spark', array(123), 2)",
+   "value": [
+    [
+     -1321691492
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(1), hash(0), hash(-1), hash(2147483647), hash(-2147483648)",
+   "value": [
+    [
+     -559580957,
+     933211791,
+     -1604776387,
+     133916647,
+     723455942
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(1L), hash(0L), hash(-1L), hash(9223372036854775807L), hash(-9223372036854775808L)",
+   "value": [
+    [
+     -1712319331,
+     -1670924195,
+     -939490007,
+     -1604625029,
+     -853646085
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(CAST(1 AS TINYINT)), hash(CAST(1 AS SMALLINT)), hash(CAST(-1 AS TINYINT))",
+   "value": [
+    [
+     -559580957,
+     -559580957,
+     -1604776387
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(1.5D), hash(0.0D), hash(-0.0D), hash(CAST('NaN' AS DOUBLE)), hash(1.0E300D)",
+   "value": [
+    [
+     1290763749,
+     -1670924195,
+     -1670924195,
+     -1281358385,
+     -359479591
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(CAST(1.5 AS FLOAT)), hash(CAST(0.0 AS FLOAT)), hash(CAST(-0.0 AS FLOAT))",
+   "value": [
+    [
+     -221251528,
+     933211791,
+     933211791
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(true), hash(false)",
+   "value": [
+    [
+     -559580957,
+     933211791
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(''), hash('a'), hash('abc'), hash('ÄÖü'), hash('a b'), hash('😀')",
+   "value": [
+    [
+     142593372,
+     1485273170,
+     1322437556,
+     796825287,
+     1910189847,
+     1877935379
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(repeat('x', 1000))",
+   "value": [
+    [
+     -1727652553
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(X''), hash(X'00'), hash(X'0102030405')",
+   "value": [
+    [
+     142593372,
+     -783713497,
+     -2064006189
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(1.5BD), hash(CAST(1.5 AS DECIMAL(10,2))), hash(CAST(1.5 AS DECIMAL(20,2))), hash(CAST(1.5 AS DECIMAL(38,10)))",
+   "value": [
+    [
+     -18083236,
+     -2056712946,
+     -339019914,
+     -994477761
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(CAST(123456789012345678 AS DECIMAL(18,0))), hash(CAST(1234567890123456789 AS DECIMAL(19,0)))",
+   "value": [
+    [
+     367821349,
+     -285683440
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(DATE'2024-02-29'), hash(DATE'1970-01-01'), hash(DATE'1900-01-01')",
+   "value": [
+    [
+     653915859,
+     933211791,
+     -28786220
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(TIMESTAMP'2024-02-29 10:11:12.345'), hash(TIMESTAMP'1970-01-01 00:00:00')",
+   "value": [
+    [
+     -144732630,
+     -1670924195
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(TIMESTAMP_NTZ'2024-02-29 10:11:12.345')",
+   "value": [
+    [
+     -144732630
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(NULL), hash(CAST(NULL AS INT)), hash(CAST(NULL AS STRING))",
+   "value": [
+    [
+     42,
+     42,
+     42
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(1, 2), hash(2, 1), hash(1, NULL), hash(NULL, 1), hash('a', 'b')",
+   "value": [
+    [
+     -222940379,
+     601480897,
+     -559580957,
+     -559580957,
+     190734147
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(array(1, 2, 3)), hash(array()), hash(array(CAST(NULL AS INT))), hash(array('a', 'b'))",
+   "value": [
+    [
+     -912918097,
+     42,
+     42,
+     190734147
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(map('a', 1)), hash(map('a', 1, 'b', 2))",
+   "error": "[DATATYPE_MISMATCH.HASH_MAP_TYPE] Cannot resolve \"hash(map(a, 1))\" due to data type mismatch: Input to the function `hash` cannot contain elements of the \"MAP\" type. In Spark, same maps may have different hashcode, thus hash expressions are prohibited on \"MAP\" elements. To restore previous behavior "
+  },
+  {
+   "sql": "SELECT hash(named_struct('a', 1, 'b', 'x')), hash(named_struct('a', CAST(NULL AS INT)))",
+   "value": [
+    [
+     -1305545736,
+     42
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(1) = hash(1L), hash(1) = hash(CAST(1 AS TINYINT)), hash(1) = hash(1.0D)",
+   "value": [
+    [
+     false,
+     true,
+     false
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT pmod(hash('customer-42'), 200), pmod(hash(12345L), 200), pmod(hash(DATE'2024-02-29'), 16)",
+   "value": [
+    [
+     46,
+     40,
+     3
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(id) FROM range(5) ORDER BY id",
+   "value": [
+    [
+     -1670924195
+    ],
+    [
+     -1712319331
+    ],
+    [
+     -797927272
+    ],
+    [
+     1344313940
+    ],
+    [
+     519220707
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT typeof(hash(1))",
+   "value": [
+    [
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT xxhash64('Spark', array(123), 2)",
+   "value": [
+    [
+     5602566077635097486
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT xxhash64(1), xxhash64(0), xxhash64(-1), xxhash64(2147483647), xxhash64(-2147483648)",
+   "value": [
+    [
+     -6698625589789238999,
+     3614696996920510707,
+     2017008487422258757,
+     1508894993788531228,
+     2073849959933241805
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT xxhash64(1L), xxhash64(0L), xxhash64(-1L), xxhash64(9223372036854775807L)",
+   "value": [
+    [
+     -7001672635703045582,
+     -5252525462095825812,
+     3858142552250413010,
+     -3246596055638297850
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT xxhash64(CAST(1 AS TINYINT)), xxhash64(CAST(1 AS SMALLINT))",
+   "value": [
+    [
+     -6698625589789238999,
+     -6698625589789238999
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT xxhash64(1.5D), xxhash64(0.0D), xxhash64(-0.0D), xxhash64(CAST('NaN' AS DOUBLE))",
+   "value": [
+    [
+     7738255526519901366,
+     -5252525462095825812,
+     -5252525462095825812,
+     -3127944061524951246
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT xxhash64(CAST(1.5 AS FLOAT))",
+   "value": [
+    [
+     6163473420726370430
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT xxhash64(true), xxhash64(false)",
+   "value": [
+    [
+     -6698625589789238999,
+     3614696996920510707
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT xxhash64(''), xxhash64('a'), xxhash64('abc'), xxhash64('ÄÖü'), xxhash64('😀'), xxhash64('abcdefghijklmnopqrstuvwxyz0123456789')",
+   "value": [
+    [
+     -7444071767201028348,
+     -8582455328737087284,
+     1423657621850124518,
+     -8470614110888217389,
+     -5869505314936196641,
+     2724237963427677065
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT xxhash64(repeat('x', 1000))",
+   "value": [
+    [
+     -8448076897081045321
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT xxhash64(X''), xxhash64(X'0102030405')",
+   "value": [
+    [
+     -7444071767201028348,
+     8668608334415110682
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT xxhash64(1.5BD), xxhash64(CAST(1.5 AS DECIMAL(20,2))), xxhash64(CAST(1.5 AS DECIMAL(38,10)))",
+   "value": [
+    [
+     3132713209420183794,
+     -194698251525976593,
+     -3765538183238091397
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT xxhash64(DATE'2024-02-29'), xxhash64(TIMESTAMP'2024-02-29 10:11:12.345')",
+   "value": [
+    [
+     4183429117450946631,
+     -2304774386072226561
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT xxhash64(NULL), xxhash64(CAST(NULL AS STRING))",
+   "value": [
+    [
+     42,
+     42
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT xxhash64(1, 2), xxhash64(2, 1), xxhash64(1, NULL), xxhash64('a', 'b')",
+   "value": [
+    [
+     -8133857028838179022,
+     -1045842817996895599,
+     -6698625589789238999,
+     -7357372313250070212
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT xxhash64(array(1, 2, 3)), xxhash64(map('a', 1)), xxhash64(named_struct('a', 1, 'b', 'x'))",
+   "error": "[DATATYPE_MISMATCH.HASH_MAP_TYPE] Cannot resolve \"xxhash64(map(a, 1))\" due to data type mismatch: Input to the function `xxhash64` cannot contain elements of the \"MAP\" type. In Spark, same maps may have different hashcode, thus hash expressions are prohibited on \"MAP\" elements. To restore previous b"
+  },
+  {
+   "sql": "SELECT pmod(xxhash64('customer-42'), 200), pmod(xxhash64(12345L), 200)",
+   "value": [
+    [
+     51,
+     94
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT xxhash64(id) FROM range(5) ORDER BY id",
+   "value": [
+    [
+     -3341702809300393011
+    ],
+    [
+     -5252525462095825812
+    ],
+    [
+     -7001672635703045582
+    ],
+    [
+     3188756510806108107
+    ],
+    [
+     404280023041566627
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT typeof(xxhash64(1))",
+   "value": [
+    [
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT md5('Spark'), md5(''), md5('ÄÖü'), md5(X'0102'), md5(NULL)",
+   "value": [
+    [
+     "8cde774d6f7333752ed72cacddb05126",
+     "d41d8cd98f00b204e9800998ecf8427e",
+     "f488bda1b642b4ff93ac33e6ded6aa0e",
+     "0cb988d042a7f28dd5fe2b55b3f5ac7a",
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT md5(CAST(123 AS STRING)), md5(CAST(123 AS BINARY))",
+   "value": [
+    [
+     "202cb962ac59075b964b07152d234b70",
+     "a7e0b18d0d4516eb0ea63371704a500c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT sha1('Spark'), sha1(''), sha('ÄÖü'), sha1(X'0102'), sha1(NULL)",
+   "value": [
+    [
+     "85f5955f4b27a9a4c2aab6ffe5d7189fc298b92c",
+     "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+     "bc3d74f3da86c390a54611f5bf46a9f51bd8e2db",
+     "0ca623e2855f2c75c842ad302fe820e41b4d197d",
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT sha2('Spark', 0), sha2('Spark', 224), sha2('Spark', 256), sha2('Spark', 384), sha2('Spark', 512)",
+   "value": [
+    [
+     "529bc3b07127ecb7e53a4dcf1991d9152c24537d919178022b2c42657f79a26b",
+     "dbeab94971678d36af2195851c0f7485775a2a7c60073d62fc04549c",
+     "529bc3b07127ecb7e53a4dcf1991d9152c24537d919178022b2c42657f79a26b",
+     "1e40b8d06c248a1cc32428c22582b6219d072283078fa140d9ad297ecadf2cabefc341b857ad36226aa8d6d79f2ab67d",
+     "44844a586c54c9a212da1dbfe05c5f1705de1af5fda1f0d36297623249b279fd8f0ccec03f888f4fb13bf7cd83fdad58591c797f81121a23cfdd5e0897795238"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT sha2('Spark', 1), sha2('Spark', 128), sha2('Spark', -1), sha2('Spark', NULL)",
+   "value": [
+    [
+     null,
+     null,
+     null,
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT sha2('', 256), sha2('ÄÖü', 512), sha2(X'0102', 384), sha2(NULL, 256)",
+   "value": [
+    [
+     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+     "55464acbbe6bbe1d2e44085b03f041c7cd625150f530e90051845a247616d716e3addcd18d0cd123d5887598ed1fa9bfb7d184441d487fcd2d68bdc4398df4fb",
+     "337059fbf57a65796709c8b66147a2557ec1133d62ede01eae7d2e6406e4408bb5c0dcad79d41b7b465a798fe5d29f1c",
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT typeof(md5('a')), typeof(sha1('a')), typeof(sha2('a', 256))",
+   "value": [
+    [
+     "string",
+     "string",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT crc32('Spark'), crc32(''), crc32('ÄÖü'), crc32(X'0102'), crc32(NULL)",
+   "value": [
+    [
+     1557323817,
+     0,
+     3720226155,
+     3066839698,
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT crc32(repeat('x', 1000)), typeof(crc32('a'))",
+   "value": [
+    [
+     994167270,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT base64('Spark SQL'), base64(''), base64('ÄÖü'), base64(X'00FF'), base64(NULL)",
+   "value": [
+    [
+     "U3BhcmsgU1FM",
+     "",
+     "w4TDlsO8",
+     "AP8=",
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT base64(repeat('x', 100))",
+   "value": [
+    [
+     "eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\r\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eA=="
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT unbase64('U3BhcmsgU1FM'), unbase64(''), unbase64(NULL)",
+   "value": [
+    [
+     "binary:537061726b2053514c",
+     "binary:",
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT unbase64('U3BhcmsgU1FM\\n'), unbase64('U3Bhc msgU1FM'), unbase64('U3BhcmsgU1F'), unbase64('!!!!')",
+   "value": [
+    [
+     "binary:537061726b2053514c",
+     "binary:537061726b2053514c",
+     "binary:537061726b205351",
+     "binary:"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT unbase64('YQ'), unbase64('YQ='), unbase64('YQ=='), unbase64('YQ===')",
+   "error": "Input byte array has wrong 4-byte ending unit"
+  },
+  {
+   "sql": "SELECT CAST(unbase64(base64('ÄÖü')) AS STRING), typeof(base64('a')), typeof(unbase64('YQ=='))",
+   "value": [
+    [
+     "ÄÖü",
+     "string",
+     "binary"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hex(17), hex(0), hex(-1), hex(255L), hex(-9223372036854775808L)",
+   "value": [
+    [
+     "11",
+     "0",
+     "FFFFFFFFFFFFFFFF",
+     "FF",
+     "8000000000000000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hex('Spark SQL'), hex(''), hex('ÄÖü'), hex(X'00FF'), hex(NULL)",
+   "value": [
+    [
+     "537061726B2053514C",
+     "",
+     "C384C396C3BC",
+     "00FF",
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hex(1.5D), hex(CAST(17 AS TINYINT))",
+   "value": [
+    [
+     "1",
+     "11"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT unhex('537061726B2053514C'), unhex('537061726b2053514c'), unhex(''), unhex(NULL)",
+   "value": [
+    [
+     "binary:537061726b2053514c",
+     "binary:537061726b2053514c",
+     "binary:",
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT unhex('A'), unhex('ABC'), unhex('GG'), unhex('0x41'), unhex(' 41')",
+   "value": [
+    [
+     "binary:0a",
+     "binary:0abc",
+     null,
+     null,
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT decode(unhex('537061726B2053514C'), 'UTF-8'), typeof(hex(1)), typeof(unhex('41'))",
+   "value": [
+    [
+     "Spark SQL",
+     "string",
+     "binary"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT conv('100', 2, 10), conv(-10, 16, -10), conv('255', 10, 16), conv('ff', 16, 10), conv('FF', 16, 2)",
+   "value": [
+    [
+     "4",
+     "-16",
+     "FF",
+     "255",
+     "11111111"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT conv('-1', 10, 16), conv('-1', 10, -16), conv('-255', 10, -16), conv('18446744073709551615', 10, 16)",
+   "value": [
+    [
+     "FFFFFFFFFFFFFFFF",
+     "-1",
+     "-FF",
+     "FFFFFFFFFFFFFFFF"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT conv('18446744073709551616', 10, 16), conv('99999999999999999999', 10, 10), conv('-99999999999999999999', 10, 10)",
+   "value": [
+    [
+     "FFFFFFFFFFFFFFFF",
+     "18446744073709551615",
+     "18446744073709551615"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT conv('z', 36, 10), conv('Z', 36, 10), conv('10', 36, 36), conv('10', 37, 10), conv('10', 10, 1)",
+   "value": [
+    [
+     "35",
+     "35",
+     "10",
+     null,
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT conv('12x', 10, 16), conv('x12', 10, 16), conv('', 10, 16), conv(' 12', 10, 16), conv('1.5', 10, 16)",
+   "value": [
+    [
+     "C",
+     "0",
+     null,
+     "C",
+     "1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT conv('7', 8, 2), conv('8', 8, 10), conv(NULL, 10, 2), conv('10', NULL, 2), conv('10', 10, NULL)",
+   "value": [
+    [
+     "111",
+     "0",
+     null,
+     null,
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT conv(255, 10, 16), conv(-255, 10, 16), typeof(conv('1', 10, 2))",
+   "value": [
+    [
+     "FF",
+     "FFFFFFFFFFFFFF01",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT xxhash64(array(1, 2, 3)), xxhash64(named_struct('a', 1, 'b', 'x')), hash(named_struct('a', named_struct('b', 1)))",
+   "value": [
+    [
+     8592097078962733837,
+     8510603489595372987,
+     -559580957
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hash(array(named_struct('a', 1))), xxhash64(array(array(1)))",
+   "value": [
+    [
+     -559580957,
+     -6698625589789238999
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT sha2('Spark', b) FROM VALUES (0), (224), (256), (384), (512), (1), (NULL) AS t(b)",
+   "value": [
+    [
+     "1e40b8d06c248a1cc32428c22582b6219d072283078fa140d9ad297ecadf2cabefc341b857ad36226aa8d6d79f2ab67d"
+    ],
+    [
+     "44844a586c54c9a212da1dbfe05c5f1705de1af5fda1f0d36297623249b279fd8f0ccec03f888f4fb13bf7cd83fdad58591c797f81121a23cfdd5e0897795238"
+    ],
+    [
+     "529bc3b07127ecb7e53a4dcf1991d9152c24537d919178022b2c42657f79a26b"
+    ],
+    [
+     "529bc3b07127ecb7e53a4dcf1991d9152c24537d919178022b2c42657f79a26b"
+    ],
+    [
+     "dbeab94971678d36af2195851c0f7485775a2a7c60073d62fc04549c"
+    ],
+    [
+     null
+    ],
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT sha2(CAST(NULL AS STRING), 512), sha2('', 224), sha2(X'', 384)",
+   "value": [
+    [
+     null,
+     "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f",
+     "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT unbase64('YQ==\\nYQ=='), unbase64('=YQ'), unbase64('Y=Q='), unbase64('YQ==!'), unbase64('YWJj'), unbase64('Y')",
+   "error": "Input byte array has incorrect ending byte at 6"
+  },
+  {
+   "sql": "SELECT unbase64('YW Jj ZA'), unbase64('YWJjZA=\\n='), unbase64('YWJjZA=x=')",
+   "error": "Input byte array has wrong 4-byte ending unit"
+  },
+  {
+   "sql": "SELECT CAST(CAST(-1 AS TINYINT) AS BINARY), CAST(CAST(-2 AS SMALLINT) AS BINARY), CAST(1L AS BINARY), CAST(-1 AS BINARY)",
+   "value": [
+    [
+     "binary:ff",
+     "binary:fffe",
+     "binary:0000000000000001",
+     "binary:ffffffff"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(X'C384' AS STRING), CAST(X'FF' AS STRING), CAST(X'' AS STRING), concat(X'41', X'42')",
+   "value": [
+    [
+     "Ä",
+     "�",
+     "",
+     "binary:4142"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hex(CAST(1.9 AS DECIMAL(5,1))), hex(-1.5D), hex(CAST('NaN' AS DOUBLE)), hex(1.0E20D), hex(CAST(2.5 AS FLOAT))",
+   "value": [
+    [
+     "1",
+     "FFFFFFFFFFFFFFFF",
+     "0",
+     "7FFFFFFFFFFFFFFF",
+     "2"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT conv(' -12 ', 10, 16), conv('\\t12', 10, 16), conv('  ', 10, 16), conv('12 ', 10, -16)",
+   "value": [
+    [
+     "FFFFFFFFFFFFFFF4",
+     "0",
+     null,
+     "C"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT -128Y, -32768S, -2147483648, -9223372036854775808L, typeof(-128Y), typeof(-2147483648)",
+   "value": [
+    [
+     -128,
+     -32768,
+     -2147483648,
+     -9223372036854775808,
+     "tinyint",
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT -CAST(200 AS TINYINT), -CAST(9223372036854775807 AS BIGINT)",
+   "value": [
+    [
+     56,
+     -9223372036854775807
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT base64(repeat('x', 57)), base64(repeat('x', 58)), base64(repeat('ab', 120))",
+   "value": [
+    [
+     "eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4",
+     "eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\r\neA==",
+     "YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJh\r\nYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFi\r\nYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJh\r\nYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFi\r\nYWJhYmFiYWJhYmFi"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT unbase64(base64(repeat('x', 100))), length(base64(repeat('x', 100)))",
+   "value": [
+    [
+     "binary:78787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+     138
+    ]
+   ]
+  }
+ ]
+}

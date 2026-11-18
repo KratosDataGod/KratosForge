@@ -14,6 +14,10 @@ operations, and its share of the sync that carried it), one measurement per figu
 not recorded, and the Fabric CU overhead the waterfall subtracts for net: Unknown unless a measured
 or estimated CU figure is supplied, since nothing on a PC measures it (ESI-202).
 
+``corrections``: corrections and reversals that fix ledger rows without editing them, each pointing at
+what it fixes through ``corrects``, and the reconciliation report that rebuilds totals from the
+ledger and compares them with the latest attribution, fixing nothing (ESI-404).
+
 Pure: nothing here reads or writes a lakehouse, Fabric or this PC. Figures come in and go out as
 ``measurement.py`` measurements.
 """

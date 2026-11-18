@@ -36,6 +36,11 @@ OPEN_BY_DESIGN = {
     "note_seen": "the caller's own last-seen date",
     "request": "anyone may ask; deciding is checked (decide_request)",
 }
+# Engine methods that only read from Fabric or OneLake and write on this PC: the scan sees the store and
+# can't tell a read from a write, so their row says what they change here and what they read there.
+READS_THERE_WRITES_HERE = {
+    "meta_openlineage_export": "this PC: a new file in Downloads",
+}
 GUARD_WORDS = ("require", "is_admin", "_product_owners", "_shortcut_changer", "_can_", "_may_", "_require_", "owner",
                "author")
 
@@ -144,7 +149,9 @@ def rpc_rows() -> list[tuple[str, str, str, str]]:
         what = []
         if changes:
             what.append("platform: " + ", ".join(changes))
-        if "fabric" in reach:
+        if m in READS_THERE_WRITES_HERE:
+            what.append(f"{READS_THERE_WRITES_HERE[m]} (reads Fabric or OneLake)")
+        elif "fabric" in reach:
             what.append("Fabric or OneLake")
         if "other" in reach:
             what.append("Databricks, Snowflake or a Git remote")

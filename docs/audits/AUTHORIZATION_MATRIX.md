@@ -128,7 +128,7 @@ Every call passes PermissionAuthorizer.check (integrations/permissions.py) befor
 | `fabric_desktop_start_pipeline_run` | `sidecar/fabric_desktop/integrations/services.py:296` | EXECUTE_LOCAL_CODE | yes | always |  |
 | `fabric_desktop_start_proof` | `sidecar/fabric_desktop/integrations/services.py:476` | MODIFY_FABRIC_ARTIFACTS | no (refused) | always |  |
 
-## 3. Engine methods that change something (419)
+## 3. Engine methods that change something (418)
 
 Reached only by the app window, over the engine's own pipe. "What it changes" and "Check" are found by reading the method and the methods it calls; "platform's check per operation" points at section 1.
 
@@ -342,8 +342,7 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `meta_new_entity` | `sidecar/fabric_desktop/meta_service.py:439` | Fabric or OneLake; runs code or a pipeline on this PC | Fabric's own rights |
 | `meta_new_key_table` | `sidecar/fabric_desktop/meta_service.py:983` | Fabric or OneLake | Fabric's own rights |
 | `meta_open` | `sidecar/fabric_desktop/meta_service.py:225` | this PC | the signed-in Windows user's own files |
-| `meta_openlineage_export` | `sidecar/fabric_desktop/meta_service.py:719` | Fabric or OneLake | Fabric's own rights |
-| `meta_openlineage_preview` | `sidecar/fabric_desktop/meta_service.py:713` | Fabric or OneLake | Fabric's own rights |
+| `meta_openlineage_export` | `sidecar/fabric_desktop/meta_service.py:751` | this PC: a new file in Downloads (reads Fabric or OneLake) | Fabric's own rights |
 | `meta_optimize` | `sidecar/fabric_desktop/cloud_service.py:568` | Fabric or OneLake | Fabric's own rights |
 | `meta_profile` | `sidecar/fabric_desktop/cloud_service.py:896` | Fabric or OneLake; runs code or a pipeline on this PC | Fabric's own rights |
 | `meta_promote` | `sidecar/fabric_desktop/meta_service.py:632` | platform: register_product; Fabric or OneLake | platform's check per operation; Fabric's own rights; promote gates |

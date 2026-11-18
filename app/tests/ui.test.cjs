@@ -6425,7 +6425,7 @@ const FABRIC_WRITES = {
 };
 // Listed as "Fabric or OneLake" because they call Fabric, but they change nothing there.
 const FABRIC_READS = {
-  meta_openlineage_preview: "reads the run log; writes nothing", meta_openlineage_export: "reads the run log; writes a new file in Downloads, nothing in Fabric",
+  meta_openlineage_export: "reads the run log; writes a new file in Downloads, nothing in Fabric",
   list_capacities: "reads", list_files: "reads", list_items: "reads", list_lakehouses: "reads", list_tables: "reads",
   list_workspaces: "reads", readiness_check: "reads only, never opens a sign-in window", sign_in: "gets a token",
   wh_monitoring_view: "reads the monitoring database", appstudio_plan: "asks the person's model; nothing goes to Fabric",

@@ -432,7 +432,7 @@ of ESI-203 execution accruals. Stop projecting on retirement; re-baseline on mat
 
 ### Phase 4: Financial intelligence
 
-**ESI-401 Pricing scenarios.** `fdopt_pricing` and a local equivalent: SKU, region, currency,
+**ESI-401 Pricing scenarios.** **Built** (engine only; nothing writes `fdopt_pricing` yet). `savings/pricing.py`. `fdopt_pricing` and a local equivalent: SKU, region, currency,
 effective dates, reserved or pay-as-you-go or actual billing, customer rate, source and
 confidence. The current single price becomes a scenario labelled as an assumption.
 - Tests: scenario 18 (price change applies only from its effective date; history keeps its

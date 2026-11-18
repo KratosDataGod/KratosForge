@@ -549,7 +549,8 @@ function sqlEditorHelpers() {
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { SQL_DIALECTS, SQL_WORDS, sqlDialect, sqlQuoteIdent, sqlTableName,
     sqlMask, sqlStatementAt, sqlRunnableStatementAt, sqlSplitStatements, sqlParamNames, sqlParamProblem, sqlTableRefs, sqlHoverTarget, sqlCallAt, sqlSignatureParts, sqlPickForm, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
-    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics, sqlRowsAs, sqlLiteral, sqlInsertTable, sqlNextBookmark, SQL_PARAM_TYPES });`, ctx);
+    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics, sqlRowsAs, sqlLiteral, sqlInsertTable, sqlNextBookmark, SQL_PARAM_TYPES,
+    sqlNameAt, sqlCatalogObject, sqlLakehouseCreate });`, ctx);
   return ctx;
 }
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -794,6 +795,28 @@ test("hovering finds the function, table, alias or column under the pointer", ()
   const unread = sqlHoverTarget("SELECT qty FROM sales", 8, "spark", SQL_TABLES, () => undefined);
   assert.deepStrictEqual([unread.kind, unread.table, unread.unread.length], ["column", null, 1], "columns not read yet: asked for when shown");
   assert.strictEqual(sqlHoverTarget("SELECT qty FROM nowhere", 8, "spark", SQL_TABLES, () => []), null);
+});
+
+test("go to and peek definition read the name under the cursor, find a warehouse's procedure or function, and sketch a lakehouse table", () => {
+  const { sqlNameAt, sqlCatalogObject, sqlLakehouseCreate } = sqlEditorHelpers();
+  const q = "EXEC [etl].usp_load @day = 1; SELECT dbo.fn_tax(amount) FROM sales -- etl.usp_load";
+  assert.deepStrictEqual(plain(sqlNameAt(q, q.indexOf("usp_load") + 2)), ["etl", "usp_load"]);
+  assert.deepStrictEqual(plain(sqlNameAt(q, q.indexOf("[etl]") + 1)), ["etl", "usp_load"], "on the schema part too");
+  assert.deepStrictEqual(plain(sqlNameAt(q, q.indexOf("fn_tax") + 1)), ["dbo", "fn_tax"]);
+  assert.strictEqual(sqlNameAt(q, q.lastIndexOf("usp_load") + 1), null, "comments");
+  assert.strictEqual(sqlNameAt(q, q.indexOf("(amount") ), null, "punctuation");
+  const objects = [{ schema: "etl", name: "usp_load", type: "P" }, { schema: "dbo", name: "fn_tax", type: "FN" },
+    { schema: "dbo", name: "sales", type: "U" }, { schema: "finance", name: "sales", type: "U" }, { schema: "finance", name: "v_budget", type: "V" }];
+  assert.strictEqual(sqlCatalogObject(["etl", "usp_load"], objects).type, "P");
+  assert.strictEqual(sqlCatalogObject(["USP_LOAD"], objects).schema, "etl", "a bare name only one schema has");
+  assert.strictEqual(sqlCatalogObject(["sales"], objects).schema, "dbo", "dbo when several schemas have it");
+  assert.strictEqual(sqlCatalogObject(["v_budget"], objects).type, "V");
+  assert.strictEqual(sqlCatalogObject(["other", "usp_load"], objects), null);
+  assert.strictEqual(sqlCatalogObject(["wh", "etl", "usp_load"], objects), null, "three parts aren't looked up");
+  assert.strictEqual(sqlCatalogObject(null, objects), null);
+  assert.strictEqual(sqlLakehouseCreate({ schema: "dbo", name: "sales" }, [{ name: "id", type: "bigint" }, { name: "Region Name", type: "string" }]),
+    "-- sales, sketched from the columns the Explorer lists. Its table properties and partitioning aren't shown.\n" +
+    "CREATE TABLE dbo.sales (\n  id BIGINT,\n  `Region Name` STRING\n) USING DELTA;\n");
 });
 
 test("signature help knows the call and the argument the cursor is on", () => {
@@ -2923,9 +2946,18 @@ test("the notebook editor wires breakpoints and the debugger through debugging.j
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
   const dbg = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
   for (const hook of ["dbgEditorMarks(cell)", "dbgEdited(cell, u)", "dbgToggleAtCursor(cell)", "dbgStartArgs(cell, debug)",
-    "dbgSnapshot(cell, snap)", "dbgPausedPanel(cell)", "dbgGutterClick(cell, view, line)", "debugCell(cell)"]) {
+    "dbgSnapshot(cell, snap)", "dbgPausedPanel(cell)", "dbgGutterClick(cell, view, line)", "debugCell(cell)",
+    "debugFromHere(cell)", "runCell(cell, { nb, debug: dbgStepNext(nb) })", "dbgRemoteNote(nb, [cell])", "dbgRemoteNote(nb, code)"]) {
     assert.ok(nb.includes(hook), hook);
   }
+  // Breakpoints are a cell setting, saved with the notebook, and a change to them is a change to it.
+  assert.match(dbg, /cell\.meta\?\.breakpoints \|\| \[\]/);
+  assert.match(dbg, /dbgSetLines\(cell, \[\.\.\.set\]\.sort\(\(a, b\) => a - b\)\);\n  dbgRepaintMarks\(cell\);\n  markDirty\(\);/);
+  assert.ok(!/cell\.breakpoints\b/.test(dbg + nb), "no session-only breakpoints left");
+  // Debug from here: the last way out of a pause decides how the next cell starts; Run in Fabric says it can't pause.
+  assert.match(dbg, /if \(state\.notebook\.dbgRun && action !== "eval"\) state\.notebook\.dbgRun\.mode = action;/);
+  assert.match(nb, /nb\.runningAll = false;\n    nb\.dbgRun = null;/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /dbgRemoteNote\(nb, nb\.cells\);  \/\/ debugging\.js/);
   assert.match(dbg, /rpc\("debug_cell"/);
   // Breakpoints are a Preview feature: nothing is sent or shown while it is hidden.
   assert.match(dbg, /function dbgBreakpoints\(cell\) \{\n  return dbgOn\(\)/);
@@ -3275,8 +3307,8 @@ test("every page links to its section of the user guide", () => {
   for (const [, list] of all.matchAll(/views: \{([^}]*)\}/g)) for (const [, view, fn] of list.matchAll(/(\w+): (\w+)/g)) views.set(view, fn);
   assert.ok(views.size > 15, `only ${views.size} pages found`);
   // The notebook's help belongs to its own guide; an agent's page has its link in the advice under its state,
-  // and Monitor's is in monitorAbout beside its tabs.
-  const elsewhere = { notebook: null, agent: "agAdvice", monitor: "monitorAbout" };
+  // Monitor's is in monitorAbout beside its tabs, and Source control's in gitTitle beside its repository.
+  const elsewhere = { notebook: null, agent: "agAdvice", monitor: "monitorAbout", source: "gitTitle" };
   const missing = [...views].filter(([view, fn]) => {
     if (view in elsewhere) return elsewhere[view] && !(body(fn).includes(`${elsewhere[view]}(`) && body(elsewhere[view]).includes("learnMore("));
     return !/learnMore\(|howItWorks\(/.test(body(fn));
@@ -5890,7 +5922,7 @@ test("the engine picker is a Preview feature that asks before remote compute", (
   assert.match(fn("engineSwitchDialog"), /"Keep both"/);
   assert.match(fn("chooseKernel"), /confirmDialog\([\s\S]*"Switch and close session", \{ danger: true \}\)/);
   assert.match(fn("engineFlagPanel"), /btn\("Run this cell on Python", "play", \(\) => runCellOnKernel\(cell\)/);
-  assert.match(nbsrc, /if \(!kernel && nbOnEngine\(nb\) && !cell\.meta\?\.frozen\) return runEngineCell\(cell, nb\);/);
+  assert.match(nbsrc, /if \(!kernel && nbOnEngine\(nb\) && !cell\.meta\?\.frozen\) \{\n    if \(!nb\.runningAll\) dbgRemoteNote\(nb, \[cell\]\);  \/\/ debugging\.js: breakpoints can\'t pause there\n    return runEngineCell\(cell, nb\);/);
   for (const name of ["engines.js", "notebook.js"]) {
     assert.doesNotMatch(fs.readFileSync(path.join(ui, name), "utf8"), /no Fabric capacity/i, `${name}: local engines still use capacity for OneLake`);
   }
@@ -5907,7 +5939,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
     validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbConsole: ["Scratch console"], nbReport: ["Notebook as a read-only report"], sqlDiagram: ["Table diagram"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
-    debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],
+    debug: ["Variable history, watches and hidden state", "Breakpoints and stepping", "Debug a notebook"], replay: ["Failure replay bundles"],
     fabricRun: ["Run in Fabric and schedules", "W6 Publish or run a notebook in Fabric"], notebookRuns: ["Recent runs", "Notebook runs"],
     sideBySide: ["Side by side"], prove: ["Prove this notebook"], fabricEdit: ["Edit a Fabric notebook on this PC", "When Publish finds changes made in Fabric"],
     notebookFolderPublish: ["Publishing a notebook from a folder"], practices: ["Notebook best practices"], fabricStep: ["Run the last cell on Fabric"],
@@ -5923,7 +5955,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
       "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests",
       "Promises to readers"],
     trustBadges: ["Endorsement"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
-    lineage: ["Column lineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
+    lineage: ["Column lineage", "Impact of a column change"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
     updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
     learn: ["Learn", "Writing a Learn lesson", "Decision patterns"], academy: ["Academy"],

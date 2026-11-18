@@ -145,7 +145,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             if isinstance(tree, exp.Alter) and sum(isinstance(a, exp.ColumnDef)
                                                    for a in tree.args.get("actions") or []) > 1:
                 raise ValueError(_NOT_YET + "ALTER TABLE ... ADD of more than one column in one statement isn't "
-                                 "carried yet. Add each column in an ALTER TABLE of its own.")
+                                 "mapped yet. Add each column in an ALTER TABLE of its own.")
             try:
                 text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
             except SqlglotError as exc:

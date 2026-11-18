@@ -86,7 +86,7 @@ def test_alter_table_add_past_1024_columns_stops_and_adds_nothing(engine):
 def test_alter_table_add_of_several_columns_is_refused_by_name_and_adds_nothing(engine):
     engine.execute("CREATE TABLE dbo.t (a INT)", dialect="tsql")
     text = error(engine, "ALTER TABLE dbo.t ADD b INT, c INT")
-    assert "ADD of more than one column in one statement isn't carried yet" in text and "Parser Error" not in text
+    assert "ADD of more than one column in one statement isn't mapped yet" in text and "Parser Error" not in text
     assert len(engine.execute("SELECT * FROM dbo.t", dialect="tsql")["columns"]) == 1
 
 

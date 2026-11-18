@@ -8,7 +8,7 @@
     "3.2.6"
   ],
   "objective_text": "Read why a T-SQL load stopped and fix it so one bad row can't stop it again: cast safely and quarantine what won't cast, guard a division against zero, and give MERGE one source row per key.",
-  "scenario": "The nightly MERGE into fact_orders has failed three nights running and the warehouse is a day behind. Tonight's staged batch has an amount of 'N/A', a quantity of 'two', an order with a zero amount, and two orders the source sent twice with a later version. An order with no amount has no margin: margin_pct stays empty (NULL), not 0. The load step is the SQL in your workspace.",
+  "scenario": "The nightly MERGE into fact_orders has failed three nights running and the warehouse is a day behind. Tonight's staged batch has an amount of 'N/A', a quantity of 'two', an order with a zero amount, and two orders the source sent twice with a later version. An order with a zero amount has no margin: margin_pct stays empty (NULL), not 0. The load step is the SQL in your workspace.",
   "prerequisites": [
     "E55",
     "E37"
@@ -26,7 +26,7 @@
     "The staged batch is untouched, so the next run and the source team still have it."
   ],
   "does_not_verify": [
-    "The exact error messages a Fabric Warehouse gives. DuckDB stops on the same bad cast and on casting a divide-by-zero result, but its messages differ, and it doesn't refuse a MERGE whose source has two rows for one target row the way T-SQL does: here the duplicate shows up as a doubled order instead.",
+    "The exact error messages a Fabric Warehouse gives. DuckDB stops on the same bad cast and on casting a divide-by-zero result, but its messages differ, and it doesn't refuse a MERGE whose source has two rows for one target row the way T-SQL does. Here an order already in fact_orders silently takes one of its versions, and a new order is inserted twice.",
     "That your SQL runs unchanged in T-SQL: TRY_CAST, NULLIF, ROW_NUMBER and MERGE exist in both, but this run used DuckDB."
   ],
   "datasets": [],
@@ -99,7 +99,7 @@
     "Rows that won't cast belong in order_rejects with a reason, and the MERGE should only see the rows that will. For the margin, NULLIF(amount, 0) turns a zero divisor into NULL.",
     "Count stg_orders by order_id. Where an order appears twice, keep only its latest version_ts with ROW_NUMBER() before the MERGE."
   ],
-  "explanation": "A set-based T-SQL statement is all or nothing: one value that won't convert, or one division by zero, stops the whole statement and nothing is written. So a load that reads raw text has to expect bad values: TRY_CAST (or TRY_CONVERT) returns NULL instead of failing, and the rows that come back NULL go to a reject table with a reason, where someone can fix them at the source. Dividing by NULLIF(x, 0) gives NULL instead of an error, and NULL is the honest answer when there's no amount: 0 would claim the order broke even. MERGE needs at most one source row per target key. In T-SQL two source rows for one existing row stop the MERGE, and two for a new key insert it twice, so deduplicate the source first, keeping the latest version with ROW_NUMBER() ordered by the version timestamp descending.",
+  "explanation": "A set-based T-SQL statement is all or nothing: one value that won't convert, or one division by zero, stops the whole statement and nothing is written. So a load that reads raw text has to expect bad values: TRY_CAST (or TRY_CONVERT) returns NULL instead of failing, and the rows that come back NULL go to a reject table with a reason, where someone can fix them at the source. Dividing by NULLIF(x, 0) gives NULL instead of an error, and NULL is the honest answer when the amount is zero: 0 would claim the order broke even. MERGE needs at most one source row per target key. In T-SQL two source rows for one existing row stop the MERGE, and two for a new key insert it twice, so deduplicate the source first, keeping the latest version with ROW_NUMBER() ordered by the version timestamp descending.",
   "remediation": [
     "LAB-04",
     "LM-11",

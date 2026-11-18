@@ -1,6 +1,6 @@
 # Broken: a nightly T-SQL load stops on a bad value, a zero amount and an order sent twice
 
-The nightly MERGE into fact_orders has failed three nights running and the warehouse is a day behind. Tonight's staged batch has an amount of 'N/A', a quantity of 'two', an order with a zero amount, and two orders the source sent twice with a later version. An order with no amount has no margin: margin_pct stays empty (NULL), not 0. The load step is the SQL in your workspace.
+The nightly MERGE into fact_orders has failed three nights running and the warehouse is a day behind. Tonight's staged batch has an amount of 'N/A', a quantity of 'two', an order with a zero amount, and two orders the source sent twice with a later version. An order with a zero amount has no margin: margin_pct stays empty (NULL), not 0. The load step is the SQL in your workspace.
 
 ## What you'll do
 
@@ -22,5 +22,5 @@ The load stops with a conversion error and fact_orders still holds yesterday's r
 
 ## What it doesn't prove
 
-- The exact error messages a Fabric Warehouse gives. DuckDB stops on the same bad cast and on casting a divide-by-zero result, but its messages differ, and it doesn't refuse a MERGE whose source has two rows for one target row the way T-SQL does: here the duplicate shows up as a doubled order instead.
+- The exact error messages a Fabric Warehouse gives. DuckDB stops on the same bad cast and on casting a divide-by-zero result, but its messages differ, and it doesn't refuse a MERGE whose source has two rows for one target row the way T-SQL does. Here an order already in fact_orders silently takes one of its versions, and a new order is inserted twice.
 - That your SQL runs unchanged in T-SQL: TRY_CAST, NULLIF, ROW_NUMBER and MERGE exist in both, but this run used DuckDB.

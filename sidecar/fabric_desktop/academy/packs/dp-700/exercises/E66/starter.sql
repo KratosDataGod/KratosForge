@@ -1,5 +1,5 @@
 -- Build fact_sales from fact_sales_raw with one CREATE TABLE ... AS SELECT, giving each column
--- the smallest type that still holds every value correctly. The team's standard:
+-- the type the team's standard gives it, which holds every value exactly:
 --   whole numbers INTEGER, money DECIMAL(12,2), a date with no time DATE, a moment in time TIMESTAMP,
 --   yes/no flags BOOLEAN, and codes that are labels rather than amounts stay text (VARCHAR).
 -- Leave fact_sales_raw as it is.

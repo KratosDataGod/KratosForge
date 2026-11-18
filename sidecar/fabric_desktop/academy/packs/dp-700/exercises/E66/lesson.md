@@ -1,10 +1,10 @@
-# Optimize a warehouse table: the smallest type that's still right for each column
+# Optimize a warehouse table: the right exact type for each column
 
 A quick copy landed the sales feed in the warehouse with every column as text, and every report query now converts sale_date, qty and unit_price on the fly. Rebuild it as fact_sales with proper types. Store codes like '007' are labels from the store list, not amounts.
 
 ## What you'll do
 
-Rebuild an all-text fact table with CREATE TABLE AS SELECT, choosing for each column the smallest exact type its values need, and spot the columns where the obvious type is wrong.
+Rebuild an all-text fact table with CREATE TABLE AS SELECT, choosing for each column the exact type the team's standard gives its values, and spot the columns where the obvious type is wrong.
 
 ## Before you start
 

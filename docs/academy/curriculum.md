@@ -90,7 +90,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E47 | Capacity Metrics: find the throttled hour and what caused it | 3.1.2 | C | SIM | duckdb (`runs`) | 20 | FinOps |
 | E60 | Optimize a pipeline: parallel ForEach, fewer sequential steps | 3.3.2 | C | SIM +FV | config | 25 | |
 | E61 | Optimize a warehouse: loads, data types, statistics and result set caching | 3.3.3 | G | KO +FV | quiz | 15 | |
-| E66 | Optimize a warehouse table: the smallest type that's still right for each column | 3.3.3 | C | LV +FV | duckdb | 15 | LM-02 |
+| E66 | Optimize a warehouse table: the right exact type for each column | 3.3.3 | C | LV +FV | duckdb | 15 | LM-02 |
 | E62 | Optimize an eventhouse: caching, retention, materialized views and query shape | 3.3.4 | G | KO +FV | quiz | 15 | |
 | E63 | File layout for Spark: partitioning and file pruning on a Delta table | 3.3.5 | C | LV +FV | delta | 25 | LM-27 |
 | E64 | Read a query plan and fix the expensive step | 3.3.6 | G | LV | duckdb | 20 | LM-18 |

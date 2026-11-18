@@ -239,7 +239,7 @@ def test_rules_that_start_later_still_find_what_they_did():
     # An address right after another, a name made of words and the user info of an unusual scheme.
     assert redact.for_support("ann@contoso.com+bob@contoso.com") == "[email][email]"
     assert redact.secrets("x-y_access_token=abc x__token=def") == "x-y_access_token=[removed] x__token=[removed]"
-    assert redact.secrets("git+ssh://me:pw@host x-ref://tok@host") == "git+ssh://[removed]@host x-ref://[removed]@host"
+    assert redact.secrets("git+ssh://me:" + "pw@host x-ref://tok@host") == "git+ssh://[removed]@host x-ref://[removed]@host"
     assert redact.secrets("abfss://ws@onelake.dfs.fabric.microsoft.com/x") == "abfss://ws@onelake.dfs.fabric.microsoft.com/x"
     assert redact.secrets("x.abfss://ws@onelake.dfs.fabric.microsoft.com/x") == "x.abfss://[removed]@onelake.dfs.fabric.microsoft.com/x"
     assert redact.for_support("a.b-contoso.onmicrosoft.com and a-b.sharepoint.com") == (

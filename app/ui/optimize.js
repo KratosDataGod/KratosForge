@@ -44,8 +44,9 @@ async function renderOptimize() {
   if (optimizePage.tab === "cost") body.append(costPanel(), previewShown() ? databricksCostSection() : "");
   // Settings history reads the central lakehouse's fdcap_ and fdten_ tables itself.
   if (optimizePage.tab === "settings") body.append(settingsHistoryPanel());
-  // Assessment reads a workspace or capacity straight from Fabric (optimize-assess.js), no lakehouse needed.
-  if (optimizePage.tab === "assessment") optimizeAssessPanel(body);
+  // Assessment reads straight from Fabric, no lakehouse needed: Excellence (optimize-excellence.js) first,
+  // then Opportunities (optimize-assess.js) and Gaps.
+  if (optimizePage.tab === "assessment") optimizeExcellenceTabs(body);
   const status = await rpc("optimize_status").catch(() => null);
   if (state.view !== "optimize" || !band.isConnected) return;
   const [line, buttons] = optimizeBand(status);

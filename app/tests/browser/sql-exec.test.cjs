@@ -78,7 +78,7 @@ test("Next and Previous page through the result without running it again", { ski
 
 test("Export ▾ CSV streams the result to Downloads", { skip }, async () => {
   await page().locator(".sql-export > summary").click();
-  await page().getByRole("menuitem", { name: "CSV" }).click();
+  await page().getByRole("menuitem", { name: "CSV", exact: true }).click();
   await page().waitForFunction(() => /Saved 2,500 rows to/.test(document.querySelector(".toast")?.textContent || ""));
   const saved = (await toastText()).match(/Saved 2,500 rows to (.+\.csv)/)[1];
   const lines = fs.readFileSync(saved, "utf8").trim().split("\n");

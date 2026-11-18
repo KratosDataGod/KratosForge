@@ -30,7 +30,6 @@ import json
 import os
 import posixpath
 import re
-import shutil
 import time
 import types
 from dataclasses import dataclass
@@ -43,6 +42,7 @@ import requests
 from . import http_session, lakehouse, notebook_dag
 from .onelake import FileStore, error_code
 from .retrying import send_with_retry
+from . import trees
 
 
 class NotebookExit(Exception):
@@ -301,7 +301,7 @@ def _make_fs() -> types.SimpleNamespace:
             if target.is_dir():
                 if not recurse:
                     raise IsADirectoryError(f"{path} is a folder. Pass recurse=True to remove it.")
-                shutil.rmtree(target)
+                trees.remove(target)
             else:
                 target.unlink(missing_ok=True)
             return True

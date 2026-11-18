@@ -1,6 +1,6 @@
 """WR-218: the warehouse live check, dry-run against fakes. Nothing here connects to Fabric.
 
-The check runs each documented local T-SQL case (WR-206 to WR-217) in a test warehouse and records the local,
+The check runs each documented local T-SQL case (WR-206 to WR-217, and WR-229) in a test warehouse and records the local,
 documented and warehouse answers. These tests prove its guards: every case's SQL reads, or writes only in the
 scratch schema; an unmarked or production-looking workspace or warehouse is refused before connecting; each case
 is rolled back; and the scratch schema is dropped and checked gone at the end.
@@ -98,7 +98,7 @@ def check(tmp_path, con=None, fabric=None, cases=w.CASES):
 def test_every_case_reads_or_writes_only_in_the_scratch_schema():
     assert w.problems(w.CASES, SCRATCH) == []
     assert len({c.id for c in w.CASES}) == len(w.CASES)
-    assert {c.wr for c in w.CASES} <= {f"WR-2{n:02d}" for n in range(6, 18)}
+    assert {c.wr for c in w.CASES} <= {f"WR-2{n:02d}" for n in range(6, 18)} | {"WR-229"}
 
 
 @pytest.mark.parametrize(("sql", "words"), [
@@ -182,17 +182,19 @@ def test_the_dry_run_gives_local_answers_and_connects_nowhere(tmp_path):
     assert all(SCRATCH in " ".join(c["sql"]) or "{s}" not in "".join(w.CASES[i].setup + (w.CASES[i].query,))
                for i, c in enumerate(by.values()))
     # where the docs say local matches the warehouse, it gives the documented answer
-    for id in ("DEC-01", "DEC-02", "DEC-03", "DT-01", "DT-02", "DT-03", "DT-04", "ORD-01", "ORD-03", "TXT-02",
-               "AR-01", "AR-02", "AR-03", "AR-04", "DEC-04"):
+    for id in ("DEC-01", "DEC-02", "DEC-03", "DT-01", "DT-02", "DT-03", "DT-04", "DT-05", "ORD-01", "ORD-03",
+               "TXT-02", "TXT-03", "TXT-04", "TXT-05", "AR-01", "AR-02", "AR-03", "AR-04", "DEC-04", "SET-02",
+               "FMT-01", "FMT-02", "FMT-03"):
         assert w.same(by[id]["local"], by[id]["documented"]), (id, by[id]["local"])
     # where the docs say local differs, it gives the documented local answer or stops by name
     assert {id: by[id]["local"] for id in ("TXT-06", "TBL-01", "TBL-02", "TBL-03", "VW-01")} == {
         "TXT-06": "2", "TBL-01": "YES", "TBL-02": "2", "TBL-03": "5", "VW-01": "2"}
-    for id in ("ORD-02", "TXT-01", "CHG-01", "CHG-02", "SCR-01", "SET-01", "SET-02"):
+    for id in ("ORD-02", "TXT-01", "CHG-01", "CHG-02", "SCR-01", "SET-01"):
         assert by[id]["local"].startswith("error: "), id
-    # the unverified ones, as sql-compatibility.md states them
-    assert {id: by[id]["local"] for id in ("TXT-03", "TXT-04", "TXT-05")} == {"TXT-03": "0", "TXT-04": "1",
-                                                                          "TXT-05": "NULL"}
+    # live run 11 settled every case the reference doesn't; WR-229's .NET splits wait for the next live run
+    assert [c.id for c in w.CASES if c.documented is None] == ["FMT-04", "FMT-05", "FMT-06", "FMT-07", "FMT-08"]
+    for id in ("FMT-04", "FMT-05", "FMT-06", "FMT-07", "FMT-08"):
+        assert by[id]["local"].startswith("error: "), id
 
 
 # ---- the run, against a fake warehouse
@@ -208,7 +210,7 @@ def _answers(table):
 
 def test_a_run_rolls_back_each_case_and_drops_the_scratch_schema(tmp_path):
     cases = tuple(c for c in w.CASES if c.id in ("DEC-01", "TXT-03", "TXT-06", "VW-01"))
-    con = Connection(_answers([(r"^SELECT 1\.0 / 3$", ("0.333333",)), (r"LIKE 'abc_'", (1,)),
+    con = Connection(_answers([(r"^SELECT 1\.0 / 3$", ("0.333333",)), (r"LIKE 'abc_'", (0,)),
                                (r"GROUP BY v", (1,)), (r"SELECT b FROM", RuntimeError("Invalid column name 'b'."))]),
                      left=[("vt", "BASE TABLE"), ("vv", "VIEW")])
     result = check(tmp_path, con, cases=cases).run()
@@ -221,7 +223,7 @@ def test_a_run_rolls_back_each_case_and_drops_the_scratch_schema(tmp_path):
     assert all(SCRATCH in s or not re.match(r"(CREATE|INSERT|UPDATE|DELETE|DROP|ALTER)", s) for s in log)
     by = {c["id"]: c for c in result["cases"]}
     assert by["DEC-01"]["verdict"] == "as documented"
-    assert by["TXT-03"]["verdict"] == "local differs"  # the warehouse said 1, local says 0
+    assert by["TXT-03"]["verdict"] == "docs are wrong"  # this fake warehouse says 0, where live run 11 said 1
     assert by["TXT-06"]["verdict"] == "documented difference"
     assert by["VW-01"]["warehouse"] == "error: Invalid column name 'b'." and by["VW-01"]["verdict"] == \
         "documented difference"
@@ -229,7 +231,7 @@ def test_a_run_rolls_back_each_case_and_drops_the_scratch_schema(tmp_path):
     saved = json.loads((tmp_path / "wh" / "warehouse-check.json").read_text(encoding="utf-8"))
     assert saved["counts"] == result["counts"]
     report = (tmp_path / "wh" / "warehouse-check.md").read_text(encoding="utf-8")
-    assert "| TXT-03 (WR-210) |" in report and "local differs" in report
+    assert "| TXT-03 (WR-210) |" in report and "docs are wrong" in report
 
 
 def test_an_error_part_way_through_a_batch_is_noted_and_the_rest_is_read(tmp_path):
@@ -241,10 +243,18 @@ def test_an_error_part_way_through_a_batch_is_noted_and_the_rest_is_read(tmp_pat
         return (2,) if sql.startswith("SELECT COUNT(*)") else None
 
     con = Connection(answers)
-    result = check(tmp_path, con, cases=(case,)).run()
+    switched = []
+    Connection.autocommit = property(lambda self: switched[-1] if switched else False,
+                                     lambda self, on: switched.append(on))
+    try:
+        result = check(tmp_path, con, cases=(case,)).run()
+    finally:
+        del Connection.autocommit
     got = result["cases"][0]
     assert got["warehouse"] == "2" and got["verdict"] == "documented difference"
     assert got["notes"] == ["error: Divide by zero error encountered."] and con.pending == []
+    # outside a transaction: an error in one dooms a warehouse's whole transaction, and took the table with it
+    assert switched == [True, False]
 
 
 def test_a_setup_the_warehouse_refuses_is_the_cases_answer(tmp_path):

@@ -6027,6 +6027,82 @@ No bugs were found.
 | `optimize/shared.py` | 330 | `maintain_order=True` to `False` when grouping a recommendation's first event | Equivalent: the groups are joined by recommendation id and the result is then sorted by change time and id, which is unique, so the group order never shows. |
 | `optimize/shared.py` | 332 | `maintain_order=True` to `False` when grouping a recommendation's latest event | Equivalent: the same final sort by change time and the unique id fixes the order. |
 
+# Mutation testing, batch 88
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- Table clones and warehouse snapshots in T-SQL: finding `CREATE TABLE ... AS CLONE OF` and `ALTER DATABASE ... SET TIMESTAMP` in a batch, the clone's `AT` time, and the local engine's refusal (`tsql_clone.py`).
+- Python UDFs on this PC's Spark: `udf`, `pandas_udf`, `spark.udf.register` and `call_udf`, each return type's fit and the Arrow type of a `pandas_udf`'s result (`spark_udf.py`).
+- Validate notebook's service: starting, cancelling and listing validations, the clean run and its summary, and the saved report (`validate_service.py`).
+
+The run was at `main` e80b1a87c (2026-11-17), with `sidecar/tools/mutate.py` as fixed in #2839 and #2902, so each mutant ran without a bytecode cache and each run first checked that its tests pass on the unmutated copy. The method is the same as in earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has more than 150 mutants, so 150 were sampled.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways. No `-k` filter was used. From `test_tsql_loud_gaps.py`, only `test_each_item_in_the_docs_refused_list_is_refused` ran (it runs the clone and snapshot statements); the file's other tests read `docs/` or don't reach `tsql_clone.py`.
+
+The first `validate_service.py` run was stopped partway by a time limit and was run again whole; the "before" figures below are from the full run. A mutant whose run times out counts as killed, as in earlier batches.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `tsql_clone.py` | test_tsql_clone, test_tsql_loud_gaps (its clone and snapshot test) (+ test_tsql_clone_mutation) | 150 of 155 (139 + 11) | 125 / 25 | **83.3%** | 120/139 → 139/139 | 5/11 → 11/11 | 150 / 0 | **100%** | none |
+| `spark_udf.py` | test_spark_udf, test_spark_api_mutation (+ test_spark_udf_mutation) | 150 of 240 (148 + 2) | 93 / 57 | **62.0%** | 93/148 → 146/148 | 0/2 → 2/2 | 148 / 2 | **98.7%** | 2 equivalent |
+| `validate_service.py` | test_validate, test_validate_service_edges, test_regex_anchors, test_integrations_services_edges (+ test_validate_service_mutation) | 150 of 156 (149 + 1) | 119 / 31 | **79.3%** | 118/149 → 147/149 | 1/1 → 1/1 | 148 / 2 | **98.7%** | 2 equivalent |
+
+The two `tsql_clone.py` timeouts (a statement's index never moving on) and one `validate_service.py` timeout (a report's name number never moving on) count as killed, before and after.
+
+One bug was found, outside what the new tests pin, and is marked `xfail` in `test_spark_udf_mutation.py` until it is fixed:
+- A `pandas_udf` declared to return an `ArrayType` and returning numpy arrays (`s.apply(lambda v: np.array(...))`) gives null for every row, where Spark gives the arrays as lists. A numpy array isn't turned into a list before its fit is checked, so it doesn't fit the array type. Python lists work.
+
+### What the survivors were, and the tests that now kill them
+
+- **tsql_clone.py**:
+  - A clone is a frozen value.
+  - A batch the tokenizer can't read (an unclosed string, bracket or comment) has no clone, no snapshot move and an empty refusal.
+  - A `CREATE` cut short at the end of a batch, before `CLONE OF`, isn't a clone, and `CLONE OF` with no source is one with no names, refused by name.
+  - A source name cut short after its dot keeps the part before it, and the statement ends there.
+  - A clone statement ends at its semicolon, or at the end of the batch, and the text after the semicolon is left alone.
+  - `SET TIMESTAMP` counts only after `ALTER DATABASE`, from the word right after it up to ten words on.
+  - An `AT` time is read to the millisecond: half a second after now is later than now, and a time equal to now is not.
+  - → `test_tsql_clone_mutation.py`.
+- **spark_udf.py**:
+  - A return type that is neither a Spark type nor a string is refused.
+  - Each type's fit: a boolean only for a bool; each integer type exactly its range, never a bool or a float; a decimal only for a `Decimal`; any value as its text for a string; a date but not a datetime for a date; a datetime for a timestamp; bytes and bytearray as bytes; a map with its keys and values fitted; a struct from a dict or a sequence of its length.
+  - Structs inside a list arrive as rows.
+  - Each Spark type's Arrow type, with string for any other.
+  - numpy and pandas scalars become Python values, a pandas array its list, and a numpy array of several values is left as it is; null is `None`, NaN or NaT, never an array.
+  - `udf` of a UDF is that UDF; a UDF's `evalType` is 100 and a `pandas_udf`'s 200.
+  - `pandas_udf` called with the function returns the UDF, keeps a return type given by name, refuses a number as the return type after a function, and `functionType` 200 wins over iterator hints.
+  - A UDF registers once per connection.
+  - `spark.udf.register` returns the UDF, refuses a return type for a UDF made with `udf()`, and Java UDFs are refused.
+  - `install` gives Spark 2's `PandasUDFType` numbers.
+  - → `test_spark_udf_mutation.py`.
+- **validate_service.py**:
+  - The newest hundred validations are kept; keeping one again replaces it; the file is indented JSON.
+  - Status finds a saved validation by its own id.
+  - The list is newest first, twenty by default, with a validation that has no start time last.
+  - A failed cell's traceback keeps its last 4,000 characters.
+  - The notebook's Runs on setting is read as `pc`, `fabric` or not known.
+  - The clean kernel is told its lakehouse, an empty workspace name when there is none, and the lakehouse is sent again only when it or the write guard changes, with the guard as a bool.
+  - A start with no lakehouse doesn't sign in, one with a lakehouse does, and the run is a daemon thread.
+  - Cancel before the kernel starts is still a cancel, and cancel stops a running kernel.
+  - A run with no lakehouse has no sandbox and deletes nothing.
+  - A cancelled cell's own time is kept, and a finished cell with no time keeps none.
+  - The run's time is the seconds between its start and end, to the millisecond, and a run that took no time says 0.0 s.
+  - The summary counts the cells that succeeded before the failure.
+  - The environment lists what the code cells import, not the Markdown.
+  - The saved report's name has the validation's date and time, and its JSON is indented.
+  - Clean up's plan and tidy-ups are returned as they come.
+  - → `test_validate_service_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `spark_udf.py` | 157 | `ignore_index=True` to `False` when joining an iterator `pandas_udf`'s parts | Equivalent: only the values are read (`list(out)`), never the index. |
+| `spark_udf.py` | 331 | `return False` to `return None` for a name already registered | Equivalent: `_taken`'s answer is only used as a condition. |
+| `validate_service.py` | 64 | `sort_keys=True` to `False` in the clean kernel's lakehouse key | Equivalent: the key is compared only with the one made the same way from the same context, so both sort or neither does. |
+| `validate_service.py` | 187 | `id[9:24]` to `id[9:25]` in the report's file name | Equivalent: the extra character is the `-` before the id's hex part, and the name's trailing `-` is stripped. |
+
 # Mutation testing, batch 89
 
 Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
@@ -6099,3 +6175,144 @@ One bug was found, in `localdata/tsql_tables.py`, and is fixed; its test in test
 | `spark_strings.py` | 344 | `replacement is not None and not NULL` to `or`, for a replacement from the data | Equivalent: a NULL replacement then gets the check for `$` and `\`, which is NULL, so the result is NULL either way, and Spark has no `regexp_replace` without a replacement. |
 | `spark_strings.py` | 416 | `len(parts) == 1` to `== 0` in `concat_ws` with one array | Equivalent: DuckDB's `LIST_CONCAT` of one list is that list. |
 | `spark_strings.py` | 457 | the NULL arguments of `||` cast to text, negated | Equivalent: the whole expression is then cast to text anyway, so a bare NULL and `CAST(NULL AS INT)` both give a NULL string. |
+
+# Mutation testing, batch 90
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- Comparing two outputs of the same table: the rules, whole-row and keyed matching, the largest difference per column and the examples listed (`verify.py`).
+- The control-flow activities a pipeline runs on this PC: Set and Append Variable, If, Switch, ForEach, Until, Wait, Fail, Filter, Notebook, the data activities and Execute Pipeline (`orchestration/adapters.py`).
+- Side by side: the checksum of what each run wrote, the type names shown, the table rows, the verdict, which side was faster and the cores to match (`side_by_side.py`).
+
+The run was at `main` 8838a247c (2026-11-17), with `sidecar/tools/mutate.py` as it is since #2902: each mutant ran without a bytecode cache, and the tests were first run once on the unmutated copy of `sidecar/`, where they passed. The method is the same as earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. All three modules have more than 150 mutants (246, 194 and 202), so 150 of each were sampled. Each test set was run with `-x`, so a mutant's run stops at its first failing test.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used. `test_side_by_side.py::test_examples_in_the_repository_are_the_generated_notebooks` reads `examples/`, so it was left out with `--deselect`; no other test in these sets reads `docs/`, `examples/` or `app/`.
+
+The first runs of `verify.py` and `orchestration/adapters.py` used fewer test files: the comparison tests of test_prove (by node id), test_engine_compare_mutation and test_prove_service_edges for `verify.py`, and test_pipeline_adapters_edges, test_pipeline_runner_edges, test_orchestration_runner_mutation and test_pipeline_runs for `orchestration/adapters.py`. Each survivor of those runs was run again with every calling test file, listed in the table, and the "before" figures below are from those runs.
+
+A mutant whose run times out counts as killed, as in earlier batches. One mutant of `orchestration/adapters.py` timed out, in both runs: with the `raise` removed for an Until iteration that failed (line 190), the loop goes on running.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `verify.py` | test_prove, test_engine_compare_mutation, test_prove_service_edges, test_wizard, test_wizard_mutation, test_learn_service (+ test_verify_mutation) | 150 of 246 (148 + 2) | 120 / 30 | **80.0%** | 119/148 → 148/148 | 1/2 → 1/2 | 149 / 1 | **99.3%** | 1 equivalent |
+| `orchestration/adapters.py` | test_pipeline_adapters_edges, test_pipeline_runner_edges, test_orchestration_runner_mutation, test_pipeline_runs, test_pipeline_notebooks, test_pipeline_notebooks_edges, test_pipeline_notebooks_mutation, test_pipeline_data_edges, test_pipeline_data_mutation, test_pipeline_script_edges, test_pipeline_script_mutation (+ test_pipeline_adapters_mutation) | 150 of 194 (147 + 3) | 124 / 26 | **82.7%** | 123/147 → 143/147 | 1/3 → 3/3 | 146 / 4 | **97.3%** | 4 equivalent |
+| `side_by_side.py` | test_side_by_side, test_side_by_side_edges, test_side_by_side_more_edges, test_side_by_side_cores, test_side_by_side_service_mutation (+ test_side_by_side_mutation) | 150 of 202 (145 + 5) | 136 / 14 | **90.7%** | 133/145 → 142/145 | 3/5 → 5/5 | 147 / 3 | **98.0%** | 3 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **verify.py**:
+  - A timestamp unit other than `us`, `ms` or `s` is refused, and so is a key column that isn't in both outputs, by name.
+  - Zero examples is accepted, and the row limit defaults to 5,000,000.
+  - Whole rows are rounded to the significant digits the relative tolerance leaves: 17 with no tolerance (and the note says so), at least 1 and at most 15 otherwise. A number column is compared as text only when both sides are integers or decimals.
+  - A whole-row example says which side has the row and how many more times, whatever the row holds, under this PC's column name. Rows on one side only make the tables differ.
+  - With no column in common, only the row counts are compared, in both directions.
+  - A keyed example names the side a missing row is on, and a changed row lists only its changed columns, with both values, under every key column.
+  - The largest absolute and relative differences are reported only for number columns that changed, an exact (decimal) column included.
+  - Timestamps are compared to the unit asked for.
+  - Values come back as JSON can hold them (infinity and NaN as text, a decimal or date as text), and a largest difference that isn't a finite number is left out.
+  - → `test_verify_mutation.py`.
+- **orchestration/adapters.py**:
+  - ForEach runs in batches of 20 by default, of `batchCount` when it is a whole number, of 1 when sequential, and of at least 1 and at most 50. It takes up to 100,000 items and no more.
+  - If, Switch, ForEach, Until and Execute Pipeline are containers; the other activities aren't.
+  - Append Variable, Wait and a finished Until return an empty output.
+  - A Switch on a number matches the case written as text.
+  - Until runs 10,000 times at most by default. One that is past its deadline, or exactly at it, after its first iteration, or whose first iteration fails, counts one iteration.
+  - A timespan reads minutes and days.
+  - Only entries with a text key set the pipeline's return value.
+  - A Notebook parameter is given as its type (objects and lists as JSON text, `TRUE` as true, `3.0` and `"7"` as whole numbers), a value that isn't its type or a type that isn't known fails, and a parameter name must be a Python name.
+  - → `test_pipeline_adapters_mutation.py`.
+- **side_by_side.py**:
+  - An integer column is summed as an integer unless it is named as a number, and then it matches the same values as decimals.
+  - A date and the same date as text give the same checksum, and so does a large string.
+  - The checksum is the sum of the row hashes kept to 64 bits.
+  - A large string is named `string`, and a timestamp `timestamp`.
+  - A table that one side appended to is noted as appended.
+  - A run that failed on one side means the results are not the same.
+  - A tie is called for this PC, and processing time is compared only when it is shorter than the whole run.
+  - A `%%configure` cell asking for no cores leaves a Python notebook's 2.
+  - → `test_side_by_side_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `verify.py` | 322 | `row[-2] > row[-1]` to `>=` for an example's side | Equivalent: whole-row examples are only the rows whose counts differ (`na <> nb`), so the two counts are never equal there. |
+| `orchestration/adapters.py` | 48 | `append: bool = False` to `True` in the `Ctx` protocol | Equivalent: a `Protocol` stub; its defaults are never used, because the runner's own `set_variable` is the one called. |
+| `orchestration/adapters.py` | 52 | `wait: bool = True` to `False` in the `Ctx` protocol | Equivalent, for the same reason. |
+| `orchestration/adapters.py` | 157 | the batch of 1 for a sequential ForEach to 0 | Equivalent: the batch is then raised to at least 1, so a sequential ForEach still runs one item at a time. |
+| `orchestration/adapters.py` | 329 | `text.count(":") == 2 and "." in ...` to `or` in reading a timespan | Equivalent: every text gives the same number of seconds, or fails the same way, either way. |
+| `side_by_side.py` | 55 | `is_string(typ) or is_large_string(typ)` to `and` in the checksum | Equivalent: a text column then falls through to `CAST(... AS VARCHAR)`, which gives the same text and so the same hash. |
+| `side_by_side.py` | 137 | `c.get("version", -1)` to `0` for a commit without a version | Equivalent: such a commit is kept only if the version before the run is below its default, and a table's versions start at 0, so neither -1 nor 0 is above it. |
+| `side_by_side.py` | 319 | `pc_cores or 1` to `or 0` when this PC's cores aren't known | Equivalent: a positive number of cores wanted is at least 0 and at least 1, so either way the run uses all cores, and a number below 1 is raised to 1 either way. |
+
+# Mutation testing, batch 91
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- Pairing with VS Code and approving its writes: the folder check, the write question and its five-minute wait, turning the editor on and off, unpairing, interrupting and the audit entries (`editor_service.py`).
+- An environment's drift: the reasons a read failed, comparing library versions, each kind of drift and the summary lines (`fabric_environment.py`).
+- Syncing a folder with a Databricks workspace: which local files are listed, the size limit both ways, the paths read, the errors skipped, and the state kept after a push or a pull (`engines/databricks_workspace_sync.py`).
+
+The run was at `main` 705d4bce8 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902: each mutant ran without a bytecode cache, and the tests were first run once on the unmutated copy of `sidecar/`, where they passed. The method is the same as earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. `editor_service.py` has 130 mutants and `fabric_environment.py` 112, so all of them ran; `engines/databricks_workspace_sync.py` has 188, so 150 were sampled. Each test set was run with `-x`, so a mutant's run stops at its first failing test.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used. `test_rpc_surface.py` also calls `fabric_environment.py` but reads `app/`, so it was left out of that set; no test in these sets reads `docs/`, `examples/` or `app/`.
+
+No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `editor_service.py` | test_editor_service_edges, test_editor_channel, test_editor_channel_edges (+ test_editor_service_mutation) | 130 of 130 (130 + 0) | 108 / 22 | **83.1%** | 108/130 → 129/130 | none | 129 / 1 | **99.2%** | 1 equivalent |
+| `fabric_environment.py` | test_fabric_environment (+ test_fabric_environment_mutation) | 112 of 112 (112 + 0) | 104 / 8 | **92.9%** | 104/112 → 112/112 | none | 112 / 0 | **100%** | none |
+| `engines/databricks_workspace_sync.py` | test_databricks_workspace_sync, test_databricks_workspace_sync_edges, test_databricks_sync_service (+ test_databricks_workspace_sync_mutation) | 150 of 188 (147 + 3) | 121 / 29 | **80.7%** | 121/147 → 142/147 | 0/3 → 1/3 | 143 / 7 | **95.3%** | 7 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **editor_service.py**:
+  - A path is inside the folder only when it is text, the folder isn't empty and has no NUL, and a sibling folder whose name starts the same way is outside.
+  - A write question's id is `wq_` and 16 hex digits, and its view gives its fields.
+  - With no policy, no editor is named as allowed.
+  - Syncing while off starts no channel, and syncing while on keeps the same channel.
+  - Turning the editor on or off and deciding a write return what they should.
+  - Turning the editor off runs on a daemon thread named `editor-off`, and it is no longer stopping afterwards.
+  - Unpairing and interrupting return what they should and are audited with the window and the result.
+  - A run's audit gives its seconds.
+  - A lakehouse is used only when both its ids are given.
+  - A write waits 300 seconds for an answer, and the message says "within 5 minutes"; an approved write is audited as such.
+  - → `test_editor_service_mutation.py`.
+- **fabric_environment.py**:
+  - A 401 or 403 reads as an access problem, and a 404 and a 402 each have their own reason.
+  - A version or a specifier that pip can't read is compared as text, and a pre-release meets a specifier.
+  - Each kind of drift on its own makes the environment drifted.
+  - "No drift" comes before the staged lines and before "Runtime not read" in the summary, and one library is "1 published library".
+  - → `test_fabric_environment_mutation.py`.
+- **engines/databricks_workspace_sync.py**:
+  - Only the first 1000 entries of a folder are looked at.
+  - A file of exactly 10 MB is pushed, and one byte more is skipped.
+  - A file written locally gets its parent folders.
+  - The workspace path read for each form of remote path.
+  - A missing path (`RESOURCE_DOES_NOT_EXIST` or `404`) is skipped, and any other error is raised.
+  - A missing modified time counts as 0.
+  - A `.py` push loses nothing.
+  - A pushed file the workspace doesn't list is remembered at time 0, and isn't overwritten.
+  - A pull keeps the other files' state, and a file the second listing leaves out gets time 0.
+  - Content at the pull size limit is pulled, and content one byte over is skipped with "It's over 10 MB in Databricks, so it isn't pulled."
+  - → `test_databricks_workspace_sync_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `editor_service.py` | 77 | `and` to `or` in the root check | Equivalent: both conditions give the same answer for every path form, on POSIX and on Windows. |
+| `engines/databricks_workspace_sync.py` | 61 | the `raise` removed for a `/Repos` path | Equivalent: the remote path pattern only accepts `/Users` and `/Shared` paths, so this line is never reached. |
+| `engines/databricks_workspace_sync.py` | 131 | `follow_symlinks=False` to `True` in reading a file's size | Equivalent: links are already skipped by `is_file(follow_symlinks=False)` before the size is read. |
+| `engines/databricks_workspace_sync.py` | 151 | `len(parts) > 1` to `> 0` | Equivalent: a valid remote path always has more than one part. |
+| `engines/databricks_workspace_sync.py` | 151 | the default of 1 to 0 in the parts lookup | Equivalent: a valid remote path always starts with `Users` or `Shared`, so the default is never used. |
+| `engines/databricks_workspace_sync.py` | 151 | `len(parts) > 1` to `>=` | Equivalent, for the same reason as the line above. |
+| `engines/databricks_workspace_sync.py` | 342 | `>` to `>=` on the pull size limit | Equivalent: the limit's length isn't a multiple of 4, so no valid base64 has it, and content of that length fails to decode either way. |
+| `engines/databricks_workspace_sync.py` | 347 | `is_symlink() or parent != root` to `and` | Equivalent: the local listing never includes a link, and a plain name in the folder always has the folder as its parent. |

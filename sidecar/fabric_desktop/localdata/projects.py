@@ -15,6 +15,7 @@ when it opens, and any tables are gone. Nothing here needs a Fabric sign-in or c
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -24,6 +25,9 @@ from typing import Any
 
 from .discovery import Source
 from .. import jsonfile
+from ..redact import describe
+
+_log = logging.getLogger(__name__)
 
 SCHEMA = "local-project@1"
 STORAGE = ("persistent", "memory")
@@ -119,8 +123,15 @@ class ProjectStore:
     def _index(self) -> dict[str, str]:
         try:
             index = jsonfile.read_json(self.index_file, {})
-            # Only id -> folder entries: one of another type (a hand edit) is left off, not a crash for every project.
-            return {k: v for k, v in index.items() if isinstance(v, str) and v} if isinstance(index, dict) else {}
+            if not isinstance(index, dict):
+                return {}
+            # Only id -> folder entries: one of another type (a hand edit) is left off, not a crash for every
+            # project. The next save of the list leaves it out, so it is logged with its value here.
+            bad = {k: v for k, v in index.items() if not (isinstance(v, str) and v)}
+            if bad:
+                _log.warning("%s: left out entries that aren't a project folder: %s", self.index_file,
+                             ", ".join(f"{k!r}: {v!r}"[:200] for k, v in bad.items()))
+            return {k: v for k, v in index.items() if k not in bad}
         except (OSError, ValueError):
             return {}
 
@@ -132,8 +143,11 @@ class ProjectStore:
         for pid in sorted(self._index()):
             try:
                 projects.append(self.load(pid))
-            except (OSError, ValueError, KeyError):
-                continue  # a project folder that was deleted or moved: listed again once it's back
+            except (OSError, ValueError, KeyError) as exc:
+                # A project folder that was deleted or moved (listed again once it's back), or a project.json
+                # that can't be read (load names the file and why).
+                _log.warning("Local data project %s isn't listed: %s", pid, describe(exc))
+                continue
         return projects
 
     def load(self, pid: str) -> Project:
@@ -144,7 +158,7 @@ class ProjectStore:
         try:  # OSError (a folder that's gone or can't be opened) is raised as it is
             return _project(json.loads(path.read_text(encoding="utf-8")), folder)
         except (ValueError, TypeError, KeyError, AttributeError, OverflowError, RecursionError) as exc:
-            # A torn write, a hand edit or another program's file: named, so the list skips it and says why,
+            # A torn write, a hand edit or another program's file: named, so the list skips it and logs why,
             # and the file is left as it is for the person to fix (nothing here writes it back).
             what = f"{exc.args[0]!r} is missing" if isinstance(exc, KeyError) and exc.args else (
                 "it is nested too deeply" if isinstance(exc, RecursionError) else str(exc))

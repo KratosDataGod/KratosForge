@@ -92,3 +92,16 @@ def test_saved_projects_load_back_the_same(store, tmp_path):
         fuzzed.refreshed = {"x": {"fingerprint": str(rnd.random()), "issues": []}}
         store.save(fuzzed)
         assert store.load(fuzzed.id) == fuzzed
+
+
+def test_a_project_left_off_the_list_and_a_dropped_list_entry_are_logged(store, tmp_path, caplog):
+    good, fuzzed = _make(store, tmp_path)
+    (fuzzed.root / "project.json").write_text('{"sources": 5}', encoding="utf-8")
+    index = json.loads(store.index_file.read_text(encoding="utf-8"))
+    index["hand-edit"] = 1.5
+    store.index_file.write_text(json.dumps(index), encoding="utf-8")
+    with caplog.at_level("WARNING", logger="fabric_desktop.localdata.projects"):
+        assert [p.id for p in store.list()] == [good.id]
+    text = caplog.text
+    assert f"Local data project {fuzzed.id} isn't listed" in text and "project.json" in text
+    assert "'hand-edit': 1.5" in text

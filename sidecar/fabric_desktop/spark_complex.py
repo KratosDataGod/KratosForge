@@ -14,8 +14,8 @@ Databricks SQL share it):
 Some answers depend on whether a column is an array or a map, which only the bound tables tell. Once
 spark.sql has bound them (spark_local), ``spark_complex_types`` types the statement and gives a map
 argument its own form: size and cardinality count its keys, explode gives ``key`` and ``value``
-columns (in the select list and in LATERAL VIEW), reverse of an array reverses it, and sequence of
-whole numbers counts down when stop is below start, and to_json writes its argument as Spark does
+columns (in the select list and in LATERAL VIEW), reverse of an array reverses it, sequence is
+written as Spark gives it (_sequence_sql; a sequence of literals needs no tables, so it is written before), and to_json writes its argument as Spark does
 (spark_json; WR-118). A statement whose types can't be worked out keeps
 the array forms; what still differs is listed in docs/sql-compatibility.md ("Arrays, maps and structs
 on this PC"). A to_json whose argument can't be typed is refused by name, not written as DuckDB does.
@@ -139,8 +139,15 @@ def spark_complex_results(statement: exp.Expression) -> exp.Expression:
         _mark(new, "size", _once_arg(new) or cast(exp.Is, new.find(exp.Is)).this)
     for node in _mine(list(statement.find_all(exp.Reverse))):
         _mark(node, "reverse", node.this)
-    for node in _mine(list(statement.find_all(exp.GenerateSeries))):
-        _mark(node, "sequence", node.args["start"])
+    for node in reversed(_mine(list(statement.find_all(exp.GenerateSeries)))):  # innermost first
+        written = _sequence_sql(node, [_literal_type(node.args.get(k)) for k in _SEQUENCE_ARGS])
+        if written is not None:
+            _put(node, written)
+            continue
+        node.meta[_KEY] = "sequence"  # typed once the tables are bound (spark_complex_types)
+        for k in _SEQUENCE_ARGS:
+            if node.args.get(k) is not None:
+                node.args[k].meta[_ARG] = True
     for lateral in _mine(list(statement.find_all(exp.Lateral))):
         call = lateral.this
         # exp.Inline: stack, json_tuple and inline, as spark_builtins_sql writes them after LATERAL VIEW
@@ -201,6 +208,12 @@ def spark_complex_types(statement: exp.Expr, conn: Any, kinds: tuple[str, ...] |
             node.meta.pop(_KEY)
             continue
         kind = node.meta.pop(_KEY)
+        if kind == "sequence":
+            arg_types = [types.get(a.meta.get(_ID, -1)) if (a := node.args.get(k)) is not None else None
+                         for k in _SEQUENCE_ARGS]
+            if (written := _sequence_sql(node, arg_types)) is not None:
+                node.replace(_parse(written))
+            continue
         source = node.meta.pop("kf_complex_source", None)
         found = next((a for a in node.walk() if a.meta.get(_ARG)), None)
         if found is None:
@@ -216,14 +229,6 @@ def spark_complex_types(statement: exp.Expr, conn: Any, kinds: tuple[str, ...] |
             node.replace(_parse(_size_sql(value, is_map=True)))
         elif kind == "reverse" and dtype.is_type(exp.DataType.Type.ARRAY):
             node.replace(_parse(f"LIST_REVERSE({a})"))
-        elif kind == "sequence" and dtype.is_type(*exp.DataType.INTEGER_TYPES):
-            whole = "INT" if dtype.is_type(exp.DataType.Type.INT) else "BIGINT"
-            parts = {"s": node.args["start"], "e": node.args["end"]}
-            step = node.args.get("step")
-            if step is not None:
-                parts["b"] = step
-            by = "{b}" if step is not None else "CASE WHEN {s} <= {e} THEN 1 ELSE -1 END"
-            node.replace(_parse(_once(f"CAST(GENERATE_SERIES({{s}}, {{e}}, {by}) AS {whole}[])", **parts)))
         elif kind == "explode" and is_map:
             _explode_map(node, a)
         elif kind == "lateral" and is_map:
@@ -233,6 +238,73 @@ def spark_complex_types(statement: exp.Expr, conn: Any, kinds: tuple[str, ...] |
     for node, json_type in reversed(json_types):
         _to_json(node, json_type)
     return _unmark(statement)
+
+
+_SEQUENCE_ARGS = ("start", "end", "step")
+_T = exp.DataType.Type
+_WHOLE = {_T.TINYINT: "TINYINT", _T.SMALLINT: "SMALLINT", _T.INT: "INT", _T.BIGINT: "BIGINT"}
+_WHOLE_ORDER = ("TINYINT", "SMALLINT", "INT", "BIGINT")
+_TIMES = {_T.DATE: "DATE", _T.TIMESTAMP: "TIMESTAMP", _T.TIMESTAMPNTZ: "TIMESTAMP", _T.TIMESTAMPTZ: "TIMESTAMPTZ",
+          _T.TIMESTAMPLTZ: "TIMESTAMPTZ"}
+# Units of an interval literal with no months in it: adding it step by step gives what adding it i times does.
+_FIXED_UNITS = frozenset({"WEEK", "WEEKS", "DAY", "DAYS", "HOUR", "HOURS", "MINUTE", "MINUTES", "SECOND", "SECONDS",
+                          "MILLISECOND", "MILLISECONDS", "MICROSECOND", "MICROSECONDS"})
+
+
+def _literal_type(arg: exp.Expr | None) -> exp.DataType | None:
+    """``arg``'s type when it is a literal (a whole number, a typed literal such as DATE'...', an interval), so a
+    sequence of literals needs no tables to be typed; None otherwise."""
+    if arg is None:
+        return None
+    value = arg.this if isinstance(arg, exp.Neg) else arg
+    if isinstance(value, exp.Literal) and not value.is_string and value.is_int:
+        n = int(value.this)
+        return exp.DataType.build("INT" if -2**31 <= n < 2**31 else "BIGINT") if -2**63 <= n < 2**63 else None
+    if isinstance(arg, exp.Cast) and isinstance(arg.this, (exp.Literal, exp.Null)):
+        return arg.to
+    if isinstance(arg, exp.Interval):
+        return exp.DataType.build("INTERVAL")
+    return None
+
+
+def _sequence_sql(node: exp.Expr, types: list[exp.DataType | None]) -> str | None:
+    """Spark's sequence(start, stop[, step]) as DuckDB SQL, from its arguments' types, or None when they aren't
+    ones handled here. Whole numbers count down when stop is below start, and keep the wider of start's and stop's
+    types. Dates and timestamps step by a day (or minus a day) by default; a step with months in it gives
+    start + i * step for each i, as Spark does, not each element plus the step (Jan 30 + 2 months is Mar 30, not
+    Mar 29), and stops at stop. Dates stay dates."""
+    start, end, step = (node.args.get(k) for k in _SEQUENCE_ARGS)
+    s_type, e_type, b_type = types
+    if start is None or end is None or s_type is None or e_type is None:
+        return None
+    parts = {"s": start, "e": end}
+    if step is not None:
+        parts["b"] = step
+    wholes = [_WHOLE.get(t.this) for t in (s_type, e_type)]
+    if all(wholes) and (b_type is None or b_type.this in _WHOLE):
+        whole = max(wholes, key=lambda w: _WHOLE_ORDER.index(w or ""))
+        by = "{b}" if step is not None else "CASE WHEN {s} <= {e} THEN 1 ELSE -1 END"
+        return _once(f"CAST(GENERATE_SERIES({{s}}, {{e}}, {by}) AS {whole}[])", **parts)
+    times = [_TIMES.get(t.this) for t in (s_type, e_type)]
+    if not all(times) or (step is not None and (b_type is None or not b_type.is_type(_T.INTERVAL))):
+        return None
+    out = "DATE" if times == ["DATE", "DATE"] else "TIMESTAMPTZ" if "TIMESTAMPTZ" in times else "TIMESTAMP"
+    calc = "TIMESTAMP" if out == "DATE" else out
+    s, e = f"CAST({{s}} AS {calc})", f"CAST({{e}} AS {calc})"
+    unit = step.args.get("unit") if isinstance(step, exp.Interval) else None
+    if step is None:
+        series = f"GENERATE_SERIES({s}, {e}, CASE WHEN {s} <= {e} THEN INTERVAL 1 DAY ELSE INTERVAL -1 DAY END)"
+    elif isinstance(unit, exp.Var) and unit.name.upper() in _FIXED_UNITS:
+        series = f"GENERATE_SERIES({s}, {e}, {{b}})"
+    else:
+        # Spark's estimate of the step, a month counted as 28 days, gives its direction and the most elements
+        # there can be; those past stop are dropped. DuckDB's EPOCH counts a month as 30 days.
+        est = "(EPOCH({b}) - 172800 * (DATEPART('year', {b}) * 12 + DATEPART('month', {b})))"
+        count = (f"CASE WHEN {s} = {e} THEN 1 WHEN ({est} > 0 AND {s} < {e}) OR ({est} < 0 AND {s} > {e}) "
+                 f"THEN CAST(FLOOR(ABS(EPOCH({e}) - EPOCH({s})) / ABS({est})) AS BIGINT) + 1 ELSE 0 END")
+        series = (f"LIST_FILTER(LIST_TRANSFORM(RANGE(0, {count}), LAMBDA kf_i: {s} + {{b}} * kf_i), "
+                  f"LAMBDA kf_v: CASE WHEN {est} > 0 THEN kf_v <= {e} ELSE kf_v >= {e} END)")
+    return _once(f"CAST({series} AS {out}[])", **parts)
 
 
 def _to_json(node: exp.Expr, dtype: exp.DataType | None) -> None:

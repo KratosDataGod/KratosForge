@@ -1,0 +1,8 @@
+# sequence: counting down, dates and timestamps, default and interval steps, each case one query. Spark's answers:
+# tests/fixtures/spark_3_5_3_sequence.json, from the Spark 3.5.3 probe of 2026-11-18 (tools/capture_spark_values.py
+# sequence makes it again). Checked by tests/test_spark_sequence_values.py.
+SELECT sequence(5, 1)
+SELECT sequence(DATE'2024-01-30', DATE'2024-04-30', INTERVAL 1 MONTH)
+SELECT sequence(DATE'2024-01-01', DATE'2024-01-05')
+SELECT sequence(DATE'2024-01-05', DATE'2024-01-01')
+SELECT sequence(DATE'2024-01-01', DATE'2024-01-10', INTERVAL 3 DAY)

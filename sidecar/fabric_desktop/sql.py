@@ -2316,11 +2316,11 @@ def execute_sandboxed(con: duckdb.DuckDBPyConnection, statement: str) -> pa.Tabl
 def _decimal_types(statement: exp.Expression, con: duckdb.DuckDBPyConnection, dialect: str) -> exp.Expression:
     """Spark SQL's decimal result types and div (spark_decimals), as a notebook's spark.sql gives them: without
     them floor(-1.25) div 7 was DuckDB's double division, -0.2857..., where Spark gives 0. And to_json,
-written from its argument's type as Spark writes it (spark_json)."""
+written from its argument's type as Spark writes it (spark_json), and sequence of columns (spark_complex)."""
     if sql_dialects.get(dialect)["id"] != "spark":
         return statement
     statement = cast(exp.Expression, spark_decimals.spark_decimal_types(statement, con))
-    return cast(exp.Expression, spark_complex.spark_complex_types(statement, con, kinds=("to_json",)))
+    return cast(exp.Expression, spark_complex.spark_complex_types(statement, con, kinds=("to_json", "sequence")))
 
 
 def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyConnection, Any]:

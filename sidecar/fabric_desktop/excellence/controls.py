@@ -125,9 +125,9 @@ class Control:
 def problems(c: Control) -> list[str]:
     """Everything wrong with a control's definition; empty when it can be registered."""
     out: list[str] = []
-    if not _ID.match(c.id):
+    if not _ID.fullmatch(c.id):
         out.append(f"id {c.id!r} isn't like FEA-SEC-001")
-    if not _VERSION.match(c.version):
+    if not _VERSION.fullmatch(c.version):
         out.append(f"version {c.version!r} isn't like 1.0.0")
     if c.dimension not in DIMENSIONS:
         out.append(f"unknown dimension {c.dimension!r}")

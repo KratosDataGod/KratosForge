@@ -63,6 +63,18 @@ def test_security_controls_pass_fail_and_not_evaluated(cid, failing, passing):
     assert unread["outcome"] == "not_evaluated" and unread["needs"] == "workspace.roles"
 
 
+def test_a_user_without_a_sign_in_name_isnt_assumed_not_to_be_a_guest():
+    nameless = {"role": "Contributor", "principal": {"id": "u1", "type": "User", "displayName": "Someone"}}
+    o = outcome_of(run([nameless]), "FEA-SEC-002")
+    assert o["outcome"] == "not_evaluated" and "Someone" in o["text"]
+    both = outcome_of(run([nameless, role("Member", "User", "Partner", guest=True)]), "FEA-SEC-002")
+    assert both["outcome"] == "fail"
+    group = {"role": "Member", "principal": {"id": "g1", "type": "Group", "displayName": "Team"}}
+    assert outcome_of(run([group]), "FEA-SEC-002")["outcome"] == "pass"
+    assert "directly assigned" in outcome_of(run([group]), "FEA-SEC-002")["text"]
+    assert "directly assigned" in outcome_of(run([group]), "FEA-SEC-004")["text"]
+
+
 def test_role_evidence_drops_email_addresses_and_names_who():
     recs = adapters.roles(WS, [role("Contributor", "User", "Partner", guest=True)], collected_at=AT)
     assert "#EXT#" not in json.dumps(recs) and recs[0]["payload"]["assignments"][0]["guest"] is True
@@ -124,13 +136,34 @@ def items_of(workloads: list[dict]) -> list[dict]:
     ("FEA-DE-001", "DataPipeline", "OE-FULL-REFRESH"), ("FEA-DE-002", "Notebook", "OE-DUP-NB-PARAM"),
 ])
 def test_item_controls_pass_fail_and_not_evaluated(cid, kind, rule):
-    ws = [workload("bad", kind), workload("good", kind), workload("unread", kind, definition="not_read")]
+    ws = [workload("bad", kind), workload("good", kind)]
     snap = run([], items=items_of(ws), opt=opt_result(ws, [opp(rule, "bad")]))
     assert outcome_of(snap, cid, "bad")["outcome"] == "fail"
     assert outcome_of(snap, cid, "good")["outcome"] == "pass"
+    ws.append(workload("unread", kind, definition="not_read"))
+    snap = run([], items=items_of(ws), opt=opt_result(ws, [opp(rule, "bad")]))
+    assert outcome_of(snap, cid, "bad")["outcome"] == "fail"
     assert outcome_of(snap, cid, "unread")["outcome"] == "not_evaluated"
     cov = {c["item"]["id"]: c["state"] for c in snap["item_coverage"]}
-    assert cov["bad"] == cov["good"] == "inspected" and cov["unread"] == "not_inspected"
+    assert cov["bad"] == "inspected" and cov["unread"] == "not_inspected"
+
+
+@pytest.mark.parametrize("cid, kind", [("FEA-PERF-001", "Notebook"), ("FEA-PERF-002", "DataPipeline"),
+                                       ("FEA-DE-002", "Notebook")])
+def test_a_peer_that_wasnt_read_stops_a_cross_item_pass(cid, kind):
+    """Its duplicate could be the unread one (read budget ran out, or no access)."""
+    ws = [workload("a", kind), workload("partner", kind, definition="not_read"), workload("other", "Lakehouse")]
+    snap = run([], items=items_of(ws), opt=opt_result(ws, []))
+    o = outcome_of(snap, cid, "a")
+    assert o["outcome"] == "not_evaluated" and "partner" in o["text"] and "partner" in o["needs"]
+    many = [workload("a", kind)] + [workload(f"p{i}", kind, definition="not_read") for i in range(7)]
+    o = outcome_of(run([], items=items_of(many), opt=opt_result(many, [])), cid, "a")
+    assert "and 2 more" in o["text"]
+
+
+def test_full_refresh_is_per_item_and_doesnt_need_its_peers():
+    ws = [workload("a"), workload("partner", definition="not_read")]
+    assert outcome_of(run([], items=items_of(ws), opt=opt_result(ws, [])), "FEA-DE-001", "a")["outcome"] == "pass"
 
 
 def test_suspected_duplicates_are_not_evaluated_not_failed():
@@ -227,6 +260,16 @@ def test_unreadable_roles_never_pass_and_dont_leak_tokens(make):
     assert r["scores"]["dimensions"]["security"]["status"] == "insufficient_evidence"
     assert "abc.def.ghi" not in json.dumps(r)
     assert [x["ok"] for x in r["reads"] if x["read"] in ("role assignments", "capacities")] == [False, False]
+
+
+def test_unreadable_workspace_settings_are_reported_not_raised(make):
+    s = make()
+    s.fake.get_workspace = lambda ws: (_ for _ in ()).throw(RuntimeError("404 token=abc.def.ghi"))
+    r = s.excellence_assess(workspace_id=WSID)
+    assert outcome_of(r, "FEA-GOV-001")["outcome"] == "not_evaluated"
+    assert r["scope"]["capacities"] == []
+    w = [x for x in r["reads"] if x["read"] == "workspace settings"][0]
+    assert w["ok"] is False and "abc.def.ghi" not in json.dumps(r)
 
 
 def test_the_demo_makes_no_fabric_call_and_is_labelled(make):

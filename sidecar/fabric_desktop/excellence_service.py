@@ -51,6 +51,7 @@ class ExcellenceMixin:
         prof = profiles.get(str(profile or profiles.DEFAULT))
         at = _now()
         reads: list[dict[str, Any]] = []
+        info_read = True
         if demo:
             opt = self.optimization_assess(demo=True)  # type: ignore[attr-defined]
             ws_raw = dict(opt["workspaces"][0])
@@ -63,9 +64,20 @@ class ExcellenceMixin:
         else:
             wid = _guid(workspace_id, "workspace")
             fabric = self.fabric  # type: ignore[attr-defined]
-            ws = fabric.get_workspace(wid)
-            ws = {**ws, "id": ws.get("id") or wid}
-            opt = self.optimization_assess(workspace_id=wid, days=days)  # type: ignore[attr-defined]
+            info_read = True
+            try:
+                got = fabric.get_workspace(wid)
+                ws = {**got, "id": got.get("id") or wid}
+                reads.append({"read": "workspace settings", "ok": True, "problem": None})
+            except Exception as exc:  # noqa: BLE001 - its controls are then not evaluated
+                ws, info_read = {"id": wid}, False
+                reads.append({"read": "workspace settings", "ok": False,
+                              "problem": f"Couldn't be read ({describe(exc)}); its capacity isn't known either."})
+            try:
+                opt = self.optimization_assess(workspace_id=wid, days=days)  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - its controls are then not evaluated
+                opt = {"workspaces": [{"id": wid, "problem": f"Couldn't be read ({describe(exc)})."}],
+                       "workloads": [], "opportunities": [], "scope": {}}
             reads.append({"read": "items, definitions and job history", "ok": not opt["workspaces"][0].get("problem"),
                           "problem": opt["workspaces"][0].get("problem"), "budget": opt["scope"].get("budget")})
             try:
@@ -83,7 +95,7 @@ class ExcellenceMixin:
                 capacities = None
                 reads.append({"read": "capacities", "ok": False, "problem": f"Couldn't be read ({describe(exc)})."})
         cap_id = str(ws.get("capacityId") or "").lower()
-        records = (adapters.workspace(ws, _items(opt), collected_at=at)
+        records = (adapters.workspace(ws, _items(opt), collected_at=at, info_read=info_read)
                    + adapters.roles(ws, assignments, collected_at=at)
                    + adapters.capacity(cap_id, capacities, collected_at=at)
                    + adapters.optimization(opt, collected_at=at))

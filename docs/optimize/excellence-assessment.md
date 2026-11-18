@@ -170,6 +170,12 @@ privilege but gives no number. A profile can turn any control off, with a reason
 severity. Listing role assignments needs a workspace role that can see them; for anyone else the
 security controls are not evaluated.
 
+Role controls look at direct assignments only: members of a group aren't expanded. A user whose sign-in
+name Fabric didn't send can't be told apart from a guest, so FEA-SEC-002 is then not evaluated. The
+controls that compare an item with the others of its kind (FEA-PERF-001, FEA-PERF-002, FEA-DE-002)
+pass an item only when every other notebook or pipeline in the workspace was read; if one wasn't (no
+access, or the read budget ran out), they are not evaluated and name the ones that weren't read.
+
 ## Limitations
 
 - There is no screen yet. The scorecard waits on its approved mockup.

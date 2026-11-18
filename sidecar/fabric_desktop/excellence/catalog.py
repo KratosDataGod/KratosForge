@@ -62,11 +62,18 @@ def _admins(ctx: ct.Context) -> dict[str, Any]:
 
 def _guests(ctx: ct.Context) -> dict[str, Any]:
     rid, people = _assignments(ctx)
-    guests = [p for p in people if p["guest"] and p["role"] in WRITE_ROLES]
+    writers = [p for p in people if p["role"] in WRITE_ROLES]
+    guests = [p for p in writers if p["guest"] is True]
     if guests:
         return ct.failed([rid], f"{len(guests)} guest account{'s' if len(guests) != 1 else ''} from another organization "
                                 f"can change this workspace: {_names(guests)}.", detail={"guests": len(guests)})
-    return ct.passed([rid], "No guest account has a role that can change this workspace.")
+    unknown = [p for p in writers if p["guest"] is None]
+    if unknown:
+        return ct.not_evaluated(f"Fabric didn't send the sign-in name of {_names(unknown)}, so whether "
+                                f"{'they are guests' if len(unknown) != 1 else 'this is a guest'} isn't known.",
+                                needs="the users' sign-in names")
+    return ct.passed([rid], "No directly assigned guest account has a role that can change this workspace "
+                            "(members of groups aren't expanded).")
 
 
 def _app_admins(ctx: ct.Context) -> dict[str, Any]:
@@ -84,8 +91,8 @@ def _direct_users(ctx: ct.Context) -> dict[str, Any]:
     if len(direct) > MAX_DIRECT_WRITERS:
         return ct.failed([rid], f"{len(direct)} people can change this workspace through their own account rather "
                                 f"than a group: {_names(direct)}.", detail={"direct": len(direct)})
-    return ct.passed([rid], f"{len(direct)} individual write assignment{'s' if len(direct) != 1 else ''} "
-                            f"(at most {MAX_DIRECT_WRITERS}); the rest go through groups.")
+    return ct.passed([rid], f"{len(direct)} directly assigned user{'s' if len(direct) != 1 else ''} with a write role "
+                            f"(at most {MAX_DIRECT_WRITERS}); group members aren't expanded.")
 
 
 # ---- governance and capacity
@@ -120,8 +127,18 @@ def _matched(ctx: ct.Context, *rules: str) -> tuple[str, dict[str, Any], list[di
     return r["id"], r["payload"], hits
 
 
+def _unseen(payload: dict[str, Any], what: str) -> dict[str, Any] | None:
+    """Not evaluated when a peer this item is compared with wasn't read: its duplicate could be there."""
+    peers = list(payload.get("peers_not_read") or [])
+    if not peers:
+        return None
+    shown = ", ".join(peers[:5]) + (f" and {len(peers) - 5} more" if len(peers) > 5 else "")
+    return ct.not_evaluated(f"Nothing matched, but {len(peers)} other {what} couldn't be read ({shown}), so a "
+                            "match among them can't be ruled out.", needs="the definitions of " + shown)
+
+
 def _duplicates(ctx: ct.Context) -> dict[str, Any]:
-    rid, _, hits = _matched(ctx, "OE-DUP-NB", "OE-DUP-NB-SUSPECT")
+    rid, payload, hits = _matched(ctx, "OE-DUP-NB", "OE-DUP-NB-SUSPECT")
     proven = [h for h in hits if h["rule"] == "OE-DUP-NB"]
     if proven:
         return ct.failed([rid], "This notebook runs the same code on the same data as another notebook "
@@ -129,15 +146,16 @@ def _duplicates(ctx: ct.Context) -> dict[str, Any]:
     if hits:
         return ct.not_evaluated("This notebook has the same code as another one, but which data each reads isn't "
                                 "known (no default lakehouse in the definitions).", needs="the notebooks' data sources")
-    return ct.passed([rid], "No other notebook in the workspace runs the same code on the same data.")
+    return _unseen(payload, "notebooks") or ct.passed([rid], "No other notebook in the workspace runs the same code on the same data.")
 
 
 def _repeated_copies(ctx: ct.Context) -> dict[str, Any]:
-    rid, _, hits = _matched(ctx, "OE-DUP-COPY", "OE-REPEAT-EXTRACT")
+    rid, payload, hits = _matched(ctx, "OE-DUP-COPY", "OE-REPEAT-EXTRACT")
     if hits:
         return ct.failed([rid], f"A Copy activity here reads a source another pipeline also copies ({hits[0]['title']}).",
                          detail={"opportunity_id": hits[0]["opportunity_id"]})
-    return ct.passed([rid], "No Copy activity here reads a source another pipeline in the workspace also copies.")
+    return _unseen(payload, "pipelines") or ct.passed(
+        [rid], "No Copy activity here reads a source another pipeline in the workspace also copies.")
 
 
 def _scheduled(ctx: ct.Context) -> bool | None:
@@ -156,11 +174,11 @@ def _full_refresh(ctx: ct.Context) -> dict[str, Any]:
 
 
 def _parameterize(ctx: ct.Context) -> dict[str, Any]:
-    rid, _, hits = _matched(ctx, "OE-DUP-NB-PARAM")
+    rid, payload, hits = _matched(ctx, "OE-DUP-NB-PARAM")
     if hits:
         return ct.failed([rid], "The same code is kept in more than one notebook, one per lakehouse.",
                          detail={"opportunity_id": hits[0]["opportunity_id"]})
-    return ct.passed([rid], "Its code isn't copied into another notebook for a different lakehouse.")
+    return _unseen(payload, "notebooks") or ct.passed([rid], "Its code isn't copied into another notebook for a different lakehouse.")
 
 
 def _t(why: str, solution: str, steps: list[str], benefit: str, effort: str, risk: str, validation: str,

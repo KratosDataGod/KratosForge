@@ -137,6 +137,40 @@ test("provisional, insufficient evidence and Critical Risk read as the mockup's 
   await page().evaluate(() => { optimizeExcellence.result = window.__excBase; });
 });
 
+test("a run that ends after you switch views still fills the Excellence panel you come back to", { skip }, async () => {
+  await page().evaluate(() => { optimizeExcellence.result = null; optimizeExcellence.view = "excellence"; render(); });
+  await page().waitForSelector(".exc-empty");
+  // All in one tick, so the engine can't answer before the views switch.
+  const stuck = await page().evaluate(() => {
+    const tab = (name) => [...document.querySelectorAll(".exc-views .tab")].find((t) => t.textContent === name);
+    [...document.querySelectorAll(".exc-empty button")].find((b) => b.textContent.includes("demonstration")).click();
+    tab("Gaps").click();
+    tab("Excellence").click();
+    return !!document.querySelector(".exc-view [role=status]");
+  });
+  assert.ok(stuck, "the new panel shows the run in progress");
+  await page().waitForSelector(".exc-hero");
+  assert.equal(await page().locator(".exc-scope .tool.primary").isDisabled(), false);
+});
+
+test("the scorecard works from the keyboard and fits a narrow window", { skip }, async () => {
+  await page().locator(".exc-dim").first().focus();
+  await page().keyboard.press("Enter");
+  await page().locator(".dialog.exc-sheet").waitFor();
+  await page().keyboard.press("Escape");
+  await page().locator(".dialog.exc-sheet").waitFor({ state: "detached" });
+  const size = page().viewportSize();
+  await page().setViewportSize({ width: 420, height: 900 });
+  try {
+    const over = await page().evaluate(() => [...document.querySelectorAll(".exc-hero, .exc-dims, .exc-acts, .exc-counts")]
+      .filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.className));
+    assert.deepStrictEqual(over, []);
+    await shot("excellence-narrow");
+  } finally {
+    await page().setViewportSize(size);
+  }
+});
+
 test("an excellence score is never rounded up to 100", { skip }, async () => {
   const shown = await page().evaluate(() => [excNum(99.6), excNum(100), excNum(84.4), excNum(null)]);
   assert.deepStrictEqual(shown, ["99", "100", "84", "—"]);

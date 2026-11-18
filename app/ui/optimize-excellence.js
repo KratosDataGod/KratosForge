@@ -4,7 +4,9 @@
 // Opportunities is the existing opportunity view (optimize-assess.js), one tab over; Gaps lists what
 // couldn't be checked and why. Methodology: docs/optimize/excellence-assessment.md.
 
-const optimizeExcellence = { view: "excellence", workspaceId: "", days: 30, result: null, running: false, error: "" };
+// `panel` is the Excellence panel on screen now: a run redraws that one when it ends, so switching views
+// or leaving Optimize while it runs never leaves a new panel stuck on "Reading...".
+const optimizeExcellence = { view: "excellence", workspaceId: "", days: 30, result: null, running: false, error: "", panel: null };
 
 const EXC_VIEWS = [["excellence", "Excellence"], ["opportunities", "Opportunities"], ["gaps", "Gaps"]];
 const EXC_DIMS = {
@@ -88,8 +90,8 @@ function excellencePanel(body, showGaps) {
     } finally {
       e.running = false;
     }
-    if (!body.isConnected) return;
-    drawScope(); draw();
+    const p = e.panel;
+    if (p?.body.isConnected) p.redraw();
   };
   const drawScope = () => {
     const demo = !!e.result?.fixture;
@@ -120,6 +122,7 @@ function excellencePanel(body, showGaps) {
     pick.replaceChildren(h("option", { value: "" }, "Pick a workspace"), ...workspaces.map((w) =>
       h("option", { value: w.id, selected: w.id === e.workspaceId ? true : null }, w.displayName)));
   };
+  e.panel = { body, redraw: () => { drawScope(); draw(); } };
   drawScope();
   draw();
 }
@@ -174,7 +177,7 @@ function excResult(r, showGaps) {
       ? h("div", { class: "exc-acts" }, r.next_actions.map((a) => excAction(r, a)))
       : h("p", { class: "muted-text" }, "No control failed. That covers only what could be checked, so see the coverage above and Gaps."));
   const c = s.counts;
-  out.push(h("div", { class: "exc-counts" },
+  out.push(h("h3", { class: "exc-sec" }, "Controls"), h("div", { class: "exc-counts" },
     h("span", {}, h("b", {}, String(c.pass)), "Passed"), h("span", {}, h("b", {}, String(c.fail)), "Failed"),
     h("span", {}, h("b", {}, String(c.not_applicable)), "Not applicable"),
     h("span", {}, h("b", {}, String(c.not_evaluated + (c.errors || 0))), "Not evaluated ", btn("why", null, showGaps, "tool link"))),

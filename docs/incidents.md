@@ -57,7 +57,7 @@ A value that isn't a whole number of minutes is ignored and named in **Settings 
 
 ## Reporting a problem the app can't see
 
-Wrong numbers in a report, a dashboard nobody can open, a source a team says is missing: a person reports it with **Report an incident** (on **Monitor > KratosForge > Operations > Incidents**, on a workload's **Incidents** card, or from the command bar) with what's wrong, details, the environment and how bad it is. When it names a workload, the workload's team, technical owner and criticality come with it. A reported incident never closes by itself: only a person resolves it, with a note.
+Wrong numbers in a report, a dashboard nobody can open, a source a team says is missing: a person reports it with **Report an incident** (on **Monitor > KratosForge > Operations > Incidents**, on a workload's **Incidents** card, from a Data health alert's **Open an incident**, or from the command bar) with what's wrong, details, the environment and how bad it is. When it names a workload, the workload's team, technical owner and criticality come with it. A reported incident never closes by itself: only a person resolves it, with a note.
 
 **Report a problem** in the account menu is different: it reports a problem with the KratosForge app itself.
 

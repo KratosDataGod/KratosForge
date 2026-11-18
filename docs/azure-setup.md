@@ -47,6 +47,8 @@ Skip this unless your organization requires every app to use a registration in y
 
 Nothing here is required. A policy file at `%ProgramData%\FabricDesktop\policy.json`, pushed with Intune or Group Policy, can fix the update channel or turn self-updates off, hide Preview features, keep work off Fabric capacity, limit sign-in to your own tenant, point **Report a problem** at your own support channel, and name your own app registration (step 3). People see "Set by your organization" and can't change those settings.
 
+Group Policy and Intune can set the same keys, except the structured ones (`platform`, `incident_sla`, `editor_key_overrides`) and `engine_folder`, through the ADMX templates in `deploy/policy`. A value set there wins over the same key in the file ([Enterprise install](enterprise-install.md#deploy)).
+
 A policy file that sets everything an organization usually wants:
 
 ```json

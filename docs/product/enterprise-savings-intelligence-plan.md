@@ -322,7 +322,7 @@ Assessment), `calibration.py` and `costs.py` (FinOps rules, Quality reads the co
 
 ### Phase 1: Shared telemetry foundation
 
-**ESI-101 Schema v2 for `fdopt_`.** Additive migration: provenance `tenant_id`; execution,
+**ESI-101 Schema v2 for `fdopt_`.** **Built** (#2962): the new nullable columns and the six new tables; writes use the columns of the version the lakehouse is at, and other families no longer wait for Optimize's upgrade. The provenance `tenant_id` and other identity columns wait for ESI-102's decision. Additive migration: provenance `tenant_id`; execution,
 optimization, ledger and sync columns from 4.1; new tables `fdopt_pricing`,
 `fdopt_optimization_link`, `fdopt_baseline`, `fdopt_validation`, `fdopt_attribution`,
 `fdopt_sync`. Owner: Optimize lakehouse thread (schema.py), specified here.

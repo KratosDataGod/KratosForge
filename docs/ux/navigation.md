@@ -54,7 +54,7 @@ Focused changes, no new rail items, nothing renamed that people already use exce
 | Data mesh | Design, Runs, Quality, Domains, Deploy. Business keys, landing zone and glossary are **read-only views that link to Platform**, where they're managed | No duplicate editing (N1) |
 | Platform | Unchanged tabs. Platform setup moves here only (out of Settings). Header says what the role means on a PC-only platform before sign-in | One home for platform-wide things (N1, N9) |
 | Fabric | Unchanged | — |
-| Monitor | **Runs, Schedules, Operations.** Operations holds Workloads, Queue, Agents, Run as and Incidents as views in one segment; Cost moved to Optimize > Cost and savings (testing item 36) | Three segments instead of six to eight (N2, UX-010) |
+| Monitor | **Runs, Schedules, Operations.** Operations holds Workloads, Queue, Agents, Run as, Incidents and Data health as views in one segment; Cost moved to Optimize > Cost and savings (testing item 36) | Three segments instead of six to eight (N2, UX-010) |
 | Source control (bottom) | Unchanged | — |
 | Settings (bottom) | General, with **Advanced** collapsed (App ID, kernel, SQL limits); Integrations | Platform setup leaves (N1, UX-006) |
 

@@ -485,10 +485,11 @@ def test_format_of_a_date_follows_dotnets_formats(engine):
 
 
 def test_format_of_a_number_rounds_half_away_from_zero(engine):
-    r = tsql(engine, "SELECT FORMAT(1234.5, 'N2') AS a, FORMAT(-1234.5, 'N0') AS b, FORMAT(-0.004, 'N2') AS c, "
+    # FORMAT(-0.004, 'N2') rounds to zero, which .NET's versions write as 0.00 or -0.00: refused (test_tsql_formatting)
+    r = tsql(engine, "SELECT FORMAT(1234.5, 'N2') AS a, FORMAT(-1234.5, 'N0') AS b, "
                      "FORMAT(-0.005, 'N2') AS d, FORMAT(1234567, 'N') AS e, FORMAT(2.5, 'F0') AS f, "
                      "FORMAT(-1234.5, 'f3') AS g, FORMAT(-42, 'D5') AS h, FORMAT(123456, 'D3') AS i, FORMAT(42, 'd') AS j")
-    assert r["rows"] == [["1,234.50", "-1,235", "0.00", "-0.01", "1,234,567.00", "3", "-1234.500", "-00042",
+    assert r["rows"] == [["1,234.50", "-1,235", "-0.01", "1,234,567.00", "3", "-1234.500", "-00042",
                           "123456", "42"]]
     r = tsql(engine, "SELECT FORMAT(price, 'N1') AS p, FORMAT(qty, 'N0') AS q, FORMAT(CAST(NULL AS INT), 'N') AS n "
                      "FROM dbo.orders ORDER BY id")
@@ -500,10 +501,12 @@ def test_format_of_a_number_rounds_half_away_from_zero(engine):
     ("SELECT FORMAT(CAST(1 AS MONEY), 'N2')", "MONEY and SMALLMONEY aren't carried yet"),
     ("SELECT FORMAT(CAST('10:00' AS TIME), 'hh')", "FORMAT of a TIME value"),
     ("SELECT FORMAT('2024-01-01', 'yyyy')", "FORMAT of text"),
-    ("SELECT FORMAT(5, '0000')", "number format '0000'"),
-    ("SELECT FORMAT(5, 'C')", "number format 'C'"),
+    ("SELECT FORMAT(5, '0;0;0')", "third section"),
+    ("SELECT FORMAT(5, 'P')", "'P' (percent)"),
+    ("SELECT FORMAT(5, 'C', 'de-DE')", "'C' (currency) outside 'en-US'"),
     ("SELECT FORMAT(1.5, 'D')", "'D' format is for integers"),
-    ("SELECT FORMAT(day, 'D', 'de-DE') FROM dbo.orders", "'en-US' culture"),
+    ("SELECT FORMAT(day, 'D', 'de-DE') FROM dbo.orders", "date format 'D' in 'de-DE'"),
+    ("SELECT FORMAT(day, 'd', 'fr-FR') FROM dbo.orders", "the culture 'fr-FR' isn't carried yet"),
     ("SELECT FORMAT(day, name) FROM dbo.orders", "text written in the query"),
     ("SELECT FORMAT(day, 'U') FROM dbo.orders", "date format 'U'"),
     ("SELECT FORMAT(day, 'yyyy K') FROM dbo.orders", "K (the time zone)"),

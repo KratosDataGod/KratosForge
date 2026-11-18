@@ -775,8 +775,9 @@ def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
     try:
         delta_profile.check_table(table)
     except delta_profile.ProfileViolation as exc:
-        raise ValueError(f"{name_} isn't changed on this PC: {exc}. Writing to it could make it unreadable in "
-                         "Fabric.") from None
+        text = str(exc)  # the reader refusal is whole sentences already, with its own next step
+        tail = "" if text.endswith(".") else ". Writing to it could make it unreadable in Fabric."
+        raise ValueError(f"{name_} isn't changed on this PC: {text}{tail}") from None
     before = table.version()
     names = source.schema.names if source is not None else None
     out = delta_dml.apply(change, table, source, names,

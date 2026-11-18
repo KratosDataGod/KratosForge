@@ -192,8 +192,8 @@ def profile(name: str | Profile | None) -> Profile:
 
 # What each legacy writer version past 2 adds, in order (Delta protocol): version 3 check constraints,
 # 4 change data feed and generated columns, 5 column mapping, 6 identity columns.
-_LEGACY_WRITER_FEATURES = ("check constraints", "change data feed and generated columns", "column mapping",
-                           "identity columns")
+_LEGACY_WRITER_FEATURES = (("check constraints",), ("change data feed", "generated columns"), ("column mapping",),
+                           ("identity columns",))
 
 
 class ProfileViolation(ValueError):
@@ -213,7 +213,8 @@ def problems(table: DeltaTable, within: str | Profile | None = None) -> list[str
         # Writer versions 3 to 6 turn on features without listing them (check constraints, change data
         # feed, generated columns, column mapping, identity columns), so the feature check below can't
         # see them. Only version 7 lists its features.
-        implied = ", ".join(_LEGACY_WRITER_FEATURES[: protocol.min_writer_version - MAX_WRITER])
+        names = [f for step in _LEGACY_WRITER_FEATURES[: protocol.min_writer_version - MAX_WRITER] for f in step]
+        implied = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
         found.append(f"writer version {protocol.min_writer_version}, which turns on {implied} without listing them")
     for features, kind in ((protocol.reader_features, "reader"), (protocol.writer_features, "writer")):
         outside = sorted(set(features or []) - p.features)

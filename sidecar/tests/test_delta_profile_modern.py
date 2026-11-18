@@ -250,6 +250,11 @@ def test_a_legacy_writer_version_that_turns_on_unlisted_features_is_outside_the_
     assert len(found) == 1 and found[0].startswith(f"writer version {writer}, which turns on check constraints")
     assert found[0].endswith(" without listing them")
     assert ("identity columns" in found[0]) == (writer == 6) and ("column mapping" in found[0]) == (writer >= 5)
+    if writer == 6:
+        assert found[0] == ("writer version 6, which turns on check constraints, change data feed, generated columns, "
+                            "column mapping and identity columns without listing them")
+    if writer == 4:
+        assert "check constraints, change data feed and generated columns without" in found[0]
     with pytest.raises(P.ProfileViolation, match=f"outside the modern Delta profile: writer version {writer}"):
         P.check_table(table)
 

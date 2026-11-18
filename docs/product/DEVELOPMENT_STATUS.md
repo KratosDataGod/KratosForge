@@ -10,7 +10,8 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
 - Morning check, 2026-11-18: 52 PRs merged after 8838a247. 5 were product data, docs audit and plan PRs, and the
   other 47 were linked. Two new programs have items: PB-137 Enterprise Savings Intelligence (plan #2940; schema v2 and
   the attribution waterfall engine merged) and PB-138 Fabric Excellence Assessment (plan #2939; the assessment engine
-  merged). Group Policy ADMX templates (#2258) closed the last missing key, so PB-061 is ready for its review. Run 11's
+  merged). Group Policy ADMX templates (#2258) closed the last missing key, so PB-061 is now In review: its implementation review recommends Accept with documented limitations
+  (the Group Policy templates haven't been applied from a live domain). Run 11's
   live check fed local T-SQL a warehouse's answers (PB-002). Data health watches table freshness, volume and schema
   and can open an incident (PB-105). Notebook cells now wait for a Prod workspace's typed name, and CSV exports guard
   against formula cells, as the product owner chose on 2026-11-17.
@@ -277,7 +278,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 126 items (7 P0, 33 P1, 60 P2, 26 P3). 14 are Proposed, 32 In progress, 2 In review and 78 Accepted.
+- Backlog: 126 items (7 P0, 33 P1, 60 P2, 26 P3). 14 are Proposed, 31 In progress, 3 In review and 78 Accepted.
 - PB-125 (Learn ranks and profile pictures) and PB-126 (Learn curriculum content batches) are new and Proposed, from the
   product owner's ask of 2026-11-02; they build once the rank ladder is approved.
 - PB-124 (new, In progress, P0 like PB-101): the enterprise audit's EA remediation backlog (docs/audits/), tracked as its own item.
@@ -304,7 +305,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 2 In review items (PB-024, PB-045), a tenant run of
+two release gates. Also waiting: acceptance of the 3 In review items (PB-024, PB-045, PB-061), a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

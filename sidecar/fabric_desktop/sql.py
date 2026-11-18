@@ -756,9 +756,9 @@ _FIRST_JSON = ("CASE WHEN JSON_VALID(fj_arg0) THEN fj_arg0 ELSE (LIST_TRANSFORM(
 # get_json_object with one [*] in its path, as Spark's JsonPathParser writes what it matches: nothing is NULL,
 # one match is that value's JSON text, and more are a JSON array of them. Where Spark's answer for one string
 # or a null among the matches isn't sure, it is refused.
-_JSON_WILDCARD_STOP = ("'get_json_object can''t run on this PC the way it runs in Fabric, so nothing ran: its [*] "
-                       "path matched a string on its own, or a null, which Spark writes its own way. Read the values "
-                       "with from_json, or a path to one element.'")
+_JSON_WILDCARD_STOP = ("'get_json_object can''t run on this PC the way it runs in Fabric, because its [*] path "
+                       "matched a string on its own, or a null, which Spark writes its own way, so nothing ran. Read "
+                       "the values with from_json, or use a path to one element.'")
 _JSON_WILDCARD = ("(LIST_TRANSFORM([json_extract(fj_arg0, kf_path)], kf_m -> CASE WHEN LEN(kf_m) = 0 THEN NULL "
                   "WHEN LIST_CONTAINS(LIST_TRANSFORM(kf_m, kf_x -> json_type(kf_x)), 'NULL') "
                   f"OR (LEN(kf_m) = 1 AND json_type(kf_m[1]) = 'VARCHAR') THEN ERROR({_JSON_WILDCARD_STOP}) "
@@ -987,7 +987,7 @@ def _from_json_options(node: exp.Expression) -> dict[str, str]:
         if isinstance(keys, exp.Array) and isinstance(values, exp.Array) else None
     if pairs is None or not all(isinstance(p, exp.Literal) and p.is_string for pair in pairs for p in pair):
         raise ValueError("from_json's options must be written out as map('name', 'value', ...) to run on this PC, "
-                         "so nothing ran.")
+                         "so nothing ran. Write each option as text, such as map('mode', 'FAILFAST').")
     out: dict[str, str] = {}
     known = (*_FROM_JSON_TAKEN, *_FROM_JSON_INFERENCE, *_FROM_JSON_IGNORED, *_FROM_JSON_DEFAULTS)
     for key, value in pairs:
@@ -999,7 +999,7 @@ def _from_json_options(node: exp.Expression) -> dict[str, str]:
     mode = out.get("mode", "PERMISSIVE").upper()
     if mode == "DROPMALFORMED":
         raise ValueError("from_json doesn't take the DROPMALFORMED mode, as in Spark (it takes PERMISSIVE and "
-                         "FAILFAST), so nothing ran.")
+                         "FAILFAST), so nothing ran. Use mode PERMISSIVE or FAILFAST.")
     out["mode"] = mode if mode in _FROM_JSON_MODES else "PERMISSIVE"
     return out
 
@@ -1035,9 +1035,10 @@ def _spark_json_date(v: str, options: dict[str, str], depth: int, timestamp: boo
         read = spark_datetime.parse_sql(pattern, fn).replace("fj_arg0", s)
         if not timestamp:
             read = f"CAST({read} AS DATE)"
-        stop = exp.Literal.string(f"from_json was given text that its {option} {pattern!r} doesn't match; Spark "
-                                  "gives NULL or stops on it depending on how its older parser reads it, which this "
-                                  "PC can't tell, so nothing ran.").sql("duckdb")
+        stop = exp.Literal.string(f"from_json was given text that its {option} {pattern!r} doesn't match. Spark "
+                                  "gives NULL or stops on such text depending on how its older parser reads it, and "
+                                  "this PC can't tell which, so nothing ran. Make the text match the format, or run "
+                                  "the cell in Fabric.").sql("duckdb")
         # Spark 2's parser reads no text without a digit when every field of the pattern is a number, so
         # Spark gives NULL for that text; other text that doesn't match is refused.
         letters = re.sub(r"'[^']*'", "", pattern)
@@ -1067,7 +1068,7 @@ def _spark_json_value(v: str, dtype: exp.DataType, options: dict[str, str], dept
         key, value = dtype.expressions
         if key.this not in (_T.TEXT, _T.VARCHAR):
             raise ValueError(f"from_json reads a MAP with STRING keys, as Spark does, not {dtype.sql('spark')}, "
-                             "so nothing ran.")
+                             "so nothing ran. Use MAP<STRING, ...>.")
         m, e, x, items = f"fj_m{depth}", f"fj_e{depth}", f"fj_x{depth}", f"fj_l{depth}"
         inner = _spark_json_value(e, value, options, depth + 1)
         read = f"LIST_TRANSFORM({m}.j, {e} -> {{'j': {e}, 'v': {inner}}})"
@@ -1142,8 +1143,8 @@ def _spark_from_json_template(schema: exp.Expression, node: exp.Expression) -> t
         name = options.get("columnNameOfCorruptRecord", "_corrupt_record")
         corrupt = next((kind for field, kind in fields if field == name), None)
         if corrupt is not None and corrupt.this not in (_T.TEXT, _T.VARCHAR):
-            raise ValueError(f"from_json's {name} field holds the records it can't read, so it must be a STRING, as "
-                             "Spark requires, so nothing ran.")
+            raise ValueError(f"from_json's {name} field holds the records it can't read, and Spark requires it to be "
+                             f"a STRING, so nothing ran. Declare {name} as STRING.")
         clean = _spark_json_clean(j, dtype, options, 0, skip=name) if corrupt is not None or failfast else "TRUE"
         nulls = "{" + ", ".join(f"{_sql_string(field)}: " + ("fj_t" if field == name else f"CAST(NULL AS {duckdb_sql(kind)})")
                                 for field, kind in fields) + "}"
@@ -1160,7 +1161,7 @@ def _spark_from_json_template(schema: exp.Expression, node: exp.Expression) -> t
         bad = f"{j} IS NULL OR json_type({j}) <> '{kind}' OR NOT {_spark_json_clean(j, dtype, options, 0)}"
     else:
         raise ValueError(f"from_json reads a STRUCT, ARRAY or MAP schema, as Spark does, not {dtype.sql('spark')}, "
-                         "so nothing ran.")
+                         "so nothing ran. Use a STRUCT, ARRAY or MAP schema, such as STRUCT<v: INT>.")
     if failfast:
         body = f"CASE WHEN {bad} THEN ERROR({_sql_string(_FAILFAST)}) ELSE {body} END"
     template = ("(LIST_TRANSFORM([CAST(fj_arg0 AS VARCHAR)], fj_t -> CASE WHEN fj_t IS NULL OR TRIM(fj_t) = '' THEN NULL "
@@ -1499,7 +1500,8 @@ def _infer_json_type(value: Any, prefers_decimal: bool = False, primitives_as_st
         sign, digits, exponent = value.as_tuple()
         if int(exponent) > 0:  # Spark's DecimalType stops on the negative scale of 1e5 (DECIMAL(1,-5))
             raise ValueError(f"schema_of_json with prefersDecimal stops in Spark on {value}, a number whose "
-                             "exponent leaves it no decimal places, so nothing ran.")
+                             "exponent leaves it no decimal places, so nothing ran. Leave out prefersDecimal, or "
+                             "write the number without an exponent.")
         return _json_decimal(len(digits), -int(exponent))
     if isinstance(value, str):
         return "STRING"
@@ -1621,7 +1623,7 @@ def _schema_of_json_options(given: exp.Expression) -> dict[str, str]:
         if isinstance(given, exp.VarMap) and isinstance(keys, exp.Array) and isinstance(values, exp.Array) else None
     if pairs is None or not all(isinstance(p, exp.Literal) and p.is_string for pair in pairs for p in pair):
         raise ValueError("schema_of_json's options must be written out as map('name', 'value', ...) to run on this "
-                         "PC, so nothing ran.")
+                         "PC, so nothing ran. Write each option as text, such as map('prefersDecimal', 'true').")
     out: dict[str, str] = {}
     for key, value in pairs:
         name = next((o for o in ("prefersDecimal", "primitivesAsString", *_FROM_JSON_DEFAULTS)

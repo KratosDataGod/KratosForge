@@ -2838,6 +2838,31 @@
      null
     ]
    ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', CAST(0 AS DECIMAL(18,8)), 'b', CAST(0.00000012 AS DECIMAL(10,8)), 'c', CAST(-0.000000123 AS DECIMAL(20,12))))",
+   "value": [
+    [
+     "{\"a\":0E-8,\"b\":1.2E-7,\"c\":-1.23000E-7}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('d', CAST(1.5 AS DECIMAL(10,8)), 'e', CAST(0.0000012 AS DECIMAL(10,8)), 'f', CAST(1.5 AS DECIMAL(5,2))))",
+   "value": [
+    [
+     "{\"d\":1.50000000,\"e\":0.00000120,\"f\":1.50}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(array(CAST(0.00000001 AS DECIMAL(9,8)))), to_json(map('k', CAST(0 AS DECIMAL(38,18))))",
+   "value": [
+    [
+     "[1E-8]",
+     "{\"k\":0E-18}"
+    ]
+   ]
   }
  ]
 }

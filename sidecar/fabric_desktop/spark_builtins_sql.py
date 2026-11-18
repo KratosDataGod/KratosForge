@@ -189,8 +189,8 @@ def _typeof(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression 
         return None
     # A scalar type, or a list of one (INTEGER[] -> array<int>); deeper types in lower case.
     # A struct or map is named from its type where spark_complex_types can work it out; otherwise refused.
-    stop = ("'typeof() can''t run on this PC the way it runs in Fabric, so nothing ran: the struct or map''s type "
-            "couldn''t be worked out here.'")
+    stop = ("'typeof() can''t run on this PC the way it runs in Fabric, because the struct or map''s type "
+            "couldn''t be worked out here, so nothing ran. Run the cell in Fabric.'")
     scalar = "CASE kf_t " + " ".join(f"WHEN '{d}' THEN '{s}'" for d, s in _TYPE_NAMES) + \
              " ELSE CASE WHEN kf_t LIKE 'DECIMAL(%' THEN REPLACE(LOWER(kf_t), ' ', '') " \
              f"WHEN kf_t LIKE 'STRUCT(%' OR kf_t LIKE 'MAP(%' THEN ERROR({stop}) ELSE LOWER(kf_t) END END"

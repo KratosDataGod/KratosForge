@@ -6369,3 +6369,145 @@ No bugs were found.
 | `csv_cells.py` | 92, 96, 113 | `zip(strict=True)` to `False` | Equivalent: both sides come from the same schema or batch, so they always have the same length. |
 | `delta_read.py` | 82 | `get_add_actions(flatten=True)` to `False` | Equivalent: in deltalake 1.6.6 `size_bytes` is a top-level column either way. |
 | `delta_read.py` | 149 | `zip(strict=True)` to `False` | Equivalent: both columns come from the same deletion-vector table, so they always have the same length. |
+
+# Mutation testing, batch 151
+
+A re-score of `backup.py`, which batch 4 left at **90.0%**, on today's `main`. Batch 4 ran before batch 36 added boundary mutants (`<` to `<=`, `>` to `>=`), so its score had none; this run uses `--kinds all` and counts them. Backing up and restoring the app's folder has changed since then, so the sample is new too.
+
+The run was at `main` 4ddd3662 (2026-11-18), with `sidecar/tools/mutate.py` and the method of earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. The module now has 213 mutants, so 150 were sampled. Test files were given as paths relative to `sidecar/`, and they first passed once on the unmutated copy. None of them reads `docs/`, `examples/` or `app/`, so nothing was left out. No mutant's run timed out.
+
+Before the "after" run, the new tests passed in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it. They also pass on DuckDB 2.0.0.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `backup.py` | test_backup, test_backup_edges, test_backup_integrity, test_backup_restore_whole, test_backup_mutation (+ test_backup_rescore) | 150 of 213 (147 + 3) | 132 / 18 | **88.0%** | 129/147 → 133/147 | 3/3 → 3/3 | 136 / 14 | **90.7%** | 14 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **backup.py**:
+  - A member inside a skipped folder (`app/logs/...`) is refused: the skip rules apply to the path under `app/` or `agent/`.
+  - A restore makes every nested folder it needs.
+  - A database's stray `-wal`, moved aside when nothing else is replaced, still gets its copy in restore-safety and the result names it.
+  - A restore that stops part way logs no warning about the `.restoring` files it already swapped in.
+  - → `test_backup_rescore.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `backup.py` | 311, 340 | the suffix check in `_is_database` swapped; its `return False` to `None` | Equivalent, as in batch 4: the header check decides, and the caller only tests the result for truth. |
+| `backup.py` | 334 | `no_checkpoint is not None and hasattr(...)` to `or` | Equivalent, as in batch 4: Python 3.12 and later have both. |
+| `backup.py` | 134, 150, 220 | JSON `indent` changed | Equivalent, as in batch 4: only the layout of JSON that is read back as JSON changes. |
+| `backup.py` | 305, 398 (×2), 409 | the copy buffer `1 << 20` changed | Equivalent, as in batch 4: only the read size changes, and 0 means the default. |
+| `backup.py` | 413 | `zip(..., strict=True)` to `False` | Equivalent, as in batch 4: both lists come from the same plan. |
+| `backup.py` | 463 | `dest.unlink(missing_ok=True)` to `False` when putting a restore back | Equivalent: that branch runs only for a file already swapped into place, which exists. |
+| `backup.py` | 467, 472 | `exc_info=True` to `False` | Equivalent, as in batch 4: only the log line changes. |
+
+# Mutation testing, batch 152
+
+A re-score of `localdata/engine.py`, which batch 3 left at **93.3%**, on today's `main`. Batch 3 ran before boundary mutants, and the module has grown from 859 mutants to 1,042 since (UPDATE and MERGE checks, renames, DuckDB 2.0's profiles), so this run uses `--kinds all` and a new sample.
+
+The run was at `main` 4ddd3662 (2026-11-18), with the method of earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. The test set is batch 3's, plus test_localdata_engine_refused_write, and it takes about 36 s. The first run scored 117 / 33. Each survivor was then run again with the T-SQL files that also drive the engine: test_tsql_changes, test_tsql_routines, test_local_tsql, test_tsql_windows, test_tsql_loud_gaps and test_delta_read_spark_tables. They killed 12, and the "before" figures include them. Three tests in test_tsql_loud_gaps read the docs' refused list, so they were left out with `--deselect`, as in batch 9. test_sql_exec, test_local_sql_stop and test_localdata_kills were left out, as in batch 3, because with them each surviving mutant takes about two minutes. No mutant's run timed out.
+
+Before the "after" run, the new tests passed in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it. They also pass on DuckDB 2.0.0.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `localdata/engine.py` | batch 3's set, test_localdata_engine_mutation, test_localdata_engine_refused_write; survivors also with the T-SQL files above (+ test_localdata_engine_rescore) | 150 of 1,042 (148 + 2) | 129 / 21 | **86.0%** | 128/148 → 138/148 | 1/2 → 1/2 | 139 / 11 | **92.7%** | 10 equivalent, 1 behind a known gap |
+
+One gap was found. It is pinned with a strict xfail and not fixed here: `tables()` is meant to list the project with a cursor while a query holds the connection, "without waiting", but it calls `open()` first, and `open()` waits for the lock the running query holds. On this PC, the object list waited about 4.5 s for a 6-second query.
+
+### What the survivors were, and the tests that now kill them
+
+- **localdata/engine.py**:
+  - An analyzed query's profile with no totals reads as zeros, and its bytes read are kept.
+  - Stop with nothing running stops nothing.
+  - Changed files are looked for at most every two seconds.
+  - A write says how long it took, and a new table's commits are synced from version 0.
+  - An append to a partitioned table keeps its partitions without naming them again.
+  - An append that doesn't fit suggests schema_mode merge. An overwrite that doesn't fit doesn't.
+  - A MERGE source may have a column name a table couldn't, such as `new amount`.
+  - → `test_localdata_engine_rescore.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `localdata/engine.py` | 616 | `acquire(blocking=False)` to `True` in `tables()` | Behind the gap above: `open()` has already waited for the lock, so the acquire never finds it held. The xfail test kills it once the gap is fixed. |
+| `localdata/engine.py` | 1227 | `result is None or not result.description` to `and` | Equivalent, as in batch 3 (then line 987): the query was checked to read, and a query that reads always has a description. |
+| `localdata/engine.py` | 935 | `len(texts) > 1` to `> 0` | Equivalent, as in batch 3 (then line 748): one statement was already checked by DuckDB when the script was split. |
+| `localdata/engine.py` | 819 (×2) | the lazy branch's `i == len(statements) - 1` and `kind == "select"` negated | Equivalent in rows: as in batch 3 (then line 539), a lazy relation and an executed result give the same rows, and `con.sql` runs a statement that isn't a query at once. Only memory use differs, which a unit test doesn't measure. |
+| `localdata/engine.py` | 760 | `timeout > 0` to `>= 0` | Equivalent: `timeout and` before it already passes over a timeout of 0. |
+| `localdata/engine.py` | 1233 | `by_position` starting `True` | Equivalent: with columns matched by name, the target schema is the table's fields in the query's order, so conforming by position puts each value in the same column. |
+| `localdata/engine.py` | 1357 | a change's `rows_inserted` starting at 1 | Equivalent: `delta_dml.apply` always sets all three counts, even when nothing matched. |
+| `localdata/engine.py` | 458 | `tmp`'s `mkdir(parents=True)` to `False` | Equivalent: the line before makes the project folder, the only parent `tmp` needs. |
+| `localdata/engine.py` | 1436 | a dry run's copy linking the log and copying the data, instead of the other way round | Equivalent: delta-rs only adds files, so neither the log nor the data files of the table change either way. |
+| `localdata/engine.py` | 1445 | `rmtree(copy, ignore_errors=True)` to `False` | Equivalent: the copy is this run's own folder under `tmp`, and removing it doesn't fail. |
+
+# Mutation testing, batch 153
+
+A re-score of `orchestration/runner.py`, which batch 12 left at **94.7%**, on today's `main`. Batch 12 ran before boundary mutants, so this run uses `--kinds all` and counts them.
+
+The run was at `main` 4ddd3662 (2026-11-18), with the method of earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. The module has 419 mutants, so 150 were sampled. The first run used five files: test_pipeline_runner_edges, test_orchestration_runner_mutation, test_pipeline_runs, test_pipeline_script and test_pipeline_data. Its 14 survivors were then run again with batch 12's whole set: those files, plus test_pipeline_schedules, _service_edges, _definitions, _gotchas, _data_edges, _notebooks_edges, _script_edges, _fabric_parity, _adapters_edges, test_orchestration_definition_edges, test_orchestration_runs_edges, test_cli_tenant_commands and test_pipeline_notebooks. That set killed one, and the "before" figures include it. Nine mutants timed out in the first run and count as killed. As in batch 12, they are run loops that never end.
+
+Before the "after" run, the new tests passed in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it. They also pass on DuckDB 2.0.0.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed + timeout / survived | Before | Point before → after | Boundary before → after | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `orchestration/runner.py` | the five files above; survivors with batch 12's whole set (+ test_orchestration_runner_rescore) | 150 of 419 (147 + 3) | 137 / 13 (9 timeouts) | **91.3%** | 137/147 → 139/147 | 0/3 → 3/3 | 142 / 8 | **94.7%** | 8 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **orchestration/runner.py**:
+  - A skipped activity made no attempt.
+  - A run refused for a parameter declared without an object still gives its record.
+  - A wait that ends exactly at its deadline isn't a timeout, and a wait with no time left doesn't wait again.
+  - A child run is stopped at its deadline exactly.
+  - The boundary tests replace the runner's clock, so they take no real time.
+  - → `test_orchestration_runner_rescore.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `orchestration/runner.py` | 561, 660, 710, 450, 408, 664 | as in batch 12: `_matches`' last `return False` to `None`, ForEach's cancel check `or` to `and`, a child's `depth + 1` to `- 1`, `getattr(adapter, "container", False)` to `True`, and `daemon=True` on activity and ForEach threads | Equivalent, for batch 12's reasons. |
+| `orchestration/runner.py` | 805 | `daemon=True` to `False` on a data read's thread | Equivalent: the loop below waits for it to finish, so the flag matters only at interpreter exit. |
+| `orchestration/runner.py` | 249 | `getattr(adapter, "can_execute", False)` to `True` | Equivalent: the registry refuses to register a local entry whose adapter can't run (`check_entry`), so the default is never used. |
+
+# Mutation testing, batch 154
+
+A re-score of `preview.py`, which batch 54 left at **94.7%**, on today's `main`. A table's row count now takes off the rows its deletion vectors remove, which batch 54 didn't have.
+
+The run was at `main` 4ddd3662 (2026-11-18), with the method of earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. The module has 76 mutants, so all of them ran. No test was left out, and no mutant's run timed out.
+
+Before the "after" run, the new test passed in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it. It also passes on DuckDB 2.0.0.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `preview.py` | test_preview, test_preview_mutation (+ test_preview_rescore) | 76 of 76 (74 + 2) | 71 / 5 | **93.4%** | 69/74 → 70/74 | 2/2 → 2/2 | 72 / 4 | **94.7%** | 4 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **preview.py**:
+  - A table with deletion vectors counts 7 rows, not its files' 10. This uses the Spark-written fixture in `tests/fixtures/delta_spark/dv`.
+  - → `test_preview_rescore.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `preview.py` | 46, 64, 65, 76 | `zip(strict=True)` to `False`, `flatten=True` to `False`, the pyarrow conversion's check negated, and the file name split with `rsplit("/", 0)` | Equivalent, for batch 54's reasons (then lines 45, 64, 65 and 74). |

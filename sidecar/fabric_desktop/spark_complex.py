@@ -192,7 +192,7 @@ def spark_complex_types(statement: exp.Expr, conn: Any, kinds: tuple[str, ...] |
     except Exception as exc:  # noqa: BLE001 - a type fix only: untyped statements keep the array forms; logged
         log.info("Spark map forms not applied: %s: %s", type(exc).__name__, exc)
         if to_json:
-            raise spark_json.refused("the type of what it writes couldn't be worked out here.") from None
+            raise spark_json.refused(spark_json.UNTYPED, spark_json.UNTYPED_STEP) from None
         return _unmark(statement)
     # to_json is written last, innermost first, from its argument as the other fixes leave it
     json_types = [(n, types.get(n.this.meta.get(_ID, -1))) for n in to_json]
@@ -238,7 +238,7 @@ def spark_complex_types(statement: exp.Expr, conn: Any, kinds: tuple[str, ...] |
 def _to_json(node: exp.Expr, dtype: exp.DataType | None) -> None:
     """to_json ``node`` as Spark writes its argument of type ``dtype`` (spark_json)."""
     if dtype is None or dtype.is_type(exp.DataType.Type.UNKNOWN, exp.DataType.Type.NULL):
-        raise spark_json.refused("the type of what it writes couldn't be worked out here.")
+        raise spark_json.refused(spark_json.UNTYPED, spark_json.UNTYPED_STEP)
     options = spark_json.options_of(node)
     value = node.this
     if isinstance(value, exp.Column):

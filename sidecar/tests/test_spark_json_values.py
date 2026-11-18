@@ -15,7 +15,7 @@ from fabric_desktop.notebook import Kernel
 REFUSED = [
     Refused("reading options", r"(from_json|schema_of_json)\(.*'allow(Comments|UnquotedFieldNames|NumericLeadingZeros)', 'true'",
             r"option isn't read on this PC", "`allowComments`, `allowUnquotedFieldNames` and `allowNumericLeadingZeros`"),
-    Refused("pretty", r"to_json\(.*'pretty'", r"'pretty' option isn't read here", "The `to_json` option `pretty`"),
+    Refused("pretty", r"to_json\(.*'pretty'", r"'pretty' option isn't read on this PC", "The `to_json` option `pretty`"),
 ]
 
 
@@ -26,3 +26,23 @@ def spark():
 
 def test_spark_json_functions_answer_as_spark_3_5_or_are_refused_by_name(spark):
     check(spark, load("json"), REFUSED)
+
+
+def test_typeof_names_a_struct_only_when_every_field_keeps_its_name():
+    from sqlglot import exp
+
+    from fabric_desktop import spark_json
+    assert spark_json.type_name(exp.DataType.build("STRUCT<a INT>")) == "struct<a:int>"
+    lost = exp.DataType(this=exp.DataType.Type.STRUCT, expressions=[
+        exp.ColumnDef(this=exp.to_identifier(""), kind=exp.DataType.build("INT"))], nested=True)
+    assert spark_json.type_name(lost) is None
+
+
+@pytest.mark.parametrize("value, written", [
+    ("CAST(0 AS DECIMAL(18,8))", "0E-8"), ("CAST(0.00000012 AS DECIMAL(10,8))", "1.2E-7"),
+    ("CAST(-0.000000123 AS DECIMAL(20,12))", "-1.23000E-7"), ("CAST(0.0000012 AS DECIMAL(10,8))", "0.00000120"),
+    ("CAST(1.5 AS DECIMAL(10,8))", "1.50000000"), ("CAST(1.5 AS DECIMAL(5,2))", "1.50"),
+])
+def test_to_json_writes_a_decimal_as_javas_big_decimal_to_string(spark, value, written):
+    # Spark 3.5.3 gives these too (the fourth capture in spark_3_5_3_json.json).
+    assert spark.sql(f"SELECT to_json(named_struct('a', {value})) AS j").collect()[0][0] == '{"a":' + written + '}'

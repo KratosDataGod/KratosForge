@@ -348,10 +348,11 @@ How to check: The rewritten filter returns the same rows, and reads less data in
 
 Why: `ROW_NUMBER()` numbers the rows in the order of that run. When a customer is added or removed,
 every number after it moves, and the facts that stored the old numbers now point at other customers.
-Nothing fails; the report is just wrong. The key column is found by the `ROW_NUMBER()` alias or,
-with no alias, by its position in the `INSERT` column list (`INSERT INTO d (customer_key, ...) SELECT
-ROW_NUMBER() OVER (...), ...`). An `INSERT` with no column list isn't reported, because the column
-can't be told from the script alone.
+Nothing fails; the report is just wrong. The key column is the one the number lands in. With an
+`INSERT` column list, that's the column at the `ROW_NUMBER()` item's position (`INSERT INTO d
+(customer_key, ...) SELECT ROW_NUMBER() OVER (...), ...`), whatever alias the item has. Without a
+column list, it's the item's alias, as in `SELECT ... INTO` and `CREATE TABLE ... AS`. An `INSERT`
+with neither isn't reported, because the column can't be told from the script alone.
 
 ```sql
 -- Before

@@ -74,6 +74,11 @@ def ids(query, **kw):
     (("INSERT INTO dbo.d (customer_key, n) SELECT customer_key, ROW_NUMBER() OVER (ORDER BY customer_key) "
       "FROM stg.customer"), []),  # the number goes in n, the key is copied
     ("INSERT INTO dbo.d SELECT ROW_NUMBER() OVER (ORDER BY id), id FROM stg.c", []),  # no column list: can't tell
+    ("INSERT INTO dbo.d WITH (TABLOCK) (customer_key, id) SELECT ROW_NUMBER() OVER (ORDER BY id), id FROM stg.c",
+     ["DM002"]),  # a table hint before the column list
+    ("INSERT INTO dbo.d (customer_key, id) SELECT ROW_NUMBER() OVER (ORDER BY id) AS rn, id FROM stg.c",
+     ["DM002"]),  # the column list, not the alias, says where the number lands
+    ("INSERT INTO dbo.d (rn, id) SELECT ROW_NUMBER() OVER (ORDER BY id) AS customer_key, id FROM stg.c", []),
     ("INSERT INTO dbo.d (k_sk, id) SELECT (SELECT MAX(x) FROM dbo.y), ROW_NUMBER() OVER (ORDER BY id) FROM stg.c", []),
     # WH001: a TRUNCATE and a reload of the same table
     ("TRUNCATE TABLE dbo.sales; INSERT INTO dbo.sales (id) SELECT id FROM stg.sales", ["WH001"]),

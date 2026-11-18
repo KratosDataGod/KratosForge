@@ -114,9 +114,12 @@ def check(sources: list[str], scheduled: bool = False,
     settings = settings or {}
     found: list[dict[str, Any] | None] = []  # _finding gives None for a rule that's turned off
     counts: dict[str, list[tuple[int, int]]] = {}
+    trees: list[tuple[int, ast.AST]] = []  # each Python cell's tree, for rules that read across cells
     for n, source in enumerate(sources, 1):
-        for rule_id, line in _cell(source, scheduled, counts, n):
+        for rule_id, line in _cell(source, scheduled, counts, n, trees):
             found.append(_finding(rule_id, n, line, settings))
+    for cell, line in _eager_read_kept_then_filtered(trees):
+        found.append(_finding("NB015", cell, line, settings))
     for name, where in counts.items():
         if len(where) >= 3:
             found.append(_finding("NB011", where[2][0], where[2][1], settings, f"{name}.count()"))
@@ -139,7 +142,8 @@ def _finding(rule_id: str, cell: int, line: int, settings: dict[str, dict[str, A
             "description": rule.description, "url": url(rule_id)}
 
 
-def _cell(source: str, scheduled: bool, counts: dict[str, list[tuple[int, int]]], n: int) -> Iterator[tuple[str, int]]:
+def _cell(source: str, scheduled: bool, counts: dict[str, list[tuple[int, int]]], n: int,
+          trees: list[tuple[int, ast.AST]] | None = None) -> Iterator[tuple[str, int]]:
     for f in scan_text(source):
         yield "NB001", f["line"]
     for m in _ONELAKE_ID_PATH.finditer(source):
@@ -161,6 +165,8 @@ def _cell(source: str, scheduled: bool, counts: dict[str, list[tuple[int, int]]]
         tree = ast.parse(_without_magics(source))
     except SyntaxError:
         return  # the editor already underlines it; nothing here can be read reliably
+    if trees is not None:
+        trees.append((n, tree))
     yield from _python(tree, source, scheduled, counts, n)
 
 
@@ -198,7 +204,6 @@ def _python(tree: ast.AST, source: str, scheduled: bool, counts: dict[str, list[
     # lf = pl.scan_parquet(...).filter(...), then lf.collect() later in the cell: lf is a Polars lazy frame
     lazy = {tgt.id for node in ast.walk(tree) if isinstance(node, ast.Assign) and _chain(node.value) & _POLARS_LAZY
             for tgt in node.targets if isinstance(tgt, ast.Name)}
-    yield from _eager_read_kept_then_filtered(tree)
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(_is_udf(d) for d in node.decorator_list):
             decorators.update(id(d) for d in node.decorator_list)
@@ -362,36 +367,39 @@ def _is_eager_polars_read(node: ast.AST) -> bool:
             and isinstance(node.func.value, ast.Name) and node.func.value.id in {"pl", "polars"})
 
 
-def _eager_read_kept_then_filtered(tree: ast.AST) -> Iterator[tuple[str, int]]:
-    """NB015 across lines: df = pl.read_csv(...), and every later use of df in the cell is df.filter(...).
-    A name assigned twice, or used any other way (its columns, its length, passed on), isn't reported."""
-    assigned: dict[str, list[ast.Assign]] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
-            for tgt in (node.targets if isinstance(node, ast.Assign) else [node.target]):
-                for leaf in ast.walk(tgt):
-                    if isinstance(leaf, ast.Name):
-                        assigned.setdefault(leaf.id, []).append(node)  # type: ignore[arg-type]
-    eager = {name: nodes[0] for name, nodes in assigned.items()
+def _eager_read_kept_then_filtered(trees: list[tuple[int, ast.AST]]) -> Iterator[tuple[int, int]]:
+    """NB015 across lines and cells: df = pl.read_csv(...), and every use of df anywhere in the notebook is
+    df.filter(...). A name assigned twice, or used any other way in any cell (its columns, its length,
+    passed on), isn't reported, because then the whole frame may be needed. Yields (cell, line)."""
+    assigned: dict[str, list[ast.AST]] = {}
+    for _, tree in trees:
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                for tgt in (node.targets if isinstance(node, ast.Assign) else [node.target]):
+                    for leaf in ast.walk(tgt):
+                        if isinstance(leaf, ast.Name):
+                            assigned.setdefault(leaf.id, []).append(node)
+    eager = {name for name, nodes in assigned.items()
              if len(nodes) == 1 and isinstance(nodes[0], ast.Assign) and len(nodes[0].targets) == 1
              and isinstance(nodes[0].targets[0], ast.Name) and _is_eager_polars_read(nodes[0].value)}
     if not eager:
         return
-    parents = {id(child): node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
-    filters: dict[str, list[int]] = {}
+    filters: dict[str, list[tuple[int, int]]] = {}
     other: set[str] = set()
-    for node in ast.walk(tree):
-        if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in eager):
-            continue
-        attr = parents.get(id(node))
-        call = parents.get(id(attr)) if attr is not None else None
-        if isinstance(attr, ast.Attribute) and attr.attr == "filter" and isinstance(call, ast.Call) and call.func is attr:
-            filters.setdefault(node.id, []).append(call.lineno)
-        else:
-            other.add(node.id)
-    for name, lines in filters.items():
+    for n, tree in trees:
+        parents = {id(child): node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in eager):
+                continue
+            attr = parents.get(id(node))
+            call = parents.get(id(attr)) if attr is not None else None
+            if isinstance(attr, ast.Attribute) and attr.attr == "filter" and isinstance(call, ast.Call) and call.func is attr:
+                filters.setdefault(node.id, []).append((n, call.lineno))
+            else:
+                other.add(node.id)
+    for name, where in filters.items():
         if name not in other:
-            yield "NB015", min(lines)
+            yield min(where)
 
 
 def _eager_polars_read(call: ast.Call) -> bool:

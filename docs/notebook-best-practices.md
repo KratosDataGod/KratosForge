@@ -357,9 +357,9 @@ How to check: Both forms give the same column, and the cell runs faster on the s
 
 Why: `pl.read_csv` and `pl.read_parquet` load every row into memory before `.filter()` drops the
 rows you don't need. A lazy scan may push the filter into the read, so less is read and kept. It is
-also reported when the read is kept in a name, `df = pl.read_csv(...)`, and every later use of `df` in
-the same cell is `df.filter(...)`. A name that's used any other way, or assigned again, isn't reported,
-because then the whole frame may be needed.
+also reported when the read is kept in a name, `df = pl.read_csv(...)`, and every use of `df` in the
+notebook, in any cell, is `df.filter(...)`. A name that's used any other way in any cell, or assigned
+again, isn't reported, because then the whole frame may be needed.
 
 ```python
 # Before

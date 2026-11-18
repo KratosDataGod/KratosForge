@@ -414,10 +414,11 @@ def _numbers_a_key(s: Stmt, i: int) -> bool:
         j = _close(s, j + 1) + 1
     if j < len(toks) and toks[j].kw == "AS":
         j += 1
-    if j < len(toks) and _is_name(toks[j]) and toks[j].kw not in _ALIAS_STOP | {"FROM"}:
-        return toks[j].text.lower().endswith(("_key", "_sk"))
-    column = _insert_column_for(s, i)  # no alias: INSERT INTO t (a_key, ...) SELECT ROW_NUMBER() ..., ...
-    return column is not None and column.lower().endswith(("_key", "_sk"))
+    column = _insert_column_for(s, i)  # INSERT INTO t (a_key, ...) SELECT ROW_NUMBER() ..., ...: the list decides
+    if column is not None:
+        return column.lower().endswith(("_key", "_sk"))
+    return (j < len(toks) and _is_name(toks[j]) and toks[j].kw not in _ALIAS_STOP | {"FROM"}
+            and toks[j].text.lower().endswith(("_key", "_sk")))
 
 
 def _insert_column_for(s: Stmt, i: int) -> str | None:
@@ -427,7 +428,8 @@ def _insert_column_for(s: Stmt, i: int) -> str | None:
     if ins is None:
         return None
     open_ = next((k for k in range(ins + 1, len(toks))
-                  if toks[k].type == TokenType.L_PAREN or toks[k].kw in {"SELECT", "VALUES"}), None)
+                  if (toks[k].type == TokenType.L_PAREN and toks[k - 1].kw != "WITH")  # WITH (TABLOCK) is a hint
+                  or toks[k].kw in {"SELECT", "VALUES"}), None)
     if open_ is None or toks[open_].type != TokenType.L_PAREN:
         return None  # no column list
     close = _close(s, open_)

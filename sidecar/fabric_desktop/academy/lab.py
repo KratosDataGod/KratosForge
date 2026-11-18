@@ -53,6 +53,7 @@ from ..learn import checks
 from ..learn import labs as learn_labs
 from . import configlab, dbsql_lab, exercises, gitlab, pylab, quizlab, registry, sandbox, sqlprojlab
 from . import workspace as ws
+from .. import trees
 
 _log = logging.getLogger(__name__)
 
@@ -131,7 +132,7 @@ def _fresh_dir(folder: Path, name: str) -> Path:
     sub = ws.inside(folder, name, must_exist=False)
     if os.path.lexists(sub):
         ws.inside(folder, name)   # refused when it is a link or junction
-        shutil.rmtree(sub)
+        trees.remove(sub)
     sub.mkdir()
     return sub
 
@@ -474,7 +475,7 @@ def reset(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
             old = {}   # an unreadable state keeps nothing; the reset still happens
         if old.get("version") == exercises.get(pack_id, exercise_id)["version"]:
             kept = {k: old[k] for k in _KEPT_ON_RESET if old.get(k)}
-        shutil.rmtree(folder)
+        trees.remove(folder)
     fresh = start(root, pack_id, exercise_id)
     if kept:
         st = _state(folder)

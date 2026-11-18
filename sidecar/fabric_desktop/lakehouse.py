@@ -800,7 +800,8 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
     if reason:
         raise PermissionError(reason)
     guard = maintenance_guard
-    reason = guard(operation, lh.workspace_id, name_) if guard is not None else MAINTENANCE_NEEDS_APP
+    asked = "zorder" if operation == "optimize" and zorder else operation  # the audit tells a Z-Order apart
+    reason = guard(asked, lh.workspace_id, name_) if guard is not None else MAINTENANCE_NEEDS_APP
     if reason:
         raise PermissionError(reason)
     if _proof() is None and (reason := prod_refusal(operation, lh, name_)):  # a proof changes nothing here

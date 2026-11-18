@@ -143,7 +143,7 @@ def project(results: list[dict[str, Any]], *, workload_key: str, baseline_versio
                          method="average net per run x runs per month", period_start=start, period_end=end,
                          assumptions=assumptions, uncertainty="a projection of runs that haven't happened")
     return base | {"state": "projected", "reason": "", "runs": len(current), "known_runs": len(known),
-                   "unknown_runs": len(current) - len(known), "complete": len(known) == len(current),
+                   "unknown_runs": len(current) - len(known), "complete": len(known) == len(current) and all(r["complete"] for r in known),
                    "older_baseline_runs": len(recent) - len(current), "runs_per_month": round(runs_per_month, 6),
                    "net_cu_hours_per_run": round(per_run, 6),
                    "inputs_classification": _weakest([r["net_classification"] for r in known]),

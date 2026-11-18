@@ -749,5 +749,3 @@ Fixed since the first run, each with a test named after its case in `sidecar/tes
 | Spark SQL | `initcap`, `trunc(date, 'MM')` and its other formats, `make_date` with a day that doesn't exist, `sqrt` of a negative number, `soundex` of a cast, `date_add` by about 2^31 days (past DuckDB's timestamp range) | These stop here with an error, where Spark answers. On DuckDB 2.0 (not yet the version this PC installs), `sqrt` of a negative number answers as Spark does, but `sign` of that `sqrt`'s NaN is 0.0 where Spark gives NaN |
 | Spark SQL | `split_part(s, d, 0)` | Refused by name before the query runs; Spark stops only when the call is reached |
 | T-SQL | `N'...'` text in `=`, `<`, `LIKE` and `+` | Trailing spaces count, `[a-c]` ranges don't match, and `N'a' + N'b'` stops. The same text without `N` answers as T-SQL does |
-| Snowflake | `POSITION` and `CHARINDEX` with an empty search text and a start past the end | Snowflake gives 0, here the start |
-| Snowflake | `LPAD` and `RPAD` with an empty pad | Stops with "Insufficient padding", where Snowflake truncates |

@@ -46,3 +46,9 @@ def test_typeof_names_a_struct_only_when_every_field_keeps_its_name():
 def test_to_json_writes_a_decimal_as_javas_big_decimal_to_string(spark, value, written):
     # Spark 3.5.3 gives these too (the fourth capture in spark_3_5_3_json.json).
     assert spark.sql(f"SELECT to_json(named_struct('a', {value})) AS j").collect()[0][0] == '{"a":' + written + '}'
+
+
+def test_range_gives_sparks_id_column_unless_the_query_reads_duckdbs_range_column(spark):
+    assert spark.sql("SELECT * FROM range(3)").columns == ["id"]
+    assert [r[0] for r in spark.sql("SELECT range AS n FROM range(3)").collect()] == [0, 1, 2]
+    assert [r[0] for r in spark.sql("SELECT sum(a.range * b.range) AS s FROM range(3) a, range(2) b").collect()] == [3]

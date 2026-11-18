@@ -3,10 +3,16 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-17 11:42 UTC, main 80cebf61.** Covers the PRs merged from #135 to #2852.
+**Product check of 2026-11-17 23:42 UTC, main 8838a247.** Covers the PRs merged from #135 to #2909.
 
 ## Summary
 
+- Evening check, 2026-11-17: 45 PRs merged after 80cebf61. 1 was a product data PR, and the other 44 were linked.
+  Spark on this PC now gives Spark's answers for strings, regular expressions, aggregates, arrays, maps, generators and
+  window functions, and casts as Spark's ANSI-off setting does (PB-103). Local T-SQL refuses COPY INTO, BULK INSERT and
+  OPENROWSET by name and matches a warehouse's data types, procedures and table-valued forms (PB-106). Untested
+  Fabric writes are tagged Preview and every Fabric write is guarded (PB-124), and FOR TIMESTAMP AS OF reads local
+  Delta tables as they were (PB-099). No item changed status in these merges.
 - PB-136 accepted, 2026-11-17: Chris chose 'Accept with limits'. Notebooks run in a process of their own by default;
   the trial gaps (a per-user 3.12 venv, the two #2601 fixes on his PC, a live tenant) stay listed as limits.
 - Morning check, 2026-11-17: 47 PRs merged after 58a112e4. 3 were product data, docs audit and work queue PRs, and

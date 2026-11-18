@@ -141,3 +141,13 @@ def test_a_hand_edited_client_id_is_ignored_and_the_next_source_applies(dirs):
     assert app_settings.load()["client_id"]["value"] != "not-a-guid"
     app_settings.user_path().write_text(json.dumps({"client_id": APP}), encoding="utf-8")
     assert app_settings.load()["client_id"] == {"value": APP, "source": "user"}
+
+
+def test_a_mistyped_policy_client_id_still_locks_it_and_is_named(dirs, monkeypatch):
+    monkeypatch.setenv("FABRIC_DESKTOP_CLIENT_ID", OTHER)
+    dirs.write_text(json.dumps({"client_id": "not-a-guid"}), encoding="utf-8")
+    app_settings.user_path().write_text(json.dumps({"client_id": APP}), encoding="utf-8")
+    assert app_settings.load()["client_id"] == {"value": "not-a-guid", "source": "policy"}
+    assert any("client_id isn't an app (client) ID" in p for p in app_settings.policy_problems())
+    with pytest.raises(ValueError, match="Your organization sets client_id"):
+        app_settings.save({"client_id": APP})

@@ -284,6 +284,7 @@ fn wait_until_unused_with(path: &Path, attempts: u32, pause: Duration) {
 /// and then waiting up to 15 s for a scanner to let go of the download would leave no exe at its
 /// path for that long, and a PC shut down or a power cut then leaves the Start menu shortcut
 /// pointing at nothing. Waiting first keeps the two renames back to back.
+#[cfg(test)] // the app swaps with swap_in_checked; tests use this for the renames alone
 pub fn swap_in(exe: &Path, new: &Path, old: &Path) -> Result<(), String> {
     swap_in_checked(exe, new, old, |_| Ok(()))
 }

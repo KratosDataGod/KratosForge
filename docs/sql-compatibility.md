@@ -471,7 +471,7 @@ When a project runs T-SQL on this PC, common table expressions (`WITH ... AS`) r
 
 Refused by name:
 
-- A recursive CTE, one whose query names itself. A warehouse doesn't run recursive queries. It stops before it runs, so a CTE with no end never runs on and changes nothing. Unroll the levels you need with joins, or compute the hierarchy in a notebook.
+- A recursive CTE, one whose query names itself. A warehouse doesn't run recursive queries. It stops before it runs, so a CTE with no end can't run forever, and nothing changes. Unroll the levels you need with joins, or compute the hierarchy in a notebook.
 - `OPTION (MAXRECURSION n)`, which only limits a recursive CTE.
 - `WITH RECURSIVE`, which isn't T-SQL.
 - `UPDATE` or `DELETE` through a CTE (`WITH a AS (...) UPDATE a SET ...`). The local engine changes tables only, and Microsoft's page doesn't say whether a warehouse does. Name the table, and put the CTE's filter in `WHERE`.

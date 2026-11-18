@@ -499,3 +499,11 @@ def test_notices_for_products_already_published_still_go_when_a_later_one_fails(
         svc.mesh_publish("dev")
     # customers is in the catalog as deprecated now, so the next publish wouldn't tell its reader again.
     assert [e["kind"] for e in sent] == ["product.deprecated"]
+
+
+@pytest.mark.parametrize("alias", ["bad", " bad", "bad\n"])
+def test_the_save_gate_checks_a_link_under_the_alias_it_is_saved_as(svc, alias):
+    # write_link saves under the stripped alias; the gate must look for that alias's problems.
+    with pytest.raises(GateError, match="product is"):
+        svc.mesh_save_link({"alias": alias, "product": "orders", "port": "orders",
+                           "pinned": {"dev": "abfss://ws@onelake.dfs.fabric.microsoft.com/lh/Tables/orders"}})

@@ -1305,7 +1305,8 @@ class PlatformMixin:
         product's current version, so a later breaking version doesn't reach it unnoticed."""
         project = self._project()  # type: ignore[attr-defined]
         reads = {env: (link.get("reads") or {}).get(env, env) for env in ENVIRONMENTS}
-        alias = link.get("alias", "")
+        alias = str(link.get("alias", "")).strip()  # the alias write_link saves it under
+        link = link | {"alias": alias}
         kept = project.links.get(alias)
         if kept is not None and kept.product != link.get("product", ""):
             kept = None  # the alias now names another product: its versions and columns don't carry over

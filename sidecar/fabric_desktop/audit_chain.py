@@ -84,6 +84,19 @@ def last_hash(folder: Path) -> str:
     return GENESIS
 
 
+def _ends_mid_line(path: Path) -> bool:
+    """Whether ``path`` ends part way through a line: an append a power cut stopped before its newline."""
+    try:
+        with path.open("rb") as f:
+            f.seek(0, os.SEEK_END)
+            if f.tell() == 0:
+                return False
+            f.seek(-1, os.SEEK_END)
+            return f.read(1) != b"\n"
+    except OSError:
+        return False
+
+
 @contextmanager
 def locked(folder: Path) -> Iterator[None]:
     """One writer at a time across every process, through ``<folder>/.lock``."""
@@ -149,10 +162,13 @@ def write(folder: Path, entry: dict[str, Any], line: str) -> None:
     newest = files(folder)
     if newest and newest[-1].name > name:
         name = newest[-1].name
+    # A line a power cut left without its newline stays as it is (the trail is never rewritten; verify()
+    # reports it), and this one starts on a line of its own instead of being joined onto it.
+    cut = _ends_mid_line(folder / name)
     with (folder / name).open("a", encoding="utf-8") as f:
-        f.write(line + "\n")
+        f.write(("\n" if cut else "") + line + "\n")
     new = {"hash": entry["hash"]}
-    if head.get("hash") == entry["prev"] and isinstance(head.get("lines"), int):
+    if not cut and head.get("hash") == entry["prev"] and isinstance(head.get("lines"), int):
         new["lines"] = head["lines"] + 1
     else:  # no head yet (a trail from before HD-017), a write that stopped before its head, or lines gone
         hashes = _hashes(folder)

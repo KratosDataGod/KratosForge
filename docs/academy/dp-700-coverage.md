@@ -54,7 +54,7 @@ four original exam questions (ACD-013).
 | 2.2.6 | Transform data by using PySpark, SQL, and KQL | E32, E33, E34, C1 | LV (PySpark API, SQL); KO (KQL) | Yes (KQL) | LM-08, LM-19 |
 | 2.2.7 | Denormalize data | E35, C1 | LV | No | LAB-07 |
 | 2.2.8 | Group and aggregate data | E36, C1 | LV | No | LM-04 |
-| 2.2.9 | Handle duplicate, missing, and late-arriving data | E25, E37, E38, E39, E57, E58, C1, C2 | LV | No | LM-13, LM-17, LAB-04, LAB-06 |
+| 2.2.9 | Handle duplicate, missing, and late-arriving data | E25, E37, E38, E39, E57, E58, E68, C1, C2 | LV | No | LM-13, LM-17, LAB-04, LAB-06 |
 | 2.3.1 | Choose an appropriate streaming engine | E40 | KO | No | |
 | 2.3.2 | Process data by using eventstreams | E41 | SIM | Yes | |
 | 2.3.3 | Process data by using Spark structured streaming | E26, E42, C2 | LV (availableNow only) | Yes | |
@@ -71,7 +71,7 @@ four original exam questions (ACD-013).
 | 3.1.4 | Configure alerts | E46 | SIM | Yes | |
 | 3.2.1 | Identify and resolve pipeline errors | E48, E49, E58 | LV (local runner) | No | |
 | 3.2.2 | Identify and resolve dataflow errors | E50 | SIM | Yes | |
-| 3.2.3 | Identify and resolve notebook errors | E51, E52 | LV | No | |
+| 3.2.3 | Identify and resolve notebook errors | E51, E52, E68 | LV | No | |
 | 3.2.4 | Identify and resolve eventhouse errors | E53 | SIM | Yes | |
 | 3.2.5 | Identify and resolve eventstream errors | E54 | SIM | Yes | |
 | 3.2.6 | Identify and resolve T-SQL errors | E55 | SIM | Yes | LAB-09 |

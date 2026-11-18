@@ -242,7 +242,8 @@ def achievements(cls: dict[str, Any], view: dict[str, Any], skills: dict[str, di
     Worked out from the evidence every time, like everything here, so an achievement is earned once
     however often it is evaluated or the app restarts, and it comes from its ``requires`` rule, never its
     text. A locked talent counts at 0: its banked level adds once it opens. ``measured`` also needs one
-    counted row with a measured result among those talents. ``evidence`` is the rows behind it, by id."""
+    counted row with a measured result among those talents. ``evidence`` is the rows behind it, by id.
+    ``available`` is False when no talent group can reach the level yet, and ``unavailable_reason`` says why."""
     state = {t["id"]: t for t in view["talents"]}
     by_spec: dict[str, list[dict[str, Any]]] = {}
     for t in view["talents"]:
@@ -262,9 +263,15 @@ def achievements(cls: dict[str, Any], view: dict[str, Any], skills: dict[str, di
         if r.get("measured") and not any(row["measured"] for t in used for row in skills[t["skill"]]["evidence"]):
             met = []
         earned = bool(met)
+        # Reachable today: some group whose talents' ceilings (planned content is 0, cloud-only work on this
+        # PC stops at Journeyman) all reach the level. An unreachable one says why instead of showing progress.
+        reach = [g for g in groups if all(skills[t["skill"]]["ceiling"] >= need for t in g)]
+        why = "" if earned or reach else next(
+            (skills[t["skill"]]["ceiling_reason"] for g in groups for t in g if skills[t["skill"]]["ceiling"] < need), "")
         best = max((sum(min(t["level"], need) for t in g) / (need * len(g)) for g in groups), default=0.0)
         out.append({"id": a["id"], "name": a["name"], "criteria": a["criteria"], "earned": earned,
                     "level": need, "level_name": LEVELS[need], "progress": 1.0 if earned else round(min(best, 0.99), 2),
+                    "available": earned or bool(reach), "unavailable_reason": why,
                     "evidence": sorted({row["evidence"] for t in used for row in skills[t["skill"]]["evidence"]}) if earned else []})
     return out
 

@@ -496,3 +496,22 @@ def test_profile_mastery_reports_earned_achievements_and_stores_nothing(plain): 
     assert set(got) == {a["id"] for a in CAT["classes"]["lakehouse-warden"]["achievements"]}
     assert all({"earned", "progress", "level_name", "criteria"} <= set(a) for a in got.values())
     assert one["class"]["earned"] == sum(a["earned"] for a in got.values())
+
+
+def test_an_achievement_no_one_can_earn_yet_says_why():
+    cat = award_cat({"level": 3, "talents": ["alpha.01"]}, {"level": 3, "talents": ["alpha.01", "beta.01"]},
+                    {"level": 3, "talents": ["alpha.01", "beta.01"], "any": True}, {"level": 2, "any_specialization": True})
+    cat["skills"]["s10"]["evidence"] = {}                 # beta.01 is planned content: no lesson or exercise yet
+    a = awards(progress.empty(), cat)
+    assert a["a0"]["available"] and a["a0"]["unavailable_reason"] == ""
+    assert not a["a1"]["available"] and "No lesson, exercise or check" in a["a1"]["unavailable_reason"]
+    assert a["a2"]["available"] and a["a3"]["available"]  # alpha.01 alone, or alpha's tree alone, still can
+    assert awards(profile(lab_pass("LM-00", DAY1)), cat)["a2"]["earned"]
+
+
+def test_every_lakehouse_warden_achievement_can_be_earned_on_this_pc():
+    view = levels.evaluate(progress.empty(), CAT)["classes"]["lakehouse-warden"]
+    assert all(a["available"] and not a["earned"] and a["progress"] == 0 for a in view["achievements"])
+    for cls in levels.evaluate(progress.empty(), CAT)["classes"].values():
+        for a in cls["achievements"]:
+            assert a["available"] or a["unavailable_reason"], (cls["id"], a["id"])

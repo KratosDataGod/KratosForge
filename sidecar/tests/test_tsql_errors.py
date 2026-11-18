@@ -62,6 +62,15 @@ def test_duckdbs_own_text_goes_to_the_log(engine, caplog):
     assert any("Table with name missing does not exist" in r.getMessage() for r in caplog.records)
 
 
+@pytest.mark.parametrize("sql", ["SELECT nope FROM t WHERE s = '123-45-6789'",
+                                 "INSERT INTO missing VALUES ('123-45-6789')"])
+def test_a_value_in_the_statement_never_reaches_the_log(engine, caplog, sql):
+    with caplog.at_level(logging.INFO, logger="fabric_desktop.localdata.engine"):
+        error(engine, sql)
+    logged = " ".join(r.getMessage() for r in caplog.records)
+    assert "DuckDB said" in logged and "123-45-6789" not in logged and "LINE" not in logged, logged
+
+
 @pytest.mark.parametrize("sql", [
     "SELECT x.id FROM dbo.t",  # SQL Server's 4104 names the whole identifier, which DuckDB doesn't give
     "DROP TABLE missing",  # SQL Server's 3701, not 208

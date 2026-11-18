@@ -67,7 +67,10 @@ whether `semantic/<name>.SemanticModel/` is new or already there.
   with a **Keep it** tick. **Replace TMDL in <name>...** asks once more, in red, before it
   rewrites the files. Translations under `cultures/` are read and written back like the rest, so
   they stay; a culture file named differently from its culture is written back under the
-  culture's name, and the old file is listed as removed.
+  culture's name, and the old file is listed as removed. A culture file holding translations
+  KratosForge can't read (of a partition, a data source or a KPI, say) is kept byte for byte:
+  it is never rewritten or removed, the file list shows it as Same, and the Round-trip check
+  says "kept as it is, because it holds translations KratosForge can't read" with their names.
 - The **Round-trip check** lists what is kept, what rides in the Power BI section, and what
   can't be carried, by name. A measure whose SQL has no DAX equivalent is written with no
   expression and shows blank until you add DAX.
@@ -100,8 +103,10 @@ Files Fabric no longer returns are removed from that folder.
   then tables, columns, measures, hierarchies and their levels, perspectives, roles and
   expressions) with `caption`, `description` and `displayFolder`. These become TMSL's
   `model.cultures[]`, with `translatedCaption`, `translatedDescription` and
-  `translatedDisplayFolder` under `translations.model`. The writer writes them the same way, plus
-  a `ref cultureInfo <name>` line in `model.tmdl` for each, which keeps their order. Anything
+  `translatedDisplayFolder` under `translations.model`. The writer writes them the same way, with
+  the linguistic metadata on the lines after `linguisticMetadata =` as Power BI Desktop does (so
+  re-saving a Power BI culture file shows no diff), plus a `ref cultureInfo <name>` line in
+  `model.tmdl` for each, which keeps their order. Anything
   else in a culture (a translation of a KPI, a property a translation doesn't have, a
   translation with no name) is named in the report, never dropped silently.
 - The engine also writes TMDL on this PC (Preview, PB-110): a model, or an Ossie file, becomes

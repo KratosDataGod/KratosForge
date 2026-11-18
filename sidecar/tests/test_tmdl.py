@@ -156,7 +156,8 @@ def test_unknown_lines_are_reported_not_dropped():
     text = "table T\n\tsomething odd here\n\t\twith a child\n\tcolumn c\n\t\tdataType: string\n"
     bim, report = tmdl.to_bim({"definition/tables/T.tmdl": text})
     assert bim["model"]["tables"][0]["columns"] == [{"name": "c", "dataType": "string"}]
-    assert report == [{"object": "something odd here", "kind": "lost", "message": "not understood, left out (definition/tables/T.tmdl:2)"}]
+    assert report == [{"object": "something odd here", "kind": "lost", "message": "not understood, left out (definition/tables/T.tmdl:2)",
+                       "file": "definition/tables/T.tmdl"}]
 
 
 def test_refuses_what_it_cant_read():

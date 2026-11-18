@@ -244,7 +244,9 @@ def test_cultures_write_as_tmdl_and_read_back_exactly():
     model = files["definition/model.tmdl"]
     assert model.index("ref cultureInfo fr-FR") < model.index("ref cultureInfo en-US") < model.index("ref cultureInfo de-DE")
     fr = files["definition/cultures/fr-FR.tmdl"]
-    assert fr.startswith("cultureInfo fr-FR\n") and "\tlinguisticMetadata = ```\n" in fr and "\t\tcontentType: json\n" in fr
+    assert fr.startswith("cultureInfo fr-FR\n\n\tlinguisticMetadata =\n\t\t\t{\n") and "\t\t\t}\n\t\tcontentType: json\n" in fr
+    en = files["definition/cultures/en-US.tmdl"]
+    assert en == "cultureInfo en-US\n\n\tlinguisticMetadata =\n\t\t\t```\n\t\t\t<Linguistic/>\n\t\t\t<x/>\n\t\t\t```\n\t\tcontentType: xml\n\n"
     assert "\ttranslations\n\t\tmodel Model\n\t\t\tcaption: Modèle\n" in fr
     assert "\t\t\t\tcaption: Ventes\n" in fr and '\t\t\t\t\tcaption: "true"\n' in fr
     again, _ = tmdl.from_bim(back)
@@ -317,11 +319,44 @@ def test_separators_in_translations_and_metadata_are_fenced_or_escaped(sep):
     files, report, back = _read_back(bim)
     assert report == [] and tmdl.differences(bim, back) == []
     assert back["model"]["cultures"][0]["linguisticMetadata"] == bim["model"]["cultures"][0]["linguisticMetadata"]
-    lines = files["definition/cultures/fr-FR.tmdl"].splitlines()  # split the way any reader might
+    text = files["definition/cultures/fr-FR.tmdl"]
+    json_part = text[:text.index("\t\tcontentType: json")]
+    assert json_part.splitlines() == json_part.split("\n")[:-1], "unfenced JSON metadata has every separator as a \\u escape"
+    lines = text.splitlines()  # split the way any reader might
     fenced = [i for i, line in enumerate(lines) if line.strip().endswith("```")]
+    start, end = lines.index("\tlinguisticMetadata ="), lines.index("\t\tcontentType: json")
     for i, line in enumerate(lines):
         if "cultureInfo Evil" in line:
-            assert sum(1 for f in fenced if f < i) % 2 == 1, "only inside an open fence"
+            in_json = start < i < end and line.startswith("\t\t\t")  # metadata: deeper than any property
+            assert in_json or sum(1 for f in fenced if f < i) % 2 == 1, "only inside an open fence"
+
+
+# A culture file as Power BI Desktop saves it: re-saved on this PC, it shows no diff.
+POWER_BI_CULTURE = "\n".join([
+    "cultureInfo en-US", "",
+    "\tlinguisticMetadata =", "\t\t\t{", '\t\t\t  "Version": "1.0.0",', '\t\t\t  "Language": "en-US",',
+    '\t\t\t  "DynamicImprovement": "HighConfidence",', '\t\t\t  "Entities": {', '\t\t\t    "sales": {',
+    '\t\t\t      "Definition": {', '\t\t\t        "Binding": {', '\t\t\t          "ConceptualEntity": "Ventes é"',
+    "\t\t\t        }", "\t\t\t      },", '\t\t\t      "State": "Generated",', '\t\t\t      "Weight": 0.99,',
+    '\t\t\t      "Terms": [', '\t\t\t        {', '\t\t\t          "sales": {', '\t\t\t            "State": "Generated"',
+    "\t\t\t          }", "\t\t\t        }", "\t\t\t      ]", "\t\t\t    }", "\t\t\t  }", "\t\t\t}",
+    "\t\tcontentType: json", "", ""])
+
+
+def test_a_power_bi_culture_file_saves_back_byte_identical():
+    files = {"definition/model.tmdl": "model Model\n\tculture: en-US\nref cultureInfo en-US\n",
+             "definition/cultures/en-US.tmdl": POWER_BI_CULTURE}
+    bim, report = tmdl.to_bim(files, "m")
+    assert report == []
+    written, report = tmdl.from_bim(bim)
+    assert report == [] and written["definition/cultures/en-US.tmdl"] == POWER_BI_CULTURE
+    assert written["definition/model.tmdl"] == files["definition/model.tmdl"]
+
+
+def test_a_fence_on_the_line_after_equals_is_read_as_a_fence():
+    text = "cultureInfo de-DE\n\tlinguisticMetadata =\n\t\t\t```\n\t\t\t<a>\n\t\t\t  b\n\t\t\t</a>\n\t\t\t```\n\t\tcontentType: xml\n"
+    bim, report = tmdl.to_bim({"definition/cultures/de-DE.tmdl": text}, "m")
+    assert report == [] and bim["model"]["cultures"][0]["linguisticMetadata"] == {"content": "<a>\n  b\n</a>", "contentType": "xml"}
 
 
 def test_a_translation_or_metadata_with_a_fence_line_is_refused_by_name():

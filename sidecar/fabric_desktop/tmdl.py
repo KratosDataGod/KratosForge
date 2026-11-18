@@ -169,7 +169,11 @@ class _Reader:
 
     def _expression(self, first: str, deeper_than: int) -> str:
         """An expression starting with ``first`` (the text after ``=``) and going on in the lines that
-        are indented more than ``deeper_than``, or fenced in triple backticks."""
+        are indented more than ``deeper_than``, or fenced in triple backticks (the opening fence after ``=``
+        or alone on the next line)."""
+        if not first.strip() and self.i < len(self.lines) and self.lines[self.i].strip() == "```":
+            first = "```"
+            self.i += 1
         if first.strip().startswith("```"):
             body: list[str] = []
             rest = first.strip()[3:]
@@ -267,7 +271,8 @@ class _Reader:
                     into[m.group(1)] = True
                 continue
             self._skip_block(here)
-            self.report.append({"object": text[:80], "kind": "lost", "message": f"not understood, left out ({where})"})
+            self.report.append({"object": text[:80], "kind": "lost", "message": f"not understood, left out ({where})",
+                                "file": self.path})
 
     def _object(self, kind: str, name: str, default: str | None, level: int, parent: dict[str, Any],
                 description: str) -> None:
@@ -293,7 +298,7 @@ class _Reader:
         parent.setdefault(collection, []).append(_shape(kind, obj))
 
     def _lost(self, where: str, message: str, at: str = "") -> None:
-        self.report.append({"object": where, "kind": "lost", "message": f"{message} ({at or self.path})"})
+        self.report.append({"object": where, "kind": "lost", "message": f"{message} ({at or self.path})", "file": self.path})
 
     def _culture(self, obj: dict[str, Any], where: str) -> dict[str, Any]:
         """A culture as TMSL has it: JSON linguistic metadata parsed, translations as ``translated...`` properties."""
@@ -377,7 +382,8 @@ def _shape(kind: str, obj: dict[str, Any]) -> dict[str, Any]:
 def to_bim(files: dict[str, str], name: str = "") -> tuple[dict[str, Any], list[dict[str, str]]]:
     """A model's TMDL files (path -> text, paths as in a ``.SemanticModel`` folder) as a TMSL
     ``model.bim`` document, with the report of anything left out. ``name`` is the model's name
-    (TMDL calls every model "Model"; the folder or item name is the real one)."""
+    (TMDL calls every model "Model"; the folder or item name is the real one). A row about something in one
+    file names it in ``file`` (its path as given), so a caller rewriting that file can say what it loses."""
     if sum(len(t) for t in files.values()) > MAX_CHARS:
         raise ValueError("The model's TMDL is larger than 20 MB, so it isn't read on this PC.")
     report: list[dict[str, str]] = []
@@ -665,14 +671,12 @@ class _Writer:
             self.lost("culture", "a culture with no name was left out")
             return
         try:
-            out.append(f"cultureInfo {quote(name)}")
+            out.extend([f"cultureInfo {quote(name)}", ""])
         except _Unwritable as exc:
             raise _Unwritable(f"{where}: {exc}") from None
         meta = obj.get("linguisticMetadata")
-        if isinstance(meta, dict) and meta.get("content") is not None:
-            content = _joined(meta["content"])
-            if not isinstance(content, str):
-                obj["linguisticMetadata"] = {**meta, "content": _json_text(content)}
+        if isinstance(meta, dict):
+            self.metadata(obj.pop("linguisticMetadata"), f"{where} linguisticMetadata", out)
         translations = obj.pop("translations", None)
         self.body("cultureInfo", obj, 0, where, out)
         if translations is None:
@@ -688,8 +692,35 @@ class _Writer:
                 else:
                     self.lost(f"{where} {key}", "TMDL on this PC has no place for this translation")
         if lines:
+            if out[-1]:
+                out.append("")
             out.append("\ttranslations")
             out.extend(lines)
+            out.append("")
+
+    def metadata(self, meta: dict[str, Any], where: str, out: list[str]) -> None:
+        """``linguisticMetadata =`` as Power BI Desktop writes it: the content on the lines after it, two levels
+        deeper, then its contentType. JSON content needs no fence (its line breaks and separators are escaped, and
+        every line is deeper than the properties); other text has one when it is more than one plain line."""
+        meta = dict(meta)
+        content = _joined(meta.pop("content", None))
+        if content is None:
+            self.lost(where, "linguistic metadata with no content isn't written as TMDL")
+            return
+        pad = "\t\t\t"
+        if not isinstance(content, str):
+            out.append("\tlinguisticMetadata =")
+            out.extend(pad + line for line in _json_text(content).split("\n"))
+        elif content and not _breaks(content) and content == content.strip() and not content.startswith(_FENCE):
+            out.append(f"\tlinguisticMetadata = {content}")
+        else:
+            text = content.replace("\r\n", "\n").replace("\r", "\n")
+            if any(piece.strip() == _FENCE for piece in text.splitlines()):
+                raise _Unwritable(f"{where}: its expression has a line of three backticks")
+            out.extend(["\tlinguisticMetadata =", pad + _FENCE, *(pad + line if line else "" for line in text.split("\n")),
+                        pad + _FENCE])
+        self.body("linguisticMetadata", meta, 1, where, out)
+        out.append("")
 
     def translated(self, kind: str, node: dict[str, Any], level: int, where: str, out: list[str]) -> None:
         """One object of a culture's translations: its name, then ``caption``, ``description`` and

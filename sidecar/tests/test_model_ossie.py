@@ -541,9 +541,9 @@ def test_an_ossie_file_over_tmdl_already_in_the_project_is_an_update(svc):
     assert plan["counts"]["roles"] == 1 and plan["counts"]["hierarchies"] == 1
     assert not any(r["object"].startswith("culture") for r in plan["report"])  # translations are read and kept
     done = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
-    assert culture.read_text(encoding="utf-8") == ("cultureInfo fr-FR\n\ttranslations\n\t\tmodel Model\n"
-                                                   "\t\t\ttable dim_customer\n\t\t\t\tcaption: Client\n")
-    assert not hand_named.exists() and (culture.parent / "de-DE.tmdl").read_text(encoding="utf-8") == "cultureInfo de-DE\n"
+    assert culture.read_text(encoding="utf-8") == ("cultureInfo fr-FR\n\n\ttranslations\n\t\tmodel Model\n"
+                                                   "\t\t\ttable dim_customer\n\t\t\t\tcaption: Client\n\n")
+    assert not hand_named.exists() and (culture.parent / "de-DE.tmdl").read_text(encoding="utf-8") == "cultureInfo de-DE\n\n"
     back, report = tmdl_mod.to_bim({p.relative_to(folder).as_posix(): p.read_text(encoding="utf-8")
                                     for p in folder.rglob("*.tmdl")}, "orders")
     assert report == [] and {c["name"] for c in back["model"]["cultures"]} == {"fr-FR", "de-DE"}
@@ -635,3 +635,87 @@ def test_tmdl_save_never_removes_a_stale_file_behind_a_link(svc, tmp_path):
     out = svc.meta_model_tmdl_save("test", "SM_Gold")
     assert out["removed"] == []
     assert sorted(p.name for p in outside.iterdir()) == ["old.tmdl", "x.json", "y.pbism"]
+
+
+def _orders_folder(svc):
+    from fabric_desktop import tmdl as tmdl_mod
+    root = Path(svc._project().root)
+    folder = root / "semantic" / "orders.SemanticModel"
+    files, _ = tmdl_mod.from_bim(_bim() | {"name": "orders"})
+    for rel, text in files.items():
+        (folder / rel).parent.mkdir(parents=True, exist_ok=True)
+        (folder / rel).write_text(text, encoding="utf-8")
+    (folder / "definition" / "cultures").mkdir()
+    return folder
+
+
+# Translations KratosForge can't read: a partition's and a data source's (TOM translates both), and a KPI's.
+UNREADABLE = {
+    "de-DE.tmdl": "cultureInfo de-DE\n\ttranslations\n\t\tmodel Model\n\t\t\ttable fact_sales\n\t\t\t\tcaption: Verkäufe\n"
+                  "\t\t\t\tpartition p1\n\t\t\t\t\tcaption: Teil\n",
+    "german-sources.tmdl": "cultureInfo de-AT\n\ttranslations\n\t\tmodel Model\n\t\t\tdataSource lake\n\t\t\t\tcaption: See\n",
+    "fr-FR.tmdl": "culture fr-FR\r\n\ttranslations\r\n\t\tmodel Model\r\n\t\t\ttable fact_sales\r\n\t\t\t\tmeasure 'fact_sales rows'\r\n"
+                  "\t\t\t\t\tkpi\r\n\t\t\t\t\t\tcaption: Objectif\r\n",
+}
+
+
+def test_culture_files_with_translations_it_cant_read_are_kept_byte_for_byte(svc):
+    folder = _orders_folder(svc)
+    cultures = folder / "definition" / "cultures"
+    for name, text in UNREADABLE.items():
+        (cultures / name).write_bytes(text.encode("utf-8"))
+    (cultures / "es.tmdl").write_text("cultureInfo es-ES\n\ttranslations\n\t\tmodel Model\n\t\t\tcaption: Modelo\n", encoding="utf-8")
+    plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    # Only the lossless culture moves (to its culture's name); the others are neither rewritten nor removed.
+    assert plan["removed"] == ["semantic/orders.SemanticModel/definition/cultures/es.tmdl"]
+    entries = {f["path"]: f["change"] for f in plan["file_changes"]}
+    assert {p: c for p, c in entries.items() if "/cultures/" in p} == {
+        "definition/cultures/de-DE.tmdl": "same", "definition/cultures/german-sources.tmdl": "same",
+        "definition/cultures/fr-FR.tmdl": "same", "definition/cultures/es-ES.tmdl": "new", "definition/cultures/es.tmdl": "removed"}
+    assert not any(f.endswith(("de-DE.tmdl", "german-sources.tmdl", "fr-FR.tmdl", "de-AT.tmdl")) for f in plan["files"])
+    rows = {r["object"]: r["message"] for r in plan["report"] if r["object"].startswith("cultures/")}
+    assert rows == {
+        "cultures/de-DE.tmdl": "kept as it is, because it holds translations KratosForge can't read: "
+                               "culture 'de-DE' translations model table 'fact_sales' partitions",
+        "cultures/german-sources.tmdl": "kept as it is, because it holds translations KratosForge can't read: "
+                                        "culture 'de-AT' translations model dataSources",
+        "cultures/fr-FR.tmdl": "kept as it is, because it holds translations KratosForge can't read: "
+                               "culture 'fr-FR' translations model table 'fact_sales' measure 'fact_sales rows' kpi"}
+    assert not any(r["object"].startswith("culture '") for r in plan["report"])  # one row per kept file, not one per loss
+    svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
+    for name, text in UNREADABLE.items():
+        assert (cultures / name).read_bytes() == text.encode("utf-8")
+    assert not (cultures / "es.tmdl").exists()
+    assert "caption: Modelo" in (cultures / "es-ES.tmdl").read_text(encoding="utf-8")
+    model = (folder / "definition" / "model.tmdl").read_text(encoding="utf-8")
+    assert "ref cultureInfo es-ES" in model and "de-DE" not in model  # a kept culture is claimed by its file alone
+    again = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    assert again["removed"] == [] and {f["change"] for f in again["file_changes"]} == {"same"}
+
+
+def test_a_kept_culture_file_another_culture_would_overwrite_is_refused(svc):
+    folder = _orders_folder(svc)
+    cultures = folder / "definition" / "cultures"
+    (cultures / "es-ES.tmdl").write_text(UNREADABLE["de-DE.tmdl"], encoding="utf-8")  # de-DE, under es-ES's file name
+    (cultures / "spanish.tmdl").write_text("cultureInfo es-ES\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="es-ES.tmdl is kept as it is.*nothing was written"):
+        svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")
+
+
+def test_the_confirm_token_covers_which_culture_files_are_removed(svc):
+    folder = _orders_folder(svc)
+    cultures = folder / "definition" / "cultures"
+    (cultures / "fr-FR.tmdl").write_text("cultureInfo fr-FR\n", encoding="utf-8")
+    (cultures / "german.tmdl").write_text("cultureInfo de-DE\n", encoding="utf-8")
+    plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    assert plan["removed"] == ["semantic/orders.SemanticModel/definition/cultures/german.tmdl"]
+    # The same culture under another file name: every file written would be the same, only the removal differs.
+    (cultures / "german.tmdl").rename(cultures / "deutsch.tmdl")
+    again = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    assert again["removed"] == ["semantic/orders.SemanticModel/definition/cultures/deutsch.tmdl"]
+    assert again["files"] == plan["files"] and again["token"] != plan["token"]
+    before = {p: p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+    with pytest.raises(ValueError, match="changed since the preview, so nothing was written"):
+        svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
+    assert {p: p.read_bytes() for p in folder.rglob("*") if p.is_file()} == before
+    assert not (cultures / "de-DE.tmdl").exists() and (cultures / "deutsch.tmdl").exists()

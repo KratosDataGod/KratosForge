@@ -123,6 +123,26 @@ def _model_counts(bim: dict[str, Any]) -> dict[str, int]:
             "hierarchies": sum(len(t.get("hierarchies") or []) for t in tables)}
 
 
+def _kept_cultures(folder: Path, read_report: list[dict[str, str]]) -> tuple[dict[str, list[str]], list[dict[str, str]]]:
+    """The culture files under ``folder`` that the reader couldn't read in full (``read_report`` names them in
+    ``file``), each with the cultures it defines, and one report row per file saying it is kept as it is. Rewriting
+    such a file from what was read would drop the translations it holds that KratosForge can't read."""
+    lost: dict[str, list[str]] = {}
+    for r in read_report:
+        rel = str(r.get("file") or "")
+        if r.get("kind") == "lost" and PurePosixPath(rel).parts[:2] == ("definition", "cultures"):
+            lost.setdefault(rel, []).append(r["object"])
+    kept: dict[str, list[str]] = {}
+    rows = []
+    for rel, objects in sorted(lost.items()):
+        text = folder.joinpath(*PurePosixPath(rel).parts).read_text(encoding="utf-8-sig")
+        cultures = tmdl.to_bim({rel: text})[0]["model"].get("cultures") or []
+        kept[rel] = [c["name"] for c in cultures if isinstance(c, dict) and isinstance(c.get("name"), str)]
+        rows.append({"object": PurePosixPath(rel).relative_to("definition").as_posix(), "kind": "lost", "file": rel,
+                     "message": f"kept as it is, because it holds translations KratosForge can't read: {', '.join(objects)}"})
+    return kept, rows
+
+
 def _folder_bim(folder: Path, name: str, path: str) -> tuple[dict[str, Any], list[dict[str, str]]]:
     """The model kept in ``folder`` (semantic/<name>.SemanticModel) as a parsed model.bim, read on this PC from its
     TMDL (or its model.bim), and the reader's report. ``path`` names it in messages."""
@@ -371,7 +391,10 @@ class ModelOssieMixin:
         (``model_ossie.merge``): what the file doesn't have stays (roles, hierarchies, measures written by hand)
         unless named in ``remove``, and ``changes`` and ``removable`` say what changes, as Import's preview does.
         Translations (cultures/) are read and written like the rest, so they stay too: a culture the file doesn't
-        have is kept, and one it has (from the Power BI section of an Ossie file this app wrote) is laid over."""
+        have is kept, and one it has (from the Power BI section of an Ossie file this app wrote) is laid over.
+        A culture file the reader can't read in full (a partition's or a KPI's translation, a property it doesn't
+        know) is kept byte for byte: never rewritten or removed, shown as "same", with one report row naming what it
+        holds that KratosForge can't read (``_kept_cultures``)."""
         model_ossie.require()
         project = self._project()  # type: ignore[attr-defined]
         name = (name or str(model_ossie.parse(text)["name"])).strip()
@@ -380,12 +403,20 @@ class ModelOssieMixin:
         definition = folder / "definition"
         _no_links(root, definition)
         incoming, report = model_ossie.to_tmsl(text)
-        current = None
+        current, read_report = None, []
         if (_real(definition, stat.S_ISDIR) and _tmdl_files(definition)) or _real(folder / "model.bim", stat.S_ISREG):
             current, read_report = _folder_bim(folder, name, folder.relative_to(root).as_posix())
-            report = read_report + report
+        kept, kept_rows = _kept_cultures(folder, read_report)
+        report = [r for r in read_report if r.get("file") not in kept] + kept_rows + report
         final = model_ossie.merge(current, incoming, remove) if current else incoming
         final["name"] = name
+        kept_names = {n for names in kept.values() for n in names}
+        if kept_names and isinstance((final.get("model") or {}).get("cultures"), list):
+            # Written by no one but the file kept for it, so nothing else claims the culture.
+            final["model"]["cultures"] = [c for c in final["model"]["cultures"]
+                                          if not (isinstance(c, dict) and c.get("name") in kept_names)]
+            if not final["model"]["cultures"]:
+                del final["model"]["cultures"]
         files, written = tmdl.from_bim(final)
         report = report + written
         files["definition.pbism"] = json.dumps({"version": "4.0", "settings": {}}, indent=2) + "\n"
@@ -398,8 +429,13 @@ class ModelOssieMixin:
                 raise ValueError(f"{path.relative_to(root).as_posix()} is a link or a folder, so it isn't overwritten")
             if not path.resolve().is_relative_to(folder.resolve()):  # never outside the model's folder
                 raise ValueError(f"{rel} would be written outside {folder.relative_to(root).as_posix()}, so nothing was written.")
+            if rel in kept:
+                raise ValueError(f"{rel} is kept as it is, because it holds translations KratosForge can't read, and another "
+                                 "culture would be written to it, so nothing was written. Rename that file.")
             targets[path] = content
-        stale = sorted(f for group in existing.values() for f in group if f not in targets)  # by key: see _in_place
+        kept_paths = {folder.joinpath(*PurePosixPath(rel).parts) for rel in kept}
+        stale = sorted(f for group in existing.values() for f in group  # by key: see _in_place
+                       if f not in targets and f not in kept_paths)
         status = {p: ("same" if _same_text(p, c) else "changed") if _real(p, stat.S_ISREG) else "new" for p, c in targets.items()}
         unchanged = sum(1 for v in status.values() if v == "same")
         changes = model_ossie.plan(current, final)
@@ -409,9 +445,10 @@ class ModelOssieMixin:
                "changes": changes if current else [r for r in changes if r["change"] == "needs_dax"],
                "removable": model_ossie.removable(current, incoming) if current else [],
                "unchanged": unchanged, "counts": _model_counts(final),
-               "file_changes": [{"path": p.relative_to(folder).as_posix(), "change": status[p]} for p in sorted(targets)]
+               "file_changes": sorted([{"path": p.relative_to(folder).as_posix(), "change": status[p]} for p in targets]
+                                      + [{"path": rel, "change": "same"} for rel in kept], key=lambda f: f["path"])
                + [{"path": p.relative_to(folder).as_posix(), "change": "removed"} for p in stale]}
-        digest = hashlib.sha256(json.dumps([out["folder"], out["removed"], sorted(
+        digest = hashlib.sha256(json.dumps([out["folder"], out["removed"], sorted(kept), sorted(
             (p.relative_to(root).as_posix(), c) for p, c in targets.items())], ensure_ascii=False).encode()).hexdigest()
         if not confirmed:
             return {"confirm": out | {"token": digest}}

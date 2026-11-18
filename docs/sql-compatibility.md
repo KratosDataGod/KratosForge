@@ -581,6 +581,7 @@ When a project runs T-SQL on this PC, wide tables and long values stay exact, or
 | A query result wider than 1,024 columns | Runs. The limit is a table's |
 | A `VARCHAR(MAX)` value of a megabyte or more | Comes back whole, and `LEN` and `DATALENGTH` count all of it |
 | `REPLICATE` of text that isn't `VARCHAR(MAX)` or `NVARCHAR(MAX)`, past 8,000 bytes (4,000 characters of `N''` text) | Stops at the row where a warehouse would cut the result, with the way to keep it whole: cast the input to `VARCHAR(MAX)`. A `VARCHAR(MAX)` column without a cast stops too, because the local engine doesn't keep a column's `(MAX)`, and the cast changes nothing in a warehouse |
+| A query that nests string calls dozens deep, or nests anything past what the translator can read | Stops by name, saying it's nested too deeply, with the way out: move the inner part into a CTE, a subquery or a variable. A `REPLICATE` inside another one is checked at each level |
 | An Excel export of more than 16,384 columns, a sheet's most | Refused before anything is written, with CSV or Parquet named instead. A text cell past Excel's 32,767 characters is cut there with a note, as before |
 
 What can still differ:

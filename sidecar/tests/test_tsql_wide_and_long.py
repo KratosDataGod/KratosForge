@@ -187,7 +187,38 @@ def test_a_replicate_inside_another_is_checked_at_both(engine, sql, most):
     assert f"REPLICATE gives more than {most}" in error(engine, sql)
 
 
-def test_nested_replicates_grow_the_sql_in_step_not_twice_a_level():
+@pytest.mark.parametrize("call", [
+    "SPACE(LEN(REPLICATE({}, n)))", "REPLICATE({}, n)", "STUFF({}, a, b, d)", "SPACE(LEN({}))",
+    "SUBSTRING({}, a, b)", "CHARINDEX(x, c, LEN({}))", "LEFT({}, n)", "TRANSLATE({}, x, y)",
+])
+def test_nested_string_calls_grow_the_sql_in_step_not_several_times_a_level(call):
     from fabric_desktop.localdata import tsql
-    sizes = [len(tsql.translate("SELECT " + "REPLICATE(" * k + "c" + ", n)" * k + " FROM t")[0][0]) for k in (5, 10)]
-    assert sizes[1] < 4 * sizes[0], sizes
+
+    def size(depth):
+        inner = "c"
+        for _ in range(depth):
+            inner = call.format(inner)
+        return len(tsql.translate(f"SELECT {inner} AS x FROM t")[0][0])
+    four, eight = size(4), size(8)
+    assert eight < 3 * four, (four, eight)  # linear: twice the depth, about twice the SQL
+
+
+def test_a_query_nested_too_deeply_to_translate_stops_by_name():
+    from fabric_desktop.localdata import tsql
+    with pytest.raises(ValueError, match="nests calls or brackets too deeply"):
+        tsql.translate("SELECT " + "SPACE(LEN(REPLICATE(" * 40 + "c" + ", n)))" * 40 + " FROM t")
+
+
+@pytest.mark.parametrize("sql, out", [
+    ("SELECT STUFF((SELECT MAX(s) FROM dbo.t), 2, 1, 'X')", [["aXc"]]),  # a subquery is bound, not in the lambda
+    ("SELECT SUBSTRING(s, (SELECT MIN(n) FROM dbo.t), LEN(s) - 1) FROM dbo.t", [["bc"]]),
+    ("SELECT SUBSTRING(SUBSTRING(s, 0, 3), 0, 2) FROM dbo.t", [["a"]]),
+    ("SELECT CHARINDEX('c', s, CHARINDEX('b', s, 0)) FROM dbo.t", [[3]]),
+    ("SELECT REPLICATE(MAX(s), COUNT(*) + 1) FROM dbo.t", [["abcabc"]]),
+    ("SELECT LEFT(REPLICATE(s, n), n + 1) FROM dbo.t", [["abc"]]),
+    ("SELECT STUFF(STUFF(s, 1, 1, 'Q'), 9, 1, 'Z') FROM dbo.t", [[None]]),
+])
+def test_a_bound_argument_gives_the_same_answer(engine, sql, out):
+    engine.execute("CREATE TABLE dbo.t (s VARCHAR(10), n INT)", dialect="tsql")
+    engine.execute("INSERT INTO dbo.t VALUES ('abc', 2)", dialect="tsql")
+    assert rows(engine, sql) == out

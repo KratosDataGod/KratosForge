@@ -179,3 +179,8 @@ def test_a_ceil_scale_that_is_not_written_out_keeps_working(con: duckdb.DuckDBPy
     translation = sf.translate("SELECT CEIL(x, s) FROM (VALUES (17.941, 2)) AS t(x, s)")
     assert translation.runnable
     assert float(con.execute(translation.duckdb_sql).fetchall()[0][0]) == pytest.approx(17.95)
+
+
+def test_a_scale_past_38_digits_builds_no_huge_text() -> None:
+    translation = sf.translate("SELECT CEIL(1.5, 999999999), FLOOR(1.5, -999999999)")
+    assert translation.runnable and len(translation.duckdb_sql) < 500

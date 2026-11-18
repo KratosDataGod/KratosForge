@@ -763,6 +763,8 @@ def _rewrite_documented_edges(statement: exp.Expression) -> None:
         if not (isinstance(places, exp.Literal) and not places.is_string and places.name.isdigit()):
             continue
         k = sign * int(places.name)
+        if abs(k) > 38:  # past any NUMBER's digits: left to the FLOAT rewrite, and no huge text is built
+            continue
         whole = f"CAST(1{'0' * abs(k)} AS DECIMAL({abs(k) + 1}, 0))"
         tenth = f"0.{'0' * (abs(k) - 1)}1"
         up, down = (whole, tenth) if k >= 0 else (tenth, whole)

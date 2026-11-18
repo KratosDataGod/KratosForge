@@ -24,7 +24,7 @@ from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator, cached_account
 from .fabric_api import FabricClient
-from . import app_settings, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_files, sql_format, sql_function_help, sql_view, sqlcompat, warehouse
+from . import app_settings, csv_cells, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_files, sql_format, sql_function_help, sql_view, sqlcompat, warehouse
 from .learn import evidence
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
@@ -977,8 +977,9 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         return session.kernel.ipywidget_event(model=str(model), event=dict(event or {}), root=root)
 
     def notebook_frame_download(self, frame: str, format: str = "csv", name: str = "",
-                                notebook: str | None = None) -> dict[str, Any]:
-        """Write a cell's whole result to a new file in Downloads (CSV, Excel or Parquet); never replaces a file."""
+                                notebook: str | None = None, raw: bool = False) -> dict[str, Any]:
+        """Write a cell's whole result to a new file in Downloads (CSV, Excel or Parquet); never replaces a file.
+        A CSV protects text cells that start like a formula unless ``raw`` (Keep raw values, WR-228)."""
         if format not in DOWNLOAD_FORMATS:
             raise ValueError(f"Download as {', '.join(DOWNLOAD_FORMATS)}.")
         folder = known_folders.downloads()
@@ -986,7 +987,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         base = f"{file_stem(name or 'notebook')} result {time.strftime('%Y-%m-%d %H%M%S')}"
         path = sql_exec._reserve(folder, base, "." + format)
         try:
-            return self._frame_kernel(notebook).frame_download(frame=frame, format=format, path=str(path))
+            return self._frame_kernel(notebook).frame_download(frame=frame, format=format, path=str(path),
+                                                               **({"raw": True} if raw else {}))
         except BaseException as exc:
             sql_exec._discard(path.with_name(path.name + ".partial"), path)
             if isinstance(exc, FrameGone) or str(exc) == GONE:
@@ -1263,8 +1265,9 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """Stop one run: ends that run's own process and nothing else."""
         return self.sql_runs.cancel(execution)
 
-    def sql_export(self, execution: str, format: str = "csv", name: str = "", part: int | None = None) -> dict[str, Any]:
-        return self.sql_runs.export(execution, format, name, part)
+    def sql_export(self, execution: str, format: str = "csv", name: str = "", part: int | None = None,
+                   raw: bool = False) -> dict[str, Any]:
+        return self.sql_runs.export(execution, format, name, part, raw=bool(raw))
 
     def sql_export_status(self, export: str) -> dict[str, Any]:
         return self.sql_runs.export_status(export)
@@ -1313,11 +1316,14 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 break
             else:
                 raise ValueError("Couldn't find a free file name in Downloads for the export.")
-            with sink, pa_csv.CSVWriter(sink, result.schema or pa.schema([])) as out:
+            header, protected = csv_cells.protect_header(result.schema or pa.schema([]))
+            with sink, pa_csv.CSVWriter(sink, header) as out:
                 for batch in result:
+                    batch, n = csv_cells.protect_batch(batch)  # WR-228: no cell runs as a formula when opened
                     out.write_batch(batch)
-                    rows += batch.num_rows
-        return {"path": str(path), "rows": rows}
+                    rows, protected = rows + batch.num_rows, protected + n
+        return {"path": str(path), "rows": rows, "protected": protected,
+                "notes": [csv_cells.note(protected, can_keep_raw=False)] if protected else []}
 
     def table_columns(self, lakehouse_ref: dict[str, str], table: str) -> list[dict[str, str]]:
         self._attach(lakehouse_ref)

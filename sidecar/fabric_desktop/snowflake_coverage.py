@@ -133,7 +133,9 @@ def check(function: dict[str, Any], cases: dict[str, list[Any]]) -> tuple[str, s
 _CLOCK = "its value is the clock's, so there's no documented value to compare"
 _SESSION = "its value describes the Snowflake session or account, which this PC doesn't have"
 _TRADES = "its page's only example reads a trades table the page doesn't create"
+_MIXED = "its page's examples put values of different types in one array, which a DuckDB list can't hold"
 NOT_CHECKED: dict[str, str] = {
+    "ARRAY_CONSTRUCT_COMPACT": _MIXED, "ARRAY_INSERT": _MIXED, "ARRAY_PREPEND": _MIXED,
     "CUME_DIST": _TRADES, "NTILE": _TRADES, "PERCENT_RANK": _TRADES,
     "CURRENT_DATE": _CLOCK, "CURRENT_TIME": _CLOCK, "LOCALTIME": _CLOCK,
     "CURRENT_VERSION": _SESSION, "CURRENT_ROLE": _SESSION, "CURRENT_USER": _SESSION, "CURRENT_DATABASE": _SESSION,

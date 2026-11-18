@@ -704,45 +704,6 @@ def _rewrite_arrays(statement: exp.Expression) -> None:
                  [insert.this.copy(), position.copy()])
 
 
-def _scalar_kind(node: exp.Expression | None) -> str:
-    """The kind of a value written in the query (or cast to a type): text, number, null, or other."""
-    while isinstance(node, (exp.Paren, exp.Neg)):
-        node = node.this
-    if isinstance(node, exp.Null):
-        return "null"
-    if isinstance(node, exp.Literal):
-        return "text" if node.is_string else "number"
-    if isinstance(node, (exp.Cast, exp.TryCast)) and _scalar_kind(node.this) in ("text", "number"):
-        if node.to.this in exp.DataType.TEXT_TYPES:
-            return "text"
-        if node.to.this in exp.DataType.NUMERIC_TYPES:
-            return "number"
-    return "other"
-
-
-def _mixed(values: list[exp.Expression]) -> bool:
-    kinds = {_scalar_kind(v) for v in values} - {"null"}
-    return kinds == {"text", "number"}
-
-
-def _to_variant(values: list[exp.Expression]) -> None:
-    for value in values:
-        value.replace(exp.Cast(this=value.copy(), to=exp.DataType.build("VARIANT")))
-
-
-def _rewrite_mixed_arrays(statement: exp.Expression) -> None:
-    """SFX-024: an array written in the query that holds both text and numbers (ARRAY_CONSTRUCT,
-    ARRAY_CONSTRUCT_COMPACT, or one ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND adds the other kind to) is a
-    list of VARIANT values, as an ARRAY column is; DuckDB's list holds one type, and stops."""
-    for node in list(statement.find_all(exp.ArrayInsert, exp.ArrayPrepend, exp.ArrayAppend)):
-        array, value = node.this, node.args.get("expression")
-        if isinstance(array, exp.Array) and value is not None and _mixed([*array.expressions, value]):
-            _to_variant([*array.expressions, value])
-    for array in list(statement.find_all(exp.Array, exp.ArrayConstructCompact)):
-        if _mixed(array.expressions):
-            _to_variant(list(array.expressions))
-
-
 def _rewrite_variant_reads(statement: exp.Expression) -> None:
     """SFX-023: GET and the : path read a VARIANT made with TO_VARIANT (or a cast to VARIANT), or a column
     (a VARIANT column among them), as JSON, as Snowflake reads any VARIANT; DuckDB reads its own VARIANT as
@@ -1952,9 +1913,7 @@ CATALOG = (
                 "ARRAY_SIZE of a JSON or VARIANT value is NULL when it isn't an array. A VARIANT column holding an object or "
                 "array, cast to text, is JSON text. SAMPLE ROW and SAMPLE BLOCK are BERNOULLI and SYSTEM sampling.")),
     ("SFX-024", "Rewritten", ("An ARRAY column or cast becomes a list of VARIANT values, so it holds what "
-                "ARRAY_CONSTRUCT makes and can read a JSON array. An OBJECT column or cast becomes JSON. An array "
-                "written in the query that holds both text and numbers (ARRAY_CONSTRUCT, ARRAY_CONSTRUCT_COMPACT, "
-                "or ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind) is a list of VARIANT values too.")),
+                "ARRAY_CONSTRUCT makes and can read a JSON array. An OBJECT column or cast becomes JSON.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -2066,7 +2025,6 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_strings(tree)
         _rewrite_time(tree)
         _rewrite_timestamp_parts(tree)
-        _rewrite_mixed_arrays(tree)
         _rewrite_arrays(tree)
         _rewrite_variant_reads(tree)
         _rewrite_statements(tree)

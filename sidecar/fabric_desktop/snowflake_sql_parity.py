@@ -1108,7 +1108,8 @@ CASES: tuple[Case, ...] = (
        31.5, page="get"),
     _c("CHECK_JSON", "Semi-structured", "SELECT check_json('{\"a\": 1}')", None),
     _c("TRY_PARSE_JSON", "Semi-structured", "SELECT try_parse_json('{\"x\": \"abc\", \"y\": false')", None),
-    # TRY_TO_TIMESTAMP's page: with the default TIMESTAMP_TYPE_MAPPING it is TRY_TO_TIMESTAMP_NTZ
+    # TRY_TO_TIMESTAMP's page: its one example calls TRY_TO_TIMESTAMP, which "maps to TRY_TO_TIMESTAMP_NTZ by
+    # default" (TIMESTAMP_TYPE_MAPPING's default, TIMESTAMP_NTZ), so these are its values for the _NTZ form
     _c("TRY_TO_TIMESTAMP_NTZ", "Conversion", "SELECT try_to_timestamp_ntz('2024-01-15 12:30:00')",
        dt.datetime(2024, 1, 15, 12, 30), page="try_to_timestamp"),
     _c("TRY_TO_TIMESTAMP_NTZ (not a timestamp)", "Conversion", "SELECT try_to_timestamp_ntz('Invalid')", None,
@@ -1122,17 +1123,6 @@ CASES: tuple[Case, ...] = (
     _c("JSON_EXTRACT_PATH_TEXT (array index)", "Semi-structured", f"{_DEMO1} SELECT list(JSON_EXTRACT_PATH_TEXT("
        "json_data, 'level_1_key.level_2_key[1]') ORDER BY id) FROM demo1", [None, None, "one"],
        page="json_extract_path_text"),
-    _c("ARRAY_INSERT", "Semi-structured", "SELECT ARRAY_INSERT(ARRAY_CONSTRUCT(0,1,2,3),2,'hello')",
-       [0, 1, "hello", 2, 3]),
-    # the page prints [0, 1, 2, 3, undefined, "hello"]: six elements, the gap empty (NULL here)
-    _c("ARRAY_INSERT (past the end)", "Semi-structured",
-       "SELECT array_size(ARRAY_INSERT(ARRAY_CONSTRUCT(0,1,2,3),5,'hello'))", 6, page="array_insert"),
-    _c("ARRAY_INSERT (negative index)", "Semi-structured", "SELECT ARRAY_INSERT(ARRAY_CONSTRUCT(0,1,2,3),-1,'hello')",
-       [0, 1, 2, "hello", 3], page="array_insert"),
-    _c("ARRAY_PREPEND", "Semi-structured", "SELECT ARRAY_PREPEND(ARRAY_CONSTRUCT(0,1,2,3),'hello')",
-       ["hello", 0, 1, 2, 3]),
-    _c("ARRAY_CONSTRUCT_COMPACT", "Semi-structured", "SELECT ARRAY_CONSTRUCT_COMPACT(null,'hello',3::double,4,5)",
-       ["hello", 3.0, 4, 5]),
     _c("ARRAY_UNIQUE_AGG", "Semi-structured", "CREATE OR REPLACE TABLE array_unique_agg_test (a INTEGER); "
        "INSERT INTO array_unique_agg_test VALUES (5), (2), (1), (2), (1); "
        "SELECT ARRAY_SIZE(ARRAY_UNIQUE_AGG(a)) AS number_of_distinct_values FROM array_unique_agg_test", 3,

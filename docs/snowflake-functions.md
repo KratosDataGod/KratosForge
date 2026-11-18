@@ -21,11 +21,11 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 376 |
+| Runs | 373 |
 | Differs | 24 |
 | Refused | 82 |
 | Fails | 0 |
-| Not checked | 13 |
+| Not checked | 16 |
 | **All** | **495** |
 
 ## String and binary
@@ -256,102 +256,102 @@ the known differences in more detail.
 
 ## Semi-structured
 
-| Function | Status | Note |
-| --- | --- | --- |
-| `CHECK_JSON` | Runs | 1 value check |
-| `CHECK_XML` | Refused | CHECK_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
-| `JSON_EXTRACT_PATH_TEXT` | Runs | 3 value checks; labelled SFD-001 Unquoted names keep their case |
-| `PARSE_JSON` | Runs | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
-| `TRY_PARSE_JSON` | Runs | 1 value check |
-| `PARSE_XML` | Refused | PARSE_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
-| `STRIP_NULL_VALUE` | Runs | 2 value checks |
-| `ARRAY_AGG` | Runs | 1 value check |
-| `ARRAY_APPEND` | Runs | 3 value checks; labelled SFD-001 Unquoted names keep their case, SFD-007 TYPEOF can't always name Snowflake's type |
-| `ARRAY_CAT` | Runs | 1 value check |
-| `ARRAY_COMPACT` | Runs | 1 value check |
-| `ARRAY_CONSTRUCT` | Runs | 1 value check |
-| `ARRAY_CONSTRUCT_COMPACT` | Runs | 1 value check |
-| `ARRAY_CONTAINS` | Runs | 1 value check |
-| `ARRAY_DISTINCT` | Runs | 2 value checks |
-| `ARRAY_EXCEPT` | Runs | 4 value checks |
-| `ARRAY_FLATTEN` | Runs | 3 value checks |
-| `ARRAY_GENERATE_RANGE` | Runs | 3 value checks |
-| `ARRAY_INSERT` | Runs | 3 value checks |
-| `ARRAY_INTERSECTION` | Runs | 3 value checks |
-| `ARRAY_MAX` | Runs | 1 value check |
-| `ARRAY_MIN` | Runs | 1 value check |
-| `ARRAY_POSITION` | Runs | 3 value checks |
-| `ARRAY_PREPEND` | Runs | 1 value check |
-| `ARRAY_REMOVE` | Runs | 1 value check |
-| `ARRAY_REMOVE_AT` | Runs | 3 value checks |
-| `ARRAY_REVERSE` | Runs | 1 value check |
-| `ARRAY_SIZE` | Runs | 1 value check |
-| `ARRAY_SLICE` | Runs | 1 value check |
-| `ARRAY_SORT` | Runs | 3 value checks |
-| `ARRAY_TO_STRING` | Runs | 1 value check |
-| `ARRAY_UNION_AGG` | Refused | Not rewritten for DuckDB. ARRAY_UNION_AGG is not supported in DuckDB. |
-| `ARRAY_UNIQUE_AGG` | Runs | 1 value check; labelled SFD-001 Unquoted names keep their case |
-| `ARRAYS_OVERLAP` | Runs | 3 value checks |
-| `ARRAYS_TO_OBJECT` | Runs | 3 value checks |
-| `ARRAYS_ZIP` | Runs | 2 value checks |
-| `OBJECT_AGG` | Runs | 1 value check |
-| `OBJECT_CONSTRUCT` | Runs | 1 value check |
-| `OBJECT_CONSTRUCT_KEEP_NULL` | Runs | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
-| `OBJECT_DELETE` | Runs | 2 value checks |
-| `OBJECT_INSERT` | Runs | 3 value checks |
-| `OBJECT_PICK` | Runs | 2 value checks |
-| `OBJECT_KEYS` | Runs | 1 value check |
-| `FILTER` | Runs | 2 value checks |
-| `REDUCE` | Refused | Not rewritten for DuckDB. Argument 'finish' is not supported for expression 'Reduce' when targeting KfDuckDB.. |
-| `TRANSFORM` | Runs | 2 value checks |
-| `MAP_CAT` | Runs | 2 value checks |
-| `MAP_CONTAINS_KEY` | Runs | 1 value check |
-| `MAP_DELETE` | Runs | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
-| `MAP_ENTRIES` | Runs | 2 value checks |
-| `MAP_INSERT` | Refused | Not rewritten for DuckDB. Argument 'update_flag' is not supported for expression 'MapInsert' when targeting KfDuckDB.. |
-| `MAP_KEYS` | Runs | 1 value check |
-| `MAP_PICK` | Runs | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
-| `MAP_SIZE` | Runs | 1 value check |
-| `GET` | Runs | 1 value check |
-| `GET_IGNORE_CASE` | Refused | Not rewritten for DuckDB. DuckDB does not support the GET_IGNORE_CASE() function. |
-| `GET_PATH` | Runs | 1 value check |
-| `XMLGET` | Refused | XMLGET: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
-| `AS_ARRAY` | Runs | 1 value check |
-| `AS_BOOLEAN` | Runs | 1 value check |
-| `AS_BINARY` | Runs | 1 value check |
-| `AS_CHAR` | Runs | 1 value check |
-| `AS_VARCHAR` | Runs | 2 value checks |
-| `AS_DATE` | Runs | 1 value check |
-| `AS_DECIMAL` | Runs | 2 value checks; labelled SFD-008 A JSON fraction counts as a decimal |
-| `AS_NUMBER` | Runs | 1 value check; labelled SFD-008 A JSON fraction counts as a decimal |
-| `AS_DOUBLE` | Runs | 1 value check |
-| `AS_REAL` | Runs | 1 value check |
-| `AS_INTEGER` | Runs | 3 value checks |
-| `AS_OBJECT` | Runs | 2 value checks |
-| `AS_TIME` | Runs | 1 value check |
-| `AS_TIMESTAMP_LTZ` | Refused | AS_TIMESTAMP_LTZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
-| `AS_TIMESTAMP_NTZ` | Runs | 1 value check |
-| `AS_TIMESTAMP_TZ` | Refused | AS_TIMESTAMP_TZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
-| `TO_JSON` | Differs | TO_JSON: Snowflake sorts an object's keys; here they keep their order (SFD-014). |
-| `TO_XML` | Refused | TO_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
-| `IS_ARRAY` | Runs | 1 value check |
-| `IS_BOOLEAN` | Runs | 1 value check |
-| `IS_BINARY` | Runs | 1 value check |
-| `IS_CHAR` | Runs | 1 value check |
-| `IS_VARCHAR` | Runs | 1 value check |
-| `IS_DATE` | Runs | 1 value check |
-| `IS_DATE_VALUE` | Runs | 1 value check |
-| `IS_DECIMAL` | Differs | IS_DECIMAL (vartab): SFD-008: 1.912e2 from PARSE_JSON counts as a decimal here, so row 6 is TRUE too. |
-| `IS_DOUBLE` | Runs | 3 value checks |
-| `IS_REAL` | Runs | 2 value checks |
-| `IS_INTEGER` | Runs | 4 value checks |
-| `IS_NULL_VALUE` | Runs | 2 value checks |
-| `IS_OBJECT` | Runs | 1 value check |
-| `IS_TIME` | Runs | 1 value check |
-| `IS_TIMESTAMP_LTZ` | Refused | IS_TIMESTAMP_LTZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
-| `IS_TIMESTAMP_NTZ` | Runs | 1 value check |
-| `IS_TIMESTAMP_TZ` | Refused | IS_TIMESTAMP_TZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
-| `TYPEOF` | Differs | TYPEOF (stored value with an exponent): A JSON number with a fraction or exponent read from a column or a stored value is 'DECIMAL or DOUBLE' here: DuckDB doesn't keep how it was written (SFD-007). TYPEOF of PARSE_JSON, or of a path into PARSE_JSON of text in the query, is exact. |
+| Name | Status | Sample | Note |
+| --- | --- | --- | --- |
+| `CHECK_JSON` | Runs |  | 1 value check |
+| `CHECK_XML` | Refused |  | CHECK_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
+| `JSON_EXTRACT_PATH_TEXT` | Runs |  | 3 value checks; labelled SFD-001 Unquoted names keep their case |
+| `PARSE_JSON` | Runs |  | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
+| `TRY_PARSE_JSON` | Runs |  | 1 value check |
+| `PARSE_XML` | Refused |  | PARSE_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
+| `STRIP_NULL_VALUE` | Runs |  | 2 value checks |
+| `ARRAY_AGG` | Runs |  | 1 value check |
+| `ARRAY_APPEND` | Runs |  | 3 value checks; labelled SFD-001 Unquoted names keep their case, SFD-007 TYPEOF can't always name Snowflake's type |
+| `ARRAY_CAT` | Runs |  | 1 value check |
+| `ARRAY_COMPACT` | Runs |  | 1 value check |
+| `ARRAY_CONSTRUCT` | Runs |  | 1 value check |
+| `ARRAY_CONSTRUCT_COMPACT` | Not checked |  | its page's examples put values of different types in one array, which a DuckDB list can't hold |
+| `ARRAY_CONTAINS` | Runs |  | 1 value check |
+| `ARRAY_DISTINCT` | Runs |  | 2 value checks |
+| `ARRAY_EXCEPT` | Runs |  | 4 value checks |
+| `ARRAY_FLATTEN` | Runs |  | 3 value checks |
+| `ARRAY_GENERATE_RANGE` | Runs |  | 3 value checks |
+| `ARRAY_INSERT` | Not checked | `SELECT ARRAY_INSERT(ARRAY_CONSTRUCT(1, 2), 0, 3)` | its page's examples put values of different types in one array, which a DuckDB list can't hold |
+| `ARRAY_INTERSECTION` | Runs |  | 3 value checks |
+| `ARRAY_MAX` | Runs |  | 1 value check |
+| `ARRAY_MIN` | Runs |  | 1 value check |
+| `ARRAY_POSITION` | Runs |  | 3 value checks |
+| `ARRAY_PREPEND` | Not checked |  | its page's examples put values of different types in one array, which a DuckDB list can't hold |
+| `ARRAY_REMOVE` | Runs |  | 1 value check |
+| `ARRAY_REMOVE_AT` | Runs |  | 3 value checks |
+| `ARRAY_REVERSE` | Runs |  | 1 value check |
+| `ARRAY_SIZE` | Runs |  | 1 value check |
+| `ARRAY_SLICE` | Runs |  | 1 value check |
+| `ARRAY_SORT` | Runs |  | 3 value checks |
+| `ARRAY_TO_STRING` | Runs |  | 1 value check |
+| `ARRAY_UNION_AGG` | Refused |  | Not rewritten for DuckDB. ARRAY_UNION_AGG is not supported in DuckDB. |
+| `ARRAY_UNIQUE_AGG` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `ARRAYS_OVERLAP` | Runs |  | 3 value checks |
+| `ARRAYS_TO_OBJECT` | Runs |  | 3 value checks |
+| `ARRAYS_ZIP` | Runs |  | 2 value checks |
+| `OBJECT_AGG` | Runs |  | 1 value check |
+| `OBJECT_CONSTRUCT` | Runs |  | 1 value check |
+| `OBJECT_CONSTRUCT_KEEP_NULL` | Runs |  | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
+| `OBJECT_DELETE` | Runs |  | 2 value checks |
+| `OBJECT_INSERT` | Runs |  | 3 value checks |
+| `OBJECT_PICK` | Runs |  | 2 value checks |
+| `OBJECT_KEYS` | Runs |  | 1 value check |
+| `FILTER` | Runs |  | 2 value checks |
+| `REDUCE` | Refused |  | Not rewritten for DuckDB. Argument 'finish' is not supported for expression 'Reduce' when targeting KfDuckDB.. |
+| `TRANSFORM` | Runs |  | 2 value checks |
+| `MAP_CAT` | Runs |  | 2 value checks |
+| `MAP_CONTAINS_KEY` | Runs |  | 1 value check |
+| `MAP_DELETE` | Runs |  | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
+| `MAP_ENTRIES` | Runs |  | 2 value checks |
+| `MAP_INSERT` | Refused |  | Not rewritten for DuckDB. Argument 'update_flag' is not supported for expression 'MapInsert' when targeting KfDuckDB.. |
+| `MAP_KEYS` | Runs |  | 1 value check |
+| `MAP_PICK` | Runs |  | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
+| `MAP_SIZE` | Runs |  | 1 value check |
+| `GET` | Runs |  | 1 value check |
+| `GET_IGNORE_CASE` | Refused |  | Not rewritten for DuckDB. DuckDB does not support the GET_IGNORE_CASE() function. |
+| `GET_PATH` | Runs |  | 1 value check |
+| `XMLGET` | Refused |  | XMLGET: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
+| `AS_ARRAY` | Runs |  | 1 value check |
+| `AS_BOOLEAN` | Runs |  | 1 value check |
+| `AS_BINARY` | Runs |  | 1 value check |
+| `AS_CHAR` | Runs |  | 1 value check |
+| `AS_VARCHAR` | Runs |  | 2 value checks |
+| `AS_DATE` | Runs |  | 1 value check |
+| `AS_DECIMAL` | Runs |  | 2 value checks; labelled SFD-008 A JSON fraction counts as a decimal |
+| `AS_NUMBER` | Runs |  | 1 value check; labelled SFD-008 A JSON fraction counts as a decimal |
+| `AS_DOUBLE` | Runs |  | 1 value check |
+| `AS_REAL` | Runs |  | 1 value check |
+| `AS_INTEGER` | Runs |  | 3 value checks |
+| `AS_OBJECT` | Runs |  | 2 value checks |
+| `AS_TIME` | Runs |  | 1 value check |
+| `AS_TIMESTAMP_LTZ` | Refused |  | AS_TIMESTAMP_LTZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
+| `AS_TIMESTAMP_NTZ` | Runs |  | 1 value check |
+| `AS_TIMESTAMP_TZ` | Refused |  | AS_TIMESTAMP_TZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
+| `TO_JSON` | Differs |  | TO_JSON: Snowflake sorts an object's keys; here they keep their order (SFD-014). |
+| `TO_XML` | Refused |  | TO_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
+| `IS_ARRAY` | Runs |  | 1 value check |
+| `IS_BOOLEAN` | Runs |  | 1 value check |
+| `IS_BINARY` | Runs |  | 1 value check |
+| `IS_CHAR` | Runs |  | 1 value check |
+| `IS_VARCHAR` | Runs |  | 1 value check |
+| `IS_DATE` | Runs |  | 1 value check |
+| `IS_DATE_VALUE` | Runs |  | 1 value check |
+| `IS_DECIMAL` | Differs |  | IS_DECIMAL (vartab): SFD-008: 1.912e2 from PARSE_JSON counts as a decimal here, so row 6 is TRUE too. |
+| `IS_DOUBLE` | Runs |  | 3 value checks |
+| `IS_REAL` | Runs |  | 2 value checks |
+| `IS_INTEGER` | Runs |  | 4 value checks |
+| `IS_NULL_VALUE` | Runs |  | 2 value checks |
+| `IS_OBJECT` | Runs |  | 1 value check |
+| `IS_TIME` | Runs |  | 1 value check |
+| `IS_TIMESTAMP_LTZ` | Refused |  | IS_TIMESTAMP_LTZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
+| `IS_TIMESTAMP_NTZ` | Runs |  | 1 value check |
+| `IS_TIMESTAMP_TZ` | Refused |  | IS_TIMESTAMP_TZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
+| `TYPEOF` | Differs |  | TYPEOF (stored value with an exponent): A JSON number with a fraction or exponent read from a column or a stored value is 'DECIMAL or DOUBLE' here: DuckDB doesn't keep how it was written (SFD-007). TYPEOF of PARSE_JSON, or of a path into PARSE_JSON of text in the query, is exact. |
 
 ## Aggregate
 

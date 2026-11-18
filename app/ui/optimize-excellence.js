@@ -17,6 +17,8 @@ const EXC_OUTCOME = { pass: ["Passed", "pass"], fail: ["Failed", "fail"], not_ap
 const EXC_STATUS = { rated: "Rated", provisional: "Provisional", insufficient_evidence: "Insufficient evidence", not_applicable: "Not applicable", not_evaluated: "Not evaluated" };
 const EXC_KIND = { "workspace.info": "Workspace settings", "workspace.inventory": "Item list", "workspace.roles": "Role assignments",
   "capacity.state": "Capacity state", "item.optimization": "Definition and run history" };
+// What a control needed, in words: evidence kinds become their names; free text passes through.
+const excNeeds = (n) => String(n).split(", ").map((k) => (EXC_KIND[k] ? EXC_KIND[k].toLowerCase() : k)).join(", ");
 const EXC_CONF = { measured: "Measured", verified_configuration: "Verified configuration", inferred: "Inferred", insufficient: "Insufficient" };
 
 // A score or a coverage as a whole number. Rounding never shows 100 for less than 100: a score of 100
@@ -193,7 +195,7 @@ function excDimCard(r, id) {
     const need = r.outcomes.find((x) => x.dimension === id && x.needs)?.needs;
     return h("button", { type: "button", class: "exc-dim ne", onclick: () => excDimension(r, id) },
       h("span", { class: "exc-dn" }, name), h("span", { class: "exc-ds" }, "—"), h("span", { class: "exc-dr none" }, "Not evaluated"),
-      h("span", { class: "exc-dm" }, need ? `Needs ${need}. ` : "Nothing here could be checked. ", "It counts against coverage, never as passed."));
+      h("span", { class: "exc-dm" }, need ? `Needs ${excNeeds(need)}. ` : "Nothing here could be checked. ", "It counts against coverage, never as passed."));
   }
   const label = d.status === "provisional" ? "Provisional" : d.status === "insufficient_evidence" ? "Insufficient evidence" : d.rating?.label || "";
   return h("button", { type: "button", class: "exc-dim", onclick: () => excDimension(r, id), "aria-label": `${name}: open its controls` },
@@ -234,7 +236,7 @@ function excDimension(r, id) {
         const [label, cls] = EXC_OUTCOME[x.outcome] || [x.outcome, "neu"];
         return h("tr", {}, h("td", {}, h("div", {}, x.control_id), excSev(x.severity)), h("td", {}, x.subject?.name || x.subject?.id),
           h("td", {}, h("span", { class: `pill-s ${cls}` }, label)),
-          h("td", {}, h("div", {}, x.text), x.needs ? h("div", { class: "muted-text small" }, `Needs: ${x.needs}`) : null,
+          h("td", {}, h("div", {}, x.text), x.needs ? h("div", { class: "muted-text small" }, `Needs: ${excNeeds(x.needs)}`) : null,
             x.evidence_ids?.length ? h("details", {}, h("summary", {}, "Evidence"), excEvidenceList(r, x.evidence_ids)) : null));
       }))) : null);
   const overlay = showDialog(name, body, [btn("Close", null, closeDialog, "tool outline")]);
@@ -284,7 +286,7 @@ function excGaps(r, back) {
       h("table", { class: "list compact" },
         h("thead", {}, h("tr", {}, ["Control", "Dimension", "Resource", "Why"].map((x) => h("th", {}, x)))),
         h("tbody", {}, notEval.map((x) => h("tr", {}, h("td", {}, x.control_id), h("td", {}, excDimName(r, x.dimension)),
-          h("td", {}, x.subject?.name || x.subject?.id), h("td", {}, x.text, x.needs ? h("div", { class: "muted-text small" }, `Needs: ${x.needs}`) : null)))))));
+          h("td", {}, x.subject?.name || x.subject?.id), h("td", {}, x.text, x.needs ? h("div", { class: "muted-text small" }, `Needs: ${excNeeds(x.needs)}`) : null)))))));
   }
   if (items.length) {
     out.push(h("section", { class: "card" }, h("h4", {}, `Items not inspected (${items.length})`),

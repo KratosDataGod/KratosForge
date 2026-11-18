@@ -14,7 +14,7 @@ import json
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import ExitStack, contextmanager
 from typing import Any, Callable, Iterator
 
@@ -62,6 +62,7 @@ def _rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
 
 DATA_HEALTH_FILE = "data_health.json"
 DATA_HEALTH_MAX = 100  # tables one PC watches
+DATA_HEALTH_LIST_SECONDS = 120  # the whole list; a table not checked by then says so
 DATA_HEALTH_LOCK_SECONDS = 10  # waiting longer for another process's save is an error, not a hang
 DATA_HEALTH_RESET_DAYS = 7  # how long the list says it was started again after an unreadable file
 _DH_LOCK = threading.Lock()  # this process's threads; _dh_locked adds a file lock for other processes
@@ -439,8 +440,16 @@ class DataOpsMixin:
             except Exception as exc:  # noqa: BLE001 - one table that can't be read doesn't hide the others
                 return {"entity": name, "env": env, "state": "error", "why": describe(exc)}
 
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            tables = list(pool.map(one, watched))
+        # Four at a time, and the whole list within DATA_HEALTH_LIST_SECONDS: a table whose log read
+        # hangs (OneLake not answering) shows as not checked, never holds up the others or reads as fine.
+        pool = ThreadPoolExecutor(max_workers=4)
+        futures = [pool.submit(one, name) for name in watched]
+        wait(futures, timeout=DATA_HEALTH_LIST_SECONDS)
+        pool.shutdown(wait=False, cancel_futures=True)
+        tables = [f.result() if f.done() and not f.cancelled() else
+                  {"entity": name, "env": env, "state": "error",
+                   "why": f"The check of {name} didn't finish within {DATA_HEALTH_LIST_SECONDS} s, so it's not shown as healthy. Check again later."}
+                  for name, f in zip(watched, futures, strict=True)]
         now = dt.datetime.now(dt.timezone.utc)
         for t in tables:
             for a in t.get("alerts") or []:

@@ -408,3 +408,30 @@ def test_the_same_problem_on_every_check_is_one_alert_and_it_clears_when_the_tab
     assert first["alerts"] == again["alerts"]  # the same load, the same one alert: never one per check
     pl.DataFrame({"a": list(range(100))}).write_delta(uri, mode="append")
     assert dh.check(lambda v: DeltaTable(uri, version=v))["alerts"] == []  # a usual load clears it
+
+
+def test_a_check_that_hangs_shows_as_not_finished_and_doesnt_hold_up_the_list(svc, monkeypatch):
+    import threading
+    import time
+    from fabric_desktop import dataops_service
+    monkeypatch.setattr(dataops_service, "DATA_HEALTH_LIST_SECONDS", 0.5)
+    svc.meta_data_health_watch("silver.customers", "dev")
+    svc.meta_data_health_watch("gold.dim_customer", "dev")
+    release = threading.Event()
+
+    def check(name, env):
+        if name == "gold.dim_customer":
+            release.wait(30)  # OneLake not answering
+        return {"entity": name, "env": env, "alerts": []}
+
+    monkeypatch.setattr(svc, "meta_data_health", check)
+    start = time.monotonic()
+    try:
+        tables = {t["entity"]: t for t in svc.meta_data_health_list()["tables"]}
+    finally:
+        release.set()
+    assert time.monotonic() - start < 5
+    hung = tables["gold.dim_customer"]
+    assert hung["state"] == "error" and "didn't finish within 0.5 s" in hung["why"] and "alerts" not in hung
+    assert tables["silver.customers"]["alerts"] == []
+    assert list(tables) == ["silver.customers", "gold.dim_customer"]  # the watched order is kept

@@ -313,12 +313,14 @@ function priorityIncident(i, reload) {
 }
 
 // Report a problem a person noticed that checks can't see (wrong numbers in a report, say).
-// prefill: { env, workload, name } from the page it was opened on.
+// prefill: { env, workload, name } from the page it was opened on; { title, text, lead } from a finding
+// that someone wants to track as an incident (Data health's Open an incident).
 function reportIncident(prefill = {}, reload = null) {
   const envs = Object.keys(ENV_LABEL);
   const env = h("select", {}, envs.map((e) => h("option", { value: e, selected: e === (prefill.env || incPage.env || "prod") }, envName(e))));
-  const title = h("input", { type: "text", maxlength: 200, placeholder: "Sales dashboard shows yesterday's numbers" });
+  const title = h("input", { type: "text", maxlength: 200, placeholder: "Sales dashboard shows yesterday's numbers", value: prefill.title || null });
   const text = h("textarea", { rows: 3, placeholder: "What you saw, when, and who it blocks" });
+  if (prefill.text) text.value = prefill.text;
   let priority = "P3";
   const hint = h("p", { class: "muted-text small" });
   const options = h("div", { class: "inc-priorities" });
@@ -338,8 +340,8 @@ function reportIncident(prefill = {}, reload = null) {
   pick(priority);
   const about = prefill.workload ? h("p", { class: "muted-text small" }, `About ${prefill.name || prefill.workload}. Its owner, team and criticality come from the workload.`) : null;
   showDialog("Report an incident", h("div", { class: "wl-confirm inc-report" },
-    h("p", { class: "text" }, "For a problem people notice that KratosForge can't see, like wrong numbers in a report. "
-      + "Failed runs, late tables and silent agents open incidents by themselves."),
+    h("p", { class: "text" }, prefill.lead || ("For a problem people notice that KratosForge can't see, like wrong numbers in a report. "
+      + "Failed runs, late tables and silent agents open incidents by themselves.")),
     h("label", { class: "field" }, "What's wrong (required)", title),
     h("label", { class: "field" }, "Details", text),
     about,

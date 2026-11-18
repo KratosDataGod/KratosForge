@@ -78,6 +78,11 @@ def _changes_a_table(tree: exp.Update | exp.Delete) -> None:
     if not isinstance(with_, exp.With):
         return
     ctes = {c.alias_or_name.lower() for c in with_.expressions}
+    # UPDATE x SET ... FROM c AS x: the target is the alias of a CTE in FROM
+    for table in tree.find_all(exp.Table):
+        if table.alias and not table.args.get("db") and table.name.lower() in ctes \
+                and table.find_ancestor(exp.CTE) is None:
+            ctes.add(table.alias.lower())
     targets = [tree.this] if isinstance(tree, exp.Update) else [tree.this, *(tree.args.get("tables") or [])]
     verb = "UPDATE" if isinstance(tree, exp.Update) else "DELETE"
     for target in targets:

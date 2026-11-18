@@ -2480,7 +2480,7 @@ def _repeat_count(node: exp.Repeat | exp.Space) -> None:
 
 _INT_TEXT = re.compile(r"\s*([+-]?[0-9]+)?\s*")  # '' and spaces alone are 0, as T-SQL converts them
 _INT_MIN, _INT_MAX = -2 ** 31, 2 ** 31 - 1
-_OVERFLOW = "Arithmetic overflow error converting expression to data type int."
+_INT_OVERFLOW = _OVERFLOW.format(kind="int")
 # The lambdas' names: a column of the query with one of these names would be hidden inside them.
 _COUNT, _CODE = "kf_tsql_count_", "kf_tsql_code_"
 
@@ -2488,7 +2488,7 @@ _COUNT, _CODE = "kf_tsql_count_", "kf_tsql_code_"
 def _in_int(value: int) -> int:
     """``value``, or T-SQL's overflow error when an int can't hold it."""
     if not _INT_MIN <= value <= _INT_MAX:
-        raise ValueError(f"This T-SQL can't be run on the local engine: {_OVERFLOW} T-SQL gives the same error.")
+        raise ValueError(f"This T-SQL can't be run on the local engine: {_INT_OVERFLOW} T-SQL gives the same error.")
     return value
 
 
@@ -2496,7 +2496,7 @@ def _past_int(v: exp.Identifier) -> exp.If:
     """The CASE branch that stops with T-SQL's overflow error when the lambda's value ``v`` is past an int."""
     outside = exp.Not(this=exp.Between(this=exp.column(v.copy()), low=exp.Literal.number(_INT_MIN),
                                        high=exp.Literal.number(_INT_MAX)))
-    return exp.If(this=outside, true=exp.func("ERROR", exp.Literal.string(_OVERFLOW)))
+    return exp.If(this=outside, true=exp.func("ERROR", exp.Literal.string(_INT_OVERFLOW)))
 
 
 def _int_of(value: exp.Expression) -> exp.Expression:

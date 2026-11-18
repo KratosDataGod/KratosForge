@@ -48,6 +48,14 @@ def test_without_names_it_says_what_usually_holds_a_file(tmp_path, monkeypatch):
                    "Close the file there, or wait a moment, and try again.")
 
 
+def test_access_denied_without_names_doesnt_blame_another_program(tmp_path, monkeypatch):
+    # WinError 5 also comes from a read-only file or a folder the account can't change.
+    monkeypatch.setattr(file_locks, "holders", lambda p: [])
+    assert file_locks.explain(_locked(5), tmp_path / "settings.json") == (
+        "settings.json couldn't be saved. Another program may have it open, or this account can't change it. "
+        "Close the file if it is open, check that it isn't read-only, and try again.")
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="off Windows there is no Restart Manager to ask")
 def test_off_windows_no_program_is_named(tmp_path):
     assert file_locks.holders(tmp_path) == []

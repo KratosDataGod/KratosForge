@@ -29,6 +29,8 @@ _CCH_RM_SESSION_KEY = 32
 _CCH_RM_MAX_APP_NAME = 255
 _CCH_RM_MAX_SVC_NAME = 63
 _MAX_NAMED = 3
+_ERROR_ACCESS_DENIED = 5
+_LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x00000800  # load the DLL from System32 only, never the app folder
 
 
 def holders(path: str | os.PathLike[str]) -> list[str]:
@@ -60,7 +62,7 @@ def _restart_manager_list(path: str) -> list[str]:
                     ("TSSessionId", wintypes.DWORD),
                     ("bRestartable", wintypes.BOOL)]
 
-    rm = ctypes.WinDLL("rstrtmgr")
+    rm = ctypes.WinDLL("rstrtmgr.dll", winmode=_LOAD_LIBRARY_SEARCH_SYSTEM32)
     session = wintypes.DWORD()
     key = ctypes.create_unicode_buffer(_CCH_RM_SESSION_KEY + 1)
     err = rm.RmStartSession(ctypes.byref(session), 0, key)
@@ -109,6 +111,10 @@ def explain(exc: BaseException, path: str | os.PathLike[str], doing: str = "save
         named = ", ".join(found[:_MAX_NAMED]) + (f" and {len(found) - _MAX_NAMED} more" if len(found) > _MAX_NAMED
                                                  else "")
         return f"{name} couldn't be {doing} because it is open in {named}. Close it in each of them and try again."
+    if getattr(exc, "winerror", None) == _ERROR_ACCESS_DENIED:
+        # "Access is denied" also comes from a read-only file or a folder this account can't change.
+        return (f"{name} couldn't be {doing}. Another program may have it open, or this account can't change it. "
+                "Close the file if it is open, check that it isn't read-only, and try again.")
     return (f"{name} couldn't be {doing} because another program has it open, such as Excel. Close the file "
             "there, or wait a moment, and try again.")
 

@@ -213,3 +213,39 @@ def test_an_overwrite_from_a_thread_the_running_cell_started_asks_too(lake, prod
     status, _, text = _run(code)
     assert status == "ok" and "ProdConfirmNeeded" in text, text
     assert _version(lake) == before
+
+
+def test_another_thread_never_borrows_the_running_cells_typed_name(lake, prod):  # noqa: F811
+    """A MERGE from a thread that isn't the cell's, on the workspace the cell's typed name allows, is still asked."""
+    import threading
+    started, release, raised = threading.Event(), threading.Event(), []
+    from fabric_desktop import delta_dml
+
+    def other_writer():
+        started.wait(10)
+        change = delta_dml.parse("MERGE INTO dbo.sales t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET *")
+        try:
+            lakehouse.change_table(change, pa.table({"id": [1], "region": ["Z"]}))
+        except lakehouse.ProdConfirmNeeded:
+            raised.append(True)
+        finally:
+            release.set()
+
+    prod._prod_write_refusal("merge", "ws1", "", "dbo.sales", "")
+    prod.notebook_prod_confirm("", "ws1", "ws1")
+    kernel = Kernel()
+    kernel.prod_allowed = prod._take_prod_allowance("")
+    assert kernel.prod_allowed == frozenset({"ws1"})
+    writer = threading.Thread(target=other_writer)
+    writer.start()
+    import sys
+    import types
+    sys.modules["_prod_test_hooks"] = types.SimpleNamespace(started=started, release=release)
+    try:
+        status, _, text = _run("import _prod_test_hooks as t\nt.started.set()\nt.release.wait(10)", kernel)
+    finally:
+        del sys.modules["_prod_test_hooks"]
+    writer.join(10)
+    assert status == "ok", text
+    assert raised == [True]
+

@@ -196,9 +196,11 @@ def prod_refusal(operation: str, lh: "Attached", table: str, cells_only: bool = 
         return None
     context = cell_prod_context.get(threading.current_thread())
     if context is None:
-        # A thread the running cell started (a pool, a callback) has no context of its own. The engine's kernel runs
-        # one cell at a time, so a write while one runs counts as that cell's, with its notebook and allowance.
-        context = next((c for t, c in list(cell_prod_context.items()) if t.is_alive()), None)
+        # A thread with no context of its own while a cell runs (one the cell started, a pool, a callback, or another
+        # writer) is asked as a cell would be. It may borrow the running cell's notebook for the question, never the
+        # cell's allowance: only the cell's own thread holds the typed name.
+        running = next((c for t, c in list(cell_prod_context.items()) if t.is_alive()), None)
+        context = (running[0], frozenset()) if running is not None else None
     if cells_only and context is None and not in_kernel_process:
         return None
     notebook, allowed = context or ("", frozenset())

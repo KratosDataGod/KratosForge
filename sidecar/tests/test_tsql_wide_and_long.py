@@ -222,3 +222,9 @@ def test_a_bound_argument_gives_the_same_answer(engine, sql, out):
     engine.execute("CREATE TABLE dbo.t (s VARCHAR(10), n INT)", dialect="tsql")
     engine.execute("INSERT INTO dbo.t VALUES ('abc', 2)", dialect="tsql")
     assert rows(engine, sql) == out
+
+
+def test_a_column_named_like_the_bound_arguments_keeps_its_own_value(engine):
+    engine.execute("CREATE TABLE dbo.k (kf_args INT, s VARCHAR(10))", dialect="tsql")
+    engine.execute("INSERT INTO dbo.k VALUES (2, 'abc')", dialect="tsql")
+    assert rows(engine, "SELECT SUBSTRING((SELECT MAX(s) FROM dbo.k), kf_args, kf_args) FROM dbo.k") == [["bc"]]

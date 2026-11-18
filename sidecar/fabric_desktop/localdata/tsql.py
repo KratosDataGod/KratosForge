@@ -2430,7 +2430,7 @@ def _string_edges(tree: exp.Expression) -> None:
 # what a rewrite may copy freely: a column, a literal, or a cast or sign of one
 _SMALL = (exp.Column, exp.Identifier, exp.Literal, exp.Null, exp.Boolean, exp.National, exp.Neg, exp.Paren, exp.Cast,
           exp.Trunc, exp.DataType, exp.DataTypeParam, exp.Var)
-_BOUND = "kf_args"
+_BOUND = "__kf_bound_args"  # a lambda parameter no user column is likely to share
 
 
 def _small(node: exp.Expression | None) -> bool:
@@ -2442,7 +2442,7 @@ def _small(node: exp.Expression | None) -> bool:
 
 def _once(values: list[exp.Expression | None], build: Callable[..., exp.Expression]) -> exp.Expression:
     """``build(*values)``, with each value that isn't small read once: when any isn't, all of those are bound in one
-    struct, as LIST_TRANSFORM([STRUCT_PACK(a := ..., ...)], kf_args -> ...)[1], and ``build`` gets kf_args.a and so
+    struct, as LIST_TRANSFORM([STRUCT_PACK(a := ..., ...)], __kf_bound_args -> ...)[1], and ``build`` gets its .a and so
     on in their place. So a rewrite can name an argument twice without copying a call nested in it, and the lambda's
     body holds no subquery, which DuckDB doesn't allow there. ``build`` may copy what it gets freely."""
     if all(_small(v) for v in values):

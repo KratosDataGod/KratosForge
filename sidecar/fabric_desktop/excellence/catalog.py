@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import catalog_architecture
 from . import controls as ct
 
 WRITE_ROLES = ("Admin", "Member", "Contributor")
@@ -314,5 +315,7 @@ def registry() -> ct.Registry:
     """A registry with every control in this catalog."""
     r = ct.Registry()
     for c in CONTROLS:
+        r.register(c)
+    for c in catalog_architecture.CONTROLS:
         r.register(c)
     return r

@@ -362,7 +362,7 @@ refused for another tenant; organization scope key in `fdopt_config`.
 - Tests: scenario 15, partial permissions (scenario 14: read without write shows read-only).
 - Gate: Security read.
 
-**ESI-105 Sync states.** Map outbox state to Synced, Pending, Synchronizing, Failed, Conflict,
+**ESI-105 Sync states.** **Built** (engine and RPC, no screen yet). Map outbox state to Synced, Pending, Synchronizing, Failed, Conflict,
 Offline, per kind and lakehouse, through the existing `optimize_status` RPC.
 - Acceptance: every state reachable in tests; bounded backoff unchanged; dropped items still
   shown.

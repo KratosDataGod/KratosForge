@@ -1854,11 +1854,10 @@ def _as_warehouse_says(exc: Exception, step: dict[str, Any]) -> Exception:
     if not isinstance(exc, duckdb.Error):
         words = tsql_errors.numbered(text)  # WR-234: such as the duplicate CTE name, in SQL Server's words already
         return exc if words == text else _same_kind(exc, words)
-    words = tsql_errors.warehouse(text, step.get("sql") or "", step.get("kind") or "")
-    if words is None:
-        words = tsql_errors.without_system_hint(text)
-        if words == text:
-            return exc
+    mapped = tsql_errors.warehouse(text, step.get("sql") or "", step.get("kind") or "")
+    words = tsql_errors.without_system_hint(text) if mapped is None else mapped
+    if words == text:
+        return exc
     words = tsql_errors.numbered(words)
     # Only DuckDB's message, never the statement it quotes after it ("LINE 1: ..."), which can hold a value
     _log.info("Local T-SQL error shown as %r; DuckDB said: %s", words.split("\n", 1)[0],

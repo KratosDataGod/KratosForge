@@ -21,6 +21,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from fabric_desktop import sql
+from fabric_desktop.duckdb_rows import duckdb_major
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "spark_3_5_3_differential.json"
 
@@ -30,59 +31,40 @@ class Known:
     """A known difference: the cases whose SQL matches ``pattern`` may give ``kind`` ("wrong", "error", or
     "wrong/error" when the same gap shows both ways), and only when what this PC gave matches ``says`` (the
     error's text, or the value as text). So a new gap in an expression that merely contains the function
-    still fails."""
+    still fails. ``duckdb`` names the one DuckDB major the gap shows on (0: every one); CI also runs the
+    suite on the next major, where DuckDB itself can answer a case differently."""
     name: str
     kind: str
     pattern: str
     why: str
     says: str = ""
+    duckdb: int = 0
+
+    def applies(self) -> bool:
+        return self.duckdb in (0, duckdb_major())
 
 
 # Each entry names a gap found by this test. Fix it, then delete the entry: the test fails while an entry
 # matches no case, so the list can't go stale.
 KNOWN = [
-    # Silent wrong answers.
-    Known("substring-negative-length", "wrong", r"substr(ing)?\(.*, -\d+\)",
-          "substring(s, pos, len) with len < 0 is '' in Spark; here it counts back from pos", says=r"."),
-    Known("overlay-position-below-1", "wrong", r"overlay\(.* FROM (-\d+|0)\)",
-          "overlay(... FROM pos) with pos < 1 keeps Spark's substring rules (overlay('abc' PLACING ',' FROM 0) "
-          "is ',abc')", says=r"."),
-    Known("levenshtein-non-ascii", "wrong", r"levenshtein\(.*'(ÄÖü|é)'",
-          "levenshtein counts characters in Spark; here it counts UTF-8 bytes", says=r"^\d+$"),
-    Known("locate-null-text", "wrong", r"locate\([^()]*, CAST\(NULL AS STRING\)",
-          "locate(substr, NULL, pos < 1) is NULL in Spark; here it is 0", says=r"^0$"),
-    Known("bit-count-negative-int", "wrong", r"bit_count\(",
-          "bit_count of a negative int counts 64 bits in Spark (Long.bitCount); here 32", says=r"^(\d+|[\d-]+)$"),
-    Known("bit-count-of-a-double", "error", r"bit_count\(ceil\(",
-          "bit_count of a double stops here; Spark casts it to a whole number", says=r"bit_count\(DOUBLE\)"),
-    Known("pmod-double-by-zero", "wrong", r"pmod\(.*0\.0D",
-          "pmod(x, 0.0D) is NULL in Spark with ANSI off; here NaN", says=r"^nan$"),
-    Known("div-of-a-decimal", "wrong", r"floor\([^()]*\) div",
-          "a div b with a decimal is a whole number in Spark; here a double division", says=r"\."),
-    Known("isnan-of-null", "wrong", r"isnan\(",
-          "isnan(NULL) is false in Spark; here NULL", says=r"^None$"),
-    Known("to-date-short-year", "wrong", r"to_date\((rtrim\(right|substring)\(",
-          "to_date('24-02-29') is NULL in Spark (a year needs 4 digits); here the year 24", says=r"^0024-"),
-    Known("date-format-past-9999", "wrong", r"add_months\(.*1000000",
-          "date_format of a year past 9999 starts with + in Spark; here it doesn't", says=r"^\d{5,}"),
+    # Silent wrong answers: none left.
     # Loud: an error where Spark answers.
     Known("initcap-parse-error", "error", r"initcap\(", "initcap's rewrite fails to parse",
           says=r"ParseError: Expecting \)"),
-    Known("shift-java-rules", "wrong/error", r"shift(left|right)\(",
-          "shiftleft and shiftright of a negative number, by a negative count or of a decimal stop or answer "
-          "differently here; Spark shifts as Java does (the count taken mod 32 for an int)",
-          says=r"shift|'<<\(|'>>\(|^-?\d+$"),
     Known("trunc-date-formats", "error", r"trunc\(", "trunc(date, 'MM' | 'yyyy' | 'MONTH' ...) stops here",
           says=r'extract specifier "(MM|YYYY)" not recognized'),
     Known("make-date-invalid-parts", "error", r"make_date\(",
           "make_date with a month or day that doesn't exist stops here; Spark (ANSI off) gives NULL",
           says=r"Date out of range: \d+-"),
+    Known("date-add-past-timestamp-range", "error", r"date_add\(.*shiftleft\(",
+          "date_add by about 2^31 days goes past DuckDB's timestamp range and stops here; Spark gives a date "
+          "millions of years away", says=r"Date and time not in timestamp range"),
     Known("sqrt-negative", "error", r"sqrt\(", "sqrt of a negative number stops here; Spark gives NaN",
-          says=r"cannot take square root of a negative number"),
+          says=r"cannot take square root of a negative number", duckdb=1),
     Known("soundex-reserved-name", "error", r"soundex\((translate|CAST)\(",
           "soundex of a rewritten argument stops on the kf_ reserved-name check", says=r"names that start with kf_"),
-    Known("cast-long-text-to-date", "error", r"CAST\(repeat\(", "CAST of text past a date's range stops here; "
-          "Spark gives NULL", says=r"date value out of range"),
+    Known("sign-of-nan", "wrong", r"sign\(sqrt\(-", "sign(NaN) is NaN in Spark; here 0.0. DuckDB 2.0's sqrt of a "
+          "negative number is NaN, where 1.x stops (sqrt-negative)", says=r"^0\.0$", duckdb=2),
     # Refused by name on purpose: split_part's index 0 is an error in Spark too, but Spark raises it only when
     # the call is reached, and this PC refuses the whole query up front.
     Known("split-part-index-0-refused", "error", r"split_part\(.*, 0\)",
@@ -134,7 +116,7 @@ def outcome(case: dict) -> tuple[str, object]:
 
 def known_for(case_sql: str, kind: str, got: object) -> Known | None:
     said = got if isinstance(got, str) and kind == "error" else str(got)
-    return next((k for k in KNOWN if kind in k.kind.split("/") and re.search(k.pattern, case_sql)
+    return next((k for k in KNOWN if k.applies() and kind in k.kind.split("/") and re.search(k.pattern, case_sql)
                  and re.search(k.says, said)), None)
 
 
@@ -161,7 +143,7 @@ def part(index: int, parts: int) -> list[dict]:
 def stale() -> list[str]:
     """The KNOWN entries no case needs any more: each matching case now answers as Spark does."""
     left = []
-    for k in KNOWN:
+    for k in filter(Known.applies, KNOWN):
         matching = [c for c in load() if re.search(k.pattern, c["sql"])]
         if not any(known_for(c["sql"], *outcome(c)) is k for c in matching):
             left.append(f"{k.name}: {len(matching)} matching cases, none gives '{k.kind}' now; delete the entry")

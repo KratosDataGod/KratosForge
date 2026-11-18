@@ -32,6 +32,7 @@ from sqlglot.tokens import Token, TokenType
 _NOT_YET = "This T-SQL can't be run on the local engine: "
 _MARK = "\x01kf-"  # a label the text pass writes in place of what sqlglot can't read; nobody types \x01
 
+_JOIN = {"LOOP", "HASH", "MERGE"}  # the join hints page marks these as applying to a Fabric Warehouse
 _PLAN = {"HASH GROUP", "ORDER GROUP", "MERGE UNION", "HASH UNION", "CONCAT UNION", "FORCE ORDER"}
 _PLAN_WORDS = {("FORCE", "SINGLE", "NODE", "PLAN"), ("FORCE", "DISTRIBUTED", "PLAN"), ("DISABLE_RESULT_SET_CACHE",)}
 _ASSUME = {"ASSUME_MIN_SELECTIVITY_FOR_FILTER_ESTIMATES", "ASSUME_FULL_INDEPENDENCE_FOR_FILTER_ESTIMATES",
@@ -143,7 +144,7 @@ def _options(tokens: list[Token], at: int, batch: str) -> tuple[int, str | None]
             if others or not names:
                 raise ValueError(_NOT_YET + f"USE HINT ('{(others or [''])[0]}') isn't carried yet. A Fabric Warehouse "
                                  "takes only the four ASSUME_..._FILTER_ESTIMATES names, which change how it plans, "
-                                 "not the rows.")
+                                 "not the rows. Remove the hint, or use one of those four names.")
             parts.append(_label("hint", "USE HINT"))
             changed = True
         else:
@@ -183,8 +184,8 @@ def _statistics(tokens: list[Token], at: int, verb: str) -> tuple[int, str]:
                 columns.append("[" + tokens[i].text.replace("]", "]]") + "]")
             i += 1
         if len(columns) != 1:
-            raise ValueError("Multi-column statistics aren't supported in a Fabric Warehouse: it creates and updates "
-                             "single-column statistics only. Create one statistic for each column.")
+            raise ValueError("Multi-column statistics aren't supported in a Fabric Warehouse, which creates and "
+                             "updates single-column statistics only. Create one statistic for each column.")
         i += 1
         checks = [f"SELECT TOP 0 {columns[0]} FROM {table}"]
     elif verb == "UPDATE":
@@ -210,7 +211,8 @@ def _statistics(tokens: list[Token], at: int, verb: str) -> tuple[int, str]:
             break
     if i < len(tokens) and tokens[i].text.upper() == "WHERE":
         raise ValueError(_NOT_YET + "filtered statistics (CREATE STATISTICS ... WHERE) aren't carried yet. Microsoft's "
-                         "pages for a Fabric Warehouse show statistics on a whole column only.")
+                         "pages for a Fabric Warehouse show statistics on a whole column only. Remove the WHERE to "
+                         "make a statistic on the whole column.")
     if i < len(tokens) and tokens[i].text.upper() == "WITH" and verb != "DROP":
         i += 1
         while i < len(tokens) and tokens[i].token_type != TokenType.SEMICOLON \
@@ -221,8 +223,8 @@ def _statistics(tokens: list[Token], at: int, verb: str) -> tuple[int, str]:
             elif word in ("FULLSCAN", ","):
                 i += 1
             else:
-                raise ValueError(_NOT_YET + f"the statistics option {tokens[i].text} isn't carried yet. FULLSCAN and "
-                                 "SAMPLE n PERCENT are, which change nothing here.")
+                raise ValueError(_NOT_YET + f"the statistics option {tokens[i].text} isn't carried yet. Use FULLSCAN "
+                                 "or SAMPLE n PERCENT, which change nothing here.")
     end = i - 1
     if i < len(tokens) and tokens[i].token_type == TokenType.SEMICOLON:
         end = i
@@ -251,18 +253,22 @@ def check(tree: exp.Expression) -> list[str]:
             else:
                 raise ValueError(_NOT_YET + f"OPTION ({name}) isn't carried yet. It isn't among the query hints "
                                  "Microsoft lists for a Fabric Warehouse; those that are (FORCE ORDER, HASH GROUP, "
-                                 "MERGE UNION and others) change how it plans, not the rows.")
+                                 "MERGE UNION and others) change how it plans, not the rows. Remove the hint.")
         owner.set("options", kept or None)
     for hint in list(tree.find_all(exp.WithTableHint)):
         for h in hint.expressions:
             word = (h.name if isinstance(h, (exp.Var, exp.Anonymous)) else h.sql(dialect="tsql")).upper()
             if word not in _LOCKING:
                 raise ValueError(_NOT_YET + f"the table hint {word} isn't carried yet. A Fabric Warehouse has no "
-                                 "indexes to name, and Microsoft's pages don't list table hints for it.")
+                                 "indexes to name, and Microsoft's pages don't list table hints for it. Remove the hint.")
             notes.append(LOCK_NOTE.format(hint=f"WITH ({word})"))
         hint.pop()
     for join in tree.find_all(exp.Join):
         if join.args.get("hint"):
+            word = str(join.args["hint"]).upper()
+            if word not in _JOIN:
+                raise ValueError(_NOT_YET + f"the join hint {word} JOIN isn't carried yet. Microsoft's join hints page "
+                                 "lists LOOP, HASH and MERGE for a Fabric Warehouse, not " + word + ". Remove the hint.")
             notes.append(_PLAN_NOTE.format(hint=f"The join hint {str(join.args['hint']).upper()} JOIN"))
             join.set("hint", None)
     return list(dict.fromkeys(notes))
@@ -271,7 +277,7 @@ def check(tree: exp.Expression) -> list[str]:
 def _labelled(value: exp.Expression | None) -> str:
     text = value.name if isinstance(value, exp.Literal) else ""
     if text.startswith(_MARK + "statistics:"):
-        return _STATS_NOTE[text.rsplit(":", 1)[1]]
+        return _STATS_NOTE.get(text.rsplit(":", 1)[1], LABEL_NOTE)
     if text.startswith(_MARK + "hint:"):
         return _PLAN_NOTE.format(hint=f"OPTION ({text.split(':', 1)[1]})")
     return LABEL_NOTE

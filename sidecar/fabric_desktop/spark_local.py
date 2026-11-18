@@ -1142,7 +1142,7 @@ class LakehouseReader:
     def table(self, name: str) -> DataFrame:
         self._no_schema("a table")
         if self._as_of():
-            data = lakehouse.open_table(name, **self._as_of()).to_pyarrow_dataset()
+            data = lakehouse.table_dataset(lakehouse.open_table(name, **self._as_of()))
             return self._session._from_arrow_dataset(data)
         return self._session.table(name)
 
@@ -1193,7 +1193,7 @@ class LakehouseReader:
             point = lakehouse.as_of(**self._as_of())
             if point is not None:
                 opened.load_as_version(point)
-            return self._session._from_arrow_dataset(opened.to_pyarrow_dataset())
+            return self._session._from_arrow_dataset(lakehouse.table_dataset(opened))
         if fmt == "csv":
             return self.csv(path)
         if fmt == "json":

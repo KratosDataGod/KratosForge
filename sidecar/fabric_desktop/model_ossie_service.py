@@ -123,8 +123,10 @@ def _model_counts(bim: dict[str, Any]) -> dict[str, int]:
             "hierarchies": sum(len(t.get("hierarchies") or []) for t in tables)}
 
 
-def _kept_cultures(folder: Path, read_report: list[dict[str, str]],
-                   current: dict[str, Any] | None) -> tuple[dict[str, list[str]], list[dict[str, str]]]:
+_CULTURE_LINE = re.compile(r"^(?:cultureInfo|culture)[ \t]", re.M)  # only such files can define a culture
+
+
+def _kept_cultures(folder: Path, read_report: list[dict[str, str]]) -> tuple[dict[str, list[str]], list[dict[str, str]]]:
     """The culture files under ``folder`` kept as they are, each with the cultures it defines, and one report row per
     file saying so. A file the reader couldn't read in full (``read_report`` names it in ``file``) is kept: rewriting
     it from what was read would drop the translations KratosForge can't read. So is every other culture file that
@@ -157,12 +159,18 @@ def _kept_cultures(folder: Path, read_report: list[dict[str, str]],
                 kept[rel] = ns
                 names |= {_file_key(n) for n in ns}
                 grew = True
-    in_files = sum(1 for ns in kept.values() for n in ns)
-    in_model = [c.get("name") for c in ((current or {}).get("model") or {}).get("cultures") or []
-                if isinstance(c, dict) and _file_key(str(c.get("name"))) in names]
-    if len(in_model) > in_files:
-        raise ValueError(f"Culture {in_model[0]} is kept as it is in cultures/, and defined outside cultures/ too, so it "
-                         "can't be kept whole and nothing was written. Move it into its culture file.")
+    definition = folder / "definition"
+    for f in sorted(_tmdl_files(definition) if _real(definition, stat.S_ISDIR) else []):
+        rel = f.relative_to(folder).as_posix()
+        if PurePosixPath(rel).parts[:2] == ("definition", "cultures"):
+            continue
+        text = f.read_text(encoding="utf-8-sig")  # _tmdl_files lists regular files in place only
+        if not _CULTURE_LINE.search(text):
+            continue
+        for c in tmdl.to_bim({rel: text})[0]["model"].get("cultures") or []:
+            if isinstance(c, dict) and _file_key(str(c.get("name"))) in names:
+                raise ValueError(f"Culture {c.get('name')} is kept as it is in cultures/, and defined outside cultures/ too, "
+                                 "so it can't be kept whole and nothing was written. Move it into its culture file.")
     rows = []
     for rel in sorted(kept):
         short = PurePosixPath(rel).relative_to("definition").as_posix()
@@ -439,7 +447,7 @@ class ModelOssieMixin:
         current, read_report = None, []
         if (_real(definition, stat.S_ISDIR) and _tmdl_files(definition)) or _real(folder / "model.bim", stat.S_ISREG):
             current, read_report = _folder_bim(folder, name, folder.relative_to(root).as_posix())
-        kept, kept_rows = _kept_cultures(folder, read_report, current)
+        kept, kept_rows = _kept_cultures(folder, read_report)
         report = [r for r in read_report if r.get("file") not in kept] + kept_rows + report
         final = model_ossie.merge(current, incoming, remove) if current else incoming
         final["name"] = name

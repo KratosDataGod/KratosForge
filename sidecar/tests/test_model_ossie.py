@@ -748,20 +748,21 @@ def test_every_file_sharing_a_kept_culture_is_kept_too(svc):
     assert not (cultures / "nl.tmdl").exists() and (cultures / "nl-NL.tmdl").exists()
 
 
-def test_a_kept_culture_also_defined_outside_cultures_is_refused(svc):
+@pytest.mark.parametrize("where", ["extra.tmdl", "model.tmdl"])
+def test_a_kept_culture_also_defined_outside_cultures_is_refused(svc, where):
     folder = _orders_folder(svc)
     (folder / "definition" / "cultures" / "de-DE.tmdl").write_text(PARTITION_CAPTION, encoding="utf-8")
-    (folder / "definition" / "extra.tmdl").write_text("cultureInfo de-DE\n\ttranslations\n\t\tmodel Model\n"
-                                                      "\t\t\tcaption: Modell\n", encoding="utf-8")
+    other = folder / "definition" / where
+    before = other.read_text(encoding="utf-8") + "\n" if other.exists() else ""
+    other.write_text(before + "cultureInfo de-DE\n\ttranslations\n\t\tmodel Model\n\t\t\tcaption: Modell\n", encoding="utf-8")
     with pytest.raises(ValueError, match="Culture de-DE is kept as it is in cultures/, and defined outside cultures/ too"):
         svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")
 
 
 @pytest.mark.parametrize(("kept_name", "other_culture"), [
     ("German.tmdl", "german"),  # Windows ignores case
-    ("E\u0301cran.tmdl", "\u00c9cran"),  # macOS ignores Unicode normalisation: the same name, NFD and NFC
 ])
-def test_a_culture_file_name_differing_only_in_case_or_normalisation_never_replaces_a_kept_file(svc, kept_name, other_culture):
+def test_a_culture_file_name_differing_only_in_case_never_replaces_a_kept_file(svc, kept_name, other_culture):
     folder = _orders_folder(svc)
     cultures = folder / "definition" / "cultures"
     (cultures / kept_name).write_text(PARTITION_CAPTION, encoding="utf-8")

@@ -19,6 +19,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from . import file_locks
+
 _log = logging.getLogger(__name__)
 
 # As retrying.local_retry waits out the Windows Delta-log race: 0.05 s doubling, about 1.5 s in all,
@@ -68,14 +70,20 @@ def write_bytes(path: Path, data: bytes) -> None:
 def replace(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
     """``os.replace``, waiting out Windows refusing it (PermissionError, WinError 5) while a reader, a
     virus scanner or an indexer has either file open: about 1.5 s, then the error. Every swap of a
-    finished temporary file into place goes through here (tests/test_file_replace.py)."""
+    finished temporary file into place goes through here (tests/test_file_replace.py). When a program
+    keeps the file open past that, the error's text names the file and, where Windows says, the
+    program (file_locks.explain)."""
     for attempt in range(REPLACE_ATTEMPTS):
         try:
             os.replace(src, dst)
             return
-        except PermissionError:
+        except PermissionError as exc:
             if attempt == REPLACE_ATTEMPTS - 1:
-                raise
+                # Still refused: a program keeps the file open. Say which, where Windows can tell.
+                held = file_locks.locked_error(exc, dst)
+                if held is None:
+                    raise
+                raise held from exc
             time.sleep(REPLACE_BACKOFF * (2 ** attempt))
 
 

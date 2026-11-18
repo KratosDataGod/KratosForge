@@ -209,6 +209,37 @@ These cases still differ:
 | Databricks SQL on the DuckDB engine | As in Spark SQL | The fixes that don't need column types apply; `size`, `explode` and `reverse` of a map or array column keep DuckDB's forms |
 | `explode` of a map that holds `rand()` or `shuffle()`, in a select list | The map is read once | Its keys and values are read separately, so they can come from different reads. Use `LATERAL VIEW explode`, which reads it once |
 
+## JSON functions on this PC (WR-118)
+
+Spark SQL run on this PC gives Spark's answers for its JSON functions, with ANSI mode off as Fabric runs it. 232 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_json_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `get_json_object` | Spark's path rules: `$.a`, `$['a']`, `$.a[0]`, and one `[*]`, which gives the one value it matches or a JSON array of all of them. A path Spark doesn't read, such as `a`, `$.` or `$["a"]`, gives NULL. Text with more after its first object or array is read up to that value, and text that isn't JSON gives NULL |
+| `json_tuple` | A repeated key gives its last value. A NULL argument must be typed, as in Spark: `CAST(NULL AS STRING)` |
+| `from_json` | Each field is read by its type; a value that doesn't fit gives NULL for that field, and an array or map with one such element is NULL as a whole. Text that isn't JSON, or isn't the schema's kind (an array for a struct schema), gives a struct of NULLs; an object on its own read with an `ARRAY<STRUCT<...>>` schema is an array of that one struct. A map keeps the last value of a key its object repeats. The `_corrupt_record` field, or the one `columnNameOfCorruptRecord` names, holds the whole text of a record that didn't read. `mode` takes `PERMISSIVE` (the default; an unknown mode is read as it) and `FAILFAST`, which stops on such a record; `DROPMALFORMED` stops, as in Spark. A date that doesn't exist, such as `2024-02-30`, stops with Spark's `INCONSISTENT_BEHAVIOR_CROSS_VERSION` error. `dateFormat` and `timestampFormat` are read; `MAP<STRING, ...>` schemas are read; `typeof` gives `struct<a:int>` |
+| `to_json` | Written from the value's type: a struct leaves out NULL fields (unless `ignoreNullFields` is `false`), arrays and maps keep NULLs as `null`, a decimal is written as Java writes it, keeping its scale (`1.50`) and in E form when it has more than 6 decimal places and its value is below 0.000001 (`1.2E-7`, `0E-8`), a double is written as Java writes it (`1.0E10`), `NaN` and `Infinity` are quoted, dates are `yyyy-MM-dd`, timestamps `yyyy-MM-dd'T'HH:mm:ss.SSSXXX` in the session's time zone (`dateFormat`, `timestampFormat` and `timestampNTZFormat` change them), binary is base64, and a date map key is its days since 1970-01-01 |
+| `schema_of_json` | Spark's inferred schema; a whole number past `bigint` is a `DECIMAL` of its digits (`DECIMAL(20,0)` for `99999999999999999999`), or a `DOUBLE` past 38 digits. `NaN` and `Infinity` are `DOUBLE`. `prefersDecimal` and `primitivesAsString` are read; with `prefersDecimal`, a number such as `1e5`, whose exponent leaves it no decimal places, stops, as in Spark |
+| `FROM range(...)` | Its column is `id`, a `bigint`, as in Spark |
+
+Refused by name, and nothing runs:
+
+| Case | Why |
+| --- | --- |
+| The `from_json` and `schema_of_json` options `allowComments`, `allowUnquotedFieldNames` and `allowNumericLeadingZeros` set to `true`, and other options that change how text is read | This PC reads only standard JSON. Leave the option out, or run the cell in Fabric |
+| The `to_json` option `pretty` | This PC writes JSON on one line only |
+| `to_json` of a value whose type can't be worked out here (such as `struct(*)` or a `to_json` inside another), and of a map whose keys aren't text, whole numbers, booleans, decimals or dates | Spark writes these in its own way |
+| `get_json_object` with more than one `[*]`, or `.*`, or a `[*]` that matches one string on its own or a null | Spark writes these in its own way |
+| `from_json` text that its `dateFormat` or `timestampFormat` doesn't match (text with no digit gives NULL, as in Spark, when every field of the pattern is a number) | Spark gives NULL or stops, depending on how its older parser reads the text |
+| `from_json` of a JSON object that repeats a key of its schema | Spark keeps the last value; this PC can't |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| `from_json` text in single quotes, such as `{'a':1}` | Read (`allowSingleQuotes` is on by default) | NULL |
+| Databricks SQL on the DuckDB engine | As in Spark SQL | `from_json` and `schema_of_json` options are refused, and `to_json` is DuckDB's own |
+
 ## Local T-SQL changes
 
 When a project runs T-SQL on this PC, `MERGE`, `UPDATE`, `DELETE` and `INSERT` on a database table give a warehouse's rows, or stop by name. Each case below is checked against T-SQL's reference.

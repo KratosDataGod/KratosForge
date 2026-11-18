@@ -36,6 +36,19 @@ The profile is stricter than Microsoft's page requires for the SQL analytics end
 
 When KratosForge refuses a write, the message names the feature and the readers on this page that can't read it.
 
+## Reading these tables in KratosForge
+
+KratosForge reads tables with deletion vectors or column mapping correctly, whoever wrote them. Fabric Spark writes both: deleted rows stay in the data files and a deletion vector marks them, and with column mapping the data files name each column `col-<id>`. Fabric turns column mapping on for a column name with a space.
+
+- The pyarrow reader in delta-rs refuses deletion vectors. On a column-mapped table that another writer made, it reads every value as NULL. KratosForge reads these tables through delta-rs's DataFusion reader instead (`sidecar/fabric_desktop/delta_read.py`). This covers previews, notebooks, Spark on this PC, SQL over the lakehouse, pipeline Lookup and Get Metadata, proofs and environment compare. A table with neither feature is read as before. The DataFusion reader reads such a table whole into memory before a query or a notebook works on it, even for a `SELECT ... LIMIT 10`. So a table whose data files hold more than 2 GB is refused, and the refusal gives the reason. Previews and pipeline Lookup read only the first rows, so they have no limit. A local data project reads the table in place, without the limit.
+- A local data project reads such a table through its own view. The view reads each column by its physical name and gives it the table's name. It leaves out each deleted row by its row number in its file. Two limits apply. A struct column under column mapping is refused, because a local read names only top-level columns. A table with more than 50,000 runs of deleted rows is also refused, and compacting it in Fabric (OPTIMIZE) folds the vectors in.
+- A stream on this PC refuses both features. It reads new files by path, so it would bring deleted rows back or miss renamed columns. Run the stream in Fabric.
+- Row counts from the log's file statistics (previews, environment compare) leave out rows that a deletion vector removed.
+
+Reading such a table doesn't make it writable. Writes still follow the profile above.
+
+The tests use tables that Apache Spark 3.5.5 with Delta Lake 3.3.2 wrote (`sidecar/tests/fixtures/delta_spark`, made by `sidecar/tools/make_spark_delta_fixtures.py`). Each test checks the rows Spark read back.
+
 ## Notes on the sources
 
 - **V2 checkpoints and Fabric.** Microsoft's docs don't mention them. A user reports the SQL analytics endpoint error "The Delta table uses the 'v2Checkpoint' feature, which is not supported" [3]. An idea on the Fabric forum asks for support because the SQL endpoint fails on it [4]. Both are user reports, not documentation.

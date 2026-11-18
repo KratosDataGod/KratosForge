@@ -51,7 +51,7 @@ from sqlglot.helper import seq_get
 from sqlglot.tokens import Token, TokenType
 
 from ..sql import KfDuckDB
-from . import tsql_format, tsql_routines, tsql_tables, tsql_types
+from . import tsql_ctes, tsql_format, tsql_routines, tsql_tables, tsql_types
 from .. import sql_dialects, tsql_clone
 
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
@@ -113,6 +113,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
             _refuse(tree)
             _national_text(tree)
+            notes += tsql_ctes.check(tree)  # WR-230: no recursive CTE, no change through a CTE
             _temp_tables(tree)
             notes += tsql_types.check(tree)  # WR-223: types as a warehouse has them, before any rewrite
             _joined_changes(tree)

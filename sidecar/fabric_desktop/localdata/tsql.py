@@ -146,6 +146,7 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
             _functions(tree)
             _gaps(tree)
             _string_edges(tree)
+            _char_codes(tree)
             tsql_types.expand_datetimes(tree)
             if known is not None:
                 _unknown_functions(tree, known)
@@ -2589,8 +2590,13 @@ def _repeat(node: exp.Repeat | exp.Space) -> None:
     national = kind == "national"
     most = 4000 if national else 8000
 
+    if not _whole(count, 0):
+        # #3007: text is a whole number or an error, a number is cut toward zero. _int_of names its value several
+        # times, so the count is read once first: RAND() is one value, and a nested call isn't copied.
+        count = _once([count], _int_of)
+
     def build(n: exp.Expression, text: exp.Expression | None) -> exp.Expression:
-        whole = _whole_count(n)
+        whole = n
         ifs = []
         if not _whole(n, 0):
             ifs.append(exp.If(this=exp.LT(this=whole.copy(), expression=exp.Literal.number(0)), true=exp.null()))
@@ -2614,6 +2620,62 @@ def _known_within(text: exp.Expression, n: exp.Expression, national: bool, most:
         return False
     size = len(literal.name) if national else len(literal.name.encode("utf-8"))
     return size * int(n.name) <= most
+
+
+_INT_TEXT = re.compile(r"\s*[+-]?[0-9]+\s*")
+
+
+def _int_of(value: exp.Expression) -> exp.Expression:
+    """``value`` made an int as T-SQL makes a count or code one: a number is cut toward zero, and text
+    must be a whole number (``'66'`` is 66, ``'6.5'`` is a conversion error, as in T-SQL; DuckDB's cast
+    would round it). A column's type isn't known here, so both ways are written and DuckDB keeps the
+    one its type takes; each reads the value through VARCHAR so that both bind whatever the type."""
+    if isinstance(value, exp.Literal) and value.is_string:
+        if not _INT_TEXT.fullmatch(value.name):
+            raise ValueError(f"This T-SQL can't be run on the local engine: Conversion failed when converting the "
+                             f"varchar value '{value.name}' to data type int. T-SQL gives the same error.")
+        return exp.Literal.number(int(value.name))
+    text = exp.cast(value.copy(), "VARCHAR")
+    message = exp.DPipe(this=exp.DPipe(this=exp.Literal.string("Conversion failed when converting the varchar value '"),
+                                       expression=text.copy()),
+                        expression=exp.Literal.string("' to data type int."))
+    strict = exp.Case(ifs=[exp.If(this=exp.func("REGEXP_FULL_MATCH", text.copy(), exp.Literal.string(_INT_TEXT.pattern)),
+                                  true=exp.cast(exp.func("TRIM", text.copy()), "BIGINT"))],
+                      default=exp.func("ERROR", message))
+    is_text = exp.EQ(this=exp.func("TYPEOF", value.copy()), expression=exp.Literal.string("VARCHAR"))
+    cut = exp.cast(exp.Trunc(this=exp.cast(text.copy(), "DOUBLE")), "BIGINT")
+    return exp.Case(ifs=[exp.If(this=is_text, true=strict)], default=cut)
+
+
+def _char_codes(tree: exp.Expression) -> None:
+    """ASCII, UNICODE and CHAR at their edges, as T-SQL answers them:
+
+    - ``ASCII('')`` and ``UNICODE('')`` are NULL (DuckDB gave 0 and -1).
+    - ``CHAR(n)`` is NULL outside 0 to 255 ("CHAR returns a NULL value for integer expressions outside this
+      input range", functions/char-transact-sql), and a count with a fraction is made an int first, toward
+      zero (DuckDB gave the code point, stopped below 0, and didn't bind a decimal)."""
+    for node in list(tree.find_all(exp.Ascii, exp.Unicode, exp.Chr)):
+        if isinstance(node, (exp.Ascii, exp.Unicode)):
+            text = node.this
+            if not (isinstance(text, exp.Literal) and text.is_string and text.name):
+                node.set("this", exp.Nullif(this=text.copy(), expression=exp.Literal.string("")))
+            continue
+        if len(node.expressions) != 1:
+            continue
+        code = node.expressions[0]
+        value = _number(code)
+        if value is not None and math.isfinite(value):
+            whole = int(value)
+            node.replace(exp.Chr(expressions=[exp.Literal.number(whole)]) if 0 <= whole <= 255
+                         else exp.cast(exp.null(), "TEXT"))
+            continue
+        # The code is read once, through a lambda, so CHAR(RAND() * 300) checks and converts the same value.
+        v = exp.to_identifier("kf_code")
+        inside = exp.Between(this=exp.column(v.copy()), low=exp.Literal.number(0), high=exp.Literal.number(255))
+        case = exp.Case(ifs=[exp.If(this=inside, true=exp.Chr(expressions=[exp.cast(exp.column(v.copy()), "INT")]))])
+        bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[_int_of(code)]),
+                         exp.Lambda(this=case, expressions=[v]))
+        node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))
 
 
 def _charindex(node: exp.StrPosition) -> None:

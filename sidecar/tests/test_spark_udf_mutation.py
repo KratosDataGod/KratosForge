@@ -131,9 +131,12 @@ def test_a_pandas_array_becomes_its_list():
     assert out == [1, 2] and type(out) is list
 
 
-def test_a_numpy_array_of_several_values_is_left_as_it_is():
-    arr = np.array([1, 2])
-    assert U._plain(arr) is arr
+def test_a_numpy_array_becomes_its_list_even_with_one_value():
+    for arr, want in ((np.array([1, 2]), [1, 2]), (np.array([5]), [5]), (np.array([[1], [2]]), [[1], [2]])):
+        out = U._plain(arr)
+        assert out == want and type(out) is list
+    assert type(U._plain(np.array([1, 2]))[0]) is int  # its values as Python ones too
+    assert U._plain(np.array(4)) == 4 and type(U._plain(np.array(4))) is int  # no dimensions: a scalar
 
 
 def test_null_is_none_nan_or_nat_and_never_an_array():
@@ -233,9 +236,34 @@ def test_install_gives_spark_2s_pandas_udf_types():
     assert (P.SCALAR, P.SCALAR_ITER, P.GROUPED_MAP, P.GROUPED_AGG) == (200, 204, 201, 202)
 
 
-@pytest.mark.xfail(strict=True, reason="a pandas_udf returning numpy arrays for an ArrayType gives null; "
-                                       "Spark gives the arrays as lists")
 def test_a_pandas_udf_returning_numpy_arrays_gives_lists(spark):
     df = spark.createDataFrame([(1,), (2,)], ["id"])
     pairs = U.pandas_udf(lambda s: s.apply(lambda v: np.array([v, v + 1])), T.ArrayType(T.LongType()))
     assert [r[0] for r in df.select(pairs("id")).collect()] == [[1, 2], [2, 3]]
+    # One element stays an array of one, and one NaN in it stays a value, not a null row.
+    single = U.pandas_udf(lambda s: s.apply(lambda v: np.array([v])), T.ArrayType(T.LongType()))
+    assert [r[0] for r in df.select(single("id")).collect()] == [[1], [2]]
+    nan = U.pandas_udf(lambda s: s.apply(lambda v: np.array([np.nan])), T.ArrayType(T.DoubleType()))
+    got = [r[0] for r in df.select(nan("id")).collect()]
+    assert len(got) == 2 and all(len(g) == 1 and g[0] != g[0] for g in got)
+
+
+def test_a_numpy_array_of_times_becomes_python_datetimes(spark):
+    stamps = np.array(["2026-11-17T01:02:03.000004", "NaT"], dtype="datetime64[ns]")
+    assert U._plain(stamps) == [dt.datetime(2026, 11, 17, 1, 2, 3, 4), None]
+    assert U._plain(np.array([5_000_000], dtype="timedelta64[ns]")) == [dt.timedelta(milliseconds=5)]
+    df = spark.createDataFrame([(1,)], ["id"])
+    times = U.pandas_udf(lambda s: s.apply(lambda v: stamps[:1]), T.ArrayType(T.TimestampType()))
+    as_list = U.pandas_udf(lambda s: s.apply(lambda v: [dt.datetime(2026, 11, 17, 1, 2, 3, 4)]),
+                           T.ArrayType(T.TimestampType()))
+    want = [r[0] for r in df.select(as_list("id")).collect()]  # what a list of Python datetimes gives
+    assert want[0] and want[0][0] is not None
+    assert [r[0] for r in df.select(times("id")).collect()] == want
+
+
+def test_a_numpy_array_of_dates_stays_dates(spark):
+    days = np.array(["2026-11-17", "2026-11-18"], dtype="datetime64[D]")
+    assert U._plain(days) == [dt.date(2026, 11, 17), dt.date(2026, 11, 18)]
+    df = spark.createDataFrame([(1,)], ["id"])
+    dates = U.pandas_udf(lambda s: s.apply(lambda v: days), T.ArrayType(T.DateType()))
+    assert [r[0] for r in df.select(dates("id")).collect()] == [[dt.date(2026, 11, 17), dt.date(2026, 11, 18)]]

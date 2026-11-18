@@ -243,3 +243,23 @@ def test_a_literal_replicate_within_its_limit_needs_no_check_at_run_time():
     from fabric_desktop.localdata import tsql
     assert tsql.translate("SELECT REPLICATE('x', 3), REPLICATE(N'é', 4000)")[0] == \
         ["SELECT REPEAT('x', 3), REPEAT('é', 4000)"]
+
+
+def test_a_count_from_rand_is_read_once():
+    from fabric_desktop.localdata import tsql
+    for sql in ("SELECT REPLICATE('ab', RAND() * 6 - 3)", "SELECT SPACE(RAND() * 6 - 3)"):
+        assert tsql.translate(sql)[0][0].count("RANDOM()") == 1, sql
+
+
+@pytest.mark.parametrize("sql, out", [
+    ("SELECT REPLICATE('ab', '3')", [["ababab"]]),  # #3007: text is a whole number
+    ("SELECT DATALENGTH(SPACE(' 2 '))", [[2]]),
+    ("SELECT REPLICATE('ab', s) FROM (VALUES ('2')) v(s)", [["abab"]]),
+    ("SELECT LEN(REPLICATE('ab', s)) FROM (VALUES ('4000')) v(s)", [[8000]]),
+])
+def test_a_text_count_is_a_whole_number_and_still_checked(engine, sql, out):
+    assert rows(engine, sql) == out
+
+
+def test_a_text_count_past_the_limit_stops(engine):
+    assert "8,000 bytes" in error(engine, "SELECT REPLICATE('ab', s) FROM (VALUES ('4001')) v(s)")

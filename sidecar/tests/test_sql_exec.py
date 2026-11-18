@@ -1022,3 +1022,12 @@ def test_sorting_a_result_over_the_grid_s_limit_is_refused(runs, lake, monkeypat
     with pytest.raises(ValueError, match="Column statistics works"):
         runs.column_stats(status["id"], 0)
     assert runs.page(status["id"])["total"] == 3, "plain paging still works"
+
+
+def test_a_spark_run_gives_sha2_at_each_length_spark_has(runs, lake):
+    import hashlib
+    run = wait(runs, runs.start("SELECT sha2('abc', 224) AS a, sha2('abc', 384) AS b, sha2('abc', 512) AS c, "
+                                "sha2('abc', 1) AS d", lake, dialect="spark")["id"])
+    assert run["state"] == "completed", run
+    assert runs.page(run["id"])["rows"] == [[hashlib.sha224(b"abc").hexdigest(), hashlib.sha384(b"abc").hexdigest(),
+                                            hashlib.sha512(b"abc").hexdigest(), None]]

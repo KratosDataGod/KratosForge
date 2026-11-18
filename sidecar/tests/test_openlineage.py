@@ -199,6 +199,10 @@ def test_no_secrets_connection_strings_or_paths_on_this_pc_leave_in_events(svc, 
     ("jdbc:sqlserver://db.contoso.com:1433;user=sa;password=x", "jdbc:sqlserver://db.contoso.com:1433;user=[removed];password=[removed]"),
     ("exports from ann@contoso.com", "exports from [email]"),
     ("https://h/inbox/ann@contoso.com/x", "https://h/inbox/[email]/x"),
+    ("https://api.contoso.com:8443/v1/orders?key=1", "https://api.contoso.com:8443/v1/orders"),
+    ("https://h/app;jsessionid=0AB1C2/orders;v=2/x.csv", "https://h/app/orders/x.csv"),
+    ("http://[2001:db8::1]:8080/feed", "http://[2001:db8::1]:8080/feed"),
+    ("https://h:99999/x", "https://h/x"),
 ])
 def test_safe_origin(value, want):
     assert openlineage.safe_origin(value) == want
@@ -223,3 +227,12 @@ def test_paths_in_an_expression_keep_only_their_last_part():
 def test_patterns_in_an_expression_are_not_read_as_paths():
     for text in ("regexp_replace(code, '..\\\\d+', '')", "regexp_extract(p, '/a/(\\\\w+)/', 1)", "'a/b'", "'..'"):
         assert openlineage.safe_text(text) == text
+
+
+def test_the_last_run_is_the_latest_by_time_not_by_text(svc):
+    runs = [{"run_id": "late", "entity": "gold.fact_sales", "status": "ok", "started_at": "2026-11-14T08:30:00+00:00"},
+            {"run_id": "early", "entity": "gold.fact_sales", "status": "failed", "started_at": "2026-11-14T09:00:00+01:00"},
+            {"run_id": "bad", "entity": "gold.fact_sales", "status": "failed", "started_at": "soon"}]
+    for order in (runs, runs[::-1]):
+        ev = by_job(events(svc, order))["gold.fact_sales"]
+        assert ev["eventType"] == "COMPLETE", order  # 08:30Z is after 09:00+01:00 (08:00Z)

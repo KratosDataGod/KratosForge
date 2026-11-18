@@ -44,6 +44,7 @@ _EMAIL = re.compile(r"[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")
 _TEXT_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\|/[\w.-]+/|~[\\/])")
 _REGEXY = re.compile(r"[*+?^$()\[\]{}|]")
 _QUOTED = re.compile(r"(['\"])(.*?)\1")
+_PATH_PARAMS = re.compile(r";[^/]*")
 # User names in a connection string (user=sa; User ID=a; uid=a; username=a).
 _USER_KEY = re.compile(r"(?i)\b(user\s*id|user\s*name|username|user|uid)(\s*=\s*)[^;,\s]+")
 _ID_NAMESPACE = uuid.UUID("6b0f1a52-6f1d-4d8e-9b0e-2f1c9f6c4a11")
@@ -105,7 +106,16 @@ def _clean_one(text: str) -> str:
             u = urlsplit(text)
             # abfss://<container>@<account>: the part before @ is the container, not a user name
             container = f"{u.username}@" if u.username and u.scheme.lower() in _STORAGE_SCHEMES and not u.password else ""
-            url = urlunsplit((u.scheme, container + (u.hostname or ""), _EMAIL.sub("[email]", u.path), "", ""))
+            host = u.hostname or ""
+            if ":" in host:  # an IPv6 address goes back in brackets
+                host = f"[{host}]"
+            try:
+                port = f":{u.port}" if u.port is not None else ""
+            except ValueError:  # host:1433;database=x: not a port urlsplit can read, so leave it off
+                port = ""
+            # ;jsessionid=... and other path parameters carry session ids, never where the data is
+            path = _PATH_PARAMS.sub("", u.path) if u.scheme.lower() in ("http", "https") else u.path
+            url = urlunsplit((u.scheme, container + host + port, _EMAIL.sub("[email]", path), "", ""))
             return _USER_KEY.sub(r"\1\2" + redact.REMOVED, url)  # jdbc:sqlserver://host;user=sa
         except ValueError:
             return redact.REMOVED
@@ -115,8 +125,8 @@ def _clean_one(text: str) -> str:
 
 
 def safe_origin(value: Any) -> str:
-    """A source's name as it can leave the PC: a URL keeps its scheme, host and path (no user, password, query or
-    fragment, where a SAS token or key would sit); a path on this PC, or a file: URL, keeps only its last part;
+    """A source's name as it can leave the PC: a URL keeps its scheme, host, port and path (no user, password,
+    query, ;path parameters or fragment, where a SAS token, key or session id would sit); a path on this PC, or a file: URL, keeps only its last part;
     a connection string loses its user name; anything credential-shaped that is left is removed. A list is
     cleaned item by item."""
     items = value if isinstance(value, (list, tuple)) else [value]
@@ -141,6 +151,19 @@ def _run_uuid(run_id: str, entity: str) -> str:
         return str(uuid.UUID(run_id))
     except (ValueError, TypeError, AttributeError):
         return str(uuid.uuid5(_ID_NAMESPACE, f"{run_id}/{entity}"))
+
+
+_NEVER = dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+
+
+def _started(run: dict[str, Any]) -> dt.datetime:
+    """When a run started, as a time (so 2026-11-18T09:00+01:00 comes before 2026-11-18T08:30Z); a start
+    that can't be read counts as earliest, so a readable run is chosen over it."""
+    try:
+        start = dt.datetime.fromisoformat(str(run.get("started_at")))
+    except ValueError:
+        return _NEVER
+    return start if start.tzinfo else start.replace(tzinfo=dt.timezone.utc)
 
 
 def _event_time(run: dict[str, Any]) -> str | None:
@@ -235,7 +258,7 @@ def run_events(project: Project, runs: list[dict[str, Any]], env: str,
     last: dict[str, dict[str, Any]] = {}
     for r in runs:
         ent = r.get("entity")
-        if ent in project.entities and str(r.get("started_at") or "") >= str((last.get(ent) or {}).get("started_at") or ""):
+        if ent in project.entities and (ent not in last or _started(r) >= _started(last[ent])):
             last[ent] = r
     events, left_out = [], []
     for ent in sorted(project.entities):

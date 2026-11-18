@@ -68,6 +68,7 @@ def test_a_project_made_on_a_mapped_drive_keeps_the_drive_letter(given, resolved
 
 
 def test_creating_a_project_on_a_mapped_drive_keeps_the_path_as_given(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # off Windows "Z:\\sales" is a relative folder name: keep its project.json in tmp_path
     store = ProjectStore(tmp_path / "local-data")
     monkeypatch.setattr(win_paths, "keep_drive_letter", lambda given, resolved: "Z:\\sales" if
                         given == str(tmp_path / "sales") else resolved)

@@ -248,5 +248,5 @@ def test_text_codes_and_counts_are_made_ints_as_tsql_does(engine, expression: st
 def test_text_that_is_not_a_whole_number_stops_as_in_tsql(engine, expression: str) -> None:
     # T-SQL: "Conversion failed when converting the varchar value '6.5' to data type int."; a float too
     # large for an int is an overflow there.
-    with pytest.raises(Exception, match=r"Conversion failed when converting the varchar value|out of range"):
+    with pytest.raises(Exception, match=r"Conversion failed when converting the varchar value|out of range|Arithmetic overflow"):
         engine.execute(f"SELECT {expression} AS v", dialect="tsql")

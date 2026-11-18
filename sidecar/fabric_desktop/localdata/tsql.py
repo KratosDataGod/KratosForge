@@ -2380,8 +2380,8 @@ def _whole(node: exp.Expression | None, low: int) -> bool:
 
 
 _BIGINT_MAX = 2**63 - 1
-_OVERFLOW = "This T-SQL can't be run on the local engine: Arithmetic overflow error converting expression to data " \
-    "type bigint. T-SQL gives the same error."
+_PAST_BIGINT = "This T-SQL can't be run on the local engine: Arithmetic overflow error converting expression to " \
+    "data type bigint. T-SQL gives the same error."
 
 
 def _past_bigint(node: exp.Expression | None) -> bool:
@@ -2436,7 +2436,7 @@ def _string_edges(tree: exp.Expression) -> None:
                                             exp.Translate, exp.StrPosition))):
         # WR-239: each count, length and start is "of any integer type, including bigint"; past it is an overflow
         if any(_past_bigint(node.args.get(k)) for k in _NUMBER_ARGS.get(type(node), ())):
-            raise ValueError(_OVERFLOW)
+            raise ValueError(_PAST_BIGINT)
         if isinstance(node, exp.StrPosition):
             _charindex(node)
         elif isinstance(node, (exp.Left, exp.Right)):

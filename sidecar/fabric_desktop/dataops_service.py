@@ -15,7 +15,7 @@ import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from typing import Any, Callable, Iterator
 
 import polars as pl
@@ -378,7 +378,11 @@ class DataOpsMixin:
         """Hold the Data health list for a read-change-write: this process's threads take turns, and so
         do other processes on this PC (a second app window, the MCP server), so neither loses the other's
         acknowledgement. A process stuck holding it is waited on for DATA_HEALTH_LOCK_SECONDS, then an error."""
-        with _DH_LOCK, _file_lock(self.root / f"{DATA_HEALTH_FILE}.lock", timeout=DATA_HEALTH_LOCK_SECONDS):  # type: ignore[attr-defined]
+        with _DH_LOCK, ExitStack() as held:
+            try:
+                held.enter_context(_file_lock(self.root / f"{DATA_HEALTH_FILE}.lock", timeout=DATA_HEALTH_LOCK_SECONDS))  # type: ignore[attr-defined]
+            except TimeoutError:
+                raise TimeoutError("Another KratosForge window is saving the Data health list. Try again in a moment.") from None
             yield
 
     def _dh_read(self) -> dict[str, Any]:

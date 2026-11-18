@@ -333,7 +333,7 @@ def test_a_save_waits_for_another_process_then_says_it_couldnt(svc, monkeypatch)
     t.start()
     held.wait(5)
     try:
-        with pytest.raises(TimeoutError):
+        with pytest.raises(TimeoutError, match="Another KratosForge window is saving the Data health list"):
             svc.meta_data_health_watch("silver.customers", "dev")
     finally:
         release.set()

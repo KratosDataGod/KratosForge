@@ -1828,7 +1828,7 @@ impl update_guard::Handover for ExeHandover<'_> {
         let checked = &self.checked_sha256;
         update_guard::swap_in_checked(&self.exe, &self.new, &self.old, |r| {
             match sha256_of(r) {
-                Ok(now) if &now == checked => Ok(()),
+                Ok(now) if now == *checked => Ok(()),
                 Ok(_) => Err("The new build changed after it was checked, so it wasn't installed. Try the update again.".into()),
                 Err(e) => Err(format!("Could not read the new build to check it again: {e}")),
             }
@@ -3935,7 +3935,7 @@ mod sidecar_log_tests {
 
 #[cfg(test)]
 mod updater_output_tests {
-    use super::{updater_failure, updater_tail};
+    use super::{updater_failure, updater_tail, verified_sha256};
     use std::collections::VecDeque;
 
     fn lines(range: std::ops::RangeInclusive<u32>) -> String {

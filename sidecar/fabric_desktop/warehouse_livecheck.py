@@ -179,6 +179,8 @@ CASES: tuple[Case, ...] = (
          "SELECT FORMAT(-0.001, '0.00')", None, "unverified"),
     Case("FMT-07", "WR-229", "formatting", "TRY_PARSE of '12.0' as an int (refused locally)",
          "SELECT TRY_PARSE('12.0' AS INT)", None, "unverified"),
+    Case("FMT-08", "WR-229", "formatting", "FORMAT 'N2' of a negative number that rounds to zero (refused locally)",
+         "SELECT FORMAT(-0.001, 'N2')", None, "unverified"),
 )
 
 

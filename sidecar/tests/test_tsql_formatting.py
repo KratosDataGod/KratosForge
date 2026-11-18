@@ -132,9 +132,17 @@ def test_format_that_differs_between_dotnet_versions_or_isnt_carried_is_refused(
     assert says in refused(engine, sql)
 
 
-@pytest.mark.parametrize("sql", ["FORMAT(-1234.5, 'C')", "FORMAT(-0.001, '0.00')", "FORMAT(-0.001, '0.00;(0.00)')"])
+@pytest.mark.parametrize("sql", ["FORMAT(-1234.5, 'C')", "FORMAT(-0.001, '0.00')", "FORMAT(-0.001, '0.00;(0.00)')",
+                                 "FORMAT(-0.001, 'N2')", "FORMAT(-0.004, 'F2')", "FORMAT(-0.4, 'N0')",
+                                 "FORMAT(-0.001, 'N2', 'de-DE')"])
 def test_a_negative_number_dotnet_versions_write_differently_stops_by_name(engine, sql):
     refused(engine, sql)
+
+
+@pytest.mark.parametrize("sql, expected", [("FORMAT(-0.006, 'N2')", "-0.01"), ("FORMAT(-0.5, 'N0')", "-1"),
+                                           ("FORMAT(0.0, 'F2')", "0.00"), ("FORMAT(-0.004, 'F3')", "-0.004")])
+def test_a_negative_number_that_doesnt_round_to_zero_keeps_its_sign(engine, sql, expected):
+    assert one(engine, sql) == expected
 
 
 PARSES = [

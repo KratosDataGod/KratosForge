@@ -485,10 +485,11 @@ def test_format_of_a_date_follows_dotnets_formats(engine):
 
 
 def test_format_of_a_number_rounds_half_away_from_zero(engine):
-    r = tsql(engine, "SELECT FORMAT(1234.5, 'N2') AS a, FORMAT(-1234.5, 'N0') AS b, FORMAT(-0.004, 'N2') AS c, "
+    # FORMAT(-0.004, 'N2') rounds to zero, which .NET's versions write as 0.00 or -0.00: refused (test_tsql_formatting)
+    r = tsql(engine, "SELECT FORMAT(1234.5, 'N2') AS a, FORMAT(-1234.5, 'N0') AS b, "
                      "FORMAT(-0.005, 'N2') AS d, FORMAT(1234567, 'N') AS e, FORMAT(2.5, 'F0') AS f, "
                      "FORMAT(-1234.5, 'f3') AS g, FORMAT(-42, 'D5') AS h, FORMAT(123456, 'D3') AS i, FORMAT(42, 'd') AS j")
-    assert r["rows"] == [["1,234.50", "-1,235", "0.00", "-0.01", "1,234,567.00", "3", "-1234.500", "-00042",
+    assert r["rows"] == [["1,234.50", "-1,235", "-0.01", "1,234,567.00", "3", "-1234.500", "-00042",
                           "123456", "42"]]
     r = tsql(engine, "SELECT FORMAT(price, 'N1') AS p, FORMAT(qty, 'N0') AS q, FORMAT(CAST(NULL AS INT), 'N') AS n "
                      "FROM dbo.orders ORDER BY id")

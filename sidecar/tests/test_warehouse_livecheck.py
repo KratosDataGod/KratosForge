@@ -192,8 +192,8 @@ def test_the_dry_run_gives_local_answers_and_connects_nowhere(tmp_path):
     for id in ("ORD-02", "TXT-01", "CHG-01", "CHG-02", "SCR-01", "SET-01"):
         assert by[id]["local"].startswith("error: "), id
     # live run 11 settled every case the reference doesn't; WR-229's .NET splits wait for the next live run
-    assert [c.id for c in w.CASES if c.documented is None] == ["FMT-04", "FMT-05", "FMT-06", "FMT-07"]
-    for id in ("FMT-04", "FMT-05", "FMT-06", "FMT-07"):
+    assert [c.id for c in w.CASES if c.documented is None] == ["FMT-04", "FMT-05", "FMT-06", "FMT-07", "FMT-08"]
+    for id in ("FMT-04", "FMT-05", "FMT-06", "FMT-07", "FMT-08"):
         assert by[id]["local"].startswith("error: "), id
 
 

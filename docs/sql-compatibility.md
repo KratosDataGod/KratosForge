@@ -285,7 +285,7 @@ When a project runs T-SQL on this PC, `FORMAT`, `PARSE` and `TRY_PARSE` give the
 Refused, each by name:
 
 - `FORMAT`'s `P` (percent), `C` below zero or outside `en-US`, a culture's `D`, `f`, `F`, `M` and `Y` outside `en-US`, and its abbreviated names (`ddd`, `MMM`) and AM/PM (`tt`) outside `en-US`: .NET Framework and .NET (Core) write them differently, for instance `12.34 %` or `12.34%`, `($5.00)` or `-$5.00`. A custom format such as `'0.00%'` gives one answer.
-- `FORMAT` of a negative number that the format rounds to zero (`FORMAT(-0.001, '0.00')`): one .NET writes `-0.00`, the other `0.00`. Round the value first.
+- `FORMAT` of a negative number that the format rounds to zero (`FORMAT(-0.001, '0.00')`, `FORMAT(-0.001, 'N2')`, `'F2'` too): one .NET writes `-0.00`, the other `0.00`. Round the value first.
 - `FORMAT`'s `E`, `G` and `R` number formats, a precision of more than two digits, a custom format with a third section, scientific notation, `‰`, more than one `%`, `,` right before the point (which divides by 1,000), text among the digits with `#` or `,`, and `FORMAT` of a `float`, `money` or `time`.
 - `PARSE` and `TRY_PARSE` of text .NET may read another way: a currency sign, parentheses, an exponent, a sign at the end, `Infinity`, decimals for an integer type, or separators away from groups of three. Text with no digit at all gives T-SQL's answer.
 - `PARSE` and `TRY_PARSE` to a date or time (use `CONVERT` with a style), and to `money`, which isn't carried (use `DECIMAL(19, 4)`). `CONVERT`'s `money` styles are refused with `money`.

@@ -395,7 +395,8 @@ def _grouped(whole: exp.Expression, where: Culture) -> exp.Expression:
 
 def _fixed(places: int, grouped: bool, where: Culture) -> exp.Expression:
     """'N' and 'F' with ``places`` decimals, rounded half away from zero as .NET rounds a decimal, with the
-    culture's separator between thousands for 'N' and its decimal separator."""
+    culture's separator between thousands for 'N' and its decimal separator. A negative value that rounds to zero
+    stops the query, as in a custom format: .NET Framework writes 0.00 and .NET Core -0.00."""
     rounded = _rounded(places)
     whole, decimals = _digits(rounded)
     out: exp.Expression = _grouped(whole, where) if grouped else exp.Cast(this=whole, to=exp.DataType.build("VARCHAR"))
@@ -403,10 +404,7 @@ def _fixed(places: int, grouped: bool, where: Culture) -> exp.Expression:
         fraction = _call("RPAD", decimals, exp.Literal.number(places), exp.Literal.string("0"))
         out = exp.DPipe(this=exp.DPipe(this=out, expression=exp.Literal.string(where.decimal), safe=False),
                         expression=fraction, safe=False)
-    sign = exp.Case(ifs=[exp.If(this=exp.And(this=exp.LT(this=_var(), expression=exp.Literal.number(0)),
-                                             expression=exp.GT(this=rounded.copy(), expression=exp.Literal.number(0))),
-                                true=exp.Literal.string("-"))], default=exp.Literal.string(""))
-    return exp.DPipe(this=sign, expression=out, safe=False)
+    return _signed(rounded, out, f"'{'N' if grouped else 'F'}{places}'")
 
 
 def _currency(places: int) -> exp.Expression:

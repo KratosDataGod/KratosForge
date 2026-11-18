@@ -1070,6 +1070,8 @@ const MONITOR_OPS = [
     text: "Which identity runs your workloads in each place, and with what credential" },
   { panel: "incidents", feature: "incidents", label: "Incidents", anchor: "incidents-preview",
     text: "One record per problem, shared by everyone who can read the environment" },
+  { panel: "data_health", feature: "dataHealth", label: "Data health", anchor: "data-health-preview",
+    text: "The tables you watch: freshness, rows per load and schema, read from each table's Delta log" },
 ];
 // Monitor's tabs are by source, the way Data mesh groups its pages: what KratosForge ran and schedules, and
 // Fabric's own Monitoring hub and schedules. Another source (Databricks, Snowflake) is a tab beside them.
@@ -1200,6 +1202,7 @@ async function renderMonitor() {
   if (monitorPage.panel === "agents") { local.replaceWith(agentsPanel()); return; }
   if (monitorPage.panel === "queue") { local.replaceWith(queuePanel()); return; }
   if (monitorPage.panel === "runas") { local.replaceWith(runAsPanel()); return; }
+  if (monitorPage.panel === "data_health") { local.replaceWith(dataHealthPanel()); return; }
 
   const refreshFabricPipelines = monitorPage.fabricPipelinesRefresh;
   monitorPage.fabricPipelinesRefresh = false;

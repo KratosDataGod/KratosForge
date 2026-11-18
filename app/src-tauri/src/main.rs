@@ -1937,6 +1937,7 @@ async fn update_app(app: tauri::AppHandle, webview: tauri::Webview, state: tauri
         return Err("Your organization rolls out new builds itself, so the app doesn't update itself.".into());
     }
     let exe = app_exe().map_err(|e| e.to_string())?;
+    update_guard::can_update_in_place(&exe)?;
     let new = exe.with_extension("exe.new");
     let old = exe.with_extension("exe.old");
     let dest = new.to_string_lossy().into_owned();

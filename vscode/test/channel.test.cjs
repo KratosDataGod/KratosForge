@@ -46,6 +46,12 @@ async function answer(approve, keep = "session") {
   throw new Error("no pairing request reached the app");
 }
 
+async function denyAllWaiting() {
+  for (const req of (await engine.call("editor_pending")).pairing) {
+    await engine.call("editor_decide_pairing", { request_id: req.id, approve: false, keep: "session" });
+  }
+}
+
 before(async () => {
   engine = startEngine();
   dir = path.join(home, "FabricDesktop");
@@ -634,9 +640,11 @@ test("two windows asking at once each get their own code, and each gets its own 
   const pb = b.pair(home, "window B", (c) => { codes.b = c; }, () => false, 50);
   const denied = assert.rejects(pb, (err) => err.code === "denied" && /run the cell again and choose Pair this window/.test(err.message));
   let waiting = [];
-  for (let i = 0; i < 200 && waiting.length < 2; i++) {
+  // The app lists a request as soon as it has it, a moment before the window reads its code.
+  const ready = () => waiting.length >= 2 && codes.a && codes.b;
+  for (let i = 0; i < 200 && !ready(); i++) {
     waiting = (await engine.call("editor_pending")).pairing;
-    if (waiting.length < 2) await new Promise((r) => setTimeout(r, 50));
+    if (!ready()) await new Promise((r) => setTimeout(r, 50));
   }
   assert.strictEqual(waiting.length, 2);
   assert.notStrictEqual(codes.a, codes.b);
@@ -651,6 +659,7 @@ test("two windows asking at once each get their own code, and each gets its own 
 
 test("a window asking while too many wait is told to answer them first, and nothing is left waiting", async () => {
   await engine.call("editor_set_enabled", { enabled: true });
+  await denyAllWaiting();  // whatever an earlier test left waiting would take one of the places
   const stop = { now: false };
   const waiting = [0, 1, 2].map(() => new Channel(dir).pair(home, "w", () => {}, () => stop.now, 50).catch((e) => e));
   for (let i = 0; i < 200 && (await engine.call("editor_pending")).pairing.length < 3; i++) await new Promise((r) => setTimeout(r, 50));

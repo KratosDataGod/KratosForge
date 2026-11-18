@@ -24,7 +24,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from . import b64
+from . import b64, delta_read
 from . import app_settings, depgraph, envprofile, jsonfile, notebook_cells, proof, receipts, redact, replay, scorecard, verify, wizard
 from .notebook import check_watches, leaf_name
 from .fabric_run import TERMINAL, fabric_ipynb
@@ -209,7 +209,7 @@ class ProveMixin:
         uri = TableRef(row["workspace_id"], row["lakehouse_id"], schema, table, flat=flat).uri
         try:
             opened = DeltaTable(uri, version=row["version"], storage_options=read_storage_options(token))
-            return opened.to_pyarrow_dataset().head(replay.SAMPLE_ROWS)
+            return delta_read.head(opened, replay.SAMPLE_ROWS)
         except OSError as exc:  # delta-rs raises OSError when OneLake doesn't answer
             raise ConnectionError(SAMPLE_UNREACHABLE) from exc
 
@@ -359,7 +359,7 @@ class ProveMixin:
             return read_storage_options(o["bearer_token"]) if "bearer_token" in o else o
         try:
             row["latest"] = DeltaTable(uri, storage_options=opts()).version()
-            DeltaTable(uri, version=t["version"], storage_options=opts()).to_pyarrow_dataset().head(1)
+            delta_read.head(DeltaTable(uri, version=t["version"], storage_options=opts()), 1)
         except Exception as exc:  # noqa: BLE001 - said on the banner
             row["readable"] = False
             row["why"] = (f"Version {t['version']} can't be read any more (vacuumed or its log was cleaned up)"
@@ -585,7 +585,7 @@ class ProveMixin:
         from deltalake import DeltaTable
         schema, table = key.split(".", 1)
         uri = f"{root}/{PROOF_ROOT}/{proof_id}/{side}/tables/{schema}/{table}"
-        return DeltaTable(uri, storage_options=options()).to_pyarrow_dataset()
+        return delta_read.dataset(DeltaTable(uri, storage_options=options()))
 
     # ---- what the app calls
 

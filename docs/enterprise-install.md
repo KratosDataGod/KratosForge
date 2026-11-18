@@ -22,7 +22,7 @@ Nothing needs admin rights at run time. The app writes to the registry only for 
 | **Self-updating** (default) | Leave out `auto_update` | A folder the user can write, such as `%LOCALAPPDATA%\Programs\FabricDesktop` | The app, at each start, from the channel's release |
 | **Managed** | `"auto_update": false` | Anywhere, including `C:\Program Files\FabricDesktop` | You, by deploying a new exe |
 
-A self-updating app replaces its own exe, so it must be in a folder the user can write. In `C:\Program Files` the update fails with "Could not move ... aside" and the app keeps running the old build. Use the managed model there.
+A self-updating app replaces its own exe, so it must be in a folder the user can write. In `C:\Program Files` the app says, before it downloads anything, that it can't update itself because it is in a folder the account can't change, and it keeps running the current build. Use the managed model there.
 
 With `"auto_update": false` the startup window says "Your organization rolls out updates", and when a newer build is out it names it, so you can see who is behind.
 

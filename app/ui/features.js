@@ -85,6 +85,7 @@ const PREVIEW_FEATURES = {
   agents: "Agents",
   queue: "Queue",
   runAs: "Run as",
+  dataHealth: "Data health",
   integrations: "External AI tools",
   releases: "Release records",
   lineage: "Column lineage",

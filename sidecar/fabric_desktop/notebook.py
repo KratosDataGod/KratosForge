@@ -1107,6 +1107,9 @@ class Kernel:
             write_queue.cell_writes.stats = None
             out.targets.pop(ident, None)
             err.targets.pop(ident, None)
+            from . import lakehouse as _lakehouse
+            # Before the run says it finished: a write after it isn't this cell's (lakehouse.prod_refusal).
+            _lakehouse.cell_prod_context.pop(threading.current_thread(), None)
             with contextlib.suppress(Exception):
                 from . import spark_local
                 spark_local.watch_connections(ident, None)

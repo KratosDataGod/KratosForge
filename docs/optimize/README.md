@@ -26,7 +26,7 @@ Everyone else connects to the existing lakehouse, and nothing is created again. 
 | Nothing | It asks before creating Optimize's tables |
 | Other tables, none of Optimize's | It asks, then adds Optimize's tables beside them. The other tables are never read, changed or replaced |
 | An unfinished setup or upgrade | It asks, then adds only what is missing. Every row is kept |
-| An older Optimize schema | It asks, then upgrades. Upgrades only add tables and columns, and every row is kept |
+| An older Optimize schema | It asks, then upgrades. Upgrades only add tables and columns, and every row is kept. Until someone upgrades, newer installations keep writing with the older version's columns, and other features' tables keep working |
 | A newer Optimize schema | It opens read-only and asks you to update the app |
 | A table named `fdopt_...` that isn't Optimize's | It refuses to write and leaves the table alone |
 
@@ -136,7 +136,7 @@ Code and table contents are never written. A run is added once: sharing again ad
 
 ## The tables
 
-All are Delta tables in `dbo` (or directly under Tables in a lakehouse without schemas), named `fdopt_` so they can't collide with yours: `installations`, `analysis_runs`, `artifacts`, `findings`, `recommendations`, `actions`, `measurements`, `cu_usage`, `savings`, `local_execution`, `dependencies`, `rules`, `audit`, `config` and `schema_version`. Columns are in [`sidecar/fabric_desktop/optimize/schema.py`](https://github.com/KratosDataGod/KratosForge/blob/main/sidecar/fabric_desktop/optimize/schema.py). You never need to query them yourself.
+All are Delta tables in `dbo` (or directly under Tables in a lakehouse without schemas), named `fdopt_` so they can't collide with yours: `installations`, `analysis_runs`, `artifacts`, `findings`, `recommendations`, `actions`, `measurements`, `cu_usage`, `savings`, `local_execution`, `dependencies`, `rules`, `audit`, `config` and `schema_version`, and from schema version 2 `pricing`, `optimization_link`, `baseline`, `validation`, `attribution` and `sync`. Columns are in [`sidecar/fabric_desktop/optimize/schema.py`](https://github.com/KratosDataGod/KratosForge/blob/main/sidecar/fabric_desktop/optimize/schema.py). You never need to query them yourself.
 
 ## Table families
 

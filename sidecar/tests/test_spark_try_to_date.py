@@ -10,7 +10,7 @@ import pytest
 from fabric_desktop import databricks_coverage, sql
 from fabric_desktop.notebook import Kernel
 
-REFUSED = r"try_to_date isn't a Spark 3\.5 function, so nothing ran: Fabric Runtime 1\.3 stops on it too"
+REFUSED = r"try_to_date isn't a Spark 3\.5 function, so nothing ran\. Fabric Runtime 1\.3 stops on it too"
 
 
 @pytest.mark.parametrize("call", [
@@ -26,7 +26,7 @@ def test_try_to_date_is_refused_by_name_on_the_spark_path(call):
 
 
 def test_the_refusal_names_to_date_and_to_date_gives_null_for_bad_text():
-    with pytest.raises(ValueError, match=r"UNRESOLVED_ROUTINE\)\. Use to_date"):
+    with pytest.raises(ValueError, match=r"UNRESOLVED_ROUTINE\)\. Use to_date instead\. With ANSI mode off, as Fabric runs it, to_date gives NULL"):
         sql.run("SELECT 1 AS a FROM (SELECT 1) WHERE try_to_date('x') IS NULL")
     assert sql.run("SELECT to_date('abc') AS a, to_date('2024/02/29', 'yyyy/MM/dd') AS b").to_pylist() == \
         [{"a": None, "b": dt.date(2024, 2, 29)}]

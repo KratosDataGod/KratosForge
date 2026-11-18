@@ -447,8 +447,9 @@ function cellMenu(cell) {
     items.push({ label: cell.meta.outputs_hidden ? "Show output" : "Hide output", icon: "panel", action: () => setMeta(cell, "outputs_hidden", !cell.meta.outputs_hidden) });
     items.push({ label: "Clear output", icon: "clear", action: () => { cell.outputs = []; cell.status = null; updateCell(cell); } });
     items.push({ label: "Format cell", icon: "code", action: () => formatCells([cell]) });  // nbformat.js
-    if (dbgOn() && !nbWhere(state.notebook).fabric) {  // debugging.js
+    if (dbgOn()) {  // debugging.js; where cells can't pause, these say so instead of running
       items.push({ label: "Debug cell (pause at the first line)", icon: "play", action: () => debugCell(cell) });
+      items.push({ label: "Debug from here (this cell and below)", icon: "down", action: () => debugFromHere(cell) });
     }
   }
   items.push(...fabricStepMenuItems(cell));  // fabricstep.js
@@ -1625,7 +1626,10 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
   // engines.js: on another engine the cell runs there; Run this cell on Python sets onKernel for one run here.
   const kernel = cell.onKernel === true;
   delete cell.onKernel;
-  if (!kernel && nbOnEngine(nb) && !cell.meta?.frozen) return runEngineCell(cell, nb);
+  if (!kernel && nbOnEngine(nb) && !cell.meta?.frozen) {
+    if (!nb.runningAll) dbgRemoteNote(nb, [cell]);  // debugging.js: breakpoints can't pause there
+    return runEngineCell(cell, nb);
+  }
   // ``nb`` keeps running in its own session if another notebook is opened meanwhile.
   if (!kernel && nbWhere(nb).fabric) {
     toast("This notebook runs in Fabric, which runs the whole notebook. Use Run all, or switch Runs on to This PC to run one cell.");
@@ -1635,7 +1639,10 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
     toast("This cell is frozen, so it doesn't run. Unfreeze it on the Edit tab.");
     return true;
   }
-  if (isFabricStep(cell)) return runFabricStep(cell, nb);  // fabricstep.js: on Fabric Spark, not this PC
+  if (isFabricStep(cell)) {  // fabricstep.js: on Fabric Spark, not this PC
+    if (!nb.runningAll) dbgRemoteNote(nb, [cell]);
+    return runFabricStep(cell, nb);
+  }
   if (kernelBusy(nb) && cell.status !== "queued") {
     const other = nb.kernelStatus !== "busy" && [...openNotebooks.values()].find((o) => o.kernelStatus === "busy");
     if (other) toast(`A cell is running in ${other.name}. Notebooks share one kernel unless Run notebooks in their own process is on in Settings.`);
@@ -1720,10 +1727,14 @@ function cellFx(cell) {
     document.querySelector(`[data-cell="${cell.id}"] .cell-status > span`));
 }
 
-async function runCells(cells) {
+// `debug` (Debug from here, debugging.js): the first cell starts paused at its first line, and each
+// next one too unless the last command was Continue.
+async function runCells(cells, { debug = false } = {}) {
   const nb = state.notebook;
   const code = cells.filter((c) => c.type === "code" && c.source.trim() && !c.meta?.frozen);
   if (!(await fabricStepPrecheck(nb, code))) return;  // fabricstep.js: before any cell runs
+  if (!debug) dbgRemoteNote(nb, code);  // debugging.js: says so when breakpoints can't pause there
+  nb.dbgRun = debug && dbgOn() ? { mode: "step" } : null;
   nb.cancelRequested = false;
   const started = performance.now();
   const done = (ran) => {
@@ -1750,7 +1761,7 @@ async function runCells(cells) {
   nb.runningAll = true;
   try {
     for (const [i, cell] of code.entries()) {
-      const ok = await runCell(cell, { nb });  // goes on in nb's session if another notebook is opened
+      const ok = await runCell(cell, { nb, debug: dbgStepNext(nb) });  // goes on in nb's session if another notebook is opened
       if (!ok || nb.cancelRequested) {
         track?.stop();
         code.slice(i + 1).forEach((c) => { c.status = null; if (state.notebook === nb) updateResults(c); });
@@ -1770,6 +1781,7 @@ async function runCells(cells) {
     setKernel(nb.stopRequested ? "stopped" : "idle", nb);
   } finally {
     nb.runningAll = false;
+    nb.dbgRun = null;
     if (!forgeRun.result) ended("stopped", forgeRun.done);  // an error left the loop
   }
   done(code.length);

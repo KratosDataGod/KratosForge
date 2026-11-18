@@ -228,7 +228,7 @@ def test_which_calls_fail_closed():
                            ("pipeline_run_start", {"allow_uncontained": True}), ("git_delete_branch", {"force": True})):
         assert audit.fails_closed(method, params), method
     for method, params in (("sql_start", {"query": "x"}), ("sql_start", {"query": "x", "confirm": False, "confirm_name": ""}),
-                           ("xray_optimize", {"risk_id": ""}), ("save_notebook", {"name": "n"}), ("start_cell", {"code": "x"}),
+                           ("meta_run", {"risk_id": ""}), ("save_notebook", {"name": "n"}), ("start_cell", {"code": "x"}),
                            ("meta_run", {"env": "dev"}), ("meta_run", {"env": "production-copy"}),
                            ("sql_start", {"query": "x", "target": "lakehouse"}), ("sql_query_save", {"expect": "v3"}),
                            ("save_notebook", {"name": "prod"}), ("pipeline_run_start", {"unconfirmed": True})):

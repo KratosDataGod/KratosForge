@@ -128,7 +128,7 @@ Every call passes PermissionAuthorizer.check (integrations/permissions.py) befor
 | `fabric_desktop_start_pipeline_run` | `sidecar/fabric_desktop/integrations/services.py:296` | EXECUTE_LOCAL_CODE | yes | always |  |
 | `fabric_desktop_start_proof` | `sidecar/fabric_desktop/integrations/services.py:476` | MODIFY_FABRIC_ARTIFACTS | no (refused) | always |  |
 
-## 3. Engine methods that change something (415)
+## 3. Engine methods that change something (417)
 
 Reached only by the app window, over the engine's own pipe. "What it changes" and "Check" are found by reading the method and the methods it calls; "platform's check per operation" points at section 1.
 
@@ -326,6 +326,8 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `meta_delete_source_system` | `sidecar/fabric_desktop/meta_service.py:1048` | Fabric or OneLake | Fabric's own rights |
 | `meta_discard_quarantine` | `sidecar/fabric_desktop/dataops_service.py:292` | Fabric or OneLake | Fabric's own rights |
 | `meta_drift_apply` | `sidecar/fabric_desktop/dataops_service.py:201` | Fabric or OneLake | Fabric's own rights |
+| `meta_edit_impact` | `sidecar/fabric_desktop/meta_service.py:696` | this PC | the signed-in Windows user's own files |
+| `meta_impact` | `sidecar/fabric_desktop/meta_service.py:690` | this PC | the signed-in Windows user's own files |
 | `meta_init` | `sidecar/fabric_desktop/meta_service.py:215` | this PC | the signed-in Windows user's own files |
 | `meta_keys_sync` | `sidecar/fabric_desktop/meta_service.py:1053` | Fabric or OneLake | Fabric's own rights |
 | `meta_keys_to_lakehouse` | `sidecar/fabric_desktop/central/service.py:1508` | Fabric or OneLake | Fabric's own rights |

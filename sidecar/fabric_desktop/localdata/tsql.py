@@ -51,7 +51,7 @@ from sqlglot.helper import seq_get
 from sqlglot.tokens import Token, TokenType
 
 from ..sql import KfDuckDB
-from . import tsql_format, tsql_routines, tsql_types
+from . import tsql_format, tsql_routines, tsql_tables, tsql_types
 from .. import sql_dialects, tsql_clone
 
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
@@ -129,6 +129,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             notes += _likes(tree)
             _patindex(tree)
             notes += _json(tree)
+            tsql_tables.rewrite(tree)  # WR-227: before _gaps, which reads TOP ... WITH TIES
             _functions(tree)
             _gaps(tree)
             _string_edges(tree)
@@ -1499,6 +1500,8 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
         text = exp.TryCast(this=node.this, to=exp.DataType.build("VARCHAR"))
     if _is(source, _BITS):
         text = _bit_text(node.this)
+    if source is not None and (digits := _fraction_digits(source)) is not None:
+        text = _time_text(node.this, source, digits)
     if _is(source, _NUMBERS):
         # A float in T-SQL's style; a number written with a point (1.50) is a decimal there, and keeps its digits.
         shown = _float_text(node.this) if _is(source, _FLOATS) and not _written_decimal(node.this) else text
@@ -1510,6 +1513,31 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
     if to.this in _PADDED:
         cut = exp.func("RPAD", cut, exp.Literal.number(n), exp.Literal.string(" "))
     node.replace(cut)
+
+
+def _fraction_digits(source: exp.DataType | None) -> int | None:
+    """A datetime2(n) or time(n) with its n written: T-SQL shows n digits of a second as text, zeros too."""
+    if not (isinstance(source, exp.DataType) and source.this in (exp.DataType.Type.DATETIME2, exp.DataType.Type.TIME)
+            and source.expressions):
+        return None
+    size = source.expressions[0].this
+    return int(size.name) if isinstance(size, exp.Literal) and not size.is_string and size.name.isdigit() else None
+
+
+def _time_text(value: exp.Expression, source: exp.DataType, digits: int) -> exp.Expr:
+    """``CAST(x AS VARCHAR)`` of a datetime2(n) or time(n): its n digits of a second, as a Fabric Warehouse
+    answered in live run 11 (``2024-02-29 13:04:05.000000`` for a datetime2(6)), where DuckDB drops zeros."""
+    stamp: exp.Expression = value.copy()
+    shape = "%Y-%m-%d %H:%M:%S"
+    if source.this == exp.DataType.Type.TIME:
+        stamp = exp.Add(this=exp.cast(exp.Literal.string("1970-01-01"), "DATE"), expression=stamp)
+        shape = "%H:%M:%S"
+    whole = exp.Anonymous(this="STRFTIME", expressions=[stamp.copy(), exp.Literal.string(shape)])
+    if digits <= 0:
+        return whole
+    part = exp.func("LEFT", exp.Anonymous(this="STRFTIME", expressions=[stamp, exp.Literal.string("%f")]),
+                    exp.Literal.number(min(digits, 6)))
+    return exp.DPipe(this=exp.DPipe(this=whole, expression=exp.Literal.string(".")), expression=part)
 
 
 # The date styles whose values are checked against T-SQL's (WR-208); 0 is the default, as a CAST.
@@ -1758,19 +1786,29 @@ def _grouped_text(typed: exp.Expression) -> list[str]:
 
 
 def _like_padded(node: exp.Like) -> None:
-    """``x LIKE p`` ignores the trailing spaces of ``x`` in T-SQL (every character of ``p`` counts):
-    ``'abc  ' LIKE 'abc'`` is true, and so is ``'abc ' LIKE 'abc_'``. So it matches as written or
-    without them (WR-210)."""
+    """``x LIKE p`` ignores the trailing spaces of ``x`` in T-SQL, any number of them (every character of ``p``
+    counts): ``'abc  ' LIKE 'abc'``, ``'abc  ' LIKE 'abc_'`` and ``'abc  ' LIKE 'abc__'`` are all true, as a Fabric
+    Warehouse answered in live run 11. So it matches when ``x`` does with none, some or all of its trailing spaces
+    taken off (WR-210)."""
     if isinstance(node.this, exp.Literal) and node.this.is_string and not node.this.name.endswith(" "):
         return
     whole: exp.Expression = node.parent if isinstance(node.parent, exp.Escape) else node
-    negate = bool(node.args.get("negate"))  # x NOT LIKE p: neither form matches
+    negate = bool(node.args.get("negate"))  # x NOT LIKE p: no form matches
     node.set("negate", None)
-    trimmed = whole.copy()
-    like = trimmed.this if isinstance(trimmed, exp.Escape) else trimmed
-    like.set("this", _rtrim(like.this))
-    either: exp.Expression = exp.paren(exp.or_(whole.copy(), trimmed), copy=False)
-    whole.replace(exp.not_(either) if negate else either)
+    text = node.this
+    base = _rtrim(text.copy())
+    one = whole.copy()
+    like = one.this if isinstance(one, exp.Escape) else one
+    like.set("this", exp.DPipe(this=base.copy(), expression=exp.Anonymous(this="REPEAT", expressions=[
+        exp.Literal.string(" "), exp.cast(exp.column("kf_n"), "INT")])))
+    spaces = exp.Sub(this=exp.Anonymous(this="LENGTH", expressions=[text.copy()]),
+                     expression=exp.Anonymous(this="LENGTH", expressions=[base]))
+    counts = exp.Anonymous(this="RANGE", expressions=[exp.Literal.number(0), exp.Add(
+        this=spaces, expression=exp.Literal.number(1))])
+    tried = exp.Anonymous(this="LIST_TRANSFORM", expressions=[
+        counts, exp.Lambda(this=one, expressions=[exp.to_identifier("kf_n")])])
+    any_form: exp.Expression = exp.Anonymous(this="LIST_BOOL_OR", expressions=[tried])
+    whole.replace(exp.not_(any_form) if negate else any_form)
 
 
 def _rtrim(node: exp.Expr) -> exp.Expr:
@@ -2266,8 +2304,8 @@ def _with_ties(limit: exp.Limit) -> None:
     order = select.args.get("order") if isinstance(select, exp.Select) else None
     options = limit.args["limit_options"]
     if not isinstance(select, exp.Select) or order is None or options.args.get("percent") or select.args.get("distinct") or select.args.get("qualify"):
-        raise ValueError(_NOT_YET + "TOP ... WITH TIES runs here only with an ORDER BY and without PERCENT, "
-                         "DISTINCT or QUALIFY.")
+        raise ValueError(_NOT_YET + "TOP ... WITH TIES runs here only with an ORDER BY (as in T-SQL, which needs "
+                         "one) and without DISTINCT or QUALIFY.")
     rank = exp.Window(this=exp.Anonymous(this="RANK", expressions=[]), order=order.copy())
     select.set("limit", None)
     select.set("qualify", exp.Qualify(this=exp.LTE(this=rank, expression=limit.expression)))
@@ -2275,9 +2313,22 @@ def _with_ties(limit: exp.Limit) -> None:
 
 def _string_split(node: exp.Anonymous) -> None:
     """``STRING_SPLIT(text, separator)`` as a table of one ``value`` column, one row per part."""
+    if len(node.expressions) == 3:  # enable_ordinal (WR-227): 0 or NULL leave the ordinal column off, as in T-SQL
+        flag = node.expressions[2]
+        if isinstance(flag, exp.Null) or (isinstance(flag, exp.Literal) and not flag.is_string and flag.name == "0"):
+            node.set("expressions", node.expressions[:2])
+        elif isinstance(flag, exp.Literal) and not flag.is_string and flag.name == "1":
+            raise ValueError(_NOT_YET + "STRING_SPLIT with enable_ordinal 1 isn't mapped yet. Microsoft's page lists "
+                             "the ordinal column for Azure SQL and SQL Server, not for a Fabric Warehouse. Leave "
+                             "it out, or run it in a Fabric Warehouse to see whether it's there.")
+        else:
+            raise ValueError("STRING_SPLIT's enable_ordinal must be a constant 0 or 1, as in T-SQL.")
     if len(node.expressions) != 2:
-        raise ValueError(_NOT_YET + "STRING_SPLIT with enable_ordinal isn't mapped yet.")
+        raise ValueError("STRING_SPLIT takes text, a separator of one character and, optionally, enable_ordinal.")
     separator = node.expressions[1]
+    if isinstance(separator, exp.Null):
+        raise ValueError(_NOT_YET + "STRING_SPLIT with a NULL separator isn't mapped yet. Microsoft's page doesn't "
+                         "say what a warehouse returns. Give it a separator of one character.")
     if isinstance(separator, (exp.Literal, exp.National)) and len(separator.name) != 1:
         raise ValueError("STRING_SPLIT takes a separator of one character, as in T-SQL.")
     parts = exp.Unnest(expressions=[exp.func("STRING_SPLIT", *node.expressions)])

@@ -65,8 +65,10 @@ Spark SQL and the DataFrame API on this PC run with ANSI mode off (`spark.sql.an
 | A `CAST` of a number past the type's range | A whole number keeps its low bits, as Java's cast does: `CAST(2147483648 AS INT)` is -2147483648. A double past the range becomes the range's nearest end: `CAST(1e10 AS INT)` is 2147483647, and NaN is 0. Text past the range is NULL | Stops |
 | A division by zero (`/`, `div`, `%`) | NULL | Stops with `[DIVIDE_BY_ZERO]` |
 | `try_cast`, `try_divide` | NULL | NULL |
+| `try_divide` of decimals | A decimal, typed as `/` is: `decimal(23,13)` for two `decimal(10,2)` | The same |
+| A decimal `sum` or `avg` past its result type, `decimal(p + 10, s)` | NULL | Stops with `[ARITHMETIC_OVERFLOW] Overflow in sum of decimals` |
 
-`spark.conf.set("spark.sql.ansi.enabled", "true")` is kept for when the notebook runs in Fabric, and prints a note naming it: this PC still answers with ANSI mode off.
+`spark.conf.set("spark.sql.ansi.enabled", "true")` is kept for when the notebook runs in Fabric, and prints a note saying this PC still answers with ANSI mode off.
 
 These cases still differ:
 
@@ -76,8 +78,9 @@ These cases still differ:
 | `abs(-2147483648)` or `-(-2147483648)` on an int, with ANSI off | Wraps around: -2147483648 | 2147483648, a `bigint` |
 | A notebook in Databricks Runtime 17.0 or later, which runs Spark SQL with ANSI mode on | A failed `CAST` or a division by zero stops | Gives NULL, as with ANSI mode off. The first use of `dbutils` in a session prints a note saying so, since which runtime a notebook is meant for isn't known here. Run it as Databricks SQL on the DuckDB engine, or on Databricks |
 | `pmod(x, 0)` in Databricks SQL | Stops with `[DIVIDE_BY_ZERO]` | NULL |
-| A decimal sum past its type's range in Databricks SQL on the DuckDB engine | Stops (`[ARITHMETIC_OVERFLOW]`, ANSI on) | NULL, as with ANSI off |
-| `try_divide` of decimals | A decimal, typed as `/` is | A `double` |
+| A decimal `sum` or `avg` whose running total passes about 1.7 × 10^38 | NULL with ANSI off, `[ARITHMETIC_OVERFLOW]` with ANSI on | Stops with DuckDB's "Overflow in HUGEINT addition" |
+| On DuckDB 2.0 (not yet the version this PC installs): a decimal `sum` or `avg` of a `decimal(38, s)` column past its type | NULL with ANSI off, `[ARITHMETIC_OVERFLOW]` with ANSI on | Stops with DuckDB's "Overflow in SUM of DECIMAL" |
+| On DuckDB 2.0: `pmod(x, 0)` in Databricks SQL | Stops with `[DIVIDE_BY_ZERO]` | Stops with DuckDB's own division-by-zero error |
 
 ## Decimal results on this PC (LOC-005)
 
@@ -145,7 +148,7 @@ These cases still differ:
 | --- | --- | --- |
 | Rows that tie in a window's `ORDER BY`, for `row_number`, `lag`, `lead`, `first` and `last` | Any order | Any order, which can differ from Spark's. Add a column that tells them apart when the order matters |
 | A window given by name in a `WINDOW` clause | Checked as above | Not checked here: a missing `ORDER BY` or a frame isn't refused |
-| A DataFrame window function Spark stops on | Stops at the `select` | Stops at `.over(...)`, a line earlier |
+| A DataFrame window function Spark stops on | Stops at the `select` | Stops when `.over(...)` is called, before the `select` |
 | A DataFrame window with `rangeBetween` and numbers, such as `rangeBetween(-1, 0)` | Named after its frame as Spark writes it for the column's type | Named `... RANGE BETWEEN 1 PRECEDING AND CURRENT ROW`. Give it an `alias` |
 | `ntile(0)`, or `ntile` of a column | Stops with Spark's message | Stops with DuckDB's message |
 
@@ -255,6 +258,7 @@ When a project runs T-SQL on this PC, these date and time functions are checked 
 | `DATEFROMPARTS` | A date, an error for a day that doesn't exist (`2023, 2, 29`), `NULL` for a `NULL` part |
 | `FORMAT` | .NET's date formats in `en-US`, on a `date` or a date-and-time column |
 | `CONVERT` to text, styles 101, 103, 112, 120, 121, 126 | `02/29/2024`, `29/02/2024`, `20240229`, `2024-02-29 13:04:05`, `2024-02-29 13:04:05.123000`, `2024-02-29T13:04:05.123000`. A `date` gives only its date in 120, 121 and 126, and 126 leaves off a fraction of zero |
+| `CAST` of a `datetime2(n)` or `time(n)` to text | Its `n` digits of a second, zeros too: a `datetime2(6)` is `2024-02-29 13:04:05.000000`, as a Fabric Warehouse gave it in live run 11 |
 | `CONVERT` and `TRY_CONVERT` from text, the same styles | The date the style reads (`'29/02/2024'` with 103), to a `date`, `datetime` or `datetime2`. A date that doesn't exist is an error with `CONVERT` and `NULL` with `TRY_CONVERT`. Styles 120, 121 and 126 read ISO text with or without its time |
 
 What can still differ:
@@ -270,7 +274,8 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 | What | Here, as in a warehouse |
 | --- | --- |
 | `=`, `<>`, `<`, `IN`, `JOIN ... ON` | `'a' = 'a  '` is true and `'a' = 'A'` is false. Only spaces are taken off: `'a' = 'a' + NCHAR(160)` (a no-break space) is false |
-| `LIKE` | Case counts. The text's trailing spaces don't count, but the pattern's do: `'abc  ' LIKE 'abc'` is true, and `'abc' LIKE 'abc '` is false |
+| `LIKE` | Case counts. The text's trailing spaces don't count, any number of them, but the pattern's do: `'abc  ' LIKE 'abc'`, `'abc  ' LIKE 'abc_'` and `'abc  ' LIKE 'abc__'` are true, and `'abc' LIKE 'abc '` is false |
+| `CHARINDEX` with a `NULL` start | `NULL` |
 | `ORDER BY`, `STRING_AGG(...) WITHIN GROUP (ORDER BY ...)` | Code point order (`A`, `B`, `a`, `b`). `STRING_AGG` skips `NULL`s, and is `NULL` over no rows |
 | `LEN`, `DATALENGTH` | `LEN('ab  ')` is `2`, and `DATALENGTH('ab  ')` is `4`. `DATALENGTH` counts UTF-8 bytes (`'é'` is `2`) and two per character for `N'...'` |
 | `CHARINDEX`, `PATINDEX` | Case counts, and the answer is `0` when the text isn't found. A `CHARINDEX` start of 0 or below searches from the start, and an empty search text gives `0` |
@@ -285,10 +290,7 @@ What still differs:
 - Any other collation (`COLLATE Latin1_General_100_CI_AS_KS_WS_SC_UTF8`, `SQL_Latin1_General_CP1_CI_AS`) is refused by name. Compare `UPPER(...)` on both sides to ignore case.
 - `PATINDEX` needs its pattern written out as text, and is refused otherwise.
 
-These aren't checked against a warehouse yet, since T-SQL's reference doesn't say. The warehouse live check, flow 17 of the [smoke test](product/smoke-test/README.md#flow-17-the-warehouse-live-check), runs them, and each section's other cases, against a test warehouse:
-
-- `LIKE` with a wildcard where the text has trailing spaces. Here a match counts if the text matches as written, or with its trailing spaces removed. So `'abc  ' LIKE 'abc_'` is false, and `'abc  ' LIKE 'abc__'` is true.
-- `CHARINDEX` with a `NULL` start. Here the answer is `NULL`.
+T-SQL's reference doesn't give the answers for `LIKE` with a wildcard on text with trailing spaces, or `CHARINDEX` with a `NULL` start. A Fabric Warehouse gave the ones in the table above in live run 11 (2026-11-17), in the warehouse live check, flow 17 of the [smoke test](product/smoke-test/README.md#flow-17-the-warehouse-live-check).
 
 ## Regular expressions and text on this PC (LOC-002)
 
@@ -652,6 +654,7 @@ Refused by name: variables (`DECLARE`, `@x`, `@@ROWCOUNT`), `IF`, `WHILE`, `BEGI
 What can still differ:
 
 - In a warehouse, some run-time errors (dividing by zero, a value that doesn't convert) end only their own statement, and the batch goes on to the next one. Here the script stops at the first error, and the error says which statements didn't run.
+- Inside a transaction, a warehouse's error ends the whole transaction: in live run 11 a divide by zero in a batch inside `BEGIN TRAN` rolled back a table the transaction had made.
 - A script of only session options (`SET NOCOUNT ON`) has nothing to run here, and says so.
 
 ## Time travel in local T-SQL

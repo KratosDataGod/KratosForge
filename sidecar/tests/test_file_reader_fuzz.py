@@ -169,8 +169,17 @@ def test_a_title_above_the_header_is_kept_and_named_in_the_folders_issues(tmp_pa
     assert engine.execute("SELECT count(*) FROM dbo.report")["rows"] == [[4]]  # the blank line and a,b,c too
     issues = engine.project.refreshed[str(folder)]["issues"]
     assert [i["path"] for i in issues] == [str(folder / "report.csv")]
-    assert "The first 2 lines of this file don't look like the rest" in issues[0]["problem"]
-    assert "dbo.report keeps them" in issues[0]["problem"]
+    assert issues[0]["problem"] == ("The first 2 lines of this file don't look like the rest, so they are probably a "
+                                    "title or notes above the header. dbo.report keeps them as rows, so no line is "
+                                    "left out. Remove them from the file to read it with its header.")
+
+
+def test_one_line_above_the_header_is_named_in_the_singular():
+    from fabric_desktop.localdata import engine as eng
+    from fabric_desktop.localdata.discovery import Found
+    text = eng._lines_above_problem(1, Found(schema="dbo", table="t", format="csv", paths=["t.csv"]))
+    assert text.startswith("The first line of this file doesn't look like the rest, so it is probably")
+    assert "1 lines" not in text and "dbo.t keeps it as rows" in text
 
 
 def _mangle(r: random.Random, data: bytes) -> bytes:

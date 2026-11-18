@@ -586,10 +586,7 @@ class LocalEngine:
                 entry["columns"] = [{"name": r[0], "type": r[1]} for r in
                                     con.execute(f"DESCRIBE {q(table.schema)}.{q(table.table)}").fetchall()]
                 if table.format == "csv" and (above := _lines_above_the_rows(con, table.paths[0])):
-                    issues.append({"path": table.paths[0], "problem": (
-                        f"The first {above} lines of this file don't look like the rest (a title or notes above "
-                        f"the header?). {table.schema}.{table.table} keeps them as part of the table, so no line is left out; "
-                        "remove them from the file to read it with its header.")})
+                    issues.append({"path": table.paths[0], "problem": _lines_above_problem(above, table)})
             except Exception as exc:  # noqa: BLE001 - one unreadable file never stops the others
                 entry["status"], entry["error"] = "error", _short(exc)
                 con.execute(f"DROP VIEW IF EXISTS {q(table.schema)}.{q(table.table)}")
@@ -1545,6 +1542,14 @@ class LocalEngine:
 
 class QueryCancelled(RuntimeError):
     pass
+
+
+def _lines_above_problem(above: int, table: Found) -> str:
+    one = above == 1
+    lines, verb, it = ("line", "doesn't", "it") if one else (f"{above} lines", "don't", "them")
+    return (f"The first {lines} of this file {verb} look like the rest, so {'it is' if one else 'they are'} probably "
+            f"a title or notes above the header. {table.schema}.{table.table} keeps {it} as rows, so no line is left "
+            f"out. Remove {it} from the file to read it with its header.")
 
 
 def _lines_above_the_rows(con: duckdb.DuckDBPyConnection, path: str) -> int:

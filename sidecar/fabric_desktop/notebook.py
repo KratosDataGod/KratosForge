@@ -650,6 +650,9 @@ class Kernel:
         # Set before each cell (service._start_cell); asked before every write the cell makes, by
         # the cell's thread (lakehouse.cell_write_checks). None for the app's own cells.
         self.write_check: Any = None
+        # Set before each cell likewise: the workspaces the person typed the name of for that one run
+        # (lakehouse.cell_prod_context, by the cell's thread).
+        self.prod_allowed: frozenset[str] = frozenset()
         self._writes: Any = None
         self._current: _Run | None = None
         self._widget_lock = threading.Lock()
@@ -872,8 +875,8 @@ class Kernel:
     def frame_query_profile(self, frame: str) -> dict[str, Any]:
         return self.frames.query_profile(frame)
 
-    def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
-        return self.frames.download(frame, format, path)
+    def frame_download(self, frame: str, format: str, path: str, raw: bool = False) -> dict[str, Any]:  # noqa: A002 - RPC name
+        return self.frames.download(frame, format, path, raw=raw)
 
     def _display_html(self, html: str | bytes) -> None:
         """displayHTML(html), as Fabric and Databricks have: shown in the cell's sandboxed frame."""
@@ -970,6 +973,8 @@ class Kernel:
         if self.write_check is not None:
             from . import lakehouse
             lakehouse.cell_write_checks[run.thread] = self.write_check
+        from . import lakehouse as _lakehouse
+        _lakehouse.cell_prod_context[run.thread] = (run.notebook or "", self.prod_allowed)
         run.thread.start()
         return run.snapshot()
 
@@ -1102,6 +1107,9 @@ class Kernel:
             write_queue.cell_writes.stats = None
             out.targets.pop(ident, None)
             err.targets.pop(ident, None)
+            from . import lakehouse as _lakehouse
+            # Before the run says it finished: a write after it isn't this cell's (lakehouse.prod_refusal).
+            _lakehouse.cell_prod_context.pop(threading.current_thread(), None)
             with contextlib.suppress(Exception):
                 from . import spark_local
                 spark_local.watch_connections(ident, None)
@@ -2290,11 +2298,32 @@ def _preview(value: Any) -> str:
         if cols is not None:
             names = list(cols)
             return ", ".join(map(str, names[:6])) + (", ..." if len(names) > 6 else "")
+    kind = type(value)
+    if kind in (str, bytes, bytearray) and len(value) > _PREVIEW_ITEMS:
+        value = value[:_PREVIEW_ITEMS]  # repr of only what is shown: a long text isn't copied whole
+    elif kind in _CONTAINERS and len(value) > _PREVIEW_ITEMS:
+        # repr of only the first items: a list of millions isn't turned into text to show 80 characters
+        return _preview_items(value)
     try:
         text = repr(value)
     except Exception:  # noqa: BLE001  # silent-ok: repr() of a user's object failed; the preview shows ? instead
         return "?"
     return text if len(text) <= 80 else text[:77] + "..."
+
+
+_PREVIEW_ITEMS = 100  # past this many items or characters, a preview reads only the first ones
+
+
+def _preview_items(value: Any) -> str:
+    kind = type(value)
+    items = itertools.islice(value.items() if kind is dict else value, 20)
+    try:
+        inner = ", ".join(f"{k!r}: {v!r}" for k, v in items) if kind is dict else ", ".join(repr(v) for v in items)
+    except Exception:  # noqa: BLE001  # silent-ok: repr() of a user's object failed; the preview shows ? instead
+        return "?"
+    opener, closer = "()" if kind is tuple else "[]" if kind is list else "{}"
+    text = f"{opener}{inner}, ..."
+    return (text if len(text) <= 76 else text[:73] + "...") + closer
 
 
 # Storage: notebooks are standard .ipynb files with the attached lakehouse in metadata.

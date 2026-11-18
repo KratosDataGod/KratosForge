@@ -145,6 +145,7 @@ class ProcessKernel:
             "variable_libraries": variable_libraries or (lambda name: None),
             "write_guard": self._write_refusal,
             "maintenance_guard": _maintenance_refusal,
+            "prod_guard": self._prod_refusal,
             "proof_options": lambda: (self._proof_options or (lambda: {}))(),
             "schemas_enabled": _attached_schemas,
         }
@@ -160,6 +161,9 @@ class ProcessKernel:
         # Set before each cell (service._start_cell): asked before every write the cell makes, as for
         # a cell a paired VS Code window started (editor_service.py). None for the app's own cells.
         self.write_check: Callable[[str, str, str], str | None] | None = None
+        # Set before each cell (service._start_cell): the workspaces the person typed the name of for that one
+        # run, so its MERGE, UPDATE, DELETE, VACUUM or RESTORE there may go ahead (lakehouse.prod_guard).
+        self.prod_allowed: frozenset[str] = frozenset()
         self._lock = threading.Lock()  # one process at a time: starting, stopping
         self._proc: subprocess.Popen[str] | None = None
         self._tree: _Tree | None = None  # the process and everything its cells start
@@ -419,6 +423,13 @@ class ProcessKernel:
         check = self.write_check
         return reason or (check(name, schema, table) if check else None)
 
+    def _prod_refusal(self, operation: str, workspace_id: str, workspace_name: str, table: str) -> str | None:
+        """The engine's answer for a change this process's cell makes in a Prod-marked workspace."""
+        if str(workspace_id).lower() in self.prod_allowed:
+            return None
+        guard = lakehouse.prod_guard
+        return guard(operation, workspace_id, workspace_name, table, self.notebook_name) if guard else None
+
     def _sync_lakehouse(self) -> None:
         """Pass the engine's attached lakehouse (and whether tables are guarded) to the kernel."""
         a = lakehouse._attached
@@ -629,10 +640,11 @@ class ProcessKernel:
             raise FrameGone(GONE)
         return self._request("frame_wrangle", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, steps=steps, name=name)
 
-    def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
+    def frame_download(self, frame: str, format: str, path: str, raw: bool = False) -> dict[str, Any]:  # noqa: A002 - RPC name
         if not self.alive():
             raise FrameGone(GONE)
-        return self._request("frame_download", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, format=format, path=path)
+        return self._request("frame_download", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, format=format, path=path,
+                             **({"raw": True} if raw else {}))
 
     # ---- proofs (prove_service): the proof runtime lives where the cells run
 

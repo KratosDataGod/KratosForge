@@ -111,6 +111,7 @@ Spark SQL run on this PC gives Spark's values and types for its date and time fu
 | `trunc`, `date_trunc` | NULL for a unit the function doesn't take. `trunc` takes `YEAR`, `YYYY`, `YY`, `QUARTER`, `MONTH`, `MM`, `MON` and `WEEK`; `date_trunc` also takes `DAY`, `DD`, `HOUR`, `MINUTE`, `SECOND`, `MILLISECOND` and `MICROSECOND` |
 | `next_day` | Takes `MO`, `MON` or `MONDAY` and so on for each day, in any case. Any other text gives NULL |
 | `make_date`, `make_timestamp` | NULL for a day that doesn't exist, such as `make_date(2023, 2, 29)` |
+| `try_to_date` | Refused by name, and nothing runs. Spark 3.5 (Fabric Runtime 1.3) doesn't have it, so Fabric stops on it too. Use `to_date`, which gives NULL for text that isn't a date. Databricks SQL on this PC still runs it |
 
 Patterns that Spark refuses are refused here by name, and nothing runs: the week-based letters (`Y`, `w`, `W`, `u`, `e`, `c`), `F`, optional sections (`[ ]`), letters that aren't pattern letters, and the runs Spark stops on with "Too many pattern letters": five or more of `G`, `M`, `L`, `E`, `Q` or `q`, and seven or more `y`. These are refused too, because this PC can't give Spark's text for them:
 
@@ -280,6 +281,7 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 | `LEN`, `DATALENGTH` | `LEN('ab  ')` is `2`, and `DATALENGTH('ab  ')` is `4`. `DATALENGTH` counts UTF-8 bytes (`'é'` is `2`) and two per character for `N'...'` |
 | `CHARINDEX`, `PATINDEX` | Case counts, and the answer is `0` when the text isn't found. A `CHARINDEX` start of 0 or below searches from the start, and an empty search text gives `0` |
 | `CONCAT`, `CONCAT_WS`, `+` | `CONCAT` skips `NULL`, and `+` gives `NULL`. A number written with a point keeps its digits (`CONCAT('a', 1.50)` is `a1.50`), and a `bit` is `1` or `0` |
+| `N'...'` text | The same as `'...'` in comparisons, `LIKE` and `+`: `WHERE name = N'abc'` finds `'abc  '`, and `N'a' + N'b'` is `ab`. Only `DATALENGTH` counts it as nvarchar, two bytes a character, and only for an `N'...'` written directly inside it: `DATALENGTH(N'ab')` is `4`, but `DATALENGTH(N'a' + N'b')` is `2` here, where T-SQL gives `4` |
 | `TRIM`, `LTRIM`, `RTRIM`, `REPLACE` | Spaces only, or the characters you give. `REPLACE` matches case and leaves the text alone for an empty search |
 | `COLLATE` | A binary collation (`..._BIN2`, `..._BIN`) runs as written, since it's how text compares here already |
 
@@ -456,6 +458,43 @@ Fabric Warehouse has QUALIFY too, so there the rewrite is one way to run it, not
 
 Like the check above, it never runs the SQL or connects anywhere, and "compatible" is not proof that
 two platforms give the same answer. Comparing answers needs both runs.
+
+## Local T-SQL CTEs
+
+When a project runs T-SQL on this PC, common table expressions (`WITH ... AS`) run as in a Fabric Warehouse, and what a warehouse doesn't run is refused by name before anything runs. This was checked against Microsoft Learn's T-SQL surface area page for Fabric Data Warehouse, as it read on 2026-11-18.
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| Several CTEs in one `WITH` | Each sees the CTEs before it. A later CTE's name, used before it, is a table's name, as in T-SQL |
+| A column list, `WITH a (p, q) AS (...)` | Names the columns |
+| A CTE before `SELECT`, `INSERT`, `UPDATE ... FROM` and `DELETE ... WHERE` | Runs, and changes the table the statement names |
+| A `WITH` inside a CTE (a nested CTE) | Runs. A warehouse runs it as a preview feature, so the result's notes say so |
+| Two CTEs of one name | Stops with SQL Server's "Duplicate common table expression name 'a' was specified." |
+
+Refused by name:
+
+- A recursive CTE, one whose query names itself. A warehouse doesn't run recursive queries. It stops before it runs, so a CTE with no end can't run forever, and nothing changes. Unroll the levels you need with joins, or compute the hierarchy in a notebook.
+- `OPTION (MAXRECURSION n)`, which only limits a recursive CTE.
+- `WITH RECURSIVE`, which isn't T-SQL.
+- `UPDATE` or `DELETE` through a CTE (`WITH a AS (...) UPDATE a SET ...`). The local engine changes tables only, and Microsoft's page doesn't say whether a warehouse does. Name the table, and put the CTE's filter in `WHERE`.
+
+## Local T-SQL hints, labels and statistics
+
+When a project runs T-SQL on this PC, a hint, label or statistics statement either changes no rows and is left out of the run, with a note in the result that says so, or is refused by name. None is dropped without a note. This was checked against Microsoft Learn's Fabric Data Warehouse pages for the T-SQL surface area, query labels, statistics and transactions, and the Fabric section of Hints (Transact-SQL), as they read on 2026-11-18.
+
+| What | Here |
+| --- | --- |
+| `OPTION (LABEL = '...')` | Left out, with a note. A warehouse shows the label in query insights; it changes no rows |
+| `OPTION (...)` with `HASH GROUP`, `ORDER GROUP`, `MERGE UNION`, `HASH UNION`, `CONCAT UNION`, `FORCE ORDER`, `FORCE SINGLE NODE PLAN`, `FORCE DISTRIBUTED PLAN`, `DISABLE_RESULT_SET_CACHE`, or `USE HINT` with the four `ASSUME_..._FILTER_ESTIMATES` names | Left out, with a note. These are the hints Microsoft lists for a warehouse, and each changes how it plans, not the rows |
+| A `LOOP`, `HASH` or `MERGE` join hint in `FROM`, such as `INNER HASH JOIN` | Left out, with a note |
+| A locking table hint: `NOLOCK`, `READUNCOMMITTED`, `HOLDLOCK`, `TABLOCK`, `ROWLOCK`, `READPAST` and the others, also written `t (NOLOCK)` | Left out, with a note. A warehouse always runs snapshot isolation, and reads here are snapshot reads too, so the hint changes no rows. Microsoft's pages don't say whether a warehouse takes it |
+| `CREATE STATISTICS s ON t (c)`, `UPDATE STATISTICS t [(s)]`, `DROP STATISTICS t.s`, with `WITH FULLSCAN` or `SAMPLE n PERCENT` | Changes nothing, with a note. It checks that the table (and for `CREATE`, the column) exist, so a name that isn't there is an error as in a warehouse. `DROP` doesn't check the statistic itself |
+
+Refused by name:
+
+- Any other query hint, such as `MAXDOP`, `RECOMPILE`, `LOOP JOIN`, `FAST n` or another `USE HINT` name, since Microsoft doesn't list it for a warehouse. A `REMOTE` join hint in `FROM` is refused for the same reason. `MAXRECURSION` is refused with recursive CTEs.
+- Index hints (`INDEX(...)`, `FORCESEEK`, `FORCESCAN`, `NOEXPAND`), because a warehouse has no indexes to name.
+- A statistic on more than one column, which a warehouse refuses too, filtered statistics (`WHERE`), and statistics options other than `FULLSCAN` and `SAMPLE`.
 
 ## Local T-SQL tables
 
@@ -723,19 +762,9 @@ Besides the hand-picked cases above, three tests generate queries from a fixed s
 
 A different answer, or an error where the target answers, fails these tests unless it is named in the test's `KNOWN` list. An entry that no case needs any more fails too, so each list is what still differs. Today they are:
 
+Fixed since the first run, each with a test named after its case in `sidecar/tests/test_spark_differential_fixes.py` and `test_spark_string_edges.py`: `substring` with a negative length, `overlay` before the first character, `locate` on NULL text, `levenshtein` on text outside ASCII (characters are counted, as in Spark, and a third argument is Spark's threshold), `bit_count` of a negative `int` (64 bits), `pmod(x, 0.0D)` inside another `pmod`, `a div b` of decimals in the SQL editor, `isnan(NULL)` (false), `to_date` and `CAST(... AS DATE)` of text (Spark's reading: a year of 4 to 7 digits, so `'24-02-29'` is NULL), `date_format` past year 9999 (a leading `+`), `ceil` and `floor` of a double or a whole number (a `bigint`, as in Spark, so `CAST(ceil(1.0E3D) AS STRING)` is `1000`), and `shiftleft`/`shiftright` (Java's rules: the count mod 32 for an `int`, mod 64 for a `bigint`). A shift whose value isn't an `int` literal is typed `bigint` here when the value's type is only known as the query runs.
+
 | Engine | What differs here | How |
 | --- | --- | --- |
-| Spark SQL | `substring(s, pos, len)` with a negative `len` | Spark gives `''`. Here it counts back from `pos`: `substring('Hello World', -1, -6)` is `o Worl` |
-| Spark SQL | `overlay(... FROM pos)` with `pos` of 0 or below | Spark keeps its own substring rules: `overlay('abc' PLACING ',' FROM 0)` is `,abc`. Here it is `ab,abc` |
-| Spark SQL | `levenshtein` on text that isn't ASCII | Spark counts characters, here bytes |
-| Spark SQL | `locate(sub, NULL, pos)` with `pos` below 1 | Spark gives NULL, here 0 |
-| Spark SQL | `bit_count` of a negative `int` | Spark counts 64 bits (-1 gives 64), here 32 |
-| Spark SQL | `a div b` when `a` is a decimal (`floor(-1.25) div 7`) | Spark gives a whole number, here a double division |
-| Spark SQL | `isnan(NULL)` | Spark gives false, here NULL |
-| Spark SQL | `to_date('24-02-29')` | Spark gives NULL (a year needs 4 digits), here the year 24 |
-| Spark SQL | `date_format` of a year past 9999 | Spark writes a leading `+` (`+8535706`). Here there is none (`8535706`) |
-| Spark SQL | `initcap`, `trunc(date, 'MM')` and its other formats, `make_date` with a day that doesn't exist, `sqrt` of a negative number, `shiftleft`/`shiftright` of a negative number or by a negative count, `soundex` of a cast, `CAST` of text past a date's range | These stop here with an error, where Spark answers. On DuckDB 2.0 (not yet the version this PC installs), `sqrt` of a negative number and the `CAST` answer as Spark does, but `sign` of that `sqrt`'s NaN is 0.0 where Spark gives NaN |
+| Spark SQL | `initcap`, `trunc(date, 'MM')` and its other formats, `make_date` with a day that doesn't exist, `sqrt` of a negative number, `soundex` of a cast, `date_add` by about 2^31 days (past DuckDB's timestamp range) | These stop here with an error, where Spark answers. On DuckDB 2.0 (not yet the version this PC installs), `sqrt` of a negative number answers as Spark does, but `sign` of that `sqrt`'s NaN is 0.0 where Spark gives NaN |
 | Spark SQL | `split_part(s, d, 0)` | Refused by name before the query runs; Spark stops only when the call is reached |
-| T-SQL | `N'...'` text in `=`, `<`, `LIKE` and `+` | Trailing spaces count, `[a-c]` ranges don't match, and `N'a' + N'b'` stops. The same text without `N` answers as T-SQL does |
-| Snowflake | `POSITION` and `CHARINDEX` with an empty search text and a start past the end | Snowflake gives 0, here the start |
-| Snowflake | `LPAD` and `RPAD` with an empty pad | Stops with "Insufficient padding", where Snowflake truncates |

@@ -91,6 +91,7 @@ const PREVIEW_FEATURES = {
   lineage: "Column lineage",
   rollback: "Roll back a release",
   promote: "Promote",
+  deltaPerTable: "Delta table features at publish",
   createWorkspace: "Create workspace",
   syncKeys: "Sync keys",
   varlib: "Variable library",

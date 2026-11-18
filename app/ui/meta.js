@@ -603,6 +603,8 @@ function keysCard(e) {
 
 // opts.danger: the action deletes or overwrites data, so it is drawn red and Cancel has focus (UX-018).
 // opts.typeToConfirm: the action stays off until exactly this text is typed, for the worst overwrites.
+// opts.typeLabel says what to type when "Type <text> to confirm" isn't the right words.
+// opts.items: a list under the text, such as the reasons for the confirm.
 // opts.reason: { label, placeholder, max } asks why in a required box; the dialog then resolves with
 // the trimmed text instead of true.
 // Escape, the close button and a click outside count as Cancel.
@@ -622,12 +624,12 @@ function confirmDialog(title, text, okLabel = "OK", opts = {}) {
     }
     if (opts.typeToConfirm) {
       ok.disabled = true;
-      typed = h("label", { class: "field" }, `Type ${opts.typeToConfirm} to confirm`,
+      typed = h("label", { class: "field" }, opts.typeLabel || `Type ${opts.typeToConfirm} to confirm`,
         h("input", { autocomplete: "off", spellcheck: "false",
           oninput: (e) => { ok.disabled = e.target.value.trim() !== opts.typeToConfirm; },
           onkeydown: (e) => { if (e.key === "Enter" && !ok.disabled) done(true); } }));
     }
-    showDialog(title, h("div", {}, h("p", { class: "text" }, text), typed), [cancel, ok],
+    showDialog(title, h("div", {}, h("p", { class: "text" }, text), opts.items?.length ? gateList(opts.items) : null, typed), [cancel, ok],
       () => { if (!settled) { settled = true; resolve(false); } });
     if (opts.danger && (!typed || why)) cancel.focus();
   });
@@ -956,7 +958,71 @@ async function renderEnvTab(body, p) {
       box, promoteImpact(source, target), lastRelease(target, render));
   };
   body.replaceChildren(h("div", { class: "env-cards" }, ["dev", "test", "prod"].map(card)),
-    promoteRow("dev", "test"), promoteRow("test", "prod"));
+    promoteRow("dev", "test"), promoteRow("test", "prod"), deltaFeaturesCard(p));
+}
+
+// ---------- Delta table features at publish (Preview) ----------
+
+// Each table's delta_features, as the engine names them (delta_profile.TABLE_CHOICES); "" is no setting,
+// which is the modern profile.
+const DELTA_CHOICES = [
+  ["", "Default: deletion vectors and column mapping (modern)"],
+  ["every_reader", "Every reader (recommended)"],
+  ["deletion_vectors", "Allow deletion vectors only"],
+  ["column_mapping", "Allow column mapping by name only"],
+];
+
+function deltaFeaturesCard(p) {
+  if (!previewShown()) return null;
+  const tables = (p.entities || []).filter((e) => e.delta);
+  return h("div", { class: "card pad" },
+    previewMarked("deltaPerTable", h("b", {}, "Delta table features at publish")),
+    h("p", { class: "muted-text" }, "A run that publishes a table to OneLake keeps only the Delta features you allow here. "
+      + "When a table already uses a feature you didn't allow, the run refuses it and writes nothing, so change the setting first."),
+    tables.length ? h("div", { class: "delta-tables" }, tables.map((e) => deltaFeaturesRow(e)))
+      : h("p", { class: "muted-text" }, "This project has no tables yet. Add an entity to choose its features."));
+}
+
+function deltaFeaturesRow(e) {
+  const note = h("div");
+  const current = e.delta.features || "";
+  const select = h("select", { onchange: () => chooseDeltaFeatures(e, select, note) },
+    DELTA_CHOICES.map(([value, label]) => h("option", { value, selected: value === current ? true : null }, label)));
+  return h("div", { class: "row wrap" },
+    h("span", { class: "mono grow" }, e.name),
+    h("label", { class: "field" }, "Delta table features at publish", select),
+    h("span", { class: "muted-text small" }, `Checked against ${e.delta.reader_names.join(" and ")}.`),
+    e.delta.problems?.length ? deltaRefusedNote(e.delta.problems[0]) : null,
+    note);
+}
+
+// Saves a table's choice. A choice one of its readers can't read asks for its full name first, and
+// the engine refuses it without that name (delta_profile.confirm_choice).
+async function chooseDeltaFeatures(e, select, note) {
+  const choice = select.value;
+  const reasons = e.delta.reasons[choice || "default"] || [];
+  let confirmName = null;
+  if (reasons.length) {
+    const ok = await confirmDialog(`Allow this on ${e.name}?`,
+      `This choice lets ${e.name} use a Delta feature that one of its readers can't read.`, "Allow it",
+      { danger: true, typeToConfirm: e.name, typeLabel: `Type ${e.name} to allow it`, items: reasons });
+    if (!ok) { select.value = e.delta.features || ""; return; }
+    confirmName = e.name;
+  }
+  try {
+    const res = await rpc("meta_set_delta_features", { name: e.name, delta_features: choice || null, confirm_name: confirmName });
+    state.meta.project = res;
+    e.delta = (res.entities || []).find((x) => x.name === e.name)?.delta || e.delta;
+    note.replaceChildren();
+    toast(`Saved. Runs that publish ${e.name} now use this choice.`);
+  } catch (err) {
+    select.value = e.delta.features || "";
+    note.replaceChildren(deltaRefusedNote(friendlyError(err).text));
+  }
+}
+
+function deltaRefusedNote(text) {
+  return h("div", { class: "problems" }, h("p", {}, text), docLink("delta-reader-matrix.md#each-tables-own-choice-preview", "See the reader matrix"));
 }
 
 // This PC or Fabric runs the environment's entities. Fabric can only reach tables in OneLake.

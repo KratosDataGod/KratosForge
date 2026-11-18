@@ -364,10 +364,18 @@ class DuckDBSession(_SqlSession):
         try:
             # Spark's (and Databricks') decimal result types, from the session's tables as they are now: a
             # table the same cell creates isn't there yet, so a statement reading it keeps DuckDB's types
-            return ";\n".join(sql.duckdb_sql(spark_decimal_types(s, self._con, ansi=dialect == "databricks"))
-                               for s in statements)
+            return ";\n".join(sql.duckdb_sql(self._spark_types(spark_decimal_types(s, self._con, ansi=dialect == "databricks"),
+                                                            dialect)) for s in statements)
         except ValueError as exc:
             raise Unsupported(_databricks_wording(str(exc)) if dialect == "databricks" else str(exc)) from None
+
+    def _spark_types(self, statement: Any, dialect: str) -> Any:
+        """Spark SQL's to_json, written from its argument's type as Spark writes it (spark_json). Databricks
+        SQL keeps DuckDB's to_json, as listed in docs/sql-compatibility.md."""
+        if dialect == "databricks":
+            return statement
+        from ..spark_complex import spark_complex_types
+        return spark_complex_types(statement, self._con, kinds=("to_json",))
 
     def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
         if request.dialect == "snowflake":   # translated first, so even a refused cell shows its label

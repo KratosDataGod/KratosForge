@@ -451,7 +451,9 @@ def _format_number(places: int) -> str:
     123456789012345678 was written 123,456,789,012,345,680); a decimal rounds half-even, as Spark's BigDecimal
     does, and keeps a - when it rounds to 0 (-0.4 is -0). Doubles are formatted as they are."""
     zeros = f" || '.{'0' * places}'" if places else ""
-    rounded = f"CAST(({_bround(places).replace('{0}', '{{0}}')}) AS DECIMAL(38, {places}))".replace("{{0}}", "{0}")
+    # + 0.0 makes a whole number a decimal before it is scaled: DuckDB 2 works out this branch for an integer
+    # constant too, and an INT64 times 10^d could overflow there.
+    rounded = f"CAST(({_bround(places)}) AS DECIMAL(38, {places}))".replace("{0}", "({0} + 0.0)")
     whole = f"SPLIT_PART(CAST({rounded} AS VARCHAR), '.', 1)"
     fraction = f" || '.' || SPLIT_PART(CAST({rounded} AS VARCHAR), '.', 2)" if places else ""
     exact = (f"(CASE WHEN {{0}} < 0 AND CAST({whole} AS HUGEINT) = 0 THEN '-' ELSE '' END) || "

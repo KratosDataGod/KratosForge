@@ -280,6 +280,18 @@ def with_overrides(select: str, overrides: dict[str, str]) -> str:
 _log = logging.getLogger(__name__)
 
 
+def _lost_to_another_writer(exc: BaseException) -> bool:
+    """True for delta-rs's refusal to commit over another writer's commit (CommitFailedError)."""
+    from deltalake.exceptions import CommitFailedError
+    return isinstance(exc, CommitFailedError)
+
+
+def _conflict(name: str) -> str:
+    return (f"Changing {name} failed, and nothing was committed: another writer changed {name} after this statement "
+            "read it, and the first to commit wins (a write-write conflict, which a Fabric Warehouse reports as error "
+            f"24556). {name} now shows that writer's change. Run the statement again.")
+
+
 def _remove_leftover_spill(folder: Path) -> None:
     """Delete DuckDB temp files a crashed engine left in the project's tmp folder: DuckDB removes them
     only when the query that wrote them ends, and never on the next open. Called once this process
@@ -1275,6 +1287,11 @@ class LocalEngine:
             if isinstance(exc, (ValueError, duckdb.Error, KeyboardInterrupt)):
                 raise
             committed = not dry_run and _committed(folder, before, query_id)
+            if not committed and _lost_to_another_writer(exc):
+                # WR-232: as a warehouse's snapshot isolation does, the first to commit wins. Read the table again,
+                # so what runs next sees the winner's change, not the version this statement started from.
+                self._register_own(con, entry["schema"], entry["table"], folder)
+                raise ValueError(_conflict(name)) from None
             raise ValueError(f"Changing {name} failed{'' if committed else ', and nothing was committed'}: "
                              f"{_short(exc).split(' Detail: Python exception')[0]}") from None
         finally:

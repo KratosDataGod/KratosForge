@@ -2460,22 +2460,43 @@ def _repeat_count(node: exp.Repeat | exp.Space) -> None:
     """``REPLICATE``'s or ``SPACE``'s count as T-SQL takes it (see _string_edges)."""
     key = "times" if isinstance(node, exp.Repeat) else "this"
     count = node.args.get(key)
-    if count is None or _whole(count, 0):
+    if count is None:
+        return
+    if _whole(count, 0):
+        _in_int(int(count.name))  # REPLICATE('a', 3000000000) is T-SQL's overflow error, not 3 GB of text
         return
     value = _number(count)
     if value is not None and math.isfinite(value) and int(value) >= 0:  # 1.7 is 1 and -0.5 is 0: toward zero, as T-SQL makes it an int
-        node.set(key, exp.Literal.number(int(value)))
+        node.set(key, exp.Literal.number(_in_int(int(value))))
         return
     # The count is read once, through a lambda, so REPLICATE(s, RAND() * 6 - 3) checks and repeats the same value.
-    v = exp.to_identifier("kf_count")
+    v = exp.to_identifier(_COUNT)
     node.set(key, exp.column(v.copy()))
     negative = exp.LT(this=exp.column(v.copy()), expression=exp.Literal.number(0))
-    case = exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy())
+    case = exp.Case(ifs=[_past_int(v), exp.If(this=negative, true=exp.null())], default=node.copy())
     bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[_int_of(count)]), exp.Lambda(this=case, expressions=[v]))
     node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))
 
 
-_INT_TEXT = re.compile(r"\s*[+-]?[0-9]+\s*")
+_INT_TEXT = re.compile(r"\s*([+-]?[0-9]+)?\s*")  # '' and spaces alone are 0, as T-SQL converts them
+_INT_MIN, _INT_MAX = -2 ** 31, 2 ** 31 - 1
+_OVERFLOW = "Arithmetic overflow error converting expression to data type int."
+# The lambdas' names: a column of the query with one of these names would be hidden inside them.
+_COUNT, _CODE = "kf_tsql_count_", "kf_tsql_code_"
+
+
+def _in_int(value: int) -> int:
+    """``value``, or T-SQL's overflow error when an int can't hold it."""
+    if not _INT_MIN <= value <= _INT_MAX:
+        raise ValueError(f"This T-SQL can't be run on the local engine: {_OVERFLOW} T-SQL gives the same error.")
+    return value
+
+
+def _past_int(v: exp.Identifier) -> exp.If:
+    """The CASE branch that stops with T-SQL's overflow error when the lambda's value ``v`` is past an int."""
+    outside = exp.Not(this=exp.Between(this=exp.column(v.copy()), low=exp.Literal.number(_INT_MIN),
+                                       high=exp.Literal.number(_INT_MAX)))
+    return exp.If(this=outside, true=exp.func("ERROR", exp.Literal.string(_OVERFLOW)))
 
 
 def _int_of(value: exp.Expression) -> exp.Expression:
@@ -2487,13 +2508,15 @@ def _int_of(value: exp.Expression) -> exp.Expression:
         if not _INT_TEXT.fullmatch(value.name):
             raise ValueError(f"This T-SQL can't be run on the local engine: Conversion failed when converting the "
                              f"varchar value '{value.name}' to data type int. T-SQL gives the same error.")
-        return exp.Literal.number(int(value.name))
+        return exp.Literal.number(_in_int(int(value.name.strip() or "0")))
     text = exp.cast(value.copy(), "VARCHAR")
     message = exp.DPipe(this=exp.DPipe(this=exp.Literal.string("Conversion failed when converting the varchar value '"),
                                        expression=text.copy()),
                         expression=exp.Literal.string("' to data type int."))
     strict = exp.Case(ifs=[exp.If(this=exp.func("REGEXP_FULL_MATCH", text.copy(), exp.Literal.string(_INT_TEXT.pattern)),
-                                  true=exp.cast(exp.func("TRIM", text.copy()), "BIGINT"))],
+                                  true=exp.cast(exp.func("COALESCE", exp.Nullif(this=exp.func("TRIM", text.copy()),
+                                                                                expression=exp.Literal.string("")),
+                                                         exp.Literal.string("0")), "BIGINT"))],
                       default=exp.func("ERROR", message))
     is_text = exp.EQ(this=exp.func("TYPEOF", value.copy()), expression=exp.Literal.string("VARCHAR"))
     cut = exp.cast(exp.Trunc(this=exp.cast(text.copy(), "DOUBLE")), "BIGINT")
@@ -2518,14 +2541,15 @@ def _char_codes(tree: exp.Expression) -> None:
         code = node.expressions[0]
         value = _number(code)
         if value is not None and math.isfinite(value):
-            whole = int(value)
+            whole = _in_int(int(value))
             node.replace(exp.Chr(expressions=[exp.Literal.number(whole)]) if 0 <= whole <= 255
                          else exp.cast(exp.null(), "TEXT"))
             continue
         # The code is read once, through a lambda, so CHAR(RAND() * 300) checks and converts the same value.
-        v = exp.to_identifier("kf_code")
+        v = exp.to_identifier(_CODE)
         inside = exp.Between(this=exp.column(v.copy()), low=exp.Literal.number(0), high=exp.Literal.number(255))
-        case = exp.Case(ifs=[exp.If(this=inside, true=exp.Chr(expressions=[exp.cast(exp.column(v.copy()), "INT")]))])
+        case = exp.Case(ifs=[_past_int(v),
+                             exp.If(this=inside, true=exp.Chr(expressions=[exp.cast(exp.column(v.copy()), "INT")]))])
         bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[_int_of(code)]),
                          exp.Lambda(this=case, expressions=[v]))
         node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))

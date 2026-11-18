@@ -236,6 +236,10 @@ def test_cases_are_seeded_and_cover_every_family() -> None:
     ("(SELECT CHAR(c) FROM (VALUES ('66')) AS t(c))", "B"),
     ("(SELECT REPLICATE('ab', c) FROM (VALUES ('2')) AS t(c))", "abab"),
     ("(SELECT SPACE(c) + '|' FROM (VALUES ('1')) AS t(c))", " |"),
+    # '' and spaces alone convert to 0 (CAST('' AS INT) is 0 in T-SQL)
+    ("REPLICATE('ab', '') + '|'", "|"), ("SPACE('  ') + '|'", "|"), ("ASCII(CHAR(''))", 0),
+    ("(SELECT REPLICATE('ab', c) + '|' FROM (VALUES ('')) AS t(c))", "|"),
+    ("CHAR(-2147483648)", None), ("REPLICATE('a', 2147483647 - 2147483647)", ""),
 ])
 def test_text_codes_and_counts_are_made_ints_as_tsql_does(engine, expression: str, want: object) -> None:
     assert engine.execute(f"SELECT {expression} AS v", dialect="tsql")["rows"][0][0] == want
@@ -243,10 +247,13 @@ def test_text_codes_and_counts_are_made_ints_as_tsql_does(engine, expression: st
 
 @pytest.mark.parametrize("expression", [
     "CHAR('6.5')", "REPLICATE('a', '2.5')", "(SELECT CHAR(c) FROM (VALUES ('6.5')) AS t(c))",
-    "(SELECT SPACE(c) FROM (VALUES ('x')) AS t(c))", "SPACE(1e400)",
+    "(SELECT SPACE(c) FROM (VALUES ('x')) AS t(c))", "SPACE(1e400)", "CHAR('+')",
+    # past an int: T-SQL's overflow error, and never a 3 GB string
+    "CHAR('9999999999')", "CHAR(1e10)", "CHAR(-2147483649)", "REPLICATE('a', 3000000000)", "SPACE(2147483648)",
+    "(SELECT CHAR(c) FROM (VALUES ('9999999999')) AS t(c))", "(SELECT REPLICATE('a', c) FROM (VALUES (3000000000)) AS t(c))",
 ])
 def test_text_that_is_not_a_whole_number_stops_as_in_tsql(engine, expression: str) -> None:
     # T-SQL: "Conversion failed when converting the varchar value '6.5' to data type int."; a float too
     # large for an int is an overflow there.
-    with pytest.raises(Exception, match=r"Conversion failed when converting the varchar value|out of range"):
+    with pytest.raises(Exception, match=r"Conversion failed when converting the varchar value|out of range|Arithmetic overflow"):
         engine.execute(f"SELECT {expression} AS v", dialect="tsql")

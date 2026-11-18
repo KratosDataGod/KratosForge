@@ -6,7 +6,8 @@ This check runs each listed case three ways and records all three answers:
 
 - **local**: what the local engine gives, worked out on this PC in a throwaway project;
 - **documented**: what the docs (and T-SQL's reference behind them) say a warehouse gives, or nothing
-  when the reference doesn't say (``basis="unverified"``);
+  when the reference doesn't say (``basis="unverified"``). A case a live run settled has
+  ``basis="live run"``: its documented answer is the one a test warehouse gave;
 - **warehouse**: what the test warehouse gives.
 
 It is flow 17 of the smoke test (``smoke-test --warehouse <id>``), so it runs only with Run 11's
@@ -20,7 +21,8 @@ go, on the marked test workspace. Safety, in order:
    ``fdlt_<run id>``, and only CREATE TABLE or VIEW, INSERT, UPDATE, DELETE, ALTER TABLE and DROP
    are allowed. One case that breaks this stops the whole check before it connects.
 3. The scratch schema is the only thing it creates. Each case runs in a transaction that is rolled
-   back, and at the end whatever is left in the schema, and the schema itself, is dropped and
+   back (a case about a batch outside a transaction, ``autocommit``, runs without one and leaves its
+   scratch tables for the end), and at the end whatever is left in the schema, and the schema itself, is dropped and
    checked gone.
 
 ``dry_run`` works out the local answers and lists the SQL each case would send, connecting nowhere.
@@ -64,9 +66,10 @@ class Case:
     title: str
     query: str
     documented: str | None
-    basis: str = "reference"  # reference: from T-SQL's reference; unverified: the reference doesn't say
+    basis: str = "reference"  # reference: T-SQL's reference; unverified: it doesn't say; live run: a warehouse's
     setup: tuple[str, ...] = ()
     statements: tuple[str, ...] = ()
+    autocommit: bool = False  # run outside a transaction: an error in one dooms a warehouse's whole transaction
 
 
 CASES: tuple[Case, ...] = (
@@ -88,8 +91,9 @@ CASES: tuple[Case, ...] = (
          "2024-02-29 13:04:05.123000"),
     Case("DT-04", "WR-207", "dates", "CONVERT style 104 (not checked locally)",
          "SELECT CONVERT(VARCHAR(10), CAST('2024-02-29' AS DATE), 104)", "29.02.2024"),
-    Case("DT-05", "WR-207", "dates", "CAST of a datetime2 to text with no style",
-         "SELECT CAST(CAST('2024-02-29 13:04:05' AS DATETIME2(6)) AS VARCHAR(30))", None, "unverified"),
+    Case("DT-05", "WR-207", "dates", "CAST of a datetime2(6) to text keeps its 6 digits of a second",
+         "SELECT CAST(CAST('2024-02-29 13:04:05' AS DATETIME2(6)) AS VARCHAR(30))", "2024-02-29 13:04:05.000000",
+         "live run"),
     # WR-209 ordering and window functions
     Case("ORD-01", "WR-209", "ordering", "PERCENTILE_CONT of a decimal is a float",
          "SELECT TOP 1 PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY v) OVER () "
@@ -106,11 +110,11 @@ CASES: tuple[Case, ...] = (
     Case("TXT-02", "WR-210", "text", "LEN leaves out trailing spaces, DATALENGTH doesn't",
          "SELECT CONCAT(LEN('ab  '), '/', DATALENGTH('ab  '))", "2/4"),
     Case("TXT-03", "WR-210", "text", "LIKE with _ on text with trailing spaces",
-         "SELECT CASE WHEN 'abc  ' LIKE 'abc_' THEN 1 ELSE 0 END", None, "unverified"),
+         "SELECT CASE WHEN 'abc  ' LIKE 'abc_' THEN 1 ELSE 0 END", "1", "live run"),
     Case("TXT-04", "WR-210", "text", "LIKE with __ on text with trailing spaces",
-         "SELECT CASE WHEN 'abc  ' LIKE 'abc__' THEN 1 ELSE 0 END", None, "unverified"),
+         "SELECT CASE WHEN 'abc  ' LIKE 'abc__' THEN 1 ELSE 0 END", "1", "live run"),
     Case("TXT-05", "WR-210", "text", "CHARINDEX with a NULL start",
-         "SELECT CHARINDEX('b', 'abc', NULL)", None, "unverified"),
+         "SELECT CHARINDEX('b', 'abc', NULL)", "NULL", "live run"),
     Case("TXT-06", "WR-210", "text", "GROUP BY counts 'a' and 'a  ' as one value (differs locally)",
          "SELECT COUNT(*) FROM (SELECT v FROM {s}.g GROUP BY v) AS x", "1",
          setup=("CREATE TABLE {s}.g (v VARCHAR(5))",), statements=("INSERT INTO {s}.g VALUES ('a'), ('a  ')",)),
@@ -147,7 +151,8 @@ CASES: tuple[Case, ...] = (
     Case("SCR-01", "WR-214", "scripts", "A divide by zero ends its statement, and the batch goes on (differs locally)",
          "SELECT COUNT(*) FROM {s}.sc", "2",
          setup=("CREATE TABLE {s}.sc (id INT)",),
-         statements=("INSERT INTO {s}.sc VALUES (1); SELECT 1 / 0; INSERT INTO {s}.sc VALUES (2)",)),
+         statements=("INSERT INTO {s}.sc VALUES (1); SELECT 1 / 0; INSERT INTO {s}.sc VALUES (2)",),
+         autocommit=True),
     # WR-216 views
     Case("VW-01", "WR-216", "views", "A SELECT * view keeps its columns after one is added (differs locally)",
          "SELECT b FROM {s}.vv", "error: Invalid column name",
@@ -155,7 +160,27 @@ CASES: tuple[Case, ...] = (
          statements=("ALTER TABLE {s}.vt ADD b INT", "INSERT INTO {s}.vt VALUES (1, 2)")),
     # WR-217 session settings
     Case("SET-01", "WR-217", "settings", "A warehouse's DATEFIRST is 7", "SELECT @@DATEFIRST", "7"),
-    Case("SET-02", "WR-217", "settings", "ANSI_NULLS is on", "SELECT CAST(SESSIONPROPERTY('ANSI_NULLS') AS INT)", "1"),
+    Case("SET-02", "WR-217", "settings", "ANSI_NULLS is on: NULL = NULL isn't true",
+         "SELECT CASE WHEN NULL = NULL THEN 1 ELSE 0 END", "0"),
+    # WR-229 formatting: .NET's answers; the unverified ones are refused locally until a live run gives them
+    Case("FMT-01", "WR-229", "formatting", "FORMAT with a custom number format in de-DE",
+         "SELECT FORMAT(1234567.891, '#,##0.00', 'de-DE')", "1.234.567,89"),
+    Case("FMT-02", "WR-229", "formatting", "FORMAT with digits between text, and a section for below zero",
+         "SELECT CONCAT(FORMAT(123456789, '000-00-0000'), '/', FORMAT(-5.5, '$#,##0.00;($#,##0.00)'))",
+         "123-45-6789/($5.50)"),
+    # PARSE's "AS type(n) USING culture" can't pass the guard's reader, so this one has neither
+    Case("FMT-03", "WR-229", "formatting", "PARSE reads thousands separators", "SELECT PARSE(' -1,234 ' AS INT)",
+         "-1234"),
+    Case("FMT-04", "WR-229", "formatting", "FORMAT 'P' (refused locally)", "SELECT FORMAT(0.1234, 'P')", None,
+         "unverified"),
+    Case("FMT-05", "WR-229", "formatting", "FORMAT 'C' below zero (refused locally)", "SELECT FORMAT(-1234.5, 'C')",
+         None, "unverified"),
+    Case("FMT-06", "WR-229", "formatting", "FORMAT of a negative number that rounds to zero (refused locally)",
+         "SELECT FORMAT(-0.001, '0.00')", None, "unverified"),
+    Case("FMT-07", "WR-229", "formatting", "TRY_PARSE of '12.0' as an int (refused locally)",
+         "SELECT TRY_PARSE('12.0' AS INT)", None, "unverified"),
+    Case("FMT-08", "WR-229", "formatting", "FORMAT 'N2' of a negative number that rounds to zero (refused locally)",
+         "SELECT FORMAT(-0.001, 'N2')", None, "unverified"),
 )
 
 
@@ -407,6 +432,8 @@ class WarehouseCheck:
         sent = sql_for(case, self.scratch)
         setup, statements, query = sent[:len(case.setup)], sent[len(case.setup):-1], sent[-1]
         cur = con.cursor()
+        if case.autocommit:
+            con.autocommit = True
         try:
             for sql in setup:
                 cur.execute(sql)
@@ -430,6 +457,8 @@ class WarehouseCheck:
         except Exception as exc:  # noqa: BLE001 - an error is the warehouse's answer
             return _error(exc)
         finally:
+            if case.autocommit:
+                con.autocommit = False  # its tables stay in the scratch schema, which the end drops
             try:
                 con.rollback()
             except Exception as exc:  # noqa: BLE001 - a rollback after a broken connection; _drop reports what's left

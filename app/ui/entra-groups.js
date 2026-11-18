@@ -100,7 +100,7 @@ async function entraGroupsDialog(d, allDomains = [], was = null) {
   async function save() {
     try {
       const res = await rpc("platform_entra_save", { ...params(), kind: view.kind });
-      toast(`Saved to ${res.path}`);
+      toast(`Saved to ${res.path}${res.notes?.length ? `. ${res.notes.join(" ")}` : ""}`);
     } catch (err) {
       problem.replaceChildren(h("p", { class: "fail-text small" }, friendlyError(err).text));
     }

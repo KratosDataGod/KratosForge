@@ -35,6 +35,20 @@ from typing import Any
 PROOF_ROOT = "Files/_fabric_desktop/proofs"
 
 
+def _rows(table: Any) -> Any:
+    """Every row of a pinned table. The pyarrow reader refuses deletion vectors and reads column-mapped
+    columns as NULL, so a table with either is read through delta-rs's DataFusion reader (as
+    delta_read.py does in the engine; this file can't import it)."""
+    protocol = table.protocol()
+    features = set(protocol.reader_features or []) | set(protocol.writer_features or [])
+    mode = str((table.metadata().configuration or {}).get("delta.columnMapping.mode", "") or "").lower()
+    if not ({"deletionVectors", "columnMapping"} & features) and mode in ("", "none"):
+        return table.to_pyarrow_table()
+    import pyarrow as pa
+    from deltalake import QueryBuilder
+    return pa.table(QueryBuilder().register("kf_table", table).execute("SELECT * FROM kf_table"))
+
+
 class ProofTableMissing(LookupError):
     """A table the proof can't read: it didn't exist when the proof started."""
 
@@ -151,8 +165,8 @@ class ProofRuntime:
             name, version = self._pin(key)
             if name is not None:
                 from deltalake import DeltaTable
-                start = DeltaTable(self.shared_table(*name.split(".", 1)), version=version,
-                                   storage_options=self.options()).to_pyarrow_table()
+                start = _rows(DeltaTable(self.shared_table(*name.split(".", 1)), version=version,
+                                         storage_options=self.options()))
                 self.log["reads"][name] = version
                 write_delta(uri, start)
         self.log["writes"].setdefault(key, []).append(mode)

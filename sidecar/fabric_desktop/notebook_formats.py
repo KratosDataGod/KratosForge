@@ -30,7 +30,7 @@ import zlib
 from pathlib import PurePosixPath
 from typing import Any
 
-from .notebook import check_notebook_name, from_ipynb, to_ipynb
+from .notebook import breakpoints_meta, check_notebook_name, from_ipynb, to_ipynb
 
 FORMATS = ("ipynb", "ipynb_outputs", "fabric_py", "databricks_py", "html")
 EXTENSIONS = {"ipynb": ".ipynb", "ipynb_outputs": ".ipynb", "fabric_py": ".py", "databricks_py": ".py", "html": ".html"}
@@ -133,7 +133,11 @@ def to_fabric_py(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None =
         # A Python cell that would read back wrong is written as # MAGIC lines too, as a magic
         # cell is; its METADATA still says Python, so it reads back as the same code.
         out += _prefixed("# MAGIC", lines) if magic or _misread(lines, _FABRIC_MARKERS) else lines
-        out += [""] + _meta_block({"language": language, "language_group": "synapse_pyspark"})
+        cell_meta: dict[str, Any] = {"language": language, "language_group": "synapse_pyspark"}
+        breakpoints = breakpoints_meta((c.get("meta") or {}).get("breakpoints"))
+        if breakpoints:  # KratosForge's own key in the cell's METADATA, read back by _parse_fabric
+            cell_meta["fabric_desktop"] = {"breakpoints": breakpoints}
+        out += [""] + _meta_block(cell_meta)
     return "\n".join(out) + "\n"
 
 
@@ -199,6 +203,8 @@ def databricks_export_notes(cells: list[dict[str, Any]], lakehouse: dict[str, An
                                            ("frozen", "frozen")) if meta.get(key)]
         if hidden:
             notes.append(_note(n, "dropped", f"The cell's {' and '.join(hidden)} setting: Databricks source doesn't keep it."))
+        if c.get("type") == "code" and breakpoints_meta(meta.get("breakpoints")):
+            notes.append(_note(n, "dropped", "The cell's breakpoints weren't kept, because Databricks source has no place for them."))
         if c.get("type") != "code":
             continue
         source = _magic_first(c.get("source", ""))
@@ -467,6 +473,10 @@ def _parse_fabric(lines: list[str]) -> list[dict[str, Any]]:
                 magic = _FABRIC_MAGIC.get(str(meta.get("language", "")))
                 if magic and not cells[-1]["source"].startswith("%%"):
                     cells[-1]["source"] = f"{magic}\n{cells[-1]['source']}"
+                own = meta.get("fabric_desktop")
+                breakpoints = breakpoints_meta(own.get("breakpoints") if isinstance(own, dict) else None)
+                if breakpoints:
+                    cells[-1].setdefault("meta", {})["breakpoints"] = breakpoints
             continue
         if kind == FABRIC_MARKDOWN:
             cells.append(_markdown(_trim(_unprefix(body, "# "))))

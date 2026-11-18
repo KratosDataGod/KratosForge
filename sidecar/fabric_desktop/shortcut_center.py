@@ -19,7 +19,7 @@ import json
 import re
 from typing import Any
 
-from . import redact
+from . import csv_cells, redact
 
 ENV_ORDER = ("dev", "test", "prod")
 _ENV_WORDS = {"dev": ("dev", "development", "sandbox"), "test": ("test", "uat", "qa", "staging"),
@@ -356,19 +356,14 @@ def same_definition(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
 CSV_HEADER = ["Shortcut", "Path", "Workspace", "Lakehouse", "Environment", "Points at", "Target", "Target path",
               "Target workspace", "Target lakehouse", "Target environment", "Data product", "Health", "Health detail",
               "Checked at", "Worth a look", "Used by", "Last change", "Last change at", "Last change by"]
-_FORMULA = ("=", "+", "-", "@", "\t", "\r")  # Excel runs a cell starting with one of these as a formula
 _HEALTH_WORDS = {"healthy": "Healthy", "broken": "Broken", "unreachable": "Unreachable", "not_checked": "Not checked"}
 
 
-def _cell(value: Any) -> str:
-    """A CSV cell Excel won't run as a formula: a shortcut or target name is anyone's text."""
-    text = str(value if value is not None else "")
-    return "'" + text if text[:1] in _FORMULA else text
-
-
-def to_csv(rows: list[dict[str, Any]]) -> str:
+def to_csv(rows: list[dict[str, Any]], cells: csv_cells.Cells | None = None) -> str:
     """The command center's rows as CSV, one shortcut a line, in the order given. Names, paths and
-    targets only: who can read a shortcut and connection details stay in the app."""
+    targets only: who can read a shortcut and connection details stay in the app. A shortcut or target
+    name is anyone's text, so ``cells`` keeps a spreadsheet from running one as a formula and counts them."""
+    cells = cells if cells is not None else csv_cells.Cells()
     out = io.StringIO()
     w = csv.writer(out, lineterminator="\r\n")
     w.writerow(CSV_HEADER)
@@ -380,7 +375,7 @@ def to_csv(rows: list[dict[str, Any]]) -> str:
         by = (change.get("by_user") or "KratosForge") if how == "app" else "Health check" if how == "check" else \
             "Seen at scan" if change else ""
         worth = [x.get("text") or x.get("kind") or "" for x in open_risks(r)]
-        w.writerow([_cell(x) for x in (
+        w.writerow([cells(x) for x in (
             r.get("name"), r.get("path"), r.get("workspace_name"), r.get("lakehouse_name"),
             str(r.get("host_env") or "").title(), r.get("target_type"),
             "" if onelake else redact.secrets(str(r.get("target") or "")), r.get("target_path") if onelake else "",

@@ -433,7 +433,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `between` | Runs | `SELECT 2 BETWEEN 1 AND 3, 4 BETWEEN 1 AND 3, 'b' BETWEEN 'a' AND 'c'` |  |
 | `case` | Runs | `SELECT CASE WHEN 1 > 0 THEN 'a' ELSE 'b' END, CASE 2 WHEN 1 THEN 'x' END` |  |
 | `range` | Runs | `SELECT * FROM range(1, 7, 2)` |  |
-| `sql_keywords` | Refused | `SELECT keyword, reserved FROM sql_keywords() ORDER BY keyword LIMIT 2` | sql_keywords() can't run on this PC the way it runs in Fabric, so nothing ran: this PC doesn't have Spark's list of SQL keywords and which of them are reserved. |
+| `sql_keywords` | Refused | `SELECT keyword, reserved FROM sql_keywords() ORDER BY keyword LIMIT 2` | sql_keywords() can't run on this PC the way it runs in Fabric, because this PC doesn't have Spark's list of SQL keywords and which of them are reserved, so noth |
 | `\|\|` | Runs | `SELECT 'Spark' \|\| 'SQL', 'a' \|\| NULL` |  |
 
 ## Predicate

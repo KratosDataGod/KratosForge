@@ -47,6 +47,12 @@ def _refuse(name: str, why: str, instead: str = "") -> Callable[..., exp.Express
     return refuse
 
 
+def _sql_keywords(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression:
+    raise ValueError("sql_keywords() can't run on this PC the way it runs in Fabric, because this PC doesn't have "
+                     "Spark's list of SQL keywords and which of them are reserved, so nothing ran. Run the cell in "
+                     "Fabric.")
+
+
 # base64 takes bytes, and text as its UTF-8 bytes (a NULL of no type is NULL); any other type is refused, as in
 # Spark. Spark 3.5 writes it as MIME does (spark.sql.chunkBase64String.enabled): a line break (CR LF) after
 # every 76 characters. Databricks SQL keeps one line.
@@ -890,8 +896,7 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     **{name: _refuse(name.lower(), _JAVA) for name in ("JAVA_METHOD", "REFLECT")},
     **{name: _refuse(name.lower(), _INPUT_FILE) for name in ("INPUT_FILE_NAME", "INPUT_FILE_BLOCK_LENGTH",
                                                              "INPUT_FILE_BLOCK_START")},
-    "SQL_KEYWORDS": _refuse("sql_keywords", "this PC doesn't have Spark's list of SQL keywords and which of them "
-                            "are reserved."),
+    "SQL_KEYWORDS": _sql_keywords,
     "SPARK_PARTITION_ID": _refuse("spark_partition_id", "this PC doesn't split a query's rows into Spark "
                                   "partitions, so there is no partition number to give."),
     # Increasing and unique, as Spark promises (its values have gaps between partitions), as

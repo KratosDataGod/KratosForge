@@ -366,13 +366,11 @@ def _spark_date_results(statement: exp.Expression, ansi: bool) -> exp.Expression
     return statement
 
 
-_USER_REFUSED = ("in Fabric it names the identity running the notebook, and a SQL cell here would name DuckDB "
-                 "instead.")
-# Spark's session functions this PC refuses by name in a Spark SQL cell: the reason, after "so nothing ran: "
+_USER_REFUSED = "in Fabric it names the identity running the notebook and here it would name DuckDB"
+# Spark's session functions this PC refuses by name in a Spark SQL cell: the reason, after "because "
 _SESSION_REFUSED = {
     "current_user": _USER_REFUSED, "user": _USER_REFUSED, "session_user": _USER_REFUSED,
-    "version": ("in Fabric it gives its Spark build and git revision, and a SQL cell here would give DuckDB's "
-                "version instead."),
+    "version": "in Fabric it gives the Spark build and git revision and here it would give DuckDB's version",
 }
 
 
@@ -389,8 +387,8 @@ def _spark_session_functions(statement: exp.Expression) -> exp.Expression:
         name = ("current_user" if isinstance(user, exp.CurrentUser) else "session_user"
                 if isinstance(user, exp.SessionUser) else user.name.lower())
         if name in _SESSION_REFUSED:
-            raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric, so nothing ran: "
-                             f"{_SESSION_REFUSED[name]} Run the cell in Fabric.")
+            raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric, because "
+                             f"{_SESSION_REFUSED[name]}, so nothing ran. Run the cell in Fabric.")
     for node in list(statement.find_all(exp.CurrentCatalog, exp.CurrentTimezone, exp.CurrentDatabase,
                                         exp.CurrentSchema)):
         if isinstance(node, exp.CurrentCatalog):

@@ -42,8 +42,9 @@ def test_spark_functions_listed_as_not_checked_answer_as_spark_3_5_or_are_refuse
     ("SELECT version()", "version"), ("SELECT id, upper(version()) FROM range(2)", "version"),
 ])
 def test_a_session_function_fabric_answers_for_itself_is_refused_by_name(spark, query, name):
-    with pytest.raises(ValueError, match=rf"^{name}\(\) can't run on this PC the way it runs in Fabric, so nothing "
-                                         r"ran: in Fabric it .* Run the cell in Fabric\.$"):
+    with pytest.raises(ValueError, match=rf"^{name}\(\) can't run on this PC the way it runs in Fabric, because in "
+                                         r"Fabric it .* here it would .*DuckDB.*, so nothing ran\. Run the cell in "
+                                         r"Fabric\.$"):
         spark.sql(query).collect()
 
 

@@ -14,7 +14,7 @@ from deltalake import write_deltalake
 from fabric_desktop import sql_exec
 from tests.test_sql_exec import SLOW, limits, wait
 
-SECRET = "Zq9-parameter-value-7731"
+PARAM_VALUE = "Zq9-parameter-value-7731"
 
 
 @pytest.fixture
@@ -24,7 +24,7 @@ def lake(tmp_path):
 
 
 def manager(tmp_path):
-    runs = sql_exec.SqlExecutions(tmp_path / "data", token=lambda: "SECRET-TOKEN", audit=lambda *a: runs.lines.append(a),
+    runs = sql_exec.SqlExecutions(tmp_path / "data", token=lambda: "test-token", audit=lambda *a: runs.lines.append(a),
                                   limits=limits(), downloads=lambda: tmp_path / "Downloads", test_lake=tmp_path / "lake")
     runs.lines = []  # type: ignore[attr-defined]
     return runs
@@ -87,13 +87,13 @@ def test_a_parameter_value_never_reaches_the_audit_the_logs_or_the_run_folder(ru
     caplog.set_level(logging.DEBUG)
     statements = [s for s in query.split("; ")] if "; " in query else None
     status = wait(runs, runs.start("" if statements else query, lake, statements=statements,
-                                   params=[{"name": "region", "type": "text", "value": SECRET}])["id"])
+                                   params=[{"name": "region", "type": "text", "value": PARAM_VALUE}])["id"])
     assert status["state"] in ("completed", "failed")
-    assert SECRET not in repr(runs.lines), "the audit"
-    assert SECRET not in caplog.text, "the app's logs"
+    assert PARAM_VALUE not in repr(runs.lines), "the audit"
+    assert PARAM_VALUE not in caplog.text, "the app's logs"
     assert runs._get(status["id"]).params == []
     for path in (tmp_path / "data").rglob("*"):
         if path.is_file():
-            assert SECRET.encode() not in path.read_bytes(), f"{path.relative_to(tmp_path)} holds the value"
+            assert PARAM_VALUE.encode() not in path.read_bytes(), f"{path.relative_to(tmp_path)} holds the value"
     listed = repr(runs.recent())
-    assert SECRET not in listed.replace(repr(status.get("error") or ""), ""), "only the run's own error may show it, to the person"
+    assert PARAM_VALUE not in listed.replace(repr(status.get("error") or ""), ""), "only the run's own error may show it, to the person"

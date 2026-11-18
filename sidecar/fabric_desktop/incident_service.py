@@ -199,8 +199,9 @@ class IncidentMixin:
         # Opened before the write: an outbox that can't be opened then fails the check with nothing
         # written, so the next check opens the incident again and posts it, rather than never.
         # The same for where alerts go. Once the write is done, its changes go to the outbox before
-        # anything else that could fail (reading the list back for product status, say): an opening
+        # the steps after it that can fail (reading the list back for product status, say): an opening
         # the write made is open on the next check, so that check has nothing new to post for it.
+        # A process killed between the write and the outbox can still lose the post.
         outbox = Outbox(self.root / "alerts_outbox.sqlite") if notify else None  # type: ignore[attr-defined]
         url = self._settings().get("teams_webhook", "") if notify else ""  # type: ignore[attr-defined]
         post = self._notice_post() if notify else None  # type: ignore[attr-defined]  # Teams, a flow or email

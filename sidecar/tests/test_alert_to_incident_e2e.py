@@ -156,10 +156,8 @@ def test_a_crash_after_the_incident_write_and_before_the_post_still_posts_once_o
         return real(self)
 
     monkeypatch.setattr(IncidentLog, "active", read_back)
-    try:
+    with pytest.raises(OSError):  # the check fails after the write: the incident is open in the shared list
         app.incidents_evaluate("dev", notify=True)
-    except OSError:
-        pass  # the check failed after the write: the incident is open in the shared list
     assert [i["kind"] for i in app.incidents_list("dev")["incidents"]] == ["late"]
     app.incidents_evaluate("dev", notify=True)  # the next check
     app.incidents_evaluate("dev", notify=True)
@@ -177,10 +175,8 @@ def test_a_crash_after_the_post_doesnt_post_it_again(app, monkeypatch):
         return real(env, incidents)
 
     monkeypatch.setattr(app, "_report_product_status", report)
-    try:
+    with pytest.raises(RuntimeError):
         app.incidents_evaluate("dev", notify=True)
-    except RuntimeError:
-        pass
     app.incidents_evaluate("dev", notify=True)
     assert _posted(app) == [f"New: {STALE} is late in Dev (KratosForge)"]
 

@@ -1312,7 +1312,7 @@ class LocalEngine:
         # On disk before the write returns, as LocalStore's commits are: a power cut can't take the
         # data of a commit already made (durable.py).
         durable.sync_commits(str(folder), 0 if current is None else current.version() + 1, after.version())
-        delta_profile.check_table(after)
+        delta_profile.check_table(after, committed=True)
         out["version"] = after.version()
         entry = self._register_own(con, schema, w.table, folder)
         if entry["status"] != "ok":  # committed, so said plainly: a retried write would add its rows twice
@@ -1395,7 +1395,7 @@ class LocalEngine:
         after = DeltaTable(str(folder))
         if after.version() > before:
             durable.sync_commits(str(folder), before + 1, after.version())  # on disk before it returns
-        delta_profile.check_table(after)
+        delta_profile.check_table(after, committed=True)
         out["version"] = after.version()
         registered = self._register_own(con, entry["schema"], entry["table"], folder)
         if registered["status"] != "ok":  # committed, so said plainly, as in _write

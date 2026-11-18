@@ -128,6 +128,30 @@ These cases can still differ. LOC-003 warns wherever a pattern is used:
 
 A cast of text that is only a year or a year and month, such as `CAST('2024-02' AS DATE)` or `to_timestamp('2024')`, also still differs. Spark reads it as the month's or the year's first day; here it is NULL. No rule warns about it yet.
 
+## The session time zone on this PC (WR-120)
+
+Spark SQL run on this PC reads and shows timestamps in `spark.sql.session.timeZone` as Spark does. Each case is checked against Apache Spark 3.5.3's own answers, in UTC, America/Chicago, Asia/Kolkata, Europe/London and two offsets, in `sidecar/tests/test_spark_timezone_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Case | On this PC, as in Spark |
+| --- | --- |
+| The session time zone | `spark.conf.set("spark.sql.session.timeZone", ...)` takes a region (`America/Chicago`), `UTC`, or an offset of whole hours (`-08:00`, `GMT-08:00`, `UTC+3`). `current_timezone()` gives the id as it was set |
+| `timestamp` and `timestamp_ntz` | A `timestamp` is an instant, shown in the session's zone; a `timestamp_ntz` is a wall clock with no zone. A cast between them, or from a date or text to a `timestamp`, reads the wall clock in the session's zone. `unix_timestamp` of a `timestamp_ntz` reads it as UTC |
+| The hour clocks skip | A wall clock that doesn't exist, such as 02:30 on the day America/Chicago springs forward, moves forward by the gap (03:30) |
+| The hour clocks repeat | A wall clock that happens twice, such as 01:30 on the day America/Chicago falls back, is the earlier of the two (01:30 CDT), as Java reads it. This holds for casts, `make_timestamp`, `to_timestamp`, `unix_timestamp` and `to_utc_timestamp`; `date_trunc` keeps the offset of the time it truncates |
+| An interval of hours added to a `timestamp` | Split into whole days and the rest, as Spark does: `INTERVAL 24 HOURS` adds a calendar day in the session's zone, 23 hours of real time on the day clocks spring forward |
+
+Refused by name, and nothing runs:
+
+| Case | Why |
+| --- | --- |
+| A session time zone, or a `from_utc_timestamp` or `to_utc_timestamp` zone, written as an offset with minutes, such as `+05:30` | The engine on this PC has a zone for an offset of whole hours only. Use the region's own zone, such as `Asia/Kolkata` |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| A `timestamp` from `collect()` | A `datetime` with no zone, in UTC (Fabric's driver runs in UTC) | A `datetime` with the session's zone, which is the same instant |
+
 ## Window functions on this PC
 
 Spark SQL and the DataFrame API run on this PC give Spark's answers for window functions, with ANSI mode off as Fabric runs it. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_windows.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.

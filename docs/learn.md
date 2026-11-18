@@ -135,7 +135,7 @@ by your organization's policy file (IT) always wins over a team's.
 
 The same policy can add your team's own notes to a rule's or a decision pattern's guide
 ([team notes](governance.md#team-notes)), each named with the policy, its owner and version. The
-engine reads them, offline too; showing them beside **Explain** waits on a mockup.
+notes show at the bottom of **Explain**, and of a decision pattern's dialog, as **Your team's note**. They read offline too, and then say how old the policy package is.
 
 ### Beside a finding
 
@@ -146,8 +146,9 @@ engine reads them, offline too; showing them beside **Explain** waits on a mocku
   the app, so it works offline and nothing is sent anywhere. The [semantic model rules](semantic-model-rules.md#each-rule-explained)
   (SM001 to SM007) and the [pipeline gotchas](orchestration/activity-registry.md#each-gotcha-explained)
   (PG1 to PG10 and the ForEach limits) have guides in the same format, shipped the same way, and the
-  engine's `learn_rule_guides` returns them too. Neither has Explain in the app yet: model findings show
-  in Check now with a link to their rule's section, and pipeline reports have no page yet.
+  engine's `learn_rule_guides` returns them too. In **Governance > Check now**, a semantic model finding
+  gets the line on why and **Explain** at your level, with no Dismiss: Check now lists what the
+  project's policies require. Pipeline reports have no page yet, so the gotchas have no Explain there.
 - **Show example** shows the guide's Before and After. **Copy example** copies the After; your code
   isn't changed for you.
 - **Try the fix**, at every level, shows a rewrite as a preview, for the rules that have a safe one. It

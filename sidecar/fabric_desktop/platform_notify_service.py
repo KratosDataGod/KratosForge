@@ -25,7 +25,7 @@ from .dataops_service import post_teams
 from .redact import secrets
 from .sqlitefile import transaction
 from .workloads import deliver
-from .workloads.notify import Outbox
+from .workloads.notify import Outbox, audit_trouble
 from .workloads.platform_notify import OPENS, VIEWS, Ledger, PlatformRouting, recipients, send, validate
 
 METHODS = {"platform_notify", "platform_notify_settings", "platform_notify_save", "platform_notify_open",
@@ -68,6 +68,7 @@ class PlatformNotifyMixin:
                                for e in checked]}
         outbox, ledger = self._pn_paths()
         out = send(checked, routing, outbox, ledger, self._notice_post())
+        audit_trouble(self.audit, out, "platform_outbox.sqlite")  # type: ignore[attr-defined]
         self._pn_remember([e for e, r in zip(checked, out["events"], strict=True) if r["result"] != "skipped"])
         self._pn_tidy()
         return out

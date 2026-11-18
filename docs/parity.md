@@ -58,7 +58,7 @@ Notes:
 - **Warehouse and SQL analytics endpoint, Local execution:** T-SQL is translated to DuckDB; documented gaps fail loudly (docs/sql-compatibility.md).
 - **Notebooks and Spark, Cloud API integration:** Spark SQL in one Livy session. Live: KUDP comparison, 2026-10-29, re-run 2026-11-03 (docs/platforms.md, Live runs).
 - **Notebooks and Spark, Local execution:** PySpark and Spark SQL are simulated on DuckDB; known differences are listed in docs/audits/ENGINE_COMPATIBILITY.md.
-- **Notebooks and Spark, Verified runtime equivalence:** 10 Spark SQL queries: 9 match in the 2026-11-03 re-run; decimal division still differs (Spark keeps 6 places). Live: KUDP comparison, 2026-10-29, re-run 2026-11-03 (docs/platforms.md, Live runs).
+- **Notebooks and Spark, Verified runtime equivalence:** 10 Spark SQL queries: 9 match in the 2026-11-03 re-run. Decimal division differed (Spark keeps 6 places) because that comparison runs the translated SQL on DuckDB directly. spark.sql on this PC now gives Spark's decimal types (docs/sql-compatibility.md), but the comparison hasn't been re-run live since. Live: KUDP comparison, 2026-10-29, re-run 2026-11-03 (docs/platforms.md, Live runs).
 - **Data Factory pipelines, Local execution:** Pipelines run on this PC; expected outcomes come from documentation, not a recorded tenant run.
 - **Semantic models, TMDL and Direct Lake, Local execution:** TMDL is read offline and the Direct Lake check runs on this PC; models aren't served here.
 - **Git integration and deployment, Cloud API integration:** Publishing hasn't been recorded live.

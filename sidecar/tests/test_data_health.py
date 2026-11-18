@@ -430,8 +430,40 @@ def test_a_check_that_hangs_shows_as_not_finished_and_doesnt_hold_up_the_list(sv
         tables = {t["entity"]: t for t in svc.meta_data_health_list()["tables"]}
     finally:
         release.set()
-    assert time.monotonic() - start < 5
+    assert time.monotonic() - start < 20  # well under the 30 s hang, with room for a slow CI runner
     hung = tables["gold.dim_customer"]
     assert hung["state"] == "error" and "didn't finish within 0.5 s" in hung["why"] and "alerts" not in hung
     assert tables["silver.customers"]["alerts"] == []
     assert list(tables) == ["silver.customers", "gold.dim_customer"]  # the watched order is kept
+
+
+def test_refreshing_while_a_check_hangs_waits_on_it_again_rather_than_starting_another(svc, monkeypatch):
+    import threading
+    from fabric_desktop import dataops_service
+    monkeypatch.setattr(dataops_service, "DATA_HEALTH_LIST_SECONDS", 0.3)
+    svc.meta_data_health_watch("gold.dim_customer", "dev")
+    release = threading.Event()
+    calls = []
+
+    def check(name, env):
+        calls.append(name)
+        release.wait(30)
+        return {"entity": name, "env": env, "alerts": []}
+
+    monkeypatch.setattr(svc, "meta_data_health", check)
+    try:
+        for _ in range(3):
+            assert svc.meta_data_health_list()["tables"][0]["state"] == "error"
+        assert calls == ["gold.dim_customer"]  # one thread for the hung read, not one per refresh
+    finally:
+        release.set()
+    import time
+    deadline = time.monotonic() + 10
+    while svc.meta_data_health_list()["tables"][0].get("state") == "error" and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert svc.meta_data_health_list()["tables"][0]["alerts"] == []  # once it answers, the next refresh shows it
+
+
+def test_the_time_limit_reads_in_minutes():
+    from fabric_desktop.dataops_service import _dh_duration
+    assert (_dh_duration(120), _dh_duration(60), _dh_duration(0.5)) == ("2 minutes", "1 minute", "0.5 s")

@@ -3,6 +3,7 @@ API or an MCP tool, a settings write): the saves take turns, so one never writes
 unseen, a reader never sees half a file, and a settings write never drops cells (NotebookStore)."""
 import json
 import threading
+import time
 
 import pytest
 
@@ -38,6 +39,7 @@ def together(*jobs):
         t.start()
     for t in threads:
         t.join(120)
+    assert not any(t.is_alive() for t in threads), "a save didn't finish within two minutes"
     return results
 
 
@@ -79,6 +81,7 @@ def test_a_reader_never_sees_half_a_notebook_while_it_is_saved(svc):
 
     def read():
         while not stop.is_set():
+            time.sleep(0.001)  # leave the saves room to run
             try:
                 nb = json.loads(path.read_bytes())
             except (FileNotFoundError, PermissionError):  # Windows: mid-swap the file can be briefly missing or locked, never half

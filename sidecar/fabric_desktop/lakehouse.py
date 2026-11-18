@@ -179,7 +179,10 @@ cell_prod_context: "weakref.WeakKeyDictionary[threading.Thread, tuple[str, froze
 # Threads a cell's code started (by the cell's thread, a widget handler's, or one of these in turn, at any depth,
 # a thread pool's workers included): their writes are a cell's code but not a running cell's own, so they are asked
 # under NO_CELL for as long as they live. Filled as each thread starts (tag_cell_threads), so only a thread whose
-# parent is a cell's or one of these is tagged: the app's own threads started meanwhile aren't.
+# parent is a cell's or one of these is tagged: the app's own threads started meanwhile aren't. Limits: work a cell
+# hands to a pool that was already running (the app's or an engine module's) runs on that pool's existing, untagged
+# worker; a pool's worker that a cell's call starts first stays tagged, so the app's later Prod writes on it are
+# refused (fail-closed); threads from _thread or native code don't pass through Thread.start.
 cell_started_threads: "weakref.WeakSet[threading.Thread]" = weakref.WeakSet()
 _untagged_start: Callable[[threading.Thread], None] | None = None
 

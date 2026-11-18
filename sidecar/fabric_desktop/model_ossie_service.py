@@ -9,6 +9,8 @@ TMDL are saved in the metadata project's folder, so they go to Git with the rest
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -23,7 +25,7 @@ from .notebook_files_service import _is_link
 
 METHODS = {"meta_model_ossie_models", "meta_model_ossie_export", "meta_model_ossie_save", "meta_model_ossie_read",
            "meta_model_ossie_preview", "meta_model_ossie_import", "meta_model_tmdl_save",
-           "meta_model_ossie_folders", "meta_model_ossie_export_folder"}
+           "meta_model_ossie_folders", "meta_model_ossie_export_folder", "meta_model_ossie_to_tmdl"}
 FOLDER = "semantic"
 MODES = ("update", "replace", "new")
 _SAFE = re.compile(r"[^A-Za-z0-9 _.-]+")
@@ -40,17 +42,41 @@ def _real(path: Path, kind: Any) -> bool:
     return not _is_link(st) and kind(st.st_mode)
 
 
-def _tmdl_files(top: Path) -> list[Path]:
-    """The .tmdl files under ``top``, never going into a link or junction."""
-    found: list[Path] = []
+MAX_DEPTH = 8  # definition/tables/x.tmdl is two deep; Power BI projects never go near this
+MAX_FILES = 20_000
+
+
+def _tmdl_files(top: Path, depth: int = 0, found: list[Path] | None = None) -> list[Path]:
+    """The .tmdl files under ``top``, never going into a link or junction, at most MAX_DEPTH folders down and
+    MAX_FILES files (a folder that holds more isn't a semantic model)."""
+    found = [] if found is None else found
+    if depth > MAX_DEPTH:
+        raise ValueError(f"{top.name} is nested too deeply to be a semantic model folder")
     with os.scandir(top) as entries:
         for e in entries:
             here = Path(e.path)
             if _real(here, stat.S_ISDIR):
-                found += _tmdl_files(here)
+                _tmdl_files(here, depth + 1, found)
             elif e.name.endswith(".tmdl") and _real(here, stat.S_ISREG):
                 found.append(here)
+                if len(found) > MAX_FILES:
+                    raise ValueError(f"There are more than {MAX_FILES} TMDL files here; that isn't one semantic model")
     return found
+
+
+def _folder_name(name: str) -> str:
+    """semantic/<this>.SemanticModel for a model called ``name``: never the name used raw."""
+    return tmdl.file_name(_SAFE.sub("_", name).strip() or "model", set())
+
+
+def _no_links(root: Path, target: Path) -> None:
+    """Refuse when any folder from ``root`` down to ``target`` that exists is a link or junction, or not a folder."""
+    rel = target.relative_to(root)
+    here = root
+    for part in rel.parts:
+        here = here / part
+        if os.path.lexists(here) and not _real(here, stat.S_ISDIR):
+            raise ValueError(f"{here.relative_to(root).as_posix()} is a link, a junction or a file, so nothing is written there")
 
 
 class ModelOssieMixin:
@@ -260,3 +286,49 @@ class ModelOssieMixin:
                 old.unlink()
                 removed.append(old.relative_to(project.root).as_posix())
         return {"folder": folder.relative_to(project.root).as_posix(), "files": len(written), "removed": removed}
+
+    def meta_model_ossie_to_tmdl(self, text: str = "", name: str = "", confirmed: bool = False,
+                                 token: str = "") -> dict[str, Any]:
+        """An Ossie document saved as TMDL under semantic/<name>.SemanticModel/ in the project's folder (the Power BI
+        project layout), converted on this PC with no Fabric call (Preview, PB-110).
+
+        Without ``confirmed`` nothing is written: the answer lists the files, the TMDL files that would be removed
+        because this model no longer has them, and the report of anything that can't make the trip, by name. With
+        it and the preview's ``token``, every file is written whole (temporary file, then swapped in), and only
+        regular .tmdl files under definition/ that this write didn't produce are removed. The token binds the
+        confirm to what the preview showed: if the files or the removals changed since, nothing is written.
+        Links and junctions are never followed."""
+        model_ossie.require()
+        project = self._project()  # type: ignore[attr-defined]
+        name = (name or str(model_ossie.parse(text)["name"])).strip()
+        files, report = model_ossie.ossie_to_tmdl(text)
+        files["definition.pbism"] = json.dumps({"version": "4.0", "settings": {}}, indent=2) + "\n"
+        root = Path(project.root)
+        folder = root / FOLDER / f"{_folder_name(name)}.SemanticModel"
+        definition = folder / "definition"
+        _no_links(root, definition)
+        targets = {}
+        for rel, content in files.items():
+            path = folder.joinpath(*PurePosixPath(rel).parts)
+            _no_links(root, path.parent)
+            if os.path.lexists(path) and not _real(path, stat.S_ISREG):
+                raise ValueError(f"{path.relative_to(root).as_posix()} is a link or a folder, so it isn't overwritten")
+            if not path.resolve().is_relative_to(folder.resolve()):  # never outside the model's folder
+                raise ValueError(f"{rel} would be written outside {folder.relative_to(root).as_posix()}")
+            targets[path] = content
+        stale = sorted(f for f in (_tmdl_files(definition) if _real(definition, stat.S_ISDIR) else []) if f not in targets)
+        out = {"name": name, "folder": folder.relative_to(root).as_posix(), "exists": _real(folder, stat.S_ISDIR),
+               "files": sorted(p.relative_to(root).as_posix() for p in targets),
+               "removed": [p.relative_to(root).as_posix() for p in stale], "report": report}
+        digest = hashlib.sha256(json.dumps([out["folder"], out["removed"], sorted(
+            (p.relative_to(root).as_posix(), c) for p, c in targets.items())], ensure_ascii=False).encode()).hexdigest()
+        if not confirmed:
+            return {"confirm": out | {"token": digest}}
+        if not hmac.compare_digest(str(token).encode(), digest.encode()):
+            raise ValueError("The folder or the Ossie file changed since the preview; nothing was written. Preview again.")
+        for path, content in targets.items():
+            write_text(path, content, newline="\n")
+        for old in stale:
+            if _real(old, stat.S_ISREG) and old.suffix == ".tmdl":
+                old.unlink()
+        return out

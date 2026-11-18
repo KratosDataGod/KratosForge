@@ -188,10 +188,12 @@ def test_pipeline_inspection_keeps_names_and_counts_only():
 def test_other_item_types_are_untouched_and_coverage_counts_inspected_items():
     snap = run([notebook("nb", ["x = 1\n"]), pipeline("pl", [activity("A")])],
                extra_items=[{"id": "lh", "type": "Lakehouse", "displayName": "LH"}])
-    assert not [o for o in snap["outcomes"] if o["subject"]["id"] == "lh"]
+    ours = {c.id for c in catalog_artifacts.CONTROLS}  # the architecture controls do read lakehouses
+    assert not [o for o in snap["outcomes"] if o["subject"]["id"] == "lh" and o["control_id"] in ours]
     assert not [r for r in snap["evidence"] if r["kind"] == "item.inspection" and r["subject"]["id"] == "lh"]
     cov = {c["item"]["id"]: c["state"] for c in snap["item_coverage"]}
-    assert cov == {"nb": "inspected", "pl": "inspected", "lh": "unsupported"}
+    # Architecture controls cover lakehouses; this run reads no lakehouse properties, so it counts as not inspected.
+    assert cov == {"nb": "inspected", "pl": "inspected", "lh": "not_inspected"}
     assert inspect_items.inspect({"type": "Lakehouse", "definition": "unsupported"}) == {}
 
 

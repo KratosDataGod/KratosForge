@@ -421,3 +421,14 @@ def test_a_huge_or_malformed_head_is_a_400_in_the_apis_shape(api, caplog, data):
     api_error(status, fields, out, "invalid_input")
     assert status == 400 and closed
     still_serves(api)
+
+
+def test_the_uvicorn_internals_the_local_api_overrides_still_exist():
+    """_protocol() overrides uvicorn's send_400_response and wraps connection handling. uvicorn is
+    pinned in constraints.txt; if an upgrade renames these, this fails instead of the API silently
+    answering bad heads in plain text again."""
+    from uvicorn.protocols.http.h11_impl import H11Protocol
+    for name in ("send_400_response", "connection_made", "connection_lost", "data_received"):
+        assert callable(getattr(H11Protocol, name, None)), name
+    assert issubclass(http_server._protocol(), H11Protocol)
+    assert "send_400_response" in vars(http_server._protocol())

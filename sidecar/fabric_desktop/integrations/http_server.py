@@ -15,7 +15,7 @@ Every request passes ``Guard`` before anything else:
   shared PC or Remote Desktop server another person's program can't use a token it got hold of;
 - it must carry ``Authorization: Bearer <token>`` for a connected tool (only the OpenAPI document
   and the health check are open); tokens are stored hashed and stop working when revoked;
-- bodies over 1 MiB, or that don't all arrive within 10 seconds, are refused, each tool is rate limited, and only a few calls run at once.
+- bodies over 1 MiB, or whose whole body doesn't arrive within 10 seconds in total, are refused, each tool is rate limited, and only a few calls run at once.
 
 Resources (``fabric-desktop://`` URIs) are readable at /api/v1/resources/read?uri=... too.
 
@@ -55,7 +55,7 @@ MAX_CONCURRENT = 4         # calls running at once in this server
 QUEUE_WAIT_SECONDS = 10.0
 MAX_CONNECTIONS = 32       # open connections; past this a request gets 503 (uvicorn's limit_concurrency)
 HEADER_SECONDS = 10.0      # a connection's request line and headers must all arrive within this
-BODY_SECONDS = 10.0        # and then its body, within this
+BODY_SECONDS = 10.0        # and then its whole body, within this in total (not per chunk)
 IDLE_SECONDS = 5           # between requests on a kept-alive connection
 OPEN_PATHS = {"/api/v1/health", "/api/v1/openapi.json"}
 

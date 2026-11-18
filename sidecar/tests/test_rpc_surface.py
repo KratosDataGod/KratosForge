@@ -36,6 +36,8 @@ _FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 
 NO_UI_CALLER: dict[str, str] = {
+    # Observability: Monitor > Data health (approved mockup) is built after the engine.
+    "meta_data_health": "data health engine; the Monitor > Data health screen comes next",
     # OE-004: the Share button on Optimize > Assessment waits on its mockup.
     "optimization_share": "OE-004 engine call; the Assessment tab's Share button waits on its mockup",
     # Best practices check (semantic-link-labs in Fabric).
@@ -70,7 +72,6 @@ NO_UI_CALLER: dict[str, str] = {
     "incidents_measures": _INCIDENTS,
     "platform_notify": _NOTIFY,
     "optimize_share_local_runs": _LOCAL_RUNS,
-    "learn_team_notes": _NO_SCREEN,  # GD-09 team notes: shown beside Explain after the mockup is approved
     "meta_preflight": _NO_SCREEN,  # the PB-067 run dialog (#915, after a mockup) shows its estimate
     "fabric_item_support": _FABRIC_GIT,
     "fabric_git_links": _FABRIC_GIT,  # the tab reads links through fabric_git_overview

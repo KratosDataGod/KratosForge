@@ -2,6 +2,7 @@
 
 import pytest
 
+from fabric_desktop import csv_cells
 from fabric_desktop import model_dictionary as md
 from fabric_desktop import semantic
 from fabric_desktop.service import Service
@@ -90,7 +91,7 @@ def test_text_excel_would_run_as_a_formula_goes_out_as_text_and_comes_back_the_s
     items.append(items[-1] | {"name": "-margin", "description": "+1 for a new customer", "classification": ""})
     text = md.to_csv(items)
     assert "'=HYPERLINK" in text and "'-margin" in text and "'+1 for" in text
-    assert not any(cell.startswith(md.FORMULA) for line in text.split("\r\n")[1:] for cell in line.split(",") if cell)
+    assert not any(cell.startswith(csv_cells.STARTS) for line in text.split("\r\n")[1:] for cell in line.split(",") if cell)
     back = md.read_csv(text)
     assert [r["description"] for r in back] == [x["description"] for x in items]
     assert back[-1]["column or measure"] == "-margin"

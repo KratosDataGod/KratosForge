@@ -23,6 +23,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 from . import jsonfile
+from . import trees
 
 MAX_FILES = 100
 MAX_FILE_BYTES = 50 * 1024 * 1024
@@ -224,5 +225,5 @@ def remove_folder(folder: Path) -> int:
     if not folder.is_dir():
         return 0
     n = sum(1 for p in folder.rglob("*") if p.is_file())
-    shutil.rmtree(folder)
+    trees.remove(folder)
     return n

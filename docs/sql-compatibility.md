@@ -552,6 +552,24 @@ Refused by name:
 - Index hints (`INDEX(...)`, `FORCESEEK`, `FORCESCAN`, `NOEXPAND`), because a warehouse has no indexes to name.
 - A statistic on more than one column, which a warehouse refuses too, filtered statistics (`WHERE`), and statistics options other than `FULLSCAN` and `SAMPLE`.
 
+## Local T-SQL writes at the same time
+
+A Fabric Warehouse runs every transaction with snapshot isolation. When two transactions change the same table, the first to commit wins, and the other is rolled back with error 24556 ("Snapshot isolation transaction aborted due to update conflict"). An `INSERT` adds new files and rarely conflicts. This was checked against Microsoft Learn's Fabric Data Warehouse page for transactions, as it read on 2026-11-18.
+
+On this PC:
+
+| What | Here |
+| --- | --- |
+| Two sessions in the app (two SQL tabs, a tab and a pipeline step) changing one table at once | They take turns: a project runs one statement at a time, so every change lands and none is lost. A read sees a change whole or not at all |
+| Another writer (a notebook, another tool) commits to a project Delta table between this statement's read and its commit, with an `UPDATE`, `DELETE` or `MERGE` | This statement stops with "Nothing was committed to …, because another writer changed it after this statement read it" (a Fabric Warehouse reports this as error 24556). Nothing of it is committed, the table then shows the other writer's change, and running it again applies it on top |
+| Another writer's `INSERT` beside this statement's `UPDATE` | Both commit, as in a warehouse |
+
+What can still differ:
+
+- A warehouse finds conflicts by table, so two changes to different rows of one table can conflict there. Here delta-rs finds them by the files each change read, so two changes to different files of one table can both commit.
+- `BEGIN TRAN`, `COMMIT`, `ROLLBACK` and `SET TRANSACTION` are refused here (see Local T-SQL scripts), so a conflict here is always about one statement.
+- A commit delta-rs refuses for another reason, such as a change to a table with `delta.appendOnly`, isn't called a conflict. It stops with delta-rs's own reason and says nothing was committed.
+
 ## Local T-SQL tables
 
 When a project runs T-SQL on this PC, tables are made and emptied as in a Fabric Warehouse, and what a warehouse doesn't have is refused by name. This was checked against Microsoft Learn's Fabric Data Warehouse pages for tables, temporary tables, IDENTITY and the T-SQL surface area, as they read on 2026-11-17.

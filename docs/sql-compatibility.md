@@ -107,7 +107,7 @@ These cases can still differ:
 | `abs` or unary `-` of the smallest value of a type | Wraps around (the same value) | See "ANSI mode on this PC" above |
 | An operand whose type can't be worked out (the statement's types aren't known) | Wraps around | Stops with DuckDB's overflow error |
 | The DataFrame API, such as `F.col("id") + F.lit(9223372036854775807)` | Wraps around | Stops with DuckDB's overflow error |
-| Arithmetic in a filter (`WHERE`, `HAVING`, `QUALIFY` or a join's `ON`), such as `WHERE id + 1 = 5` | Wraps around | Stops with DuckDB's overflow error, or, when DuckDB moves the constant across (`id = 4`), compares without wrapping. This keeps the filter fast: DuckDB can still skip row groups by a column's smallest and largest values |
+| Arithmetic in a filter (`WHERE`, `HAVING`, `QUALIFY` or a join's `ON`), such as `WHERE id + 1 = 5` | Wraps around | Stops with DuckDB's overflow error, or, when DuckDB rewrites the filter as `id = 4`, compares without wrapping. This keeps the filter fast, because DuckDB can still skip row groups by a column's smallest and largest values |
 
 ## Dates and times on this PC (LOC-003)
 

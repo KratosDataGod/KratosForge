@@ -81,6 +81,15 @@ def file_kind(path: str) -> str:
     return "other"
 
 
+def _starts_with_an_object(path: Path) -> bool:
+    """Whether the file's first value is a JSON object, as each line of JSON Lines is. pyarrow's JSON Lines
+    reader stops the whole process (a segmentation fault, pyarrow 26) on a file whose first value is
+    null, so it is given only files that start with an object; json.loads reads the rest."""
+    with path.open("rb") as f:
+        head = f.read(4096)
+    return head.removeprefix(b"\xef\xbb\xbf").lstrip(b" \t\r\n").startswith(b"{")
+
+
 def file_preview(path: Path, name: str, limit: int = ROWS) -> dict[str, Any]:
     """Rows for a data file, the start of a text file."""
     ext = name.rsplit(".", 1)[-1].lower()
@@ -101,12 +110,21 @@ def file_preview(path: Path, name: str, limit: int = ROWS) -> dict[str, Any]:
         table = pa.Table.from_batches(batches, schema=reader.schema)
         return {"kind": "table", **_rows(table, limit), "row_count": None}
     if ext in ("json", "jsonl"):
-        try:
-            table = pa_json.read_json(path)  # newline-delimited
-        except pa.ArrowInvalid:
+        table = None
+        if _starts_with_an_object(path):
+            try:
+                table = pa_json.read_json(path)  # newline-delimited
+            except pa.ArrowInvalid:
+                table = None
+        if table is None:
             data = json.loads(path.read_text(encoding="utf-8"))
             data = data if isinstance(data, list) else [data]
-            table = pa.Table.from_pylist([r if isinstance(r, dict) else {"value": r} for r in data[:limit]])
+            records = [r if isinstance(r, dict) else {"value": r} for r in data[:limit]]
+            # Every record's keys, in the order they first appear: from_pylist takes only the first record's,
+            # so a key only later records have (or a value beside objects) wasn't shown.
+            names = list(dict.fromkeys(k for r in records for k in r))
+            table = pa.Table.from_pydict({n: [r.get(n) for r in records] for n in names})
+            return {"kind": "table", **_rows(table, limit), "row_count": len(data)}
         return {"kind": "table", **_rows(table, limit), "row_count": table.num_rows}
     with path.open("rb") as f:
         raw = f.read(TEXT_BYTES + 1)

@@ -326,6 +326,10 @@ class Planted:
         r = self.rng
         if r.random() < 0.3:
             return f"jdbc:oracle:thin:{self.plant('user')}/{self.plant('pw')}@db.contoso.com:1521:orcl"
+        if r.random() < 0.3:  # Oracle forms with no ://, so urlsplit never sees their query
+            return r.choice((f"jdbc:oracle:thin:@//db.contoso.com:1521/svc?wallet_password={self.plant('pw')}",
+                             f"jdbc:oracle:thin:@db:1521:orcl?oracle.net.wallet_password={self.plant('pw')}",
+                             f"jdbc:oracle:thin:@db:1521:orcl#{self.plant('frag')}"))
         parts = [f"user={self.plant('user')}", f"password={self.plant('pw')}", "databaseName=sales", "encrypt=true"]
         r.shuffle(parts)
         return f"jdbc:sqlserver://db.contoso.com{r.choice(('', ':1433'))};" + ";".join(parts)
@@ -347,6 +351,9 @@ class Planted:
             parts.append(f"SharedAccessSignature{eq}sv=2024-01-01&sr=c&sig={self.plant('sig')}")
         if r.random() < 0.3:
             parts.insert(0, "Driver={ODBC Driver 18 for SQL Server}")
+        if r.random() < 0.3:  # Snowflake-style keys with a prefix
+            parts.append(f"{r.choice(('private_key_pwd', 'oauth_token', 'client_secret', 'wallet_password'))}{eq}"
+                         f"{self.plant('pw')}")
         r.shuffle(parts)
         return ";".join(parts) + r.choice(("", ";"))
 
@@ -598,3 +605,14 @@ def test_naive_and_offset_starts_compare_as_times(svc):
 def test_an_unreadable_start_is_left_out_with_why(svc, started):
     out = events(svc, [{"run_id": "a", "entity": "gold.fact_sales", "status": "ok", "started_at": started}])
     assert out["events"] == [] and _why(out)["gold.fact_sales"] == "its last run has no start time"
+
+
+@pytest.mark.parametrize("value", [
+    "jdbc:oracle:thin:@//h:1521/svc?wallet_password=WPWLEAK",  # pragma: allowlist secret (made-up)
+    "jdbc:oracle:thin:@h:1521:orcl?oracle.net.wallet_password=WPWLEAK",  # pragma: allowlist secret (made-up)
+    "account=acme;private_key_pwd=WPWLEAK;warehouse=wh",  # pragma: allowlist secret (made-up)
+    "odbc:snowflake;oauth_token=WPWLEAK",  # pragma: allowlist secret (made-up)
+])
+def test_secrets_with_a_prefixed_key_or_in_a_driver_query_are_removed(value):
+    out = openlineage.safe_origin(value)
+    assert "WPWLEAK" not in out, out

@@ -51,12 +51,15 @@ _QUOTED = re.compile(r"(['\"])(.*?)\1")
 _PATH_PARAMS = re.compile(r";[^/]*")
 # User names and secrets in a connection string (user=sa; User ID=a b; uid=a; Pwd={p;w}; AccountKey=...):
 # a value runs to the next ; (ADO.NET and ODBC values hold spaces), or is a whole {braced} or quoted one.
-_USER_KEY = re.compile(r"(?i)\b(user\s*id|user\s*name|username|user|uid|password|pwd|accountkey|sharedaccesskey"
-                       r"|sharedaccesssignature)(\s*=\s*)(?:\{(?:[^}]|\}\})*\}|\"(?:[^\"]|\"\")*\"|'(?:[^']|'')*'|[^;\r\n]+)")
+# A secret's key may carry a prefix (wallet_password, oracle.net.wallet_password, private_key_pwd), so the key
+# starts after anything but a letter or digit, and any key ending in password, pwd, secret, token or key counts.
+_USER_KEY = re.compile(r"(?i)(?<![A-Za-z0-9])(user\s*id|user\s*name|username|user|uid"
+                       r"|[\w.]*(?:password|passwd|pwd|secret|token|key|sharedaccesssignature))(\s*=\s*)(?:\{(?:[^}]|\}\})*\}|\"(?:[^\"]|\"\")*\"|'(?:[^']|'')*'|[^;\r\n]+)")
 # jdbc:oracle:thin:scott/tiger@host:1521:orcl carries the user and password before the @.
 _ORACLE_USER = re.compile(r"(?i)(\bjdbc:oracle:\w+:)[^@\s;,]+@")
 # The URL inside a jdbc: one (jdbc:postgresql://...) has user info of its own, before an @.
 _INNER_USERINFO = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*://)[^/?#@]*@")
+_DRIVER_URL = re.compile(r"(?i)^(?:jdbc|odbc):")
 _ID_NAMESPACE = uuid.UUID("6b0f1a52-6f1d-4d8e-9b0e-2f1c9f6c4a11")
 
 
@@ -111,6 +114,9 @@ def _clean_one(text: str) -> str:
     text = _ORACLE_USER.sub(r"\1" + redact.REMOVED + "@", text.strip())
     if _FILE_URL.match(text):  # file:///C:/Users/... is a path on this PC, in any case; no query or fragment
         return _on_this_pc(re.split(r"[?#]", re.sub(r"(?i)^file:/*", "", text), maxsplit=1)[0])
+    if _DRIVER_URL.match(text) and "://" not in text:
+        # jdbc:oracle:thin:@//h:1521/svc?wallet_password=...: not a URL urlsplit reads, but its query is one
+        text = re.split(r"[?#]", text, maxsplit=1)[0]
     if "://" in text:
         try:
             u = urlsplit(text)

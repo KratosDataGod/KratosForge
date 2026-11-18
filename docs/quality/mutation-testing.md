@@ -6050,8 +6050,8 @@ The first `validate_service.py` run was stopped partway by a time limit and was 
 
 The two `tsql_clone.py` timeouts (a statement's index never moving on) and one `validate_service.py` timeout (a report's name number never moving on) count as killed, before and after.
 
-One bug was found, outside what the new tests pin, and is marked `xfail` in `test_spark_udf_mutation.py` until it is fixed:
-- A `pandas_udf` declared to return an `ArrayType` and returning numpy arrays (`s.apply(lambda v: np.array(...))`) gives null for every row, where Spark gives the arrays as lists. A numpy array isn't turned into a list before its fit is checked, so it doesn't fit the array type. Python lists work.
+One bug was found, outside what the new tests pin, and is fixed; its test in `test_spark_udf_mutation.py` now passes:
+- A `pandas_udf` declared to return an `ArrayType` and returning numpy arrays (`s.apply(lambda v: np.array(...))`) gave null for every row, where Spark gives the arrays as lists. A numpy array wasn't turned into a list before its fit was checked, so it didn't fit the array type. A numpy array with dimensions now becomes its list, one value or many.
 
 ### What the survivors were, and the tests that now kill them
 
@@ -6069,7 +6069,7 @@ One bug was found, outside what the new tests pin, and is marked `xfail` in `tes
   - Each type's fit: a boolean only for a bool; each integer type exactly its range, never a bool or a float; a decimal only for a `Decimal`; any value as its text for a string; a date but not a datetime for a date; a datetime for a timestamp; bytes and bytearray as bytes; a map with its keys and values fitted; a struct from a dict or a sequence of its length.
   - Structs inside a list arrive as rows.
   - Each Spark type's Arrow type, with string for any other.
-  - numpy and pandas scalars become Python values, a pandas array its list, and a numpy array of several values is left as it is; null is `None`, NaN or NaT, never an array.
+  - numpy and pandas scalars become Python values, a pandas array its list, and a numpy array its list (once left as it was: the bug above); null is `None`, NaN or NaT, never an array.
   - `udf` of a UDF is that UDF; a UDF's `evalType` is 100 and a `pandas_udf`'s 200.
   - `pandas_udf` called with the function returns the UDF, keeps a return type given by name, refuses a number as the return type after a function, and `functionType` 200 wins over iterator hints.
   - A UDF registers once per connection.

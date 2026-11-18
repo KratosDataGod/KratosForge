@@ -113,10 +113,13 @@ _SHAREPOINT_SITE = re.compile(r"(?im)(\.sharepoint\.(?:com|us|de|cn)/(?:sites|te
                               r"[^/\s\"'<>?#]+(?:(?: [^/\s\"'<>?#]+)+(?=[/\"'<>?#\r]|$))?")
 # a OneDrive web address names its owner: /personal/ann_contoso_com/
 _ONEDRIVE_PERSONAL = re.compile(r"(?i)(/personal/)[a-z0-9][a-z0-9_.\-]*")
-_ONEDRIVE_ORG = re.compile(r"(OneDrive - )([^\\/\"'<>:\r\n]+)")
+# A name runs to the next separator or quote, but an apostrophe between letters is part of it
+# (O'Brien), where one before a space, a comma or the end closes a quoted path.
+_NAME_RUN = r"(?:[^\\/\"'<>\r\n]|'(?=[^\W\d_]))+"
+_ONEDRIVE_ORG = re.compile(r"(OneDrive - )((?:[^\\/\"'<>:\r\n]|'(?=[^\W\d_]))+)")
 _SLASH = r"(?:\\\\|\\|/)+"
 # Windows user names can hold spaces ("Ann Lee"), so a drive path's name runs to the next separator.
-_WIN_USER_PATH = re.compile(rf"(?i)([a-z]:{_SLASH}(?:users|documents and settings){_SLASH})([^\\/\"'<>\r\n]+)")
+_WIN_USER_PATH = re.compile(rf"(?i)([a-z]:{_SLASH}(?:users|documents and settings){_SLASH})({_NAME_RUN})")
 _UNIX_USER_PATH = re.compile(r"(/home/|/Users/)([^\\/\s\"'<>]+)")
 _GUID = re.compile(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
 

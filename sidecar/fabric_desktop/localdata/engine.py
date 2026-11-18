@@ -47,7 +47,7 @@ from . import delta, tsql, tsql_errors
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
 from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
-from ..redact import describe
+from ..redact import describe, one_line
 from ..sql import KfDuckDB, refuse_spark_hashes
 from .. import trees
 
@@ -1860,7 +1860,9 @@ def _as_warehouse_says(exc: Exception, step: dict[str, Any]) -> Exception:
         if words == text:
             return exc
     words = tsql_errors.numbered(words)
-    _log.info("Local T-SQL error shown as %r; DuckDB said: %s", words.split("\n", 1)[0], text)
+    # Only DuckDB's message, never the statement it quotes after it ("LINE 1: ..."), which can hold a value
+    _log.info("Local T-SQL error shown as %r; DuckDB said: %s", words.split("\n", 1)[0],
+              one_line(text.split("\n\nLINE ", 1)[0], 1000))
     return _same_kind(exc, words)
 
 

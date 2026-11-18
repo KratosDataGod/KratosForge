@@ -121,7 +121,7 @@ class _SqlSession:
                 seconds = time.perf_counter() - started
                 status = "cancelled" if self._cancelled else "error"
                 out = {"type": "error", "ename": type(exc).__name__,
-                       "evalue": "Cancelled." if self._cancelled else str(exc)}
+                       "evalue": "Cancelled." if self._cancelled else _refusal_text(str(exc))}
                 outputs = [*self._preamble, out]
                 if on_output:
                     for o in outputs:
@@ -240,6 +240,13 @@ DUCKDB = EngineDescriptor(
 # A DuckDB session reads and writes only its own database: no files, extensions or network.
 _DUCKDB_CLOSED = {"enable_external_access": False, "autoinstall_known_extensions": False,
                   "autoload_known_extensions": False}
+
+
+def _refusal_text(text: str) -> str:
+    """A refusal written into the query (an error(...) with a Databricks error class, such as MERGE's) without
+    the "Invalid Input Error: " DuckDB puts in front of it, so it reads as Databricks writes it."""
+    prefix = "Invalid Input Error: "
+    return text[len(prefix):] if text.startswith(prefix + "[DELTA_") else text
 
 
 class OutsideSession(PermissionError):

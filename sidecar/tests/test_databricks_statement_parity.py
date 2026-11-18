@@ -54,7 +54,7 @@ def test_merge_stops_when_two_source_rows_match_one_target_row(cell, merge):
     cell(_SOURCE)
     answer = cell(merge)
     assert answer.startswith("error: "), answer
-    assert "DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE" in answer
+    assert answer.startswith("error: [DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE] "), answer
     assert cell("SELECT * FROM t ORDER BY id") == [[3, "c"], [4, "d"]]  # nothing changed
 
 

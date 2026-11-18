@@ -206,8 +206,12 @@ def maintain_mixin(name, monkeypatch):
         _project=lambda: SimpleNamespace(environments={}),
         _risk_capacity=lambda ws, *a: dev() if ws == "ws-dev" else read(capacities=_cap("Active")),
         fabric_jobs=SimpleNamespace(run_table_maintenance=lambda *a, **k: jobs.append(a) or f"job-{len(jobs)}"),
-        _log_fabric_run=lambda r: r | {"status": "NotStarted"})
+        _log_fabric_run=lambda r: r | {"status": "NotStarted"},
+        _wl_user=lambda: "chris", acks=[])
+    m._risk_ack_write = m.acks.append
+    m._maintenance_capacity = lambda ws: MetaMixin._maintenance_capacity(m, ws)
     m._maintenance_capacity_refusal = lambda *a, **k: MetaMixin._maintenance_capacity_refusal(m, *a, **k)
+    m._maintenance_gate = lambda *a: CloudMixin._maintenance_gate(m, *a)
     m._maintain = lambda *a: CloudMixin._maintain(m, *a)
     return m, jobs, retention
 
@@ -224,10 +228,18 @@ def test_maintain_optimize(monkeypatch, name):
             assert "Nothing was changed" in r["message"]
         assert [a[1] for a in jobs] == ["lh-gold"]
         assert retention == ["abfss://LH_Gold/dbo/sales"]
+    elif expected == WARNING:
+        # Without the warning's risk_id (nobody accepted it) its workspace's tables are left, each saying why.
+        assert [(r["status"], r.get("warning", False)) for r in out] == [("Failed", True)] * 2 + [("NotStarted", False)]
+        for r in out[:2]:
+            assert r["message"].startswith("Not optimized (capacity warning)") and title in r["message"]
+            assert r["risk_id"]
+        assert [a[1] for a in jobs] == ["lh-gold"] and retention == ["abfss://LH_Gold/dbo/sales"]
+        assert m.acks == []
     else:
-        # Warning goes ahead here with no acknowledgement: Maintain has no risk check of its own to accept.
         assert [r["status"] for r in out] == ["NotStarted"] * 3
         assert [a[1] for a in jobs] == ["lh-silver", "lh-silver", "lh-gold"] and len(retention) == 3
+        assert m.acks == []
 
 
 @pytest.mark.parametrize("name", STOPPED)
@@ -242,6 +254,88 @@ def test_optimize_after_a_run(monkeypatch, name):
     assert jobs == [] and retention == []
 
 
+def warned_mixin(monkeypatch):
+    """ws-dev's reading is a Warning (paused when read 61 minutes ago), the same reading each time it's asked,
+    as the cached reading is between meta_optimize_check and meta_optimize."""
+    m, jobs, retention = maintain_mixin("running", monkeypatch)
+    warned = read(capacities=_cap("Inactive"), age_s=61 * 60)
+    m._risk_capacity = lambda ws, *a: warned if ws == "ws-dev" else read(capacities=_cap("Active"))
+    return m, jobs, retention
+
+
+def test_maintain_starts_a_warned_workspace_once_its_warning_is_accepted_and_recorded(monkeypatch):
+    m, jobs, retention = warned_mixin(monkeypatch)
+    found = m._maintenance_capacity("ws-dev")
+    assert found["outcome"] == WARNING and found["risk_id"] == m._maintenance_capacity("ws-dev")["risk_id"]
+    out = CloudMixin._maintain(m, Store(), ROWS, "dev", {"ws-dev": found["risk_id"]})
+    assert [r["status"] for r in out] == ["NotStarted"] * 3
+    assert [a[1] for a in jobs] == ["lh-silver", "lh-silver", "lh-gold"] and len(retention) == 3
+    # recorded once for the workspace, before its jobs, as X-ray records an accepted warning
+    assert len(m.acks) == 1
+    ack = m.acks[0]
+    assert ack["risk_id"] == found["risk_id"] and ack["action"] == "meta_optimize" and ack["result"] == WARNING
+    assert ack["workload_id"] == "maintain:ws-dev" and ack["user"] == "chris" and ack["warnings"] == [found["title"]]
+
+
+def test_maintain_refuses_a_warning_that_changed_since_it_was_accepted(monkeypatch):
+    m, jobs, retention = warned_mixin(monkeypatch)
+    out = CloudMixin._maintain(m, Store(), ROWS, "dev", {"ws-dev": "an-older-reading"})
+    assert [r["status"] for r in out] == ["Failed", "Failed", "NotStarted"]
+    assert "changed since you looked" in out[0]["message"]
+    assert [a[1] for a in jobs] == ["lh-gold"] and retention == ["abfss://LH_Gold/dbo/sales"] and m.acks == []
+
+
+def test_maintain_starts_nothing_when_the_acceptance_cant_be_recorded(monkeypatch):
+    m, jobs, retention = warned_mixin(monkeypatch)
+
+    def fails(_record):
+        raise OSError("disk full")
+    m._risk_ack_write = fails
+    out = CloudMixin._maintain(m, Store(), ROWS, "dev", {"ws-dev": m._maintenance_capacity("ws-dev")["risk_id"]})
+    assert [r["status"] for r in out] == ["Failed", "Failed", "NotStarted"]
+    assert "couldn't be recorded" in out[0]["message"]
+    assert [a[1] for a in jobs] == ["lh-gold"] and retention == ["abfss://LH_Gold/dbo/sales"]
+
+
+def test_a_blocked_workspace_stays_stopped_whatever_risk_id_is_given(monkeypatch):
+    m, jobs, _ = maintain_mixin("paused", monkeypatch)
+    out = CloudMixin._maintain(m, Store(), ROWS, "dev", {"ws-dev": "anything"})
+    assert [r.get("blocked", False) for r in out] == [True, True, False] and [a[1] for a in jobs] == ["lh-gold"]
+    assert m.acks == []
+
+
+def test_optimize_after_a_run_skips_a_warned_workspace_and_says_why(monkeypatch):
+    m, jobs, retention = warned_mixin(monkeypatch)
+    m._optimize_after_run = lambda project, env: True
+    m._managed_tables = lambda project, include_meta=True: [dict(ROWS[0], entity="orders")]
+    project = SimpleNamespace(entities={"orders": SimpleNamespace(schema="dbo", table="orders")})
+    results = [{"entity": "orders", "status": "ok", "rows_written": 5}]
+    CloudMixin._after_run(m, project, "dev", Store(), results)
+    assert results[0]["maintenance"] == "skipped"
+    assert results[0]["maintenance_message"].startswith("Not optimized (capacity warning)")
+    assert jobs == [] and retention == [] and m.acks == []
+
+
+def test_meta_optimize_check_lists_each_workspace_with_its_reading_and_starts_nothing(monkeypatch):
+    m, jobs, retention = warned_mixin(monkeypatch)
+    store = Store()
+    m._project = lambda: SimpleNamespace(environments={})
+    m._store = lambda project, env: store
+    m._managed_tables = lambda project, include_meta=True: [dict(r, entity=r["table"]) for r in ROWS]
+    m._env_cfg = lambda project, env: {"workspace_id": "ws-dev", "workspace_name": "Sales Silver - Dev",
+                                       "workspaces": {"serve": {"id": "ws-serve", "name": "Sales Gold - Dev"}}}
+    got = CloudMixin.meta_optimize_check(m, "dev")
+    assert got["local"] is False and got["env"] == "dev"
+    by_ws = {w["workspace_id"]: w for w in got["workspaces"]}
+    assert by_ws["ws-dev"]["workspace_name"] == "Sales Silver - Dev" and by_ws["ws-dev"]["result"] == WARNING
+    assert by_ws["ws-dev"]["tables"] == ["dbo.orders", "dbo.lines"]
+    assert by_ws["ws-dev"]["risk_id"] == m._maintenance_capacity("ws-dev")["risk_id"]
+    assert by_ws["ws-serve"]["result"] == PASS and by_ws["ws-serve"]["tables"] == ["dbo.sales"]
+    assert jobs == [] and retention == [] and m.acks == []
+    # only some entities: only their workspaces
+    assert [w["workspace_id"] for w in CloudMixin.meta_optimize_check(m, "dev", ["sales"])["workspaces"]] == ["ws-serve"]
+
+
 # ---- a notebook's OPTIMIZE, ZORDER BY, VACUUM and RESTORE (delta-rs on this PC)
 
 NOTEBOOK_OPS = {"optimize": ("optimize", {}), "zorder": ("optimize", {"zorder": ["id"]}),
@@ -254,6 +348,7 @@ def test_notebook_maintenance(lake, tmp_path, monkeypatch, name, asked):  # noqa
     expected, title = classify(name)
     m = SimpleNamespace(_project=lambda: SimpleNamespace(environments={}), audit=AuditLog(tmp_path / "audit"),
                         _risk_capacity=reader(name))
+    m._maintenance_capacity = lambda ws: MetaMixin._maintenance_capacity(m, ws)
     m._maintenance_capacity_refusal = lambda *a, **k: MetaMixin._maintenance_capacity_refusal(m, *a, **k)
     m._maintenance_audit = lambda *a: MetaMixin._maintenance_audit(m, *a)
     monkeypatch.setattr(lakehouse, "maintenance_guard", lambda op, ws, t: MetaMixin._maintenance_refusal(m, op, ws, t))
@@ -275,7 +370,7 @@ def test_notebook_maintenance(lake, tmp_path, monkeypatch, name, asked):  # noqa
         # Notebook code can't accept a warning, so it is refused and sent to X-ray (Chris, 2026-11-18).
         with pytest.raises(PermissionError, match="has a warning") as said:
             lakehouse.maintain_table("dbo.sales", op, **kw)
-        assert title in str(said.value) and "X-ray" in str(said.value) and "Nothing was changed" in str(said.value)
+        assert title in str(said.value) and "X-ray" in str(said.value) and "nothing was changed" in str(said.value).lower()
         after = DeltaTable(path)
         assert after.version() == version and dict(after.metadata().configuration) == props
         assert outcomes() == [("error", asked)]

@@ -71,7 +71,7 @@ fabric_item_support fabric_git_links fabric_git_check fabric_git_overview fabric
 local_delta_history local_explain local_query_status local_transform_plan local_transform_runs
 pipeline_compatibility pipeline_export pipeline_import
 usage_preview
-risk_check meta_risk_gate risk_settings
+risk_check meta_risk_gate risk_settings meta_optimize_check
 model_bpa_status model_bpa_risk
 incidents_board incidents_for_me incident_sla_policy incidents_history incident_impact
 optimize_discover optimize_findings optimize_recommendations optimize_status optimization_assess excellence_assess
@@ -139,7 +139,7 @@ FAIL_CLOSED = frozenset({"meta_promote", "meta_rollback", "meta_restore", "xray_
 # one of these and fails on a name in neither set, so a new one is reviewed rather than missed.
 GUARD_PARAMS = frozenset({
     "confirm", "confirmed", "confirm_name", "confirm_deletes", "confirm_unknown", "confirm_writes",
-    "approve", "approval_id", "typed", "risk_id", "require_acknowledgement",
+    "approve", "approval_id", "typed", "risk_id", "risk_ids", "require_acknowledgement",
     "allow", "allow_commands", "allow_override", "allow_secrets", "allow_uncontained", "force"})
 NOT_GUARD_PARAMS = frozenset({"expect"})        # the version a tab opened, not a go-ahead
 _PROD_PARAMS = ("env", "envs", "target")

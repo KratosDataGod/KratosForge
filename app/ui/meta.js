@@ -763,6 +763,7 @@ function showRunResults(results, decision) {
       : r.status === "needs_decision" ? "Waiting for your choice below" : r.message),
     r.maintenance === "queued" ? h("span", { class: "pill-s info", title: "Fabric's table maintenance job: OPTIMIZE with V-Order, then VACUUM" }, "Optimize queued") : null,
     r.maintenance === "Failed" ? h("span", { class: "pill-s wrn", title: r.maintenance_message }, "Optimize not started") : null,
+    r.maintenance === "skipped" ? h("span", { class: "pill-s wrn", title: r.maintenance_message }, "Not optimized (capacity warning)") : null,
     r.run_id && r.status !== "needs_decision" ? btn("Details", null, () => showRun(r.run_id), "tool link small") : null));
   const actions = [btn("Close", null, closeDialog, decision ? "tool outline" : "tool primary")];
   let body = h("div", { class: "scroll" }, rows);
@@ -1388,20 +1389,64 @@ function shortDate(iso) {
   return dateTimeText(iso, { empty: "never" });
 }
 
+// The workspaces whose capacity has a warning, for the toast after Optimize skipped their tables.
+function maintainWarnedText(check, count) {
+  const names = (check?.workspaces || []).filter((w) => w.result === "warning").map((w) => w.workspace_name || "its workspace");
+  const where = names.length === 1 ? names[0] : `${names.length} workspaces`;
+  return `The ${count} table${count === 1 ? "" : "s"} on ${where} weren't optimized, because ${names.length === 1 ? "its capacity has" : "their capacities have"} a warning.`;
+}
+
+// Optimize all in Fabric when a workspace's capacity check is Warning: say which tables it holds and
+// what the warning is, and start them only once the box is ticked. The others can start on their own.
+// The engine checks again and records the acceptance before it starts anything (meta_optimize risk_ids).
+function maintainWarningDialog(check, start) {
+  const all = check.workspaces.filter((w) => w.result !== "blocked");
+  const warned = all.filter((w) => w.result === "warning");
+  const count = (ws) => ws.reduce((n, w) => n + w.tables.length, 0);
+  const total = count(all), clear = total - count(warned);
+  const plural = (n) => `${n} table${n === 1 ? "" : "s"}`;
+  const box = h("input", { type: "checkbox", onchange: () => { every.disabled = !box.checked; } });
+  const every = btn(`Optimize all ${total}`, null, () => { closeDialog(); start(Object.fromEntries(warned.map((w) => [w.workspace_id, w.risk_id]))); }, "tool primary");
+  every.disabled = true;
+  const some = clear ? btn(`Optimize the ${clear} without warnings`, null, () => { closeDialog(); start(null); }, "tool outline") : null;
+  const panel = (w) => h("div", { class: "risk-panel warning" },
+    h("div", { class: "risk-head" }, h("span", { class: "pill-s wrn" }, "Warning"), h("b", {}, `${w.workspace_name || w.workspace_id}: ${plural(w.tables.length)}`)),
+    h("div", {}, w.title + (w.detail ? `. ${w.detail}` : "")));
+  const others = all.filter((w) => w.result !== "warning");
+  showDialog(`Optimize ${plural(total)} in Fabric?`, h("div", { class: "wl-confirm" },
+    h("p", { class: "text" }, "Fabric's table maintenance job runs OPTIMIZE with V-Order, then VACUUM keeping each layer's history days, on the workspace's capacity."),
+    warned.map(panel),
+    h("label", { class: "risk-ack" }, box, "I've looked at these and want to run anyway"),
+    others.length ? h("p", { class: "muted-text small" }, others.map((w) => `${w.workspace_name || w.workspace_id}: ${plural(w.tables.length)}, capacity check ${w.result === "pass" ? "passed" : "not known"}.`).join(" ")) : null),
+  [btn("Cancel", null, closeDialog, "tool outline"), some, every].filter(Boolean));
+}
+
 async function renderHealthTab(body) {
   const m = state.meta;
   body.replaceChildren(h("p", { class: "muted-text" }, "Reading every table's Delta log..."));
   if (m.env !== "dev" && !state.user && !(await signIn())) return;
   const hl = await metaCall("meta_health", { env: m.env });
   if (!hl || state.view !== "metadata" || m.tab !== "health") return;
-  const optimize = async (entities) => {
+  const run = async (entities, riskIds, check) => {
     toast(hl.local ? "Compacting on this PC..." : "Starting Fabric's table maintenance...");
-    const res = await metaCall("meta_optimize", { env: m.env, entities }, "Optimize failed");
+    const res = await metaCall("meta_optimize", { env: m.env, entities, risk_ids: riskIds || null }, "Optimize failed");
     if (!res) return;
-    const failed = res.filter((r) => r.status === "Failed");
-    toast(failed.length ? `${failed.length} of ${res.length} didn't start: ${failed[0].message}`
-      : hl.local ? `Compacted ${res.length} table${res.length === 1 ? "" : "s"}` : `Queued ${res.length} maintenance job${res.length === 1 ? "" : "s"} in Fabric`, failed.length > 0);
+    const warned = res.filter((r) => r.status === "Failed" && r.warning);
+    const failed = res.filter((r) => r.status === "Failed" && !r.warning);
+    const queued = res.length - warned.length - failed.length;
+    const jobs = `${queued} maintenance job${queued === 1 ? "" : "s"}`;
+    if (hl.local) toast(failed.length ? `${failed.length} of ${res.length} didn't start: ${failed[0].message}` : `Compacted ${res.length} table${res.length === 1 ? "" : "s"}`, failed.length > 0);
+    else if (warned.length) toast(`Queued ${jobs} in Fabric. ${maintainWarnedText(check, warned.length)}`, failed.length > 0);
+    else toast(failed.length ? `${failed.length} of ${res.length} didn't start: ${failed[0].message}` : `Queued ${jobs} in Fabric`, failed.length > 0);
     renderHealthTab(body);
+  };
+  // A capacity Warning asks first, as X-ray does (Chris, 2026-11-18); Blocked, Pass and Unknown start as before.
+  const optimize = async (entities) => {
+    if (hl.local) return run(entities);
+    const check = await metaCall("meta_optimize_check", { env: m.env, entities }, "Couldn't check the capacity");
+    if (!check) return;
+    if (!check.workspaces.some((w) => w.result === "warning")) return run(entities, null, check);
+    maintainWarningDialog(check, (riskIds) => run(entities, riskIds, check));
   };
   const needs = hl.tables.filter((t) => t.status === "needs_maintenance");
   const head = h("div", { class: "card pad" },
@@ -1416,6 +1461,13 @@ async function renderHealthTab(body) {
       : "Optimize runs Fabric's table maintenance job on the workspace's capacity: OPTIMIZE with V-Order (what Direct Lake and the SQL endpoint read fastest), then VACUUM with 7 days' retention. Tables written from this PC have no V-Order until it runs."),
     hl.local ? null : h("label", { class: "check" },
       h("input", { type: "checkbox", checked: hl.optimize_after_run ? true : null, onchange: async (ev) => {
+        if (ev.target.checked) {
+          const check = await metaCall("meta_optimize_check", { env: m.env }, "Couldn't check the capacity");
+          const warned = check?.workspaces.find((w) => w.result === "warning");
+          if (!check || (warned && !(await confirmDialog(`Optimize after every ${ENV_LABEL[m.env]} run?`,
+            `${warned.title}. After each run, Optimize starts only while the capacity check passes or is unknown. While it shows this warning, the run's tables are listed as "Not optimized (capacity warning)", and you can optimize them from table health once you've looked at the warning.`,
+            "Turn on")))) { ev.target.checked = false; return; }
+        }
         const res = await metaCall("meta_set_maintenance", { env: m.env, optimize_after_run: ev.target.checked });
         if (res) toast(ev.target.checked ? "Every table a run writes gets optimized in Fabric afterwards" : "Runs no longer optimize afterwards");
       } }),

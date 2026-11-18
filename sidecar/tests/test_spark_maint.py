@@ -181,6 +181,7 @@ def test_the_engine_refuses_when_the_capacity_check_is_blocked():
                 raise cap
             return cap
         m = SimpleNamespace(_project=lambda: SimpleNamespace(environments={}), _risk_capacity=read)
+        m._maintenance_capacity = lambda ws: MetaMixin._maintenance_capacity(m, ws)
         m._maintenance_capacity_refusal = lambda *a, **k: MetaMixin._maintenance_capacity_refusal(m, *a, **k)
         m._maintenance_audit = lambda *a: MetaMixin._maintenance_audit(m, *a)  # no audit log here: the refusal as is
         return m

@@ -94,6 +94,7 @@ def engine(tmp_path, capacity=None):
     """The engine's maintenance guard over a real audit log, with the workspace's last capacity reading."""
     m = SimpleNamespace(_project=lambda: SimpleNamespace(environments={}), audit=AuditLog(tmp_path / "audit"),
                         _risk_capacity=lambda ws, name, refresh, reads: capacity)
+    m._maintenance_capacity = lambda ws: MetaMixin._maintenance_capacity(m, ws)
     m._maintenance_capacity_refusal = lambda *a, **k: MetaMixin._maintenance_capacity_refusal(m, *a, **k)
     m._maintenance_audit = lambda *a: MetaMixin._maintenance_audit(m, *a)
     return m

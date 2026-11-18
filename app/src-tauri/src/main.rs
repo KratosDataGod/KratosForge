@@ -770,7 +770,21 @@ fn updater(args: &[&str]) -> Result<Command, String> {
 /// Runs an updater command, sending each output line to the UI as a
 /// `component-log` event. Returns the last lines of output when it fails, without the
 /// download's "progress <percent>" lines, which only drive the UI's progress label.
-fn stream(app: &tauri::AppHandle, mut cmd: Command) -> Result<(), String> {
+fn stream(app: &tauri::AppHandle, cmd: Command) -> Result<(), String> {
+    stream_tail(app, cmd).map(|_| ())
+}
+
+/// The SHA-256 updater.py download-app printed last ("verified <sha256>"): the release checksum the
+/// download matched.
+fn verified_sha256(tail: &VecDeque<String>) -> Option<String> {
+    tail.iter().rev().find_map(|line| {
+        let sha = line.trim().strip_prefix("verified ")?.to_ascii_lowercase();
+        (sha.len() == 64 && sha.bytes().all(|b| b.is_ascii_hexdigit())).then_some(sha)
+    })
+}
+
+/// stream, returning the updater's last lines (updater_tail) when it succeeds.
+fn stream_tail(app: &tauri::AppHandle, mut cmd: Command) -> Result<VecDeque<String>, String> {
     let mut child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -783,7 +797,7 @@ fn stream(app: &tauri::AppHandle, mut cmd: Command) -> Result<(), String> {
     let _ = child.stderr.take().expect("updater stderr").read_to_string(&mut stderr);
     let status = child.wait().map_err(|e| e.to_string())?;
     if status.success() {
-        return Ok(());
+        return Ok(tail);
     }
     Err(updater_failure(tail, &stderr))
 }
@@ -1791,6 +1805,17 @@ struct ExeHandover<'a> {
     marker: PathBuf,
     commit: &'a str,
     child: Option<Child>,
+    /// The SHA-256 the download was verified against (the channel release's version.json, via
+    /// updater.py download-app): swap checks the file against it again once it holds it, and once
+    /// it is in place, so a change while the swap waited on a scanner is never installed.
+    checked_sha256: String,
+}
+
+fn sha256_of(r: &mut dyn std::io::Read) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    std::io::copy(r, &mut hasher)?;
+    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 impl update_guard::Handover for ExeHandover<'_> {
@@ -1800,7 +1825,14 @@ impl update_guard::Handover for ExeHandover<'_> {
     }
 
     fn swap(&mut self) -> Result<(), String> {
-        update_guard::swap_in(&self.exe, &self.new, &self.old)
+        let checked = &self.checked_sha256;
+        update_guard::swap_in_checked(&self.exe, &self.new, &self.old, |r| {
+            match sha256_of(r) {
+                Ok(now) if now == *checked => Ok(()),
+                Ok(_) => Err("The new build changed after it was checked, so it wasn't installed. Try the update again.".into()),
+                Err(e) => Err(format!("Could not read the new build to check it again: {e}")),
+            }
+        })
     }
 
     fn spawn(&mut self) -> Result<(), String> {
@@ -1883,7 +1915,7 @@ async fn update_app(app: tauri::AppHandle, webview: tauri::Webview, state: tauri
     let old = exe.with_extension("exe.old");
     let dest = new.to_string_lossy().into_owned();
     let target = download_offered(&app, commit.to_ascii_lowercase(), &dest);
-    let target = match target {
+    let (target, checked_sha256) = match target {
         Ok(t) => t,
         Err(e) => {
             let _ = std::fs::remove_file(&new); // a partial or unchecked download is never left behind
@@ -1897,13 +1929,13 @@ async fn update_app(app: tauri::AppHandle, webview: tauri::Webview, state: tauri
         return Err(why);
     }
     update_guard::hand_over(&mut ExeHandover {
-        app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &target, child: None,
+        app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &target, child: None, checked_sha256,
     })
 }
 
 /// Downloads the build the channel offers now to `dest`, following it once if it moves on during
-/// the download (update_app). Returns the build downloaded.
-fn download_offered(app: &tauri::AppHandle, mut target: String, dest: &str) -> Result<String, String> {
+/// the download (update_app). Returns the build downloaded and the SHA-256 it was verified against.
+fn download_offered(app: &tauri::AppHandle, mut target: String, dest: &str) -> Result<(String, String), String> {
     for attempt in 0..2 {
         let offered = offered_now()?;
         if offered != target {
@@ -1920,8 +1952,12 @@ fn download_offered(app: &tauri::AppHandle, mut target: String, dest: &str) -> R
         }
         // The download runs the updater with its own Python, not the engine, so the engine keeps
         // running until the file is here and checked.
-        match stream(app, updater(&["download-app", dest, &target])?) {
-            Ok(()) => return Ok(target),
+        match stream_tail(app, updater(&["download-app", dest, &target])?) {
+            Ok(tail) => {
+                return verified_sha256(&tail)
+                    .map(|sha| (target, sha))
+                    .ok_or_else(|| "The download wasn't checked against its release, so it wasn't installed.".into());
+            }
             Err(out) => {
                 let last = out.lines().last().unwrap_or_default().trim().to_string();
                 if last.starts_with("moved ") && attempt == 0 {
@@ -3899,11 +3935,21 @@ mod sidecar_log_tests {
 
 #[cfg(test)]
 mod updater_output_tests {
-    use super::{updater_failure, updater_tail};
+    use super::{updater_failure, updater_tail, verified_sha256};
     use std::collections::VecDeque;
 
     fn lines(range: std::ops::RangeInclusive<u32>) -> String {
         range.map(|i| format!("line {i}\n")).collect()
+    }
+
+    #[test]
+    fn the_verified_checksum_is_read_from_the_downloads_last_lines() {
+        let sha = "AB".repeat(32);
+        let tail = updater_tail(format!("progress 100\nverified {sha}\n").as_bytes(), |_| {});
+        assert_eq!(verified_sha256(&tail), Some(sha.to_ascii_lowercase()));
+        for out in ["done\n", "verified abc\n", "verified \n"] {
+            assert_eq!(verified_sha256(&updater_tail(out.as_bytes(), |_| {})), None, "{out}");
+        }
     }
 
     #[test]

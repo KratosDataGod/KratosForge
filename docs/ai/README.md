@@ -151,7 +151,7 @@ These limits apply to what your tool does through KratosForge. A tool that can a
 
 The tools are about what is on this PC: your notebooks, the metadata project and its lineage and run log, local data projects, proofs and receipts, and runs on this PC. They work the same whether your target is Fabric, Databricks or Snowflake.
 
-They don't create, change or delete Fabric items, and they don't cover what Microsoft's Fabric MCP servers and [Fabric skills](microsoft-fabric-skills.md#when-microsofts-fabric-skills-fit-better) already do. KratosForge reads Fabric only where a tool needs it (workspaces, lakehouse tables and schemas, an environment's run log or semantic models), always with your own sign-in, so your tool sees no more than you can. For other Fabric work, connect Microsoft's servers beside this one.
+They don't create, change or delete Fabric items, and they don't cover what Microsoft's Fabric MCP servers and [Fabric skills](microsoft-fabric-skills.md) already do. KratosForge reads Fabric only where a tool needs it (workspaces, lakehouse tables and schemas, an environment's run log or semantic models), always with your own sign-in, so your tool sees no more than you can. For other Fabric work, connect Microsoft's servers beside this one.
 
 Nothing a tool asks for leaves your PC through KratosForge, except the Fabric and OneLake calls above, which go to your own tenant, and anything code you approve does, since it runs as you. No tool request makes KratosForge call an AI model. (App Studio's model connections are separate: they use your own model and key, and only after you agree.)
 

@@ -823,10 +823,16 @@ _MAINTENANCE = {"OPTIMIZE": "it lays out a Delta table's files", "VACUUM": "it r
 _DESCRIBE_TYPES = {"INTEGER": "int", "BIGINT": "bigint", "SMALLINT": "smallint", "TINYINT": "tinyint",
                    "VARCHAR": "string", "DOUBLE": "double", "FLOAT": "float", "BOOLEAN": "boolean", "DATE": "date",
                    "TIMESTAMP WITH TIME ZONE": "timestamp", "TIMESTAMP": "timestamp_ntz", "BLOB": "binary"}
-MULTIPLE_MATCHES = ("[DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE] MERGE stopped, as Databricks stops it: "
-                    "more than one source row matches the same target row, so which one changes it is ambiguous. "
+MULTIPLE_MATCHES = ("[DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE] MERGE stopped, as Databricks stops it, "
+                    "because more than one source row matches the same target row and which one should change it is "
+                    "ambiguous. "
                     "Nothing was changed. Keep one source row for each target row, for example the latest change "
                     "for each key.")
+
+
+def _databricks_stops(what: str, why: str, instead: str) -> ValueError:
+    """A refusal of a statement Databricks stops too, so it has no warehouse step: running it there won't help."""
+    return ValueError(f"{what}, so nothing ran. Databricks stops it too, {why}. {instead}.")
 
 
 def _quoted(text: str) -> str:
@@ -918,10 +924,10 @@ def _alter_columns(statement: exp.Alter) -> list[exp.Expression]:
         for constraint in list(column.args.get("constraints") or []):
             kind = constraint.args.get("kind")
             if isinstance(kind, exp.DefaultColumnConstraint):
-                raise _statement_refusal("ALTER TABLE ... ADD COLUMN ... DEFAULT", "Databricks can't define a "
-                                         "default when it adds a column to a Delta table, and keeps the rows that "
-                                         "are there NULL, where DuckDB would give them the default", "add the "
-                                         "column, then ALTER TABLE ... ALTER COLUMN ... SET DEFAULT for new rows")
+                raise _databricks_stops("ALTER TABLE ... ADD COLUMN ... DEFAULT can't run here",
+                                        "because it takes no default when it adds a column to a Delta table",
+                                        "Add the column, then ALTER TABLE ... ALTER COLUMN ... SET DEFAULT, which "
+                                        "applies to new rows only")
             if isinstance(kind, exp.CommentColumnConstraint) and isinstance(table, exp.Table):
                 constraint.pop()
                 comments.append(_comment(exp.Column(this=column.this.copy(), table=table.this.copy(),
@@ -955,8 +961,8 @@ def other_statements(statement: exp.Expression) -> list[exp.Expression]:
         word = statement.name.upper()
         raise _statement_refusal(word, f"{_MAINTENANCE[word]}, and {_LOCAL_TABLE}", _LEAVE_OUT)
     if isinstance(statement, exp.Update) and statement.args.get("from_") is not None:
-        raise _statement_refusal("UPDATE ... FROM", "Databricks' UPDATE has no FROM clause and Databricks stops it as "
-                                 "a syntax error", "write it as MERGE INTO ... USING ... WHEN MATCHED THEN UPDATE")
+        raise _databricks_stops("UPDATE ... FROM isn't Databricks SQL", "as a syntax error, because its UPDATE has "
+                                "no FROM clause", "Write it as MERGE INTO ... USING ... WHEN MATCHED THEN UPDATE")
     if isinstance(statement, exp.Insert) and statement.args.get("overwrite"):
         raise _statement_refusal("INSERT OVERWRITE", "DuckDB has no INSERT OVERWRITE", "empty the table with "
                                  "TRUNCATE TABLE (or DELETE FROM ... WHERE for a partition), then INSERT INTO")

@@ -23,6 +23,12 @@ def cell():
     session.close()
 
 
+def _databricks_stops_too(answer, what):
+    # a statement Databricks stops too: no warehouse step, since running it there won't help
+    assert answer.startswith(f"error: {what}, so nothing ran. Databricks stops it too, "), answer
+    assert "Databricks SQL warehouse" not in answer
+
+
 def _refused(answer, what):
     assert answer.startswith(f"error: {what} can't run on this PC the way it runs in Databricks, because "), answer
     assert ", so nothing ran. " in answer
@@ -77,7 +83,7 @@ def test_an_unconditional_delete_with_two_matches_never_answers_otherwise(cell):
 # ... JOIN" isn't supported; use MERGE INTO)
 def test_update_from_is_refused_as_databricks_has_no_such_clause(cell):
     cell(_SOURCE)
-    _refused(cell("UPDATE t SET v = s.w FROM s WHERE t.id = s.id"), r"UPDATE ... FROM")
+    _databricks_stops_too(cell("UPDATE t SET v = s.w FROM s WHERE t.id = s.id"), "UPDATE ... FROM isn't Databricks SQL")
     assert cell("SELECT * FROM t ORDER BY id") == [[3, "c"], [4, "d"]]
     assert cell("UPDATE t SET v = 'x' WHERE id IN (SELECT id FROM s WHERE w = 'D')") == [[1]]
     assert cell("DELETE FROM t WHERE id IN (SELECT id FROM s WHERE w = 'C')") == [[1]]
@@ -134,7 +140,8 @@ def test_add_and_drop_columns_take_a_list(cell):
 
 def test_set_default_changes_new_rows_only_and_add_column_default_is_refused(cell):
     cell("CREATE TABLE t (id INT, v STRING); INSERT INTO t VALUES (1, 'a')")
-    _refused(cell("ALTER TABLE t ADD COLUMN w INT DEFAULT 5"), r"ALTER TABLE ... ADD COLUMN ... DEFAULT")
+    _databricks_stops_too(cell("ALTER TABLE t ADD COLUMN w INT DEFAULT 5"),
+                          "ALTER TABLE ... ADD COLUMN ... DEFAULT can't run here")
     _refused(cell("ALTER TABLE t ADD COLUMN w INT FIRST"), r"ALTER TABLE ... ADD COLUMN ... FIRST or AFTER")
     _refused(cell("ALTER TABLE t ADD COLUMN w INT AFTER id"), r"ALTER TABLE ... ADD COLUMN ... FIRST or AFTER")
     assert cell("ALTER TABLE t ADD COLUMN w INT; ALTER TABLE t ALTER COLUMN w SET DEFAULT 5") == []

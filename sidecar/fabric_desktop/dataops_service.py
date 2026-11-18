@@ -405,7 +405,24 @@ class DataOpsMixin:
                 q = state["quiet"].get(_dh_key(env, t["entity"], a["kind"], a.get("version")))
                 if q and (not q.get("until") or _dh_time(q["until"]) > now):
                     a["quiet"] = q
+        self._dh_prune(env, tables)
         return {"env": env, "tables": tables, "entities": names, "rule": data_health_mod.rule()}
+
+    def _dh_prune(self, env: str, tables: list[dict[str, Any]]) -> None:
+        """Forget acknowledgements and snoozes that no current alert matches: an alert is only ever on a
+        table's latest load, so one for an older version can't come back. A table that couldn't be read
+        keeps its own, since its alerts are unknown."""
+        read = {t["entity"]: {_dh_key(env, t["entity"], a["kind"], a.get("version")) for a in t.get("alerts") or []}
+                for t in tables if t.get("state") not in ("error", "no_table")}
+        if not read:
+            return
+        with _DH_LOCK:
+            state = self._dh_read()
+            keep = {k: v for k, v in state["quiet"].items()
+                    if not (k.startswith(f"{env}|") and k.split("|")[1] in read and k not in read[k.split("|")[1]])}
+            if len(keep) != len(state["quiet"]):
+                state["quiet"] = keep
+                self._dh_write(state)
 
     def meta_data_health_watch(self, name: str, env: str, watch: bool = True) -> dict[str, Any]:
         """Add a table to (or take it off) this PC's Data health list. Changes nothing in the table."""

@@ -4456,8 +4456,13 @@ test("Settings history names capacities, filters by scope and asks before creati
   const fn = (name) => src.match(new RegExp(`(async )?function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
   const ctx = { calls: [], toasts: [], renders: 0 };
   vm.createContext(ctx);
-  vm.runInContext(`${fn("settingsHistoryNames")}${fn("settingsHistoryRows")}${fn("settingsHistoryRead")}
-    this.names = settingsHistoryNames; this.rows = settingsHistoryRows; this.read = settingsHistoryRead;`, ctx);
+  const store = {};
+  ctx.localStorage = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
+  ctx.document = { querySelectorAll: () => [] };
+  vm.runInContext(`const settingsHistoryPage = { busy: null, lakehouse: "lh1" }; const SH_SETUP_KEY = "fd.settingsHistory.setup";
+    ${fn("settingsHistoryNames")}${fn("settingsHistoryRows")}const SH_SETUP_METHODS = { capacity_settings_read: "Capacities", tenant_settings_read: "Tenant settings" };
+    ${fn("settingsHistorySetup")}${fn("settingsHistoryRead")}${fn("settingsHistoryReadOnce")}
+    this.names = settingsHistoryNames; this.rows = settingsHistoryRows; this.read = settingsHistoryRead; this.page = settingsHistoryPage;`, ctx);
   const changes = [  // newest first, as tenant_settings_history returns them
     { scope_type: "capacity", scope_id: "cap-1", setting: "sku", changed_after: "t1", changed_by_time: "t2", old_json: '"F64"', new_json: '"F128"' },
     { scope_type: "capacity", scope_id: "cap-1", setting: "displayName", changed_after: "t1", changed_by_time: "t2", old_json: '"Old"', new_json: '"Prod"' },
@@ -4475,7 +4480,8 @@ test("Settings history names capacities, filters by scope and asks before creati
   const [ov] = ctx.rows(changes, names, "cap-2");
   assert.strictEqual(JSON.stringify([ov.scope, ov.setting, ov.now]), '["Capacity cap-2","Override: Copilot",null]');
 
-  // The first read asks; only a yes passes approve.
+  // The first read asks; only a yes passes approve. A Cancel is remembered for this lakehouse: the
+  // next read doesn't ask again, and only the inline Set up history (opts.approve) passes approve.
   ctx.toast = (t, err) => ctx.toasts.push([t, !!err]);
   ctx.render = () => { ctx.renders += 1; };
   ctx.friendlyError = (e) => ({ text: String(e.message).replace(/^PermissionError: /, "") });
@@ -4490,15 +4496,62 @@ test("Settings history names capacities, filters by scope and asks before creati
   await ctx.read("capacity_settings_read", "Capacities");
   assert.strictEqual(ctx.asked[1], "Setting up adds 3 tables.");
   assert.strictEqual(JSON.stringify(ctx.calls), '[["capacity_settings_read","{}"]]');
-  ctx.yes = true;
+  assert.match(store["fd.settingsHistory.setup"], /"lakehouse":"lh1".*"text":"Setting up adds 3 tables\."/);
+  ctx.asked = null; ctx.yes = true;
   await ctx.read("capacity_settings_read", "Capacities");
-  assert.strictEqual(ctx.calls[2][1], '{"approve":true}');
+  assert.strictEqual(ctx.asked, null, "a Cancel isn't asked again");
+  assert.strictEqual(ctx.calls.length, 2);
+  assert.ok(!ctx.calls.some(([, a]) => a.includes("approve")));
+  assert.match(ctx.toasts.at(-1)[0], /^Nothing was read, because the settings history tables/);
+  // Another lakehouse hasn't been answered: it asks there.
+  ctx.page.lakehouse = "lh2";
+  await ctx.read("capacity_settings_read", "Capacities");
+  assert.ok(ctx.asked);
+  assert.strictEqual(ctx.calls.at(-1)[1], '{"approve":true}');
   assert.strictEqual(JSON.stringify(ctx.toasts.at(-1)), '["Capacities read: 2 changes",false]');
+  ctx.page.lakehouse = "lh1";
+  ctx.asked = null;
+  await ctx.read("capacity_settings_read", "Capacities", {}, { approve: true });
+  assert.strictEqual(ctx.asked, null);
+  assert.strictEqual(ctx.calls.at(-1)[1], '{"approve":true}');
+  assert.strictEqual(store["fd.settingsHistory.setup"], undefined, "set up: nothing left to offer");
+  // Storage is replayed only for the two reads, never their params, and nothing is kept without a lakehouse.
+  store["fd.settingsHistory.setup"] = JSON.stringify({ lakehouse: "lh1", method: "workspace_delete", params: { id: "x" }, text: "t" });
+  assert.strictEqual(vm.runInContext("settingsHistorySetup()", ctx), null);
+  store["fd.settingsHistory.setup"] = JSON.stringify({ lakehouse: "lh1", method: "capacity_settings_read", params: { admin: true, approve: true, x: 1 }, text: "t" });
+  const saved = vm.runInContext("settingsHistorySetup()", ctx);
+  assert.strictEqual(JSON.stringify([saved.method, saved.label, saved.params]), '["capacity_settings_read","Capacities",null]');
+  delete store["fd.settingsHistory.setup"];
+  ctx.page.lakehouse = null;
+  vm.runInContext('settingsHistorySetup({ lakehouse: null, method: "capacity_settings_read", params: {}, text: "t" })', ctx);
+  assert.strictEqual(store["fd.settingsHistory.setup"], undefined);
+  ctx.page.lakehouse = "lh1";
+  // One read at a time: a press while one runs does nothing.
+  let release;
+  ctx.rpc = (method, args) => (ctx.calls.push([method, JSON.stringify(args)]), new Promise((r) => { release = r; }));
+  const n = ctx.calls.length;
+  const first = ctx.read("capacity_settings_read", "Capacities");
+  await ctx.read("capacity_settings_read", "Capacities");
+  await ctx.read("tenant_settings_read", "Tenant settings");
+  assert.strictEqual(ctx.calls.length, n + 1);
+  release({ outcome: "read", changes: [] });
+  await first;
+  assert.strictEqual(ctx.page.busy, null);
+  // A throw still ends the read and renders, so the buttons come back.
+  const renders = ctx.renders;
+  ctx.page.lakehouse = "lh3";
+  ctx.rpc = async () => { throw new Error("PermissionError: Setting up adds 3 tables. Confirm to continue."); };
+  const ask = ctx.confirmDialog;
+  ctx.confirmDialog = async () => { throw new Error("dialog broke"); };
+  await assert.rejects(ctx.read("capacity_settings_read", "Capacities"), /dialog broke/);
+  assert.strictEqual(ctx.page.busy, null);
+  assert.strictEqual(ctx.renders, renders + 1);
+  ctx.confirmDialog = ask; ctx.page.lakehouse = "lh1";
   // An unreadable read is recorded by the engine and shown as an error toast, not asked about again.
   ctx.rpc = async () => ({ outcome: "unreadable", reason: "Only a Fabric administrator can read tenant settings.", changes: [] });
   await ctx.read("tenant_settings_read", "Tenant settings");
   assert.strictEqual(JSON.stringify(ctx.toasts.at(-1)), '["Tenant settings: Only a Fabric administrator can read tenant settings.",true]');
-  assert.strictEqual(ctx.renders, 2);
+  assert.strictEqual(ctx.renders, 7);  // after every read that ran, the asked, declined and failed ones too
   // Include capacity overrides passes admin, and says when the capacities were read but the overrides weren't.
   ctx.calls.length = 0;
   for (const [overrides, toast] of [["read", '["Capacities read: nothing changed",false]'],

@@ -135,11 +135,16 @@ def test_a_refusal_sqlglot_makes_names_databricks_not_fabric(cell):
     assert "Fabric" not in answer
 
 
+def _plan_words(plan):
+    """The plan's letters only: DuckDB 1 writes CREATE_TABLE in its boxes, DuckDB 2 writes Create Table."""
+    return re.sub(r"[^a-z]", "", plan.lower())
+
+
 @pytest.mark.parametrize("dialect", ["databricks", "spark", "duckdb", "snowflake"])
 def test_a_plan_plans_the_first_statement_and_runs_none(dialect):
     session = local_sql.DuckDBSession(SessionConfig("nb"))
     try:
-        assert "PROJECTION" in session.plan("SELECT 1; CREATE TABLE made AS SELECT 1 AS a", dialect)
+        assert "projection" in _plan_words(session.plan("SELECT 1; CREATE TABLE made AS SELECT 1 AS a", dialect))
         assert session._con.execute("SELECT count(*) FROM duckdb_tables()").fetchall() == [(0,)]
     finally:
         session.close()
@@ -148,8 +153,8 @@ def test_a_plan_plans_the_first_statement_and_runs_none(dialect):
 def test_a_plan_of_a_table_with_an_identity_column_makes_no_table():
     session = local_sql.DuckDBSession(SessionConfig("nb"))
     try:
-        assert "CREATE_TABLE" in session.plan("CREATE TABLE ids (id BIGINT GENERATED ALWAYS AS IDENTITY, n STRING)",
-                                              "databricks")
+        assert "createtable" in _plan_words(session.plan(
+            "CREATE TABLE ids (id BIGINT GENERATED ALWAYS AS IDENTITY, n STRING)", "databricks"))
         assert session._con.execute("SELECT count(*) FROM duckdb_tables()").fetchall() == [(0,)]
     finally:
         session.close()

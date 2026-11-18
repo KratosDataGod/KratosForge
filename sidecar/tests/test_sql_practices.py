@@ -66,6 +66,15 @@ def ids(query, **kw):
      ["DM002"]),
     ("SELECT ROW_NUMBER() OVER (ORDER BY id) AS customer_key, id FROM stg.customer", []),  # only looked at
     ("INSERT INTO dbo.t (rn, id) SELECT ROW_NUMBER() OVER (PARTITION BY id ORDER BY d) AS rn, id FROM dbo.s", []),
+    # DM002 with no alias: the INSERT column list names the key by position
+    (("INSERT INTO dbo.dim_customer (customer_key, customer_id) "
+      "SELECT ROW_NUMBER() OVER (ORDER BY customer_id), customer_id FROM stg.customer"), ["DM002"]),
+    (("INSERT INTO dbo.d (customer_id, customer_key) SELECT customer_id, ROW_NUMBER() OVER (ORDER BY customer_id) "
+      "FROM stg.customer"), ["DM002"]),
+    (("INSERT INTO dbo.d (customer_key, n) SELECT customer_key, ROW_NUMBER() OVER (ORDER BY customer_key) "
+      "FROM stg.customer"), []),  # the number goes in n, the key is copied
+    ("INSERT INTO dbo.d SELECT ROW_NUMBER() OVER (ORDER BY id), id FROM stg.c", []),  # no column list: can't tell
+    ("INSERT INTO dbo.d (k_sk, id) SELECT (SELECT MAX(x) FROM dbo.y), ROW_NUMBER() OVER (ORDER BY id) FROM stg.c", []),
     # WH001: a TRUNCATE and a reload of the same table
     ("TRUNCATE TABLE dbo.sales; INSERT INTO dbo.sales (id) SELECT id FROM stg.sales", ["WH001"]),
     ("TRUNCATE TABLE dbo.sales; INSERT INTO dbo.other (id) SELECT id FROM stg.sales", []),

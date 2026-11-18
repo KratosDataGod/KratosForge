@@ -414,7 +414,44 @@ def _numbers_a_key(s: Stmt, i: int) -> bool:
         j = _close(s, j + 1) + 1
     if j < len(toks) and toks[j].kw == "AS":
         j += 1
-    return j < len(toks) and _is_name(toks[j]) and toks[j].text.lower().endswith(("_key", "_sk"))
+    if j < len(toks) and _is_name(toks[j]) and toks[j].kw not in _ALIAS_STOP | {"FROM"}:
+        return toks[j].text.lower().endswith(("_key", "_sk"))
+    column = _insert_column_for(s, i)  # no alias: INSERT INTO t (a_key, ...) SELECT ROW_NUMBER() ..., ...
+    return column is not None and column.lower().endswith(("_key", "_sk"))
+
+
+def _insert_column_for(s: Stmt, i: int) -> str | None:
+    """The INSERT column list's name at the select-list position of token i, or None when it can't be told."""
+    toks = s.toks
+    ins = next((k for k, t in enumerate(toks) if t.kw == "INSERT"), None)
+    if ins is None:
+        return None
+    open_ = next((k for k in range(ins + 1, len(toks))
+                  if toks[k].type == TokenType.L_PAREN or toks[k].kw in {"SELECT", "VALUES"}), None)
+    if open_ is None or toks[open_].type != TokenType.L_PAREN:
+        return None  # no column list
+    close = _close(s, open_)
+    inner = toks[open_].depth + 1
+    columns: list[str | None] = []
+    last: str | None = None
+    for t in toks[open_ + 1:close]:
+        if t.depth == inner and t.type == TokenType.COMMA:
+            columns.append(last)
+            last = None
+        elif t.depth == inner and _is_name(t):
+            last = t.text
+    columns.append(last)
+    select = next((k for k in range(close + 1, len(toks)) if toks[k].kw == "SELECT"), None)
+    if select is None or select > i:
+        return None
+    depth = toks[select].depth
+    position = 0
+    for t in toks[select + 1:i]:
+        if t.depth == depth and t.kw == "FROM":
+            return None
+        if t.depth == depth and t.type == TokenType.COMMA:
+            position += 1
+    return columns[position] if position < len(columns) else None
 
 
 def _reloads(stmts: list[Stmt]) -> Iterator[tuple[str, int, int]]:

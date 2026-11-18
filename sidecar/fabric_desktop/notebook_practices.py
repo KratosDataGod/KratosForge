@@ -198,6 +198,7 @@ def _python(tree: ast.AST, source: str, scheduled: bool, counts: dict[str, list[
     # lf = pl.scan_parquet(...).filter(...), then lf.collect() later in the cell: lf is a Polars lazy frame
     lazy = {tgt.id for node in ast.walk(tree) if isinstance(node, ast.Assign) and _chain(node.value) & _POLARS_LAZY
             for tgt in node.targets if isinstance(tgt, ast.Name)}
+    yield from _eager_read_kept_then_filtered(tree)
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(_is_udf(d) for d in node.decorator_list):
             decorators.update(id(d) for d in node.decorator_list)
@@ -351,6 +352,46 @@ def _row_by_row(call: ast.Call, name: str) -> bool:
 
 _POLARS_LAZY = {"scan_csv", "scan_parquet", "scan_ndjson", "scan_ipc", "scan_delta", "lazy"}
 _POLARS_READS = {"read_csv", "read_parquet", "read_ndjson", "read_ipc"}
+
+
+def _is_eager_polars_read(node: ast.AST) -> bool:
+    """pl.read_csv(...) (and the other eager reads), maybe followed by with_columns, select or rename."""
+    while isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in {"with_columns", "select", "rename"}:
+        node = node.func.value
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in _POLARS_READS
+            and isinstance(node.func.value, ast.Name) and node.func.value.id in {"pl", "polars"})
+
+
+def _eager_read_kept_then_filtered(tree: ast.AST) -> Iterator[tuple[str, int]]:
+    """NB015 across lines: df = pl.read_csv(...), and every later use of df in the cell is df.filter(...).
+    A name assigned twice, or used any other way (its columns, its length, passed on), isn't reported."""
+    assigned: dict[str, list[ast.Assign]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            for tgt in (node.targets if isinstance(node, ast.Assign) else [node.target]):
+                for leaf in ast.walk(tgt):
+                    if isinstance(leaf, ast.Name):
+                        assigned.setdefault(leaf.id, []).append(node)  # type: ignore[arg-type]
+    eager = {name: nodes[0] for name, nodes in assigned.items()
+             if len(nodes) == 1 and isinstance(nodes[0], ast.Assign) and len(nodes[0].targets) == 1
+             and isinstance(nodes[0].targets[0], ast.Name) and _is_eager_polars_read(nodes[0].value)}
+    if not eager:
+        return
+    parents = {id(child): node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    filters: dict[str, list[int]] = {}
+    other: set[str] = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in eager):
+            continue
+        attr = parents.get(id(node))
+        call = parents.get(id(attr)) if attr is not None else None
+        if isinstance(attr, ast.Attribute) and attr.attr == "filter" and isinstance(call, ast.Call) and call.func is attr:
+            filters.setdefault(node.id, []).append(call.lineno)
+        else:
+            other.add(node.id)
+    for name, lines in filters.items():
+        if name not in other:
+            yield "NB015", min(lines)
 
 
 def _eager_polars_read(call: ast.Call) -> bool:

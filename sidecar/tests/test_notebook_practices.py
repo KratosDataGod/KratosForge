@@ -89,6 +89,17 @@ def test_polars_eager_read_then_filter():
     assert ids(['sdf = spark.read.table("t")\nrows = sdf.collect()']) == ["NB003"]
 
 
+def test_polars_eager_read_kept_in_a_name_then_only_filtered():
+    assert ids(['df = pl.read_csv("Files/sales.csv")\neu = df.filter(pl.col("region") == "EU")']) == ["NB015"]
+    assert ids([('df = pl.read_parquet("t.parquet").select("a")\n'
+                 'eu = df.filter(pl.col("a") > 1)\nus = df.filter(pl.col("a") < 0)')]) == ["NB015"]  # one finding
+    assert ids(['df = pl.read_csv("a.csv")\nprint(len(df))\neu = df.filter(pl.col("r") == "EU")']) == []  # used whole
+    assert ids(['df = pl.read_csv("a.csv")\ndf = df.filter(pl.col("r") == "EU")']) == []  # assigned twice
+    assert ids(['df = pl.read_csv("a.csv")\nsave(df)']) == []
+    assert ids(['df = pl.scan_csv("a.csv")\neu = df.filter(pl.col("r") == "EU").collect()']) == []  # lazy
+    assert ids(['df = pd.read_csv("a.csv")\neu = df.filter(items=["a"])']) == []  # pandas
+
+
 def test_print_logging_only_in_a_scheduled_notebook():
     assert ids(['print("loaded", n)']) == []
     assert ids(['print("loaded", n)', 'log.info("loaded %s", n)'], scheduled=True) == ["NB017"]

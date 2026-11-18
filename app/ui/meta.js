@@ -492,6 +492,7 @@ async function renderEntity() {
   const errBox = h("div", {}, e.errors.length ? h("div", { class: "problems" }, h("b", {}, "This entity doesn't pass the save gate yet"), gateList(e.errors)) : null);
 
   const save = async () => {
+    if (previewShown() && !(await confirmContractChange(e.name, editor.value))) return;
     const res = await metaCall("meta_save_entity", { name: e.name, text: editor.value }, "Not saved");
     if (!res) return;
     toast(res.errors.length ? `Saved with ${res.errors.length} problem${res.errors.length === 1 ? "" : "s"} to fix` : "Saved. It passes the save gate.");
@@ -557,8 +558,9 @@ async function renderEntity() {
         errBox, editor),
       h("div", { class: "side" },
         h("div", { class: "card pad" }, h("b", {}, "Contract"), h("div", { class: "cols" }, cols)),
-        h("div", { class: "card pad" }, h("div", { class: "row" }, h("b", { class: "grow" }, "Lineage"),
-          preview("lineage", btn("Columns", "flow", () => columnLineage(e.name), "tool link small"))),
+        h("div", { class: "card pad" }, h("div", { class: "row wrap lineage-head" }, h("b", { class: "grow" }, "Lineage"),
+          preview("lineage", btn("Columns", "flow", () => columnLineage(e.name), "tool link small")),
+          preview("lineage", btn("Impact", null, () => impactDialog(e.name), "tool link small", { title: "What a change to one of its columns would break" }))),
           h("div", { class: "lineage3" },
             h("div", {}, h("span", { class: "muted-text small" }, "Reads"),
               e.reads.length ? e.reads.map((r) => h("button", { class: "node", onclick: () => openEntity(r) }, entityName(r)))

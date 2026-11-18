@@ -219,7 +219,7 @@ def _result(run: dict[str, Any], b: float | None, b_cls: str, layers: list[dict[
     else:
         net, net_cls = max(0.0, gross - o), _weakest(gross_cls, o_cls)
     return {"execution_id": run["execution_id"], "workload_key": run["workload_key"],
-            "baseline_version": run["baseline_version"], "baseline_cu_hours": b, "baseline_classification": b_cls,
+            "baseline_version": run["baseline_version"], "at": run["at"], "ran": run["ran"], "baseline_cu_hours": b, "baseline_classification": b_cls,
             "layers": layers, "optimizations": [o_["optimization_id"] for o_ in applied],
             "gross_cu_hours": None if gross is None else round(gross, 6), "gross_classification": gross_cls,
             "overhead_cu_hours": None if o is None else round(o, 6),

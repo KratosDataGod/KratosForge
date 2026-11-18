@@ -38,6 +38,7 @@ NOT_CALLED: dict[str, str] = {
     "docs.databricks.com": _LINK,
     "docs.snowflake.com": _LINK,  # snowflake_sql: SQL reference links in its conversion notes
     "duckdb.org": _LINK,
+    "kratosdatagod.github.io": _LINK,  # the KratosForge docs site, cited in assessment findings
     "learn.microsoft.com": _LINK,
     "spark.apache.org": _LINK,
     "www.apache.org": _LINK,  # licence text in vendored code

@@ -149,3 +149,17 @@ def test_replicate_of_a_column_is_checked_on_each_row(engine):
                                  "SELECT REPLICATE('ab', -1)"])
 def test_replicate_keeps_its_null_answers(engine, sql):
     assert rows(engine, sql) == [[None]]
+
+
+@pytest.mark.parametrize("sql, out", [
+    ("SELECT LEN(REPLICATE('ab', 4000.7))", [[8000]]),  # the count is cut toward zero first: 8,000 bytes, whole
+    ("SELECT LEN(REPLICATE('ab', 4000.7 - 8001))", [[None]]),  # a negative count is NULL, before any limit
+    ("SELECT DATALENGTH(SPACE(2.9)), SPACE(-1)", [[2, None]]),  # LEN would drop trailing spaces
+])
+def test_replicates_limit_reads_the_count_as_t_sql_takes_it(engine, sql, out):
+    assert rows(engine, sql) == out
+
+
+def test_replicate_one_past_the_limit_after_the_count_is_cut_stops(engine):
+    assert "8,000 bytes" in error(engine, "SELECT REPLICATE('ab', 4001)")
+    assert "8,000 bytes" in error(engine, "SELECT REPLICATE('ab', 4001.2)")

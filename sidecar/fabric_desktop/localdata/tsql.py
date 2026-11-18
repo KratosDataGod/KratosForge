@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import math
 import re
 from collections.abc import Callable, Container
 from typing import Any, cast
@@ -2383,7 +2384,9 @@ def _string_edges(tree: exp.Expression) -> None:
       from the end. A negative length is an error.
     - ``STUFF(s, start, n, x)`` is NULL when the start is below 1 or past the end, or the length is
       negative; a NULL ``x`` deletes without inserting.
-    - ``REPLICATE(s, n)`` is NULL when ``n`` is negative.
+    - ``REPLICATE(s, n)`` and ``SPACE(n)`` are NULL when ``n`` is negative, and a count with a fraction is
+      cut toward zero first (``SPACE(1.7)`` is one space, ``SPACE(-0.5)`` is ''); DuckDB gave '' for a
+      negative count, rounded ``SPACE``'s and didn't bind ``REPLICATE``'s.
     - ``LEFT`` and ``RIGHT`` with a negative length are an error (DuckDB drops from the other end).
     - ``TRANSLATE(s, a, b)`` with ``a`` and ``b`` of different lengths is an error (DuckDB drops the
       characters of ``a`` that have no partner in ``b``).
@@ -2392,8 +2395,8 @@ def _string_edges(tree: exp.Expression) -> None:
       from the end), and is 0 for an empty ``x`` (DuckDB found it at 1) (WR-210).
 
     Literal starts and lengths that can't hit an edge are left as they are."""
-    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Left, exp.Right, exp.Translate,
-                                   exp.StrPosition)):
+    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Space, exp.Left, exp.Right,
+                                   exp.Translate, exp.StrPosition)):
         if isinstance(node, exp.StrPosition):
             _charindex(node)
         elif isinstance(node, (exp.Left, exp.Right)):
@@ -2453,8 +2456,10 @@ def _string_edges(tree: exp.Expression) -> None:
                            exp.LT(this=length.copy(), expression=exp.Literal.number(0)))
             node.set("expression", exp.func("COALESCE", node.expression, exp.Literal.string("")))
             node.replace(exp.Case(ifs=[exp.If(this=past, true=exp.null())], default=node.copy()))
-        elif isinstance(node, exp.Repeat):
-            _replicate(node)
+        elif isinstance(node, (exp.Repeat, exp.Space)):
+            out = _repeat_count(node)
+            if isinstance(node, exp.Repeat):
+                _replicate(node, out)
 
 
 _REPLICATE_CUT = ("REPLICATE gives more than {most} here, and a Fabric Warehouse cuts the result there, because "
@@ -2477,26 +2482,41 @@ def _replicate_inputs(tree: exp.Expression) -> None:
             node.meta["kf_replicate"] = "national"
 
 
-def _replicate(node: exp.Repeat) -> None:
-    """``REPLICATE(s, n)``: NULL when ``n`` is negative, and refused at the row where T-SQL would cut the result
-    at 8,000 bytes (4,000 characters of N'' text) because ``s`` isn't VARCHAR(MAX) or NVARCHAR(MAX) (WR-235)."""
-    out: exp.Expression = node
-    if not _whole(node.args.get("times"), 0):
-        times = node.args["times"]
-        negative = exp.LT(this=times.copy(), expression=exp.Literal.number(0))
-        out = exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy())
-        node.replace(out)
+def _replicate(node: exp.Repeat, out: exp.Expression) -> None:
+    """``REPLICATE(s, n)``, its count already as T-SQL takes it (``out`` is what stands for it now): refused at the
+    row where T-SQL would cut the result at 8,000 bytes (4,000 characters of N'' text) because ``s`` isn't
+    VARCHAR(MAX) or NVARCHAR(MAX) (WR-235). The size is the input's times the count, so REPLICATE runs once."""
     kind = node.meta.get("kf_replicate", "text")
     if kind == "max":
         return
     national = kind == "national"
-    size = exp.func("LENGTH", out.copy()) if national else exp.Anonymous(this="STRLEN", expressions=[exp.cast(out.copy(), "VARCHAR")])
+    text = node.this.copy()
+    one = exp.func("LENGTH", text) if national else exp.Anonymous(this="STRLEN", expressions=[exp.cast(text, "VARCHAR")])
+    size = exp.Mul(this=exp.cast(one, "DOUBLE"), expression=node.args["times"].copy())  # DOUBLE: a huge count can't overflow
     most = 4000 if national else 8000
     message = _REPLICATE_CUT.format(most=f"{most:,} {'characters' if national else 'bytes'}",
                                     kind="NVARCHAR" if national else "VARCHAR")
     past = exp.GT(this=size, expression=exp.Literal.number(most))
     out.replace(exp.Case(ifs=[exp.If(this=past, true=exp.func("ERROR", exp.Literal.string(_NOT_YET + message)))],
                          default=out.copy()))
+
+
+def _repeat_count(node: exp.Repeat | exp.Space) -> exp.Expression:
+    """``REPLICATE``'s or ``SPACE``'s count as T-SQL takes it (see _string_edges), and what stands for the call now."""
+    key = "times" if isinstance(node, exp.Repeat) else "this"
+    count = node.args.get(key)
+    if count is None or _whole(count, 0):
+        return node
+    value = _number(count)
+    if value is not None and math.isfinite(value) and int(value) >= 0:  # 1.7 is 1 and -0.5 is 0: toward zero, as T-SQL makes it an int
+        node.set(key, exp.Literal.number(int(value)))
+        return node
+    whole = exp.cast(exp.Trunc(this=count.copy()), "BIGINT")
+    node.set(key, whole)
+    negative = exp.LT(this=whole.copy(), expression=exp.Literal.number(0))
+    out = exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy())
+    node.replace(out)
+    return out
 
 
 def _charindex(node: exp.StrPosition) -> None:

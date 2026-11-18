@@ -118,6 +118,37 @@ def validate_project(svc: Any, ctx: CallContext) -> dict[str, Any]:
     return {"project": "metadata", "ok": not errors, "errors": errors, "entities": len(meta.get("entities", []))}
 
 
+def _open_metadata(svc: Any) -> None:
+    if not svc.meta_project().get("path"):
+        raise IntegrationError("not_found", "No metadata project is open in KratosForge.",
+                               hint="Open or create one on the Data mesh page first.")
+
+
+def get_lineage(svc: Any, ctx: CallContext, entity: str, column: str = "") -> dict[str, Any]:
+    """Column lineage from the metadata project's files (meta/lineage.py): every column of an entity, or
+    one column's steps upstream and the columns built from it downstream. Runs nothing, reads no table."""
+    _open_metadata(svc)
+    return svc.meta_lineage(entity, column or None)
+
+
+def list_project_runs(svc: Any, ctx: CallContext, env: str = "dev", offset: int = 0, limit: int = 50) -> dict[str, Any]:
+    """The metadata project's run log in one environment, newest first: status, rows read and written,
+    rows quarantined and where each run ran. The per-step detail is left to fabric_desktop_get_project_run."""
+    _open_metadata(svc)
+    rows = svc.meta_runs(env, limit=ALL)
+    return page([{k: v for k, v in r.items() if k != "steps"} for r in rows], offset, limit) | {"env": env}
+
+
+def get_project_run(svc: Any, ctx: CallContext, run_id: str, env: str = "dev") -> dict[str, Any]:
+    """One run of the metadata project: its steps and its data quality results (each check, the rows that
+    failed it and what was done with them). Counts only: no rows of data."""
+    _open_metadata(svc)
+    run = svc.meta_run_detail(run_id, env)
+    quality = run.pop("dq", None) or []
+    return run | {"env": env, "quality": quality,
+                  "quality_failed": sum(1 for q in quality if (q.get("failed") or 0) > 0)}
+
+
 # ---- Fabric workspaces and items
 
 def list_workspaces(svc: Any, ctx: CallContext, offset: int = 0, limit: int = 100) -> dict[str, Any]:

@@ -285,12 +285,17 @@ function dbgPaint() {
 // breakpoints pauses at them whenever it runs on this PC, and "Debug cell" pauses at its first
 // line. While paused, the panel under the cell shows the line, the call stack, that frame's
 // variables (secrets hidden) and the watches, and evaluates expressions in that frame. The engine
-// side is debugger.py. Breakpoints are kept for this session and not saved with the notebook.
+// side is debugger.py. Breakpoints are a cell setting (cell.meta.breakpoints), saved with the
+// notebook like the parameters tag (notebook._cell_metadata), so they survive save and reopen.
+// "Debug from here" runs the cells from this one down under the debugger: after a step, the next
+// cell starts paused at its first line; after Continue, it stops only at its breakpoints.
+// Only Python on this PC can pause. A run on another engine, in Fabric or on Fabric Spark says so
+// (dbgRemoteNote) instead of quietly ignoring the breakpoints.
 
 const bpComp = new CM.Compartment();
 
 function dbgBreakpoints(cell) {
-  return dbgOn() && cell.type === "code" ? cell.breakpoints || [] : [];
+  return dbgOn() && cell.type === "code" ? cell.meta?.breakpoints || [] : [];
 }
 
 // The editor extensions for one cell: its breakpoint and paused-line marks.
@@ -317,12 +322,20 @@ function dbgRepaintMarks(cell) {
 
 function dbgToggleBreakpoint(cell, line) {
   if (!dbgOn() || cell.type !== "code") return false;
-  const set = new Set(cell.breakpoints || []);
+  const set = new Set(cell.meta?.breakpoints || []);
   if (set.has(line)) set.delete(line);
   else set.add(line);
-  cell.breakpoints = [...set].sort((a, b) => a - b);
+  dbgSetLines(cell, [...set].sort((a, b) => a - b));
   dbgRepaintMarks(cell);
+  markDirty();  // saved with the notebook
   return true;
+}
+
+// A cell's breakpoints, kept in its settings; none removes the setting.
+function dbgSetLines(cell, lines) {
+  cell.meta = cell.meta || {};
+  if (lines.length) cell.meta.breakpoints = lines;
+  else delete cell.meta.breakpoints;
 }
 
 // The line number gutter: a click sets or clears a breakpoint on that line.
@@ -338,15 +351,16 @@ function dbgToggleAtCursor(cell) {
 
 // Called by the editor's update listener: breakpoints follow the lines they were set on.
 function dbgEdited(cell, u) {
-  if (!cell.breakpoints?.length) return;
+  const lines = cell.meta?.breakpoints;
+  if (!lines?.length) return;
   const before = u.startState.doc;
-  const moved = dbgBpMap(cell.breakpoints, (n) => {
+  const moved = dbgBpMap(lines, (n) => {
     if (n > before.lines) return null;
     const line = before.line(n);
     return u.state.doc.lineAt(u.changes.mapPos(line.from, 1)).number;
   }, u.state.doc.lines);
-  if (moved.join() !== cell.breakpoints.join()) {
-    cell.breakpoints = moved;
+  if (moved.join() !== lines.join()) {
+    dbgSetLines(cell, moved);  // the edit itself marks the notebook changed
     queueMicrotask(() => dbgRepaintMarks(cell));
   }
 }
@@ -375,11 +389,55 @@ function dbgPausedCell() {
 async function dbgCommand(action, expression) {
   const cell = dbgPausedCell();
   if (!cell) return null;
+  // In a Debug from here run, the last way out of a pause decides how the next cell starts.
+  if (state.notebook.dbgRun && action !== "eval") state.notebook.dbgRun.mode = action;
   return attempt(() => rpc("debug_cell", { action, notebook: state.notebook.name, ...(expression != null ? { expression } : {}) }), "Could not reach the debugger");
 }
 
 function debugCell(cell) {
+  if (dbgRemoteNote(state.notebook, [cell], true)) return false;
   return runCell(cell, { debug: true });
+}
+
+// Debug from here: this cell and the ones below it, starting paused at this cell's first line.
+function debugFromHere(cell) {
+  const cells = state.notebook.cells;
+  if (dbgRemoteNote(state.notebook, cells.slice(cells.indexOf(cell)), true)) return false;
+  return runCells(cells.slice(cells.indexOf(cell)), { debug: true });
+}
+
+// How runCells starts each cell of a Debug from here run: paused at its first line unless the
+// last command was Continue. False outside such a run.
+function dbgStepNext(nb) {
+  return !!nb?.dbgRun && nb.dbgRun.mode !== "continue";
+}
+
+// Where cells of `nb` run when not in Python on this PC, or null when they run here: the engine's
+// name, Fabric (a Fabric job runs the whole notebook) or Fabric Spark (a cell set to run there).
+function dbgRemoteWhere(nb, cells) {
+  if (nbOnEngine(nb)) return nbEngine(nb).label || "This engine";  // engines.js
+  if (nbWhere(nb).fabric) return "A Fabric run";
+  if ((cells || []).some((c) => isFabricStep(c))) return "Fabric Spark";  // fabricstep.js
+  return null;
+}
+
+// Says plainly that a run elsewhere can't pause, when it was asked to debug or a cell in it has
+// breakpoints. True when `debug` was asked for there, so the caller doesn't start anything; a run
+// with breakpoints alone goes on, to the end.
+function dbgRemoteNote(nb, cells, debug = false) {
+  if (!dbgOn() || !nb) return false;
+  const where = dbgRemoteWhere(nb, cells);
+  if (!where) return false;
+  if (where === "Fabric Spark") {  // only the step cell runs there; the cells above still debug here
+    const steps = cells.filter((c) => isFabricStep(c));
+    if (!debug && !steps.some((c) => dbgBreakpoints(c).length)) return false;
+    toast("The last cell runs on Fabric Spark, which can't pause, so it runs to the end. Cells on this PC still stop at their breakpoints.");
+    return debug && steps.length === cells.length;
+  }
+  if (!debug && !cells.some((c) => dbgBreakpoints(c).length)) return false;
+  toast(debug ? `${where} can't pause, so it can't be debugged. Switch to Python (this PC) to step through cells.`
+    : `${where} can't pause, so breakpoints are ignored and the cells run to the end. Run on Python (this PC) to stop at them.`);
+  return debug;
 }
 
 // The panel under a paused cell.
@@ -413,7 +471,7 @@ function dbgPausedPanel(cell) {
       h("div", { class: "dbg-head" }, "Evaluate"),
       ...(p.evals || []).map((w) => h("div", { class: "dbg-eval" }, h("code", {}, w.expr), value(w))),
       h("div", { class: "dbg-addrow" }, input, btn("Evaluate", null, evaluate, "tool outline small"))),
-    h("div", { class: "muted-text dbg-note" }, "Evaluating runs notebook code in the paused frame, so keep it to reads. A cell under the debugger has no time limit. Only this cell's own code stops at breakpoints; libraries, %run notebooks and threads the cell starts don't."));
+    h("div", { class: "muted-text dbg-note" }, "Evaluating runs notebook code in the paused frame, so keep it to reads. A cell under the debugger has no time limit. Only this cell's own code stops at breakpoints; libraries, functions from other cells, %run notebooks and threads the cell starts don't."));
 }
 
 // Listed in the Keyboard shortcuts dialog while a notebook is open and breakpoints are shown (Preview).

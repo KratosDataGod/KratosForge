@@ -136,7 +136,7 @@ test("Download saves the whole result as a new file each time", { skip }, async 
   const paths = [];
   for (let i = 0; i < 2; i++) {
     await out.locator(".result-download summary").click();
-    await out.getByRole("menuitem", { name: "CSV" }).click();
+    await out.getByRole("menuitem", { name: "CSV", exact: true }).click();
     let toast = page().getByText(/^Saved 2,500 rows to /);
     if (paths.length) toast = toast.filter({ hasNotText: paths[0] });
     await toast.last().waitFor();

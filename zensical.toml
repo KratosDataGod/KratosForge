@@ -57,6 +57,7 @@ nav = [
     { "Academy" = "academy-guide.md" },
     { "Learn" = "learn.md" },
     { "App Studio" = "app-studio.md" },
+    { "Debug a notebook" = "notebook-editor/debugger.md" },
     { "Run the last cell on Fabric" = "notebook-fabric-step.md" },
     { "Notebook best practices" = "notebook-best-practices.md" },
     { "Notebook templates for Silver and Gold" = "notebook-templates.md" },

@@ -90,7 +90,7 @@ from typing import Any, Callable
 import pyarrow as pa
 from sqlglot import exp
 
-from . import app_settings, free_memory, jsonfile, sql, sql_params, sql_policy, sql_view, warehouse
+from . import app_settings, csv_cells, free_memory, jsonfile, sql, sql_params, sql_policy, sql_view, warehouse
 from .filenames import file_stem
 from .frames import EXCEL_MAX_ROWS, ExportNotes, csv_ready_batch, csv_ready_schema, write_xlsx_batches
 from . import known_folders
@@ -260,11 +260,13 @@ class Export:
     error: str = ""
     cancel: threading.Event = field(default_factory=threading.Event)
     notes: list[str] = field(default_factory=list)  # what the file couldn't keep exactly (WR-221), once it's done
+    raw: bool = False  # CSV: Keep raw values, so no cell is protected (WR-228)
+    protected: int = 0  # CSV: text cells that got an apostrophe so a spreadsheet doesn't run them (WR-228)
 
     def status(self) -> dict[str, Any]:
         return {"id": self.id, "execution": self.execution, "format": self.format, "path": str(self.path),
                 "state": self.state, "rows": self.rows, "total": self.total, "error": self.error,
-                "notes": list(self.notes)}
+                "notes": list(self.notes), "raw": self.raw, "protected": self.protected}
 
 
 class SqlExecutions:
@@ -943,9 +945,11 @@ class SqlExecutions:
 
     # ---- export
 
-    def export(self, run_id: str, fmt: str = "csv", name: str = "", part: int | None = None) -> dict[str, Any]:
+    def export(self, run_id: str, fmt: str = "csv", name: str = "", part: int | None = None,
+               raw: bool = False) -> dict[str, Any]:
         """Stream a completed run's snapshot (or, with ``part``, one statement's, S14) to a new file in
-        Downloads; never replaces a file."""
+        Downloads; never replaces a file. A CSV protects text cells that start like a formula unless ``raw``
+        (Keep raw values, WR-228)."""
         if fmt not in EXPORT_FORMATS:
             raise ValueError(f"Export as {', '.join(EXPORT_FORMATS[:-1])} or {EXPORT_FORMATS[-1]}.")
         run = self._get(run_id)
@@ -959,7 +963,8 @@ class SqlExecutions:
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name or run.lakehouse.get('name') or run.project_name or '')} query {time.strftime('%Y-%m-%d %H%M%S')}"
         path = _reserve(folder, base, "." + fmt)
-        export = Export(id=uuid.uuid4().hex[:12], execution=run.id, format=fmt, path=path, total=res.rows)
+        export = Export(id=uuid.uuid4().hex[:12], execution=run.id, format=fmt, path=path, total=res.rows,
+                        raw=bool(raw) and fmt == "csv")
         with self._lock:
             self._exports[export.id] = export
         threading.Thread(target=self._write, args=(res.path, export), daemon=True, name=f"sql-export-{export.id}").start()
@@ -998,7 +1003,7 @@ class SqlExecutions:
                 raise ValueError(f"The export read {export.rows:,} of the result's {export.total:,} rows from its "
                                  "snapshot on this PC, so the file was removed. Run the query again and export it.")
             # After the file is closed: Windows can't rename a file that is still open.
-            export.notes = notes.sentences()
+            export.notes = notes.sentences() + ([csv_cells.note(export.protected)] if export.protected else [])
             self._done(export, partial)
         except _Stopped:
             _discard(partial, export.path)  # before the state changes: a finished export leaves no files
@@ -1011,7 +1016,10 @@ class SqlExecutions:
     def _write_batches(export: Export, reader: Any, schema: pa.Schema, sink: Any) -> None:
         """CSV or Parquet, through Arrow's own writers. CSV gets binary as hex and lists as JSON text (_csv_ready)."""
         csv = export.format == "csv"
-        writer = _writer(export.format, sink, csv_ready_schema(schema) if csv else schema)
+        header = schema
+        if csv:  # the header row's names are protected as the cells are (WR-228), counted once
+            header, export.protected = csv_cells.protect_header(csv_ready_schema(schema), raw=export.raw)
+        writer = _writer(export.format, sink, header)
         try:
             for i in range(reader.num_record_batches):
                 if export.cancel.is_set():
@@ -1019,7 +1027,10 @@ class SqlExecutions:
                 batch = reader.get_batch(i)
                 if export.format == "parquet":
                     batch = pa.RecordBatch.from_arrays(batch.columns, schema=schema)
-                writer.write_batch(csv_ready_batch(batch) if csv else batch)
+                if csv:
+                    batch, protected = csv_cells.protect_batch(csv_ready_batch(batch), raw=export.raw)
+                    export.protected += protected
+                writer.write_batch(batch)
                 export.rows += batch.num_rows
         finally:
             writer.close()

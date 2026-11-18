@@ -10,7 +10,8 @@ It runs in the learner's process, never in the engine, as part of the generated 
 
 Table names are ``schema.table`` or ``table`` of letters, digits and underscores; a name can't leave
 ``tables/``. Modes: ``error``/``errorifexists`` (the default), ``overwrite``, ``append``, ``ignore``;
-option ``overwriteSchema`` replaces the schema on overwrite, ``mergeSchema`` adds new columns on append.
+option ``overwriteSchema`` replaces the schema on overwrite, ``mergeSchema`` adds new columns on append, and
+``replaceWhere`` makes an overwrite replace only the rows that match it (spark_replace_where.py).
 Streams (``spark.readStream``, ``df.writeStream``) run as availableNow (pyspark_stream.py), ``from
 delta.tables import DeltaTable`` merges with delta-rs (pyspark_delta.py), and ``notebookutils`` runs the
 exercise's other notebooks and reads its ``Files/`` (notebookutils_lab.py).
@@ -27,6 +28,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import deltalake
+from deltalake.exceptions import DeltaError
 import duckdb
 import pyarrow as pa
 from duckdb.experimental.spark.context import SparkContext
@@ -34,7 +36,7 @@ from duckdb.experimental.spark.sql import dataframe as _dataframe
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.session import SparkSession
 
-from .. import spark_compat
+from .. import spark_compat, spark_replace_where
 from ..duckdb_rows import duckdb_major
 from . import notebookutils_lab, pyspark_delta, pyspark_stream
 from .notebookutils_lab import NotebookExit  # noqa: F401 - the learner script catches it
@@ -73,7 +75,7 @@ class Writer:
     def __init__(self, df: DataFrame, work: Path):
         self._df, self._work = df, work
         self._mode = "error"
-        self._options: dict[str, bool] = {}
+        self._options: dict[str, Any] = {}
 
     def mode(self, mode: str) -> Writer:
         if str(mode).lower() not in MODES:
@@ -87,8 +89,11 @@ class Writer:
         return self
 
     def option(self, key: str, value: Any) -> Writer:
-        self._options[str(key).lower()] = str(value).lower() in ("true", "1")
+        self._options[str(key).lower()] = value
         return self
+
+    def _flag(self, key: str) -> bool:
+        return str(self._options.get(key, "")).lower() in ("true", "1")
 
     def options(self, **opts: Any) -> Writer:
         for k, v in opts.items():
@@ -106,12 +111,35 @@ class Writer:
         if exists and self._mode == "ignore":
             return
         schema_mode: Literal["merge", "overwrite"] | None = (
-            "overwrite" if self._options.get("overwriteschema") and self._mode == "overwrite"
-            else "merge" if self._options.get("mergeschema") and self._mode == "append" else None)
+            "overwrite" if self._flag("overwriteschema") and self._mode == "overwrite"
+            else "merge" if self._flag("mergeschema") and self._mode == "append" else None)
         mode: Literal["error", "append", "overwrite", "ignore"] = "append" if self._mode == "append" else "overwrite"
+        data = _arrow(self._df)
+        replace = self._options.get("replacewhere")
+        if replace is not None and mode != "overwrite":
+            print("Note: replaceWhere only applies to an overwrite; this append adds the rows, as Delta does.")
+            replace = None
+        if replace is not None and not exists:
+            replace = None  # a new table gets every row, as in Delta (there is nothing to replace yet)
+        predicate = None
+        if replace is not None:
+            if schema_mode == "overwrite":  # Delta's canOverwriteSchema is false with replaceWhere
+                print("Note: overwriteSchema doesn't apply with replaceWhere; the table keeps its schema, as in Delta.")
+                schema_mode = None
+            columns = [f.name for f in deltalake.DeltaTable(str(path)).schema().fields]
+            predicate = spark_replace_where.predicate(str(replace), name, columns)
+            spark_replace_where.check_rows(data, predicate, str(replace), name)
         path.mkdir(parents=True, exist_ok=True)
         # A plain local path, never a URI: the write can only land in this folder.
-        deltalake.write_deltalake(str(path), _arrow(self._df), mode=mode, schema_mode=schema_mode)
+        if predicate is None:
+            deltalake.write_deltalake(str(path), data, mode=mode, schema_mode=schema_mode)
+            return
+        try:
+            deltalake.write_deltalake(str(path), data, mode="overwrite", schema_mode=schema_mode, predicate=predicate)
+        except DeltaError as exc:
+            if "failed validation check" not in str(exc):
+                raise
+            raise spark_replace_where.mismatch(str(replace), name) from None
 
 
 class Reader:

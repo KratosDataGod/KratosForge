@@ -145,6 +145,10 @@ When a workload has been optimized and also runs on a PC, its savings could be c
 
 An optimization that made things worse has a negative layer. One whose after isn't measured yet can't be split from the ones after it, so the run's total goes to one unattributed layer until it is. Missing evidence stays Unknown, never 0. Each layer's id is the same on every PC, so a second desktop syncing the same run adds nothing. Nothing is written to the lakehouse yet: savings rows wait for a measured Fabric baseline.
 
+Savings are counted only per run. A day, week or month figure (`savings/recurring.py`, `by_period`, cut in UTC) is the runs in it added up, with each run counted once even if two PCs synced it, and runs whose figure is unknown counted beside the total, never as 0.
+
+The **recurring monthly benefit** (`project`) is the average net CU avoided per recent run times how often the workload ran in the last 30 days. It is always Estimated, because it is about runs that haven't happened, and it is never written. It stops when the workload is retired or hasn't run in the window, and it uses only runs under the workload's current baseline, so a re-baselined workload needs new runs first. Fewer than three runs with a known figure give Unknown with the reason. A run whose figure is unknown is left out, never filled in with an average, so the projection may be low; it says how many were left out and is marked incomplete.
+
 ## The tables
 
 All are Delta tables in `dbo` (or directly under Tables in a lakehouse without schemas), named `fdopt_` so they can't collide with yours: `installations`, `analysis_runs`, `artifacts`, `findings`, `recommendations`, `actions`, `measurements`, `cu_usage`, `savings`, `local_execution`, `dependencies`, `rules`, `audit`, `config` and `schema_version`, and from schema version 2 `pricing`, `optimization_link`, `baseline`, `validation`, `attribution` and `sync`. Columns are in [`sidecar/fabric_desktop/optimize/schema.py`](https://github.com/KratosDataGod/KratosForge/blob/main/sidecar/fabric_desktop/optimize/schema.py). You never need to query them yourself.

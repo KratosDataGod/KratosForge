@@ -237,7 +237,7 @@ pass, fail, not applicable, not evaluated (reason required), error.
 - Tests: each outcome; registry refusals; a deliberately broken control.
 
 **FEA-103 Scoring engine and profiles.** `excellence/scoring.py` with section 5's formulas,
-the five default profiles (Microsoft-aligned baseline, Enterprise security, Data engineering
+the five default profiles (Baseline, Enterprise security, Data engineering
 excellence, Capacity optimization, KratosForge local-first) as versioned data, re-normalized
 weights for not-applicable dimensions, rating bands, Provisional and Insufficient evidence,
 Critical Risk flag, 99 cap.

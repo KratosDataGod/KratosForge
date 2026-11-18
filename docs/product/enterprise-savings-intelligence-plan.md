@@ -425,7 +425,7 @@ baseline, incremental allocation across several optimizations.
   past the baseline; a reversal writes reversal events that net the earlier accruals to zero.
 - Tests: scenarios 16, 17, 10, 19, plus a property test that gross ≤ baseline for any order.
 
-**ESI-304 Recurring benefit.** Read-time projection of monthly benefit from recent executions and
+**ESI-304 Recurring benefit.** **Built** (engine only, never written). `savings/recurring.py`. Read-time projection of monthly benefit from recent executions and
 run frequency, labelled Estimated and never written to the ledger; period figures are groupings
 of ESI-203 execution accruals. Stop projecting on retirement; re-baseline on material change.
 - Tests: scenarios 11, 12.

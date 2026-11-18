@@ -755,12 +755,11 @@ A different answer, or an error where the target answers, fails these tests unle
 | Spark SQL | `levenshtein` on text that isn't ASCII | Spark counts characters, here bytes |
 | Spark SQL | `locate(sub, NULL, pos)` with `pos` below 1 | Spark gives NULL, here 0 |
 | Spark SQL | `bit_count` of a negative `int` | Spark counts 64 bits (-1 gives 64), here 32 |
-| Spark SQL | `pmod(x, 0.0D)` | Spark gives NULL, here NaN |
 | Spark SQL | `a div b` when `a` is a decimal (`floor(-1.25) div 7`) | Spark gives a whole number, here a double division |
 | Spark SQL | `isnan(NULL)` | Spark gives false, here NULL |
 | Spark SQL | `to_date('24-02-29')` | Spark gives NULL (a year needs 4 digits), here the year 24 |
 | Spark SQL | `date_format` of a year past 9999 | Spark writes a leading `+` (`+8535706`). Here there is none (`8535706`) |
-| Spark SQL | `initcap`, `trunc(date, 'MM')` and its other formats, `make_date` with a day that doesn't exist, `sqrt` of a negative number, `shiftleft`/`shiftright` of a negative number or by a negative count, `soundex` of a cast, `CAST` of text past a date's range | These stop here with an error, where Spark answers |
+| Spark SQL | `initcap`, `trunc(date, 'MM')` and its other formats, `make_date` with a day that doesn't exist, `sqrt` of a negative number, `shiftleft`/`shiftright` of a negative number or by a negative count, `soundex` of a cast, `CAST` of text past a date's range | These stop here with an error, where Spark answers. On DuckDB 2.0 (not yet the version this PC installs), `sqrt` of a negative number and the `CAST` answer as Spark does, but `sign` of that `sqrt`'s NaN is 0.0 where Spark gives NaN |
 | Spark SQL | `split_part(s, d, 0)` | Refused by name before the query runs; Spark stops only when the call is reached |
 | T-SQL | `N'...'` text in `=`, `<`, `LIKE` and `+` | Trailing spaces count, `[a-c]` ranges don't match, and `N'a' + N'b'` stops. The same text without `N` answers as T-SQL does |
 | Snowflake | `POSITION` and `CHARINDEX` with an empty search text and a start past the end | Snowflake gives 0, here the start |

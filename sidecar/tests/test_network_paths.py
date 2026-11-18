@@ -68,13 +68,18 @@ def test_a_project_made_on_a_mapped_drive_keeps_the_drive_letter(given, resolved
 
 
 def test_creating_a_project_on_a_mapped_drive_keeps_the_path_as_given(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)  # off Windows "Z:\\sales" is a relative folder name: keep its project.json in tmp_path
+    # The store keeps the folder keep_drive_letter gives, not the resolved one. The kept folder is under
+    # tmp_path (on Windows a drive-letter path too), so the test never writes to a real mapped Z: drive.
+    monkeypatch.chdir(tmp_path)
+    before = set(os.listdir(tmp_path))
+    kept = str(tmp_path / "as-typed")
     store = ProjectStore(tmp_path / "local-data")
-    monkeypatch.setattr(win_paths, "keep_drive_letter", lambda given, resolved: "Z:\\sales" if
+    monkeypatch.setattr(win_paths, "keep_drive_letter", lambda given, resolved: kept if
                         given == str(tmp_path / "sales") else resolved)
     project = store.create("Sales", folder=str(tmp_path / "sales"))
-    assert project.folder == "Z:\\sales"
-    assert store._index()[project.id] == "Z:\\sales"
+    assert project.folder == kept
+    assert store._index()[project.id] == kept
+    assert set(os.listdir(tmp_path)) - before <= {"local-data", "sales", "as-typed"}, "wrote outside its folders"
 
 
 def _admin_share() -> Path | None:

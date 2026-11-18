@@ -784,16 +784,18 @@ def file_name(name: str, taken: set[str]) -> str:
     return candidate
 
 
-def from_bim(bim: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, str]]]:
+def from_bim(bim: dict[str, Any], culture_refs: list[str] | None = None) -> tuple[dict[str, str], list[dict[str, str]]]:
     """See ``_from_bim``; a model nested deeper than Python's stack is refused with a plain reason."""
     try:
-        return _from_bim(bim)
+        return _from_bim(bim, culture_refs)
     except RecursionError:
         raise ValueError("This model is nested too deeply to be a semantic model") from None
 
 
-def _from_bim(bim: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, str]]]:
+def _from_bim(bim: dict[str, Any], culture_refs: list[str] | None = None) -> tuple[dict[str, str], list[dict[str, str]]]:
     """A TMSL ``model.bim`` document as TMDL files (path under the ``.SemanticModel`` folder -> text), and the report.
+    ``culture_refs``, when given, are the cultures model.tmdl lists the order of, in place of the model's own: a
+    caller that keeps some culture files as they are names their cultures there too, so the order stays.
 
     The files are read back with ``to_bim`` before they are returned: anything that wouldn't come back as it
     went in is in the report by name (``kind`` "lost"), so nothing is dropped silently. Names with line breaks
@@ -831,12 +833,14 @@ def _from_bim(bim: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, str]]
         for t in split.get("tables") or []:
             if isinstance(t, dict) and isinstance(t.get("name"), str):
                 lines.append(f"ref table {quote(t['name'])}")
-        for c in cultures or []:  # the cultures' order, which TMSL keeps and the reader above reads
-            if isinstance(c, dict) and isinstance(c.get("name"), str) and c["name"]:
+        if culture_refs is None:
+            culture_refs = [c["name"] for c in cultures or [] if isinstance(c, dict) and isinstance(c.get("name"), str)]
+        for c in culture_refs:  # the cultures' order, which TMSL keeps and the reader above reads
+            if c:
                 try:
-                    lines.append(f"ref cultureInfo {quote(c['name'])}")
+                    lines.append(f"ref cultureInfo {quote(c)}")
                 except _Unwritable as exc:
-                    raise _Unwritable(f"culture {c['name']!r}: {exc}") from None
+                    raise _Unwritable(f"culture {c!r}: {exc}") from None
         emit("model.tmdl", lines)
         for key, file in _ONE_FILE.items():
             lines = []

@@ -688,7 +688,8 @@ def test_culture_files_with_translations_it_cant_read_are_kept_byte_for_byte(svc
     assert not (cultures / "es.tmdl").exists()
     assert "caption: Modelo" in (cultures / "es-ES.tmdl").read_text(encoding="utf-8")
     model = (folder / "definition" / "model.tmdl").read_text(encoding="utf-8")
-    assert "ref cultureInfo es-ES" in model and "de-DE" not in model  # a kept culture is claimed by its file alone
+    # A kept culture is written by its file alone, and model.tmdl still lists it where it was, so the order stays.
+    assert model.endswith("ref cultureInfo de-DE\nref cultureInfo es-ES\nref cultureInfo fr-FR\nref cultureInfo de-AT\n")
     again = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
     assert again["removed"] == [] and {f["change"] for f in again["file_changes"]} == {"same"}
 
@@ -719,3 +720,94 @@ def test_the_confirm_token_covers_which_culture_files_are_removed(svc):
         svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
     assert {p: p.read_bytes() for p in folder.rglob("*") if p.is_file()} == before
     assert not (cultures / "de-DE.tmdl").exists() and (cultures / "deutsch.tmdl").exists()
+
+
+PARTITION_CAPTION = ("cultureInfo de-DE\n\ttranslations\n\t\tmodel Model\n\t\t\ttable fact_sales\n"
+                     "\t\t\t\tpartition p1\n\t\t\t\t\tcaption: Teil\n")
+
+
+def test_every_file_sharing_a_kept_culture_is_kept_too(svc):
+    folder = _orders_folder(svc)
+    cultures = folder / "definition" / "cultures"
+    texts = {"de-DE.tmdl": PARTITION_CAPTION,  # kept: a partition's translation
+             "de-extra.tmdl": "cultureInfo de-DE\n\ttranslations\n\t\tmodel Model\n\t\t\tcaption: Modell\n",
+             "multi.tmdl": "cultureInfo DE-de\n\ncultureInfo it-IT\n",  # de-DE by another case, and it-IT
+             "it.tmdl": "cultureInfo it-IT\n\ttranslations\n\t\tmodel Model\n\t\t\tcaption: Modello\n",
+             "nl.tmdl": "cultureInfo nl-NL\n"}  # shares nothing: rewritten as nl-NL.tmdl
+    for name, text in texts.items():
+        (cultures / name).write_text(text, encoding="utf-8")
+    plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    assert plan["removed"] == ["semantic/orders.SemanticModel/definition/cultures/nl.tmdl"]
+    rows = {r["object"]: r["message"] for r in plan["report"] if r["object"].startswith("cultures/")}
+    assert set(rows) == {"cultures/de-DE.tmdl", "cultures/de-extra.tmdl", "cultures/multi.tmdl", "cultures/it.tmdl"}
+    assert "partition" in rows["cultures/de-DE.tmdl"] and "defines de-DE with a culture file" in rows["cultures/de-extra.tmdl"]
+    svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
+    for name, text in texts.items():
+        if name != "nl.tmdl":
+            assert (cultures / name).read_text(encoding="utf-8") == text, name
+    assert not (cultures / "nl.tmdl").exists() and (cultures / "nl-NL.tmdl").exists()
+
+
+def test_a_kept_culture_also_defined_outside_cultures_is_refused(svc):
+    folder = _orders_folder(svc)
+    (folder / "definition" / "cultures" / "de-DE.tmdl").write_text(PARTITION_CAPTION, encoding="utf-8")
+    (folder / "definition" / "extra.tmdl").write_text("cultureInfo de-DE\n\ttranslations\n\t\tmodel Model\n"
+                                                      "\t\t\tcaption: Modell\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Culture de-DE is kept as it is in cultures/, and defined outside cultures/ too"):
+        svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")
+
+
+@pytest.mark.parametrize(("kept_name", "other_culture"), [
+    ("German.tmdl", "german"),  # Windows ignores case
+    ("E\u0301cran.tmdl", "\u00c9cran"),  # macOS ignores Unicode normalisation: the same name, NFD and NFC
+])
+def test_a_culture_file_name_differing_only_in_case_or_normalisation_never_replaces_a_kept_file(svc, kept_name, other_culture):
+    folder = _orders_folder(svc)
+    cultures = folder / "definition" / "cultures"
+    (cultures / kept_name).write_text(PARTITION_CAPTION, encoding="utf-8")
+    (cultures / "other.tmdl").write_text(f"cultureInfo '{other_culture}'\n", encoding="utf-8")  # written as <name>.tmdl
+    with pytest.raises(ValueError, match=f"cultures/{other_culture}.tmdl is kept as it is.*nothing was written"):
+        svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")
+    assert (cultures / kept_name).read_text(encoding="utf-8") == PARTITION_CAPTION
+    assert sorted(p.name for p in cultures.iterdir()) == sorted([kept_name, "other.tmdl"])
+
+
+def test_a_file_already_there_under_another_case_is_written_in_place_not_removed(svc):
+    folder = _orders_folder(svc)
+    tables = folder / "definition" / "tables"
+    (tables / "fact_sales.tmdl").rename(tables / "FACT_Sales.tmdl")
+    plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    assert plan["removed"] == []
+    assert "semantic/orders.SemanticModel/definition/tables/FACT_Sales.tmdl" in plan["files"]
+    assert {f["path"]: f["change"] for f in plan["file_changes"]}["definition/tables/FACT_Sales.tmdl"] == "changed"
+    svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
+    assert [p.name for p in tables.iterdir() if p.name.casefold() == "fact_sales.tmdl"] == ["FACT_Sales.tmdl"]
+    assert "net revenue" in (tables / "FACT_Sales.tmdl").read_text(encoding="utf-8")
+
+
+def test_a_link_under_cultures_is_never_read_followed_or_removed(svc, tmp_path):
+    folder = _orders_folder(svc)
+    cultures = folder / "definition" / "cultures"
+    outside = tmp_path / "outside.tmdl"
+    outside.write_text(PARTITION_CAPTION, encoding="utf-8")
+    try:
+        (cultures / "linked.tmdl").symlink_to(outside)
+    except OSError:
+        pytest.skip("this system can't make symbolic links")
+    plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    assert not any("linked" in p for p in plan["removed"] + plan["files"])
+    assert not any(r["object"].startswith("cultures/") or "de-DE" in r["object"] for r in plan["report"])  # never read
+    svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
+    assert (cultures / "linked.tmdl").is_symlink() and outside.read_text(encoding="utf-8") == PARTITION_CAPTION
+    # A link over the cultures folder itself is never gone into: nothing under it is read, written or removed.
+    for p in cultures.iterdir():
+        p.unlink()
+    cultures.rmdir()
+    (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "elsewhere" / "de-DE.tmdl").write_text(PARTITION_CAPTION, encoding="utf-8")
+    cultures.symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+    plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    assert not any("cultures" in p for p in plan["removed"]) and not any(r["object"].startswith("cultures/") for r in plan["report"])
+    svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
+    assert cultures.is_symlink() and [p.name for p in (tmp_path / "elsewhere").iterdir()] == ["de-DE.tmdl"]
+    assert (tmp_path / "elsewhere" / "de-DE.tmdl").read_text(encoding="utf-8") == PARTITION_CAPTION

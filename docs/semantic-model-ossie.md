@@ -71,6 +71,11 @@ whether `semantic/<name>.SemanticModel/` is new or already there.
   KratosForge can't read (of a partition, a data source or a KPI, say) is kept byte for byte:
   it is never rewritten or removed, the file list shows it as Same, and the Round-trip check
   says "kept as it is, because it holds translations KratosForge can't read" with their names.
+  Every other culture file that defines one of its cultures is kept as well, and `model.tmdl`
+  still lists those cultures in their places. File names are compared as Windows and macOS
+  compare them (ignoring case and Unicode normalisation), so a write never lands on a kept file
+  under another spelling, and a file already there under another case is rewritten in place
+  rather than removed.
 - The **Round-trip check** lists what is kept, what rides in the Power BI section, and what
   can't be carried, by name. A measure whose SQL has no DAX equivalent is written with no
   expression and shows blank until you add DAX.

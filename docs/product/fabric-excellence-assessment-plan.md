@@ -1,7 +1,8 @@
 # Fabric Excellence Assessment: plan, gaps, risks and stories
 
 Status: plan (2026-11-17). Owner: Fabric Excellence Assessment thread. Requested by Chris (master
-implementation prompt, 2026-11-17).
+implementation prompt, 2026-11-17). Shared standards: the KratosForge mission prompt and its hard gates in
+`KratosDataGod/ai-commons` (`prompts/kratosforge/mission-and-engineering-philosophy.md`).
 
 This plan turns **Optimize > Assessment** from an optimization finder into an expert-guided
 assessment and improvement system across ten dimensions. It covers section 1 of the brief:
@@ -45,7 +46,7 @@ control, evidence and scoring layer above them, not new readers for most dimensi
 | Semantic model rules | `model_practices.py` (BPA rules needing only the definition), `model_bpa.py` (full BPA in Fabric), `model_directlake.py`, `tmdl.py` | Model design, Direct Lake fallback and guardrails | Semantic Models dimension. `model_bpa` runs a Fabric notebook, so it needs a typed "yes, run it" and is never part of a default assessment. |
 | Delta profile | `delta_profile.py` | Delta features Fabric readers misread | Performance and Reliability controls |
 | Table maintenance | `maintenance.py`, Lakehouse optimize thread | OPTIMIZE / VACUUM / V-Order status and actions | Remediation actions (Phase 4); "Blocked" capacity hard-stops these |
-| Workload health and data health | `workloads/health.py`, `meta/data_health.py` (#2912), `meta/freshness.py`, `workloads/sla.py`, incidents | Failures, lateness, freshness promises, incident history; "unknown" when a source can't be read | Reliability and Operations controls |
+| Workload health and data health | `workloads/health.py`, `meta/data_health.py` (#2912, not on main yet), `meta/freshness.py`, `workloads/sla.py`, incidents | Failures, lateness, freshness promises, incident history; "unknown" when a source can't be read | Reliability and Operations controls |
 | Lineage, drift, depgraph | `meta/lineage.py`, `meta/drift.py`, `depgraph.py` | Declared versus inferred lineage, schema drift, dependencies | Governance (lineage completeness) and the blast radius of a remediation |
 | Git and deployment | `fabric_git.py` (`git/connection`, `git/status`), `meta/promote.py`, `meta/release.py` | Whether a workspace is Git-connected, uncommitted changes, promotion records | DevOps dimension |
 | Tenant settings history | `tenant_history.py` (`fdten_`, `GET /admin/tenantsettings`) | Publish to web, external sharing and other tenant settings, Fabric admin only | Security controls, *not evaluated* for non-admins |
@@ -163,7 +164,8 @@ FEA-107. Every number is configurable per profile and versioned.
 For each dimension, over controls that are not *not applicable*:
 
 - **Dimension score** = 100 x (weight of passed controls) / (weight of evaluated controls).
-- **Coverage** = (weight of evaluated controls) / (weight of applicable controls).
+- **Coverage** = (weight of evaluated controls) / (weight of applicable controls). A dimension where
+  nothing could be evaluated has no score and shows Insufficient evidence.
 - **Assured score** = 100 x (weight of passed controls) / (weight of applicable controls).
   Not-evaluated controls count as not passed here, so missing evidence can never raise it.
 
@@ -183,8 +185,9 @@ cannot rank above one with 95% coverage because fewer problems were found. Both 
 
 **Critical Risk** is a separate flag, set by any failed critical control regardless of the score.
 
-**Confidence** of an assessment is High when at least 80% of evaluated weight rests on measured
-or verified-configuration evidence and coverage is at least 80%, Medium at 50% or more, else Low.
+**Confidence** of an assessment needs both an evidence share and coverage: High when at least 80% of
+evaluated weight rests on measured or verified-configuration evidence *and* coverage is at least 80%;
+Medium when both are at least 50%; else Low.
 
 **No perfect score without evidence**: a score of 100 is shown only when coverage is 100%;
 otherwise it is capped at 99 and labelled with its coverage.
@@ -247,17 +250,19 @@ Critical Risk flag, 99 cap.
 **FEA-104 Assessment run and snapshot.** `excellence/assess.py`: run the applicable controls on
 an evidence bundle with a profile, produce the snapshot (scope, timestamp, policy version, rule
 versions, evidence hashes, outcomes, findings, scores, counts by outcome, critical and high
-findings, confidence). `rescore(snapshot, profile)` reproduces it from stored evidence. RPC
-`excellence_assess` (read-only) with a labelled demonstration fixture.
-- Acceptance: rescoring a stored snapshot gives byte-identical scores; the fixture is labelled as
-  not a finding; the RPC writes nothing; authorization matrix regenerated.
-- Tests: snapshot round trip; fixture labelling; RPC read-only test; Security read (RPC).
+findings, confidence). `rescore(snapshot, profile)` reproduces it from stored evidence; `compare`
+gives the trend since a previous snapshot.
+- Acceptance: rescoring a stored snapshot gives byte-identical scores; a fixture run is labelled as
+  not a finding; tampered evidence is rejected.
+- Tests: snapshot round trip; fixture labelling; tampering.
 
 **FEA-105 First adapters (no new Fabric reads).** Adapters from the optimization engine result,
 X-ray result, workspace role review and governance checks into evidence and about 15 controls
 across Performance, Security, Architecture and Capacity. Each control cites its reference.
+Adds the read-only RPC `excellence_assess` with a labelled demonstration fixture.
 - Acceptance: every control has a pass case, a fail case and a not-evaluated case in fixtures;
-  an unreadable role list makes Security role controls not evaluated, never pass.
+  an unreadable role list makes Security role controls not evaluated, never pass; the RPC writes
+  nothing; the authorization matrix is regenerated; Security read (RPC, evidence redaction).
 - Tests: one fixture trio per control; an adversarial fixture with injected text in names and
   notebook comments that must appear only as data.
 

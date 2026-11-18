@@ -58,3 +58,12 @@ def test_initcap_of_a_column() -> None:
 def test_a_kf_name_of_the_persons_own_is_still_refused() -> None:
     with pytest.raises(ValueError, match="kf_x can't be used"):
         sql.run("SELECT soundex(kf_x) FROM (SELECT 'a' AS kf_x)")
+
+
+def test_sqrt_and_sign_read_a_changing_argument_once() -> None:
+    # The check and the root (or sign) must see the same sample: read twice, sqrt(rand() - 0.5) stopped with
+    # "cannot take square root of a negative number" when the check saw a positive sample and SQRT a negative one.
+    rows = sql.run("SELECT sqrt(rand() - 0.5) AS r, sign(rand() - 0.5) AS s FROM range(20000)").to_pylist()
+    assert len(rows) == 20000
+    assert {row["s"] for row in rows} <= {1.0, -1.0}
+    assert all(math.isnan(row["r"]) or row["r"] >= 0 for row in rows)

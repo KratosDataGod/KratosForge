@@ -182,15 +182,21 @@ def test_gross_never_exceeds_the_baseline_for_any_order_or_values():
                     assert 0 <= out["net_cu_hours"] <= out["gross_cu_hours"] + 1e-9
 
 
-def test_negative_figures_are_refused():
-    with pytest.raises(ValueError, match="negative"):
-        at.attribute(run(), measured(10), [opt("o1", measured(-5))])
-    with pytest.raises(ValueError, match="negative"):
-        at.attribute(run(), measured(-10))
-    with pytest.raises(ValueError, match="negative"):
-        at.attribute(run(), measured(10), local_avoided=estimated(-3))
-    with pytest.raises(ValueError, match="negative"):
-        at.attribute(run(), measured(10), local_avoided=estimated(3), overhead=measured(-1))
+@pytest.mark.parametrize("bad", [-5, float("nan"), float("inf"), float("-inf"), "nan", "inf"])
+def test_negative_and_non_finite_figures_are_refused(bad):
+    def fig(make):
+        m = make(1)
+        m["value"] = bad
+        return m
+
+    with pytest.raises(ValueError, match="after of o1"):
+        at.attribute(run(), measured(10), [opt("o1", fig(measured))])
+    with pytest.raises(ValueError, match="baseline"):
+        at.attribute(run(), fig(measured))
+    with pytest.raises(ValueError, match="local avoided"):
+        at.attribute(run(), measured(10), local_avoided=fig(estimated))
+    with pytest.raises(ValueError, match="overhead"):
+        at.attribute(run(), measured(10), local_avoided=estimated(3), overhead=fig(measured))
 
 
 def test_unattributed_is_capped_at_the_baseline_after_a_regression():

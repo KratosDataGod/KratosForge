@@ -40,6 +40,7 @@ Pure: no I/O.
 from __future__ import annotations
 
 import datetime as dt
+import math
 from typing import Any
 
 from .. import measurement as ms
@@ -57,7 +58,7 @@ INACTIVE = ("reverted", "rejected", "dismissed", "superseded")
 _STRENGTH = {ms.MEASURED: 0, ms.ESTIMATED: 1, ms.UNKNOWN: 2}
 
 
-def _cu(m: dict[str, Any] | None) -> tuple[float | None, str]:
+def _cu(m: dict[str, Any] | None, what: str) -> tuple[float | None, str]:
     """A CU measurement's value in CU-hours and its classification (None and unknown when missing)."""
     if not m or m.get("value") is None or m.get("classification") == ms.UNKNOWN:
         return None, ms.UNKNOWN
@@ -67,9 +68,10 @@ def _cu(m: dict[str, Any] | None) -> tuple[float | None, str]:
     if m.get("classification") not in (ms.MEASURED, ms.ESTIMATED):
         raise ValueError(f"Unknown classification {m.get('classification')!r}.")
     value = float(m["value"])
-    if value < 0:
-        # CU used is never below zero; a negative figure would fabricate a layer bigger than the baseline.
-        raise ValueError(f"A CU figure can't be negative ({m.get('metric')}: {value}).")
+    if not math.isfinite(value) or value < 0:
+        # CU used is a finite figure of zero or more. A negative, NaN or infinite one would fabricate a
+        # layer bigger than the baseline (NaN slips past comparisons and min()).
+        raise ValueError(f"The {what} must be a finite CU figure of zero or more, not {value}.")
     return ms.convert(value, m["unit"], UNIT), m["classification"]
 
 
@@ -140,7 +142,7 @@ def attribute(run: dict[str, Any], baseline: dict[str, Any], optimizations: list
         raise ValueError("ran is fabric or pc.")
     if local_basis not in (ORIGINAL, OPTIMIZED):
         raise ValueError("local_basis is original or optimized.")
-    b, b_cls = _cu(baseline)
+    b, b_cls = _cu(baseline, "baseline")
     applied = in_effect(list(optimizations), run["at"])
     extra = {"pricing_version": pricing_version, "corrects": corrects}
     layers: list[dict[str, Any]] = []
@@ -158,7 +160,7 @@ def attribute(run: dict[str, Any], baseline: dict[str, Any], optimizations: list
     split_known = True
     pending: list[Any] = []  # optimizations whose share can't be split yet
     for i, o in enumerate(applied):
-        after, after_cls = _cu(o.get("after"))
+        after, after_cls = _cu(o.get("after"), f"after of {o['optimization_id']}")
         if not split_known or after is None:
             split_known = False
             pending.append(o["optimization_id"])
@@ -178,7 +180,7 @@ def attribute(run: dict[str, Any], baseline: dict[str, Any], optimizations: list
     # PC's share at R keeps gross at or under B, a regression (R > B) included.
     remaining = max(0.0, current)
     if run["ran"] == PC:
-        avoided, avoided_cls = _cu(local_avoided)
+        avoided, avoided_cls = _cu(local_avoided, "local avoided figure")
         if avoided is None:
             layers.append(_layer(run, LOCAL, order, None, ms.UNKNOWN,
                                  reason="No Fabric run of this workload to compare with", **extra))
@@ -206,7 +208,7 @@ def _result(run: dict[str, Any], b: float | None, b_cls: str, layers: list[dict[
             gross_cls: str, overhead: dict[str, Any] | None, applied: list[dict[str, Any]]) -> dict[str, Any]:
     complete = all(x["classification"] != ms.UNKNOWN for x in layers)
     if run["ran"] == PC:
-        o, o_cls = _cu(overhead)
+        o, o_cls = _cu(overhead, "overhead")
     else:
         o, o_cls = 0.0, ms.MEASURED  # a Fabric run's own use is already what it needed
     if gross is None:

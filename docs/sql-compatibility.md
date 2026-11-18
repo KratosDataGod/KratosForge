@@ -457,6 +457,25 @@ Fabric Warehouse has QUALIFY too, so there the rewrite is one way to run it, not
 Like the check above, it never runs the SQL or connects anywhere, and "compatible" is not proof that
 two platforms give the same answer. Comparing answers needs both runs.
 
+## Local T-SQL CTEs
+
+When a project runs T-SQL on this PC, common table expressions (`WITH ... AS`) run as in a Fabric Warehouse, and what a warehouse doesn't run is refused by name before anything runs. This was checked against Microsoft Learn's T-SQL surface area page for Fabric Data Warehouse, as it read on 2026-11-18.
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| Several CTEs in one `WITH` | Each sees the CTEs before it. A later CTE's name, used before it, is a table's name, as in T-SQL |
+| A column list, `WITH a (p, q) AS (...)` | Names the columns |
+| A CTE before `SELECT`, `INSERT`, `UPDATE ... FROM` and `DELETE ... WHERE` | Runs, and changes the table the statement names |
+| A `WITH` inside a CTE (a nested CTE) | Runs. A warehouse runs it as a preview feature, so the result's notes say so |
+| Two CTEs of one name | Stops with SQL Server's "Duplicate common table expression name 'a' was specified." |
+
+Refused by name:
+
+- A recursive CTE, one whose query names itself. A warehouse doesn't run recursive queries. It stops before it runs, so a CTE with no end never runs on and changes nothing. Unroll the levels you need with joins, or compute the hierarchy in a notebook.
+- `OPTION (MAXRECURSION n)`, which only limits a recursive CTE.
+- `WITH RECURSIVE`, which isn't T-SQL.
+- `UPDATE` or `DELETE` through a CTE (`WITH a AS (...) UPDATE a SET ...`). The local engine changes tables only, and Microsoft's page doesn't say whether a warehouse does. Name the table, and put the CTE's filter in `WHERE`.
+
 ## Local T-SQL tables
 
 When a project runs T-SQL on this PC, tables are made and emptied as in a Fabric Warehouse, and what a warehouse doesn't have is refused by name. This was checked against Microsoft Learn's Fabric Data Warehouse pages for tables, temporary tables, IDENTITY and the T-SQL surface area, as they read on 2026-11-17.

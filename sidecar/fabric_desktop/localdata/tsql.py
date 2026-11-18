@@ -1988,8 +1988,8 @@ def _functions(tree: exp.Expression) -> None:
 
 _NOT_YET = "This T-SQL can't be run on the local engine: "
 
-_TOO_DEEP = (_NOT_YET + "the query nests calls or brackets too deeply for the local engine to translate. Take the "
-             "inner part out into a CTE, a subquery or a variable.")
+_TOO_DEEP = (_NOT_YET + "the query nests calls or brackets too deeply to translate. Take the inner part out into a "
+             "CTE, a subquery or a variable.")
 
 
 def _gaps(tree: exp.Expression) -> None:

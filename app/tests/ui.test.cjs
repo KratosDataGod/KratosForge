@@ -732,8 +732,11 @@ test("the result grid selects a block of cells, moves with the keys, and copies 
   assert.strictEqual(sqlTsv([["a\tb", "line 1\nline 2"], ['"quoted"', 'O\'Brien, "x"']]), '"a\tb"\t"line 1\nline 2"\n"""quoted"""\tO\'Brien, "x"',
     "a tab, a line break or a leading quote is quoted, so each value stays one cell");
   assert.strictEqual(sqlTsv([["line 1\nline 2"]]), "line 1\nline 2", "one value copies as it is");
-  assert.deepStrictEqual(["=SUM(A1)", "+1", "-x", "@a", -5, 3.5, "a=b", null, { k: 1 }].map(sqlTsvCell),
-    ["'=SUM(A1)", "'+1", "'-x", "'@a", "-5", "3.5", "a=b", "", '{"k":1}'], "text that a spreadsheet would run as a formula gets a leading '");
+  assert.deepStrictEqual(["=SUM(A1)", "+1", "-x", "@a", "\t=1", "\r=1", " =1+1", -5, 3.5, "a=b", null, { k: 1 }].map(sqlTsvCell),
+    ["'=SUM(A1)", "'+1", "'-x", "'@a", "'\t=1", "'\r=1", "' =1+1", "-5", "3.5", "a=b", "", '{"k":1}'], "text that a spreadsheet would run as a formula gets a leading '");
+  // One cell copied on its own is guarded too; a real number stays a number.
+  const oneCell = (v) => sqlGridCopyText("cells", { columns: [{ name: "v" }], rows: [[v]], offset: 0 }, { a: { r: 0, c: 0 }, f: { r: 0, c: 0 } });
+  assert.deepStrictEqual(["=1+1", "@SUM(1)", "\t=1", "-2+3", -2, 42].map(oneCell), ["'=1+1", "'@SUM(1)", "'\t=1", "'-2+3", "-2", "42"]);
   assert.deepStrictEqual(JSON.parse(sqlGridCopyText("csv", r, block)), { format: "csv", names: ["orders", "tags"], rows: [[4812, ["a", "b"]], [3977, null]] });
   assert.strictEqual(sqlValueText(null), "NULL");
   assert.strictEqual(sqlValueText('{"a":1,"b":[2]}'), '{\n  "a": 1,\n  "b": [\n    2\n  ]\n}', "JSON text, indented");

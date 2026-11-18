@@ -588,13 +588,14 @@ function sqlRowsAs(format, columns, rows, { dialect = "spark", table = "results"
   return sqlTsv([names, ...rows.map((r) => r.map(sqlTsvCell))]);
 }
 
-// A value for tab-separated text a spreadsheet pastes: text that starts with = + - or @ gets a leading ' so the
-// spreadsheet shows it as text and never runs it as a formula. Numbers, and every other value, are as they are.
+// A value for tab-separated text a spreadsheet pastes: text that starts with = + - @, a tab or a carriage return
+// (after any spaces) gets a leading ' so the spreadsheet shows it as text and never runs it as a formula, as
+// OWASP's CSV injection guidance lists them. Numbers, and every other value, are as they are.
 function sqlTsvCell(v) {
   if (v === null || v === undefined) return "";
   if (typeof v === "object") return JSON.stringify(v);
   const t = String(v);
-  return typeof v === "string" && /^[=+\-@]/.test(t) ? `'${t}` : t;
+  return typeof v === "string" && /^ *[=+\-@\t\r]/.test(t) ? `'${t}` : t;
 }
 
 // Lines of tab-separated fields, as spreadsheets paste them: a field holding a tab or a line break, or starting

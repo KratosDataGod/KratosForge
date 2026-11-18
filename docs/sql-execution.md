@@ -44,7 +44,7 @@ Click a cell to select it; Shift+click or drag selects a block, a row's number s
 
 | Key or menu item | What it does |
 | --- | --- |
-| **Copy** (Ctrl+C) | The selected values, tab-separated, as a spreadsheet pastes them. A value with a tab or a line break stays one cell, and text that starts with `=`, `+`, `-` or `@` gets a leading `'` so a spreadsheet never runs it as a formula. One value on its own copies exactly as it is |
+| **Copy** (Ctrl+C) | The selected values, tab-separated, as a spreadsheet pastes them. A value with a tab or a line break stays one cell, and text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return (after any spaces) gets a leading `'` so a spreadsheet never runs it as a formula, even for one cell. **Copy** in **Open value** gives a value exactly as it is |
 | **Copy with headers** (Ctrl+Shift+C) | The same, with the column names first |
 | **Copy as CSV**, **JSON** or **INSERT statements** | The selection in that format, as **Copy ▾** does for the page |
 | **Open value** (Enter, or double-click) | The value in full beside the grid: JSON and long text formatted, with its type and length. Esc closes it |

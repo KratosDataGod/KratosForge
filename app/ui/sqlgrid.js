@@ -319,10 +319,8 @@ function sqlGridBlock(r, sel, vis = null) {
 function sqlGridCopyText(format, r, sel, opts = {}) {
   const b = sqlGridBlock(r, sel, opts.vis);
   if (format === "cells") {
-    if (b.rows.length === 1 && b.rows[0].length === 1) {  // one value: as it is, for pasting anywhere
-      const v = b.rows[0][0];
-      return v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
-    }
+    // One value too: a spreadsheet runs a pasted formula however many cells it came from. Open value's Copy
+    // gives the value exactly as it is, for pasting as plain text.
     return sqlTsv(b.rows.map((row) => row.map(sqlTsvCell)));
   }
   return sqlRowsAs(format, b.columns, b.rows, opts);

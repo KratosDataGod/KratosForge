@@ -282,10 +282,15 @@ def _wrapped_columns(s: Stmt, where: int) -> Iterator[int]:
         for k in range(i + 2, close):
             a, before = toks[k], toks[k - 1]
             variable = a.raw.startswith("@") or (before.raw.startswith("@") and before.end == a.start)
-            if _is_name(a) and not variable and a.type != TokenType.STRING and a.kw not in _TYPE_WORDS:
+            called = k + 1 < close and toks[k + 1].type == TokenType.L_PAREN   # GETDATE(), now(): a function, not a column
+            if _is_name(a) and not variable and not called and a.type != TokenType.STRING \
+                    and a.kw not in _TYPE_WORDS and a.kw not in _NILADIC:
                 yield t.start
                 break
 
+
+# keywords that name today's date or time, not a column: wrapping them hides nothing from data skipping
+_NILADIC = {"CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", "LOCALTIMESTAMP", "LOCALTIME"}
 
 # type names and date parts inside CAST(x AS int) / DATEPART(year, x) aren't columns
 _TYPE_WORDS = {"INT", "BIGINT", "SMALLINT", "TINYINT", "BIT", "DECIMAL", "NUMERIC", "FLOAT", "REAL", "DATE", "TIME",

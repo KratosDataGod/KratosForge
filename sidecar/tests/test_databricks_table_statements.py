@@ -241,3 +241,20 @@ def test_dropping_or_replacing_a_table_drops_its_identity_sequence():
         assert sequences() == 0
     finally:
         session.close()
+
+
+@pytest.mark.parametrize("name", ["__kf_always_z; DROP TABLE victim; SELECT 1 AS done", "__kf_always_z CASCADE",
+                                  "__kf_always_" + "a" * 32 + "; DROP TABLE victim"])
+def test_a_sequence_drop_only_names_a_sequence_this_module_made(name):
+    session = local_sql.DuckDBSession(SessionConfig("nb"))
+    try:
+        # DuckDB keeps the default's text as written, so a crafted name reaches the stored CREATE TABLE
+        session._con.execute(f'CREATE SEQUENCE "{name}"; CREATE TABLE victim (a INT); '
+                             f"CREATE TABLE u (id BIGINT DEFAULT nextval('{name}'))")
+        written = session._sql("DROP TABLE u", "databricks")
+        assert "victim" not in written and "CASCADE" not in written.upper()
+        assert session.execute(CellRequest("DROP TABLE u", "sql", "databricks")).status == "ok"
+        assert session._con.execute("SELECT count(*) FROM duckdb_tables() WHERE table_name = 'victim'").fetchall() \
+            == [(1,)]
+    finally:
+        session.close()

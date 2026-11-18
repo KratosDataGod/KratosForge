@@ -54,9 +54,10 @@ def mismatch(replace: str, name: str, detail: str = "") -> ValueError:
 def check_rows(data: Any, where: str, replace: str, name: str) -> None:
     """Delta's check, made before the write: every row of ``data`` (a pyarrow Table) must make the
     predicate ``where`` true (a NULL fails it, as in Delta's CheckDeltaInvariant). Fails closed: a
-    predicate DuckDB can't evaluate stops the write. delta-rs checks again as it writes."""
+    predicate DuckDB can't evaluate, or one that tries to read a file, stops the write. delta-rs checks again as it writes."""
     import duckdb
-    con = duckdb.connect()
+    # No files or network: a condition such as read_text('C:/x') = region can't read anything here.
+    con = duckdb.connect(config={"enable_external_access": False})
     try:
         con.register("kf_rows", data)
         try:

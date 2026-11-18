@@ -240,6 +240,29 @@ These cases still differ:
 | `from_json` text in single quotes, such as `{'a':1}` | Read (`allowSingleQuotes` is on by default) | NULL |
 | Databricks SQL on the DuckDB engine | As in Spark SQL | `from_json` and `schema_of_json` options are refused, and `to_json` is DuckDB's own |
 
+## Math functions on this PC (WR-116)
+
+Spark SQL run on this PC gives Spark's answers for its math functions at the edges where DuckDB stops with an error or answers as C does, with ANSI mode off as Fabric runs it. 28 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_math_values.py`, on DuckDB 1.5 and 2.0. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `round` of a `double` | Rounds half up on the digits Java writes for the value: `round(1.005D, 2)` is 1.01 and `round(9.995D, 2)` is 10.0. A `float` is rounded as a `double`. NaN and infinity stay as they are |
+| `log`, `ln`, `log10`, `log2` | NULL for 0 or a negative number, and for a base of 0 or a negative base. A base of 1 gives `inf` (`log(1, 8)`) |
+| `pow`, `power` | Java's `Math.pow`: NaN for a NaN exponent, and for 1 or -1 to an infinite power |
+| `hypot` | `inf` when either side is infinite, even beside NaN; very large or very small sides don't overflow (`hypot(1e200, 1e200)`) |
+| `factorial` | A `bigint`; NULL outside 0 to 20. A `bigint` or decimal argument is cast to an `int` first, so `factorial(3.7)` is 6 |
+| `acos`, `asin`, `cot` | NaN outside -1 to 1 for `acos` and `asin`; `cot(0)` is `inf` |
+| `atan2` | -0.0 counts as 0.0, so `atan2(0.0D, -0.0D)` is 0.0 |
+| `try_add`, `try_subtract`, `try_multiply` | `-2147483648` is an `int`, so `try_subtract(-2147483648, 1)` is NULL |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| `round` of a `double` whose `round` sqlglot can't type (a column in a query whose types can't be worked out here) | Half up on the digits Java writes | DuckDB's `ROUND`, on the binary value (`round(1.005D, 2)` is 1.0) |
+| `round` of a `double` of 1e37 or more to a negative number of places, or below 1e-21 to more than 20 places | Half up on the digits Java writes | DuckDB's `ROUND`, on the binary value |
+| `abs(-2147483648)` and `round(2147483647, -1)` | Wraps around (ANSI off) | Widens the type, or stops on DuckDB 2.0 |
+
 ## Local T-SQL changes
 
 When a project runs T-SQL on this PC, `MERGE`, `UPDATE`, `DELETE` and `INSERT` on a database table give a warehouse's rows, or stop by name. Each case below is checked against T-SQL's reference.

@@ -24,7 +24,7 @@ from .redact import describe
 from .redact import without_webhook as _without_webhook
 from .time_zones import time_zones
 from .timeutil import now_iso as _now, seconds_between
-from .workloads.notify import Outbox, send, single
+from .workloads.notify import Outbox, audit_trouble, send, single
 
 _log = logging.getLogger(__name__)
 _PIPELINE_POLL = 0.25  # seconds between looks at a scheduled pipeline run
@@ -489,12 +489,16 @@ class ScheduleMixin:
                 return ""
             title = f"Scheduled run failed on this PC: {row['label']}"
             lines = [row.get("message") or "See Monitor > KratosForge > Schedules"]
+            box = self._schedule_alerts()
+            item = box.sending(title, lines)  # kept before the post: a stop mid-send leaves it for the next run
             try:
                 post_teams(url, title, lines)
+                box.done(item)
                 return ""
             except Exception as exc:  # noqa: BLE001 - kept, and sent after the next run here
                 why = _without_webhook(describe(exc), url).rstrip(".")
-                self._schedule_alerts().add(title, lines, why)
+                box.not_sent(item, why)
+                audit_trouble(self.audit, {"error": why, "queued": 1}, SCHEDULE_ALERTS)  # type: ignore[attr-defined]
                 problem = (f"Couldn't post the Teams alert: {why}. It waits on this PC and is sent, marked Delayed, "
                            "after the next scheduled run here, for up to three days.")
         except Exception as exc:  # noqa: BLE001 - the run is still logged, with the webhook kept out of what it says
@@ -528,6 +532,7 @@ class ScheduleMixin:
             result = send([], single(url), self._schedule_alerts(), "this PC's schedules", scrubbed)
         finally:
             lock.unlink(missing_ok=True)
+        audit_trouble(self.audit, result, SCHEDULE_ALERTS)  # type: ignore[attr-defined]
         if result.get("error"):
             _log.warning("Couldn't post waiting schedule alerts; they go after the next run: %s",
                          _without_webhook(result["error"], url))

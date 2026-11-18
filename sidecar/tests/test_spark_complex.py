@@ -112,6 +112,15 @@ CASES = [
      [[1, "a", 1], [1, "b", 2]]),
     ("SELECT id, k, v FROM c LATERAL VIEW OUTER explode(m) x AS k, v ORDER BY id, k", ["int", "string", "int"],
      [[1, "a", 1], [1, "b", 2], [2, None, None], [3, None, None]]),
+    # stack, json_tuple and inline after LATERAL VIEW: one column per name, as in a select list
+    ("SELECT id, a, b FROM c LATERAL VIEW stack(2, 1, 2, 3, 4) t AS a, b WHERE id = 1 ORDER BY a", ["int", "int", "int"],
+     [[1, 1, 2], [1, 3, 4]]),
+    ("SELECT x, y FROM c LATERAL VIEW json_tuple('{\"a\": 1, \"b\": [2]}', 'a', 'b') t AS x, y WHERE id = 1",
+     ["string", "string"], [["1", "[2]"]]),
+    ("SELECT id, a, b FROM c LATERAL VIEW inline(array(struct(id AS a, 'x' AS b))) t AS a, b ORDER BY id",
+     ["int", "int", "string"], [[1, 1, "x"], [2, 2, "x"], [3, 3, "x"]]),
+    (("SELECT id, a, b FROM c LATERAL VIEW OUTER inline(CASE WHEN id = 1 THEN array(struct(1 AS a, 'x' AS b)) END) t AS a, b "
+      "ORDER BY id"), ["int", "int", "string"], [[1, 1, "x"], [2, None, None], [3, None, None]]),
 ]
 
 REFUSED = [

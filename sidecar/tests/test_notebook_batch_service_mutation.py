@@ -203,10 +203,18 @@ def test_a_batch_file_without_parallel_runs_one_at_a_time(svc, popen, monkeypatc
 def test_the_heartbeat_waits_ten_seconds_and_saves_only_while_running(svc, popen, monkeypatch):
     batch = svc.notebook_batch_start(["A"])
     waits: list[float] = []
+    finished = threading.Event()
+    beats: list[threading.Thread] = []
 
     def sleep(seconds):
         waits.append(seconds)
-        time.sleep(0.01)
+        beats.append(threading.current_thread())
+        if len(waits) > 4:
+            # Hold the heartbeat's next wake-up until the batch is done, so that it wakes to a done
+            # batch whatever the machine's load: it must then save nothing.
+            finished.wait(10)
+        else:
+            time.sleep(0.01)
 
     _clock(monkeypatch, now=time.time(), sleep=sleep)
     saved: list[str] = []
@@ -216,17 +224,21 @@ def test_the_heartbeat_waits_ten_seconds_and_saves_only_while_running(svc, popen
 
     def slow(args, root, stop):
         deadline = time.monotonic() + 5
-        while len(waits) < 4 and time.monotonic() < deadline:
+        while len(waits) < 5 and time.monotonic() < deadline:  # four beats saved, the fifth held
             time.sleep(0.01)
         return '{"status": "ok"}\n', 0, False
 
     monkeypatch.setattr(nbs, "_run_notebook_process", slow)
-    svc.run_notebook_batch(batch["id"])
-    assert len(waits) >= 4 and set(waits) == {10}
-    # running, the item running, beats, the item done, then done
-    assert saved.count("running") >= 5 and saved[-1] == "done"
-    settled = len(saved)
-    time.sleep(0.1)
+    try:
+        svc.run_notebook_batch(batch["id"])
+        assert len(waits) >= 4 and set(waits) == {10}
+        # running, the item running, beats, the item done, then done
+        assert saved.count("running") >= 5 and saved[-1] == "done"
+        settled = len(saved)
+    finally:
+        finished.set()  # the heartbeat wakes, now to a done batch
+    beats[-1].join(5)  # the heartbeat thread, which sees the batch is done and ends
+    assert not beats[-1].is_alive()
     assert len(saved) == settled  # nothing saved once the batch is done
 
 

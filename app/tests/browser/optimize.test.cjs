@@ -69,9 +69,10 @@ test("before a lakehouse is connected, setup doesn't block Cost and savings", { 
   await page().waitForSelector(".cost-head");
   const text = await page().locator(".page.optimize").textContent();
   assert.match(text, /Results from this PC only · not shared with your team yet/);
-  // The setup buttons are the page's own, top right beside the title, not a row above the tabs.
+  // The setup buttons are the page's own, top right beside the title (or, under the header art, beside
+  // the line that says where results are shared), not a row above the tabs.
   const head = await page().$eval(".page.optimize > .page-head", (el) => {
-    const title = el.querySelector("h1").getBoundingClientRect(), acts = el.querySelector(".head-actions").getBoundingClientRect();
+    const title = el.querySelector("h1, .optimize-band").getBoundingClientRect(), acts = el.querySelector(".head-actions").getBoundingClientRect();
     return { right: acts.left > title.right, top: acts.top < title.bottom, buttons: [...el.querySelectorAll(".head-actions button")].map((b) => b.textContent.trim()) };
   });
   assert.deepStrictEqual(head, { right: true, top: true, buttons: ["Connect to a lakehouse", "Create a lakehouse"] });

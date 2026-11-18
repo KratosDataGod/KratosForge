@@ -24,7 +24,7 @@ from .workloads.incidents import KIND_LABELS, IncidentLog
 from .workloads.agents import agent_state, fleet, read_status
 from .workloads.overlap import overlaps
 from .workloads import queue, run_as
-from .workloads.notify import Outbox, send, single
+from .workloads.notify import Outbox, audit_trouble, send, single
 
 _log = logging.getLogger(__name__)
 
@@ -209,6 +209,7 @@ class IncidentMixin:
             outbox = Outbox(self.root / "alerts_outbox.sqlite")  # type: ignore[attr-defined]
             out["notified"] = send(self._not_told_before(env, changes), single(url), outbox, "KratosForge",
                                    self._notice_post())  # type: ignore[attr-defined]  # Teams, a flow or email
+            audit_trouble(self.audit, out["notified"], "alerts_outbox.sqlite")  # type: ignore[attr-defined]
         out["at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         return out
 

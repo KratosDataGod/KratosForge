@@ -246,29 +246,47 @@ async function gitSwitchRepo(path) {
 
 // ---------- the page ----------
 
+// Living Experience (home-hero.js, Preview): Chris's header art with the page's name on its sky, above
+// every Source control screen. The branch names painted on the art are decoration; nothing reads them.
+function gitHero() {
+  return typeof pageHero === "function" ? pageHero("source", "Source control", { tag: preview("sourceControl", h("span")) }) : null;
+}
+
+// The page, with the header art first when it's on. Without it, each screen keeps its own plain h1.
+function gitPageView(cls, ...children) {
+  const hero = gitHero();
+  return h("div", { class: hero ? `${cls} living-head` : cls }, hero, ...children);
+}
+
+// The page's title, beside the repository's buttons: the h1 and its marks, or only Learn more under the art.
+function gitTitle() {
+  return gitHero() ? [null, learnMore("source-control-preview")]
+    : [h("h1", {}, "Source control"), preview("sourceControl", h("span")), learnMore("source-control-preview")];
+}
+
 async function renderSourceControl() {
   if (!gitPage.info) {
-    setView(h("div", { class: "page" }, h("h1", {}, "Source control"), loading("Loading…")));
+    setView(gitPageView("page", gitHero() ? null : h("h1", {}, "Source control"), loading("Loading…")));
     // A refusal replaces Loading… with why and a Retry, which otherwise stayed on the page for good.
     try { await gitLoadInfo(); } catch (err) {
-      if (state.view === "source") setView(h("div", { class: "page" }, h("h1", {}, "Source control"),
+      if (state.view === "source") setView(gitPageView("page", gitHero() ? null : h("h1", {}, "Source control"),
         errorPanel(err, { label: "Couldn't read Git on this PC", retry: () => renderSourceControl() })));
       return;
     }
     if (state.view !== "source") return;
   }
   const info = gitPage.info;
-  const head = h("div", { class: "row" }, h("h1", {}, "Source control"), preview("sourceControl", h("span")), learnMore("source-control-preview"));
-  gitPage.title = () => [h("h1", {}, "Source control"), preview("sourceControl", h("span")), learnMore("source-control-preview")];
+  const head = h("div", { class: "row" }, ...gitTitle());
+  gitPage.title = gitTitle;
   if (!info.installed) {
-    setView(h("div", { class: "page narrow" }, head, emptyState({ icon: "branch", title: "Git isn't installed on this PC",
+    setView(gitPageView("page narrow", head, emptyState({ icon: "branch", title: "Git isn't installed on this PC",
       text: "Source control uses Git for Windows. Install it from git-scm.com with Git Credential Manager (the default), then open this page again.",
       action: [btn("Get Git for Windows", "open", () => openLink("https://git-scm.com/download/win"), "tool primary"),
         btn("Check again", "sync", async () => { gitPage.info = null; render(); }, "tool outline")] })));
     return;
   }
   if (!gitCurrent()) {
-    setView(h("div", { class: "page narrow" }, head,
+    setView(gitPageView("page narrow", head,
       pageIntro("Keep notebooks, SQL and metadata projects in Git: see every change, work on branches, and push to GitHub, Azure DevOps or any Git server. Everything here runs with your own Git on this PC."),
       h("div", { class: "tiles" },
         tile("arrowDownload", "Clone a repository", "Copy a repository from GitHub, Azure DevOps or another Git server to this PC.", gitCloneDialog),
@@ -280,11 +298,11 @@ async function renderSourceControl() {
     return;
   }
   if (!gitPage.status || gitPage.status.root !== gitCurrent()) {
-    setView(h("div", { class: "page" }, head, h("p", { class: "muted-text" }, "Reading the repository…")));
+    setView(gitPageView("page", head, h("p", { class: "muted-text" }, "Reading the repository…")));
     await gitRefresh();
     if (state.view !== "source") return;
     if (!gitPage.status) {
-      setView(h("div", { class: "page narrow" }, head, emptyState({ title: "This repository can't be read",
+      setView(gitPageView("page narrow", head, emptyState({ title: "This repository can't be read",
         text: `${gitCurrent()} may have moved or been deleted.`,
         action: h("div", { class: "row" }, btn("Choose another", "folderOpen", (e) => gitRepoMenu(e.currentTarget), "tool outline"),
           btn("Take it off the list", "delete", async () => {
@@ -307,7 +325,7 @@ async function renderSourceControl() {
     tab("settings", "Repository settings"));
   if (gitPage.tab === "bundles" && !previewShown()) gitPage.tab = "changes";
   const bodies = { bundles: gitBundlesTab, changes: gitChangesTab, platform: gitPlatformTab, capacity: gitCapacityTab, branches: gitBranchesTab, history: gitHistoryTab, fabric: gitFabricTab, settings: gitSettingsTab };
-  setView(h("div", { class: "page git-page" }, gitHeader(st), gitOpBand(), gitMergeBanner(st), gitKindBanner(st), tabs,
+  setView(gitPageView("page git-page", gitHeader(st), gitOpBand(), gitMergeBanner(st), gitKindBanner(st), tabs,
     h("div", { class: "git-body" }, bodies[gitPage.tab](st))));
 }
 

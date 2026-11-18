@@ -34,6 +34,7 @@ NOT_CALLED: dict[str, str] = {
     "schemas.microsoft.com": _SCHEMA,  # Task Scheduler XML namespace
     "www.w3.org": _SCHEMA,  # the SVG namespace the table diagram export checks (service.py)
     "schemas.openxmlformats.org": _SCHEMA,  # Excel export XML namespaces
+    "openlineage.io": _SCHEMA,  # OpenLineage schemaURL / _schemaURL values in exported events (meta/openlineage.py)
     "docs.databricks.com": _LINK,
     "docs.snowflake.com": _LINK,  # snowflake_sql: SQL reference links in its conversion notes
     "duckdb.org": _LINK,

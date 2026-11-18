@@ -160,7 +160,7 @@ def test_every_event_type_validates_against_the_spec(svc, spec, status, kind):
 def test_no_secrets_connection_strings_or_paths_on_this_pc_leave_in_events(svc, tmp_path):
     root = tmp_path / "crm"
     text = (root / "metadata" / "entities" / "bronze.orders.toml").read_text(encoding="utf-8")
-    secret_url = "abfss://raw@acct.dfs.core.windows.net/orders?sv=2024-01-01&sig=SECRETSIG"
+    secret_url = "abfss://raw@acct.dfs.core.windows.net/orders?sv=2024-01-01&sig=SECRETSIG"  # pragma: allowlist secret (a made-up SAS the test checks is removed)
     (root / "metadata" / "entities" / "bronze.orders.toml").write_text(
         text.replace('files = "landing/orders/*.csv"', f'table = "{secret_url}"'), encoding="utf-8")
     text = (root / "metadata" / "entities" / "bronze.customers.toml").read_text(encoding="utf-8")
@@ -183,8 +183,8 @@ def test_no_secrets_connection_strings_or_paths_on_this_pc_leave_in_events(svc, 
 @pytest.mark.parametrize("value,want", [
     ("landing/orders/*.csv", "landing/orders/*.csv"),
     ("abfss://ws@onelake.dfs.fabric.microsoft.com/LH.Lakehouse/Tables/x?sig=abc", "abfss://ws@onelake.dfs.fabric.microsoft.com/LH.Lakehouse/Tables/x"),
-    ("abfss://raw:key@acct.dfs.core.windows.net/p", "abfss://acct.dfs.core.windows.net/p"),
-    ("https://ann:pw@host/path?code=1#f", "https://host/path"),
+    ("abfss://raw:key@acct.dfs.core.windows.net/p", "abfss://acct.dfs.core.windows.net/p"),  # pragma: allowlist secret (made-up)
+    ("https://ann:pw@host/path?code=1#f", "https://host/path"),  # pragma: allowlist secret (made-up)
     ("/home/ann/x.csv", "<this PC>/x.csv"),
     ("~/x.csv", "<this PC>/x.csv"),
     ("erp.dbo.orders;Password=abc", "erp.dbo.orders;Password=[removed]"),

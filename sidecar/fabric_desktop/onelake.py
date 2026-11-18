@@ -41,6 +41,12 @@ def check_name(kind: str, name: str) -> str:
 _BAD_ID = re.compile(r"[/@\\?#%:\s]")
 
 
+def workspace_root(workspace_id: str) -> str:
+    """A workspace's OneLake container, ``abfss://<workspace>@onelake...``: what OpenLineage calls a
+    dataset namespace. The id is checked as lakehouse_root checks it."""
+    return lakehouse_root(workspace_id, "_").rsplit("/", 1)[0]
+
+
 def lakehouse_root(workspace_id: str, lakehouse_id: str) -> str:
     """The OneLake address of a lakehouse, ``abfss://<workspace>@onelake.../<lakehouse>``: the one place it
     is built (tests/test_table_uris.py fails on another). The ids are GUIDs, which ABFS reads where a

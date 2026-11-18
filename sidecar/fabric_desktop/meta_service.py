@@ -759,8 +759,8 @@ class MetaMixin:
         folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         base = re.sub(r"[^\w.-]+", "_", f"{project.root.name}-{env}-openlineage")
-        path = sql_exec._reserve(folder, base, ".jsonl")
-        path.write_text("".join(json.dumps(e, separators=(",", ":")) + "\n" for e in out["events"]), encoding="utf-8")
+        path = sql_exec._reserve(folder, base, ".jsonl")  # reserved empty, so no other file is overwritten
+        write_text(path, "".join(json.dumps(e, separators=(",", ":")) + "\n" for e in out["events"]), newline="\n")
         return {"path": str(path), "events": len(out["events"]), "left_out": out["left_out"]}
 
     def meta_lineage(self, name: str, column: str | None = None) -> dict[str, Any]:

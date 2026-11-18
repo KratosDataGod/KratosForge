@@ -21,6 +21,7 @@ from typing import Any
 
 from .. import __version__
 from .. import redact
+from ..onelake import workspace_root
 from . import lineage
 from .project import Project
 
@@ -30,7 +31,6 @@ SCHEMA_FACET = "https://openlineage.io/spec/facets/1-2-0/SchemaDatasetFacet.json
 COLUMN_FACET = "https://openlineage.io/spec/facets/1-2-0/ColumnLineageDatasetFacet.json#/$defs/ColumnLineageDatasetFacet"
 JOB_TYPE_FACET = "https://openlineage.io/spec/facets/2-0-4/JobTypeJobFacet.json#/$defs/JobTypeJobFacet"
 ENGINE_FACET = "https://openlineage.io/spec/facets/1-1-1/ProcessingEngineRunFacet.json#/$defs/ProcessingEngineRunFacet"
-ONELAKE = "onelake.dfs.fabric.microsoft.com"
 _STATES = {"ok": "COMPLETE", "failed": "FAIL"}
 # OpenLineage transformation types for each way lineage.py says a column is made.
 _TRANSFORM = {"source": ("DIRECT", "IDENTITY"), "derived": ("DIRECT", "TRANSFORMATION"),
@@ -65,7 +65,7 @@ class Names:
     @property
     def namespace(self) -> str:
         if self.workspace_id:
-            return f"abfss://{self.workspace_id}@{ONELAKE}"
+            return workspace_root(self.workspace_id)
         return f"kratosforge://{self.project_name}/{self.env}"
 
     def table(self, entity: str) -> tuple[str, str]:

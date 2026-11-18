@@ -51,7 +51,7 @@
    ]}
  ],
  "achievements": [
-  {"id": "first-constellation", "name": "First Constellation", "criteria": "Reach Journeyman in Facts and dimensions and Relationships and cardinality.", "requires": {"level": 3, "talents": ["star.02", "star.03"]}},
+  {"id": "first-constellation", "name": "First Constellation", "criteria": "Reach Journeyman in Facts and dimensions and in Relationships and cardinality.", "requires": {"level": 3, "talents": ["star.02", "star.03"]}},
   {"id": "words-of-power", "name": "Words of Power", "criteria": "Reach Adept in CALCULATE and filter modification.", "requires": {"level": 4, "talents": ["dax.03"]}},
   {"id": "unbroken-conduit", "name": "Unbroken Conduit", "criteria": "Reach Journeyman in Capstone: Gold that stays in Direct Lake.", "requires": {"level": 3, "talents": ["directlake.10"]}},
   {"id": "measured-truth", "name": "Measured Truth", "criteria": "Reach Adept in Measure testing against SQL results.", "requires": {"level": 4, "talents": ["dax.08"]}},

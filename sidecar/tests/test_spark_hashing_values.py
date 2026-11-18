@@ -43,3 +43,24 @@ def test_a_hand_written_call_of_the_sha2_function_gives_null_where_spark_would()
     con = duckdb.connect()
     spark_hash.register(con)
     assert con.sql("SELECT __kf_sha2('abc'::BLOB, 1), __kf_sha2(NULL, 512)").fetchall() == [(None, None)]
+
+
+def test_sha2_at_512_bits_runs_over_a_200k_row_table_a_chunk_at_a_time(spark):
+    import hashlib
+    rows = spark.sql("SELECT id, sha2(CAST(id AS STRING), 512) s FROM range(200000) ORDER BY id").collect()
+    assert len(rows) == 200000
+    assert [r.s for r in rows[:3]] == [hashlib.sha512(str(i).encode()).hexdigest() for i in range(3)]
+    assert rows[-1].s == hashlib.sha512(b"199999").hexdigest()
+
+
+def test_the_chunked_sha2_function_gives_null_for_null_data_null_bits_or_another_length():
+    import duckdb
+
+    from fabric_desktop import spark_hash
+    con = duckdb.connect()
+    spark_hash.register(con)
+    got = con.sql("SELECT __kf_sha2(d, b) FROM (VALUES ('abc'::BLOB, 224), (NULL, 384), ('abc'::BLOB, NULL), "
+                  "('abc'::BLOB, 7), ('abc'::BLOB, 0), ('abc'::BLOB, 256)) t(d, b)").fetchall()
+    import hashlib
+    assert got == [(hashlib.sha224(b"abc").hexdigest(),), (None,), (None,), (None,),
+                   (hashlib.sha256(b"abc").hexdigest(),), (hashlib.sha256(b"abc").hexdigest(),)]

@@ -199,7 +199,8 @@ class MetaMixin:
                            "shows what it does first, or run the cell against a Dev workspace. Nothing was changed.")
                 break
         if refusal is None:
-            refusal = self._maintenance_capacity_refusal(operation, workspace_id, table)
+            # Notebook code has no way to accept a warning, so a Warning reading refuses here too (Chris, 2026-11-18).
+            refusal = self._maintenance_capacity_refusal(operation, workspace_id, table, warnings=True)
         return self._maintenance_audit(operation, workspace_id, table, refusal)
 
     def _maintenance_audit(self, operation: str, workspace_id: str, table: str, refusal: str | None) -> str | None:
@@ -223,9 +224,11 @@ class MetaMixin:
             return audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {describe_error(exc)}")
         return None
 
-    def _maintenance_capacity_refusal(self, operation: str, workspace_id: str, table: str) -> str | None:
-        """Blocked by the workspace's capacity, from its last reading (no refresh). A reading that fails is
-        an unknown state, which doesn't stop the run, as in every other risk check."""
+    def _maintenance_capacity_refusal(self, operation: str, workspace_id: str, table: str,
+                                      warnings: bool = False) -> str | None:
+        """Blocked by the workspace's capacity, from its last reading (no refresh), and with ``warnings`` a
+        Warning too: notebook code can't accept one, so it is sent to X-ray, which shows the warning and
+        asks. A reading that fails is an unknown state, which doesn't stop the run, as in every other risk check."""
         if not workspace_id:
             return None
         try:
@@ -234,6 +237,10 @@ class MetaMixin:
         except Exception as exc:  # noqa: BLE001 - unknown, as the risk check treats a failed read
             _log.info("Capacity of %s unknown for %s: %s", workspace_id, operation, describe_error(exc))
             return None
+        if found is not None and warnings and found["outcome"] == risk.WARNING:
+            return (f"{_statement(operation)} on {table} from notebook code is refused: the capacity check has a "
+                    f"warning ({found['title']}), and a notebook can't accept one. Run Optimize or Vacuum from "
+                    "X-ray, which shows the warning and asks before it starts. Nothing was changed.")
         if found is None or found["outcome"] != risk.BLOCKED:
             return None
         return (f"{_statement(operation)} on {table} is refused: the capacity check is Blocked ({found['title']}). "

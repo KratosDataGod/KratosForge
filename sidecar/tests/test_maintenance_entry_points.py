@@ -96,7 +96,7 @@ def mixin(capacity_by_ws, monkeypatch):
                         _risk_capacity=lambda ws, name, refresh, reads: capacity_by_ws.get(ws),
                         fabric_jobs=SimpleNamespace(run_table_maintenance=lambda *a, **k: jobs.append(a) or f"job-{len(jobs)}"),
                         _log_fabric_run=lambda r: r | {"status": "NotStarted"})
-    m._maintenance_capacity_refusal = lambda *a: MetaMixin._maintenance_capacity_refusal(m, *a)
+    m._maintenance_capacity_refusal = lambda *a, **k: MetaMixin._maintenance_capacity_refusal(m, *a, **k)
     return m, jobs, retention
 
 

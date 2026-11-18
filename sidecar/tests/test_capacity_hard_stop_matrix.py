@@ -207,7 +207,7 @@ def maintain_mixin(name, monkeypatch):
         _risk_capacity=lambda ws, *a: dev() if ws == "ws-dev" else read(capacities=_cap("Active")),
         fabric_jobs=SimpleNamespace(run_table_maintenance=lambda *a, **k: jobs.append(a) or f"job-{len(jobs)}"),
         _log_fabric_run=lambda r: r | {"status": "NotStarted"})
-    m._maintenance_capacity_refusal = lambda *a: MetaMixin._maintenance_capacity_refusal(m, *a)
+    m._maintenance_capacity_refusal = lambda *a, **k: MetaMixin._maintenance_capacity_refusal(m, *a, **k)
     m._maintain = lambda *a: CloudMixin._maintain(m, *a)
     return m, jobs, retention
 
@@ -254,7 +254,7 @@ def test_notebook_maintenance(lake, tmp_path, monkeypatch, name, asked):  # noqa
     expected, title = classify(name)
     m = SimpleNamespace(_project=lambda: SimpleNamespace(environments={}), audit=AuditLog(tmp_path / "audit"),
                         _risk_capacity=reader(name))
-    m._maintenance_capacity_refusal = lambda *a: MetaMixin._maintenance_capacity_refusal(m, *a)
+    m._maintenance_capacity_refusal = lambda *a, **k: MetaMixin._maintenance_capacity_refusal(m, *a, **k)
     m._maintenance_audit = lambda *a: MetaMixin._maintenance_audit(m, *a)
     monkeypatch.setattr(lakehouse, "maintenance_guard", lambda op, ws, t: MetaMixin._maintenance_refusal(m, op, ws, t))
     path = str(lake / "dbo" / "sales")
@@ -271,8 +271,15 @@ def test_notebook_maintenance(lake, tmp_path, monkeypatch, name, asked):  # noqa
         after = DeltaTable(path)
         assert after.version() == version and dict(after.metadata().configuration) == props
         assert outcomes() == [("error", asked)]
+    elif expected == WARNING:
+        # Notebook code can't accept a warning, so it is refused and sent to X-ray (Chris, 2026-11-18).
+        with pytest.raises(PermissionError, match="has a warning") as said:
+            lakehouse.maintain_table("dbo.sales", op, **kw)
+        assert title in str(said.value) and "X-ray" in str(said.value) and "Nothing was changed" in str(said.value)
+        after = DeltaTable(path)
+        assert after.version() == version and dict(after.metadata().configuration) == props
+        assert outcomes() == [("error", asked)]
     else:
-        # Warning goes ahead here with no acknowledgement: notebook code has no risk check to accept.
         lakehouse.maintain_table("dbo.sales", op, **kw)
         assert outcomes() == [("started", asked)]
         if op != "vacuum":

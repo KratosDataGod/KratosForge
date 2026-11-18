@@ -135,7 +135,7 @@ def test_gross_or_net():
     ({"confidence": "sure"}, "confidence"),
     ({"pricing_model": pr.ASSUMPTION, "confidence": "confirmed"}, "assumption"),
     ({"effective_from": "soon"}, "isn't a time"),
-    ({"effective_to": "2025-01-01T00:00:00Z"}, "after effective_from"),
+    ({"effective_to": "2025-01-01T00:00:00Z"}, "end date must be after the start date"),
     ({"sku": "F3"}, "SKU"),
 ])
 def test_bad_scenarios_are_refused(kw, match):
@@ -156,3 +156,14 @@ def test_mixed_currency_runs_are_refused():
     usd = v(0.18, "2026-01-01T00:00:00Z", name="EU", sku="F64")
     with pytest.raises(ValueError, match="currencies"):
         pr.value_runs([run("e1", "2026-11-20T00:00:00Z")], [eur, usd], "EU", sku="F64")
+
+
+def test_one_version_with_different_labels_is_refused():
+    a = v(0.20, "2026-11-15T00:00:00Z")
+    b = pr.scenario(scenario=LIST, rate_per_cu_hour=0.20, currency="USD", effective_from="2026-11-15T00:00:00Z",
+                    pricing_model=pr.PAY_AS_YOU_GO, confidence="estimated", source="a guess")
+    assert a["pricing_version"] == b["pricing_version"]
+    with pytest.raises(ValueError, match="different sources or confidence"):
+        pr.check([a, b])
+    with pytest.raises(ValueError, match="different sources or confidence"):
+        pr.value(1, "2026-11-20T00:00:00Z", [a, b], LIST)

@@ -65,7 +65,7 @@ def scenario(*, scenario: str, rate_per_cu_hour: float, currency: str, effective
     start = _time(effective_from, "effective_from")
     end = _time(effective_to, "effective_to") if effective_to not in (None, "") else None
     if end is not None and end <= start:
-        raise ValueError("effective_to must be after effective_from.")
+        raise ValueError("The end date must be after the start date.")
     sku = (sku or "").strip().upper()
     if sku and costs.sku_cu(sku) is None:
         raise ValueError(f"Unknown capacity SKU {sku!r}.")
@@ -94,7 +94,14 @@ def check(versions: list[dict[str, Any]]) -> None:
     read first, or add amounts in different currencies."""
     currencies: dict[str, set[str]] = {}
     by_key: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    by_id: dict[str, dict[str, Any]] = {}
     for v in versions:
+        # The id covers the price and its dates, not its source or confidence: two rows with one id
+        # and different labels would let whichever was read first decide what the figure says.
+        seen = by_id.setdefault(v["pricing_version"], v)
+        if (seen["source"], seen["confidence"]) != (v["source"], v["confidence"]):
+            raise ValueError(f"Pricing version {v['pricing_version']} of {v['scenario']!r} was entered twice with "
+                             "different sources or confidence; keep one.")
         currencies.setdefault(v["scenario"], set()).add(v["currency"])
         by_key.setdefault((v["scenario"], v["sku"], v["region"]), []).append(v)
     for name, curs in currencies.items():

@@ -262,10 +262,10 @@ class _Reader:
                 nxt = self._next_level()
                 if nxt is not None and nxt > here:
                     nested: dict[str, Any] = {}
-                    raw = m.group(1) == "translations" and self.cultures > 0
-                    self.raw += raw
+                    inside = int(m.group(1) == "translations" and self.cultures > 0)
+                    self.raw += inside
                     self.block(here, nested)
-                    self.raw -= raw
+                    self.raw -= inside
                     into[m.group(1)] = nested
                 else:
                     into[m.group(1)] = True

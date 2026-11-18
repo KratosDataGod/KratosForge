@@ -444,7 +444,8 @@ class ModelOssieMixin:
         definition = folder / "definition"
         _no_links(root, definition)
         incoming, report = model_ossie.to_tmsl(text)
-        current, read_report = None, []
+        current: dict[str, Any] | None = None
+        read_report: list[dict[str, str]] = []
         if (_real(definition, stat.S_ISDIR) and _tmdl_files(definition)) or _real(folder / "model.bim", stat.S_ISREG):
             current, read_report = _folder_bim(folder, name, folder.relative_to(root).as_posix())
         kept, kept_rows = _kept_cultures(folder, read_report)

@@ -235,3 +235,57 @@ def test_a_write_that_would_change_a_column_mapped_tables_columns_is_refused_bef
     with pytest.raises(ValueError, match=r"this write names ID where the table has id\. Nothing was written"):
         store.write("LH_Bronze", "dbo", "cm_name", _frame("cm_name", [100]).rename({"id": "ID"}), mode="append")
     assert _snapshot(folder) == before
+
+
+@pytest.mark.parametrize("writer", [3, 4, 5, 6])
+def test_a_legacy_writer_version_that_turns_on_unlisted_features_is_outside_the_modern_profile(writer):
+    """Writer versions 3 to 6 imply features (check constraints, change data feed, generated or identity
+    columns) that no feature list shows, so the modern profile can't check them and refuses them."""
+    from types import SimpleNamespace
+    table = SimpleNamespace(
+        protocol=lambda: SimpleNamespace(min_reader_version=1, min_writer_version=writer, reader_features=None,
+                                         writer_features=None),
+        metadata=lambda: SimpleNamespace(configuration={}))
+    found = P.problems(table)
+    assert len(found) == 1 and found[0].startswith(f"writer version {writer}, which turns on check constraints")
+    assert found[0].endswith(" without listing them")
+    assert ("identity columns" in found[0]) == (writer == 6) and ("column mapping" in found[0]) == (writer >= 5)
+    with pytest.raises(P.ProfileViolation, match=f"outside the modern Delta profile: writer version {writer}"):
+        P.check_table(table)
+
+
+@pytest.mark.parametrize("writer", [1, 2, 7])
+def test_writer_versions_2_and_7_stay_inside_the_modern_profile(writer):
+    from types import SimpleNamespace
+    table = SimpleNamespace(
+        protocol=lambda: SimpleNamespace(min_reader_version=1, min_writer_version=writer, reader_features=None,
+                                         writer_features=["appendOnly"] if writer == 7 else None),
+        metadata=lambda: SimpleNamespace(configuration={}))
+    assert P.problems(table) == []
+
+
+def test_a_refused_append_to_a_writer_version_4_table_leaves_it_unchanged(store):
+    from deltalake import write_deltalake
+    folder = Path(store.uri("LH_Bronze", "dbo", "legacy"))
+    folder.parent.mkdir(parents=True, exist_ok=True)
+    write_deltalake(str(folder), pl.DataFrame({"id": [1]}).to_arrow(),
+                    configuration={"delta.enableChangeDataFeed": "true"})
+    if DeltaTable(str(folder)).protocol().min_writer_version != 4:
+        pytest.skip("this delta-rs doesn't make a writer version 4 table for change data feed")
+    before = _snapshot(folder)
+    with pytest.raises(P.ProfileViolation, match="writer version 4"):
+        store.write("LH_Bronze", "dbo", "legacy", pl.DataFrame({"id": [2]}), mode="append")
+    assert _snapshot(folder) == before
+
+
+def test_a_refused_append_to_a_table_with_a_check_constraint_leaves_it_unchanged(store):
+    from deltalake import write_deltalake
+    folder = Path(store.uri("LH_Bronze", "dbo", "checked"))
+    folder.parent.mkdir(parents=True, exist_ok=True)
+    write_deltalake(str(folder), pl.DataFrame({"id": [1]}).to_arrow())
+    DeltaTable(str(folder)).alter.add_constraint({"id_positive": "id > 0"})
+    assert DeltaTable(str(folder)).protocol().min_writer_version == 3
+    before = _snapshot(folder)
+    with pytest.raises(P.ProfileViolation, match="writer version 3, which turns on check constraints without"):
+        store.write("LH_Bronze", "dbo", "checked", pl.DataFrame({"id": [2]}), mode="append")
+    assert _snapshot(folder) == before

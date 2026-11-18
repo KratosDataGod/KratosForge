@@ -281,6 +281,7 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 | `LEN`, `DATALENGTH` | `LEN('ab  ')` is `2`, and `DATALENGTH('ab  ')` is `4`. `DATALENGTH` counts UTF-8 bytes (`'é'` is `2`) and two per character for `N'...'` |
 | `CHARINDEX`, `PATINDEX` | Case counts, and the answer is `0` when the text isn't found. A `CHARINDEX` start of 0 or below searches from the start, and an empty search text gives `0` |
 | `CONCAT`, `CONCAT_WS`, `+` | `CONCAT` skips `NULL`, and `+` gives `NULL`. A number written with a point keeps its digits (`CONCAT('a', 1.50)` is `a1.50`), and a `bit` is `1` or `0` |
+| `N'...'` text | The same as `'...'` in comparisons, `LIKE` and `+`: `WHERE name = N'abc'` finds `'abc  '`, and `N'a' + N'b'` is `ab`. Only `DATALENGTH` counts it as nvarchar, two bytes a character, and only for an `N'...'` written directly inside it: `DATALENGTH(N'ab')` is `4`, but `DATALENGTH(N'a' + N'b')` is `2` here, where T-SQL gives `4` |
 | `TRIM`, `LTRIM`, `RTRIM`, `REPLACE` | Spaces only, or the characters you give. `REPLACE` matches case and leaves the text alone for an empty search |
 | `COLLATE` | A binary collation (`..._BIN2`, `..._BIN`) runs as written, since it's how text compares here already |
 
@@ -767,4 +768,3 @@ Fixed since the first run, each with a test named after its case in `sidecar/tes
 | --- | --- | --- |
 | Spark SQL | `initcap`, `trunc(date, 'MM')` and its other formats, `make_date` with a day that doesn't exist, `sqrt` of a negative number, `soundex` of a cast, `date_add` by about 2^31 days (past DuckDB's timestamp range) | These stop here with an error, where Spark answers. On DuckDB 2.0 (not yet the version this PC installs), `sqrt` of a negative number answers as Spark does, but `sign` of that `sqrt`'s NaN is 0.0 where Spark gives NaN |
 | Spark SQL | `split_part(s, d, 0)` | Refused by name before the query runs; Spark stops only when the call is reached |
-| T-SQL | `N'...'` text in `=`, `<`, `LIKE` and `+` | Trailing spaces count, `[a-c]` ranges don't match, and `N'a' + N'b'` stops. The same text without `N` answers as T-SQL does |

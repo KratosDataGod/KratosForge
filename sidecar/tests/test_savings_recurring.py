@@ -201,12 +201,19 @@ def test_figures_are_rounded_to_six_places():
     assert out["net_cu_hours_per_run"] == 0.333333 and out["runs_per_month"] == 13.044643
 
 
-def test_runs_with_an_unknown_figure_are_projected_at_the_known_average():
+def test_runs_with_an_unknown_figure_are_left_out_never_filled_in():
     runs = [result(f"e{d}", d) for d in (10, 12, 14)] + [result("u", 16, avoided=None)]
     out = rc.project(runs, workload_key="nb:sales", baseline_version="b1", now=NOW)
-    assert out["runs"] == 4 and out["known_runs"] == 3
-    assert out["projection"]["value"] == pytest.approx(5 * 4 * 30.4375 / 30)
-    assert any("unknown figure are counted at that average" in a for a in out["projection"]["assumptions"])
+    assert out["runs"] == 4 and out["known_runs"] == 3 and out["unknown_runs"] == 1 and out["complete"] is False
+    assert out["projection"]["value"] == pytest.approx(5 * 3 * 30.4375 / 30)  # 3 runs, not 4
+    assert any("1 run(s) with an unknown figure are left out" in a for a in out["projection"]["assumptions"])
+
+
+def test_no_left_out_line_when_every_run_is_known():
+    runs = [result(f"e{d}", d) for d in (10, 12, 14)]
+    out = rc.project(runs, workload_key="nb:sales", baseline_version="b1", now=NOW)
+    assert out["complete"] is True and out["unknown_runs"] == 0
+    assert not any("left out" in a for a in out["projection"]["assumptions"])
 
 
 def test_periods_are_cut_in_utc():

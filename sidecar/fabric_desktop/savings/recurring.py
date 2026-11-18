@@ -14,8 +14,9 @@ when it is read and is never written:
   retired or hasn't run in the window, and it uses only runs under the workload's current baseline
   version: when the baseline is re-evaluated after a material change, runs under the old one don't
   project the new one. Too few runs give Unknown with the reason. Runs whose figure is unknown
-  still count towards how often the workload runs, and are projected at the known runs' average
-  (the projection's assumptions say so).
+  are left out of the projection, never filled in with an average: the projection then counts
+  only the runs with evidence, so it may be low, and it says so (``unknown_runs``, ``complete``
+  and its assumptions).
 
 Pure: no I/O.
 """
@@ -129,18 +130,20 @@ def project(results: list[dict[str, Any]], *, workload_key: str, baseline_versio
                                        f"at least {min_runs} are needed to project.",
                        runs=len(current), older_baseline_runs=len(recent) - len(current))
     per_run = sum(r["net_cu_hours"] for r in known) / len(known)
-    runs_per_month = len(current) * DAYS_PER_MONTH / window_days
+    # Only runs with a known figure are projected: an unknown run isn't given the average.
+    runs_per_month = len(known) * DAYS_PER_MONTH / window_days
     value = per_run * runs_per_month
-    assumptions = [f"{len(current)} runs in the last {window_days:g} days continue at the same rate",
-                   f"average net CU avoided per run of the {len(known)} with a known figure"]
+    assumptions = [f"{len(known)} runs with a known figure in the last {window_days:g} days continue at the same rate",
+                   f"average net CU avoided per run of those {len(known)}"]
     if len(known) < len(current):
-        assumptions.append(f"{len(current) - len(known)} run(s) with an unknown figure are counted at that average")
+        assumptions.append(f"{len(current) - len(known)} run(s) with an unknown figure are left out, so this may be low")
     if any(not r["complete"] for r in known):
         assumptions.append("some runs' overhead is unknown, so net may be lower")
     projection = ms.make(ms.ESTIMATED, METRIC, ms.CU_HOURS, value, workload_id=workload_key,
                          method="average net per run x runs per month", period_start=start, period_end=end,
                          assumptions=assumptions, uncertainty="a projection of runs that haven't happened")
     return base | {"state": "projected", "reason": "", "runs": len(current), "known_runs": len(known),
+                   "unknown_runs": len(current) - len(known), "complete": len(known) == len(current),
                    "older_baseline_runs": len(recent) - len(current), "runs_per_month": round(runs_per_month, 6),
                    "net_cu_hours_per_run": round(per_run, 6),
                    "inputs_classification": _weakest([r["net_classification"] for r in known]),

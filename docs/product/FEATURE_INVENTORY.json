@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "80cebf6183a9f65910404f304e24c25563714910",
-    "date": "2026-11-17",
+    "commit": "7be2906d5598929e807e510f471972010cbb0421",
+    "date": "2026-11-18",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -68,7 +68,9 @@
       "Product check 2026-11-16 11:42 at 7bd752a5d30b4648621609b4c7b0b9f2d1ca2708: 36 PRs merged after a13d0a0f; 2 were product data, docs audit or operations PRs and the other 34 were linked by title; other rows were not re-read.",
       "Product check 2026-11-16 23:42 at 58a112e4de9b12f234b07f64f44cd7c01ba868a1: 44 PRs merged after 7bd752a5; 3 were product data, docs audit or operations PRs and the other 41 were linked by title; other rows were not re-read.",
       "Product check 2026-11-17 11:42 at 80cebf6183a9f65910404f304e24c25563714910: 47 PRs merged after 58a112e4; 3 were product data, docs audit or operations PRs and the other 44 were linked by title; other rows were not re-read.",
-      "Acceptance of PB-136 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-17 21:46 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpEtcrZXWaMEYBQ8vWkddrHx)."
+      "Acceptance of PB-136 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-17 21:46 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpEtcrZXWaMEYBQ8vWkddrHx).",
+      "Product check 2026-11-17 23:42 at 8838a247cf80733953ff7b3a3887db7075e0d742: 45 PRs merged after 80cebf61; 1 were product data, docs audit or operations PRs and the other 44 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-18 11:42 at 7be2906d5598929e807e510f471972010cbb0421: 52 PRs merged after 8838a247; 5 were product data, docs audit, operations or plan PRs and the other 47 were linked by title; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -267,7 +269,23 @@
         2823,
         2827,
         2834,
-        2849
+        2849,
+        2853,
+        2859,
+        2869,
+        2871,
+        2875,
+        2897,
+        2903,
+        2916,
+        2917,
+        2926,
+        2927,
+        2929,
+        2942,
+        2948,
+        2951,
+        2961
       ]
     },
     {
@@ -481,7 +499,8 @@
         2602,
         2603,
         2684,
-        2809
+        2809,
+        2936
       ]
     },
     {
@@ -726,6 +745,7 @@
         1441,
         1474,
         1685,
+        2258,
         2305,
         2569,
         2577,
@@ -2678,7 +2698,24 @@
         2803,
         2818,
         2822,
-        2846
+        2846,
+        2851,
+        2857,
+        2864,
+        2868,
+        2873,
+        2877,
+        2879,
+        2883,
+        2884,
+        2886,
+        2894,
+        2900,
+        2906,
+        2914,
+        2933,
+        2945,
+        2966
       ]
     },
     {
@@ -3267,7 +3304,23 @@
         2832,
         2837,
         2840,
-        2841
+        2841,
+        2847,
+        2861,
+        2865,
+        2870,
+        2874,
+        2887,
+        2888,
+        2890,
+        2898,
+        2915,
+        2924,
+        2925,
+        2932,
+        2954,
+        2965,
+        2972
       ],
       "workstream": "SQL development sprint",
       "next_action": "SQL editor rows are tracked by the warehouse program now (WH-08 Messages and Chart merged).",
@@ -4595,7 +4648,10 @@
         1553,
         1737,
         1744,
-        1800
+        1800,
+        2912,
+        2919,
+        2968
       ]
     },
     {
@@ -8093,7 +8149,10 @@
         1472,
         1833,
         1834,
-        2040
+        2040,
+        2941,
+        2962,
+        2969
       ],
       "workstream": "Optimize central lakehouse (PB-104)",
       "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-09): Optimize's central lakehouse set up on a tenant.",
@@ -8414,7 +8473,14 @@
         2689,
         2771,
         2844,
-        2852
+        2852,
+        2858,
+        2860,
+        2896,
+        2920,
+        2930,
+        2959,
+        2960
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
@@ -8760,7 +8826,8 @@
         2421,
         2422,
         2481,
-        2531
+        2531,
+        2923
       ],
       "workstream": "Bring VS Code developers to KratosForge",
       "limitations": [
@@ -8948,6 +9015,7 @@
         2445,
         2447,
         2455,
+        2461,
         2463,
         2513,
         2529,

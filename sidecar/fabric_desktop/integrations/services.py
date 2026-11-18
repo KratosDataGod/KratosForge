@@ -147,6 +147,40 @@ def get_project_run(svc: Any, ctx: CallContext, run_id: str, env: str = "dev") -
     quality = run.pop("dq", None) or []
     return run | {"env": env, "quality": quality,
                   "quality_failed": sum(1 for q in quality if (q.get("failed") or 0) > 0)}
+# ---- local data projects (localdata/): files on this PC, read from each project's saved catalog
+
+# What a table entry of a project's saved catalog (project.json) shows: never rows, never the database.
+_LOCAL_TABLE = ("schema", "table", "kind", "format", "source", "folder", "files", "bytes", "status", "error", "columns")
+
+
+def _local_project(svc: Any, project: str) -> Any:
+    """A local data project as last saved (project.json), without opening its database: the app may
+    have it open, and a DuckDB file has one writer, so an external tool must never take it."""
+    try:
+        return svc.local_data.store.load(project)
+    except KeyError:
+        raise IntegrationError("not_found", f"No local data project {project!r}.",
+                               hint="List them with fabric_desktop_list_local_projects.") from None
+
+
+def list_local_projects(svc: Any, ctx: CallContext) -> dict[str, Any]:
+    """The local data projects on this PC: each one's name, folder, registered source folders and table count."""
+    return {"projects": [p.summary() for p in svc.local_data.store.list()]}
+
+
+def get_local_tables(svc: Any, ctx: CallContext, project: str, offset: int = 0, limit: int = 100) -> dict[str, Any]:
+    """The tables a local data project found in its folders and made as Delta, with their columns, as the
+    project last saved them. Tables made only inside the database aren't in the saved catalog."""
+    proj = _local_project(svc, project)
+    rows = sorted(({k: e[k] for k in _LOCAL_TABLE if k in e} | {"kind": e.get("kind", "file")} for e in proj.catalog.values()),
+                  key=lambda t: (str(t.get("schema", "")).lower(), str(t.get("table", "")).lower()))
+    return page(rows, offset, limit) | {"project": proj.id, "refreshed": proj.refreshed}
+
+
+def get_local_table_history(svc: Any, ctx: CallContext, project: str, table: str, limit: int = 50) -> dict[str, Any]:
+    """The versions of one of a local data project's Delta tables, newest first, from its Delta log."""
+    _local_project(svc, project)
+    return svc.local_delta_history(project, table, limit)
 
 
 # ---- Fabric workspaces and items

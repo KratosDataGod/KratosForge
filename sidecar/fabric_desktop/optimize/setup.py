@@ -48,6 +48,16 @@ MESSAGES = {
 }
 
 
+class SchemaMismatch(PermissionError):
+    """A write refused because the lakehouse's schema version doesn't fit this app: it is newer
+    (update the app) or older and lacks the table (upgrade the lakehouse). A person has to act, so
+    the outbox shows it as a conflict (ESI-105). ``state`` is NEWER or UPGRADE."""
+
+    def __init__(self, state: str, family: Family = CORE):
+        super().__init__(message(state, family))
+        self.state = state
+
+
 def _type_ok(have: pl.DataType, want: schema.Dtype) -> bool:
     if have == want:
         return True
@@ -111,16 +121,30 @@ def retry(fn: Callable[[], Any], attempts: int = 5, backoff: float = 0.5, sleep:
                                lambda n: min(backoff * 2 ** (n - 1), 8.0), sleep)
 
 
-def _rows(name: str, rows: list[dict[str, Any]], family: Family = CORE) -> pl.DataFrame:
-    cols = family.expected()[family.table(name)]
+def _rows(name: str, rows: list[dict[str, Any]], family: Family = CORE, version: int | None = None) -> pl.DataFrame:
+    tables = family.expected(version)
+    if family.table(name) not in tables:
+        # A table a later version adds, in a lakehouse not upgraded to it yet.
+        raise SchemaMismatch(UPGRADE, family)
+    cols = tables[family.table(name)]
     return pl.DataFrame([{c: r.get(c) for c in cols} for r in rows], schema=cols)
+
+
+def core_version(lake: Any) -> int | None:
+    """The Optimize schema version the lakehouse is at, for rows of the shared tables (installations,
+    audit, config) that any family writes: their provenance names the version they went into."""
+    return max(applied_versions(lake), default=0) or None
 
 
 def write(lake: Any, installation: Installation, name: str, rows: list[dict[str, Any]], version: int | None = None,
           family: Family = CORE) -> None:
-    """Insert rows into ``<prefix><name>``, each with provenance; rows already there are skipped."""
-    base = installation.provenance(version or family.latest())
-    df = _rows(name, [base | r for r in rows], family)
+    """Insert rows into ``<prefix><name>``, each with provenance; rows already there are skipped.
+    ``version`` is the family's schema version the lakehouse is at (default: this app's): rows get only
+    that version's columns, so an app that knows a later version still writes to a lakehouse nobody
+    has upgraded yet, and a table that version doesn't have is refused with the upgrade message."""
+    version = min(version or family.latest(), family.latest())
+    base = installation.provenance(version)
+    df = _rows(name, [base | r for r in rows], family, version)
     retry(lambda: lake.insert_new(family.table(name), df))
 
 
@@ -131,7 +155,9 @@ def initialize(lake: Any, installation: Installation, approve: bool = False, fam
     it at once."""
     if family is not CORE:
         core = inspect(lake)
-        if core["state"] != READY:
+        # An older core schema already has the shared tables, which every version keeps the same;
+        # upgrading Optimize's own tables is Optimize's own step, not another family's.
+        if core["state"] not in (READY, UPGRADE):
             initialize(lake, installation, approve)
     before = inspect(lake, family)
     if before["state"] == READY:
@@ -157,12 +183,12 @@ def initialize(lake: Any, installation: Installation, approve: bool = False, fam
         # Another family's keys carry its prefix, so two families' settings never share a row.
         keys = [(k if family is CORE else family.prefix + k, v) for k, v in family.default_config]
         write(lake, installation, "config", [{"record_id": f"default:{k}", "key": k, "value": v, "at": now()}
-                                             for k, v in keys])
+                                             for k, v in keys], core_version(lake))
     action = "upgrade" if before["state"] == UPGRADE else "initialize"
     write(lake, installation, "audit", [{"record_id": f"{installation.id}:{action}:{family.prefix}:{now()}",
                                          "at": now(), "action": action,
                                          "target": f"{family.prefix} schema {family.latest()}", "outcome": "ok",
-                                         "message": f"from {before['state']}"}])
+                                         "message": f"from {before['state']}"}], core_version(lake))
     register(lake, installation)
     return inspect(lake, family)
 
@@ -170,7 +196,8 @@ def initialize(lake: Any, installation: Installation, approve: bool = False, fam
 def register(lake: Any, installation: Installation) -> None:
     """Record this installation once (record_id is its id, so connecting again adds nothing)."""
     write(lake, installation, "installations",
-          [{"record_id": installation.id, "label": installation.label, "os": os_family(), "registered_at": now()}])
+          [{"record_id": installation.id, "label": installation.label, "os": os_family(), "registered_at": now()}],
+          core_version(lake))
 
 
 def denied(exc: BaseException) -> bool:

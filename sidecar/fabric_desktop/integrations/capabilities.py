@@ -175,7 +175,7 @@ def register_core(reg: Registry) -> None:
             "READ_METADATA", services.get_placement_advice, workspaces=scope.notebook, status="preview",
             artifact_types=("Notebook",), timeout=60),
     ]
-    caps += _metadata_project() + _prove() + _pipelines() + _pipeline_runs() + _executions() + _prove_actions() + _semantic_models()
+    caps += _metadata_project() + _local_data() + _prove() + _pipelines() + _pipeline_runs() + _executions() + _prove_actions() + _semantic_models()
     for cap in caps:
         reg.register(cap)
 
@@ -211,7 +211,7 @@ def _metadata_project() -> list[Capability]:
             "Runs of the metadata project's entities in one environment, newest first: status, rows read, written "
             "and quarantined, the Delta version written and where each ran.",
             schema({"env": RUN_ENV, **PAGING}), paged_output(run),
-            "READ_METADATA", services.list_project_runs, workspaces=scope.run_environment, locations=("this_pc", "fabric"),
+            "READ_METADATA", services.list_project_runs, workspaces=scope.run_environment, locations=("this_pc", "fabric"), status="preview",
             limitations=RUN_LOG_LIMIT, timeout=60),
         Capability(
             "fabric_desktop_get_project_run", "Get a metadata project run",
@@ -220,8 +220,48 @@ def _metadata_project() -> list[Capability]:
             schema({"run_id": RUN_ID, "env": RUN_ENV}, ["run_id"]),
             schema({"run_id": STR, "status": STR, "steps": {"type": "array"}, "quality": {"type": "array"},
                     "quality_failed": {"type": "integer"}}, ["run_id", "quality"], extra=True),
-            "READ_METADATA", services.get_project_run, workspaces=scope.run_environment, locations=("this_pc", "fabric"),
+            "READ_METADATA", services.get_project_run, workspaces=scope.run_environment, locations=("this_pc", "fabric"), status="preview",
             limitations=RUN_LOG_LIMIT, timeout=60),
+    ]
+
+
+LOCAL_PROJECT = {"type": "string", "minLength": 1, "maxLength": 120, "pattern": r"^[A-Za-z0-9\-]+$",
+                 "description": "A local data project's id, from fabric_desktop_list_local_projects."}
+LOCAL_LIMIT = ("Read from each project's saved catalog and Delta logs; its database is never opened, so the app keeps it.",
+               "Metadata only: names, columns, sizes and versions, no rows.",
+               "A tool limited to some workspaces can't use these, because a source folder can be a OneLake folder on this PC.",
+               "Results include full folder paths on this PC (the project's folder, its source folders, read errors).")
+
+
+def _local_data() -> list[Capability]:
+    """Local data projects (Local data page): SQL over files on this PC. Read only, and never Fabric."""
+    table = schema({"schema": STR, "table": STR, "kind": STR, "columns": {"type": "array"}}, extra=True)
+    return [
+        Capability(
+            "fabric_desktop_list_local_projects", "List local data projects",
+            "The local data projects on this PC (the Local data page): each one's name, folder, the folders it "
+            "reads files from, and how many tables it has.",
+            schema(), schema({"projects": {"type": "array", "items": schema({"id": STR, "name": STR}, extra=True)}},
+                             ["projects"], extra=True),
+            "READ_METADATA", services.list_local_projects, workspaces=scope.UNKNOWN, limitations=LOCAL_LIMIT,
+            timeout=30, resource="fabric-desktop://local-data"),
+        Capability(
+            "fabric_desktop_get_local_tables", "List a local data project's tables",
+            "The tables a local data project found in its folders (CSV, Parquet, JSON, Delta and more) and the Delta "
+            "tables it made, each with its columns and types, its source folder and whether it could be read.",
+            schema({"project": LOCAL_PROJECT, **PAGING}, ["project"]), paged_output(table),
+            "READ_METADATA", services.get_local_tables, workspaces=scope.UNKNOWN, limitations=LOCAL_LIMIT,
+            timeout=30, resource="fabric-desktop://local-data/{project}/tables"),
+        Capability(
+            "fabric_desktop_get_local_table_history", "Get a local Delta table's history",
+            "The versions of one of a local data project's Delta tables, newest first: when, which operation, "
+            "rows and files added.",
+            schema({"project": LOCAL_PROJECT, "table": {"type": "string", "minLength": 1, "maxLength": 300,
+                                                         "description": "schema.table, as fabric_desktop_get_local_tables lists it."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 50}}, ["project", "table"]),
+            schema({"table": STR, "version": {"type": "integer"}, "versions": {"type": "array"}}, ["table", "versions"], extra=True),
+            "READ_METADATA", services.get_local_table_history, workspaces=scope.UNKNOWN, limitations=LOCAL_LIMIT,
+            timeout=60),
     ]
 
 

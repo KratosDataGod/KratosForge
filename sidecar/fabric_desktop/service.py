@@ -24,7 +24,7 @@ from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator, cached_account
 from .fabric_api import FabricClient
-from . import app_settings, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_files, sql_format, sql_function_help, sql_view, sqlcompat, warehouse
+from . import app_settings, csv_cells, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_files, sql_format, sql_function_help, sql_view, sqlcompat, warehouse
 from .learn import evidence
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
@@ -41,6 +41,7 @@ from .side_by_side_service import SideBySideMixin
 from .prove_service import ProveMixin
 from .xray_service import XRayMixin
 from .opportunities_service import OpportunitiesMixin
+from .excellence_service import ExcellenceMixin
 from .preview_service import PreviewMixin
 from .central.service import PlatformMixin
 from .central.governance_service import GovernanceMixin
@@ -84,6 +85,7 @@ from .notebook_files_service import NotebookFilesMixin
 from .editor_service import EditorMixin
 from .notebook_folders_service import NotebookFoldersMixin
 from .notebook_formats_service import NotebookFormatsMixin
+from .prod_writes_service import ProdWritesMixin
 from .sql_templates_service import SqlTemplatesMixin
 from .sql_queries_service import SqlQueriesMixin
 from .warehouse_project_service import WarehouseProjectMixin
@@ -142,7 +144,7 @@ ENDORSED_FILTER_REASON = (
     "admin who is also a Fabric administrator chooses Scan now there), or in Fabric's own catalog (Open Fabric's catalog on OneLake > Catalog).")
 
 
-class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, OpportunitiesMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, WarehouseSsmsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
+class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, OpportunitiesMixin, ExcellenceMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProdWritesMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, WarehouseSsmsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -160,6 +162,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         self._tables: dict[str, Any] | None = None
         self._tables_lock = threading.Lock()
         lakehouse.maintenance_guard = self._maintenance_refusal  # OPTIMIZE, VACUUM, RESTORE from notebook code
+        lakehouse.prod_guard = self._prod_write_refusal  # MERGE, UPDATE, DELETE, VACUUM, RESTORE in Prod: typed name
 
     @property
     def auth(self) -> Authenticator:
@@ -809,6 +812,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             kernel.resources_dir = self._resources_dir(notebook)
             kernel.onelake_writes = self._onelake_writes(notebook)
             kernel.write_check = write_check
+            kernel.prod_allowed = self._take_prod_allowance(notebook)  # one run only (prod_writes_service.py)
             if isinstance(kernel, ProcessKernel):
                 return kernel.start(code, time_limit=time_limit, watches=check_watches(watches),
                                     breakpoints=breakpoints, step=bool(step))
@@ -974,8 +978,9 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         return session.kernel.ipywidget_event(model=str(model), event=dict(event or {}), root=root)
 
     def notebook_frame_download(self, frame: str, format: str = "csv", name: str = "",
-                                notebook: str | None = None) -> dict[str, Any]:
-        """Write a cell's whole result to a new file in Downloads (CSV, Excel or Parquet); never replaces a file."""
+                                notebook: str | None = None, raw: bool = False) -> dict[str, Any]:
+        """Write a cell's whole result to a new file in Downloads (CSV, Excel or Parquet); never replaces a file.
+        A CSV protects text cells that start like a formula unless ``raw`` (Keep raw values, WR-228)."""
         if format not in DOWNLOAD_FORMATS:
             raise ValueError(f"Download as {', '.join(DOWNLOAD_FORMATS)}.")
         folder = known_folders.downloads()
@@ -983,7 +988,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         base = f"{file_stem(name or 'notebook')} result {time.strftime('%Y-%m-%d %H%M%S')}"
         path = sql_exec._reserve(folder, base, "." + format)
         try:
-            return self._frame_kernel(notebook).frame_download(frame=frame, format=format, path=str(path))
+            return self._frame_kernel(notebook).frame_download(frame=frame, format=format, path=str(path),
+                                                               **({"raw": True} if raw else {}))
         except BaseException as exc:
             sql_exec._discard(path.with_name(path.name + ".partial"), path)
             if isinstance(exc, FrameGone) or str(exc) == GONE:
@@ -1260,8 +1266,9 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """Stop one run: ends that run's own process and nothing else."""
         return self.sql_runs.cancel(execution)
 
-    def sql_export(self, execution: str, format: str = "csv", name: str = "", part: int | None = None) -> dict[str, Any]:
-        return self.sql_runs.export(execution, format, name, part)
+    def sql_export(self, execution: str, format: str = "csv", name: str = "", part: int | None = None,
+                   raw: bool = False) -> dict[str, Any]:
+        return self.sql_runs.export(execution, format, name, part, raw=bool(raw))
 
     def sql_export_status(self, export: str) -> dict[str, Any]:
         return self.sql_runs.export_status(export)
@@ -1310,11 +1317,14 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 break
             else:
                 raise ValueError("Couldn't find a free file name in Downloads for the export.")
-            with sink, pa_csv.CSVWriter(sink, result.schema or pa.schema([])) as out:
+            header, protected = csv_cells.protect_header(result.schema or pa.schema([]))
+            with sink, pa_csv.CSVWriter(sink, header) as out:
                 for batch in result:
+                    batch, n = csv_cells.protect_batch(batch)  # WR-228: no cell runs as a formula when opened
                     out.write_batch(batch)
-                    rows += batch.num_rows
-        return {"path": str(path), "rows": rows}
+                    rows, protected = rows + batch.num_rows, protected + n
+        return {"path": str(path), "rows": rows, "protected": protected,
+                "notes": [csv_cells.note(protected, can_keep_raw=False)] if protected else []}
 
     def table_columns(self, lakehouse_ref: dict[str, str], table: str) -> list[dict[str, str]]:
         self._attach(lakehouse_ref)

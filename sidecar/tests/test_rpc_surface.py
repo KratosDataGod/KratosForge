@@ -40,6 +40,7 @@ NO_UI_CALLER: dict[str, str] = {
     "optimization_share": "OE-004 engine call; the Assessment tab's Share button waits on its mockup",
     # PB-110: the Semantic model card's "Ossie file to TMDL" waits on Chris's mockup reaction (slice 3).
     "meta_model_ossie_to_tmdl": "engine first; the Semantic model card calls it once the PB-110 mockup is approved",
+    "excellence_assess": "FEA-105 engine call; the Excellence scorecard (FEA-108 mockup) waits on Chris's reaction",
     # Best practices check (semantic-link-labs in Fabric).
     "model_bpa_status": _BPA,
     "model_bpa_risk": _BPA,

@@ -15,7 +15,7 @@ import pytest
 from fabric_desktop.optimize import schema, setup
 from fabric_desktop.optimize.installation import Installation
 from fabric_desktop.optimize.lakehouse import LocalLakehouse
-from tests.test_optimize_setup import V2
+from tests.test_optimize_setup import NEXT, V2
 
 
 @pytest.fixture(autouse=True)
@@ -81,7 +81,7 @@ def test_retry_tries_five_times_by_default():
 def _upgrade(tmp_path, lake, monkeypatch):
     me = pc(tmp_path)
     setup.initialize(lake, me, approve=True)
-    monkeypatch.setattr(schema, "MIGRATIONS", schema.MIGRATIONS + [schema.Migration(2, "Add rule packs", V2)])
+    monkeypatch.setattr(schema, "MIGRATIONS", schema.MIGRATIONS + [schema.Migration(NEXT, "Add rule packs", V2)])
     written: list[tuple[str, list]] = []
     real = setup.write
 
@@ -98,7 +98,7 @@ def _upgrade(tmp_path, lake, monkeypatch):
 
 def test_an_upgrade_records_only_the_versions_it_adds(tmp_path, lake, monkeypatch):
     written = _upgrade(tmp_path, lake, monkeypatch)
-    assert [v for name, v in written if name == "schema_version"] == [[2]]
+    assert [v for name, v in written if name == "schema_version"] == [[NEXT]]
 
 
 def test_an_upgrade_is_audited_as_an_upgrade(tmp_path, lake, monkeypatch):

@@ -250,3 +250,18 @@ def test_text_that_is_not_a_whole_number_stops_as_in_tsql(engine, expression: st
     # large for an int is an overflow there.
     with pytest.raises(Exception, match=r"Conversion failed when converting the varchar value|out of range"):
         engine.execute(f"SELECT {expression} AS v", dialect="tsql")
+
+
+def test_upper_keeps_sharp_s(engine) -> None:
+    # Unicode's simple case mapping (UnicodeData.txt) gives U+00DF no one-letter capital, and T-SQL's UPPER
+    # keeps it: UPPER(N'straße') is N'STRAßE'. DuckDB alone gave the capital U+1E9E.
+    rows = engine.execute("SELECT UPPER(N'straße') AS a, UPPER(x) AS b FROM (VALUES (N'ßaß'), (N''), (NULL), (N'Grüße'))"
+                          " AS t(x)", dialect="tsql")["rows"]
+    assert [tuple(r) for r in rows] == [("STRAßE", "ßAß"), ("STRAßE", ""), ("STRAßE", None), ("STRAßE", "GRÜßE")]
+    one = engine.execute("SELECT UPPER(5) AS a, UPPER(N'abc') AS b, UPPER(N'ẞ') AS c", dialect="tsql")["rows"][0]
+    assert list(one) == ["5", "ABC", "ẞ"]
+
+
+def test_upper_reads_its_text_once() -> None:
+    from fabric_desktop.localdata import tsql
+    assert tsql.translate("SELECT UPPER(LTRIM(x)) FROM t")[0][-1].upper().count("LTRIM(") == 1

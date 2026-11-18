@@ -138,6 +138,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             _gaps(tree)
             _string_edges(tree)
             _char_codes(tree)
+            _sharp_s(tree)
             tsql_types.expand_datetimes(tree)
             if known is not None:
                 _unknown_functions(tree, known)
@@ -2529,6 +2530,27 @@ def _char_codes(tree: exp.Expression) -> None:
         bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[_int_of(code)]),
                          exp.Lambda(this=case, expressions=[v]))
         node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))
+
+
+_SHARP_S = "\u00df"  # ß
+
+
+def _sharp_s(tree: exp.Expression) -> None:
+    """``UPPER`` keeps ``ß``, as T-SQL does: it has no one-letter capital in Unicode's simple case mapping, which
+    T-SQL follows, and DuckDB alone gives the capital ``ẞ``. The text is split at each ``ß``, the parts are made
+    upper case, and the ``ß`` are put back, so the value is read once."""
+    for node in list(tree.find_all(exp.Upper)):
+        text = node.this
+        if isinstance(text, exp.Literal) and _SHARP_S not in text.name:
+            if not text.is_string:  # UPPER(5) is '5', as T-SQL makes the number text
+                node.set("this", exp.cast(text.copy(), "VARCHAR"))
+            continue
+        part = exp.to_identifier("kf_tsql_part_")
+        # sqlglot's own nodes, not anonymous calls, so the query doesn't need DuckDB's function list read
+        parts = exp.Split(this=exp.cast(text.copy(), "VARCHAR"), expression=exp.Literal.string(_SHARP_S))
+        upper = exp.Transform(this=parts, expression=exp.Lambda(this=exp.Upper(this=exp.column(part.copy())),
+                                                                expressions=[part]))
+        node.replace(exp.ArrayToString(this=upper, expression=exp.Literal.string(_SHARP_S)))
 
 
 def _charindex(node: exp.StrPosition) -> None:

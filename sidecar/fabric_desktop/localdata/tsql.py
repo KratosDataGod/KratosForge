@@ -80,7 +80,7 @@ _REFUSED = {
 }
 # WR-234: what reads an error after it happened, which waits on the T-SQL interpreter (TRY...CATCH)
 _ERROR_READERS = {"ERROR_NUMBER", "ERROR_MESSAGE", "ERROR_SEVERITY", "ERROR_STATE", "ERROR_LINE", "ERROR_PROCEDURE"}
-_ERROR_READ = ("{name} isn't carried yet. It reads an error after it happened, in TRY...CATCH or the next statement, "
+_ERROR_READ = ("{name} isn't mapped yet. It reads an error after it happened, in TRY...CATCH or the next statement, "
                "and the local engine doesn't run TRY...CATCH yet. Here a script stops at its first error and names "
                "it, with its number where it's certain, such as \"Msg 8134, Level 16: Divide by zero error "
                "encountered.\" Run it in a Fabric Warehouse to handle the error in T-SQL.")

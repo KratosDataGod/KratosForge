@@ -80,7 +80,7 @@ def test_an_error_with_no_certain_number_shows_none(engine, sql):
 ])
 def test_what_reads_an_error_afterwards_is_refused_by_name(engine, sql, name):
     text = error(engine, sql)
-    assert text.startswith(f"This T-SQL can't be run on the local engine: {name} isn't carried yet.") and \
+    assert text.startswith(f"This T-SQL can't be run on the local engine: {name} isn't mapped yet.") and \
         "TRY...CATCH" in text and "Run it in a Fabric Warehouse" in text, text
 
 

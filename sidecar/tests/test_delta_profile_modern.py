@@ -180,8 +180,13 @@ def test_a_reader_that_cant_read_the_table_refuses_with_why_and_leaves_it_unchan
     reasons = P.why(table, ["sql_endpoint", "python_notebooks"])
     assert reasons and all("Fabric Python notebooks can't read" in r for r in reasons)
     assert all("SQL analytics endpoint" not in r for r in reasons)  # it reads both features
-    with pytest.raises(P.ProfileViolation, match="A reader of this table couldn't read it"):
+    with pytest.raises(P.ProfileViolation, match="^Nothing was written to this table") as refused:
         P.check_table(table, readers=["python_notebooks"])
+    assert str(refused.value).endswith("Keep writing this table from Fabric Spark.")
+    # After a commit the refusal can't say nothing was written: it says not to run the write again.
+    with pytest.raises(P.ProfileViolation, match="^The write committed") as late:
+        P.check_table(table, readers=["python_notebooks"], committed=True)
+    assert "Don't run the write again" in str(late.value) and "Nothing was written" not in str(late.value)
     P.check_table(table, readers=list(P.DEFAULT_READERS))
 
 
@@ -227,4 +232,6 @@ def test_a_write_that_would_change_a_column_mapped_tables_columns_is_refused_bef
         store.write("LH_Bronze", "dbo", "cm_name", wider, mode="append")
     with pytest.raises(ValueError, match=r"leaves out the label"):
         store.write("LH_Bronze", "dbo", "cm_name", _frame("cm_name", [100]).drop("the label"), mode="overwrite")
+    with pytest.raises(ValueError, match=r"this write names ID where the table has id\. Nothing was written"):
+        store.write("LH_Bronze", "dbo", "cm_name", _frame("cm_name", [100]).rename({"id": "ID"}), mode="append")
     assert _snapshot(folder) == before

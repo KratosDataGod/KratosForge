@@ -58,7 +58,7 @@ KratosForge reads tables with deletion vectors or column mapping correctly, whoe
 - A stream on this PC refuses both features. It reads new files by path, so it would bring deleted rows back or miss renamed columns. Run the stream in Fabric.
 - Row counts from the log's file statistics (previews, environment compare) leave out rows that a deletion vector removed.
 
-Reading a table doesn't make it writable: writes follow the profiles above.
+Reading a table doesn't make it writable. Writes follow the profiles above.
 
 The tests use tables that Apache Spark 3.5.5 with Delta Lake 3.3.2 wrote (`sidecar/tests/fixtures/delta_spark`, made by `sidecar/tools/make_spark_delta_fixtures.py`). Each test checks the rows Spark read back.
 

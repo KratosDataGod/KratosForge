@@ -109,7 +109,7 @@ SOURCES = {
     DELETION_VECTORS: "Microsoft's Delta Lake interoperability page",
     CM_NAME: "Microsoft's Delta Lake interoperability page",
     CM_ID: "Microsoft's Delta Lake interoperability page and the SQL analytics endpoint's limitations",
-    V2_CHECKPOINTS: "user reports (Microsoft's documentation doesn't say)",
+    V2_CHECKPOINTS: "user reports; Microsoft's documentation doesn't say",
 }
 
 
@@ -141,7 +141,7 @@ def why(table: DeltaTable, readers: Iterable[str] = DEFAULT_READERS) -> list[str
     readers = list(readers)
     unknown = [r for r in readers if r not in READERS]
     if unknown:
-        raise ValueError(f"Unknown Delta reader {unknown[0]!r}: use one of {', '.join(READERS)}.")
+        raise ValueError(f"Unknown Delta reader {unknown[0]!r}. Use one of {', '.join(READERS)}.")
     out = []
     for feature in features_used(table):
         cells = MATRIX[feature]
@@ -186,7 +186,7 @@ def profile(name: str | Profile | None) -> Profile:
     if isinstance(name, Profile):
         return name
     if name not in PROFILES:
-        raise ValueError(f"Unknown Delta profile {name!r}: use {' or '.join(PROFILES)}.")
+        raise ValueError(f"Unknown Delta profile {name!r}. Use {' or '.join(PROFILES)}.")
     return PROFILES[name]
 
 
@@ -230,8 +230,10 @@ def unreadable_by(table: DeltaTable) -> list[str]:
 
 
 def check_table(table: DeltaTable, within: str | Profile | None = None,
-                readers: Iterable[str] | None = None) -> None:
-    """Refuse a table outside the profile, or one that uses a feature one of its readers can't read."""
+                readers: Iterable[str] | None = None, committed: bool = False) -> None:
+    """Refuse a table outside the profile, or one that uses a feature one of its readers can't read.
+
+    ``committed`` says the check runs after the write's commit, so the refusal can't say nothing was written."""
     p = profile(within)
     found = problems(table, p)
     if found:
@@ -244,7 +246,12 @@ def check_table(table: DeltaTable, within: str | Profile | None = None,
         return  # it uses none of the matrix's features
     reasons = why(table, DEFAULT_READERS if readers is None else readers)
     if reasons:
-        raise ProfileViolation("A reader of this table couldn't read it after the write. " + " ".join(reasons))
+        if committed:
+            raise ProfileViolation("The write committed, but one of this table's readers can't read a feature the "
+                                   "table now uses. " + " ".join(reasons) + " Don't run the write again, because "
+                                   "it would add its rows twice. Check the table from Fabric Spark.")
+        raise ProfileViolation("Nothing was written to this table, because one of its readers can't read a feature "
+                               "it uses. " + " ".join(reasons) + " Keep writing this table from Fabric Spark.")
 
 
 def check_target(uri: str, storage_options: dict[str, str] | None = None) -> None:

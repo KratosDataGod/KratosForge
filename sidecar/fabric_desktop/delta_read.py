@@ -176,9 +176,16 @@ def schema_mode_for(table: Any, columns: list[str], wanted: str | None, name: st
     have = arrow_schema(table).names
     if sorted(columns) == sorted(have):
         return None
+    table_name = name or "The table"
+    by_case = {c.lower(): c for c in have}
+    if sorted(c.lower() for c in columns) == sorted(by_case):
+        renamed = sorted(f"{c} where the table has {by_case[c.lower()]}" for c in columns if c not in have)
+        raise ValueError(f"{table_name} uses column mapping, and this write names {'; '.join(renamed)}. Nothing was "
+                         "written. Use the table's column names, with the same capital letters.")
     added = sorted(set(columns) - set(have))
     missing = sorted(set(have) - set(columns))
     change = (f"adds {', '.join(added)}" if added else "") + ("; " if added and missing else "") + \
         (f"leaves out {', '.join(missing)}" if missing else "")
-    raise ValueError(f"{name or 'The table'} uses column mapping, and this write {change}. KratosForge can't change "
-                     "a column-mapped table's columns yet. Write the same columns, or change them in Fabric Spark first.")
+    raise ValueError(f"{table_name} uses column mapping, and this write {change}. KratosForge can't change a "
+                     "column-mapped table's columns yet, so nothing was written. Write the same columns, or change "
+                     "them in Fabric Spark first.")

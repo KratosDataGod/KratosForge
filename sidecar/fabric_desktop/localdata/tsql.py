@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import math
 import re
 from collections.abc import Callable, Container
 from typing import Any, cast
@@ -2456,7 +2457,7 @@ def _repeat_count(node: exp.Repeat | exp.Space) -> None:
     if count is None or _whole(count, 0):
         return
     value = _number(count)
-    if value is not None and int(value) >= 0:  # 1.7 is 1 and -0.5 is 0: toward zero, as T-SQL makes it an int
+    if value is not None and math.isfinite(value) and int(value) >= 0:  # 1.7 is 1 and -0.5 is 0: toward zero, as T-SQL makes it an int
         node.set(key, exp.Literal.number(int(value)))
         return
     whole = exp.cast(exp.Trunc(this=count.copy()), "BIGINT")

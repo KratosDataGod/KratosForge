@@ -1,7 +1,8 @@
 """The app's local stores and projects in folders Windows users really have: a path past the old
 260-character limit, a user name with a space (C:\\Users\\John Smith), a non-ASCII one with an
 apostrophe (C:\\Users\\Jöhn O'Brien\\OneDrive - Contoso), and a folder with a percent sign. Each store is
-made, written, closed and opened again there.
+made, written, closed and opened again there. A notebook is saved and opened again, a SQL result is exported to CSV and
+a support bundle is written there too.
 
 A local data project's Delta tables couldn't be read under a folder with a space, a non-ASCII
 letter or a percent sign: the engine took their files from delta-rs's file_uris(), which
@@ -102,3 +103,42 @@ def test_the_engine_answers_with_its_data_folder_there(where, monkeypatch):
     svc = Service(client_id="x", root=where / "app")
     reply = server.handle(svc, '{"id": 1, "method": "app_settings", "params": {}}')
     assert "result" in reply, reply
+
+
+def test_a_notebook_saves_and_opens_again(where, monkeypatch):
+    from fabric_desktop.service import Service
+    for var in ("HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA"):
+        monkeypatch.setenv(var, str(where / "home"))
+    svc = Service(client_id="x", root=where / "app")
+    svc.save_notebook("Daily sales ö", [{"type": "code", "source": "x = 'Jöhn 日本'"}])
+    again = Service(client_id="x", root=where / "app").open_notebook("Daily sales ö")
+    assert [c["source"] for c in again["cells"]] == ["x = 'Jöhn 日本'"]
+
+
+def test_a_sql_result_exports_to_csv_there(where):
+    import pyarrow as pa
+    import pyarrow.ipc as ipc
+    from fabric_desktop import sql_exec
+    table = pa.table({"id": [1, 2], "name": ["Jöhn", "日本"]})
+    snapshot = where / "snapshot.arrow"
+    with ipc.new_file(str(snapshot), table.schema) as writer:
+        writer.write_table(table)
+    out = where / "Exports" / "result ö.csv"
+    out.parent.mkdir()
+    out.touch()  # the name the export reserved
+    job = sql_exec.Export(id="e1", execution="r1", format="csv", path=out, total=table.num_rows, raw=True)
+    object.__new__(sql_exec.SqlExecutions)._write(snapshot, job)
+    assert job.status()["state"] == "completed", job.status()["error"]
+    assert out.read_text(encoding="utf-8-sig").splitlines()[1:] == ['1,"Jöhn"', '2,"日本"']
+
+
+def test_a_support_bundle_is_written_there(where):
+    import zipfile
+    from fabric_desktop import support_bundle
+    data = where / "app"
+    data.mkdir()
+    (data / "sidecar.log").write_text("started in Jöhn's folder\n", encoding="utf-8")
+    path = support_bundle.create(where / "Downloads", data_dir=data)
+    assert path.parent == where / "Downloads" and support_bundle.NAME.fullmatch(path.name)
+    with zipfile.ZipFile(path) as z:
+        assert z.namelist()

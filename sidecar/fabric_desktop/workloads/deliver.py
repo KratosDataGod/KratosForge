@@ -32,6 +32,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from ..redact import one_line
+from .notify import OutcomeUnknown
 
 _log = logging.getLogger(__name__)
 
@@ -160,6 +161,7 @@ def send_email(mail: MailServer, password: str | None, to: list[str], title: str
     lib = smtp or smtplib
     context = ssl.create_default_context()
     msg = email(mail.sender, to, title, lines)
+    handing_over = False  # True from the moment the message itself is being sent
     try:
         if mail.security == "tls":
             conn = lib.SMTP_SSL(mail.host, mail.port, timeout=timeout, context=context)
@@ -178,6 +180,7 @@ def send_email(mail: MailServer, password: str | None, to: list[str], title: str
                     raise RuntimeError("The mail server's password isn't in Windows Credential Manager; "
                                        "enter it again in Settings > Notifications")
                 conn.login(mail.username, password)
+            handing_over = True
             refused = conn.send_message(msg, from_addr=mail.sender, to_addrs=to)
     except RuntimeError:
         raise
@@ -191,7 +194,11 @@ def send_email(mail: MailServer, password: str | None, to: list[str], title: str
         raise RuntimeError(f"{mail.host} answered {exc.smtp_code}{f' ({status.group(0)})' if status else ''}") from None
     except ssl.SSLCertVerificationError:
         raise RuntimeError(f"{mail.host}'s certificate isn't trusted by Windows, so nothing was sent") from None
-    except (OSError, smtplib.SMTPException) as exc:
+    except (OSError, smtplib.SMTPServerDisconnected) as exc:
+        if handing_over:  # it stopped answering while it took the message: it may have been delivered
+            raise OutcomeUnknown(f"{mail.host} stopped answering while it took the email ({type(exc).__name__})") from None
+        raise RuntimeError(f"Couldn't reach {mail.host}:{mail.port} ({type(exc).__name__})") from None
+    except smtplib.SMTPException as exc:
         raise RuntimeError(f"Couldn't reach {mail.host}:{mail.port} ({type(exc).__name__})") from None
     if refused:
         # Sent to the rest: raising would have the outbox send it again to everyone who got it.

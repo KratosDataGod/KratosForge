@@ -382,7 +382,7 @@ class DataOpsMixin:
             try:
                 held.enter_context(_file_lock(self.root / f"{DATA_HEALTH_FILE}.lock", timeout=DATA_HEALTH_LOCK_SECONDS))  # type: ignore[attr-defined]
             except TimeoutError:
-                raise TimeoutError("Another KratosForge window is saving the Data health list. Try again in a moment.") from None
+                raise TimeoutError("Another KratosForge window or tool is saving the Data health list. Try again in a moment.") from None
             yield
 
     def _dh_read(self) -> dict[str, Any]:

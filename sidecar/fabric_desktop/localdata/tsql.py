@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import math
 import re
 from collections.abc import Callable, Container
 from typing import Any, cast
@@ -183,6 +184,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             _functions(tree)
             _gaps(tree)
             _string_edges(tree)
+            _char_codes(tree)
             tsql_types.expand_datetimes(tree)
             if known is not None:
                 _unknown_functions(tree, known)
@@ -2425,7 +2427,9 @@ def _string_edges(tree: exp.Expression) -> None:
       from the end. A negative length is an error.
     - ``STUFF(s, start, n, x)`` is NULL when the start is below 1 or past the end, or the length is
       negative; a NULL ``x`` deletes without inserting.
-    - ``REPLICATE(s, n)`` is NULL when ``n`` is negative.
+    - ``REPLICATE(s, n)`` and ``SPACE(n)`` are NULL when ``n`` is negative, and a count with a fraction is
+      cut toward zero first (``SPACE(1.7)`` is one space, ``SPACE(-0.5)`` is ''); DuckDB gave '' for a
+      negative count, rounded ``SPACE``'s and didn't bind ``REPLICATE``'s.
     - ``LEFT`` and ``RIGHT`` with a negative length are an error (DuckDB drops from the other end).
     - ``TRANSLATE(s, a, b)`` with ``a`` and ``b`` of different lengths is an error (DuckDB drops the
       characters of ``a`` that have no partner in ``b``).
@@ -2434,8 +2438,8 @@ def _string_edges(tree: exp.Expression) -> None:
       from the end), and is 0 for an empty ``x`` (DuckDB found it at 1) (WR-210).
 
     Literal starts and lengths that can't hit an edge are left as they are."""
-    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Left, exp.Right, exp.Translate,
-                                   exp.StrPosition)):
+    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Space, exp.Left, exp.Right,
+                                   exp.Translate, exp.StrPosition)):
         if isinstance(node, exp.StrPosition):
             _charindex(node)
         elif isinstance(node, (exp.Left, exp.Right)):
@@ -2495,10 +2499,83 @@ def _string_edges(tree: exp.Expression) -> None:
                            exp.LT(this=length.copy(), expression=exp.Literal.number(0)))
             node.set("expression", exp.func("COALESCE", node.expression, exp.Literal.string("")))
             node.replace(exp.Case(ifs=[exp.If(this=past, true=exp.null())], default=node.copy()))
-        elif not _whole(node.args.get("times"), 0):
-            times = node.args["times"]
-            negative = exp.LT(this=times.copy(), expression=exp.Literal.number(0))
-            node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy()))
+        elif isinstance(node, (exp.Repeat, exp.Space)):
+            _repeat_count(node)
+
+
+def _repeat_count(node: exp.Repeat | exp.Space) -> None:
+    """``REPLICATE``'s or ``SPACE``'s count as T-SQL takes it (see _string_edges)."""
+    key = "times" if isinstance(node, exp.Repeat) else "this"
+    count = node.args.get(key)
+    if count is None or _whole(count, 0):
+        return
+    value = _number(count)
+    if value is not None and math.isfinite(value) and int(value) >= 0:  # 1.7 is 1 and -0.5 is 0: toward zero, as T-SQL makes it an int
+        node.set(key, exp.Literal.number(int(value)))
+        return
+    # The count is read once, through a lambda, so REPLICATE(s, RAND() * 6 - 3) checks and repeats the same value.
+    v = exp.to_identifier("kf_count")
+    node.set(key, exp.column(v.copy()))
+    negative = exp.LT(this=exp.column(v.copy()), expression=exp.Literal.number(0))
+    case = exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy())
+    bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[_int_of(count)]), exp.Lambda(this=case, expressions=[v]))
+    node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))
+
+
+_INT_TEXT = re.compile(r"\s*[+-]?[0-9]+\s*")
+
+
+def _int_of(value: exp.Expression) -> exp.Expression:
+    """``value`` made an int as T-SQL makes a count or code one: a number is cut toward zero, and text
+    must be a whole number (``'66'`` is 66, ``'6.5'`` is a conversion error, as in T-SQL; DuckDB's cast
+    would round it). A column's type isn't known here, so both ways are written and DuckDB keeps the
+    one its type takes; each reads the value through VARCHAR so that both bind whatever the type."""
+    if isinstance(value, exp.Literal) and value.is_string:
+        if not _INT_TEXT.fullmatch(value.name):
+            raise ValueError(f"This T-SQL can't be run on the local engine: Conversion failed when converting the "
+                             f"varchar value '{value.name}' to data type int. T-SQL gives the same error.")
+        return exp.Literal.number(int(value.name))
+    text = exp.cast(value.copy(), "VARCHAR")
+    message = exp.DPipe(this=exp.DPipe(this=exp.Literal.string("Conversion failed when converting the varchar value '"),
+                                       expression=text.copy()),
+                        expression=exp.Literal.string("' to data type int."))
+    strict = exp.Case(ifs=[exp.If(this=exp.func("REGEXP_FULL_MATCH", text.copy(), exp.Literal.string(_INT_TEXT.pattern)),
+                                  true=exp.cast(exp.func("TRIM", text.copy()), "BIGINT"))],
+                      default=exp.func("ERROR", message))
+    is_text = exp.EQ(this=exp.func("TYPEOF", value.copy()), expression=exp.Literal.string("VARCHAR"))
+    cut = exp.cast(exp.Trunc(this=exp.cast(text.copy(), "DOUBLE")), "BIGINT")
+    return exp.Case(ifs=[exp.If(this=is_text, true=strict)], default=cut)
+
+
+def _char_codes(tree: exp.Expression) -> None:
+    """ASCII, UNICODE and CHAR at their edges, as T-SQL answers them:
+
+    - ``ASCII('')`` and ``UNICODE('')`` are NULL (DuckDB gave 0 and -1).
+    - ``CHAR(n)`` is NULL outside 0 to 255 ("CHAR returns a NULL value for integer expressions outside this
+      input range", functions/char-transact-sql), and a count with a fraction is made an int first, toward
+      zero (DuckDB gave the code point, stopped below 0, and didn't bind a decimal)."""
+    for node in list(tree.find_all(exp.Ascii, exp.Unicode, exp.Chr)):
+        if isinstance(node, (exp.Ascii, exp.Unicode)):
+            text = node.this
+            if not (isinstance(text, exp.Literal) and text.is_string and text.name):
+                node.set("this", exp.Nullif(this=text.copy(), expression=exp.Literal.string("")))
+            continue
+        if len(node.expressions) != 1:
+            continue
+        code = node.expressions[0]
+        value = _number(code)
+        if value is not None and math.isfinite(value):
+            whole = int(value)
+            node.replace(exp.Chr(expressions=[exp.Literal.number(whole)]) if 0 <= whole <= 255
+                         else exp.cast(exp.null(), "TEXT"))
+            continue
+        # The code is read once, through a lambda, so CHAR(RAND() * 300) checks and converts the same value.
+        v = exp.to_identifier("kf_code")
+        inside = exp.Between(this=exp.column(v.copy()), low=exp.Literal.number(0), high=exp.Literal.number(255))
+        case = exp.Case(ifs=[exp.If(this=inside, true=exp.Chr(expressions=[exp.cast(exp.column(v.copy()), "INT")]))])
+        bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[_int_of(code)]),
+                         exp.Lambda(this=case, expressions=[v]))
+        node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))
 
 
 def _charindex(node: exp.StrPosition) -> None:

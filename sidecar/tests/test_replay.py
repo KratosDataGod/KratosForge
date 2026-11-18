@@ -198,6 +198,7 @@ def service(tmp_path, monkeypatch):
     lake(tmp_path)
     s = Service(client_id="x", root=tmp_path / "app")
     s._auth = type("Auth", (), {"storage_token": lambda self: "tok", "signed_in_user": lambda self: "a@contoso.com",
+                                "signed_in_tenant": lambda self: "contoso.onmicrosoft.com",
                                 "silent_token": lambda self, scopes: "tok"})()
     s._schema_cache = {"lh1": True}
     return s

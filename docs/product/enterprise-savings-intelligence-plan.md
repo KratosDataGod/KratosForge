@@ -425,14 +425,14 @@ baseline, incremental allocation across several optimizations.
   past the baseline; a reversal writes reversal events that net the earlier accruals to zero.
 - Tests: scenarios 16, 17, 10, 19, plus a property test that gross ≤ baseline for any order.
 
-**ESI-304 Recurring benefit.** Read-time projection of monthly benefit from recent executions and
+**ESI-304 Recurring benefit.** **Built** (engine only, never written). `savings/recurring.py`. Read-time projection of monthly benefit from recent executions and
 run frequency, labelled Estimated and never written to the ledger; period figures are groupings
 of ESI-203 execution accruals. Stop projecting on retirement; re-baseline on material change.
 - Tests: scenarios 11, 12.
 
 ### Phase 4: Financial intelligence
 
-**ESI-401 Pricing scenarios.** `fdopt_pricing` and a local equivalent: SKU, region, currency,
+**ESI-401 Pricing scenarios.** **Built** (engine only; nothing writes `fdopt_pricing` yet). `savings/pricing.py`. `fdopt_pricing` and a local equivalent: SKU, region, currency,
 effective dates, reserved or pay-as-you-go or actual billing, customer rate, source and
 confidence. The current single price becomes a scenario labelled as an assumption.
 - Tests: scenario 18 (price change applies only from its effective date; history keeps its

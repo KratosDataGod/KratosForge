@@ -246,3 +246,16 @@ def test_a_pandas_udf_returning_numpy_arrays_gives_lists(spark):
     nan = U.pandas_udf(lambda s: s.apply(lambda v: np.array([np.nan])), T.ArrayType(T.DoubleType()))
     got = [r[0] for r in df.select(nan("id")).collect()]
     assert len(got) == 2 and all(len(g) == 1 and g[0] != g[0] for g in got)
+
+
+def test_a_numpy_array_of_times_becomes_python_datetimes(spark):
+    stamps = np.array(["2026-11-17T01:02:03.000004", "NaT"], dtype="datetime64[ns]")
+    assert U._plain(stamps) == [dt.datetime(2026, 11, 17, 1, 2, 3, 4), None]
+    assert U._plain(np.array([5_000_000], dtype="timedelta64[ns]")) == [dt.timedelta(milliseconds=5)]
+    df = spark.createDataFrame([(1,)], ["id"])
+    times = U.pandas_udf(lambda s: s.apply(lambda v: stamps[:1]), T.ArrayType(T.TimestampType()))
+    as_list = U.pandas_udf(lambda s: s.apply(lambda v: [dt.datetime(2026, 11, 17, 1, 2, 3, 4)]),
+                           T.ArrayType(T.TimestampType()))
+    want = [r[0] for r in df.select(as_list("id")).collect()]  # what a list of Python datetimes gives
+    assert want[0] and want[0][0] is not None
+    assert [r[0] for r in df.select(times("id")).collect()] == want

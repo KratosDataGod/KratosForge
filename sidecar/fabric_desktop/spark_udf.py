@@ -204,6 +204,9 @@ def _plain(v: Any) -> Any:
     column's arrays as lists). An array is checked first: a one-element array's item() is its value."""
     import datetime
     if getattr(v, "ndim", 0) and hasattr(v, "tolist"):
+        kind = getattr(getattr(v, "dtype", None), "kind", "")
+        if kind in "Mm" and kind:  # datetime64/timedelta64[ns] lists as whole numbers; in microseconds, as Python's
+            v = v.astype(f"{'datetime64' if kind == 'M' else 'timedelta64'}[us]")
         return v.tolist()
     if hasattr(v, "to_pydatetime"):
         return v.to_pydatetime()

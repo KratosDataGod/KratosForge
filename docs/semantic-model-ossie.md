@@ -58,7 +58,7 @@ zone on a date and time column, so those are listed as not converted.
 ## Ossie file to TMDL (Preview)
 
 **Ossie file to TMDL...** writes a model's TMDL into the project straight from an Ossie file,
-on this PC with no Fabric call. Pick the file and the model folder name; the dialog shows
+on this PC with no Fabric call. Pick the file and the model folder name. The dialog shows
 whether `semantic/<name>.SemanticModel/` is new or already there.
 
 - A new folder: the counts from the file and the **Round-trip check**, then **Write TMDL**.
@@ -67,12 +67,12 @@ whether `semantic/<name>.SemanticModel/` is new or already there.
   with a **Keep it** tick. **Replace TMDL in <name>...** asks once more, in red, before it
   rewrites the files. Translations under `cultures/` are left as they are.
 - The **Round-trip check** lists what is kept, what rides in the Power BI section, and what
-  can't be carried, by name: a measure whose SQL has no DAX equivalent is written with no
+  can't be carried, by name. A measure whose SQL has no DAX equivalent is written with no
   expression and shows blank until you add DAX.
-- A file that can't be converted says which object and what is missing; nothing is written.
+- A file that can't be converted says which object and what is missing, and nothing is written.
 
-Exporting a model kept as TMDL in the project shows the same Round-trip check: reading the
-Ossie file back gives the same model, or the check names what differs.
+Exporting a model kept as TMDL in the project shows the same Round-trip check, which says whether
+reading the Ossie file back gives the same model or names what differs.
 
 ## Keeping Git in step
 

@@ -1928,6 +1928,7 @@ function ossieRoundTrip(res) {
 // Ossie file to TMDL in this project, on this PC with no Fabric call (meta_model_ossie_to_tmdl, PB-110).
 function ossieToTmdlDialog(result) {
   const picked = { text: "", name: "" };
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
   const input = h("input", { type: "file", accept: ".yaml,.yml,.json", "aria-label": "Ossie file" });
   const projectPath = h("input", { class: "mono", placeholder: "semantic/orders.ossie.yaml", "aria-label": "Ossie file in the project" });
   const folder = h("input", { placeholder: "The name in the file", "aria-label": "Model folder name" });
@@ -1959,7 +1960,7 @@ function ossieToTmdlDialog(result) {
     const n = (k) => res.changes.filter((r) => r.change === k).length;
     fill(out,
       res.exists ? h("b", {}, `What changes in ${res.folder}/`) : h("p", { class: "counts" }, h("b", {}, "From the file: "),
-        `${res.counts.tables} tables, ${res.counts.columns} columns, ${res.counts.measures} measures, ${res.counts.relationships} relationships.`),
+        `${plural(res.counts.tables, "table")}, ${plural(res.counts.columns, "column")}, ${plural(res.counts.measures, "measure")}, ${plural(res.counts.relationships, "relationship")}.`),
       res.exists ? (rows.length ? h("table", { class: "list" }, h("thead", {}, h("tr", {}, ["Change", "Object", "Detail"].map((c) => h("th", {}, c)))),
         h("tbody", {}, rows.map((r) => {
           const [label, cls] = OSSIE_CHANGE[r.change] || [r.change, "neu"];
@@ -1968,8 +1969,8 @@ function ossieToTmdlDialog(result) {
           return h("tr", { class: r.change === "needs_dax" ? "warn-row" : null },
             h("td", {}, h("span", { class: `pill-s ${cls}` }, label)), h("td", { class: "mono" }, r.object),
             h("td", {}, r.change === "remove" ? h("span", {}, "Not in the Ossie file. ", kept) : r.detail));
-        }))) : h("p", { class: "muted-text" }, "Nothing changes: the TMDL already matches the file.")) : null,
-      res.exists ? h("p", { class: "muted-text counts" }, `${n("add")} added, ${n("change")} changed, ${keep.size} removed (${removable.length} kept). ${res.unchanged} file${res.unchanged === 1 ? "" : "s"} unchanged.`) : null,
+        }))) : h("p", { class: "muted-text" }, "Nothing changes, because the TMDL already matches the file.")) : null,
+      res.exists ? h("p", { class: "muted-text counts" }, `${n("add")} added, ${n("change")} changed, ${keep.size} removed (${removable.length - keep.size} kept). ${res.unchanged} file${res.unchanged === 1 ? "" : "s"} unchanged.`) : null,
       h("p", {}, h("b", {}, "Round-trip check "), h("span", { class: "muted-text" }, "What the TMDL will hold. Nothing is dropped without being listed here.")),
       ossieRoundTrip(res),
       res.removed.length ? h("p", { class: "muted-text" }, `Removes ${res.removed.length} TMDL file${res.removed.length === 1 ? "" : "s"} for what you chose to take out: `, h("span", { class: "mono" }, res.removed.join(", "))) : null);
@@ -2005,7 +2006,7 @@ function ossieToTmdlDialog(result) {
         h("tbody", {}, (res.file_changes || []).map((f) => h("tr", {}, h("td", { class: "mono" }, f.path),
           h("td", {}, h("span", { class: `pill-s ${(FILE_CHANGE[f.change] || [f.change, "neu"])[1]}` }, (FILE_CHANGE[f.change] || [f.change])[0]))))));
       const ok = await confirmDialog(`Replace TMDL in ${res.name}?`,
-        h("div", {}, h("p", {}, `${res.folder}/ is already in this project. Writing replaces these files: ${n("add")} objects added, ${n("change")} changed, ${keep.size} removed; ${res.removable.length - keep.size} kept that the Ossie file doesn't have, as you ticked.${needs.length ? ` ${needs.length} measure${needs.length === 1 ? " has" : "s have"} no expression: ${needs.join(", ")}.` : ""} Nothing in Fabric changes; you can still undo it in Source control before you commit.`),
+        h("div", {}, h("p", {}, `${res.folder}/ is already in this project. Writing replaces the files below, with ${n("add")} added, ${n("change")} changed and ${keep.size} removed, and keeps the ${res.removable.length - keep.size} the Ossie file doesn't have, as you ticked.${needs.length ? ` ${needs.length} measure${needs.length === 1 ? " has" : "s have"} no expression yet (${needs.join(", ")}).` : ""} Nothing in Fabric changes, and you can undo it in Source control before you commit.`),
           h("div", { class: "scroll" }, files)),
         "Replace TMDL", { danger: true });
       if (!ok) return;
@@ -2017,7 +2018,7 @@ function ossieToTmdlDialog(result) {
     const n = (k) => done.changes.filter((r) => r.change === k).length;
     fill(result, h("div", { class: "ossie-done" },
       h("div", { class: "pass-box", role: "status" }, icon("ok", 16),
-        `Wrote ${done.folder}/ from ${picked.name}${done.exists ? `: ${n("add")} added, ${n("change")} changed, ${done.removable.length - keep.size} kept` : ""}. It's in Source control, ready to commit.`),
+        `Wrote ${done.folder}/ from ${picked.name}${done.exists ? `, with ${n("add")} added, ${n("change")} changed and ${done.removable.length - keep.size} kept` : ""}. It's in Source control, ready to commit.`),
       needs.length ? h("div", { class: "card pad warn-box" }, `${needs.length} measure${needs.length === 1 ? " has" : "s have"} no expression yet, so ${needs.length === 1 ? "it shows" : "they show"} blank until you add DAX: `,
         h("span", { class: "mono" }, needs.join(", "))) : null,
       h("p", {}, h("b", {}, "Round-trip check")), ossieRoundTrip(done)));

@@ -232,6 +232,7 @@ test("Ossie file to TMDL over a folder already there: Keep it ticks, then a dang
   assert.match(await dialog.textContent(), /1 added, 0 changed, 0 removed \(1 kept\)\. 14 files unchanged\./);
   await dialog.locator("label:has-text('Keep it') input").uncheck();
   await page.waitForFunction(() => /1 removed/.test(document.querySelector(".dialog").textContent));
+  assert.match(await dialog.textContent(), /1 added, 0 changed, 1 removed \(0 kept\)\./, "kept counts what is left after the ticks");
   assert.deepStrictEqual(calls.filter(([n]) => n === "to_tmdl").pop()[1].remove, ["dim_customer"]);
   await shot(page, "7-tmdl-existing", ".dialog");
   await dialog.locator("button:has-text('Replace TMDL in orders...')").click();
@@ -239,7 +240,8 @@ test("Ossie file to TMDL over a folder already there: Keep it ticks, then a dang
   await confirm.waitFor();
   assert.match(await confirm.textContent(), /definition\/tables\/fact_sales\.tmdlChanged.*definition\/tables\/dim_channel\.tmdlNew.*definition\/roles\/EU only\.tmdlSame/);
   assert.ok(calls.filter(([n]) => n === "to_tmdl").every(([, p]) => !p.confirmed), "nothing is written before the confirm");
-  assert.match(await confirm.textContent(), /Nothing in Fabric changes/);
+  assert.match(await confirm.textContent(), /Writing replaces the files below, with 1 added, 0 changed and 1 removed, and keeps the 0 the Ossie file doesn't have, as you ticked\./);
+  assert.match(await confirm.textContent(), /Nothing in Fabric changes, and you can undo it in Source control before you commit\./);
   assert.strictEqual(await confirm.locator("button.danger-solid:has-text('Replace TMDL')").count(), 1, "danger styling");
   await shot(page, "8-tmdl-confirm", ".dialog");
   await confirm.locator("button:has-text('Replace TMDL')").last().click();

@@ -23,7 +23,7 @@ from deltalake import write_deltalake
 from fabric_desktop import app_settings, sql, sql_exec, sql_policy, sql_view
 from fabric_desktop.measure import RunMeter
 
-SLOW = "SELECT sum(a.range * b.range) FROM range(200000000) a, range(1000) b"
+SLOW = "SELECT sum(a.id * b.id) FROM range(200000000) a, range(1000) b"
 
 
 def limits(**changes):
@@ -189,7 +189,7 @@ def test_table_gives_the_whole_result_with_unique_names_for_compare(runs, lake):
 
 
 def test_pages_move_forward_and_back_without_counting(runs, lake):
-    run = wait(runs, runs.start("SELECT range AS n FROM range(2500)", lake)["id"])
+    run = wait(runs, runs.start("SELECT id AS n FROM range(2500)", lake)["id"])
     first = runs.page(run["id"])
     assert len(first["rows"]) == 1000 and first["rows"][0] == [0] and first["has_next"]
     last = runs.page(run["id"], 2000)
@@ -212,7 +212,7 @@ def test_a_sql_error_fails_the_run_with_the_reason(runs, lake):
 
 
 def test_ten_million_rows_page_without_being_held_in_memory(runs, lake):
-    run = wait(runs, runs.start("SELECT range AS id, range % 7 AS bucket, 'row ' || range AS label "
+    run = wait(runs, runs.start("SELECT id, id % 7 AS bucket, 'row ' || id AS label "
                                 "FROM range(10000000)", lake)["id"], seconds=180)
     assert run["state"] == "completed" and run["rows"] == 10_000_000
     with RunMeter(interval=0.01) as meter:
@@ -452,7 +452,7 @@ def test_an_unknown_export_format_is_refused(runs, lake):
 
 @pytest.mark.parametrize("fmt", ["xlsx", "json"])
 def test_a_stopped_excel_or_json_export_leaves_no_files(runs, lake, tmp_path, monkeypatch, fmt):
-    run = wait(runs, runs.start("SELECT range FROM range(300000)", lake)["id"])
+    run = wait(runs, runs.start("SELECT id FROM range(300000)", lake)["id"])
     export = sql_exec.Export(id="x", execution=run["id"], format=fmt, path=tmp_path / "Downloads" / f"r.{fmt}", total=0)
     export.path.parent.mkdir(parents=True)
     export.path.write_bytes(b"")
@@ -463,7 +463,7 @@ def test_a_stopped_excel_or_json_export_leaves_no_files(runs, lake, tmp_path, mo
 
 
 def test_a_stopped_export_leaves_no_files(runs, lake, tmp_path, monkeypatch):
-    run = wait(runs, runs.start("SELECT range FROM range(300000)", lake)["id"])
+    run = wait(runs, runs.start("SELECT id FROM range(300000)", lake)["id"])
     real = sql_exec._writer
 
     class SlowWriter:

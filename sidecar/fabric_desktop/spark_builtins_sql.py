@@ -188,12 +188,20 @@ def _typeof(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression 
     if len(args) != 1:
         return None
     # A scalar type, or a list of one (INTEGER[] -> array<int>); deeper types in lower case.
+    # A struct or map is named from its type where spark_complex_types can work it out; otherwise refused.
+    stop = ("'typeof() can''t run on this PC the way it runs in Fabric, so nothing ran: the struct or map''s type "
+            "couldn''t be worked out here.'")
     scalar = "CASE kf_t " + " ".join(f"WHEN '{d}' THEN '{s}'" for d, s in _TYPE_NAMES) + \
-             " ELSE CASE WHEN kf_t LIKE 'DECIMAL(%' THEN REPLACE(LOWER(kf_t), ' ', '') ELSE LOWER(kf_t) END END"
+             " ELSE CASE WHEN kf_t LIKE 'DECIMAL(%' THEN REPLACE(LOWER(kf_t), ' ', '') " \
+             f"WHEN kf_t LIKE 'STRUCT(%' OR kf_t LIKE 'MAP(%' THEN ERROR({stop}) ELSE LOWER(kf_t) END END"
     whole = (f"(LIST_TRANSFORM([TYPEOF(fj_arg0)], kf_x -> CASE WHEN kf_x LIKE '%[]' AND kf_x NOT LIKE '%[][]' "
              f"AND kf_x NOT LIKE '%(%' THEN 'array<' || (LIST_TRANSFORM([LEFT(kf_x, LENGTH(kf_x) - 2)], kf_t -> {scalar}))[1] "
              f"|| '>' ELSE (LIST_TRANSFORM([kf_x], kf_t -> {scalar}))[1] END))[1]")
-    return _with_args(whole, args)
+    arg = args[0].copy()
+    arg.meta["kf_complex_arg"] = True  # spark_complex._mark: named from its type there
+    named = _with_args(whole, [arg])
+    named.meta["kf_complex"] = "typeof"
+    return named
 
 
 def _sign(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
@@ -513,9 +521,16 @@ def _json_tuple(node: exp.Expression, args: list[exp.Expression]) -> exp.Express
     (an object or list as its JSON), NULL when the key is missing or the text isn't JSON."""
     if len(args) < 2:
         return None
-    fields = ", ".join(f"'c{i}': CASE WHEN JSON_VALID(fj_arg0) THEN JSON_EXTRACT_STRING(fj_arg0, "
-                       f"'$.\"' || REPLACE(fj_arg{i + 1}, '\"', '\\\"') || '\"') END" for i in range(len(args) - 1))
-    return _with_args(f"UNNEST([{{{fields}}}], max_depth := 2)", args)
+    if any(isinstance(a, exp.Null) for a in args):
+        raise ValueError("json_tuple's arguments must all be strings, as in Spark, so nothing ran. Write a NULL "
+                         "as CAST(NULL AS STRING).")
+    # A key the object repeats gives its last value, as in Spark (json_keys and $.* list the object's
+    # members in order); a string value without its quotes.
+    fields = ", ".join(f"'c{i}': (LIST_TRANSFORM(LIST_FILTER(RANGE(1, LEN(fj_o.k) + 1), fj_n -> fj_o.k[fj_n] = "
+                       f"fj_arg{i + 1}), fj_n -> fj_o.v[fj_n] ->> '$'))[-1]" for i in range(len(args) - 1))
+    members = ("CASE WHEN JSON_VALID(fj_arg0) AND JSON_TYPE(fj_arg0) = 'OBJECT' THEN {'k': JSON_KEYS(fj_arg0), "
+               "'v': JSON_EXTRACT(fj_arg0, '$.*')} END")
+    return _with_args(f"UNNEST(LIST_TRANSFORM([{members}], fj_o -> {{{fields}}}), max_depth := 2)", args)
 
 
 def _mask(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:

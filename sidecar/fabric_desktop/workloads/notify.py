@@ -57,7 +57,7 @@ LINE_MAX = 500  # characters in one title or line of a Teams message
 # email: 20 s), so a message still marked sending after this was cut off by a stop, not slow.
 SENDING_GRACE = 600.0
 CUT_OFF = "From {when}; sending it was cut off, so it may have arrived already."
-UNCONFIRMED = ("{error}. It was sent but no answer came, so it may have arrived; it isn't sent again, "
+UNCONFIRMED = ("{error}. It was sent but no answer came, so it may have arrived. It isn't sent again, "
                "so it can't be posted twice. Check the channel or inbox.")
 
 

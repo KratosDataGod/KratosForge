@@ -13,7 +13,7 @@ from typing import Any, Callable, Iterator
 
 import polars as pl
 
-from . import audit, duties, lakehouse, risk, sealed_settings
+from . import audit, delta_profile, duties, lakehouse, risk, sealed_settings
 from .meta import keys as keys_mod
 from .meta import change_impact, lineage, release
 from .meta import mesh
@@ -23,7 +23,7 @@ from .errors import NotSetUp
 from .leases import Backend, Leases, LocalBackend, OneLakeBackend, lease_timeout, onelake_table_lease, table_key
 from .onelake import storage_options
 from .publish import WRITER
-from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, entity_name_problem, validate
+from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, entity_name_problem, validate, with_delta_choice
 from .meta import diff as diff_mod
 from .meta import snapshot
 from .meta.promote import promote_checks, releases, rollback
@@ -487,8 +487,10 @@ class MetaMixin:
                               "runs": runs, "preview": preview, "errors": errors, "keys_sql": keys_sql,
                               "keys_from": keys_from}
 
-    def meta_save_entity(self, name: str, text: str) -> dict[str, Any]:
-        """Save an entity file. TOML that doesn't parse is refused; other problems are listed."""
+    def meta_save_entity(self, name: str, text: str, confirm_name: str | None = None) -> dict[str, Any]:
+        """Save an entity file. TOML that doesn't parse is refused; other problems are listed. A Delta
+        table features setting that is wrong, or that breaks one of the table's readers without
+        ``confirm_name`` (the table's full name, typed), is refused too (delta_profile.confirm_choice)."""
         project = self._project()
         try:
             spec = tomllib.loads(text)
@@ -500,6 +502,10 @@ class MetaMixin:
         for n in (name, new_name):
             if problem := entity_name_problem(n):
                 raise ValueError(f"Not saved: {n}: {problem}")
+        old = project.entities[name].spec if name in project.entities else {}
+        accepted = delta_profile.confirm_choice(new_name, old, spec, confirm_name)
+        if accepted is not None:
+            text = with_delta_choice(text, spec.get("delta_features"), spec.get("delta_readers"), accepted)
         path = project.entities_dir / f"{new_name}.toml"
         if new_name != name:
             if path.exists():
@@ -511,6 +517,29 @@ class MetaMixin:
         if new_name != name:  # only once the new file is in place, so a failed save loses neither
             (project.entities_dir / f"{name}.toml").unlink(missing_ok=True)
         return self.meta_entity(new_name)
+
+    def meta_set_delta_features(self, name: str, delta_features: str | None = None,
+                                delta_readers: list[str] | None = None, confirm_name: str | None = None) -> dict[str, Any]:
+        """Set which Delta table features a publish may leave on this entity's table (Preview): None or ""
+        for the default (the modern profile), or one of delta_profile.TABLE_CHOICES. ``delta_readers``
+        replaces the table's readers (None keeps them). A choice that breaks one of the readers is refused
+        unless ``confirm_name`` is the table's full name, as the person typed it."""
+        project = self._project()
+        if name not in project.entities:
+            raise ValueError(f"{name} isn't an entity in this project, so nothing was changed. Open the project "
+                             "that has it, then choose again.")
+        e = project.entities[name]
+        spec = dict(e.spec)
+        spec["delta_features"] = delta_features or None
+        if delta_readers is not None:
+            readers = list(dict.fromkeys(delta_readers))
+            spec["delta_readers"] = None if tuple(readers) == delta_profile.DEFAULT_READERS else readers
+        spec = {k: v for k, v in spec.items() if v is not None}
+        accepted = delta_profile.confirm_choice(name, e.spec, spec, confirm_name)
+        if accepted is not None:
+            text = e.path.read_text(encoding="utf-8")
+            write_text(e.path, with_delta_choice(text, spec.get("delta_features"), spec.get("delta_readers"), accepted))
+        return self.meta_project()
 
     def meta_new_entity(self, template: str, name: str, source: str = "", keys: list[str] | None = None,
                         owner: str = "") -> dict[str, Any]:

@@ -386,11 +386,13 @@ def _pad(node: exp.Expression) -> exp.Expression | None:
 
 
 def _locate(node: exp.Expression) -> exp.Expression | None:
-    """locate(substr, str, pos): 0 for a position before 1 or a NULL position, as Spark gives."""
+    """locate(substr, str, pos) as Spark's StringLocate: 0 for a NULL position; otherwise NULL when substr or str is
+    NULL (checked before the position, so locate('b', NULL, -2) is NULL, not 0); then 0 for a position before 1."""
     position = node.args.get("position")
     if position is None:
         return None
-    return _around(node, "CASE WHEN fj_arg1 IS NULL OR fj_arg1 < 1 THEN 0 ELSE fj_arg0 END", [position])
+    return _around(node, "CASE WHEN fj_arg1 IS NULL THEN 0 WHEN fj_arg2 IS NULL OR fj_arg3 IS NULL THEN NULL "
+                         "WHEN fj_arg1 < 1 THEN 0 ELSE fj_arg0 END", [position, node.args["substr"], node.this])
 
 
 def _chr(node: exp.Expression) -> exp.Expression | None:

@@ -11,6 +11,8 @@ from types import SimpleNamespace
 
 import polars as pl
 import pyarrow as pa
+from pathlib import Path
+
 import pytest
 import duckdb
 from deltalake import write_deltalake
@@ -394,13 +396,26 @@ def test_partitioned_delta_tables_keep_their_partition_columns(local, tmp_path):
 
 def test_delta_features_a_file_read_would_get_wrong_are_refused(local, tmp_path):
     d = tmp_path / "lake"
+    # delta-rs lists the variant type feature on a table it makes with deletion vectors, and variant columns
+    # can't be read from the files alone.
     write_deltalake(str(d / "dv"), pa.table({"a": [1]}), configuration={"delta.enableDeletionVectors": "true"})
     pid = local.create("Delta dv")["id"]
     added = local.add_source(pid, str(d))
     entry = added["tables"][0]
-    assert entry["status"] == "error" and "deletion vectors" in entry["error"]
+    assert entry["status"] == "error" and "variant columns" in entry["error"]
     with pytest.raises(duckdb.CatalogException):
         local.engine(pid).execute("SELECT * FROM dv")
+
+
+def test_a_spark_table_with_deletion_vectors_is_read_without_its_deleted_rows(local, tmp_path):
+    import shutil
+    shutil.copytree(Path(__file__).parent / "fixtures" / "delta_spark" / "dv", tmp_path / "lake" / "dv")
+    pid = local.create("Spark dv")["id"]
+    entry = local.add_source(pid, str(tmp_path / "lake"))["tables"][0]
+    assert entry["status"] == "ok", entry
+    assert entry["delta"]["deleted_rows"] == 3
+    rows = local.engine(pid).execute("SELECT id FROM dv ORDER BY id")["rows"]
+    assert [r[0] for r in rows] == [0, 1, 2, 4, 5, 6, 9]  # Spark deleted 3, 7 and 8
 
 
 def test_spills_to_disk_under_a_small_memory_limit(local):

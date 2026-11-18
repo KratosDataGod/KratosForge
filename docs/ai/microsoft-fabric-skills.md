@@ -72,6 +72,9 @@ Settings > Integrations > Let AI tools connect, and don't try to reach it anothe
 | Know whether a run is risky or will use capacity | `fabric_desktop_check_run_risk` |
 | Check a Fabric pipeline | `fabric_desktop_validate_pipeline`, then `fabric_desktop_check_pipeline_compatibility` |
 | Check the medallion project | `fabric_desktop_validate_project` |
+| Trace where a column comes from, or what it feeds | `fabric_desktop_get_lineage` (from the project's files; runs nothing) |
+| See how the medallion project's runs went and what its quality checks found | `fabric_desktop_list_project_runs`, then `fabric_desktop_get_project_run` |
+| See what files and tables a local data project on this PC has | `fabric_desktop_list_local_projects`, then `fabric_desktop_get_local_tables`; `fabric_desktop_get_local_table_history` for a Delta table's versions |
 | Check a proof (local run against Fabric) | `fabric_desktop_list_proofs`, then `fabric_desktop_get_proof` |
 
 Run and test on this PC through KratosForge before suggesting a run in Fabric. A local run starts

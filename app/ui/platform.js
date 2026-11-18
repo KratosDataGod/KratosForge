@@ -51,8 +51,11 @@ async function renderPlatform() {
   // keys are kept per environment; the glossary, governance and audit are organization-wide, so they
   // show no environment picker.
   const perEnv = p.tab === "overview" || (["landing", "keys"].includes(p.tab) && !(p.tab === "landing" && p.landingCentral) && !(p.tab === "keys" && p.keysShared));
-  setView(h("div", { class: "page" },
-    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Platform ", previewTag()), who)),
+  // Living Experience (home-hero.js, Preview): Chris's header art with the page's name on its sky; who
+  // you are on the platform stays under it in the page's own colours.
+  const hero = typeof pageHero === "function" ? pageHero("platform", "Platform ", { tag: previewTag() }) : null;
+  setView(h("div", { class: hero ? "page living-head" : "page" },
+    hero ? [hero, who] : h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Platform ", previewTag()), who)),
     platformTabBar(),
     h("div", { class: "row mesh-view-row" }, platformGroupSeg(), perEnv ? envSeg : null, h("span", { class: "spacer" }), btn("Refresh", "sync", () => render(), "tool outline")),
     body));

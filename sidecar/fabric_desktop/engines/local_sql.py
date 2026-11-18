@@ -34,6 +34,7 @@ What runs where, honestly (see each descriptor):
 from __future__ import annotations
 
 import contextlib
+import re
 import sqlite3
 import threading
 import time
@@ -257,6 +258,8 @@ def _refuse_outside(code: str, dialect: str | None) -> None:
             statements = _databricks(code) if dialect == "databricks" else sql.parse(code, dialect or "duckdb")
     except ValueError:
         return
+    from ..databricks_builtins_sql import WRITTEN_HERE
+    statements = [s for s in statements if not s.meta.get(WRITTEN_HERE)]  # an identity column's sequence, a comment
     for verdict in sql_policy.classify(statements, "lakehouse"):
         if verdict.kind == "fabric_mutation":
             word = (statements[verdict.statement - 1].sql(dialect="duckdb").split(None, 1) or ["This"])[0].upper()
@@ -278,6 +281,11 @@ def _databricks(code: str) -> list[Any]:
         statements = [s for s in sql_dialects.parse(sql.diff_spellings(sql._spark_spellings(code), databricks=True), read="databricks")
                       if isinstance(s, exp.Expression)]
     except ParseError as exc:
+        if re.search(r"\bMERGE\s+WITH\s+SCHEMA\s+EVOLUTION\b", code, re.IGNORECASE):  # sqlglot can't read it
+            from ..databricks_builtins_sql import _statement_refusal
+            raise _statement_refusal("MERGE WITH SCHEMA EVOLUTION", "DuckDB's MERGE can't add the source's "
+                                     "extra columns to the target table", "add them with ALTER TABLE ... ADD "
+                                     "COLUMN first, then MERGE without WITH SCHEMA EVOLUTION") from None
         raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(exc)}") from None
     if not statements:
         raise ValueError("The query is empty.")
@@ -291,6 +299,8 @@ def _databricks(code: str) -> list[Any]:
         if "the way it runs in Fabric" not in text:
             raise
         raise ValueError(_databricks_wording(text)) from None
+    # and its table statements: identity and generated columns, USING DELTA, refusals for the rest (WR-309)
+    rewritten = [written for statement in rewritten for written in databricks_builtins_sql.table_statements(statement)]
     # the same for a refusal written into the query, which stops it only when a row reaches it; only an
     # ERROR(...) that carries a refusal's own words, so a message the cell's author wrote stays as written
     for statement in rewritten:
@@ -311,7 +321,8 @@ def _databricks_wording(text: str) -> str:
     from .. import databricks_builtins_sql
     return (text.replace("the way it runs in Fabric", "the way it runs in Databricks")
             .replace(" run in Fabric only", " run on Databricks only")
-            .replace("Run the cell in Fabric", databricks_builtins_sql._WAREHOUSE))
+            .replace("Run the cell in Fabric", databricks_builtins_sql._WAREHOUSE)
+            .replace("Run it in Fabric, or rewrite", "Run it on a Databricks SQL warehouse, or rewrite"))
 
 
 class DuckDBSession(_SqlSession):
@@ -327,6 +338,8 @@ class DuckDBSession(_SqlSession):
         databricks_ip.register(self._con)  # Databricks SQL's IP address functions (databricks_builtins_sql)
         databricks_bytes.register(self._con)  # its byte-level string functions
         databricks_variant.register(self._con)  # and its VARIANT ones
+        from .. import spark_hash
+        spark_hash.register(self._con)  # sha2 at 224, 384 and 512 bits
 
     def _sql(self, code: str, dialect: str | None) -> str:
         if (dialect or "duckdb") == "duckdb":
@@ -344,13 +357,27 @@ class DuckDBSession(_SqlSession):
         from .. import sql
         from ..spark_decimals import spark_decimal_types
         statements = _databricks(code) if dialect == "databricks" else sql.parse(code, "spark")
+        if dialect == "databricks":
+            from ..databricks_builtins_sql import refuse_identity_writes
+            try:
+                refuse_identity_writes(statements, self._con)
+            except ValueError as exc:
+                raise Unsupported(str(exc)) from None
         try:
             # Spark's (and Databricks') decimal result types, from the session's tables as they are now: a
             # table the same cell creates isn't there yet, so a statement reading it keeps DuckDB's types
-            return ";\n".join(sql.duckdb_sql(spark_decimal_types(s, self._con, ansi=dialect == "databricks"))
-                               for s in statements)
+            return ";\n".join(sql.duckdb_sql(self._spark_types(spark_decimal_types(s, self._con, ansi=dialect == "databricks"),
+                                                            dialect)) for s in statements)
         except ValueError as exc:
-            raise Unsupported(str(exc)) from None
+            raise Unsupported(_databricks_wording(str(exc)) if dialect == "databricks" else str(exc)) from None
+
+    def _spark_types(self, statement: Any, dialect: str) -> Any:
+        """Spark SQL's to_json, written from its argument's type as Spark writes it (spark_json). Databricks
+        SQL keeps DuckDB's to_json, as listed in docs/sql-compatibility.md."""
+        if dialect == "databricks":
+            return statement
+        from ..spark_complex import spark_complex_types
+        return spark_complex_types(statement, self._con, kinds=("to_json",))
 
     def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
         if request.dialect == "snowflake":   # translated first, so even a refused cell shows its label
@@ -396,7 +423,24 @@ class DuckDBSession(_SqlSession):
     def plan(self, code: str, dialect: str | None = None) -> str:
         self._check_open()
         _refuse_outside(code, dialect)
-        rows = self._con.execute("EXPLAIN " + self._sql(code, dialect)).fetchall()
+        # the first statement's plan; EXPLAIN in front of the whole cell would plan the first and run the rest.
+        # An identity column's own sequence is made first (it changes nothing a query reads), so a CREATE TABLE
+        # that numbers its rows can be planned
+        from ..databricks_builtins_sql import IDENTITY_PREFIXES
+        statements = [s.query.strip() for s in self._con.extract_statements(self._sql(code, dialect))]
+        made: list[str] = []
+        try:
+            for statement in statements:
+                if not statement.upper().startswith(tuple(f"CREATE SEQUENCE {p}".upper() for p in IDENTITY_PREFIXES)):
+                    break
+                self._con.execute(statement)
+                made.append(statement.split()[2])
+            else:
+                statement = ""
+            rows = self._con.execute("EXPLAIN " + statement).fetchall() if statement else []
+        finally:  # and dropped again, so a plan leaves the session as it was
+            for name in made:
+                self._con.execute(f"DROP SEQUENCE IF EXISTS {name}")
         text = "\n".join(str(r[-1]) for r in rows)
         if dialect == "snowflake":
             return "Plan of the DuckDB translation on this PC, not of Snowflake's plan.\n" + text

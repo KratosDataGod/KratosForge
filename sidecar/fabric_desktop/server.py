@@ -53,7 +53,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_create_designation_workspace", "meta_keys_to_platform", "meta_keys_to_lakehouse",
            "meta_project", "meta_init", "meta_open", "meta_set_environment", "meta_create_workspace", "meta_entity", "meta_save_entity",
            "meta_new_entity", "meta_delete_entity", "meta_set_layers", "meta_run", "meta_preflight", "meta_runs", "meta_runs_all", "meta_run_detail",
-           "meta_promote_check", "meta_promote", "meta_last_release", "meta_releases", "meta_rollback_preview", "meta_rollback", "meta_lineage", "meta_keys", "meta_set_keys_workspace",
+           "meta_promote_check", "meta_promote", "meta_last_release", "meta_releases", "meta_rollback_preview", "meta_rollback", "meta_lineage", "meta_impact", "meta_edit_impact", "meta_keys", "meta_set_keys_workspace",
            "meta_new_key_table", "meta_delete_key_table", "meta_key_lookup", "meta_save_source_system",
            "meta_delete_source_system", "meta_source_read", "meta_sources_move", "meta_keys_sync", "meta_key_notebook",
            "run_notebook_in_fabric", "notebook_fabric_step_check", "notebook_vorder_cell", "run_notebook_fabric_step", "notebook_fabric_step_result", "fabric_runs", "cancel_fabric_run", "notebook_schedules", "add_notebook_schedule",
@@ -61,7 +61,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_build_model", "meta_profile", "meta_profile_preview", "meta_add_rules",
            "meta_set_compute", "meta_fabric_result", "meta_schedules", "meta_add_schedule", "meta_delete_schedule",
            "meta_versions", "meta_compare", "meta_promote_impact", "meta_quarantine", "meta_replay",
-           "meta_discard_quarantine", "meta_set_freshness", "meta_freshness", "meta_alerts", "meta_set_alerts",
+           "meta_discard_quarantine", "meta_set_freshness", "meta_freshness", "meta_data_health", "meta_data_health_list", "meta_data_health_watch", "meta_data_health_quiet", "meta_alerts", "meta_set_alerts",
            "meta_drift", "meta_drift_apply",
            "meta_table_history", "meta_restore", "cost_report", "set_cost_settings", "capacity_health",
            "usage_preview", "usage_import", "usage_import_delete",
@@ -135,6 +135,11 @@ METHODS |= OPTIMIZE_METHODS
 from .opportunities_service import METHODS as OPPORTUNITY_METHODS  # noqa: E402
 
 METHODS |= OPPORTUNITY_METHODS
+
+# The Fabric Excellence Assessment (excellence_service.py, engine only).
+from .excellence_service import METHODS as EXCELLENCE_METHODS  # noqa: E402
+
+METHODS |= EXCELLENCE_METHODS
 
 from .tenant_history_service import METHODS as TENANT_HISTORY_METHODS  # noqa: E402
 from .capacity_history_service import METHODS as CAPACITY_HISTORY_METHODS  # noqa: E402
@@ -244,6 +249,12 @@ METHODS |= NOTEBOOK_FOLDERS_METHODS
 from .notebook_formats_service import METHODS as NOTEBOOK_FORMATS_METHODS  # noqa: E402
 
 METHODS |= NOTEBOOK_FORMATS_METHODS
+
+# A notebook cell's change to a Prod-marked workspace waits for its typed name (prod_writes_service.py).
+from .prod_writes_service import METHODS as PROD_WRITES_METHODS  # noqa: E402
+
+METHODS |= PROD_WRITES_METHODS
+
 # Profile (progress_service.py): the person's private record of verified work and its report.
 from .progress_service import METHODS as PROFILE_METHODS  # noqa: E402
 

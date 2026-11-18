@@ -145,8 +145,12 @@ const MESH_CONTEXT = {
 function meshPage({ intro, context, actions, tabs, banners, groupSeg, body }) {
   const slots = meshSlotsFor(state.meta.tab, context);
   if (actions) slots.actions.replaceChildren(...actions.filter(Boolean));
-  return h("div", { class: "page mesh-page" },
-    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Data mesh"), slots.context, intro), slots.actions),
+  // Living Experience (home-hero.js, Preview): Chris's header art with the page's name on its sky. The
+  // tab's line and its buttons (up to three, and they change by tab) stay under it, buttons at the right.
+  const hero = typeof pageHero === "function" ? pageHero("datamesh", "Data mesh") : null;
+  return h("div", { class: hero ? "page mesh-page living-head" : "page mesh-page" },
+    hero ? [hero, h("div", { class: "page-head" }, h("div", {}, slots.context, intro), slots.actions)]
+      : h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Data mesh"), slots.context, intro), slots.actions),
     ...tabs,
     ...banners, slots.banners,
     h("div", { class: "row mesh-view-row" }, groupSeg, slots.views, h("span", { class: "spacer" }), slots.tools,
@@ -157,7 +161,8 @@ function meshPage({ intro, context, actions, tabs, banners, groupSeg, body }) {
 // ---------- main page ----------
 
 async function renderMetadata() {
-  setView(h("div", { class: "page" }, h("h1", {}, "Data mesh"), h("p", { class: "muted-text" }, "Loading the metadata project...")));
+  const hero = typeof pageHero === "function" ? pageHero("datamesh", "Data mesh") : null;
+  setView(h("div", { class: hero ? "page living-head" : "page" }, hero || h("h1", {}, "Data mesh"), h("p", { class: "muted-text" }, "Loading the metadata project...")));
   const p = await loadMetaProject();
   if (state.view !== "metadata") return;
   // The mesh's own tabs need no project, so they show even when the project couldn't be read.
@@ -492,6 +497,7 @@ async function renderEntity() {
   const errBox = h("div", {}, e.errors.length ? h("div", { class: "problems" }, h("b", {}, "This entity doesn't pass the save gate yet"), gateList(e.errors)) : null);
 
   const save = async () => {
+    if (previewShown() && !(await confirmContractChange(e.name, editor.value))) return;
     const res = await metaCall("meta_save_entity", { name: e.name, text: editor.value }, "Not saved");
     if (!res) return;
     toast(res.errors.length ? `Saved with ${res.errors.length} problem${res.errors.length === 1 ? "" : "s"} to fix` : "Saved. It passes the save gate.");
@@ -557,8 +563,9 @@ async function renderEntity() {
         errBox, editor),
       h("div", { class: "side" },
         h("div", { class: "card pad" }, h("b", {}, "Contract"), h("div", { class: "cols" }, cols)),
-        h("div", { class: "card pad" }, h("div", { class: "row" }, h("b", { class: "grow" }, "Lineage"),
-          preview("lineage", btn("Columns", "flow", () => columnLineage(e.name), "tool link small"))),
+        h("div", { class: "card pad" }, h("div", { class: "row wrap lineage-head" }, h("b", { class: "grow" }, "Lineage"),
+          preview("lineage", btn("Columns", "flow", () => columnLineage(e.name), "tool link small")),
+          preview("lineage", btn("Impact", null, () => impactDialog(e.name), "tool link small", { title: "What a change to one of its columns would break" }))),
           h("div", { class: "lineage3" },
             h("div", {}, h("span", { class: "muted-text small" }, "Reads"),
               e.reads.length ? e.reads.map((r) => h("button", { class: "node", onclick: () => openEntity(r) }, entityName(r)))
@@ -1524,7 +1531,7 @@ function dictionaryCard(plan) {
   load();
   const exportCsv = btn("Export CSV", "arrowDownload", async () => {
     const res = await metaCall("meta_model_dictionary_export", { layer: plan.layer }, "Not exported");
-    if (res) toast(`Saved ${res.rows.toLocaleString()} rows to ${res.path}`);
+    if (res) toast(`Saved ${res.rows.toLocaleString()} rows to ${res.path}${res.notes?.length ? `. ${res.notes.join(" ")}` : ""}`);
   }, "tool primary small");
   const save = btn("Save to the project", "save", async () => {
     const res = await metaCall("meta_model_dictionary_save", { layer: plan.layer }, "Not saved");

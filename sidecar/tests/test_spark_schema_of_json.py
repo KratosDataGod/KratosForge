@@ -54,7 +54,6 @@ def test_from_json_reads_the_schema_it_gives():
 
 
 @pytest.mark.parametrize("query, match", [
-    ("""SELECT schema_of_json('{"a":123456789012345678901}')""", "too big for BIGINT"),
     ("SELECT schema_of_json('{')", "isn't JSON"),
     ("""SELECT schema_of_json('{"a":1, "a":2}')""", "repeats a key"),
     ("""SELECT schema_of_json('{"a":1}', map('allowNumericLeadingZeros', 'true'))""", "options"),

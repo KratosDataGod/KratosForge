@@ -536,6 +536,9 @@ def download_app(dest: str, commit: str = "") -> int:
             continue
         with open(dest, "rb") as f:
             if commit.encode() in f.read():
+                # The shell re-checks the file against this once it holds it, just before the swap
+                # (main.rs update_app, update_guard.rs swap_in_checked).
+                print(f"verified {expected}", flush=True)
                 return 0
         print(f"The download was not build {commit[:7]}; trying again", flush=True)
     print(f"The release download is not build {commit[:7]} yet. Try again in a few minutes.", flush=True)

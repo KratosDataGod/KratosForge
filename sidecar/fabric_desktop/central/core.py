@@ -323,8 +323,7 @@ def _make_key_table(db: Db, name: str) -> bool:
                f"create_date TEXT NOT NULL)")
         db.run(f"INSERT INTO {t} ({name}_sk, {name}_bk, create_date) VALUES (?, ?, ?)",
                (UNKNOWN_KEY, UNKNOWN_BK, "1900-01-01T00:00:00+00:00"))
-    db.commit()
-    return True
+    return True  # committed by the caller, with its audit row: a table whose row can't be written isn't made
 
 
 def ensure_key_table(db: Db, name: str, by: str = "", business_key: str = "", description: str = "",
@@ -2445,7 +2444,10 @@ def record_request_progress(db: Db, id: str, made: dict[str, Any], by: str = "")
         raise PlatformError("Only a platform admin can carry out this request")
     detail = dict(req["detail"])
     detail["made"] = {**(detail.get("made") or {}), **{str(k): v for k, v in (made or {}).items()}}
-    db.run(f"UPDATE {db.t('catalog', 'request')} SET detail = ? WHERE id = ?", (json.dumps(detail), req["id"]))
+    # Only while it's still waiting: progress on a request decided or withdrawn meanwhile isn't recorded.
+    if db.run(f"UPDATE {db.t('catalog', 'request')} SET detail = ? WHERE id = ? AND status = 'waiting'",
+              (json.dumps(detail), req["id"])).rowcount == 0:
+        raise PlatformError("Only a waiting request can be carried out")
     _audit(db, by, f"made for {req['kind']} request", req["target"], {"request": req["id"], "made": made})
     db.commit()
     return _request_out(_row(db, "request", "id", req["id"]) or {})
@@ -2502,6 +2504,8 @@ def decide_request(db: Db, id: str, approve: bool, note: str = "", by: str = "")
         if req["kind"] == "join_domain":
             who = "the domain's owners or a platform admin"
         raise PlatformError(f"Only {who} can decide this request")
+    status = "approved" if approve else "declined"
+    _close_request(db, req, status, by, str(note or ""))
     if approve:
         d = req["detail"]
         if req["kind"] == "key_table":
@@ -2534,15 +2538,29 @@ def decide_request(db: Db, id: str, approve: bool, note: str = "", by: str = "")
             _upsert(db, "catalog", "grant", "id", {"id": f"{req['target']}|{req['project']}", "product_id": req["target"],
                                                    "project": req["project"], "request_id": req["id"],
                                                    "granted_by": _who(by), "granted_at": _now()})
-    status = "approved" if approve else "declined"
     what = {"request": req["id"], "project": req["project"]}
     if not approve and _left(req):
         what["left"] = _left(req)
-    db.run(f"UPDATE {db.t('catalog', 'request')} SET status = ?, decided_by = ?, decided_at = ?, note = ? WHERE id = ?",
-           (status, _who(by), _now(), str(note or ""), req["id"]))
     _audit(db, by, f"{status} {req['kind']}", req["target"], what)
     db.commit()
     return _request_out(_row(db, "request", "id", req["id"]) or {})
+
+
+def _close_request(db: Db, req: dict[str, Any], status: str, by: str, note: str | None = None) -> None:
+    """Move a waiting request to ``status``, first, before anything approving it makes: only while it is
+    still waiting, so of two people deciding it at once (or deciding and withdrawing) one does, and the
+    other is refused with nothing changed. The update holds the row until the call commits, so the second
+    finds it decided; the call's audit row commits with it or the whole decision is rolled back."""
+    at = _now()
+    sets, values = "status = ?, decided_by = ?, decided_at = ?", [status, _who(by), at]
+    if note is not None:  # a withdrawal leaves the note as it was
+        sets, values = sets + ", note = ?", values + [str(note)]
+    closed = db.run(f"UPDATE {db.t('catalog', 'request')} SET {sets} WHERE id = ? AND status = 'waiting'",
+                    values + [req["id"]]).rowcount
+    now = _row(db, "request", "id", req["id"]) or {}
+    # A driver that doesn't count rows (-1, as after SET NOCOUNT ON) is checked by what the row now says.
+    if closed == 0 or (closed != 1 and (now.get("status"), now.get("decided_by"), now.get("decided_at")) != (status, _who(by), at)):
+        raise PlatformError(f"That request was already {now.get('status') or 'removed'}")
 
 
 def _left(req: dict[str, Any]) -> dict[str, Any]:
@@ -2567,8 +2585,7 @@ def withdraw_request(db: Db, id: str, by: str = "") -> dict[str, Any]:
     if req["requested_by"] != _who(by) and not is_admin(db, by):
         raise PlatformError("Only the person who sent a request can withdraw it")
     req = _request_out(req)
-    db.run(f"UPDATE {db.t('catalog', 'request')} SET status = 'withdrawn', decided_by = ?, decided_at = ? WHERE id = ?",
-           (_who(by), _now(), req["id"]))
+    _close_request(db, req, "withdrawn", by)
     what = {"request": req["id"], "project": req["project"]}
     if _left(req):
         what["left"] = _left(req)

@@ -366,13 +366,31 @@ def _spark_date_results(statement: exp.Expression, ansi: bool) -> exp.Expression
     return statement
 
 
+_USER_REFUSED = ("in Fabric it names the identity running the notebook, and a SQL cell here would name DuckDB "
+                 "instead.")
+# Spark's session functions this PC refuses by name in a Spark SQL cell: the reason, after "so nothing ran: "
+_SESSION_REFUSED = {
+    "current_user": _USER_REFUSED, "user": _USER_REFUSED, "session_user": _USER_REFUSED,
+    "version": ("in Fabric it gives its Spark build and git revision, and a SQL cell here would give DuckDB's "
+                "version instead."),
+}
+
+
 def _spark_session_functions(statement: exp.Expression) -> exp.Expression:
     """Spark's session functions in a Fabric notebook, where DuckDB would describe its own session
     ('memory' for its catalog). current_catalog() is spark_catalog, as in Fabric; current_timezone()
     is the session's spark.sql.session.timeZone (DuckDB's TimeZone, which spark.conf.set changes).
     current_database() and current_schema() are refused: in Fabric they name the default lakehouse,
-    which a SQL cell here can't read; spark.catalog.currentDatabase() can. Databricks SQL keeps
+    which a SQL cell here can't read; spark.catalog.currentDatabase() can. current_user(), user(),
+    session_user() and version() are refused too: Fabric names the identity running the notebook and its
+    own Spark build, where DuckDB would give 'duckdb' and its own version. Databricks SQL keeps
     DuckDB's own answers (its session is the engine's, not a Unity Catalog one)."""
+    for user in list(statement.find_all(exp.CurrentUser, exp.SessionUser, exp.Anonymous)):
+        name = ("current_user" if isinstance(user, exp.CurrentUser) else "session_user"
+                if isinstance(user, exp.SessionUser) else user.name.lower())
+        if name in _SESSION_REFUSED:
+            raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric, so nothing ran: "
+                             f"{_SESSION_REFUSED[name]} Run the cell in Fabric.")
     for node in list(statement.find_all(exp.CurrentCatalog, exp.CurrentTimezone, exp.CurrentDatabase,
                                         exp.CurrentSchema)):
         if isinstance(node, exp.CurrentCatalog):

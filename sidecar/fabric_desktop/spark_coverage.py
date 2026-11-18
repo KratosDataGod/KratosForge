@@ -44,16 +44,17 @@ VARYING = frozenset({
 
 # WR-122: the page's note on a function above that has no value check here. The session and cluster ones
 # can't be checked on any PC; the others are checked by behaviour (tests/test_spark_unchecked_functions.py),
-# or wait for Spark's answers to tools/spark_value_cases/functions.txt.
+# and by Spark 3.5.3's answers to tools/spark_value_cases/functions.txt (tests/test_spark_functions_values.py).
 _LAKEHOUSE = "Fabric names the notebook's default lakehouse: it depends on the notebook, not on Spark."
-_USER = "Fabric names the identity running the notebook. 'duckdb' here, the engine's name, not a user's."
+_USER = "Fabric names the identity running the notebook. Refused here, where DuckDB would name itself."
 SESSION = {
     "current_database": _LAKEHOUSE,
     "current_schema": _LAKEHOUSE,
     "current_user": _USER,
     "user": _USER,
     "spark_partition_id": "Depends on how Fabric's cluster splits a query's rows into partitions.",
-    "version": "Fabric's Spark build and its git revision. DuckDB's version here, not Spark's.",
+    "session_user": _USER,
+    "version": "Fabric's Spark build and its git revision. Refused here, where DuckDB would give its own version.",
 }
 UNCHECKED = {
     **SESSION,

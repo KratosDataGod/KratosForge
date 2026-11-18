@@ -245,6 +245,8 @@ _TYPE_NAMES = [("TINYINT", "tinyint"), ("SMALLINT", "smallint"), ("BIGINT", "big
 def _typeof(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
     if len(args) != 1:
         return None
+    if isinstance(args[0], exp.Anonymous) and args[0].name.upper() in ("RAISE_ERROR", "ERROR"):
+        return exp.Literal.string("void")  # Spark names raise_error's type without running it
     # A scalar type, or a list of one (INTEGER[] -> array<int>); deeper types in lower case.
     # A struct or map is named from its type where spark_complex_types can work it out; otherwise refused.
     stop = ("'typeof() can''t run on this PC the way it runs in Fabric, because the struct or map''s type "
@@ -888,6 +890,8 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     **{name: _refuse(name.lower(), _JAVA) for name in ("JAVA_METHOD", "REFLECT")},
     **{name: _refuse(name.lower(), _INPUT_FILE) for name in ("INPUT_FILE_NAME", "INPUT_FILE_BLOCK_LENGTH",
                                                              "INPUT_FILE_BLOCK_START")},
+    "SQL_KEYWORDS": _refuse("sql_keywords", "this PC doesn't have Spark's list of SQL keywords and which of them "
+                            "are reserved."),
     "SPARK_PARTITION_ID": _refuse("spark_partition_id", "this PC doesn't split a query's rows into Spark "
                                   "partitions, so there is no partition number to give."),
     # Increasing and unique, as Spark promises (its values have gaps between partitions), as

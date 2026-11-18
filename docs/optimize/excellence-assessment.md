@@ -175,9 +175,9 @@ controls that compare an item with the others of its kind (FEA-PERF-001, FEA-PER
 pass an item only when every other notebook or pipeline in the workspace was read; if one wasn't (no
 access, or the read budget ran out), they are not evaluated and name the ones that weren't read.
 
-## The scorecard (Preview)
+## The scorecard
 
-**Optimize > Assessment > Excellence** shows the assessment, behind Preview. Pick a workspace and choose
+**Optimize > Assessment > Excellence** shows the assessment. Like the rest of Assessment, it is a Preview feature. Pick a workspace and choose
 **Assess**, or try the demonstration fixture, which makes no Fabric call and is labelled everywhere.
 
 - The overall score, the assured score, coverage and status sit side by side. The rating chip says

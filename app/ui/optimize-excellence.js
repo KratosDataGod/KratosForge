@@ -170,7 +170,7 @@ function excResult(r, showGaps) {
   out.push(h("h3", { class: "exc-sec" }, "Next actions ", r.fixture ? h("span", { class: "fx-chip" }, "Demonstration fixture") : null),
     r.next_actions.length
       ? h("div", { class: "exc-acts" }, r.next_actions.map((a) => excAction(r, a)))
-      : h("p", { class: "muted-text" }, "No control failed. That covers only what could be checked: see the coverage above and Gaps."));
+      : h("p", { class: "muted-text" }, "No control failed. That covers only what could be checked, so see the coverage above and Gaps."));
   const c = s.counts;
   out.push(h("div", { class: "exc-counts" },
     h("span", {}, h("b", {}, String(c.pass)), "Passed"), h("span", {}, h("b", {}, String(c.fail)), "Failed"),
@@ -190,9 +190,10 @@ function excDimCard(r, id) {
       h("span", { class: "exc-dm" }, "No control applies here yet."));
   }
   if (d.status === "not_evaluated" || d.coverage === 0) {
+    const need = r.outcomes.find((x) => x.dimension === id && x.needs)?.needs;
     return h("button", { type: "button", class: "exc-dim ne", onclick: () => excDimension(r, id) },
       h("span", { class: "exc-dn" }, name), h("span", { class: "exc-ds" }, "—"), h("span", { class: "exc-dr none" }, "Not evaluated"),
-      h("span", { class: "exc-dm" }, "Nothing here could be checked. It counts against coverage, never as passed."));
+      h("span", { class: "exc-dm" }, need ? `Needs ${need}. ` : "Nothing here could be checked. ", "It counts against coverage, never as passed."));
   }
   const label = d.status === "provisional" ? "Provisional" : d.status === "insufficient_evidence" ? "Insufficient evidence" : d.rating?.label || "";
   return h("button", { type: "button", class: "exc-dim", onclick: () => excDimension(r, id), "aria-label": `${name}: open its controls` },
@@ -255,7 +256,7 @@ function excFinding(r, f) {
     sec("Evidence", excEvidenceList(r, f.evidence_ids)),
     f.references?.length ? sec("References", h("div", { class: "row exc-refs" }, f.references.map((x) =>
       btn(x.title, "open", () => openLink(x.url), "tool link")))) : null,
-    h("p", { class: "muted-text small" }, `Rule ${f.rule}. Nothing is changed for you: KratosForge only reads.`));
+    h("p", { class: "muted-text small" }, `Rule ${f.rule}. Nothing is changed for you, because KratosForge only reads.`));
   const overlay = showDialog(f.title, body, [btn("Close", null, closeDialog, "tool outline")]);
   overlay.querySelector(".dialog")?.classList.add("assess-sheet");
 }

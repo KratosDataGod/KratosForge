@@ -1837,8 +1837,31 @@ def _in_script(exc: Exception, i: int, n: int, kind: str) -> Exception:
         return exc
 
 
+def _without_leading_comments(text: str) -> str:
+    """``text`` from its first word: spaces, ``--`` lines and ``/* */`` comments (which T-SQL nests) skipped."""
+    i = 0
+    while True:
+        while i < len(text) and text[i].isspace():
+            i += 1
+        if text.startswith("--", i):
+            end = text.find("\n", i)
+            i = len(text) if end < 0 else end + 1
+        elif text.startswith("/*", i):
+            depth, i = 1, i + 2
+            while i < len(text) and depth:
+                if text.startswith("/*", i):
+                    depth, i = depth + 1, i + 2
+                elif text.startswith("*/", i):
+                    depth, i = depth - 1, i + 2
+                else:
+                    i += 1
+        else:
+            return text[i:]
+
+
 def _kind(statement: str) -> str:
-    word = statement.lstrip().split(None, 1)[0].lower() if statement.strip() else ""
+    text = _without_leading_comments(statement)  # WR-236: "/* c */ SELECT 1" is a SELECT
+    word = text.split(None, 1)[0].lower() if text.strip() else ""
     return {"with": "select", "from": "select", "values": "select", "table": "select"}.get(word, word)
 
 

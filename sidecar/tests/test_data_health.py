@@ -268,10 +268,11 @@ def test_a_damaged_list_is_kept_as_a_copy_and_the_list_says_it_started_again(svc
     assert "reset" not in svc.meta_data_health_list()  # ... until a week has passed
 
 
-def test_a_list_that_isnt_an_object_starts_again_without_losing_the_file(svc):
+def test_a_list_that_isnt_an_object_is_kept_too_before_anything_is_saved_over_it(svc):
     (svc.root / "data_health.json").write_text("[1, 2]", encoding="utf-8")  # valid JSON, wrong shape
-    assert svc.meta_data_health_list()["tables"] == []
-    assert (svc.root / "data_health.json").read_text(encoding="utf-8") == "[1, 2]"  # nothing written over it
+    assert svc.meta_data_health_list()["reset"]["copy"].startswith("data_health.json.corrupt-")
+    [copy] = svc.root.glob("data_health.json.corrupt-*")
+    assert copy.read_text(encoding="utf-8") == "[1, 2]"
 
 
 def test_a_process_killed_mid_save_leaves_the_last_saved_list(svc):

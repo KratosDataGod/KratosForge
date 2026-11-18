@@ -389,13 +389,14 @@ class DataOpsMixin:
         now = dt.datetime.now(dt.timezone.utc)
         try:
             state = json.loads(jsonfile.read_text(path))
+            if not isinstance(state, dict):
+                raise ValueError("it isn't a Data health list")
         except FileNotFoundError:
             state = {}
         except ValueError:
             copy = jsonfile.set_aside(path, "Data health starts again with no watched tables")
             state = {"reset": {"at": now.isoformat(timespec="seconds"), "copy": copy.name}}
             jsonfile.write_json(path, state)
-        state = state if isinstance(state, dict) else {}
         watched = [w for w in state.get("watched") or [] if isinstance(w, dict) and w.get("entity") and w.get("env")]
         quiet = {k: v for k, v in (state.get("quiet") or {}).items() if isinstance(v, dict)}
         out: dict[str, Any] = {"watched": watched, "quiet": quiet}

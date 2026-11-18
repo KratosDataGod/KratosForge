@@ -72,7 +72,14 @@ def cases() -> list[tuple[str, str, object]]:
             ("REGEXP_SUBSTR", "COALESCE(REGEXP_SUBSTR('abc', 'z'), 'none')", "none"),
             ("REGEXP_SUBSTR", "REGEXP_SUBSTR('ABC', 'b', 1, 1, 'i')", "B"),
             ("REGEXP_SUBSTR", "REGEXP_SUBSTR('ABC', 'z', 1, 1, 'i')", None),
-            ("REGEXP_SUBSTR", "REGEXP_SUBSTR('abc', 'x*')", "")]  # an empty match is a match
+            ("REGEXP_SUBSTR", "REGEXP_SUBSTR('abc', 'x*')", ""),  # an empty match is a match
+            # regexp_substr parameters: "s ... the POSIX wildcard character . matches \n", "m ... multi-line mode"
+            ("REGEXP_SUBSTR", "REGEXP_SUBSTR('a' || CHR(10) || 'b', 'a.b', 1, 1, 's')", "a\nb"),
+            ("REGEXP_SUBSTR", "REGEXP_SUBSTR('A' || CHR(10) || 'b', 'a.b', 1, 1, 'is')", "A\nb"),
+            ("REGEXP_SUBSTR", "REGEXP_SUBSTR('a' || CHR(10) || 'b', 'a.b')", None),
+            ("REGEXP_SUBSTR", "REGEXP_SUBSTR('x' || CHR(10) || 'ab', '^a', 1, 1, 'm')", "a"),
+            ("REGEXP_SUBSTR", "REGEXP_SUBSTR('a' || CHR(10) || 'ab', '^a', 1, 2, 'm')", "a"),
+            ("REGEXP_SUBSTR", "REGEXP_SUBSTR('x' || CHR(10) || 'Ab', '^a', 1, 1, 'mi')", "A")]
     # contains: "Returns NULL if either input expression is NULL."
     for a, b in [("abc", "b"), ("abc", "z"), (None, "a"), ("abc", None), (None, None)]:
         out.append(("CONTAINS", f"CONTAINS({q(a)}, {q(b)})", None if a is None or b is None else b in a))
@@ -184,3 +191,15 @@ def test_a_ceil_scale_that_is_not_written_out_keeps_working(con: duckdb.DuckDBPy
 def test_a_scale_past_38_digits_builds_no_huge_text() -> None:
     translation = sf.translate("SELECT CEIL(1.5, 999999999), FLOOR(1.5, -999999999)")
     assert translation.runnable and len(translation.duckdb_sql) < 500
+
+
+def test_a_scale_the_exact_path_does_not_take_still_answers(con: duckdb.DuckDBPyConnection) -> None:
+    # 37 and 38 places, and a NUMBER(38, 2) near 10^35 at its own scale: no DECIMAL past 38 digits, no overflow.
+    expressions = ["CEIL(17.941::NUMBER(18,3), 38)", "FLOOR(17.941::NUMBER(18,3), 37)",
+                   "CEIL(123456789012345678901234567890123456.78::NUMBER(38,2), 2)",
+                   "FLOOR(123456789012345678901234567890123456.78::NUMBER(38,2), 1)"]
+    translation = sf.translate("SELECT " + ", ".join(expressions))
+    got = con.execute(translation.duckdb_sql).fetchall()[0]
+    assert float(got[0]) == pytest.approx(17.941) and float(got[1]) == pytest.approx(17.941)
+    assert got[2] == Decimal("123456789012345678901234567890123456.78")
+    assert got[3] == Decimal("123456789012345678901234567890123456.7")

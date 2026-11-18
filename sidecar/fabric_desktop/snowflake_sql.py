@@ -716,7 +716,8 @@ def _epoch_date(text: str) -> dt.date | None:
     scale = next(s for limit, s in ((31536000000, 0), (31536000000000, 3), (31536000000000000, 6), (None, 9))
                  if limit is None or number < limit)
     try:
-        return (dt.datetime(1970, 1, 1) + dt.timedelta(microseconds=number * 10 ** 6 // 10 ** scale)).date()
+        micro = number * 10 ** (6 - scale) if scale <= 6 else number // 10 ** (scale - 6)
+        return (dt.datetime(1970, 1, 1) + dt.timedelta(microseconds=micro)).date()
     except OverflowError:
         return None
 
@@ -743,6 +744,15 @@ def _rewrite_documented_edges(statement: exp.Expression) -> None:
     Arguments may be worked out more than once, which matters only when they aren't deterministic."""
     from .sql import _from_template
     for found in reversed(list(statement.find_all(exp.RegexpExtract))):
+        flags = found.args.get("parameters")
+        if isinstance(flags, exp.Literal) and "m" in flags.name:
+            # Snowflake's m is multi-line (^ and $ at each line); DuckDB's m option isn't, RE2's (?m) is
+            pattern = found.expression
+            found.set("expression", exp.Literal.string("(?m)" + pattern.name) if isinstance(pattern, exp.Literal)
+                      else exp.DPipe(this=exp.Literal.string("(?m)"), expression=pattern.copy()))
+            found.set("parameters", exp.Literal.string(flags.name.replace("m", "")) if flags.name.replace("m", "")
+                      else None)
+            flags = found.args.get("parameters")
         if found.args.get("occurrence") is not None and not (isinstance(found.args["occurrence"], exp.Literal)
                                                              and found.args["occurrence"].name == "1"):
             continue  # a later occurrence is read from REGEXP_EXTRACT_ALL, which is NULL past the last match
@@ -751,7 +761,7 @@ def _rewrite_documented_edges(statement: exp.Expression) -> None:
         if start is not None and not (isinstance(start, exp.Literal) and start.name == "1"):
             subject = exp.Substring(this=subject.copy(), start=start.copy())
         flags = found.args.get("parameters")
-        mode = "".join(c for c in flags.name if c in "ci") if isinstance(flags, exp.Literal) else ""
+        mode = "".join(c for c in flags.name if c in "cis") if isinstance(flags, exp.Literal) else ""
         test = [subject.copy(), found.expression.copy()] + ([exp.Literal.string(mode)] if mode else [])
         found.replace(exp.Case(ifs=[exp.If(this=exp.Anonymous(this="REGEXP_MATCHES", expressions=test),
                                            true=found.copy())]))
@@ -763,15 +773,18 @@ def _rewrite_documented_edges(statement: exp.Expression) -> None:
         if not (isinstance(places, exp.Literal) and not places.is_string and places.name.isdigit()):
             continue
         k = sign * int(places.name)
-        if abs(k) > 38:  # past any NUMBER's digits: left to the FLOAT rewrite, and no huge text is built
+        # Up to 6 places (the step's scale joins the NUMBER's, so a larger one could leave too few digits for a very
+        # large value) and down to -18; any other scale is left to the FLOAT rewrite, and no huge text is built.
+        if not -18 <= k <= 6:
             continue
-        whole = f"CAST(1{'0' * abs(k)} AS DECIMAL({abs(k) + 1}, 0))"
-        tenth = f"0.{'0' * (abs(k) - 1)}1"
-        up, down = (whole, tenth) if k >= 0 else (tenth, whole)
-        name = "CEIL" if isinstance(rounded, exp.Ceil) else "FLOOR"
-        # Multiplying by decimals keeps a NUMBER exact, and makes a whole number a NUMBER where DuckDB's CEIL of an
-        # integer gives a DOUBLE; a FLOAT stays a FLOAT, as in Snowflake.
-        rounded.replace(_from_template(f"({name}({{0}} * {up})" + (f" * {down})" if k else ")"), [rounded.this]))
+        step = f"0.{'0' * (k - 1)}1" if k > 0 else f"CAST(1{'0' * -k} AS DECIMAL({1 - k}, 0))"
+        ceil = isinstance(rounded, exp.Ceil)
+        beyond, move = ("kf_x > TRUNC(kf_x, {k})", step) if ceil else ("kf_x < TRUNC(kf_x, {k})", f"-{step}")
+        # TRUNC to the scale, then one step up (CEIL) or down (FLOOR) when something was cut off: a NUMBER stays
+        # exact and can't overflow as a multiply by 10^scale would, and ROUND clears a FLOAT's last bits. The value
+        # is read once, in a lambda.
+        body = (f"ROUND(TRUNC(kf_x, {k}) + CASE WHEN {beyond.format(k=k)} THEN {move} ELSE 0 END, {k})")
+        rounded.replace(_from_template(f"(LIST_TRANSFORM([{{0}}], kf_x -> {body}))[1]", [rounded.this]))
     for distance in list(statement.find_all(exp.Levenshtein)):
         most = distance.args.get("max_dist")
         if most is None or (isinstance(most, exp.Literal) and not most.is_string):
@@ -2046,7 +2059,7 @@ CATALOG = (
     ("SFX-024", "Rewritten", ("An ARRAY column or cast becomes a list of VARIANT values, so it holds what "
                 "ARRAY_CONSTRUCT makes and can read a JSON array. An OBJECT column or cast becomes JSON.")),
     ("SFX-026", "Rewritten", ("REGEXP_SUBSTR is NULL when nothing matches. CEIL and FLOOR with a written scale stay exact for a NUM"
-                "BER. EDITDISTANCE with a negative maximum is 0. NEXT_DAY and PREVIOUS_DAY read the first two letters of the day, after any leading spaces. CONTAINS with NULL is NULL. TIME_SLICE counts slices from 1970-01-01 (weeks from Monday 1969-12-29). TO_DATE and a cast to DATE of a string written in the query read MM/DD/YYYY and DD-MON-YYYY, and TO_DATE of a whole number reads it as epoch seconds, milliseconds, microseconds or nanoseconds by its size.")),
+                "BER. EDITDISTANCE with a negative maximum is 0. NEXT_DAY and PREVIOUS_DAY read the first two letters of the day, after any leading spaces. CONTAINS with NULL is NULL. TIME_SLICE counts slices from 1970-01-01 (weeks from Monday 1969-12-29). TO_DATE and a cast to DATE of a string written in the query read MM/DD/YYYY and DD-MON-YYYY, and TO_DATE of a string holding a whole number reads it as epoch seconds, milliseconds, microseconds or nanoseconds by its size.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),

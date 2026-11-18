@@ -490,6 +490,7 @@ Monitor has a tab for each source: **KratosForge** and **Fabric**. Another sourc
   - **Agents**: every [agent](agent.md) that serves your environments, from the status each one reports. See [Agents](#agents-preview) below.
   - **Run as**: which identity runs your workloads in each place, the credential it uses, and where data goes. See [Run as](#run-as-preview) below.
   - **Incidents**: one record per problem in each environment, shared with your team and your agents. See [Incidents](#incidents-preview) below.
+  - **Data health**: the tables you watch, with their freshness, rows per load and schema, read from each table's Delta log. See [Data health](#data-health-preview) below.
 
 **Fabric** has two pages: **Monitoring hub**, Fabric's own Monitoring hub for everything in your workspaces, on the whole page, with **Back**, **Home**, **Reload** and **Open in browser** on the view row; and **Schedules** (Preview), the schedules in Fabric's own job scheduler, with how their last run went, **On/Off**, **Open** and **Remove** (which deletes the schedule in Fabric; past runs stay). Fabric schedules run on capacity even when your PC is off.
 
@@ -651,6 +652,16 @@ Monitor > KratosForge > Operations > Run as lists each place your workloads run 
 - **Fabric schedules** on items in your environments' workspaces run as their owner, as Monitor > Fabric > Schedules last read them. Fabric doesn't say when the owner's access lapses, so that shows **Not visible**.
 
 The banner at the top lists what to look at: a certificate that has expired or ends within 30 days, and an agent whose last token request failed. For an agent that stopped reporting, its row shows its last report, as it was.
+
+### Data health (Preview)
+
+Monitor > KratosForge > Operations > Data health checks the tables you watch from each table's Delta log: in Dev on this PC, and in OneLake for Test and Prod with your sign-in. No Fabric job runs, and nothing in a table changes. **Watch a table...** adds a table of the metadata project in the environment you pick. Each table shows:
+
+- **Freshness**: how long ago the table's data last changed, against its freshness promise (`within_hours`).
+- **Volume**: whether the latest load wrote its usual number of rows. The usual is the median of the last 20 loads, with their spread, and the rule shows beside every alert. With fewer than 10 loads that recorded their rows, it says **Not enough history** and doesn't alert.
+- **Schema**: columns added, removed or retyped since the load before.
+
+Open alerts are listed at the top, in the app only. Click a table for a chart of rows per load against the usual band, and for each alert: **Open the run that wrote it** (when this app's run wrote it), **Acknowledge** (until a newer version alerts), **Snooze 1 day** and **Open an incident**, which opens [Report an incident](#incidents-preview) with the alert filled in, for the environment's shared list. Watch, Acknowledge and Snooze change only this PC's list, in `data_health.json` in the app's folder; an acknowledgement is forgotten once no current alert matches it. A number the log doesn't hold shows **Can't tell**; it is never estimated. How the numbers are worked out is in [Data health](metadata-guide.md#data-health-preview).
 
 ## Source control (Preview)
 

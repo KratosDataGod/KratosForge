@@ -253,5 +253,5 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `CREATE FUNCTION` | Refused | `CREATE FUNCTION dbo.f() RETURNS INT AS BEGIN RETURN 1 END` | CREATE FUNCTION dbo.f isn't mapped yet. Procedures and user-defined functions take parameters and use control flow, |
 | `USE` | Refused | `USE sales` | The local engine doesn't run T-SQL USE yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs in |
 | `FOR JSON` | Refused | `SELECT a FROM dbo.t FOR JSON PATH` | FOR JSON PATH isn't mapped yet. Build each row's JSON with JSON_OBJECT or JSON_ARRAY, or run it in a Fabric Warehou |
-| `OPTION (...)` | Refused | `SELECT a FROM dbo.t OPTION (MAXDOP 1)` | Unsupported query option. |
+| `OPTION (...)` | Refused | `SELECT a FROM dbo.t OPTION (MAXDOP 1)` | OPTION (MAXDOP) isn't carried yet. It isn't among the query hints Microsoft lists for a Fabric Warehouse; those tha |
 | `SET options` | Not checked | `SET NOCOUNT ON; SELECT 1` |  |

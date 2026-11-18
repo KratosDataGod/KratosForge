@@ -258,8 +258,8 @@ def _refuse_outside(code: str, dialect: str | None) -> None:
             statements = _databricks(code) if dialect == "databricks" else sql.parse(code, dialect or "duckdb")
     except ValueError:
         return
-    from ..databricks_builtins_sql import IDENTITY_SEQUENCE
-    statements = [s for s in statements if not s.meta.get(IDENTITY_SEQUENCE)]  # an identity column's own sequence
+    from ..databricks_builtins_sql import WRITTEN_HERE
+    statements = [s for s in statements if not s.meta.get(WRITTEN_HERE)]  # an identity column's sequence, a comment
     for verdict in sql_policy.classify(statements, "lakehouse"):
         if verdict.kind == "fabric_mutation":
             word = (statements[verdict.statement - 1].sql(dialect="duckdb").split(None, 1) or ["This"])[0].upper()
@@ -418,13 +418,19 @@ class DuckDBSession(_SqlSession):
         # that numbers its rows can be planned
         from ..databricks_builtins_sql import IDENTITY_PREFIXES
         statements = [s.query.strip() for s in self._con.extract_statements(self._sql(code, dialect))]
-        for statement in statements:
-            if not statement.upper().startswith(tuple(f"CREATE SEQUENCE {p}".upper() for p in IDENTITY_PREFIXES)):
-                break
-            self._con.execute(statement)
-        else:
-            statement = ""
-        rows = self._con.execute("EXPLAIN " + statement).fetchall() if statement else []
+        made: list[str] = []
+        try:
+            for statement in statements:
+                if not statement.upper().startswith(tuple(f"CREATE SEQUENCE {p}".upper() for p in IDENTITY_PREFIXES)):
+                    break
+                self._con.execute(statement)
+                made.append(statement.split()[2])
+            else:
+                statement = ""
+            rows = self._con.execute("EXPLAIN " + statement).fetchall() if statement else []
+        finally:  # and dropped again, so a plan leaves the session as it was
+            for name in made:
+                self._con.execute(f"DROP SEQUENCE IF EXISTS {name}")
         text = "\n".join(str(r[-1]) for r in rows)
         if dialect == "snowflake":
             return "Plan of the DuckDB translation on this PC, not of Snowflake's plan.\n" + text

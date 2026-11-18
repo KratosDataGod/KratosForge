@@ -997,6 +997,25 @@ def _rewrite_strings(statement: exp.Expression) -> None:
     from .sql import _from_template
     for soundex in list(statement.find_all(exp.SoundexP123)):
         soundex.replace(_from_template(_soundex_p123_template(), [soundex.this]))
+    # POSITION and CHARINDEX: "If the specified optional start_pos is beyond the end of the second argument (the
+    # string to search), the function returns 0." DuckDB's search from past the end found an empty search text
+    # there (POSITION('', 'a', 11) was 11). Binary values are left as they are.
+    # Deepest first in both loops, so a call nested in another is rewritten before the outer one is copied.
+    for found in reversed(list(statement.find_all(exp.StrPosition))):
+        start = found.args.get("position")
+        if start is None or _binary_valued(found.this):
+            continue
+        found.replace(_from_template("(CASE WHEN {1} > LENGTH({2}) THEN 0 ELSE {0} END)",
+                                     [found.copy(), start, found.this]))
+    # LPAD and RPAD: "If the pad argument is empty, no padding is inserted, but the result is still truncated to
+    # length length_expr." DuckDB's stopped with "Insufficient padding". A pad written as non-empty text needs nothing.
+    # A negative length gives '' (GREATEST), where DuckDB's LEFT would drop characters from the end.
+    for pad in reversed(list(statement.find_all(exp.Pad))):
+        fill = pad.args.get("fill_pattern")
+        if fill is None or (isinstance(fill, exp.Literal) and fill.is_string and fill.name) or _binary_valued(pad.this):
+            continue
+        pad.replace(_from_template("(CASE WHEN {2} = '' THEN LEFT({0}, GREATEST({1}, 0)) ELSE {3} END)",
+                                   [pad.this, pad.expression, fill, pad.copy()]))
 
 
 def _entries(obj: str) -> str:

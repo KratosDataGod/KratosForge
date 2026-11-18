@@ -1,0 +1,18 @@
+{
+  "schema": "local-project@1",
+  "id": "sales",
+  "name": "Sales",
+  "storage": "persistent",
+  "settings": {
+    "memory_limit": "",
+    "threads": 0,
+    "timeout_seconds": 0,
+    "max_temp_size": "",
+    "auto_refresh": true
+  },
+  "sources": [],
+  "overrides": {},
+  "catalog": {},
+  "refreshed": {},
+  "created_at": "2026-11-18T14:41:13Z"
+}

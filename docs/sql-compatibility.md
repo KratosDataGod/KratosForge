@@ -94,7 +94,7 @@ These cases still differ:
 
 ## Decimal results on this PC (LOC-005)
 
-Spark SQL run on this PC, in a notebook or on the DuckDB engine, and Databricks SQL on the DuckDB engine, give Spark's decimal type and value for division, multiplication, addition, subtraction, `%`, `pmod`, `div`, `avg`, `sum`, `round`, `bround`, `ceil` and `floor`. These follow Spark's own rules: DecimalPrecision with `spark.sql.decimalOperations.allowPrecisionLoss` on, the default. A division by zero gives NULL, as Spark does with ANSI mode off; Databricks SQL stops on it, as with ANSI mode on. For example, `CAST(1 AS DECIMAL(10,2)) / 3` is `decimal(14,6)` 0.333333 here, as in Fabric Spark. These results are checked against Spark's published rules in `sidecar/tests/test_spark_decimal_rules.py`. They haven't been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
+Spark SQL run on this PC, in a notebook or on the DuckDB engine, and Databricks SQL on the DuckDB engine, give Spark's decimal type and value for division, multiplication, addition, subtraction, `%`, `pmod`, `div`, `avg`, `sum`, `round`, `bround`, `ceil` and `floor`. These follow Spark's own rules: DecimalPrecision with `spark.sql.decimalOperations.allowPrecisionLoss` on, the default. A division by zero gives NULL, as Spark does with ANSI mode off; Databricks SQL stops on it, as with ANSI mode on. For example, `CAST(1 AS DECIMAL(10,2)) / 3` is `decimal(14,6)` 0.333333 here, as in Fabric Spark. A local data project's Spark SQL doesn't use these rules yet: it keeps DuckDB's types, so the same division gives a double there. These results are checked against Spark's published rules in `sidecar/tests/test_spark_decimal_rules.py`. They haven't been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
 
 These cases can still differ, and LOC-005 notes them:
 
@@ -455,7 +455,7 @@ When a project runs T-SQL on this PC, these date and time functions are checked 
 
 | Function | Here, as in a warehouse |
 | --- | --- |
-| `DATEADD` | Month and year steps end on the last day of a shorter month: `DATEADD(month, 1, '2024-01-31')` is `2024-02-29`, `DATEADD(year, 1, '2024-02-29')` is `2025-02-28`. A minute or hour added to a `date` is an error, as in T-SQL |
+| `DATEADD` | Month and year steps end on the last day of a shorter month: `DATEADD(month, 1, '2024-01-31')` is `2024-02-29 00:00:00`, `DATEADD(year, 1, '2024-02-29')` is `2025-02-28 00:00:00`. Text is read as a `datetime`, so the answer is one, as in T-SQL. A minute or hour added to a `date` is an error, as in T-SQL |
 | `DATEDIFF` | Boundaries crossed, not whole spans: `DATEDIFF(year, '2023-12-31', '2024-01-01')` is `1`, `DATEDIFF(week, Saturday, Sunday)` is `1`. The answer is an `int`, and a count past an int's range stops with T-SQL's "The datediff function resulted in an overflow" (`DATEDIFF(millisecond, ...)` over more than 24 days) |
 | `DATEDIFF_BIG` | The same counts as a `bigint`, with no overflow |
 | `EOMONTH` | The month's last day, with or without months to add: `EOMONTH('2024-01-31', 1)` is `2024-02-29` |
@@ -847,7 +847,7 @@ When a project runs T-SQL on this PC, arithmetic with a decimal side gets the pr
 | Case | Here, as in a warehouse | What can still differ |
 | --- | --- | --- |
 | `+`, `-`, `*` of decimals, or a decimal and an integer | T-SQL's type, and its value rounded to that scale. Past 38 digits the scale gives way as T-SQL's rules say (`decimal(38,10) * decimal(38,10)` is `decimal(38,6)`) | A value too big to work out exactly here (more whole digits than DuckDB leaves room for) is worked out in floating point, and the run's notes say so: about 15 significant digits match |
-| `/` with a decimal side | T-SQL's type, and the quotient worked out exactly and cut at that scale (`-10.25 / 3` is `-3.4166666666666`). An inner division is cut at its own scale first, as in T-SQL. Dividing by zero stops with "Divide by zero error encountered" | A dividend or divisor whose digits don't fit in 38 once moved is divided in floating point, and the notes say so. Also when a side calls `RAND` or `NEWID`, which can't be read twice |
+| `/` with a decimal side | T-SQL's type, and the quotient worked out exactly and cut at that scale (`-10.25 / 3` is `-3.416666`, and `-10.25 / CAST(3 AS INT)` is `-3.4166666666666`). An inner division is cut at its own scale first, as in T-SQL. Dividing by zero stops with "Divide by zero error encountered" | A dividend or divisor whose digits don't fit in 38 once moved is divided in floating point, and the notes say so. Also when a side calls `RAND` or `NEWID`, which can't be read twice |
 | `SUM` of a decimal | `decimal(38, s)` | Nothing |
 | `AVG` of a decimal, also with `OVER (...)` | `decimal(38, max(s, 6))` | The average is worked out in floating point, then given that type, and the notes say so |
 | Numbers written in the query | `1.5` is `decimal(2,1)`, and a whole number meets a decimal as `decimal(its digits, 0)`, so `1.0 / 3` is `0.333333` | Nothing |

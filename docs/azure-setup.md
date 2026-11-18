@@ -201,6 +201,7 @@ Have one person do this on a PC with the app installed:
 3. Open **OneLake**, expand a lakehouse, and choose **SQL query**. Run `SELECT * FROM <a table> LIMIT 10`. Expected: rows. This proves OneLake access from outside Fabric works.
 4. **Create > Notebook**, **Add data items**, attach a lakehouse they can write to, and run:
 
+   <!-- example: illustrative -->
    ```python
    import polars as pl
    from fabric_desktop import lakehouse

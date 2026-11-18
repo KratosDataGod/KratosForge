@@ -43,13 +43,14 @@ Delta tables with deletion vectors or column mapping are read correctly ([Delta 
 
 A project writes Delta tables into its own `Tables` folder, one folder per table, as a schema-enabled lakehouse does (`Tables\dbo\sales`). They are views in the project like any other table, and every write is one Delta commit made with delta-rs.
 
+<!-- example: runs -->
 ```sql
 -- Create one (fails if it exists; IF NOT EXISTS skips it, OR REPLACE gives it a new schema)
 CREATE TABLE sales USING DELTA PARTITIONED BY (year) AS
 SELECT *, year(order_date) AS year FROM dbo.orders;
 
 INSERT INTO sales SELECT * FROM dbo.new_orders;      -- add rows
-INSERT INTO sales BY NAME SELECT amount, id FROM t;  -- match columns by name, not position
+INSERT INTO sales BY NAME SELECT year, amount, order_date, id FROM dbo.new_orders;  -- match columns by name, not position
 INSERT OVERWRITE sales SELECT * FROM sales WHERE year >= 2025;  -- replace every row
 ```
 
@@ -82,12 +83,13 @@ Times are UTC. A time picks the last version committed at or before it. To resto
 
 **Changing rows: MERGE, UPDATE and DELETE.** The project's Delta tables take the statements Fabric and Databricks notebooks use, in either dialect, each in one commit:
 
+<!-- example: runs -->
 ```sql
 MERGE INTO customers AS t USING updates AS s ON t.id = s.id
   WHEN MATCHED AND s.deleted THEN DELETE
   WHEN MATCHED THEN UPDATE SET *                  -- or SET t.name = s.name, ...
   WHEN NOT MATCHED THEN INSERT *                  -- or INSERT (id, name) VALUES (s.id, s.name)
-  WHEN NOT MATCHED BY SOURCE THEN DELETE;         -- rows the source no longer has
+  WHEN NOT MATCHED BY SOURCE AND t.region = 'EU' THEN DELETE;  -- EU rows the source no longer has
 UPDATE customers SET spend = spend * 1.1 WHERE region = 'EU';
 DELETE FROM customers WHERE last_order < '2020-01-01';
 ```
@@ -183,6 +185,7 @@ A project's transformations are SQL files in `transforms\<schema>\<name>.sql`, o
 
 **Settings** are comment lines at the top of a file:
 
+<!-- example: illustrative -->
 ```sql
 -- dialect: spark
 -- materialize: delta

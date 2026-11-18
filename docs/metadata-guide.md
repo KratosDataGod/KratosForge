@@ -449,6 +449,7 @@ With Preview features on, the platform's list is the one list of source systems:
 
 **Variable library VL_Sources** (Preview, on the same tab; not yet run on a tenant) is one Fabric variable library per environment workspace, with that environment's values active. **Publish to Dev / Test / Prod** creates or updates it; promote updates it in the target. Notebooks read the same names in Fabric and on your PC:
 
+<!-- example: illustrative -->
 ```python
 lib = notebookutils.variableLibrary.getLibrary("VL_Sources")
 lib.CRM_server_host

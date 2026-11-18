@@ -10,6 +10,7 @@ Notebooks in KratosForge look and work like Fabric's, but every cell runs in a P
 4. Run the cell with **Shift+Enter**. Output shows below it.
 5. Write a result back:
 
+   <!-- example: illustrative -->
    ```python
    import polars as pl
    from fabric_desktop import lakehouse
@@ -76,6 +77,7 @@ Most notebooks written for Fabric run here unchanged.
 
 **`spark` is ready in every cell.** It is DuckDB's PySpark-compatible API, wired to the attached lakehouse. There's no Spark cluster; everything runs on this PC.
 
+<!-- example: illustrative -->
 ```python
 df = spark.read.table("dbo.sales")
 df = spark.sql("SELECT region, SUM(amount) AS total FROM sales GROUP BY region")

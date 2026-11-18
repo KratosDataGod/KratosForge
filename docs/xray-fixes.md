@@ -49,6 +49,7 @@ Follow the job in **Monitor**. Old versions within that time stay readable (time
 
 **By hand.** In Fabric, open the lakehouse, select **...** next to the table, then **Maintenance**. Tick **Run OPTIMIZE command** and **Apply V-Order**, tick **Run VACUUM command** with a retention of 7 days, and select **Run now**. Or in a notebook:
 
+<!-- example: illustrative -->
 ```sql
 OPTIMIZE my_schema.my_table VORDER;
 VACUUM my_schema.my_table RETAIN 168 HOURS;

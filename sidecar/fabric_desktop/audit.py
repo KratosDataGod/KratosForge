@@ -136,9 +136,18 @@ def target(params: dict[str, Any]) -> dict[str, Any]:
 # query or edit still runs as before when its line can't be written.
 FAIL_CLOSED = frozenset({"meta_promote", "meta_rollback", "meta_restore", "xray_optimize", "xray_vacuum", "shortcut_repoint",
                          "shortcut_repoint_many", "shortcut_undo", "shortcut_accept_risk",
-                         # a delete in Fabric: a shortcut, a OneLake security role, a job schedule
-                         "delete_shortcut", "access_delete_role", "delete_fabric_schedule",
-                         # someone's access taken away: a data product grant, a platform admin, an AI tool
+                         # a delete in Fabric or OneLake: a shortcut, a OneLake security role, a job schedule
+                         # (a pipeline's, a notebook's, the metadata project's runner), a leftover staging
+                         # lakehouse, a proof's or replay's outputs
+                         "delete_shortcut", "access_delete_role", "delete_fabric_schedule", "delete_notebook_schedule",
+                         "meta_delete_schedule", "xray_remove_staging", "prove_delete_outputs", "replay_delete_outputs",
+                         # a delete in the shared platform catalog, and a governance policy taken off a scope
+                         "platform_delete_domain", "platform_delete_landing_zone", "platform_delete_source",
+                         "platform_remove_product_item", "governance_template_delete", "governance_unassign",
+                         # someone's access taken away: a data product grant, a platform admin, an AI tool.
+                         # (academy_sandbox_remove_grants isn't: it takes the exercise sandbox's read
+                         # permission off this PC's Python, which only narrows access, and the next exercise
+                         # grants it again.)
                          "platform_revoke", "platform_remove_admin", "integrations_revoke_client"})
 # Parameter names, matched exactly. test_audit lists every audited method's parameters that look like
 # one of these and fails on a name in neither set, so a new one is reviewed rather than missed.

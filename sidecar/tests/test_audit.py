@@ -268,6 +268,9 @@ def test_a_delete_in_fabric_or_a_removed_access_doesnt_run_unrecorded(tmp_path, 
              "platform_revoke": {"product_id": "p", "project": "x"},
              "platform_remove_admin": {"user": "ann@contoso.com"},
              "integrations_revoke_client": {"client_id": "c"},
+             "delete_notebook_schedule": {"name": "n", "schedule_id": "s1"},
+             "xray_remove_staging": {"workspace_id": "w", "lakehouse_id": "l", "lakehouse_name": "staging"},
+             "governance_unassign": {"policy": "p", "scope": "domain"},
              "publish_notebook": {"name": "n", "cells": [], "replace_fabric_changes": True}}
     for method in calls:
         monkeypatch.setattr(Service, method, lambda self, *a, _m=method, **k: ran.append(_m) or {})
@@ -280,3 +283,47 @@ def test_a_delete_in_fabric_or_a_removed_access_doesnt_run_unrecorded(tmp_path, 
         reply = server.handle(svc, json.dumps({"id": i, "method": method, "params": params}))
         assert "audit log couldn't be written, so this didn't run" in reply.get("error", ""), method
     assert ran == []
+
+
+# Every audited call that deletes, removes, revokes or resets something either fails closed (above) or
+# says here why it needn't: each acts only on this PC, or on a file of the open project, and asks first
+# on its screen. A new one fails until it's reviewed, so a delete in Fabric can't be added unrecorded.
+LOCAL_REMOVALS = {
+    "academy_reset": "an exercise's own files on this PC",
+    "academy_sandbox_remove_grants": "narrows the exercise sandbox's access on this PC; the next exercise grants it again",
+    "appstudio_connection_delete": "a saved model connection on this PC",
+    "databricks_sync_pair_remove": "a saved sync pair on this PC; neither side is touched",
+    "delete_pc_schedule": "a schedule on this PC",
+    "engine_connection_remove": "a saved connection in this PC's profile",
+    "environment_delete": "a Python environment on this PC",
+    "git_delete_branch": "a local branch; force is a go-ahead (GUARD_PARAMS)",
+    "learn_lab_reset": "a lab's own files on this PC",
+    "local_drop_delta": "a table on this PC; confirm is a go-ahead (GUARD_PARAMS)",
+    "local_remove_source": "views over a folder; the files are never touched",
+    "local_writes_clear": "spill and temporary files on this PC",
+    "mesh_delete_link": "a file of the open project",
+    "mesh_delete_product": "a file of the open project",
+    "meta_delete_entity": "a file of the open project",
+    "meta_delete_key_table": "a file of the open project; aimed at Prod it fails closed (env)",
+    "meta_delete_source_system": "a file of the open project; aimed at Prod it fails closed (env)",
+    "notebook_comment_delete": "a comment in a notebook file on this PC",
+    "notebook_delete": "moves a notebook to Recently deleted on this PC; its Fabric item isn't touched",
+    "notebook_folder_delete": "a folder of notebooks on this PC",
+    "notebook_resource_delete": "a notebook's resource file on this PC",
+    "notebook_version_delete": "a saved version on this PC",
+    "profile_avatar_remove": "this PC's profile picture",
+    "profile_delete": "this PC's profile",
+    "profile_goal_remove": "a goal in this PC's profile",
+    "sql_query_delete": "a saved query on this PC",
+    "sql_template_delete": "a saved template on this PC",
+    "usage_import_delete": "an imported usage file on this PC",
+}
+
+
+def test_every_delete_either_fails_closed_or_says_why_it_neednt():
+    import re
+    removes = re.compile(r"(^|_)(delete|deleted|remove|revoke|unassign|drop|purge|wipe|clear|reset)(_|$)")
+    found = {m for m in server.METHODS if removes.search(m) and audit.audited(m)}
+    assert sorted(found - audit.FAIL_CLOSED - set(LOCAL_REMOVALS)) == [], \
+        "a new delete: add it to audit.FAIL_CLOSED, or to LOCAL_REMOVALS with why it acts only on this PC"
+    assert sorted(set(LOCAL_REMOVALS) - found) == [] and not set(LOCAL_REMOVALS) & audit.FAIL_CLOSED

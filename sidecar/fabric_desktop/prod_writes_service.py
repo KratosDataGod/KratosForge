@@ -84,7 +84,9 @@ class ProdWritesMixin:
         except LookupError:  # no project open
             return False
         except Exception as exc:  # noqa: BLE001 - an unreadable project names nothing; the remembered ids still hold
-            _log.info("Couldn't read the metadata project for the Prod check: %s", describe_error(exc))
+            # A warning: a Prod workspace the broken project names and no earlier one did goes unguarded meanwhile.
+            _log.warning("Couldn't read the metadata project for the Prod check, so only the Prod workspaces "
+                         "remembered on this PC are asked about: %s", describe_error(exc))
             return False
         return wanted in self._remember_prod_workspaces(project)
 
@@ -94,6 +96,11 @@ class ProdWritesMixin:
         if not self._prod_marked(workspace_id):
             return None
         shown = workspace_name or workspace_id
+        from . import lakehouse
+        if notebook == lakehouse.NO_CELL:  # not a cell's own write, during a cell run: typing the name can't allow it
+            return (f"{operation.upper()} on {table} would change {shown}, a Prod workspace, while a notebook cell is "
+                    "running. Only that cell's own code can be allowed to do that, so nothing was changed. Try again "
+                    "when the cell has finished, or make the change in the cell's own code rather than a thread it starts.")
         with self._prod_lock:
             self._prod_state()["pending"][notebook or ""] = {
                 "workspace_id": workspace_id, "workspace_name": shown, "operation": operation.upper(),
@@ -120,6 +127,9 @@ class ProdWritesMixin:
 
     def notebook_prod_confirm(self, notebook: str = "", workspace_id: str = "", confirm_name: str = "") -> dict[str, Any]:
         """The person typed the Prod workspace's name: its next cell run (within ALLOW_SECONDS) may change it."""
+        from . import lakehouse
+        if notebook == lakehouse.NO_CELL:  # a write that is no cell's: nothing it asked can be allowed
+            raise ValueError("This change wasn't made by a notebook cell, so typing the name can't allow it.")
         with self._prod_lock:
             state = self._prod_state()
             p = state["pending"].get(notebook or "")

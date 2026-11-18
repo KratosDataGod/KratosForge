@@ -278,6 +278,31 @@ fn wait_until_unused_with(path: &Path, attempts: u32, pause: Duration) {
     let _ = (path, attempts, pause);
 }
 
+/// Whether this exe can replace itself: an update renames it and puts the new build in its folder,
+/// so the folder must be one this account can change. An exe IT copied into `C:\Program Files`
+/// can't; finding that out before the download saves the download and the 15 s of retries
+/// rename_retrying would spend on "Access is denied". Any other trouble with the probe lets the
+/// update go ahead and report what goes wrong.
+pub fn can_update_in_place(exe: &Path) -> Result<(), String> {
+    let Some(dir) = exe.parent() else { return Ok(()) };
+    match probe_writable(dir) {
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => Err(format!(
+            "KratosForge is in {}, a folder your account can't change, so it can't update itself. \
+             Ask IT to deploy the new build, or install KratosForge for your account with the MSI.",
+            dir.display()
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Creates and removes an empty file in `dir`.
+fn probe_writable(dir: &Path) -> std::io::Result<()> {
+    let probe = dir.join(format!(".kratosforge-update-probe-{}", std::process::id()));
+    std::fs::OpenOptions::new().write(true).create_new(true).open(&probe)?;
+    let _ = std::fs::remove_file(&probe);
+    Ok(())
+}
+
 /// Puts `new` in place of `exe`, keeping the running exe as `old`.
 ///
 /// The download is waited on first, while the running exe is still in place: moving the exe aside
@@ -811,6 +836,36 @@ mod tests {
         let started = std::time::Instant::now();
         wait_until_unused_with(&dir.join("app.exe.new"), 60, Duration::from_millis(250));
         assert!(started.elapsed() < Duration::from_secs(2));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_exe_in_a_folder_it_can_change_can_update_itself_and_the_probe_is_gone() {
+        let dir = scratch("probeok");
+        assert_eq!(can_update_in_place(&dir.join("app.exe")), Ok(()));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0, "the probe file was left behind");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_probe_that_fails_for_another_reason_lets_the_update_try() {
+        let dir = scratch("probemissing");
+        assert_eq!(can_update_in_place(&dir.join("no-such-folder").join("app.exe")), Ok(()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_exe_in_a_folder_it_cant_change_says_so_before_downloading() {
+        let dir = scratch("probedenied");
+        let target = dir.to_string_lossy().into_owned();
+        // Everyone may not add files here: the folder an exe copied into Program Files is in.
+        let deny = std::process::Command::new("icacls").args([&target, "/deny", "*S-1-1-0:(AD,WD)"]).output().unwrap();
+        assert!(deny.status.success(), "{}", String::from_utf8_lossy(&deny.stdout));
+        let result = can_update_in_place(&dir.join("app.exe"));
+        let _ = std::process::Command::new("icacls").args([&target, "/remove:d", "*S-1-1-0"]).output();
+        let err = result.unwrap_err();
+        assert!(err.contains("can't update itself") && err.contains(&target), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

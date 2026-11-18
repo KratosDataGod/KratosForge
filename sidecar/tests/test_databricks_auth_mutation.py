@@ -113,7 +113,7 @@ def test_an_env_reference_reads_the_given_environment_or_this_pcs():
 def test_an_env_reference_with_no_environment_given_reads_this_pcs(monkeypatch):
     monkeypatch.setenv("KF_DBX_MUTATION_SECRET", "from-os")
     assert dba.resolve_secret("env:KF_DBX_MUTATION_SECRET") == "from-os"
-    assert dba.resolve_secret("env:KF_DBX_MUTATION_SECRET", {"KF_DBX_MUTATION_SECRET": "given"}) == "given"
+    assert dba.resolve_secret("env:KF_DBX_MUTATION_SECRET", {"KF_DBX_MUTATION_SECRET": "given"}) == "given"  # pragma: allowlist secret (test value)
 
 
 def test_a_missing_cli_profile_is_named(tmp_path):

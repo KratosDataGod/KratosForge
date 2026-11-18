@@ -301,6 +301,8 @@ def _databricks(code: str) -> list[Any]:
         raise ValueError(_databricks_wording(text)) from None
     # and its table statements: identity and generated columns, USING DELTA, refusals for the rest (WR-309)
     rewritten = [written for statement in rewritten for written in databricks_builtins_sql.table_statements(statement)]
+    # and the statements Databricks answers another way: DESCRIBE TABLE, MERGE's multiple matches, refusals
+    rewritten = [written for statement in rewritten for written in databricks_builtins_sql.other_statements(statement)]
     # the same for a refusal written into the query, which stops it only when a row reaches it; only an
     # ERROR(...) that carries a refusal's own words, so a message the cell's author wrote stays as written
     for statement in rewritten:

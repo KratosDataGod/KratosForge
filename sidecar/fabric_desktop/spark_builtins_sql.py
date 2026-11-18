@@ -1294,8 +1294,20 @@ def _rewrite(statement: exp.Expression) -> exp.Expression:
             if isinstance(node, exp.ExplodeOuter) and isinstance(node.parent, exp.Select):
                 replacement = cast(exp.Expression, exp.alias_(replacement, "col"))  # Spark names explode_outer's column col
             node.replace(replacement)
+    _lateral_rows(statement)
     _no_duckdb_hash(statement)
     return statement
+
+
+def _lateral_rows(statement: exp.Expression) -> None:
+    """stack, json_tuple and inline give rows of structs, which UNNEST(..., max_depth := 2) spreads
+    into columns. After LATERAL VIEW, DuckDB's UNNEST leaves out max_depth, so each row would be one
+    struct column; written as inline, it becomes a CROSS JOIN LATERAL subquery that keeps it."""
+    for lateral in list(statement.find_all(exp.Lateral)):
+        rows = lateral.this
+        if (lateral.args.get("view") and type(rows) is exp.Explode and len(rows.expressions) == 1
+                and isinstance(rows.expressions[0], exp.PropertyEQ) and rows.expressions[0].name == "max_depth"):
+            rows.replace(exp.Inline(this=rows.this))
 
 
 def _no_duckdb_hash(statement: exp.Expression) -> None:

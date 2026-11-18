@@ -67,6 +67,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [vscode.md](vscode.md) | Engineers | VS Code and KratosForge on the same notebooks: Open in VS Code, editing in both, `kratosforge://` links back, repository setup, Copilot (Preview) |
 | [home-notebooks.md](home-notebooks.md) | Engineers, analysts | Home's Recent notebooks: each notebook's workspace, lakehouse and last run, running several at once, and items pinned to Home (Preview) |
 | [learn.md](learn.md) | Everyone | Learn (Preview): lessons, paths and practice labs that run on this PC, the best-practice rules explained, and guidance modes; [writing a lesson](learn/writing-lessons.md) for authors |
+| [notebook-editor/debugger.md](notebook-editor/debugger.md) | Engineers | Breakpoints and step-through in notebook cells: what debugs on this PC and what doesn't, and the limits (Preview) |
 | [notebook-fabric-step.md](notebook-fabric-step.md) | Engineers | Run the last cell on Fabric Spark after the others run on this PC, to V-Order tables for Direct Lake (Preview) |
 | [notebook-best-practices.md](notebook-best-practices.md) | Engineers | Best-practice checks on a notebook's code, read on this PC without running it (Preview) |
 | [notebook-folders.md](notebook-folders.md) | Engineers, analysts | Notebook folders: group notebooks into folders, move a notebook into one, rename a folder, delete an empty one; publishing from a folder (Preview) |

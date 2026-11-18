@@ -337,7 +337,10 @@ def _read(path: Path) -> dict[str, Any]:
     moved aside as ``<name>.corrupt-<timestamp>`` rather than left for the next save to overwrite (QA-011)."""
     try:
         data = json.loads(jsonfile.read_text(path).lstrip("\ufeff"))
-    except ValueError:  # UnicodeDecodeError too
+        if not isinstance(data, dict):
+            raise ValueError("not one JSON object")
+    except (ValueError, RecursionError):  # UnicodeDecodeError too; RecursionError: nested too deep to parse
+        # Set aside too when it parsed but isn't an object (a list, a number): the next save would replace it.
         try:
             jsonfile.set_aside(path, then="your settings are back to their defaults until you change one")
         except OSError:
@@ -345,7 +348,7 @@ def _read(path: Path) -> dict[str, Any]:
         return {}
     except OSError:
         return {}
-    return {k: v for k, v in data.items() if k in DEFAULTS} if isinstance(data, dict) else {}
+    return {k: v for k, v in data.items() if k in DEFAULTS}
 
 
 def saved_policy_path() -> Path:
@@ -419,6 +422,8 @@ def _file_policy(digest: dict[str, str | None] | None = None) -> tuple[dict[str,
     except FileNotFoundError:
         saved.unlink(missing_ok=True)  # IT removed the policy: an old copy mustn't come back later
         return {}, None, False
+    except RecursionError:
+        reason = "can't be read as JSON (it is nested too deeply)"
     except (OSError, ValueError) as exc:
         reason = f"can't be read as JSON ({exc})" if isinstance(exc, ValueError) else f"can't be opened ({exc})"
     else:
@@ -428,7 +433,7 @@ def _file_policy(digest: dict[str, str | None] | None = None) -> tuple[dict[str,
         reason = "must hold one JSON object"
     try:
         copy = json.loads(saved.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         copy = None
     if isinstance(copy, dict):
         return copy, (f"{path} {reason}, so the last copy that could be read ({_saved_at(saved)}) applies "

@@ -88,6 +88,23 @@ class Project:
                 "tables": len(self.catalog), "created_at": self.created_at}
 
 
+def _project(raw: Any, folder: str) -> Project:
+    """The project ``raw`` (project.json as parsed) describes; TypeError or ValueError when it isn't one."""
+    if not isinstance(raw, dict):
+        raise TypeError(f"it holds {type(raw).__name__}, not one JSON object")
+    for key, kind in (("id", str), ("name", str), ("storage", str), ("settings", dict), ("sources", list),
+                      ("overrides", dict), ("catalog", dict), ("refreshed", dict), ("created_at", str)):
+        if key in raw and not isinstance(raw[key], kind):
+            raise TypeError(f"{key} is {type(raw[key]).__name__}, not {kind.__name__}")
+    if not all(isinstance(s, dict) for s in raw.get("sources", [])):
+        raise TypeError("each of sources is one JSON object")
+    return Project(id=raw["id"], name=raw["name"], folder=folder, storage=raw.get("storage", "persistent"),
+                   settings=Settings(**raw.get("settings", {})),
+                   sources=[Source(**s) for s in raw.get("sources", [])],
+                   overrides=raw.get("overrides", {}), catalog=raw.get("catalog", {}),
+                   refreshed=raw.get("refreshed", {}), created_at=raw.get("created_at", ""))
+
+
 def _norm(path: str) -> str:
     return os.path.normcase(os.path.abspath(os.path.expanduser(path)))
 
@@ -102,7 +119,8 @@ class ProjectStore:
     def _index(self) -> dict[str, str]:
         try:
             index = jsonfile.read_json(self.index_file, {})
-            return index if isinstance(index, dict) else {}
+            # Only id -> folder entries: one of another type (a hand edit) is left off, not a crash for every project.
+            return {k: v for k, v in index.items() if isinstance(v, str) and v} if isinstance(index, dict) else {}
         except (OSError, ValueError):
             return {}
 
@@ -122,12 +140,15 @@ class ProjectStore:
         folder = self._index().get(pid)
         if folder is None:
             raise KeyError(f"No local data project {pid!r}.")
-        raw = json.loads((Path(folder) / "project.json").read_text(encoding="utf-8"))
-        return Project(id=raw["id"], name=raw["name"], folder=folder, storage=raw.get("storage", "persistent"),
-                       settings=Settings(**raw.get("settings", {})),
-                       sources=[Source(**s) for s in raw.get("sources", [])],
-                       overrides=raw.get("overrides", {}), catalog=raw.get("catalog", {}),
-                       refreshed=raw.get("refreshed", {}), created_at=raw.get("created_at", ""))
+        path = Path(folder) / "project.json"
+        try:  # OSError (a folder that's gone or can't be opened) is raised as it is
+            return _project(json.loads(path.read_text(encoding="utf-8")), folder)
+        except (ValueError, TypeError, KeyError, AttributeError, OverflowError, RecursionError) as exc:
+            # A torn write, a hand edit or another program's file: named, so the list skips it and says why,
+            # and the file is left as it is for the person to fix (nothing here writes it back).
+            what = f"{exc.args[0]!r} is missing" if isinstance(exc, KeyError) and exc.args else (
+                "it is nested too deeply" if isinstance(exc, RecursionError) else str(exc))
+            raise ValueError(f"{path} isn't a local data project file that can be read: {what}") from None
 
     def save(self, project: Project) -> None:
         data = asdict(project)

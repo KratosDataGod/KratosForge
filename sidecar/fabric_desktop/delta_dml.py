@@ -94,6 +94,12 @@ def parse(statement: str, dialect: str = "spark") -> Change | None:
         tree = sql_dialects.parse_one(statement, read=dialect)
     except sqlglot.errors.ParseError as exc:
         raise ValueError(f"Could not read the statement: {sql_dialects.parse_problem(exc)}") from None
+    if isinstance(tree, exp.Block):
+        # DuckDB 2.0 keeps a comment after the statement's ";" in the statement's text, which sqlglot reads as a
+        # block of the statement and an empty one; 1.5 gave the comment to the next statement.
+        kept = [e for e in tree.expressions if not isinstance(e, exp.Semicolon)]
+        if len(kept) == 1:
+            tree = kept[0]
     return parse_tree(cast(exp.Expression, tree))  # sqlglot types parse_one as its Expr base
 
 

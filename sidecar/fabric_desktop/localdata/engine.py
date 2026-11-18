@@ -35,6 +35,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 import time
 import uuid
+from functools import partial
 from pathlib import Path
 from typing import Any, Callable, cast
 from urllib.parse import unquote
@@ -769,19 +770,29 @@ class LocalEngine:
             finished = False
             run = {"query_id": query_id, "started": started, "statements": steps, "dialect": dialect}
             try:
+                # Each statement is read and translated just before it runs, after the ones before it have run:
+                # a script that makes a Delta table and then writes to it needs the table to be there.
                 statements = self._statements(con, sql, dialect, run)
-                if write is not None:
-                    statements = [self._as_write(statements, write, sql)]
-                if change and (len(statements) != 1 or statements[0]["change"] is None):
-                    raise ValueError("Give one MERGE INTO, UPDATE or DELETE on one of the project's Delta tables, "
-                                     "with no other statements.")
-                if explain is not None:
-                    _one_read(con, statements)
+                if write is not None or change or explain is not None:
+                    prepared = [s for s in (prepare() for prepare in statements) if s is not None]
+                    if write is not None:
+                        prepared = [self._as_write(prepared, write, sql)]
+                    if change and (len(prepared) != 1 or prepared[0]["change"] is None):
+                        raise ValueError("Give one MERGE INTO, UPDATE or DELETE on one of the project's Delta "
+                                         "tables, with no other statements.")
+                    if explain is not None:
+                        _one_read(con, prepared)
+                    statements = [partial(_given, s) for s in prepared]
                 result: duckdb.DuckDBPyConnection | duckdb.DuckDBPyRelation | None = None
-                for i, step in enumerate(statements):
+                for i, prepare in enumerate(statements):
                     # Between statements, or before DuckDB saw the interrupt: DuckDB drops an interrupt
                     # that comes before a statement starts, so a limit that ran out while the query was
                     # being read and checked would otherwise let it run on.
+                    if state["cancelled"] or state["timed_out"]:
+                        raise duckdb.InterruptException("cancelled")
+                    step = prepare()
+                    if step is None:
+                        continue
                     if state["cancelled"] or state["timed_out"]:
                         raise duckdb.InterruptException("cancelled")
                     step_started = time.monotonic()
@@ -860,43 +871,46 @@ class LocalEngine:
     # Statements, and the project's own Delta tables
 
     def _statements(self, con: duckdb.DuckDBPyConnection, sql: str, dialect: str,
-                    run: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-        """Each statement as DuckDB SQL, or as the Delta write it makes, with any tables it reads
-        at a version or time. T-SQL is translated first (tsql.py), and ``run`` gets what may differ."""
-        steps: list[dict[str, Any]] = []
-        n = 0
+                    run: dict[str, Any] | None = None) -> list[Callable[[], dict[str, Any] | None]]:
+        """For each statement, in order, what reads it as DuckDB SQL, or as the Delta write or change it makes,
+        with any tables it reads at a version or time (None: nothing to run). The script is split and parsed
+        here; each statement is read against the project's tables when that is called, which ``_query`` does
+        just before it runs, so it sees what the statements before it made. T-SQL is translated first
+        (tsql.py), and ``run`` gets what may differ."""
+        n = [0]  # the AS OF views numbered so far, across the statements
         if dialect == "spark":
             from sqlglot import exp
             from sqlglot.errors import ParseError
             try:
-                trees = [cast(exp.Expression, t) for t in sql_dialects.parse(sql, read="spark") if t is not None]
+                trees = [cast(exp.Expression, t) for t in sql_dialects.parse(sql, read="spark")
+                         if t is not None and not isinstance(t, exp.Semicolon)]  # a comment after the last ";"
             except ParseError as exc:
                 raise ValueError(f"Could not read the query as Spark SQL: {sql_dialects.parse_problem(exc)}") from None
-            for tree in trees:
+
+            def spark_step(tree: exp.Expression) -> dict[str, Any] | None:
                 refuse_spark_hashes(tree)  # DuckDB's hash isn't Spark's (EA-017)
-                found = delta.rewrite_tree(tree, n)
-                n += len(found)
+                found = delta.rewrite_tree(tree, n[0])
+                n[0] += len(found)
                 change = self._own_change(delta_dml.parse_tree(tree))
                 if change is not None:
-                    steps.append({"sql": "", "write": None, "change": change, "as_of": found,
-                                  "kind": f"{change.kind} delta"})
-                    continue
+                    return {"sql": "", "write": None, "change": change, "as_of": found,
+                            "kind": f"{change.kind} delta"}
                 write = delta.parse_tree(tree, self._is_own)
                 text = "" if write else delta._duckdb(tree)
                 if write is None and not text.strip():
-                    continue
+                    return None
                 if write is None:
                     self._refuse_drop(text)
-                steps.append({"sql": text, "write": write, "change": None, "as_of": found,
-                              "kind": "write delta" if write else _kind(text)})
-            return steps
+                return {"sql": text, "write": write, "change": None, "as_of": found,
+                        "kind": "write delta" if write else _kind(text)}
+            return [partial(spark_step, tree) for tree in trees]
         if dialect == "tsql":
             # The function list is read only for a query that calls a function sqlglot doesn't know: building it
             # is most of a short T-SQL query's time (about 15 ms of 21 in examples/benchmark).
             texts, notes = tsql.translate(sql, self._column_types(con), _FunctionNames(lambda: self._function_names(con)))
             if run is not None:
                 run["translation"] = {"from": "tsql", "notes": notes, "fabric_check": _fabric_check(sql)}
-            return self._duckdb_steps(con, texts, n)
+            return self._duckdb_steps(con, texts, n, checked=False)
         try:
             texts = [s.query for s in con.extract_statements(sql)]
         except duckdb.Error as exc:
@@ -905,49 +919,73 @@ class LocalEngine:
             texts = _split_script(sql)
             if not any(delta.parse(t, self._is_own) or delta_dml.looks_like(t) for t in texts):
                 raise ValueError(_short(exc)) from None
-        return self._duckdb_steps(con, texts, n)
+            return self._duckdb_steps(con, texts, n, checked=False)
+        return self._duckdb_steps(con, texts, n, checked=True)
 
-    def _duckdb_steps(self, con: duckdb.DuckDBPyConnection, texts: list[str], n: int) -> list[dict[str, Any]]:
-        steps: list[dict[str, Any]] = []
-        for text in texts:
-            matched: delta_dml.Change | None = None
-            joined: str | None = None
-            if delta_dml.looks_like(text):
-                rewritten, found = delta.rewrite_as_of(text, n)
-                try:
-                    parsed = delta_dml.parse(rewritten, "duckdb")
-                except ValueError:
-                    # What delta-rs can't run (UPDATE ... FROM, DELETE ... USING) runs in DuckDB on a database table.
-                    if not self._database_table(_dml_target(rewritten)):
-                        raise
-                    parsed = None
-                    joined = rewritten  # an UPDATE ... FROM is checked before it runs (_updated_once)
-                change = self._own_change(parsed)
-                if change is None and parsed is not None and parsed.kind == "merge" \
-                        and any(w.match == "matched" for w in parsed.whens):
-                    matched = parsed  # a MERGE on a database table: checked before it runs (_matched_once)
-                if change is not None:
-                    n += len(found)
-                    steps.append({"sql": "", "write": None, "change": change, "as_of": found,
-                                  "kind": f"{change.kind} delta"})
-                    continue
-            write = delta.parse(text, self._is_own)
-            if write is None and len(texts) > 1:
+    def _duckdb_steps(self, con: duckdb.DuckDBPyConnection, texts: list[str], n: list[int],
+                      checked: bool) -> list[Callable[[], dict[str, Any] | None]]:
+        """``checked``: DuckDB has read the whole script. Otherwise each statement of a script that DuckDB can't
+        read, and that isn't shaped as a Delta write or change (which only DuckDB SQL around it is), is refused
+        before anything runs; the rest are read when they run, against the tables made before them."""
+        unread = [False] * len(texts)  # DuckDB couldn't read it here: it must be a Delta write when it runs
+        if len(texts) > 1 and not checked:
+            for i, text in enumerate(texts):
                 try:
                     con.extract_statements(text)
                 except duckdb.Error as exc:
-                    raise ValueError(_short(exc)) from None
-            if write is not None:
-                write.query, found = delta.rewrite_as_of(write.query, n)
-            else:
-                self._refuse_drop(text)
-                self._refuse_rename(con, text)
-                text, found = delta.rewrite_as_of(text, n)
-            n += len(found)
-            steps.append({"sql": "" if write else text, "write": write, "change": None, "as_of": found,
-                          "kind": "write delta" if write else _kind(text), "matched": matched,
-                          "joined": joined})
-        return steps
+                    if not self._delta_shaped(text):
+                        raise ValueError(_short(exc)) from None
+                    unread[i] = True
+        return [partial(self._duckdb_step, con, text, n, unread[i]) for i, text in enumerate(texts)]
+
+    @staticmethod
+    def _delta_shaped(text: str) -> bool:
+        """``text`` reads as a Delta write, MERGE, UPDATE or DELETE whatever its table turns out to be."""
+        if delta_dml.looks_like(text):
+            return True
+        try:
+            return delta.parse(text, lambda schema, table: True) is not None
+        except ValueError:
+            return True  # refused when it is read, with its own message
+
+    def _duckdb_step(self, con: duckdb.DuckDBPyConnection, text: str, n: list[int], unread: bool) -> dict[str, Any]:
+        """One statement of DuckDB SQL (or T-SQL translated to it) read against the project's tables as they are now.
+        ``n`` holds the AS OF views numbered so far; ``unread``: DuckDB couldn't read it, so unless it is a Delta
+        write now, DuckDB's own error is given before it runs."""
+        matched: delta_dml.Change | None = None
+        joined: str | None = None
+        if delta_dml.looks_like(text):
+            rewritten, found = delta.rewrite_as_of(text, n[0])
+            try:
+                parsed = delta_dml.parse(rewritten, "duckdb")
+            except ValueError:
+                # What delta-rs can't run (UPDATE ... FROM, DELETE ... USING) runs in DuckDB on a database table.
+                if not self._database_table(_dml_target(rewritten)):
+                    raise
+                parsed = None
+                joined = rewritten  # an UPDATE ... FROM is checked before it runs (_updated_once)
+            change = self._own_change(parsed)
+            if change is None and parsed is not None and parsed.kind == "merge" \
+                    and any(w.match == "matched" for w in parsed.whens):
+                matched = parsed  # a MERGE on a database table: checked before it runs (_matched_once)
+            if change is not None:
+                n[0] += len(found)
+                return {"sql": "", "write": None, "change": change, "as_of": found, "kind": f"{change.kind} delta"}
+        write = delta.parse(text, self._is_own)
+        if write is None and unread:
+            try:
+                con.extract_statements(text)
+            except duckdb.Error as exc:
+                raise ValueError(_short(exc)) from None
+        if write is not None:
+            write.query, found = delta.rewrite_as_of(write.query, n[0])
+        else:
+            self._refuse_drop(text)
+            self._refuse_rename(con, text)
+            text, found = delta.rewrite_as_of(text, n[0])
+        n[0] += len(found)
+        return {"sql": "" if write else text, "write": write, "change": None, "as_of": found,
+                "kind": "write delta" if write else _kind(text), "matched": matched, "joined": joined}
 
     def _database_table(self, target: tuple[str | None, str] | None) -> bool:
         """``target`` is a table of the database, not one of the project's Delta tables or registered folders."""
@@ -1590,6 +1628,10 @@ def _one_query(sql: str) -> str:
 
 
 _EXPLAIN_ONE = "Explain takes one query that reads (SELECT, WITH ... SELECT, FROM or VALUES), with no other statements."
+
+
+def _given(step: dict[str, Any]) -> dict[str, Any] | None:
+    return step
 
 
 def _one_read(con: duckdb.DuckDBPyConnection, steps: list[dict[str, Any]]) -> None:

@@ -419,7 +419,7 @@ after comparison on equivalent inputs; output equivalence where measurable; vali
 moves Validating → Verified or back. CU change only from measured CU or a labelled estimate,
 never from time alone.
 
-**ESI-303 Attribution waterfall.** `savings/attribution.py`: ordered layers (4.5), caps at the
+**ESI-303 Attribution waterfall.** **Built** (engine only, no writes). `savings/attribution.py`: ordered layers (4.5), caps at the
 baseline, incremental allocation across several optimizations.
 - Acceptance: the critical acceptance test passes exactly; overlapping optimizations never sum
   past the baseline; a reversal writes reversal events that net the earlier accruals to zero.

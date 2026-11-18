@@ -1,0 +1,96 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E66",
+  "version": 1,
+  "status": "draft",
+  "title": "Optimize a warehouse table: the smallest type that's still right for each column",
+  "objectives": [
+    "3.3.3"
+  ],
+  "objective_text": "Rebuild an all-text fact table with CREATE TABLE AS SELECT, choosing for each column the smallest exact type its values need, and spot the columns where the obvious type is wrong.",
+  "scenario": "A quick copy landed the sales feed in the warehouse with every column as text, and every report query now converts sale_date, qty and unit_price on the fly. Rebuild it as fact_sales with proper types. Store codes like '007' are labels from the store list, not amounts.",
+  "prerequisites": [
+    "E61",
+    "E33"
+  ],
+  "minutes": 15,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "starter.sql",
+  "verifies": [
+    "Your CREATE TABLE AS SELECT ran on this PC with DuckDB: fact_sales has the type the team's standard asks for in every column, every value survived the conversion, and fact_sales_raw is untouched."
+  ],
+  "does_not_verify": [
+    "That queries get faster in a Fabric Warehouse: this checks the types and the values, not timings.",
+    "Fabric Warehouse type names, which differ in places: there TIMESTAMP is datetime2 and BOOLEAN is bit.",
+    "Statistics, result set caching and the other warehouse settings in E61."
+  ],
+  "datasets": [],
+  "expected": {
+    "tables": {
+      "fact_sales": {
+        "columns": {
+          "sale_id": "INTEGER",
+          "store_code": "VARCHAR",
+          "sale_date": "DATE",
+          "sold_at": "TIMESTAMP",
+          "qty": "INTEGER",
+          "unit_price": "DECIMAL(12,2)",
+          "is_return": "BOOLEAN"
+        }
+      }
+    },
+    "result": "The starter's final SELECT over fact_sales, ordered by sale_id."
+  },
+  "validation": [
+    {
+      "kind": "table_shape",
+      "table": "fact_sales",
+      "columns": {
+        "sale_id": "INTEGER",
+        "store_code": "VARCHAR",
+        "sale_date": "DATE",
+        "sold_at": "TIMESTAMP",
+        "qty": "INTEGER",
+        "unit_price": "DECIMAL(12,2)",
+        "is_return": "BOOLEAN"
+      },
+      "unique": [
+        "sale_id"
+      ],
+      "pass": "Every column has the type the standard asks for.",
+      "fail": "A column has a type that's too big, too loose or loses information. Look at its values."
+    },
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "Every value survived the conversion.",
+      "fail": "Some values changed on the way in. Compare a few rows with fact_sales_raw."
+    },
+    {
+      "kind": "unchanged",
+      "tables": [
+        "fact_sales_raw"
+      ],
+      "pass": "fact_sales_raw is untouched.",
+      "fail": "Your answer changed or dropped fact_sales_raw. Keep it until the new table is checked."
+    }
+  ],
+  "hints": [
+    "Go column by column and ask what the values are: a count, an amount of money, a day, a moment, a yes/no, or a label?",
+    "sale_date always has a time of 00:00:00, so it's a day; sold_at has real times, so it's a moment. Money needs an exact type, not DOUBLE.",
+    "A code with leading zeros stops matching its list once it's a number: '007' would become 7."
+  ],
+  "explanation": "In a warehouse the type of a column decides how much data each query reads and how values are compared. Numbers and dates stored as text are converted on every query, sort wrongly ('12' before '3') and take more space than an INTEGER or DATE. So give each column the smallest type that holds all of its values exactly: INTEGER for counts and ids, DECIMAL for money (a floating-point DOUBLE can't store every cent exactly), DATE when there's no time, TIMESTAMP when there is. But a value made of digits isn't always a number: codes such as store, postal or account codes are labels, and casting them to a number silently drops leading zeros. CREATE TABLE AS SELECT builds the typed copy in one set-based statement, which is also the fast way to load a warehouse table.",
+  "remediation": [
+    "LM-02",
+    "LM-14",
+    "https://learn.microsoft.com/fabric/data-warehouse/guidelines-warehouse-performance"
+  ],
+  "reset": "Reset restores fact_sales_raw, drops fact_sales and restores the original starter.sql.",
+  "parity": null
+}

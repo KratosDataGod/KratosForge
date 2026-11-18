@@ -58,7 +58,7 @@ def cases() -> list[tuple[str, str, object]]:
     r = random.Random(SEED)
     out: list[tuple[str, str, object]] = []
     # regexp_substr: "returns NULL in the following cases: No match is found."
-    texts, patterns = ["abc123def456", "aaa", "Hello World", "", "x1y22z333", "no digits"], ["[0-9]+", "a", "o", "z",
+    texts, patterns = ["abc123xyz456", "aaa", "Hello World", "", "x1y22z333", "no digits"], ["[0-9]+", "a", "o", "z",
                                                                                               "[A-Z]", "l+"]
     for _ in range(40):
         s, p = r.choice(texts), r.choice(patterns)

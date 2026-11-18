@@ -6369,3 +6369,138 @@ No bugs were found.
 | `csv_cells.py` | 92, 96, 113 | `zip(strict=True)` to `False` | Equivalent: both sides come from the same schema or batch, so they always have the same length. |
 | `delta_read.py` | 82 | `get_add_actions(flatten=True)` to `False` | Equivalent: in deltalake 1.6.6 `size_bytes` is a top-level column either way. |
 | `delta_read.py` | 149 | `zip(strict=True)` to `False` | Equivalent: both columns come from the same deletion-vector table, so they always have the same length. |
+
+# Mutation testing, batch 130
+
+One engine module not scored before, run with `--kinds all`, so the score counts the boundary mutants together with the earlier kinds:
+- The approval that lets remote compute start: a confirmation in the app or the profile's execution policy, its expiry, and the check before a session opens (`engines/authorization.py`).
+
+The run was at `main` 5865db95 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902, and the method of earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. The module has 39 mutants, so all of them ran. No `-k` filter or `--deselect` was needed.
+
+The first run used test_engines, test_engines_service and test_engine_switch_failures. Each survivor was run again with test_databricks_sql, test_dbconnect and test_fabric_spark added, and the "before" figures are from that run. No mutant's run timed out.
+
+Before each "after" run, the new tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it. They passed both ways, and on DuckDB 1.5.6 and 2.0.0.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `engines/authorization.py` | test_engines, test_engines_service, test_engine_switch_failures, test_databricks_sql, test_dbconnect, test_fabric_spark (+ test_engine_authorization_mutation) | 39 of 39 (38 + 1) | 35 / 4 | **89.7%** | 35/38 → 38/38 | 0/1 → 1/1 | 39 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **engines/authorization.py**:
+  - An approval from the profile's policy lasts the confirmation time from now, as a confirmation in the app does.
+  - An approval is good just before its expiry and has run out at exactly its expiry.
+  - The check hands back the approval it checked.
+  - An approval can't be changed once given.
+  - → `test_engine_authorization_mutation.py`.
+
+### Left
+
+None.
+
+# Mutation testing, batch 131
+
+One engine module not scored before, run with `--kinds all`:
+- Access tokens for an Azure Databricks connection: CLI profiles, the Databricks CLI's own token, OAuth machine-to-machine, secret references, Windows Credential Manager, the refresh before expiry and the memory of refused tokens (`engines/databricks_auth.py`).
+
+The run was at `main` 5865db95 (2026-11-18), with the method of batch 130. The module has 190 mutants, so 150 were sampled. No `-k` filter or `--deselect` was needed.
+
+The first run used test_databricks_auth_errors, test_databricks_auth_replies, test_databricks_credman, test_databricks_host, test_databricks_profile_host and test_credential_expiry. Each survivor was run again with test_databricks_sql, test_credman_dpapi_calls, test_databricks_discovery, test_databricks_jobs, test_dbconnect_env and test_engines_service_edges added, and the "before" figures are from that run. No mutant's run timed out. The new tests passed in a copy of `sidecar/` on its own, against `ast.unparse` of the module, and on DuckDB 1.5.6 and 2.0.0.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `engines/databricks_auth.py` | test_databricks_auth_errors, test_databricks_auth_replies, test_databricks_credman, test_databricks_host, test_databricks_profile_host, test_credential_expiry, test_databricks_sql, test_credman_dpapi_calls, test_databricks_discovery, test_databricks_jobs, test_dbconnect_env, test_engines_service_edges (+ test_databricks_auth_mutation) | 150 of 190 (147 + 3) | 136 / 14 | **90.7%** | 134/147 → 147/147 | 2/3 → 3/3 | 150 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **engines/databricks_auth.py**:
+  - The limits are the documented ones: a minute for the CLI, a refresh 120 s before expiry, 256 refused tokens remembered, Windows' 2,560-byte credential limit and 300 characters of the CLI's reason.
+  - A token is fetched again from exactly 120 s before it expires, and not a moment earlier.
+  - The refused-token memory keeps exactly the newest 256 and forgets the oldest first.
+  - The CLI is started with its output captured as UTF-8 text, a 60 s timeout and no stdin.
+  - advapi32 is opened with its last error kept.
+  - A long reason from the CLI is cut to 299 characters and an ellipsis; one of exactly 300 is kept whole.
+  - The token endpoint is asked with a 30 s timeout, and a lifetime under one second is still a lifetime.
+  - Without an HTTP session given, the app's own session is used.
+  - A CLI profile with a client ID but no secret, or a secret but no client ID, signs in with the CLI.
+  - → `test_databricks_auth_mutation.py`, which also pins, for the first run's survivors that the wider run killed, an `env:` reference read from the given environment or this PC's, a missing CLI profile, a missing or hung CLI, a refused service principal, a connection holding a secret value, and the providers for a profile's service principal and for OAuth machine-to-machine.
+
+### Left
+
+None.
+
+# Mutation testing, batch 132
+
+One engine module not scored before, run with `--kinds all`:
+- Databricks Connect: the runtime lines and their Python, the worker's environment and sign-in, gRPC's root certificates, frame output and what a session refuses (`engines/dbconnect.py`).
+
+The run was at `main` 5865db95 (2026-11-18), with the method of batch 130. The module has 113 mutants, so all of them ran. No `-k` filter or `--deselect` was needed.
+
+The first run used test_dbconnect, test_dbconnect_env and test_databricks_profile_host. Each survivor was run again with test_tls_inspection, test_engine_conformance and test_engines added, and the "before" figures are from that run. No mutant's run timed out. The new tests passed in a copy of `sidecar/` on its own, against `ast.unparse` of the module, and on DuckDB 1.5.6 and 2.0.0.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `engines/dbconnect.py` | test_dbconnect, test_dbconnect_env, test_databricks_profile_host, test_tls_inspection, test_engine_conformance, test_engines (+ test_dbconnect_mutation) | 113 of 113 (112 + 1) | 106 / 7 | **93.8%** | 106/112 → 111/112 | 0/1 → 0/1 | 111 / 2 | **98.2%** | 2 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **engines/dbconnect.py**:
+  - Connecting waits up to 15 minutes for a terminated cluster to start.
+  - Runtimes 13 and 14 say they need Python 3.10, and 15 says 3.11.
+  - Runtime 19 is known, and 20 is newer than this version knows.
+  - → `test_dbconnect_mutation.py`, which also pins, for the first run's survivors that the wider run killed, gRPC's root certificates (written only when a folder is given, nothing is set already and Windows has roots), what a session refuses with the descriptor's own notes, and the adapter's descriptor.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `engines/dbconnect.py` | 112 | `major > max(RUNTIME_PYTHON)` to `>=` | Equivalent: the branch is reached only when the runtime isn't in `RUNTIME_PYTHON`, so `major` is never equal to its largest key. |
+| `engines/dbconnect.py` | 223 | `zip(strict=True)` to `False` | Equivalent: the worker builds each row from the same frame as its columns, so they always have the same length. |
+
+# Mutation testing, batch 133
+
+One engine module not scored before, run with `--kinds all`:
+- The process a separate-runtime engine runs cells in: the protocol's lines on Windows and elsewhere, the session's start and its secrets, a cell's outputs and errors, interrupting, and the main loop (`engines/runtime_worker.py`).
+
+The run was at `main` 5865db95 (2026-11-18), with the method of batch 130. The module has 59 mutants, so all of them ran. No `-k` filter or `--deselect` was needed. The worker runs as a process of its own in the main tests, from the temporary copy, so those runs used the mutant too.
+
+The first run used test_runtimes and test_tls_inspection. Each survivor was run again with test_dbconnect added, and the "before" figures are from that run. Two mutants of the main loop's `exec` branch (line 206) timed out in the first run and count as killed. The new tests run the worker in the test's own process against fakes. They passed in a copy of `sidecar/` on its own, against `ast.unparse` of the module, and on DuckDB 1.5.6 and 2.0.0.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `engines/runtime_worker.py` | test_runtimes, test_tls_inspection, test_dbconnect (+ test_runtime_worker_mutation) | 59 of 59 (58 + 1) | 40 / 19 | **67.8%** | 40/58 → 57/58 | 0/1 → 1/1 | 58 / 1 | **98.3%** | 1 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **engines/runtime_worker.py**:
+  - On Windows, the protocol's lines come from what PeekNamedPipe says has arrived: it waits 0.02 s when nothing has, joins a line sent in two parts, reads bytes that aren't UTF-8 as a replacement character, ends when the engine closes its end, and opens kernel32 with its last error kept. A peek reads nothing itself.
+  - A version that can't be read is empty.
+  - A Databricks Connect session's client is the installed distribution's version, or the module's own when that is empty.
+  - A new worker isn't running, and a cell's end always sets it back to not running.
+  - An empty cell runs and shows nothing.
+  - Interrupt reaches the session only while a cell runs, and a failure to stop is not the cell's error.
+  - Windows trust that fails keeps Python's own list.
+  - The main loop puts the runtime's folder first, skips a line that isn't JSON, starts each cell in a daemon thread with 100 preview rows unless told otherwise, passes on interrupt, stops at quit, reports a start that fails, and runs Databricks Connect when no kind is named.
+  - → `test_runtime_worker_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `engines/runtime_worker.py` | 34 | `if TYPE_CHECKING:` negated | Equivalent: it only imports `collections.abc` names used in annotations, which `from __future__ import annotations` never evaluates. |

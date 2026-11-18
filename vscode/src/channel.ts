@@ -39,7 +39,8 @@ export function readPortFile(dir: string): { port: number; hello: string } | nul
   return Number.isInteger(n) && n > 0 && n < 65536 && hello ? { port: n, hello } : null;
 }
 
-export const NOT_LISTENING = "KratosForge isn't running, or Let VS Code run notebooks is off in its Settings > Integrations.";
+export const NOT_LISTENING = "KratosForge isn't running, or Let VS Code run notebooks is off in its Settings > Integrations. "
+  + "Start KratosForge and turn it on there, then run the cell again.";
 export const NOT_KRATOSFORGE = "Something other than KratosForge is listening on the editor channel's port, so this window "
   + "sent it nothing. Restart KratosForge, then try again.";
 
@@ -57,6 +58,54 @@ export function unreachable(code: string): string {
 const POLL_RETRIES = 3;
 // A poll that got no answer at all is asked again only once, so a hung app fails the cell in about two minutes.
 const POLL_TIMEOUT_RETRIES = 1;
+export const NOT_PAIRED = "This window's pairing with KratosForge has ended. It ran out, was ended in KratosForge, or "
+  + "KratosForge restarted. Run the cell again to pair this window.";
+export const HELLO_CHANGED = "KratosForge restarted while this window was asking to pair. Run the cell again to ask again.";
+export const OFF = "Let VS Code run notebooks is off in KratosForge's Settings > Integrations, or your organization doesn't "
+  + "allow it. Turn it on there, or ask your admin if your organization turned it off, then run the cell again.";
+export const PAIR_DENIED = "Pairing was denied in KratosForge. To pair this window, run the cell again and choose Pair this "
+  + "window in KratosForge.";
+export const PAIR_UNANSWERED = "Nobody answered in KratosForge, so this window isn't paired. Run the cell again, then choose "
+  + "Pair this window in KratosForge while it asks.";
+export const PAIR_CANCELLED = "Pairing was cancelled. Run the cell again to pair this window.";
+export const PAIR_EXPIRED = "That pairing request ran out before anyone answered in KratosForge. Run the cell again to ask again.";
+export const BAD_REPLY = "KratosForge sent a reply this extension can't read. Install kratosforge.vsix from KratosForge's "
+  + "latest release, then reload this window.";
+export const OUT_OF_STEP = " This extension and KratosForge may be out of step: install kratosforge.vsix from KratosForge's "
+  + "latest release, then reload this window.";
+export function unexpected(message: string): string {
+  return `KratosForge hit an error it didn't expect (${message}). Run the cell again; if it keeps happening, restart KratosForge.`;
+}
+
+// Words that tell the person what to do next. An app message without any gets the window's own.
+const NEXT_STEP = /run the cell again|install kratosforge|turn it on|pair the window|answer them|open the repository|restart kratosforge|try again|split it|open the notebook|pick kratosforge|start kratosforge|import the notebook|save the notebook|move it|rename/i;
+export const hasNextStep = (text: string): boolean => NEXT_STEP.test(text);
+const THEN_AGAIN = " Once that's sorted out, run the cell again.";
+
+/** The error the window shows for an answer the app refused: each with a name and a next step. Where the
+ * app's own words already say what to do (a notebook outside the paired folder, too many windows asking
+ * to pair), they're kept; elsewhere the window says it in its own words. */
+export function refusal(status: number, code: string | undefined, message: string | undefined, pairing = false,
+  hello = false): ChannelError {
+  const said = message || "";
+  switch (code) {
+    case "not_paired": return new ChannelError(status, "not_paired", NOT_PAIRED);
+    // Only a call that sends the hello (asking to pair) is checked against it; anywhere else it means
+    // the window's pairing no longer holds.
+    case "unauthorized": return new ChannelError(status, "unauthorized", hello ? HELLO_CHANGED : NOT_PAIRED);
+    case "off": return new ChannelError(status, "off", OFF);
+    case "busy": return new ChannelError(status, "busy", BUSY);
+    case "extension_too_old": return new ChannelError(status, "extension_too_old", EXTENSION_TOO_OLD);
+    case "not_found": return pairing ? new ChannelError(status, "expired", PAIR_EXPIRED)
+      : new ChannelError(status, "not_found", said ? (hasNextStep(said) ? said : said + THEN_AGAIN) : "KratosForge couldn't find that notebook or cell." + OUT_OF_STEP);
+    case "invalid_input": case "too_large": return new ChannelError(status, code, (said ? `${said}` : "KratosForge refused the request.") + OUT_OF_STEP);
+    case "internal": return new ChannelError(status, "internal", unexpected(said || `status ${status}`));
+    case "refused": case "failed": if (said) return new ChannelError(status, code, hasNextStep(said) ? said : said + THEN_AGAIN);
+      return new ChannelError(status, code, unexpected(`status ${status}`));
+    default: return new ChannelError(status, code || "failed", said ? said + OUT_OF_STEP : unexpected(`status ${status}`));
+  }
+}
+
 export const BUSY = "KratosForge has too many editor connections open right now. Try again in a moment.";
 // Only the engine's accept-time refusal is "busy" (editor_channel.py), so a retried call never ran.
 const BUSY_RETRIES = 3;
@@ -153,14 +202,14 @@ export class Channel {
     const want = crypto.createHmac("sha256", where.hello).update(nonce).digest();
     const got = Buffer.from(proof, "hex");
     if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) {
-      if (reply.payload?.error?.code === "off") throw new ChannelError(reply.status, "off", reply.payload.error.message || NOT_LISTENING);
+      if (reply.payload?.error?.code === "off") throw new ChannelError(reply.status, "off", OFF);
       if (reply.payload?.error?.code === "busy" && reply.status === 503) throw new ChannelError(503, "busy", BUSY);
       if (reply.payload?.error?.code === "extension_too_old") throw new ChannelError(reply.status, "extension_too_old", EXTENSION_TOO_OLD);
       throw new ChannelError(0, "not_kratosforge", NOT_KRATOSFORGE);
     }
     // Proven, so the version is KratosForge's own. An app from before versions were reported speaks 1.
     const api = result?.api === undefined ? 1 : result.api;
-    if (typeof api !== "number" || !Number.isInteger(api) || api < 1) throw new ChannelError(0, "bad_reply", "KratosForge sent a reply this extension can't read.");
+    if (typeof api !== "number" || !Number.isInteger(api) || api < 1) throw new ChannelError(0, "bad_reply", BAD_REPLY);
     if (api > API_VERSION) throw new ChannelError(0, "app_too_new", APP_TOO_NEW);
   }
 
@@ -190,10 +239,10 @@ export class Channel {
     if (hello) headers["X-KratosForge-Hello"] = where.hello;
     else if (this.token) headers.Authorization = `Bearer ${this.token}`;
     const { status, payload } = await send(where.port, method, url, headers, data, this.timeout);
-    if (!payload) throw new ChannelError(status, "bad_reply", "KratosForge sent a reply this extension can't read.");
+    if (!payload) throw new ChannelError(status, "bad_reply", BAD_REPLY);
     if (payload.ok) return payload.result;
-    if (status === 503 && payload.error?.code === "busy") throw new ChannelError(503, "busy", BUSY);
-    throw new ChannelError(status, payload.error?.code || "failed", payload.error?.message || "KratosForge refused it.");
+    if (payload.error?.code === "busy" && status !== 503) throw new ChannelError(status, "failed", unexpected(`busy, status ${status}`));
+    throw refusal(status, payload.error?.code, payload.error?.message, url.startsWith("/v1/pair/"), hello);
   }
 
   /** Asks to pair; the app shows the request with ``code``, which this window shows too. */
@@ -217,11 +266,11 @@ export class Channel {
         this.token = got.token;
         return { token: got.token, keep: got.keep || "session" };
       }
-      if (got.state === "denied") throw new ChannelError(403, "denied", "Pairing was denied in KratosForge.");
+      if (got.state === "denied") throw new ChannelError(403, "denied", PAIR_DENIED);
       if (got.state === "expired") break;
       await new Promise((r) => setTimeout(r, every));
     }
-    throw new ChannelError(408, "expired", cancelled() ? "Pairing was cancelled." : "Nobody answered in KratosForge, so this window isn't paired.");
+    throw cancelled() ? new ChannelError(408, "cancelled", PAIR_CANCELLED) : new ChannelError(408, "expired", PAIR_UNANSWERED);
   }
 
   status(): Promise<{ app: string; version: string; pairing: Record<string, unknown> }> {

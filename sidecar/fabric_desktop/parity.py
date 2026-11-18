@@ -129,7 +129,9 @@ AREAS: tuple[Area, ...] = (
        cloud_api=Cell("verified", ("test_fabric_spark.py",), KUDP_RUN, "Spark SQL in one Livy session."),
        local=Cell("partial", ("test_engine_conformance.py", "test_spark_writer.py"),
                   note="PySpark and Spark SQL are simulated on DuckDB; known differences are listed in docs/audits/ENGINE_COMPATIBILITY.md."),
-       equivalence=Cell("partial", ("test_engine_compare.py",), KUDP_RUN, "10 Spark SQL queries: 9 match in the 2026-11-03 re-run; decimal division still differs (Spark keeps 6 places).")),
+       equivalence=Cell("partial", ("test_engine_compare.py",), KUDP_RUN, "10 Spark SQL queries: 9 match in the 2026-11-03 re-run. Decimal division differed (Spark keeps 6 places) "
+                        "because that comparison runs the translated SQL on DuckDB directly. spark.sql on this PC now gives "
+                        "Spark's decimal types (docs/sql-compatibility.md), but the comparison hasn't been re-run live since.")),
     _skinned("fabric", "pipelines", "Data Factory pipelines",
        local=Cell("partial", ("test_pipeline_fabric_parity.py", "test_pipeline_runs.py"),
                   note="Pipelines run on this PC; expected outcomes come from documentation, not a recorded tenant run.")),

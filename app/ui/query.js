@@ -361,6 +361,7 @@ function renderQuery() {
       },
       togglePane: () => togglePane(),
       definition: () => goToDefinition(),
+      peek: () => peekDefinition(),
       save: () => {
         if (tab.disk) { saveDisk(false); return; }
         if (tab.proj) { whProjectSave(tab).then((ok) => { if (ok) { saveQueryTabs(); p.whProjectView?.refresh(); } }); return; }
@@ -497,7 +498,7 @@ function renderQuery() {
       // Local T-SQL: where this PC's answer can differ from a warehouse's (a decimal done in floating point, say).
       tab.ranNotice = wh ? "" : [localNotice(query), ...(status.notes || [])].filter(Boolean).join(" ");
       tab.resultQuery = query;  // for Copy › INSERT statements, which names the query's table
-      if (tab.exportAfter) { const fmt = tab.exportAfter; delete tab.exportAfter; exportResult(fmt); }
+      if (tab.exportAfter) { const [fmt, raw] = tab.exportAfter; delete tab.exportAfter; exportResult(fmt, raw); }
     } else if (status && !tab.errorRetry) {  // a failed engine call keeps its own message and Retry
       tab.error = status.error || `The query ${SQL_STATE[status.state]?.[1].toLowerCase() || status.state}.`;
       if (wh && !change && status.refused && whChangesAllowed()) tab.error += " To change the warehouse, tick Allow changes at the top of the page.";
@@ -796,16 +797,18 @@ function renderQuery() {
     sideBox.replaceChildren(...(panel ? [panel] : []));
   }
 
-  // Export ▾ CSV, Parquet, Excel or JSON: streamed from the run's snapshot to a new file in Downloads.
-  async function exportResult(format) {
+  // Export ▾ CSV, Parquet, Excel or JSON: streamed from the run's snapshot to a new file in Downloads. A CSV puts an
+  // apostrophe in front of a text cell a spreadsheet would run as a formula, unless raw (Keep raw values, WR-228).
+  async function exportResult(format, raw = false) {
     if (!tab.exec || tab.exporting) return;
-    const out = await attempt(() => rpc("sql_export", { execution: tab.exec.id, format, name: tab.name, ...sqlPartArg(tab.multi?.part) }),
+    const out = await attempt(() => rpc("sql_export", { execution: tab.exec.id, format, name: tab.name, ...sqlPartArg(tab.multi?.part),
+      ...(raw ? { raw: true } : {}) }),
       "Could not export");
     if (!out) return;
     if (out.rerun_needed) {
       const again = await confirmDialog("Run the query again?",
         `${out.message} Running it again reads the tables as they are now, so the rows can differ.`, "Run again");
-      if (again && tab.ranSql) { tab.exportAfter = format; run(tab.ranSql); }
+      if (again && tab.ranSql) { tab.exportAfter = [format, raw]; run(tab.ranSql); }
       return;
     }
     tab.exporting = out;
@@ -916,18 +919,53 @@ function renderQuery() {
     }
     if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) editor.refresh(); }
   }
-  // S08: F12 shows the table under the cursor, or an alias's or a column's table, in the Explorer: on a
-  // lakehouse its row with its columns open; on a warehouse its object in the tree, opened down to it.
-  async function goToDefinition() {
+  // S08: F12 shows the object under the cursor in the Explorer: on a lakehouse its table's row with its
+  // columns open; on a warehouse its table, view, procedure or function in the tree, opened down to it.
+  // Alt+F12 shows its definition in a panel under the cursor instead.
+  const NOT_AN_OBJECT = wh ? "Put the cursor on the name of a table, view, procedure or function, or on an alias or one of its columns."
+    : "Put the cursor on the name of a table or view, or on an alias or one of its columns.";
+  // What the cursor names: { table } on a lakehouse, { object } (from the catalog) on a warehouse, or { message }.
+  async function definitionTarget() {
     const text = editor.text();
-    const target = sqlHoverTarget(text, editor.selection().head, tab.dialect, provider.tables(), (t) => provider.cachedColumns(t));
+    const at = editor.selection().head;
+    const target = sqlHoverTarget(text, at, tab.dialect, provider.tables(), (t) => provider.cachedColumns(t));
     const table = await sqlTargetTable(target, provider);
-    if (!table) {
-      toast(target?.kind === "function" ? `${target.name} is built in: hover it to see its forms.`
-        : "F12 goes to a table or view: put the cursor on its name, an alias or one of its columns.");
-      return;
+    if (wh) {
+      const cat = p.catalog?.key === sqlRefKey(ref) && p.catalog.state === "done" ? p.catalog : null;
+      if (!cat) return { message: "List the warehouse's objects first: Explorer › List objects." };
+      const object = table ? cat.objects.find((o) => o.schema === table.schema && o.name === table.name)
+        : sqlCatalogObject(sqlNameAt(text, at), cat.objects);
+      if (object) return { object };
+    } else if (table) return { table };
+    return { message: target?.kind === "function" ? `${target.name} is built in: hover it to see its forms.` : NOT_AN_OBJECT };
+  }
+  async function goToDefinition() {
+    const found = await definitionTarget();
+    if (found.message) { toast(found.message); return; }
+    await showInExplorer(found.object || found.table);
+  }
+  async function peekDefinition() {
+    const at = editor.selection().head;
+    const found = await definitionTarget();
+    if (found.message) { toast(found.message); return; }
+    const o = found.object || found.table;
+    const title = sqlTableLabel(o);
+    const kind = { U: "table", V: "view", P: "procedure", FN: "function" }[o.type] || "table";
+    const peek = sqlPeek(editor.view, at);
+    const actions = (text) => [
+      { label: "Open in a new tab", run: () => openTab(`${o.name} (definition)`, wh ? `${whScriptHeader(ref, "CREATE")}${text}` : text) },
+      { label: "Show in Explorer", run: () => showInExplorer(o) },
+    ];
+    peek.show({ title, kind, text: wh && o.type !== "U" ? `Reading the definition of ${title}...` : "" });
+    try {
+      const text = !wh ? sqlLakehouseCreate(o, await provider.columns(o))
+        : o.type === "U" ? whCreateTable(o, p.catalog.cols[`${o.schema}.${o.name}`] || [])
+          : `${await whDefinition(ref, o)}\n`;
+      peek.show({ title, kind, text, actions: actions(text) });
+    } catch (err) {
+      peek.show({ title, kind, error: `Couldn't read the definition of ${title}: ${String(err?.message || err).replace(/^Error: /, "")}`,
+        actions: [{ label: "Show in Explorer", run: () => showInExplorer(o) }] });
     }
-    await showInExplorer(table);
   }
   async function showInExplorer(table) {
     const row = wh ? await revealWarehouseObject(table) : await revealLakehouseTable(table);
@@ -1122,6 +1160,8 @@ function renderQuery() {
         onclick: (e) => { if (!r || x) e.preventDefault(); } }, "Export ▾"),
       h("div", { class: "sql-export-menu", role: "menu" },
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("csv"); } }, "CSV"),
+        h("button", { role: "menuitem", title: "Each value exactly as it is. A spreadsheet runs a cell that starts with =, +, - or @ as a formula.",
+          onclick: (e) => { e.target.closest("details").open = false; exportResult("csv", true); } }, "CSV, Keep raw values"),
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("parquet"); } }, "Parquet"),
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("xlsx"); } }, "Excel"),
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("json"); } }, "JSON")));

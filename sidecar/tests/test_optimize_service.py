@@ -9,7 +9,7 @@ import pytest
 
 from fabric_desktop import app_settings, audit, server, xray_service
 from fabric_desktop.fabric_api import FabricError
-from fabric_desktop.optimize import setup
+from fabric_desktop.optimize import schema, setup
 from fabric_desktop.optimize.lakehouse import LocalLakehouse
 from fabric_desktop.service import Service
 
@@ -69,7 +69,7 @@ def test_create_initializes_and_connects(svc):
     assert svc.fake.created == ["FabricDesktop_Central"]
     conn = svc.optimize_status()["active"]
     assert conn["lakehouse_name"] == "FabricDesktop_Central" and conn["access"] == "write"
-    assert conn["schema_version"] == 1
+    assert conn["schema_version"] == schema.latest()
     assert svc.optimize_inspect("w1", conn["lakehouse_id"])["state"] == setup.READY
 
 
@@ -100,7 +100,7 @@ def test_second_installation_connects_to_the_same_lakehouse(svc, tmp_path, monke
     assert out["connected"] and out["access"]["write"]
     lake = LocalLakehouse(svc.lakes / "w1" / lh)
     assert len(lake.rows("fdopt_installations")) == 2
-    assert len(lake.rows("fdopt_schema_version")) == 1
+    assert len(lake.rows("fdopt_schema_version")) == schema.latest()
 
 
 def test_discover_marks_optimization_lakehouses(svc):

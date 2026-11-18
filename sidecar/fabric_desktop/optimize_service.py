@@ -20,6 +20,7 @@ from .fabric_api import FabricError
 from .meta.project import ENVIRONMENTS
 from .meta_service import NoMetadataProject
 from .optimize import local_runs, roles, schema, setup
+from .optimize import outbox as ob
 from .optimize.outbox import ANALYSIS, LOCAL_EXECUTIONS, Outbox
 from .optimize.installation import Installation, now
 from .optimize.lakehouse import OneLakeLakehouse
@@ -98,7 +99,8 @@ class OptimizeMixin:
         return {"allowed": bool(app_settings.value("allow_optimize_lakehouse")), "default_name": DEFAULT_NAME,
                 "installation_id": self.optimize_installation.id, "label": self.optimize_installation.label,
                 "active": active, "connections": reg.all(),
-                "outbox": self.optimize_outbox.status(active["lakehouse_id"]) if active else None}
+                "outbox": self.optimize_outbox.status(active["lakehouse_id"]) if active else None,
+                "sync": self.optimize_outbox.sync_state(active["lakehouse_id"]) if active else None}
 
     def optimize_discover(self, workspace_id: str) -> list[dict[str, Any]]:
         """The workspace's lakehouses, each marked with whether it already holds Optimize's tables."""
@@ -200,6 +202,22 @@ class OptimizeMixin:
         return retrying.is_retryable(exc) or retrying.data_upload_dropped(exc)
 
     @staticmethod
+    def _optimize_sync_reason(exc: BaseException) -> str:
+        """Why a waiting item couldn't go, as an outbox reason (ESI-105): the lakehouse's schema
+        version doesn't fit this app (conflict), it refused this person (failed), it couldn't be
+        reached (offline), or it asked to try again later (pending)."""
+        import requests
+
+        if isinstance(exc, setup.SchemaMismatch):
+            return ob.CONFLICT
+        if isinstance(exc, PermissionError) or setup.denied(exc):
+            return ob.FAILED
+        if (isinstance(exc, (ConnectionError, TimeoutError, requests.ConnectionError, requests.Timeout))
+                or retrying.data_upload_dropped(exc)):
+            return ob.OFFLINE
+        return ob.PENDING
+
+    @staticmethod
     def _optimize_send(shared: Shared, kind: str, payload: dict[str, Any]) -> int:
         began, start, rows, commits = now(), time.monotonic(), shared.rows_sent, shared.commits
         if kind == ANALYSIS:
@@ -225,20 +243,21 @@ class OptimizeMixin:
         # timer, so everything waiting is tried now; the wait between tries is for a background sync.
         items = box.due(lakehouse_id, include_waiting=True)
         if items:
-            shared = self._optimize_shared(token)
-            for item in items:
-                try:
-                    self._optimize_send(shared, item["kind"], item["payload"])
-                except Exception as exc:  # noqa: BLE001 - the failure is recorded on the item and reported
-                    if self._optimize_transient(exc) or isinstance(exc, PermissionError) or setup.denied(exc):
-                        box.failed(item["id"], str(exc))
-                        out["error"] = redact.secrets(str(exc))
-                        break
-                    box.dropped(item["id"], str(exc))
-                    out["dropped"] += 1
-                    continue
-                box.sent(item["id"])
-                out["sent"] += 1
+            with box.syncing(lakehouse_id):
+                shared = self._optimize_shared(token)
+                for item in items:
+                    try:
+                        self._optimize_send(shared, item["kind"], item["payload"])
+                    except Exception as exc:  # noqa: BLE001 - the failure is recorded on the item and reported
+                        if self._optimize_transient(exc) or isinstance(exc, PermissionError) or setup.denied(exc):
+                            box.failed(item["id"], str(exc), self._optimize_sync_reason(exc))
+                            out["error"] = redact.secrets(str(exc))
+                            break
+                        box.dropped(item["id"], str(exc))
+                        out["dropped"] += 1
+                        continue
+                    box.sent(item["id"])
+                    out["sent"] += 1
         out["waiting"] = box.status(lakehouse_id)["pending"]
         return out
 
@@ -263,7 +282,7 @@ class OptimizeMixin:
         except Exception as exc:
             if not self._optimize_transient(exc):
                 raise
-            self.optimize_outbox.add(conn["lakehouse_id"], kind, payload, str(exc))
+            self.optimize_outbox.add(conn["lakehouse_id"], kind, payload, str(exc), self._optimize_sync_reason(exc))
             return {"sent": 0, "queued": True, "error": redact.secrets(str(exc)), "sync": sync}
 
     # ---------- the central lakehouse, for other features ----------
@@ -296,6 +315,11 @@ class OptimizeMixin:
         for fam in (setup.CORE, family):
             state = setup.inspect(lake, fam)
             if state["state"] == setup.READY:
+                continue
+            if fam is setup.CORE and family is not setup.CORE and state["state"] == setup.UPGRADE:
+                # The shared tables another family writes (installations, audit, config) are the same in
+                # every version, so an older Optimize schema doesn't hold that family up; upgrading
+                # Optimize's own tables stays Optimize's own confirmed step.
                 continue
             if state["state"] not in setup.CAN_INITIALIZE:
                 raise PermissionError(state["message"])
@@ -358,7 +382,7 @@ class OptimizeMixin:
         setup.write(lake, installation, "audit", [{
             "record_id": f"{installation.id}:restrict:{family.prefix}:{now()}", "at": now(), "action": "restrict",
             "target": f"{found['family_path']} role {role_name}", "outcome": "ok",
-            "message": "; ".join(found["changes"])}])
+            "message": "; ".join(found["changes"])}], setup.core_version(lake))
         return summary | {"changes": found["changes"], "default_reader_paths": found["default_reader_paths"],
                           "changed": True}
 

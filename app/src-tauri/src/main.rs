@@ -21,6 +21,7 @@ mod engine_patch;
 mod exe_name;
 mod folder_pick;
 mod policy_file;
+mod policy_registry;
 mod policy_trust;
 mod replies;
 mod signature;
@@ -56,14 +57,19 @@ fn setting(text: &str, key: &str) -> Option<String> {
 }
 
 /// The organization's policy file (%ProgramData%\FabricDesktop\policy.json), or when it can't be
-/// read, the last copy the sidecar could read (policy_file.rs); empty for no policy.
+/// read, the last copy the sidecar could read (policy_file.rs), with Group Policy's values laid over
+/// it (policy_registry.rs); empty for no policy.
 fn policy_text() -> String {
-    let Some(dir) = std::env::var_os("ProgramData") else { return String::new() };
-    policy_file::text(&PathBuf::from(dir).join("FabricDesktop").join("policy.json"), &data_dir().join("policy-last-good.json"))
+    let file = match std::env::var_os("ProgramData") {
+        Some(dir) => policy_file::text(&PathBuf::from(dir).join("FabricDesktop").join("policy.json"),
+                                       &data_dir().join("policy-last-good.json")),
+        None => String::new(),
+    };
+    policy_registry::overlay(&file, &policy_registry::read())
 }
 
 /// Whether the app may update itself. An organization that rolls out builds itself sets
-/// `"auto_update": false` in its policy file; only that file can turn updates off.
+/// `"auto_update": false` in its policy file or Group Policy; only those can turn updates off.
 fn auto_update_allowed() -> bool {
     policy_allows_updates(&policy_text())
 }
@@ -96,17 +102,22 @@ fn engine_mirror() -> Option<String> {
 
 /// The engine folder to use, or why a valid one in a managed policy file is ignored. The file's
 /// permissions are checked before it is read, so what is read is what only administrators wrote.
+/// Group Policy's `engine_download_url` is trusted the same way: only when the account running the
+/// app couldn't change its key (policy_registry::admin_only).
 fn engine_mirror_state() -> Result<Option<String>, String> {
-    let Some(dir) = std::env::var_os("ProgramData") else { return Ok(None) };
-    let file = PathBuf::from(dir).join("FabricDesktop").join("policy.json");
-    let trusted = policy_trust::admin_only(&file);
-    let text = std::fs::read_to_string(&file).unwrap_or_default();
+    let file = std::env::var_os("ProgramData").map(|dir| PathBuf::from(dir).join("FabricDesktop").join("policy.json"));
+    let file_trusted = file.as_deref().map_or(Err("there is no policy file".into()), policy_trust::admin_only);
+    let registry_trusted = policy_registry::admin_only(&[]);
+    let found = policy_registry::read();
+    let text = policy_registry::overlay(&file.map(|f| std::fs::read_to_string(f).unwrap_or_default()).unwrap_or_default(), &found);
+    let trusted = if policy_registry::sets(&found, "engine_download_url") { registry_trusted } else { file_trusted };
     mirror_from(&text, trusted)
 }
 
-/// engine_mirror_state's rule for the policy file's `text`, given whether only administrators
-/// could have written it: an engine folder only with `"auto_update": false`, a valid address, and
-/// a trusted file; a valid address in an untrusted file is why it is ignored.
+/// engine_mirror_state's rule for the policy's `text` (the file with Group Policy laid over it), given
+/// whether only administrators could have written the source of `engine_download_url`: an engine
+/// folder only with `"auto_update": false`, a valid address, and a trusted source; a valid address
+/// from an untrusted source is why it is ignored.
 fn mirror_from(text: &str, trusted: Result<(), String>) -> Result<Option<String>, String> {
     if policy_allows_updates(text) {
         return Ok(None);
@@ -132,11 +143,24 @@ fn policy_engine_url(text: &str) -> Option<String> {
 }
 
 /// Extra hosts the Fabric view may open for sign-in: the organization's own identity provider
-/// (AD FS, Okta, Ping, ...), from `"fabric_view_sign_in_hosts"` in the policy file. Only that
-/// file can set it; a missing or unreadable file means none (its last good copy isn't used).
+/// (AD FS, Okta, Ping, ...), from `"fabric_view_sign_in_hosts"` in the policy file or Group Policy.
+/// Only those can set it, and only when the account running the app couldn't change them
+/// (policy_registry::trusted_hosts); a missing or unreadable file means none (its last good copy isn't used).
 fn fabric_view_sign_in_hosts() -> Vec<String> {
-    let Some(dir) = std::env::var_os("ProgramData") else { return Vec::new() };
-    policy_sign_in_hosts(&std::fs::read_to_string(PathBuf::from(dir).join("FabricDesktop").join("policy.json")).unwrap_or_default())
+    sign_in_hosts_state().0
+}
+
+/// The sign-in hosts, and why a source's were ignored ("" for none).
+fn sign_in_hosts_state() -> (Vec<String>, String) {
+    let path = std::env::var_os("ProgramData").map(|dir| PathBuf::from(dir).join("FabricDesktop").join("policy.json"));
+    let file = path.as_deref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+    let file_hosts = policy_sign_in_hosts(&file);
+    let file_ok = if file_hosts.is_empty() { Ok(()) } else { path.as_deref().map_or(Err("there is no policy file".into()), policy_trust::admin_only) };
+    let found = policy_registry::read();
+    let registry = policy_registry::sets(&found, "fabric_view_sign_in_hosts")
+        .then(|| policy_sign_in_hosts(&policy_registry::overlay("", &found)));
+    let registry_ok = if registry.is_some() { policy_registry::admin_only(&["fabric_view_sign_in_hosts"]) } else { Ok(()) };
+    policy_registry::trusted_hosts(file_hosts, file_ok, registry, registry_ok)
 }
 
 /// The valid entries of `fabric_view_sign_in_hosts`, lower-cased; invalid ones are skipped.
@@ -770,7 +794,21 @@ fn updater(args: &[&str]) -> Result<Command, String> {
 /// Runs an updater command, sending each output line to the UI as a
 /// `component-log` event. Returns the last lines of output when it fails, without the
 /// download's "progress <percent>" lines, which only drive the UI's progress label.
-fn stream(app: &tauri::AppHandle, mut cmd: Command) -> Result<(), String> {
+fn stream(app: &tauri::AppHandle, cmd: Command) -> Result<(), String> {
+    stream_tail(app, cmd).map(|_| ())
+}
+
+/// The SHA-256 updater.py download-app printed last ("verified <sha256>"): the release checksum the
+/// download matched.
+fn verified_sha256(tail: &VecDeque<String>) -> Option<String> {
+    tail.iter().rev().find_map(|line| {
+        let sha = line.trim().strip_prefix("verified ")?.to_ascii_lowercase();
+        (sha.len() == 64 && sha.bytes().all(|b| b.is_ascii_hexdigit())).then_some(sha)
+    })
+}
+
+/// stream, returning the updater's last lines (updater_tail) when it succeeds.
+fn stream_tail(app: &tauri::AppHandle, mut cmd: Command) -> Result<VecDeque<String>, String> {
     let mut child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -783,7 +821,7 @@ fn stream(app: &tauri::AppHandle, mut cmd: Command) -> Result<(), String> {
     let _ = child.stderr.take().expect("updater stderr").read_to_string(&mut stderr);
     let status = child.wait().map_err(|e| e.to_string())?;
     if status.success() {
-        return Ok(());
+        return Ok(tail);
     }
     Err(updater_failure(tail, &stderr))
 }
@@ -920,6 +958,8 @@ impl Sidecar {
             .env("FABRIC_DESKTOP_APP_EXE", std::env::current_exe().unwrap_or_default())
             // So Settings > Help and about can say why IT's engine folder isn't used (app_settings).
             .env("FABRIC_DESKTOP_ENGINE_URL_IGNORED", engine_mirror_state().err().unwrap_or_default())
+            // And why the organization's Fabric view sign-in hosts aren't used.
+            .env("FABRIC_DESKTOP_SIGN_IN_HOSTS_IGNORED", sign_in_hosts_state().1)
             .current_dir(data_dir())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -1791,6 +1831,17 @@ struct ExeHandover<'a> {
     marker: PathBuf,
     commit: &'a str,
     child: Option<Child>,
+    /// The SHA-256 the download was verified against (the channel release's version.json, via
+    /// updater.py download-app): swap checks the file against it again once it holds it, and once
+    /// it is in place, so a change while the swap waited on a scanner is never installed.
+    checked_sha256: String,
+}
+
+fn sha256_of(r: &mut dyn std::io::Read) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    std::io::copy(r, &mut hasher)?;
+    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 impl update_guard::Handover for ExeHandover<'_> {
@@ -1800,7 +1851,14 @@ impl update_guard::Handover for ExeHandover<'_> {
     }
 
     fn swap(&mut self) -> Result<(), String> {
-        update_guard::swap_in(&self.exe, &self.new, &self.old)
+        let checked = &self.checked_sha256;
+        update_guard::swap_in_checked(&self.exe, &self.new, &self.old, |r| {
+            match sha256_of(r) {
+                Ok(now) if now == *checked => Ok(()),
+                Ok(_) => Err("The new build changed after it was checked, so it wasn't installed. Try the update again.".into()),
+                Err(e) => Err(format!("Could not read the new build to check it again: {e}")),
+            }
+        })
     }
 
     fn spawn(&mut self) -> Result<(), String> {
@@ -1879,11 +1937,12 @@ async fn update_app(app: tauri::AppHandle, webview: tauri::Webview, state: tauri
         return Err("Your organization rolls out new builds itself, so the app doesn't update itself.".into());
     }
     let exe = app_exe().map_err(|e| e.to_string())?;
+    update_guard::can_update_in_place(&exe)?;
     let new = exe.with_extension("exe.new");
     let old = exe.with_extension("exe.old");
     let dest = new.to_string_lossy().into_owned();
     let target = download_offered(&app, commit.to_ascii_lowercase(), &dest);
-    let target = match target {
+    let (target, checked_sha256) = match target {
         Ok(t) => t,
         Err(e) => {
             let _ = std::fs::remove_file(&new); // a partial or unchecked download is never left behind
@@ -1897,13 +1956,13 @@ async fn update_app(app: tauri::AppHandle, webview: tauri::Webview, state: tauri
         return Err(why);
     }
     update_guard::hand_over(&mut ExeHandover {
-        app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &target, child: None,
+        app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &target, child: None, checked_sha256,
     })
 }
 
 /// Downloads the build the channel offers now to `dest`, following it once if it moves on during
-/// the download (update_app). Returns the build downloaded.
-fn download_offered(app: &tauri::AppHandle, mut target: String, dest: &str) -> Result<String, String> {
+/// the download (update_app). Returns the build downloaded and the SHA-256 it was verified against.
+fn download_offered(app: &tauri::AppHandle, mut target: String, dest: &str) -> Result<(String, String), String> {
     for attempt in 0..2 {
         let offered = offered_now()?;
         if offered != target {
@@ -1920,8 +1979,12 @@ fn download_offered(app: &tauri::AppHandle, mut target: String, dest: &str) -> R
         }
         // The download runs the updater with its own Python, not the engine, so the engine keeps
         // running until the file is here and checked.
-        match stream(app, updater(&["download-app", dest, &target])?) {
-            Ok(()) => return Ok(target),
+        match stream_tail(app, updater(&["download-app", dest, &target])?) {
+            Ok(tail) => {
+                return verified_sha256(&tail)
+                    .map(|sha| (target, sha))
+                    .ok_or_else(|| "The download wasn't checked against its release, so it wasn't installed.".into());
+            }
             Err(out) => {
                 let last = out.lines().last().unwrap_or_default().trim().to_string();
                 if last.starts_with("moved ") && attempt == 0 {
@@ -3899,11 +3962,21 @@ mod sidecar_log_tests {
 
 #[cfg(test)]
 mod updater_output_tests {
-    use super::{updater_failure, updater_tail};
+    use super::{updater_failure, updater_tail, verified_sha256};
     use std::collections::VecDeque;
 
     fn lines(range: std::ops::RangeInclusive<u32>) -> String {
         range.map(|i| format!("line {i}\n")).collect()
+    }
+
+    #[test]
+    fn the_verified_checksum_is_read_from_the_downloads_last_lines() {
+        let sha = "AB".repeat(32);
+        let tail = updater_tail(format!("progress 100\nverified {sha}\n").as_bytes(), |_| {});
+        assert_eq!(verified_sha256(&tail), Some(sha.to_ascii_lowercase()));
+        for out in ["done\n", "verified abc\n", "verified \n"] {
+            assert_eq!(verified_sha256(&updater_tail(out.as_bytes(), |_| {})), None, "{out}");
+        }
     }
 
     #[test]

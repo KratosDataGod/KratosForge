@@ -139,11 +139,21 @@ Use `127.0.0.1` in the address, not `localhost`: on Windows, `localhost` tries t
 | Read rows, a few at a time (**Read data**) | Write tables through KratosForge, or change Fabric items |
 | Run read-only SQL, and Python and notebooks on this PC, each after you approve it (**Run code on this PC**) | Use Git, or change settings and policies |
 | Read Prove results and receipts, and with your approval compare tables or export a receipt | Read local files through SQL, or run anything without your approval |
+| Trace a column's lineage in the metadata project, and read its runs and their data quality results (counts only; Test and Prod run logs are read from OneLake with your sign-in) | |
+| List the local data projects on this PC, their tables and columns, and a local Delta table's history (read from each project's saved catalog; its database is never opened, so KratosForge can keep it open) | |
 | List an environment's semantic models, export one as Apache Ossie YAML, and preview what an Ossie import would change (Preview; importing stays in KratosForge, behind its confirm) | |
 
 Code a tool runs gets its own process that's ended afterwards; it can read the attached lakehouse but table writes through KratosForge are refused. Approved Python runs as you and could still write files with the storage access it has, so read it before you allow it: the approval shows it in full. A SQL query a tool runs uses the memory share and threads set for the SQL page (**Settings › Advanced › SQL queries**), and is stopped when its time limit (`timeout_seconds`, 2 minutes unless the tool asks otherwise) runs out or the tool cancels it; the tool gets a timeout error and its next query can start straight away. One tool query runs at a time; another waits for it, and the wait counts towards its time limit. Text the tool reads from notebooks, tables and files is treated as data: it can't approve anything. Every request is recorded under **Recent activity**, and in an audit trail your IT team can collect (`%LOCALAPPDATA%\FabricDesktop\integrations\audit`).
 
 These limits apply to what your tool does through KratosForge. A tool that can already run commands on your PC (as most coding agents can) can do anything you can, with or without this connection; see [security](../product/ai-integration-security.md#what-it-does-not-protect-against).
+
+## What stays on this PC
+
+The tools are about what is on this PC: your notebooks, the metadata project and its lineage and run log, local data projects, proofs and receipts, and runs on this PC. They work the same whether your target is Fabric, Databricks or Snowflake.
+
+They don't create, change or delete Fabric items, and they don't cover what Microsoft's Fabric MCP servers and [Fabric skills](microsoft-fabric-skills.md) already do. KratosForge reads Fabric only where a tool needs it (workspaces, lakehouse tables and schemas, an environment's run log or semantic models), always with your own sign-in, so your tool sees no more than you can. For other Fabric work, connect Microsoft's servers beside this one.
+
+Nothing a tool asks for leaves your PC through KratosForge, except the Fabric and OneLake calls above, which go to your own tenant, and anything code you approve does, since it runs as you. No tool request makes KratosForge call an AI model. (App Studio's model connections are separate: they use your own model and key, and only after you agree.)
 
 ## If it doesn't work
 

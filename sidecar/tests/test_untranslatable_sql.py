@@ -16,8 +16,9 @@ from fabric_desktop.engines.local_sql import DuckDBSession
 PACKAGE = Path(__file__).resolve().parents[1] / "fabric_desktop"
 COMPARATOR = "SELECT array_sort(array(3, 1, 2), (l, r) -> r - l) AS a"
 # array_sort's comparator runs on the SQL paths since #1413, and approx_count_distinct's rsd since WR-108.
-# sqlglot reads levenshtein's third argument (Spark's threshold) as a cost DuckDB's levenshtein lacks.
-DROPPED = "SELECT levenshtein('kitten', 'sitting', 2) AS a"
+# levenshtein's threshold runs since WR-116. regexp_replace's position, worked out from the data, is a part
+# sqlglot's DuckDB SQL can't write.
+DROPPED = "SELECT regexp_replace('aaa', 'a', 'b', x) AS a FROM (SELECT 2 AS x)"
 
 # DuckDB SQL written with sqlglot's default, which logs and drops what it can't write. Each one
 # writes something that isn't run as the person's query.
@@ -35,7 +36,7 @@ def _literal(node: ast.expr) -> bool:
 
 def test_an_argument_sqlglot_drops_is_refused_not_left_out():
     with pytest.raises(ValueError, match="can't run on this PC the way it runs in Fabric, so nothing ran: "
-                                         "Argument 'ins_cost' is not supported"):
+                                         "REGEXP_REPLACE with non-literal position"):
         sql.run(DROPPED)
 
 
@@ -46,7 +47,7 @@ def test_a_query_that_translates_exactly_still_runs():
 def test_a_databricks_cell_on_the_duckdb_engine_is_refused_the_same_way():
     session = DuckDBSession(SessionConfig("nb"))  # a real one: decimal types read its tables (WR-113)
     try:
-        with pytest.raises(Unsupported, match="Argument 'ins_cost' is not supported"):
+        with pytest.raises(Unsupported, match="REGEXP_REPLACE with non-literal position"):
             session._sql(DROPPED, "databricks")
     finally:
         session.close()

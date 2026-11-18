@@ -50,7 +50,7 @@ from .runtime import Runtime
 from .workloads import deliver, evaluate
 from .workloads.agents import read_status
 from .workloads.incidents import IncidentLog
-from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, failure, send, single
+from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, audit_trouble, failure, send, single
 from .workloads.platform_notify import Ledger, PlatformRoute, PlatformRouting, validate
 from .workloads.platform_notify import send as send_notices
 
@@ -768,23 +768,24 @@ class Agent:
             return
         self.send_waiting_alerts()  # older alerts first
         with self._alert_lock:
-            # No outbox file yet means nothing ever failed here: no need to make one to find out.
-            box = (self._alert_outbox() if self._alert_box is not None or (self.config.home / "job_alerts.sqlite3").exists()
-                   else None)
-            resting = box.resting({DEFAULT_ROUTE: url}) if box else {}
-            if box and resting:
+            box = self._alert_outbox()
+            resting = box.resting({DEFAULT_ROUTE: url})
+            if resting:
                 box.add(title, lines, resting[DEFAULT_ROUTE])
                 self.log.info("alert waits: Teams failed recently, so it goes with the next try", extra=fields(**about))
                 return
+            item = box.sending(title, lines)  # kept before the post: a stop mid-send leaves it to go later
             try:
                 self._post(url, title, lines)
-                if box:
-                    box.route_ok(DEFAULT_ROUTE)
-                return
             except Exception as exc:  # noqa: BLE001 - kept, and sent with the next try
                 problem = _without_webhook(failure(exc), url)
-                self._alert_outbox().add(title, lines, problem)
-                self._alert_outbox().route_failed(DEFAULT_ROUTE, url, problem)
+                box.not_sent(item, problem)
+                box.route_failed(DEFAULT_ROUTE, url, problem)
+                audit_trouble(self.audit, {"error": problem, "queued": 1}, "job_alerts.sqlite3")
+            else:
+                box.done(item)
+                box.route_ok(DEFAULT_ROUTE)
+                return
         self.log.warning("couldn't post the alert to Teams; it goes with the next try",
                          extra=fields(**about, error=problem))
 
@@ -803,7 +804,9 @@ class Agent:
             return None
 
     def _count_dropped(self, result: dict[str, Any], outbox: str) -> None:
-        """Log and count messages an outbox dropped unsent after three days (the status record shows the count)."""
+        """Log and count messages an outbox dropped unsent after three days (the status record shows the count).
+        A post that failed, or any drop, also gets a line in the agent's audit log (notify.audit_trouble)."""
+        audit_trouble(self.audit, result, outbox)
         n = int(result.get("dropped") or 0)
         if not n:
             return

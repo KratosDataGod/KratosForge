@@ -588,6 +588,39 @@ function sqlRowsAs(format, columns, rows, { dialect = "spark", table = "results"
   return [names, ...rows.map((r) => r.map(cell))].map((l) => l.join("\t")).join("\n");
 }
 
+// The dotted name under the cursor, as its parts (["dbo", "usp_load"]), or null. Go to definition reads it
+// for what a hover doesn't name: a warehouse's procedures and functions.
+function sqlNameAt(text, pos) {
+  const stmt = sqlStatementAt(text, pos);
+  const toks = [];
+  const re = new RegExp(SQL_TOKEN.source, "g");
+  for (let m; (m = re.exec(stmt.masked));) toks.push({ t: m[0], from: stmt.from + m.index, to: stmt.from + m.index + m[0].length });
+  const i = toks.findIndex((k) => k.from <= pos && pos < k.to);
+  if (i < 0 || !SQL_NAME_TOKEN.test(toks[i].t)) return null;
+  const parts = [sqlUnquote(toks[i].t)];
+  for (let j = i; j >= 2 && toks[j - 1].t === "." && SQL_NAME_TOKEN.test(toks[j - 2].t); j -= 2) parts.unshift(sqlUnquote(toks[j - 2].t));
+  for (let j = i; toks[j + 1]?.t === "." && toks[j + 2] && SQL_NAME_TOKEN.test(toks[j + 2].t); j += 2) parts.push(sqlUnquote(toks[j + 2].t));
+  return parts;
+}
+
+// The catalog object (table, view, procedure or function) that parts name: schema.name, or a bare name
+// that only one schema has (dbo when several do). Null when none, or more than schema.name is given.
+function sqlCatalogObject(parts, objects) {
+  if (!parts?.length || parts.length > 2) return null;
+  const name = parts.at(-1).toLowerCase();
+  const schema = parts.length > 1 ? parts[0].toLowerCase() : null;
+  const hits = (objects || []).filter((o) => o.name.toLowerCase() === name && (!schema || o.schema.toLowerCase() === schema));
+  return hits.length === 1 ? hits[0] : hits.find((o) => o.schema.toLowerCase() === "dbo") || null;
+}
+
+// A lakehouse table as CREATE TABLE, from the columns the Explorer lists. A sketch to read or start from:
+// the table's Delta properties and partitioning aren't in it, and its first line says so.
+function sqlLakehouseCreate(t, cols) {
+  const lines = cols.map((c) => `  ${sqlQuoteIdent(c.name)} ${String(c.type || "STRING").toUpperCase()}`);
+  return `-- ${sqlTableName(t.schema, t.name)}, sketched from the columns the Explorer lists. Its table properties and partitioning aren't shown.\n` +
+    `CREATE TABLE ${sqlQuoteIdent(t.schema)}.${sqlQuoteIdent(t.name)} (\n${lines.join(",\n")}\n) USING DELTA;\n`;
+}
+
 // ---------- the editor ----------
 
 const sqlCmDialects = {};
@@ -714,6 +747,43 @@ async function sqlTargetTable(target, provider) {
     if (cols.some((c) => c.name.toLowerCase() === target.name.toLowerCase())) return t;
   }
   return null;
+}
+
+// Peek definition (Alt+F12): the object's definition in a panel under the cursor, without leaving the query.
+// show({ title, kind, text, error, actions: [{ label, run }] }) fills it; Esc, Close or a click outside closes it.
+let sqlPeekOpen = null;
+function sqlPeekClose(refocus = true) {
+  const open = sqlPeekOpen;
+  if (!open) return;
+  sqlPeekOpen = null;
+  document.removeEventListener("mousedown", open.outside, true);
+  clearInterval(open.gone);
+  open.box.remove();
+  if (refocus) open.view.focus();
+}
+function sqlPeek(view, at = view.state.selection.main.head) {
+  sqlPeekClose(false);
+  const box = h("div", { class: "sql-peek", role: "region", tabindex: "-1" });
+  const open = sqlPeekOpen = { view, box, outside: (e) => { if (!box.contains(e.target)) sqlPeekClose(false); } };
+  box.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); sqlPeekClose(); } });
+  document.addEventListener("mousedown", open.outside, true);
+  // Leaving the page by keyboard (another view, another tab) hides the editor: the panel goes with it.
+  open.gone = setInterval(() => { if (!view.dom.isConnected || !view.dom.getClientRects().length) sqlPeekClose(false); }, 300);
+  document.body.append(box);
+  const coords = view.coordsAtPos(at) || view.dom.getBoundingClientRect();
+  const show = ({ title, kind, text = "", error = null, actions = [] }) => {
+    if (sqlPeekOpen !== open) return;
+    box.setAttribute("aria-label", `Definition of ${title}`);
+    const close = h("button", { type: "button", class: "tool small sql-side-close", "aria-label": "Close", title: "Close (Esc)", onclick: () => sqlPeekClose() }, "✕");
+    const code = h("pre", { class: "sql-peek-code", tabindex: "0", "aria-label": `Definition of ${title}` }, text);
+    box.replaceChildren(
+      h("div", { class: "sql-peek-head" }, h("code", {}, h("b", {}, title)), h("span", { class: "nb-intel-kind" }, kind),
+        h("span", { class: "sql-peek-actions" }, ...actions.map((a) => h("button", { type: "button", class: "tool outline small", onclick: () => { sqlPeekClose(false); a.run(); } }, a.label)), close)),
+      error ? h("p", { class: "sql-peek-error", role: "alert" }, error) : code);
+    intelPlace(box, coords);
+    (error ? close : code).focus();
+  };
+  return { show };
 }
 
 // The hover card for a target from sqlHoverTarget, as nodes for intelFloat (nbintel.js), or null.
@@ -927,6 +997,8 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
     { id: "go_to_line", key: "Mod-g", run: (v) => sqlGotoLine(v), preventDefault: true },
     // F12, as in SSMS and VS Code: the table under the cursor (or an alias's or a column's) in the Explorer.
     { id: "definition", key: "F12", run: () => { on.definition?.(); return true; }, preventDefault: true },
+    // Alt+F12, as in VS Code: the definition in a panel under the cursor.
+    { id: "peek_definition", key: "Alt-F12", run: () => { on.peek?.(); return true; }, preventDefault: true },
     // Bookmarks, as in SSMS and VS Code (S46).
     { id: "bookmark", key: "Mod-F2", run: sqlBookmarkToggle, preventDefault: true },
     { id: "bookmark_next", key: "F2", run: (v) => sqlBookmarkGo(v, 1), preventDefault: true },

@@ -50,6 +50,22 @@ def test_a_sandboxed_connection_has_its_limits_set_and_locked():
 # ---- what this PC can't read
 
 
+def test_a_sandboxed_query_gets_spark_decimal_types_only_once_its_connection_is_locked(monkeypatch):
+    """The decimal-type pass reads the connection, so on a sandboxed run it runs with external access already off
+    and the configuration locked."""
+    seen = []
+    real = sql.spark_decimals.spark_decimal_types
+
+    def typed(statement, con):
+        seen.append(con.sql("SELECT current_setting('enable_external_access'), "
+                            "current_setting('lock_configuration')").fetchall()[0])
+        return real(statement, con)
+    monkeypatch.setattr(sql.spark_decimals, "spark_decimal_types", typed)
+    assert sql.run("SELECT CAST(-7 AS DECIMAL(5,1)) div CAST(2 AS DECIMAL(3,1)) AS q", sandbox=True).to_pylist() == [
+        {"q": -3}]
+    assert seen == [(False, True)]
+
+
 @pytest.mark.parametrize("query, says", [
     ("SELECT * FROM t@abc", r"t@abc isn't a version \(@v3\) or a time"),
     ("SELECT from_json('{}', 'struct<>')", "from_json's schema has no fields"),

@@ -23,6 +23,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from .. import csv_cells
 from . import core
 
 ENV_NAMES = {"dev": "Dev", "test": "Test", "prod": "Prod"}
@@ -234,24 +235,20 @@ def az(rows: list[dict[str, Any]], owners: list[str], by: str = "", at: str = ""
     return "\n".join(lines) + "\n"
 
 
-def table(rows: list[dict[str, Any]], owners: list[str]) -> str:
-    """Every group as CSV, for building them by hand in the Entra admin center."""
+def table(rows: list[dict[str, Any]], owners: list[str], cells: csv_cells.Cells | None = None) -> str:
+    """Every group as CSV, for building them by hand in the Entra admin center. ``cells`` keeps a spreadsheet
+    from running a cell as a formula, and counts the ones it changed."""
+    cells = cells if cells is not None else csv_cells.Cells()
     out = io.StringIO()
     w = csv.writer(out, lineterminator="\r\n")
     w.writerow(["Domain", "Role", "Environment", "Group name", "Mail nickname", "Description", "Owners", "Who goes in",
                 "What it gets in Fabric", "Linked group ID"])
     for r in rows:
         name = r["linked"]["group_name"] if r["linked"] else r["suggested"]
-        w.writerow([_cell(x) for x in (r["domain"], r["label"], ENV_NAMES.get(r["env"], "All"), name,
+        w.writerow([cells(x) for x in (r["domain"], r["label"], ENV_NAMES.get(r["env"], "All"), name,
                                        "" if r["linked"] else r["mail_nickname"], r["description"],
                                        ", ".join(owners), r["who"], r["gets"], r["linked"]["group_id"] if r["linked"] else "")])
     return out.getvalue()
-
-
-def _cell(value: Any) -> str:
-    """A CSV cell Excel won't run as a formula."""
-    text = str(value or "")
-    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
 
 
 MANUAL_STEPS = (

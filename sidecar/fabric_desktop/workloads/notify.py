@@ -12,6 +12,12 @@ the first failure, doubling to at most BACKOFF_MAX. While it rests, its messages
 without a request being sent. An outbox keeps at most MAX_WAITING messages and none older than
 KEEP_TRYING; anything removed unsent is counted as ``dropped`` for the caller to log. On
 recovery, at most MAX_PER_TRY waiting messages go to a route in one call, the rest with the next.
+
+A message is written to the outbox before it is posted and deleted once Teams takes it, so a process
+that stops mid-send (a crash, a kill, the PC losing power) never loses it: the next send after
+SENDING_GRACE posts it, marked as delayed and as possibly already in the channel, since a post cut
+off on the way may have reached Teams or the inbox. That is the only way one message can go out twice. Until the
+grace ends, no other process sends it, so two windows sending at once don't post it twice.
 """
 
 from __future__ import annotations
@@ -19,6 +25,8 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import logging
+import re
 import sqlite3
 import time
 from dataclasses import dataclass, field
@@ -27,6 +35,8 @@ from typing import Any, Callable, ContextManager
 
 from .. import redact, sqlitefile
 from .evaluate import describe
+
+_log = logging.getLogger(__name__)
 
 DIGEST_OVER = 5
 KEEP_TRYING = 3 * 86400  # an alert older than this is dropped from the outbox, not sent
@@ -37,6 +47,10 @@ BACKOFF_MAX = 1800.0  # the longest a failing route rests between tries
 CLOCK_MARGIN = 300.0  # a rest ending further off than BACKOFF_MAX plus this was set before the clock went back
 DEFAULT_ROUTE = "default"
 LINE_MAX = 500  # characters in one title or line of a Teams message
+# Longer than any one post can take (Teams: 3 tries of 5 + 15 s with two 10 s waits for throttling;
+# email: 20 s), so a message still marked sending after this was cut off by a stop, not slow.
+SENDING_GRACE = 600.0
+CUT_OFF = "From {when}; sending it was cut off, so it may have arrived already."
 
 
 @dataclass(frozen=True)
@@ -136,6 +150,8 @@ class Outbox:
                 db.execute(f"ALTER TABLE outbox ADD COLUMN route TEXT DEFAULT '{DEFAULT_ROUTE}'")
             if "not_before" not in cols:
                 db.execute("ALTER TABLE outbox ADD COLUMN not_before REAL DEFAULT 0")
+            if "sending" not in cols:  # 1 while a post is under way: left at 1 only by a stop mid-send
+                db.execute("ALTER TABLE outbox ADD COLUMN sending INTEGER DEFAULT 0")
             # A failing route's backoff. ``address`` is a fingerprint, never the webhook: a new address is tried at once.
             db.execute("CREATE TABLE IF NOT EXISTS route_state (route TEXT PRIMARY KEY, address TEXT, "
                        "failures INTEGER, next_try REAL, error TEXT)")
@@ -144,18 +160,42 @@ class Outbox:
         return sqlitefile.transaction(self.path)
 
     def add(self, title: str, lines: list[str], error: str, route: str = DEFAULT_ROUTE,
-            not_before: float = 0.0) -> None:
+            not_before: float = 0.0, db: sqlite3.Connection | None = None) -> None:
+        sql = ("INSERT INTO outbox (created, title, lines, attempts, error, route, not_before) "
+               "VALUES (?, ?, ?, ?, ?, ?, ?)")
+        values = (self.clock(), title, json.dumps(lines), 1 if error else 0, error[:500], route, not_before)
+        if db is not None:
+            db.execute(sql, values)
+            return
+        with self._db() as conn:
+            conn.execute(sql, values)
+
+    def sending(self, title: str, lines: list[str], route: str = DEFAULT_ROUTE,
+                db: sqlite3.Connection | None = None) -> int:
+        """Keep a message about to be posted; its id. Call ``done`` once it's posted and ``not_sent`` if it
+        fails. Kept until then, so a stop mid-send leaves it to go out SENDING_GRACE later. ``db``: a
+        transaction already open on this outbox's file, so the message is kept together with other changes."""
+        sql = ("INSERT INTO outbox (created, title, lines, attempts, error, route, not_before, sending) "
+               "VALUES (?, ?, ?, 0, '', ?, ?, 1)")
+        values = (self.clock(), title, json.dumps(lines), route, self.clock() + SENDING_GRACE)
+        if db is not None:
+            return int(db.execute(sql, values).lastrowid or 0)
+        with self._db() as conn:
+            return int(conn.execute(sql, values).lastrowid or 0)
+
+    def not_sent(self, item_id: int, error: str) -> None:
+        """A post that failed: the message waits like any other that Teams didn't take."""
         with self._db() as db:
-            db.execute("INSERT INTO outbox (created, title, lines, attempts, error, route, not_before) "
-                       "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                       (self.clock(), title, json.dumps(lines), 1 if error else 0, error[:500], route, not_before))
+            db.execute("UPDATE outbox SET attempts = attempts + 1, error = ?, not_before = 0, sending = 0 WHERE id = ?",
+                       (error[:500], item_id))
 
     def pending(self) -> list[dict[str, Any]]:
         with self._db() as db:
-            rows = db.execute("SELECT id, created, title, lines, attempts, error, route, not_before "
+            rows = db.execute("SELECT id, created, title, lines, attempts, error, route, not_before, sending "
                               "FROM outbox ORDER BY id").fetchall()
         return [{"id": r[0], "created": r[1], "title": r[2], "lines": json.loads(r[3]), "attempts": r[4],
-                 "error": r[5], "route": r[6] or DEFAULT_ROUTE, "not_before": r[7] or 0.0} for r in rows]
+                 "error": r[5], "route": r[6] or DEFAULT_ROUTE, "not_before": r[7] or 0.0, "sending": bool(r[8])}
+                for r in rows]
 
     def done(self, item_id: int) -> None:
         with self._db() as db:
@@ -228,13 +268,15 @@ def flush(outbox: Outbox, by_name: Callable[[str], Any], post: Callable[[str, st
         when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(item["created"]))
         if item["attempts"]:
             title, first = f"Delayed: {item['title']}", delayed.format(when=when)
+        elif item["sending"]:  # a send a stop cut off: it may have reached the channel
+            title, first = f"Delayed: {item['title']}", CUT_OFF.format(when=when)
         else:
             title, first = item["title"], f"Held during quiet hours since {when}."
         try:
             post(route.url, title, [first] + item["lines"])
         except Exception as exc:  # noqa: BLE001 - still unreachable: keep it
             down[route.name] = failed[route.name] = failure(exc)
-            outbox.failed(item["id"], down[route.name])
+            outbox.not_sent(item["id"], down[route.name])
             outbox.route_failed(route.name, route.url, down[route.name])
             continue
         outbox.done(item["id"])
@@ -244,6 +286,43 @@ def flush(outbox: Outbox, by_name: Callable[[str], Any], post: Callable[[str, st
             ok.add(route.name)
             outbox.route_ok(route.name)
     return sent
+
+
+NOT_DELIVERED = "notice_not_delivered"  # the audit action for a send that failed or dropped messages
+_ADDRESS = re.compile(r"(?:flow:)?https?://\S+|/workflows/\S+|mailto:\S+|[\w.%+-]+@[\w-]+(?:\.[\w-]+)+")
+
+
+def audit_trouble(audit: Any, result: dict[str, Any], outbox: str) -> None:
+    """One audit line (NOT_DELIVERED, outcome error) when a send's post failed this time or its outbox
+    dropped messages unsent, so neither is only in a log: ``queued`` and ``dropped`` say which, and
+    the error is kept without any address. A route resting between tries writes nothing: it sent nothing.
+    Never raises: a line that can't be written is logged, and the messages still wait."""
+    error, dropped = str(result.get("error") or ""), int(result.get("dropped") or 0)
+    if not error and not dropped:
+        return
+    try:
+        audit.record(NOT_DELIVERED, "error", 0.0,
+                     {"outbox": outbox, "queued": int(result.get("queued") or 0), "dropped": dropped,
+                      "waiting": int(result.get("waiting") or 0)},
+                     error=_ADDRESS.sub("<address>", redact.secrets(error))[:300], reason="failed")
+    except Exception as exc:  # noqa: BLE001 - the audit line is extra: the messages are kept either way
+        _log.warning("A notice that wasn't delivered couldn't be recorded in the audit log: %s", type(exc).__name__)
+
+
+def post_kept(outbox: Outbox, item_id: int, route: Any, title: str, lines: list[str],
+              post: Callable[[str, str, list[str]], None], down: dict[str, str], failed: dict[str, str]) -> bool:
+    """Post a message ``Outbox.sending`` kept. True once Teams took it (and it's deleted). False when it
+    failed: it waits in the outbox and the route rests, in ``down`` and ``failed`` with why."""
+    try:
+        post(route.url, title, lines)
+    except Exception as exc:  # noqa: BLE001 - a route that can't be sent to keeps the message and rests
+        down[route.name] = failed[route.name] = failure(exc)
+        outbox.not_sent(item_id, down[route.name])
+        outbox.route_failed(route.name, route.url, down[route.name])
+        return False
+    outbox.done(item_id)
+    outbox.route_ok(route.name)
+    return True
 
 
 def messages(changes: list[dict[str, Any]], source: str, digest_over: int = DIGEST_OVER) -> list[tuple[str, list[str]]]:
@@ -317,14 +396,9 @@ def send(changes: list[dict[str, Any]], routing: Routing, outbox: Outbox, source
                 outbox.add(title, lines, down[name], route=name)
                 queued += 1
                 continue
-            try:
-                post(route.url, title, lines)
+            if post_kept(outbox, outbox.sending(title, lines, route=name), route, title, lines, post, down, failed):
                 sent += 1
-                outbox.route_ok(name)
-            except Exception as exc:  # noqa: BLE001 - a route that can't be sent to is kept in the outbox and marked down
-                down[name] = failed[name] = failure(exc)
-                outbox.add(title, lines, down[name], route=name)
-                outbox.route_failed(name, route.url, down[name])
+            else:
                 queued += 1
     return {"sent": sent, "queued": queued, "held": held, "dropped": dropped, "waiting": outbox.count(),
             "error": next(iter(failed.values()), None)}

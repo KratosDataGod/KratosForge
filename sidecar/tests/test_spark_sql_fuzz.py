@@ -172,6 +172,23 @@ def test_unreadable_calls_and_numbers_are_refused_by_name(query, says):
         _translate(query)
 
 
+def test_an_error_from_kratosforge_code_run_inside_sqlglot_is_raised_as_it_is(monkeypatch):
+    """Only an AttributeError raised in sqlglot's own frames becomes a ParseError: one from a hook of ours
+    that sqlglot.parse calls is a bug to see, not a query to refuse."""
+    from sqlglot.dialects.spark import Spark
+    from sqlglot.errors import ParseError
+
+    def hook(args):
+        raise AttributeError("a bug in a KratosForge hook")
+    monkeypatch.setitem(Spark.Parser.FUNCTIONS, "KF_HOOK", hook)
+    with pytest.raises(AttributeError, match="a bug in a KratosForge hook"):
+        sql_dialects.parse("SELECT kf_hook(1)", read="spark")
+    with pytest.raises(AttributeError, match="a bug in a KratosForge hook"):
+        sql_dialects.parse_one("SELECT kf_hook(1)", read="spark")
+    with pytest.raises(ParseError, match="Part of the query couldn't be read"):  # sqlglot's own AttributeError
+        sql_dialects.parse("SELECT from_json('{x', 'a INT'), {:1}", read="duckdb")
+
+
 def test_two_arguments_where_a_call_needs_them_still_read():
     assert sql.run("SELECT datediff('2024-02-01', '2024-01-01') AS d", "spark").to_pylist() == [{"d": 31}]
 

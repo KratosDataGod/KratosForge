@@ -24,7 +24,7 @@ DIALECTS: dict[str, dict[str, Any]] = {
 DEFAULT = "spark"
 # sqlglot underlines the bad token with terminal escape codes; the app shows the text, so they go.
 _ESCAPES = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-# sqlglot reads and writes a query by recursion, so brackets or operators nested a few hundred deep
+# sqlglot reads and writes a query by recursion, so brackets or operators nested too deeply (about 60 brackets)
 # (SELECT ((((...1)))), or 1 + 1 + ... a thousand times) run out of Python's stack: a RecursionError,
 # which no caller expected and so came out as a crash. It is this refusal instead.
 TOO_DEEP = ("The query is nested too deeply to read on this PC: too many brackets, operators or calls "
@@ -65,6 +65,8 @@ def _check_type_calls(tokens: list[Any], parser: Any) -> None:
 def _check_tokens(sql: str, read: Any) -> None:
     """``sql``'s tokens checked for the nesting sqlglot takes too long to read (_check_type_calls). Text
     that can't be tokenized is left for sqlglot.parse to refuse."""
+    if sql.count("(") <= TYPE_CALL_DEPTH:  # no deeper nesting of calls is possible: skip the second tokenize
+        return
     from sqlglot.dialects.dialect import Dialect
     from sqlglot.errors import TokenError
     dialect = Dialect.get_or_raise(read)

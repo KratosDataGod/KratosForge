@@ -60,7 +60,7 @@ Queries over 100,000 characters are checked when you press **Check now** in the 
 Spark SQL that runs on this PC is read first, and a query that can't be read is refused with a message that
 says why; nothing runs. Besides SQL with a mistake in it, that is:
 
-- A query nested too deeply: brackets, operators or calls inside one another a few hundred levels deep, or
+- A query nested too deeply: brackets, operators or calls inside one another a few dozen levels deep, or
   more than 12 calls named like a type (`string(`, `int(`, `struct(`, `decimal(`...) inside one another, which
   would take the reader minutes. Split it into smaller parts, such as a WITH clause or a view.
 - A call missing an argument it needs, such as `datediff('2024-02-01')`, which Spark refuses too.

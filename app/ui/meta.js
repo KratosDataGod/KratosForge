@@ -1392,8 +1392,11 @@ function shortDate(iso) {
 // The workspaces whose capacity has a warning, for the toast after Optimize skipped their tables.
 function maintainWarnedText(check, count) {
   const names = (check?.workspaces || []).filter((w) => w.result === "warning").map((w) => w.workspace_name || "its workspace");
+  if (!names.length) return `${count} table${count === 1 ? "" : "s"} weren't optimized, because their capacity check has a warning.`;
   const where = names.length === 1 ? names[0] : `${names.length} workspaces`;
-  return `The ${count} table${count === 1 ? "" : "s"} on ${where} weren't optimized, because ${names.length === 1 ? "its capacity has" : "their capacities have"} a warning.`;
+  const why = names.length === 1 ? "its capacity has" : "their capacities have";
+  if (count === 1) return `The table on ${where} wasn't optimized, because ${why} a warning.`;
+  return `The ${count} tables on ${where} weren't optimized, because ${why} a warning.`;
 }
 
 // Optimize all in Fabric when a workspace's capacity check is Warning: say which tables it holds and
@@ -1436,7 +1439,11 @@ async function renderHealthTab(body) {
     const queued = res.length - warned.length - failed.length;
     const jobs = `${queued} maintenance job${queued === 1 ? "" : "s"}`;
     if (hl.local) toast(failed.length ? `${failed.length} of ${res.length} didn't start: ${failed[0].message}` : `Compacted ${res.length} table${res.length === 1 ? "" : "s"}`, failed.length > 0);
-    else if (warned.length) toast(`Queued ${jobs} in Fabric. ${maintainWarnedText(check, warned.length)}`, failed.length > 0);
+    else if (warned.length) {
+      const parts = [queued ? `Queued ${jobs} in Fabric.` : "", maintainWarnedText(check, warned.length),
+        failed.length ? `${failed.length} didn't start: ${failed[0].message}` : ""];
+      toast(parts.filter(Boolean).join(" "), failed.length > 0);
+    }
     else toast(failed.length ? `${failed.length} of ${res.length} didn't start: ${failed[0].message}` : `Queued ${jobs} in Fabric`, failed.length > 0);
     renderHealthTab(body);
   };

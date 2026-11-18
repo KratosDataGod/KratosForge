@@ -293,7 +293,7 @@ def test_maintain_starts_nothing_when_the_acceptance_cant_be_recorded(monkeypatc
     m._risk_ack_write = fails
     out = CloudMixin._maintain(m, Store(), ROWS, "dev", {"ws-dev": m._maintenance_capacity("ws-dev")["risk_id"]})
     assert [r["status"] for r in out] == ["Failed", "Failed", "NotStarted"]
-    assert "couldn't be recorded" in out[0]["message"]
+    assert "couldn't be recorded" in out[0]["message"] and "Try Optimize again" in out[0]["message"]
     assert [a[1] for a in jobs] == ["lh-gold"] and retention == ["abfss://LH_Gold/dbo/sales"]
 
 

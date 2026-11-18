@@ -604,7 +604,8 @@ class CloudMixin:
             self._risk_ack_write(record)  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - an acceptance that isn't recorded starts nothing
             return {"warning": True, "risk_id": found["risk_id"],
-                    "message": f"Not optimized: accepting the capacity warning couldn't be recorded ({describe(exc)})."}
+                    "message": ("Not optimized, because accepting the capacity warning couldn't be recorded "
+                                f"({describe(exc)}), so nothing started. Try Optimize again.")}
         return None
 
     def meta_optimize_check(self, env: str = "dev", entities: list[str] | None = None) -> dict[str, Any]:

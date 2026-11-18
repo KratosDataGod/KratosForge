@@ -229,7 +229,7 @@ LOCAL_PROJECT = {"type": "string", "minLength": 1, "maxLength": 120, "pattern": 
                  "description": "A local data project's id, from fabric_desktop_list_local_projects."}
 LOCAL_LIMIT = ("Read from each project's saved catalog and Delta logs; its database is never opened, so the app keeps it.",
                "Metadata only: names, columns, sizes and versions, no rows.",
-               "A tool limited to some workspaces can't use these: a source folder can be a OneLake folder on this PC.",
+               "A tool limited to some workspaces can't use these, because a source folder can be a OneLake folder on this PC.",
                "Results include full folder paths on this PC (the project's folder, its source folders, read errors).")
 
 

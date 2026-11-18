@@ -262,6 +262,17 @@ def test_a_prune_stopped_part_way_and_a_clock_put_back_still_finishes_and_verifi
     assert log.verify()["pruned"] == {"through": "2020-03", "lines": 3}
 
 
+def test_a_head_edited_to_claim_recent_months_were_pruned_never_has_them_deleted(tmp_path):
+    folder = tmp_path / "audit"
+    _trail(folder, [(2020, 1), (2026, 10), (2026, 11)])
+    head_path = folder / audit_chain.HEAD
+    head = json.loads(head_path.read_text(encoding="utf-8"))
+    head["base"] = {**(head.get("base") or {}), "through": "9999-12"}  # edited by hand
+    head_path.write_text(json.dumps(head), encoding="utf-8")
+    now = audit_chain._month_end("2026-11") - DAY
+    assert [p.name for p in audit_chain.prunable(folder, 30, now=now)] == ["audit-2020-01.jsonl"]
+
+
 def test_a_prune_whose_head_couldnt_be_written_deletes_nothing(tmp_path, monkeypatch):
     folder = tmp_path / "audit"
     log = _trail(folder, [(2020, 1), (2020, 2), (2026, 11)])

@@ -198,7 +198,11 @@ def prunable(folder: Path, days: int, now: float | None = None) -> list[Path]:
     every = [p for p in files(folder) if _MONTH.fullmatch(_month(p))]
     base = _head(folder).get("base")
     done = str(base.get("through") or "") if isinstance(base, dict) else ""
-    return [p for p in every[:-1] if _month_end(_month(p)) < cutoff or _month(p) <= done]
+    # head.json can be edited by hand: a "through" is only taken for months that were old enough by
+    # the trail's own newest month too, so an edited head can never have a prune delete recent months.
+    latest = _month_end(_month(every[-1])) - days * 86400 if every else cutoff
+    return [p for p in every[:-1]
+            if _month_end(_month(p)) < cutoff or (_month(p) <= done and _month_end(_month(p)) < latest)]
 
 
 def prune(folder: Path, days: int, now: float | None = None) -> dict[str, Any]:

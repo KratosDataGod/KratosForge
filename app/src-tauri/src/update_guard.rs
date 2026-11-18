@@ -284,8 +284,58 @@ fn wait_until_unused_with(path: &Path, attempts: u32, pause: Duration) {
 /// and then waiting up to 15 s for a scanner to let go of the download would leave no exe at its
 /// path for that long, and a PC shut down or a power cut then leaves the Start menu shortcut
 /// pointing at nothing. Waiting first keeps the two renames back to back.
+#[cfg(test)] // the app swaps with swap_in_checked; tests use this for the renames alone
 pub fn swap_in(exe: &Path, new: &Path, old: &Path) -> Result<(), String> {
-    wait_until_unused(new);
+    swap_in_checked(exe, new, old, |_| Ok(()))
+}
+
+/// Opens `path` once nothing else has it open, so that until the handle is dropped nobody can
+/// write to it. On Windows the handle shares read and delete only, so a scanner can still read it
+/// and this process can still rename it. Elsewhere it is a plain read handle.
+pub fn hold_unchanged(path: &Path) -> std::io::Result<std::fs::File> {
+    wait_until_unused(path);
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 1;
+        const FILE_SHARE_DELETE: u32 = 4;
+        options.share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE);
+    }
+    options.open(path)
+}
+
+/// swap_in, after `check` has read the download through a handle that keeps it from being written
+/// until it is in place. The download was checked before the wait (its checksum and signer), and
+/// something could have written to it while it was waited on; `check` confirms it is still that
+/// file. A failed check leaves the running exe where it is.
+///
+/// The held handle has to share delete, or this process couldn't rename the file, so another
+/// program could still move it away and put a different exe.new in its place. `check` therefore
+/// runs again on what is at `exe` once the renames are done, and a file that fails it is swapped
+/// back out for the previous build.
+pub fn swap_in_checked(
+    exe: &Path,
+    new: &Path,
+    old: &Path,
+    mut check: impl FnMut(&mut dyn std::io::Read) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut held = hold_unchanged(new).map_err(|e| format!("Could not open the new build {}: {e}", new.display()))?;
+    check(&mut held)?;
+    swap_renames(exe, new, old)?;
+    let placed = std::fs::File::open(exe)
+        .map_err(|e| format!("Could not read the new build to check it again: {e}"))
+        .and_then(|mut f| check(&mut f));
+    drop(held);
+    if let Err(why) = placed {
+        restore_previous(exe, old)?;
+        return Err(why);
+    }
+    Ok(())
+}
+
+fn swap_renames(exe: &Path, new: &Path, old: &Path) -> Result<(), String> {
     let _ = std::fs::remove_file(old);
     rename_retrying(exe, old).map_err(|e| format!("Could not move {} aside: {e}", exe.display()))?;
     if let Err(e) = rename_retrying(new, exe) {
@@ -673,6 +723,85 @@ mod tests {
         swap.join().unwrap().unwrap();
         assert_eq!(std::fs::read_to_string(&exe).unwrap(), "next");
         assert_eq!(std::fs::read_to_string(&old).unwrap(), "previous");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_failed_check_leaves_the_running_exe_in_place() {
+        let dir = scratch("swapcheck");
+        let (exe, new, old) = (dir.join("app.exe"), dir.join("app.exe.new"), dir.join("app.exe.old"));
+        std::fs::write(&exe, "previous").unwrap();
+        std::fs::write(&new, "changed").unwrap();
+        let err = swap_in_checked(&exe, &new, &old, |r| {
+            let mut seen = String::new();
+            r.read_to_string(&mut seen).map_err(|e| e.to_string())?;
+            if seen == "next" { Ok(()) } else { Err("The new build changed after it was checked.".into()) }
+        })
+        .unwrap_err();
+        assert!(err.contains("changed"));
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "previous");
+        assert!(!old.exists() && new.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_check_reads_the_download_that_is_then_put_in_place() {
+        let dir = scratch("swapchecked");
+        let (exe, new, old) = (dir.join("app.exe"), dir.join("app.exe.new"), dir.join("app.exe.old"));
+        std::fs::write(&exe, "previous").unwrap();
+        std::fs::write(&new, "next").unwrap();
+        let mut seen = Vec::new();
+        swap_in_checked(&exe, &new, &old, |r| {
+            let mut s = String::new();
+            r.read_to_string(&mut s).map_err(|e| e.to_string())?;
+            seen.push(s);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(seen, ["next", "next"], "checked when held, and again once in place");
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "next");
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), "previous");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_different_file_swapped_in_under_the_held_one_is_put_back_out() {
+        let dir = scratch("swapreplaced");
+        let (exe, new, old) = (dir.join("app.exe"), dir.join("app.exe.new"), dir.join("app.exe.old"));
+        std::fs::write(&exe, "previous").unwrap();
+        std::fs::write(&new, "next").unwrap();
+        let mut calls = 0;
+        // The first check passes on the held file; what lands at exe turns out to be another file.
+        let err = swap_in_checked(&exe, &new, &old, |r| {
+            calls += 1;
+            let mut seen = String::new();
+            r.read_to_string(&mut seen).map_err(|e| e.to_string())?;
+            if calls == 2 { Err("The new build changed after it was checked.".into()) } else { Ok(()) }
+        })
+        .unwrap_err();
+        assert!(err.contains("changed"));
+        assert_eq!(calls, 2);
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "previous");
+        assert!(!old.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn nothing_can_write_to_the_download_between_the_check_and_the_swap() {
+        let dir = scratch("swapheld");
+        let (exe, new, old) = (dir.join("app.exe"), dir.join("app.exe.new"), dir.join("app.exe.old"));
+        std::fs::write(&exe, "previous").unwrap();
+        std::fs::write(&new, "next").unwrap();
+        swap_in_checked(&exe, &new, &old, |_| {
+            // Another program trying to change the checked download while it is held.
+            match std::fs::OpenOptions::new().write(true).open(&new) {
+                Ok(_) => Err("the download could be written while held".into()),
+                Err(_) => Ok(()),
+            }
+        })
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "next");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

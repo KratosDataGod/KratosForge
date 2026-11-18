@@ -17,12 +17,15 @@ from typing import Any, Callable
 
 import polars as pl
 import pyarrow as pa
+from deltalake import DeltaTable
+from deltalake.exceptions import TableNotFoundError
 
 from . import http_session, retrying
 from .meta import Engine, impact
 from .meta import compare as compare_mod
 from .meta import diff as diff_mod
 from .meta import drift as drift_mod
+from .meta import data_health as data_health_mod
 from .meta import freshness as freshness_mod
 from .meta import release
 from .meta import store as store_mod
@@ -322,6 +325,25 @@ class DataOpsMixin:
         envs = [env for env in ENVIRONMENTS if any(r["env"] == env for r in data["runs"])]
         items = freshness_mod.report({n: e.spec for n, e in project.entities.items()}, data["runs"], envs)
         return {"items": items, "unavailable": data["unavailable"], "alerts": alerts, "alerts_unreadable": unreadable}
+
+    def meta_data_health(self, name: str, env: str = "dev") -> dict[str, Any]:
+        """Freshness, volume and schema of one entity's table in ``env``, read from its Delta log on
+        this PC (meta/data_health). Only reads: no Fabric job, and nothing in the table changes."""
+        if env not in ENVIRONMENTS:
+            raise ValueError(f"env is one of {', '.join(ENVIRONMENTS)}")
+        project = self._project()  # type: ignore[attr-defined]
+        if name not in project.entities:
+            raise ValueError(f"{name} isn't an entity in the metadata project")
+        e = project.entities[name]
+        store = self._store(project, env)  # type: ignore[attr-defined]
+        uri, options = store.uri(project.layer(e.layer).lakehouse, e.schema, e.table), store.options()
+        promise = freshness_mod.promise(e.spec)
+        within = promise["within_hours"] if promise and env in promise["envs"] else None
+        out: dict[str, Any] = {"entity": name, "env": env}
+        try:
+            return out | data_health_mod.check(lambda v: DeltaTable(uri, version=v, storage_options=options), within)
+        except TableNotFoundError:
+            return out | {"state": "no_table", "why": f"There's no Delta table for {name} in {env} yet."}
 
     def _alerts_unreadable(self) -> bool:
         """The Teams address is saved but this Windows account can't decrypt it (sealed_settings.py)."""

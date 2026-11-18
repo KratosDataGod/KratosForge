@@ -32,7 +32,8 @@ NOT_CALLED: dict[str, str] = {
     "adaptivecards.io": _SCHEMA,  # the Teams card's $schema
     "developer.microsoft.com": _SCHEMA,  # Fabric item definition $schema
     "schemas.microsoft.com": _SCHEMA,  # Task Scheduler XML namespace
-    "www.w3.org": _SCHEMA,  # the SVG namespace the table diagram export checks (service.py)
+    "www.w3.org": _SCHEMA,  # the SVG namespace the table diagram export checks (service.py) and the
+    # XML Schema instance namespace in the generated Group Policy templates
     "schemas.openxmlformats.org": _SCHEMA,  # Excel export XML namespaces
     "openlineage.io": _SCHEMA,  # OpenLineage schemaURL / _schemaURL values in exported events (meta/openlineage.py)
     "docs.databricks.com": _LINK,

@@ -585,7 +585,25 @@ function sqlRowsAs(format, columns, rows, { dialect = "spark", table = "results"
     }
     return out.join("\n");
   }
-  return [names, ...rows.map((r) => r.map(cell))].map((l) => l.join("\t")).join("\n");
+  return sqlTsv([names, ...rows.map((r) => r.map(sqlTsvCell))]);
+}
+
+// A value for tab-separated text a spreadsheet pastes: text that starts with = + - @, a tab or a carriage return
+// (after any spaces) gets a leading ' so the spreadsheet shows it as text and never runs it as a formula, as
+// OWASP's CSV injection guidance lists them. Numbers, and every other value, are as they are.
+function sqlTsvCell(v) {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "object") return JSON.stringify(v);
+  const t = String(v);
+  return typeof v === "string" && /^ *[=+\-@\t\r]/.test(t) ? `'${t}` : t;
+}
+
+// Lines of tab-separated fields, as spreadsheets paste them: a field holding a tab or a line break, or starting
+// with a quote, is quoted, its quotes doubled, so it stays one cell. A single field is left as it is.
+function sqlTsv(lines) {
+  if (lines.length === 1 && lines[0].length === 1) return lines[0][0];
+  const field = (t) => (/[\t\r\n]/.test(t) || t.startsWith('"') ? `"${t.replace(/"/g, '""')}"` : t);
+  return lines.map((l) => l.map(field).join("\t")).join("\n");
 }
 
 // The dotted name under the cursor, as its parts (["dbo", "usp_load"]), or null. Go to definition reads it

@@ -37,6 +37,7 @@ from duckdb.experimental.spark.sql.session import SparkSession
 from . import lakehouse, spark_api, spark_compat, spark_infer, sql as _sql, sql_dialects
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
 from .duckdb_rows import first_row, keep_try_cast
+from . import spark_hash
 from .spark_complex import spark_complex_types
 from .spark_decimals import spark_decimal_types
 from . import trees
@@ -1301,6 +1302,7 @@ class LocalSparkSession(SparkSession):
         super().__init__(SparkContext("local"))
         self.conn.execute("SET TimeZone = 'UTC'")  # like Fabric's Spark sessions, not this PC's zone
         keep_try_cast(self.conn)
+        spark_hash.register(self.conn)  # sha2 at 224, 384 and 512 bits
         # The running query's progress, for the line under a running cell (progress()); never printed.
         self.conn.execute("SET enable_progress_bar = true")
         self.conn.execute("SET enable_progress_bar_print = false")

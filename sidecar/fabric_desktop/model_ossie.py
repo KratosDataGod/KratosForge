@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import threading
 import warnings
 from typing import Any
@@ -260,24 +261,41 @@ def stashed(text: str) -> set[str]:
     """The tables (``"table"``), columns and measures (``"table[name]"``) the Ossie document gives a Power BI section
     (a POWER_BI custom extension, as Export to Ossie writes for each object with Fabric-only properties). For those
     the file speaks for every property, so ``merge`` takes the file's set; for the rest it carries the model's
-    Fabric-only properties over."""
+    Fabric-only properties over.
+
+    A measure is named by the table the converter puts it on: a dataset's metric is lifted with that dataset as
+    its table unless its section names one (``_lift_dataset_metrics``, which leaves out one a model-level metric
+    already names); the section's ``table`` and ``name`` stand when that table is in the model (a dataset or
+    one of the model section's excluded tables), and otherwise the first dataset is its home."""
     doc = parse(text)
     datasets = [d for d in doc.get("datasets") or [] if isinstance(d, dict) and d.get("name")]
+    if not datasets:
+        return set()
+    tables = {d["name"] for d in datasets} | {t.get("name") for t in _stash_data(doc).get("excludedTables") or []
+                                             if isinstance(t, dict)}
     found: set[str] = set()
+
+    def measure(m: dict[str, Any], default: str | None) -> None:
+        data = _stash_data(m)
+        home = data["table"] if "table" in data else default
+        found.add(f"{home if home in tables else datasets[0]['name']}[{data.get('name', m['name'])}]")
+
+    taken = {m.get("name") for m in doc.get("metrics") or [] if isinstance(m, dict)}
+    for m in doc.get("metrics") or []:
+        if isinstance(m, dict) and m.get("name") and _has_stash(m):
+            measure(m, None)
     for d in datasets:
         if _has_stash(d):
             found.add(str(d["name"]))
         for f in d.get("fields") or []:
-            if _has_stash(f) and f.get("name"):
+            if isinstance(f, dict) and _has_stash(f) and f.get("name"):
                 found.add(f"{d['name']}[{f['name']}]")
-        for m in d.get("metrics") or []:  # lifted to the model with this dataset as their table (_lift_dataset_metrics)
-            if _has_stash(m) and m.get("name"):
-                data = _stash_data(m)
-                found.add(f"{data.get('table') or d['name']}[{data.get('name') or m['name']}]")
-    for m in doc.get("metrics") or []:
-        if _has_stash(m) and m.get("name") and datasets:
-            data = _stash_data(m)
-            found.add(f"{data.get('table') or datasets[0]['name']}[{data.get('name') or m['name']}]")
+        for m in d.get("metrics") or []:
+            if not isinstance(m, dict) or not m.get("name") or m["name"] in taken:
+                continue
+            taken.add(m["name"])
+            if _has_stash(m):
+                measure(m, d["name"])
     return found
 
 
@@ -286,10 +304,11 @@ def _annotation_names(obj: dict[str, Any]) -> set[Any]:
 
 
 def _carry(old: dict[str, Any], new: dict[str, Any], kind: str, ref: str, stashed: set[str],
-           report: list[dict[str, str]], why_not: str = "") -> None:
+           report: list[dict[str, str]], why_not: str = "") -> list[str]:
     """The properties ``old`` (the model's) has that ``new`` (the file's) doesn't set and the file doesn't own,
     carried over into ``new``. Over an object with a Power BI section the file's set stands, and each property
-    it leaves out is named in ``report``; with ``why_not`` nothing is carried and each is named with that reason."""
+    it leaves out is named in ``report``; with ``why_not`` nothing is carried and each is named with that reason.
+    The keys carried, for ``_check_references``."""
     owned = _OSSIE_OWNS[kind]
     keys = [k for k in old if k not in owned and k not in new and not (kind == "table" and k in _TABLE_ALWAYS_KEPT)]
     have = _annotation_names(new)
@@ -304,13 +323,133 @@ def _carry(old: dict[str, Any], new: dict[str, Any], kind: str, ref: str, stashe
             new[k] = copy.deepcopy(old[k])
         if notes:
             new["annotations"] = list(new.get("annotations") or []) + copy.deepcopy(notes)
-        return
+        return keys
     report += [{"object": f"{ref} {k}", "kind": "lost", "message": message} for k in keys]
     report += [{"object": f"{ref} annotation {a.get('name')}", "kind": "lost", "message": message} for a in notes]
+    return []
 
 
 def _column_kind(c: dict[str, Any]) -> str:
     return str(c.get("type") or "data")
+
+
+# Column properties that describe the source column it reads, so they don't follow it to another source column.
+_FROM_SOURCE = ("sourceLineageTag", "sourceProviderType")
+# Carried properties holding DAX, checked for the names of tables, columns and measures the merge took out.
+_DAX_KEYS = ("kpi", "formatStringDefinition", "detailRowsDefinition", "defaultDetailRowsDefinition")
+_QUOTED = r"'((?:[^']|'')*)'"
+_TMDL_REF = re.compile(rf"^\s*(?:{_QUOTED}|([^\['.]+?))\s*(?:\[(.+)\]|\.\s*(?:{_QUOTED}|(.+?)))?\s*$")
+
+
+def _parse_ref(value: Any, table: str) -> tuple[str, str] | None:
+    """``'Table'[Column]``, ``Table.Hierarchy`` or a bare name (on ``table``) as (table, name), casefolded;
+    None when it isn't one of those."""
+    if isinstance(value, dict):
+        t, n = value.get("table"), value.get("column", value.get("hierarchy"))
+        return (str(t).casefold(), str(n).casefold()) if isinstance(t, str) and isinstance(n, str) else None
+    if not isinstance(value, str):
+        return None
+    m = _TMDL_REF.match(value)
+    if m is None:
+        return None
+    first = (m.group(1).replace("''", "'") if m.group(1) is not None else m.group(2)).strip()
+    second = m.group(3) or (m.group(4).replace("''", "'") if m.group(4) is not None else m.group(5))
+    return (table.casefold(), first.casefold()) if second is None else (first.casefold(), second.strip().casefold())
+
+
+def _strings(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [s for v in value for s in _strings(v)]
+    if isinstance(value, dict):
+        return [s for v in value.values() for s in _strings(v)]
+    return []
+
+
+def _check_references(current: dict[str, Any], model: dict[str, Any],
+                      carried: list[tuple[str, dict[str, Any], str, list[str]]], report: list[dict[str, str]]) -> None:
+    """Carried properties that name another object (a sort-by or group-by column, a variation's relationship or
+    default hierarchy, the column an aggregation is an alternate of) are taken back out when that object isn't in
+    the merged model, and so is DAX (a KPI, a format string or detail rows expression) naming a table, column or
+    measure the merge took out. Each is named in ``report``. A reference that can't be read is not carried."""
+    tables = {str(t.get("name")).casefold(): t for t in model.get("tables") or [] if isinstance(t, dict)}
+    members = {(n, str(c.get("name")).casefold()) for n, t in tables.items() for key in ("columns", "measures")
+               for c in t.get(key) or [] if isinstance(c, dict)}
+    hierarchies = {(n, str(h.get("name")).casefold()) for n, t in tables.items() for h in t.get("hierarchies") or []
+                   if isinstance(h, dict)}
+    relationships = {str(r.get("name")).casefold() for r in model.get("relationships") or [] if isinstance(r, dict)}
+    cur_tables = [t for t in current.get("tables") or [] if isinstance(t, dict)]
+    gone_tables = [str(t.get("name")) for t in cur_tables if str(t.get("name")).casefold() not in tables]
+    gone = [(str(t.get("name")), str(c.get("name"))) for t in cur_tables for key in ("columns", "measures")
+            for c in t.get(key) or [] if isinstance(c, dict)
+            and (str(t.get("name")).casefold(), str(c.get("name")).casefold()) not in members]
+    names_left = {n for _, n in members}
+
+    def shown(value: Any) -> str:
+        return value if isinstance(value, str) else json.dumps(value, sort_keys=True, ensure_ascii=False)
+
+    def has(value: Any, table: str, pool: set[tuple[str, str]]) -> bool:
+        """``value`` names an object in ``pool``: as written (a name on ``table`` with a dot or a bracket in
+        it), or read as a reference."""
+        return (isinstance(value, str) and (table.casefold(), value.casefold()) in pool) or \
+            _parse_ref(value, table) in pool
+
+    def missing(table: str, key: str, value: Any) -> str | None:
+        """What ``value`` (``key``'s, on ``table``) names that the merged model doesn't have, else None."""
+        if key == "sortByColumn":
+            return None if has(value, table, members) else f"the column {shown(value)}"
+        if key == "variations":
+            for v in value if isinstance(value, list) else [value]:
+                if not isinstance(v, dict):
+                    return f"what {shown(v)} names, which KratosForge can't tell"
+                rel, hier = v.get("relationship"), v.get("defaultHierarchy")
+                if rel is not None and str(rel).casefold() not in relationships:
+                    return f"the relationship {shown(rel)}"
+                if hier is not None and not has(hier, table, hierarchies):
+                    return f"the hierarchy {shown(hier)}"
+            return None
+        if key in ("relatedColumnDetails", "alternateOf") and not isinstance(value, dict):
+            return f"what {shown(value)} names, which KratosForge can't tell"
+        if key == "relatedColumnDetails":
+            refs = [g.get("groupingColumn") if isinstance(g, dict) else g for g in value.get("groupByColumns") or []]
+            for r in refs + _strings(value.get("groupByColumn")):
+                if not has(r, table, members):
+                    return f"the column {shown(r)}"
+            return None
+        if key == "alternateOf":
+            base_table, base_column = value.get("baseTable"), value.get("baseColumn")
+            if base_table is not None:
+                ref = _parse_ref(base_table, "")
+                if str(base_table).casefold() not in tables and (ref is None or ref[0] != "" or ref[1] not in tables):
+                    return f"the table {shown(base_table)}"
+            if base_column is not None and not has(base_column, table, members):
+                return f"the column {shown(base_column)}"
+            return None
+        # DAX: a name the merge took out, as 'Table', Table, Table[Name] or [Name] when nothing left has that name.
+        text = "\n".join(_strings(value)).casefold()
+        bare = re.sub(r"\[[^\]]*\]|\"(?:[^\"]|\"\")*\"|'(?:[^']|'')*'", " ", text)
+        for t in gone_tables:
+            quoted = "'" + t.replace("'", "''").casefold() + "'"
+            if quoted in text or re.search(rf"(?<![\w.]){re.escape(t.casefold())}(?!\w)", bare):
+                return f"the table {t}"
+        for t, n in gone:
+            bracket = "[" + n.replace("]", "]]").casefold() + "]"
+            quoted = "'" + t.replace("'", "''").casefold() + "'"
+            qualified = re.search(rf"(?:{re.escape(quoted)}|(?<![\w']){re.escape(t.casefold())})\s*{re.escape(bracket)}", text)
+            if qualified or (bracket in text and n.casefold() not in names_left):
+                return f"{t}[{n}]"
+        return None
+
+    for table, item, ref, keys in carried:
+        for key in keys:
+            if key not in ("sortByColumn", "variations", "relatedColumnDetails", "alternateOf", *_DAX_KEYS) or key not in item:
+                continue
+            what = missing(table, key, item[key])
+            if what is not None:
+                del item[key]
+                report.append({"object": f"{ref} {key}", "kind": "lost",
+                               "message": f"not kept, because the model no longer has {what}"})
 
 
 def _by_name(items: list[dict[str, Any]] | None) -> dict[str, dict[str, Any]]:
@@ -348,11 +487,14 @@ def merge(current: dict[str, Any], incoming: dict[str, Any], remove: list[str] |
     such as isHidden, formatString or one KratosForge doesn't know, is carried over, and so are the model's
     annotations the file doesn't have, by name. Objects in ``stashed`` (``stashed(text)``: the file has a Power BI
     section for them) take the file's set instead. Over a column the file gives another type or data type,
-    nothing is carried, nor a sortByColumn naming a column the table no longer has. Each property not carried
-    is named in ``report``, so nothing is dropped silently."""
+    nothing is carried, and over one it maps to another source column, nothing describing the old source
+    (``_FROM_SOURCE``). A carried property naming an object the merged model doesn't have, or DAX naming one
+    the merge took out, is taken back out (``_check_references``). Each property not carried is named in
+    ``report``, so nothing is dropped silently."""
     remove_set = set(remove or [])
     stashed = stashed or set()
     report = report if report is not None else []
+    carried: list[tuple[str, dict[str, Any], str, list[str]]] = []  # (table, object, ref, keys carried)
     out = copy.deepcopy(incoming)
     cur_model, model = current.get("model") or {}, out.setdefault("model", {})
     cur_tables = _by_name(cur_model.get("tables"))
@@ -371,7 +513,7 @@ def merge(current: dict[str, Any], incoming: dict[str, Any], remove: list[str] |
             t["lineageTag"] = old["lineageTag"]
         if old.get("partitions"):
             t["partitions"] = copy.deepcopy(old["partitions"])
-        _carry(old, t, "table", t["name"], stashed, report)
+        carried.append((t["name"], t, t["name"], _carry(old, t, "table", t["name"], stashed, report)))
         incoming_items = {key: list(t.get(key) or []) for key in ("columns", "measures")}
         for key in ("columns", "measures"):
             olds, news = _by_name(old.get(key)), t.setdefault(key, [])
@@ -383,7 +525,6 @@ def merge(current: dict[str, Any], incoming: dict[str, Any], remove: list[str] |
                      if n not in names and f"{t['name']}[{n}]" not in remove_set]
             if not news:
                 del t[key]
-        columns = {c.get("name") for c in t.get("columns") or [] if isinstance(c, dict)}
         for key, kind in (("columns", "column"), ("measures", "measure")):
             olds = _by_name(old.get(key))
             for item in incoming_items[key]:
@@ -395,13 +536,14 @@ def merge(current: dict[str, Any], incoming: dict[str, Any], remove: list[str] |
                     why_not = f"the file makes it a {_column_kind(item)} column, not {_column_kind(was)}"
                 elif kind == "column" and item.get("dataType") and was.get("dataType") not in (None, item["dataType"]):
                     why_not = f"the file makes its data type {item['dataType']}, not {was['dataType']}"
-                sort_by = was.get("sortByColumn")
-                if (not why_not and ref not in stashed and sort_by is not None and "sortByColumn" not in item
-                        and sort_by not in columns):
-                    report.append({"object": f"{ref} sortByColumn", "kind": "lost",
-                                   "message": f"not kept, because the table no longer has the column {sort_by}"})
-                    was = {k: v for k, v in was.items() if k != "sortByColumn"}
-                _carry(was, item, kind, ref, stashed, report, why_not)
+                elif kind == "column" and was.get("sourceColumn") and item.get("sourceColumn") not in (
+                        None, was["sourceColumn"]) and ref not in stashed:
+                    for k in (k for k in _FROM_SOURCE if k in was and k not in item):
+                        report.append({"object": f"{ref} {k}", "kind": "lost", "message": (
+                            f"not kept, because the file maps it to source column {item['sourceColumn']}, "
+                            f"not {was['sourceColumn']}")})
+                    was = {k: v for k, v in was.items() if k not in _FROM_SOURCE}
+                carried.append((t["name"], item, ref, _carry(was, item, kind, ref, stashed, report, why_not)))
         for key in ("hierarchies", "calculationGroup", "refreshPolicy"):
             if key in old and key not in t:
                 t[key] = copy.deepcopy(old[key])
@@ -429,6 +571,7 @@ def merge(current: dict[str, Any], incoming: dict[str, Any], remove: list[str] |
         elif isinstance(old, list):
             have = {i.get("name") for i in model[key] if isinstance(i, dict)}
             model[key] += [copy.deepcopy(i) for i in old if isinstance(i, dict) and i.get("name") not in have]
+    _check_references(cur_model, model, carried, report)
     for key in ("compatibilityLevel", "name"):
         if current.get(key):
             out[key] = current[key]

@@ -45,8 +45,14 @@ Pick an Ossie file (`.yaml` or `.json`) from the project or from disk, and what 
   string, display folder, an annotation or a property KratosForge doesn't know, stays. Where
   the file has a Power BI section for that object (Export to Ossie writes one), the section is
   the whole story, so a property taken out of it is taken out of the model. A column the file
-  gives another type or data type keeps none of its old properties, and a sort-by column
-  that's gone isn't kept. Each property not kept is named in the preview's report.
+  gives another type or data type keeps none of its old properties, and one it maps to
+  another source column keeps nothing about the old source (its source lineage tag and
+  provider type). A property naming another object (a sort-by or group-by column, a
+  variation's relationship or default hierarchy, the column or table an aggregation is an
+  alternate of) isn't kept when the update no longer has that object, for example because you
+  unticked it; nor is a KPI, a format string expression or a detail rows expression whose DAX
+  names a table, column or measure the update takes out. Each property not kept is named in
+  the preview's report.
 - **Replace** an existing model with exactly what the file holds.
 - **New model** in the environment's workspace.
 

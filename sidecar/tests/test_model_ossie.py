@@ -976,4 +976,117 @@ def test_what_isnt_carried_over_is_named_in_the_report():
     rows = {r["object"]: r["message"] for r in report}
     assert rows["fact_sales[amount] displayFolder"] == "not kept, because the file makes its data type decimal, not string"
     assert {"fact_sales[amount] formatString", "fact_sales[amount] summarizeBy"} <= set(rows)
-    assert rows["fact_sales[customer_sk] sortByColumn"] == "not kept, because the table no longer has the column gone_column"
+    assert rows["fact_sales[customer_sk] sortByColumn"] == "not kept, because the model no longer has the column gone_column"
+
+
+def test_a_column_mapped_to_another_source_column_keeps_nothing_about_the_old_source():
+    bim = _fabric_only_bim()
+    amount = next(c for c in bim["model"]["tables"][0]["columns"] if c["name"] == "amount")
+    amount |= {"sourceColumn": "amount_old", "sourceLineageTag": "[amount_old]", "sourceProviderType": "decimal(18, 2)"}
+    report: list = []
+    final = model_ossie.merge(bim, model_ossie.to_tmsl(_ossie(), source=SOURCE)[0], None, set(), report)
+    amount = next(c for c in final["model"]["tables"][0]["columns"] if c["name"] == "amount")
+    assert amount["sourceColumn"] == "amount" and "sourceLineageTag" not in amount and "sourceProviderType" not in amount
+    assert amount["displayFolder"] == "Money" and amount["lineageTag"] == "c-amount"  # the rest is the model's still
+    assert {r["object"]: r["message"] for r in report} == {
+        "fact_sales[amount] sourceLineageTag": "not kept, because the file maps it to source column amount, not amount_old",
+        "fact_sales[amount] sourceProviderType": "not kept, because the file maps it to source column amount, not amount_old"}
+
+
+def _referencing_bim():
+    """_bim() whose columns and measure the file has point at objects an update can take out."""
+    bim = _bim()
+    fact = bim["model"]["tables"][0]
+    cols = {c["name"]: c for c in fact["columns"]}
+    fact["columns"].append({"name": "legacy_code", "dataType": "string", "sourceColumn": "legacy_code"})
+    cols["customer_sk"]["variations"] = [{"name": "Geo", "relationship": "r1", "defaultHierarchy": "dim_customer.Geo"}]
+    cols["amount"]["relatedColumnDetails"] = {"groupByColumns": [{"groupingColumn": "legacy_code"}]}
+    cols["amount"]["alternateOf"] = {"summarization": "sum", "baseColumn": "'dim_customer'[country]"}
+    fact["measures"].append({
+        "name": "net revenue", "expression": "SUM('fact_sales'[amount])",
+        "kpi": {"targetExpression": "[fact_sales rows] * 2"},
+        "formatStringDefinition": {"expression": "IF('fact_sales'[fact_sales total amount] > 0, \"#,0\", \"0\")"},
+        "detailRowsDefinition": {"expression": "SELECTCOLUMNS(dim_customer, \"c\", [country])"}})
+    return bim
+
+
+REFERENCING = ("fact_sales[customer_sk] variations", "fact_sales[amount] relatedColumnDetails",
+               "fact_sales[amount] alternateOf", "fact_sales[net revenue] kpi",
+               "fact_sales[net revenue] formatStringDefinition", "fact_sales[net revenue] detailRowsDefinition")
+
+
+def test_carried_properties_naming_objects_the_update_keeps_are_kept():
+    report: list = []
+    final = model_ossie.merge(_referencing_bim(), model_ossie.to_tmsl(_ossie(), source=SOURCE)[0], None, set(), report)
+    fact = final["model"]["tables"][0]
+    objects = {c["name"]: c for c in fact["columns"] + fact["measures"]}
+    for ref in REFERENCING:
+        name, key = ref.removeprefix("fact_sales[").split("] ")
+        assert key in objects[name], ref
+    assert report == []
+
+
+def test_carried_properties_naming_objects_the_update_takes_out_are_named_in_the_report():
+    report: list = []
+    remove = ["dim_customer", "fact_sales[legacy_code]", "fact_sales[fact_sales rows]",
+              "fact_sales[fact_sales total amount]"]
+    final = model_ossie.merge(_referencing_bim(), model_ossie.to_tmsl(_ossie(), source=SOURCE)[0], remove, set(), report)
+    fact = final["model"]["tables"][0]
+    objects = {c["name"]: c for c in fact["columns"] + fact["measures"]}
+    for ref in REFERENCING:
+        name, key = ref.removeprefix("fact_sales[").split("] ")
+        assert key not in objects[name], ref
+    assert {r["object"]: r["message"] for r in report} == {
+        "fact_sales[customer_sk] variations": "not kept, because the model no longer has the relationship r1",
+        "fact_sales[amount] relatedColumnDetails": "not kept, because the model no longer has the column legacy_code",
+        "fact_sales[amount] alternateOf": "not kept, because the model no longer has the column 'dim_customer'[country]",
+        "fact_sales[net revenue] kpi": "not kept, because the model no longer has fact_sales[fact_sales rows]",
+        "fact_sales[net revenue] formatStringDefinition":
+            "not kept, because the model no longer has fact_sales[fact_sales total amount]",
+        "fact_sales[net revenue] detailRowsDefinition": "not kept, because the model no longer has the table dim_customer"}
+    assert objects["amount"]["summarizeBy"] == "none"  # what names nothing is still carried
+
+
+def test_a_variation_and_an_alternate_of_are_checked_part_by_part():
+    bim = _referencing_bim()
+    cols = {c["name"]: c for c in bim["model"]["tables"][0]["columns"]}
+    cols["customer_sk"]["variations"][0]["defaultHierarchy"] = {"table": "dim_customer", "hierarchy": "Gone"}
+    cols["amount"]["alternateOf"] = {"summarization": "count", "baseTable": "'dim_customer'"}
+    report: list = []
+    final = model_ossie.merge(bim, model_ossie.to_tmsl(_ossie(), source=SOURCE)[0], None, set(), report)
+    cols = {c["name"]: c for c in final["model"]["tables"][0]["columns"]}
+    assert "variations" not in cols["customer_sk"] and cols["amount"]["alternateOf"]["baseTable"] == "'dim_customer'"
+    # A sort column whose name has a dot in it is found as written, not read as Table.Hierarchy.
+    bim = _bim()
+    bim["model"]["tables"][0]["columns"].append({"name": "amount.v2", "dataType": "decimal", "sourceColumn": "a2"})
+    next(c for c in bim["model"]["tables"][0]["columns"] if c["name"] == "amount")["sortByColumn"] = "amount.v2"
+    final = model_ossie.merge(bim, model_ossie.to_tmsl(_ossie(), source=SOURCE)[0], None, set(), report)
+    assert next(c for c in final["model"]["tables"][0]["columns"] if c["name"] == "amount")["sortByColumn"] == "amount.v2"
+    assert [r["message"] for r in report] == [
+        'not kept, because the model no longer has the hierarchy {"hierarchy": "Gone", "table": "dim_customer"}']
+
+
+def test_stashed_names_each_measure_where_the_converter_puts_it():
+    def metric(name, data=None):
+        m = {"name": name, "expression": {"dialects": [{"dialect": "DAX", "expression": "1"}]}}
+        if data is not None:
+            m["custom_extensions"] = [{"vendor_name": "POWER_BI", "data": json.dumps({"_v": 2} | data)}]
+        return m
+    doc = yaml.safe_load(_ossie())
+    doc["metrics"] = [metric("no table", {"isHidden": True}),  # no table: the first dataset
+                      metric("other table", {"table": "dim_channel"}),
+                      metric("missing table", {"table": "nowhere"}),  # not a table: the first dataset
+                      metric("renamed", {"name": "Renamed M", "table": "dim_channel"}),
+                      metric("shared name", {"table": "dim_channel"})]
+    doc["datasets"][1]["metrics"] = [metric("own", {"formatString": "0"}),  # a dataset's own metric: that dataset
+                                     metric("sent elsewhere", {"table": "fact_sales"}),
+                                     metric("table is null", {"table": None}),
+                                     metric("shared name", {"formatString": "0"}),  # left out: the model has one
+                                     metric("no section")]
+    text = yaml.safe_dump(doc, sort_keys=False)
+    bim, _ = model_ossie.to_tmsl(text, source=SOURCE)
+    placed = {f"{t['name']}[{m['name']}]" for t in bim["model"]["tables"] for m in t.get("measures") or []}
+    found = model_ossie.stashed(text)
+    assert {r for r in found if "[" in r} == placed - {"dim_channel[no section]", "fact_sales[net revenue]"}
+    assert found >= {"fact_sales[no table]", "fact_sales[missing table]", "dim_channel[Renamed M]",
+                     "dim_channel[own]", "fact_sales[sent elsewhere]", "fact_sales[table is null]"}

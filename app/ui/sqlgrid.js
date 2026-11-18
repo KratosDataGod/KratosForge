@@ -225,7 +225,8 @@ function sqlColumnsDialog(columns, grid, changed) {
     sqlGridLayoutFor(g, columns);
     return g;
   };
-  let g = current();
+  let g = typeof grid === "function" ? grid() : grid;
+  sqlGridLayoutFor(g, columns);  // opened on a state from other columns: it starts again for these
   const box = h("div", {});
   const apply = (fn) => { const now = current(); if (!now) return; g = now; fn(g); };
   const draw = (moved, dir) => {
@@ -318,8 +319,11 @@ function sqlGridBlock(r, sel, vis = null) {
 function sqlGridCopyText(format, r, sel, opts = {}) {
   const b = sqlGridBlock(r, sel, opts.vis);
   if (format === "cells") {
-    const cell = (v) => (v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v));
-    return sqlTsv(b.rows.map((row) => row.map(cell)));
+    if (b.rows.length === 1 && b.rows[0].length === 1) {  // one value: as it is, for pasting anywhere
+      const v = b.rows[0][0];
+      return v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+    }
+    return sqlTsv(b.rows.map((row) => row.map(sqlTsvCell)));
   }
   return sqlRowsAs(format, b.columns, b.rows, opts);
 }

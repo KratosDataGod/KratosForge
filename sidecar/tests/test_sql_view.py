@@ -149,11 +149,11 @@ def test_results_over_the_limit_say_how_to_go_on():
 
 
 @pytest.mark.parametrize("sort, filters, match", [
-    (None, ["oops"], "The filter isn't one the grid sends"),
-    (None, [None], "The filter isn't one the grid sends"),
-    (None, {"column": 0, "text": "1"}, "The filter isn't one the grid sends"),
-    (["n"], None, "The sort isn't one the grid sends"),
-    ({"column": 0}, None, "The sort isn't one the grid sends"),
+    (None, ["oops"], "The filter isn't in the form the grid sends"),
+    (None, [None], "The filter isn't in the form the grid sends"),
+    (None, {"column": 0, "text": "1"}, "The filter isn't in the form the grid sends"),
+    (["n"], None, "The sort isn't in the form the grid sends"),
+    ({"column": 0}, None, "The sort isn't in the form the grid sends"),
     (None, [{"column": 0.5, "text": "1"}], "A filter names a column this result doesn't have"),
     ([{"column": 1.5}], None, "The sort names a column this result doesn't have"),
 ])

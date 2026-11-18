@@ -124,7 +124,7 @@ def entries(given: Any, what: str) -> list[dict[str, Any]]:
     if given is None:
         return []
     if not isinstance(given, list) or not all(isinstance(e, dict) for e in given):
-        raise ValueError(f"The {what} isn't one the grid sends: a list of {{column, ...}} entries.")
+        raise ValueError(f"The {what} isn't in the form the grid sends, which is a list of {{column, ...}} entries.")
     return given
 
 

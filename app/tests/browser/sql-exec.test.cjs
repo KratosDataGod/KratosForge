@@ -481,6 +481,12 @@ test("Columns... hides and reorders the grid's columns, a header's edge resizes 
   await dialog.getByRole("button", { name: "Show all" }).click();
   await dialog.getByRole("button", { name: "Done" }).click();
   assert.deepStrictEqual(await heads(), ["n", "note", "twice"]);
+  // Opened on a state kept from other columns, it starts again for these.
+  await page().evaluate(() => { Object.assign(sqlPage.tabs[sqlPage.active].grid, { names: ["gone"], hidden: [0] }); });
+  await page().getByRole("button", { name: "Columns...", exact: true }).click();
+  assert.strictEqual(await dialog.getByRole("checkbox").count(), 3);
+  await dialog.getByRole("button", { name: "Done" }).click();
+  assert.deepStrictEqual(app.errors, []);
 });
 
 test("each statement's result keeps its own sort, and the grid reads that statement's rows (S14 with the grid)", { skip }, async () => {

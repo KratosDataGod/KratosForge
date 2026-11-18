@@ -47,6 +47,64 @@ def _refuse(name: str, why: str, instead: str = "") -> Callable[..., exp.Express
     return refuse
 
 
+# base64 takes bytes, and text as its UTF-8 bytes (a NULL of no type is NULL); any other type is refused, as in
+# Spark. Spark 3.5 writes it as MIME does (spark.sql.chunkBase64String.enabled): a line break (CR LF) after
+# every 76 characters. Databricks SQL keeps one line.
+_BASE64_BYTES = ("TO_BASE64(CASE WHEN TYPEOF(fj_arg0) = 'BLOB' THEN CAST(fj_arg0 AS BLOB) "
+                 "WHEN TYPEOF(fj_arg0) = 'VARCHAR' THEN ENCODE(CAST(fj_arg0 AS VARCHAR)) "
+                 "WHEN TYPEOF(fj_arg0) = '\"NULL\"' THEN CAST(NULL AS BLOB) "
+                 "ELSE CAST(ERROR('base64() takes text or binary, as in Spark, so nothing ran. Cast the value to "
+                 "string first.') AS BLOB) END)")
+_BASE64_LINES = (f"(LIST_TRANSFORM([{_BASE64_BYTES}], kf_b -> ARRAY_TO_STRING(LIST_TRANSFORM(RANGE(0, LENGTH(kf_b), 76), "
+                 "kf_i -> SUBSTR(kf_b, kf_i + 1, 76)), CHR(13) || CHR(10))))[1]")
+
+
+def _base64(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    return _with_args(_BASE64_BYTES if _ANSI.get() else _BASE64_LINES, args) if len(args) == 1 else None
+
+
+# unbase64 as Spark 3.5 reads text (Java's MIME decoder): characters outside the base64 alphabet are skipped
+# and padding is optional, but padding that doesn't end a group of four ('YQ=', '=' alone), base64 after the
+# padding, or one character left over at the end stops, as in Spark.
+_UNBASE64_STOP = ("'unbase64() stops on this text, as Spark does, because its padding or its last group of characters "
+                  "isn''t valid base64 (Input byte array has wrong 4-byte ending unit). Check the end of the text for "
+                  "stray characters or misplaced ''=''.'")
+_UNBASE64 = ("(LIST_TRANSFORM([CAST(fj_arg0 AS VARCHAR)], kf_t -> CASE WHEN kf_t IS NULL THEN NULL ELSE "
+             "(LIST_TRANSFORM([{'s': REGEXP_REPLACE(SPLIT_PART(kf_t, '=', 1), '[^A-Za-z0-9+/]', '', 'g'), "
+             "'pad': STRPOS(kf_t, '=') > 0, 'after': SUBSTR(kf_t, LENGTH(SPLIT_PART(kf_t, '=', 1)) + 2)}], kf_u -> "
+             "CASE WHEN (kf_u.pad AND (LENGTH(kf_u.s) % 4 IN (0, 1) OR (LENGTH(kf_u.s) % 4 = 2 AND LEFT(kf_u.after, 1) <> '='))) "
+             "OR (NOT kf_u.pad AND LENGTH(kf_u.s) % 4 = 1) OR REGEXP_MATCHES(kf_u.after, '[A-Za-z0-9+/]') "
+             f"THEN CAST(ERROR({_UNBASE64_STOP}) AS BLOB) "
+             "ELSE FROM_BASE64(kf_u.s || REPEAT('=', (4 - LENGTH(kf_u.s) % 4) % 4)) END))[1] END))[1]")
+# hex takes a whole number (a double or decimal is cut toward zero first, as Spark casts it to a long), text
+# (its UTF-8 bytes) or binary.
+_HEX = ("CASE WHEN TYPEOF(fj_arg0) = 'BLOB' THEN HEX(TRY_CAST(fj_arg0 AS BLOB)) "
+        "WHEN TYPEOF(fj_arg0) = 'VARCHAR' THEN HEX(TRY_CAST(fj_arg0 AS VARCHAR)) "
+        "WHEN TYPEOF(fj_arg0) IN ('DOUBLE', 'FLOAT') OR TYPEOF(fj_arg0) LIKE 'DECIMAL%' "
+        "THEN HEX(kf_spark_whole) ELSE HEX(TRY_CAST(fj_arg0 AS BIGINT)) END")
+# unhex: an odd number of digits has a 0 put before them; anything that isn't all hex digits is NULL.
+_UNHEX = ("(LIST_TRANSFORM([CAST(fj_arg0 AS VARCHAR)], kf_x -> CASE WHEN REGEXP_FULL_MATCH(kf_x, '[0-9A-Fa-f]*') "
+          "THEN UNHEX(CASE WHEN LENGTH(kf_x) % 2 = 1 THEN '0' || kf_x ELSE kf_x END) END))[1]")
+
+
+def _sha2(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """sha2(x, bits): 0 or 256 is SHA-256, 224, 384 and 512 their SHA-2 (spark_hash.register), and any other
+    length NULL, as in Spark. Text is hashed as its UTF-8 bytes."""
+    if len(args) != 2:
+        return None
+    data = "CASE WHEN TYPEOF(fj_arg0) = 'BLOB' THEN CAST(fj_arg0 AS BLOB) ELSE ENCODE(CAST(fj_arg0 AS VARCHAR)) END"
+    bits = args[1]
+    if isinstance(bits, exp.Literal) and not bits.is_string:
+        n = int(bits.name) if bits.name.lstrip("-").isdigit() else None
+        if n in (0, 256):
+            return _with_args(f"SHA256({data})", args)
+        if n in (224, 384, 512):
+            return _with_args(f"__kf_sha2({data}, {n})", args)
+        return _with_args("CAST(NULL AS VARCHAR)", args)
+    return _with_args(f"(LIST_TRANSFORM([CAST(fj_arg1 AS INTEGER)], kf_n -> CASE WHEN kf_n IN (0, 256) THEN SHA256({data}) "
+                      f"WHEN kf_n IN (224, 384, 512) THEN __kf_sha2({data}, kf_n) END))[1]", args)
+
+
 def _template(text: str, count: int | tuple[int, ...]) -> Callable[..., exp.Expression | None]:
     counts = (count,) if isinstance(count, int) else count
 
@@ -976,11 +1034,11 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
             ("Repeat", "repeat"), ("Pad", "lpad"))),
         ("RegexpSplit", _split),
         ("Replace", _replace),
-        # base64 takes bytes, and text as its UTF-8 bytes; any other type is refused, as in Spark
-        ("ToBase64", _template("TO_BASE64(CASE WHEN TYPEOF(fj_arg0) = 'BLOB' THEN CAST(fj_arg0 AS BLOB) "
-                               "WHEN TYPEOF(fj_arg0) = 'VARCHAR' THEN ENCODE(CAST(fj_arg0 AS VARCHAR)) "
-                               "ELSE CAST(ERROR('base64() takes text or binary, as in Spark. Cast the value to "
-                               "string first.') AS BLOB) END)", 1)),
+        ("ToBase64", _base64),
+        ("FromBase64", lambda n, a: None if _ANSI.get() else _with_args(_UNBASE64, [n.this])),
+        ("Hex", lambda n, a: _with_args(_HEX.replace("kf_spark_whole", _spark_whole("fj_arg0", "BIGINT")), [n.this])),
+        ("Unhex", _template(_UNHEX, 1)),
+        ("SHA2", _sha2),
         ("Minute", _template(f"MINUTE({_TS})", 1)),
         ("Second", _template(f"SECOND({_TS})", 1)),
         ("Quarter", _template(f"QUARTER({_DATE})", 1)),
@@ -1454,9 +1512,9 @@ def _no_duckdb_hash(statement: exp.Expression) -> None:
     for call in statement.find_all(exp.Anonymous):
         if call.name.upper() in ("HASH", "XXHASH64"):
             name = call.name.lower()
-            raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric here, so nothing ran: "
-                             f"written this way it would give another number than Spark's {name}. Run the cell "
-                             "in Fabric, or compute the hash in a column of its own first.")
+            raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric, because written this way "
+                             "it would give a different number from Spark's, so nothing ran. Compute the hash in a "
+                             "column of its own first, or run the cell in Fabric.")
 
 
 def _truncated_time(node: exp.Expression) -> None:

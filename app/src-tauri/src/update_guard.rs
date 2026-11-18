@@ -254,8 +254,38 @@ fn is_lock(e: &std::io::Error) -> bool {
     e.kind() == std::io::ErrorKind::PermissionDenied || matches!(e.raw_os_error(), Some(5 | 32 | 33))
 }
 
+/// Waits, for about as long as rename_retrying, until nothing else has `path` open. Antivirus,
+/// the search indexer and OneDrive open a download that was just written to look at it, and while
+/// they do Windows refuses to rename it. Elsewhere there's nothing to wait for. A file that can't
+/// be opened for another reason (missing) returns at once: the rename that follows reports it.
+pub fn wait_until_unused(path: &Path) {
+    wait_until_unused_with(path, 60, Duration::from_millis(250));
+}
+
+fn wait_until_unused_with(path: &Path, attempts: u32, pause: Duration) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        for attempt in 0..=attempts {
+            // Share mode 0: this open fails with a sharing violation while any other handle is open.
+            match std::fs::OpenOptions::new().read(true).share_mode(0).open(path) {
+                Err(e) if attempt < attempts && is_lock(&e) => std::thread::sleep(pause),
+                _ => return,
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (path, attempts, pause);
+}
+
 /// Puts `new` in place of `exe`, keeping the running exe as `old`.
+///
+/// The download is waited on first, while the running exe is still in place: moving the exe aside
+/// and then waiting up to 15 s for a scanner to let go of the download would leave no exe at its
+/// path for that long, and a PC shut down or a power cut then leaves the Start menu shortcut
+/// pointing at nothing. Waiting first keeps the two renames back to back.
 pub fn swap_in(exe: &Path, new: &Path, old: &Path) -> Result<(), String> {
+    wait_until_unused(new);
     let _ = std::fs::remove_file(old);
     rename_retrying(exe, old).map_err(|e| format!("Could not move {} aside: {e}", exe.display()))?;
     if let Err(e) = rename_retrying(new, exe) {
@@ -619,6 +649,39 @@ mod tests {
         restore_previous(&exe, &old).unwrap();
         assert_eq!(std::fs::read_to_string(&exe).unwrap(), "previous");
         assert!(!old.exists() && !exe.with_extension("exe.failed").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn swap_waits_for_a_scanner_to_let_go_of_the_download_before_moving_the_exe_aside() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = scratch("swapbusy");
+        let (exe, new, old) = (dir.join("app.exe"), dir.join("app.exe.new"), dir.join("app.exe.old"));
+        std::fs::write(&exe, "previous").unwrap();
+        std::fs::write(&new, "next").unwrap();
+        // A virus scanner reading the download: it shares read only, so the download can't be renamed.
+        let scanner = std::fs::OpenOptions::new().read(true).share_mode(1).open(&new).unwrap();
+        let swap = {
+            let (exe, new, old) = (exe.clone(), new.clone(), old.clone());
+            std::thread::spawn(move || swap_in(&exe, &new, &old))
+        };
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "previous", "the exe was moved aside while the download was busy");
+        assert!(!old.exists());
+        drop(scanner);
+        swap.join().unwrap().unwrap();
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "next");
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), "previous");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn waiting_on_a_missing_download_returns_at_once_and_the_swap_reports_it() {
+        let dir = scratch("swapmissing");
+        let started = std::time::Instant::now();
+        wait_until_unused_with(&dir.join("app.exe.new"), 60, Duration::from_millis(250));
+        assert!(started.elapsed() < Duration::from_secs(2));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

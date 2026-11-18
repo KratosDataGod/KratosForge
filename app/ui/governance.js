@@ -173,7 +173,7 @@ async function governancePolicy(body, id) {
       h("label", { class: "field" }, "What changed", note)), [
       btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
       btn("Publish", null, () => { closeDialog(); resolve(true); }, "tool primary")]));
-    if (ok && await platformCall("governance_publish", { id, note: note.value.trim() }, "Not published")) { govPage.version = null; toast(`Published ${p.name} v${p.draft_version}`, false, { log: true }); rerender(); }
+    if (ok && await platformCall("governance_publish", { id, note: note.value.trim() }, "Not published")) { govPage.version = null; learnTeamNotesLoad = null; toast(`Published ${p.name} v${p.draft_version}`, false, { log: true }); rerender(); }
   };
   const tabs = [["definition", "Definition"], ["applies", "Where it applies"], ["history", "History"]];
   const sub = h("div", {});
@@ -309,6 +309,7 @@ function policyDialog(options, p, done, template = null) {
       : await platformCall("governance_create", { policy: { ...policy, note: f.note.value.trim() } }, "Not created");
     if (!res) return;
     if (andPublish && !(await platformCall("governance_publish", { id: res.id, note: f.note.value.trim() }, "Saved, but not published"))) { closeDialog(); return done(res); }
+    if (andPublish) learnTeamNotesLoad = null;
     closeDialog();
     toast(andPublish ? `Published ${res.name}` : `Saved the draft of ${res.name}`, false, { log: true });
     govPage.version = null;

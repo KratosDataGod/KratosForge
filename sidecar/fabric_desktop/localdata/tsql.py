@@ -2446,7 +2446,7 @@ def _string_edges(tree: exp.Expression) -> None:
                            exp.LT(this=length.copy(), expression=exp.Literal.number(0)))
             node.set("expression", exp.func("COALESCE", node.expression, exp.Literal.string("")))
             node.replace(exp.Case(ifs=[exp.If(this=past, true=exp.null())], default=node.copy()))
-        else:
+        elif isinstance(node, (exp.Repeat, exp.Space)):
             _repeat_count(node)
 
 

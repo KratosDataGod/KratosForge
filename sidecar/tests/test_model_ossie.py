@@ -528,19 +528,26 @@ def test_an_ossie_file_over_tmdl_already_in_the_project_is_an_update(svc):
         (folder / rel).write_text(text, encoding="utf-8")
     culture = folder / "definition" / "cultures" / "fr-FR.tmdl"
     culture.parent.mkdir()
-    culture.write_text("culture fr-FR\n", encoding="utf-8")
+    culture.write_text("culture fr-FR\n\ttranslations\n\t\tmodel Model\n\t\t\ttable dim_customer\n"
+                       "\t\t\t\tcaption: Client\n", encoding="utf-8")
+    hand_named = folder / "definition" / "cultures" / "german.tmdl"  # read, and written back under its culture's name
+    hand_named.write_text("cultureInfo de-DE\n", encoding="utf-8")
     plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
     assert plan["exists"] is True
     rows = {(r["change"], r["object"]) for r in plan["changes"]}
     assert ("add", "dim_channel") in rows and ("add", "fact_sales[net revenue]") in rows
     assert "dim_customer" in plan["removable"] and ("remove", "dim_customer") not in rows  # kept: offered in removable
-    assert plan["removed"] == []  # kept unless named in remove
+    assert plan["removed"] == ["semantic/orders.SemanticModel/definition/cultures/german.tmdl"]  # now cultures/de-DE.tmdl
     assert plan["counts"]["roles"] == 1 and plan["counts"]["hierarchies"] == 1
-    assert any(r["object"].startswith("culture") for r in plan["report"])  # named: not read, left as it is
+    assert not any(r["object"].startswith("culture") for r in plan["report"])  # translations are read and kept
     done = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
-    assert culture.read_text(encoding="utf-8") == "culture fr-FR\n"
-    back, _ = tmdl_mod.to_bim({p.relative_to(folder).as_posix(): p.read_text(encoding="utf-8")
-                               for p in folder.rglob("*.tmdl") if "cultures" not in p.parts}, "orders")
+    assert culture.read_text(encoding="utf-8") == ("cultureInfo fr-FR\n\ttranslations\n\t\tmodel Model\n"
+                                                   "\t\t\ttable dim_customer\n\t\t\t\tcaption: Client\n")
+    assert not hand_named.exists() and (culture.parent / "de-DE.tmdl").read_text(encoding="utf-8") == "cultureInfo de-DE\n"
+    back, report = tmdl_mod.to_bim({p.relative_to(folder).as_posix(): p.read_text(encoding="utf-8")
+                                    for p in folder.rglob("*.tmdl")}, "orders")
+    assert report == [] and {c["name"] for c in back["model"]["cultures"]} == {"fr-FR", "de-DE"}
+    assert "ref cultureInfo fr-FR" in (folder / "definition" / "model.tmdl").read_text(encoding="utf-8")
     names = {t["name"] for t in back["model"]["tables"]}
     assert {"fact_sales", "dim_customer", "dim_channel"} <= names and back["model"]["roles"][0]["name"] == "EU only"
     fact = next(t for t in back["model"]["tables"] if t["name"] == "fact_sales")

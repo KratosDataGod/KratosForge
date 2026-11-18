@@ -124,8 +124,8 @@ def test_reads_a_whole_model():
     assert role["tablePermissions"] == [{"name": "Sales 'EU'", "filterExpression": "[status] <> \"void\"\n&& TRUE()"}]
     assert role["members"] == [{"identityProvider": "AzureAD", "memberName": "ana@contoso.com"}]
     assert model["perspectives"] == [{"name": "Finance", "tables": [{"name": "Sales 'EU'", "measures": [{"name": "Net revenue"}]}]}]
-    assert "cultures" not in model
-    assert [r["kind"] for r in report] == ["lost"] and "translations" in report[0]["message"]
+    assert model["cultures"] == [{"name": "fr-FR", "linguisticMetadata": {"content": {"Version": "1.0"}, "contentType": "json"}}]
+    assert report == []
 
 
 def test_the_model_kratosforge_writes_reads_back_and_exports():
@@ -186,3 +186,53 @@ def test_deep_nesting_is_refused_not_a_crash():
     text = "\n".join("\t" * n + f"table t{n}" for n in range(3000))
     with pytest.raises(ValueError, match="nested too deeply"):
         tmdl.to_bim({"definition/tables/t.tmdl": text})
+
+
+# ---- cultures: translations and linguistic metadata, as Power BI Desktop writes them
+
+POWER_BI_CULTURE = "\n".join([
+    "cultureInfo pt-PT", "",
+    f"{T}linguisticMetadata =", f"{T}{T}{T}{{", f'{T}{T}{T}  "Version": "1.0.0",', f'{T}{T}{T}  "Language": "pt-PT"',
+    f"{T}{T}{T}}}", f"{T}{T}contentType: json", "",
+    f"{T}translations",
+    f"{T}{T}model Model", f"{T}{T}{T}caption: Modelo",
+    f"{T}{T}{T}table 'Sales ''EU'''", f"{T}{T}{T}{T}caption: Vendas", f"{T}{T}{T}{T}description: Tabela de vendas",
+    f"{T}{T}{T}{T}measure 'Net revenue'", f"{T}{T}{T}{T}{T}caption: Receita", f"{T}{T}{T}{T}{T}displayFolder: Métricas",
+    f"{T}{T}{T}{T}hierarchy Calendar", f"{T}{T}{T}{T}{T}caption: Calendário",
+    f"{T}{T}{T}{T}{T}level Year", f"{T}{T}{T}{T}{T}{T}caption: Ano",
+    f"{T}{T}{T}{T}measure Odd = 1", f"{T}{T}{T}{T}{T}kpi", f"{T}{T}{T}{T}{T}{T}caption: x",
+    f"{T}{T}{T}perspective Finance", f"{T}{T}{T}{T}caption: Finanças", ""])
+
+
+def test_reads_a_culture_as_tmsl_has_it_and_names_what_it_cant():
+    files = FILES | {"definition/cultures/pt-PT.tmdl": POWER_BI_CULTURE,
+                     "definition/model.tmdl": FILES["definition/model.tmdl"] + "\nref cultureInfo pt-PT\nref cultureInfo fr-FR\n"}
+    bim, report = tmdl.to_bim(files, "Sales model")
+    cultures = {c["name"]: c for c in bim["model"]["cultures"]}
+    pt = cultures["pt-PT"]
+    assert pt["linguisticMetadata"] == {"content": {"Version": "1.0.0", "Language": "pt-PT"}, "contentType": "json"}
+    model = pt["translations"]["model"]
+    assert model["name"] == "Model" and model["translatedCaption"] == "Modelo"
+    assert model["perspectives"] == [{"name": "Finance", "translatedCaption": "Finanças"}]
+    sales = model["tables"][0]
+    assert sales["name"] == "Sales 'EU'" and sales["translatedDescription"] == "Tabela de vendas"
+    assert sales["measures"][0] == {"name": "Net revenue", "translatedCaption": "Receita", "translatedDisplayFolder": "Métricas"}
+    assert sales["measures"][1] == {"name": "Odd"}
+    assert sales["hierarchies"] == [{"name": "Calendar", "translatedCaption": "Calendário",
+                                     "levels": [{"name": "Year", "translatedCaption": "Ano"}]}]  # no ordinal added
+    # What a translation can't have is named, never dropped silently.
+    assert sorted(r["object"] for r in report) == [
+        "culture 'pt-PT' translations model table \"Sales 'EU'\" measure 'Odd' expression",
+        "culture 'pt-PT' translations model table \"Sales 'EU'\" measure 'Odd' kpi"]
+    assert all(r["kind"] == "lost" and "pt-PT.tmdl" in r["message"] for r in report)
+
+
+def test_linguistic_metadata_that_isnt_json_is_kept_as_text_and_said():
+    text = "culture fr-FR\n\tlinguisticMetadata = not json\n\t\tcontentType: json\n"
+    bim, report = tmdl.to_bim({"definition/cultures/fr-FR.tmdl": text}, "m")
+    assert bim["model"]["cultures"][0]["linguisticMetadata"] == {"content": "not json", "contentType": "json"}
+    assert [r["object"] for r in report] == ["culture 'fr-FR' linguisticMetadata"]
+    xml = "cultureInfo de-DE\n\tlinguisticMetadata =\n\t\t\t<Linguistic/>\n\t\tcontentType: xml\n"
+    bim, report = tmdl.to_bim({"definition/cultures/de-DE.tmdl": xml}, "m")
+    assert bim["model"]["cultures"][0]["linguisticMetadata"] == {"content": "<Linguistic/>", "contentType": "xml"}
+    assert report == []

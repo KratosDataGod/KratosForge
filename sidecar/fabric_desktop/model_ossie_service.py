@@ -370,7 +370,8 @@ class ModelOssieMixin:
         When the folder already holds the model, the file is laid over it like an Import update
         (``model_ossie.merge``): what the file doesn't have stays (roles, hierarchies, measures written by hand)
         unless named in ``remove``, and ``changes`` and ``removable`` say what changes, as Import's preview does.
-        Translations (cultures/), which TMDL isn't written with here, are left as they are."""
+        Translations (cultures/) are read and written like the rest, so they stay too: a culture the file doesn't
+        have is kept, and one it has (from the Power BI section of an Ossie file this app wrote) is laid over."""
         model_ossie.require()
         project = self._project()  # type: ignore[attr-defined]
         name = (name or str(model_ossie.parse(text)["name"])).strip()
@@ -386,7 +387,7 @@ class ModelOssieMixin:
         final = model_ossie.merge(current, incoming, remove) if current else incoming
         final["name"] = name
         files, written = tmdl.from_bim(final)
-        report = report + [r for r in written if not r["object"].startswith("culture ")]
+        report = report + written
         files["definition.pbism"] = json.dumps({"version": "4.0", "settings": {}}, indent=2) + "\n"
         targets = {}
         existing = _by_key(folder, _tmdl_files(definition) if _real(definition, stat.S_ISDIR) else [])
@@ -398,8 +399,7 @@ class ModelOssieMixin:
             if not path.resolve().is_relative_to(folder.resolve()):  # never outside the model's folder
                 raise ValueError(f"{rel} would be written outside {folder.relative_to(root).as_posix()}, so nothing was written.")
             targets[path] = content
-        stale = sorted(f for group in existing.values() for f in group  # by key: see _in_place
-                       if f not in targets and f.relative_to(definition).parts[0] != "cultures")
+        stale = sorted(f for group in existing.values() for f in group if f not in targets)  # by key: see _in_place
         status = {p: ("same" if _same_text(p, c) else "changed") if _real(p, stat.S_ISREG) else "new" for p, c in targets.items()}
         unchanged = sum(1 for v in status.values() if v == "same")
         changes = model_ossie.plan(current, final)

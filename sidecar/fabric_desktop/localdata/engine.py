@@ -359,6 +359,26 @@ def with_overrides(select: str, overrides: dict[str, str]) -> str:
 _log = logging.getLogger(__name__)
 
 
+def _lost_to_another_writer(exc: BaseException, folder: Path, before: int) -> bool:
+    """True when delta-rs refused the commit (CommitFailedError) and another writer has committed since this
+    statement read version ``before``. delta-rs raises CommitFailedError for other refusals too (an append-only
+    table, a writer feature it lacks, a store error), and those keep delta-rs's own reason."""
+    from deltalake import DeltaTable
+    from deltalake.exceptions import CommitFailedError
+    if not isinstance(exc, CommitFailedError):
+        return False
+    try:
+        return DeltaTable(str(folder)).version() > before  # called only when this statement committed nothing
+    except Exception:  # noqa: BLE001  # silent-ok: an unreadable log isn't shown as a conflict; delta-rs's reason is
+        return False
+
+
+def _conflict(name: str) -> str:
+    return (f"Nothing was committed to {name}, because another writer changed it after this statement read it, and "
+            "the first to commit wins. A Fabric Warehouse reports this write-write conflict as error 24556. "
+            f"{name} now shows that writer's change. Run the statement again to apply yours on top.")
+
+
 def _remove_leftover_spill(folder: Path) -> None:
     """Delete DuckDB temp files a crashed engine left in the project's tmp folder: DuckDB removes them
     only when the query that wrote them ends, and never on the next open. Called once this process
@@ -1354,6 +1374,14 @@ class LocalEngine:
             if isinstance(exc, (ValueError, duckdb.Error, KeyboardInterrupt)):
                 raise
             committed = not dry_run and _committed(folder, before, query_id)
+            if not committed and _lost_to_another_writer(exc, folder, before):
+                # WR-232: as a warehouse's snapshot isolation does, the first to commit wins. Read the table again,
+                # so what runs next sees the winner's change, not the version this statement started from.
+                try:
+                    self._register_own(con, entry["schema"], entry["table"], folder)
+                except Exception:  # noqa: BLE001 - the conflict is the error to show; the next read registers it
+                    _log.warning("Couldn't read %s again after a write-write conflict", name, exc_info=True)
+                raise ValueError(_conflict(name)) from None
             raise ValueError(f"Changing {name} failed{'' if committed else ', and nothing was committed'}: "
                              f"{_short(exc).split(' Detail: Python exception')[0]}") from None
         finally:

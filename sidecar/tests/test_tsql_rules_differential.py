@@ -26,12 +26,7 @@ SEED = 20261117
 WORDS = ["", "a", "abc", "Hello World", "  pad  ", "ab  ", "aBc", "x_y%z", "é", "abcabc", "B", "b"]
 
 # (family, literal prefix) pairs that still differ, and why. Delete an entry once it is fixed.
-KNOWN = {
-    ("EQ", "N"): "N'...' text isn't typed as text, so trailing spaces count in = and <>",
-    ("LT", "N"): "N'...' text isn't typed as text, so trailing spaces count in < and >",
-    ("LIKE", "N"): "an N'...' pattern runs as DuckDB's LIKE: no [a-c] ranges, and trailing spaces count",
-    ("PLUS", "N"): "N'a' + N'b' stops with DuckDB's binder error instead of joining the text",
-}
+KNOWN: dict[tuple[str, str], str] = {}
 
 
 def _sub(s: str, start: int, length: int) -> str:
@@ -121,6 +116,15 @@ def cases(prefix: str) -> list[tuple[str, str, object]]:
         out.append(("REPLICATE", f"REPLICATE({q(s)}, {n})", None if n < 0 else s * n))
     for s in WORDS:  # functions/len-transact-sql: trailing spaces aren't counted
         out.append(("LEN", f"LEN({q(s)})", len(s.rstrip(" "))))
+    counts = random.Random(SEED + 1)  # its own draws, so the families after it keep their inputs
+    for _ in range(40):
+        # functions/space-transact-sql and replicate-transact-sql: a negative count gives NULL, and a count
+        # with a fraction is made an int first, which cuts it toward zero (data-type-conversion-database-engine).
+        n = counts.choice([counts.randint(-3, 4), round(counts.uniform(-2.9, 3.9), 1)])
+        whole = int(n)
+        out.append(("SPACE", f"SPACE({n})", None if whole < 0 else " " * whole))
+        s = counts.choice(WORDS)
+        out.append(("REPLICATE", f"REPLICATE({q(s)}, {n})", None if whole < 0 else s * whole))
     for _ in range(80):
         a, b = r.randint(-30, 30), r.choice([x for x in range(-9, 10) if x])
         out.append(("INTDIV", f"{a} / {b}", _tdiv(a, b)))
@@ -209,4 +213,4 @@ def test_local_tsql_follows_the_documented_rules(engine, prefix: str) -> None:
 def test_cases_are_seeded_and_cover_every_family() -> None:
     first = cases("")
     assert first == cases("") and len(first) > 1500
-    assert {f for f, _, _ in first} >= {f for f, _ in KNOWN}
+    assert {f for f, _, _ in first} >= {f for f, _ in KNOWN} | {"EQ", "LT", "LIKE", "PLUS"}

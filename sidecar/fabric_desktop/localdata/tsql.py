@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import math
 import re
 from collections.abc import Callable, Container
 from typing import Any, cast
@@ -51,7 +52,7 @@ from sqlglot.helper import seq_get
 from sqlglot.tokens import Token, TokenType
 
 from ..sql import KfDuckDB
-from . import tsql_ctes, tsql_format, tsql_routines, tsql_tables, tsql_types
+from . import tsql_ctes, tsql_format, tsql_hints, tsql_routines, tsql_tables, tsql_types
 from .. import sql_dialects, tsql_clone
 
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
@@ -112,7 +113,10 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
                 continue
             tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
             _refuse(tree)
+            _national_text(tree)
             notes += tsql_ctes.check(tree)  # WR-230: no recursive CTE, no change through a CTE
+            notes += tsql_hints.check(tree)  # WR-231: labels and hints that change no rows, with a note
+            tsql_format.parses(tree)  # WR-229: before the types are read, so a PARSE is its number type
             _temp_tables(tree)
             notes += tsql_types.check(tree)  # WR-223: types as a warehouse has them, before any rewrite
             _joined_changes(tree)
@@ -165,6 +169,9 @@ class KfTSQL(TSQL):
         # SQUARE is a float in T-SQL; sqlglot reads it as POWER(x, 2), which keeps an integer's type and
         # refuses a decimal (_power).
         # JSON_VALUE and JSON_QUERY keep their path as the text T-SQL was given; _json reads it (WR-219).
+        # PARSE and TRY_PARSE take "x AS type USING culture", which sqlglot can't read (WR-229).
+        FUNCTION_PARSERS = {**TSQL.Parser.FUNCTION_PARSERS, "PARSE": tsql_format.parser(False),
+                            "TRY_PARSE": tsql_format.parser(True)}
         FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build,
                      "SQUARE": lambda args: exp.Pow(this=exp.Cast(this=seq_get(args, 0), to=exp.DataType.build("DOUBLE")),
                                                     expression=exp.Literal.number(2)),
@@ -506,6 +513,7 @@ def _take_as_of(batch: str) -> tuple[str, str | None]:
 
 def _parse(batch: str) -> list[exp.Expression]:
     batch, when = _take_as_of(batch)
+    batch = tsql_hints.take(batch, KfTSQL().tokenize)  # WR-231: statistics, and hints sqlglot can't read
     cloned = tsql_clone.local_refusal(batch)  # WR-226: never a no-op, never a full copy in a clone's place
     if cloned:
         raise ValueError(_NOT_YET + cloned)
@@ -1038,7 +1046,8 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
         else:
             to = node.args.get("to")
             if isinstance(to, exp.DataType) and to.this in _INTEGERS - {exp.DataType.Type.BIT} \
-                    and _unknown(info.this.type) and not isinstance(node.this, exp.Null):  # NULL converts the same
+                    and _unknown(info.this.type) and not isinstance(node.this, exp.Null) \
+                    and not node.meta.get("kf_digits"):  # NULL, and PARSE's checked digits, convert the same
                 notes.append(f"Couldn't tell the type in {node.sql(dialect='tsql')}: it converts as DuckDB does, "
                              "and T-SQL cuts a decimal toward zero and refuses text that isn't a whole number.")
             source = _numeric_style(node, info) or info.this.type
@@ -2274,6 +2283,19 @@ def _unknown_functions(tree: exp.Expression, known: Container[str]) -> None:
                          "SYSUTCDATETIME() gives the same time without the offset.")
 
 
+def _national_text(tree: exp.Expression) -> None:
+    """An N'...' literal is nvarchar text. sqlglot reads it as exp.National, which the passes that type text
+    (comparisons with ANSI padding, LIKE's [a-c] ranges, + joining two strings) didn't take for text. So
+    ``WHERE col = N'abc'`` missed a row whose col is 'abc  ', ``LIKE N'[a-c]%'`` never matched, and
+    ``N'a' + N'b'`` stopped with DuckDB's binder error. A warehouse keeps text as UTF-8 varchar, so here it is a
+    plain string. DATALENGTH's own argument keeps its N, since it counts two bytes a character (_datalength)."""
+    for node in list(tree.find_all(exp.National)):
+        parent = node.parent
+        if isinstance(parent, exp.Anonymous) and parent.name.upper() == "DATALENGTH":
+            continue
+        node.replace(exp.Literal.string(node.name))
+
+
 def _datalength(value: exp.Expression) -> exp.Expr:
     """``DATALENGTH``: the bytes of the text as UTF-8, as a warehouse's varchar holds it; an N'...'
     literal is nvarchar, two bytes a character (UTF-16)."""
@@ -2357,7 +2379,9 @@ def _string_edges(tree: exp.Expression) -> None:
       from the end. A negative length is an error.
     - ``STUFF(s, start, n, x)`` is NULL when the start is below 1 or past the end, or the length is
       negative; a NULL ``x`` deletes without inserting.
-    - ``REPLICATE(s, n)`` is NULL when ``n`` is negative.
+    - ``REPLICATE(s, n)`` and ``SPACE(n)`` are NULL when ``n`` is negative, and a count with a fraction is
+      cut toward zero first (``SPACE(1.7)`` is one space, ``SPACE(-0.5)`` is ''); DuckDB gave '' for a
+      negative count, rounded ``SPACE``'s and didn't bind ``REPLICATE``'s.
     - ``LEFT`` and ``RIGHT`` with a negative length are an error (DuckDB drops from the other end).
     - ``TRANSLATE(s, a, b)`` with ``a`` and ``b`` of different lengths is an error (DuckDB drops the
       characters of ``a`` that have no partner in ``b``).
@@ -2366,8 +2390,8 @@ def _string_edges(tree: exp.Expression) -> None:
       from the end), and is 0 for an empty ``x`` (DuckDB found it at 1) (WR-210).
 
     Literal starts and lengths that can't hit an edge are left as they are."""
-    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Left, exp.Right, exp.Translate,
-                                   exp.StrPosition)):
+    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Space, exp.Left, exp.Right,
+                                   exp.Translate, exp.StrPosition)):
         if isinstance(node, exp.StrPosition):
             _charindex(node)
         elif isinstance(node, (exp.Left, exp.Right)):
@@ -2427,10 +2451,24 @@ def _string_edges(tree: exp.Expression) -> None:
                            exp.LT(this=length.copy(), expression=exp.Literal.number(0)))
             node.set("expression", exp.func("COALESCE", node.expression, exp.Literal.string("")))
             node.replace(exp.Case(ifs=[exp.If(this=past, true=exp.null())], default=node.copy()))
-        elif not _whole(node.args.get("times"), 0):
-            times = node.args["times"]
-            negative = exp.LT(this=times.copy(), expression=exp.Literal.number(0))
-            node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy()))
+        elif isinstance(node, (exp.Repeat, exp.Space)):
+            _repeat_count(node)
+
+
+def _repeat_count(node: exp.Repeat | exp.Space) -> None:
+    """``REPLICATE``'s or ``SPACE``'s count as T-SQL takes it (see _string_edges)."""
+    key = "times" if isinstance(node, exp.Repeat) else "this"
+    count = node.args.get(key)
+    if count is None or _whole(count, 0):
+        return
+    value = _number(count)
+    if value is not None and math.isfinite(value) and int(value) >= 0:  # 1.7 is 1 and -0.5 is 0: toward zero, as T-SQL makes it an int
+        node.set(key, exp.Literal.number(int(value)))
+        return
+    whole = exp.cast(exp.Trunc(this=count.copy()), "BIGINT")
+    node.set(key, whole)
+    negative = exp.LT(this=whole.copy(), expression=exp.Literal.number(0))
+    node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy()))
 
 
 def _charindex(node: exp.StrPosition) -> None:

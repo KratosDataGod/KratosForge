@@ -362,7 +362,7 @@ refused for another tenant; organization scope key in `fdopt_config`.
 - Tests: scenario 15, partial permissions (scenario 14: read without write shows read-only).
 - Gate: Security read.
 
-**ESI-105 Sync states.** Map outbox state to Synced, Pending, Synchronizing, Failed, Conflict,
+**ESI-105 Sync states.** **Built** (engine and RPC, no screen yet). Map outbox state to Synced, Pending, Synchronizing, Failed, Conflict,
 Offline, per kind and lakehouse, through the existing `optimize_status` RPC.
 - Acceptance: every state reachable in tests; bounded backoff unchanged; dropped items still
   shown.
@@ -419,13 +419,13 @@ after comparison on equivalent inputs; output equivalence where measurable; vali
 moves Validating → Verified or back. CU change only from measured CU or a labelled estimate,
 never from time alone.
 
-**ESI-303 Attribution waterfall.** `savings/attribution.py`: ordered layers (4.5), caps at the
+**ESI-303 Attribution waterfall.** **Built** (engine only, no writes). `savings/attribution.py`: ordered layers (4.5), caps at the
 baseline, incremental allocation across several optimizations.
 - Acceptance: the critical acceptance test passes exactly; overlapping optimizations never sum
   past the baseline; a reversal writes reversal events that net the earlier accruals to zero.
 - Tests: scenarios 16, 17, 10, 19, plus a property test that gross ≤ baseline for any order.
 
-**ESI-304 Recurring benefit.** Read-time projection of monthly benefit from recent executions and
+**ESI-304 Recurring benefit.** **Built** (engine only, never written). `savings/recurring.py`. Read-time projection of monthly benefit from recent executions and
 run frequency, labelled Estimated and never written to the ledger; period figures are groupings
 of ESI-203 execution accruals. Stop projecting on retirement; re-baseline on material change.
 - Tests: scenarios 11, 12.

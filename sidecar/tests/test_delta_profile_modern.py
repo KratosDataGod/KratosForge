@@ -183,10 +183,10 @@ def test_a_reader_that_cant_read_the_table_refuses_with_why_and_leaves_it_unchan
     with pytest.raises(P.ProfileViolation, match="^Nothing was written to this table") as refused:
         P.check_table(table, readers=["python_notebooks"])
     assert str(refused.value).endswith("Keep writing this table from Fabric Spark.")
-    # After a commit the refusal can't say nothing was written: it says not to run the write again.
+    # After a commit the refusal can't say nothing was written: it says not to run an append again.
     with pytest.raises(P.ProfileViolation, match="^The write committed") as late:
         P.check_table(table, readers=["python_notebooks"], committed=True)
-    assert "Don't run the write again" in str(late.value) and "Nothing was written" not in str(late.value)
+    assert "If it was an append, don't run it again" in str(late.value) and "Nothing was written" not in str(late.value)
     P.check_table(table, readers=list(P.DEFAULT_READERS))
 
 

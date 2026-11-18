@@ -248,8 +248,8 @@ def check_table(table: DeltaTable, within: str | Profile | None = None,
     if reasons:
         if committed:
             raise ProfileViolation("The write committed, but one of this table's readers can't read a feature the "
-                                   "table now uses. " + " ".join(reasons) + " Don't run the write again, because "
-                                   "it would add its rows twice. Check the table from Fabric Spark.")
+                                   "table now uses. " + " ".join(reasons) + " If it was an append, don't run it "
+                                   "again, because that would add its rows twice. Check the table from Fabric Spark.")
         raise ProfileViolation("Nothing was written to this table, because one of its readers can't read a feature "
                                "it uses. " + " ".join(reasons) + " Keep writing this table from Fabric Spark.")
 

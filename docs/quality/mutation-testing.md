@@ -6499,7 +6499,7 @@ Two modules not covered before, none touched by an open pull request, run with `
 
 The run was at `main` 5865db954 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902, and the method of earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given as paths relative to `sidecar/`, each was checked to exist, and the tests first passed once on the unmutated copy. Each module has fewer than 150 mutants, so all of them ran. Neither module has a boundary mutant. No `-k` filter or `--deselect` was needed: none of these tests reads `docs/`, `examples/` or `app/`.
 
-A mutant whose run times out counts as killed. Four of `shell.py`'s timed out: they negate or flip the checks in the loop that reads a command's output, so the loop never ends.
+A mutant whose run times out counts as killed. Four of `shell.py`'s timed out: they flip the checks that the reader thread has the output pipe and the input thread has the input pipe, or that input was given, so a thread fails or never starts and the command or the read waits forever.
 
 Before the "after" runs, the new tests were run in a copy of `sidecar/` on its own and against each module as `ast.unparse` writes it, as in batch 11. They passed both ways. The Windows parts of `shell.py` are tested through its module-local `os` (`SimpleNamespace(name="nt")`) and a stand-in for `taskkill`, so they run on every OS.
 

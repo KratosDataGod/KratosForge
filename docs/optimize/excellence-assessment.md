@@ -145,8 +145,9 @@ finding is never listed below a minor one with a bigger estimate.
 `excellence_assess(workspace_id, days, profile, demo)` assesses one workspace, and its capacity when you
 can see it. It reads only, with your own access, and makes no read the app didn't already make: the
 optimization engine's reads (the workspace, its items, notebook and pipeline definitions, job history),
-the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`) and the capacities you can see
-(`GET /capacities`). A read that fails is listed in `reads` and leaves its controls not evaluated.
+the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`), the capacities you can see
+(`GET /capacities`) and each lakehouse's properties (`GET /workspaces/{id}/lakehouses/{id}`, the read the
+app already makes before it writes a table; at most 50 per assessment). A read that fails is listed in `reads` and leaves its controls not evaluated.
 `demo=True` assesses a labelled demonstration fixture without calling Fabric.
 
 ## Controls
@@ -163,6 +164,10 @@ the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`) and th
 | FEA-PERF-002 | Performance | Medium | A pipeline doesn't copy a source another pipeline also copies (OE-DUP-COPY, OE-REPEAT-EXTRACT) | Optimization engine |
 | FEA-DE-001 | Data engineering | Medium | A scheduled notebook or pipeline doesn't rewrite whole tables (OE-FULL-REFRESH); not applicable when it isn't scheduled | Optimization engine |
 | FEA-DE-002 | Data engineering | Low | A notebook's code isn't copied into another one per lakehouse (OE-DUP-NB-PARAM) | Optimization engine |
+| FEA-ARCH-001 | Architecture | Medium | One lakehouse per medallion layer: no lakehouse named for two of bronze, silver and gold, and no two named for the same layer | Item names (inferred, advice only) |
+| FEA-ARCH-002 | Architecture | Low | A lakehouse is schema-enabled | Lakehouse properties |
+| FEA-ARCH-003 | Architecture | Low | A workspace whose name says production holds no item named tmp, temp, test, staging, copy, old, backup or similar; not applicable when the name says Dev or Test | Workspace and item names (inferred, advice only) |
+| FEA-ARCH-004 | Architecture | Medium | A notebook's default lakehouse is in its own workspace (a cross-workspace dependency otherwise); not applicable without a default lakehouse | Notebook definition and item list |
 
 The thresholds (4 Admins, 5 direct writers) are KratosForge's: Microsoft's guidance asks for least
 privilege but gives no number. A profile can turn any control off, with a reason, or change its
@@ -174,6 +179,17 @@ name Fabric didn't send can't be told apart from a guest, so FEA-SEC-002 is then
 controls that compare an item with the others of its kind (FEA-PERF-001, FEA-PERF-002, FEA-DE-002)
 pass an item only when every other notebook or pipeline in the workspace was read; if one wasn't (no
 access, or the read budget ran out), they are not evaluated and name the ones that weren't read.
+
+The architecture controls follow the KratosForge standing decision: one schema-enabled lakehouse per
+medallion layer. FEA-ARCH-001 and FEA-ARCH-003 read layers, environment and left-overs from names, which
+is **inferred** evidence: a name is what someone typed, not what the item is. Their results are shown as
+advice and are never scored; when no name says a layer, or the workspace name doesn't say whether it is
+production, they are not evaluated. Fabric's own Dataflow staging items aren't counted as left-overs.
+FEA-ARCH-002 and FEA-ARCH-004 are verified: the lakehouse's properties (Fabric gives a default schema
+only for schema-enabled lakehouses) and the notebook definition the optimization engine already reads. A
+default lakehouse that isn't in the workspace's item list is in another workspace or was deleted;
+either way a deployment won't rebind it. Dev/Test/Prod separation isn't checked yet: it needs
+deployment pipeline or Git configuration the assessment doesn't read, and a name alone can't prove it.
 
 ## The scorecard
 

@@ -113,6 +113,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `VAR(x)`, `STDEV(x)`, `VARP(x)`, `STDEVP(x)` | The sample variance and standard deviation, and the population's (one row: `NULL` for `VAR` and `STDEV`, `0` for `VARP` and `STDEVP`) |
 | `LEN('ab  ')` | `2`: trailing spaces aren't counted |
 | `SUBSTRING('abc', 0, 2)`, `STUFF('abc', 5, 1, 'x')`, `REPLICATE('ab', -1)`, `SPACE(1.7)` | `'a'`, `NULL`, `NULL`, one space: a start below 1 counts the positions before 1, `STUFF` past the end or below 1 and `REPLICATE` or `SPACE` of a negative count are `NULL`, a count with a fraction is cut toward zero, and a negative `SUBSTRING` length is an error |
+| `ASCII('')`, `UNICODE('')`, `CHAR(300)`, `CHAR(65.7)` | `NULL`, `NULL`, `NULL`, `'A'`: an empty text has no first character, `CHAR` outside 0 to 255 is `NULL`, and a code with a fraction is cut toward zero. `CHAR` of 128 to 255 gives that Latin-1 character, which a warehouse's code page may not. Text such as `CHAR('66')` or `REPLICATE('ab', '3')` is made an int first, as T-SQL does, and text that isn't a whole number, such as `'6.5'`, is a conversion error |
 | `LEFT(s, -1)`, `RIGHT(s, -1)`, `TRANSLATE('abc', 'ab', 'x')` | An error, as in T-SQL: a negative length, or `TRANSLATE` lists of different lengths. With literal values the query is refused before it runs |
 | `DATEPART(weekday, d)` | `1` for Sunday to `7` for Saturday (DATEFIRST 7) |
 | `DATEPART(week, d)` | Week 1 is the week of 1 January; weeks start on Sunday |

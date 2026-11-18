@@ -412,3 +412,22 @@ def test_a_dropped_commit_is_not_written_again_and_says_it_may_have_gone_in(serv
     out = service.run_cell(WRITE, LH)
     assert out["status"] == "error" and len(tries) == 1
     assert "may or may not have gone in" in json.dumps(out) and "history" in json.dumps(out)
+
+
+def test_a_connection_that_stays_down_fails_after_its_tries_and_the_table_stays_as_it_was(service, monkeypatch):
+    """The PC slept, or the network went, for longer than the retries wait: each try's data file upload
+    is dropped. The write stops after UPLOAD_ATTEMPTS tries with the error, and the table is still at its
+    last version with its rows, since nothing of an upload that never finished is committed."""
+    assert service.run_cell(WRITE, LH)["status"] == "ok"
+    monkeypatch.setattr(lakehouse, "UPLOAD_RETRY_WAIT", 0.0)
+    tries = []
+
+    def always_dropped(*args, **kwargs):
+        tries.append(1)
+        raise OSError(DROPPED)
+    monkeypatch.setattr(lakehouse, "publish", always_dropped)
+    out = service.run_cell("import pyarrow as pa\nfrom fabric_desktop import lakehouse\n"
+                           "lakehouse.write_table(pa.table({'id': [7, 8, 9]}), 'sales')\n", LH)
+    assert out["status"] == "error" and len(tries) == lakehouse.UPLOAD_ATTEMPTS
+    table = DeltaTable(str(service.onelake / "sales"))
+    assert table.version() == 0 and sorted(table.to_pyarrow_table().column("id").to_pylist()) == [1, 2]

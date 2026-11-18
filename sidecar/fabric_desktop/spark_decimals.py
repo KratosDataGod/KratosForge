@@ -496,13 +496,20 @@ def _whole_rank(node: exp.Expr, found: tuple[int, int] | tuple[str, int]) -> int
 
 def _wraps_here(node: exp.Expr) -> bool:
     """Whether ``node`` wraps around: not inside a TRY (try_add and try_multiply give NULL on an overflow), nor
-    an array index (get and element_at write their own index as a sum)."""
+    an array index (get and element_at write their own index as a sum), nor a filter (WHERE, HAVING, QUALIFY or a
+    join's ON), where DuckDB can only skip row groups by a column's min and max when ``id + 1 = 5`` stays plain."""
     child, parent = node, node.parent
     while parent is not None:
         if isinstance(parent, exp.Try) or (
             isinstance(parent, exp.Bracket) and child is not parent.this
         ):
             return False
+        if isinstance(parent, (exp.Where, exp.Having, exp.Qualify)) or (
+            isinstance(parent, exp.Join) and child is parent.args.get("on")
+        ):
+            return False
+        if isinstance(parent, exp.Select):  # a select list, or a subquery's own, wraps
+            return True
         child, parent = parent, parent.parent
     return True
 

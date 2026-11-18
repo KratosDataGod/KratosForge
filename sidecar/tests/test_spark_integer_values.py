@@ -45,6 +45,27 @@ def test_ansi_mode_keeps_duckdbs_own_arithmetic():
     )
 
 
+def test_a_filter_keeps_duckdbs_own_arithmetic_so_row_groups_are_skipped():
+    """In WHERE, HAVING or ON, ``id + 1 = 5`` stays plain, so DuckDB can still skip row groups by min and max;
+    a select list, a subquery's own included, wraps."""
+    import sqlglot
+
+    from fabric_desktop import spark_decimals
+
+    def text(query):
+        return spark_decimals.spark_decimal_types(sqlglot.parse_one(query, read="spark"), _con()).sql("duckdb")
+
+    for query in (
+        "SELECT a FROM VALUES (1) AS t(a) WHERE a + 2147483647 = 5",
+        "SELECT a FROM VALUES (1) AS t(a) GROUP BY a HAVING a * 2147483647 > 0",
+        "SELECT * FROM VALUES (1) AS t(a) JOIN VALUES (2) AS u(b) ON t.a + 2147483647 = u.b",
+    ):
+        assert "& 4294967295" not in text(query), query
+    assert "& 4294967295" in text(
+        "SELECT a FROM VALUES (1) AS t(a) WHERE a IN (SELECT 2147483647 + 1)"
+    )
+
+
 def _con():
     import duckdb
 

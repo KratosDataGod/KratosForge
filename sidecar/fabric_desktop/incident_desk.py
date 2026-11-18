@@ -164,7 +164,8 @@ class IncidentDeskMixin:
         if result.get("result") == "skipped":
             reason = result.get("reason") or out.get("skipped") or ""
             # Posted before, but the note saying so wasn't written (the list was busy, say): write it now.
-            if reason == "already posted" and not any(n.get("text") == told for n in inc.get("notes") or []):
+            # Notes are kept to 2,000 characters, so compare with what would have been kept.
+            if reason == "already posted" and not any(n.get("text") == told[:2000] for n in inc.get("notes") or []):
                 self._incident_log(env).note(id, told, self._incident_user())  # type: ignore[attr-defined]
             return {"told": False, "reason": reason, "people": found["people"]}
         self._incident_log(env).note(id, told, self._incident_user())  # type: ignore[attr-defined]

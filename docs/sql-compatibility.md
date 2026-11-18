@@ -512,6 +512,7 @@ What can still differ:
 
 - A warehouse finds conflicts by table, so two changes to different rows of one table can conflict there. Here delta-rs finds them by the files each change read, so two changes to different files of one table can both commit.
 - `BEGIN TRAN`, `COMMIT`, `ROLLBACK` and `SET TRANSACTION` are refused here (see Local T-SQL scripts), so a conflict here is always about one statement.
+- A commit delta-rs refuses for another reason, such as a change to a table with `delta.appendOnly`, isn't called a conflict. It stops with delta-rs's own reason and says nothing was committed.
 
 ## Local T-SQL tables
 

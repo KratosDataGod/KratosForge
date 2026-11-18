@@ -143,3 +143,24 @@ def test_an_insert_beside_a_change_isnt_a_conflict_as_in_a_warehouse(engine, mon
     engine.execute("UPDATE lake SET n = n + 1 WHERE id = 1", dialect="tsql")
     monkeypatch.undo()
     assert engine.execute("SELECT id, n FROM lake ORDER BY id, n")["rows"] == [[1, 1], [2, 0], [2, 0]]
+
+
+@pytest.mark.parametrize("sql", ["DELETE FROM lake WHERE id = 1", "UPDATE lake SET n = 5 WHERE id = 1"])
+def test_a_commit_refused_for_another_reason_keeps_delta_rss_reason(engine, sql):
+    DeltaTable(str(folder(engine))).alter.set_table_properties({"delta.appendOnly": "true"})
+    before = DeltaTable(str(folder(engine))).version()
+    with pytest.raises(ValueError) as caught:
+        engine.execute(sql, dialect="tsql")
+    text = str(caught.value)
+    assert "append-only" in text and "write-write conflict" not in text and "nothing was committed" in text, text
+    assert DeltaTable(str(folder(engine))).version() == before
+
+
+def test_a_failed_read_after_a_conflict_still_shows_the_conflict(engine, monkeypatch):
+    other_writer_first(monkeypatch, engine, lambda t: t.update(updates={"n": "n + 100"}, predicate="id = 1"))
+
+    def broken(*args, **kwargs):
+        raise OSError("disk went away")
+    monkeypatch.setattr(type(engine), "_register_own", broken)
+    with pytest.raises(ValueError, match="write-write conflict"):
+        engine.execute("UPDATE lake SET n = n + 1 WHERE id = 1", dialect="tsql")

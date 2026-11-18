@@ -90,6 +90,22 @@ def test_a_condition_this_pc_cant_honor_is_refused_and_writes_nothing(spark, con
     assert _rows(spark) == before
 
 
+def test_the_rows_are_checked_on_a_connection_that_reads_no_files(spark, monkeypatch):
+    """Defence in depth: the learner's condition is evaluated where DuckDB can't open a file or the network."""
+    import duckdb
+    seen = []
+    connect = duckdb.connect
+
+    def recording(*args, **kwargs):
+        seen.append(kwargs.get("config") or {})
+        return connect(*args, **kwargs)
+
+    monkeypatch.setattr(duckdb, "connect", recording)
+    _writer(spark, _day(spark, "2026-03-02", [(2, 21.0)])).mode("overwrite") \
+        .option("replaceWhere", "day = '2026-03-02'").saveAsTable("silver.sales")
+    assert {"enable_external_access": False} in seen
+
+
 def test_the_schema_options_still_read_true_and_false_text(spark):
     df = _day(spark, "2026-03-05", [(5, 5.0)]).withColumn("note", F.lit("x"))
     with pytest.raises(Exception):  # noqa: B017 - delta-rs's own schema error; "false" must not merge

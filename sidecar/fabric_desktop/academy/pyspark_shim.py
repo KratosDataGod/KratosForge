@@ -12,6 +12,9 @@ Table names are ``schema.table`` or ``table`` of letters, digits and underscores
 ``tables/``. Modes: ``error``/``errorifexists`` (the default), ``overwrite``, ``append``, ``ignore``;
 option ``overwriteSchema`` replaces the schema on overwrite, ``mergeSchema`` adds new columns on append, and
 ``replaceWhere`` makes an overwrite replace only the rows that match it (spark_replace_where.py).
+It is the notebook runner's rule set less what this shim has no use for: tables here are never partitioned
+(``partitionBy`` is ignored) and there's no ``partitionOverwriteMode``, so Delta's dynamic-overwrite refusal
+never applies, and ``mergeSchema`` only applies to an append, so with replaceWhere the table keeps its schema.
 Streams (``spark.readStream``, ``df.writeStream``) run as availableNow (pyspark_stream.py), ``from
 delta.tables import DeltaTable`` merges with delta-rs (pyspark_delta.py), and ``notebookutils`` runs the
 exercise's other notebooks and reads its ``Files/`` (notebookutils_lab.py).

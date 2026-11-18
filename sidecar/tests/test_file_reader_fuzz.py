@@ -160,6 +160,19 @@ def test_a_read_that_fails_after_a_count_leaves_the_session_working(tmp_path, sp
         assert [tuple(r) for r in spark.read.csv(str(good), header=True).collect()] == [("1", "a"), ("2", "b")]
 
 
+def test_a_title_above_the_header_is_kept_and_named_in_the_folders_issues(tmp_path, local):
+    folder = tmp_path / "files"
+    folder.mkdir()
+    (folder / "report.csv").write_text("Sales report\n\na,b,c\n1,2,3\n4,5,6\n", encoding="utf-8")
+    (folder / "plain.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+    engine = _engine_with(local, folder)
+    assert engine.execute("SELECT count(*) FROM dbo.report")["rows"] == [[4]]  # the blank line and a,b,c too
+    issues = engine.project.refreshed[str(folder)]["issues"]
+    assert [i["path"] for i in issues] == [str(folder / "report.csv")]
+    assert "The first 2 lines of this file don't look like the rest" in issues[0]["problem"]
+    assert "dbo.report keeps them" in issues[0]["problem"]
+
+
 def _mangle(r: random.Random, data: bytes) -> bytes:
     """A damaged copy: cut short, bytes flipped, NULs or invalid UTF-8 put in, a byte order mark added."""
     b = bytearray(data)
@@ -311,6 +324,21 @@ def test_a_json_file_that_starts_with_null_is_previewed_without_stopping_the_eng
     assert done.returncode == 0, done.stderr[-2000:]
     out = json.loads(done.stdout)
     assert "refused" in out or out["row_count"] == len(out["rows"]) >= 1
+
+
+def test_json_lines_that_start_with_null_or_a_value_preview_each_line(tmp_path):
+    path = tmp_path / "events.jsonl"
+    path.write_text('null\n{"a": 1}\n\n{"a": 2, "b": "x"}\n7\n', encoding="utf-8")
+    got = preview.file_preview(path, path.name)
+    assert [c["name"] for c in got["columns"]] == ["value", "a", "b"]
+    assert got["rows"] == [[None, None, None], [None, 1, None], [None, 2, "x"], [7, None, None]]
+    assert got["row_count"] == 4
+    path.write_text('null\n{"a": 1}\n{"a":\n', encoding="utf-8")
+    with pytest.raises(ValueError, match=r"Line 3 of the file isn't JSON"):
+        preview.file_preview(path, path.name)
+    path.write_text('{"a": 1', encoding="utf-8")
+    with pytest.raises(ValueError, match=r"The file isn't JSON: .* \(line 1, column"):
+        preview.file_preview(path, path.name)
 
 
 def _json_value(r: random.Random, depth: int = 0):

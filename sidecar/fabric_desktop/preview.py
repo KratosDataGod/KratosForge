@@ -90,6 +90,27 @@ def _starts_with_an_object(path: Path) -> bool:
     return head.removeprefix(b"\xef\xbb\xbf").lstrip(b" \t\r\n").startswith(b"{")
 
 
+def _json_values(text: str) -> list[Any]:
+    """The records of a JSON file: one document (a list is its records), or JSON Lines, one value a line.
+    A file that is neither is refused with the first line that isn't JSON."""
+    try:
+        data = json.loads(text)
+        return data if isinstance(data, list) else [data]
+    except json.JSONDecodeError as whole:
+        values = []
+        for n, line in enumerate(text.splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                values.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                if n == 1:  # not JSON Lines either: the error for the file as one document
+                    raise ValueError(f"The file isn't JSON: {whole.msg} (line {whole.lineno}, column "
+                                     f"{whole.colno}).") from None
+                raise ValueError(f"Line {n} of the file isn't JSON: {exc.msg} (column {exc.colno}).") from None
+        return values
+
+
 def file_preview(path: Path, name: str, limit: int = ROWS) -> dict[str, Any]:
     """Rows for a data file, the start of a text file."""
     ext = name.rsplit(".", 1)[-1].lower()
@@ -117,8 +138,7 @@ def file_preview(path: Path, name: str, limit: int = ROWS) -> dict[str, Any]:
             except pa.ArrowInvalid:
                 table = None
         if table is None:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            data = data if isinstance(data, list) else [data]
+            data = _json_values(path.read_text(encoding="utf-8-sig"))
             records = [r if isinstance(r, dict) else {"value": r} for r in data[:limit]]
             # Every record's keys, in the order they first appear: from_pylist takes only the first record's,
             # so a key only later records have (or a value beside objects) wasn't shown.

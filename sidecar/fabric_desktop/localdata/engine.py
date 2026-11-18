@@ -585,6 +585,11 @@ class LocalEngine:
                 con.execute(f"CREATE OR REPLACE VIEW {q(table.schema)}.{q(table.table)} AS {select}")
                 entry["columns"] = [{"name": r[0], "type": r[1]} for r in
                                     con.execute(f"DESCRIBE {q(table.schema)}.{q(table.table)}").fetchall()]
+                if table.format == "csv" and (above := _lines_above_the_rows(con, table.paths[0])):
+                    issues.append({"path": table.paths[0], "problem": (
+                        f"The first {above} lines of this file don't look like the rest (a title or notes above "
+                        f"the header?). {table.schema}.{table.table} keeps them as part of the table, so no line is left out; "
+                        "remove them from the file to read it with its header.")})
             except Exception as exc:  # noqa: BLE001 - one unreadable file never stops the others
                 entry["status"], entry["error"] = "error", _short(exc)
                 con.execute(f"DROP VIEW IF EXISTS {q(table.schema)}.{q(table.table)}")
@@ -1540,6 +1545,17 @@ class LocalEngine:
 
 class QueryCancelled(RuntimeError):
     pass
+
+
+def _lines_above_the_rows(con: duckdb.DuckDBPyConnection, path: str) -> int:
+    """How many lines at the start of a CSV file DuckDB's sniffer would have skipped as not part of the
+    table (a title, notes): file_select reads them as rows (skip = 0), and the folder's issues say so."""
+    try:
+        row = first_row(con.execute("SELECT SkipRows FROM sniff_csv(?)", [path]))
+    except duckdb.Error as exc:  # the view itself was made: a file the sniffer can't read fails its queries
+        _log.info("Couldn't sniff %s: %s", path, describe(exc))
+        return 0
+    return int(row[0]) if row and row[0] else 0
 
 
 def _invalidated(con: duckdb.DuckDBPyConnection) -> bool:

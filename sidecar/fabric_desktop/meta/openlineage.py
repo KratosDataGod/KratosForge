@@ -41,12 +41,22 @@ _DRIVE = re.compile(r"^[A-Za-z]:")
 _EMAIL = re.compile(r"[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")
 # A literal in an expression is read as a path only when it plainly is one (C:\\..., \\\\server, /home/..., ~/...)
 # and has none of a pattern's special characters ('..\\d+' is a regex, not a path).
-_TEXT_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\|/[\w.-]+/|~[\\/])")
+_TEXT_PATH = re.compile(r"^(?:[A-Za-z]:[\w .-]*[\\/]|\\\\|/[\w.-]+/|~[\\/]|\.\.[\\/])")
 _REGEXY = re.compile(r"[*+?^$()\[\]{}|]")
+# A quoted URL is read as one only when the part before its query has none of a pattern's characters
+# ('https://([^/]+)/(.*)' and 'file:(\\d+)' are regexes); a query's ? is the URL's own.
+_URL_REGEXY = re.compile(r"[*+^()\[\]{}|]|\$$")
+_IPV6_HOST = re.compile(r"(?<=[/@])\[[0-9A-Fa-f:.]+\](?=[:/]|$)")  # http://[2001:db8::1]:80/: brackets, not a pattern
 _QUOTED = re.compile(r"(['\"])(.*?)\1")
 _PATH_PARAMS = re.compile(r";[^/]*")
-# User names in a connection string (user=sa; User ID=a; uid=a; username=a).
-_USER_KEY = re.compile(r"(?i)\b(user\s*id|user\s*name|username|user|uid)(\s*=\s*)[^;,\s]+")
+# User names and secrets in a connection string (user=sa; User ID=a b; uid=a; Pwd={p;w}; AccountKey=...):
+# a value runs to the next ; (ADO.NET and ODBC values hold spaces), or is a whole {braced} or quoted one.
+_USER_KEY = re.compile(r"(?i)\b(user\s*id|user\s*name|username|user|uid|password|pwd|accountkey|sharedaccesskey"
+                       r"|sharedaccesssignature)(\s*=\s*)(?:\{(?:[^}]|\}\})*\}|\"(?:[^\"]|\"\")*\"|'(?:[^']|'')*'|[^;\r\n]+)")
+# jdbc:oracle:thin:scott/tiger@host:1521:orcl carries the user and password before the @.
+_ORACLE_USER = re.compile(r"(?i)(\bjdbc:oracle:\w+:)[^@\s;,]+@")
+# The URL inside a jdbc: one (jdbc:postgresql://...) has user info of its own, before an @.
+_INNER_USERINFO = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*://)[^/?#@]*@")
 _ID_NAMESPACE = uuid.UUID("6b0f1a52-6f1d-4d8e-9b0e-2f1c9f6c4a11")
 
 
@@ -86,7 +96,7 @@ class Names:
 
 
 def _on_this_pc(path: str) -> str:
-    return "<this PC>/" + ntpath.basename(path.replace("/", "\\").rstrip("\\"))
+    return "<this PC>/" + _EMAIL.sub("[email]", ntpath.basename(path.replace("/", "\\").rstrip("\\")))
 
 
 def _is_local_path(text: str) -> bool:
@@ -98,9 +108,9 @@ def _is_local_path(text: str) -> bool:
 
 
 def _clean_one(text: str) -> str:
-    text = text.strip()
-    if _FILE_URL.match(text):  # file:///C:/Users/... is a path on this PC, in any case
-        return _on_this_pc(re.sub(r"(?i)^file:/*", "", text))
+    text = _ORACLE_USER.sub(r"\1" + redact.REMOVED + "@", text.strip())
+    if _FILE_URL.match(text):  # file:///C:/Users/... is a path on this PC, in any case; no query or fragment
+        return _on_this_pc(re.split(r"[?#]", re.sub(r"(?i)^file:/*", "", text), maxsplit=1)[0])
     if "://" in text:
         try:
             u = urlsplit(text)
@@ -115,6 +125,7 @@ def _clean_one(text: str) -> str:
                 port = ""
             # ;jsessionid=... and other path parameters carry session ids, never where the data is
             path = _PATH_PARAMS.sub("", u.path) if u.scheme.lower() in ("http", "https") else u.path
+            path = _INNER_USERINFO.sub(r"\1", path)
             url = urlunsplit((u.scheme, container + host + port, _EMAIL.sub("[email]", path), "", ""))
             return _USER_KEY.sub(r"\1\2" + redact.REMOVED, url)  # jdbc:sqlserver://host;user=sa
         except ValueError:
@@ -127,22 +138,31 @@ def _clean_one(text: str) -> str:
 def safe_origin(value: Any) -> str:
     """A source's name as it can leave the PC: a URL keeps its scheme, host, port and path (no user, password,
     query, ;path parameters or fragment, where a SAS token, key or session id would sit); a path on this PC, or a file: URL, keeps only its last part;
-    a connection string loses its user name; anything credential-shaped that is left is removed. A list is
+    a connection string loses its user name, password, account key and SAS ({braced} and quoted ones whole); anything credential-shaped that is left is removed. A list is
     cleaned item by item."""
     items = value if isinstance(value, (list, tuple)) else [value]
     return redact.secrets(", ".join(_clean_one(str(v)) for v in items))
 
 
+def _clean_literal(lit: str) -> str:
+    """A quoted literal: cleaned like a source when it plainly is a path or URL, else left as it is."""
+    before_query = _IPV6_HOST.sub("", re.split(r"[?#]", lit, maxsplit=1)[0])
+    url =(_FILE_URL.match(lit) or "://" in before_query) and not _URL_REGEXY.search(before_query)
+    looks = url or (_TEXT_PATH.match(lit) and not _REGEXY.search(lit))
+    return _clean_one(lit) if looks else lit
+
+
 def safe_text(text: str) -> str:
     """An expression as it can leave the PC: quoted paths keep only their last part, and secrets, e-mail
     addresses and user names are removed (redact.for_support)."""
-    def one(m: re.Match[str]) -> str:
-        lit = m.group(2)
-        looks = _FILE_URL.match(lit) or "://" in lit or (_TEXT_PATH.match(lit) and not _REGEXY.search(lit))
-        return m.group(1) + (_clean_one(lit) if looks else lit) + m.group(1)
-
-    text = _QUOTED.sub(one, text)
+    text = _QUOTED.sub(lambda m: m.group(1) + _clean_literal(m.group(2)) + m.group(1), text)
     return redact.for_support(text)
+
+
+def _safe_column(name: str) -> str:
+    """A column an expression reads, as it can leave the PC: to SQL a "C:\\Users\\..." in double quotes
+    is a column name, so the names an expression gives are cleaned like its text."""
+    return redact.for_support(_clean_literal(name))
 
 
 def _run_uuid(run_id: str, entity: str) -> str:
@@ -175,7 +195,10 @@ def _event_time(run: dict[str, Any]) -> str | None:
         start = start.replace(tzinfo=dt.timezone.utc)
     seconds = run.get("seconds")
     if isinstance(seconds, (int, float)) and seconds >= 0:
-        start += dt.timedelta(seconds=float(seconds))
+        try:
+            start += dt.timedelta(seconds=float(seconds))
+        except OverflowError:  # an infinite or absurd duration: the run's start is still its time
+            pass
     return start.isoformat()
 
 
@@ -216,7 +239,8 @@ def entity_event(project: Project, names: Names, entity: str, run: dict[str, Any
                 key = _dataset_key(names, up)
                 if key is None or key == names.table(entity):
                     continue
-                inputs.setdefault(key, set()).add(up["column"])
+                field = _safe_column(str(up["column"]))
+                inputs.setdefault(key, set()).add(field)
                 if not kind:
                     continue
                 t, sub = kind
@@ -224,7 +248,7 @@ def entity_event(project: Project, names: Names, entity: str, run: dict[str, Any
                     sub = "TRANSFORMATION"
                 if rec["how"] == "lookup" and n > 0:  # the dimension's key comes first; the rest are what it matches on
                     t, sub = "INDIRECT", "JOIN"
-                in_fields.append({"namespace": key[0], "name": key[1], "field": up["column"],
+                in_fields.append({"namespace": key[0], "name": key[1], "field": field,
                                   "transformations": [{"type": t, "subtype": sub, "masking": False,
                                                        **({"description": safe_text(str(rec["expr"]))} if rec.get("expr") else {})}]})
         if in_fields:

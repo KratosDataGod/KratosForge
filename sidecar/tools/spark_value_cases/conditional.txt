@@ -1,0 +1,21 @@
+# Spark 3.5's type coercion in CASE, if, nvl2 and coalesce (nvl) with ANSI off: a string among numbers or dates
+# makes the result a string. Spark's answers: tests/fixtures/spark_3_5_3_conditional.json, written by hand from
+# the 2026-11-18 Spark 3.5.3 probe (sql-differential/spark-probe-findings-2026-11-18.md), not captured with
+# tools/capture_spark_values.py. Checked by tests/test_spark_conditional_values.py.
+
+# nvl2
+SELECT nvl2(1, 'a', 2)
+SELECT typeof(nvl2(1, 'a', 2))
+SELECT nvl2(NULL, 1, '2x')
+# coalesce
+SELECT coalesce(NULL, '1', 2)
+SELECT typeof(coalesce(NULL, '1', 2))
+SELECT coalesce(1, '2')
+SELECT coalesce(NULL, DATE'2024-01-01', '2024-02-02')
+# CASE
+SELECT CASE WHEN true THEN 1 ELSE '2' END
+SELECT typeof(CASE WHEN true THEN 1 ELSE '2' END)
+SELECT CASE WHEN false THEN 1 ELSE '2x' END
+# if
+SELECT if(true, 1, 'x')
+SELECT typeof(if(true, 1, 'x'))

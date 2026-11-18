@@ -1,0 +1,103 @@
+{
+ "spark": "3.5.3",
+ "ansi": false,
+ "time_zone": "UTC",
+ "cases": [
+  {
+   "sql": "SELECT nvl2(1, 'a', 2)",
+   "value": [
+    [
+     "a"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT typeof(nvl2(1, 'a', 2))",
+   "value": [
+    [
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT nvl2(NULL, 1, '2x')",
+   "value": [
+    [
+     "2x"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT coalesce(NULL, '1', 2)",
+   "value": [
+    [
+     "1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT typeof(coalesce(NULL, '1', 2))",
+   "value": [
+    [
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT coalesce(1, '2')",
+   "value": [
+    [
+     "1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT coalesce(NULL, DATE'2024-01-01', '2024-02-02')",
+   "value": [
+    [
+     "2024-01-01"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CASE WHEN true THEN 1 ELSE '2' END",
+   "value": [
+    [
+     "1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT typeof(CASE WHEN true THEN 1 ELSE '2' END)",
+   "value": [
+    [
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CASE WHEN false THEN 1 ELSE '2x' END",
+   "value": [
+    [
+     "2x"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT if(true, 1, 'x')",
+   "value": [
+    [
+     "1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT typeof(if(true, 1, 'x'))",
+   "value": [
+    [
+     "string"
+    ]
+   ]
+  }
+ ]
+}

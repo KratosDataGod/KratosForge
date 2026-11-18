@@ -372,12 +372,13 @@ class DuckDBSession(_SqlSession):
             raise Unsupported(_databricks_wording(str(exc)) if dialect == "databricks" else str(exc)) from None
 
     def _spark_types(self, statement: Any, dialect: str) -> Any:
-        """Spark SQL's to_json, written from its argument's type as Spark writes it (spark_json). Databricks
-        SQL keeps DuckDB's to_json, as listed in docs/sql-compatibility.md."""
+        """Spark SQL's to_json, written from its argument's type as Spark writes it (spark_json), and a CASE or
+        coalesce of a column and a string typed as Spark types it (spark_complex.CONDITIONAL). Databricks SQL keeps
+        DuckDB's to_json, as listed in docs/sql-compatibility.md."""
         if dialect == "databricks":
             return statement
         from ..spark_complex import spark_complex_types
-        return spark_complex_types(statement, self._con, kinds=("to_json",))
+        return spark_complex_types(statement, self._con, kinds=("to_json", "conditional"))
 
     def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
         if request.dialect == "snowflake":   # translated first, so even a refused cell shows its label

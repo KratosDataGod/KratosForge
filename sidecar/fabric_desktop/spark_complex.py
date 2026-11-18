@@ -169,6 +169,8 @@ def spark_complex_types(statement: exp.Expr, conn: Any, kinds: tuple[str, ...] |
     """``statement`` with the map forms and typed fixes in the module docstring. Its tables must be bound
     to the connection's views already. When its types can't be worked out it is returned as it was, but
     a to_json in it is refused (spark_json.Refused). ``kinds``: only those fixes (the others' marks stay)."""
+    if kinds is None or "conditional" in kinds:
+        statement = _conditional_texts(statement, conn)
     marked = [n for n in statement.walk() if _KEY in n.meta and (kinds is None or n.meta[_KEY] in kinds)]
     if not marked:
         return statement
@@ -233,6 +235,89 @@ def spark_complex_types(statement: exp.Expr, conn: Any, kinds: tuple[str, ...] |
     for node, json_type in reversed(json_types):
         _to_json(node, json_type)
     return _unmark(statement)
+
+
+# CASE, if, nvl2 and coalesce (nvl, ifnull) whose values mix a string with a number, date or timestamp: Spark
+# (ANSI off) gives a string, each other value cast to STRING (TypeCoercion's stringPromotion), where DuckDB casts
+# the string to the other type. sql._spark_conditional_text rewrites those whose values' types it can read from
+# the SQL; one with a value it can't (a column, a call) is marked CONDITIONAL and typed here once bound.
+CONDITIONAL = "kf_conditional"
+_STRINGS = (exp.DataType.Type.TEXT, exp.DataType.Type.VARCHAR, exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR,
+            exp.DataType.Type.NVARCHAR)
+_PROMOTED = (*exp.DataType.INTEGER_TYPES, exp.DataType.Type.DECIMAL, exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT,
+             exp.DataType.Type.DATE, exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPTZ,
+             exp.DataType.Type.TIMESTAMPLTZ, exp.DataType.Type.TIMESTAMPNTZ)
+
+
+def conditional_values(node: exp.Expr) -> list[exp.Expr] | None:
+    """The values ``node`` picks from, when it is a CASE, if, nvl2 or coalesce (nvl, ifnull); else None."""
+    if isinstance(node, exp.Case):
+        values = [i.args.get("true") for i in node.args.get("ifs") or []] + [node.args.get("default")]
+    elif isinstance(node, exp.If) and node.arg_key != "ifs":
+        values = [node.args.get("true"), node.args.get("false")]
+    elif isinstance(node, exp.Nvl2):
+        values = [node.args.get("true"), node.args.get("false")]
+    elif isinstance(node, exp.Coalesce):
+        values = [node.this, *node.expressions]
+    else:
+        return None
+    return [v for v in values if v is not None]
+
+
+def text_kind(dtype: exp.DataType | None) -> str | None:
+    """How a value of ``dtype`` takes part: "string", "promoted" (cast to STRING beside a string), "null",
+    "other" (anything else; Spark doesn't make it a string), or None when the type isn't known."""
+    if dtype is None or dtype.is_type(exp.DataType.Type.UNKNOWN):
+        return None
+    if dtype.is_type(exp.DataType.Type.NULL):
+        return "null"
+    if dtype.is_type(*_STRINGS):
+        return "string"
+    return "promoted" if dtype.is_type(*_PROMOTED) else "other"
+
+
+def _conditional_texts(statement: exp.Expr, conn: Any) -> exp.Expr:
+    """The CONDITIONAL nodes in ``statement`` with their values typed: a string among numbers, dates or
+    timestamps makes each of those a string, as Spark casts it (sql.spark_text_of). A node whose values
+    can't all be typed is left as it was (logged)."""
+    marked = [n for n in statement.walk() if n.meta.pop(CONDITIONAL, False)]
+    if not marked:
+        return statement
+    from sqlglot.optimizer.annotate_types import annotate_types
+    from sqlglot.optimizer.qualify import qualify
+
+    from .spark_decimals import _schema
+    from .sql import spark_text_of
+    values = [v for n in marked for v in conditional_values(n) or []]
+    for i, value in enumerate(values):
+        value.meta[_ID] = i
+    try:
+        schema = _schema(conn)
+        copy = qualify(statement.copy(), schema=schema, dialect="spark", validate_qualify_columns=False,
+                       quote_identifiers=False, identify=False)
+        for n in copy.walk():
+            if not n.meta.get(TYPED):
+                n.type = None
+        annotate_types(copy, schema=schema, dialect="spark", overwrite_types=False)
+        types = {n.meta[_ID]: n.type for n in copy.walk() if _ID in n.meta}
+    except Exception as exc:  # noqa: BLE001 - a type fix only: an untyped statement keeps DuckDB's types; logged
+        log.info("Spark conditional types not applied: %s: %s", type(exc).__name__, exc)
+        types = {}
+    index = {id(v): i for i, v in enumerate(values)}
+    for value in values:
+        value.meta.pop(_ID, None)
+    made: set[int] = set()  # nodes made strings here: an outer CASE reads an inner one's type from here
+    for node in reversed(marked):  # innermost first
+        found = conditional_values(node) or []
+        kinds = ["string" if id(v) in made else "null" if isinstance(v, exp.Null)
+                 else text_kind(types.get(index.get(id(v), -1))) for v in found]
+        if None in kinds or "other" in kinds or "string" not in kinds or "promoted" not in kinds:
+            continue
+        for value, kind in zip(found, kinds, strict=True):
+            if kind == "promoted":
+                value.replace(spark_text_of(value.copy()))
+        made.add(id(node))
+    return statement
 
 
 def _to_json(node: exp.Expr, dtype: exp.DataType | None) -> None:

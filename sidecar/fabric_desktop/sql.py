@@ -188,7 +188,7 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     statement = _try_divisions(statement)
     statement = _spark_date_results(statement, ansi=databricks)
     statement = _spark_timestampdiff(spark_builtins_sql.rewrite(
-        _spark_functions(databricks, _spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_concat_text(_spark_cast_functions(spark_strings.spark_text_results(spark_aggregates.spark_aggregate_results(spark_complex.mark_calls(_spark_names(spark_windows.check_windows(statement)))))))))))),
+        _spark_functions(databricks, _spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_concat_text(_spark_conditional_text(_spark_cast_functions(spark_strings.spark_text_results(spark_aggregates.spark_aggregate_results(spark_complex.mark_calls(_spark_names(spark_windows.check_windows(statement)))))), databricks))))))),
         ansi=databricks))
     statement = spark_windows.spark_window_results(spark_complex.spark_complex_results(statement))
     if databricks:
@@ -1422,6 +1422,76 @@ def _spark_concat_text(statement: exp.Expression) -> exp.Expression:
     return statement
 
 
+def spark_text_of(source: exp.Expr) -> exp.Expr:
+    """``source`` cast to STRING as Spark casts it (spark_text_cast), read once, as spark_integer_casts writes
+    such a cast: for a rewrite that runs after those casts are written."""
+    if isinstance(source, (exp.Column, exp.Literal)):
+        text = spark_text_cast("fj_arg0")
+    else:
+        text = f"(LIST_TRANSFORM([fj_arg0], lambda kf_cast: {spark_text_cast('kf_cast')}))[1]"
+    out = exp.paren(_with_args(text, [cast(exp.Expression, source)]))
+    out.type = exp.DataType.build("VARCHAR")
+    out.meta[spark_complex.TYPED] = True
+    return out
+
+
+def _written_kind(node: exp.Expr, made: set[int]) -> str | None:
+    """spark_complex.text_kind of ``node``'s type as its SQL tells it: a literal, a typed literal or a cast;
+    None for anything else (a column, a call), whose type only the bound tables tell."""
+    while isinstance(node, exp.Paren):
+        node = node.this
+    if id(node) in made:
+        return "string"
+    if isinstance(node, exp.Null):
+        return "null"
+    if isinstance(node, exp.Literal):
+        return "string" if node.is_string else "promoted"
+    if isinstance(node, exp.Neg) and isinstance(node.this, exp.Literal) and not node.this.is_string:
+        return "promoted"
+    if isinstance(node, exp.Boolean):
+        return "other"
+    if isinstance(node, (exp.Cast, exp.TryCast)) and isinstance(node.to, exp.DataType):
+        return spark_complex.text_kind(node.to)
+    return None
+
+
+def _spark_conditional_text(statement: exp.Expression, databricks: bool) -> exp.Expression:
+    """CASE, if, nvl2 and coalesce (nvl, ifnull) that mix a string with a number, date or timestamp give a
+    string, as Spark (ANSI off) gives it: CASE WHEN c THEN 1 ELSE 'a' END is '1', where DuckDB cast 'a' to an
+    INTEGER and failed. Each such value is cast to STRING as Spark casts it (spark_integer_casts writes the
+    cast). One whose values' types the SQL doesn't tell is marked for spark_complex_types, which types it once
+    the tables are bound. Values all of one type, or with a boolean among them, are left as they are.
+    Databricks SQL runs with ANSI on, where Spark's rules differ: left as it is."""
+    if databricks:
+        return statement
+    made: set[int] = set()
+    for node in reversed(list(statement.walk())):  # innermost first: an inner CASE made a string is one
+        values = spark_complex.conditional_values(node)
+        if not values:
+            continue
+        kinds = [_written_kind(v, made) for v in values]
+        if "other" in kinds:
+            continue
+        if None in kinds:
+            if sum(k != "null" for k in kinds) >= 2:
+                node.meta[spark_complex.CONDITIONAL] = True
+            continue
+        if "string" not in kinds or "promoted" not in kinds:
+            continue
+        for value, kind in zip(values, kinds, strict=True):
+            if kind != "promoted":
+                continue
+            digits = value.this if isinstance(value, exp.Neg) else value
+            if isinstance(digits, exp.Literal) and re.fullmatch(r"0|[1-9][0-9]*", digits.this):
+                value.replace(exp.Literal.string(("-" if digits is not value and digits.this != "0" else "") + digits.this))
+            else:  # a decimal or double literal, a date, a cast: as Spark casts it to STRING
+                text = exp.Cast(to=exp.DataType.build("TEXT"))
+                value.replace(text)
+                text.set("this", value)
+        made.add(id(node))
+    return statement
+
+
 def _to_timestamp_call(node: exp.Expression) -> bool:
     """``node`` is sqlglot's reading of to_timestamp(x), a Cast to TIMESTAMP: Spark's timestamp has a
     time zone (text is read in the session's zone), where DuckDB's TIMESTAMP has none."""
@@ -2316,11 +2386,12 @@ def execute_sandboxed(con: duckdb.DuckDBPyConnection, statement: str) -> pa.Tabl
 def _decimal_types(statement: exp.Expression, con: duckdb.DuckDBPyConnection, dialect: str) -> exp.Expression:
     """Spark SQL's decimal result types and div (spark_decimals), as a notebook's spark.sql gives them: without
     them floor(-1.25) div 7 was DuckDB's double division, -0.2857..., where Spark gives 0. And to_json,
-written from its argument's type as Spark writes it (spark_json)."""
+written from its argument's type as Spark writes it (spark_json), and a CASE or coalesce of a column and a string
+    typed as Spark types it (spark_complex.CONDITIONAL)."""
     if sql_dialects.get(dialect)["id"] != "spark":
         return statement
     statement = cast(exp.Expression, spark_decimals.spark_decimal_types(statement, con))
-    return cast(exp.Expression, spark_complex.spark_complex_types(statement, con, kinds=("to_json",)))
+    return cast(exp.Expression, spark_complex.spark_complex_types(statement, con, kinds=("to_json", "conditional")))
 
 
 def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyConnection, Any]:

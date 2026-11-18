@@ -1,120 +1,115 @@
-"""Mutation batch 150: what a warehouse user sees from local T-SQL's hints, labels and statistics (tsql_hints.py).
-
-Each test runs T-SQL through the local engine and checks the rows and notes it gives, or the exact words it stops
-with. A refused statement changes nothing.
-"""
-
-from __future__ import annotations
+"""Mutation kills for localdata/tsql_hints.py's text pass, take() (batch 93): the batches the other hint tests
+don't write, such as an OPTION list that isn't closed, a hint next to one that's kept, and PRINT, and the notes
+and refusals of the tree pass, check()."""
 
 import pytest
+import sqlglot
+from sqlglot import exp
+from sqlglot.errors import TokenError
 
-from fabric_desktop.localdata import LocalData
+from fabric_desktop.localdata import tsql, tsql_hints
 
-
-@pytest.fixture
-def engine(tmp_path):
-    data = LocalData(tmp_path)
-    e = data.engine(data.create("Hints")["id"])
-    e.execute("CREATE TABLE t AS SELECT * FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c')) v(id, s)")
-    yield e
-    data.close_all()
+TOKENIZE = tsql.KfTSQL().tokenize
 
 
-def run(engine, sql):
-    result = engine.execute(sql, dialect="tsql")
-    return result["rows"], result["translation"]["notes"]
+def take(sql):
+    return tsql_hints.take(sql, TOKENIZE)
 
 
-def refused(engine, sql):
-    with pytest.raises(ValueError) as caught:
-        engine.execute(sql, dialect="tsql")
-    assert engine.execute("SELECT id, s FROM t ORDER BY id")["rows"] == [[1, "a"], [2, "b"], [3, "c"]]
-    return str(caught.value)
+def test_a_batch_the_tokenizer_cant_read_is_given_back_for_the_parse_to_report():
+    def broken(_sql):
+        raise TokenError("unterminated")
+
+    sql = "SELECT 1 OPTION (FORCE ORDER)"
+    assert tsql_hints.take(sql, broken) == sql
 
 
-def test_a_batch_that_cant_be_tokenized_says_so(engine):
-    # the hints pass leaves a batch it can't read to the parser, which names what it can't read
-    assert refused(engine, "SELECT 'OPTION FROM t").startswith("Could not read the query as T-SQL: Error tokenizing")
+def test_print_is_a_command_token_but_not_update_statistics():
+    sql = "PRINT 'no statistics here'"
+    assert take(sql) == sql
 
 
-def test_print_before_a_labelled_query_is_refused_as_print(engine):
-    # PRINT is a command token like UPDATE STATISTICS, but isn't read as a statistics statement
-    text = refused(engine, "PRINT 'hi'; SELECT id FROM t OPTION (LABEL = 'x')")
-    assert text.startswith("The local engine doesn't run T-SQL PRINT yet.")
+def test_an_option_list_that_isnt_closed_is_left_for_the_parse():
+    sql = "SELECT 1 OPTION (FORCE ORDER"
+    assert take(sql) == sql
 
 
-def test_a_table_called_option_is_still_a_table(engine):
-    # [option] followed by a column list reads like OPTION (...), but has no hint in it, so it is left as written
-    engine.execute('CREATE TABLE "option" (id INT)')
-    assert run(engine, "INSERT INTO [option] (id) VALUES (5)") == ([[1]], [])
-    assert run(engine, "SELECT id FROM [option]") == ([[5]], [])
+def test_an_option_list_with_nothing_to_carry_is_left_as_written():
+    sql = "SELECT 1 OPTION ( LABEL = 'x' )"
+    assert take(sql) == sql
 
 
-@pytest.mark.parametrize("option", ["FORCE DISTRIBUTED PLAN, LABEL = 'nightly'", "FORCE ORDER, FORCE SINGLE NODE PLAN"])
-def test_a_hint_sqlglot_cant_read_beside_another_option_keeps_both(engine, option):
-    rows, notes = run(engine, f"SELECT id FROM t ORDER BY id OPTION ({option})")
-    assert rows == [[1], [2], [3]] and len(notes) == 2
+def test_a_carried_hint_keeps_the_items_beside_it_as_written():
+    assert take("SELECT 1 OPTION (FORCE DISTRIBUTED PLAN, LABEL='x')") == \
+        "SELECT 1 OPTION (LABEL = '\x01kf-hint:FORCE DISTRIBUTED PLAN', LABEL='x')"
+    assert take("SELECT 1 OPTION (LABEL='x', DISABLE_RESULT_SET_CACHE)") == \
+        "SELECT 1 OPTION (LABEL='x', LABEL = '\x01kf-hint:DISABLE_RESULT_SET_CACHE')"
 
 
-_NOT_YET = "This T-SQL can't be run on the local engine: "
-_SHAPE = _NOT_YET + "CREATE STATISTICS is read here as CREATE STATISTICS s ON dbo.t (c)."
+def test_create_statistics_without_a_name_is_refused_by_name():
+    with pytest.raises(ValueError, match="isn't written as T-SQL has it, such as CREATE STATISTICS s ON dbo.t"):
+        take("CREATE STATISTICS ON dbo.t (c)")
 
 
-@pytest.mark.parametrize("sql, says", [
-    ("CREATE STATISTICS st t (id)", _SHAPE),  # no ON
-    ("CREATE STATISTICS st", _SHAPE),  # ends before ON
-    ("CREATE STATISTICS st ON t", _SHAPE),  # ends before the column
-    ("CREATE STATISTICS st ON t id", _SHAPE),  # the column not in brackets
-    ("UPDATE STATISTICS", _NOT_YET + "this statistics statement isn't written as T-SQL has it"),
-    ("CREATE STATISTICS", _NOT_YET + "this statistics statement isn't written as T-SQL has it"),
-    ("DROP STATISTICS", _NOT_YET + "this statistics statement isn't written as T-SQL has it"),
-    ("DROP STATISTICS t.st x", _NOT_YET + "DROP STATISTICS is followed by x, which isn't read here."),
-])
-def test_a_statistics_statement_not_written_as_t_sql_has_it_is_refused_with_the_shape(engine, sql, says):
-    assert refused(engine, sql).startswith(says)
+def test_create_statistics_that_stops_after_its_name_is_refused():
+    with pytest.raises(ValueError, match="read here as CREATE STATISTICS s ON dbo.t"):
+        take("CREATE STATISTICS s")
 
 
-@pytest.mark.parametrize("sql", ["CREATE STATISTICS st ON t (id) WITH SAMPLE 5", "UPDATE STATISTICS t WITH SAMPLE 5",
-                                 "UPDATE STATISTICS t WITH SAMPLE", "UPDATE STATISTICS t WITH SAMPLE 5; SELECT 1",
-                                 "UPDATE STATISTICS t WITH SAMPLE x PERCENT"])
-def test_a_sample_without_a_number_and_percent_or_rows_is_refused_by_name(engine, sql):
-    assert refused(engine, sql).startswith(_NOT_YET + "SAMPLE in a statistics statement needs a number")
+def test_update_statistics_whose_rest_cant_be_read_is_given_back_for_the_parse():
+    calls = []
+
+    def second_fails(sql):
+        calls.append(sql)
+        if len(calls) > 1:
+            raise TokenError("unterminated")
+        return TOKENIZE(sql)
+
+    sql = "UPDATE STATISTICS dbo.t"
+    assert tsql_hints.take(sql, second_fails) == sql
+    assert len(calls) == 2 and calls[1].strip() == "dbo.t"
 
 
-@pytest.mark.parametrize("sql", ["SELECT id FROM t OPTION (LABEL = 'x'", "SELECT id FROM t OPTION (FORCE ORDER"])
-def test_an_option_without_its_closing_bracket_stops_with_the_parsers_words(engine, sql):
-    assert refused(engine, sql).startswith("Could not read the query as T-SQL: Expecting ).")
+@pytest.mark.parametrize("sql", ["SELECT 1 OPTION", "SELECT 1 OPTION (LABEL='x'); DROP",
+                                 "SELECT 1 OPTION (LABEL='x'); CREATE"])
+def test_a_batch_ending_in_option_or_a_statistics_verb_is_left_for_the_parse(sql):
+    assert take(sql) == sql
 
 
-
-@pytest.mark.parametrize("word", ["create", "update", "drop", "option"])
-def test_a_column_named_like_a_hint_word_at_the_end_of_the_batch_runs(engine, word):
-    # the batch says STATISTICS, so the hints pass reads it, and its last word starts a statement or an OPTION
-    # with nothing after it
-    assert run(engine, f"SELECT 'STATISTICS' AS [{word}]") == ([["STATISTICS"]], [])
+def test_a_table_called_statistics_is_updated_not_read_as_update_statistics():
+    sql = "UPDATE [statistics] SET a = 1 OPTION (LABEL = 'x')"
+    assert take(sql) == sql
 
 
-@pytest.mark.parametrize("hint, word", [("INDEX(ix)", "INDEX"), ("FORCESEEK", "FORCESEEK")])
-def test_an_index_hint_is_refused_by_its_own_name(engine, hint, word):
-    assert refused(engine, f"SELECT id FROM t WITH ({hint})") == (
-        _NOT_YET + f"the table hint {word} isn't carried yet. A Fabric Warehouse has no indexes to name, and "
-        "Microsoft's pages don't list table hints for it. Remove the hint.")
+def test_a_one_word_hint_beside_a_carried_one_is_kept():
+    assert take("SELECT 1 OPTION (DISABLE_RESULT_SET_CACHE, RECOMPILE)") == \
+        "SELECT 1 OPTION (LABEL = '\x01kf-hint:DISABLE_RESULT_SET_CACHE', RECOMPILE)"
 
 
-_PLANS = ("changes how a warehouse plans the query, not its rows. The local engine plans on its own, so it's left "
-          "out of the run here.")
+@pytest.mark.parametrize("sql", ["DROP STATISTICS", "CREATE STATISTICS s ON dbo.t"])
+def test_a_statistics_statement_cut_short_is_refused(sql):
+    with pytest.raises(ValueError, match="This T-SQL can't be run on the local engine"):
+        take(sql)
 
 
-@pytest.mark.parametrize("hint, named", [
-    ("FORCE SINGLE NODE PLAN", "FORCE SINGLE NODE PLAN"),
-    ("DISABLE_RESULT_SET_CACHE", "DISABLE_RESULT_SET_CACHE"),
-    ("USE HINT ('ASSUME_MIN_SELECTIVITY_FOR_FILTER_ESTIMATES')", "USE HINT"),
-])
-def test_a_hint_sqlglot_cant_read_is_named_in_its_note(engine, hint, named):
-    rows, notes = run(engine, f"SELECT id FROM t ORDER BY id OPTION ({hint})")
-    assert rows == [[1], [2], [3]] and notes == [f"OPTION ({named}) {_PLANS}"]
+# ---- the tree pass
+
+def parse(sql):
+    return sqlglot.parse_one(sql, read=tsql.KfTSQL)
 
 
-def test_a_one_word_hint_beside_one_sqlglot_cant_read_is_still_refused_by_name(engine):
-    assert refused(engine, "SELECT id FROM t OPTION (RECOMPILE, FORCE SINGLE NODE PLAN)").startswith(
-        _NOT_YET + "OPTION (RECOMPILE) isn't carried yet.")
+def test_maxrecursion_is_kept_for_the_cte_check_beside_a_label():
+    tree = parse("WITH c AS (SELECT 1 AS n) SELECT n FROM c OPTION (LABEL = 'x', MAXRECURSION 10)")
+    assert tsql_hints.check(tree) == [tsql_hints.LABEL_NOTE]
+    owner = next(n for n in tree.walk() if isinstance(n, exp.Expression) and n.args.get("options"))
+    assert [o.this.sql(dialect="tsql").upper() for o in owner.args["options"]] == ["MAXRECURSION"]
+
+
+def test_an_index_hint_is_refused_by_its_name_alone():
+    with pytest.raises(ValueError, match=r"the table hint INDEX isn't carried yet"):
+        tsql_hints.check(parse("SELECT * FROM t WITH (INDEX(ix))"))
+
+
+def test_a_carried_plan_hint_label_names_the_hint_in_its_note():
+    note = tsql_hints._labelled(exp.Literal.string("\x01kf-hint:FORCE SINGLE NODE PLAN"))
+    assert note.startswith("OPTION (FORCE SINGLE NODE PLAN) changes how a warehouse plans the query, not its rows.")

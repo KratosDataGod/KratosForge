@@ -633,6 +633,62 @@ test("a script splits into statements at ; and GO lines, outside strings and com
   assert.deepStrictEqual(texts("  ;\n -- x\n"), []);
 });
 
+test("fuzz: the statement splitter never splits inside a string, a quoted name or a comment, in any dialect (WR-602b)", () => {
+  const { sqlSplitStatements, sqlRunnableStatementAt } = sqlEditorHelpers();
+  let seed = 602;
+  const rand = (n) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+  const pick = (a) => a[rand(a.length)];
+  // Pieces that hold a ; or a GO line where neither ends a statement, and the dialects each is read the same in.
+  const INERT = [
+    ["'a;b'"], ["'x\nGO\ny'"], ["'it''s; fine'"], ["N'a;b'", ["warehouse", "endpoint", "sqldb"]], ['"a;b"'], ['"x""y;z"'],
+    ["`a;b`", ["spark", "duckdb"]], ["`x``y;`", ["spark", "duckdb"]], ["[a;b]", ["warehouse", "endpoint", "sqldb"]],
+    ["[a]];b]", ["warehouse", "endpoint", "sqldb"]], ["[it's;]", ["warehouse", "endpoint", "sqldb"]], ['"it\'s;"'],
+    ["/* ; */"], ["/* a\nGO\n; */"], ["/* outer /* inner; */ still; */"], ["-- note; GO\n"], ["--;\n"],
+    ["'a\\';b'", ["spark"]], ['"a\\";b"', ["spark"]], ["'C:\\'", ["warehouse", "endpoint", "sqldb", "duckdb"]], ["$$a;b\nGO\n$$", ["duckdb"]],
+  ];
+  for (const dialect of ["spark", "duckdb", "warehouse", "endpoint", "sqldb"]) {
+    const tsql = !["spark", "duckdb"].includes(dialect);
+    const pieces = INERT.filter(([, only]) => !only || only.includes(dialect)).map(([t]) => t);
+    for (let round = 0; round < 300; round++) {
+      const want = [];
+      let script = pick(["", "\n", "  "]);
+      const n = 1 + rand(5);
+      for (let k = 0; k < n; k++) {
+        const parts = Array.from({ length: 1 + rand(4) }, () => pick(pieces));
+        const body = `SELECT ${parts.join(pick([", ", " ,\n", " + "]))} AS c${k}\nFROM t${k}`;
+        const viaGo = round % 2 === 1 && rand(3) === 0;  // odd rounds: a GO line can end it, with no ;
+        const last = k === n - 1;
+        want.push(viaGo || (last && rand(2)) ? body : `${body};`);
+        script += want[k] === body ? body + (last ? "" : pick(["\nGO\n", "\n  go\n", "\nGO;\n"])) : `${body};` + pick([" ", "\n", "\n\n", " ;\n"]);
+      }
+      const got = sqlSplitStatements(script, { tsql, dialect }).map((u) => u.text);
+      assert.deepStrictEqual(plain(got), want, `${dialect}, seed round ${round}:\n${script}`);
+      // Even rounds have no GO lines: the statement under the cursor (Ctrl+Shift+Enter) is the same one, from anywhere inside it.
+      if (round % 2 === 0) {
+        for (const u of sqlSplitStatements(script, { tsql, dialect })) {
+          const at = u.from + 1 + rand(Math.max(1, u.to - u.from - 2));  // inside it: right after a ; and spaces is the one before
+          assert.strictEqual(sqlRunnableStatementAt(script, at, dialect)?.text, u.text.replace(/;$/, ""), `${dialect}, at ${at}:\n${script}`);
+        }
+      }
+    }
+  }
+  // [ quotes a name only in T-SQL: in Spark SQL and DuckDB it is a list or an index, and a string in it is a string.
+  const texts = (t, o) => plain(sqlSplitStatements(t, o).map((u) => u.text));
+  for (const dialect of ["spark", "duckdb"]) {
+    assert.deepStrictEqual(texts("SELECT ['a]b']; SELECT 1", { dialect }), ["SELECT ['a]b'];", "SELECT 1"], dialect);
+    assert.deepStrictEqual(texts("SELECT arr[1]; SELECT [1, 2]; SELECT 3", { dialect }), ["SELECT arr[1];", "SELECT [1, 2];", "SELECT 3"], dialect);
+  }
+  assert.deepStrictEqual(texts("SELECT [a]b;c]; SELECT 1", { tsql: true }), ["SELECT [a]b;", "c];", "SELECT 1"], "a single ] ends the name");
+  assert.deepStrictEqual(texts("SELECT [a;b]; SELECT 1", { tsql: true }), ["SELECT [a;b];", "SELECT 1"], "T-SQL without a dialect named");
+  // A T-SQL batch with a block keeps its quoted ; inside, and GO still ends it.
+  const block = "IF 1 = 1 BEGIN SELECT 'a;b'; SELECT [c;d]; END\nGO\nSELECT 2";
+  assert.deepStrictEqual(plain(sqlSplitStatements(block, { tsql: true, dialect: "warehouse" }).map((u) => u.text)),
+    ["IF 1 = 1 BEGIN SELECT 'a;b'; SELECT [c;d]; END", "SELECT 2"]);
+  // A string or comment that never closes keeps the rest of the script with it, rather than cutting it.
+  assert.deepStrictEqual(plain(sqlSplitStatements("SELECT 'open; SELECT 2", {}).map((u) => u.text)), ["SELECT 'open; SELECT 2"]);
+  assert.deepStrictEqual(plain(sqlSplitStatements("SELECT 1 /* open; SELECT 2", {}).map((u) => u.text)), ["SELECT 1 /* open; SELECT 2"]);
+});
+
 test("a query's parameters are :name and {{name}}, outside strings, comments and casts (S17)", () => {
   const { sqlParamNames, sqlParamProblem } = sqlEditorHelpers();
   const text = "SELECT ':no', a::int -- :nope\nFROM t /* {{nope}} */\nWHERE r = :region AND d >= {{ start_date }} AND x = :region AND p = c:path";
@@ -704,6 +760,8 @@ test("the result grid sends its sort and filters, cycles a header's sort, and co
 
 test("the result grid selects a block of cells, moves with the keys, and copies or opens what is selected", () => {
   const ctx = { sqlRowsAs: (format, columns, rows) => JSON.stringify({ format, names: columns.map((c) => c.name), rows }) };
+  const { sqlTsv, sqlTsvCell } = sqlEditorHelpers();
+  Object.assign(ctx, { sqlTsv, sqlTsvCell });
   vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8")}; Object.assign(this, { sqlGridRect, sqlGridSelectionNote, sqlGridMove, sqlGridBlock, sqlGridCopyText, sqlValueText });`, ctx);
   const { sqlGridRect, sqlGridSelectionNote, sqlGridMove, sqlGridBlock, sqlGridCopyText, sqlValueText } = ctx;
   const sel = { a: { r: 2, c: 1 }, f: { r: 0, c: 2 } };
@@ -727,6 +785,14 @@ test("the result grid selects a block of cells, moves with the keys, and copies 
   assert.deepStrictEqual(plain(sqlGridBlock(r, block)), { columns: [{ name: "orders" }, { name: "tags" }], rows: [[4812, ["a", "b"]], [3977, null]] });
   assert.strictEqual(sqlGridBlock(r, null).rows.length, 3, "nothing selected: the page");
   assert.strictEqual(sqlGridCopyText("cells", r, block), '4812\t["a","b"]\n3977\t', "values only, as a spreadsheet pastes them");
+  assert.strictEqual(sqlTsv([["a\tb", "line 1\nline 2"], ['"quoted"', 'O\'Brien, "x"']]), '"a\tb"\t"line 1\nline 2"\n"""quoted"""\tO\'Brien, "x"',
+    "a tab, a line break or a leading quote is quoted, so each value stays one cell");
+  assert.strictEqual(sqlTsv([["line 1\nline 2"]]), "line 1\nline 2", "one value copies as it is");
+  assert.deepStrictEqual(["=SUM(A1)", "+1", "-x", "@a", "\t=1", "\r=1", " =1+1", -5, 3.5, "a=b", null, { k: 1 }].map(sqlTsvCell),
+    ["'=SUM(A1)", "'+1", "'-x", "'@a", "'\t=1", "'\r=1", "' =1+1", "-5", "3.5", "a=b", "", '{"k":1}'], "text that a spreadsheet would run as a formula gets a leading '");
+  // One cell copied on its own is guarded too; a real number stays a number.
+  const oneCell = (v) => sqlGridCopyText("cells", { columns: [{ name: "v" }], rows: [[v]], offset: 0 }, { a: { r: 0, c: 0 }, f: { r: 0, c: 0 } });
+  assert.deepStrictEqual(["=1+1", "@SUM(1)", "\t=1", "-2+3", -2, 42].map(oneCell), ["'=1+1", "'@SUM(1)", "'\t=1", "'-2+3", "-2", "42"]);
   assert.deepStrictEqual(JSON.parse(sqlGridCopyText("csv", r, block)), { format: "csv", names: ["orders", "tags"], rows: [[4812, ["a", "b"]], [3977, null]] });
   assert.strictEqual(sqlValueText(null), "NULL");
   assert.strictEqual(sqlValueText('{"a":1,"b":[2]}'), '{\n  "a": 1,\n  "b": [\n    2\n  ]\n}', "JSON text, indented");
@@ -762,6 +828,11 @@ test("the result grid keeps a column layout for one set of names: widths, hidden
   g.hidden = [1];
   g.widths = { 2: 180.4 };
   assert.strictEqual(sqlGridWidthCss(g.widths), '.sql-result-table [data-col="2"] { width: 180px; min-width: 180px; max-width: 180px; }');
+  const notes = {};
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlgrid.js"), "utf8")}; this.note = sqlGridHiddenNote;`, notes);
+  assert.strictEqual(notes.note(3, [0, 2], {}), "1 column is hidden. Columns... shows it.");
+  assert.strictEqual(notes.note(3, [0, 2], { 1: "West", 0: "x" }), "1 column is hidden. Columns... shows it. A filter on a hidden column still applies.");
+  assert.strictEqual(notes.note(4, [0], { 1: "a", 2: " ", 3: "> 1" }), "3 columns are hidden. Columns... shows them. Filters on 2 hidden columns still apply.");
   assert.strictEqual(sqlGridWidthCss(g.widths, "g7"), '.sql-result-table[data-grid="g7"] [data-col="2"] { width: 180px; min-width: 180px; max-width: 180px; }',
     "a width belongs to its own grid: a notebook shows a table per cell");
   const next = sqlGridCarry(g);

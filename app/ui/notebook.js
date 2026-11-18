@@ -1372,8 +1372,7 @@ function renderResultViewer(o, wrap, bar, numeric, count, redraw = () => {}) {
       h("td", { "data-c": String(c), "data-col": String(i), class: numeric[i] ? "n" : null }, r[i] === null ? "null" : r[i]))))));
     if (table.tBodies) sqlGridWire(table, shown(), g, grid, vis);  // a real table (the unit tests draw plain objects)
     const hidden = cols.length - vis.length;
-    return [style, table, hidden ? h("p", { class: "muted-text sql-grid-hidden" },
-      `${hidden.toLocaleString()} column${hidden === 1 ? " is" : "s are"} hidden. Columns... shows ${hidden === 1 ? "it" : "them"}.`) : null].filter(Boolean);
+    return [style, table, hidden ? h("p", { class: "muted-text sql-grid-hidden" }, sqlGridHiddenNote(cols.length, vis, v.filters)) : null].filter(Boolean);
   };
   const statusText = () => {
     const p = v.page;

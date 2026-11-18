@@ -6645,3 +6645,99 @@ No bugs were found.
 | --- | --- | --- | --- |
 | `excellence/profiles.py` | 59 | weights' `abs(sum - 100) > 1e-9` to `>=` | Not killed: it differs only for a sum exactly 1e-9 away from 100, which the slack is there to absorb; no test was written for that one value. |
 | `learn/guides.py` | 121 | four mutants of the `__main__` block (`+ "\n"`, `sys.argv[1]`, `indent=1`, `ensure_ascii=False`) | Not killed: this is the build script run by hand to write the shipped `rule_guides.json` (as `test_state_writes.py` notes); a test would have to run it and rewrite that file. |
+
+# Mutation testing, batch 122
+
+Two modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants together with the earlier kinds:
+- Integration settings, connected tools and approvals in their SQLite store: settings, tools and their tokens, requests, answers and uses (`integrations/store.py`).
+- Learn: a module and its lab, a check recorded in Profile, hints, decision patterns, dismissing a finding and Try the fix (`learn_service.py`).
+
+The run was at `main` 5865db954 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902, and the method of earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given as paths relative to `sidecar/`, each was checked to exist, and the tests first passed once on the unmutated copy. Each module has fewer than 150 mutants, so all of them ran. No `-k` filter was used. `test_sqlite_durability.py` names `docs/` only in its docstring, so it runs in the copy. `test_learn_guides.py::test_the_shipped_guides_are_the_docs` reads `docs/`, so it was left out with `--deselect`. `test_decision_patterns.py` was left out as a whole: three more of its tests fail in a copy of `sidecar/` on its own, since they read the patterns page in `docs/`. A mutant whose run times out counts as killed; none timed out.
+
+The store is used by almost every integrations test. The run used the nine files that work with the store most directly. test_integrations_executions (about 40 s), and the MCP, HTTP and conformance tests, which start servers, were left out to keep each mutant's run short. So the "before" figure is for those nine files.
+
+Before the "after" runs, the new tests were run in a copy of `sidecar/` on its own and against each module as `ast.unparse` writes it, as in batch 11. They passed both ways.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `integrations/store.py` | test_integrations_permissions, test_sqlite_stores, test_store_upgrades, test_integrations_audit, test_integrations_workspace_scope, test_local_retention_gaps, test_sqlite_durability, test_store_crash_kills, test_integrations_peer (+ test_integrations_store_mutation) | 112 of 112 (111 + 1) | 85 / 27 | **75.9%** | 85/111 → 111/111 | 0/1 → 1/1 | 112 / 0 | **100%** | none |
+| `learn_service.py` | test_learn_service, test_learn_fixes, test_learn_fix_checked, test_learn_team, test_learn_guides (+ test_learn_service_mutation) | 59 of 59 (59 + 0) | 46 / 13 | **78.0%** | 46/59 → 59/59 | none | 59 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **integrations/store.py**:
+  - A request waits 300 s, an approval must be used within 600 s, arguments are shown up to 20,000 characters, uses are kept 90 days, and the default HTTP port is 47615.
+  - Changing a setting returns every setting, and an unknown setting is refused and not saved.
+  - Changing a tool returns it, with its name stored as given, its grants and auto lists sorted and without repeats, and its workspaces in the order given. A change to any other field, or to a tool that isn't there, is refused.
+  - A new token is returned and works; a tool that is gone or disconnected gets none, and its old token stops working.
+  - The same call has the same hash whatever the order of its arguments.
+  - Ids have ten hex digits, and tokens 43 URL-safe characters after `fdt_`.
+  - Disconnecting a tool, or answering a request, that isn't there is refused.
+  - The request list shows 50 by default, and the list of uses 200.
+  - Arguments of exactly 20,000 characters are shown as they are; longer ones are cut to 20,000.
+  - → `test_integrations_store_mutation.py`.
+- **learn_service.py**:
+  - A module shows each exercise's number of hints, and its size ("S" when none is given) and datasets (none when none are given).
+  - Saving an answer says it was saved.
+  - Only a passed check is recorded in Profile, and what it earned is returned.
+  - The first hint is level 1.
+  - The decision patterns are the shipped ones.
+  - A rule whose id starts with "NB" is checked against the notebook policy, any other against the SQL one, and where and the line reach the dismissal as given.
+  - Try the fix hands the findings on (none when none are given) and returns the proposal.
+  - → `test_learn_service_mutation.py`.
+
+### Left
+
+None.
+
+# Mutation testing, batch 128
+
+Two modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants together with the earlier kinds:
+- App Studio conversational edits: the change schema's limits, how each named change becomes patch operations, and what is left out and why (`appstudio/edit.py`).
+- The agent's own credentials: the service principal's key file, a refusal Entra gives for good, and reading a certificate (`credentials.py`).
+
+The run was at `main` 5865db954 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902, and the method of earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given as paths relative to `sidecar/`, each was checked to exist, and the tests first passed once on the unmutated copy. Each module has fewer than 150 mutants, so all of them ran. No `-k` filter or `--deselect` was used. Of `test_corporate_network.py`, whose other tests read `app/`, only `test_sign_in_calls_have_a_timeout` and `test_managed_identity_uses_a_session_with_a_timeout` call `credentials.py`, so only those were given, by their node ids. `test_tsql_contract.py` (a live run, skipped without a tenant) and `test_cli_tenant_commands.py` (which replaces `credentials.from_config`) were left out.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. The new tests pass with DuckDB 1.5.6 and 2.0.0.
+
+One mutant of `appstudio/edit.py` timed out and counts as killed: with `n += 1` changed to `n += 0`, a new id that is taken is looked for for ever.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `appstudio/edit.py` | test_appstudio_edit, test_appstudio_edit_edges, test_appstudio_service_edges (+ test_appstudio_edit_mutation) | 136 of 136 (136 + 0) | 96 / 40 | **70.6%** | 96/136 → 136/136 | none | 136 / 0 | **100%** | none |
+| `credentials.py` | test_agent, test_agent_edges, test_credential_expiry, test_credentials_config, test_run_as, test_secrets_at_rest, two tests of test_corporate_network (+ test_credentials_mutation) | 82 of 82 (81 + 1) | 76 / 6 | **92.7%** | 75/81 → 81/81 | 1/1 → 1/1 | 82 / 0 | **100%** | none |
+
+### Bugs found
+
+- **appstudio/edit.py**: two components added to the same page in one change overlap. `add_component` places a new component under the page's components as the specification had them (lines 192 and 193, which read `spec["pages"]`), not under the ones added earlier in the same change, so the second goes on the same row as the first. The preview accepts it. `test_an_added_component_goes_under_its_own_pages_components` doesn't pin the second one's row, so a fix won't break it. Not fixed here.
+
+### What the survivors were, and the tests that now kill them
+
+- **appstudio/edit.py**:
+  - The change schema's limits: 30 changes, the widths, a summary of 300, titles of 200, at most 3 questions of 300, and no other properties.
+  - The instruction names the widths and the target's component types.
+  - A component without measures or fields is shown to the model with none.
+  - Only 30 changes are read.
+  - An added component goes under its own page's components, at the next index, with its field, and a text component takes its type as title and text.
+  - A component added to a new page starts at the top, at index 0.
+  - Titles and names are cut to their limits (200 for components, 120 for pages and the app), and a measure name is read to 128 characters.
+  - What is left out is named within its limits, and nothing usable lists at most ten reasons.
+  - The summary and questions are cut and kept; without a summary it is what was done, cut to 300.
+  - Metadata without tables, or a table without measures, still allows a change.
+  - → `test_appstudio_edit_mutation.py`.
+- **credentials.py**:
+  - Whether the key file is open answers `False`, never `None`: with no key file, for another kind of identity, a file that can't be read, and on Windows.
+  - Only "others may read" makes it open: 644 is, 640 and 641 aren't.
+  - A refusal says the agent waits 5 minutes before asking again; another error is no refusal.
+  - A PFX without its certificate is refused in words.
+  - → `test_credentials_mutation.py`.
+
+### Left
+
+None.

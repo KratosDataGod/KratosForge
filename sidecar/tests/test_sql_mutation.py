@@ -120,10 +120,10 @@ def test_schema_of_json_merges_equal_types():
     assert sql.schema_of_json("[1, 2]") == "ARRAY<BIGINT>"
 
 
-def test_schema_of_json_refuses_a_number_just_past_bigint():
+def test_schema_of_json_reads_a_number_just_past_bigint_as_a_decimal_of_its_digits():
     assert sql.schema_of_json(f'{{"a": {2**63 - 1}}}') == "STRUCT<a: BIGINT>"
-    with pytest.raises(ValueError, match="too big for BIGINT"):
-        sql.schema_of_json(f'{{"a": {2**63}}}')
+    assert sql.schema_of_json(f'{{"a": {2**63}}}') == "STRUCT<a: DECIMAL(19,0)>"
+    assert sql.schema_of_json(f'{{"a": {-2**63 - 1}}}') == "STRUCT<a: DECIMAL(19,0)>"
 
 
 def test_a_from_json_that_is_the_whole_expression_is_replaced():
@@ -201,6 +201,10 @@ def test_bind_tables_binds_every_table_unless_told_it_is_local(monkeypatch):
         @staticmethod
         def open_table(name, **_at):
             return Opened()
+
+        @staticmethod
+        def table_dataset(opened):
+            return opened.to_pyarrow_dataset()
 
     monkeypatch.setattr(sql, "_lakehouse", lambda: Lakehouse)
     con = duckdb.connect()

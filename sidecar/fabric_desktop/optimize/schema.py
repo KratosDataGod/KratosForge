@@ -111,7 +111,52 @@ class Migration:
     steps: tuple[Callable[[Any], None], ...] = ()
 
 
-MIGRATIONS: list[Migration] = [Migration(1, "Create the Optimize tables", TABLES_V1)]
+# Version 2 (Enterprise Savings Intelligence, ESI-101). Only additions: new nullable columns on
+# existing tables (merged with version 1's by ``expected``) and new tables. Who did something (tenant
+# and user ids) is left for a later version, once that is decided. Shared, Installations, audit and
+# config keep version 1's columns, so every other family can keep writing them whatever version the
+# lakehouse is at.
+TABLES_V2: dict[str, dict[str, Dtype]] = {
+    # Where a run happened and what ran, so runs from two PCs can be compared: the workspace and
+    # capacity it stands for, its definition's fingerprint (never its code), data moved and time spent
+    # moving it. Empty where not measured, never 0.
+    "local_execution": {"workspace_id": S, "capacity_id": S, "definition_version": S, "input_bytes": I,
+                        "output_bytes": I, "reads": I, "writes": I, "transfer_seconds": F},
+    # Which comparison a figure belongs to, and the baseline version it was measured against.
+    "measurements": {"comparison_id": S, "baseline_version": S},
+    # An optimization's record on its lifecycle events. ``version`` is the event's place in that
+    # optimization's history: a change made against an older one is a conflict, not an overwrite.
+    # References are fingerprints of definitions, never their text.
+    "recommendations": {"optimization_id": S, "category": S, "original_ref": S, "optimized_ref": S,
+                        "rollback": S, "version": I},
+    # The savings ledger: append-only events, one per execution and attribution layer. A correction is a
+    # new event that names the one it corrects. Not written until a measured Fabric baseline exists.
+    "savings": {"event_type": S, "optimization_id": S, "execution_id": S, "artifact_key": S, "workspace_id": S,
+                "capacity_id": S, "source": S, "money": F, "currency": S, "pricing_version": S,
+                "baseline_version": S, "attribution": S, "corrects": S},
+    # Pricing scenarios: an assumption with its source, never a charge. effective_to empty = still in force.
+    "pricing": {"pricing_version": S, "scenario": S, "sku": S, "region": S, "currency": S, "rate_per_cu_hour": F,
+                "pricing_model": S, "effective_from": S, "effective_to": S, "source": S, "confidence": S},
+    # Which artifacts, workspaces and capacities an optimization affects.
+    "optimization_link": {"optimization_id": S, "artifact_key": S, "workspace_id": S, "capacity_id": S,
+                          "relation": S, "at": S},
+    # A workload's baseline, versioned: the runs and measurements it rests on. A new version supersedes
+    # the old one; events tied to the old one keep it.
+    "baseline": {"baseline_id": S, "baseline_version": S, "workload_key": S, "definition_version": S,
+                 "window_start": S, "window_end": S, "runs": I, "measurement_ids": S, "superseded_by": S, "at": S},
+    # A before and after comparison of an optimization, and whether its outputs matched.
+    "validation": {"validation_id": S, "optimization_id": S, "baseline_version": S, "before_measurement_id": S,
+                   "after_measurement_id": S, "outputs_match": B, "result": S, "reason": S, "at": S},
+    # One row per layer of the attribution waterfall for one execution: never more than its baseline.
+    "attribution": {"execution_id": S, "workload_key": S, "baseline_version": S, "layer": S, "layer_order": I,
+                    "optimization_id": S, "classification": S, "cu_hours": F, "ledger_event_id": S},
+    # Each sync of an installation: what it sent and what it took.
+    "sync": {"sync_id": S, "kind": S, "rows": I, "commits": I, "seconds": F, "outcome": S, "at": S},
+}
+
+MIGRATIONS: list[Migration] = [Migration(1, "Create the Optimize tables", TABLES_V1),
+                               Migration(2, "Savings intelligence: execution and ledger columns, new tables",
+                                         TABLES_V2)]
 
 
 def latest() -> int:

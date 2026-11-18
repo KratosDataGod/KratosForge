@@ -51,7 +51,7 @@ def test_initialize_again_adds_nothing(tmp_path, lake):
     setup.initialize(lake, me, approve=True)
     versions = {n: lake.version("optimization", "dbo", n) for n in lake.table_names()}
     assert setup.initialize(lake, me, approve=True)["state"] == setup.READY
-    assert len(lake.rows("fdopt_schema_version")) == 1
+    assert len(lake.rows("fdopt_schema_version")) == schema.latest()
     assert len(lake.rows("fdopt_installations")) == 1
     # Ready lakehouses aren't rewritten: only a no-op MERGE of the registration may commit.
     assert {n: lake.version("optimization", "dbo", n) for n in lake.table_names() if n != "fdopt_installations"} \
@@ -63,7 +63,7 @@ def test_second_installation_attaches_without_duplicating(tmp_path, lake):
     other = pc(tmp_path, "pc2")
     access = setup.check_access(lake, other)
     assert access["read"] and access["write"]
-    assert len(lake.rows("fdopt_schema_version")) == 1
+    assert len(lake.rows("fdopt_schema_version")) == schema.latest()
     assert ids(lake, "installations") == sorted([pc(tmp_path, "pc1").id, other.id])
 
 
@@ -83,7 +83,7 @@ def test_two_installations_initialize_at_once(tmp_path, lake):
         t.join()
     assert not errors
     assert setup.inspect(lake)["state"] == setup.READY
-    assert lake.rows("fdopt_schema_version")["version"].to_list() == [1]
+    assert sorted(lake.rows("fdopt_schema_version")["version"].to_list()) == list(range(1, schema.latest() + 1))
     assert len(lake.rows("fdopt_config")) == len(schema.DEFAULT_CONFIG)
     assert len(lake.rows("fdopt_installations")) == 4
 
@@ -182,13 +182,16 @@ def test_lakehouse_without_schemas(tmp_path):
 
 # ---------- migrations
 
+# The version after this app's: a migration a later app would add.
+NEXT = schema.latest() + 1
+
 V2 = {"rule_packs": {"pack_id": pl.String, "title": pl.String}}
 
 
 @pytest.fixture
 def with_v2(monkeypatch):
     calls: list[str] = []
-    migrations = schema.MIGRATIONS + [schema.Migration(2, "Add rule packs", V2, steps=(lambda lake: calls.append("step"),))]
+    migrations = schema.MIGRATIONS + [schema.Migration(NEXT, "Add rule packs", V2, steps=(lambda lake: calls.append("step"),))]
     monkeypatch.setattr(schema, "MIGRATIONS", migrations)
     return calls
 
@@ -199,13 +202,13 @@ def test_older_schema_is_upgraded_and_keeps_rows(tmp_path, lake, monkeypatch):
     setup.write(lake, me, "findings", [{"record_id": "f1", "fingerprint": "fp"}])
     calls: list[str] = []
     monkeypatch.setattr(schema, "MIGRATIONS", schema.MIGRATIONS
-                        + [schema.Migration(2, "Add rule packs", V2, steps=(lambda lake: calls.append("step"),))])
+                        + [schema.Migration(NEXT, "Add rule packs", V2, steps=(lambda lake: calls.append("step"),))])
     state = setup.inspect(lake)
     assert state["state"] == setup.UPGRADE and state["missing"] == [] and state["adds"] == ["fdopt_rule_packs"]
     with pytest.raises(PermissionError):
         setup.initialize(lake, me)  # an upgrade needs the person's OK too
     assert setup.initialize(lake, me, approve=True)["state"] == setup.READY
-    assert sorted(lake.rows("fdopt_schema_version")["version"].to_list()) == [1, 2]
+    assert sorted(lake.rows("fdopt_schema_version")["version"].to_list()) == list(range(1, NEXT + 1))
     assert lake.rows("fdopt_findings")["record_id"].to_list() == ["f1"]
     assert calls == ["step"]
 
@@ -215,7 +218,7 @@ def test_migration_adds_a_column_to_an_existing_table(tmp_path, lake, monkeypatc
     setup.initialize(lake, me, approve=True)
     setup.write(lake, me, "findings", [{"record_id": "f1"}])
     monkeypatch.setattr(schema, "MIGRATIONS", schema.MIGRATIONS
-                        + [schema.Migration(2, "Findings get an owner", {"findings": {"owner": pl.String}})])
+                        + [schema.Migration(NEXT, "Findings get an owner", {"findings": {"owner": pl.String}})])
     assert setup.inspect(lake)["state"] == setup.UPGRADE
     setup.initialize(lake, me, approve=True)
     assert lake.columns_of("fdopt_findings")["owner"] == pl.String
@@ -234,13 +237,13 @@ def test_migration_that_fails_part_way_is_recoverable(tmp_path, lake, monkeypatc
         if attempts["n"] == 1:
             raise ValueError("lost the network half way")
 
-    monkeypatch.setattr(schema, "MIGRATIONS", schema.MIGRATIONS + [schema.Migration(2, "Add rule packs", V2, (flaky,))])
+    monkeypatch.setattr(schema, "MIGRATIONS", schema.MIGRATIONS + [schema.Migration(NEXT, "Add rule packs", V2, (flaky,))])
     with pytest.raises(ValueError):
         setup.initialize(lake, me, approve=True)
     # The version isn't recorded until every step succeeded, so the lakehouse still reads as v1.
-    assert setup.inspect(lake)["schema_version"] == 1
+    assert setup.inspect(lake)["schema_version"] == NEXT - 1
     assert setup.initialize(lake, me, approve=True)["state"] == setup.READY
-    assert sorted(lake.rows("fdopt_schema_version")["version"].to_list()) == [1, 2]
+    assert sorted(lake.rows("fdopt_schema_version")["version"].to_list()) == list(range(1, NEXT + 1))
 
 
 def test_newer_schema_opens_read_only(tmp_path, lake, with_v2, monkeypatch):
@@ -367,15 +370,15 @@ def test_a_family_gets_its_own_tables_and_version_beside_optimize(tmp_path, lake
                 family=incidents)  # the same row again adds nothing
     assert lake.rows("fdtst_incident_event")["what"].to_list() == ["opened"]
     assert lake.rows("fdtst_schema_version")["version"].to_list() == [1]
-    assert lake.rows("fdopt_schema_version")["version"].to_list() == [1]
+    assert sorted(lake.rows("fdopt_schema_version")["version"].to_list()) == list(range(1, schema.latest() + 1))
     targets = lake.rows("fdopt_audit")["target"].to_list()
-    assert "fdtst_ schema 1" in targets and "fdopt_ schema 1" in targets
+    assert "fdtst_ schema 1" in targets and f"fdopt_ schema {schema.latest()}" in targets
 
 
 def test_a_newer_family_is_read_only_without_touching_optimize(tmp_path, lake, incidents, monkeypatch):
     setup.initialize(lake, pc(tmp_path), approve=True, family=incidents)
     v2 = {"incident_event": INCIDENTS_V1["incident_event"] | {"priority": pl.String}}
-    newer = schema.Family("fdtst_", "Test incidents", [schema.Migration(1, "Create", INCIDENTS_V1), schema.Migration(2, "Priority", v2)])
+    newer = schema.Family("fdtst_", "Test incidents", [schema.Migration(1, "Create", INCIDENTS_V1), schema.Migration(NEXT, "Priority", v2)])
     setup.initialize(lake, pc(tmp_path), approve=True, family=newer)
     state = setup.inspect(lake, incidents)  # this app knows version 1 only
     assert state["state"] == setup.NEWER and not state["writable"] and "Test incidents" in state["message"]
@@ -396,7 +399,7 @@ def test_family_registration_rules(incidents):
         with pytest.raises(ValueError):
             schema.register(schema.Family(prefix, "Bad", m1))
     with pytest.raises(ValueError, match="numbered"):
-        schema.register(schema.Family("fdzzz_", "Gaps", [schema.Migration(2, "Create", INCIDENTS_V1)]))
+        schema.register(schema.Family("fdzzz_", "Gaps", [schema.Migration(NEXT, "Create", INCIDENTS_V1)]))
     with pytest.raises(ValueError, match="schema_version"):
         schema.register(schema.Family("fdzzz_", "No version", [schema.Migration(1, "Create", {"t": {"a": pl.String}})]))
     assert schema.family_of("fdtst_incident_event") is incidents and schema.family_of("sales") is None

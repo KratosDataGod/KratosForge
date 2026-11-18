@@ -219,3 +219,20 @@ def test_a_name_with_edge_spaces_is_checked_like_the_name_it_is_saved_as(svc):
     svc.mesh_save_product({"name": " customers", "access": "public", "status": "published", "version": "1",
                            "ports": [{"name": "customers", "entity": "silver.customers"}]}, original="customers")
     assert good.is_file()  # renamed to itself: the file just written stays
+
+
+@pytest.mark.parametrize("call", [
+    lambda svc: svc.mesh_delete_product("../entities/silver.customers"),
+    lambda svc: svc.mesh_save_product({"name": "customers", "access": "public", "status": "published", "version": "1",
+                                       "ports": [{"name": "customers", "entity": "silver.customers"}]},
+                                      original="../entities/silver.customers"),
+    lambda svc: ((svc._project().root / "metadata" / "links").mkdir(exist_ok=True),
+                 svc.mesh_delete_link("../entities/silver.customers")),
+])
+def test_a_product_or_link_name_that_isnt_one_removes_no_file(svc, call):
+    _save(svc, {"within_hours": 24})  # the products folder is there, so ../ in a name leads out of it
+    entity = svc._project().root / "metadata" / "entities" / "silver.customers.toml"
+    assert entity.is_file()
+    with pytest.raises(ValueError, match="isn't a (product|link) name"):
+        call(svc)
+    assert entity.is_file()

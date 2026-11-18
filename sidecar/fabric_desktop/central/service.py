@@ -1170,6 +1170,8 @@ class PlatformMixin:
     def mesh_save_product(self, product: dict[str, Any], original: str = "") -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
         name = str(product.get("name", "")).strip()  # the name write_product saves it under
+        if original:
+            mesh.file_name(original, "product name")  # before anything is written: it names a file to remove
         path = project.root / "metadata" / "products" / f"{name}.toml"
         old = path.read_text(encoding="utf-8") if path.exists() else None
         new_path = mesh.write_product(project.root, product)
@@ -1187,7 +1189,7 @@ class PlatformMixin:
 
     def mesh_delete_product(self, name: str) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
-        (project.root / "metadata" / "products" / f"{name}.toml").unlink(missing_ok=True)
+        (project.root / "metadata" / "products" / f"{mesh.file_name(name, 'product name')}.toml").unlink(missing_ok=True)
         return self.mesh_overview()
 
     def _port_location(self, project: Any, env: str, entity: str) -> dict[str, Any]:
@@ -1396,7 +1398,7 @@ class PlatformMixin:
         users = [e.name for e in project.entities.values() if e.spec.get("source", {}).get("link") == alias]
         if users:
             raise GateError("save", [f"can't delete link {alias}: {', '.join(users)} read it"])
-        (project.root / "metadata" / "links" / f"{alias}.toml").unlink(missing_ok=True)
+        (project.root / "metadata" / "links" / f"{mesh.file_name(alias, 'link name')}.toml").unlink(missing_ok=True)
         return self.mesh_overview()
 
     def _link_table(self, project: Any, env: str) -> Callable[[str], str]:

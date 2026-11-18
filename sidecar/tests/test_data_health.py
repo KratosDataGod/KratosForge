@@ -161,3 +161,66 @@ def test_meta_data_health_reads_an_entity_table(svc):
     e = project.entities["silver.customers"]
     shutil.rmtree(svc._store(project, "dev").uri(project.layer(e.layer).lakehouse, e.schema, e.table))
     assert svc.meta_data_health("silver.customers")["state"] == "no_table"
+
+
+def test_watch_list_quiet_and_stop_watching(svc):
+    assert svc.meta_data_health_list()["tables"] == []
+    svc.meta_data_health_watch("silver.customers", "dev")
+    svc.meta_data_health_watch("silver.customers", "dev")  # watching twice keeps one row
+    out = svc.meta_data_health_list()
+    assert [t["entity"] for t in out["tables"]] == ["silver.customers"] and "silver.customers" in out["entities"]
+    assert out["rule"]["minimum"] == dh.MINIMUM and svc.meta_data_health_list("prod")["tables"] == []
+    with pytest.raises(ValueError, match="isn't an entity"):
+        svc.meta_data_health_watch("silver.nope", "dev")
+    with pytest.raises(ValueError, match="kind is one of"):
+        svc.meta_data_health_quiet("silver.customers", "dev", "cost", 1)
+    with pytest.raises(ValueError, match="snooze_days"):
+        svc.meta_data_health_quiet("silver.customers", "dev", "volume", 1, 7)
+    with pytest.raises(ValueError, match="isn't on the Data health list"):
+        svc.meta_data_health_quiet("gold.dim_customer", "dev", "volume", 1)
+    acked = svc.meta_data_health_quiet("silver.customers", "dev", "schema", 3)
+    assert acked["until"] is None and acked["version"] == 3
+    snoozed = svc.meta_data_health_quiet("silver.customers", "dev", "volume", 3, 1)
+    assert snoozed["until"] > acked["at"]
+    svc.meta_data_health_watch("silver.customers", "dev", watch=False)
+    assert svc.meta_data_health_list()["tables"] == [] and svc._dh_read()["quiet"] == {}
+
+
+def test_a_quieted_alert_is_marked_until_its_snooze_ends(svc, monkeypatch):
+    from fabric_desktop import dataops_service
+    svc.meta_data_health_watch("silver.customers", "dev")
+    alert = {"kind": "volume", "version": 5, "title": "x"}
+    monkeypatch.setattr(svc, "meta_data_health", lambda name, env: {"entity": name, "env": env, "alerts": [dict(alert)]})
+    assert "quiet" not in svc.meta_data_health_list()["tables"][0]["alerts"][0]
+    svc.meta_data_health_quiet("silver.customers", "dev", "volume", 5, 1)
+    assert svc.meta_data_health_list()["tables"][0]["alerts"][0]["quiet"]["until"]
+    state = svc._dh_read()
+    state["quiet"][dataops_service._dh_key("dev", "silver.customers", "volume", 5)]["until"] = "2000-01-01T00:00:00+00:00"
+    svc._dh_write(state)
+    assert "quiet" not in svc.meta_data_health_list()["tables"][0]["alerts"][0]  # the snooze ended
+    # A newer version alerting again isn't covered by an older acknowledgement.
+    svc.meta_data_health_quiet("silver.customers", "dev", "volume", 5)
+    alert["version"] = 6
+    assert "quiet" not in svc.meta_data_health_list()["tables"][0]["alerts"][0]
+
+
+def test_a_table_that_cant_be_read_doesnt_hide_the_others(svc, monkeypatch):
+    svc.meta_data_health_watch("silver.customers", "dev")
+    svc.meta_data_health_watch("gold.dim_customer", "dev")
+
+    def check(name, env):
+        if name == "gold.dim_customer":
+            raise OSError("OneLake said no")
+        return {"entity": name, "env": env, "alerts": []}
+
+    monkeypatch.setattr(svc, "meta_data_health", check)
+    tables = {t["entity"]: t for t in svc.meta_data_health_list()["tables"]}
+    assert tables["gold.dim_customer"]["state"] == "error" and "OneLake said no" in tables["gold.dim_customer"]["why"]
+    assert tables["silver.customers"]["alerts"] == []
+
+
+def test_loads_carry_the_run_that_wrote_them():
+    history = _log([5, 5])
+    history[0]["fabric_desktop_run_id"] = "r-20261117-120000-0123456789ab"
+    history[1]["fabric_desktop_run_id"] = "not ours"
+    assert [x["run_id"] for x in dh.loads(history)] == [None, "r-20261117-120000-0123456789ab"]

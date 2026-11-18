@@ -70,7 +70,8 @@ class OneLakeTables(sbs.Tables):
         return self._open(table).history(limit=200)
 
     def dataset(self, table: str, version: int) -> Any:
-        return self._open(table, version).to_pyarrow_dataset()
+        from . import delta_read
+        return delta_read.dataset(self._open(table, version))
 
 
 class SideBySideMixin:

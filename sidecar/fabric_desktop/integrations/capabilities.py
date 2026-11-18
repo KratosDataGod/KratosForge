@@ -175,9 +175,54 @@ def register_core(reg: Registry) -> None:
             "READ_METADATA", services.get_placement_advice, workspaces=scope.notebook, status="preview",
             artifact_types=("Notebook",), timeout=60),
     ]
-    caps += _prove() + _pipelines() + _pipeline_runs() + _executions() + _prove_actions() + _semantic_models()
+    caps += _metadata_project() + _prove() + _pipelines() + _pipeline_runs() + _executions() + _prove_actions() + _semantic_models()
     for cap in caps:
         reg.register(cap)
+
+
+RUN_ENV = {"enum": ["dev", "test", "prod"], "default": "dev",
+       "description": "The metadata project's environment whose run log to read."}
+ENTITY = {"type": "string", "minLength": 1, "maxLength": 200, "description": "An entity's name, from fabric_desktop_get_project."}
+RUN_ID = {"type": "string", "minLength": 1, "maxLength": 100, "pattern": r"^[A-Za-z0-9_.:\-]+$",
+          "description": "A run_id from fabric_desktop_list_project_runs."}
+RUN_LOG_LIMIT = ("Test and Prod keep their run log in OneLake: reading it uses your own Fabric sign-in.",
+                 "Counts and statuses only: no rows of data.")
+
+
+def _metadata_project() -> list[Capability]:
+    """The open metadata (Data mesh) project's lineage, runs and data quality results. Read only."""
+    run = schema({"run_id": STR, "entity": STR, "status": STR}, extra=True)
+    return [
+        Capability(
+            "fabric_desktop_get_lineage", "Get column lineage",
+            "Column lineage of an entity in the metadata project, worked out from the project's files: where each "
+            "column comes from (source, derived expression, lookup, key, framework or custom code) and whether the "
+            "link is declared, inferred or opaque. With a column: the steps back to where it starts and every "
+            "column built from it further on. Runs nothing and reads no table.",
+            schema({"entity": ENTITY, "column": {"type": "string", "maxLength": 200, "default": "",
+                                                 "description": "One column to trace; empty for all of the entity's columns."}},
+                   ["entity"]),
+            schema({"entity": STR, "columns": {"type": "object"}, "column": STR, "upstream": {"type": "array"},
+                    "downstream": {"type": "array"}}, ["entity"], extra=True),
+            "READ_METADATA", services.get_lineage, workspaces=scope.project, timeout=30,
+            resource="fabric-desktop://projects/metadata/lineage/{entity}"),
+        Capability(
+            "fabric_desktop_list_project_runs", "List metadata project runs",
+            "Runs of the metadata project's entities in one environment, newest first: status, rows read, written "
+            "and quarantined, the Delta version written and where each ran.",
+            schema({"env": RUN_ENV, **PAGING}), paged_output(run),
+            "READ_METADATA", services.list_project_runs, workspaces=scope.run_environment, locations=("this_pc", "fabric"),
+            limitations=RUN_LOG_LIMIT, timeout=60),
+        Capability(
+            "fabric_desktop_get_project_run", "Get a metadata project run",
+            "One run of a metadata project entity: its steps and its data quality results (each check, how many "
+            "rows failed it and what was done with them).",
+            schema({"run_id": RUN_ID, "env": RUN_ENV}, ["run_id"]),
+            schema({"run_id": STR, "status": STR, "steps": {"type": "array"}, "quality": {"type": "array"},
+                    "quality_failed": {"type": "integer"}}, ["run_id", "quality"], extra=True),
+            "READ_METADATA", services.get_project_run, workspaces=scope.run_environment, locations=("this_pc", "fabric"),
+            limitations=RUN_LOG_LIMIT, timeout=60),
+    ]
 
 
 PIPELINE_LIMIT = ("Reads only the definition you pass; it doesn't fetch pipelines from Fabric.",

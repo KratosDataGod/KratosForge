@@ -88,7 +88,7 @@ def _whole(table: Any, columns: list[str] | None) -> pa.Table:
     size = data_bytes(table)
     if size > MAX_WHOLE_READ_BYTES:
         raise ValueError(f"This table uses {' and '.join(reasons)}, so it is read whole into this PC's memory, and its "
-                         f"files hold {size / 1024**3:.1f} GB, more than {MAX_WHOLE_READ_BYTES / 1024**3:.0f} GB. "
+                         f"files hold {size / 1024**3:.2f} GB, more than {MAX_WHOLE_READ_BYTES / 1024**3:.0f} GB. "
                          "Read part of it in Fabric, or in a local data project, which reads it in place.")
     return _query(table, columns)
 

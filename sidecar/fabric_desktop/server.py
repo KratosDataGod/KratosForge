@@ -61,7 +61,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_build_model", "meta_profile", "meta_profile_preview", "meta_add_rules",
            "meta_set_compute", "meta_fabric_result", "meta_schedules", "meta_add_schedule", "meta_delete_schedule",
            "meta_versions", "meta_compare", "meta_promote_impact", "meta_quarantine", "meta_replay",
-           "meta_discard_quarantine", "meta_set_freshness", "meta_freshness", "meta_alerts", "meta_set_alerts",
+           "meta_discard_quarantine", "meta_set_freshness", "meta_freshness", "meta_data_health", "meta_alerts", "meta_set_alerts",
            "meta_drift", "meta_drift_apply",
            "meta_table_history", "meta_restore", "cost_report", "set_cost_settings", "capacity_health",
            "usage_preview", "usage_import", "usage_import_delete",
@@ -249,6 +249,12 @@ METHODS |= NOTEBOOK_FOLDERS_METHODS
 from .notebook_formats_service import METHODS as NOTEBOOK_FORMATS_METHODS  # noqa: E402
 
 METHODS |= NOTEBOOK_FORMATS_METHODS
+
+# A notebook cell's change to a Prod-marked workspace waits for its typed name (prod_writes_service.py).
+from .prod_writes_service import METHODS as PROD_WRITES_METHODS  # noqa: E402
+
+METHODS |= PROD_WRITES_METHODS
+
 # Profile (progress_service.py): the person's private record of verified work and its report.
 from .progress_service import METHODS as PROFILE_METHODS  # noqa: E402
 

@@ -334,7 +334,7 @@ const TREE_STATE = { mastered: "Mastered", in_progress: "In progress", available
 
 async function loadTrees(classId) {
   const t = profilePage.trees;
-  const out = await attempt(() => rpc("profile_mastery", classId ? { class_id: classId } : {}), "Could not open your skill trees");
+  const out = await attempt(() => rpc("profile_mastery", classId ? { class_id: classId } : {}), "Couldn't open your skill trees");
   if (!out) return;
   if (t.data?.class.id !== out.class.id) { t.spec = out.class.specializations[0].id; t.talent = null; }
   t.data = out; t.classId = out.class.id;
@@ -353,7 +353,7 @@ function profileTrees() {
     || spec.nodes.find((n) => n.state === "available") || spec.nodes[0];
   const picker = h("select", { "aria-label": "Developer class", onchange: (e) => loadTrees(e.target.value) },
     d.classes.map((x) => h("option", { value: x.id, selected: x.id === c.id ? true : null },
-      `${x.title}${x.mastered ? ` (${x.mastered} of ${x.talents})` : ""}`)));
+      `${x.title}${x.mastered ? ` (${x.mastered} of ${x.talents} mastered)` : ""}`)));
   const tabs = h("div", { class: "tree-specs", role: "tablist", "aria-label": "Specializations" },
     c.specializations.map((s) => h("button", { role: "tab", class: `tree-spec${s.id === spec.id ? " active" : ""}`,
       "aria-selected": s.id === spec.id ? "true" : "false",
@@ -404,7 +404,7 @@ function treeCanvas(spec, selected) {
     onclick: () => { t.talent = n.id; render(); } },
     h("span", { class: "tree-emblem", "aria-hidden": "true" }, svgIcon(n.state === "locked" ? BADGE_GLYPHS.lock : TREE_GLYPHS[i % TREE_GLYPHS.length], 28)),
     h("span", { class: "tree-node-name", "aria-hidden": "true" }, n.title),
-    h("span", { class: "tree-node-level", "aria-hidden": "true" }, n.state === "locked" ? (n.banked_name ? `Locked · ${n.banked_name} banked` : "Locked") : n.level_name)));
+    h("span", { class: "tree-node-level", "aria-hidden": "true" }, n.state === "locked" ? (n.banked_name ? `Locked · ${n.banked_name} waiting` : "Locked") : n.level_name)));
   // Arrow keys walk the tree: up to a talent it builds on, down to one it opens, left and right along a tier.
   const move = (e) => {
     const i = nodes.indexOf(document.activeElement);
@@ -439,7 +439,7 @@ function treeDetail(spec, n) {
     needs.length ? h("p", { class: "small" }, `Builds on ${names(needs)}.`) : null,
     n.state === "locked" ? h("p", { class: "small" }, `Opens when ${names(short)} ${short.length > 1 ? "reach" : "reaches"} Apprentice.`
       + (n.banked_name ? ` You already have ${n.banked_name} here; it counts as soon as it opens.` : "")) : null,
-    n.next ? h("div", {}, h("b", { class: "small" }, n.level < n.ceiling ? `To reach ${profilePage.trees.data.levels[n.level + 1]}` : "Highest level here"),
+    n.next ? h("div", {}, h("b", { class: "small" }, n.level < n.ceiling ? `To reach ${profilePage.trees.data.levels[n.level + 1]}` : "Highest level for now"),
       h("p", { class: "small" }, n.next)) : null,
     h("div", {}, h("b", { class: "small" }, "Evidence"),
       ev.length ? h("ul", { class: "tree-evidence" }, ev.slice(0, 6).map((r) => h("li", {},

@@ -338,6 +338,8 @@ class DuckDBSession(_SqlSession):
         databricks_ip.register(self._con)  # Databricks SQL's IP address functions (databricks_builtins_sql)
         databricks_bytes.register(self._con)  # its byte-level string functions
         databricks_variant.register(self._con)  # and its VARIANT ones
+        from .. import spark_hash
+        spark_hash.register(self._con)  # sha2 at 224, 384 and 512 bits
 
     def _sql(self, code: str, dialect: str | None) -> str:
         if (dialect or "duckdb") == "duckdb":
@@ -356,9 +358,9 @@ class DuckDBSession(_SqlSession):
         from ..spark_decimals import spark_decimal_types
         statements = _databricks(code) if dialect == "databricks" else sql.parse(code, "spark")
         if dialect == "databricks":
-            from ..databricks_builtins_sql import refuse_identity_writes
+            from ..databricks_builtins_sql import table_writes
             try:
-                refuse_identity_writes(statements, self._con)
+                statements = table_writes(statements, self._con)
             except ValueError as exc:
                 raise Unsupported(str(exc)) from None
         try:

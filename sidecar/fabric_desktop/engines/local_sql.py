@@ -338,6 +338,8 @@ class DuckDBSession(_SqlSession):
         databricks_ip.register(self._con)  # Databricks SQL's IP address functions (databricks_builtins_sql)
         databricks_bytes.register(self._con)  # its byte-level string functions
         databricks_variant.register(self._con)  # and its VARIANT ones
+        from .. import spark_hash
+        spark_hash.register(self._con)  # sha2 at 224, 384 and 512 bits
 
     def _sql(self, code: str, dialect: str | None) -> str:
         if (dialect or "duckdb") == "duckdb":

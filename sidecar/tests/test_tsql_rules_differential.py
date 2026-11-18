@@ -227,3 +227,26 @@ def test_cases_are_seeded_and_cover_every_family() -> None:
     first = cases("")
     assert first == cases("") and len(first) > 1500
     assert {f for f, _, _ in first} >= {f for f, _ in KNOWN} | {"EQ", "LT", "LIKE", "PLUS"}
+
+
+@pytest.mark.parametrize(("expression", "want"), [
+    # T-SQL makes text an int before CHAR, SPACE or REPLICATE use it (data-type-conversion-database-engine).
+    ("CHAR('66')", "B"), ("CHAR(' 67 ')", "C"), ("CHAR('300')", None), ("SPACE('2') + '|'", "  |"),
+    ("REPLICATE('ab', '3')", "ababab"), ("REPLICATE('ab', '-1')", None),
+    ("(SELECT CHAR(c) FROM (VALUES ('66')) AS t(c))", "B"),
+    ("(SELECT REPLICATE('ab', c) FROM (VALUES ('2')) AS t(c))", "abab"),
+    ("(SELECT SPACE(c) + '|' FROM (VALUES ('1')) AS t(c))", " |"),
+])
+def test_text_codes_and_counts_are_made_ints_as_tsql_does(engine, expression: str, want: object) -> None:
+    assert engine.execute(f"SELECT {expression} AS v", dialect="tsql")["rows"][0][0] == want
+
+
+@pytest.mark.parametrize("expression", [
+    "CHAR('6.5')", "REPLICATE('a', '2.5')", "(SELECT CHAR(c) FROM (VALUES ('6.5')) AS t(c))",
+    "(SELECT SPACE(c) FROM (VALUES ('x')) AS t(c))", "SPACE(1e400)",
+])
+def test_text_that_is_not_a_whole_number_stops_as_in_tsql(engine, expression: str) -> None:
+    # T-SQL: "Conversion failed when converting the varchar value '6.5' to data type int."; a float too
+    # large for an int is an overflow there.
+    with pytest.raises(Exception, match=r"Conversion failed when converting the varchar value|out of range"):
+        engine.execute(f"SELECT {expression} AS v", dialect="tsql")

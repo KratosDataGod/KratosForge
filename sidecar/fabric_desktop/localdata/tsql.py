@@ -2466,10 +2466,38 @@ def _repeat_count(node: exp.Repeat | exp.Space) -> None:
     if value is not None and math.isfinite(value) and int(value) >= 0:  # 1.7 is 1 and -0.5 is 0: toward zero, as T-SQL makes it an int
         node.set(key, exp.Literal.number(int(value)))
         return
-    whole = exp.cast(exp.Trunc(this=count.copy()), "BIGINT")
-    node.set(key, whole)
-    negative = exp.LT(this=whole.copy(), expression=exp.Literal.number(0))
-    node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy()))
+    # The count is read once, through a lambda, so REPLICATE(s, RAND() * 6 - 3) checks and repeats the same value.
+    v = exp.to_identifier("kf_count")
+    node.set(key, exp.column(v.copy()))
+    negative = exp.LT(this=exp.column(v.copy()), expression=exp.Literal.number(0))
+    case = exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy())
+    bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[_int_of(count)]), exp.Lambda(this=case, expressions=[v]))
+    node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))
+
+
+_INT_TEXT = re.compile(r"\s*[+-]?[0-9]+\s*")
+
+
+def _int_of(value: exp.Expression) -> exp.Expression:
+    """``value`` made an int as T-SQL makes a count or code one: a number is cut toward zero, and text
+    must be a whole number (``'66'`` is 66, ``'6.5'`` is a conversion error, as in T-SQL; DuckDB's cast
+    would round it). A column's type isn't known here, so both ways are written and DuckDB keeps the
+    one its type takes; each reads the value through VARCHAR so that both bind whatever the type."""
+    if isinstance(value, exp.Literal) and value.is_string:
+        if not _INT_TEXT.fullmatch(value.name):
+            raise ValueError(f"This T-SQL can't be run on the local engine: Conversion failed when converting the "
+                             f"varchar value '{value.name}' to data type int. T-SQL gives the same error.")
+        return exp.Literal.number(int(value.name))
+    text = exp.cast(value.copy(), "VARCHAR")
+    message = exp.DPipe(this=exp.DPipe(this=exp.Literal.string("Conversion failed when converting the varchar value '"),
+                                       expression=text.copy()),
+                        expression=exp.Literal.string("' to data type int."))
+    strict = exp.Case(ifs=[exp.If(this=exp.func("REGEXP_FULL_MATCH", text.copy(), exp.Literal.string(_INT_TEXT.pattern)),
+                                  true=exp.cast(exp.func("TRIM", text.copy()), "BIGINT"))],
+                      default=exp.func("ERROR", message))
+    is_text = exp.EQ(this=exp.func("TYPEOF", value.copy()), expression=exp.Literal.string("VARCHAR"))
+    cut = exp.cast(exp.Trunc(this=exp.cast(text.copy(), "DOUBLE")), "BIGINT")
+    return exp.Case(ifs=[exp.If(this=is_text, true=strict)], default=cut)
 
 
 def _char_codes(tree: exp.Expression) -> None:
@@ -2498,7 +2526,7 @@ def _char_codes(tree: exp.Expression) -> None:
         v = exp.to_identifier("kf_code")
         inside = exp.Between(this=exp.column(v.copy()), low=exp.Literal.number(0), high=exp.Literal.number(255))
         case = exp.Case(ifs=[exp.If(this=inside, true=exp.Chr(expressions=[exp.cast(exp.column(v.copy()), "INT")]))])
-        bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[exp.cast(exp.Trunc(this=code.copy()), "BIGINT")]),
+        bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[_int_of(code)]),
                          exp.Lambda(this=case, expressions=[v]))
         node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))
 

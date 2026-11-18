@@ -11,12 +11,12 @@
 
 ## Outcome
 
-**Accepted with Documented Limitations** (recommended). Each key FD-105 named is now implemented or was
+**Accepted with Documented Limitations**. Each key FD-105 named is now implemented or was
 removed by the product owner's decision, and the docs match what the app reads, with a test that keeps them
 in step. The limit is on proof: the ADMX templates and the HKLM read are tested against the policy schema and
 a simulated registry, but no domain or Intune push of the templates has been tried on a Windows PC.
 
-Recommended by: Product management thread. Decided by (product owner): pending.
+Recommended by: Product management thread. Decided by (product owner): Chris, 'Accept with limits' on the decision card on 2026-11-18 (project message cmsg_018T4o2pQdpbLBNhHpgVNNGpW8w5WXN3RwyDgeWHebeYDZ).
 
 ## Acceptance criteria
 
@@ -65,5 +65,5 @@ None blocking.
 
 ## Inventory and backlog changes
 
-- PB-061: In progress → In review. Evidence links this review.
+- PB-061: In progress → In review → Accepted (product owner, 2026-11-18). Evidence links this review.
 - No feature row status changed.

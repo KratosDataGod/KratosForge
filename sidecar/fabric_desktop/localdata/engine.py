@@ -1379,7 +1379,7 @@ class LocalEngine:
                 # so what runs next sees the winner's change, not the version this statement started from.
                 try:
                     self._register_own(con, entry["schema"], entry["table"], folder)
-                except Exception:  # noqa: BLE001  # the conflict is the error to show; the next read registers it
+                except Exception:  # noqa: BLE001 - the conflict is the error to show; the next read registers it
                     _log.warning("Couldn't read %s again after a write-write conflict", name, exc_info=True)
                 raise ValueError(_conflict(name)) from None
             raise ValueError(f"Changing {name} failed{'' if committed else ', and nothing was committed'}: "

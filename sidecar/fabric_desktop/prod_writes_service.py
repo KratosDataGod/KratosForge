@@ -122,6 +122,9 @@ class ProdWritesMixin:
 
     def notebook_prod_confirm(self, notebook: str = "", workspace_id: str = "", confirm_name: str = "") -> dict[str, Any]:
         """The person typed the Prod workspace's name: its next cell run (within ALLOW_SECONDS) may change it."""
+        from . import lakehouse
+        if notebook == lakehouse.NO_CELL:  # a write that is no cell's: nothing it asked can be allowed
+            raise ValueError("This change wasn't made by a notebook cell, so typing the name can't allow it.")
         with self._prod_lock:
             state = self._prod_state()
             p = state["pending"].get(notebook or "")

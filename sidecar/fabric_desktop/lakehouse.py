@@ -176,6 +176,8 @@ prod_guard: Callable[[str, str, str, str, str], str | None] | None = None
 # For the engine's own kernel: the notebook a cell runs for and the workspaces the person typed the name of
 # for that one run, by the cell's thread (notebook.Kernel). A process kernel answers the engine's call itself.
 cell_prod_context: "weakref.WeakKeyDictionary[threading.Thread, tuple[str, frozenset[str]]]" = weakref.WeakKeyDictionary()
+# The notebook a write with no cell of its own is asked under: no notebook is named this, so nothing confirms it.
+NO_CELL = "\x00no cell"
 # The operations that ask: they delete or replace rows or files (OPTIMIZE rewrites files but keeps the rows).
 # "overwrite" is write_table's mode, which df.write.saveAsTable(mode="overwrite") and INSERT OVERWRITE use too.
 PROD_CONFIRMED_OPS = ("merge", "update", "delete", "vacuum", "restore", "overwrite")
@@ -196,11 +198,11 @@ def prod_refusal(operation: str, lh: "Attached", table: str, cells_only: bool = 
         return None
     context = cell_prod_context.get(threading.current_thread())
     if context is None:
-        # A thread with no context of its own while a cell runs (one the cell started, a pool, a callback, or another
-        # writer) is asked as a cell would be. It may borrow the running cell's notebook for the question, never the
-        # cell's allowance: only the cell's own thread holds the typed name.
-        running = next((c for t, c in list(cell_prod_context.items()) if t.is_alive()), None)
-        context = (running[0], frozenset()) if running is not None else None
+        # A thread with no context of its own while any cell runs (one a cell started, a pool, a callback, another
+        # notebook's or the app's own writer) is asked as a cell would be, and fails closed: it borrows no cell's
+        # allowance and no notebook's name, so its refusal can't be confirmed into any notebook's next run.
+        if any(t.is_alive() for t in list(cell_prod_context)):
+            context = (NO_CELL, frozenset())
     if cells_only and context is None and not in_kernel_process:
         return None
     notebook, allowed = context or ("", frozenset())

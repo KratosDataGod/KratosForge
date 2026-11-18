@@ -249,3 +249,48 @@ def test_another_thread_never_borrows_the_running_cells_typed_name(lake, prod): 
     assert status == "ok", text
     assert raised == [True]
 
+
+
+def test_a_write_without_its_own_cell_is_never_charged_to_a_running_notebook(lake, prod):  # noqa: F811
+    """Two notebooks: A holds a typed name and is running. An overwrite from a thread that is no cell's (notebook B's
+    or the app's) is asked under no notebook's name, so it can't be confirmed into A's or B's next run."""
+    import sys
+    import threading
+    import types
+    started, release, raised = threading.Event(), threading.Event(), []
+
+    def writer():
+        started.wait(10)
+        try:
+            lakehouse.write_table(pa.table({"id": [1], "region": ["EU"]}), "dbo.sales")
+        except lakehouse.ProdConfirmNeeded:
+            raised.append(True)
+        finally:
+            release.set()
+
+    prod._prod_write_refusal("overwrite", "ws1", "", "dbo.sales", "A")
+    prod.notebook_prod_confirm("A", "ws1", "ws1")
+    a = Kernel()
+    a.notebook_name = "A"
+    a.prod_allowed = prod._take_prod_allowance("A")
+    t = threading.Thread(target=writer)
+    t.start()
+    sys.modules["_prod_test_hooks"] = types.SimpleNamespace(started=started, release=release)
+    try:
+        status, _, text = _run("import _prod_test_hooks as t\nt.started.set()\nt.release.wait(10)", a)
+    finally:
+        del sys.modules["_prod_test_hooks"]
+    t.join(10)
+    assert status == "ok", text
+    assert raised == [True]
+    assert prod.notebook_prod_pending("A") is None and prod.notebook_prod_pending("B") is None
+    assert prod.notebook_prod_pending(lakehouse.NO_CELL) is not None  # asked, under no notebook's name
+
+
+def test_a_refusal_under_no_cell_can_never_be_confirmed(tmp_path):
+    (tmp_path / "prod_workspaces.json").write_text(json.dumps({"prod": ["ws-prod"]}))
+    svc = Svc(tmp_path)
+    svc._prod_write_refusal("overwrite", "ws-prod", "Sales Prod", "dbo.sales", lakehouse.NO_CELL)
+    with pytest.raises(ValueError, match="wasn't made by a notebook cell"):
+        svc.notebook_prod_confirm(lakehouse.NO_CELL, "ws-prod", "Sales Prod")
+    assert svc._take_prod_allowance(lakehouse.NO_CELL) == frozenset()

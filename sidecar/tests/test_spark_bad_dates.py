@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
 import pytest
 import sqlglot
 
@@ -65,9 +63,7 @@ def test_databricks_sql_keeps_ansi_casts():
     statement = sql.duckdb_sql(sql.spark_fixes(sqlglot.parse_one("SELECT to_timestamp(x), CAST(y AS TIMESTAMP)",
                                                                   read="databricks")))
     # Text reaches the ANSI CAST, which stops on a bad value (numbers are read as seconds, EA-014).
-    # The cast to a timestamp is wrapped to read a repeated wall clock as the earlier instant (spark_time_zone).
-    assert "ELSE CAST(x AS TIMESTAMP) END" in statement and re.search(r"ELSE \(LIST_TRANSFORM\(\[\{'w': y\}\]", statement) \
-        and re.search(r"CAST\(kf_w\d+\.w AS TIMESTAMPTZ\)", statement)
+    assert "ELSE CAST(x AS TIMESTAMP) END" in statement and "ELSE CAST(y AS TIMESTAMPTZ) END" in statement
     assert "TRY_CAST(x AS TIMESTAMP" not in statement and "TRY_CAST(y AS TIMESTAMP" not in statement
     legacy = sql.spark_legacy_times(sqlglot.parse_one("SELECT to_timestamp(x)", read="spark"))
     assert "TRY_CAST" in sql.duckdb_sql(legacy)

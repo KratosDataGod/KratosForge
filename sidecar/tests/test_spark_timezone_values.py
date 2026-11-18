@@ -26,3 +26,31 @@ def spark():
 
 def test_spark_time_zone_answers_as_spark_3_5_or_is_refused_by_name(spark):
     check(spark, load("timezone"), REFUSED)
+
+
+def test_utc_keeps_duckdbs_own_casts_and_a_zone_with_daylight_saving_wraps_them(spark, monkeypatch):
+    import sqlglot
+
+    from fabric_desktop import spark_time_zone, sql
+    monkeypatch.setattr(spark_time_zone, "_SHIFTING", {})  # no other test's session in a zone that shifts
+    def written() -> str:
+        return sql.duckdb_sql(sql.spark_fixes(sqlglot.parse_one("SELECT CAST(y AS TIMESTAMP), date_trunc('HOUR', y)",
+                                                                read="spark")))
+    assert "kf_w" not in written() and "kf_d" not in written()
+    spark.conf.set("spark.sql.session.timeZone", "Etc/GMT+8")
+    try:
+        assert "kf_w" not in written()
+        spark.conf.set("spark.sql.session.timeZone", "America/Chicago")
+        assert "kf_w" in written() and "kf_d" in written()
+    finally:
+        spark.conf.unset("spark.sql.session.timeZone")
+    assert "kf_w" not in written() and not spark_time_zone.shifts("UTC") and spark_time_zone.shifts("America/Chicago")
+
+
+def test_a_negative_interval_of_hours_is_split_into_days_too(spark):
+    spark.conf.set("spark.sql.session.timeZone", "America/Chicago")
+    try:
+        got = spark.sql("SELECT CAST(TIMESTAMP'2024-03-10 12:00:00' + INTERVAL -24 HOURS AS STRING)").collect()[0][0]
+    finally:
+        spark.conf.unset("spark.sql.session.timeZone")
+    assert got == "2024-03-09 12:00:00"

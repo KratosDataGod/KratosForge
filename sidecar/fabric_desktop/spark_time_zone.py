@@ -10,6 +10,9 @@ wall clock the change skips (02:30 when clocks spring forward) is moved forward 
 date_trunc keeps the offset of the time it truncates, as Java's ZonedDateTime.truncatedTo does, so it never
 gives a time after the one it was given.
 
+Both passes slow every cast to a timestamp and every date_trunc, so they run only while a session in this
+process has a zone whose offset changes (session_zone); UTC, Fabric's default, keeps DuckDB's own casts.
+
 An interval of hours, minutes or seconds added to a timestamp is split into whole days and the rest, as
 Spark's DayTimeInterval is (DateTimeUtils.timestampAddDayTime): INTERVAL 24 HOURS adds a calendar day in the
 session's zone, which is 23 hours of real time on the day clocks spring forward.
@@ -17,8 +20,9 @@ session's zone, which is 23 hours of real time on the day clocks spring forward.
 
 from __future__ import annotations
 
+import functools
 import re
-from typing import cast
+from typing import Any, cast
 
 import sqlglot
 from sqlglot import exp
@@ -60,12 +64,54 @@ def zone_id(zone: str) -> str:
     return f"Etc/GMT{'-' if sign == '+' else '+'}{int(hours)}"
 
 
+# The sessions in this process whose zone changes its offset (daylight saving, or a change of standard
+# time), by id(session). Only while one is set can a wall clock be repeated or a truncation move an
+# instant, so the cast and date_trunc passes below, which slow every such cast, run only then.
+# Each such session's gaps: how far back (in seconds) a repeated wall clock's earlier instant can be.
+_SHIFTING: dict[int, tuple[int, ...]] = {}
+
+
+@functools.lru_cache(maxsize=64)
+def gaps(zone: str) -> tuple[int, ...]:
+    """How far back (seconds) the earlier instant of a wall clock that DuckDB zone ``zone`` repeats can be:
+    () for a zone that never changes its offset from UTC, as far as this PC's tz database knows (four times a
+    year from 1900 to 2100), 3600 for one that changes by whole hours, and 1800 too for one that ever moves
+    by half an hour. An unknown zone counts as one that moves by either."""
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+    try:
+        tz = ZoneInfo(zone)
+    except (ValueError, OSError, KeyError):
+        return (3600, 1800)
+    offsets = {cast(dt.timedelta, dt.datetime(year, month, 1, tzinfo=tz).utcoffset()).total_seconds()
+               for year in range(1900, 2101) for month in (1, 4, 7, 10)}
+    if len(offsets) < 2:
+        return ()
+    return (3600,) if all((a - b) % 3600 == 0 for a in offsets for b in offsets) else (3600, 1800)
+
+
+def shifts(zone: str) -> bool:
+    """Whether DuckDB zone ``zone`` ever changes its offset from UTC (gaps)."""
+    return bool(gaps(zone))
+
+
+def session_zone(session: Any, zone: str | None) -> None:
+    """Note DuckDB zone ``zone`` (None: back to UTC) as the session time zone of ``session``."""
+    if zone is not None and shifts(zone):
+        _SHIFTING[id(session)] = gaps(zone)
+    else:
+        _SHIFTING.pop(id(session), None)
+
+
 def _earlier(t: str) -> str:
     """SQL for the earlier of the two instants that show the wall clock of TIMESTAMPTZ ``t``, or ``t``."""
-    def wall(x: str) -> str:  # the wall clock in the session's zone, with no cast (Spark SQL's casts become TRY_CAST)
-        return f"strftime({x}, '%Y-%m-%d %H:%M:%S.%f')"
-    return " ".join(f"WHEN {wall(f'{t} - INTERVAL {gap}')} = {wall(t)} THEN {t} - INTERVAL {gap}"
-                    for gap in ("1 HOUR", "30 MINUTE"))
+    # t - gap shows the same wall clock as t when the zone's offset (in seconds) was gap more then: an offset
+    # is read with date_part, far cheaper than writing both wall clocks out
+    def offset(x: str) -> str:
+        return f"date_part('timezone', {x})"
+    wanted = sorted({g for zone in _SHIFTING.values() for g in zone}, reverse=True) or [3600, 1800]
+    return " ".join(f"WHEN {offset(f'{t} - INTERVAL {gap} SECOND')} - {offset(t)} = {gap} THEN {t} - INTERVAL {gap} SECOND"
+                    for gap in wanted)
 
 
 def earlier_in(zone: str, instant: str) -> str:
@@ -155,11 +201,14 @@ def _intervals(statement: exp.Expression) -> None:
     for interval in list(statement.find_all(exp.Interval)):
         unit = interval.args.get("unit")
         amount = interval.this
+        sign = 1
+        if isinstance(amount, exp.Neg):  # INTERVAL -25 HOURS
+            amount, sign = amount.this, -1
         if not isinstance(interval.parent, (exp.Add, exp.Sub)) or not isinstance(unit, exp.Var) \
                 or unit.name.upper() not in _SECONDS or not isinstance(amount, exp.Literal):
             continue
         try:
-            seconds = int(amount.name) * _SECONDS[unit.name.upper()]
+            seconds = sign * int(amount.name) * _SECONDS[unit.name.upper()]
         except ValueError:
             continue
         days = abs(seconds) // 86400 * (1 if seconds >= 0 else -1)  # toward 0, as Scala's division
@@ -172,6 +221,7 @@ def _intervals(statement: exp.Expression) -> None:
 def fix(statement: exp.Expression) -> exp.Expression:
     """Spark's session-time-zone answers in ``statement`` (DuckDB SQL, after spark_fixes' other passes)."""
     _intervals(statement)
-    _truncs(statement)
-    _wall_casts(statement)
+    if _SHIFTING:  # in UTC, or another zone that keeps its offset, no wall clock repeats
+        _truncs(statement)
+        _wall_casts(statement)
     return statement

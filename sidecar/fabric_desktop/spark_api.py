@@ -74,8 +74,10 @@ class LocalRuntimeConfig:
             raise ValueError(f"partitionOverwriteMode is static or dynamic, not {text!r}.")
         if key == "spark.sql.session.timeZone":
             # fails, with DuckDB's reason, for an unknown zone; current_timezone() gives the id as it was set
-            self._session.conn.execute("SET TimeZone = ?", [spark_time_zone.zone_id(text)])
+            zone = spark_time_zone.zone_id(text)
+            self._session.conn.execute("SET TimeZone = ?", [zone])
             self._session.conn.execute("SET VARIABLE kf_spark_time_zone = ?", [text])
+            spark_time_zone.session_zone(self._session, zone)
         if key.lower() == "spark.sql.ansi.enabled" and text.strip().lower() == "true":
             print(ANSI_NOTE)
         self._set[key] = text
@@ -93,6 +95,7 @@ class LocalRuntimeConfig:
         if key == "spark.sql.session.timeZone" and key in self._set:
             self._session.conn.execute("SET TimeZone = 'UTC'")
             self._session.conn.execute("RESET VARIABLE kf_spark_time_zone")
+            spark_time_zone.session_zone(self._session, None)
         self._set.pop(key, None)
 
     @property

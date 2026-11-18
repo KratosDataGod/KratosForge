@@ -13,6 +13,11 @@ caller) and eval (an expression in the paused frame, on the cell's thread). Canc
 cell like a running one, keeping variables.
 
 Evaluating an expression runs the person's own code, like the cell itself.
+
+Step into never goes into code that isn't this cell's: a library function, or a function another
+cell defined, runs as one step. The pause after it names what was stepped over (``skipped``), so
+the step isn't a silent "over". A frame with more than MAX_LOCALS variables shows the first
+MAX_LOCALS by name and says how many there are (``variables_total``).
 """
 
 from __future__ import annotations
@@ -23,8 +28,10 @@ import types
 from typing import Any, Callable
 
 ACTIONS = ("continue", "step", "next", "out")
+CELL_FILE = "<cell>"  # the file name cells are compiled with (notebook._CELL_FILE)
 MAX_BREAKPOINTS = 100
 MAX_LOCALS = 200
+MAX_SKIPPED = 5  # names of stepped-over functions reported with a pause
 EVAL_SECONDS = 10.0
 
 
@@ -61,6 +68,7 @@ class Debugger:
         self.paused: dict[str, Any] | None = None
         self.resumed = threading.Event()  # set when the cell's thread leaves a pause
         self.skip: set[str] = set()  # names not shown as variables (the kernel's own)
+        self.skipped: list[str] = []  # functions Step into didn't enter since the last pause
 
     # ---- set up by the kernel, on the cell's thread
 
@@ -76,8 +84,21 @@ class Debugger:
     def trace(self, frame: types.FrameType, event: str, arg: Any) -> Any:
         """sys.settrace on the cell's thread: only this cell's frames get the line tracer."""
         if frame.f_code not in self.codes:
+            if event == "call" and self.mode == "step" and frame.f_back is not None and frame.f_back.f_code in self.codes:
+                self._note_skipped(frame)
             return None
         return self._line
+
+    def _note_skipped(self, frame: types.FrameType) -> None:
+        """Step into reached a call it won't enter: remember its name for the next pause."""
+        code = frame.f_code
+        if code.co_filename == CELL_FILE:
+            name = f"{code.co_name} (defined in another cell)"
+        else:
+            module = frame.f_globals.get("__name__") if isinstance(frame.f_globals, dict) else None
+            name = f"{module}.{getattr(code, 'co_qualname', code.co_name)}" if isinstance(module, str) and module else code.co_name
+        if name not in self.skipped and len(self.skipped) < MAX_SKIPPED:
+            self.skipped.append(name)
 
     # ---- the trace
 
@@ -113,18 +134,19 @@ class Debugger:
             frame = frame.f_back
         return out[::-1]
 
-    def _variables(self, frame: types.FrameType) -> list[dict[str, Any]]:
+    def _variables(self, frame: types.FrameType) -> tuple[list[dict[str, Any]], int]:
+        """The frame's variables, the first MAX_LOCALS by name, and how many there are in all.
+        Only the ones shown are described, so a frame full of large values stays quick to pause in."""
         at_top = frame.f_code.co_name == "<module>"
-        rows = []
+        shown = []
         for name, value in list(frame.f_locals.items()):
             if name.startswith("__") or (at_top and name in self.skip):
                 continue
             if at_top and (isinstance(value, (types.ModuleType, type)) or callable(value)):
                 continue
-            rows.append(self._row(name, value))
-            if len(rows) >= MAX_LOCALS:
-                break
-        return sorted(rows, key=lambda r: r["name"].lower())
+            shown.append((name, value))
+        shown.sort(key=lambda nv: nv[0].lower())
+        return [self._row(name, value) for name, value in shown[:MAX_LOCALS]], len(shown)
 
     def _evaluate(self, frame: types.FrameType, expr: str) -> dict[str, Any]:
         try:
@@ -139,9 +161,15 @@ class Debugger:
         return row
 
     def _pause(self, frame: types.FrameType, reason: str) -> None:
+        variables, total = self._variables(frame)
         self.paused = {"line": frame.f_lineno, "reason": reason, "stack": self._stack(frame),
-                       "variables": self._variables(frame),
+                       "variables": variables,
                        "watches": [self._evaluate(frame, w) for w in self.watches], "evals": []}
+        if total > len(variables):
+            self.paused["variables_total"] = total
+        if self.skipped:
+            self.paused["skipped"] = list(self.skipped)
+            self.skipped = []
         self.on_change(self.paused)
         try:
             while True:

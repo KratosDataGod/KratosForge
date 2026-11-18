@@ -1077,7 +1077,7 @@ function dbgHelpers() {
   const src = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgStackText, dbgKeyAction });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgBpRematch, dbgDroppedText, dbgStackText, dbgKeyAction });`, ctx);
   return ctx;
 }
 
@@ -1638,9 +1638,9 @@ test("Monitor's tabs are by source, and Operations holds the workload views in t
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const literal = src.match(/const MONITOR_OPS = (\[[\s\S]*?\n\]);/)[1];
   const ops = JSON.parse(JSON.stringify(vm.runInNewContext(literal)));
-  assert.deepStrictEqual(ops.map((o) => o.label), ["Workloads", "Queue", "Agents", "Run as", "Incidents"]);
+  assert.deepStrictEqual(ops.map((o) => o.label), ["Workloads", "Queue", "Agents", "Run as", "Incidents", "Data health"]);
   // Every view keeps its panel id, so links and commands that open it still land there.
-  assert.deepStrictEqual(ops.map((o) => o.panel), ["workloads", "queue", "agents", "runas", "incidents"]);
+  assert.deepStrictEqual(ops.map((o) => o.panel), ["workloads", "queue", "agents", "runas", "incidents", "data_health"]);
   const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
   for (const o of ops) assert.ok(features.includes(`${o.feature}:`), `${o.feature} is a registered preview feature`);
   const sources = vm.runInNewContext(`${/const MONITOR_SOURCES = \[[\s\S]*?\];/.exec(src)[0].replace("const ", "")}; MONITOR_SOURCES`);
@@ -2942,6 +2942,22 @@ test("breakpoints follow their lines, and the debugger keys match VS Code", () =
   assert.strictEqual(key("Enter"), null);
 });
 
+test("a cell replaced whole keeps its breakpoints by line text, and names the ones it can't", () => {
+  const { dbgBpRematch, dbgDroppedText } = dbgHelpers();
+  const old = ["x=1", "", "def f(a):", "    return a*2", "y = f(x)"];
+  const text = (n) => old[n - 1];
+  // Format cell: spacing changed, a blank line added above; same code.
+  const formatted = ["x = 1", "", "", "def f(a):", "    return a * 2", "", "y = f(x)"];
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(dbgBpRematch([1, 4, 5], text, formatted))), { lines: [1, 5, 7], dropped: [] });
+  // The line's code is gone, or the breakpoint was on a blank line: removed and named.
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(dbgBpRematch([2, 5], text, ["x = 1", "z = 2"]))), { lines: [], dropped: [2, 5] });
+  // Repeated text: the occurrence nearest where it was.
+  assert.deepStrictEqual([...dbgBpRematch([3], (n) => ["a", "b", "a", "b"][n - 1], ["a", "b", "a", "b", "a"]).lines], [3]);
+  assert.strictEqual(dbgDroppedText([4], "its line was deleted"), "Removed the breakpoint on line 4, because its line was deleted.");
+  assert.strictEqual(dbgDroppedText([2, 5, 9], "their lines were deleted"), "Removed the breakpoints on lines 2, 5 and 9, because their lines were deleted.");
+  assert.strictEqual(dbgDroppedText([], "x"), "");
+});
+
 test("the notebook editor wires breakpoints and the debugger through debugging.js", () => {
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
   const dbg = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
@@ -2957,11 +2973,15 @@ test("the notebook editor wires breakpoints and the debugger through debugging.j
   // Debug from here: the last way out of a pause decides how the next cell starts; Run in Fabric says it can't pause.
   assert.match(dbg, /if \(state\.notebook\.dbgRun && action !== "eval"\) state\.notebook\.dbgRun\.mode = action;/);
   assert.match(nb, /nb\.runningAll = false;\n    nb\.dbgRun = null;/);
+  // Hardening: lines past the end are named before a run; a restart unpauses and ends a Debug from here run.
+  assert.match(dbg, /function dbgStartArgs\(cell, debug\) \{\n  if \(dbgOn\(\) && cell\.type === "code"\) dbgCheckLines\(cell\);/);
+  assert.match(dbg, /if \(dropped\.length\) toast\(dbgDroppedText\(dropped, why\)\);/);
+  assert.match(dbg, /function dbgRestarted\(\) \{\n  const nb = state\.notebook;[\s\S]*?if \(nb\?\.dbgRun\) nb\.cancelRequested = true;/);
   assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /dbgRemoteNote\(nb, nb\.cells\);  \/\/ debugging\.js/);
   assert.match(dbg, /rpc\("debug_cell"/);
   // Breakpoints are a Preview feature: nothing is sent or shown while it is hidden.
   assert.match(dbg, /function dbgBreakpoints\(cell\) \{\n  return dbgOn\(\)/);
-  assert.match(dbg, /function dbgStartArgs\(cell, debug\) \{\n  const lines = dbgBreakpoints\(cell\);\n  if \(!dbgOn\(\)\) return \{\};/);
+  assert.match(dbg, /function dbgStartArgs\(cell, debug\) \{\n  if \(dbgOn\(\) && cell\.type === "code"\) dbgCheckLines\(cell\);\n  const lines = dbgBreakpoints\(cell\);\n  if \(!dbgOn\(\)\) return \{\};/);
   // The debugger keys are in the Keyboard shortcuts dialog, only while the Preview feature is shown.
   assert.match(dbg, /registerShortcuts\("Notebook debugger", \[[\s\S]*keys: \["F9"\][\s\S]*keys: \["Shift\+F11"\][\s\S]*\]\);/);
   assert.strictEqual((dbg.match(/when: \(\) => state\.view === "notebook" && dbgOn\(\)/g) || []).length, 5);
@@ -6005,7 +6025,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     sideBySide: ["Side by side"], prove: ["Prove this notebook"], fabricEdit: ["Edit a Fabric notebook on this PC", "When Publish finds changes made in Fabric"],
     notebookFolderPublish: ["Publishing a notebook from a folder"], practices: ["Notebook best practices"], fabricStep: ["Run the last cell on Fabric"],
     incidents: ["Incidents and your service desk", "Who's affected", "Incidents"],
-    agents: ["Agents", "Taking over from a lost agent", "Which pipeline asked"], workloads: ["Workloads"], queue: ["Queue"], runAs: ["Run as"],
+    agents: ["Agents", "Taking over from a lost agent", "Which pipeline asked"], workloads: ["Workloads"], queue: ["Queue"], runAs: ["Run as"], dataHealth: ["Data health"],
     warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring", "Table detail"],
     pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Local pipeline coverage", "Pipelines",
       "Data Factory copy jobs", "Data Factory dataflows", "Data Factory connections"],
@@ -6041,7 +6061,6 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
     "Keep the engine in a folder only administrators can write": ["docs/enterprise-install.md", /a setting in the policy file, not a screen/],
     "Notebook templates for Silver and Gold": ["docs/notebook-templates.md", /There is no page in the app to pick a template/],
-    "Data health": ["docs/metadata-guide.md", /the Monitor > Data health screen comes next/],
   };
   const idOf = new Map(Object.entries(BY_ID).flatMap(([id, names]) => names.map((n) => [n, id])));
   for (const id of Object.keys(BY_ID)) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);

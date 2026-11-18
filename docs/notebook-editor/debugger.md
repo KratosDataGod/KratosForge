@@ -22,7 +22,12 @@ question on the roadmap.
 - Turn on **Line numbers**, then click a line number, or press **F9** on a line. A red bar marks
   the line. Click it again, or press **F9** again, to clear it.
 - Breakpoints follow their lines as you edit: insert lines above and the breakpoint moves down with
-  its line; delete the line and the breakpoint goes too.
+  its line. When the whole cell is rewritten at once (**Format cell**, a language change), each
+  breakpoint finds its line's code again, wherever it moved.
+- A breakpoint is never lost without a word. When its line is deleted, or its code is no longer in
+  the cell, it is removed and a message names the line, such as "Removed the breakpoint on line 5,
+  because its line was deleted." A breakpoint past the cell's end (its code was changed in another program)
+  is removed and named the same way when the cell runs.
 - Breakpoints are **saved with the notebook**, so they're there after you close and reopen it.
   They're kept in each format KratosForge writes:
   - `.ipynb` (the notebook file, Git, Fabric Git sync and **Export > Jupyter**): in the cell's
@@ -48,7 +53,12 @@ The paused line is highlighted, and a panel under the cell shows:
 
 - **Call stack**: where the cell is, outermost first, such as `(cell) line 5 › double line 3`.
 - **Variables** in the paused frame: names, types, sizes and a short value. A variable whose name
-  looks like a secret, or whose value came from `getSecret`, shows as `hidden`.
+  looks like a secret, or whose value came from `getSecret`, shows as `hidden`. A frame with more
+  than 200 variables lists the first 200 by name and says how many there are. A data frame shows
+  its size and first columns, not its rows (evaluate its head(), such as `df.head()`, for those), and a long list or
+  text shows its first items, so pausing next to large data stays quick.
+- **Stepped over, not into**: after **Step into**, the library functions (such as `json.dumps`) and
+  the functions from other cells it didn't go into, by name.
 - **Watches** from the Variables pane, evaluated in the paused frame.
 - **Evaluate**: type an expression, such as `df.shape` or `n + 1`, to run it in the paused frame.
   It runs as notebook code, so keep it to reads.
@@ -68,8 +78,11 @@ variables the stopped cell left.
 
 - **Only the running cell's own code stops.** Functions and classes the cell defines pause wherever
   the cell calls them. Library code, functions defined in earlier cells, notebooks run with
-  `%run`, and threads the cell starts run at full speed and never pause. To step into a function
-  from an earlier cell, put a breakpoint in that cell and debug from there.
+  `%run`, and threads the cell starts run at full speed and never pause. **Step into** on such a
+  call steps over it and names it in the panel. To step into a function from an earlier cell, put
+  a breakpoint in that cell and debug from there.
+- **Restarting the kernel while paused** ends the paused cell, as **Stop** does, but the variables
+  go with the restart. A **Debug from here** run stops there and doesn't go on into the new kernel.
 - **No time limit while debugging.** Time spent paused counts as running, so the cell time limit is
   off for a cell under the debugger. The memory limit still applies.
 - **Evaluate waits up to 10 seconds** for an answer, then shows it when it finishes. **Stop** ends
@@ -83,7 +96,8 @@ variables the stopped cell left.
 
 The automated checks are `sidecar/tests/test_debugger.py`, `sidecar/tests/test_debugger_saved.py`
 (saved breakpoints in every format, and a three-cell debug run in both kernels) and
-`app/tests/browser/debugger.test.cjs`. Before the feature leaves Preview, also go through this on
+`sidecar/tests/test_debugger_hardening.py` (stepping past library code, a restart while paused,
+large frames and values) and `app/tests/browser/debugger.test.cjs`. Before the feature leaves Preview, also go through this on
 Windows, with **Run notebooks in their own process** both on and off:
 
 1. Set breakpoints in two cells, save, close the notebook and reopen it. The red bars are on the
@@ -94,10 +108,14 @@ Windows, with **Run notebooks in their own process** both on and off:
 4. In a paused function, **Step into**, **Step out** and **Evaluate** an expression; the variables
    and call stack match the code.
 5. **Stop** while paused. The cell shows Cancelled with variables kept, and the next cell runs
-   normally.
-6. Switch **Engine** to Databricks Connect (or any other engine) and run a cell with breakpoints:
+   normally. Then pause again and restart the kernel: nothing stays paused, and the run stops.
+6. Delete a line that has a breakpoint, and **Format cell** a cell with breakpoints: the first is
+   removed with a message naming the line, the others stay on their code.
+7. Pause next to a large pandas or Polars DataFrame and a list of millions: the pause is quick, the
+   frame shows its size and first columns, and **Step into** a pandas call names it as stepped over.
+8. Switch **Engine** to Databricks Connect (or any other engine) and run a cell with breakpoints:
    the message says it can't pause, and the cell runs to the end. **Debug cell** says it can't
    debug there and runs nothing.
-7. **Export** as Fabric source and import it again: the breakpoints come back. Export as
+9. **Export** as Fabric source and import it again: the breakpoints come back. Export as
    Databricks source: the notes list the breakpoints as not carried over.
-8. Open the notebook in Fabric after publishing it: it opens and runs as before.
+10. Open the notebook in Fabric after publishing it: it opens and runs as before.

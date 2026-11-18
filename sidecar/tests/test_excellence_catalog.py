@@ -189,7 +189,7 @@ def test_items_the_catalog_doesnt_cover_are_unsupported_and_no_inventory_is_not_
 
 
 def test_optimization_evidence_carries_no_code():
-    ws = [dict(workload("a"), cells=["password = 'hunter2'"], activities=[{"x": 1}])]  # pragma: allowlist secret
+    ws = [dict(workload("a"), cells=["password = 'hunter2'"], activities=[{"x": 1}])]  # pragma: allowlist secret (fake password: the test checks code never enters evidence)
     recs = adapters.optimization(opt_result(ws, []), collected_at=AT)
     assert "hunter2" not in json.dumps(recs) and recs[0]["confidence"] == "verified_configuration"
     assert adapters.optimization(opt_result([workload("x", definition="unsupported")], []), collected_at=AT) == []

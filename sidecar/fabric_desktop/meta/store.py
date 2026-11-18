@@ -22,7 +22,7 @@ import pyarrow as pa
 from deltalake import CommitProperties, DeltaTable, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
-from .. import delta_profile, durable
+from .. import delta_profile, delta_read, durable
 from ..errors import NotSetUp
 from ..leases import LeaseBusy, LeaseLost, Leases, LocalBackend, check_held, table_key
 from ..retrying import local_retry, staged_commit_race
@@ -106,7 +106,7 @@ def _read(uri: str, options: dict[str, str] | None, version: int | None = None) 
         table = DeltaTable(uri, storage_options=options, version=version)
     except TableNotFoundError:
         return None
-    return cast(pl.DataFrame, pl.from_arrow(table.to_pyarrow_table()))  # a Table gives a DataFrame
+    return cast(pl.DataFrame, pl.from_arrow(delta_read.arrow(table)))  # a Table gives a DataFrame
 
 
 read_table_uri = _read  # any Delta table by URI: a local path, or OneLake with storage options
@@ -131,6 +131,9 @@ def _at(loaded: DeltaTable | None, uri: str, options: dict[str, str] | None, ver
 def lazy(table: DeltaTable, uri: str, options: dict[str, str] | None) -> pl.LazyFrame:
     """``table`` as a LazyFrame, so a filter or column list is applied while reading: files whose
     statistics rule them out are skipped and unused columns are never loaded."""
+    if delta_read.needs_kernel(table):
+        # Polars' and pyarrow's Delta readers get column mapping or deletion vectors wrong: read the rows whole.
+        return pl.from_arrow(delta_read.arrow(table)).lazy()  # type: ignore[union-attr]
     if options is None and "://" not in uri:
         # On this PC Polars reads the files itself and skips them by their Delta statistics.
         return pl.scan_delta(table)
@@ -482,7 +485,7 @@ class Store:
             t = DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options())
         except TableNotFoundError:
             return None, None
-        return cast(pl.DataFrame, pl.from_arrow(t.to_pyarrow_table())), t.version()
+        return cast(pl.DataFrame, pl.from_arrow(delta_read.arrow(t))), t.version()
 
     def schema_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.Schema | None, int | None]:
         """The table's schema and the Delta version it was read at, as read_at gives them but without

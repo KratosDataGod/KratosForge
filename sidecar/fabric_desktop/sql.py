@@ -189,7 +189,25 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
         _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_concat_text(_spark_cast_functions(spark_strings.spark_text_results(spark_aggregates.spark_aggregate_results(spark_complex.mark_calls(_spark_names(spark_windows.check_windows(statement)))))))))))),
         ansi=databricks))
     statement = spark_windows.spark_window_results(spark_complex.spark_complex_results(statement))
-    return _ansi_divisions(statement) if databricks else _spark_session_functions(_null_remainders(statement))
+    if databricks:
+        return _ansi_divisions(statement)
+    return _spark_session_functions(_null_remainders(_not_in_spark_3_5(statement)))
+
+
+# Databricks' own built-ins that Spark 3.5 (Fabric Runtime 1.3, which this path follows) doesn't have, so
+# Fabric stops on them with UNRESOLVED_ROUTINE. They are refused by name here rather than left to DuckDB's
+# "function does not exist" error, or answered where Fabric stops.
+_DATABRICKS_ONLY = {"try_to_date": "to_date instead. With ANSI mode off, as Fabric runs it, to_date gives NULL "
+                                   "for text that isn't a date"}
+
+
+def _not_in_spark_3_5(statement: exp.Expression) -> exp.Expression:
+    for node in statement.find_all(exp.Anonymous):
+        name = node.name.lower()
+        if name in _DATABRICKS_ONLY:
+            raise ValueError(f"{name} isn't a Spark 3.5 function, so nothing ran. Fabric Runtime 1.3 stops on it "
+                             f"too (UNRESOLVED_ROUTINE). Use {_DATABRICKS_ONLY[name]}.")
+    return statement
 
 
 def _null_remainders(statement: exp.Expression) -> exp.Expression:
@@ -1672,7 +1690,7 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
         if key not in views:
             views[key] = f"__lakehouse_table_{next(_VIEW_NAMES)}"
             opened = opened or _lakehouse().open_table(name, **at)
-            con.register(views[key], opened.to_pyarrow_dataset())
+            con.register(views[key], _lakehouse().table_dataset(opened))
         # Keep the name the query used as the alias, so sales.Country still resolves.
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier(table.name))
         table.replace(exp.Table(this=exp.to_identifier(views[key]), alias=alias))

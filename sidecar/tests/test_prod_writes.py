@@ -151,3 +151,149 @@ def test_a_process_kernel_asks_the_engine_with_its_notebook_and_its_runs_allowan
     k.prod_allowed = frozenset({"ws1"})
     assert k.calls["prod_guard"]("delete", "WS1", "Sales Prod", "dbo.sales") is None
     assert len(seen) == 1
+
+
+def test_an_unreadable_project_is_warned_about_and_the_remembered_ids_still_hold(tmp_path, caplog):
+    (tmp_path / "prod_workspaces.json").write_text(json.dumps({"prod": ["ws-prod"]}))
+
+    class Broken(Svc):
+        def _project(self):
+            raise ValueError("layers.toml line 3: bad value")
+
+    svc = Broken(tmp_path)
+    with caplog.at_level("WARNING", logger="fabric_desktop.prod_writes_service"):
+        assert svc._prod_write_refusal("delete", "other-ws", "Other", "dbo.sales", "nb") is None
+    assert any(r.levelname == "WARNING" and "only the Prod workspaces remembered" in r.getMessage() for r in caplog.records)
+    assert svc._prod_write_refusal("delete", "ws-prod", "Sales Prod", "dbo.sales", "nb") is not None
+
+
+@pytest.mark.parametrize("code", [
+    "df = spark.createDataFrame([(9, 'EU')], ['id', 'region'])\ndf.write.mode('overwrite').saveAsTable('dbo.sales')",
+    "spark.sql(\"INSERT OVERWRITE dbo.sales SELECT 9 AS id, 'EU' AS region\")",
+    "import pyarrow as pa\nfrom fabric_desktop import lakehouse\nlakehouse.write_table(pa.table({'id': [9], 'region': ['EU']}), 'dbo.sales')",
+])
+def test_an_overwrite_from_a_cell_asks_too(lake, prod, code):  # noqa: F811
+    before = _version(lake)
+    status, enames, text = _run(code)
+    assert status == "error" and enames == ["ProdConfirmNeeded"], text
+    assert "OVERWRITE on dbo.sales" in text and _version(lake) == before
+    pending = prod.notebook_prod_pending("")
+    prod.notebook_prod_confirm("", pending["workspace_id"], pending["workspace_name"])
+    kernel = Kernel()
+    kernel.prod_allowed = prod._take_prod_allowance("")
+    status, _, text = _run(code, kernel)
+    assert status == "ok", text
+    assert _version(lake) > before
+
+
+def test_an_append_from_a_cell_and_the_apps_own_overwrite_are_not_asked_about(lake, prod):  # noqa: F811
+    status, _, text = _run("df = spark.createDataFrame([(9, 'EU')], ['id', 'region'])\n"
+                           "df.write.mode('append').saveAsTable('dbo.sales')\nspark.sql(\"INSERT INTO dbo.sales SELECT 10, 'US'\")")
+    assert status == "ok", text
+    assert prod.notebook_prod_pending("") is None
+    lakehouse.write_table(pa.table({"id": [1], "region": ["EU"]}), "dbo.sales")  # not a cell: the SQL page confirms its own way
+    assert prod.notebook_prod_pending("") is None
+
+
+def test_in_a_notebooks_own_process_every_overwrite_is_a_cells(lake, prod, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(lakehouse, "in_kernel_process", True)
+    with pytest.raises(lakehouse.ProdConfirmNeeded):
+        lakehouse.write_table(pa.table({"id": [1], "region": ["EU"]}), "dbo.sales")
+
+
+def test_an_overwrite_from_a_thread_the_running_cell_started_asks_too(lake, prod):  # noqa: F811
+    code = ("import threading, pyarrow as pa\nfrom fabric_desktop import lakehouse\nerrors = []\n"
+            "def write():\n"
+            "    try:\n"
+            "        lakehouse.write_table(pa.table({'id': [9], 'region': ['EU']}), 'dbo.sales')\n"
+            "    except Exception as exc:\n"
+            "        errors.append(type(exc).__name__)\n"
+            "t = threading.Thread(target=write)\nt.start()\nt.join()\nprint(errors)")
+    before = _version(lake)
+    status, _, text = _run(code)
+    assert status == "ok" and "ProdConfirmNeeded" in text, text
+    assert _version(lake) == before
+
+
+def test_another_thread_never_borrows_the_running_cells_typed_name(lake, prod):  # noqa: F811
+    """A MERGE from a thread that isn't the cell's, on the workspace the cell's typed name allows, is still asked."""
+    import threading
+    started, release, raised = threading.Event(), threading.Event(), []
+    from fabric_desktop import delta_dml
+
+    def other_writer():
+        started.wait(10)
+        change = delta_dml.parse("MERGE INTO dbo.sales t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET *")
+        try:
+            lakehouse.change_table(change, pa.table({"id": [1], "region": ["Z"]}))
+        except lakehouse.ProdConfirmNeeded:
+            raised.append(True)
+        finally:
+            release.set()
+
+    prod._prod_write_refusal("merge", "ws1", "", "dbo.sales", "")
+    prod.notebook_prod_confirm("", "ws1", "ws1")
+    kernel = Kernel()
+    kernel.prod_allowed = prod._take_prod_allowance("")
+    assert kernel.prod_allowed == frozenset({"ws1"})
+    writer = threading.Thread(target=other_writer)
+    writer.start()
+    import sys
+    import types
+    sys.modules["_prod_test_hooks"] = types.SimpleNamespace(started=started, release=release)
+    try:
+        status, _, text = _run("import _prod_test_hooks as t\nt.started.set()\nt.release.wait(10)", kernel)
+    finally:
+        del sys.modules["_prod_test_hooks"]
+    writer.join(10)
+    assert status == "ok", text
+    assert raised == [True]
+
+
+
+def test_a_write_without_its_own_cell_is_never_charged_to_a_running_notebook(lake, prod):  # noqa: F811
+    """Two notebooks: A holds a typed name and is running. An overwrite from a thread that is no cell's (notebook B's
+    or the app's) is asked under no notebook's name, so it can't be confirmed into A's or B's next run."""
+    import sys
+    import threading
+    import types
+    started, release, raised = threading.Event(), threading.Event(), []
+
+    def writer():
+        started.wait(10)
+        try:
+            lakehouse.write_table(pa.table({"id": [1], "region": ["EU"]}), "dbo.sales")
+        except lakehouse.ProdConfirmNeeded:
+            raised.append(True)
+        finally:
+            release.set()
+
+    prod._prod_write_refusal("overwrite", "ws1", "", "dbo.sales", "A")
+    prod.notebook_prod_confirm("A", "ws1", "ws1")
+    a = Kernel()
+    a.notebook_name = "A"
+    a.prod_allowed = prod._take_prod_allowance("A")
+    t = threading.Thread(target=writer)
+    t.start()
+    sys.modules["_prod_test_hooks"] = types.SimpleNamespace(started=started, release=release)
+    try:
+        status, _, text = _run("import _prod_test_hooks as t\nt.started.set()\nt.release.wait(10)", a)
+    finally:
+        del sys.modules["_prod_test_hooks"]
+    t.join(10)
+    assert status == "ok", text
+    assert raised == [True]
+    assert prod.notebook_prod_pending("A") is None and prod.notebook_prod_pending("B") is None
+    assert prod.notebook_prod_pending(lakehouse.NO_CELL) is None  # nothing waits: it can't be confirmed
+    why = prod._prod_write_refusal("overwrite", "ws1", "Sales Prod", "dbo.sales", lakehouse.NO_CELL)
+    assert "Only that cell's own code" in why and "Try again when the cell has finished" in why
+    assert "Run this cell on its own" not in why
+
+
+def test_a_refusal_under_no_cell_can_never_be_confirmed(tmp_path):
+    (tmp_path / "prod_workspaces.json").write_text(json.dumps({"prod": ["ws-prod"]}))
+    svc = Svc(tmp_path)
+    svc._prod_write_refusal("overwrite", "ws-prod", "Sales Prod", "dbo.sales", lakehouse.NO_CELL)
+    with pytest.raises(ValueError, match="wasn't made by a notebook cell"):
+        svc.notebook_prod_confirm(lakehouse.NO_CELL, "ws-prod", "Sales Prod")
+    assert svc._take_prod_allowance(lakehouse.NO_CELL) == frozenset()

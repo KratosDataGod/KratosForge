@@ -1,0 +1,153 @@
+"""A notebook cell's MERGE, UPDATE, DELETE, VACUUM or RESTORE on a workspace marked Prod waits for the person to
+type the workspace's name (prod_writes_service.py), with or without a metadata project open, and the typed name
+lets that notebook's next run through once."""
+
+import json
+
+import pyarrow as pa
+import pytest
+from deltalake import DeltaTable, write_deltalake
+
+from fabric_desktop import lakehouse, prod_writes_service
+from fabric_desktop.audit import READ_ONLY, fails_closed
+from fabric_desktop.meta_service import NoMetadataProject
+from fabric_desktop.notebook import Kernel
+from fabric_desktop.prod_writes_service import ProdWritesMixin
+from tests.test_spark_writer import lake  # noqa: F401 - a fixture
+
+
+class _Project:
+    def __init__(self, prod):
+        self.environments = {"prod": prod, "dev": {"workspace_id": "dev-ws"}}
+
+
+class Svc(ProdWritesMixin):
+    def __init__(self, root, project=None):
+        self.root = root
+        self.project = project
+
+    def _project(self):
+        if self.project is None:
+            raise NoMetadataProject("No metadata project is open.")
+        return self.project
+
+
+def test_a_workspace_a_project_named_prod_stays_marked_with_no_project_open(tmp_path):
+    svc = Svc(tmp_path, _Project({"workspace_id": "WS-Prod", "workspaces": {"gold": {"id": "ws-gold"}}}))
+    assert svc._prod_write_refusal("merge", "ws-prod", "Sales Prod", "dbo.sales", "nb") is not None
+    assert svc._prod_write_refusal("delete", "dev-ws", "Sales Dev", "dbo.sales", "nb") is None
+    svc.project = None  # closed: what it named is remembered on this PC
+    assert sorted(json.loads((tmp_path / "prod_workspaces.json").read_text())["prod"]) == ["ws-gold", "ws-prod"]
+    why = svc._prod_write_refusal("vacuum", "WS-GOLD", "Gold Prod", "dbo.sales", "nb")
+    assert why and "Gold Prod, a Prod workspace" in why and "Nothing was changed" in why
+    assert Svc(tmp_path)._prod_write_refusal("merge", "other", "Other", "dbo.sales", "nb") is None
+
+
+def test_the_typed_name_must_match_and_allows_one_run_of_that_notebook(tmp_path):
+    (tmp_path / "prod_workspaces.json").write_text(json.dumps({"prod": ["ws-prod"]}))
+    svc = Svc(tmp_path)
+    assert svc.notebook_prod_pending("nb") is None
+    svc._prod_write_refusal("delete", "ws-prod", "Sales Prod", "dbo.sales", "nb")
+    assert svc.notebook_prod_pending("nb") == {"workspace_id": "ws-prod", "workspace_name": "Sales Prod",
+                                               "operation": "DELETE", "table": "dbo.sales"}
+    assert svc.notebook_prod_pending("other") is None
+    with pytest.raises(ValueError, match="Type Sales Prod exactly"):
+        svc.notebook_prod_confirm("nb", "ws-prod", "sales prod")
+    with pytest.raises(ValueError, match="Nothing in this notebook"):
+        svc.notebook_prod_confirm("nb", "another-ws", "Sales Prod")
+    with pytest.raises(ValueError, match="Nothing in this notebook"):
+        svc.notebook_prod_confirm("other", "ws-prod", "Sales Prod")
+    assert svc._take_prod_allowance("nb") == frozenset()  # nothing confirmed yet
+    assert svc.notebook_prod_confirm("nb", "ws-prod", "Sales Prod")["allowed"] is True
+    assert svc.notebook_prod_pending("nb") is None
+    assert svc._take_prod_allowance("other") == frozenset()
+    assert svc._take_prod_allowance("nb") == frozenset({"ws-prod"})
+    assert svc._take_prod_allowance("nb") == frozenset()  # used up by that run
+
+
+def test_an_allowance_or_a_refusal_that_waited_too_long_lapses(tmp_path, monkeypatch):
+    (tmp_path / "prod_workspaces.json").write_text(json.dumps({"prod": ["ws-prod"]}))
+    svc = Svc(tmp_path)
+    now = [1000.0]
+    monkeypatch.setattr(prod_writes_service.time, "monotonic", lambda: now[0])
+    svc._prod_write_refusal("merge", "ws-prod", "", "dbo.sales", "nb")  # no name known: the id is typed
+    svc.notebook_prod_confirm("nb", "ws-prod", "ws-prod")
+    now[0] += prod_writes_service.ALLOW_SECONDS + 1
+    assert svc._take_prod_allowance("nb") == frozenset()
+    svc._prod_write_refusal("merge", "ws-prod", "", "dbo.sales", "nb")
+    now[0] += prod_writes_service.PENDING_SECONDS + 1
+    with pytest.raises(ValueError, match="Nothing in this notebook"):
+        svc.notebook_prod_confirm("nb", "ws-prod", "ws-prod")
+
+
+def test_the_confirm_is_audited_before_it_runs_and_the_pending_read_is_not():
+    assert fails_closed("notebook_prod_confirm", {"notebook": "nb", "workspace_id": "w", "confirm_name": "Sales Prod"})
+    assert "notebook_prod_pending" in READ_ONLY and "notebook_prod_confirm" not in READ_ONLY
+
+
+@pytest.fixture
+def prod(lake, monkeypatch, tmp_path):  # noqa: F811
+    """The attached lakehouse's workspace (ws1) marked Prod, through a Service-like guard."""
+    (tmp_path / "prod_workspaces.json").write_text(json.dumps({"prod": ["ws1"]}))
+    svc = Svc(tmp_path)
+    monkeypatch.setattr(lakehouse, "prod_guard", svc._prod_write_refusal)
+    monkeypatch.setattr(lakehouse, "maintenance_guard", lambda op, ws, t: None)
+    write_deltalake(str(lake / "dbo" / "sales"), pa.table({"id": [4], "region": ["APAC"]}), mode="append")
+    return svc
+
+
+def _run(code, kernel=None):
+    out = (kernel or Kernel()).run(code)
+    enames = [o.get("ename") for o in out["outputs"] if o.get("type") == "error"]
+    return out["status"], enames, "".join(o.get("text", "") + str(o.get("evalue", "")) for o in out["outputs"])
+
+
+def _version(lake):
+    return DeltaTable(str(lake / "dbo" / "sales")).version()
+
+
+@pytest.mark.parametrize("sql", [
+    "DELETE FROM dbo.sales WHERE id = 1",
+    "UPDATE dbo.sales SET region = 'X' WHERE id = 1",
+    "MERGE INTO dbo.sales t USING (SELECT 1 AS id, 'Z' AS region) s ON t.id = s.id WHEN MATCHED THEN UPDATE SET *",
+    "VACUUM dbo.sales",
+    "RESTORE TABLE dbo.sales TO VERSION AS OF 0",
+])
+def test_a_cell_changing_a_prod_marked_workspace_is_refused_until_the_name_is_typed(lake, prod, sql):  # noqa: F811
+    before = _version(lake)
+    status, enames, text = _run(f"spark.sql({sql!r})")
+    assert status == "error" and enames == ["ProdConfirmNeeded"], text
+    assert "a Prod workspace" in text and _version(lake) == before
+    pending = prod.notebook_prod_pending("")
+    prod.notebook_prod_confirm("", pending["workspace_id"], pending["workspace_name"])
+    kernel = Kernel()
+    kernel.prod_allowed = prod._take_prod_allowance("")
+    status, _, text = _run(f"spark.sql({sql!r})", kernel)
+    assert status == "ok", text
+    kernel.prod_allowed = prod._take_prod_allowance("")  # the next run has none again
+    status, enames, _ = _run(f"spark.sql({sql!r})", kernel)
+    assert enames == ["ProdConfirmNeeded"]
+
+
+def test_optimize_and_reads_are_not_asked_about(lake, prod):  # noqa: F811
+    status, _, text = _run("spark.sql('OPTIMIZE dbo.sales')\nprint(spark.table('dbo.sales').count())")
+    assert status == "ok" and "4" in text, text
+    assert prod.notebook_prod_pending("") is None
+
+
+def test_outside_the_app_no_workspace_is_marked(lake):  # noqa: F811
+    status, _, text = _run("spark.sql('DELETE FROM dbo.sales WHERE id = 1')")
+    assert status == "ok", text
+
+
+def test_a_process_kernel_asks_the_engine_with_its_notebook_and_its_runs_allowance(monkeypatch):
+    from fabric_desktop.kernel_proc import ProcessKernel
+    seen = []
+    monkeypatch.setattr(lakehouse, "prod_guard", lambda *a: seen.append(a) or "waits")
+    k = ProcessKernel()
+    k.notebook_name = "Weekly"
+    assert k.calls["prod_guard"]("delete", "WS1", "Sales Prod", "dbo.sales") == "waits"
+    assert seen == [("delete", "WS1", "Sales Prod", "dbo.sales", "Weekly")]
+    k.prod_allowed = frozenset({"ws1"})
+    assert k.calls["prod_guard"]("delete", "WS1", "Sales Prod", "dbo.sales") is None
+    assert len(seen) == 1

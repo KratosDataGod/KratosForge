@@ -98,6 +98,8 @@ def no_lakehouse_left_attached(monkeypatch):
     monkeypatch.setattr(lakehouse, "_attached", None)
     # Likewise the maintenance guard a Service sets: without the app, OPTIMIZE, VACUUM and RESTORE fail closed.
     monkeypatch.setattr(lakehouse, "maintenance_guard", None)
+    # And the Prod typed-name guard a Service sets (prod_writes_service.py): without the app, nothing is marked Prod.
+    monkeypatch.setattr(lakehouse, "prod_guard", None)
 
 
 @pytest.fixture(autouse=True)

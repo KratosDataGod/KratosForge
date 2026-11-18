@@ -2743,7 +2743,7 @@ test("Forge animations in the notebook: runs of several cells use the wolf track
   assert.match(run, /track\?\.set\(i \+ 1, code\.length\);/);
   assert.match(run, /track\?\.arrive\(\);\n\s+if \(code\.length\) announce\(`Run finished/);
   assert.match(run, /\} finally \{\n\s+nb\.runningAll = false;/);
-  assert.match(src, /refreshVariables\(\);\n  cellFx\(cell\);  \/\/ after dbgAfterRun, which draws the results again\n  return ok;/);
+  assert.match(src, /refreshVariables\(\);\n  cellFx\(cell\);  \/\/ after dbgAfterRun, which draws the results again\n(?:  \/\/ A change to a Prod workspace[^\n]*\n  if [^\n]*nbProdConfirm\(cell, nb\);\n)?  return ok;/);
 });
 
 test("Motion & effects settings: four levels, family switches, reduced-motion choice, lockable, applied at once; CSS honours them", () => {

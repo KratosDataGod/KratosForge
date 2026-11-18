@@ -53,7 +53,7 @@
  "achievements": [
   {"id": "first-forecast", "name": "First Forecast", "criteria": "Reach Journeyman in Capacity and cost."},
   {"id": "calm-skies", "name": "Calm Skies", "criteria": "Reach Journeyman in Capacity risk checks before maintenance."},
-  {"id": "coin-saved", "name": "Coin Saved", "criteria": "Reach Adept in Running locally to save capacity."},
+  {"id": "coin-saved", "name": "Capacity Kept", "criteria": "Reach Adept in Running locally to save capacity."},
   {"id": "lightning-tamed", "name": "Lightning Tamed", "criteria": "Reach Adept in Measured optimization."},
   {"id": "stormcallers-horn", "name": "Stormcaller's Horn", "criteria": "Reach Adept in all ten talents of one Capacity Stormcaller specialization."}
  ]

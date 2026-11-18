@@ -51,7 +51,7 @@
    ]}
  ],
  "achievements": [
-  {"id": "first-constellation", "name": "First Constellation", "criteria": "Reach Journeyman in Facts and dimensions and Relationships and cardinality."},
+  {"id": "first-constellation", "name": "First Constellation", "criteria": "Reach Journeyman in Facts and dimensions and in Relationships and cardinality."},
   {"id": "words-of-power", "name": "Words of Power", "criteria": "Reach Adept in CALCULATE and filter modification."},
   {"id": "unbroken-conduit", "name": "Unbroken Conduit", "criteria": "Reach Journeyman in Capstone: Gold that stays in Direct Lake."},
   {"id": "measured-truth", "name": "Measured Truth", "criteria": "Reach Adept in Measure testing against SQL results."},

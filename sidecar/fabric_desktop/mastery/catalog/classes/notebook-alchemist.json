@@ -53,7 +53,7 @@
  "achievements": [
   {"id": "first-transmutation", "name": "First Transmutation", "criteria": "Reach Journeyman in Python data frames or Spark DataFrames."},
   {"id": "clean-bench", "name": "Clean Bench", "criteria": "Reach Adept in Notebooks that pass Validate."},
-  {"id": "same-here-and-there", "name": "Same Here and There", "criteria": "Reach Journeyman in Proven same result here and in Fabric (optional: runs in Fabric)."},
+  {"id": "same-here-and-there", "name": "Same Here and There", "criteria": "Reach Journeyman in Proven same result here and in Fabric. This one needs a run in Fabric."},
   {"id": "tested-elixir", "name": "Tested Elixir", "criteria": "Reach Adept in Unit tests for data code."},
   {"id": "alchemists-shelf", "name": "Alchemist's Shelf", "criteria": "Reach Adept in all ten talents of one Notebook Alchemist specialization."}
  ]

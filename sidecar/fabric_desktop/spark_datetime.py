@@ -143,6 +143,8 @@ def _letter(run: str) -> str:
     if c == "y":
         if n == 2:
             return "STRFTIME(local, '%y')"
+        if n >= 4:  # Java's EXCEEDS_PAD: a year with more digits than letters starts with + (date_format of 10000 is +10000)
+            return f"CASE WHEN YEAR(local) > {10 ** n - 1} THEN '+' ELSE '' END || {_pad('YEAR(local)', n)}"
         return _pad("YEAR(local)", n) if n > 1 else "CAST(YEAR(local) AS VARCHAR)"
     if c in "ML":
         return {1: "CAST(MONTH(local) AS VARCHAR)", 2: "STRFTIME(local, '%m')", 3: "STRFTIME(local, '%b')",

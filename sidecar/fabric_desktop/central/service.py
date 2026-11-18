@@ -1169,18 +1169,19 @@ class PlatformMixin:
 
     def mesh_save_product(self, product: dict[str, Any], original: str = "") -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
-        path = project.root / "metadata" / "products" / f"{product.get('name', '')}.toml"
+        name = str(product.get("name", "")).strip()  # the name write_product saves it under
+        path = project.root / "metadata" / "products" / f"{name}.toml"
         old = path.read_text(encoding="utf-8") if path.exists() else None
         new_path = mesh.write_product(project.root, product)
         project.reload()
-        problems = [e for e in mesh.validate(project) if e.startswith(f"products/{product.get('name')}")]
+        problems = [e for e in mesh.validate(project) if e.startswith(f"products/{name}")]
         if problems:
             if old is None:
                 new_path.unlink()
             else:
                 jsonfile.write_text(new_path, old)
             raise GateError("save", problems)
-        if original and original != product.get("name"):
+        if original and original != name:
             (project.root / "metadata" / "products" / f"{original}.toml").unlink(missing_ok=True)
         return self.mesh_overview()
 

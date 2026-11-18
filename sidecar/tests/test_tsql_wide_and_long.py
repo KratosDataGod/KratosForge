@@ -228,3 +228,18 @@ def test_a_column_named_like_the_bound_arguments_keeps_its_own_value(engine):
     engine.execute("CREATE TABLE dbo.k (kf_args INT, s VARCHAR(10))", dialect="tsql")
     engine.execute("INSERT INTO dbo.k VALUES (2, 'abc')", dialect="tsql")
     assert rows(engine, "SELECT SUBSTRING((SELECT MAX(s) FROM dbo.k), kf_args, kf_args) FROM dbo.k") == [["bc"]]
+
+
+def test_a_large_legitimate_batch_isnt_taken_for_one_nested_too_deeply():
+    from fabric_desktop.localdata import tsql
+    rows = ", ".join(f"({i}, '{'v' * 1000}', REPLICATE('x', 3), SUBSTRING(s, 0, 2))" for i in range(1000))
+    sql = f"INSERT INTO dbo.t (id, s, r, f) SELECT * FROM (VALUES {rows}) v(id, s, r, f)"
+    assert len(sql) > 1_000_000
+    [text], _notes = tsql.translate(sql)
+    assert len(text) < 2 * len(sql)  # far below the backstop, which only a nesting can reach
+
+
+def test_a_literal_replicate_within_its_limit_needs_no_check_at_run_time():
+    from fabric_desktop.localdata import tsql
+    assert tsql.translate("SELECT REPLICATE('x', 3), REPLICATE(N'é', 4000)")[0] == \
+        ["SELECT REPEAT('x', 3), REPEAT('é', 4000)"]

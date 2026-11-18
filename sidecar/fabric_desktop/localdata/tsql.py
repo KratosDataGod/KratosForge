@@ -2594,7 +2594,7 @@ def _repeat(node: exp.Repeat | exp.Space) -> None:
         ifs = []
         if not _whole(n, 0):
             ifs.append(exp.If(this=exp.LT(this=whole.copy(), expression=exp.Literal.number(0)), true=exp.null()))
-        if text is not None and kind != "max":
+        if text is not None and kind != "max" and not _known_within(text, n, national, most):
             one = exp.func("LENGTH", text.copy()) if national else \
                 exp.Anonymous(this="STRLEN", expressions=[exp.cast(text.copy(), "VARCHAR")])
             size = exp.Mul(this=exp.cast(one, "DOUBLE"), expression=whole.copy())  # DOUBLE: a huge count can't overflow
@@ -2605,6 +2605,15 @@ def _repeat(node: exp.Repeat | exp.Space) -> None:
         call = exp.Repeat(this=text, times=whole) if text is not None else exp.Space(this=whole)
         return exp.Case(ifs=ifs, default=call) if ifs else call
     node.replace(_once([count, node.this if replicate else None], build))
+
+
+def _known_within(text: exp.Expression, n: exp.Expression, national: bool, most: int) -> bool:
+    """A literal input repeated a literal number of times, within the limit: no check at run time is needed."""
+    literal = text.this if isinstance(text, exp.National) else text
+    if not (isinstance(literal, exp.Literal) and literal.is_string and _whole(n, 0)):
+        return False
+    size = len(literal.name) if national else len(literal.name.encode("utf-8"))
+    return size * int(n.name) <= most
 
 
 def _charindex(node: exp.StrPosition) -> None:

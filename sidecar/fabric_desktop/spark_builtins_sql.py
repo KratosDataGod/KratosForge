@@ -157,6 +157,24 @@ _SUBSTRING_INDEX = (
     "ELSE ARRAY_TO_STRING(LIST_SLICE(STRING_SPLIT(fj_arg0, fj_arg1), "
     "GREATEST(LEN(STRING_SPLIT(fj_arg0, fj_arg1)) + fj_arg2 + 1, 1), LEN(STRING_SPLIT(fj_arg0, fj_arg1))), fj_arg1) END")
 
+# A delimiter that can overlap itself ('aa' in 'aaa'): Spark looks for the next one from the character after
+# the last one found, so each is counted, from the left for n > 0 and the right for n < 0.
+_SUBSTRING_INDEX_OVERLAP = (
+    "CASE WHEN fj_arg0 IS NULL OR fj_arg1 IS NULL OR fj_arg2 IS NULL THEN NULL "
+    "WHEN fj_arg2 = 0 OR fj_arg1 = '' THEN '' ELSE (LIST_TRANSFORM([LIST_FILTER(RANGE(1, LENGTH(fj_arg0) - "
+    "LENGTH(fj_arg1) + 2), kf_i -> SUBSTRING(fj_arg0, kf_i, LENGTH(fj_arg1)) = fj_arg1)], kf_p -> "
+    "CASE WHEN LEN(kf_p) < ABS(fj_arg2) THEN fj_arg0 WHEN fj_arg2 > 0 THEN LEFT(fj_arg0, LIST_EXTRACT(kf_p, fj_arg2) - 1) "
+    "ELSE SUBSTRING(fj_arg0, LIST_EXTRACT(kf_p, LEN(kf_p) + fj_arg2 + 1) + LENGTH(fj_arg1)) END))[1] END")
+
+
+def _substring_index(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression:
+    delimiter = node.args["delimiter"]
+    plain = isinstance(delimiter, exp.Literal) and delimiter.is_string and not any(
+        delimiter.name[:k] == delimiter.name[-k:] for k in range(1, len(delimiter.name)))
+    return _with_args(_SUBSTRING_INDEX if plain else _SUBSTRING_INDEX_OVERLAP,
+                      [node.this, delimiter, node.args["count"]])
+
+
 _FIND_IN_SET = ("CASE WHEN fj_arg0 IS NULL OR fj_arg1 IS NULL THEN NULL WHEN STRPOS(fj_arg0, ',') > 0 THEN 0 "
                 "ELSE COALESCE(LIST_POSITION(STRING_SPLIT(fj_arg1, ','), fj_arg0), 0) END")
 
@@ -262,6 +280,10 @@ def _java_text(a: str) -> str:
     """Java's String.valueOf of a value, as %s prints it (a double as Java writes it)."""
     return (f"(CASE WHEN TYPEOF({a}) = 'DOUBLE' THEN {java_double_text(f'TRY_CAST({a} AS DOUBLE)')} "
             f"WHEN TYPEOF({a}) = 'FLOAT' THEN {java_double_text(f'TRY_CAST({a} AS FLOAT)')} "
+            # Spark writes these its own way ([1,2], no spaces); DuckDB's text of them differs
+            f"WHEN TYPEOF({a}) LIKE '%]' OR TYPEOF({a}) LIKE 'STRUCT(%' OR TYPEOF({a}) LIKE 'MAP(%' "
+            f"THEN CAST(ERROR('An array, map or struct isn''t written as text here as Spark writes it, so nothing "
+            f"ran on this PC. Cast it to string in Fabric, or run the cell there.') AS VARCHAR) "
             f"ELSE CAST({a} AS VARCHAR) END)")
 
 
@@ -310,8 +332,9 @@ def _initcap(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression
     if delimiter is not None and not (isinstance(delimiter, exp.Literal) and delimiter.is_string
                                       and delimiter.name == " "):
         return None
-    return _with_args("ARRAY_TO_STRING(LIST_TRANSFORM(STRING_SPLIT(LOWER(" + spark_text_arg("fj_arg0", "initcap")
-                      + "), ' '), kf_w -> UPPER(LEFT(kf_w, 1)) || SUBSTRING(kf_w, 2)), ' ')", [node.this])
+    first = f"CASE LEFT(kf_w, 1) {_title_whens()} ELSE UPPER(LEFT(kf_w, 1)) END"
+    return _with_args("ARRAY_TO_STRING(LIST_TRANSFORM(STRING_SPLIT(" + _lower_sql(spark_text_arg("fj_arg0", "initcap"))
+                      + f", ' '), kf_w -> {first} || SUBSTRING(kf_w, 2)), ' ')", [node.this])
 
 
 # levenshtein counts character edits in Spark (UTF8String.levenshteinDistance); DuckDB's LEVENSHTEIN counts
@@ -344,10 +367,137 @@ def _levenshtein(node: exp.Expression, args: list[exp.Expression]) -> exp.Expres
                       "WHEN kf_v <= fj_arg1 THEN kf_v ELSE -1 END))[1]", [distance, threshold])
 
 
+@functools.cache
+def _full_upper() -> dict[str, str]:
+    """The characters whose upper case is more than one character (Unicode's SpecialCasing, as Java's
+    toUpperCase gives it: ß is SS); DuckDB's UPPER maps each character to one."""
+    return {c: c.upper() for c in map(chr, range(0x80, 0x20000)) if len(c.upper()) > 1}
+
+
+def _upper(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """upper(str) as Java's toUpperCase: the characters of _full_upper become their full upper case. TEXT is
+    checked for them first, so other text takes DuckDB's UPPER as it is."""
+    table = _full_upper()
+    whens = " ".join(f"WHEN {_sql_text(c)} THEN {_sql_text(u)}" for c, u in table.items())
+    special = _sql_text("[" + "".join(table) + "]")
+    return _with_args(f"(LIST_TRANSFORM([{spark_text_arg('fj_arg0', 'upper')}], kf_u -> CASE WHEN "
+                      f"REGEXP_MATCHES(kf_u, {special}) THEN ARRAY_TO_STRING(LIST_TRANSFORM(STRING_SPLIT(kf_u, ''), "
+                      f"kf_c -> CASE kf_c {whens} ELSE UPPER(kf_c) END), '') ELSE UPPER(kf_u) END))[1]", [node.this])
+
+
+# Java's toLowerCase: İ is i and a combining dot, and a capital sigma that ends a word (a cased letter before
+# it, none after) is the final ς, as Unicode's SpecialCasing says. DuckDB's LOWER gave i and σ.
+_CASED = r"\p{Lu}\p{Ll}\p{Lt}"
+_FINAL_SIGMA = f"([{_CASED}]\\p{{M}}*)Σ($|[^{_CASED}\\p{{M}}])"
+
+
+def _lower_sql(text: str) -> str:
+    return (f"(LIST_TRANSFORM([{text}], kf_l -> CASE WHEN REGEXP_MATCHES(kf_l, '[İΣ]') THEN "
+            f"LOWER(REPLACE(REGEXP_REPLACE(kf_l, {_sql_text(_FINAL_SIGMA)}, '\\1ς\\2', 'g'), 'İ', 'i̇')) "
+            f"ELSE LOWER(kf_l) END))[1]")
+
+
+def _lower(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    return _with_args(_lower_sql(spark_text_arg("fj_arg0", "lower")), [node.this])
+
+
+@functools.cache
+def _title_whens() -> str:
+    """CASE branches for the characters whose title case (Java's Character.toTitleCase, a character's own
+    simple mapping) isn't DuckDB's UPPER of it: ß stays ß, dž is ǅ, Georgian letters stay as they are."""
+    def title(c: str) -> str:
+        t, u = c.title(), c.upper()
+        return t if len(t) == 1 else u if len(u) == 1 else c
+    chars = [c for c in map(chr, range(0x80, 0x20000)) if not 0xD800 <= ord(c) <= 0xDFFF]
+    upper = dict(zip(chars, _duckdb_upper(chars), strict=True))
+    return " ".join(f"WHEN {_sql_text(c)} THEN {_sql_text(title(c))}" for c in chars if title(c) != upper[c])
+
+
+def _duckdb_upper(chars: list[str]) -> list[str]:
+    import duckdb
+    return [row[0] for row in duckdb.connect().execute("SELECT UPPER(UNNEST(?))", [chars]).fetchall()]
+
+
+def _array_join(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """array_join(array, delimiter[, null_replacement]) as Spark's: NULL when any argument is NULL, NULL
+    elements skipped (or replaced), and '' for an array with nothing left; elements are written as Spark
+    casts them to text. DuckDB's ARRAY_TO_STRING ignored a NULL delimiter and gave NULL for [NULL, NULL]."""
+    replacement = node.args.get("null")
+    text = _java_text("kf_e")
+    if replacement is None:
+        parts = f"LIST_FILTER(LIST_TRANSFORM(fj_arg0, kf_e -> {text}), kf_s -> kf_s IS NOT NULL)"
+        return _with_args(f"CASE WHEN fj_arg0 IS NULL OR fj_arg1 IS NULL THEN NULL "
+                          f"ELSE COALESCE(ARRAY_TO_STRING({parts}, fj_arg1), '') END", [node.this, node.expression])
+    parts = f"LIST_TRANSFORM(fj_arg0, kf_e -> COALESCE({text}, fj_arg2))"
+    return _with_args(f"CASE WHEN fj_arg0 IS NULL OR fj_arg1 IS NULL OR fj_arg2 IS NULL THEN NULL "
+                      f"ELSE COALESCE(ARRAY_TO_STRING({parts}, fj_arg1), '') END", [node.this, node.expression, replacement])
+
+
+# array_insert(array, pos, value) as Spark 3.5's: a position past the end pads with NULLs, and a negative one
+# counts from the end, -1 being after the last element, padding at the front past the start. 0 is an error.
+_ARRAY_INSERT = (
+    "(LIST_TRANSFORM([{'p': CAST(fj_arg1 AS BIGINT), 'n': CAST(LEN(fj_arg0) AS BIGINT)}], kf_q -> "
+    "CASE WHEN fj_arg0 IS NULL OR kf_q.p IS NULL THEN NULL "
+    "WHEN kf_q.p = 0 THEN ERROR('[INVALID_INDEX_OF_ZERO] The index 0 is invalid. An index shall be either < 0 or > 0 "
+    "(the first element has index 1).') "
+    "WHEN kf_q.p > kf_q.n + 1 THEN LIST_CONCAT(fj_arg0, LIST_TRANSFORM(RANGE(kf_q.p - kf_q.n - 1), "
+    "kf_i -> CASE WHEN FALSE THEN fj_arg2 END), [fj_arg2]) "
+    "WHEN kf_q.p > 0 THEN LIST_CONCAT(LIST_SLICE(fj_arg0, 1, kf_q.p - 1), [fj_arg2], LIST_SLICE(fj_arg0, kf_q.p, kf_q.n)) "
+    "WHEN kf_q.n + kf_q.p + 1 >= 0 THEN LIST_CONCAT(LIST_SLICE(fj_arg0, 1, kf_q.n + kf_q.p + 1), [fj_arg2], "
+    "LIST_SLICE(fj_arg0, kf_q.n + kf_q.p + 2, kf_q.n)) "
+    "ELSE LIST_CONCAT([fj_arg2], LIST_TRANSFORM(RANGE(-(kf_q.n + kf_q.p + 1)), kf_i -> CASE WHEN FALSE THEN fj_arg2 END), "
+    "fj_arg0) END))[1]")
+
+
+def _array_insert(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    if isinstance(node.args["position"], exp.Null):
+        raise ValueError("array_insert() needs an INT position, as in Spark, where a bare NULL has no type: "
+                         "[DATATYPE_MISMATCH.UNEXPECTED_INPUT_TYPE]. Write CAST(NULL AS INT).")
+    return _with_args(_ARRAY_INSERT, [node.this, node.args["position"], node.expression])
+
+
+def _strposition(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """locate(substr, str, pos) and instr: an empty substr is found at 1 from any start of 1 or more, as
+    Spark's UTF8String.indexOf has it (DuckDB found it at the start). Otherwise as instr."""
+    _text_this("instr")(node, args)
+    start = node.args.get("position")
+    find = node.args.get("substr")
+    if start is None or find is None or (isinstance(find, exp.Literal) and find.is_string and find.name):
+        return None
+    return _with_args("CASE WHEN fj_arg0 = '' AND fj_arg1 >= 1 THEN 1 ELSE fj_arg2 END", [find, start, node.copy()])
+
+
+def _concat_ws(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """concat_ws(sep) alone is '' (NULL for a NULL sep), as in Spark; DuckDB's needs a value to join."""
+    if len(node.expressions) != 1:
+        return None
+    return _with_args("CASE WHEN fj_arg0 IS NULL THEN NULL ELSE '' END", [node.expressions[0]])
+
+
+def _contains(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """contains with a bare NULL is NULL, as in Spark; DuckDB couldn't choose which contains was meant."""
+    for key in ("this", "expression"):
+        if isinstance(node.args.get(key), exp.Null):
+            node.set(key, exp.cast(exp.null(), "VARCHAR"))
+    return None
+
+
+def _empty_match(pattern: str) -> bool:
+    try:
+        return re.search(pattern, "") is not None
+    except re.error:  # silent-ok: not Python's syntax, so left to DuckDB as before
+        return False
+
+
 def _split(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
     """split(str, regex, limit), as Spark's: with a limit above 0, at most that many parts, the last holding
     the rest of the text (as spark_compat.split); 0 or less splits at every match."""
     _text_this("split")(node, args)
+    pattern = node.expression
+    if isinstance(pattern, exp.Literal) and pattern.is_string and pattern.this and _empty_match(pattern.this):
+        raise ValueError(f"split() can't run on this PC with a pattern that can match empty text ({pattern.this!r}), so "
+                         "nothing ran: Java and this PC split around an empty match differently. Use a pattern that "
+                         "always matches a character, or run the cell in Fabric.")
     limit = node.args.get("limit")
     if limit is None:
         return None
@@ -969,11 +1119,17 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         # Spark casts a number, boolean or date to text where these take text (upper(14) = '14'). Not initcap:
         # sqlglot writes its DuckDB SQL by reading the argument back, which this one can't be.
         *((name, _text_this(fn)) for name, fn in (
-            ("Upper", "upper"), ("Lower", "lower"), ("Trim", "trim"), ("Ascii", "ascii"),
-            ("Length", "length"), ("StrPosition", "instr"),
+            ("Trim", "trim"), ("Ascii", "ascii"), ("Length", "length"),
             ("Translate", "translate"), ("RegexpReplace", "regexp_replace"), ("Left", "left"), ("Right", "right"),
             ("Repeat", "repeat"), ("Pad", "lpad"))),
         ("RegexpSplit", _split),
+        ("Upper", _upper),
+        ("Lower", _lower),
+        ("StrPosition", _strposition),
+        ("ArrayToString", _array_join),
+        ("ArrayInsert", _array_insert),
+        ("ConcatWs", _concat_ws),
+        ("Contains", _contains),
         ("Replace", _replace),
         # base64 takes bytes, and text as its UTF-8 bytes; any other type is refused, as in Spark
         ("ToBase64", _template("TO_BASE64(CASE WHEN TYPEOF(fj_arg0) = 'BLOB' THEN CAST(fj_arg0 AS BLOB) "
@@ -1014,7 +1170,7 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("Rint", _template("ROUND_EVEN(CAST(fj_arg0 AS DOUBLE), 0)", 1)),
         ("Sign", _sign),
         ("Stack", _stack),
-        ("SubstringIndex", lambda n, a: _with_args(_SUBSTRING_INDEX, [n.this, n.args["delimiter"], n.args["count"]])),
+        ("SubstringIndex", _substring_index),
         ("SafeAdd", _template("TRY(fj_arg0 + fj_arg1)", 2)),
         ("SafeSubtract", _template("TRY(fj_arg0 - fj_arg1)", 2)),
         ("SafeMultiply", _template("TRY(fj_arg0 * fj_arg1)", 2)),

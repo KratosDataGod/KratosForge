@@ -42,7 +42,7 @@ def test_a_read_too_big_for_memory_says_both_sizes(monkeypatch):
     with pytest.raises(ValueError) as err:
         delta_read.arrow(table)
     assert "uses deletion vectors, so it is read whole" in str(err.value)
-    assert "files hold 2000.0 GB, more than 1000 GB." in str(err.value)
+    assert "files hold 2000.00 GB, more than 1000 GB." in str(err.value)
 
 
 def test_some_columns_of_a_table_with_deletion_vectors(tmp_path):

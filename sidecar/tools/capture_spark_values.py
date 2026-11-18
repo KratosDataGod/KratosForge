@@ -1,7 +1,8 @@
 """Capture Spark 3.5's answers to hand-written queries, one fixture per case file, for the value tests.
 
-Each line of tools/spark_value_cases/<name>.txt is one query (lines starting with # are notes). Spark
-answers each, and tests/fixtures/spark_3_5_3_<name>.json keeps the rows as spark_coverage.rows_value
+Each line of tools/spark_value_cases/<name>.txt is one query (lines starting with # are notes, and a line
+"@tz <zone>" sets spark.sql.session.timeZone for the queries after it; a case run in a zone other than UTC
+records it as "tz"). Spark answers each, and tests/fixtures/spark_3_5_3_<name>.json keeps the rows as spark_coverage.rows_value
 gives them, or the first line of Spark's error. A test then asks this PC's Spark session (a notebook's
 spark.sql) the same query.
 
@@ -27,9 +28,16 @@ coverage = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
 spec.loader.exec_module(coverage)  # type: ignore[union-attr]  # no engine imports needed
 
 
-def queries(name: str) -> list[str]:
-    lines = (CASES / f"{name}.txt").read_text(encoding="utf-8").splitlines()
-    return list(dict.fromkeys(q.strip() for q in lines if q.strip() and not q.lstrip().startswith("#")))
+def queries(name: str) -> list[tuple[str, str]]:
+    """(time zone, query) for each case, in order, each once."""
+    out, zone = [], "UTC"
+    for line in (CASES / f"{name}.txt").read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith("@tz "):
+            zone = line[4:].strip()
+        elif line and not line.startswith("#"):
+            out.append((zone, line))
+    return list(dict.fromkeys(out))
 
 
 def main(names: list[str]) -> None:
@@ -40,11 +48,14 @@ def main(names: list[str]) -> None:
     spark.sparkContext.setLogLevel("ERROR")
     for name in names:
         cases = []
-        for q in queries(name):
+        for zone, q in queries(name):
+            spark.conf.set("spark.sql.session.timeZone", zone)
+            case = {"sql": q, **({"tz": zone} if zone != "UTC" else {})}
             try:
-                cases.append({"sql": q, "value": coverage.rows_value(spark.sql(q).collect())})
+                cases.append({**case, "value": coverage.rows_value(spark.sql(q).collect())})
             except Exception as exc:  # noqa: BLE001 - silent-ok: Spark's own refusal is the recorded answer
-                cases.append({"sql": q, "error": (str(exc).strip().splitlines() or [type(exc).__name__])[0][:300]})
+                cases.append({**case, "error": (str(exc).strip().splitlines() or [type(exc).__name__])[0][:300]})
+        spark.conf.set("spark.sql.session.timeZone", "UTC")
         out = ROOT / "tests" / "fixtures" / f"spark_3_5_3_{name}.json"
         out.write_text(json.dumps({"spark": spark.version, "ansi": False, "time_zone": "UTC", "cases": cases},
                                   indent=1, ensure_ascii=False) + "\n", encoding="utf-8")

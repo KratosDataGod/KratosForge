@@ -81,7 +81,7 @@ When a page or panel couldn't load something, the error shows in place with **Re
 
 | What you see | What it means | What to do |
 | --- | --- | --- |
-| "This notebook only runs in Fabric" | A cell uses something the PC doesn't have: RDDs, UDFs, streaming, Scala or R, or SQL MERGE/UPDATE/DELETE. The note names the cell. | Rewrite that cell, or set **Runs on** to Fabric. |
+| "This notebook only runs in Fabric" | A cell uses something this PC's Spark doesn't have: RDDs or `sparkContext`, a Java UDF, a continuous stream or one from Kafka, Event Hubs or a socket, a Fabric-only `notebookutils` call, Scala or R, or a SQL MERGE, UPDATE or DELETE into another lakehouse (or with Preview features off). The note names the cell. | Rewrite that cell, or set **Runs on** to Fabric. |
 | "This notebook can't run in Fabric yet" | No lakehouse is attached, or a cell reads a path on your PC like `C:\data`. | Attach a lakehouse, or read the file from the lakehouse's `Files`. |
 | A `%pip install` line is skipped | The engine's packages are fixed. | Use the packages the engine has (Polars, DuckDB, pandas, pyarrow, deltalake and more), or run the notebook in Fabric. |
 | Writing a table says it is managed by the framework | The table belongs to a metadata entity. | Change the entity instead, or write to a `scratch_` table. |

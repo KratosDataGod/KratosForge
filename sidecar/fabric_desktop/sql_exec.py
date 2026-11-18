@@ -889,7 +889,7 @@ class SqlExecutions:
         limit = int(limit or self._limits()["sql_page_rows"])
         limit = max(1, min(limit, app_settings.SQL_RANGES["sql_page_rows"][1]))
         part_of = {"part": res.part} if res.part is not None else {}
-        filters = [f for f in filters or [] if str(f.get("text") or "").strip()]
+        filters = [f for f in sql_view.entries(filters, "filter") if str(f.get("text") or "").strip()]
         if sort or filters:
             sql_view.check_size(res.rows, "Sorting and filtering")
             rows, total = sql_view.view_page(_whole(res.path, res.rows), max(0, int(offset)), limit, sort, filters)

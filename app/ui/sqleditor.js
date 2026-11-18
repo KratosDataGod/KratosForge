@@ -585,7 +585,15 @@ function sqlRowsAs(format, columns, rows, { dialect = "spark", table = "results"
     }
     return out.join("\n");
   }
-  return [names, ...rows.map((r) => r.map(cell))].map((l) => l.join("\t")).join("\n");
+  return sqlTsv([names, ...rows.map((r) => r.map(cell))]);
+}
+
+// Lines of tab-separated fields, as spreadsheets paste them: a field holding a tab or a line break, or starting
+// with a quote, is quoted, its quotes doubled, so it stays one cell. A single field is left as it is.
+function sqlTsv(lines) {
+  if (lines.length === 1 && lines[0].length === 1) return lines[0][0];
+  const field = (t) => (/[\t\r\n]/.test(t) || t.startsWith('"') ? `"${t.replace(/"/g, '""')}"` : t);
+  return lines.map((l) => l.map(field).join("\t")).join("\n");
 }
 
 // The dotted name under the cursor, as its parts (["dbo", "usp_load"]), or null. Go to definition reads it

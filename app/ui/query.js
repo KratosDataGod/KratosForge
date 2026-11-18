@@ -761,7 +761,7 @@ function renderQuery() {
   }
   // Columns...: show, hide and reorder the grid's columns; the dialog's list follows each change.
   function columnsDialog() {
-    if (tab.result?.columns.length) sqlColumnsDialog(tab.result.columns, sqlGridState(tab), drawResults);
+    if (tab.result?.columns.length) sqlColumnsDialog(tab.result.columns, () => sqlGridState(tab), drawResults);
   }
   function openValue(at) {
     sqlGridState(tab).side = { kind: "value", at };

@@ -196,7 +196,10 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
 
 def _spark_range(statement: exp.Expression) -> exp.Expression:
     """FROM range(...): Spark's column is ``id``, DuckDB's is ``range``. A fourth argument (Spark's number
-    of partitions) changes no values, so it is left out. Written last, so the cast stays a plain cast."""
+    of partitions) changes no values, so it is left out. Written last, so the cast stays a plain cast. A
+    query that reads a column named ``range`` (written for DuckDB's range, which Spark stops on) keeps it."""
+    if any(c.name.lower() == "range" for c in statement.find_all(exp.Column)):
+        return statement
     for table in list(statement.find_all(exp.Table)):
         call = table.this
         if not (isinstance(call, exp.Anonymous) and call.name.upper() == "RANGE" and 1 <= len(call.expressions) <= 4):

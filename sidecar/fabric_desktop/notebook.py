@@ -2439,7 +2439,21 @@ def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
             md["fabric_desktop"]["charts"] = charts
     if meta.get("fabric_step"):  # the last cell runs on Fabric Spark (fabric_step.py)
         md.setdefault("fabric_desktop", {})["run_on"] = "fabric"
+    breakpoints = breakpoints_meta(meta.get("breakpoints"))
+    if breakpoints:  # the debugger's breakpoints (debugger.py), kept with the cell
+        md.setdefault("fabric_desktop", {})["breakpoints"] = breakpoints
     return md
+
+
+def breakpoints_meta(value: Any) -> list[int]:
+    """A cell's saved breakpoints: line numbers, 1 or more, sorted, at most MAX_BREAKPOINTS.
+    Anything else (a file another tool edited by hand) is dropped rather than refused, so the
+    notebook still opens."""
+    from .debugger import MAX_BREAKPOINTS
+    if not isinstance(value, list):
+        return []
+    lines = {n for n in value if isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= 1_000_000}
+    return sorted(lines)[:MAX_BREAKPOINTS]
 
 
 _HEADING_COLLAPSED = "jp-MarkdownHeadingCollapsed"
@@ -2491,6 +2505,9 @@ def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
         meta["charts"] = charts
     if own.get("run_on") == "fabric":
         meta["fabric_step"] = True
+    breakpoints = breakpoints_meta(own.get("breakpoints"))
+    if breakpoints:
+        meta["breakpoints"] = breakpoints
     return meta
 
 
@@ -2557,7 +2574,7 @@ def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[s
             else:
                 del keep[key]
     if isinstance(keep.get("fabric_desktop"), dict) and keep["fabric_desktop"]:
-        rest = {k: v for k, v in keep["fabric_desktop"].items() if k not in ("chart", "charts", "run_on")}
+        rest = {k: v for k, v in keep["fabric_desktop"].items() if k not in ("chart", "charts", "run_on", "breakpoints")}
         if rest:
             keep["fabric_desktop"] = rest
         else:
@@ -2806,10 +2823,12 @@ def _write_atomic(path: Path, text: str) -> None:
 
 
 def disk_stamp(nb: dict[str, Any]) -> str:
-    """A short hash of a saved notebook's cells (type and source), so a save can tell whether the
-    file was changed since the app read it, by VS Code or any other program. Metadata is left out:
-    the app's own metadata writes (comments, inputs, proofs) don't count as a change."""
-    cells = [[c["type"], c["source"]] for c in from_ipynb(nb)["cells"]]
+    """A short hash of a saved notebook's cells (type, source, and the cell settings the app reads,
+    such as a parameters tag), so a save can tell whether the file was changed since the app read it,
+    by VS Code or any other program. The rest is left out: the app's own notebook-level writes
+    (comments, inputs, proofs) and the outputs another tool saved don't count as a change."""
+    cells = [[c["type"], c["source"], c["meta"]] if c.get("meta") else [c["type"], c["source"]]
+             for c in from_ipynb(nb)["cells"]]
     return hashlib.sha256(json.dumps(cells, ensure_ascii=False).encode("utf-8")).hexdigest()[:32]
 
 

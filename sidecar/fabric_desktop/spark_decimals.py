@@ -88,7 +88,7 @@ def _operands(node: exp.Expr) -> list[Any]:
 _KEY = "kf_decimal"
 # The rewrite's lambda parameters. DuckDB takes a column of the same name before a lambda parameter, so a
 # statement that can see a column of either name is left as it was.
-_LAMBDAS = ("kf_decv", "kf_decn")
+_LAMBDAS = ("kf_decv", "kf_decn", "kf_decsum")
 
 
 def _adjust(precision: int, scale: int) -> tuple[int, int]:
@@ -174,6 +174,23 @@ def _divide(dividend: str, divisor: str, s1: int, s2: int, precision: int, scale
             f"THEN NULL WHEN ABS(kf_decn.n) < {limit}::HUGEINT THEN {exact} ELSE {rough} END))[1]))[1]")
 
 
+# Spark's error for a decimal sum (or an average's) past its type with ANSI mode on, which Databricks SQL runs
+# with (Sum's CheckOverflowInSum); with ANSI off, as Fabric runs Spark, it is NULL.
+SUM_OVERFLOW = ("[ARITHMETIC_OVERFLOW] Overflow in sum of decimals. If necessary set ansi_mode to false to bypass "
+                "this error.")
+
+
+def _summed(value: str, total: tuple[int, int], ansi: bool) -> str:
+    """``value`` (a sum, at the decimal's scale) as decimal ``total``: NULL when its whole part has more
+    digits than the type holds, or with ``ansi`` an error. DuckDB's own sum can hold such a value in a
+    DECIMAL(38) without complaint, so the digits are counted."""
+    whole = total[0] - total[1]
+    over = "NULL" if not ansi else f"ERROR({exp.Literal.string(SUM_OVERFLOW).sql('duckdb')})"
+    return (f"(LIST_TRANSFORM([{value}], kf_decsum -> CASE WHEN kf_decsum IS NULL THEN NULL "
+            f"WHEN length(regexp_extract(CAST(kf_decsum AS VARCHAR), '^-?([0-9]*)', 1)) <= {whole} "
+            f"THEN TRY_CAST(kf_decsum AS DECIMAL({total[0]}, {total[1]})) ELSE {over} END))[1]")
+
+
 def _wrapper(node: exp.Expr) -> exp.Expr:
     """The aggregate with the FILTER and OVER clauses around it, which a rewrite keeps."""
     top = node
@@ -204,7 +221,7 @@ def _schema(conn: Any) -> MappingSchema:
     return MappingSchema(cast(dict[str, object], tables), dialect="duckdb", normalize=False)
 
 
-def spark_decimal_types(statement: exp.Expr, conn: Any) -> exp.Expr:
+def spark_decimal_types(statement: exp.Expr, conn: Any, ansi: bool = False) -> exp.Expr:
     """``statement`` with Spark's decimal result types (see the module docstring). Its tables must be
     bound to the connection's views already. A statement whose types can't be worked out is returned
     as it was."""
@@ -219,7 +236,7 @@ def spark_decimal_types(statement: exp.Expr, conn: Any) -> exp.Expr:
         names = _output_names(statement, conn, targets)
         if names is None:
             return statement
-        root = _retype(statement, targets, schema)
+        root = _retype(statement, targets, schema, ansi)
     except Exception as exc:  # noqa: BLE001 - a type fix only: any failure runs the statement unchanged; logged
         # Only a type fix: a statement sqlglot can't type runs with DuckDB's types, as before, and says so.
         log.info("Spark decimal types not applied: %s: %s", type(exc).__name__, exc)
@@ -275,7 +292,7 @@ def spark_decimal_columns(expressions: list[str], columns: list[tuple[str, str]]
     return out
 
 
-def _retype(statement: exp.Expr, targets: list[Any], schema: MappingSchema) -> exp.Expr:
+def _retype(statement: exp.Expr, targets: list[Any], schema: MappingSchema, ansi: bool = False) -> exp.Expr:
     """``statement`` with each of ``targets`` (its arithmetic and sums) given Spark's decimal type, typed
     against ``schema``. Raises when sqlglot can't qualify or type it."""
     marked = 0
@@ -309,7 +326,7 @@ def _retype(statement: exp.Expr, targets: list[Any], schema: MappingSchema) -> e
     root = statement
     # Innermost first, so an operand that is itself rewritten has its Spark type.
     for node in reversed(targets):
-        replacement = _rewrite(node, typed, annotated, written.get(id(node)) or _operands(node))
+        replacement = _rewrite(node, typed, annotated, written.get(id(node)) or _operands(node), ansi)
         if replacement is None:
             continue
         top = replacement[1]
@@ -372,7 +389,7 @@ def _output_names(statement: exp.Expr, conn: Any, targets: list[Any]
 
 
 def _rewrite(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]], annotated: dict[int, exp.Expr],
-             operands: list[Any]) -> tuple[exp.Expr, exp.Expr, tuple[int, int] | tuple[str, int]] | None:
+             operands: list[Any], ansi: bool = False) -> tuple[exp.Expr, exp.Expr, tuple[int, int] | tuple[str, int]] | None:
     if isinstance(node, _AGGREGATES):
         argument = node.this
         bare = argument.expressions[0] if isinstance(argument, exp.Distinct) and len(argument.expressions) == 1 \
@@ -384,12 +401,11 @@ def _rewrite(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]]
         top = _wrapper(node)
         total = (min(MAX, p + 10), s)
         if isinstance(node, exp.Sum):
-            text = f"TRY_CAST(fj_arg0 AS DECIMAL({total[0]}, {total[1]}))"
-            return _with_args(text, [top]), top, total
+            return _with_args(_summed("fj_arg0", total, ansi), [top]), top, total
         result = (min(MAX, p + 4), min(MAX, s + 4))
         summed = _rewrap(top, node, exp.Sum(this=argument.copy()))
         counted = _rewrap(top, node, exp.Count(this=argument.copy()))
-        mean = _divide(f"TRY_CAST(fj_arg0 AS DECIMAL({total[0]}, {total[1]}))", "fj_arg1", s, 0, *result)
+        mean = _divide(_summed("fj_arg0", total, ansi), "fj_arg1", s, 0, *result)
         if mean is None:
             return None
         return _with_args(mean, [summed, counted]), top, result

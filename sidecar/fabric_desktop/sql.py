@@ -183,6 +183,7 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     statement = spark_builtins_sql.mark(statement)
     if databricks:
         _mark_divisions(statement)
+    statement = _try_divisions(statement)
     statement = _spark_date_results(statement, ansi=databricks)
     statement = _spark_timestampdiff(spark_builtins_sql.rewrite(
         _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_concat_text(_spark_cast_functions(spark_strings.spark_text_results(spark_aggregates.spark_aggregate_results(spark_complex.mark_calls(_spark_names(spark_windows.check_windows(statement)))))))))))),
@@ -192,8 +193,9 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
 
 
 def _null_remainders(statement: exp.Expression) -> exp.Expression:
-    """a % 0 is NULL with ANSI mode off, as / and div are; DuckDB 2.0 stops on it instead."""
-    for node in list(statement.find_all(exp.Mod)):
+    """a % 0 and a div 0 are NULL with ANSI mode off, as / is; DuckDB 2.0 stops on them instead."""
+    # Deepest first: a guarded divisor is copied, so a division inside it must be guarded before the copy.
+    for node in reversed(list(statement.find_all(exp.Mod, exp.IntDiv))):
         divisor = node.expression
         if not (isinstance(divisor, exp.Literal) and divisor.is_number and float(divisor.name) != 0):
             node.set("expression", exp.Nullif(this=divisor.copy(), expression=exp.Literal.number(0)))
@@ -206,6 +208,19 @@ _DIVIDE_BY_ZERO = ("[DIVIDE_BY_ZERO] Division by zero. Use `try_divide` to toler
                    "instead. If necessary set ansi_mode to false to bypass this error.")
 _DIVISIONS = (exp.Div, exp.IntDiv, exp.Mod)
 _USER_DIVISION = "kf_user_division"
+
+
+def _try_divisions(statement: exp.Expression) -> exp.Expression:
+    """try_divide(a, b) as a division NULL for a zero divisor, typed as ``/`` is (spark_decimals reads through
+    the CASE): a decimal for decimals, as in Spark. sqlglot's own form hides the division from that typing."""
+    holder = exp.Tuple(expressions=[statement])  # so the statement itself can be replaced
+    for node in list(statement.find_all(exp.SafeDivide)):
+        guard = _with_args("CASE WHEN fj_arg0 = 0 THEN NULL END", [node.expression.copy()])
+        new = exp.Case(ifs=guard.args["ifs"], default=exp.Div(this=node.this, expression=node.expression))
+        new.meta.update(spark_sql_names.kept(node))
+        new.meta[spark_decimals.ZERO_GUARD] = True
+        node.replace(new)
+    return cast(exp.Expression, holder.expressions[0])
 
 
 def _mark_divisions(statement: exp.Expression) -> None:
@@ -254,6 +269,14 @@ _NEXT_DAY = ("CAST(TRY_CAST(fj_arg0 AS DATE) + TO_DAYS(CAST((((CASE UPPER(CAST(f
              + " END) - ISODOW(TRY_CAST(fj_arg0 AS DATE)) + 6) % 7) + 1 AS INTEGER)) AS DATE)")
 
 
+# make_date of a month or day that doesn't exist is NULL. The parts are checked rather than the call wrapped in
+# TRY, which DuckDB 2.0 refuses around anything volatile, such as the ERROR() of a Spark cast; each part is
+# read once, and the nested CASE keeps MAKE_DATE from seeing a month outside 1 to 12.
+_MAKE_DATE = ("(LIST_TRANSFORM([{'y': CAST(fj_arg0 AS BIGINT), 'm': CAST(fj_arg1 AS BIGINT), 'd': CAST(fj_arg2 AS BIGINT)}], "
+              "kf_md -> CASE WHEN kf_md.m BETWEEN 1 AND 12 AND kf_md.d >= 1 THEN CASE WHEN kf_md.d <= "
+              "DAYOFMONTH(LAST_DAY(MAKE_DATE(kf_md.y, kf_md.m, 1))) THEN MAKE_DATE(kf_md.y, kf_md.m, kf_md.d) END END))[1]")
+
+
 def _spark_date_results(statement: exp.Expression, ansi: bool) -> exp.Expression:
     """Spark's result types and NULLs for its date and time functions (WR-106). year, month, day,
     dayofyear, weekofyear, dayofweek, quarter, hour, minute, second, datediff and unix_date are an
@@ -286,8 +309,7 @@ def _spark_date_results(statement: exp.Expression, ansi: bool) -> exp.Expression
                 if isinstance(unit, (exp.Literal, exp.Var)) and unit.name.upper() not in allowed and node is not statement:
                     wrap(node, "CAST(NULL AS DATE)" if trunc else "CAST(NULL AS TIMESTAMPTZ)", [])
             elif node.name.upper() == "MAKE_DATE" and len(node.expressions) == 3 and node is not statement:
-                wrap(node, "TRY(MAKE_DATE(CAST(fj_arg0 AS BIGINT), CAST(fj_arg1 AS BIGINT), CAST(fj_arg2 AS BIGINT)))",
-                     list(node.expressions))
+                wrap(node, _MAKE_DATE, list(node.expressions))
     ints = [cast(exp.Expression, n) for n in statement.find_all(*_SPARK_INTS, exp.Anonymous)
             if not isinstance(n, exp.Anonymous) or n.name.upper() == "WEEKDAY"]
     for node in ints:

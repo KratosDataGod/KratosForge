@@ -364,7 +364,8 @@ class DuckDBSession(_SqlSession):
         try:
             # Spark's (and Databricks') decimal result types, from the session's tables as they are now: a
             # table the same cell creates isn't there yet, so a statement reading it keeps DuckDB's types
-            return ";\n".join(sql.duckdb_sql(spark_decimal_types(s, self._con)) for s in statements)
+            return ";\n".join(sql.duckdb_sql(spark_decimal_types(s, self._con, ansi=dialect == "databricks"))
+                               for s in statements)
         except ValueError as exc:
             raise Unsupported(_databricks_wording(str(exc)) if dialect == "databricks" else str(exc)) from None
 

@@ -85,6 +85,25 @@ def test_sql_cell_result_is_the_cell_result_and_sqldf():
     assert read["reads"] == [] and read["uses"] == ["_sqldf"]
 
 
+def test_sqldf_is_left_alone_when_qualified_or_in_a_comment_and_a_result_has_one_view():
+    from fabric_desktop import notebook
+
+    class Frame:
+        def __init__(self):
+            self.views = []
+
+        def createOrReplaceTempView(self, name):  # noqa: N802 - the Spark name
+            self.views.append(name)
+    frame = Frame()
+    namespace = {"_sqldf": frame}
+    query = notebook._with_sqldf("SELECT * FROM mydb._sqldf -- _sqldf\n/* _sqldf */ JOIN _sqldf", namespace)
+    view = frame.views[0]
+    assert query == f"SELECT * FROM mydb._sqldf -- _sqldf\n/* _sqldf */ JOIN {view}"
+    assert notebook._with_sqldf("SELECT * FROM _sqldf", namespace) == f"SELECT * FROM {view}"
+    assert frame.views == [view]  # the same result is read through the view it already has
+    assert notebook._with_sqldf("SELECT 1 /* _sqldf never closed", namespace) == "SELECT 1 /* _sqldf never closed"
+
+
 # ---- %python in a notebook whose default language isn't Python. "commands of the previous default
 # language are automatically prefixed with a language magic command" (notebooks-code).
 

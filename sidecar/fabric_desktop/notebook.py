@@ -77,8 +77,10 @@ _ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_
 _SECRET_NAME = re.compile(r"(pass(word)?|pwd|secret|token|key|credential)", re.I)
 # The last SQL cell's result, which Databricks' later SQL cells can read by name
 # (https://docs.databricks.com/aws/en/notebooks/notebooks-code). Quoted strings are matched only to
-# be skipped, so the text '_sqldf' in a string stays as written.
-_SQLDF = re.compile(r"""'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|(?<![\w`])(?P<name>`_sqldf`|_sqldf)(?!\w)""", re.IGNORECASE)
+# be skipped, so the text '_sqldf' in a string or a comment stays as written, and so does a qualified
+# name (mydb._sqldf), which is a table of that name.
+_SQLDF = re.compile(r"""'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|--[^\n]*|/\*.*?(?:\*/|\Z)|"""
+                    r"""(?<![\w`.])(?P<name>`_sqldf`|_sqldf)(?!\w)""", re.IGNORECASE | re.DOTALL)
 _SQLDF_VIEWS = itertools.count(1)
 
 
@@ -89,8 +91,14 @@ def _with_sqldf(query: str, namespace: dict[str, Any]) -> str:
     frame: Any = namespace.get("_sqldf")
     if not hasattr(frame, "createOrReplaceTempView") or not any(m["name"] for m in _SQLDF.finditer(query)):
         return query
-    view = f"_sqldf_{next(_SQLDF_VIEWS)}"
-    frame.createOrReplaceTempView(view)
+    # one view for each result read, not each read: a later cell reading the same _sqldf takes its view
+    seen = namespace.get("__kf_sqldf_view")
+    if isinstance(seen, tuple) and seen[0] is frame:
+        view = seen[1]
+    else:
+        view = f"_sqldf_{next(_SQLDF_VIEWS)}"
+        frame.createOrReplaceTempView(view)
+        namespace["__kf_sqldf_view"] = (frame, view)
     return _SQLDF.sub(lambda m: view if m["name"] else m.group(0), query)
 
 

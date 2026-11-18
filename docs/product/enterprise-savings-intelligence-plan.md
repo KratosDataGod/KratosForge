@@ -394,7 +394,7 @@ rules in `calibration.py` (additive).
   measurement row (the old row stays).
 - Tests: scenario 13, baseline version change (12).
 
-**ESI-202 Overhead per execution.** Data transfer seconds and bytes, sync overhead, and any
+**ESI-202 Overhead per execution.** **Built** (engine only, no writes). `savings/overhead.py`. Data transfer seconds and bytes, sync overhead, and any
 OneLake operations, as separate measurements; Unknown where not measured.
 
 **ESI-203 Execution ledger accruals.** Gross, overhead and net CU avoided per execution as

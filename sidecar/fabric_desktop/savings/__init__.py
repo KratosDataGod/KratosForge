@@ -9,6 +9,11 @@ benefit, a projection that is always Estimated and never written (ESI-304).
 ``pricing``: versioned pricing scenarios and the capacity value of avoided CU under one, priced at
 the version in effect when each run happened; always a Scenario figure, never savings (ESI-401).
 
+``overhead``: what one run on a PC still cost (transfer seconds, bytes, OneLake read and write
+operations, and its share of the sync that carried it), one measurement per figure, Unknown where
+not recorded, and the Fabric CU overhead the waterfall subtracts for net: Unknown unless a measured
+or estimated CU figure is supplied, since nothing on a PC measures it (ESI-202).
+
 Pure: nothing here reads or writes a lakehouse, Fabric or this PC. Figures come in and go out as
 ``measurement.py`` measurements.
 """

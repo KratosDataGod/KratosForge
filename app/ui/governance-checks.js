@@ -117,6 +117,11 @@ async function governanceCheckTab(body, fresh = null) {
       h("p", { class: "muted-text" }, "Open a metadata project to check it against its policies.")), govBestPracticeHow()));
     return;
   }
+  // Explain beside semantic model findings (GD-07): the rule guides and team notes, read once (learn.js).
+  if (r && previewShown()) {
+    await learnPrepareFindings([], () => "");
+    if (!stillHere("governance") || govPage.view !== "check") return;
+  }
   const n = r?.counts?.to_look_at || 0;
   const head = h("div", { class: "card pad bp-check-head" },
     h("div", { class: "row" }, h("h2", { class: "grow bp-summary" }, r ? `${last.project}: ${n ? `${n} to look at` : "nothing to look at"}` : `${last.project}: not checked yet`), run),
@@ -124,13 +129,13 @@ async function governanceCheckTab(body, fresh = null) {
       : h("p", { class: "muted-text small" }, "Check now runs the policies in force for this project on this PC. Check now stops nothing. A promote stops on a finding of a Block policy that no exception covers."),
     r?.counts?.unknown ? h("p", { class: "wrn-text small" }, `${r.counts.unknown} couldn't be checked: what they need isn't recorded. Each says why.`) : null,
     ...(r?.problems || []).map((x) => h("p", { class: "wrn-text small" }, x)));
-  const list = r ? r.policies.map((p) => bpPolicyCard(p, last.project, () => run.click())) : [];
+  const list = r ? r.policies.map((p) => bpPolicyCard(p, last.project, () => run.click(), () => rerender(r))) : [];
   body.replaceChildren(govViewNav(body), withHowItWorks(h("div", {}, head,
     r && !r.policies.length ? h("p", { class: "muted-text card pad" }, "No policy is in force for this project. Assign one on Policies, or add it in governance.toml.") : null,
     ...list), govBestPracticeHow()));
 }
 
-function bpPolicyCard(p, project, recheck) {
+function bpPolicyCard(p, project, recheck, redraw = () => {}) {
   const enforcement = govPill(GOV_ENFORCEMENT, p.enforcement);
   const head = (mark, extra) => h("div", { class: "row tight" }, mark, h("b", {}, p.name), " ", enforcement, extra ? h("span", { class: "muted-text small" }, extra) : null);
   if (p.status === "pass") {
@@ -152,8 +157,16 @@ function bpPolicyCard(p, project, recheck) {
       h("span", { class: "mono small" }, f.object), " ", f.description, " ",
       h("span", { class: "muted-text small" }, `${f.rule} · ${f.severity}`),
       f.excepted ? h("div", { class: "wrn-text small bp-excepted" }, f.excepted) : null,
-      !f.excepted && f.fix ? h("div", {}, bpFix(f.fix, recheck)) : null))),
+      !f.excepted && f.fix ? h("div", {}, bpFix(f.fix, recheck)) : null,
+      bpExplain(f, p, redraw)))),
     ...bpNotRun(p));
+}
+
+// Explain under a semantic model finding (GD-07, learn.js), at the person's guidance level: the rule's
+// guide and any team note. Check now lists what the project's policies require, so nothing is dismissed.
+function bpExplain(f, p, redraw) {
+  if (f.outcome === "unknown" || !/^SM\d{3}$/.test(f.rule_id || "") || !learnGuides[f.rule_id] || learnMode() === "expert") return null;
+  return learnFindingActions(f, { where: `check:${p.id}:${f.object}`, required: () => true, noDismiss: true, redraw });
 }
 
 function bpNotRun(p) {

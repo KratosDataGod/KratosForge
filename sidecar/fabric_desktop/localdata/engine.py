@@ -49,6 +49,7 @@ from .projects import Project, ProjectStore
 from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
 from ..redact import describe
 from ..sql import KfDuckDB, refuse_spark_hashes
+from .. import trees
 
 _REFRESH_EVERY = 2.0  # seconds between automatic looks for changed files
 DIALECTS = ("duckdb", "spark", "tsql")
@@ -1264,10 +1265,10 @@ class LocalEngine:
                 source, names, stream = self._merge_source(con, c, current, source_table, name)
             if dry_run:
                 with self._shadow(folder) as copy:
-                    out.update(delta_dml.apply(c, DeltaTable(str(copy)), source, names, props))
+                    out.update(delta_dml.apply(c, DeltaTable(str(copy)), source, names, props, one_match_checked=True))
                     out["version"] = DeltaTable(str(copy)).version()  # what a real run would commit
                 return out
-            out.update(delta_dml.apply(c, current, source, names, props))
+            out.update(delta_dml.apply(c, current, source, names, props, one_match_checked=True))
         except BaseException as exc:
             if state["cancelled"] or state["timed_out"]:
                 raise duckdb.InterruptException("cancelled") from None
@@ -1300,20 +1301,11 @@ class LocalEngine:
         query = c.source_sql(KfDuckDB)
         _only_reads(con, query)
         con.execute(f"CREATE TEMP TABLE {q(source_table)} AS {query}")
-        keys = delta_dml.equi_keys(c)
-        if keys and c.on is not None and any(w.match == "matched" for w in c.whens):
-            # Spark refuses a MERGE in which one row of the table matches two source rows: which
-            # one would update it is undefined. Checked here for ON t.a = s.a [AND ...].
-            group = ", ".join(f"{q(c.source_alias)}.{q(s_col)}" for _t, s_col in keys)
-            duplicate = first_row(con.execute(
-                f"SELECT {group} FROM temp.{q(source_table)} AS {q(c.source_alias)} WHERE EXISTS (SELECT 1 FROM "
-                f"{q(c.schema or 'dbo')}.{q(c.table)} AS {q(c.alias)} WHERE {delta._duckdb(c.on)}) "
-                f"GROUP BY {group} HAVING count(*) > 1 LIMIT 1"))
-            if duplicate is not None:
-                raise ValueError(f"More than one source row matches the same row of {name} (source key "
-                                 f"{', '.join(str(v) for v in duplicate)}), so which one updates it is undefined. "
-                                 "Keep one source row per key, for example with QUALIFY row_number() OVER "
-                                 "(PARTITION BY key ORDER BY ...) = 1.")
+        if delta_dml.needs_one_match(c) and c.on is not None:
+            detail = delta_dml.multiple_match(con, c, f"{q(c.schema or 'dbo')}.{q(c.table)}",
+                                              f"temp.{q(source_table)}", delta._duckdb(c.on))
+            if detail is not None:
+                raise delta_dml.multiple_match_error(name, detail)
         reader = arrow_reader(for_arrow(con, f"SELECT * FROM temp.{q(source_table)}"), _WRITE_BATCH)
         cased = {f.name.lower(): f.name for f in current.schema().fields}
         safe = delta.fabric_schema(reader.schema, names=False)
@@ -1716,7 +1708,7 @@ def _remove_tree(folder: Path, tables_dir: Path) -> None:
     if folder.parent.parent != root:
         raise ValueError(f"{folder} isn't a table folder of this project, so it wasn't deleted.")
     if folder.is_dir():
-        shutil.rmtree(folder)
+        trees.remove(folder)
 
 
 def _in_script(exc: Exception, i: int, n: int, kind: str) -> Exception:

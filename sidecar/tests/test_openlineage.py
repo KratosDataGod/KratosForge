@@ -616,3 +616,10 @@ def test_an_unreadable_start_is_left_out_with_why(svc, started):
 def test_secrets_with_a_prefixed_key_or_in_a_driver_query_are_removed(value):
     out = openlineage.safe_origin(value)
     assert "WPWLEAK" not in out, out
+
+
+def test_a_long_value_is_cleaned_in_linear_time():
+    import time
+    start = time.perf_counter()
+    openlineage.safe_origin("a_" * 5000)  # redact.py has slow patterns of its own on longer text
+    assert time.perf_counter() - start < 1.0

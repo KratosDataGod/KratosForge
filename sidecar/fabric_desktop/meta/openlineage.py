@@ -38,7 +38,7 @@ _TRANSFORM = {"source": ("DIRECT", "IDENTITY"), "derived": ("DIRECT", "TRANSFORM
 _STORAGE_SCHEMES = {"abfs", "abfss", "wasb", "wasbs"}
 _FILE_URL = re.compile(r"(?i)^file:")
 _DRIVE = re.compile(r"^[A-Za-z]:")
-_EMAIL = re.compile(r"[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")
+_EMAIL = re.compile(r"[A-Za-z0-9._%+\-#]{1,64}@[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]+)+")
 # A literal in an expression is read as a path only when it plainly is one (C:\\..., \\\\server, /home/..., ~/...)
 # and has none of a pattern's special characters ('..\\d+' is a regex, not a path).
 _TEXT_PATH = re.compile(r"^(?:[A-Za-z]:[\w .-]*[\\/]|\\\\|/[\w.-]+/|~[\\/]|\.\.[\\/])")
@@ -54,7 +54,7 @@ _PATH_PARAMS = re.compile(r";[^/]*")
 # A secret's key may carry a prefix (wallet_password, oracle.net.wallet_password, private_key_pwd), so the key
 # starts after anything but a letter or digit, and any key ending in password, pwd, secret, token or key counts.
 _USER_KEY = re.compile(r"(?i)(?<![A-Za-z0-9])(user\s*id|user\s*name|username|user|uid"
-                       r"|[\w.]*(?:password|passwd|pwd|secret|token|key|sharedaccesssignature))(\s*=\s*)(?:\{(?:[^}]|\}\})*\}|\"(?:[^\"]|\"\")*\"|'(?:[^']|'')*'|[^;\r\n]+)")
+                       r"|[\w.]{0,64}(?:password|passwd|pwd|secret|token|key|sharedaccesssignature))(\s*=\s*)(?:\{(?:[^}]|\}\})*\}|\"(?:[^\"]|\"\")*\"|'(?:[^']|'')*'|[^;\r\n]+)")
 # jdbc:oracle:thin:scott/tiger@host:1521:orcl carries the user and password before the @.
 _ORACLE_USER = re.compile(r"(?i)(\bjdbc:oracle:\w+:)[^@\s;,]+@")
 # The URL inside a jdbc: one (jdbc:postgresql://...) has user info of its own, before an @.

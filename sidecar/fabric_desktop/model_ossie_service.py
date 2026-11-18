@@ -46,9 +46,13 @@ MAX_DEPTH = 8  # definition/tables/x.tmdl is two deep; Power BI projects never g
 MAX_FILES = 20_000
 
 
-def _tmdl_files(top: Path, depth: int = 0, found: list[Path] | None = None) -> list[Path]:
-    """The .tmdl files under ``top``, never going into a link or junction, at most MAX_DEPTH folders down and
-    MAX_FILES files (a folder that holds more isn't a semantic model)."""
+_SAVED = (".tmdl", ".pbism", ".json")  # the files Save TMDL writes, and so may remove
+
+
+def _tmdl_files(top: Path, depth: int = 0, found: list[Path] | None = None,
+                suffixes: tuple[str, ...] = (".tmdl",)) -> list[Path]:
+    """The .tmdl files (or files ending in one of ``suffixes``) under ``top``, never going into a link or junction,
+    at most MAX_DEPTH folders down and MAX_FILES files (a folder that holds more isn't a semantic model)."""
     found = [] if found is None else found
     if depth > MAX_DEPTH:
         raise ValueError(f"{top.name} is nested too deeply to be a semantic model folder. Pick the model's own folder.")
@@ -56,8 +60,8 @@ def _tmdl_files(top: Path, depth: int = 0, found: list[Path] | None = None) -> l
         for e in entries:
             here = Path(e.path)
             if _real(here, stat.S_ISDIR):
-                _tmdl_files(here, depth + 1, found)
-            elif e.name.endswith(".tmdl") and _real(here, stat.S_ISREG):
+                _tmdl_files(here, depth + 1, found, suffixes)
+            elif e.name.endswith(suffixes) and _real(here, stat.S_ISREG):
                 found.append(here)
                 if len(found) > MAX_FILES:
                     raise ValueError(f"There are more than {MAX_FILES} TMDL files here, so this isn't one semantic model. Pick the model's own folder.")
@@ -77,6 +81,30 @@ def _no_links(root: Path, target: Path) -> None:
         here = here / part
         if os.path.lexists(here) and not _real(here, stat.S_ISDIR):
             raise ValueError(f"{here.relative_to(root).as_posix()} is a link, a junction or a file, so nothing is written there")
+
+
+def _file_key(rel: str) -> str:
+    """One key for every spelling of a file name that is one file on Windows: NTFS ignores case (but not Unicode
+    normalisation, so NFC and NFD names stay two files). A file already there under another case is written in
+    place, under its own name, so Git doesn't see a rename, and it is never taken for a stale file."""
+    return rel.casefold()
+
+
+def _by_key(folder: Path, files: list[Path]) -> dict[str, list[Path]]:
+    """``files`` (under ``folder``) grouped by ``_file_key`` of their path in ``folder``."""
+    out: dict[str, list[Path]] = {}
+    for f in sorted(files):
+        out.setdefault(_file_key(f.relative_to(folder).as_posix()), []).append(f)
+    return out
+
+
+def _in_place(folder: Path, rel: str, existing: dict[str, list[Path]]) -> Path:
+    """Where ``rel`` is written in ``folder``: the file already there under another spelling of its name if there
+    is one (Windows would write into it anyway), so it keeps its name and isn't removed as stale."""
+    path = folder.joinpath(*PurePosixPath(rel).parts)
+    same = existing.get(_file_key(PurePosixPath(rel).as_posix())) or []
+    # Compared as text: WindowsPath equality ignores case, which would pick the new spelling instead.
+    return path if not same or any(str(p) == str(path) for p in same) else same[0]
 
 
 def _same_text(path: Path, content: str) -> bool:
@@ -296,16 +324,33 @@ class ModelOssieMixin:
         if not parts:
             raise RuntimeError(f"Fabric returned no definition for {name}")
         folder = Path(project.root, FOLDER, f"{_SAFE.sub('_', name).strip() or 'model'}.SemanticModel")
-        written = []
-        for path, content in parts.items():
+        for path in parts:
             rel = PurePosixPath(path)
             if rel.is_absolute() or ".." in rel.parts:
                 raise ValueError(f"Fabric returned an unexpected part path: {path}")
-            write_text(folder.joinpath(*rel.parts), content)
-            written.append(folder.joinpath(*rel.parts))
+        root = Path(project.root)
+        _no_links(root, folder)
+        # Never through a link or junction (rglob walks into a Windows junction), so nothing outside is ever removed.
+        existing = _by_key(folder, _tmdl_files(folder, suffixes=_SAVED) if _real(folder, stat.S_ISDIR) else [])
+        targets = {}
+        for path, content in parts.items():  # every target is checked before anything is written
+            target = _in_place(folder, path, existing)  # never removed below as stale under another spelling
+            _no_links(root, target.parent)
+            if os.path.lexists(target) and not _real(target, stat.S_ISREG):
+                raise ValueError(f"{target.relative_to(root).as_posix()} is a link or a folder, so it isn't overwritten")
+            if not target.resolve().is_relative_to(folder.resolve()):
+                raise ValueError(f"Fabric returned a part outside the model's folder: {path}")
+            targets[target] = content
+        written = []
+        for target, content in targets.items():
+            write_text(target, content)
+            written.append(target)
         removed = []
-        for old in sorted(folder.rglob("*")):
-            if old.is_file() and old not in written and old.suffix in (".tmdl", ".pbism", ".json"):
+        for old in sorted(f for group in existing.values() for f in group):
+            if old in written:
+                continue
+            _no_links(root, old.parent)  # checked again just before the unlink
+            if _real(old, stat.S_ISREG) and old.resolve().is_relative_to(folder.resolve()):
                 old.unlink()
                 removed.append(old.relative_to(project.root).as_posix())
         return {"folder": folder.relative_to(project.root).as_posix(), "files": len(written), "removed": removed}
@@ -344,15 +389,16 @@ class ModelOssieMixin:
         report = report + [r for r in written if not r["object"].startswith("culture ")]
         files["definition.pbism"] = json.dumps({"version": "4.0", "settings": {}}, indent=2) + "\n"
         targets = {}
+        existing = _by_key(folder, _tmdl_files(definition) if _real(definition, stat.S_ISDIR) else [])
         for rel, content in files.items():
-            path = folder.joinpath(*PurePosixPath(rel).parts)
+            path = _in_place(folder, rel, existing)
             _no_links(root, path.parent)
             if os.path.lexists(path) and not _real(path, stat.S_ISREG):
                 raise ValueError(f"{path.relative_to(root).as_posix()} is a link or a folder, so it isn't overwritten")
             if not path.resolve().is_relative_to(folder.resolve()):  # never outside the model's folder
                 raise ValueError(f"{rel} would be written outside {folder.relative_to(root).as_posix()}, so nothing was written.")
             targets[path] = content
-        stale = sorted(f for f in (_tmdl_files(definition) if _real(definition, stat.S_ISDIR) else [])
+        stale = sorted(f for group in existing.values() for f in group  # by key: see _in_place
                        if f not in targets and f.relative_to(definition).parts[0] != "cultures")
         status = {p: ("same" if _same_text(p, c) else "changed") if _real(p, stat.S_ISREG) else "new" for p, c in targets.items()}
         unchanged = sum(1 for v in status.values() if v == "same")

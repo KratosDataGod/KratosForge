@@ -4,6 +4,7 @@ import base64
 import copy
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -551,3 +552,79 @@ def test_an_ossie_file_over_tmdl_already_in_the_project_is_an_update(svc):
     assert again["unchanged"] == len(again["files"]) and again["removed"] == []
     assert {f["change"] for f in again["file_changes"]} == {"same"}
     assert done["counts"] == again["counts"]
+
+
+def test_tmdl_save_writes_a_file_named_in_another_case_in_place_and_never_removes_it(svc):
+    """Windows names ignore case: writing fact_sales.tmdl over FACT_Sales.tmdl and then removing FACT_Sales.tmdl as
+    stale would delete the file just written."""
+    tables = svc._project().root / "semantic" / "SM_Gold.SemanticModel" / "definition" / "tables"
+    tables.mkdir(parents=True)
+    old = tables / "FACT_Sales.tmdl"
+    old.write_text("table fact_sales\n\t// old\n")
+    out = svc.meta_model_tmdl_save("test", "SM_Gold")
+    assert out["removed"] == []
+    assert old.read_text() == "table fact_sales\n"
+    assert sorted(p.name for p in tables.iterdir()) == ["FACT_Sales.tmdl"]
+
+
+def test_tmdl_save_never_writes_through_a_link_inside_the_model_folder(svc, tmp_path):
+    folder = svc._project().root / "semantic" / "SM_Gold.SemanticModel"
+    (folder / "definition").mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "fact_sales.tmdl").write_text("not yours\n")
+    try:
+        (folder / "definition" / "tables").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("this system can't make links")
+    with pytest.raises(ValueError, match="is a link, a junction or a file"):
+        svc.meta_model_tmdl_save("test", "SM_Gold")
+    assert (outside / "fact_sales.tmdl").read_text() == "not yours\n"
+    assert not (folder / "definition" / "model.tmdl").exists()  # checked before anything is written
+
+
+def test_ossie_to_tmdl_writes_a_file_named_in_another_case_in_place(svc):
+    root = Path(svc._project().root)
+    tables = root / "semantic" / "orders.SemanticModel" / "definition" / "tables"
+    tables.mkdir(parents=True)
+    upper = tables / "FACT_SALES.tmdl"
+    upper.write_text("table fact_sales\n", encoding="utf-8")
+    plan = svc.meta_model_ossie_to_tmdl(_ossie())["confirm"]
+    rel = "semantic/orders.SemanticModel/definition/tables/FACT_SALES.tmdl"
+    assert plan["removed"] == [] and rel in plan["files"]
+    assert not any(f.endswith("/fact_sales.tmdl") for f in plan["files"])
+    svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token=plan["token"])
+    names = {p.name for p in tables.iterdir()}
+    assert "FACT_SALES.tmdl" in names and "fact_sales.tmdl" not in names
+    assert upper.read_text(encoding="utf-8").startswith("table fact_sales")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="on NTFS the two spellings are one file")
+def test_two_spellings_of_one_name_keep_the_one_written_and_remove_the_other(svc):
+    """On a case-sensitive file system both can exist; only one is written, so the other is still stale."""
+    root = Path(svc._project().root)
+    tables = root / "semantic" / "orders.SemanticModel" / "definition" / "tables"
+    tables.mkdir(parents=True)
+    (tables / "FACT_SALES.tmdl").write_text("table fact_sales\n", encoding="utf-8")
+    (tables / "fact_sales.tmdl").write_text("table fact_sales\n", encoding="utf-8")
+    plan = svc.meta_model_ossie_to_tmdl(_ossie())["confirm"]
+    assert "semantic/orders.SemanticModel/definition/tables/fact_sales.tmdl" in plan["files"]
+    assert plan["removed"] == ["semantic/orders.SemanticModel/definition/tables/FACT_SALES.tmdl"]
+
+
+def test_tmdl_save_never_removes_a_stale_file_behind_a_link(svc, tmp_path):
+    """A link (on Windows, a junction) inside the model folder that no part writes through: the walk never goes
+    into it, so nothing outside the project is removed as stale."""
+    definition = svc._project().root / "semantic" / "SM_Gold.SemanticModel" / "definition"
+    definition.mkdir(parents=True)
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    for name in ("old.tmdl", "x.json", "y.pbism"):
+        (outside / name).write_text("not yours\n")
+    try:
+        (definition / "old").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("this system can't make links")
+    out = svc.meta_model_tmdl_save("test", "SM_Gold")
+    assert out["removed"] == []
+    assert sorted(p.name for p in outside.iterdir()) == ["old.tmdl", "x.json", "y.pbism"]

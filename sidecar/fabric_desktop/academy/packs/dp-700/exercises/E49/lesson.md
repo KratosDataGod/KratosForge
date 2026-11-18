@@ -21,7 +21,7 @@ Your answer is the pipeline's JSON (`pipeline.json`), the same shape Fabric show
 ## What this run proves
 
 - Your repaired pipeline JSON ran on the local runner on this PC with the schedule's text parameter and looped over the three table names, trimmed.
-- Run again with a different list of tables, it loaded those instead, so the loop follows the parameter.
+- When it ran again with a different list of tables, it loaded those instead, so the loop follows the parameter.
 
 ## What it doesn't prove
 

@@ -28,7 +28,7 @@ Files are named the way [DaffyDB](https://www.nuget.org/packages/DaffyDB/) names
 | `sales/_delta_log/...` | `dbo.sales`, a Delta table at its current version |
 
 - Formats: Parquet, CSV and TSV, JSON (an array or one object per line: `.json`, `.jsonl`, `.ndjson`), and compressed CSV and JSON (`.gz`, `.zst`). Excel workbooks are found and listed, but can't be read yet.
-- Every line of a CSV file is read: the delimiter and the header are detected, but no line is skipped. When the first lines don't look like the rest (a title or notes above the header), they are kept in the table and the folder's issues say so. Remove them from the file to read it with its header.
+- A CSV file whose first lines are a title or notes, not its column names, reads as one column of whole lines, and the folder's issues name the file. No line of a file is left out without saying so. Remove those lines from the file, or save it without them, then refresh the project.
 - `dbo` is the default schema, as in Fabric: `orders` and `dbo.orders` are the same table, and `CREATE TABLE t` makes `dbo.t`.
 - With `naming = "flat"`, folders don't set the schema: `Sales/Customer.csv` is `dbo.Sales_Customer`. A different default schema, or a name for one file (`names = {"sales/2026.csv": "raw.sales_2026"}`), can be set per folder.
 - When two files would get the same name, Parquet wins over CSV and CSV over JSON, and the other file is listed as a conflict. A file never replaces a table or view you created.

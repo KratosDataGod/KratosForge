@@ -16,6 +16,7 @@ DuckDB) and tests/test_snowflake_sql.py keeps one test per probe row.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import re
 import warnings
@@ -679,6 +680,147 @@ def _rewrite_time(statement: exp.Expression) -> None:
         if _zoned(value):  # DuckDB has no TIMESTAMPTZ -> TIME cast; TIMESTAMP is the session zone's local time
             value = exp.Cast(this=value, to=exp.DataType.build("TIMESTAMP"))
         node.replace(exp.Cast(this=value, to=exp.DataType.build("TIME")))
+
+
+_WEEKDAYS = {"mo": "monday", "tu": "tuesday", "we": "wednesday", "th": "thursday", "fr": "friday", "sa": "saturday",
+             "su": "sunday"}
+_MONTHS = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
+# TIME_SLICE counts slices from 1970-01-01 (weeks from Monday 1969-12-29, the start of the week holding it);
+# DuckDB's TIME_BUCKET counts from 2000-01-03 for days and shorter and from 2000-01-01 for months, so the
+# offset moves its origin back to Snowflake's.
+_SLICE_UNITS = {"SECOND": ("SECOND", 1, "-10959 days"), "MINUTE": ("MINUTE", 1, "-10959 days"),
+                "HOUR": ("HOUR", 1, "-10959 days"), "DAY": ("DAY", 1, "-10959 days"),
+                "WEEK": ("WEEK", 1, "-10962 days"), "MONTH": ("MONTH", 1, "-360 months"),
+                "QUARTER": ("MONTH", 3, "-360 months"), "YEAR": ("MONTH", 12, "-360 months")}
+
+
+def _auto_date(text: str) -> dt.date | None:
+    """A date in one of the AUTO input formats DuckDB's cast doesn't read: MM/DD/YYYY and DD-MON-YYYY
+    (date-time-input-output). None for any other text, or a date that doesn't exist."""
+    try:
+        if m := re.fullmatch(r"\s*(\d{1,2})/(\d{1,2})/(\d{4})\s*", text):
+            return dt.date(int(m[3]), int(m[1]), int(m[2]))
+        if (m := re.fullmatch(r"\s*(\d{1,2})-([A-Za-z]{3})-(\d{4})\s*", text)) and m[2].upper() in _MONTHS:
+            return dt.date(int(m[3]), _MONTHS.index(m[2].upper()) + 1, int(m[1]))
+    except ValueError:
+        return None
+    return None
+
+
+def _epoch_date(text: str) -> dt.date | None:
+    """TO_DATE of a string holding a whole number: seconds, milliseconds, microseconds or nanoseconds by its
+    size, as TO_TIMESTAMP reads it (SFX-022), then the date."""
+    if not re.fullmatch(r"-?\d+", text.strip()):
+        return None
+    number = int(text)
+    scale = next(s for limit, s in ((31536000000, 0), (31536000000000, 3), (31536000000000000, 6), (None, 9))
+                 if limit is None or number < limit)
+    try:
+        return (dt.datetime(1970, 1, 1) + dt.timedelta(microseconds=number * 10 ** 6 // 10 ** scale)).date()
+    except OverflowError:
+        return None
+
+
+def _date_literal(day: dt.date | None) -> exp.Expression:
+    return exp.cast(exp.Literal.string(day.isoformat()), "DATE") if day else exp.cast(exp.null(), "DATE")
+
+
+def _rewrite_documented_edges(statement: exp.Expression) -> None:
+    """SFX-026: where DuckDB's function answered differently from Snowflake's documented rule.
+
+    - REGEXP_SUBSTR is NULL when nothing matches ("returns NULL ... No match is found"); DuckDB's
+      REGEXP_EXTRACT gave ''.
+    - CEIL and FLOOR with a scale written as a whole number stay exact for a NUMBER: CEIL(17.94, 2) is 17.94.
+      DuckDB's rewrite went through FLOAT (17.94 * 100 is 1794.0000000000002) and gave 17.95.
+    - EDITDISTANCE with a negative maximum "uses 0 as the maximum distance and returns 0".
+    - NEXT_DAY and PREVIOUS_DAY read the first two letters of the day: "Any leading spaces and trailing
+      characters, including spaces, in the string are ignored."
+    - CONTAINS with a bare NULL is NULL (DuckDB couldn't choose which CONTAINS was meant).
+    - TIME_SLICE counts its slices from 1970-01-01, as "All slices are aligned relative to midnight January
+      1, 1970"; TIME_BUCKET counted them from 2000.
+    - TO_DATE and a cast to DATE of a string written in the query read MM/DD/YYYY and DD-MON-YYYY, and TO_DATE
+      of a whole number reads it as epoch seconds, milliseconds, microseconds or nanoseconds by its size.
+    Arguments may be worked out more than once, which matters only when they aren't deterministic."""
+    from .sql import _from_template
+    for found in reversed(list(statement.find_all(exp.RegexpExtract))):
+        if found.args.get("occurrence") is not None and not (isinstance(found.args["occurrence"], exp.Literal)
+                                                             and found.args["occurrence"].name == "1"):
+            continue  # a later occurrence is read from REGEXP_EXTRACT_ALL, which is NULL past the last match
+        subject = found.this
+        start = found.args.get("position")
+        if start is not None and not (isinstance(start, exp.Literal) and start.name == "1"):
+            subject = exp.Substring(this=subject.copy(), start=start.copy())
+        flags = found.args.get("parameters")
+        mode = "".join(c for c in flags.name if c in "ci") if isinstance(flags, exp.Literal) else ""
+        test = [subject.copy(), found.expression.copy()] + ([exp.Literal.string(mode)] if mode else [])
+        found.replace(exp.Case(ifs=[exp.If(this=exp.Anonymous(this="REGEXP_MATCHES", expressions=test),
+                                           true=found.copy())]))
+    for rounded in reversed(list(statement.find_all(exp.Ceil, exp.Floor))):
+        scale = rounded.args.get("decimals")
+        if scale is None:
+            continue
+        sign, places = (-1, scale.this) if isinstance(scale, exp.Neg) else (1, scale)
+        if not (isinstance(places, exp.Literal) and not places.is_string and places.name.isdigit()):
+            continue
+        k = sign * int(places.name)
+        whole = f"CAST(1{'0' * abs(k)} AS DECIMAL({abs(k) + 1}, 0))"
+        tenth = f"0.{'0' * (abs(k) - 1)}1"
+        up, down = (whole, tenth) if k >= 0 else (tenth, whole)
+        name = "CEIL" if isinstance(rounded, exp.Ceil) else "FLOOR"
+        # Multiplying by decimals keeps a NUMBER exact, and makes a whole number a NUMBER where DuckDB's CEIL of an
+        # integer gives a DOUBLE; a FLOAT stays a FLOAT, as in Snowflake.
+        rounded.replace(_from_template(f"({name}({{0}} * {up})" + (f" * {down})" if k else ")"), [rounded.this]))
+    for distance in list(statement.find_all(exp.Levenshtein)):
+        most = distance.args.get("max_dist")
+        if most is None or (isinstance(most, exp.Literal) and not most.is_string):
+            continue
+        if isinstance(most, exp.Neg) and isinstance(most.this, exp.Literal):
+            distance.set("max_dist", exp.Literal.number(0))
+            continue
+        distance.set("max_dist", _from_template("(CASE WHEN {0} < 0 THEN 0 ELSE {0} END)", [most]))
+    for day in list(statement.find_all(exp.NextDay, *([exp.PreviousDay] if hasattr(exp, "PreviousDay") else []))):
+        name = day.expression
+        if isinstance(name, exp.Literal) and name.is_string:
+            code = name.name.lstrip(" ")[:2].lower()
+            if code not in _WEEKDAYS:
+                raise _Untranslatable(_refuse("SFX-026", f"{_function_name(day)} day", "The day must start with "
+                                              "the first two letters of a day's name.", f"{_DOCS}/functions/next_day"))
+            day.set("expression", exp.Literal.string(_WEEKDAYS[code]))
+    for contains in list(statement.find_all(exp.Contains)):
+        for key in ("this", "expression"):
+            if isinstance(contains.args.get(key), exp.Null):
+                contains.set(key, exp.cast(exp.null(), "VARCHAR"))
+    for slice_ in list(statement.find_all(exp.TimeSlice)):
+        unit = slice_.args.get("unit")
+        size = slice_.expression
+        kind = slice_.args.get("kind")
+        if not (isinstance(unit, exp.Var) and unit.name.upper() in _SLICE_UNITS and isinstance(size, exp.Literal)
+                and not size.is_string and size.name.isdigit()):
+            continue
+        duck, times, offset = _SLICE_UNITS[unit.name.upper()]
+        width = f"INTERVAL {int(size.name) * times} {duck}"
+        end = isinstance(kind, exp.Literal) and kind.name.upper() == "END"
+        bucket = f"TIME_BUCKET({width}, {{0}}, INTERVAL '{offset}')"
+        if end:  # a DATE plus an INTERVAL is a TIMESTAMP in DuckDB; TIME_SLICE of a DATE is a DATE
+            bucket = f"CAST({bucket} + {width} AS DATE)" if _plainly_a_date(slice_.this) else f"{bucket} + {width}"
+        slice_.replace(_from_template(f"({bucket})", [slice_.this]))
+    for cast_ in list(statement.find_all(exp.Cast, exp.TryCast)):
+        value = cast_.this
+        if cast_.to.is_type(exp.DataType.Type.DATE) and isinstance(value, exp.Literal) and value.is_string \
+                and not re.fullmatch(r"\s*\d{4}-\d{1,2}-\d{1,2}.*", value.name):
+            read = _auto_date(value.name)
+            if read is not None or (isinstance(cast_, exp.TryCast) and re.fullmatch(r"\s*\d{1,2}[/-]\w+[/-]\d{4}\s*",
+                                                                                     value.name)):
+                cast_.replace(_date_literal(read))
+    for call in list(statement.find_all(exp.Anonymous)):
+        name = call.name.upper()
+        if name in ("TO_DATE", "TRY_TO_DATE", "DATE") and len(call.expressions) == 1:
+            value = call.expressions[0]
+            if isinstance(value, exp.Literal) and value.is_string and re.fullmatch(r"\s*-?\d+\s*", value.name):
+                epoch = _epoch_date(value.name)
+                if epoch is None and name != "TRY_TO_DATE":
+                    continue  # past the dates DuckDB holds: left to stop loudly
+                call.replace(_date_literal(epoch))
 
 
 def _rewrite_arrays(statement: exp.Expression) -> None:
@@ -1901,6 +2043,8 @@ CATALOG = (
                 "array, cast to text, is JSON text.")),
     ("SFX-024", "Rewritten", ("An ARRAY column or cast becomes a list of VARIANT values, so it holds what "
                 "ARRAY_CONSTRUCT makes and can read a JSON array. An OBJECT column or cast becomes JSON.")),
+    ("SFX-026", "Rewritten", ("REGEXP_SUBSTR is NULL when nothing matches. CEIL and FLOOR with a written scale stay exact for a NUM"
+                "BER. EDITDISTANCE with a negative maximum is 0. NEXT_DAY and PREVIOUS_DAY read the first two letters of the day, after any leading spaces. CONTAINS with NULL is NULL. TIME_SLICE counts slices from 1970-01-01 (weeks from Monday 1969-12-29). TO_DATE and a cast to DATE of a string written in the query read MM/DD/YYYY and DD-MON-YYYY, and TO_DATE of a whole number reads it as epoch seconds, milliseconds, microseconds or nanoseconds by its size.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -2009,6 +2153,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_events(tree)
         _rewrite_haversine(tree)
         _rewrite_approximate(tree)
+        _rewrite_documented_edges(tree)
         _rewrite_strings(tree)
         _rewrite_time(tree)
         _rewrite_timestamp_parts(tree)

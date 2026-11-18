@@ -28,7 +28,8 @@ DOCS = HERE.parents[1] / "docs" / "sql-compatibility.md"
 
 @dataclass(frozen=True)
 class Refused:
-    """Cases whose SQL matches ``pattern`` may be refused here, when the refusal's text matches ``says``;
+    """Cases whose SQL (after "@tz <zone> " for a case run in another session time zone) matches
+    ``pattern`` may be refused here, when the refusal's text matches ``says``;
     ``doc`` is the text docs/sql-compatibility.md lists it under."""
     name: str
     pattern: str
@@ -51,12 +52,17 @@ def outcome(spark: Any, case: dict[str, Any]) -> tuple[str, str]:
     """("same" | "wrong" | "error" | "refused" | "stopped", what this PC gave). "stopped": an error here where
     Spark errors too."""
     try:
+        if "tz" in case:  # the session time zone Spark answered in (UTC when there is none)
+            spark.conf.set("spark.sql.session.timeZone", case["tz"])
         got = spark_coverage.rows_value(spark.sql(case["sql"]).collect())
     except Exception as exc:  # noqa: BLE001 - silent-ok: every error is an outcome this test sorts
         first = (str(exc).strip().splitlines() or [type(exc).__name__])[0]
         if "error" in case:
             return "stopped", first
         return ("refused" if refusal(exc) else "error"), first
+    finally:
+        if "tz" in case:
+            spark.conf.unset("spark.sql.session.timeZone")
     if "error" in case:
         return "wrong", f"{json.dumps(got)} where Spark stops: {case['error']}"
     return ("same" if got == case["value"] else "wrong"), json.dumps(got, ensure_ascii=False)
@@ -71,7 +77,8 @@ def check(spark: Any, cases: list[dict[str, Any]], refused: list[Refused]) -> No
         kind, got = outcome(spark, case)
         if kind in ("same", "stopped"):
             continue
-        entry = next((r for r in refused if kind == "refused" and re.search(r.pattern, case["sql"])
+        written = (f"@tz {case['tz']} " if "tz" in case else "") + case["sql"]  # a pattern can name the zone
+        entry = next((r for r in refused if kind == "refused" and re.search(r.pattern, written)
                       and re.search(r.says, got)), None)
         if entry is None:
             want = case.get("error") or json.dumps(case.get("value"), ensure_ascii=False)

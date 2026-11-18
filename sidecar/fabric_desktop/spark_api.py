@@ -29,7 +29,7 @@ from typing import Any, cast
 
 import sqlglot
 from duckdb.experimental.spark.sql.dataframe import DataFrame
-from . import spark_builtins_sql
+from . import spark_builtins_sql, spark_time_zone
 from .duckdb_rows import first_row, one_row
 
 SPARK_VERSION = "3.5.0"  # the PySpark API this emulates, as in Fabric runtime 1.3
@@ -73,7 +73,9 @@ class LocalRuntimeConfig:
         if key.lower() == "spark.sql.sources.partitionoverwritemode" and text.strip().lower() not in ("static", "dynamic"):
             raise ValueError(f"partitionOverwriteMode is static or dynamic, not {text!r}.")
         if key == "spark.sql.session.timeZone":
-            self._session.conn.execute("SET TimeZone = ?", [text])  # fails, with DuckDB's reason, for an unknown zone
+            # fails, with DuckDB's reason, for an unknown zone; current_timezone() gives the id as it was set
+            self._session.conn.execute("SET TimeZone = ?", [spark_time_zone.zone_id(text)])
+            self._session.conn.execute("SET VARIABLE kf_spark_time_zone = ?", [text])
         if key.lower() == "spark.sql.ansi.enabled" and text.strip().lower() == "true":
             print(ANSI_NOTE)
         self._set[key] = text
@@ -90,6 +92,7 @@ class LocalRuntimeConfig:
     def unset(self, key: str) -> None:
         if key == "spark.sql.session.timeZone" and key in self._set:
             self._session.conn.execute("SET TimeZone = 'UTC'")
+            self._session.conn.execute("RESET VARIABLE kf_spark_time_zone")
         self._set.pop(key, None)
 
     @property

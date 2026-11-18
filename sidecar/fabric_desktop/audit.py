@@ -133,7 +133,7 @@ def target(params: dict[str, Any]) -> dict[str, Any]:
 # call when it is aimed at Prod (an env or target of "prod"); and any other call when it is given a
 # confirmation, an approval, a typed name, a risk-check acknowledgement or an override (a non-empty
 # value). An ordinary query or edit still runs as before when its line can't be written.
-FAIL_CLOSED = frozenset({"meta_promote", "meta_rollback", "meta_restore", "xray_vacuum", "shortcut_repoint",
+FAIL_CLOSED = frozenset({"meta_promote", "meta_rollback", "meta_restore", "xray_optimize", "xray_vacuum", "shortcut_repoint",
                          "shortcut_repoint_many", "shortcut_undo", "shortcut_accept_risk"})
 # Parameter names, matched exactly. test_audit lists every audited method's parameters that look like
 # one of these and fails on a name in neither set, so a new one is reviewed rather than missed.

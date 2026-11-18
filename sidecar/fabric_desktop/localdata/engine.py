@@ -49,6 +49,7 @@ from .projects import Project, ProjectStore
 from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
 from ..redact import describe
 from ..sql import KfDuckDB, refuse_spark_hashes
+from .. import trees
 
 _REFRESH_EVERY = 2.0  # seconds between automatic looks for changed files
 DIALECTS = ("duckdb", "spark", "tsql")
@@ -1707,7 +1708,7 @@ def _remove_tree(folder: Path, tables_dir: Path) -> None:
     if folder.parent.parent != root:
         raise ValueError(f"{folder} isn't a table folder of this project, so it wasn't deleted.")
     if folder.is_dir():
-        shutil.rmtree(folder)
+        trees.remove(folder)
 
 
 def _in_script(exc: Exception, i: int, n: int, kind: str) -> Exception:

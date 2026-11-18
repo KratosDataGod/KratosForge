@@ -32,6 +32,8 @@ INTEGRATIONS = Path(capabilities.__file__).parent
 READ_ONLY_CALLS_AUDITED = {
     ("fabric_desktop_verify_proof_table", "prove_verify"):
         "always passes save=False; only save=True writes a receipt, which is why the RPC audits it",
+    ("fabric_desktop_get_lineage", "meta_lineage"):
+        "reads the project's files only (meta/lineage.py) and writes nothing; it isn't in audit.READ_ONLY, so the app's own call is audited",
 }
 
 

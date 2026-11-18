@@ -218,8 +218,12 @@ def _statistics(tokens: list[Token], at: int, verb: str) -> tuple[int, str]:
         while i < len(tokens) and tokens[i].token_type != TokenType.SEMICOLON \
                 and tokens[i].text.upper() not in _STARTS:
             word = tokens[i].text.upper()
-            if word == "SAMPLE":
-                i += 3  # SAMPLE n PERCENT | ROWS
+            if word == "SAMPLE":  # SAMPLE n PERCENT | ROWS
+                if not (i + 2 < len(tokens) and tokens[i + 1].token_type == TokenType.NUMBER
+                        and tokens[i + 2].text.upper() in ("PERCENT", "ROWS")):
+                    raise ValueError(_NOT_YET + "SAMPLE in a statistics statement needs a number and PERCENT or "
+                                     "ROWS after it, such as WITH SAMPLE 20 PERCENT.")
+                i += 3
             elif word in ("FULLSCAN", ","):
                 i += 1
             else:

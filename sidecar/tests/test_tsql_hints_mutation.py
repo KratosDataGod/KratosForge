@@ -74,11 +74,11 @@ def test_a_statistics_statement_not_written_as_t_sql_has_it_is_refused_with_the_
     assert refused(engine, sql).startswith(says)
 
 
-@pytest.mark.xfail(strict=True, reason="WITH SAMPLE n with no PERCENT or ROWS at the end of the batch stops with "
-                                       "Python's 'list index out of range' instead of a message (batch 150)")
-@pytest.mark.parametrize("sql", ["CREATE STATISTICS st ON t (id) WITH SAMPLE 5", "UPDATE STATISTICS t WITH SAMPLE 5"])
-def test_a_sample_without_percent_is_refused_by_name(engine, sql):
-    assert refused(engine, sql).startswith(_NOT_YET)
+@pytest.mark.parametrize("sql", ["CREATE STATISTICS st ON t (id) WITH SAMPLE 5", "UPDATE STATISTICS t WITH SAMPLE 5",
+                                 "UPDATE STATISTICS t WITH SAMPLE", "UPDATE STATISTICS t WITH SAMPLE 5; SELECT 1",
+                                 "UPDATE STATISTICS t WITH SAMPLE x PERCENT"])
+def test_a_sample_without_a_number_and_percent_or_rows_is_refused_by_name(engine, sql):
+    assert refused(engine, sql).startswith(_NOT_YET + "SAMPLE in a statistics statement needs a number")
 
 
 @pytest.mark.parametrize("sql", ["SELECT id FROM t OPTION (LABEL = 'x'", "SELECT id FROM t OPTION (FORCE ORDER"])

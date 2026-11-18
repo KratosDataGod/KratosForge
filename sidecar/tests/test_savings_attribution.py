@@ -180,3 +180,22 @@ def test_gross_never_exceeds_the_baseline_for_any_order_or_values():
                 if out["gross_cu_hours"] is not None:
                     assert 0 <= out["gross_cu_hours"] <= out["baseline_cu_hours"] + 1e-9
                     assert 0 <= out["net_cu_hours"] <= out["gross_cu_hours"] + 1e-9
+
+
+def test_negative_figures_are_refused():
+    with pytest.raises(ValueError, match="negative"):
+        at.attribute(run(), measured(10), [opt("o1", measured(-5))])
+    with pytest.raises(ValueError, match="negative"):
+        at.attribute(run(), measured(-10))
+    with pytest.raises(ValueError, match="negative"):
+        at.attribute(run(), measured(10), local_avoided=estimated(-3))
+    with pytest.raises(ValueError, match="negative"):
+        at.attribute(run(), measured(10), local_avoided=estimated(3), overhead=measured(-1))
+
+
+def test_unattributed_is_capped_at_the_baseline_after_a_regression():
+    opts = [opt("o1", measured(11)), opt("o2", None, when="2026-11-06T00:00:00Z")]
+    out = at.attribute(run(), measured(10), opts, local_avoided=estimated(30))
+    assert layer(out, "o1")["cu_hours"] == -1
+    assert layer(out, at.UNATTRIBUTED)["cu_hours"] == 10
+    assert out["gross_cu_hours"] <= out["baseline_cu_hours"]

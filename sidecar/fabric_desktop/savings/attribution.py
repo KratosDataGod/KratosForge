@@ -66,7 +66,11 @@ def _cu(m: dict[str, Any] | None) -> tuple[float | None, str]:
                          "estimated CU only.")
     if m.get("classification") not in (ms.MEASURED, ms.ESTIMATED):
         raise ValueError(f"Unknown classification {m.get('classification')!r}.")
-    return ms.convert(float(m["value"]), m["unit"], UNIT), m["classification"]
+    value = float(m["value"])
+    if value < 0:
+        # CU used is never below zero; a negative figure would fabricate a layer bigger than the baseline.
+        raise ValueError(f"A CU figure can't be negative ({m.get('metric')}: {value}).")
+    return ms.convert(value, m["unit"], UNIT), m["classification"]
 
 
 def _weakest(*classes: str) -> str:
@@ -187,7 +191,7 @@ def attribute(run: dict[str, Any], baseline: dict[str, Any], optimizations: list
             # The optimizations' split waits for their afters; the run's total doesn't.
             known = sum(x["cu_hours"] for x in layers if x["cu_hours"] is not None)
             cls = _weakest(avoided_cls, b_cls)
-            gross_left = max(0.0, min(avoided, b - known))
+            gross_left = max(0.0, min(avoided, b, b - known))
             layers.append(_layer(run, UNATTRIBUTED, order, gross_left, cls, optimization_ids=pending,
                                  reason="Split between these optimizations and this PC once their afters are measured",
                                  **extra))

@@ -111,6 +111,7 @@ Spark SQL run on this PC gives Spark's values and types for its date and time fu
 | `trunc`, `date_trunc` | NULL for a unit the function doesn't take. `trunc` takes `YEAR`, `YYYY`, `YY`, `QUARTER`, `MONTH`, `MM`, `MON` and `WEEK`; `date_trunc` also takes `DAY`, `DD`, `HOUR`, `MINUTE`, `SECOND`, `MILLISECOND` and `MICROSECOND` |
 | `next_day` | Takes `MO`, `MON` or `MONDAY` and so on for each day, in any case. Any other text gives NULL |
 | `make_date`, `make_timestamp` | NULL for a day that doesn't exist, such as `make_date(2023, 2, 29)` |
+| `try_to_date` | Refused by name, and nothing runs. Spark 3.5 (Fabric Runtime 1.3) doesn't have it, so Fabric stops on it too. Use `to_date`, which gives NULL for text that isn't a date. Databricks SQL on this PC still runs it |
 
 Patterns that Spark refuses are refused here by name, and nothing runs: the week-based letters (`Y`, `w`, `W`, `u`, `e`, `c`), `F`, optional sections (`[ ]`), letters that aren't pattern letters, and the runs Spark stops on with "Too many pattern letters": five or more of `G`, `M`, `L`, `E`, `Q` or `q`, and seven or more `y`. These are refused too, because this PC can't give Spark's text for them:
 

@@ -38,7 +38,15 @@ Pick an Ossie file (`.yaml` or `.json`) from the project or from disk, and what 
 - **Update** an existing model (the default). The file's tables, columns, measures and
   relationships are laid over the model. What the file doesn't mention stays, such as
   security roles, hierarchies and measures written in Fabric, unless you untick it in the
-  preview. Lineage tags are kept by name, so reports on the model keep working.
+  preview. Lineage tags are kept by name, so reports on the model keep working. On a table,
+  column or measure the file has, what Ossie itself describes (name, description, the
+  column's source or expression and data type, keys, the measure's expression) comes from the
+  file; every other property the model has and the file doesn't set, such as Hidden, format
+  string, display folder, an annotation or a property KratosForge doesn't know, stays. Where
+  the file has a Power BI section for that object (Export to Ossie writes one), the section is
+  the whole story, so a property taken out of it is taken out of the model. A column the file
+  gives another type or data type keeps none of its old properties, and a sort-by column
+  that's gone isn't kept. Each property not kept is named in the preview's report.
 - **Replace** an existing model with exactly what the file holds.
 - **New model** in the environment's workspace.
 
@@ -84,8 +92,8 @@ whether `semantic/<name>.SemanticModel/` is new or already there.
   file isn't kept as it is either, because a table file left stale would disagree with the
   model written. Take those lines out by hand, then preview again. A confirm is checked the
   same way, so lines added after the preview are refused too. A property it doesn't know,
-  written as `name: value`, is read like the rest, so it doesn't refuse the write; as in an
-  Import update, a table the Ossie file has is laid over with the file's version of it.
+  written as `name: value`, is read like the rest, so it doesn't refuse the write, and it stays
+  as an Import update keeps it (see Update above).
 - The **Round-trip check** lists what is kept, what rides in the Power BI section, and what
   can't be carried, by name. A measure whose SQL has no DAX equivalent is written with no
   expression and shows blank until you add DAX.

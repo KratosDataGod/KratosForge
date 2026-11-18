@@ -355,7 +355,8 @@ class ModelOssieMixin:
         if mode != "new" and existing is None:
             raise LookupError(f"There's no semantic model named {name} to {mode}; pick New model to create it")
         current = self._model_bim(cfg["workspace_id"], existing) if existing else None
-        final = model_ossie.merge(cast(dict[str, Any], current), incoming, remove) if mode == "update" else incoming
+        final = model_ossie.merge(cast(dict[str, Any], current), incoming, remove, model_ossie.stashed(text),
+                                  report) if mode == "update" else incoming
         final["name"] = name
         return {"final": final, "existing": existing, "cfg": cfg, "name": name, "report": report,
                 "changes": model_ossie.plan(current, final),
@@ -477,7 +478,7 @@ class ModelOssieMixin:
         _refuse_unreadable(read_report)  # before the confirm too, so an old token never writes over such a file
         kept, kept_rows = _kept_cultures(folder, read_report)
         report = [r for r in read_report if r.get("file") not in kept] + kept_rows + report
-        final = model_ossie.merge(current, incoming, remove) if current else incoming
+        final = model_ossie.merge(current, incoming, remove, model_ossie.stashed(text), report) if current else incoming
         final["name"] = name
         kept_names = {_file_key(n) for names in kept.values() for n in names}
         culture_refs = None

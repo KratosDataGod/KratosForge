@@ -883,3 +883,97 @@ def test_a_line_it_cant_read_added_after_the_preview_is_refused_at_the_confirm(s
     with pytest.raises(ValueError, match=r"^tables/dim_customer.tmdl holds lines KratosForge can't read \(calendar Fiscal\)"):
         svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
     assert _snapshot(folder) == before and not (folder / "definition" / "tables" / "dim_channel.tmdl").exists()
+
+
+# ---- properties the Ossie file doesn't set are carried over, or named in the report
+
+
+def _fabric_only_bim():
+    """_bim() with properties Fabric has and an Ossie file from another tool doesn't set, on objects the file has."""
+    bim = _bim()
+    fact = bim["model"]["tables"][0]
+    fact["sparkleMode"] = "on"  # a property KratosForge doesn't know
+    fact["isHidden"] = True
+    fact["annotations"] = [{"name": "PBI_Note", "value": "hand-written"}, {"name": "OssieAIContext", "value": "old"}]
+    cols = {c["name"]: c for c in fact["columns"]}
+    cols["amount"]["description"] = "Old description"
+    cols["amount"]["displayFolder"] = "Money"
+    cols["customer_sk"]["isKey"] = True  # Ossie owns keys: the file says it isn't one
+    return bim
+
+
+def test_merge_carries_over_properties_the_file_doesnt_set_and_takes_the_ones_ossie_owns():
+    incoming, _ = model_ossie.to_tmsl(_ossie(), source=SOURCE)
+    report: list = []
+    final = model_ossie.merge(_fabric_only_bim(), incoming, None, model_ossie.stashed(_ossie()), report)
+    fact = next(t for t in final["model"]["tables"] if t["name"] == "fact_sales")
+    assert fact["sparkleMode"] == "on" and fact["isHidden"] is True
+    assert [a["name"] for a in fact["annotations"]] == ["PBI_Note"]  # the converter's own annotation isn't carried
+    cols = {c["name"]: c for c in fact["columns"]}
+    assert cols["amount"]["description"] == "Order amount"  # Ossie owns the description
+    assert cols["amount"]["displayFolder"] == "Money" and cols["amount"]["formatString"] == "#,0.00"
+    assert cols["customer_sk"]["isHidden"] is True and cols["customer_sk"]["summarizeBy"] == "none"
+    assert "isKey" not in cols["customer_sk"]
+    assert report == []
+    # The change plan reads only what Ossie owns, so carrying the rest over changes none of its rows.
+    assert model_ossie.plan(_fabric_only_bim(), final) == model_ossie.plan(_bim(), model_ossie.merge(_bim(), incoming))
+    assert model_ossie.removable(_fabric_only_bim(), incoming) == model_ossie.removable(_bim(), incoming)
+
+
+def test_import_update_keeps_a_property_it_doesnt_know_on_a_table_the_file_has(svc):
+    svc.fake.bim = _fabric_only_bim()
+    done = svc.meta_model_ossie_import("test", _ossie(), "SM_Gold", confirmed=True)
+    written = json.loads(svc.fake.saved[-1][1]["model.bim"])
+    fact = next(t for t in written["model"]["tables"] if t["name"] == "fact_sales")
+    assert fact["sparkleMode"] == "on" and fact["lineageTag"] == "t-fact"
+    assert not any("sparkleMode" in r["object"] for r in done["report"])
+
+
+def test_ossie_to_tmdl_keeps_a_property_it_doesnt_know_on_a_table_the_file_has(svc):
+    folder = _orders_folder(svc)
+    table = folder / "definition" / "tables" / "fact_sales.tmdl"
+    table.write_text(table.read_text(encoding="utf-8").replace("\n", "\n\tsparkleMode: on\n", 1), encoding="utf-8")
+    plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
+    text = table.read_text(encoding="utf-8")
+    assert "\tsparkleMode: on\n" in text and "net revenue" in text
+    again = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    assert {f["change"] for f in again["file_changes"]} == {"same"}
+
+
+def _with_power_bi_section(text, dataset, data):
+    doc = yaml.safe_load(text)
+    target = next(d for d in doc["datasets"] if d["name"] == dataset)
+    target["custom_extensions"] = [{"vendor_name": "POWER_BI", "data": json.dumps({"_v": 2} | data)}]
+    return yaml.safe_dump(doc, sort_keys=False)
+
+
+def test_what_isnt_carried_over_is_named_in_the_report():
+    # A Power BI section for the table speaks for all its properties: what it leaves out is taken out, by name.
+    text = _with_power_bi_section(_ossie(), "fact_sales", {"isHidden": True})
+    assert model_ossie.stashed(text) == {"fact_sales"}
+    metric = {"name": "m", "expression": {"dialects": [{"dialect": "DAX", "expression": "1"}]},
+              "custom_extensions": [{"vendor_name": "POWER_BI", "data": json.dumps({"_v": 2, "name": "M 1"})}]}
+    assert model_ossie.stashed(_ossie(metric)) == {"fact_sales[M 1]"}  # a dataset's metric: its home table
+    incoming, _ = model_ossie.to_tmsl(text, source=SOURCE)
+    report: list = []
+    final = model_ossie.merge(_fabric_only_bim(), incoming, None, model_ossie.stashed(text), report)
+    fact = next(t for t in final["model"]["tables"] if t["name"] == "fact_sales")
+    assert "sparkleMode" not in fact and fact["isHidden"] is True
+    assert {r["object"]: r["message"] for r in report} == {
+        "fact_sales sparkleMode": "taken out, because the file's Power BI section for it doesn't have it",
+        "fact_sales annotation PBI_Note": "taken out, because the file's Power BI section for it doesn't have it"}
+    # A column whose data type the file changes keeps none of its old properties; a sort column that's gone neither.
+    bim = _fabric_only_bim()
+    cols = {c["name"]: c for c in bim["model"]["tables"][0]["columns"]}
+    cols["amount"]["dataType"] = "string"
+    cols["customer_sk"]["sortByColumn"] = "gone_column"
+    report = []
+    final = model_ossie.merge(bim, model_ossie.to_tmsl(_ossie(), source=SOURCE)[0], None, set(), report)
+    cols = {c["name"]: c for c in next(t for t in final["model"]["tables"] if t["name"] == "fact_sales")["columns"]}
+    assert "displayFolder" not in cols["amount"] and "formatString" not in cols["amount"]
+    assert "sortByColumn" not in cols["customer_sk"] and cols["customer_sk"]["isHidden"] is True
+    rows = {r["object"]: r["message"] for r in report}
+    assert rows["fact_sales[amount] displayFolder"] == "not kept, because the file makes its data type decimal, not string"
+    assert {"fact_sales[amount] formatString", "fact_sales[amount] summarizeBy"} <= set(rows)
+    assert rows["fact_sales[customer_sk] sortByColumn"] == "not kept, because the table no longer has the column gone_column"

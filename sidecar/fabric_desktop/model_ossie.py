@@ -87,6 +87,18 @@ def __getattr__(name: str) -> Any:
 
 PLACEHOLDER_ANNOTATION = "OssieExpression"  # the converter keeps the Ossie expression here, translated or not
 _MODEL_KEPT = ("roles", "perspectives", "cultures", "expressions", "dataSources", "queryGroups", "annotations")
+# What an Ossie file says about a table, column or measure whether or not it has a Power BI section: when the file
+# doesn't set one of these, the object doesn't have it. lineageTag and partitions merge takes from the model, and
+# annotations it merges by name. Every other property the model has and the file doesn't set is carried over.
+_OSSIE_OWNS = {
+    "table": frozenset({"name", "description", "columns", "measures", "partitions", "lineageTag", "annotations"}),
+    "column": frozenset({"name", "description", "sourceColumn", "type", "expression", "dataType", "isKey", "isUnique",
+                         "lineageTag", "annotations"}),
+    "measure": frozenset({"name", "description", "expression", "lineageTag", "annotations"}),
+}
+# The annotations the converter writes from the Ossie file itself (AI context, an expression and its dialect).
+_OSSIE_ANNOTATIONS = frozenset({"OssieAIContext", "OssieExpressionDialect", PLACEHOLDER_ANNOTATION})
+_TABLE_ALWAYS_KEPT = ("hierarchies", "calculationGroup", "refreshPolicy")  # kept even over a Power BI section
 # warnings.catch_warnings swaps process-wide state, so conversions run one at a time.
 _LOCK = threading.Lock()
 # A large real model is a few MB of YAML; this keeps a mistaken pick (a data file) from filling memory.
@@ -228,6 +240,79 @@ def to_tmsl(text: str, source: dict[str, str] | None = None) -> tuple[dict[str, 
     return bim, report
 
 
+def _has_stash(obj: Any) -> bool:
+    return isinstance(obj, dict) and any(isinstance(e, dict) and e.get("vendor_name") == "POWER_BI"
+                                         for e in obj.get("custom_extensions") or [])
+
+
+def _stash_data(obj: dict[str, Any]) -> dict[str, Any]:
+    for e in obj.get("custom_extensions") or []:
+        if isinstance(e, dict) and e.get("vendor_name") == "POWER_BI":
+            try:
+                data = json.loads(e.get("data") or "{}")
+            except (TypeError, json.JSONDecodeError):
+                return {}  # the converter refuses such a file with the reason before this matters
+            return data if isinstance(data, dict) else {}
+    return {}
+
+
+def stashed(text: str) -> set[str]:
+    """The tables (``"table"``), columns and measures (``"table[name]"``) the Ossie document gives a Power BI section
+    (a POWER_BI custom extension, as Export to Ossie writes for each object with Fabric-only properties). For those
+    the file speaks for every property, so ``merge`` takes the file's set; for the rest it carries the model's
+    Fabric-only properties over."""
+    doc = parse(text)
+    datasets = [d for d in doc.get("datasets") or [] if isinstance(d, dict) and d.get("name")]
+    found: set[str] = set()
+    for d in datasets:
+        if _has_stash(d):
+            found.add(str(d["name"]))
+        for f in d.get("fields") or []:
+            if _has_stash(f) and f.get("name"):
+                found.add(f"{d['name']}[{f['name']}]")
+        for m in d.get("metrics") or []:  # lifted to the model with this dataset as their table (_lift_dataset_metrics)
+            if _has_stash(m) and m.get("name"):
+                data = _stash_data(m)
+                found.add(f"{data.get('table') or d['name']}[{data.get('name') or m['name']}]")
+    for m in doc.get("metrics") or []:
+        if _has_stash(m) and m.get("name") and datasets:
+            data = _stash_data(m)
+            found.add(f"{data.get('table') or datasets[0]['name']}[{data.get('name') or m['name']}]")
+    return found
+
+
+def _annotation_names(obj: dict[str, Any]) -> set[Any]:
+    return {a.get("name") for a in obj.get("annotations") or [] if isinstance(a, dict)}
+
+
+def _carry(old: dict[str, Any], new: dict[str, Any], kind: str, ref: str, stashed: set[str],
+           report: list[dict[str, str]], why_not: str = "") -> None:
+    """The properties ``old`` (the model's) has that ``new`` (the file's) doesn't set and the file doesn't own,
+    carried over into ``new``. Over an object with a Power BI section the file's set stands, and each property
+    it leaves out is named in ``report``; with ``why_not`` nothing is carried and each is named with that reason."""
+    owned = _OSSIE_OWNS[kind]
+    keys = [k for k in old if k not in owned and k not in new and not (kind == "table" and k in _TABLE_ALWAYS_KEPT)]
+    have = _annotation_names(new)
+    notes = [a for a in old.get("annotations") or [] if isinstance(a, dict) and a.get("name") not in have
+             and a.get("name") not in _OSSIE_ANNOTATIONS]
+    if ref in stashed:
+        message = "taken out, because the file's Power BI section for it doesn't have it"
+    elif why_not:
+        message = f"not kept, because {why_not}"
+    else:
+        for k in keys:
+            new[k] = copy.deepcopy(old[k])
+        if notes:
+            new["annotations"] = list(new.get("annotations") or []) + copy.deepcopy(notes)
+        return
+    report += [{"object": f"{ref} {k}", "kind": "lost", "message": message} for k in keys]
+    report += [{"object": f"{ref} annotation {a.get('name')}", "kind": "lost", "message": message} for a in notes]
+
+
+def _column_kind(c: dict[str, Any]) -> str:
+    return str(c.get("type") or "data")
+
+
 def _by_name(items: list[dict[str, Any]] | None) -> dict[str, dict[str, Any]]:
     return {i["name"]: i for i in items or [] if isinstance(i, dict) and i.get("name")}
 
@@ -250,14 +335,24 @@ def _direct_lake_expression(model: dict[str, Any]) -> str | None:
     return None
 
 
-def merge(current: dict[str, Any], incoming: dict[str, Any], remove: list[str] | None = None) -> dict[str, Any]:
+def merge(current: dict[str, Any], incoming: dict[str, Any], remove: list[str] | None = None,
+          stashed: set[str] | None = None, report: list[dict[str, str]] | None = None) -> dict[str, Any]:
     """``incoming`` laid over ``current`` (both parsed ``model.bim``): the update an import writes.
 
     Tables, columns and measures named in both take the incoming definition with the current lineage tags and
     partitions; what only ``current`` has stays unless named in ``remove`` (``"table"``, ``"table[column]"`` or
     ``"table[measure]"``). Roles, perspectives, translations and shared expressions the file doesn't carry stay,
-    and a table that only the file has reads through the model's existing Direct Lake source."""
+    and a table that only the file has reads through the model's existing Direct Lake source.
+
+    A property of a table, column or measure in both that the file doesn't set and doesn't own (``_OSSIE_OWNS``),
+    such as isHidden, formatString or one KratosForge doesn't know, is carried over, and so are the model's
+    annotations the file doesn't have, by name. Objects in ``stashed`` (``stashed(text)``: the file has a Power BI
+    section for them) take the file's set instead. Over a column the file gives another type or data type,
+    nothing is carried, nor a sortByColumn naming a column the table no longer has. Each property not carried
+    is named in ``report``, so nothing is dropped silently."""
     remove_set = set(remove or [])
+    stashed = stashed or set()
+    report = report if report is not None else []
     out = copy.deepcopy(incoming)
     cur_model, model = current.get("model") or {}, out.setdefault("model", {})
     cur_tables = _by_name(cur_model.get("tables"))
@@ -276,6 +371,8 @@ def merge(current: dict[str, Any], incoming: dict[str, Any], remove: list[str] |
             t["lineageTag"] = old["lineageTag"]
         if old.get("partitions"):
             t["partitions"] = copy.deepcopy(old["partitions"])
+        _carry(old, t, "table", t["name"], stashed, report)
+        incoming_items = {key: list(t.get(key) or []) for key in ("columns", "measures")}
         for key in ("columns", "measures"):
             olds, news = _by_name(old.get(key)), t.setdefault(key, [])
             for item in news:
@@ -286,6 +383,25 @@ def merge(current: dict[str, Any], incoming: dict[str, Any], remove: list[str] |
                      if n not in names and f"{t['name']}[{n}]" not in remove_set]
             if not news:
                 del t[key]
+        columns = {c.get("name") for c in t.get("columns") or [] if isinstance(c, dict)}
+        for key, kind in (("columns", "column"), ("measures", "measure")):
+            olds = _by_name(old.get(key))
+            for item in incoming_items[key]:
+                was = olds.get(item.get("name"))
+                if was is None:
+                    continue
+                ref, why_not = f"{t['name']}[{item['name']}]", ""
+                if kind == "column" and _column_kind(was) != _column_kind(item):
+                    why_not = f"the file makes it a {_column_kind(item)} column, not {_column_kind(was)}"
+                elif kind == "column" and item.get("dataType") and was.get("dataType") not in (None, item["dataType"]):
+                    why_not = f"the file makes its data type {item['dataType']}, not {was['dataType']}"
+                sort_by = was.get("sortByColumn")
+                if (not why_not and ref not in stashed and sort_by is not None and "sortByColumn" not in item
+                        and sort_by not in columns):
+                    report.append({"object": f"{ref} sortByColumn", "kind": "lost",
+                                   "message": f"not kept, because the table no longer has the column {sort_by}"})
+                    was = {k: v for k, v in was.items() if k != "sortByColumn"}
+                _carry(was, item, kind, ref, stashed, report, why_not)
         for key in ("hierarchies", "calculationGroup", "refreshPolicy"):
             if key in old and key not in t:
                 t[key] = copy.deepcopy(old[key])

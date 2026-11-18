@@ -7,6 +7,7 @@
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
+const path = require("node:path");
 const { playwright, openApp, animationsDone } = require("./harness.cjs");
 // axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
 // axe covers dialogs: features.js:shortcutsDialog, integrations.js:showApproval, learn.js:learnPatternDialog
@@ -22,6 +23,35 @@ const CELLS = [
   { type: "code", cell_id: "c1", source: "import polars as pl\ndf = pl.read_delta('Tables/dbo/sales')", meta: {} },
   { type: "code", cell_id: "c2", source: "%%sql\nSELECT region, sum(amount) FROM sales GROUP BY region", meta: {} },
 ];
+// A pipeline on this PC (the engine's own test file), its run's mocked activities, an incident and an agent.
+const PIPELINE = fs.readFileSync(path.join(__dirname, "..", "..", "..", "sidecar", "tests", "pipelines", "reference_local.json"), "utf8");
+const PIPELINE_MOCKS = { "Ingest orders": { output: { rowsCopied: 120 } }, Transform: { output: { exitValue: "ok" } } };
+const ago = (s) => new Date(Date.now() - s * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+const INCIDENT = { id: "inc-0a1b2c3d4e5f", key: "run_failed:notebook:daily_sales:prod", kind: "run_failed", kind_label: "Run failed",
+  workload: "notebook:daily_sales", name: "daily_sales", env: "prod", title: "daily_sales failed", text: "Path does not exist: Files/landing/orders",
+  evidence: { source: "the run log", run_id: "run-1" }, evidence_id: "run-1", state: "open", opened_at: ago(7200), last_seen_at: ago(600),
+  occurrences: 2, opened_by: "agent etl-01", owner: "", acknowledged_by: null, acknowledged_at: null, resolved_at: null, resolved_by: null,
+  resolution: null, team: "Sales data team", criticality: "high", classification: null, escalated_at: null, escalated_to: null, notes: [],
+  number: "INC-PROD-0001", source: "detected", priority: "P2", priority_source: "policy",
+  events: [{ at: ago(7200), by: "agent etl-01", what: "opened", text: "daily_sales failed" }] };
+const AGENT = { agent: "etl-01", state: "live", host: "etl-01.contoso.com", owner: "ana@contoso.com", version: "0.0.0-test",
+  started_at: ago(86400), heartbeat_at: ago(30), status_seconds: 60,
+  envs: { prod: { pipeline: { enabled: true, entities: ["silver.orders"] }, concurrency: 2, counts: { done: 4, failed: 1 }, running: [],
+    schedules: [{ id: "nightly", entities: ["silver.orders"], next: ago(-3600) }],
+    recent: [{ id: "job-1", entity: "silver.orders", state: "done", started_at: ago(3600), ended_at: ago(3500) }] } } };
+const WORKLOAD = { id: "notebook:daily_sales", kind: "notebook", kind_label: "Notebook", name: "daily_sales", description: "",
+  group: { type: "notebooks", id: "notebooks", label: "Notebooks on this PC" },
+  definition: { name: "daily_sales", modified: Date.now() / 1000 - 7200, compute: "local", lakehouse: { name: "LH_Bronze" } },
+  capabilities: ["discoverable", "observable", "runnable", "schedulable"], owners: {}, link: null,
+  deployments: [{ env: null, env_label: "", location: { kind: "this_pc", label: "This PC" }, identity: { kind: "you", label: "You (ana@contoso.com), signed in on this PC" },
+    tables_in: "LH_Bronze", version: null, schedules: [], latest_run: null, freshness: null,
+    observation: { source: "Schedules on this PC", state: "live", label: "Live", collected_at: ago(0), age_seconds: 0, detail: "" }, actions: [] }],
+  criticality: null, tags: [], health: "idle", health_label: "No recorded runs", health_rank: 5,
+  findings: [{ level: "notice", kind: "ownership", title: "No owner", text: "Nobody is accountable for it, so nobody is told when it fails.", evidence: {},
+    next: [{ action: "assign", label: "Assign" }], env: null }],
+  readiness: { state: "ready", label: "Ready" }, unowned: true, partial: false, errors: [], dependencies: { upstream: [], downstream: [], products: [] },
+  observation: { source: "Notebooks on this PC", state: "live", label: "Live", collected_at: ago(0), age_seconds: 0, detail: "" },
+  runs: [], actions: [], assignment_history: [], platform_audit: { platform: "none", waiting: 0, error: "" }, timeline: [], consumers: [], available_actions: [] };
 const RULES = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
 // Each page is checked four ways. Light and dark are the window's color scheme. At 200% (Windows display scale or
 // Ctrl+plus) the window's 1440x940 lays out as 720x470: nothing may make the whole page scroll sideways, and a Tab
@@ -54,8 +84,8 @@ const JUDGED = [
   [/^home: color-contrast @ (h1|\.hero-outline|.*\.home-hero-(kicker|title|welcome|text > p|actions\b.*))$/, "Pass: the hero's text and buttons sit on the navy sky: the gradient #01203d to #062e57, and over the picture's empty left quarter, faded into that same sky (its sky runs #10223f to #1b3664; the text always ends before the cape, at 27% of the picture). Worst case, on #1b3664: the title #ffffff 11.9:1, the welcome #e6ecf5 10.1:1, the kicker #f8991c 5.4:1. On the plain gradient (axe names the welcome h1 and the outline button by their short selectors when they sit over the picture): the title #ffffff 13.7:1 at worst, the welcome #e6ecf5 11.5:1, the kicker #f8991c 6.2:1, the outline button's label 13.7:1, and Continue is #0b1420 on its own #f8991c fill, 8.4:1 (axe can't read a picture)."],
   [/^(create|workspaces|metadata|platform|optimize|academy|sourceControl|settings|settings-integrations|profile|monitor): color-contrast @ (h1|\.hero-outline|\.outline|.*\.home-hero-(title|actions\b.*))$/, "Pass: a page's header (pageHero, art/experience/heroes.js) puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture)."],
   // axe names the arrow `.chev` or, when it needs more to tell it apart, `.chev[aria-hidden="true"]`.
-  [/^home: color-contrast @ .*\.chev(\[aria-hidden="true"\])?$/, "Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic), and hidden from assistive tech (its button is named)."],
-  [/^workspaces: color-contrast @ .*\.star\[/, "Pass: the favorite star is #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa (3:1 needed for a control's graphic); its button is named."],
+  [/^(home|notebooks): color-contrast @ .*\.chev(\[aria-hidden="true"\])?$/, "Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic), and hidden from assistive tech (its button is named)."],
+  [/^(workspaces|powerbi): color-contrast @ .*\.star\[/, "Pass: the favorite star is #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa (3:1 needed for a control's graphic); its button is named."],
   [/^notebook: color-contrast @ .*\.cell-grip/, "Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard."],
   [/^(notebook|sql): color-contrast @ .*(cm-gutterElement|cm-activeLineGutter)/, "Pass: line numbers are #616161, 5.3:1 on the active line (#edeef1) and 5.9:1 or more elsewhere."],
   [/^(notebook|sql): color-contrast @ span\[title="Fold (line|code)"\]/, "Pass: the fold marker is #616161 on white, 6.2:1."],
@@ -108,6 +138,32 @@ const EXTRA = [
   // The engine picker's "This PC or Fabric? How to choose" item opens this decision pattern (engines.js).
   { id: "engine-choose", name: "Engine picker's How to choose dialog", open: (p) => p.evaluate(() => learnPatternDialog("DP-02")),
     ready: "#dialog-root .dialog .learn-pattern", scope: "#dialog-root" },
+  // Every other page features.js registers (features.views): opened the way the app opens them, with test data
+  // where they read some. "every page features.js registers is audited" below fails when a new one isn't here.
+  { id: "workspace", name: "A workspace", open: (p) => p.evaluate(() => openWorkspace({ id: "w1", displayName: "Sales Dev", capacityId: "c1" })),
+    ready: "#view .page" },
+  { id: "lakehouse", name: "A lakehouse", open: (p) => p.evaluate((lh) => openLakehouse(lh), LH), ready: "#view .page" },
+  { id: "databricks_sync", name: "Workspaces > Databricks", open: (p) => p.evaluate(() => go("databricks_sync")), ready: "#view .page" },
+  { id: "powerbi", name: "Workspaces > Power BI", open: (p) => p.evaluate(() => go("powerbi")), ready: "#view .page" },
+  { id: "embedstudio", name: "Embed Studio", open: (p) => p.evaluate(() => openEmbedStudio({ workspace_id: "w1", workspace_name: "Sales Dev",
+    item_id: "r1", type: "Report", name: "Sales performance" })), ready: "#view .page" },
+  // The Fabric portal is Fabric's own web page in a window of its own; this audits the app's bar above it.
+  { id: "fabric", name: "Fabric portal (the app's bar)", open: (p) => p.evaluate(() => go("fabric")), ready: "#view" },
+  { id: "notebooks", name: "All notebooks", open: (p) => p.evaluate(() => go("notebooks")), ready: "#view .page" },
+  { id: "pipelines", name: "A pipeline", open: (p) => p.evaluate((text) => openPipeline({ text }, { label: "This PC" }), PIPELINE),
+    ready: "#view .page" },
+  { id: "pipelineRun", name: "A pipeline run", open: (p) => p.evaluate(async ([text, mocks]) => {
+    const started = await rpc("pipeline_run_start", { text, mocks, wait_scale: 0 });
+    while (!["succeeded", "failed"].includes((await rpc("pipeline_run_status", { run_id: started.run_id, values: false })).state)) {
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    openPipelineRun(started.run_id);
+  }, [PIPELINE, PIPELINE_MOCKS]), ready: "#view .page" },
+  { id: "workload", name: "A workload", open: (p) => p.evaluate(() => openWorkload("notebook:daily_sales")), ready: "#view .wl-page h1" },
+  { id: "incident", name: "An incident", open: (p) => p.evaluate((inc) => openIncident(inc), INCIDENT), ready: "#view .page h1" },
+  { id: "agent", name: "An agent", open: (p) => p.evaluate(() => openAgent("etl-01")), ready: "#view .page h1" },
+  { id: "appStudio", name: "App Studio", open: (p) => p.evaluate(() => appStudioOpen()), ready: "#view .page" },
+  { id: "learn", name: "Learn", open: (p) => p.evaluate(() => { learnPage.open = null; learnPage.tab = "home"; go("learn"); }), ready: "#view .page" },
 ];
 
 let app;
@@ -117,7 +173,9 @@ before(async () => {
   if (skip) return;
   app = await openApp({
     engine: ["app_settings", "profile_get", "learn_catalog", "learn_module", "learn_lab_start", "learn_patterns", "integrations_status",
-      "integrations_activity", "integrations_pending", "integrations_set_enabled", "editor_status"],
+      "integrations_activity", "integrations_pending", "integrations_set_enabled", "editor_status",
+      "pipeline_import", "pipeline_run_start", "pipeline_run_status", "pipeline_runs", "appstudio_home", "appstudio_connections",
+      "databricks_sync_pairs", "engine_connections", "notebook_listing", "notebook_folders", "notebook_deleted"],
     mocks: {
       environment: () => ({ python: "Python 3 (test)", user: "ana@contoso.com", tenant: "t1" }),
       list_workspaces: () => [{ id: "w1", displayName: "Sales Dev", capacityId: "c1" }, { id: "w2", displayName: "Finance", capacityId: null }],
@@ -134,6 +192,18 @@ before(async () => {
         checks: 2, reads: ["bronze.customers"], impact: [], source: null }),
       meta_runs_all: () => ({ runs: [] }),
       meta_entity_shortcuts: () => [],
+      list_items: () => [{ id: "l1", type: "Lakehouse", displayName: "LH_Bronze" }, { id: "n1", type: "Notebook", displayName: "Daily sales" },
+        { id: "r1", type: "Report", displayName: "Sales performance" }, { id: "p1", type: "DataPipeline", displayName: "Nightly load" }],
+      workspace_marks: () => ({ favorites: [], pins: [] }),
+      workload_detail: () => WORKLOAD,
+      incidents_board: ({ env }) => ({ env, incidents: env === "prod" ? [INCIDENT] : [] }),
+      agents_list: () => ({ agents: [AGENT], envs: ["prod"], app_version: "0.0.0-test" }),
+      pbi_embed_token: () => ({ token: "t", token_type: "Aad", expires_at: 9999999999, seconds_left: 3600 }),
+      pbi_embed_content: ({ item_id }) => ({ kind: "report", id: item_id, name: "Sales performance", workspace_id: "w1",
+        embed_url: `https://app.powerbi.com/reportEmbed?reportId=${item_id}&groupId=w1`, dataset_id: "d1",
+        pages: [{ name: "P1", display_name: "Overview", order: 0 }, { name: "P2", display_name: "Regions", order: 1 }], tiles: [],
+        capabilities: { embed_type: "report", pages: true, filters: true, bookmarks: true, slicers: true, visuals: true,
+          events: ["loaded", "rendered", "error", "pageChanged"], limits: [] } }),
     },
   });
   await app.page.waitForSelector("#rail-main .rail-item");
@@ -295,7 +365,8 @@ async function audit(page, target, scheme) {
   const sideways = mode.viewport ? await page.evaluate(() =>
     [document.scrollingElement, document.getElementById("view")].filter((e) => e && e.scrollWidth > e.clientWidth + 1)
       .map((e) => `${e.id ? `#${e.id}` : "the page"} is ${e.scrollWidth}px wide in a ${e.clientWidth}px window`)) : [];
-  const result = { page: target.name, id: target.id, scheme, ...axeOut, unreachable, stops, sideways,
+  const view = await page.evaluate(() => state.view);
+  const result = { page: target.name, id: target.id, scheme, view, ...axeOut, unreachable, stops, sideways,
     noRing: stops.filter((s) => !s.shown).map((s) => s.key),
     hidden: mode.viewport ? stops.filter((s) => !s.visible).map((s) => s.key) : [] };
   results.push(result);
@@ -352,6 +423,12 @@ test("at 200% no page scrolls sideways, and focus is never off screen or under s
   assert.deepStrictEqual(hidden, [], "Tab stops off screen or covered when they have focus, at 200%");
   const found = new Set(zoomed.flatMap((r) => [...r.sideways, ...r.hidden].map((k) => `${r.id}: ${k}`)));
   assert.deepStrictEqual([...KNOWN_SIDEWAYS, ...KNOWN_HIDDEN].filter((k) => !found.has(k)), [], "fixed: remove these from the known lists");
+});
+
+test("every page features.js registers is audited", { skip }, async () => {
+  const views = await app.page.evaluate(() => Object.keys(features.views));
+  const audited = new Set(results.map((r) => r.view));
+  assert.deepStrictEqual(views.filter((v) => !audited.has(v)), [], "add these pages to EXTRA");
 });
 
 test("every check axe couldn't decide has a person's verdict", { skip }, async () => {

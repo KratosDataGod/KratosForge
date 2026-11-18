@@ -179,6 +179,13 @@ function pbiEmbeddable(type) {
   return previewShown() && PBI_TYPES.includes(type);
 }
 
+// Focus inside a report is in Power BI's own page, which this page's styles can't reach, and its frame doesn't match
+// :focus there: mark the frame that has it, so Tab into a report shows where the keys go (WCAG 2.4.7).
+for (const ev of ["blur", "focus"]) {
+  window.addEventListener(ev, () => setTimeout(() => document.querySelectorAll(".pbi-frame")
+    .forEach((f) => f.classList.toggle("pbi-focus", document.activeElement === f))));
+}
+
 function openEmbedStudio(row) {
   pbiStudio.item = { workspace_id: row.workspace_id, workspace_name: row.workspace_name, item_id: row.item_id, type: row.type, name: row.name };
   pbiStudio.side = "details";

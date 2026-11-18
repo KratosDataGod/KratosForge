@@ -289,7 +289,7 @@ def test_a_write_without_its_own_cell_is_never_charged_to_a_running_notebook(lak
     assert prod.notebook_prod_pending("A") is None and prod.notebook_prod_pending("B") is None
     assert prod.notebook_prod_pending(lakehouse.NO_CELL) is None  # nothing waits: it can't be confirmed
     why = prod._prod_write_refusal("overwrite", "ws1", "Sales Prod", "dbo.sales", lakehouse.NO_CELL)
-    assert "Only a cell's own code" in why and "try again when no cell is running" in why
+    assert "Only a cell's own code" in why and "If it came from outside the notebook, try again when no cell is running" in why
     assert "Run this cell on its own" not in why
 
 

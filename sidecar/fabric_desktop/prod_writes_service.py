@@ -100,8 +100,8 @@ class ProdWritesMixin:
         if notebook == lakehouse.NO_CELL:  # not a running cell's own write: typing the name can't allow it
             return (f"{operation.upper()} on {table} would change {shown}, a Prod workspace, from code that isn't a "
                     "running cell's own, such as a thread a cell started. Only a cell's own code can be allowed to do "
-                    "that, so nothing was changed. Make the change in the cell's own code, or try again when no cell "
-                    "is running.")
+                    "that, so nothing was changed. Make the change in the cell's own code. If it came from outside the "
+                    "notebook, try again when no cell is running.")
         with self._prod_lock:
             self._prod_state()["pending"][notebook or ""] = {
                 "workspace_id": workspace_id, "workspace_name": shown, "operation": operation.upper(),

@@ -136,7 +136,7 @@ function dhList(box, out) {
       : `No tables watched in ${envName(dhPage.env)}. Watch a table to check its freshness, volume and schema.`);
   const reset = out.reset ? h("p", { class: "reason dh-reset", role: "status" },
     `This PC's Data health list couldn't be read, so it started again empty on ${dateText(out.reset.at)}. `
-    + `The old file was kept as ${out.reset.copy} in the app's folder.`) : null;
+    + `The old file was kept as ${out.reset.copy} in the app's folder. Watch your tables again to bring them back.`) : null;
   return [filters, reset || "", alertBox || "", list,
     h("p", { class: "muted-text small inc-foot" }, "Read from each table's Delta log; no Fabric job. Alerts only; nothing in the table changes.")];
 }

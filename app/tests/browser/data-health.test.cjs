@@ -157,7 +157,7 @@ test("a list started again says so, and a table gone from the project says why",
     await open();
     await page().waitForSelector(".page.monitor .dh-reset");
     assert.match(await page().textContent(".page.monitor .dh-reset"),
-      /couldn't be read, so it started again empty on .+\. The old file was kept as data_health\.json\.corrupt-20261117T090000000000Z/);
+      /couldn't be read, so it started again empty on .+\. The old file was kept as data_health\.json\.corrupt-20261117T090000000000Z in the app's folder\. Watch your tables again to bring them back\./);
     const row = await page().textContent(".page.monitor .dh-panel tbody tr");
     assert.match(row, /silver\.renamed_away\s*Not in the project .*Stop watching it/);
     if (axeSource) assert.deepStrictEqual(await axeFindings(page(), ".page.monitor"), []);

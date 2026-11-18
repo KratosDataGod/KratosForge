@@ -273,7 +273,10 @@ def dispatch(host: Host, channel: Channel, line: str) -> str | None:
     elif problem is None and not isinstance(message.get("id"), str):
         problem = "an answer without an id"
     if problem is not None:
-        print(f"kernel_host: skipped a line that is {problem}: {line[:200]}", file=sys.stderr)
+        # Never the line itself: it can carry cell code or values. Its length, and the op if it has one.
+        op = message.get("op") if isinstance(message, dict) and isinstance(message.get("op"), str) else None
+        print(f"kernel_host: skipped a line that is {problem} ({len(line)} characters"
+              f"{f', op {op[:40]!r}' if op else ''})", file=sys.stderr)
         return problem
     if "op" in message:
         threading.Thread(target=host.handle, args=(message,), daemon=True, name=f"request-{message['op'][:40]}").start()

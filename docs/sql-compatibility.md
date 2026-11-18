@@ -730,7 +730,6 @@ A different answer, or an error where the target answers, fails these tests unle
 | Spark SQL | `levenshtein` on text that isn't ASCII | Spark counts characters, here bytes |
 | Spark SQL | `locate(sub, NULL, pos)` with `pos` below 1 | Spark gives NULL, here 0 |
 | Spark SQL | `bit_count` of a negative `int` | Spark counts 64 bits (-1 gives 64), here 32 |
-| Spark SQL | `pmod(x, 0.0D)` | Spark gives NULL, here NaN |
 | Spark SQL | `a div b` when `a` is a decimal (`floor(-1.25) div 7`) | Spark gives a whole number, here a double division |
 | Spark SQL | `isnan(NULL)` | Spark gives false, here NULL |
 | Spark SQL | `to_date('24-02-29')` | Spark gives NULL (a year needs 4 digits), here the year 24 |

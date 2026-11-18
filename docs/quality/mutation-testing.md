@@ -6369,3 +6369,55 @@ No bugs were found.
 | `csv_cells.py` | 92, 96, 113 | `zip(strict=True)` to `False` | Equivalent: both sides come from the same schema or batch, so they always have the same length. |
 | `delta_read.py` | 82 | `get_add_actions(flatten=True)` to `False` | Equivalent: in deltalake 1.6.6 `size_bytes` is a top-level column either way. |
 | `delta_read.py` | 149 | `zip(strict=True)` to `False` | Equivalent: both columns come from the same deletion-vector table, so they always have the same length. |
+
+# Mutation testing, batch 109
+
+Two incident modules not covered before, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- Incident history in the central lakehouse: the times read, the event and snapshot rows and their defaults, the record ids a PC remembers having copied, and the report's window, ranks and SLA counts (`workloads/incident_history.py`).
+- What an evaluation looks for in one environment: failed runs and runs that need a decision, lateness, broken product promises, missed objectives, agents past their stale time, an environment that can't be read, and the one-line Teams messages (`workloads/evaluate.py`).
+
+The run was at `main` 5865db954 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902: each mutant ran without a bytecode cache, and the tests were first run once on the unmutated copy of `sidecar/`, where they passed. The method is the same as earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants, so all of them ran. Each test set was run with `-x`, so a mutant's run stops at its first failing test.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used. `test_incident_service_paths.py` and `test_product_status.py` call `evaluate.py` through the service's evaluation, so they are in its set. `test_rpc_surface.py` also reaches the incident desk but reads `app/`, so it was left out; no test in these sets reads `docs/`, `examples/` or `app/`.
+
+No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/incident_history.py` | test_corrupt_state_reads, test_incident_desk (+ test_incident_history_mutation) | 86 of 86 (83 + 3) | 68 / 18 | **79.1%** | 67/83 → 83/83 | 1/3 → 3/3 | 86 / 0 | **100%** | none |
+| `workloads/evaluate.py` | test_incident_desk, test_product_promises, test_agent_clock_and_folder, test_not_set_up, test_incidents, test_incident_service_paths, test_product_status (+ test_evaluate_mutation) | 116 of 116 (113 + 3) | 89 / 27 | **76.7%** | 88/113 → 113/113 | 1/3 → 3/3 | 116 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/incident_history.py**:
+  - A PC remembers exactly the newest 50,000 record ids, in order and without repeats, per lakehouse.
+  - A remembered-ids file that isn't an object, or can't be read (a folder), reads as empty.
+  - An incident's "as of" time is the newest of its timeline, its open and its resolve; with none it is None.
+  - A time with no time zone is read as UTC, and one with an offset keeps it.
+  - A snapshot's missing source is "detected", and its missing owner, team, criticality, workload, title and resolution are empty; an event's missing text is empty.
+  - Reports cover 7, 30, 90 and 365 days.
+  - The report window includes both its start and now.
+  - A met percentage is rounded from 100 times met over judged (1 of 3 is 33).
+  - → `test_incident_history_mutation.py`.
+- **workloads/evaluate.py**:
+  - A failed run without a message says "The run failed.", and one needing a decision has its own default text.
+  - A run's evidence gives an empty host and job when the run log has none.
+  - The objective's evidence id names the newest finished run, not one still going.
+  - A late table that also failed names the products it lets down on the late signal, not on the failure.
+  - Lateness counts towards a product promise unless the table's own promise already reports it.
+  - A load of exactly one row is judged on its rejected rows, and rejected rows exactly at the limit keep the promise.
+  - An agent exactly at its stale time is offline, and one a second before isn't.
+  - A time with an offset is written as UTC ("2026-10-17 07:40 UTC"), and one without a time zone, or not a time, is written as it is.
+  - Each Teams line: recovered or cleared, the environment when there is no name, escalated to someone or to on-call, "again: " on a reopening, and the owner.
+  - → `test_evaluate_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/incident_history.py` | none | none | Every mutant is killed. |
+| `workloads/evaluate.py` | none | none | Every mutant is killed. |

@@ -256,7 +256,7 @@ When a project runs T-SQL on this PC, these date and time functions are checked 
 | `DATEDIFF_BIG` | The same counts as a `bigint`, with no overflow |
 | `EOMONTH` | The month's last day, with or without months to add: `EOMONTH('2024-01-31', 1)` is `2024-02-29` |
 | `DATEFROMPARTS` | A date, an error for a day that doesn't exist (`2023, 2, 29`), `NULL` for a `NULL` part |
-| `FORMAT` | .NET's date formats in `en-US`, on a `date` or a date-and-time column |
+| `FORMAT` | .NET's date formats in `en-US`, `en-GB` or `de-DE`, on a `date` or a date-and-time column. See [Local T-SQL formatting](#local-t-sql-formatting) |
 | `CONVERT` to text, styles 101, 103, 112, 120, 121, 126 | `02/29/2024`, `29/02/2024`, `20240229`, `2024-02-29 13:04:05`, `2024-02-29 13:04:05.123000`, `2024-02-29T13:04:05.123000`. A `date` gives only its date in 120, 121 and 126, and 126 leaves off a fraction of zero |
 | `CONVERT` and `TRY_CONVERT` from text, the same styles | The date the style reads (`'29/02/2024'` with 103), to a `date`, `datetime` or `datetime2`. A date that doesn't exist is an error with `CONVERT` and `NULL` with `TRY_CONVERT`. Styles 120, 121 and 126 read ISO text with or without its time |
 
@@ -265,6 +265,31 @@ What can still differ:
 - A date-and-time here is a warehouse's `datetime2(6)`: six digits of fraction (`.123000`), which is also the most a Fabric Warehouse column keeps. T-SQL's default `datetime2` has seven.
 - Any other `CONVERT` date style runs as translated, but its values haven't been checked. The run's `translation.notes` says so ("CONVERT style 104 runs as a translation that hasn't been checked ...").
 - `CAST(a_datetime AS VARCHAR)` with no style, and `nanosecond` in `DATEADD`, `DATEDIFF` and `DATETRUNC`: see [Local data](local-data.md#t-sql).
+
+## Local T-SQL formatting
+
+When a project runs T-SQL on this PC, `FORMAT`, `PARSE` and `TRY_PARSE` give the answer .NET gives, as a warehouse's do. Where .NET's own versions answer differently, or the case isn't carried yet, the query stops and names it. It never gives another answer.
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| Cultures | `en-US` (a warehouse's default, also when none is named), `en-GB` and `de-DE`, written in the query in any case (`'DE-de'`). Any other culture is refused by name |
+| `FORMAT` of a number: `N`, `F`, `D` | `FORMAT(1234.5, 'N')` is `1,234.50`, and `1.234,50` in `de-DE`. Rounded half away from zero |
+| `FORMAT` of a number: `X` | Hexadecimal for an integer: `FORMAT(255, 'X4')` is `00FF`, and a negative `int` is its 32 bits, so `FORMAT(-1, 'X')` is `FFFFFFFF` |
+| `FORMAT` of a number: `C` | `en-US` only, at zero or above: `FORMAT(1234.5, 'C')` is `$1,234.50` |
+| `FORMAT` of a number: custom | `0`, `#`, `.`, `,` between digits, `%`, text in quotes or after `\`, and a second section for numbers below zero, written without their `-`: `'#,##0.00'`, `'0.0%'` (`25.0%`), `'000-00-0000'` (`123-45-6789`), `'$#,##0.00;($#,##0.00)'` (`($5.50)`). The culture's separators replace `,` and `.` |
+| `FORMAT` of a date | .NET's custom date formats, where `/` is the culture's date separator (`dd/MM/yyyy` is `05.03.2024` in `de-DE`) and `dddd` and `MMMM` are its day and month names (`Dienstag`, `März`). The standard formats `d`, `g`, `G`, `t` and `T` in each culture, `s`, `u`, `o` and `R` in all, and every other one in `en-US` |
+| `PARSE`, `TRY_PARSE` | Text read as a number (`int`, `bigint`, `smallint`, `tinyint`, `decimal`, `float`, `real`) in the culture: a sign, digits, the culture's separator between thousands and its decimal separator, with spaces around. `PARSE('1.234,5' AS DECIMAL(10, 2) USING 'de-DE')` is `1234.50`. Text with no digit is T-SQL's "Error converting string value" with `PARSE` and `NULL` with `TRY_PARSE`, as is a number too big for the type with `TRY_PARSE` |
+| `STR` | Right-aligned text of the length asked (10), rounded, with fewer decimals when they don't fit and asterisks when the whole number doesn't: `STR(1234.5)` is `'      1235'` |
+
+Refused, each by name:
+
+- `FORMAT`'s `P` (percent), `C` below zero or outside `en-US`, a culture's `D`, `f`, `F`, `M` and `Y` outside `en-US`, and its abbreviated names (`ddd`, `MMM`) and AM/PM (`tt`) outside `en-US`: .NET Framework and .NET (Core) write them differently, for instance `12.34 %` or `12.34%`, `($5.00)` or `-$5.00`. A custom format such as `'0.00%'` gives one answer.
+- `FORMAT` of a negative number that the format rounds to zero (`FORMAT(-0.001, '0.00')`): one .NET writes `-0.00`, the other `0.00`. Round the value first.
+- `FORMAT`'s `E`, `G` and `R` number formats, a precision of more than two digits, a custom format with a third section, scientific notation, `‰`, more than one `%`, `,` right before the point (which divides by 1,000), text among the digits with `#` or `,`, and `FORMAT` of a `float`, `money` or `time`.
+- `PARSE` and `TRY_PARSE` of text .NET may read another way: a currency sign, parentheses, an exponent, a sign at the end, `Infinity`, decimals for an integer type, or separators away from groups of three. Text with no digit at all gives T-SQL's answer.
+- `PARSE` and `TRY_PARSE` to a date or time (use `CONVERT` with a style), and to `money`, which isn't carried (use `DECIMAL(19, 4)`). `CONVERT`'s `money` styles are refused with `money`.
+
+The static check and **Format SQL** can't read `PARSE`'s `AS ... USING` yet: they mark the query unverified and leave it as written. The live check (`fabric-desktop smoke-test`, flow 17) asks a test warehouse for the answers .NET's versions disagree on, so they can be carried once known.
 
 ## Local T-SQL text
 

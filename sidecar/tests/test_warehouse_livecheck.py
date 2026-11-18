@@ -1,6 +1,6 @@
 """WR-218: the warehouse live check, dry-run against fakes. Nothing here connects to Fabric.
 
-The check runs each documented local T-SQL case (WR-206 to WR-217) in a test warehouse and records the local,
+The check runs each documented local T-SQL case (WR-206 to WR-217, and WR-229) in a test warehouse and records the local,
 documented and warehouse answers. These tests prove its guards: every case's SQL reads, or writes only in the
 scratch schema; an unmarked or production-looking workspace or warehouse is refused before connecting; each case
 is rolled back; and the scratch schema is dropped and checked gone at the end.
@@ -98,7 +98,7 @@ def check(tmp_path, con=None, fabric=None, cases=w.CASES):
 def test_every_case_reads_or_writes_only_in_the_scratch_schema():
     assert w.problems(w.CASES, SCRATCH) == []
     assert len({c.id for c in w.CASES}) == len(w.CASES)
-    assert {c.wr for c in w.CASES} <= {f"WR-2{n:02d}" for n in range(6, 18)}
+    assert {c.wr for c in w.CASES} <= {f"WR-2{n:02d}" for n in range(6, 18)} | {"WR-229"}
 
 
 @pytest.mark.parametrize(("sql", "words"), [

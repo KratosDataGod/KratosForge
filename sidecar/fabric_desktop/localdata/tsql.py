@@ -112,6 +112,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
                 continue
             tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
             _refuse(tree)
+            tsql_format.parses(tree)  # WR-229: before the types are read, so a PARSE is its number type
             _temp_tables(tree)
             notes += tsql_types.check(tree)  # WR-223: types as a warehouse has them, before any rewrite
             _joined_changes(tree)
@@ -164,6 +165,9 @@ class KfTSQL(TSQL):
         # SQUARE is a float in T-SQL; sqlglot reads it as POWER(x, 2), which keeps an integer's type and
         # refuses a decimal (_power).
         # JSON_VALUE and JSON_QUERY keep their path as the text T-SQL was given; _json reads it (WR-219).
+        # PARSE and TRY_PARSE take "x AS type USING culture", which sqlglot can't read (WR-229).
+        FUNCTION_PARSERS = {**TSQL.Parser.FUNCTION_PARSERS, "PARSE": tsql_format.parser(False),
+                            "TRY_PARSE": tsql_format.parser(True)}
         FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build,
                      "SQUARE": lambda args: exp.Pow(this=exp.Cast(this=seq_get(args, 0), to=exp.DataType.build("DOUBLE")),
                                                     expression=exp.Literal.number(2)),
@@ -1037,7 +1041,8 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
         else:
             to = node.args.get("to")
             if isinstance(to, exp.DataType) and to.this in _INTEGERS - {exp.DataType.Type.BIT} \
-                    and _unknown(info.this.type) and not isinstance(node.this, exp.Null):  # NULL converts the same
+                    and _unknown(info.this.type) and not isinstance(node.this, exp.Null) \
+                    and not node.meta.get("kf_digits"):  # NULL, and PARSE's checked digits, convert the same
                 notes.append(f"Couldn't tell the type in {node.sql(dialect='tsql')}: it converts as DuckDB does, "
                              "and T-SQL cuts a decimal toward zero and refuses text that isn't a whole number.")
             source = _numeric_style(node, info) or info.this.type

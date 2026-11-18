@@ -35,16 +35,17 @@ def test_only_windows_refusing_an_open_file_is_explained(tmp_path):
 def test_the_message_names_the_file_and_the_programs_windows_names(tmp_path, monkeypatch):
     monkeypatch.setattr(file_locks, "holders", lambda p: ["Microsoft Excel"])
     assert file_locks.explain(_locked(), tmp_path / "sales.csv") == (
-        "sales.csv couldn't be saved because it is open in Microsoft Excel. Close it there and try again")
+        "sales.csv couldn't be saved because it is open in Microsoft Excel. Close it there and try again.")
     monkeypatch.setattr(file_locks, "holders", lambda p: ["A", "B", "C", "D", "E"])
-    assert "open in A, B, C and 2 more." in file_locks.explain(_locked(), tmp_path / "sales.csv")
+    assert file_locks.explain(_locked(), tmp_path / "sales.csv") == (
+        "sales.csv couldn't be saved because it is open in A, B, C and 2 more. Close it in each of them and try again.")
 
 
 def test_without_names_it_says_what_usually_holds_a_file(tmp_path, monkeypatch):
     monkeypatch.setattr(file_locks, "holders", lambda p: [])
     msg = file_locks.explain(_locked(), tmp_path / "settings.json")
-    assert msg.startswith("settings.json couldn't be saved because another program has it open")
-    assert "Excel, OneDrive or a virus scanner" in msg
+    assert msg == ("settings.json couldn't be saved because another program has it open, such as Excel. "
+                   "Close the file there, or wait a moment, and try again.")
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="off Windows there is no Restart Manager to ask")
@@ -61,8 +62,11 @@ def test_a_replace_still_refused_after_the_wait_says_which_file_and_keeps_the_ca
     monkeypatch.setattr(jsonfile.os, "replace", held)
     with pytest.raises(PermissionError) as caught:
         jsonfile.replace(tmp_path / "new", tmp_path / "sales.csv")
-    assert "sales.csv couldn't be saved because it is open in Microsoft Excel" in str(caught.value)
-    assert caught.value.filename == os.fspath(tmp_path / "sales.csv")
+    # Only the message: no "[WinError 32]" before it and no path after it, as a toast or dialog shows it.
+    assert str(caught.value) == ("sales.csv couldn't be saved because it is open in Microsoft Excel. "
+                                 "Close it there and try again.")
+    assert caught.value.errno == 13 and caught.value.winerror == 32
+    assert caught.value.path == os.fspath(tmp_path / "sales.csv")
     assert isinstance(caught.value.__cause__, PermissionError)
 
 

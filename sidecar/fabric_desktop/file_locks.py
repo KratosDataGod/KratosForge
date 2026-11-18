@@ -98,14 +98,30 @@ def is_locked(exc: BaseException) -> bool:
 
 def explain(exc: BaseException, path: str | os.PathLike[str], doing: str = "saved") -> str | None:
     """A plain message for a file Windows wouldn't let this app replace because a program has it open,
-    naming the file and, where Windows says, the program; None for any other failure. It has no path
-    and no full stop: it becomes an OSError's text, which Python follows with ": '<path>'"."""
+    naming the file and, where Windows says, the program; None for any other failure."""
     if not is_locked(exc):
         return None
     name = Path(path).name
     found = holders(path)
+    if len(found) == 1:
+        return f"{name} couldn't be {doing} because it is open in {found[0]}. Close it there and try again."
     if found:
-        named = ", ".join(found[:_MAX_NAMED]) + (f" and {len(found) - _MAX_NAMED} more" if len(found) > _MAX_NAMED else "")
-        return f"{name} couldn't be {doing} because it is open in {named}. Close it there and try again"
-    return (f"{name} couldn't be {doing} because another program has it open, such as Excel, OneDrive or a "
-            "virus scanner. Close it there and try again")
+        named = ", ".join(found[:_MAX_NAMED]) + (f" and {len(found) - _MAX_NAMED} more" if len(found) > _MAX_NAMED
+                                                 else "")
+        return f"{name} couldn't be {doing} because it is open in {named}. Close it in each of them and try again."
+    return (f"{name} couldn't be {doing} because another program has it open, such as Excel. Close the file "
+            "there, or wait a moment, and try again.")
+
+
+def locked_error(exc: OSError, path: str | os.PathLike[str], doing: str = "saved") -> PermissionError | None:
+    """``explain``'s message as the error to raise: its text is only the message (no "[WinError 32]" and no
+    path after it), and it keeps ``errno`` and ``winerror`` for code that checks them, and the path as
+    ``path``. None for any other failure."""
+    plain = explain(exc, path, doing)
+    if plain is None:
+        return None
+    err = PermissionError(plain)
+    err.errno = exc.errno
+    err.winerror = getattr(exc, "winerror", None)  # type: ignore[attr-defined]  # set on Windows' errors only
+    err.path = os.fspath(path)  # type: ignore[attr-defined]  # the file, for logs; not in the text
+    return err

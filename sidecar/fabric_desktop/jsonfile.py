@@ -80,10 +80,10 @@ def replace(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
         except PermissionError as exc:
             if attempt == REPLACE_ATTEMPTS - 1:
                 # Still refused: a program keeps the file open. Say which, where Windows can tell.
-                plain = file_locks.explain(exc, dst)
-                if plain is None:
+                held = file_locks.locked_error(exc, dst)
+                if held is None:
                     raise
-                raise PermissionError(exc.errno, plain, os.fspath(dst), getattr(exc, "winerror", None)) from exc
+                raise held from exc
             time.sleep(REPLACE_BACKOFF * (2 ** attempt))
 
 

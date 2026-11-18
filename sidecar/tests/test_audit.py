@@ -225,13 +225,18 @@ def test_which_calls_fail_closed():
                            ("meta_run", {"env": "prod"}), ("meta_optimize", {"env": " PROD "}),
                            ("meta_publish_varlib", {"env": "prod"}), ("databricks_bundle_deploy", {"target": "prod"}),
                            ("platform_entra_save", {"envs": ["dev", "prod"]}), ("git_commit", {"allow_secrets": True}),
-                           ("pipeline_run_start", {"allow_uncontained": True}), ("git_delete_branch", {"force": True})):
+                           ("pipeline_run_start", {"allow_uncontained": True}), ("git_delete_branch", {"force": True}),
+                           ("publish_notebook", {"replace_fabric_changes": True}), ("appstudio_publish", {"replace": True}),
+                           ("wh_project_write", {"replace": True}), ("sql_file_write", {"overwrite": True}),
+                           ("engine_connection_save", {"replace": "c-1"})):
         assert audit.fails_closed(method, params), method
     for method, params in (("sql_start", {"query": "x"}), ("sql_start", {"query": "x", "confirm": False, "confirm_name": ""}),
                            ("meta_run", {"risk_id": ""}), ("save_notebook", {"name": "n"}), ("start_cell", {"code": "x"}),
                            ("meta_run", {"env": "dev"}), ("meta_run", {"env": "production-copy"}),
                            ("sql_start", {"query": "x", "target": "lakehouse"}), ("sql_query_save", {"expect": "v3"}),
-                           ("save_notebook", {"name": "prod"}), ("pipeline_run_start", {"unconfirmed": True})):
+                           ("save_notebook", {"name": "prod"}), ("pipeline_run_start", {"unconfirmed": True}),
+                           ("publish_notebook", {"replace_fabric_changes": False}), ("engine_connection_save", {"replace": ""}),
+                           ("sql_file_write", {"overwrite": False})):
         assert not audit.fails_closed(method, params), (method, params)
 
 
@@ -242,9 +247,36 @@ def test_every_go_ahead_parameter_has_been_reviewed():
     import re
 
     from fabric_desktop.service import Service
-    looks = re.compile(r"confirm|approv|typed|risk|acknowledg|allow|force|override|expect|accept|sure|danger")
+    looks = re.compile(r"confirm|approv|typed|risk|acknowledg|allow|force|override|expect|accept|sure|danger|"
+                       r"replace|overwrite|discard|bypass|anyway")
     unreviewed = sorted({(name, method) for method in server.METHODS if audit.audited(method)
                          for name in inspect.signature(getattr(Service, method)).parameters
                          if looks.search(name) and name not in audit.GUARD_PARAMS | audit.NOT_GUARD_PARAMS})
     assert unreviewed == []
     assert not audit.GUARD_PARAMS & audit.NOT_GUARD_PARAMS
+
+
+def test_a_delete_in_fabric_or_a_removed_access_doesnt_run_unrecorded(tmp_path, monkeypatch):
+    """A delete in Fabric, a revoked access or a go-ahead to replace runs only once its line is
+    written: with the audit file unwritable, the call is refused and never reaches its method."""
+    from fabric_desktop.service import Service
+    svc = Service(client_id="x", root=tmp_path)
+    ran = []
+    calls = {"delete_shortcut": {"workspace_id": "w", "item_id": "i", "path": "Tables", "name": "s"},
+             "access_delete_role": {"workspace_id": "w", "item_id": "i", "name": "Readers"},
+             "delete_fabric_schedule": {"workspace_id": "w", "item_id": "i", "job_type": "Pipeline", "schedule_id": "s1"},
+             "platform_revoke": {"product_id": "p", "project": "x"},
+             "platform_remove_admin": {"user": "ann@contoso.com"},
+             "integrations_revoke_client": {"client_id": "c"},
+             "publish_notebook": {"name": "n", "cells": [], "replace_fabric_changes": True}}
+    for method in calls:
+        monkeypatch.setattr(Service, method, lambda self, *a, _m=method, **k: ran.append(_m) or {})
+
+    class Broken:
+        def record(self, *a, **k):
+            raise OSError("disk full")
+    svc._audit_log = Broken()
+    for i, (method, params) in enumerate(calls.items()):
+        reply = server.handle(svc, json.dumps({"id": i, "method": method, "params": params}))
+        assert "audit log couldn't be written, so this didn't run" in reply.get("error", ""), method
+    assert ran == []

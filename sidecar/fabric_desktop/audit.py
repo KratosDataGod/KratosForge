@@ -129,18 +129,27 @@ def target(params: dict[str, Any]) -> dict[str, Any]:
 
 
 # Calls that must not run without a record: a "started" line is written before them, and they are
-# refused when it can't be (a full disk, a locked file). These Prod-reaching changes always; any other
-# call when it is aimed at Prod (an env or target of "prod"); and any other call when it is given a
-# confirmation, an approval, a typed name, a risk-check acknowledgement or an override (a non-empty
-# value). An ordinary query or edit still runs as before when its line can't be written.
+# refused when it can't be (a full disk, a locked file). These Prod-reaching changes, deletes in Fabric
+# and removals of someone's access always; any other call when it is aimed at Prod (an env or target of
+# "prod"); and any other call when it is given a confirmation, an approval, a typed name, a risk-check
+# acknowledgement, an override or a go-ahead to replace what is there (a non-empty value). An ordinary
+# query or edit still runs as before when its line can't be written.
 FAIL_CLOSED = frozenset({"meta_promote", "meta_rollback", "meta_restore", "xray_optimize", "xray_vacuum", "shortcut_repoint",
-                         "shortcut_repoint_many", "shortcut_undo", "shortcut_accept_risk"})
+                         "shortcut_repoint_many", "shortcut_undo", "shortcut_accept_risk",
+                         # a delete in Fabric: a shortcut, a OneLake security role, a job schedule
+                         "delete_shortcut", "access_delete_role", "delete_fabric_schedule",
+                         # someone's access taken away: a data product grant, a platform admin, an AI tool
+                         "platform_revoke", "platform_remove_admin", "integrations_revoke_client"})
 # Parameter names, matched exactly. test_audit lists every audited method's parameters that look like
 # one of these and fails on a name in neither set, so a new one is reviewed rather than missed.
 GUARD_PARAMS = frozenset({
     "confirm", "confirmed", "confirm_name", "confirm_deletes", "confirm_unknown", "confirm_writes",
     "approve", "approval_id", "typed", "risk_id", "require_acknowledgement",
-    "allow", "allow_commands", "allow_override", "allow_secrets", "allow_uncontained", "force"})
+    "allow", "allow_commands", "allow_override", "allow_secrets", "allow_uncontained", "force",
+    # a go-ahead to replace what is already there: a Fabric item changed since it was published from
+    # here, a report or model of that name, files of a warehouse project, a file picked on Save as,
+    # a saved engine connection (named by its id)
+    "replace", "replace_fabric_changes", "overwrite"})
 NOT_GUARD_PARAMS = frozenset({"expect"})        # the version a tab opened, not a go-ahead
 _PROD_PARAMS = ("env", "envs", "target")
 

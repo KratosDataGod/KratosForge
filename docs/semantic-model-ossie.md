@@ -79,7 +79,12 @@ Files Fabric no longer returns are removed from that folder.
   used. Anything that wouldn't come back exactly as it was, such as a blank first or last line in
   a value, or translations, is listed in the report by name. A name with a line break, or an
   expression with a line of three backticks, would break the TMDL layout, so it is refused and
-  the object is named. Table, role and perspective names never become file names as they are:
+  the object is named. Line breaks also include the characters other editors break lines on
+  (U+2028, U+2029, U+0085, vertical tab, form feed and the file, group and record separators),
+  and values holding them are written fenced.
+- Writing an Ossie file as TMDL into the project never follows a link or junction. Each file is
+  written whole and swapped in. Only `.tmdl` files under `definition/` that the model no longer
+  has are removed, and the preview lists them first. Table, role and perspective names never become file names as they are:
   characters Windows doesn't allow, device names such as `CON`, and names that clash are changed
   for the file name only. TMDL to Ossie and back keeps every object the reader reads. Roles,
   perspectives, hierarchies and calculation groups travel in the Ossie file's Power BI section,
@@ -100,6 +105,7 @@ see the preview and confirm.
 | --- | --- | --- |
 | `meta_model_ossie_models` | Models in the environment's workspace | Nothing |
 | `meta_model_ossie_export` | A model as Ossie YAML, with counts and the report | Nothing |
+| `meta_model_ossie_to_tmdl` | An Ossie file as TMDL in `semantic/<model>.SemanticModel/`, on this PC with no Fabric call (Preview). It shows the files, removals and report first, and writes only when confirmed with the preview's token, so a confirm never removes files the preview didn't list | Files |
 | `meta_model_ossie_save` | Saves an Ossie file under the project's folder | The file |
 | `meta_model_ossie_read` | Reads an Ossie file from the project's folder | Nothing |
 | `meta_model_ossie_preview` | What an import changes, and what it can't carry | Nothing |

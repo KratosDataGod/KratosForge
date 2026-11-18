@@ -6050,8 +6050,8 @@ The first `validate_service.py` run was stopped partway by a time limit and was 
 
 The two `tsql_clone.py` timeouts (a statement's index never moving on) and one `validate_service.py` timeout (a report's name number never moving on) count as killed, before and after.
 
-One bug was found, outside what the new tests pin, and is marked `xfail` in `test_spark_udf_mutation.py` until it is fixed:
-- A `pandas_udf` declared to return an `ArrayType` and returning numpy arrays (`s.apply(lambda v: np.array(...))`) gives null for every row, where Spark gives the arrays as lists. A numpy array isn't turned into a list before its fit is checked, so it doesn't fit the array type. Python lists work.
+One bug was found, outside what the new tests pin, and is fixed; its test in `test_spark_udf_mutation.py` now passes:
+- A `pandas_udf` declared to return an `ArrayType` and returning numpy arrays (`s.apply(lambda v: np.array(...))`) gave null for every row, where Spark gives the arrays as lists. A numpy array wasn't turned into a list before its fit was checked, so it didn't fit the array type. A numpy array with dimensions now becomes its list, one value or many.
 
 ### What the survivors were, and the tests that now kill them
 
@@ -6069,7 +6069,7 @@ One bug was found, outside what the new tests pin, and is marked `xfail` in `tes
   - Each type's fit: a boolean only for a bool; each integer type exactly its range, never a bool or a float; a decimal only for a `Decimal`; any value as its text for a string; a date but not a datetime for a date; a datetime for a timestamp; bytes and bytearray as bytes; a map with its keys and values fitted; a struct from a dict or a sequence of its length.
   - Structs inside a list arrive as rows.
   - Each Spark type's Arrow type, with string for any other.
-  - numpy and pandas scalars become Python values, a pandas array its list, and a numpy array of several values is left as it is; null is `None`, NaN or NaT, never an array.
+  - numpy and pandas scalars become Python values, a pandas array its list, and a numpy array its list (once left as it was: the bug above); null is `None`, NaN or NaT, never an array.
   - `udf` of a UDF is that UDF; a UDF's `evalType` is 100 and a `pandas_udf`'s 200.
   - `pandas_udf` called with the function returns the UDF, keeps a return type given by name, refuses a number as the return type after a function, and `functionType` 200 wins over iterator hints.
   - A UDF registers once per connection.
@@ -6124,8 +6124,8 @@ A mutant whose run times out counts as killed, as in earlier batches. One `local
 | `localdata/tsql_tables.py` | test_tsql_table_forms, test_tsql_windows, test_local_tsql_more_edges, test_tsql_loud_gaps (+ test_tsql_tables_mutation) | 148 of 148 (141 + 7) | 122 / 26 | **82.4%** | 117/141 → 136/141 | 5/7 → 7/7 | 143 / 5 | **96.6%** | 5 equivalent |
 | `spark_strings.py` | test_spark_strings, test_spark_missing_functions, test_spark_function_names, test_spark_sql_names, test_spark_views_text (+ test_spark_strings_mutation) | 150 of 458 (139 + 11) | 108 / 42 | **72.0%** | 103/139 → 131/139 | 5/11 → 9/11 | 140 / 10 | **93.3%** | 10 equivalent |
 
-One bug was found, in `localdata/tsql_tables.py`, and is pinned with `xfail(strict=True)` in test_tsql_tables_mutation:
-- `TOP ('150') PERCENT` and `TOP ((ABS(-150))) PERCENT` return every row. A percent written as text, or in a second pair of parentheses, is checked against 0 to 100 neither when the query is read nor when it runs, where a warehouse stops with "Percent values must be between 0 and 100." A percent worked out in one pair of parentheses, such as `TOP (ABS(-150)) PERCENT`, is checked and stops.
+One bug was found, in `localdata/tsql_tables.py`, and is fixed; its test in test_tsql_tables_mutation now passes:
+- `TOP ('150') PERCENT` and `TOP ((ABS(-150))) PERCENT` returned every row. A percent written as text, or in a second pair of parentheses, was checked against 0 to 100 neither when the query was read nor when it ran, where a warehouse stops with "Percent values must be between 0 and 100." Any percent that isn't a number written out is now checked, as a number, when it runs.
 
 ### What the survivors were, and the tests that now kill them
 
@@ -6369,3 +6369,61 @@ No bugs were found.
 | `csv_cells.py` | 92, 96, 113 | `zip(strict=True)` to `False` | Equivalent: both sides come from the same schema or batch, so they always have the same length. |
 | `delta_read.py` | 82 | `get_add_actions(flatten=True)` to `False` | Equivalent: in deltalake 1.6.6 `size_bytes` is a top-level column either way. |
 | `delta_read.py` | 149 | `zip(strict=True)` to `False` | Equivalent: both columns come from the same deletion-vector table, so they always have the same length. |
+
+# Mutation testing, batch 93
+
+Three modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- Fabric hints, query labels and statistics statements in local T-SQL: the text pass that rewrites what sqlglot can't read, and the tree pass that leaves out or refuses each hint by name (`localdata/tsql_hints.py`).
+- The savings waterfall for one run: each optimization's layer, this PC's share, what is left unattributed, gross, overhead and net, and whether the result is complete (`savings/attribution.py`).
+- Which Windows account is on the other end of a loopback connection to the local API: the TCP tables, the token's user SID, and the checks built on them (`integrations/peer.py`).
+
+The run was at `main` 7be2906d5 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902: each mutant ran without a bytecode cache, and the tests were first run once on the unmutated copy of `sidecar/`, where they passed. The method is the same as earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. `localdata/tsql_hints.py` has 313 mutants, so 150 were sampled; `savings/attribution.py` (112) and `integrations/peer.py` (145) were run whole.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter or `--deselect` was needed: no test in these sets reads `docs/`, `examples/` or `app/`. `test_editor_channel.py` only replaces `peer`'s check with a stand-in, so it isn't in the `integrations/peer.py` set.
+
+A mutant whose run times out counts as killed, as in earlier batches. Four `localdata/tsql_hints.py` mutants timed out in both runs, each a loop that no longer moves on: `j += 1` to `+= 0` in the OPTION list (line 131), `i += 1` to `+= 0` for a table called `statistics` (line 93) and for a token that isn't a hint (line 105), and the `raise` removed for an unknown statistics option (line 226). Two more time out in the "after" run: `i = end + 1` to `end - 1` and to `end + 0` (line 111), which an OPTION list that isn't closed now reaches.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `localdata/tsql_hints.py` | test_tsql_hints, test_warehouse_queries, test_tsql_time_travel, test_tsql_ctes (+ test_tsql_hints_mutation) | 150 of 313 (139 + 11) | 126 / 24 | **84.0%** | 121/139 → 139/139 | 5/11 → 11/11 | 150 / 0 | **100%** | none |
+| `savings/attribution.py` | test_savings_attribution (+ test_savings_attribution_mutation) | 112 of 112 (106 + 6) | 87 / 25 | **77.7%** | 86/106 → 104/106 | 1/6 → 6/6 | 110 / 2 | **98.2%** | 2 equivalent |
+| `integrations/peer.py` | test_integrations_peer, test_integrations_peer_calls (+ test_integrations_peer_mutation) | 145 of 145 (145 + 0) | 112 / 33 | **77.2%** | 112/145 → 145/145 | none | 145 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **localdata/tsql_hints.py**:
+  - A batch the tokenizer can't read, or an UPDATE STATISTICS whose rest it can't read, is given back as written for the parse to report.
+  - PRINT is a command token, but not UPDATE STATISTICS, so a PRINT that mentions statistics is left alone.
+  - A batch that ends in OPTION, or in CREATE or DROP, and an OPTION list that isn't closed, are left for the parse.
+  - An UPDATE of a table called `[statistics]` is an update, not UPDATE STATISTICS.
+  - An OPTION list with nothing to carry is left exactly as written. A carried hint keeps the items beside it as written, one-word items such as RECOMPILE included, before it or after it.
+  - CREATE STATISTICS without a name, or that stops after its name or its table, and DROP STATISTICS with nothing after it, are refused with the local engine's message.
+  - In the tree pass, MAXRECURSION is kept for the CTE check when a label beside it is left out, an index hint is refused by its name alone (`INDEX`, not `INDEX(ix)`), and a carried plan hint's note names the hint.
+  - → `test_tsql_hints_mutation.py`.
+- **savings/attribution.py**:
+  - A scenario figure, an unknown classification, a run time that isn't a time, a run that ran somewhere other than Fabric or this PC, and a local basis other than original or optimized are each refused in their own words.
+  - A Fabric run without a baseline has no local layer, and a run on this PC without one does.
+  - An optimization implemented at the very moment of the run applies; one reverted at that moment doesn't.
+  - An optimization that changed nothing is an accrual of 0, not a regression, and a saving or a regression under one CU hour is still marked as one.
+  - This PC avoiding exactly what remains isn't marked as capped; avoiding more is.
+  - An unknown layer leaves the result incomplete, even with the overhead known.
+  - Every figure is rounded to six decimals, gross included when it is capped at a baseline that isn't.
+  - → `test_savings_attribution_mutation.py`.
+- **integrations/peer.py**:
+  - The call tests' stand-in for Windows checks the engine against the module's own constants, so a wrong constant passed. The documented Win32 values (address families, table classes, the established state, the loopback address, error codes, access rights and the TokenUser class) are now written out as numbers.
+  - Each table is asked for unsorted, with reserved 0, the right family and class, and a 1-byte probe at size 0 first. A table that keeps growing is asked for five times, then refused.
+  - Another account's process is opened for limited query only and not inherited; its token is opened for query, and asked its size first with no buffer and length 0.
+  - A token without a valid SID is an OSError with errno 0.
+  - Only `win32` is checked, and no listener on the port is a plain `False`.
+  - → `test_integrations_peer_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `savings/attribution.py` | 58 | the strength of `unknown` from 2 to 3 | Equivalent: the weakest classification is the one with the highest strength, and `unknown` is still the highest. |
+| `savings/attribution.py` | 218 | `complete = False` to `True` when the overhead isn't known | Equivalent: the result's `complete` is `complete and o is not None`, which is false whenever this line runs. |

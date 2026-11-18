@@ -20,7 +20,7 @@ before(async () => {
   if (skip) return;
   app = await openApp({
     engine: ["start_cell", "poll_cell", "debug_cell", "interrupt_cell", "kernel_variables", "kernel_complete",
-      "notebook_debug_get", "notebook_dependencies"],
+      "notebook_debug_get", "notebook_dependencies", "restart_kernel"],
     mocks: { save_notebook: () => ({ saved: true }) },
   });
   await page().evaluate((source) => {
@@ -142,8 +142,87 @@ test("a notebook on another engine says it can't pause instead of debugging", { 
   assert.strictEqual(said.run, false);   // the run goes on, to the end
   assert.strictEqual(said.none, false);
   assert.deepStrictEqual(said.shown, [
-    "Databricks Connect can't pause, so it can't be debugged. Switch to Python (this PC) to step through cells.",
-    "Databricks Connect can't pause, so breakpoints are ignored and the cells run to the end. Run on Python (this PC) to stop at them.",
+    "Databricks Connect can't pause, so it can't be debugged. Switch Engine to Python (this PC) to step through cells.",
+    "Databricks Connect can't pause, so breakpoints are ignored and the cells run to the end. Switch Engine to Python (this PC) to stop at them.",
   ]);
+  assert.deepStrictEqual(app.errors, []);
+});
+
+// ---------- hardening ----------
+
+async function toasts(p) {
+  return p.evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent));
+}
+
+test("an edited cell moves its breakpoints with their lines, and names any it removes", { skip }, async () => {
+  const p = page();
+  await p.evaluate(() => {
+    loadIntoState({ name: "Edited", cells: [{ type: "code", cell_id: "e1", source: "a=1\nb=2\nc=3\nd=4", meta: { breakpoints: [2, 4] } }] });
+    go("notebook");
+  });
+  await p.locator(".cm-line.cm-bp", { hasText: "d=4" }).waitFor();
+  // The whole cell replaced (as Format cell does): each breakpoint finds its line again.
+  await p.evaluate(() => { setSource(state.notebook.cells[0], "a = 1\n\nb = 2\nc = 3\nd = 4"); });
+  assert.deepStrictEqual(await p.evaluate(() => state.notebook.cells[0].meta.breakpoints), [3, 5]);
+  // A breakpoint whose line is gone is removed, and the message says which.
+  await p.evaluate(() => { setSource(state.notebook.cells[0], "a = 1\nb = 2"); });
+  assert.deepStrictEqual(await p.evaluate(() => state.notebook.cells[0].meta.breakpoints), [2]);
+  assert.ok((await toasts(p)).some((t) => t.includes("Removed the breakpoint on line 5, because that line isn't in the cell any more.")));
+  // Code changed where no editor saw it: a breakpoint past the end is named before the run.
+  await p.evaluate(() => {
+    const c = state.notebook.cells[0];
+    c.meta.breakpoints = [2, 9];
+    return dbgStartArgs(c, false);
+  });
+  assert.deepStrictEqual(await p.evaluate(() => state.notebook.cells[0].meta.breakpoints), [2]);
+  assert.ok((await toasts(p)).some((t) => t.includes("Removed the breakpoint on line 9, because the cell has 2 lines now.")));
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("the paused panel names library code it stepped over, and says when variables are capped", { skip }, async () => {
+  const p = page();
+  const many = Array.from({ length: 205 }, (_, i) => `v${String(i).padStart(3, "0")} = ${i}`).join("\n");
+  await p.evaluate((src) => {
+    loadIntoState({ name: "Library", cells: [{ type: "code", cell_id: "l1", source: src, meta: {} }] });
+    go("notebook");
+  }, `import json\ntext = json.dumps([1])\n${many}\nend = 1`);
+  await p.evaluate(() => { debugCell(state.notebook.cells[0]); });
+  const panel = p.locator(".dbg-paused");
+  await panel.getByText("Paused at line 1").waitFor({ timeout: 30000 });
+  await p.keyboard.press("F11");
+  await panel.getByText("Paused at line 2").waitFor();
+  await p.keyboard.press("F11");
+  await panel.getByText("Paused at line 3").waitFor();
+  assert.match(await panel.locator(".dbg-skipped").innerText(), /Stepped over, not into: json\.dumps\. Step into goes only into this cell's own code\./);
+  await panel.getByRole("button", { name: "Continue" }).click();
+  await p.locator(".cell-status", { hasText: "Succeeded" }).waitFor({ timeout: 30000 });
+  // A breakpoint on the last line: 200 of the 200-odd variables are listed, and the panel says so.
+  await p.evaluate(() => { const c = state.notebook.cells[0]; c.meta.breakpoints = [c.source.split("\n").length]; runCell(c); });
+  await panel.getByText(/Paused at line \d+ \(breakpoint\)/).waitFor({ timeout: 30000 });
+  assert.match(await panel.locator(".dbg-capped").innerText(), /Showing the first 200 of 2\d\d variables, by name\./);
+  await panel.getByRole("button", { name: "Continue" }).click();
+  await p.locator(".cell-status", { hasText: "Succeeded" }).waitFor({ timeout: 30000 });
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("a kernel restart while paused unpauses, and a Debug from here run doesn't go on", { skip }, async () => {
+  const p = page();
+  await p.evaluate(() => {
+    loadIntoState({ name: "Restart", cells: [
+      { type: "code", cell_id: "k1", source: "a = 1\nb = 2", meta: {} },
+      { type: "code", cell_id: "k2", source: "c = 3", meta: {} },
+    ] });
+    go("notebook");
+  });
+  await p.evaluate(() => { debugFromHere(state.notebook.cells[0]); });
+  await p.locator(".dbg-paused").getByText("Paused at line 1").waitFor({ timeout: 30000 });
+  await p.evaluate(async () => { await rpc("restart_kernel", { notebook: state.notebook.name }); depsRestarted(); });
+  await p.waitForFunction(() => !state.notebook.runningAll, null, { timeout: 30000 });
+  assert.strictEqual(await p.locator(".dbg-paused").count(), 0);
+  assert.strictEqual(await p.locator(".cm-line.cm-paused").count(), 0);
+  const [first, second] = await p.evaluate(() => state.notebook.cells.map((c) => c.status));
+  assert.strictEqual(first, "cancelled");
+  assert.strictEqual(second, null);  // the run stopped there, not on into the fresh kernel
+  assert.strictEqual(await p.evaluate(() => state.notebook.dbgRun), null);
   assert.deepStrictEqual(app.errors, []);
 });

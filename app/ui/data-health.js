@@ -208,7 +208,11 @@ function dhDetail(box, out, t) {
       a.quiet ? null : h("div", { class: "row tight" },
         run ? btn("Open the run that wrote it", null, () => showRun(run, t.env), "tool outline small") : null,
         btn("Acknowledge", null, () => quiet(a, 0), "tool outline small"),
-        btn("Snooze 1 day", null, () => quiet(a, 1), "tool outline small")));
+        btn("Snooze 1 day", null, () => quiet(a, 1), "tool outline small"),
+        btn("Open an incident", null, () => reportIncident({ env: t.env, title: dhAlertText(t, a),
+          text: [a.kind === "volume" ? dhRuleLine(t.volume) : "", "Found by Data health from the table's Delta log."].filter(Boolean).join(" "),
+          lead: "Track this alert as an incident in the environment's shared list, so your team sees who is on it." },
+        () => loadDataHealth(box)), "tool outline small")));
   });
   const f = t.freshness, s = t.schema, v = t.volume;
   const tile = (big, small) => h("div", { class: "dh-tile" }, h("b", {}, big), h("span", { class: "muted-text small" }, small));

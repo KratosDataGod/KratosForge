@@ -2298,11 +2298,32 @@ def _preview(value: Any) -> str:
         if cols is not None:
             names = list(cols)
             return ", ".join(map(str, names[:6])) + (", ..." if len(names) > 6 else "")
+    kind = type(value)
+    if kind in (str, bytes, bytearray) and len(value) > _PREVIEW_ITEMS:
+        value = value[:_PREVIEW_ITEMS]  # repr of only what is shown: a long text isn't copied whole
+    elif kind in _CONTAINERS and len(value) > _PREVIEW_ITEMS:
+        # repr of only the first items: a list of millions isn't turned into text to show 80 characters
+        return _preview_items(value)
     try:
         text = repr(value)
     except Exception:  # noqa: BLE001  # silent-ok: repr() of a user's object failed; the preview shows ? instead
         return "?"
     return text if len(text) <= 80 else text[:77] + "..."
+
+
+_PREVIEW_ITEMS = 100  # past this many items or characters, a preview reads only the first ones
+
+
+def _preview_items(value: Any) -> str:
+    kind = type(value)
+    items = itertools.islice(value.items() if kind is dict else value, 20)
+    try:
+        inner = ", ".join(f"{k!r}: {v!r}" for k, v in items) if kind is dict else ", ".join(repr(v) for v in items)
+    except Exception:  # noqa: BLE001  # silent-ok: repr() of a user's object failed; the preview shows ? instead
+        return "?"
+    opener, closer = "()" if kind is tuple else "[]" if kind is list else "{}"
+    text = f"{opener}{inner}, ..."
+    return (text if len(text) <= 76 else text[:73] + "...") + closer
 
 
 # Storage: notebooks are standard .ipynb files with the attached lakehouse in metadata.

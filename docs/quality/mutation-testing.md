@@ -6124,8 +6124,8 @@ A mutant whose run times out counts as killed, as in earlier batches. One `local
 | `localdata/tsql_tables.py` | test_tsql_table_forms, test_tsql_windows, test_local_tsql_more_edges, test_tsql_loud_gaps (+ test_tsql_tables_mutation) | 148 of 148 (141 + 7) | 122 / 26 | **82.4%** | 117/141 → 136/141 | 5/7 → 7/7 | 143 / 5 | **96.6%** | 5 equivalent |
 | `spark_strings.py` | test_spark_strings, test_spark_missing_functions, test_spark_function_names, test_spark_sql_names, test_spark_views_text (+ test_spark_strings_mutation) | 150 of 458 (139 + 11) | 108 / 42 | **72.0%** | 103/139 → 131/139 | 5/11 → 9/11 | 140 / 10 | **93.3%** | 10 equivalent |
 
-One bug was found, in `localdata/tsql_tables.py`, and is pinned with `xfail(strict=True)` in test_tsql_tables_mutation:
-- `TOP ('150') PERCENT` and `TOP ((ABS(-150))) PERCENT` return every row. A percent written as text, or in a second pair of parentheses, is checked against 0 to 100 neither when the query is read nor when it runs, where a warehouse stops with "Percent values must be between 0 and 100." A percent worked out in one pair of parentheses, such as `TOP (ABS(-150)) PERCENT`, is checked and stops.
+One bug was found, in `localdata/tsql_tables.py`, and is fixed; its test in test_tsql_tables_mutation now passes:
+- `TOP ('150') PERCENT` and `TOP ((ABS(-150))) PERCENT` returned every row. A percent written as text, or in a second pair of parentheses, was checked against 0 to 100 neither when the query was read nor when it ran, where a warehouse stops with "Percent values must be between 0 and 100." Any percent that isn't a number written out is now checked, as a number, when it runs.
 
 ### What the survivors were, and the tests that now kill them
 

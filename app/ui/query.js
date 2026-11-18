@@ -544,7 +544,7 @@ function renderQuery() {
     const sel = editor.selection();
     const at = sel.to > sel.from && text.slice(sel.from, sel.to) === query ? sel.from : text.indexOf(query);
     const firstLine = at >= 0 ? text.slice(0, at).split("\n").length : 1;
-    return sqlSplitStatements(query, { tsql: wh, base: Math.max(at, 0), firstLine })
+    return sqlSplitStatements(query, { tsql: wh, dialect: tab.dialect, base: Math.max(at, 0), firstLine })
       .map((u, i) => ({ ...u, n: i + 1, known: at >= 0 }));
   }
   function selectPart(n) {

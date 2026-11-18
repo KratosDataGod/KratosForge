@@ -146,8 +146,10 @@ function sqlUnquote(word) {
   return word;
 }
 
-// `text` with string literals and comments blanked out (same length), and whether `pos` is inside one.
-function sqlMask(text, pos = -1) {
+// `text` with string literals and comments blanked out (same length), and whether `pos` is inside one. Block
+// comments nest, as in T-SQL, Spark SQL and DuckDB. `backslash`: a backslash escapes the next character in a
+// string, as in Spark SQL.
+function sqlMask(text, pos = -1, { backslash = false } = {}) {
   const out = text.split("");
   let inert = false;
   let i = 0;
@@ -157,7 +159,7 @@ function sqlMask(text, pos = -1) {
     let end = -1;
     if (text[i] === "'") {
       end = i + 1;
-      while (end < text.length && !(text[end] === "'" && text[end + 1] !== "'")) end += text[end] === "'" ? 2 : 1;
+      while (end < text.length && !(text[end] === "'" && text[end + 1] !== "'")) end += text[end] === "'" || (backslash && text[end] === "\\") ? 2 : 1;
       end = Math.min(end + 1, text.length);
       blank(start + 1, Math.max(start + 1, end - 1));
     } else if (text.startsWith("--", i)) {
@@ -165,8 +167,11 @@ function sqlMask(text, pos = -1) {
       if (end === -1) end = text.length;
       blank(start, end);
     } else if (text.startsWith("/*", i)) {
-      end = text.indexOf("*/", i + 2);
-      end = end === -1 ? text.length : end + 2;
+      let depth = 1;
+      end = i + 2;
+      while (end < text.length && depth) {
+        if (text.startsWith("/*", end)) { depth++; end += 2; } else if (text.startsWith("*/", end)) { depth--; end += 2; } else end++;
+      }
       blank(start, end);
     }
     if (end === -1) { i++; continue; }
@@ -179,11 +184,54 @@ function sqlMask(text, pos = -1) {
   return { text: out.join(""), inert };
 }
 
-// The statement around `pos`: from the `;` before it to the `;` after it, outside strings and comments.
-function sqlStatementAt(text, pos) {
-  const masked = sqlMask(text).text;
-  let from = masked.lastIndexOf(";", pos - 1) + 1;
-  let to = masked.indexOf(";", pos);
+// Where statements can end: sqlMask's text with quoted names ("a;b", `a;b`, [a;b]) blanked too, and for a
+// dialect its own strings: Spark SQL's backslash escapes and "..." strings, DuckDB's $$...$$ strings. Only for
+// finding `;` and GO lines: names stay in sqlMask's text, where hover and suggestions read them.
+function sqlSplitMask(text, dialect = null) {
+  const d = dialect ? sqlDialect(dialect) : null;
+  const tsql = ["warehouse", "endpoint", "sqldb"].includes(d);
+  const out = text.split("");
+  const blank = (from, to) => { for (let k = from; k < to; k++) if (out[k] !== "\n") out[k] = " "; };
+  // A quoted run from i: where it ends (after its closing quote, or at the end), with `q` doubled inside as itself.
+  const quoted = (i, q, escapes) => {
+    let end = i + 1;
+    while (end < text.length) {
+      if (escapes && text[end] === "\\") { end += 2; continue; }
+      if (text[end] === q) { if (text[end + 1] === q) { end += 2; continue; } return end + 1; }
+      end++;
+    }
+    return text.length;
+  };
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    let end = -1;
+    if (c === "'") end = quoted(i, "'", d === "spark");
+    else if (c === '"') end = quoted(i, '"', d === "spark");
+    else if (c === "`") end = quoted(i, "`", false);
+    else if (c === "[" && tsql) end = quoted(i, "]", false);  // in Spark SQL and DuckDB, [ is a list or an index
+    else if (d === "duckdb" && text.startsWith("$$", i)) { const e = text.indexOf("$$", i + 2); end = e === -1 ? text.length : e + 2; }
+    else if (text.startsWith("--", i)) { end = text.indexOf("\n", i); if (end === -1) end = text.length; }
+    else if (text.startsWith("/*", i)) {
+      let depth = 1;
+      end = i + 2;
+      while (end < text.length && depth) {
+        if (text.startsWith("/*", end)) { depth++; end += 2; } else if (text.startsWith("*/", end)) { depth--; end += 2; } else end++;
+      }
+    }
+    if (end === -1) { i++; continue; }
+    blank(c === "-" || c === "/" ? i : i + 1, c === "-" || c === "/" ? end : Math.max(i + 1, end - 1));
+    i = end;
+  }
+  return out.join("");
+}
+
+// The statement around `pos`: from the `;` before it to the `;` after it, outside strings, comments and quoted names.
+function sqlStatementAt(text, pos, dialect = null) {
+  const masked = sqlMask(text, -1, { backslash: dialect ? sqlDialect(dialect) === "spark" : false }).text;
+  const ends = sqlSplitMask(text, dialect);
+  let from = ends.lastIndexOf(";", pos - 1) + 1;
+  let to = ends.indexOf(";", pos);
   if (to === -1) to = text.length;
   return { from, to, text: text.slice(from, to), masked: masked.slice(from, to) };
 }
@@ -193,8 +241,8 @@ function sqlStatementAt(text, pos) {
 // out. T-SQL (`tsql` true) splits a GO batch at `;` only when that is safe: a batch that declares or uses a
 // variable, has a BEGIN ... END block, or defines a procedure, function, trigger or view stays whole, since its
 // statements only mean something together. Each is { from, to, text, line } with line 1-based, from `base`.
-function sqlSplitStatements(text, { tsql = false, base = 0, firstLine = 1 } = {}) {
-  const masked = sqlMask(text).text;
+function sqlSplitStatements(text, { tsql = false, base = 0, firstLine = 1, dialect = null } = {}) {
+  const masked = sqlSplitMask(text, dialect || (tsql ? "warehouse" : null));
   const out = [];
   const lineAt = (pos) => firstLine + (text.slice(0, pos).match(/\n/g)?.length || 0);
   const push = (from, to) => {
@@ -253,17 +301,17 @@ function sqlParamProblem(type, value) {
 // (spaces between are fine) runs the statement that `;` ends; one in a blank stretch, or in a statement that is
 // only comments, runs the nearest statement before it, then after it. Leading and trailing whitespace is left
 // out; null when the text has no statement at all.
-function sqlRunnableStatementAt(text, pos) {
-  const has = (st) => !!st.masked.trim();
-  const masked = sqlMask(text).text;
+function sqlRunnableStatementAt(text, pos, dialect = null) {
+  const masked = sqlSplitMask(text, dialect);
+  const has = (st) => !!masked.slice(st.from, st.to).replace(/[\s;]/g, "");
   let back = pos;
   while (back > 0 && (masked[back - 1] === " " || masked[back - 1] === "\t")) back--;
-  let stmt = sqlStatementAt(text, back > 0 && masked[back - 1] === ";" ? back - 1 : pos);
+  let stmt = sqlStatementAt(text, back > 0 && masked[back - 1] === ";" ? back - 1 : pos, dialect);
   const start = stmt;
   // Back one statement at a time. From 1 or less there is nothing before (a lone ";" at most).
-  while (!has(stmt) && stmt.from > 1) stmt = sqlStatementAt(text, stmt.from - 1);
+  while (!has(stmt) && stmt.from > 1) stmt = sqlStatementAt(text, stmt.from - 1, dialect);
   if (!has(stmt)) stmt = start;
-  while (!has(stmt) && stmt.to < text.length) stmt = sqlStatementAt(text, stmt.to + 1);
+  while (!has(stmt) && stmt.to < text.length) stmt = sqlStatementAt(text, stmt.to + 1, dialect);
   if (!has(stmt)) return null;
   const lead = stmt.text.length - stmt.text.trimStart().length;
   const from = stmt.from + lead;
@@ -1074,7 +1122,7 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
     statement: () => {
       const { from, to, head } = view.state.selection.main;
       if (to > from) return view.state.sliceDoc(from, to);
-      return sqlRunnableStatementAt(view.state.doc.toString(), head)?.text || "";
+      return sqlRunnableStatementAt(view.state.doc.toString(), head, current)?.text || "";
     },
     selection: () => view.state.selection.main,
     // Replace the selection with `text` and leave the cursor after it.

@@ -112,6 +112,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
                 continue
             tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
             _refuse(tree)
+            _replicate_inputs(tree)  # WR-235: before N'' text and CONVERT's (MAX) are rewritten
             _national_text(tree)
             notes += tsql_ctes.check(tree)  # WR-230: no recursive CTE, no change through a CTE
             notes += tsql_hints.check(tree)  # WR-231: labels and hints that change no rows, with a note
@@ -140,6 +141,10 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             if known is not None:
                 _unknown_functions(tree, known)
             tsql_types.delta_times(tree, columns)  # last, so the passes above read the columns' own types
+            if isinstance(tree, exp.Alter) and sum(isinstance(a, exp.ColumnDef)
+                                                   for a in tree.args.get("actions") or []) > 1:
+                raise ValueError(_NOT_YET + "ALTER TABLE ... ADD of more than one column in one statement isn't "
+                                 "carried yet. Add each column in an ALTER TABLE of its own.")
             try:
                 text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
             except SqlglotError as exc:
@@ -2448,10 +2453,50 @@ def _string_edges(tree: exp.Expression) -> None:
                            exp.LT(this=length.copy(), expression=exp.Literal.number(0)))
             node.set("expression", exp.func("COALESCE", node.expression, exp.Literal.string("")))
             node.replace(exp.Case(ifs=[exp.If(this=past, true=exp.null())], default=node.copy()))
-        elif not _whole(node.args.get("times"), 0):
-            times = node.args["times"]
-            negative = exp.LT(this=times.copy(), expression=exp.Literal.number(0))
-            node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy()))
+        elif isinstance(node, exp.Repeat):
+            _replicate(node)
+
+
+_REPLICATE_CUT = ("REPLICATE gives more than {most} here, and a Fabric Warehouse cuts the result there, because "
+                  "its input isn't {kind}(MAX). Cast the input to {kind}(MAX) to keep the whole result, as the "
+                  "warehouse needs too, or use LEFT to cut it on purpose.")
+
+
+def _replicate_inputs(tree: exp.Expression) -> None:
+    """Mark each REPLICATE by its input as written: "max" for a cast or CONVERT to VARCHAR(MAX) or NVARCHAR(MAX),
+    "national" for N'' text or a cast to NVARCHAR or NCHAR, else "text" (see _replicate)."""
+    for node in tree.find_all(exp.Repeat):
+        value = node.this
+        kind = value.args.get("to") if isinstance(value, exp.Cast) else \
+            value.this if isinstance(value, exp.Convert) else None
+        if isinstance(kind, exp.DataType) and any(isinstance(p, exp.DataTypeParam) and p.name.upper() == "MAX"
+                                                  for p in kind.expressions):
+            node.meta["kf_replicate"] = "max"
+        elif isinstance(value, exp.National) or (isinstance(kind, exp.DataType) and kind.this in (
+                exp.DataType.Type.NVARCHAR, exp.DataType.Type.NCHAR)):
+            node.meta["kf_replicate"] = "national"
+
+
+def _replicate(node: exp.Repeat) -> None:
+    """``REPLICATE(s, n)``: NULL when ``n`` is negative, and refused at the row where T-SQL would cut the result
+    at 8,000 bytes (4,000 characters of N'' text) because ``s`` isn't VARCHAR(MAX) or NVARCHAR(MAX) (WR-235)."""
+    out: exp.Expression = node
+    if not _whole(node.args.get("times"), 0):
+        times = node.args["times"]
+        negative = exp.LT(this=times.copy(), expression=exp.Literal.number(0))
+        out = exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy())
+        node.replace(out)
+    kind = node.meta.get("kf_replicate", "text")
+    if kind == "max":
+        return
+    national = kind == "national"
+    size = exp.func("LENGTH", out.copy()) if national else exp.Anonymous(this="STRLEN", expressions=[exp.cast(out.copy(), "VARCHAR")])
+    most = 4000 if national else 8000
+    message = _REPLICATE_CUT.format(most=f"{most:,} {'characters' if national else 'bytes'}",
+                                    kind="NVARCHAR" if national else "VARCHAR")
+    past = exp.GT(this=size, expression=exp.Literal.number(most))
+    out.replace(exp.Case(ifs=[exp.If(this=past, true=exp.func("ERROR", exp.Literal.string(_NOT_YET + message)))],
+                         default=out.copy()))
 
 
 def _charindex(node: exp.StrPosition) -> None:

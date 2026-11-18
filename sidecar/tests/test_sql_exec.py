@@ -427,6 +427,14 @@ def test_excel_export_refuses_more_rows_than_a_sheet_holds(runs, lake, monkeypat
         runs.export(run["id"], "xlsx")
 
 
+def test_excel_export_refuses_more_columns_than_a_sheet_holds(runs, lake, monkeypatch):
+    run = wait(runs, runs.start("SELECT id, amount, country FROM sales", lake)["id"])
+    monkeypatch.setattr(sql_exec, "EXCEL_MAX_COLUMNS", 2)
+    with pytest.raises(ValueError, match="Excel holds at most 2 columns and this result has 3"):
+        runs.export(run["id"], "xlsx")
+    assert wait_export(runs, runs.export(run["id"], "csv")["id"])["state"] == "completed"  # CSV holds them
+
+
 def test_json_export_is_an_array_of_rows_with_unique_keys(runs, lake):
     run = wait(runs, runs.start("SELECT id, amount, country, id, DATE '2026-01-02' AS d, CAST('NaN' AS DOUBLE) AS bad, "
                                 "CAST(1.10 AS DECIMAL(5,2)) AS money, unhex('0001') AS raw FROM sales ORDER BY id", lake)["id"])

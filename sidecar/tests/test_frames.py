@@ -133,6 +133,17 @@ def test_excel_refuses_more_rows_than_a_sheet_holds(tmp_path, monkeypatch):
     assert target.stat().st_size == 0 and not (tmp_path / "r.xlsx.partial").exists()
 
 
+def test_excel_refuses_more_columns_than_a_sheet_holds(tmp_path, monkeypatch):
+    monkeypatch.setattr(frames, "EXCEL_MAX_COLUMNS", 2)
+    store = Frames()
+    target = tmp_path / "r.xlsx"
+    target.touch()
+    with pytest.raises(ValueError, match="Excel holds at most 2 columns and this result has 3"):
+        store.download(store.keep(pa.table({"a": [1], "b": [2], "c": [3]})), "xlsx", str(target))
+    assert target.stat().st_size == 0
+    store.download(store.keep(pa.table({"a": [1], "b": [2]})), "xlsx", str(target))  # at the limit: written
+
+
 def test_a_failed_download_leaves_no_partial_file(tmp_path, monkeypatch):
     store = Frames()
     fid = store.keep(pa.table({"a": [1]}))

@@ -22,6 +22,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import itertools
 import threading
+from typing import Any
 
 _names = itertools.count()
 
@@ -272,8 +273,9 @@ def _item(text: str, kind: str, name: str) -> str:
         f"WHEN {kind} LIKE 'DECIMAL(%' THEN {_decimal_item(text, kind)} "
         f"WHEN {kind} = 'VARCHAR' THEN {make('b', h=f'HEX(ENCODE({text}))')} "
         f"WHEN {kind} = 'BLOB' THEN {make('b', h=f'HEX({text}::BLOB)')} "
-        f"ELSE ERROR('{name}() of a value of type ' || {kind} || ' can''t run on this PC the way it runs in Fabric, so nothing "
-        f"ran. Run the cell in Fabric, or hash its parts.') END")
+        f"ELSE ERROR('{name}() of a value of type ' || {kind} || ' can''t run on this PC the way it runs in Fabric, "
+        f"because this PC can''t yet hash it in Spark''s order, so nothing ran. Hash its fields or elements instead, "
+        f"such as {name}(s.a, s.b), or run the cell in Fabric.') END")
 
 
 def _values(value: str) -> str:
@@ -306,3 +308,19 @@ def _hash_sql(name: str, count: int) -> str:
     top = 1 << (width - 1)
     return _let(_run(width, steps), lambda h: (
         f"(CASE WHEN {h} >= {top} THEN {h} - {2 * top} ELSE {h} END)::{'INTEGER' if width == 32 else 'BIGINT'}"))
+
+
+def sha2(data: bytes | None, bits: int | None) -> str | None:
+    """Spark's sha2 for 224, 384 and 512 bits (DuckDB has SHA-256 only): the digest as lower-case hex. Any
+    other number of bits gives NULL, as Spark's sha2 does."""
+    import hashlib
+    if data is None or bits not in (224, 384, 512):
+        return None
+    return hashlib.new(f"sha{bits}", data).hexdigest()
+
+
+def register(con: Any) -> None:
+    """Add __kf_sha2 (sha2 above) to DuckDB connection ``con``, as each Spark SQL connection does. A NULL
+    argument gives NULL."""
+    from duckdb.sqltypes import BLOB, INTEGER, VARCHAR
+    con.create_function("__kf_sha2", sha2, [BLOB, INTEGER], VARCHAR, null_handling="special", side_effects=False)

@@ -240,6 +240,36 @@ These cases still differ:
 | `from_json` text in single quotes, such as `{'a':1}` | Read (`allowSingleQuotes` is on by default) | NULL |
 | Databricks SQL on the DuckDB engine | As in Spark SQL | `from_json` and `schema_of_json` options are refused, and `to_json` is DuckDB's own |
 
+## Hashing and encoding on this PC (WR-119)
+
+Spark SQL run on this PC gives Spark's answers for its hashing and encoding functions, with ANSI mode off as Fabric runs it. 84 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_hashing_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `hash`, `xxhash64` | Spark's Murmur3 and xxHash64 numbers with seed 42, for each type: whole numbers, doubles, decimals, booleans, text, binary, dates, timestamps, arrays, and several arguments. NULL keeps the seed. A map stops, as in Spark |
+| `md5`, `sha1`, `sha`, `crc32` | Of text's UTF-8 bytes, or of binary |
+| `sha2` | 0 and 256 bits are SHA-256; 224, 384 and 512 are those SHA-2 digests; any other length gives NULL |
+| `base64` | Text's UTF-8 bytes or binary; a line break (CR LF) after every 76 characters, as Spark 3.5 writes it |
+| `unbase64` | Characters outside the base64 alphabet are skipped and padding is optional. Padding that doesn't end a group of four, base64 after the padding, or one character left over at the end stops, as in Spark |
+| `hex`, `unhex` | `hex` of a double or decimal cuts it to a whole number first. `unhex` puts a `0` before an odd number of digits and gives NULL for anything that isn't hex digits |
+| `conv` | Spaces around the number are trimmed first |
+| `CAST(x AS BINARY)` | A whole number's big-endian bytes: 1 for a `tinyint`, 2 for a `smallint`, 4 for an `int` and 8 for a `bigint` |
+| `CAST(x AS STRING)` of binary | Its UTF-8 text |
+| `-9223372036854775808L`, `-2147483648` | Read as one literal of its type, as Spark reads them |
+
+Refused by name, and nothing runs:
+
+| Case | Why |
+| --- | --- |
+| `hash` or `xxhash64` of a struct, or of an array of structs or arrays | This PC can't yet hash a struct's fields in Spark's order. Hash its fields instead: `hash(s.a, s.b)` gives the same number as `hash(s)` |
+| A cast of binary to string where the bytes aren't UTF-8 | Spark reads them with replacement characters. Use `hex()` or `base64()` instead |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| Databricks SQL on the DuckDB engine | `base64` and `unbase64` as in Spark SQL | `base64` writes one line, and `unbase64` reads only strict base64 |
+
 ## Local T-SQL changes
 
 When a project runs T-SQL on this PC, `MERGE`, `UPDATE`, `DELETE` and `INSERT` on a database table give a warehouse's rows, or stop by name. Each case below is checked against T-SQL's reference.

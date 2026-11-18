@@ -905,7 +905,7 @@ class SqlExecutions:
         limit = int(limit or self._limits()["sql_page_rows"])
         limit = max(1, min(limit, app_settings.SQL_RANGES["sql_page_rows"][1]))
         part_of = {"part": res.part} if res.part is not None else {}
-        filters = [f for f in filters or [] if str(f.get("text") or "").strip()]
+        filters = [f for f in sql_view.entries(filters, "filter") if str(f.get("text") or "").strip()]
         if sort or filters:
             sql_view.check_size(res.rows, "Sorting and filtering")
             rows, total = sql_view.view_page(_whole(res.path, res.rows), max(0, int(offset)), limit, sort, filters)
@@ -1118,10 +1118,11 @@ class SqlExecutions:
                     # not at the result's retention. Kept: a link (never followed), a spill written in
                     # the last SPILL_QUIET_S (a live run, should sql_temp_dir be shared), and a file
                     # still open (Windows won't delete it).
+                    # Its age is read first: removing the spill touches the folder, which would make it new.
+                    age = now - folder.stat().st_mtime
                     spill = folder / "spill"
                     if not (_linked(folder) or _linked(spill)) and _quiet(spill, now):
                         shutil.rmtree(spill, ignore_errors=True)
-                    age = now - folder.stat().st_mtime
                     if hours <= 0 or age > hours * 3600:
                         shutil.rmtree(folder, ignore_errors=True)
 

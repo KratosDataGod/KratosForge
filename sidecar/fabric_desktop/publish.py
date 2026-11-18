@@ -21,7 +21,7 @@ import pyarrow as pa
 from deltalake import CommitProperties, DeltaTable, WriterProperties, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
-from . import delta_profile, runlog
+from . import delta_profile, delta_read, runlog
 from .fabric_api import FabricClient
 from .jobs import Job, run_local
 from .leases import LeaseLost, LocalBackend, check_held, onelake_table_lease, table_lease
@@ -158,6 +158,7 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str | Callable[[
             # Replacing every row as a predicate makes Delta check for commits since the version loaded
             # (a plain overwrite doesn't, and would keep rows a writer outside the lease appended meanwhile).
             extra = {"predicate": predicate or "true"} if mode == "overwrite" and table is not None else {}
+            how = delta_read.schema_mode_for(table, data.schema.names, how, f"{ref.schema}.{ref.table}")
             check_held()  # the lease is still ours, with time to commit (HD-016)
             before = table.version() if table is not None else None
             try:

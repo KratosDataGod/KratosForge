@@ -43,12 +43,14 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     # An OAuth authorization code in a redirect's query or fragment (?code=...): it can be traded for tokens.
     (re.compile(r"(?i)([?&#]code=)[^&\s\"'<>#]+"), r"\1" + REMOVED),
     # A password or token in a URL's user info: https://user:token@dev.azure.com/...
-    (re.compile(r"(?i)(\b[a-z][a-z0-9+.\-]*://)[^/\s:@\"'<>]+:[^@/\s\"'<>]+@"), r"\1" + REMOVED + "@"),
+    # The rule starts at "://", not at the scheme, so a long run of scheme-like text is read once.
+    (re.compile(r"(?i)(?<=[a-z0-9+.\-])(://)[^/\s:@\"'<>]+:[^@/\s\"'<>]+@"), r"\1" + REMOVED + "@"),
     # A user name alone, since Git remotes carry a token there too (https://<token>@github.com/...).
     # Not storage addresses on a storage host (abfss://workspace@onelake..., wasbs://container@acct.blob
     # .core.windows.net), where the part before @ names a container.
-    (re.compile(r"(?i)\b(?!(?:abfss?|wasbs?)://[^/\s:@\"'<>]+@(?:onelake\.(?:dfs|blob)\.fabric\.microsoft\.com(?=[/:?#\s\"'<>]|$)|[a-z0-9\-]+\.(?:dfs|blob)\.core\.windows\.net(?=[/:?#\s\"'<>]|$)))"
-                r"([a-z][a-z0-9+.\-]*://)[^/\s:@\"'<>]+@"), r"\1" + REMOVED + "@"),
+    (re.compile(r"(?i)(?<=[a-z0-9+.\-])(?!(?:" + "|".join(rf"(?<=(?<![a-z0-9+.\-]){s})" for s in ("abfs", "abfss", "wasb", "wasbs"))
+                + r")://[^/\s:@\"'<>]+@(?:onelake\.(?:dfs|blob)\.fabric\.microsoft\.com(?=[/:?#\s\"'<>]|$)|[a-z0-9\-]+\.(?:dfs|blob)\.core\.windows\.net(?=[/:?#\s\"'<>]|$)))"
+                r"(://)[^/\s:@\"'<>]+@"), r"\1" + REMOVED + "@"),
     # A Teams incoming webhook: anyone with the address can post to the channel. The legacy
     # Office 365 connector form lives under outlook.office.com/webhook/ (or office365.com).
     (re.compile(r"(?i)https://(?:[A-Za-z0-9.\-]+\.webhook\.office\.com/|outlook\.office(?:365)?\.com/webhook(?:b2)?/)"
@@ -89,12 +91,14 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?i)('(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)"), r"\1" + REMOVED),
     # An unquoted name with a quoted value (password="two words", token='a b'): the value runs to its
     # closing quote too, so the generic rule below doesn't stop at the first space.
-    (re.compile(r"(?i)\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*\")(?:(?:[^\"\\]|\\.)*(?=\")|(?:[^\"\\\n]|\\.)*)"), r"\1" + REMOVED),
-    (re.compile(r"(?i)\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)"), r"\1" + REMOVED),
+    (re.compile(r"(?i)((?:\b|(?<=_)(?=passphrase|token))(?:client_secret|password|passwd|passphrase|pwd|accountkey|sharedaccesskey|token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*\")(?:(?:[^\"\\]|\\.)*(?=\")|(?:[^\"\\\n]|\\.)*)"), r"\1" + REMOVED),
+    (re.compile(r"(?i)((?:\b|(?<=_)(?=passphrase|token))(?:client_secret|password|passwd|passphrase|pwd|accountkey|sharedaccesskey|token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)"), r"\1" + REMOVED),
     (re.compile(r"\bxox[abposr]-[A-Za-z0-9\-]{10,}\b"), REMOVED),
     # name=value or "name": "value" for names that hold secrets.
-    # Any *_token or *-token name, and a bare token= (access_token, sas_token, x-auth-token, token).
-    (re.compile(r"(?i)\b(client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token"
+    # Any *_token or *-token name, and a bare token= (access_token, sas_token, x-auth-token, token):
+    # these rules start at the keyword, not at the name's first word, so that a long run of
+    # word-dash-word text is read once, not once from every word in it.
+    (re.compile(r"(?i)(?:\b|(?<=_)(?=passphrase|token))(client_secret|password|passwd|passphrase|pwd|accountkey|sharedaccesskey|token"
                 r"|api[_-]?key|secret(?:[_-]?key)?)(\"?\s*[=:]\s*\"?)[^\s\"'&;,]+"), r"\1\2" + REMOVED),
 ]
 # Field names whose value is a secret, compared without case, "-" or "_" (Api-Key, client_secret).
@@ -102,11 +106,15 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
 _SECRET_KEYS = ("password", "passwd", "passphrase", "secret", "token", "apikey", "subscriptionkey", "connectionstring",
                 "authorization")
 # A guest's sign-in name carries "#EXT#" before the "@" (name_home.com#EXT#@tenant.onmicrosoft.com).
-_EMAIL = re.compile(r"[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")
+# A run of name characters with no address after it is skipped whole (the second branch), so a
+# long run is read once, not again from every character in it.
+_EMAIL = re.compile(r"([A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+)|[A-Za-z0-9._%+\-#]+")
 # The tenant's own domain, and the organization's name on a OneDrive for Business folder, name the company.
-_TENANT_DOMAIN = re.compile(r"(?i)\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b")
+# Tried only where a suffix lies within a host name's length (253, as DNS allows), so long
+# dotted or dashed text without one is not read again from every word in it.
+_TENANT_DOMAIN = re.compile(r"(?i)\b(?=[a-z0-9.\-]{0,253}\.onmicrosoft\.(?:com|us|de|cn)\b)[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b")
 # contoso.sharepoint.com, contoso-my.sharepoint.com (OneDrive) and contoso-admin.sharepoint.com
-_SHAREPOINT_HOST = re.compile(r"(?i)\b[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b")
+_SHAREPOINT_HOST = re.compile(r"(?i)\b(?=[a-z0-9\-]{0,253}\.sharepoint\.(?:com|us|de|cn)\b)[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b")
 # a site or team name often carries the organization's: /sites/ContosoFinance. One with spaces
 # (/sites/Contoso Finance/...) is hidden whole when its words run to a "/", a quote or the line's end.
 _SHAREPOINT_SITE = re.compile(r"(?im)(\.sharepoint\.(?:com|us|de|cn)/(?:sites|teams)/)"
@@ -175,7 +183,7 @@ def for_support(text: str) -> str:
     """``text`` safe to paste into a public issue: no secrets, emails (a guest's too), the tenant's
     onmicrosoft.com and SharePoint names, the organization on OneDrive folders, user names in paths or ids."""
     text = secrets(text)
-    text = _EMAIL.sub("[email]", text)
+    text = _EMAIL.sub(lambda m: "[email]" if m.group(1) else m.group(0), text)
     text = _TENANT_DOMAIN.sub(r"[tenant]\1", text)
     text = _SHAREPOINT_HOST.sub(r"[tenant]\1\2", text)
     text = _SHAREPOINT_SITE.sub(r"\1[site]", text)

@@ -19,6 +19,7 @@ from typing import Callable, cast
 import sqlglot
 from sqlglot import exp
 
+from . import spark_time_zone
 from .spark_hash import hash_sql
 
 # ---- helpers
@@ -715,6 +716,13 @@ def _to_timestamp(safe: bool) -> Callable[..., exp.Expression | None]:
     return build
 
 
+def _zone(zone: exp.Expression) -> exp.Expression:
+    """A time zone argument written out as text, as DuckDB names it (spark_time_zone.zone_id)."""
+    if isinstance(zone, exp.Literal) and zone.is_string:
+        return exp.Literal.string(spark_time_zone.zone_id(zone.name))
+    return zone
+
+
 def _make_timestamp(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
     """make_timestamp, make_timestamp_ltz and make_timestamp_ntz: NULL for a date or time that doesn't
     exist (ANSI off). make_timestamp and _ltz give Spark's timestamp: the wall time in the session's zone,
@@ -724,7 +732,9 @@ def _make_timestamp(node: exp.Expression, args: list[exp.Expression]) -> exp.Exp
     if len(args) == 6:
         return _with_args(made if ntz else f"CAST({made} AS TIMESTAMPTZ)", args)
     if len(args) == 7 and not ntz:
-        return _with_args(f"TRY(TIMEZONE(CAST(fj_arg6 AS VARCHAR), {made}))", args)
+        zone = "CAST(fj_arg6 AS VARCHAR)"
+        return _with_args(f"TRY({spark_time_zone.earlier_in(zone, f'TIMEZONE({zone}, {made})')})",
+                          [*args[:6], _zone(args[6])])
     return None  # left to DuckDB, which refuses it
 
 
@@ -1016,9 +1026,10 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         # from_utc_timestamp and to_utc_timestamp: Spark's timestamp (with time zone), whose wall time in
         # the session's zone is the converted one
         ("AtTimeZone", lambda n, a: _with_args("CAST(TIMEZONE(fj_arg1, TIMEZONE('UTC', TRY_CAST(fj_arg0 AS TIMESTAMP))) "
-                                               "AS TIMESTAMPTZ)", [_uncast(n.this), n.args["zone"]])),
-        ("FromTimeZone", lambda n, a: _with_args("CAST(TIMEZONE('UTC', TIMEZONE(fj_arg1, TRY_CAST(fj_arg0 AS TIMESTAMP))) "
-                                                 "AS TIMESTAMPTZ)", [_uncast(n.this), n.args["zone"]])),
+                                               "AS TIMESTAMPTZ)", [_uncast(n.this), _zone(n.args["zone"])])),
+        ("FromTimeZone", lambda n, a: _with_args(
+            "CAST(TIMEZONE('UTC', " + spark_time_zone.earlier_in("fj_arg1", "TIMEZONE(fj_arg1, TRY_CAST(fj_arg0 AS TIMESTAMP))")
+            + ") AS TIMESTAMPTZ)", [_uncast(n.this), _zone(n.args["zone"])])),
         ("TimestampFromParts", _make_timestamp),
         ("ToNumber", lambda n, a: _to_number(False)(n, [n.this, n.args["format"]] if n.args.get("format") else [n.this])),
         ("ToChar", lambda n, a: _to_char("to_char")(n, [n.this, n.args["format"]]) if n.args.get("format") else None),

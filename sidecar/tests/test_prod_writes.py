@@ -199,3 +199,17 @@ def test_in_a_notebooks_own_process_every_overwrite_is_a_cells(lake, prod, monke
     monkeypatch.setattr(lakehouse, "in_kernel_process", True)
     with pytest.raises(lakehouse.ProdConfirmNeeded):
         lakehouse.write_table(pa.table({"id": [1], "region": ["EU"]}), "dbo.sales")
+
+
+def test_an_overwrite_from_a_thread_the_running_cell_started_asks_too(lake, prod):  # noqa: F811
+    code = ("import threading, pyarrow as pa\nfrom fabric_desktop import lakehouse\nerrors = []\n"
+            "def write():\n"
+            "    try:\n"
+            "        lakehouse.write_table(pa.table({'id': [9], 'region': ['EU']}), 'dbo.sales')\n"
+            "    except Exception as exc:\n"
+            "        errors.append(type(exc).__name__)\n"
+            "t = threading.Thread(target=write)\nt.start()\nt.join()\nprint(errors)")
+    before = _version(lake)
+    status, _, text = _run(code)
+    assert status == "ok" and "ProdConfirmNeeded" in text, text
+    assert _version(lake) == before

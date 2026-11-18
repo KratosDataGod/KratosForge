@@ -1090,3 +1090,26 @@ def test_stashed_names_each_measure_where_the_converter_puts_it():
     assert {r for r in found if "[" in r} == placed - {"dim_channel[no section]", "fact_sales[net revenue]"}
     assert found >= {"fact_sales[no table]", "fact_sales[missing table]", "dim_channel[Renamed M]",
                      "dim_channel[own]", "fact_sales[sent elsewhere]", "fact_sales[table is null]"}
+
+
+@pytest.mark.parametrize("value", [
+    "a" + " " * 5000 + "x[",
+    "a." + " " * 5000 + "x",
+    "a" + " b" * 3000 + "[",
+    "'" + "''" * 3000,
+])
+def test_a_crafted_reference_is_read_quickly_and_a_long_one_is_not_a_reference(value):
+    """A model from Fabric or a TMDL folder can hold any text here: reading it never backtracks slowly."""
+    import time
+    start = time.perf_counter()
+    assert model_ossie._parse_ref(value, "t") is None
+    model_ossie._TMDL_REF.match(value.strip())  # the pattern itself, past the length cap, is quick too
+    assert time.perf_counter() - start < 0.5
+
+
+def test_ordinary_references_still_read():
+    assert model_ossie._parse_ref(" Sales [Amount] ", "t") == ("sales", "amount")
+    assert model_ossie._parse_ref("'My T'[c]", "t") == ("my t", "c")
+    assert model_ossie._parse_ref("'Q''s'.h", "t") == ("q's", "h")
+    assert model_ossie._parse_ref("T . h ", "t") == ("t", "h")
+    assert model_ossie._parse_ref("amount", "t") == ("t", "amount")

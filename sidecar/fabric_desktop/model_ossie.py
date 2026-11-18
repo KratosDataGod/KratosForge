@@ -338,7 +338,10 @@ _FROM_SOURCE = ("sourceLineageTag", "sourceProviderType")
 # Carried properties holding DAX, checked for the names of tables, columns and measures the merge took out.
 _DAX_KEYS = ("kpi", "formatStringDefinition", "detailRowsDefinition", "defaultDetailRowsDefinition")
 _QUOTED = r"'((?:[^']|'')*)'"
-_TMDL_REF = re.compile(rf"^\s*(?:{_QUOTED}|([^\['.]+?))\s*(?:\[(.+)\]|\.\s*(?:{_QUOTED}|(.+?)))?\s*$")
+# A bare name starts and ends with a character that isn't a space, so it never overlaps the spaces around it
+# (no slow backtracking on a crafted name); the value is stripped first and capped at MAX_REF characters.
+_TMDL_REF = re.compile(rf"^(?:{_QUOTED}|([^\['.\s](?:[^\['.]*[^\['.\s])?))\s*(?:\[(.+)\]|\.\s*(?:{_QUOTED}|(.+)))?$")
+MAX_REF = 512  # longer than any real Table[Column] or Table.Hierarchy: not read as a reference, so not carried
 
 
 def _parse_ref(value: Any, table: str) -> tuple[str, str] | None:
@@ -347,9 +350,9 @@ def _parse_ref(value: Any, table: str) -> tuple[str, str] | None:
     if isinstance(value, dict):
         t, n = value.get("table"), value.get("column", value.get("hierarchy"))
         return (str(t).casefold(), str(n).casefold()) if isinstance(t, str) and isinstance(n, str) else None
-    if not isinstance(value, str):
+    if not isinstance(value, str) or len(value) > MAX_REF:
         return None
-    m = _TMDL_REF.match(value)
+    m = _TMDL_REF.match(value.strip())
     if m is None:
         return None
     first = (m.group(1).replace("''", "'") if m.group(1) is not None else m.group(2)).strip()

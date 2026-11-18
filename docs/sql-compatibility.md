@@ -150,7 +150,7 @@ These cases still differ:
 
 | Case | Spark | This PC |
 | --- | --- | --- |
-| A `timestamp` from `collect()` | A `datetime` with no zone, in UTC (Fabric's driver runs in UTC) | A `datetime` with the session's zone: the same instant |
+| A `timestamp` from `collect()` | A `datetime` with no zone, in UTC (Fabric's driver runs in UTC) | A `datetime` with the session's zone, which is the same instant |
 
 ## Window functions on this PC
 

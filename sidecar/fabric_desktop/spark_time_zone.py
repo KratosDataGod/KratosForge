@@ -50,9 +50,9 @@ def zone_id(zone: str) -> str:
         return text
     sign, hours, minutes, seconds = match.groups()
     if int(minutes or 0) or int(seconds or 0):
-        raise ValueError(f"The time zone {zone!r} can't be used on this PC, so nothing ran: the engine here has a "
-                         "zone for an offset of whole hours only. Use the region's own zone, such as "
-                         "Asia/Kolkata, or run the cell in Fabric.")
+        raise ValueError(f"The time zone {zone!r} can't be used on this PC the way it is in Fabric, because the "
+                         "engine here has a zone for an offset of whole hours only, so nothing ran. Use the "
+                         "region's own zone, such as Asia/Kolkata, or run the cell in Fabric.")
     if int(hours) == 0:
         return "UTC"
     if (sign == "+" and int(hours) > 14) or (sign == "-" and int(hours) > 12):

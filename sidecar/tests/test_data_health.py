@@ -224,3 +224,25 @@ def test_loads_carry_the_run_that_wrote_them():
     history[0]["fabric_desktop_run_id"] = "r-20261117-120000-0123456789ab"
     history[1]["fabric_desktop_run_id"] = "not ours"
     assert [x["run_id"] for x in dh.loads(history)] == [None, "r-20261117-120000-0123456789ab"]
+
+
+def test_acknowledgements_no_alert_matches_are_forgotten(svc, monkeypatch):
+    svc.meta_data_health_watch("silver.customers", "dev")
+    svc.meta_data_health_watch("gold.dim_customer", "dev")
+    alerts = {"silver.customers": [{"kind": "volume", "version": 6, "title": "x"}]}
+
+    def check(name, env):
+        if name == "gold.dim_customer":
+            raise OSError("can't read it now")
+        return {"entity": name, "env": env, "alerts": [dict(a) for a in alerts[name]]}
+
+    monkeypatch.setattr(svc, "meta_data_health", check)
+    for kind, version, name in (("volume", 5, "silver.customers"), ("volume", 6, "silver.customers"),
+                                ("schema", 6, "silver.customers"), ("volume", 9, "gold.dim_customer")):
+        svc.meta_data_health_quiet(name, "dev", kind, version)
+    svc.meta_data_health_watch("silver.customers", "prod")
+    svc.meta_data_health_quiet("silver.customers", "prod", "volume", 1)
+    svc.meta_data_health_list()
+    # Kept: the one the current alert matches, the unreadable table's, and another environment's.
+    assert sorted(svc._dh_read()["quiet"]) == ["dev|gold.dim_customer|volume|9", "dev|silver.customers|volume|6",
+                                               "prod|silver.customers|volume|1"]

@@ -93,6 +93,14 @@ test("a table opens with its chart, and Acknowledge sends only that alert", { sk
   const note = await page().textContent(".page.monitor .dh-note");
   assert.match(note, /Open the run that wrote it/);
   assert.match(note, /Snooze 1 day/);
+  // Open an incident: Report an incident with the alert filled in, for this environment.
+  await page().locator(".page.monitor .dh-note button", { hasText: "Open an incident" }).click();
+  await page().waitForSelector(".dialog .inc-report");
+  assert.match(await page().inputValue(".dialog .inc-report input[type=text]"), /^gold\.fact_sales: version 412 wrote 5,200,000 rows, 10\.4× usual$/);
+  assert.match(await page().inputValue(".dialog .inc-report textarea"), /Usual: median 498,000 rows a load.*Found by Data health/);
+  assert.strictEqual(await page().inputValue(".dialog .inc-report select"), "dev");
+  await page().locator(".dialog button", { hasText: "Cancel" }).click();
+  await page().waitForFunction(() => !document.querySelector(".dialog"));
   assert.strictEqual(await page().locator(".page.monitor .dh-chart rect.dh-bar").count(), 13);
   assert.strictEqual(await page().locator(".page.monitor .dh-chart rect.dh-bar.hi").count(), 1);
   const tiles = await page().locator(".page.monitor .dh-tile").allTextContents();

@@ -333,9 +333,9 @@ def test_the_notice_of_a_skipped_line_never_holds_its_text(capsys):
     kernel_host.dispatch(_Host(), _Recorder(), "secret-cell-code " * 600)
     err = capsys.readouterr().err
     assert "secret-cell-code" not in err and "10199 characters" in err and len(err) < 200
-    kernel_host.dispatch(_Host(), _Recorder(), json.dumps({"op": "debug", "args": ["password = 's3cr3t'"]}))
+    kernel_host.dispatch(_Host(), _Recorder(), json.dumps({"op": "debug", "args": ["cell_value = 'private-cell-text'"]}))
     err = capsys.readouterr().err
-    assert "s3cr3t" not in err and "op 'debug'" in err
+    assert "private-cell-text" not in err and "op 'debug'" in err
 
 
 def test_channel_answer_is_never_given_a_non_message():

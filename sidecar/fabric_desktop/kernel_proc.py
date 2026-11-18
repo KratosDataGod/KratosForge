@@ -498,6 +498,7 @@ class ProcessKernel:
             except KernelGone:
                 return idle
         if self._proc is None or self._proc.poll() is not None:
+            self._await_gone()
             if self._last is None:
                 return {"status": "idle", "execution_count": self.count, "version": 0, "seconds": 0, "outputs": []}
             last = dict(self._last)
@@ -520,6 +521,14 @@ class ProcessKernel:
             if snap.get("outputs") is not None:
                 self._last = snap
         return snap
+
+    def _await_gone(self, seconds: float = 5.0) -> None:
+        """The process has ended but its reader may not have read the end yet (it lags on Windows):
+        wait for it to mark the cell ended, so a poll never shows a dead process's cell running or paused."""
+        proc = self._proc
+        deadline = time.monotonic() + seconds
+        while proc is not None and self._proc is proc and time.monotonic() < deadline:
+            time.sleep(0.02)
 
     def _stuck(self, known_version: int) -> dict[str, Any]:
         last = dict(self._last or {"status": "running", "execution_count": self.count, "version": 0, "seconds": 0})

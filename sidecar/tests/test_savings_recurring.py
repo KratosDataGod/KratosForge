@@ -134,6 +134,7 @@ def test_unknown_overhead_is_named_in_the_assumptions():
     runs = [result("e1", 10), result("e2", 12), result("e3", 14, overhead=None)]
     out = rc.project(runs, workload_key="nb:sales", baseline_version="b1", now=NOW)
     assert any("overhead is unknown" in a for a in out["projection"]["assumptions"])
+    assert out["complete"] is False and out["unknown_runs"] == 0  # like by_period: unknown overhead is incomplete
 
 
 def test_bad_windows_are_refused():

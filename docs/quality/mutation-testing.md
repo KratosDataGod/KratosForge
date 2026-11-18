@@ -6369,3 +6369,199 @@ No bugs were found.
 | `csv_cells.py` | 92, 96, 113 | `zip(strict=True)` to `False` | Equivalent: both sides come from the same schema or batch, so they always have the same length. |
 | `delta_read.py` | 82 | `get_add_actions(flatten=True)` to `False` | Equivalent: in deltalake 1.6.6 `size_bytes` is a top-level column either way. |
 | `delta_read.py` | 149 | `zip(strict=True)` to `False` | Equivalent: both columns come from the same deletion-vector table, so they always have the same length. |
+
+# Mutation testing, batch 134
+
+Two small workload modules not covered before, run with `--kinds all`, so each score counts the boundary mutants together with the earlier kinds:
+- Reading the status records agents publish, when an agent is live, offline or stopped, comparing its version with this app's, and the fleet list built from every environment's records (`workloads/agents.py`).
+- The likely category of a failed run's error message, and whether retrying alone helps (`workloads/classify.py`).
+
+The run was at `main` 5865db95 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902, and the method of earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Each module has fewer than 150 mutants, so all of them ran. No `-k` filter or `--deselect` was needed. Before each "after" run, the new tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it; they passed both ways. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/agents.py` | test_agent_fleet, test_incidents (+ test_workload_agents_mutation) | 45 of 45 (42 + 3) | 40 / 5 | **88.9%** | 40/42 → 42/42 | 0/3 → 2/3 | 44 / 1 | **97.8%** | 1 equivalent |
+| `workloads/classify.py` | test_incidents, test_retrying (+ test_workload_classify_mutation) | 16 of 16 (16 + 0) | 12 / 4 | **75.0%** | 12/16 → 15/16 | none | 15 / 1 | **93.8%** | 1 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/agents.py**:
+  - Only status records that are JSON objects of kind `agent_status` are read; another kind, a list, text that isn't JSON and a missing file are skipped.
+  - An agent is offline from exactly its stale time, and live one second before.
+  - An older heartbeat read later doesn't speak for the agent, and of two equal heartbeats the first record read does.
+  - → `test_workload_agents_mutation.py`.
+- **workloads/classify.py**:
+  - Each category says whether retrying alone helps: throttled, network and table busy do; access, source missing, schema, data quality and code don't; an unrecognized message doesn't say.
+  - → `test_workload_classify_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/agents.py` | 56 | `a < b` to `<=` for older or newer | Equivalent: equal versions are answered as `same` just before, so `a` and `b` are never equal here. |
+| `workloads/classify.py` | 16 | `429` to `430` in the statuses left out of the network rule | Equivalent: 429 is matched by the throttled rule, which comes first, so the network rule never decides it. |
+
+# Mutation testing, batch 135
+
+One workload module not covered before, run with `--kinds all`, so its score counts the boundary mutants together with the earlier kinds:
+- How a notice route sends: checking a Teams, flow or email address, the company mail server's settings, the email itself, sending it encrypted, and posting to a Power Automate flow (`workloads/deliver.py`).
+
+The run was at `main` 5865db95 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902, and the method of earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. The module has fewer than 150 mutants, so all of them ran. No `-k` filter or `--deselect` was needed. Before the "after" run, the new tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it; they passed both ways. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/deliver.py` | test_deliver, test_incidents (+ test_deliver_mutation) | 131 of 131 (125 + 6) | 105 / 26 | **80.2%** | 105/125 → 124/125 | 0/6 → 6/6 | 130 / 1 | **99.2%** | 1 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/deliver.py**:
+  - A line is cut to 500 characters, a route sends at most 200 lines, and an email route at most 20 addresses, with exactly 20 allowed.
+  - An empty address stays empty.
+  - A webhook with only a user name, or only a password, is refused.
+  - An address of exactly 254 characters is kept and one of 255 refused; a bad address is named in at most 80 characters.
+  - The mail server's port is 587 by default, 1 and 65535 are allowed and 65536 isn't, and its settings can't be changed in place. Its user name is cut to 256 characters.
+  - An email's subject is cut to 200 characters, its Message-ID is on the sender's domain, and its date is in local time. It shows 20 lines and says how many more.
+  - The mail server gets 20 seconds by default, and a flow 5 seconds to connect and 15 to answer. A flow answering 300 has failed.
+  - A server reply given as text, not bytes, still gives its status code.
+  - → `test_deliver_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/deliver.py` | 124 | `1 <= port` to `0 <= port` | Equivalent: a port of 0 is read as the default 587 just before, and the port is a whole number, so no port is 0 here. |
+
+# Mutation testing, batch 136
+
+One workload module not covered before, run with `--kinds all`, so its score counts the boundary mutants together with the earlier kinds:
+- What an evaluation looks for in one environment: failed runs, runs waiting for a decision, lateness, data product promises, success objectives and agents that stopped reporting, and the one line each change becomes in a Teams message (`workloads/evaluate.py`).
+
+The run was at `main` 5865db95 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902, and the method of earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. The module has fewer than 150 mutants, so all of them ran. No `-k` filter or `--deselect` was needed. Before the "after" run, the new tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it; they passed both ways. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/evaluate.py` | test_incidents, test_incident_desk, test_agent_clock_and_folder, test_not_set_up (+ test_evaluate_mutation) | 116 of 116 (113 + 3) | 89 / 27 | **76.7%** | 88/113 → 113/113 | 1/3 → 3/3 | 116 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/evaluate.py**:
+  - A failed run with no message says "The run failed.", and one with no place or job gives empty ones. A run waiting for a decision with no message says what waits.
+  - A load of exactly one row counts its rejected rows, a load with no rejected count rejected nothing, and exactly the promised share of rejected rows keeps the promise.
+  - A product's lateness counts unless the caller says the entity reports it already.
+  - The products a late table lets down go on its late signal, not on a failed-run signal before it.
+  - An objective names the newest finished run, not one still going.
+  - An agent is missing from exactly its stale time.
+  - Times in messages are shown in UTC; a naive time and text that isn't a time are shown as they are.
+  - A recovery says recovered or cleared, and names the environment when the incident has no name. An escalation names who, else on-call. A reopened incident says "again" and names its owner.
+  - → `test_evaluate_mutation.py`.
+
+### Left
+
+None.
+
+# Mutation testing, batch 137
+
+One workload module not covered before, run with `--kinds all` (it has no boundary mutants):
+- A workload's health, readiness and findings, each with its evidence (`workloads/health.py`).
+
+The run was at `main` 5865db95 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902, and the method of earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. The module has fewer than 150 mutants, so all of them ran. No `-k` filter or `--deselect` was needed. Before the "after" run, the new tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it; they passed both ways. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/health.py` | test_workload_health, test_workloads (+ test_workload_health_mutation) | 91 of 91 (91 + 0) | 84 / 7 | **92.3%** | 84/91 → 91/91 | none | 91 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/health.py**:
+  - A workload is partly observed when one deployment was read and another wasn't; not when all or none were, and not when the unread one has a last run.
+  - A definition problem alone doesn't make a workload that runs well need attention; it only blocks readiness.
+  - A run waiting for a decision has a default text, and a cancelled run has an empty one unless it has a message.
+  - An older version is named by eight characters of each hash.
+  - → `test_workload_health_mutation.py`.
+
+### Left
+
+None.
+
+# Mutation testing, batch 138
+
+Two small incident modules not covered before, run with `--kinds all`, so each score counts the boundary mutants together with the earlier kinds:
+- Who an incident reaches: the data products built on its workload, the projects linked to them and the people to tell (`workloads/impact.py`).
+- SLA targets for incidents, from the policy or the defaults, and where an incident stands against them (`workloads/sla.py`).
+
+The run was at `main` 5865db95 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902, and the method of earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Each module has fewer than 150 mutants, so all of them ran. No `-k` filter or `--deselect` was needed. Before each "after" run, the new tests were run in a copy of `sidecar/` on its own and against each module as `ast.unparse` writes it; they passed both ways. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/impact.py` | test_incident_desk (+ test_incident_impact_mutation) | 36 of 36 (36 + 0) | 32 / 4 | **88.9%** | 32/36 → 36/36 | none | 36 / 0 | **100%** | none |
+| `workloads/sla.py` | test_incident_desk (+ test_incident_sla_mutation) | 70 of 70 (65 + 5) | 53 / 17 | **75.7%** | 53/65 → 65/65 | 0/5 → 4/5 | 69 / 1 | **98.6%** | 1 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/impact.py**:
+  - A product without a name is named by its id, and one without an owner, domain or status gets empty ones; a link without an alias gets an empty one. A product and link that have them keep them.
+  - → `test_incident_impact_mutation.py`.
+- **workloads/sla.py**:
+  - The default targets for P1 to P4, and the longest target, a year in minutes.
+  - A target from 1 minute up to a year is taken; -1 and a minute over a year are ignored and reported.
+  - An incident with no opening time has no clocks.
+  - Acknowledged at exactly the due time is met, a second later missed.
+  - At exactly the due time an open clock is at risk with 0 minutes left, a second later breached.
+  - At risk from less than a quarter of the window left, and minutes left are whole minutes.
+  - → `test_incident_sla_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/sla.py` | 51 | `0 < value` to `0 <= value` | Equivalent: a value of 0 is taken as "no target" just before, so it never reaches this check. |
+
+# Mutation testing, batch 139
+
+One incident module not covered before, run with `--kinds all`, so its score counts the boundary mutants together with the earlier kinds:
+- Incident history for the central lakehouse: timeline and snapshot rows, the record of what this PC already copied, and reports of time to acknowledge, time to resolve and SLAs met (`workloads/incident_history.py`).
+
+The run was at `main` 5865db95 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902, and the method of earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. The module has fewer than 150 mutants, so all of them ran. No `-k` filter or `--deselect` was needed. Before the "after" run, the new tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it; they passed both ways. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/incident_history.py` | test_incident_desk, test_corrupt_state_reads (+ test_incident_history_mutation) | 86 of 86 (83 + 3) | 68 / 18 | **79.1%** | 67/83 → 83/83 | 1/3 → 3/3 | 86 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/incident_history.py**:
+  - This PC remembers 50,000 copied record ids, and reports cover 7, 30, 90 or 365 days.
+  - A snapshot of an incident that leaves fields out gets the defaults ("detected" and empty texts), and its "as of" time is when it opened; one that has the fields keeps them, and its newest timeline entry is its "as of" time.
+  - A timeline entry without text is copied with empty text.
+  - A record of copies that isn't JSON, or a folder where the file should be, sends everything again.
+  - A naive time is read as UTC.
+  - A report counts incidents opened at exactly either end of its window, and all met is 100 %.
+  - → `test_incident_history_mutation.py`.
+
+### Left
+
+None.

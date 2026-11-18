@@ -83,7 +83,9 @@ _BY_ID = {r.id: r for r in RULES}
 # Functions that, wrapped round a column in WHERE, hide the column from data skipping.
 _WRAPS = {"YEAR", "MONTH", "DAY", "DATEPART", "DATENAME", "DATEADD", "DATEDIFF", "EOMONTH", "CAST", "CONVERT",
           "TRY_CAST", "TRY_CONVERT", "UPPER", "LOWER", "LTRIM", "RTRIM", "TRIM", "SUBSTRING", "LEFT", "RIGHT",
-          "LEN", "ISNULL", "COALESCE", "FORMAT", "REPLACE", "ABS", "ROUND", "FLOOR", "CEILING"}
+          "LEN", "ISNULL", "COALESCE", "FORMAT", "REPLACE", "ABS", "ROUND", "FLOOR", "CEILING",
+          # the same date wrapping in T-SQL 2022 (DATETRUNC) and the Spark SQL and DuckDB spellings learners bring
+          "DATETRUNC", "DATE_TRUNC", "DATE_PART", "DATE_FORMAT", "STRFTIME"}
 _COMPARES = {TokenType.EQ, TokenType.NEQ, TokenType.GT, TokenType.GTE, TokenType.LT, TokenType.LTE}
 _COMPARE_WORDS = {"LIKE", "IN", "BETWEEN", "IS"}
 _CLAUSE_END = {"GROUP", "ORDER", "HAVING", "UNION", "EXCEPT", "INTERSECT", "OPTION", "INSERT", "UPDATE", "DELETE",

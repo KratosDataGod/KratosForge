@@ -1,7 +1,7 @@
 {
   "schema": "kratosforge/academy-exercise@1",
   "id": "E49",
-  "version": 1,
+  "version": 2,
   "status": "draft",
   "title": "Broken: a ForEach loads one wrong table instead of three",
   "objectives": [
@@ -20,7 +20,8 @@
   "lesson": "lesson.md",
   "starter": "pipeline.json",
   "verifies": [
-    "Your repaired pipeline JSON ran on the local runner on this PC with the schedule's text parameter and looped over the three table names, trimmed."
+    "Your repaired pipeline JSON ran on the local runner on this PC with the schedule's text parameter and looped over the three table names, trimmed.",
+    "Run again with a different list of tables, it loaded those instead, so the loop follows the parameter."
   ],
   "does_not_verify": [
     "Copying data: the Copy activity here is a stand-in with a fixed result, so no data moves and no connection is tested.",
@@ -65,6 +66,18 @@
       },
       "pass": "The pipeline loads the three tables the text names.",
       "fail": "Look at what loaded returned: one item, or names with spaces?"
+    },
+    {
+      "kind": "pipeline_outcome",
+      "status": "Succeeded",
+      "parameters": {
+        "tables": "orders ,  returns"
+      },
+      "return_value": {
+        "loaded": "bronze.orders,bronze.returns"
+      },
+      "pass": "With tomorrow's list, 'orders ,  returns', it loads those two tables instead.",
+      "fail": "Run it with another list: the loop has to follow the parameter, not names written into the pipeline."
     }
   ],
   "hints": [
@@ -80,6 +93,6 @@
   "reset": "Reset puts the broken pipeline.json back.",
   "review_notes": [
     "Remediation links checked on 2026-11-05.",
-    "A pipeline that hard-codes these three names would pass. A second parameter set needs pipeline_lab support for several runs."
+    "A second check runs the pipeline with another tables value, so a pipeline that hard-codes the three names fails (version 2)."
   ]
 }

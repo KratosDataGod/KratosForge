@@ -225,6 +225,7 @@ def test_without_webhook_hides_the_urls_percent_encoded_forms_too():
 @pytest.mark.parametrize("text", [
     "C:\\Users\\O'Brien\\proj", "C:\\Users\\ann'2\\proj", "/home/o'brien/proj", "/Users/o'brien/proj",
     "/home/ann'2/proj", "C:\\Users\\Jo O'Neil\\OneDrive - O'Hare 2'Co\\x",
+    "read_csv('C:\\Users\\o''brien\\x.csv')", "read_csv('/home/o''brien/x.csv')",
 ])
 def test_a_user_name_with_an_apostrophe_is_taken_out_whole(text):
     out = redact.for_support(text)

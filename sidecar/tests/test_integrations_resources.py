@@ -173,6 +173,13 @@ def test_proof_ids_cant_reach_files(svc):
     assert e.value.code == "invalid_input"
 
 
+def test_an_id_ending_in_a_line_break_is_refused(svc):
+    # %0A in a resource URI is unquoted to "\n", and a pattern's $ also matches before a final line break.
+    with pytest.raises(IntegrationError) as e:
+        read(registry(), svc, "fabric-desktop://proofs/20261017-120000-abc123%0A")
+    assert e.value.code == "invalid_input"
+
+
 def test_unknown_proof_is_not_found(svc):
     with pytest.raises(IntegrationError) as e:
         read(registry(), svc, "fabric-desktop://proofs/20990101-000000-zzzzzz")

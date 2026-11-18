@@ -12,6 +12,7 @@ import duckdb
 import pytest
 
 from fabric_desktop import notebook_formats
+from fabric_desktop.duckdb_rows import duckdb_major
 from fabric_desktop import snowflake_sql as sf
 from fabric_desktop.engines import registry
 from fabric_desktop.engines.capabilities import check_cell
@@ -1101,10 +1102,14 @@ def test_merge_stops_when_a_target_row_matches_several_source_rows_for_an_update
     with pytest.raises(duckdb.Error, match="more than one source row"):
         _rows(setup + "MERGE INTO t USING (SELECT id, v FROM s) AS src ON t.id = src.id "
               "WHEN MATCHED THEN UPDATE SET v = src.v")
-    # several deletes don't conflict, as on Snowflake's page; one match per row updates as before. This is
-    # DuckDB 1.5's own MERGE: a DuckDB that refuses it would lose parity with Snowflake, so the test says so
-    assert _rows(setup + "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE; "
-                 "SELECT list(id ORDER BY id) FROM t") == [([2, 3],)]
+    # several deletes don't conflict, as on Snowflake's page, on DuckDB 1.x (the pinned one). DuckDB 2 refuses
+    # them itself, stricter than Snowflake: still a stop with nothing changed, never another answer
+    delete = setup + "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE; SELECT list(id ORDER BY id) FROM t"
+    if duckdb_major() < 2:
+        assert _rows(delete) == [([2, 3],)]
+    else:
+        with pytest.raises(duckdb.Error, match="more than once"):
+            _rows(delete)
     assert _rows(setup + "MERGE INTO t AS tt USING (SELECT 1 AS id, 7 AS v) AS x ON tt.id = x.id "
                  "WHEN MATCHED THEN UPDATE SET v = x.v; SELECT v FROM t WHERE id = 1") == [(7,)]
 

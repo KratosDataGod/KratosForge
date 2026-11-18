@@ -708,8 +708,8 @@ def _rewrite_variant_reads(statement: exp.Expression) -> None:
             value.replace(exp.Cast(this=value.copy(), to=exp.DataType.build("JSON")))
 
 
-_MERGE_DUPLICATE = ("A target row matches more than one source row, so the MERGE stopped and this MERGE changed "
-                    "nothing. Snowflake stops on it too (ERROR_ON_NONDETERMINISTIC_MERGE). Make the source one row "
+_MERGE_DUPLICATE = ("A target row matches more than one source row, so the MERGE stopped without changing "
+                    "anything. Snowflake stops on it too (ERROR_ON_NONDETERMINISTIC_MERGE). Make the source one row "
                     "per target row, for example with GROUP BY or QUALIFY ROW_NUMBER() OVER (PARTITION BY key "
                     "ORDER BY ...) = 1.")
 

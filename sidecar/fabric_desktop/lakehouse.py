@@ -824,6 +824,8 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
     from . import delta_profile, maintenance
     if operation not in MAINTENANCE_OPS:
         raise ValueError(f"operation is one of {MAINTENANCE_OPS}, not {operation!r}")
+    if operation == "vacuum" and retain_hours is not None:
+        maintenance.check_retain_hours(retain_hours)  # before the guard, which records the run as started
     lh = _current()
     ref = table_ref(table)
     name_ = f"{ref.schema}.{ref.table}"
@@ -886,8 +888,9 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
                              f"(delta.deletedFileRetentionDuration), so VACUUM can't RETAIN {retain_hours:g} hours: "
                              "Fabric's Spark refuses it too. Nothing was changed.")
         hours = retain_hours if retain_hours is not None else maintenance.retention_hours(days)
+        keep, _oldest = maintenance.skewed_versions(t, int(hours))  # a clock out of step deletes nothing still read
         files = t.vacuum(retention_hours=int(hours), dry_run=dry_run, enforce_retention_duration=False,
-                         commit_properties=commit)
+                         commit_properties=commit, **maintenance.vacuum_keep(keep))
         metrics = {"numDeletedFiles": 0 if dry_run else len(files), "retentionHours": int(hours), "dryRun": dry_run}
     else:
         target: int | datetime

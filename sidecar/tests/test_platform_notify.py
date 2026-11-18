@@ -343,3 +343,22 @@ def test_the_daily_sweep_runs_the_ledger_tidy_even_when_nothing_is_sent(svc, mon
         svc._sweep_stop.set()
     svc._sweeper.join(10)
     assert not svc._sweeper.is_alive()
+
+
+@pytest.mark.parametrize("text", ["22:00-06:00:30", "22:00:00-06:00", "24:00-06:00", "22:00", "22-06", "22:00-06:60",
+                                  "22:00-06:00-07:00", "late-early"])
+def test_quiet_hours_with_seconds_or_out_of_range_are_refused_by_name(text):
+    with pytest.raises(ValueError, match="quiet hours look like 22:00-07:00"):
+        PlatformRouting.parse({"routes": [{"name": "default", "url": HOOK}], "quiet": text})
+
+
+def test_quiet_hours_end_at_the_minute_they_name_not_a_day_later():
+    quiet = PlatformRouting.parse({"routes": [{"name": "default", "url": HOOK}], "quiet": " 22:00 - 6:00 "}).quiet
+    assert (quiet.start, quiet.end) == (dt.time(22, 0), dt.time(6, 0))
+    at_six = dt.datetime(2026, 11, 18, 5, 59, 59).astimezone()
+    assert quiet.until(at_six, "high") == at_six.replace(hour=6, minute=0, second=0)
+    assert quiet.until(at_six.replace(hour=6, second=0), "high") is None  # the end itself is outside
+    # A Quiet made directly with seconds keeps them, so a message held just before the end waits seconds, not a day.
+    exact = Quiet(dt.time(22, 0), dt.time(6, 0, 30))
+    at = dt.datetime(2026, 11, 18, 6, 0, 0).astimezone()
+    assert exact.until(at, "high") == at.replace(second=30)

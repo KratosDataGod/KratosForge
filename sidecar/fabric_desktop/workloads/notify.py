@@ -72,6 +72,9 @@ class Route:
                 and ok(self.envs, inc.get("env")))
 
 
+_QUIET = re.compile(r"([01]?\d|2[0-3]):([0-5]\d)\s*-\s*([01]?\d|2[0-3]):([0-5]\d)")
+
+
 @dataclass(frozen=True)
 class Quiet:
     """Hours (this machine's clock) when messages wait, except for the listed criticalities."""
@@ -81,7 +84,12 @@ class Quiet:
 
     @staticmethod
     def parse(text: str, exempt: tuple[str, ...] = ("critical",)) -> "Quiet":
-        a, b = (dt.time.fromisoformat(x.strip()) for x in text.split("-"))
+        """Two times in hours and minutes, like 22:00-06:00. Anything else (seconds, 24:00, one time) is
+        refused with ValueError, as agent.toml refuses it, so every caller reads quiet hours alike."""
+        match = _QUIET.fullmatch(text.strip())
+        if not match:
+            raise ValueError('quiet hours are two times like "22:00-06:00"')
+        a, b = (dt.time(int(h), int(m)) for h, m in (match.group(1, 2), match.group(3, 4)))
         return Quiet(a, b, exempt)
 
     def until(self, now: dt.datetime, criticality: str) -> dt.datetime | None:
@@ -92,7 +100,8 @@ class Quiet:
         inside = (self.start <= t < self.end) if self.start < self.end else (t >= self.start or t < self.end)
         if not inside:
             return None
-        end = now.replace(hour=self.end.hour, minute=self.end.minute, second=0, microsecond=0)
+        end = now.replace(hour=self.end.hour, minute=self.end.minute, second=self.end.second,
+                          microsecond=self.end.microsecond)
         return end if end > now else end + dt.timedelta(days=1)
 
 

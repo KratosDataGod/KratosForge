@@ -37,7 +37,7 @@ This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and r
 | **Both** | **99** | **92** | **3** | **4** | **94%** |
 
 The notebook is at 96%: its two gaps are rich-text Markdown editing (N23) and presentation mode
-(N49), the wave 2 items, which wait on a mockup. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
+(N49), the wave 2 items. Their mockup is approved (2026-11-17), and the builds wait on Chris's go. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
 signature help, Format SQL and a compatibility check that none of the others have), and its results
 grid now sorts, filters, resizes, opens and copies over every row, with several statements and
 result sets per run. Its open rows are go to definition (S08: no peek or scripted definition yet),
@@ -244,8 +244,8 @@ each its own PR and Preview until used for real:
 | F4 | `spark.catalog.listTables`, `listDatabases`, `listFunctions` from the attached lakehouse | No | Merged #2627 |
 | F5 | MERGE with schema evolution and dynamic partition overwrite, under the write lease | No | Merged #2631, #2635 (Preview) |
 | F6 | `OPTIMIZE`, `VACUUM`, `RESTORE` and `DeltaTable` maintenance from code, behind the app's guards | No | Merged #2639 (Preview) |
-| F7 | `notebookutils` writes: `lakehouse.loadTable`, `create`, `update`; `notebook.create`, `update`, `updateDefinition` | No | Done: `lakehouse.loadTable` runs here (#2637, Preview). Creating or changing Fabric items from code is a hand-off: the notebook is marked as needing Fabric and runs there (`fabric_run.py` `_UTILS_FABRIC`), as Publish to OneLake is the guarded way from this PC |
-| F8 | Rich-text Markdown editing (N23), after the Markdown renderer | Yes | Mockup asked of UX 2026-11-17 |
+| F7 | `notebookutils` writes: `lakehouse.loadTable`, `create`, `update`; `notebook.create`, `update`, `updateDefinition` | No | Done as far as it can go on this PC: `lakehouse.loadTable` runs here (#2637, Preview). Creating or changing Fabric items from code is a hand-off: the notebook is marked as needing Fabric and runs there (`fabric_run.py` `_UTILS_FABRIC`), as Publish to OneLake is the guarded way from this PC |
+| F8 | Rich-text Markdown editing (N23), after the Markdown renderer | Yes | Mockup approved 2026-11-17; the build waits on Chris's go |
 | F9 | Editor display settings (N17, Wave 1 item 16) | Yes | Merged #2791 (Preview for Vim) |
 | F10 | Dark mode applied (N60): mockup approved 2026-11-13, merged in #2585 | Yes | Merged #2585 |
 

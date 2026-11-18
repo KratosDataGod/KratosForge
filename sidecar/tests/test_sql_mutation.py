@@ -202,6 +202,10 @@ def test_bind_tables_binds_every_table_unless_told_it_is_local(monkeypatch):
         def open_table(name, **_at):
             return Opened()
 
+        @staticmethod
+        def table_dataset(opened):
+            return opened.to_pyarrow_dataset()
+
     monkeypatch.setattr(sql, "_lakehouse", lambda: Lakehouse)
     con = duckdb.connect()
     try:

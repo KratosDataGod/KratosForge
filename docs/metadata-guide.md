@@ -315,13 +315,13 @@ Criticality sets the rate when `success_rate` is left out: critical 99 %, high 9
 
 ### Data health (Preview)
 
-Data health checks one table from its Delta log on this PC: no Fabric job runs, and nothing in the table changes. It reports three things.
+Data health checks one table from its Delta log, on this PC for Dev and in OneLake for Test and Prod: no Fabric job runs, and nothing in the table changes. It reports three things.
 
 - **Freshness**: how long ago the table's data last changed, against the `[freshness]` promise's `within_hours` for that environment. OPTIMIZE, VACUUM and settings changes don't count as a change. (The promise's `by` time is checked from runs, as above.)
 - **Volume**: rows written by each load (WRITE, MERGE, COPY INTO or a streaming batch), read from the commit's own metrics. The usual is the median of the last 20 loads, and the spread is their median distance from it. The latest load is unusual when it is more than 3 spreads from the median. When loads barely vary, it is unusual when it is more than 10% above or below the median. With fewer than 10 loads that recorded their rows, it says "Not enough history" and doesn't alert. A load that didn't record its rows is left out and counted, never estimated.
 - **Schema**: columns added, removed or retyped since the load before the latest.
 
-The rule is returned with every result, so the screen can show it beside each alert. The engine call is `meta_data_health`; the Monitor > Data health screen comes next.
+The rule is returned with every result, so the screen can show it beside each alert. Monitor > KratosForge > Operations > [Data health](user-guide.md#data-health-preview) shows it for the tables you watch.
 
 ## 7. Environments and promote
 

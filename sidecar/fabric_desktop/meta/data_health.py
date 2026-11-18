@@ -32,8 +32,10 @@ MINIMUM = 10  # readable loads needed before a load can be called unusual
 SPREADS = 3.0  # how many spreads from the median is unusual
 FLOOR = 0.10  # ... or this share of the median, when the spread is smaller than that
 HISTORY = 200  # Delta log entries read per check
+ALERT_KINDS = ("freshness", "volume", "schema")
 
 _log = logging.getLogger(__name__)
+_RUN = re.compile(r"r-\d{8}-\d{6}-[0-9a-f]{12}")  # a run id this app stamps on its commits (engine._RUN_ID)
 
 # Commits that change no data (same as maintenance's: settings, constraints, column DDL, VACUUM, OPTIMIZE).
 _NO_DATA = re.compile(r"TBLPROPERT|CONSTRAINT|^(ADD|CHANGE|RENAME|DROP) COLUMNS?\b|^UPGRADE PROTOCOL|^VACUUM|^OPTIMIZE$"
@@ -126,8 +128,9 @@ def loads(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         params = e.get("operationParameters")
         params = params if isinstance(params, dict) else {}
+        run = str(e.get("fabric_desktop_run_id") or "")
         out.append({"version": e["version"], "at": _iso(_when(e)), "operation": str(e.get("operation")),
-                    "mode": params.get("mode"), "rows": rows_written(e)})
+                    "mode": params.get("mode"), "rows": rows_written(e), "run_id": run if _RUN.fullmatch(run) else None})
     return sorted(out, key=lambda x: x["version"])
 
 

@@ -111,6 +111,7 @@ Spark SQL run on this PC gives Spark's values and types for its date and time fu
 | `trunc`, `date_trunc` | NULL for a unit the function doesn't take. `trunc` takes `YEAR`, `YYYY`, `YY`, `QUARTER`, `MONTH`, `MM`, `MON` and `WEEK`; `date_trunc` also takes `DAY`, `DD`, `HOUR`, `MINUTE`, `SECOND`, `MILLISECOND` and `MICROSECOND` |
 | `next_day` | Takes `MO`, `MON` or `MONDAY` and so on for each day, in any case. Any other text gives NULL |
 | `make_date`, `make_timestamp` | NULL for a day that doesn't exist, such as `make_date(2023, 2, 29)` |
+| `try_to_date` | Refused by name, and nothing runs. Spark 3.5 (Fabric Runtime 1.3) doesn't have it, so Fabric stops on it too. Use `to_date`, which gives NULL for text that isn't a date. Databricks SQL on this PC still runs it |
 
 Patterns that Spark refuses are refused here by name, and nothing runs: the week-based letters (`Y`, `w`, `W`, `u`, `e`, `c`), `F`, optional sections (`[ ]`), letters that aren't pattern letters, and the runs Spark stops on with "Too many pattern letters": five or more of `G`, `M`, `L`, `E`, `Q` or `q`, and seven or more `y`. These are refused too, because this PC can't give Spark's text for them:
 
@@ -457,6 +458,25 @@ Fabric Warehouse has QUALIFY too, so there the rewrite is one way to run it, not
 Like the check above, it never runs the SQL or connects anywhere, and "compatible" is not proof that
 two platforms give the same answer. Comparing answers needs both runs.
 
+## Local T-SQL CTEs
+
+When a project runs T-SQL on this PC, common table expressions (`WITH ... AS`) run as in a Fabric Warehouse, and what a warehouse doesn't run is refused by name before anything runs. This was checked against Microsoft Learn's T-SQL surface area page for Fabric Data Warehouse, as it read on 2026-11-18.
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| Several CTEs in one `WITH` | Each sees the CTEs before it. A later CTE's name, used before it, is a table's name, as in T-SQL |
+| A column list, `WITH a (p, q) AS (...)` | Names the columns |
+| A CTE before `SELECT`, `INSERT`, `UPDATE ... FROM` and `DELETE ... WHERE` | Runs, and changes the table the statement names |
+| A `WITH` inside a CTE (a nested CTE) | Runs. A warehouse runs it as a preview feature, so the result's notes say so |
+| Two CTEs of one name | Stops with SQL Server's "Duplicate common table expression name 'a' was specified." |
+
+Refused by name:
+
+- A recursive CTE, one whose query names itself. A warehouse doesn't run recursive queries. It stops before it runs, so a CTE with no end never runs on and changes nothing. Unroll the levels you need with joins, or compute the hierarchy in a notebook.
+- `OPTION (MAXRECURSION n)`, which only limits a recursive CTE.
+- `WITH RECURSIVE`, which isn't T-SQL.
+- `UPDATE` or `DELETE` through a CTE (`WITH a AS (...) UPDATE a SET ...`). The local engine changes tables only, and Microsoft's page doesn't say whether a warehouse does. Name the table, and put the CTE's filter in `WHERE`.
+
 ## Local T-SQL tables
 
 When a project runs T-SQL on this PC, tables are made and emptied as in a Fabric Warehouse, and what a warehouse doesn't have is refused by name. This was checked against Microsoft Learn's Fabric Data Warehouse pages for tables, temporary tables, IDENTITY and the T-SQL surface area, as they read on 2026-11-17.
@@ -730,5 +750,3 @@ Fixed since the first run, each with a test named after its case in `sidecar/tes
 | Spark SQL | `initcap`, `trunc(date, 'MM')` and its other formats, `make_date` with a day that doesn't exist, `sqrt` of a negative number, `soundex` of a cast, `date_add` by about 2^31 days (past DuckDB's timestamp range) | These stop here with an error, where Spark answers. On DuckDB 2.0 (not yet the version this PC installs), `sqrt` of a negative number answers as Spark does, but `sign` of that `sqrt`'s NaN is 0.0 where Spark gives NaN |
 | Spark SQL | `split_part(s, d, 0)` | Refused by name before the query runs; Spark stops only when the call is reached |
 | T-SQL | `N'...'` text in `=`, `<`, `LIKE` and `+` | Trailing spaces count, `[a-c]` ranges don't match, and `N'a' + N'b'` stops. The same text without `N` answers as T-SQL does |
-| Snowflake | `POSITION` and `CHARINDEX` with an empty search text and a start past the end | Snowflake gives 0, here the start |
-| Snowflake | `LPAD` and `RPAD` with an empty pad | Stops with "Insufficient padding", where Snowflake truncates |

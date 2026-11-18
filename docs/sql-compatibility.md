@@ -791,5 +791,5 @@ Fixed since the first run, each with a test named after its case in `sidecar/tes
 
 | Engine | What differs here | How |
 | --- | --- | --- |
-| Spark SQL | `initcap`, `trunc(date, 'MM')` and its other formats, `make_date` with a day that doesn't exist, `sqrt` of a negative number, `soundex` of a cast, `date_add` by about 2^31 days (past DuckDB's timestamp range) | These stop here with an error, where Spark answers. On DuckDB 2.0 (not yet the version this PC installs), `sqrt` of a negative number answers as Spark does, but `sign` of that `sqrt`'s NaN is 0.0 where Spark gives NaN |
+| Spark SQL | `date_add` by about 2^31 days (past DuckDB's timestamp range) | This stops here with an error, where Spark gives a date millions of years away |
 | Spark SQL | `split_part(s, d, 0)` | Refused by name before the query runs; Spark stops only when the call is reached |

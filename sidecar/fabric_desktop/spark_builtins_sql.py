@@ -197,8 +197,10 @@ def _typeof(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression 
 
 
 def _sign(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
-    # Spark's signum is a double: 1.0, -1.0 or 0.0.
-    return _with_args("CAST(SIGN(fj_arg0) AS DOUBLE)", args) if len(args) == 1 else None
+    # Spark's signum is Java's Math.signum, a double: 1.0 or -1.0, and the value itself for NaN, 0.0 and -0.0
+    # (DuckDB's SIGN gives 0 for NaN and loses the sign of -0.0).
+    return _with_args("CASE WHEN ISNAN(CAST(fj_arg0 AS DOUBLE)) OR CAST(fj_arg0 AS DOUBLE) = 0 THEN CAST(fj_arg0 AS DOUBLE) "
+                      "ELSE CAST(SIGN(fj_arg0) AS DOUBLE) END", args) if len(args) == 1 else None
 
 
 def _elt(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
@@ -289,6 +291,19 @@ def _text_this(fn: str) -> Callable[..., exp.Expression | None]:
             node.set("this", _with_args(spark_text_arg("fj_arg0", fn), [arg]))
         return None
     return build
+
+
+def _initcap(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """initcap(str) as Spark's InitCap: the text lower-cased, then each character after a space (and the first)
+    upper-cased; words are split at spaces only. sqlglot's own DuckDB SQL for it reads its argument back as text,
+    which fails once that argument is rewritten (initcap(upper(x)) and initcap('aaa') stopped with "Expecting )"),
+    so it is written here with the argument node put in, cast to text as Spark casts it."""
+    delimiter = node.args.get("expression")
+    if delimiter is not None and not (isinstance(delimiter, exp.Literal) and delimiter.is_string
+                                      and delimiter.name == " "):
+        return None
+    return _with_args("ARRAY_TO_STRING(LIST_TRANSFORM(STRING_SPLIT(LOWER(" + spark_text_arg("fj_arg0", "initcap")
+                      + "), ' '), kf_w -> UPPER(LEFT(kf_w, 1)) || SUBSTRING(kf_w, 2)), ' ')", [node.this])
 
 
 # levenshtein counts character edits in Spark (UTF8String.levenshteinDistance); DuckDB's LEVENSHTEIN counts
@@ -965,6 +980,10 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
             "LEFT(fj_arg0, GREATEST(fj_arg2 - 1, 0)) || fj_arg1 || SUBSTR(fj_arg0, fj_arg2 + "
             + ("CASE WHEN fj_arg3 < 0 THEN LENGTH(fj_arg1) ELSE fj_arg3 END" if n.args.get("for_") else "LENGTH(fj_arg1)") + ")",
             [n.this, n.expression, n.args["from_"], *([n.args["for_"]] if n.args.get("for_") else [])])),
+        ("Initcap", _initcap),
+        # Spark's sqrt is Java's Math.sqrt: NaN below 0, where DuckDB's stops with "cannot take square root"
+        ("Sqrt", _template("CASE WHEN CAST(fj_arg0 AS DOUBLE) < 0 THEN CAST('NaN' AS DOUBLE) "
+                           "ELSE SQRT(CAST(fj_arg0 AS DOUBLE)) END", 1)),
         ("Levenshtein", _levenshtein),
         # bit_count counts the bits of the value as a long (Long.bitCount), so -1 gives 64 for an int too.
         ("BitwiseCount", lambda n, a: _with_args(f"CAST(BIT_COUNT({_spark_whole('fj_arg0', 'BIGINT')}) AS INTEGER)",

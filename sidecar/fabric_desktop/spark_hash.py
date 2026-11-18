@@ -310,11 +310,11 @@ def _hash_sql(name: str, count: int) -> str:
         f"(CASE WHEN {h} >= {top} THEN {h} - {2 * top} ELSE {h} END)::{'INTEGER' if width == 32 else 'BIGINT'}"))
 
 
-def sha2(data: bytes, bits: int) -> str | None:
+def sha2(data: bytes | None, bits: int | None) -> str | None:
     """Spark's sha2 for 224, 384 and 512 bits (DuckDB has SHA-256 only): the digest as lower-case hex. Any
     other number of bits gives NULL, as Spark's sha2 does."""
     import hashlib
-    if bits not in (224, 384, 512):
+    if data is None or bits not in (224, 384, 512):
         return None
     return hashlib.new(f"sha{bits}", data).hexdigest()
 
@@ -323,4 +323,4 @@ def register(con: Any) -> None:
     """Add __kf_sha2 (sha2 above) to DuckDB connection ``con``, as each Spark SQL connection does. A NULL
     argument gives NULL."""
     from duckdb.sqltypes import BLOB, INTEGER, VARCHAR
-    con.create_function("__kf_sha2", sha2, [BLOB, INTEGER], VARCHAR, side_effects=False)
+    con.create_function("__kf_sha2", sha2, [BLOB, INTEGER], VARCHAR, null_handling="special", side_effects=False)

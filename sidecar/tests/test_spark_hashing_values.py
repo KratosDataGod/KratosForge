@@ -34,3 +34,12 @@ def test_spark_hashing_functions_answer_as_spark_3_5_or_are_refused_by_name(spar
 def test_the_sha2_function_gives_null_for_a_length_spark_has_no_sha2_for():
     from fabric_desktop import spark_hash
     assert spark_hash.sha2(b"abc", 1) is None and spark_hash.sha2(b"abc", 999) is None
+
+
+def test_a_hand_written_call_of_the_sha2_function_gives_null_where_spark_would():
+    import duckdb
+
+    from fabric_desktop import spark_hash
+    con = duckdb.connect()
+    spark_hash.register(con)
+    assert con.sql("SELECT __kf_sha2('abc'::BLOB, 1), __kf_sha2(NULL, 512)").fetchall() == [(None, None)]

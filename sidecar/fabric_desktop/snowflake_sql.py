@@ -684,7 +684,8 @@ def _rewrite_time(statement: exp.Expression) -> None:
 def _rewrite_arrays(statement: exp.Expression) -> None:
     """SFX-019: ARRAY_DISTINCT keeps each value's first place and one NULL where the first NULL was, as
     Snowflake's does (DuckDB's LIST_DISTINCT doesn't keep the order). ARRAY_FLATTEN of an array holding
-    a NULL in place of an array is NULL, as in Snowflake; DuckDB's FLATTEN skips it."""
+    a NULL in place of an array is NULL, as in Snowflake; DuckDB's FLATTEN skips it. ARRAY_INSERT past the
+    end fills the gap with NULLs (Snowflake leaves empty elements); DuckDB's slices would close it."""
     for distinct in list(statement.find_all(exp.ArrayDistinct)):
         # the array is worked out once (fj_arg0 is read once), then searched for each element's first place
         _put(distinct, "LIST_TRANSFORM([fj_arg0], LAMBDA kf_l: "
@@ -695,6 +696,51 @@ def _rewrite_arrays(statement: exp.Expression) -> None:
             continue
         _put(flatten, "CASE WHEN LEN(LIST_FILTER(fj_arg0, LAMBDA kf_e: kf_e IS NULL)) > 0 THEN NULL "
                       "ELSE FLATTEN(fj_arg0) END", [flatten.this])
+    # ARRAY_INSERT past the end: Snowflake fills the gap with empty elements; DuckDB's slices would close it
+    for insert in list(statement.find_all(exp.ArrayInsert)):
+        position = insert.args.get("position")
+        if isinstance(position, exp.Literal) and not position.is_string and position.name.isdigit():
+            _put(insert.this, "LIST_RESIZE(fj_arg0, GREATEST(LEN(fj_arg0), fj_arg1))",
+                 [insert.this.copy(), position.copy()])
+
+
+def _scalar_kind(node: exp.Expression | None) -> str:
+    """The kind of a value written in the query (or cast to a type): text, number, null, or other."""
+    while isinstance(node, (exp.Paren, exp.Neg)):
+        node = node.this
+    if isinstance(node, exp.Null):
+        return "null"
+    if isinstance(node, exp.Literal):
+        return "text" if node.is_string else "number"
+    if isinstance(node, (exp.Cast, exp.TryCast)) and _scalar_kind(node.this) in ("text", "number"):
+        if node.to.this in exp.DataType.TEXT_TYPES:
+            return "text"
+        if node.to.this in exp.DataType.NUMERIC_TYPES:
+            return "number"
+    return "other"
+
+
+def _mixed(values: list[exp.Expression]) -> bool:
+    kinds = {_scalar_kind(v) for v in values} - {"null"}
+    return kinds == {"text", "number"}
+
+
+def _to_variant(values: list[exp.Expression]) -> None:
+    for value in values:
+        value.replace(exp.Cast(this=value.copy(), to=exp.DataType.build("VARIANT")))
+
+
+def _rewrite_mixed_arrays(statement: exp.Expression) -> None:
+    """SFX-024: an array written in the query that holds both text and numbers (ARRAY_CONSTRUCT,
+    ARRAY_CONSTRUCT_COMPACT, or one ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND adds the other kind to) is a
+    list of VARIANT values, as an ARRAY column is; DuckDB's list holds one type, and stops."""
+    for node in list(statement.find_all(exp.ArrayInsert, exp.ArrayPrepend, exp.ArrayAppend)):
+        array, value = node.this, node.args.get("expression")
+        if isinstance(array, exp.Array) and value is not None and _mixed([*array.expressions, value]):
+            _to_variant([*array.expressions, value])
+    for array in list(statement.find_all(exp.Array, exp.ArrayConstructCompact)):
+        if _mixed(array.expressions):
+            _to_variant(list(array.expressions))
 
 
 def _rewrite_variant_reads(statement: exp.Expression) -> None:
@@ -723,7 +769,12 @@ def _rewrite_statements(statement: exp.Expression) -> None:
     - PIVOT ... IN ('a', ...) names its columns 'a' with the quotes, as Snowflake does.
     - $name reads the session variable (DuckDB's getvariable).
     - ARRAY_SIZE of a JSON or VARIANT value counts a JSON array, and is NULL for anything else.
+    - SAMPLE ROW and SAMPLE BLOCK are Snowflake's names for BERNOULLI and SYSTEM, which DuckDB reads.
     (A VARIANT column cast to text: _variant_text.)"""
+    for sample in statement.find_all(exp.TableSample):
+        method = sample.args.get("method")
+        if isinstance(method, exp.Var) and method.name.upper() in ("ROW", "BLOCK"):
+            method.replace(exp.var("BERNOULLI" if method.name.upper() == "ROW" else "SYSTEM"))
     merge_whens = statement.args.get("whens") if isinstance(statement, exp.Merge) else None
     if merge_whens is not None and any(
             isinstance(when, exp.When) and when.args.get("matched") and isinstance(when.args.get("then"), exp.Update)
@@ -1883,7 +1934,8 @@ CATALOG = (
                 "allowed, as in Snowflake, and INTERPOLATE_LINEAR needs one ORDER BY expression: a number, DATE "
                 "or timestamp.")),
     ("SFX-019", "Rewritten", ("ARRAY_DISTINCT keeps each value where it first appears, and one NULL, as "
-                "Snowflake does. ARRAY_FLATTEN of an array with a NULL in place of an array is NULL.")),
+                "Snowflake does. ARRAY_FLATTEN of an array with a NULL in place of an array is NULL. ARRAY_INSERT "
+                "past the end fills the gap with NULLs, where Snowflake leaves empty elements.")),
     ("SFX-020", "Rewritten", "ALTER SESSION SET TIMEZONE = '...' becomes DuckDB's SET TimeZone, for the statements after it."),
     ("SFX-021", "Rewritten", ("REGEXP_SUBSTR and REGEXP_SUBSTR_ALL with the 'e' parameter and no group number, "
                 "or group 0, give the first group, as in Snowflake, when the pattern is written in the query "
@@ -1898,9 +1950,11 @@ CATALOG = (
                 "DELETE clause would take the row). PIVOT ... IN ('a', ...) names its columns 'a' with the quotes. "
                 "$name reads the session variable, and IDENTIFIER($name) the name the same cell sets it to. "
                 "ARRAY_SIZE of a JSON or VARIANT value is NULL when it isn't an array. A VARIANT column holding an object or "
-                "array, cast to text, is JSON text.")),
+                "array, cast to text, is JSON text. SAMPLE ROW and SAMPLE BLOCK are BERNOULLI and SYSTEM sampling.")),
     ("SFX-024", "Rewritten", ("An ARRAY column or cast becomes a list of VARIANT values, so it holds what "
-                "ARRAY_CONSTRUCT makes and can read a JSON array. An OBJECT column or cast becomes JSON.")),
+                "ARRAY_CONSTRUCT makes and can read a JSON array. An OBJECT column or cast becomes JSON. An array "
+                "written in the query that holds both text and numbers (ARRAY_CONSTRUCT, ARRAY_CONSTRUCT_COMPACT, "
+                "or ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind) is a list of VARIANT values too.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -2012,6 +2066,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_strings(tree)
         _rewrite_time(tree)
         _rewrite_timestamp_parts(tree)
+        _rewrite_mixed_arrays(tree)
         _rewrite_arrays(tree)
         _rewrite_variant_reads(tree)
         _rewrite_statements(tree)

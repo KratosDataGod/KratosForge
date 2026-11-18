@@ -986,6 +986,32 @@ def test_array_distinct_keeps_first_places_and_flatten_of_a_null_is_null():
     assert _first("SELECT array_flatten([[1], [NULL]])") == [1, None]
 
 
+def test_array_insert_past_the_end_fills_the_gap_and_keeps_its_places_before():
+    assert _first("SELECT array_insert(array_construct(0, 1), 4, 9)") == [0, 1, None, None, 9]
+    assert _first("SELECT array_insert(array_construct(0, 1), 1, 9)") == [0, 9, 1]
+    assert _first("SELECT array_insert(array_construct(0, 1), 2, 9)") == [0, 1, 9]
+    assert _first("SELECT array_insert(NULL::ARRAY, 2, 9)") is None
+
+
+def test_an_array_of_text_and_numbers_is_a_list_of_variants():
+    assert _first("SELECT array_construct(1, 'a', NULL)") == [1, "a", None]
+    assert _first("SELECT array_append(array_construct(1, 2), 'a')") == [1, 2, "a"]
+    assert _first("SELECT array_prepend(array_construct('a'), 2.5::double)") == [2.5, "a"]
+    assert _first("SELECT array_construct_compact(NULL, 'a', -1)") == ["a", -1]
+    # one kind stays a typed list, and a column isn't guessed at
+    assert "VARIANT" not in sf.translate("SELECT array_construct(1, 2), array_append(array_construct(1), x) FROM t"
+                                         ).duckdb_sql
+
+
+def test_sample_row_and_block_are_bernoulli_and_system():
+    sql = sf.translate("SELECT * FROM t SAMPLE ROW (0); SELECT * FROM t SAMPLE BLOCK (3) SEED (82)").duckdb_sql
+    assert "BERNOULLI (0 PERCENT)" in sql and "SYSTEM (3 PERCENT) REPEATABLE (82)" in sql
+    con = duckdb.connect()
+    con.execute("CREATE TABLE t AS SELECT * FROM range(5) r(i)")
+    assert con.execute(sf.translate("SELECT count(*) FROM t SAMPLE ROW (0)").duckdb_sql).fetchone() == (0,)
+    assert con.execute(sf.translate("SELECT count(*) FROM t SAMPLE BLOCK (100)").duckdb_sql).fetchone() == (5,)
+
+
 def test_get_of_an_object_key_cast_to_text_has_no_json_quotes():
     assert _first("SELECT get(object_construct('a', 'x'), 'a')::VARCHAR") == "x"
     assert _first("SELECT strip_null_value(parse_json('{\"c\": \"3\"}'):c)::VARCHAR") == "3"

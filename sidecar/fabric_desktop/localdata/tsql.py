@@ -2391,8 +2391,9 @@ def _string_edges(tree: exp.Expression) -> None:
       from the end), and is 0 for an empty ``x`` (DuckDB found it at 1) (WR-210).
 
     Literal starts and lengths that can't hit an edge are left as they are."""
-    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Space, exp.Left, exp.Right,
-                                   exp.Translate, exp.StrPosition)):
+    # Deepest first, so a call nested in another is rewritten before the outer one copies it.
+    for node in reversed(list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Space, exp.Left, exp.Right,
+                                            exp.Translate, exp.StrPosition))):
         if isinstance(node, exp.StrPosition):
             _charindex(node)
         elif isinstance(node, (exp.Left, exp.Right)):
@@ -2474,15 +2475,31 @@ def _repeat_count(node: exp.Repeat | exp.Space) -> None:
     node.set(key, exp.column(v.copy()))
     negative = exp.LT(this=exp.column(v.copy()), expression=exp.Literal.number(0))
     case = exp.Case(ifs=[_past_int(v), exp.If(this=negative, true=exp.null())], default=node.copy())
-    bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[_int_of(count)]), exp.Lambda(this=case, expressions=[v]))
-    node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))
+    node.replace(_int_lambda(count, v, case))
 
 
 _INT_TEXT = re.compile(r"\s*([+-]?[0-9]+)?\s*")  # '' and spaces alone are 0, as T-SQL converts them
 _INT_MIN, _INT_MAX = -2 ** 31, 2 ** 31 - 1
 _INT_OVERFLOW = _OVERFLOW.format(kind="int")
 # The lambdas' names: a column of the query with one of these names would be hidden inside them.
-_COUNT, _CODE = "kf_tsql_count_", "kf_tsql_code_"
+_COUNT, _CODE, _RAW = "kf_tsql_count_", "kf_tsql_code_", "kf_tsql_raw_"
+
+
+def _first(items: exp.Expression, body: exp.Expression, name: exp.Identifier) -> exp.Expression:
+    """``body`` with ``name`` bound to the one value in the list ``items``: LIST_TRANSFORM([x], name -> body)[1]."""
+    bound = exp.func("LIST_TRANSFORM", items, exp.Lambda(this=body, expressions=[name]))
+    return exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1)
+
+
+def _int_lambda(value: exp.Expression, v: exp.Identifier, case: exp.Expression) -> exp.Expression:
+    """``case`` with ``v`` bound to ``value`` made an int (_int_of). ``value`` is read once, in its own lambda,
+    since _int_of reads what it is given several times: CHAR(RAND() * 300) draws one number, and a call
+    nested in the argument is written once, not once for each read."""
+    if isinstance(value, exp.Literal):  # folded by _int_of
+        return _first(exp.Array(expressions=[_int_of(value)]), case, v)
+    raw = exp.to_identifier(_RAW)
+    inner = _first(exp.Array(expressions=[_int_of(exp.column(raw.copy()))]), case, v)
+    return _first(exp.Array(expressions=[value.copy()]), inner, raw)
 
 
 def _in_int(value: int) -> int:
@@ -2530,7 +2547,7 @@ def _char_codes(tree: exp.Expression) -> None:
     - ``CHAR(n)`` is NULL outside 0 to 255 ("CHAR returns a NULL value for integer expressions outside this
       input range", functions/char-transact-sql), and a count with a fraction is made an int first, toward
       zero (DuckDB gave the code point, stopped below 0, and didn't bind a decimal)."""
-    for node in list(tree.find_all(exp.Ascii, exp.Unicode, exp.Chr)):
+    for node in reversed(list(tree.find_all(exp.Ascii, exp.Unicode, exp.Chr))):  # deepest first: see _int_lambda
         if isinstance(node, (exp.Ascii, exp.Unicode)):
             text = node.this
             if not (isinstance(text, exp.Literal) and text.is_string and text.name):
@@ -2550,9 +2567,7 @@ def _char_codes(tree: exp.Expression) -> None:
         inside = exp.Between(this=exp.column(v.copy()), low=exp.Literal.number(0), high=exp.Literal.number(255))
         case = exp.Case(ifs=[_past_int(v),
                              exp.If(this=inside, true=exp.Chr(expressions=[exp.cast(exp.column(v.copy()), "INT")]))])
-        bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[_int_of(code)]),
-                         exp.Lambda(this=case, expressions=[v]))
-        node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))
+        node.replace(_int_lambda(code, v, case))
 
 
 def _charindex(node: exp.StrPosition) -> None:

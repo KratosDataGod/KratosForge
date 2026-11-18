@@ -257,3 +257,27 @@ def test_text_that_is_not_a_whole_number_stops_as_in_tsql(engine, expression: st
     # large for an int is an overflow there.
     with pytest.raises(Exception, match=r"Conversion failed when converting the varchar value|out of range|Arithmetic overflow"):
         engine.execute(f"SELECT {expression} AS v", dialect="tsql")
+
+
+@pytest.mark.parametrize("expression", ["CHAR(RAND() * 300)", "REPLICATE('a', RAND() * 6 - 3)", "SPACE(RAND() * 4)"])
+def test_a_computed_code_or_count_is_read_once(expression: str) -> None:
+    from fabric_desktop.localdata import tsql
+    assert tsql.translate(f"SELECT {expression}")[0][-1].upper().count("RANDOM()") == 1
+
+
+def test_nested_codes_and_counts_grow_the_sql_linearly() -> None:
+    from fabric_desktop.localdata import tsql
+    sizes = []
+    for depth in range(1, 6):
+        expression = "x"
+        for _ in range(depth):
+            expression = f"CHAR(ASCII(REPLICATE({expression}, x)))"
+        sizes.append(len(tsql.translate(f"SELECT {expression} FROM (VALUES ('1')) AS t(x)")[0][-1]))
+    steps = [b - a for a, b in zip(sizes, sizes[1:], strict=False)]
+    assert max(steps) <= 1.2 * min(steps), sizes
+
+
+def test_a_call_nested_in_a_count_is_rewritten_too(engine) -> None:
+    got = engine.execute("SELECT REPLICATE(REPLICATE('ab', c), c) AS v FROM (VALUES ('2'), ('-1')) AS t(c)",
+                         dialect="tsql")["rows"]
+    assert [r[0] for r in got] == ["abababab", None]

@@ -160,8 +160,8 @@ def test_fs_on_databricks_storage_is_refused_naming_the_command(line, command):
 def test_fs_mounting_is_refused_naming_the_command(command):
     out = Kernel().run(f"%fs {command} wasbs://raw@acct.blob.core.windows.net /mnt/raw")
     assert out["outputs"][-1]["ename"] == "NotImplementedError"
-    assert _error(out) == (f"%fs {command}: mounting storage runs in Databricks. On this PC, read the attached "
-                           "lakehouse (Files/...) or a file: path instead.")
+    assert _error(out) == (f"%fs {command} mounts storage, which only Databricks can do, so nothing ran. On this "
+                           "PC, read the attached lakehouse (Files/...) or a file: path instead.")
 
 
 def test_fs_command_this_pc_lacks_is_refused_by_name():

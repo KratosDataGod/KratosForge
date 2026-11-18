@@ -131,7 +131,7 @@ rules (writes to OneLake need a lakehouse you can write to, and a proof refuses 
 
 `%fs mount`, `%fs unmount`, `%fs updateMount` and any other command stop with an error that names
 the command. So does a `dbfs:/`, `/Volumes/` or other bare absolute path, which is Databricks
-storage: use `Files/...` for the attached lakehouse or `file:` for a folder on this PC. The **Runs
+storage. Use `Files/...` for the attached lakehouse or `file:` for a folder on this PC. The **Runs
 on** check lists such a `%fs` cell by number before the notebook runs.
 
 Dependencies treat shell commands and `%fs` changes as side effects, so **Run stale cells** asks

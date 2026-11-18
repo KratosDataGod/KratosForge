@@ -2230,8 +2230,8 @@ def _fs_magic(fs: Any, line: str) -> Any:
     command, flags = words[0], {w for w in words[1:] if w in ("-r", "-f")}
     args = [w for w in words[1:] if w not in ("-r", "-f")]
     if command in _FS_MOUNTS:
-        raise NotImplementedError(f"%fs {command}: mounting storage runs in Databricks. On this PC, read the "
-                                  "attached lakehouse (Files/...) or a file: path instead.")
+        raise NotImplementedError(f"%fs {command} mounts storage, which only Databricks can do, so nothing ran. "
+                                  "On this PC, read the attached lakehouse (Files/...) or a file: path instead.")
     if command == "mounts":
         return []  # as dbutils.fs.mounts() on this PC
     if command == "refreshMounts":

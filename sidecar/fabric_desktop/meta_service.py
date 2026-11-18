@@ -153,6 +153,9 @@ class MetaMixin:
         # reload empties its entities before refilling them.
         project = Project(path)
         self._install_guard(project)
+        remember = getattr(self, "_remember_prod_workspaces", None)
+        if remember is not None:  # its Prod workspaces stay marked once it's closed (prod_writes_service.py)
+            remember(project)
         return project
 
     def _install_guard(self, project: Project) -> None:

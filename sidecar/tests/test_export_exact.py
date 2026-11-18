@@ -26,7 +26,7 @@ import pyarrow.ipc as ipc
 import pyarrow.parquet as pq
 import pytest
 
-from fabric_desktop import frames, sql_exec, warehouse
+from fabric_desktop import csv_cells, frames, sql_exec, warehouse
 from fabric_desktop.frames import NOTE_KEY, ExportNotes
 
 D = decimal.Decimal
@@ -58,14 +58,14 @@ def source_table() -> pa.Table:
     return pa.table({name: pa.array(values, kind) for name, (kind, values) in SOURCE.items()})
 
 
-def export(table: pa.Table, fmt: str, tmp_path: Path) -> tuple[bytes, dict]:
+def export(table: pa.Table, fmt: str, tmp_path: Path, raw: bool = False) -> tuple[bytes, dict]:
     """Through SqlExecutions._write, the SQL page's own export, from a snapshot like a run's."""
     snapshot = tmp_path / f"snapshot-{fmt}.arrow"
     with ipc.new_file(str(snapshot), table.schema) as writer:
         writer.write_table(table)
     out = tmp_path / f"result.{fmt}"
     out.touch()  # the name the export reserved
-    job = sql_exec.Export(id="e1", execution="r1", format=fmt, path=out, total=table.num_rows)
+    job = sql_exec.Export(id="e1", execution="r1", format=fmt, path=out, total=table.num_rows, raw=raw)
     object.__new__(sql_exec.SqlExecutions)._write(snapshot, job)
     status = job.status()
     assert status["state"] == "completed", status["error"]
@@ -138,11 +138,20 @@ def _col_index(letters: str) -> int:
 
 
 def test_csv_gives_every_value_back_exactly(tmp_path):
-    data, status = export(source_table(), "csv", tmp_path)
+    data, status = export(source_table(), "csv", tmp_path, raw=True)  # Keep raw values (WR-228)
     back = csv_back(data)
     for name, (_, values) in SOURCE.items():
         assert back.column(name).to_pylist() == values, name
-    assert status["notes"] == []
+    assert status["notes"] == [] and status["protected"] == 0
+
+
+def test_csv_protects_a_text_cell_that_starts_like_a_formula_and_says_so(tmp_path):
+    data, status = export(source_table(), "csv", tmp_path)
+    back = csv_back(data)
+    for name, (_, values) in SOURCE.items():
+        want = ["'" + v if isinstance(v, str) and v.startswith(csv_cells.STARTS) else v for v in values]
+        assert back.column(name).to_pylist() == want, name
+    assert status["protected"] >= 1 and status["notes"] == [csv_cells.note(status["protected"])]
 
 
 def test_csv_writes_binary_as_hex_and_a_byte_that_isnt_text_doesnt_stop_it(tmp_path):

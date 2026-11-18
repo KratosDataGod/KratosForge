@@ -181,7 +181,7 @@ def test_no_stable_release_yet_follows_preview(monkeypatch, settings_dirs):
     assert "/stable/" in seen[0][0] and "/latest/" in seen[1][0]
 
 
-def test_download_app_follows_preview_without_a_stable_release(monkeypatch, settings_dirs, tmp_path):
+def test_download_app_follows_preview_without_a_stable_release(monkeypatch, settings_dirs, tmp_path, capsys):
     import hashlib
     import urllib.error
     exe = b"MZ..." + SHA.encode()
@@ -189,6 +189,8 @@ def test_download_app_follows_preview_without_a_stable_release(monkeypatch, sett
                                "/latest/kratosforge.exe": exe,
                                "/latest/version.json": json.dumps({"commit": SHA, "exe_sha256": hashlib.sha256(exe).hexdigest()}).encode()})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 0
+    # Last line: the checksum the file was checked against, which the shell checks again before the swap.
+    assert capsys.readouterr().out.strip().splitlines()[-1] == f"verified {hashlib.sha256(exe).hexdigest()}"
     # Stable is missing (its version.json, then the exe under both names) before Preview is tried.
     assert all("/stable/" in url for url, _ in seen[:3]) and all("/latest/" in url for url, _ in seen[3:])
 

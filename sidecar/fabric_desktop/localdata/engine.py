@@ -841,7 +841,18 @@ class LocalEngine:
                         raise _in_script(said, i, len(statements), step["kind"]) from None
                     steps.append({"statement": i + 1, "type": step["kind"],
                                   "seconds": round(time.monotonic() - step_started, 3)})
-                yield result, run
+                try:
+                    yield result, run
+                except duckdb.Error as exc:
+                    # DuckDB 2.0 runs the last query as its result is read, so its error comes from here
+                    if dialect != "tsql" or isinstance(exc, duckdb.InterruptException) or not statements:
+                        raise
+                    said = _as_warehouse_says(exc, statements[-1])
+                    if said is exc:
+                        raise
+                    if len(statements) > 1:
+                        said = _in_script(said, len(statements) - 1, len(statements), statements[-1]["kind"])
+                    raise said from None
                 finished = True
             except (duckdb.InterruptException, OSError) as exc:
                 # An interrupt while a result streams comes out of pyarrow's reader as OSError.

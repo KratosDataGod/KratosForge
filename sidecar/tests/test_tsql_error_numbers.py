@@ -47,6 +47,13 @@ def test_in_the_middle_of_a_script_it_names_the_statement_the_number_and_what_ra
     assert engine.execute("SELECT id FROM t ORDER BY id", dialect="tsql")["rows"] == [[1], [2]]
 
 
+def test_an_error_in_the_last_statement_as_its_rows_are_read_has_its_number_too(engine):
+    # DuckDB 2.0 runs the last query as its result is read, so its error comes from there
+    text = error(engine, "SELECT 1; SELECT id / 0 FROM t")
+    assert text == ("Statement 2 of 2 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. "
+                    "Statement 1 ran, and what it changed is kept."), text
+
+
 def test_a_duplicate_cte_name_after_another_statement_has_its_number_too(engine):
     text = error(engine, "SELECT 1; WITH a AS (SELECT 1 AS x), A AS (SELECT 2 AS x) SELECT x FROM a")
     assert text.startswith("Msg 239, Level 16: Duplicate common table expression name 'A'"), text

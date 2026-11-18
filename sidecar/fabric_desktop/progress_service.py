@@ -13,7 +13,6 @@ import base64
 import json
 import logging
 import re
-import shutil
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -24,6 +23,7 @@ from . import app_settings, jsonfile, pdfreport, progress, ranks, roadmap
 from .learn import content as learn_content
 from .redact import describe
 from . import known_folders
+from . import trees
 
 _log = logging.getLogger(__name__)
 
@@ -247,7 +247,7 @@ class ProgressMixin:
         with _LOCK:
             existed = folder.exists()
             if existed:
-                shutil.rmtree(folder)
+                trees.remove(folder)
         return {"deleted": existed}
 
 

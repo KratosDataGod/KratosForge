@@ -25,6 +25,7 @@ import polars as pl
 from ..redact import describe
 from .project import _IGNORED, _UNVERSIONED, Project
 from .store import Store
+from .. import trees
 
 _log = logging.getLogger(__name__)
 
@@ -84,7 +85,7 @@ def restore(project: Project, store: Store, version: str) -> Project:
         if not _matches(project, work, version):
             raise ValueError(f"The files {store.env.title()} keeps for release {version} don't add up to it")
         if dest.exists():
-            shutil.rmtree(dest)
+            trees.remove(dest)
         os.replace(work, dest)
     except BaseException:
         shutil.rmtree(work, ignore_errors=True)

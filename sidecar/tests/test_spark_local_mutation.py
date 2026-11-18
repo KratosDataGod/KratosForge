@@ -217,6 +217,7 @@ def test_use_refuses_three_parts(spark):
 
 
 def test_a_refused_write_option_says_why():
-    assert spark_local.writer_option_refusal("replaceWhere", None) == (
-        "uses the replaceWhere write option: replaceWhere (replace only matching rows) isn't supported on this PC, "
-        "and ignoring it would replace the whole table")
+    assert spark_local.writer_option_refusal("replaceWhere", None) is None
+    assert spark_local.writer_option_refusal("replaceWhere", "saveAsTable") is None
+    assert spark_local.writer_option_refusal("replaceWhere", "insertInto") == (
+        "uses the replaceWhere write option, which insertInto doesn't take on this PC")

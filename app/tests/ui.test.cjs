@@ -549,7 +549,8 @@ function sqlEditorHelpers() {
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { SQL_DIALECTS, SQL_WORDS, sqlDialect, sqlQuoteIdent, sqlTableName,
     sqlMask, sqlStatementAt, sqlRunnableStatementAt, sqlSplitStatements, sqlParamNames, sqlParamProblem, sqlTableRefs, sqlHoverTarget, sqlCallAt, sqlSignatureParts, sqlPickForm, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
-    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics, sqlRowsAs, sqlLiteral, sqlInsertTable, sqlNextBookmark, SQL_PARAM_TYPES });`, ctx);
+    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics, sqlRowsAs, sqlLiteral, sqlInsertTable, sqlNextBookmark, SQL_PARAM_TYPES,
+    sqlNameAt, sqlCatalogObject, sqlLakehouseCreate });`, ctx);
   return ctx;
 }
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -794,6 +795,28 @@ test("hovering finds the function, table, alias or column under the pointer", ()
   const unread = sqlHoverTarget("SELECT qty FROM sales", 8, "spark", SQL_TABLES, () => undefined);
   assert.deepStrictEqual([unread.kind, unread.table, unread.unread.length], ["column", null, 1], "columns not read yet: asked for when shown");
   assert.strictEqual(sqlHoverTarget("SELECT qty FROM nowhere", 8, "spark", SQL_TABLES, () => []), null);
+});
+
+test("go to and peek definition read the name under the cursor, find a warehouse's procedure or function, and sketch a lakehouse table", () => {
+  const { sqlNameAt, sqlCatalogObject, sqlLakehouseCreate } = sqlEditorHelpers();
+  const q = "EXEC [etl].usp_load @day = 1; SELECT dbo.fn_tax(amount) FROM sales -- etl.usp_load";
+  assert.deepStrictEqual(plain(sqlNameAt(q, q.indexOf("usp_load") + 2)), ["etl", "usp_load"]);
+  assert.deepStrictEqual(plain(sqlNameAt(q, q.indexOf("[etl]") + 1)), ["etl", "usp_load"], "on the schema part too");
+  assert.deepStrictEqual(plain(sqlNameAt(q, q.indexOf("fn_tax") + 1)), ["dbo", "fn_tax"]);
+  assert.strictEqual(sqlNameAt(q, q.lastIndexOf("usp_load") + 1), null, "comments");
+  assert.strictEqual(sqlNameAt(q, q.indexOf("(amount") ), null, "punctuation");
+  const objects = [{ schema: "etl", name: "usp_load", type: "P" }, { schema: "dbo", name: "fn_tax", type: "FN" },
+    { schema: "dbo", name: "sales", type: "U" }, { schema: "finance", name: "sales", type: "U" }, { schema: "finance", name: "v_budget", type: "V" }];
+  assert.strictEqual(sqlCatalogObject(["etl", "usp_load"], objects).type, "P");
+  assert.strictEqual(sqlCatalogObject(["USP_LOAD"], objects).schema, "etl", "a bare name only one schema has");
+  assert.strictEqual(sqlCatalogObject(["sales"], objects).schema, "dbo", "dbo when several schemas have it");
+  assert.strictEqual(sqlCatalogObject(["v_budget"], objects).type, "V");
+  assert.strictEqual(sqlCatalogObject(["other", "usp_load"], objects), null);
+  assert.strictEqual(sqlCatalogObject(["wh", "etl", "usp_load"], objects), null, "three parts aren't looked up");
+  assert.strictEqual(sqlCatalogObject(null, objects), null);
+  assert.strictEqual(sqlLakehouseCreate({ schema: "dbo", name: "sales" }, [{ name: "id", type: "bigint" }, { name: "Region Name", type: "string" }]),
+    "-- sales, sketched from the columns the Explorer lists. Its table properties and partitioning aren't shown.\n" +
+    "CREATE TABLE dbo.sales (\n  id BIGINT,\n  `Region Name` STRING\n) USING DELTA;\n");
 });
 
 test("signature help knows the call and the argument the cursor is on", () => {
@@ -3304,8 +3327,8 @@ test("every page links to its section of the user guide", () => {
   for (const [, list] of all.matchAll(/views: \{([^}]*)\}/g)) for (const [, view, fn] of list.matchAll(/(\w+): (\w+)/g)) views.set(view, fn);
   assert.ok(views.size > 15, `only ${views.size} pages found`);
   // The notebook's help belongs to its own guide; an agent's page has its link in the advice under its state,
-  // and Monitor's is in monitorAbout beside its tabs.
-  const elsewhere = { notebook: null, agent: "agAdvice", monitor: "monitorAbout" };
+  // Monitor's is in monitorAbout beside its tabs, and Source control's in gitTitle beside its repository.
+  const elsewhere = { notebook: null, agent: "agAdvice", monitor: "monitorAbout", source: "gitTitle" };
   const missing = [...views].filter(([view, fn]) => {
     if (view in elsewhere) return elsewhere[view] && !(body(fn).includes(`${elsewhere[view]}(`) && body(elsewhere[view]).includes("learnMore("));
     return !/learnMore\(|howItWorks\(/.test(body(fn));
@@ -5952,7 +5975,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
       "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests",
       "Promises to readers"],
     trustBadges: ["Endorsement"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
-    lineage: ["Column lineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
+    lineage: ["Column lineage", "Impact of a column change"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
     updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
     learn: ["Learn", "Writing a Learn lesson", "Decision patterns"], academy: ["Academy"],

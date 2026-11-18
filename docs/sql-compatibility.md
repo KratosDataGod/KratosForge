@@ -65,8 +65,10 @@ Spark SQL and the DataFrame API on this PC run with ANSI mode off (`spark.sql.an
 | A `CAST` of a number past the type's range | A whole number keeps its low bits, as Java's cast does: `CAST(2147483648 AS INT)` is -2147483648. A double past the range becomes the range's nearest end: `CAST(1e10 AS INT)` is 2147483647, and NaN is 0. Text past the range is NULL | Stops |
 | A division by zero (`/`, `div`, `%`) | NULL | Stops with `[DIVIDE_BY_ZERO]` |
 | `try_cast`, `try_divide` | NULL | NULL |
+| `try_divide` of decimals | A decimal, typed as `/` is: `decimal(23,13)` for two `decimal(10,2)` | The same |
+| A decimal `sum` or `avg` past its result type, `decimal(p + 10, s)` | NULL | Stops with `[ARITHMETIC_OVERFLOW] Overflow in sum of decimals` |
 
-`spark.conf.set("spark.sql.ansi.enabled", "true")` is kept for when the notebook runs in Fabric, and prints a note naming it: this PC still answers with ANSI mode off.
+`spark.conf.set("spark.sql.ansi.enabled", "true")` is kept for when the notebook runs in Fabric, and prints a note saying this PC still answers with ANSI mode off.
 
 These cases still differ:
 
@@ -76,8 +78,9 @@ These cases still differ:
 | `abs(-2147483648)` or `-(-2147483648)` on an int, with ANSI off | Wraps around: -2147483648 | 2147483648, a `bigint` |
 | A notebook in Databricks Runtime 17.0 or later, which runs Spark SQL with ANSI mode on | A failed `CAST` or a division by zero stops | Gives NULL, as with ANSI mode off. The first use of `dbutils` in a session prints a note saying so, since which runtime a notebook is meant for isn't known here. Run it as Databricks SQL on the DuckDB engine, or on Databricks |
 | `pmod(x, 0)` in Databricks SQL | Stops with `[DIVIDE_BY_ZERO]` | NULL |
-| A decimal sum past its type's range in Databricks SQL on the DuckDB engine | Stops (`[ARITHMETIC_OVERFLOW]`, ANSI on) | NULL, as with ANSI off |
-| `try_divide` of decimals | A decimal, typed as `/` is | A `double` |
+| A decimal `sum` or `avg` whose running total passes about 1.7 × 10^38 | NULL with ANSI off, `[ARITHMETIC_OVERFLOW]` with ANSI on | Stops with DuckDB's "Overflow in HUGEINT addition" |
+| On DuckDB 2.0 (not yet the version this PC installs): a decimal `sum` or `avg` of a `decimal(38, s)` column past its type | NULL with ANSI off, `[ARITHMETIC_OVERFLOW]` with ANSI on | Stops with DuckDB's "Overflow in SUM of DECIMAL" |
+| On DuckDB 2.0: `pmod(x, 0)` in Databricks SQL | Stops with `[DIVIDE_BY_ZERO]` | Stops with DuckDB's own division-by-zero error |
 
 ## Decimal results on this PC (LOC-005)
 
@@ -145,7 +148,7 @@ These cases still differ:
 | --- | --- | --- |
 | Rows that tie in a window's `ORDER BY`, for `row_number`, `lag`, `lead`, `first` and `last` | Any order | Any order, which can differ from Spark's. Add a column that tells them apart when the order matters |
 | A window given by name in a `WINDOW` clause | Checked as above | Not checked here: a missing `ORDER BY` or a frame isn't refused |
-| A DataFrame window function Spark stops on | Stops at the `select` | Stops at `.over(...)`, a line earlier |
+| A DataFrame window function Spark stops on | Stops at the `select` | Stops when `.over(...)` is called, before the `select` |
 | A DataFrame window with `rangeBetween` and numbers, such as `rangeBetween(-1, 0)` | Named after its frame as Spark writes it for the column's type | Named `... RANGE BETWEEN 1 PRECEDING AND CURRENT ROW`. Give it an `alias` |
 | `ntile(0)`, or `ntile` of a column | Stops with Spark's message | Stops with DuckDB's message |
 
@@ -255,6 +258,7 @@ When a project runs T-SQL on this PC, these date and time functions are checked 
 | `DATEFROMPARTS` | A date, an error for a day that doesn't exist (`2023, 2, 29`), `NULL` for a `NULL` part |
 | `FORMAT` | .NET's date formats in `en-US`, on a `date` or a date-and-time column |
 | `CONVERT` to text, styles 101, 103, 112, 120, 121, 126 | `02/29/2024`, `29/02/2024`, `20240229`, `2024-02-29 13:04:05`, `2024-02-29 13:04:05.123000`, `2024-02-29T13:04:05.123000`. A `date` gives only its date in 120, 121 and 126, and 126 leaves off a fraction of zero |
+| `CAST` of a `datetime2(n)` or `time(n)` to text | Its `n` digits of a second, zeros too: a `datetime2(6)` is `2024-02-29 13:04:05.000000`, as a Fabric Warehouse gave it in live run 11 |
 | `CONVERT` and `TRY_CONVERT` from text, the same styles | The date the style reads (`'29/02/2024'` with 103), to a `date`, `datetime` or `datetime2`. A date that doesn't exist is an error with `CONVERT` and `NULL` with `TRY_CONVERT`. Styles 120, 121 and 126 read ISO text with or without its time |
 
 What can still differ:
@@ -270,7 +274,8 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 | What | Here, as in a warehouse |
 | --- | --- |
 | `=`, `<>`, `<`, `IN`, `JOIN ... ON` | `'a' = 'a  '` is true and `'a' = 'A'` is false. Only spaces are taken off: `'a' = 'a' + NCHAR(160)` (a no-break space) is false |
-| `LIKE` | Case counts. The text's trailing spaces don't count, but the pattern's do: `'abc  ' LIKE 'abc'` is true, and `'abc' LIKE 'abc '` is false |
+| `LIKE` | Case counts. The text's trailing spaces don't count, any number of them, but the pattern's do: `'abc  ' LIKE 'abc'`, `'abc  ' LIKE 'abc_'` and `'abc  ' LIKE 'abc__'` are true, and `'abc' LIKE 'abc '` is false |
+| `CHARINDEX` with a `NULL` start | `NULL` |
 | `ORDER BY`, `STRING_AGG(...) WITHIN GROUP (ORDER BY ...)` | Code point order (`A`, `B`, `a`, `b`). `STRING_AGG` skips `NULL`s, and is `NULL` over no rows |
 | `LEN`, `DATALENGTH` | `LEN('ab  ')` is `2`, and `DATALENGTH('ab  ')` is `4`. `DATALENGTH` counts UTF-8 bytes (`'é'` is `2`) and two per character for `N'...'` |
 | `CHARINDEX`, `PATINDEX` | Case counts, and the answer is `0` when the text isn't found. A `CHARINDEX` start of 0 or below searches from the start, and an empty search text gives `0` |
@@ -284,10 +289,7 @@ What still differs:
 - Any other collation (`COLLATE Latin1_General_100_CI_AS_KS_WS_SC_UTF8`, `SQL_Latin1_General_CP1_CI_AS`) is refused by name. Compare `UPPER(...)` on both sides to ignore case.
 - `PATINDEX` needs its pattern written out as text, and is refused otherwise.
 
-These aren't checked against a warehouse yet, since T-SQL's reference doesn't say. The warehouse live check, flow 17 of the [smoke test](product/smoke-test/README.md#flow-17-the-warehouse-live-check), runs them, and each section's other cases, against a test warehouse:
-
-- `LIKE` with a wildcard where the text has trailing spaces. Here a match counts if the text matches as written, or with its trailing spaces removed. So `'abc  ' LIKE 'abc_'` is false, and `'abc  ' LIKE 'abc__'` is true.
-- `CHARINDEX` with a `NULL` start. Here the answer is `NULL`.
+T-SQL's reference doesn't give the answers for `LIKE` with a wildcard on text with trailing spaces, or `CHARINDEX` with a `NULL` start. A Fabric Warehouse gave the ones in the table above in live run 11 (2026-11-17), in the warehouse live check, flow 17 of the [smoke test](product/smoke-test/README.md#flow-17-the-warehouse-live-check).
 
 ## Regular expressions and text on this PC (LOC-002)
 
@@ -651,6 +653,7 @@ Refused by name: variables (`DECLARE`, `@x`, `@@ROWCOUNT`), `IF`, `WHILE`, `BEGI
 What can still differ:
 
 - In a warehouse, some run-time errors (dividing by zero, a value that doesn't convert) end only their own statement, and the batch goes on to the next one. Here the script stops at the first error, and the error says which statements didn't run.
+- Inside a transaction, a warehouse's error ends the whole transaction: in live run 11 a divide by zero in a batch inside `BEGIN TRAN` rolled back a table the transaction had made.
 - A script of only session options (`SET NOCOUNT ON`) has nothing to run here, and says so.
 
 ## Time travel in local T-SQL
@@ -709,3 +712,31 @@ Fabric Warehouse loads files with `COPY INTO`, `BULK INSERT` and `OPENROWSET(BUL
 - `sidecar/tests/fixtures/sql_compat_v1.jsonl` holds 197 cases: the SQL, the engine, the expected outcome, the exact set of rules expected and where the first finding is. 36 of them are false-positive guards, SQL that must not be flagged (Spark array indexes, `ISNULL(a, b)` in T-SQL, `UPDATE ... SET x = NULL`, keywords inside strings and comments, triggers in a SQL database). `sidecar/tests/test_sql_compat.py` runs them.
 - Changing a rule means moving `RULE_VERSION` on, reviewing the fixtures and updating this page.
 - The portability report is `sql_portability.py`, tested by `sidecar/tests/test_sql_portability.py`, which also grades every Snowflake probe statement.
+
+## Differential tests (generated queries)
+
+Besides the hand-picked cases above, three tests generate queries from a fixed seed and compare each answer here with the target's:
+
+- **Spark SQL** (`sidecar/tests/test_spark_differential.py` and `_more.py`): about 1,580 random scalar expressions over the functions this page lists (arithmetic, `div`, `pmod`, casts, text, dates, `LIKE`, three-valued logic), with NULLs mixed in. Each was run in Apache Spark 3.5.3 (local mode, UTC, ANSI mode off, as Fabric) by `sidecar/tools/capture_spark_differential.py`, and its answer is kept in `sidecar/tests/fixtures/spark_3_5_3_differential.json`. CI has no Spark, so the capture is run by hand and the fixture is checked in.
+- **T-SQL** (`sidecar/tests/test_tsql_rules_differential.py`): about 1,700 inputs for `SUBSTRING`, `LEFT`, `RIGHT`, `CHARINDEX`, `REPLICATE`, `LEN`, integer `/` and `%`, `ROUND`, `CAST` to `int`, `=` and `<` with trailing spaces, `LIKE` with `[a-c]` ranges, `DATEDIFF`, `DATEADD`, `EOMONTH`, `DATEPART`, `CONCAT`, `CONCAT_WS` and `+`, each with `'...'` and with `N'...'` text. The expected answer is a short model of the rule in T-SQL's reference. No warehouse was used.
+- **Snowflake** (`sidecar/tests/test_snowflake_rules_differential.py`): about 1,700 inputs for `SUBSTR`, `LEFT`, `RIGHT`, `REPEAT`, `CONCAT`, `||`, `CONCAT_WS`, `MOD`, `DIV0`, `DIV0NULL`, `ROUND` (both modes), `DATEDIFF`, `DAYOFWEEK`, `DAYOFWEEKISO`, `DATE_TRUNC('week')`, `WEEKISO`, `LAST_DAY`, `POSITION`, `CHARINDEX`, `SPLIT_PART`, `LPAD`, `RPAD` and `ORDER BY`'s NULL order, modeled on Snowflake's SQL reference with the default session parameters. No Snowflake account was used.
+
+A different answer, or an error where the target answers, fails these tests unless it is named in the test's `KNOWN` list. An entry that no case needs any more fails too, so each list is what still differs. Today they are:
+
+| Engine | What differs here | How |
+| --- | --- | --- |
+| Spark SQL | `substring(s, pos, len)` with a negative `len` | Spark gives `''`. Here it counts back from `pos`: `substring('Hello World', -1, -6)` is `o Worl` |
+| Spark SQL | `overlay(... FROM pos)` with `pos` of 0 or below | Spark keeps its own substring rules: `overlay('abc' PLACING ',' FROM 0)` is `,abc`. Here it is `ab,abc` |
+| Spark SQL | `levenshtein` on text that isn't ASCII | Spark counts characters, here bytes |
+| Spark SQL | `locate(sub, NULL, pos)` with `pos` below 1 | Spark gives NULL, here 0 |
+| Spark SQL | `bit_count` of a negative `int` | Spark counts 64 bits (-1 gives 64), here 32 |
+| Spark SQL | `pmod(x, 0.0D)` | Spark gives NULL, here NaN |
+| Spark SQL | `a div b` when `a` is a decimal (`floor(-1.25) div 7`) | Spark gives a whole number, here a double division |
+| Spark SQL | `isnan(NULL)` | Spark gives false, here NULL |
+| Spark SQL | `to_date('24-02-29')` | Spark gives NULL (a year needs 4 digits), here the year 24 |
+| Spark SQL | `date_format` of a year past 9999 | Spark writes a leading `+` (`+8535706`). Here there is none (`8535706`) |
+| Spark SQL | `initcap`, `trunc(date, 'MM')` and its other formats, `make_date` with a day that doesn't exist, `sqrt` of a negative number, `shiftleft`/`shiftright` of a negative number or by a negative count, `soundex` of a cast, `CAST` of text past a date's range | These stop here with an error, where Spark answers |
+| Spark SQL | `split_part(s, d, 0)` | Refused by name before the query runs; Spark stops only when the call is reached |
+| T-SQL | `N'...'` text in `=`, `<`, `LIKE` and `+` | Trailing spaces count, `[a-c]` ranges don't match, and `N'a' + N'b'` stops. The same text without `N` answers as T-SQL does |
+| Snowflake | `POSITION` and `CHARINDEX` with an empty search text and a start past the end | Snowflake gives 0, here the start |
+| Snowflake | `LPAD` and `RPAD` with an empty pad | Stops with "Insufficient padding", where Snowflake truncates |

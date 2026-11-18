@@ -281,6 +281,7 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 | `LEN`, `DATALENGTH` | `LEN('ab  ')` is `2`, and `DATALENGTH('ab  ')` is `4`. `DATALENGTH` counts UTF-8 bytes (`'é'` is `2`) and two per character for `N'...'` |
 | `CHARINDEX`, `PATINDEX` | Case counts, and the answer is `0` when the text isn't found. A `CHARINDEX` start of 0 or below searches from the start, and an empty search text gives `0` |
 | `CONCAT`, `CONCAT_WS`, `+` | `CONCAT` skips `NULL`, and `+` gives `NULL`. A number written with a point keeps its digits (`CONCAT('a', 1.50)` is `a1.50`), and a `bit` is `1` or `0` |
+| `N'...'` text | The same as `'...'` in comparisons, `LIKE` and `+`: `WHERE name = N'abc'` finds `'abc  '`, and `N'a' + N'b'` is `ab`. Only `DATALENGTH` counts it as nvarchar, two bytes a character, and only for an `N'...'` written directly inside it: `DATALENGTH(N'ab')` is `4`, but `DATALENGTH(N'a' + N'b')` is `2` here, where T-SQL gives `4` |
 | `TRIM`, `LTRIM`, `RTRIM`, `REPLACE` | Spaces only, or the characters you give. `REPLACE` matches case and leaves the text alone for an empty search |
 | `COLLATE` | A binary collation (`..._BIN2`, `..._BIN`) runs as written, since it's how text compares here already |
 
@@ -472,10 +473,28 @@ When a project runs T-SQL on this PC, common table expressions (`WITH ... AS`) r
 
 Refused by name:
 
-- A recursive CTE, one whose query names itself. A warehouse doesn't run recursive queries. It stops before it runs, so a CTE with no end never runs on and changes nothing. Unroll the levels you need with joins, or compute the hierarchy in a notebook.
+- A recursive CTE, one whose query names itself. A warehouse doesn't run recursive queries. It stops before it runs, so a CTE with no end can't run forever, and nothing changes. Unroll the levels you need with joins, or compute the hierarchy in a notebook.
 - `OPTION (MAXRECURSION n)`, which only limits a recursive CTE.
 - `WITH RECURSIVE`, which isn't T-SQL.
 - `UPDATE` or `DELETE` through a CTE (`WITH a AS (...) UPDATE a SET ...`). The local engine changes tables only, and Microsoft's page doesn't say whether a warehouse does. Name the table, and put the CTE's filter in `WHERE`.
+
+## Local T-SQL hints, labels and statistics
+
+When a project runs T-SQL on this PC, a hint, label or statistics statement either changes no rows and is left out of the run, with a note in the result that says so, or is refused by name. None is dropped without a note. This was checked against Microsoft Learn's Fabric Data Warehouse pages for the T-SQL surface area, query labels, statistics and transactions, and the Fabric section of Hints (Transact-SQL), as they read on 2026-11-18.
+
+| What | Here |
+| --- | --- |
+| `OPTION (LABEL = '...')` | Left out, with a note. A warehouse shows the label in query insights; it changes no rows |
+| `OPTION (...)` with `HASH GROUP`, `ORDER GROUP`, `MERGE UNION`, `HASH UNION`, `CONCAT UNION`, `FORCE ORDER`, `FORCE SINGLE NODE PLAN`, `FORCE DISTRIBUTED PLAN`, `DISABLE_RESULT_SET_CACHE`, or `USE HINT` with the four `ASSUME_..._FILTER_ESTIMATES` names | Left out, with a note. These are the hints Microsoft lists for a warehouse, and each changes how it plans, not the rows |
+| A `LOOP`, `HASH` or `MERGE` join hint in `FROM`, such as `INNER HASH JOIN` | Left out, with a note |
+| A locking table hint: `NOLOCK`, `READUNCOMMITTED`, `HOLDLOCK`, `TABLOCK`, `ROWLOCK`, `READPAST` and the others, also written `t (NOLOCK)` | Left out, with a note. A warehouse always runs snapshot isolation, and reads here are snapshot reads too, so the hint changes no rows. Microsoft's pages don't say whether a warehouse takes it |
+| `CREATE STATISTICS s ON t (c)`, `UPDATE STATISTICS t [(s)]`, `DROP STATISTICS t.s`, with `WITH FULLSCAN` or `SAMPLE n PERCENT` | Changes nothing, with a note. It checks that the table (and for `CREATE`, the column) exist, so a name that isn't there is an error as in a warehouse. `DROP` doesn't check the statistic itself |
+
+Refused by name:
+
+- Any other query hint, such as `MAXDOP`, `RECOMPILE`, `LOOP JOIN`, `FAST n` or another `USE HINT` name, since Microsoft doesn't list it for a warehouse. A `REMOTE` join hint in `FROM` is refused for the same reason. `MAXRECURSION` is refused with recursive CTEs.
+- Index hints (`INDEX(...)`, `FORCESEEK`, `FORCESCAN`, `NOEXPAND`), because a warehouse has no indexes to name.
+- A statistic on more than one column, which a warehouse refuses too, filtered statistics (`WHERE`), and statistics options other than `FULLSCAN` and `SAMPLE`.
 
 ## Local T-SQL tables
 
@@ -749,4 +768,3 @@ Fixed since the first run, each with a test named after its case in `sidecar/tes
 | --- | --- | --- |
 | Spark SQL | `initcap`, `trunc(date, 'MM')` and its other formats, `make_date` with a day that doesn't exist, `sqrt` of a negative number, `soundex` of a cast, `date_add` by about 2^31 days (past DuckDB's timestamp range) | These stop here with an error, where Spark answers. On DuckDB 2.0 (not yet the version this PC installs), `sqrt` of a negative number answers as Spark does, but `sign` of that `sqrt`'s NaN is 0.0 where Spark gives NaN |
 | Spark SQL | `split_part(s, d, 0)` | Refused by name before the query runs; Spark stops only when the call is reached |
-| T-SQL | `N'...'` text in `=`, `<`, `LIKE` and `+` | Trailing spaces count, `[a-c]` ranges don't match, and `N'a' + N'b'` stops. The same text without `N` answers as T-SQL does |

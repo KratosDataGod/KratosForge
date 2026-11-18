@@ -51,7 +51,7 @@ from sqlglot.helper import seq_get
 from sqlglot.tokens import Token, TokenType
 
 from ..sql import KfDuckDB
-from . import tsql_ctes, tsql_format, tsql_routines, tsql_tables, tsql_types
+from . import tsql_ctes, tsql_format, tsql_hints, tsql_routines, tsql_tables, tsql_types
 from .. import sql_dialects, tsql_clone
 
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
@@ -112,7 +112,9 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
                 continue
             tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
             _refuse(tree)
+            _national_text(tree)
             notes += tsql_ctes.check(tree)  # WR-230: no recursive CTE, no change through a CTE
+            notes += tsql_hints.check(tree)  # WR-231: labels and hints that change no rows, with a note
             _temp_tables(tree)
             notes += tsql_types.check(tree)  # WR-223: types as a warehouse has them, before any rewrite
             _joined_changes(tree)
@@ -506,6 +508,7 @@ def _take_as_of(batch: str) -> tuple[str, str | None]:
 
 def _parse(batch: str) -> list[exp.Expression]:
     batch, when = _take_as_of(batch)
+    batch = tsql_hints.take(batch, KfTSQL().tokenize)  # WR-231: statistics, and hints sqlglot can't read
     cloned = tsql_clone.local_refusal(batch)  # WR-226: never a no-op, never a full copy in a clone's place
     if cloned:
         raise ValueError(_NOT_YET + cloned)
@@ -2272,6 +2275,19 @@ def _unknown_functions(tree: exp.Expression, known: Container[str]) -> None:
     if any(True for _ in tree.find_all(exp.CurrentTimestampLTZ)):
         raise ValueError(_NOT_YET + "SYSDATETIMEOFFSET isn't mapped yet. A warehouse's clock is UTC: "
                          "SYSUTCDATETIME() gives the same time without the offset.")
+
+
+def _national_text(tree: exp.Expression) -> None:
+    """An N'...' literal is nvarchar text. sqlglot reads it as exp.National, which the passes that type text
+    (comparisons with ANSI padding, LIKE's [a-c] ranges, + joining two strings) didn't take for text. So
+    ``WHERE col = N'abc'`` missed a row whose col is 'abc  ', ``LIKE N'[a-c]%'`` never matched, and
+    ``N'a' + N'b'`` stopped with DuckDB's binder error. A warehouse keeps text as UTF-8 varchar, so here it is a
+    plain string. DATALENGTH's own argument keeps its N, since it counts two bytes a character (_datalength)."""
+    for node in list(tree.find_all(exp.National)):
+        parent = node.parent
+        if isinstance(parent, exp.Anonymous) and parent.name.upper() == "DATALENGTH":
+            continue
+        node.replace(exp.Literal.string(node.name))
 
 
 def _datalength(value: exp.Expression) -> exp.Expr:

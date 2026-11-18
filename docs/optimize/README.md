@@ -94,6 +94,7 @@ Sharing runs normally reads which runs the lakehouse already has. With no networ
 - **Bounded.** At most 200 items per lakehouse, none older than 30 days. Past either, the oldest go. Every dropped item is counted.
 - **Disconnecting** keeps what waits for that lakehouse on this PC, to be sent if you connect to it again.
 - **Status.** `optimize_status` returns `outbox` for the active lakehouse: `pending` (items), `pending_rows`, `oldest`, `last_sync`, `last_error` (cleared by the next send that works) and `dropped`. Optimize shows it as one line under the lakehouse name: everything sent, results waiting on this PC with why, or how many were dropped, with **Details** for the figures. The line only reads; it never sends.
+- **Sync state.** `optimize_status` also returns `sync` for the active lakehouse: a `state` for the lakehouse and one per kind of result (`kinds`: `analysis`, `local_executions`), each one of **synced** (nothing waiting), **synchronizing** (a send is running now), **pending** (waiting to try again after throttling or a lost commit race), **offline** (the lakehouse couldn't be reached), **failed** (the lakehouse refused this person: no permission, or read-only) or **conflict** (its schema version doesn't fit this app: a newer one, so someone has to update the app, or an older one without the table being written, so someone has to upgrade the lakehouse). A lakehouse whose fdopt_ tables aren't Optimize's isn't written to at all, so nothing waits for it. The lakehouse's state is the worst of its kinds, and synchronizing while a send runs (`waiting_state` keeps the worst underneath). Each kind has `pending` and `pending_rows`; `dropped` and `last_sync` are as above. A send that never said it ended (the app closed mid-send) stops counting as running after 10 minutes. Engine only: no screen shows these yet.
 
 ## What syncing costs
 
@@ -133,6 +134,16 @@ Optimize can count the notebook work that ran on a PC instead of in Fabric. Shar
 CPU time and peak memory are filled in only where they were measured (a proof's run). Everywhere else they're empty, never 0.
 
 Code and table contents are never written. A run is added once: sharing again adds only the runs that are new since the last time, and two PCs never share each other's runs. The engine call is `optimize_share_local_runs`. Without `approve=True` it writes nothing and says how many runs it would add and what they contain, with a `confirm` value for exactly those runs. It writes only with `approve=True` and that `confirm`. If a run finished in between, it asks again rather than share a run nobody was shown. The button that calls it, in **Optimize > Cost and savings**, comes after a mockup. A run on a PC starts no Fabric job, but its OneLake reads and writes still use capacity, so these rows count work, not savings.
+
+## How one run's savings are split
+
+When a workload has been optimized and also runs on a PC, its savings could be counted twice. `sidecar/fabric_desktop/savings/attribution.py` splits one run into layers that never add up to more than the workload's baseline (the Fabric CU one run used before any optimization):
+
+1. Each optimization in effect when the run happened, in the order they took effect, takes its measured reduction from what was left. A notebook optimized from 10 to 6 CU hours has an optimization layer of 4.
+2. A run on a PC avoids at most what the optimized workload still needs (6 in that example), taken from [the calibrated estimate](../finops/cost-evidence.md#how-savings-on-this-pc-are-estimated). So the run avoids at most 10 in total, never 14.
+3. Fabric use the run still caused (OneLake reads and writes, sync) is subtracted for the net figure. When that isn't known, the net figure is marked incomplete.
+
+An optimization that made things worse has a negative layer. One whose after isn't measured yet can't be split from the ones after it, so the run's total goes to one unattributed layer until it is. Missing evidence stays Unknown, never 0. Each layer's id is the same on every PC, so a second desktop syncing the same run adds nothing. Nothing is written to the lakehouse yet: savings rows wait for a measured Fabric baseline.
 
 ## The tables
 

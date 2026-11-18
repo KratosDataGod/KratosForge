@@ -164,6 +164,13 @@ the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`) and th
 | FEA-PERF-002 | Performance | Medium | A pipeline doesn't copy a source another pipeline also copies (OE-DUP-COPY, OE-REPEAT-EXTRACT) | Optimization engine |
 | FEA-DE-001 | Data engineering | Medium | A scheduled notebook or pipeline doesn't rewrite whole tables (OE-FULL-REFRESH); not applicable when it isn't scheduled | Optimization engine |
 | FEA-DE-002 | Data engineering | Low | A notebook's code isn't copied into another one per lakehouse (OE-DUP-NB-PARAM) | Optimization engine |
+| FEA-SEC-005 | Security | High | No key, password or connection string is written in a notebook's code (NB001) | Definition inspection |
+| FEA-DEVOPS-001 | DevOps | Low | No OneLake path in a notebook names a workspace or item id (NB002) | Definition inspection |
+| FEA-REL-001 | Reliability | Medium | A notebook doesn't catch an error and ignore it (NB012) | Definition inspection |
+| FEA-REL-002 | Reliability | Low | Every package a notebook installs has a version (NB009) | Definition inspection |
+| FEA-DE-003 | Data engineering | Medium | No VACUUM in a notebook keeps less than 7 days of history (NB020) | Definition inspection |
+| FEA-REL-003 | Reliability | Low | No pipeline activity is deactivated (skipped, and reported as Succeeded by default) | Definition inspection |
+| FEA-DEVOPS-002 | DevOps | Low | No pipeline activity names a workspace id as text rather than a parameter or variable | Definition inspection |
 
 The thresholds (4 Admins, 5 direct writers) are KratosForge's: Microsoft's guidance asks for least
 privilege but gives no number. A profile can turn any control off, with a reason, or change its
@@ -175,6 +182,23 @@ name Fabric didn't send can't be told apart from a guest, so FEA-SEC-002 is then
 controls that compare an item with the others of its kind (FEA-PERF-001, FEA-PERF-002, FEA-DE-002)
 pass an item only when every other notebook or pipeline in the workspace was read; if one wasn't (no
 access, or the read budget ran out), they are not evaluated and name the ones that weren't read.
+
+### Notebook and pipeline inspection
+
+The notebook and pipeline controls use the definitions the optimization engine already reads; they
+make no Fabric call of their own. While the engine has a definition in memory, it is inspected on
+this PC and only the result is kept as evidence (`item.inspection`):
+
+- for a notebook, which [notebook best-practice rules](../notebook-best-practices.md) matched, how
+  often, and the cell and line of each. For a secret (NB001), only that one was found and where,
+  never what it was;
+- for a pipeline, how many activities it has, and the names of those that are deactivated or name a
+  fixed workspace id. Not the ids themselves.
+
+Notebook code and pipeline JSON never enter the evidence or the snapshot. A definition that couldn't
+be read leaves these controls not evaluated. Retry, timeout and failure-path settings aren't checked
+yet: the engine's pipeline reader doesn't keep an activity's `policy` and `dependsOn`, and a control
+that can't see a setting is never passed.
 
 ## Limitations
 

@@ -11,7 +11,7 @@ rather than bigger.
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any
+from typing import Any, Callable
 
 from .. import measurement as ms
 from . import analyzers, impact, inventory, model
@@ -100,9 +100,13 @@ def _next_action(ranked: list[dict[str, Any]], coverage: dict[str, Any]) -> dict
 
 
 def assess(sources: list[dict[str, Any]], *, usage_imports: list[dict[str, Any]], price: dict[str, Any] | None,
-           now: dt.datetime, days: int = 30, scope: dict[str, Any] | None = None, fixture: bool = False) -> dict[str, Any]:
+           now: dt.datetime, days: int = 30, scope: dict[str, Any] | None = None, fixture: bool = False,
+           inspect: Callable[[dict[str, Any]], dict[str, Any]] | None = None) -> dict[str, Any]:
     """The assessment of one or more workspaces. ``sources``: one dict per workspace with
-    ``workspace``, ``items``, ``definitions`` and ``jobs`` as inventory.workloads takes them."""
+    ``workspace``, ``items``, ``definitions`` and ``jobs`` as inventory.workloads takes them.
+
+    ``inspect``, when given, is called once per workload while its code is still there; what it
+    returns is kept as the workload's ``inspected`` (it must return findings, never code)."""
     workloads = [w for s in sources for w in inventory.workloads(s["workspace"], s["items"], s.get("definitions") or {},
                                                                  s.get("jobs") or {}, now=now, days=days)]
     usage = impact.usage_by_item(usage_imports)
@@ -114,6 +118,9 @@ def assess(sources: list[dict[str, Any]], *, usage_imports: list[dict[str, Any]]
         for o in ranked:
             o["fixture"] = True
     coverage = _coverage(workloads, len(usage))
+    if inspect is not None:
+        for w in workloads:
+            w["inspected"] = inspect(w)
     for w in workloads:  # code stays on this PC's screen only; the result carries what it found, not the code
         w.pop("cells", None)
         w.pop("activities", None)

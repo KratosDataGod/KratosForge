@@ -39,7 +39,7 @@ def run(assignments=None, *, ws=WS, items=None, capacities=None, opt=None) -> di
 
 def test_the_catalog_registers_and_every_control_is_complete():
     r = catalog.registry()
-    assert len(r) == len(catalog.CONTROLS) >= 10
+    assert len(r) >= len(catalog.CONTROLS) >= 10
     for c in r.controls():
         assert ct.problems(c) == []
         assert all(ref["url"].startswith("https://") for ref in c.references)

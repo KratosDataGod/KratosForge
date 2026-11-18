@@ -20,7 +20,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
+from typing import Any, Callable
 
 from .opportunities import assess, fixture, inventory, share
 from .redact import describe
@@ -70,11 +70,18 @@ class OpportunitiesMixin:
         """Find optimization opportunities in one workspace, or in every workspace on a capacity you can see.
 
         Reads only. With ``demo`` the demonstration fixture is assessed instead, labelled as a fixture."""
+        return self._optimization_assess(workspace_id, capacity_id, days, demo)
+
+    def _optimization_assess(self, workspace_id: str = "", capacity_id: str = "", days: int = 30,
+                             demo: bool = False, *,
+                             inspect: Callable[[dict[str, Any]], dict[str, Any]] | None = None) -> dict[str, Any]:
+        """optimization_assess, plus assess.assess's ``inspect`` hook for in-process callers
+        (excellence_assess). Not an RPC method: a callable can't come over JSON."""
         if demo:
             d = fixture.load()
             return assess.assess([d["source"]], usage_imports=d["usage_imports"],
                                  price=d["price"] | {"source": "demonstration fixture price"}, now=d["now"], days=30,
-                                 scope={"kind": "demo"}, fixture=True)
+                                 scope={"kind": "demo"}, fixture=True, inspect=inspect)
         days = min(max(int(days), MIN_DAYS), MAX_DAYS)
         fabric = self.fabric  # type: ignore[attr-defined]
         truncated = 0
@@ -102,7 +109,7 @@ class OpportunitiesMixin:
                  "source": "the price set in Optimize > Cost and savings" if saved.get("price_per_cu_hour")
                  else "the default list price, not your contract price"}
         result = assess.assess(sources, usage_imports=self._usage.all(), price=price,  # type: ignore[attr-defined]
-                               now=dt.datetime.now(dt.timezone.utc), days=days, scope=scope)
+                               now=dt.datetime.now(dt.timezone.utc), days=days, scope=scope, inspect=inspect)
         result["scope"]["workspaces_left_out"] = truncated
         result["scope"]["budget"] = budget.report()
         if budget.spent:

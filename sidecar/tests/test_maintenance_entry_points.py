@@ -33,7 +33,7 @@ REVIEWED = {
     ("lakehouse.py", "maintain_table"): "gate: maintenance_guard -> MetaMixin._maintenance_refusal (notebook "
                                         "OPTIMIZE, ZORDER BY, VACUUM, RESTORE)",
     ("fabric_compute.py", "_optimize"): "none needed: runs inside a Fabric notebook on the capacity itself, after "
-                                        "a run whose own risk check started it; a paused capacity can't run it",
+                                        "a run whose own risk check (paused, throttled or otherwise Blocked) already passed",
     ("maintenance.py", "compact_local"): "none needed: a table on this PC (LocalStore), no Fabric capacity",
     ("maintenance.py", "vacuum_preview"): "dry run only",
     ("maintenance.py", "_unnamed"): "dry run only",

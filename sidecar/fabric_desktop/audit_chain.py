@@ -188,12 +188,17 @@ def _month_end(month: str) -> float:
 
 def prunable(folder: Path, days: int, now: float | None = None) -> list[Path]:
     """The month files ``prune`` would delete: oldest first, every month that ended more than ``days``
-    days ago, never the newest file. None when ``days`` is 0 or less (the trail is kept)."""
+    days ago (one that ended exactly ``days`` days ago stays), never the newest file. None when ``days``
+    is 0 or less (the trail is kept). Months a prune stopped part way already cut from the trail
+    (``head.json`` says through which) are always among them, even if the clock has gone back since:
+    otherwise the head would move back over months it already counted."""
     if days <= 0:
         return []
     cutoff = (now if now is not None else time.time()) - days * 86400
     every = [p for p in files(folder) if _MONTH.fullmatch(_month(p))]
-    return [p for p in every[:-1] if _month_end(_month(p)) <= cutoff]
+    base = _head(folder).get("base")
+    done = str(base.get("through") or "") if isinstance(base, dict) else ""
+    return [p for p in every[:-1] if _month_end(_month(p)) < cutoff or _month(p) <= done]
 
 
 def prune(folder: Path, days: int, now: float | None = None) -> dict[str, Any]:

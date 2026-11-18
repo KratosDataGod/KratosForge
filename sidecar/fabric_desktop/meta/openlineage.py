@@ -137,9 +137,10 @@ def _clean_one(text: str) -> str:
 
 def safe_origin(value: Any) -> str:
     """A source's name as it can leave the PC: a URL keeps its scheme, host, port and path (no user, password,
-    query, ;path parameters or fragment, where a SAS token, key or session id would sit); a path on this PC, or a file: URL, keeps only its last part;
-    a connection string loses its user name, password, account key and SAS ({braced} and quoted ones whole); anything credential-shaped that is left is removed. A list is
-    cleaned item by item."""
+    query, ;path parameters or fragment, where a SAS token, key or session id would sit); a path on this PC, or a
+    file: URL, keeps only its last part; a connection string loses its user name, password, account key and SAS
+    ({braced} and quoted ones whole); anything credential-shaped that is left is removed. A list is cleaned item
+    by item."""
     items = value if isinstance(value, (list, tuple)) else [value]
     return redact.secrets(", ".join(_clean_one(str(v)) for v in items))
 
@@ -147,7 +148,7 @@ def safe_origin(value: Any) -> str:
 def _clean_literal(lit: str) -> str:
     """A quoted literal: cleaned like a source when it plainly is a path or URL, else left as it is."""
     before_query = _IPV6_HOST.sub("", re.split(r"[?#]", lit, maxsplit=1)[0])
-    url =(_FILE_URL.match(lit) or "://" in before_query) and not _URL_REGEXY.search(before_query)
+    url = (_FILE_URL.match(lit) or "://" in before_query) and not _URL_REGEXY.search(before_query)
     looks = url or (_TEXT_PATH.match(lit) and not _REGEXY.search(lit))
     return _clean_one(lit) if looks else lit
 

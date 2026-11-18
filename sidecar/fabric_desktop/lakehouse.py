@@ -440,7 +440,19 @@ def table_exists(table: str) -> bool:
 
 def read_table(table: str, version: int | None = None, timestamp: Any = None) -> pl.DataFrame:
     """The table as a data frame; ``version`` or ``timestamp`` read it as it was then."""
-    return cast(pl.DataFrame, pl.from_arrow(open_table(table, version, timestamp).to_pyarrow_table()))  # a Table gives a DataFrame
+    return cast(pl.DataFrame, pl.from_arrow(table_arrow(open_table(table, version, timestamp))))  # a Table gives a DataFrame
+
+
+def table_arrow(opened: DeltaTable) -> Any:
+    """Every row of an opened table, with its deletion vectors and column mapping applied."""
+    from . import delta_read
+    return delta_read.arrow(opened)
+
+
+def table_dataset(opened: DeltaTable) -> Any:
+    """An opened table as a pyarrow dataset, with its deletion vectors and column mapping applied."""
+    from . import delta_read
+    return delta_read.dataset(opened)
 
 
 def sql(query: str) -> pl.DataFrame:

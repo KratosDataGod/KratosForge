@@ -452,7 +452,7 @@ that rebuilds totals from the ledger and compares.
 
 ### Phase 5: Enterprise reporting
 
-**ESI-501 Reporting schema.** Documented star schema (`dim_*`, `fact_*`) over `fdopt_`, with
+**ESI-501 Reporting schema.** **Documented** in [savings-reporting-schema.md](savings-reporting-schema.md). Documented star schema (`dim_*`, `fact_*`) over `fdopt_`, with
 measure definitions; SQL views or a semantic model only after D6.
 
 **ESI-502 Cost and savings mockup.** Section 5's screens, light shell, via the UX thread, then

@@ -29,3 +29,8 @@ def spark():
 
 def test_spark_hashing_functions_answer_as_spark_3_5_or_are_refused_by_name(spark):
     check(spark, load("hashing"), REFUSED)
+
+
+def test_the_sha2_function_gives_null_for_a_length_spark_has_no_sha2_for():
+    from fabric_desktop import spark_hash
+    assert spark_hash.sha2(b"abc", 1) is None and spark_hash.sha2(b"abc", 999) is None

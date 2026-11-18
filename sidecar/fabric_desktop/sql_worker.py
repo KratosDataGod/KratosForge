@@ -57,7 +57,7 @@ def run(job: dict[str, Any]) -> None:
     import pyarrow as pa
     import pyarrow.ipc as ipc
 
-    from . import lakehouse, sql, sql_params, sql_policy
+    from . import lakehouse, spark_hash, sql, sql_params, sql_policy
     from .duckdb_rows import for_arrow, keep_try_cast, run_through
 
     lh = job["lakehouse"]
@@ -96,6 +96,7 @@ def run(job: dict[str, Any]) -> None:
     if job.get("memory_cap_mb"):
         _hold_to(int(job["memory_cap_mb"]), job)
     con = keep_try_cast(duckdb.connect())
+    spark_hash.register(con)  # sha2 at 224, 384 and 512 bits, as Spark SQL translated here asks for
     con.execute("SET TimeZone = 'UTC'")  # as in sql.run: Fabric's Spark sessions are UTC
     if job.get("memory_mb"):
         con.execute(f"SET memory_limit = '{int(job['memory_mb'])}MB'")

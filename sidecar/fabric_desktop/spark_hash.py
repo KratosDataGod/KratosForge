@@ -309,9 +309,12 @@ def _hash_sql(name: str, count: int) -> str:
         f"(CASE WHEN {h} >= {top} THEN {h} - {2 * top} ELSE {h} END)::{'INTEGER' if width == 32 else 'BIGINT'}"))
 
 
-def sha2(data: bytes, bits: int) -> str:
-    """Spark's sha2 for 224, 384 and 512 bits (DuckDB has SHA-256 only): the digest as lower-case hex."""
+def sha2(data: bytes, bits: int) -> str | None:
+    """Spark's sha2 for 224, 384 and 512 bits (DuckDB has SHA-256 only): the digest as lower-case hex. Any
+    other number of bits gives NULL, as Spark's sha2 does."""
     import hashlib
+    if bits not in (224, 384, 512):
+        return None
     return hashlib.new(f"sha{bits}", data).hexdigest()
 
 

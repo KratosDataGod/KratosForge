@@ -273,8 +273,9 @@ def _item(text: str, kind: str, name: str) -> str:
         f"WHEN {kind} LIKE 'DECIMAL(%' THEN {_decimal_item(text, kind)} "
         f"WHEN {kind} = 'VARCHAR' THEN {make('b', h=f'HEX(ENCODE({text}))')} "
         f"WHEN {kind} = 'BLOB' THEN {make('b', h=f'HEX({text}::BLOB)')} "
-        f"ELSE ERROR('{name}() of a value of type ' || {kind} || ' can''t run on this PC the way it runs in Fabric, so nothing "
-        f"ran. Run the cell in Fabric, or hash its parts.') END")
+        f"ELSE ERROR('{name}() of a value of type ' || {kind} || ' can''t run on this PC the way it runs in Fabric, "
+        f"because this PC can''t yet hash it in Spark''s order, so nothing ran. Hash its fields or elements instead, "
+        f"such as {name}(s.a, s.b), or run the cell in Fabric.') END")
 
 
 def _values(value: str) -> str:

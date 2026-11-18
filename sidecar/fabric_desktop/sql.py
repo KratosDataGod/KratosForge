@@ -1359,8 +1359,9 @@ def spark_timestamp_text(value: str) -> str:
             f"ELSE CAST({value} AS VARCHAR) END")
 
 
-_NOT_UTF8 = ("'A cast of binary to string can''t run on this PC the way it runs in Fabric, so nothing ran: the "
-             "bytes aren''t UTF-8 text, which Spark reads with replacement characters. Use hex() or base64() instead.'")
+_NOT_UTF8 = ("'A cast of binary to string can''t run on this PC the way it runs in Fabric, because the bytes "
+             "aren''t UTF-8 text, which Spark reads with replacement characters, so nothing ran. Use hex() or "
+             "base64() instead.'")
 
 
 def spark_text_cast(value: str) -> str:

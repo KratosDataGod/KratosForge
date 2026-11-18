@@ -53,7 +53,7 @@ def _refuse(name: str, why: str, instead: str = "") -> Callable[..., exp.Express
 _BASE64_BYTES = ("TO_BASE64(CASE WHEN TYPEOF(fj_arg0) = 'BLOB' THEN CAST(fj_arg0 AS BLOB) "
                  "WHEN TYPEOF(fj_arg0) = 'VARCHAR' THEN ENCODE(CAST(fj_arg0 AS VARCHAR)) "
                  "WHEN TYPEOF(fj_arg0) = '\"NULL\"' THEN CAST(NULL AS BLOB) "
-                 "ELSE CAST(ERROR('base64() takes text or binary, as in Spark. Cast the value to "
+                 "ELSE CAST(ERROR('base64() takes text or binary, as in Spark, so nothing ran. Cast the value to "
                  "string first.') AS BLOB) END)")
 _BASE64_LINES = (f"(LIST_TRANSFORM([{_BASE64_BYTES}], kf_b -> ARRAY_TO_STRING(LIST_TRANSFORM(RANGE(0, LENGTH(kf_b), 76), "
                  "kf_i -> SUBSTR(kf_b, kf_i + 1, 76)), CHR(13) || CHR(10))))[1]")
@@ -66,8 +66,9 @@ def _base64(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression 
 # unbase64 as Spark 3.5 reads text (Java's MIME decoder): characters outside the base64 alphabet are skipped
 # and padding is optional, but padding that doesn't end a group of four ('YQ=', '=' alone), base64 after the
 # padding, or one character left over at the end stops, as in Spark.
-_UNBASE64_STOP = ("'unbase64() stops on this text, as Spark does: its padding or its last group of characters isn''t "
-                  "valid base64 (Input byte array has wrong 4-byte ending unit).'")
+_UNBASE64_STOP = ("'unbase64() stops on this text, as Spark does, because its padding or its last group of characters "
+                  "isn''t valid base64 (Input byte array has wrong 4-byte ending unit). Check the end of the text for "
+                  "stray characters or misplaced ''=''.'")
 _UNBASE64 = ("(LIST_TRANSFORM([CAST(fj_arg0 AS VARCHAR)], kf_t -> CASE WHEN kf_t IS NULL THEN NULL ELSE "
              "(LIST_TRANSFORM([{'s': REGEXP_REPLACE(SPLIT_PART(kf_t, '=', 1), '[^A-Za-z0-9+/]', '', 'g'), "
              "'pad': STRPOS(kf_t, '=') > 0, 'after': SUBSTR(kf_t, LENGTH(SPLIT_PART(kf_t, '=', 1)) + 2)}], kf_u -> "
@@ -1490,9 +1491,9 @@ def _no_duckdb_hash(statement: exp.Expression) -> None:
     for call in statement.find_all(exp.Anonymous):
         if call.name.upper() in ("HASH", "XXHASH64"):
             name = call.name.lower()
-            raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric here, so nothing ran: "
-                             f"written this way it would give another number than Spark's {name}. Run the cell "
-                             "in Fabric, or compute the hash in a column of its own first.")
+            raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric, because written this way "
+                             "it would give a different number from Spark's, so nothing ran. Compute the hash in a "
+                             "column of its own first, or run the cell in Fabric.")
 
 
 def _truncated_time(node: exp.Expression) -> None:

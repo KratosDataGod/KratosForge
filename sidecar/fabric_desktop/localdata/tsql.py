@@ -2494,9 +2494,13 @@ def _char_codes(tree: exp.Expression) -> None:
             node.replace(exp.Chr(expressions=[exp.Literal.number(whole)]) if 0 <= whole <= 255
                          else exp.cast(exp.null(), "TEXT"))
             continue
-        whole_code = exp.cast(exp.Trunc(this=code.copy()), "BIGINT")
-        inside = exp.Between(this=whole_code.copy(), low=exp.Literal.number(0), high=exp.Literal.number(255))
-        node.replace(exp.Case(ifs=[exp.If(this=inside, true=exp.Chr(expressions=[exp.cast(whole_code, "INT")]))]))
+        # The code is read once, through a lambda, so CHAR(RAND() * 300) checks and converts the same value.
+        v = exp.to_identifier("kf_code")
+        inside = exp.Between(this=exp.column(v.copy()), low=exp.Literal.number(0), high=exp.Literal.number(255))
+        case = exp.Case(ifs=[exp.If(this=inside, true=exp.Chr(expressions=[exp.cast(exp.column(v.copy()), "INT")]))])
+        bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[exp.cast(exp.Trunc(this=code.copy()), "BIGINT")]),
+                         exp.Lambda(this=case, expressions=[v]))
+        node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))
 
 
 def _charindex(node: exp.StrPosition) -> None:

@@ -163,3 +163,31 @@ def test_replicates_limit_reads_the_count_as_t_sql_takes_it(engine, sql, out):
 def test_replicate_one_past_the_limit_after_the_count_is_cut_stops(engine):
     assert "8,000 bytes" in error(engine, "SELECT REPLICATE('ab', 4001)")
     assert "8,000 bytes" in error(engine, "SELECT REPLICATE('ab', 4001.2)")
+
+
+@pytest.mark.parametrize("sql, out", [
+    ("SELECT LEN(REPLICATE(REPLICATE('ab', 100), 40))", [[8000]]),
+    ("SELECT REPLICATE(REPLICATE('ab', -1), 3)", [[None]]),  # a negative inner count is NULL inside too
+    ("SELECT REPLICATE(REPLICATE('ab', -5000), -1)", [[None]]),  # two negative counts don't make a size
+    ("SELECT LEN(REPLICATE(REPLICATE('ab', 2.9), 1.9))", [[4]]),  # each count cut toward zero
+    ("SELECT DATALENGTH(REPLICATE(SPACE(2.9), 3))", [[6]]),
+    ("SELECT REPLICATE(SPACE(-1), 3)", [[None]]),
+    ("SELECT LEN(REPLICATE(REPLICATE(CAST('a' AS VARCHAR(MAX)), 5000), 2))", [[10000]]),  # (MAX) goes outward
+])
+def test_a_replicate_inside_another_is_rewritten_too(engine, sql, out):
+    assert rows(engine, sql) == out
+
+
+@pytest.mark.parametrize("sql, most", [
+    ("SELECT REPLICATE(REPLICATE('ab', 4001), 1)", "8,000 bytes"),  # the inner one is past it
+    ("SELECT REPLICATE(REPLICATE('ab', 100), 41)", "8,000 bytes"),  # the outer one is past it
+    ("SELECT REPLICATE(REPLICATE(N'a', 100), 41)", "4,000 characters"),  # N'' text inside stays N'' text
+])
+def test_a_replicate_inside_another_is_checked_at_both(engine, sql, most):
+    assert f"REPLICATE gives more than {most}" in error(engine, sql)
+
+
+def test_nested_replicates_grow_the_sql_in_step_not_twice_a_level():
+    from fabric_desktop.localdata import tsql
+    sizes = [len(tsql.translate("SELECT " + "REPLICATE(" * k + "c" + ", n)" * k + " FROM t")[0][0]) for k in (5, 10)]
+    assert sizes[1] < 4 * sizes[0], sizes

@@ -2394,9 +2394,11 @@ def _string_edges(tree: exp.Expression) -> None:
     - ``CHARINDEX(x, s, start)`` searches from the start when ``start`` is 0 or negative (DuckDB counted
       from the end), and is 0 for an empty ``x`` (DuckDB found it at 1) (WR-210).
 
-    Literal starts and lengths that can't hit an edge are left as they are."""
-    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Space, exp.Left, exp.Right,
-                                   exp.Translate, exp.StrPosition)):
+    Literal starts and lengths that can't hit an edge are left as they are. The calls are rewritten innermost first,
+    so a call inside another (``REPLICATE(REPLICATE(s, n), m)``) is rewritten too, not only copied by the outer one."""
+    replicated: _Replicated = {}
+    for node in reversed(list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Space, exp.Left, exp.Right,
+                                            exp.Translate, exp.StrPosition))):
         if isinstance(node, exp.StrPosition):
             _charindex(node)
         elif isinstance(node, (exp.Left, exp.Right)):
@@ -2459,7 +2461,7 @@ def _string_edges(tree: exp.Expression) -> None:
         elif isinstance(node, (exp.Repeat, exp.Space)):
             out = _repeat_count(node)
             if isinstance(node, exp.Repeat):
-                _replicate(node, out)
+                _replicate(node, out, replicated)
 
 
 _REPLICATE_CUT = ("REPLICATE gives more than {most} here, and a Fabric Warehouse cuts the result there, because "
@@ -2470,8 +2472,11 @@ _REPLICATE_CUT = ("REPLICATE gives more than {most} here, and a Fabric Warehouse
 def _replicate_inputs(tree: exp.Expression) -> None:
     """Mark each REPLICATE by its input as written: "max" for a cast or CONVERT to VARCHAR(MAX) or NVARCHAR(MAX),
     "national" for N'' text or a cast to NVARCHAR or NCHAR, else "text" (see _replicate)."""
-    for node in tree.find_all(exp.Repeat):
+    for node in reversed(list(tree.find_all(exp.Repeat))):  # innermost first: an outer one takes its kind
         value = node.this
+        if isinstance(value, exp.Repeat) and "kf_replicate" in value.meta:
+            node.meta["kf_replicate"] = value.meta["kf_replicate"]
+            continue
         kind = value.args.get("to") if isinstance(value, exp.Cast) else \
             value.this if isinstance(value, exp.Convert) else None
         if isinstance(kind, exp.DataType) and any(isinstance(p, exp.DataTypeParam) and p.name.upper() == "MAX"
@@ -2482,23 +2487,50 @@ def _replicate_inputs(tree: exp.Expression) -> None:
             node.meta["kf_replicate"] = "national"
 
 
-def _replicate(node: exp.Repeat, out: exp.Expression) -> None:
+# each REPLICATE already rewritten, by id of what stands for it in the tree: (that node, the REPLICATE)
+_Replicated = dict[int, tuple[exp.Expression, exp.Repeat]]
+
+
+def _replicate(node: exp.Repeat, out: exp.Expression, replicated: _Replicated) -> None:
     """``REPLICATE(s, n)``, its count already as T-SQL takes it (``out`` is what stands for it now): refused at the
     row where T-SQL would cut the result at 8,000 bytes (4,000 characters of N'' text) because ``s`` isn't
     VARCHAR(MAX) or NVARCHAR(MAX) (WR-235). The size is the input's times the count, so REPLICATE runs once."""
+    replicated[id(out)] = (out, node)
     kind = node.meta.get("kf_replicate", "text")
     if kind == "max":
         return
     national = kind == "national"
-    text = node.this.copy()
-    one = exp.func("LENGTH", text) if national else exp.Anonymous(this="STRLEN", expressions=[exp.cast(text, "VARCHAR")])
-    size = exp.Mul(this=exp.cast(one, "DOUBLE"), expression=node.args["times"].copy())  # DOUBLE: a huge count can't overflow
+    size = exp.Mul(this=_replicated_size(node.this, national, replicated), expression=_count(node))
     most = 4000 if national else 8000
     message = _REPLICATE_CUT.format(most=f"{most:,} {'characters' if national else 'bytes'}",
                                     kind="NVARCHAR" if national else "VARCHAR")
     past = exp.GT(this=size, expression=exp.Literal.number(most))
-    out.replace(exp.Case(ifs=[exp.If(this=past, true=exp.func("ERROR", exp.Literal.string(_NOT_YET + message)))],
-                         default=out.copy()))
+    guarded = exp.Case(ifs=[exp.If(this=past, true=exp.func("ERROR", exp.Literal.string(_NOT_YET + message)))],
+                       default=out.copy())
+    out.replace(guarded)
+    replicated[id(guarded)] = (guarded, node)
+
+
+def _count(node: exp.Repeat) -> exp.Expression:
+    """REPLICATE's count for its size: NULL when negative, as the call is, so two negative counts don't multiply."""
+    times = node.args["times"]
+    if _whole(times, 0):
+        return times.copy()
+    return exp.Case(ifs=[exp.If(this=exp.LT(this=times.copy(), expression=exp.Literal.number(0)), true=exp.null())],
+                    default=times.copy())
+
+
+def _replicated_size(value: exp.Expression, national: bool, replicated: _Replicated) -> exp.Expression:
+    """The length of ``value`` in characters (``national``) or bytes, as DOUBLE so a huge count can't overflow. A
+    REPLICATE already rewritten is measured as its input's length times its count, so the SQL doesn't hold the inner
+    call twice for each call around it."""
+    done = replicated.get(id(value))
+    if done is not None and done[0] is value:
+        repeat = done[1]
+        return exp.Mul(this=_replicated_size(repeat.this, national, replicated), expression=_count(repeat))
+    one = exp.func("LENGTH", value.copy()) if national else \
+        exp.Anonymous(this="STRLEN", expressions=[exp.cast(value.copy(), "VARCHAR")])
+    return exp.cast(one, "DOUBLE")
 
 
 def _repeat_count(node: exp.Repeat | exp.Space) -> exp.Expression:

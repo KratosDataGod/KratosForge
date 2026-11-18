@@ -116,9 +116,11 @@ def test_too_many_tables_or_too_much_text_is_refused(monkeypatch):
 
 # ---- hostile models (Security QC's list for PB-110)
 
-HOSTILE_NAMES = ["it's", 'say "hi"', "tab\there", "line\u2028sep", "para\u2029sep", "nul\x00here", " lead", "trail ",
+HOSTILE_NAMES = ["it's", 'say "hi"', "tab\there", "nul\x00here", " lead", "trail ",
                  "a = b", "key: value", "///not a description", "```", "column x", "'", "''", "table", "ref",
-                 "x\u0085y", "\x1c", "measure 'M' = 1"]
+                 "measure 'M' = 1"]
+# Characters other readers and editors may break a line on (str.splitlines), besides \n and \r.
+SEPARATORS = ["\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029"]
 
 
 @pytest.mark.parametrize("name", HOSTILE_NAMES)
@@ -132,11 +134,27 @@ def test_hostile_names_round_trip_exactly_and_never_start_a_line(name):
     assert len(back["model"]["tables"]) == 1 and len(t["columns"]) == 1 and len(t["measures"]) == 1
 
 
-@pytest.mark.parametrize("name", ["new\nline", "carriage\rreturn", "both\r\n"])
+@pytest.mark.parametrize("name", ["new\nline", "carriage\rreturn", "both\r\n",
+                                  *(f"x{c}\tmeasure Evil = 666" for c in SEPARATORS)])
 def test_names_with_line_breaks_are_refused_by_name(name):
     bim = {"name": "m", "model": {"tables": [{"name": "T", "measures": [{"name": name, "expression": "1"}]}]}}
     with pytest.raises(ValueError, match="can't be written as TMDL: .*table 'T' measure .*line break"):
         tmdl.from_bim(bim)
+
+
+@pytest.mark.parametrize("sep", SEPARATORS)
+def test_separators_in_values_are_fenced_so_no_reader_sees_a_new_line(sep):
+    evil = f"1{sep}\tmeasure Evil = 666"
+    bim = {"name": "m", "model": {"tables": [{"name": "T", "description": evil, "measures": [
+        {"name": "M", "expression": evil, "formatString": evil, "description": evil}]}]}}
+    files, report, back = _read_back(bim)
+    assert report == []
+    assert back["model"]["tables"][0]["measures"] == [{"name": "M", "expression": evil, "formatString": evil, "description": evil}]
+    lines = files["definition/tables/T.tmdl"].splitlines()  # split the way any reader might
+    fenced = [i for i, line in enumerate(lines) if line.strip().endswith("```")]
+    for i, line in enumerate(lines):
+        if "measure Evil" in line:
+            assert sum(1 for f in fenced if f < i) % 2 == 1, "only inside an open fence"
 
 
 def test_descriptions_cant_inject_objects_and_round_trip():
@@ -196,7 +214,7 @@ def test_a_hostile_model_reads_back_with_the_same_objects_and_nothing_extra():
 @pytest.mark.parametrize(("name", "expected"), [
     ("../x", "_x"), ("..", "_"), ("C:\\Windows", "C__Windows"), ("\\\\server\\share", "__server_share"),
     ("/etc/passwd", "_etc_passwd"), ('a<>:"|?*b', "a_______b"), ("tab\there", "tab_here"), ("dot.", "dot"),
-    ("space ", "space"), ("CON", "_CON"), ("con.txt", "_con.txt"), ("Com1", "_Com1"), ("LPT9.tmdl", "_LPT9.tmdl"),
+    ("space ", "space"), ("x\x85y", "x_y"), ("CON", "_CON"), ("con.txt", "_con.txt"), ("Com1", "_Com1"), ("LPT9.tmdl", "_LPT9.tmdl"),
     ("nul ", "_nul"), ("", "_"), ("x" * 300, "x" * 100), ("line\u2028sep", "line_sep"),
 ])
 def test_file_names_are_never_the_name_used_raw(name, expected):
@@ -211,3 +229,19 @@ def test_file_names_that_collide_after_cleaning_or_case_folding_get_numbers():
     files, report, back = _read_back(bim)
     assert report == [] and len([p for p in files if "/tables/" in p]) == 4
     assert [t["name"] for t in sorted(back["model"]["tables"], key=lambda t: t["name"])] == ["Sales", "a*", "a?", "sales"]
+
+
+def test_a_model_nested_too_deeply_is_refused_not_a_crash():
+    deep: dict = {}
+    here = deep
+    for _ in range(5000):
+        here["x"] = {}
+        here = here["x"]
+    with pytest.raises(ValueError, match="nested too deeply"):
+        tmdl.from_bim({"name": "m", "model": {"tables": [{"name": "T", "refreshPolicy": deep}]}})
+
+
+def test_a_property_name_that_cant_be_written_is_reported_once():
+    bim = {"name": "m", "model": {"tables": [{"name": "T", "bad key": 1}]}}
+    _, report = tmdl.from_bim(bim)
+    assert report == [{"object": "table 'T' property bad key", "kind": "lost", "message": "this property name can't be written as TMDL"}]

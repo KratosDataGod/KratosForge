@@ -75,7 +75,9 @@ def test_projection_is_estimated_from_recent_runs_and_frequency():
     p = out["projection"]
     assert out["state"] == "projected" and out["written"] is False
     assert p["classification"] == ms.ESTIMATED and p["unit"] == ms.CU_HOURS
-    assert p["value"] == pytest.approx(5 * 6 * rc.DAYS_PER_MONTH / 30)
+    assert rc.DAYS_PER_MONTH == 30.4375
+    assert p["value"] == pytest.approx(5 * 6 * 30.4375 / 30)
+    assert out["runs_per_month"] == 6.0875
     assert out["net_cu_hours_per_run"] == 5 and out["inputs_classification"] == ms.ESTIMATED
 
 
@@ -139,3 +141,74 @@ def test_bad_windows_are_refused():
         rc.project([], workload_key="w", baseline_version="b1", now=NOW, window_days=0)
     with pytest.raises(ValueError):
         rc.project([], workload_key="w", baseline_version="b1", now=NOW, min_runs=0)
+
+
+# ---------- edges
+
+def test_a_run_whose_time_isnt_a_time_is_refused():
+    bad = result("e1", 3) | {"at": "not a time"}
+    with pytest.raises(ValueError, match="Not a time"):
+        rc.by_period([bad])
+    with pytest.raises(ValueError, match="Not a time"):
+        rc.project([bad], workload_key="nb:sales", baseline_version="b1", now=NOW)
+    with pytest.raises(ValueError, match="Not a time"):
+        rc.project([], workload_key="nb:sales", baseline_version="b1", now="later")
+
+
+def test_the_window_includes_its_end_and_excludes_its_start():
+    # now - 30 days is 2026-10-31T00:00Z: a run exactly then is out, one exactly at now is in.
+    edge = [result(f"e{d}", d) for d in (10, 20)]
+    start = edge[0] | {"execution_id": "s", "at": "2026-10-31T00:00:00Z"}
+    end = edge[0] | {"execution_id": "n", "at": NOW}
+    out = rc.project(edge + [start, end], workload_key="nb:sales", baseline_version="b1", now=NOW)
+    assert out["runs"] == 3
+    after = edge[0] | {"execution_id": "f", "at": "2026-11-30T00:00:01Z"}
+    assert rc.project(edge + [end, after], workload_key="nb:sales", baseline_version="b1", now=NOW)["runs"] == 3
+
+
+def test_retired_exactly_now_stops():
+    runs = [result(f"e{d}", d) for d in (5, 10, 15)]
+    assert rc.project(runs, workload_key="nb:sales", baseline_version="b1", now=NOW, retired_at=NOW)["state"] == "stopped"
+    assert rc.project(runs, workload_key="nb:sales", baseline_version="b1", now=NOW,
+                      retired_at="2026-11-30T00:00:01Z")["state"] == "projected"
+
+
+def test_a_negative_window_is_refused():
+    with pytest.raises(ValueError):
+        rc.project([], workload_key="w", baseline_version="b1", now=NOW, window_days=-1)
+
+
+def test_a_period_is_ledger_ready_only_when_every_run_is():
+    measured_run = result("e1", 3)
+    estimated_baseline = measured_run | {"execution_id": "e2", "ledger_ready": False}
+    [m] = rc.by_period([measured_run, estimated_baseline])
+    assert m["ledger_ready"] is False
+    assert rc.by_period([measured_run])[0]["ledger_ready"] is True
+    assert rc.by_period([result("e3", 3, avoided=None)])[0]["ledger_ready"] is False  # nothing known
+
+
+def test_too_few_runs_counts_older_baseline_runs():
+    runs = [result("o1", 10, baseline="b1"), result("n1", 12, baseline="b2")]
+    out = rc.project(runs, workload_key="nb:sales", baseline_version="b2", now=NOW)
+    assert out["state"] == "too_few_runs" and out["runs"] == 1 and out["older_baseline_runs"] == 1
+
+
+def test_figures_are_rounded_to_six_places():
+    runs = [result(f"e{d}", d, avoided=1 / 3, overhead=0) for d in (10, 11, 12)]
+    [m] = rc.by_period(runs)
+    assert m["gross_cu_hours"] == 0.999999 and m["net_cu_hours"] == 0.999999  # each run's 0.333333, added
+    out = rc.project(runs, workload_key="nb:sales", baseline_version="b1", now="2026-11-13T00:00:00Z", window_days=7)
+    assert out["net_cu_hours_per_run"] == 0.333333 and out["runs_per_month"] == 13.044643
+
+
+def test_runs_with_an_unknown_figure_are_projected_at_the_known_average():
+    runs = [result(f"e{d}", d) for d in (10, 12, 14)] + [result("u", 16, avoided=None)]
+    out = rc.project(runs, workload_key="nb:sales", baseline_version="b1", now=NOW)
+    assert out["runs"] == 4 and out["known_runs"] == 3
+    assert out["projection"]["value"] == pytest.approx(5 * 4 * 30.4375 / 30)
+    assert any("unknown figure are counted at that average" in a for a in out["projection"]["assumptions"])
+
+
+def test_periods_are_cut_in_utc():
+    late = result("e1", 30) | {"at": "2026-11-30T23:30:00-06:00"}  # Chicago evening = December in UTC
+    assert rc.by_period([late])[0]["period"] == "2026-12"

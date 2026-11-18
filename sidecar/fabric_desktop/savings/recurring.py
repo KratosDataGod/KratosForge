@@ -3,7 +3,8 @@
 The ledger has one accrual grain: one run (``attribution.attribute``). Everything here is computed
 when it is read and is never written:
 
-- ``by_period`` groups runs' gross and net CU avoided by the day, ISO week or month they ran in.
+- ``by_period`` groups runs' gross and net CU avoided by the day, ISO week or month they ran in,
+  cut in UTC (a run at 23:30 in Chicago on the 31st is in the next month).
   A run synced from two devices, or attributed twice, counts once (by execution id). A period's
   figure is as weak as its weakest run, and runs whose figure is unknown are counted beside it,
   never as 0.
@@ -12,7 +13,9 @@ when it is read and is never written:
   because it is about runs that haven't happened. It stops (no projection) once the workload is
   retired or hasn't run in the window, and it uses only runs under the workload's current baseline
   version: when the baseline is re-evaluated after a material change, runs under the old one don't
-  project the new one. Too few runs give Unknown with the reason.
+  project the new one. Too few runs give Unknown with the reason. Runs whose figure is unknown
+  still count towards how often the workload runs, and are projected at the known runs' average
+  (the projection's assumptions say so).
 
 Pure: no I/O.
 """
@@ -40,6 +43,7 @@ def _time(value: Any) -> dt.datetime:
 
 
 def _period(t: dt.datetime, period: str) -> str:
+    t = t.astimezone(dt.timezone.utc)
     if period == "day":
         return t.date().isoformat()
     if period == "week":
@@ -129,6 +133,8 @@ def project(results: list[dict[str, Any]], *, workload_key: str, baseline_versio
     value = per_run * runs_per_month
     assumptions = [f"{len(current)} runs in the last {window_days:g} days continue at the same rate",
                    f"average net CU avoided per run of the {len(known)} with a known figure"]
+    if len(known) < len(current):
+        assumptions.append(f"{len(current) - len(known)} run(s) with an unknown figure are counted at that average")
     if any(not r["complete"] for r in known):
         assumptions.append("some runs' overhead is unknown, so net may be lower")
     projection = ms.make(ms.ESTIMATED, METRIC, ms.CU_HOURS, value, workload_id=workload_key,

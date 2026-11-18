@@ -146,8 +146,9 @@ finding is never listed below a minor one with a bigger estimate.
 `excellence_assess(workspace_id, days, profile, demo)` assesses one workspace, and its capacity when you
 can see it. It reads only, with your own access, and makes no read the app didn't already make: the
 optimization engine's reads (the workspace, its items, notebook and pipeline definitions, job history),
-the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`) and the capacities you can see
-(`GET /capacities`). A read that fails is listed in `reads` and leaves its controls not evaluated.
+the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`), the capacities you can see
+(`GET /capacities`), and the definition of each semantic model in the workspace, at most 30, as TMSL
+(`getDefinition?format=TMSL`, the read the Semantic model tab already makes). A read that fails is listed in `reads` and leaves its controls not evaluated.
 `demo=True` assesses a labelled demonstration fixture without calling Fabric.
 
 ## Controls
@@ -171,6 +172,12 @@ the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`) and th
 | FEA-DE-003 | Data engineering | Medium | No VACUUM in a notebook keeps less than 7 days of history (NB020) | Definition inspection |
 | FEA-REL-003 | Reliability | Low | No pipeline activity is deactivated (skipped, and reported as Succeeded by default) | Definition inspection |
 | FEA-DEVOPS-002 | DevOps | Low | No pipeline activity names a workspace id as text rather than a parameter or variable | Definition inspection |
+| FEA-SM-001 | Semantic models | Medium | No relationship filters in both directions | Model definition |
+| FEA-SM-002 | Semantic models | Informational | At least one security role filters rows (noted, not scored: many models are for every reader) | Model definition |
+| FEA-SM-003 | Semantic models | Low | A Direct Lake model is set to Direct Lake only, or reads through OneLake, so it doesn't fall back to DirectQuery silently; not applicable without Direct Lake tables | Model definition |
+| FEA-SM-004 | Semantic models | Medium | Both columns of every relationship have the same type (SM001) | Model definition |
+| FEA-SM-005 | Semantic models | Low | Every relationship key is a whole number (SM002) | Model definition |
+| FEA-SM-006 | Semantic models | Low | The fact-side key of every relationship is hidden (SM004) | Model definition |
 
 The thresholds (4 Admins, 5 direct writers) are KratosForge's: Microsoft's guidance asks for least
 privilege but gives no number. A profile can turn any control off, with a reason, or change its
@@ -200,11 +207,26 @@ be read leaves these controls not evaluated. Retry, timeout and failure-path set
 yet: the engine's pipeline reader doesn't keep an activity's `policy` and `dependsOn`, and a control
 that can't see a setting is never passed.
 
+### Semantic model inspection
+
+The semantic model controls decide from the model's definition only. It is inspected on this PC and
+only names and counts are kept (`item.model`): relationships that filter both ways, the roles that
+filter rows and the tables they filter, how many tables are Direct Lake and the model's Direct Lake
+behavior, and which [semantic model rules](../semantic-model-rules.md) (SM001, SM002, SM004) matched,
+with the relationship or column names. DAX, M, a role's filter and members, and the definition text
+never enter the evidence or the snapshot. A definition that couldn't be read, or a model past the 30
+read, leaves these controls not evaluated.
+
+What needs the model's data isn't checked here: high-cardinality columns, model size and the Direct
+Lake guardrails need VertiPaq statistics or the Delta tables' numbers. The
+[Direct Lake check](../direct-lake-check.md) on the Semantic model tab reads those, and the full Best
+Practice Analyzer runs in Fabric only when you ask for it; the assessment starts neither.
+
 ## Limitations
 
 - There is no screen yet. The scorecard waits on its approved mockup.
 - The first controls cover what the app already reads. Estate X-ray (table layout), governance checks,
-  semantic models, DevOps and reliability controls come in later stories; until then those dimensions
+  the semantic model checks that need data, DevOps and reliability controls come in later stories; until then those dimensions
   show as not applicable or not evaluated, never as passing.
 - Controls that need a Fabric administrator (tenant settings) are not evaluated for anyone else.
 - Live capacity utilization has no public API. Capacity controls use imported Capacity Metrics

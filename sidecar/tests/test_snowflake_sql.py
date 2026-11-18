@@ -1134,3 +1134,18 @@ def test_session_variables_and_identifier_of_a_variable_the_cell_sets():
         "SELECT * FROM IDENTIFIER($nope)").first_refusal()
     # a value that isn't a plain name stays refused
     assert not sf.translate("SET tn = 't; DROP TABLE x'; SELECT * FROM IDENTIFIER($tn)").runnable
+
+
+@pytest.mark.parametrize("sql", ["SELECT array_construct(1, 'a', NULL)", "SELECT array_construct_compact(NULL, 'a', -1)",
+                                 "SELECT array_insert(array_construct(0, 1), 2, 'x')",
+                                 "SELECT array_prepend(array_construct('a'), 2.5::double)",
+                                 "SELECT array_append(array_construct(1, 2), 'a')"])
+def test_an_array_of_text_and_numbers_is_refused_by_name(sql):
+    translation = sf.translate(sql)
+    assert not translation.runnable
+    assert "SFN-025" in translation.as_output()["text"] or "text and numbers in one array" in translation.first_refusal()
+
+
+def test_an_array_of_one_kind_or_from_a_column_still_runs():
+    assert sf.translate("SELECT array_construct(1, 2), array_construct('a', NULL), array_append(array_construct(1), x) "
+                        "FROM t").runnable

@@ -177,6 +177,7 @@ Rules 2026.11.11.
 | SFN-022 | Runs only in Snowflake | ALTER SESSION, other than SET TIMEZONE: other session parameters and UNSET change how Snowflake itself reads or prints values. |
 | SFN-023 | Runs only in Snowflake | IDENTIFIER($name) where the same cell doesn't set the variable to a string first: its value isn't known here. |
 | SFN-024 | Runs only in Snowflake | PIVOT ... IN (ANY ...) or IN (subquery): DuckDB's PIVOT takes a list of values. |
+| SFN-025 | Runs only in Snowflake | An array written with both text and numbers in it (ARRAY_CONSTRUCT, ARRAY_CONSTRUCT_COMPACT, ARRAY_INSERT, ARRAY_PREPEND, ARRAY_APPEND): a DuckDB list holds one type. |
 | SFN-099 | Runs only in Snowflake | Any other Snowflake command sqlglot can't read as a statement. |
 
 ### Snowflake functions checked value by value

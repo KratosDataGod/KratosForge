@@ -242,6 +242,23 @@ _DUCKDB_CLOSED = {"enable_external_access": False, "autoinstall_known_extensions
                   "autoload_known_extensions": False}
 
 
+def _has_variant(kind: object) -> bool:
+    return "VARIANT" in str(kind).upper()
+
+
+def _variants_as_json(rel: Any) -> Any:
+    """``rel`` with each column that is or holds a VARIANT (a Snowflake VARIANT or ARRAY column) written as
+    JSON, so a result shows its values as Snowflake does ([1,"a"]): DuckDB 1.x can't give a VARIANT to Arrow,
+    and DuckDB 2.0 gives its stored bytes. Other columns are as they were."""
+    names, kinds = list(rel.columns), list(rel.types)
+    if not any(_has_variant(k) for k in kinds) or len({n.lower() for n in names}) != len(names):
+        return rel
+    def quoted(name: str) -> str:
+        return '"' + name.replace('"', '""') + '"'
+    return rel.project(", ".join(f"CAST(CAST({quoted(n)} AS VARIANT) AS JSON) AS {quoted(n)}" if _has_variant(k)
+                                 else quoted(n) for n, k in zip(names, kinds, strict=True)))
+
+
 class OutsideSession(PermissionError):
     """A statement would change something outside the session's own database."""
 
@@ -407,12 +424,23 @@ class DuckDBSession(_SqlSession):
             rel = self._con.sql(code)
             if rel is None:
                 return None, 0
-            reader = rel.to_arrow_reader()
+            reader = _variants_as_json(rel).to_arrow_reader()
         else:
             # On 1.x con.sql gives no result for a change, where execute gives its Count, so keep execute.
             cur = self._con.execute(code)
             if cur is None or cur.description is None:  # 1.x gives no cursor for a cell with no statement
                 return None, 0
+            if any(_has_variant(column[1]) for column in cur.description):
+                # DuckDB 1.x can't hand a VARIANT to Arrow. The cell's last statement is a query (a change
+                # gives no VARIANT), so it is asked again, read-only, as a relation that writes them as JSON
+                import duckdb
+                last = self._con.extract_statements(code)[-1]
+                if last.type == duckdb.StatementType.SELECT:
+                    rel = self._con.sql(last.query)
+                    if rel is not None:
+                        reader = _variants_as_json(rel).to_arrow_reader()
+                        table, total = _drain(reader, request.preview_rows, request.result_rows)
+                        return self._keep(table, total, request)
             reader = (getattr(cur, "to_arrow_reader", None) or cur.fetch_record_batch)()
         table, total = _drain(reader, request.preview_rows, request.result_rows)
         return self._keep(table, total, request)

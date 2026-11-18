@@ -313,6 +313,7 @@ CONTROLS = (
 def registry() -> ct.Registry:
     """A registry with every control in this catalog."""
     r = ct.Registry()
-    for c in CONTROLS:
+    from .catalog_capacity import CONTROLS as CAPACITY
+    for c in CONTROLS + CAPACITY:
         r.register(c)
     return r

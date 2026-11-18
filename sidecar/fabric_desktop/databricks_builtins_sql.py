@@ -778,18 +778,38 @@ def _table_key(table: exp.Table, here: tuple[str, str]) -> tuple[str, str, str]:
     return ((table.catalog or here[0]).lower(), (table.db or here[1]).lower(), table.name.lower())
 
 
-def _session_columns(key: tuple[str, str, str], con: Any) -> dict[str, tuple[str, str]]:
+def _session_columns(key: tuple[str, str, str], con: Any) -> dict[str, tuple[str, str]] | None:
     """_special_columns of a table the session has, read from the CREATE TABLE DuckDB keeps for it (DuckDB 1
-    has no column that says a column is generated)."""
+    has no column that says a column is generated); None when the session has no such table."""
     rows = con.execute("SELECT sql FROM duckdb_tables() WHERE lower(database_name) = ? AND lower(schema_name) = ? "
                        "AND lower(table_name) = ?", list(key)).fetchall()
     if not rows:
-        return {}
+        return None
     try:
         create = parse_one(str(rows[0][0]), read="duckdb")
     except (ParseError, ValueError):  # silent-ok: a table sqlglot can't read has no columns this module made
         return {}
     return _special_columns(create) if isinstance(create, exp.Create) else {}
+
+
+def _drop_sequences(names: set[str], con: Any) -> list[exp.Expression]:
+    """DROP SEQUENCE for each of ``names`` that _identity made, qualified with where the session keeps it (it
+    was made in the schema current then, which may not be the one current now). A name the session doesn't
+    have yet was made by this cell, in the schema current now. Each name goes in as a quoted identifier."""
+    drops: list[exp.Expression] = []
+    for name in sorted(n for n in names if _SEQUENCE_NAME.fullmatch(n)):
+        places = con.execute("SELECT database_name, schema_name FROM duckdb_sequences() WHERE sequence_name = ? "
+                             "ORDER BY 1, 2", [name]).fetchall() or [(None, None)]
+        for database, schema in places:
+            parts = [str(p) for p in (database, schema) if p is not None] + [name]
+            template = ".".join(f"kf_part{i}" for i in range(len(parts)))
+            drop = cast(exp.Expression, parse_one(f"DROP SEQUENCE IF EXISTS {template}", read="duckdb"))
+            # a tree, not text: the names are read from the session, so each goes in as one quoted identifier
+            for identifier in list(drop.find_all(exp.Identifier)):
+                identifier.replace(exp.to_identifier(parts[int(identifier.name.removeprefix("kf_part"))], quoted=True))
+            drop.meta[WRITTEN_HERE] = True
+            drops.append(drop)
+    return drops
 
 
 def _written_columns(statement: exp.Expression) -> tuple[exp.Table, list[set[str] | None]] | None:
@@ -827,13 +847,16 @@ def table_writes(statements: list[exp.Expression], con: Any) -> list[exp.Express
     a DROP SEQUENCE of the sequence behind it, so none is left behind."""
     here_row = con.execute("SELECT current_database(), current_schema()").fetchone()
     here = (str(here_row[0]), str(here_row[1]))
-    made: dict[tuple[str, str, str], dict[str, tuple[str, str]]] = {}
+    made: dict[tuple[str, str, str], dict[str, tuple[str, str]] | None] = {}  # None: no such table
 
-    def columns_of(table: exp.Table) -> dict[str, tuple[str, str]]:
+    def columns_of(table: exp.Table) -> dict[str, tuple[str, str]] | None:
         key = _table_key(table, here)
         if key not in made:
             made[key] = _session_columns(key, con)
         return made[key]
+
+    def sequences_of(columns: dict[str, tuple[str, str]] | None) -> set[str]:
+        return {name for how, name in (columns or {}).values() if how != "generated"}
 
     written_out: list[exp.Expression] = []
     for statement in statements:
@@ -844,21 +867,24 @@ def table_writes(statements: list[exp.Expression], con: Any) -> list[exp.Express
             for table in (statement.args.get("tables") or [target]) if isinstance(statement, exp.Drop) else [target]:
                 if not isinstance(table, exp.Table):
                     continue
-                if isinstance(statement, exp.Drop) or statement.args.get("replace"):
-                    sequences.update(name for how, name in columns_of(table).values()
-                                     if how != "generated" and _SEQUENCE_NAME.fullmatch(name))
-                made[_table_key(table, here)] = _special_columns(statement) if isinstance(statement, exp.Create) else {}
+                there = columns_of(table)
+                if isinstance(statement, exp.Drop):
+                    sequences |= sequences_of(there)
+                    made[_table_key(table, here)] = None
+                elif statement.args.get("exists") and there is not None:
+                    # CREATE TABLE IF NOT EXISTS of a table that is there keeps it, and its columns; the sequences
+                    # made for the new definition are left unused, so they go
+                    sequences |= sequences_of(_special_columns(statement))
+                else:
+                    if statement.args.get("replace"):
+                        sequences |= sequences_of(there)
+                    made[_table_key(table, here)] = _special_columns(statement)
         written_out.append(statement)
-        for sequence in sorted(sequences):
-            drop = cast(exp.Expression, parse_one("DROP SEQUENCE IF EXISTS kf_sequence", read="duckdb"))
-            # a tree, not text: the name is read from the session, so it goes in as one quoted identifier
-            cast(exp.Identifier, drop.find(exp.Identifier)).replace(exp.to_identifier(sequence, quoted=True))
-            drop.meta[WRITTEN_HERE] = True
-            written_out.append(drop)
+        written_out.extend(_drop_sequences(sequences, con))
         written = _written_columns(statement)
         if written is None or not isinstance(written[0], exp.Table):
             continue
-        special = columns_of(written[0])
+        special = columns_of(written[0]) or {}
         always = {c for c, (how, _) in special.items() if how == "identity"}
         generated = {c: text for c, (how, text) in special.items() if how == "generated"}
         for columns in written[1]:

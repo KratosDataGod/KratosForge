@@ -258,3 +258,29 @@ def test_a_sequence_drop_only_names_a_sequence_this_module_made(name):
             == [(1,)]
     finally:
         session.close()
+
+
+def test_a_table_dropped_from_another_schema_drops_its_sequence_too():
+    session = local_sql.DuckDBSession(SessionConfig("nb"))
+
+    def run(code):
+        assert session.execute(CellRequest(code, "sql", "databricks")).status == "ok"
+    try:
+        run("CREATE SCHEMA o2")
+        run("USE o2")
+        run("CREATE TABLE t (id BIGINT GENERATED ALWAYS AS IDENTITY, n STRING)")
+        run("USE main")
+        run("DROP TABLE o2.t")
+        assert session._con.execute("SELECT count(*) FROM duckdb_sequences() WHERE starts_with(sequence_name, '__kf_')"
+                                    ).fetchall() == [(0,)]
+    finally:
+        session.close()
+
+
+def test_create_table_if_not_exists_keeps_the_table_that_is_there(cell):
+    cell("CREATE TABLE t (id BIGINT GENERATED ALWAYS AS IDENTITY, v INT)")
+    _refused(cell("CREATE TABLE IF NOT EXISTS t (id BIGINT, v INT); INSERT INTO t (id, v) VALUES (99, 1)"),
+             "A write that gives id a value")
+    assert cell("CREATE TABLE IF NOT EXISTS t (id BIGINT GENERATED ALWAYS AS IDENTITY, v INT); "
+                "INSERT INTO t (v) VALUES (1); SELECT id, v FROM t") == [[1, 1]]
+    assert cell("SELECT count(*) FROM duckdb_sequences() WHERE starts_with(sequence_name, '__kf_')") == [[1]]

@@ -794,6 +794,9 @@ def load() -> dict[str, Any]:
         value, source = default, "default"
         for where, candidate in candidates:
             candidate = RENAMED.get(key, {}).get(candidate, candidate) if isinstance(candidate, str) else candidate
+            if key == "client_id" and where != "policy" and not valid_client_id(str(candidate or "")):
+                continue  # a hand-edited ID that isn't one would only break sign-in. A bad policy value still
+                #           locks it (policy_problems names it): a typo there never hands the choice back
             if candidate not in (None, "") and _typed(key, candidate) and _in_range(key, candidate):
                 value, source = candidate, where
                 break

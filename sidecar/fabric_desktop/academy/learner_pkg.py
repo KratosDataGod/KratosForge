@@ -39,13 +39,14 @@ SOURCES: dict[str, Path] = {
     "spark_json.py": _ENGINE / "spark_json.py",
     "spark_datetime.py": _ENGINE / "spark_datetime.py",
     "spark_windows.py": _ENGINE / "spark_windows.py",
+    "spark_replace_where.py": _ENGINE / "spark_replace_where.py",
     "notebook_dag.py": _ENGINE / "notebook_dag.py",
     "pyspark_shim.py": _HERE / "pyspark_shim.py",
     "pyspark_stream.py": _HERE / "pyspark_stream.py",
     "pyspark_delta.py": _HERE / "pyspark_delta.py",
     "notebookutils_lab.py": _HERE / "notebookutils_lab.py",
 }
-REWRITES = {"pyspark_shim.py": (("from .. import spark_compat", "from . import spark_compat"),
+REWRITES = {"pyspark_shim.py": (("from .. import spark_compat, spark_replace_where", "from . import spark_compat, spark_replace_where"),
                                 ("from ..duckdb_rows import", "from .duckdb_rows import")),
             "notebookutils_lab.py": (("from .. import notebook_dag", "from . import notebook_dag"),)}
 # Top-level packages the copied files may import, besides the standard library and each other.

@@ -313,9 +313,11 @@ _IP_INTEGER = ("ip_version", "ip_prefix_length")
 
 
 def _binary(value: exp.Expression) -> bool:
-    """Whether ``value`` is BINARY as written: an X'..' literal or a cast to BINARY."""
-    return isinstance(value, exp.HexString) or (
-        isinstance(value, exp.Cast) and value.to.this in (exp.DataType.Type.BINARY, exp.DataType.Type.VARBINARY))
+    """Whether ``value`` is BINARY as written: an X'..' literal or a cast to BINARY, as written or as
+    sql.spark_binary_cast rewrote it (which keeps the cast's type)."""
+    kinds = (exp.DataType.Type.BINARY, exp.DataType.Type.VARBINARY)
+    rewritten = isinstance(value, exp.Paren) and isinstance(value.type, exp.DataType) and value.type.this in kinds
+    return isinstance(value, exp.HexString) or rewritten or (isinstance(value, exp.Cast) and value.to.this in kinds)
 
 
 def _ip(name: str, args: list[exp.Expression]) -> exp.Expression | None:

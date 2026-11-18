@@ -1,0 +1,2868 @@
+{
+ "spark": "3.5.3",
+ "ansi": false,
+ "time_zone": "UTC",
+ "cases": [
+  {
+   "sql": "SELECT get_json_object('{\"a\":\"b\"}', '$.a')",
+   "value": [
+    [
+     "b"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":{\"b\":\"c\"}}', '$.a.b')",
+   "value": [
+    [
+     "c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":{\"b\":\"c\"}}', '$.a')",
+   "value": [
+    [
+     "{\"b\":\"c\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":[1,2,3]}', '$.a[0]')",
+   "value": [
+    [
+     "1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":[1,2,3]}', '$.a[2]')",
+   "value": [
+    [
+     "3"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":[1,2,3]}', '$.a[3]')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":[1,2,3]}', '$.a')",
+   "value": [
+    [
+     "[1,2,3]"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":[1,2,3]}', '$.a[*]')",
+   "value": [
+    [
+     "[1,2,3]"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":[{\"b\":1},{\"b\":2}]}', '$.a[*].b')",
+   "value": [
+    [
+     "[1,2]"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":[{\"b\":1},{\"c\":2}]}', '$.a[*].b')",
+   "value": [
+    [
+     "1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":[{\"b\":1}]}', '$.a[*].b')",
+   "value": [
+    [
+     "1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('[1,{\"a\":2}]', '$[1].a')",
+   "value": [
+    [
+     "2"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('[1,2]', '$[0]')",
+   "value": [
+    [
+     "1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":1}', '$')",
+   "value": [
+    [
+     "{\"a\":1}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a b\":1}', '$[''a b'']')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":1}', '$[''a'']')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":1}', 'a')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":1}', '$.')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":1}', '')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":1}', '$.b')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":{\"b\":1}}', '$.a.b.c')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":1.50}', '$.a')",
+   "value": [
+    [
+     "1.5"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":1e3}', '$.a')",
+   "value": [
+    [
+     "1000.0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":-0}', '$.a')",
+   "value": [
+    [
+     "0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":true}', '$.a')",
+   "value": [
+    [
+     "true"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":null}', '$.a')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":\"\"}', '$.a')",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":\"x\\\\\"y\"}', '$.a')",
+   "value": [
+    [
+     "x\"y"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":\"\\\\u00e9\"}', '$.a')",
+   "value": [
+    [
+     "é"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":\"line\\\\nbreak\"}', '$.a')",
+   "value": [
+    [
+     "line\nbreak"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":\"ÄÖü\"}', '$.a')",
+   "value": [
+    [
+     "ÄÖü"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\" : { \"b\" : [ 1 , \"x\" ] } }', '$.a')",
+   "value": [
+    [
+     "{\"b\":[1,\"x\"]}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":1,\"a\":2}', '$.a')",
+   "value": [
+    [
+     "1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"A\":1}', '$.a')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":1', '$.a')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('not json', '$.a')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('', '$.a')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":1} trailing', '$.a')",
+   "value": [
+    [
+     "1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{''a'':1}', '$.a')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{a:1}', '$.a')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object(NULL, '$.a')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":1}', NULL)",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT json_tuple('{\"a\":1, \"b\":2}', 'a', 'b')",
+   "value": [
+    [
+     "1",
+     "2"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT json_tuple('{\"a\":1, \"b\":\"x\"}', 'a', 'b', 'c')",
+   "value": [
+    [
+     "1",
+     "x",
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT json_tuple('{\"a\":{\"b\":1}, \"c\":[1,2]}', 'a', 'c')",
+   "value": [
+    [
+     "{\"b\":1}",
+     "[1,2]"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT json_tuple('{\"a\":null, \"b\":true, \"c\":1.50}', 'a', 'b', 'c')",
+   "value": [
+    [
+     null,
+     "true",
+     "1.5"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT json_tuple('{\"a\":\"x\\\\\"y\"}', 'a')",
+   "value": [
+    [
+     "x\"y"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT json_tuple('not json', 'a', 'b')",
+   "value": [
+    [
+     null,
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT json_tuple('[1,2]', 'a')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT json_tuple(NULL, 'a', 'b')",
+   "error": "[DATATYPE_MISMATCH.NON_STRING_TYPE] Cannot resolve \"json_tuple(NULL, a, b)\" due to data type mismatch: all arguments must be strings.; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT json_tuple('{\"a\":1}', NULL)",
+   "error": "[DATATYPE_MISMATCH.NON_STRING_TYPE] Cannot resolve \"json_tuple({\"a\":1}, NULL)\" due to data type mismatch: all arguments must be strings.; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT json_tuple('{\"A\":1}', 'a')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT json_tuple('{\"a\":1,\"a\":2}', 'a')",
+   "value": [
+    [
+     "2"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT j.* FROM (SELECT '{\"k\":\"v1\"}' AS s UNION ALL SELECT '{\"k\":\"v2\"}') t LATERAL VIEW json_tuple(t.s, 'k') j AS k ORDER BY k",
+   "value": [
+    [
+     "v1"
+    ],
+    [
+     "v2"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1, \"b\":0.8}', 'a INT, b DOUBLE')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ],
+       [
+        "b",
+        "float:0.8"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1, \"b\":\"x\", \"c\":true}', 'a BIGINT, b STRING, c BOOLEAN')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ],
+       [
+        "b",
+        "x"
+       ],
+       [
+        "c",
+        true
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":[1,2,3]}', 'a ARRAY<INT>')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        [
+         1,
+         2,
+         3
+        ]
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":{\"x\":1,\"y\":2}}', 'a MAP<STRING, INT>')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        {
+         "map": [
+          [
+           "x",
+           1
+          ],
+          [
+           "y",
+           2
+          ]
+         ]
+        }
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":{\"b\":{\"c\":1}}}', 'a STRUCT<b: STRUCT<c: INT>>')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        {
+         "struct": [
+          [
+           "b",
+           {
+            "struct": [
+             [
+              "c",
+              1
+             ]
+            ]
+           }
+          ]
+         ]
+        }
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('[1,2,3]', 'ARRAY<INT>')",
+   "value": [
+    [
+     [
+      1,
+      2,
+      3
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('[{\"a\":1},{\"a\":2}]', 'ARRAY<STRUCT<a: INT>>')",
+   "value": [
+    [
+     [
+      {
+       "struct": [
+        [
+         "a",
+         1
+        ]
+       ]
+      },
+      {
+       "struct": [
+        [
+         "a",
+         2
+        ]
+       ]
+      }
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"x\":1,\"y\":2}', 'MAP<STRING, INT>')",
+   "value": [
+    [
+     {
+      "map": [
+       [
+        "x",
+        1
+       ],
+       [
+        "y",
+        2
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"12.345\"}', 'a DECIMAL(10,2)')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "decimal:12.35"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":12.345}', 'a DECIMAL(10,2)')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "decimal:12.35"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":12.345}', 'a DOUBLE')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "float:12.345"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"2024-02-29\"}', 'a DATE')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "date:2024-02-29"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"2024-02-29T10:11:12\"}', 'a TIMESTAMP')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "timestamp:2024-02-29T10:11:12"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"2024-02-29T10:11:12.345+02:00\"}', 'a TIMESTAMP')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "timestamp:2024-02-29T08:11:12.345000"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"29/02/2024\"}', 'a DATE', map('dateFormat', 'dd/MM/yyyy'))",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "date:2024-02-29"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"29/02/2024 10:11\"}', 'a TIMESTAMP', map('timestampFormat', 'dd/MM/yyyy HH:mm'))",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "timestamp:2024-02-29T10:11:00"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1}', '{\"type\":\"struct\",\"fields\":[{\"name\":\"a\",\"type\":\"integer\",\"nullable\":true,\"metadata\":{}}]}')",
+   "error": "[PARSE_SYNTAX_ERROR] Syntax error at or near '{'.; line 1 pos 7"
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1}', schema_of_json('{\"a\":1}'))",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1, \"extra\":2}', 'a INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"b\":1}', 'a INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"A\":1}', 'a INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"x\"}', 'a INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1.5}', 'a INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":3000000000}', 'a INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1}', 'a STRING')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "1"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":{\"b\":1}}', 'a STRING')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "{\"b\":1}"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":[1,2]}', 'a STRING')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "[1,2]"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"true\"}', 'a BOOLEAN')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":null}', 'a INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":[1,\"x\",3]}', 'a ARRAY<INT>')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1}', 'a ARRAY<INT>')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"2024-02-30\"}', 'a DATE')",
+   "error": "[INCONSISTENT_BEHAVIOR_CROSS_VERSION.PARSE_DATETIME_BY_NEW_PARSER] You may get a different result due to the upgrading to Spark >= 3.0:"
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1', 'a INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('not json', 'a INT, b STRING')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ],
+       [
+        "b",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('', 'a INT')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('[1,2]', 'a INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json(NULL, 'a INT')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1', 'a INT', map('mode', 'PERMISSIVE'))",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"x\"}', 'a INT', map('mode', 'PERMISSIVE'))",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1', 'a INT, _corrupt_record STRING')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ],
+       [
+        "_corrupt_record",
+        "{\"a\":1"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"x\"}', 'a INT, _corrupt_record STRING')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ],
+       [
+        "_corrupt_record",
+        "{\"a\":\"x\"}"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1}', 'a INT, _corrupt_record STRING')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ],
+       [
+        "_corrupt_record",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1', 'a INT, bad STRING', map('columnNameOfCorruptRecord', 'bad'))",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ],
+       [
+        "bad",
+        "{\"a\":1"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1}', 'a INT', map('mode', 'FAILFAST'))",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1', 'a INT', map('mode', 'FAILFAST'))",
+   "error": "An error occurred while calling o428.collectToPython."
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"x\"}', 'a INT', map('mode', 'FAILFAST'))",
+   "error": "An error occurred while calling o434.collectToPython."
+  },
+  {
+   "sql": "SELECT from_json(NULL, 'a INT', map('mode', 'FAILFAST'))",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1}', 'a INT', map('mode', 'DROPMALFORMED'))",
+   "error": "from_json() doesn't support the DROPMALFORMED mode. Acceptable modes are PERMISSIVE and FAILFAST."
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1', 'a INT', map('mode', 'DROPMALFORMED'))",
+   "error": "from_json() doesn't support the DROPMALFORMED mode. Acceptable modes are PERMISSIVE and FAILFAST."
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1', 'a INT', map('mode', 'permissive'))",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1', 'a INT', map('mode', 'failfast'))",
+   "error": "An error occurred while calling o458.collectToPython."
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1', 'a INT', map('mode', 'nonsense'))",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{''a'':1}', 'a INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{''a'':1}', 'a INT', map('allowSingleQuotes', 'false'))",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{a:1}', 'a INT', map('allowUnquotedFieldNames', 'true'))",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":NaN}', 'a DOUBLE')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "float:nan"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"NaN\"}', 'a DOUBLE')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "float:nan"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":01}', 'a INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":01}', 'a INT', map('allowNumericLeadingZeros', 'true'))",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1 /* note */}', 'a INT', map('allowComments', 'true'))",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1.5}', 'a DECIMAL(10,1)', map('prefersDecimal', 'true'))",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "decimal:1.5"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1, \"b\":\"x\"}', 'a INT, b STRING').a, from_json('{\"a\":1, \"b\":\"x\"}', 'a INT, b STRING').b",
+   "value": [
+    [
+     1,
+     "x"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT r.a FROM (SELECT from_json(s, 'a INT') AS r FROM VALUES ('{\"a\":1}'), ('{\"a\":2'), (NULL) AS t(s)) ORDER BY r.a NULLS FIRST",
+   "value": [
+    [
+     1
+    ],
+    [
+     null
+    ],
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT typeof(from_json('{\"a\":1}', 'a INT')), typeof(from_json('[1]', 'ARRAY<BIGINT>'))",
+   "value": [
+    [
+     "struct<a:int>",
+     "array<bigint>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', 1, 'b', 2))",
+   "value": [
+    [
+     "{\"a\":1,\"b\":2}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', 1, 'b', CAST(NULL AS INT)))",
+   "value": [
+    [
+     "{\"a\":1}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', CAST(NULL AS INT)))",
+   "value": [
+    [
+     "{}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', 'x\"y', 'b', 'line\\nbreak', 'c', 'ÄÖü', 'd', 'tab\\there'))",
+   "value": [
+    [
+     "{\"a\":\"x\\\"y\",\"b\":\"line\\nbreak\",\"c\":\"ÄÖü\",\"d\":\"tab\\there\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', 'slash/back\\\\'))",
+   "value": [
+    [
+     "{\"a\":\"slash/back\\\\\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', true, 'b', 1.5D, 'c', 1.50BD, 'd', 10000000000L))",
+   "value": [
+    [
+     "{\"a\":true,\"b\":1.5,\"c\":1.50,\"d\":10000000000}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', 1.0E10D, 'b', 1.0E-5D, 'c', 0.1D, 'd', -0.0D))",
+   "value": [
+    [
+     "{\"a\":1.0E10,\"b\":1.0E-5,\"c\":0.1,\"d\":-0.0}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', CAST('NaN' AS DOUBLE), 'b', CAST('Infinity' AS DOUBLE)))",
+   "value": [
+    [
+     "{\"a\":\"NaN\",\"b\":\"Infinity\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', CAST(1.5 AS FLOAT)))",
+   "value": [
+    [
+     "{\"a\":1.5}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', DATE'2024-02-29', 'b', TIMESTAMP'2024-02-29 10:11:12.345'))",
+   "value": [
+    [
+     "{\"a\":\"2024-02-29\",\"b\":\"2024-02-29T10:11:12.345Z\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', TIMESTAMP'2024-02-29 10:11:12'))",
+   "value": [
+    [
+     "{\"a\":\"2024-02-29T10:11:12.000Z\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', DATE'2024-02-29'), map('dateFormat', 'dd/MM/yyyy'))",
+   "value": [
+    [
+     "{\"a\":\"29/02/2024\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', TIMESTAMP'2024-02-29 10:11:12'), map('timestampFormat', 'yyyy-MM-dd HH:mm'))",
+   "value": [
+    [
+     "{\"a\":\"2024-02-29 10:11\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', array(1, 2), 'b', map('k', 'v')))",
+   "value": [
+    [
+     "{\"a\":[1,2],\"b\":{\"k\":\"v\"}}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', named_struct('b', named_struct('c', 1))))",
+   "value": [
+    [
+     "{\"a\":{\"b\":{\"c\":1}}}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', array(named_struct('b', 1), named_struct('b', CAST(NULL AS INT)))))",
+   "value": [
+    [
+     "{\"a\":[{\"b\":1},{}]}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', array(1, CAST(NULL AS INT))))",
+   "value": [
+    [
+     "{\"a\":[1,null]}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', map('k', CAST(NULL AS INT))))",
+   "value": [
+    [
+     "{\"a\":{\"k\":null}}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', CAST(NULL AS INT)), map('ignoreNullFields', 'false'))",
+   "value": [
+    [
+     "{\"a\":null}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(array(named_struct('a', 1), named_struct('a', 2)))",
+   "value": [
+    [
+     "[{\"a\":1},{\"a\":2}]"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(array(1, 2, 3))",
+   "value": [
+    [
+     "[1,2,3]"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(array('a', 'b'))",
+   "value": [
+    [
+     "[\"a\",\"b\"]"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(array())",
+   "value": [
+    [
+     "[]"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(map('a', 1, 'b', 2))",
+   "value": [
+    [
+     "{\"a\":1,\"b\":2}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(map(1, 'x'))",
+   "value": [
+    [
+     "{\"1\":\"x\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(map('a', named_struct('b', 1)))",
+   "value": [
+    [
+     "{\"a\":{\"b\":1}}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', X'0102'))",
+   "value": [
+    [
+     "{\"a\":\"AQI=\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', CAST(NULL AS STRING), 'b', ''))",
+   "value": [
+    [
+     "{\"b\":\"\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(CAST(NULL AS STRUCT<a: INT>))",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(from_json('{\"a\":1, \"b\":[1,2], \"c\":{\"d\":\"x\"}}', 'a INT, b ARRAY<INT>, c STRUCT<d: STRING>'))",
+   "value": [
+    [
+     "{\"a\":1,\"b\":[1,2],\"c\":{\"d\":\"x\"}}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(struct(1 AS a, 'x' AS b))",
+   "value": [
+    [
+     "{\"a\":1,\"b\":\"x\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a b', 1, 'c\"d', 2))",
+   "value": [
+    [
+     "{\"a b\":1,\"c\\\"d\":2}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('[{\"col\":0}]')",
+   "value": [
+    [
+     "ARRAY<STRUCT<col: BIGINT>>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":1}')",
+   "value": [
+    [
+     "STRUCT<a: BIGINT>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":3000000000}')",
+   "value": [
+    [
+     "STRUCT<a: BIGINT>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":1.5}')",
+   "value": [
+    [
+     "STRUCT<a: DOUBLE>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":1e3}')",
+   "value": [
+    [
+     "STRUCT<a: DOUBLE>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":\"x\"}')",
+   "value": [
+    [
+     "STRUCT<a: STRING>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":true}')",
+   "value": [
+    [
+     "STRUCT<a: BOOLEAN>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":null}')",
+   "value": [
+    [
+     "STRUCT<a: STRING>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":[]}')",
+   "value": [
+    [
+     "STRUCT<a: ARRAY<STRING>>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":[1,2]}')",
+   "value": [
+    [
+     "STRUCT<a: ARRAY<BIGINT>>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":[1,2.5]}')",
+   "value": [
+    [
+     "STRUCT<a: ARRAY<DOUBLE>>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":[1,\"x\"]}')",
+   "value": [
+    [
+     "STRUCT<a: ARRAY<STRING>>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":[{\"b\":1},{\"c\":\"x\"}]}')",
+   "value": [
+    [
+     "STRUCT<a: ARRAY<STRUCT<b: BIGINT, c: STRING>>>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":{\"b\":{\"c\":1}}}')",
+   "value": [
+    [
+     "STRUCT<a: STRUCT<b: STRUCT<c: BIGINT>>>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"b\":1,\"a\":2}')",
+   "value": [
+    [
+     "STRUCT<a: BIGINT, b: BIGINT>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a b\":1}')",
+   "value": [
+    [
+     "STRUCT<`a b`: BIGINT>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":\"2024-02-29\"}')",
+   "value": [
+    [
+     "STRUCT<a: STRING>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":\"2024-02-29T10:11:12\"}')",
+   "value": [
+    [
+     "STRUCT<a: STRING>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":99999999999999999999}')",
+   "value": [
+    [
+     "STRUCT<a: DECIMAL(20,0)>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":1.5}', map('prefersDecimal', 'true'))",
+   "value": [
+    [
+     "STRUCT<a: DECIMAL(2,1)>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":1}', map('primitivesAsString', 'true'))",
+   "value": [
+    [
+     "STRUCT<a: STRING>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('[1,2]')",
+   "value": [
+    [
+     "ARRAY<BIGINT>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('1')",
+   "value": [
+    [
+     "BIGINT"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('\"x\"')",
+   "value": [
+    [
+     "STRING"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{}')",
+   "value": [
+    [
+     "STRUCT<>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":1')",
+   "error": "An error occurred while calling o744.collectToPython."
+  },
+  {
+   "sql": "SELECT schema_of_json('not json')",
+   "error": "An error occurred while calling o748.collectToPython."
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"x\",\"b\":2}', 'a INT, b INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ],
+       [
+        "b",
+        2
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"b\":2,\"a\":\"x\"}', 'a INT, b INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ],
+       [
+        "b",
+        2
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":[1,\"x\"],\"b\":2}', 'a ARRAY<INT>, b INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ],
+       [
+        "b",
+        2
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"s\":{\"x\":\"bad\",\"y\":1},\"b\":2}', 's STRUCT<x: INT, y: INT>, b INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "s",
+        {
+         "struct": [
+          [
+           "x",
+           null
+          ],
+          [
+           "y",
+           1
+          ]
+         ]
+        }
+       ],
+       [
+        "b",
+        2
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"x\",\"b\":2}', 'a INT, b INT, _corrupt_record STRING')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ],
+       [
+        "b",
+        2
+       ],
+       [
+        "_corrupt_record",
+        "{\"a\":\"x\",\"b\":2}"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"s\":{\"x\":\"bad\"},\"b\":2}', 's STRUCT<x: INT>, b INT, _corrupt_record STRING')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "s",
+        {
+         "struct": [
+          [
+           "x",
+           null
+          ]
+         ]
+        }
+       ],
+       [
+        "b",
+        2
+       ],
+       [
+        "_corrupt_record",
+        "{\"s\":{\"x\":\"bad\"},\"b\":2}"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1,\"b\":2}', 'a INT, b INT, _corrupt_record STRING')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ],
+       [
+        "b",
+        2
+       ],
+       [
+        "_corrupt_record",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1,\"_corrupt_record\":\"given\"}', 'a INT, _corrupt_record STRING')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ],
+       [
+        "_corrupt_record",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1', 'a INT, _corrupt_record INT')",
+   "error": "The field for corrupt records must be string type and nullable."
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"x\",\"b\":2}', 'a INT, b INT', map('mode', 'FAILFAST'))",
+   "error": "An error occurred while calling o789.collectToPython."
+  },
+  {
+   "sql": "SELECT from_json('[{\"a\":1}]', 'a INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('[{\"a\":1},{\"a\":2}]', 'a INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('[]', 'a INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('1', 'a INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('\"x\"', 'a INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('null', 'a INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1}', 'ARRAY<INT>')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('[1,\"x\"]', 'ARRAY<INT>')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"x\":1,\"y\":\"bad\"}', 'MAP<STRING, INT>')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":{\"x\":1,\"y\":\"bad\"},\"b\":2}', 'a MAP<STRING, INT>, b INT')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ],
+       [
+        "b",
+        2
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"x\":null}', 'MAP<STRING, INT>')",
+   "value": [
+    [
+     {
+      "map": [
+       [
+        "x",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"x\":{\"k\":\"v\"}}', 'MAP<STRING, STRUCT<k: STRING>>')",
+   "value": [
+    [
+     {
+      "map": [
+       [
+        "x",
+        {
+         "struct": [
+          [
+           "k",
+           "v"
+          ]
+         ]
+        }
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"2024-02-29 10:11:12\"}', 'a TIMESTAMP')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "timestamp:2024-02-29T10:11:12"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"x\"}', 'a DATE')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"x\"}', 'a TIMESTAMP')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"2024-13-01\"}', 'a DATE')",
+   "error": "[INCONSISTENT_BEHAVIOR_CROSS_VERSION.PARSE_DATETIME_BY_NEW_PARSER] You may get a different result due to the upgrading to Spark >= 3.0:"
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"2024-2-9\"}', 'a DATE')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "date:2024-02-09"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1}', 'a INT', map('mode', 'DROPMALFORMED', 'columnNameOfCorruptRecord', 'bad'))",
+   "error": "from_json() doesn't support the DROPMALFORMED mode. Acceptable modes are PERMISSIVE and FAILFAST."
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', TIMESTAMP_NTZ'2024-02-29 10:11:12'), map('ignoreNullFields', 'true'))",
+   "value": [
+    [
+     "{\"a\":\"2024-02-29T10:11:12.000\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', TIMESTAMP_NTZ'2024-02-29 10:11:12.5'))",
+   "value": [
+    [
+     "{\"a\":\"2024-02-29T10:11:12.500\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', TIMESTAMP'2024-02-29 10:11:12.123456'))",
+   "value": [
+    [
+     "{\"a\":\"2024-02-29T10:11:12.123Z\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', CAST(1.0E7 AS DOUBLE), 'b', CAST(1.0E6 AS DOUBLE), 'c', CAST(0.001 AS DOUBLE), 'd', CAST(1.0E-4 AS DOUBLE)))",
+   "value": [
+    [
+     "{\"a\":1.0E7,\"b\":1000000.0,\"c\":0.001,\"d\":1.0E-4}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', CAST(1.0E7 AS FLOAT), 'b', CAST(0.1 AS FLOAT)))",
+   "value": [
+    [
+     "{\"a\":1.0E7,\"b\":0.1}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', CAST(5 AS TINYINT), 'b', CAST(5 AS SMALLINT), 'c', CAST(-0.00 AS DECIMAL(5,2))))",
+   "value": [
+    [
+     "{\"a\":5,\"b\":5,\"c\":0.00}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', map('k', named_struct('x', CAST(NULL AS INT)))))",
+   "value": [
+    [
+     "{\"a\":{\"k\":{}}}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', array(array(1, 2), CAST(NULL AS ARRAY<INT>))))",
+   "value": [
+    [
+     "{\"a\":[[1,2],null]}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', array(map('k', 1))))",
+   "value": [
+    [
+     "{\"a\":[{\"k\":1}]}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(map('a', CAST(NULL AS STRING)))",
+   "value": [
+    [
+     "{\"a\":null}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(map(DATE'2024-02-29', 1))",
+   "value": [
+    [
+     "{\"19782\":1}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(array(CAST(NULL AS STRUCT<a: INT>), named_struct('a', 1)))",
+   "value": [
+    [
+     "[null,{\"a\":1}]"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', '\\u0001\\u001f'))",
+   "value": [
+    [
+     "{\"a\":\"\\u0001\\u001F\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', 1), map('pretty', 'true'))",
+   "value": [
+    [
+     "{\n  \"a\" : 1\n}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(s) FROM VALUES (named_struct('a', 1)), (named_struct('a', CAST(NULL AS INT))) AS t(s)",
+   "value": [
+    [
+     "{\"a\":1}"
+    ],
+    [
+     "{}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', id, 'b', CAST(id AS STRING))) FROM range(2) ORDER BY id",
+   "value": [
+    [
+     "{\"a\":0,\"b\":\"0\"}"
+    ],
+    [
+     "{\"a\":1,\"b\":\"1\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(1)",
+   "error": "[DATATYPE_MISMATCH.INVALID_JSON_SCHEMA] Cannot resolve \"to_json(1)\" due to data type mismatch: Input schema \"INT\" must be a struct, an array or a map.; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT to_json('x')",
+   "error": "[DATATYPE_MISMATCH.INVALID_JSON_SCHEMA] Cannot resolve \"to_json(x)\" due to data type mismatch: Input schema \"STRING\" must be a struct, an array or a map.; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":1.5,\"b\":2}', map('prefersDecimal', 'true'))",
+   "value": [
+    [
+     "STRUCT<a: DECIMAL(2,1), b: BIGINT>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":[1.5,100]}', map('prefersDecimal', 'true'))",
+   "value": [
+    [
+     "STRUCT<a: ARRAY<DECIMAL(21,1)>>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":12345678901234567890.5}', map('prefersDecimal', 'true'))",
+   "value": [
+    [
+     "STRUCT<a: DECIMAL(21,1)>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":1,\"b\":[true],\"c\":{\"d\":null}}', map('primitivesAsString', 'true'))",
+   "value": [
+    [
+     "STRUCT<a: STRING, b: ARRAY<STRING>, c: STRUCT<d: STRING>>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":1}', map('allowComments', 'true'))",
+   "value": [
+    [
+     "STRUCT<a: BIGINT>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":-99999999999999999999}')",
+   "value": [
+    [
+     "STRUCT<a: DECIMAL(20,0)>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":[99999999999999999999, 1]}')",
+   "value": [
+    [
+     "STRUCT<a: ARRAY<DECIMAL(20,0)>>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":[99999999999999999999, 1.5]}')",
+   "value": [
+    [
+     "STRUCT<a: ARRAY<DOUBLE>>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":123456789012345678901234567890123456789}')",
+   "value": [
+    [
+     "STRUCT<a: DOUBLE>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":[1]}', '$.a[*]'), get_json_object('{\"a\":[[1,2]]}', '$.a[*]'), get_json_object('{\"a\":{\"b\":1}}', '$.a[*]')",
+   "value": [
+    [
+     "1",
+     "[1,2]",
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":[\"x\",\"y\"]}', '$.a[*]'), get_json_object('{\"a\":[{\"b\":\"x\"},{\"b\":2}]}', '$.a[*].b'), get_json_object('{\"a\":[]}', '$.a[*]')",
+   "value": [
+    [
+     "[\"x\",\"y\"]",
+     "[\"x\",2]",
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"a\":[1.50,2]}', '$.a[*]'), get_json_object('{\"a\":[{\"b\":{\"c\":1}},{\"b\":[2]}]}', '$.a[*].b')",
+   "value": [
+    [
+     "[1.5,2]",
+     "[{\"c\":1},[2]]"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('null', 'a INT, _corrupt_record STRING'), from_json('[1]', 'a INT, _corrupt_record STRING'), from_json('1', 'a INT, _corrupt_record STRING')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ],
+       [
+        "_corrupt_record",
+        "null"
+       ]
+      ]
+     },
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ],
+       [
+        "_corrupt_record",
+        "[1]"
+       ]
+      ]
+     },
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ],
+       [
+        "_corrupt_record",
+        "1"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":[{\"x\":\"bad\"}]}', 'a ARRAY<STRUCT<x: INT>>, _corrupt_record STRING')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        [
+         {
+          "struct": [
+           [
+            "x",
+            null
+           ]
+          ]
+         }
+        ]
+       ],
+       [
+        "_corrupt_record",
+        "{\"a\":[{\"x\":\"bad\"}]}"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":{\"k\":\"bad\"}}', 'a MAP<STRING, INT>, _corrupt_record STRING')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ],
+       [
+        "_corrupt_record",
+        "{\"a\":{\"k\":\"bad\"}}"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1}', 'ARRAY<STRUCT<a: INT>>'), from_json('{}', 'MAP<STRING, INT>'), from_json('[]', 'ARRAY<INT>')",
+   "value": [
+    [
+     [
+      {
+       "struct": [
+        [
+         "a",
+         1
+        ]
+       ]
+      }
+     ],
+     {
+      "map": []
+     },
+     []
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"\"}', 'a INT'), from_json('{\"a\":\"\"}', 'a DATE'), from_json('{\"a\":\"2024\"}', 'a DATE'), from_json('{\"a\":\"2024-02-29 10:00\"}', 'a DATE')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     },
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     },
+     {
+      "struct": [
+       [
+        "a",
+        "date:2024-01-01"
+       ]
+      ]
+     },
+     {
+      "struct": [
+       [
+        "a",
+        "date:2024-02-29"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"2024-02-29abc\"}', 'a DATE'), from_json('{\"a\":\"2024-00-10\"}', 'a DATE')",
+   "error": "[INCONSISTENT_BEHAVIOR_CROSS_VERSION.PARSE_DATETIME_BY_NEW_PARSER] You may get a different result due to the upgrading to Spark >= 3.0:"
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":20240229}', 'a DATE'), from_json('{\"a\":1700000000}', 'a TIMESTAMP')",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     },
+     {
+      "struct": [
+       [
+        "a",
+        "timestamp:2023-11-14T22:13:20"
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":\"x\"}', 'a DATE', map('dateFormat', 'dd/MM/yyyy'))",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1, \"a\":2}', 'MAP<STRING, INT>')",
+   "value": [
+    [
+     {
+      "map": [
+       [
+        "a",
+        2
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_json('{\"a\":1}', 'a INT', map('allowSingleQuotes', 'true')), from_json('{\"a\":1}', 'a INT', map('prefersDecimal', 'false'))",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ]
+      ]
+     },
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT typeof(from_json('{\"x\":1}', 'MAP<STRING, INT>')), typeof(named_struct('a', 1, 'b', 'x')), typeof(map('a', array(1)))",
+   "value": [
+    [
+     "map<string,int>",
+     "struct<a:int,b:string>",
+     "map<string,array<int>>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT typeof(from_json('{\"a\":[{\"b\":1.5}]}', 'a ARRAY<STRUCT<b: DECIMAL(10,2)>>'))",
+   "value": [
+    [
+     "struct<a:array<struct<b:decimal(10,2)>>>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', TIMESTAMP'2024-02-29 10:11:12.345')), to_json(array(DATE'2024-02-29'))",
+   "value": [
+    [
+     "{\"a\":\"2024-02-29T10:11:12.345Z\"}",
+     "[\"2024-02-29\"]"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', 1), map('ignoreNullFields', 'FALSE')), to_json(named_struct('a', CAST(NULL AS INT)), map('ignorenullfields', 'false'))",
+   "value": [
+    [
+     "{\"a\":1}",
+     "{\"a\":null}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(map(1.5BD, 1)), to_json(map(true, 1)), to_json(map(CAST(1 AS TINYINT), 'x'))",
+   "value": [
+    [
+     "{\"1.5\":1}",
+     "{\"true\":1}",
+     "{\"1\":\"x\"}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(array(named_struct('a', 1), CAST(NULL AS STRUCT<a: INT>)))",
+   "value": [
+    [
+     "[{\"a\":1},null]"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', X'0102')), to_json(named_struct('a', CAST(1.0E-5 AS DOUBLE))), to_json(named_struct('a', CAST(0.1 AS FLOAT)))",
+   "value": [
+    [
+     "{\"a\":\"AQI=\"}",
+     "{\"a\":1.0E-5}",
+     "{\"a\":0.1}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT id FROM range(1, 7, 2) ORDER BY id",
+   "value": [
+    [
+     1
+    ],
+    [
+     3
+    ],
+    [
+     5
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT id FROM range(0, 10, 3, 2) ORDER BY id",
+   "value": [
+    [
+     0
+    ],
+    [
+     3
+    ],
+    [
+     6
+    ],
+    [
+     9
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":1e5}', map('prefersDecimal', 'true')), schema_of_json('{\"a\":0.001}', map('prefersDecimal', 'true'))",
+   "error": "An error occurred while calling o1070.collectToPython."
+  },
+  {
+   "sql": "SELECT schema_of_json('{\"a\":NaN}'), schema_of_json('[{\"a\":1},{\"a\":1.5}]', map('prefersDecimal', 'true'))",
+   "value": [
+    [
+     "STRUCT<a: DOUBLE>",
+     "ARRAY<STRUCT<a: DECIMAL(21,1)>>"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT get_json_object('{\"first name\":\"Ada\"}', '$[\"first name\"]')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('a', CAST(0 AS DECIMAL(18,8)), 'b', CAST(0.00000012 AS DECIMAL(10,8)), 'c', CAST(-0.000000123 AS DECIMAL(20,12))))",
+   "value": [
+    [
+     "{\"a\":0E-8,\"b\":1.2E-7,\"c\":-1.23000E-7}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(named_struct('d', CAST(1.5 AS DECIMAL(10,8)), 'e', CAST(0.0000012 AS DECIMAL(10,8)), 'f', CAST(1.5 AS DECIMAL(5,2))))",
+   "value": [
+    [
+     "{\"d\":1.50000000,\"e\":0.00000120,\"f\":1.50}"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_json(array(CAST(0.00000001 AS DECIMAL(9,8)))), to_json(map('k', CAST(0 AS DECIMAL(38,18))))",
+   "value": [
+    [
+     "[1E-8]",
+     "{\"k\":0E-18}"
+    ]
+   ]
+  }
+ ]
+}

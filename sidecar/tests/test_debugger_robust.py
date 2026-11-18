@@ -39,9 +39,16 @@ def stack(p):
 
 # ---------- 1. malformed input is refused by name ----------
 
+def _short(value):
+    """A short test id: a huge parameter in the id puts the test's name over Windows' 32767-character
+    environment limit (pytest sets PYTEST_CURRENT_TEST from it)."""
+    text = repr(value)
+    return text if len(text) <= 30 else f"{text[:20]}...({len(text)} chars)"
+
+
 @pytest.mark.parametrize("lines", [
     "3", 3, {"line": 3}, [0], [-1], ["3"], [3.0], [True], [None], [[3]], list(range(debugger.MAX_BREAKPOINTS + 1)),
-])
+], ids=_short)
 def test_bad_breakpoints_are_refused_by_name(lines):
     with pytest.raises(ValueError, match="[Bb]reakpoint"):
         debugger.check_breakpoints(lines)
@@ -64,7 +71,7 @@ def test_good_breakpoints_are_cleaned():
     ("eval", 42, "Type an expression"),
     ("eval", ["x"], "Type an expression"),
     ("eval", "x" * (debugger.MAX_EXPRESSION + 1), "at most"),
-])
+], ids=_short)
 def test_bad_commands_are_refused_by_name_and_the_pause_stays(kernel, action, expression, message):
     kernel.start("a = 1\nb = 2", breakpoints=[2])
     assert wait(kernel)["paused"]["line"] == 2
@@ -75,7 +82,7 @@ def test_bad_commands_are_refused_by_name_and_the_pause_stays(kernel, action, ex
     assert wait(kernel)["status"] == "ok"
 
 
-@pytest.mark.parametrize("expression", ["1 +", "x = 1", "def f(): pass", "(" * 500, "\x00"])
+@pytest.mark.parametrize("expression", ["1 +", "x = 1", "def f(): pass", "(" * 500, "\x00"], ids=_short)
 def test_expressions_that_dont_compile_are_refused_and_the_pause_stays(kernel, expression):
     kernel.start("a = 1\nb = 2", breakpoints=[2])
     assert wait(kernel)["paused"]["line"] == 2
@@ -128,7 +135,7 @@ class _Host:
     ('{"id": 7, "result": 1}', "an answer without an id"),
     ('{"op": 5, "id": "p2"}', "op isn't text"),
     ('{"op": "debug", "id": "p3", "args": [1, 2]}', "args aren't an object"),
-])
+], ids=_short)
 def test_the_kernel_process_skips_malformed_lines_by_name(line, why, capsys):
     host, channel = _Host(), _Recorder()
     assert why in kernel_host.dispatch(host, channel, line)

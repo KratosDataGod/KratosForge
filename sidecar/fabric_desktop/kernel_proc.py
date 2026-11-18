@@ -166,6 +166,7 @@ class ProcessKernel:
         self.prod_allowed: frozenset[str] = frozenset()
         self._lock = threading.Lock()  # one process at a time: starting, stopping
         self._proc: subprocess.Popen[str] | None = None
+        self._awaited: subprocess.Popen[str] | None = None  # the ended process a poll already waited for
         self._tree: _Tree | None = None  # the process and everything its cells start
         # One send lock per process: a write stuck on an ended process's stdin can't hold up the next one's.
         self._send_locks: weakref.WeakKeyDictionary[subprocess.Popen[str], threading.Lock] = weakref.WeakKeyDictionary()
@@ -526,8 +527,11 @@ class ProcessKernel:
         """The process has ended but its reader may not have read the end yet (it lags on Windows):
         wait for it to mark the cell ended, so a poll never shows a dead process's cell running or paused."""
         proc = self._proc
+        if proc is None or proc is self._awaited:
+            return  # waited for this one already: a tree that keeps the pipe open doesn't slow every poll
+        self._awaited = proc
         deadline = time.monotonic() + seconds
-        while proc is not None and self._proc is proc and time.monotonic() < deadline:
+        while self._proc is proc and time.monotonic() < deadline:
             time.sleep(0.02)
 
     def _stuck(self, known_version: int) -> dict[str, Any]:

@@ -144,7 +144,7 @@ def why(table: DeltaTable, readers: Iterable[str] = DEFAULT_READERS) -> list[str
 def why_features(features: Iterable[str], readers: Iterable[str] = DEFAULT_READERS, lead: str = "It uses") -> list[str]:
     """why() for a list of matrix features rather than a table's. ``lead`` starts each sentence: "It uses",
     or "This choice allows" for a table's setting that only allows them."""
-    readers = list(readers)
+    readers = list(dict.fromkeys(readers))  # a reader named twice is named once, in the order first given
     unknown = [r for r in readers if r not in READERS]
     if unknown:
         raise ValueError(f"Unknown Delta reader {unknown[0]!r}. Use one of {', '.join(READERS)}.")

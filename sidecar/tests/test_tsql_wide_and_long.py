@@ -263,3 +263,22 @@ def test_a_text_count_is_a_whole_number_and_still_checked(engine, sql, out):
 
 def test_a_text_count_past_the_limit_stops(engine):
     assert "8,000 bytes" in error(engine, "SELECT REPLICATE('ab', s) FROM (VALUES ('4001')) v(s)")
+
+
+@pytest.mark.parametrize("call", ["REPLICATE('a', {})", "SPACE({})", "LEFT('abc', {})", "RIGHT('abc', -{})",
+                                  "SUBSTRING('abc', {}, 2)", "SUBSTRING('abc', 1, {})", "STUFF('abc', 1, {}, 'x')",
+                                  "CHARINDEX('a', 'abc', {})"])
+@pytest.mark.parametrize("number", ["9" * 5000, "9223372036854775808", "1e400", "1e30", "99999999999999999999.5"])
+def test_a_count_past_bigint_is_t_sqls_overflow_not_pythons(call, number):
+    from fabric_desktop.localdata import tsql
+    with pytest.raises(ValueError, match="Arithmetic overflow error converting expression to data type bigint"):
+        tsql.translate("SELECT " + call.format(number))
+
+
+@pytest.mark.parametrize("sql, out", [
+    ("SELECT LEN(REPLICATE('a', 9223372036854775807 - 9223372036854775800))", [[7]]),
+    ("SELECT LEN(SPACE(1e1) + 'x')", [[11]]),
+    ("SELECT LEFT('abc', 2.9e0)", [["ab"]]),
+])
+def test_a_count_within_bigint_still_runs(engine, sql, out):
+    assert rows(engine, sql) == out

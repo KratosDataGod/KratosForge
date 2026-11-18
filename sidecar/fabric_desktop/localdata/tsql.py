@@ -2373,8 +2373,28 @@ def _string_split(node: exp.Anonymous) -> None:
 
 
 def _whole(node: exp.Expression | None, low: int) -> bool:
-    """A whole-number literal of at least ``low``: then the edge rules can't apply."""
-    return isinstance(node, exp.Literal) and not node.is_string and node.name.isdigit() and int(node.name) >= low
+    """A whole-number literal of at least ``low``: then the edge rules can't apply. One of more than 19 digits is
+    past BIGINT and isn't taken as whole here (see _past_bigint); Python won't read past 4,300 digits as an int."""
+    return isinstance(node, exp.Literal) and not node.is_string and node.name.isdigit() and len(node.name) <= 19 \
+        and int(node.name) >= low
+
+
+_BIGINT_MAX = 2**63 - 1
+_OVERFLOW = "This T-SQL can't be run on the local engine: Arithmetic overflow error converting expression to data " \
+    "type bigint. T-SQL gives the same error."
+
+
+def _past_bigint(node: exp.Expression | None) -> bool:
+    """A number literal, of either sign, whose whole part is past BIGINT, the widest count T-SQL takes."""
+    if isinstance(node, exp.Neg):
+        node = node.this
+    if not (isinstance(node, exp.Literal) and not node.is_string):
+        return False
+    if "e" in node.name.lower():  # 1e400 and 1e30: a float, past BIGINT when its size is
+        value = _number(node)
+        return value is not None and (not math.isfinite(value) or abs(value) >= 2.0**63)
+    whole = node.name.split(".", 1)[0].lstrip("0")
+    return whole.isdigit() and (len(whole) > 19 or int(whole) > _BIGINT_MAX)
 
 
 def _number(node: exp.Expression | None) -> float | None:
@@ -2414,6 +2434,9 @@ def _string_edges(tree: exp.Expression) -> None:
     not twice or more a level."""
     for node in reversed(list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Space, exp.Left, exp.Right,
                                             exp.Translate, exp.StrPosition))):
+        # WR-239: each count, length and start is "of any integer type, including bigint"; past it is an overflow
+        if any(_past_bigint(node.args.get(k)) for k in _NUMBER_ARGS.get(type(node), ())):
+            raise ValueError(_OVERFLOW)
         if isinstance(node, exp.StrPosition):
             _charindex(node)
         elif isinstance(node, (exp.Left, exp.Right)):
@@ -2426,6 +2449,12 @@ def _string_edges(tree: exp.Expression) -> None:
             _stuff(node)
         elif isinstance(node, (exp.Repeat, exp.Space)):
             _repeat(node)
+
+
+# the arguments of each string call that are numbers
+_NUMBER_ARGS: dict[type, tuple[str, ...]] = {
+    exp.Substring: ("start", "length"), exp.Stuff: ("start", "length"), exp.Repeat: ("times",), exp.Space: ("this",),
+    exp.Left: ("expression",), exp.Right: ("expression",), exp.StrPosition: ("position",)}
 
 
 # what a rewrite may copy freely: a column, a literal, or a cast or sign of one
@@ -2475,7 +2504,7 @@ def _left_right(node: exp.Left | exp.Right) -> None:
     length = node.expression
     message = f"Invalid length parameter passed to the {name} function."
     value = _number(length)
-    if value is not None:
+    if value is not None and math.isfinite(value):
         # T-SQL makes the length an integer first, toward zero: LEFT(s, -0.5) is ''.
         if int(value) < 0:
             raise ValueError(f"This T-SQL can't be run on the local engine: {message} T-SQL gives the same error.")

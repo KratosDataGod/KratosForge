@@ -38,8 +38,8 @@ const FAILED = { ...READY, valid: false, source: null,
       fix: "Add a DAX expression for this metric." }] } } } };
 
 const apps = [];
-async function open(calls, status, extra = {}) {
-  const app = await openApp({ mocks: {
+async function open(calls, status, extra = {}, scale = 1) {
+  const app = await openApp({ scale, mocks: {
     meta_model_plan: () => PLAN,
     meta_model_ossie_models: () => ({ env: "test", models: [] }),
     meta_model_ossie_folders: () => ({ folders: [{ path: "semantic/Sales.SemanticModel", name: "Sales" }], unavailable: "" }),
@@ -72,7 +72,7 @@ after(async () => { for (const app of apps) await app.close(); });
 
 test("Ready: the files, where they go and every step with its Learn link; only copy and open-folder buttons", { skip }, async () => {
   const calls = [];
-  const { page, errors } = await open(calls, READY);
+  const { page, errors } = await open(calls, READY, {}, SHOT ? 2 : 1);
   const card = page.locator("#model-under-test .sv-card");
   await card.locator(".sv-files").waitFor();
   // Under the Apache Ossie card.
@@ -113,8 +113,6 @@ test("Ready: the files, where they go and every step with its Learn link; only c
   assert.ok(!calls.some(([n]) => n !== "status"), "the card only reads the saved files");
   if (SHOT) {
     await page.evaluate(() => document.getElementById("toast")?.remove());
-    const cdp = await page.context().newCDPSession(page);
-    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1180, height: 1000, deviceScaleFactor: 2, mobile: false });
     fs.mkdirSync(path.dirname(SHOT), { recursive: true });
     await card.screenshot({ path: SHOT });
   }

@@ -87,8 +87,7 @@ function sqlResultGrid(r, g, on) {
       })))));
   if (on.select) sqlGridWire(table, r, g, on, vis);
   const hidden = r.columns.length - vis.length;
-  const note = hidden ? h("p", { class: "muted-text sql-grid-note sql-grid-hidden" },
-    `${hidden.toLocaleString()} column${hidden === 1 ? " is" : "s are"} hidden. Columns... shows ${hidden === 1 ? "it" : "them"}.`) : null;
+  const note = hidden ? h("p", { class: "muted-text sql-grid-note sql-grid-hidden" }, sqlGridHiddenNote(r.columns.length, vis, g.filters)) : null;
   const empty = !r.rows.length && r.total === 0 && (r.all_rows ?? 0) > 0
     ? h("p", { class: "muted-text sql-grid-note" }, "No rows match the filters.") : null;
   const error = g.filterError ? h("p", { class: "sql-grid-error", role: "alert" }, g.filterError.message) : null;
@@ -96,6 +95,15 @@ function sqlResultGrid(r, g, on) {
 }
 
 // ---------- column widths, and Columns... to hide and reorder them ----------
+
+// The line under a grid with hidden columns. A filter on a hidden column still narrows the rows, so it says so.
+function sqlGridHiddenNote(count, vis, filters) {
+  const hidden = count - vis.length;
+  const shown = new Set(vis);
+  const filtering = Object.entries(filters || {}).filter(([k, t]) => String(t ?? "").trim() && !shown.has(Number(k))).length;
+  return `${hidden.toLocaleString()} column${hidden === 1 ? " is" : "s are"} hidden. Columns... shows ${hidden === 1 ? "it" : "them"}.` +
+    (filtering === 1 ? " A filter on a hidden column still applies." : filtering ? ` Filters on ${filtering} hidden columns still apply.` : "");
+}
 
 // The columns the grid shows, as positions in the result, in their order. The layout (widths, hidden
 // columns, order) is for one set of column names: a result with other columns starts again.
@@ -123,6 +131,9 @@ function sqlGridWidthCss(widths, id) {
   return Object.entries(widths || {}).map(([k, w]) =>
     `${table} [data-col="${Number(k)}"] { width: ${Math.round(w)}px; min-width: ${Math.round(w)}px; max-width: ${Math.round(w)}px; }`).join("\n");
 }
+
+// The grid's column order, as positions in the result.
+const sqlGridOrder = (g, columns) => (g.order?.length === columns.length ? g.order : columns.map((_, k) => k));
 
 // A column moved up or down in Columns...: the new order.
 function sqlGridMoveColumn(order, column, delta) {
@@ -204,11 +215,22 @@ function sqlGridCopiedNote(format, block) {
 
 // The Columns... dialog for a grid (the SQL page's results and a notebook's table): the list follows each
 // change, and focus stays on a moved column's button. changed() redraws the grid.
-function sqlColumnsDialog(columns, g, changed) {
-  sqlGridLayoutFor(g, columns);
+function sqlColumnsDialog(columns, grid, changed) {
+  // grid is the grid's state, or a function that gives the current one: a run that ends while the dialog is
+  // open carries the layout to a new state, and changes go there. A result with other columns closes it.
+  const current = () => {
+    const g = typeof grid === "function" ? grid() : grid;
+    const names = columns.map((c) => c.name);
+    if (g.names && (g.names.length !== names.length || g.names.some((n, k) => n !== names[k]))) { closeDialog(); return null; }
+    sqlGridLayoutFor(g, columns);
+    return g;
+  };
+  let g = typeof grid === "function" ? grid() : grid;
+  sqlGridLayoutFor(g, columns);  // opened on a state from other columns: it starts again for these
   const box = h("div", {});
+  const apply = (fn) => { const now = current(); if (!now) return; g = now; fn(g); };
   const draw = (moved, dir) => {
-    box.replaceChildren(sqlColumnsBody(columns, g, { change: (k, d) => { g.sel = null; draw(k, d); changed(); } }));
+    box.replaceChildren(sqlColumnsBody(columns, () => g, { change: (k, d, edit) => apply((now) => { edit(now); now.sel = null; draw(k, d); changed(); }) }));
     if (moved !== undefined) {
       const name = columns[moved].name;
       const again = box.querySelector(`button[aria-label="Move ${CSS.escape(name)} ${dir}"]`);
@@ -217,14 +239,15 @@ function sqlColumnsDialog(columns, g, changed) {
   };
   draw();
   showDialog("Columns", box, [
-    btn("Show all", null, () => { Object.assign(g, { hidden: [], order: null, widths: {}, sel: null }); draw(); changed(); }, "tool outline",
+    btn("Show all", null, () => apply((now) => { Object.assign(now, { hidden: [], order: null, widths: {}, sel: null }); draw(); changed(); }), "tool outline",
       { title: "Every column, in the result's order, at its own width" }),
     btn("Done", null, closeDialog, "tool primary")]);
 }
 
 // Columns...: a check box to show each column, and Up and Down to move it. Changes apply to the grid at
 // once (on.change()); on.reset() shows every column in the result's order, at its own width.
-function sqlColumnsBody(columns, g, on) {
+function sqlColumnsBody(columns, grid, on) {
+  const g = typeof grid === "function" ? grid() : grid;
   const order = g.order?.length === columns.length ? g.order : columns.map((_, k) => k);
   const hidden = new Set(g.hidden || []);
   const shown = order.filter((k) => !hidden.has(k)).length;
@@ -235,12 +258,12 @@ function sqlColumnsBody(columns, g, on) {
       const on1 = !hidden.has(k);
       return h("li", {},
         h("label", {}, h("input", { type: "checkbox", checked: on1, disabled: on1 && shown === 1,
-          onchange: (e) => { g.hidden = e.target.checked ? [...hidden].filter((x) => x !== k) : [...hidden, k]; on.change(); } }),
+          onchange: (e) => on.change(undefined, undefined, (now) => { const off = new Set(now.hidden || []); if (e.target.checked) off.delete(k); else off.add(k); now.hidden = [...off]; }) }),
         h("span", {}, c.name), h("span", { class: "muted-text" }, c.type)),
         h("button", { type: "button", class: "tool small", "aria-label": `Move ${c.name} up`, disabled: at === 0,
-          onclick: () => { g.order = sqlGridMoveColumn(order, k, -1); on.change(k, "up"); } }, "↑"),
+          onclick: () => on.change(k, "up", (now) => { now.order = sqlGridMoveColumn(sqlGridOrder(now, columns), k, -1); }) }, "↑"),
         h("button", { type: "button", class: "tool small", "aria-label": `Move ${c.name} down`, disabled: at === order.length - 1,
-          onclick: () => { g.order = sqlGridMoveColumn(order, k, 1); on.change(k, "down"); } }, "↓"));
+          onclick: () => on.change(k, "down", (now) => { now.order = sqlGridMoveColumn(sqlGridOrder(now, columns), k, 1); }) }, "↓"));
     })));
 }
 
@@ -296,8 +319,9 @@ function sqlGridBlock(r, sel, vis = null) {
 function sqlGridCopyText(format, r, sel, opts = {}) {
   const b = sqlGridBlock(r, sel, opts.vis);
   if (format === "cells") {
-    const cell = (v) => (v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v));
-    return b.rows.map((row) => row.map(cell).join("\t")).join("\n");
+    // One value too: a spreadsheet runs a pasted formula however many cells it came from. Open value's Copy
+    // gives the value exactly as it is, for pasting as plain text.
+    return sqlTsv(b.rows.map((row) => row.map(sqlTsvCell)));
   }
   return sqlRowsAs(format, b.columns, b.rows, opts);
 }

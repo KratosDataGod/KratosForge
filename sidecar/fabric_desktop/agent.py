@@ -50,7 +50,8 @@ from .runtime import Runtime
 from .workloads import deliver, evaluate
 from .workloads.agents import read_status
 from .workloads.incidents import IncidentLog
-from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, audit_trouble, failure, send, single
+from .workloads.notify import (DEFAULT_ROUTE, UNCONFIRMED, Outbox, Quiet, Route, Routing, audit_trouble, failure,
+                               send, settle_failed, single)
 from .workloads.platform_notify import Ledger, PlatformRoute, PlatformRouting, validate
 from .workloads.platform_notify import send as send_notices
 
@@ -777,15 +778,22 @@ class Agent:
             item = box.sending(title, lines)  # kept before the post: a stop mid-send leaves it to go later
             try:
                 self._post(url, title, lines)
-            except Exception as exc:  # noqa: BLE001 - kept, and sent with the next try
+            except Exception as exc:  # noqa: BLE001 - kept, and sent with the next try (unless it may have arrived)
                 problem = _without_webhook(failure(exc), url)
-                box.not_sent(item, problem)
+                unsure = settle_failed(box, item, exc, problem)
+                if unsure:
+                    problem = UNCONFIRMED.format(error=problem)
                 box.route_failed(DEFAULT_ROUTE, url, problem)
-                audit_trouble(self.audit, {"error": problem, "queued": 1}, "job_alerts.sqlite3")
+                audit_trouble(self.audit, {"error": problem, "queued": int(not unsure), "unconfirmed": int(unsure)},
+                              "job_alerts.sqlite3")
             else:
                 box.done(item)
                 box.route_ok(DEFAULT_ROUTE)
                 return
+        if unsure:
+            self.log.warning("couldn't confirm the alert reached Teams; it may have arrived, so it isn't sent again",
+                             extra=fields(**about, error=problem))
+            return
         self.log.warning("couldn't post the alert to Teams; it goes with the next try",
                          extra=fields(**about, error=problem))
 

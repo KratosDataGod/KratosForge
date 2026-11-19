@@ -28,6 +28,7 @@ Files are named the way [DaffyDB](https://www.nuget.org/packages/DaffyDB/) names
 | `sales/_delta_log/...` | `dbo.sales`, a Delta table at its current version |
 
 - Formats: Parquet, CSV and TSV, JSON (an array or one object per line: `.json`, `.jsonl`, `.ndjson`), and compressed CSV and JSON (`.gz`, `.zst`). Excel workbooks are found and listed, but can't be read yet.
+- A CSV file whose first lines are a title or notes, not its column names, reads as one column of whole lines, and the folder's issues name the file. No line of a file is left out without saying so. Remove those lines from the file, or save it without them, then refresh the project.
 - `dbo` is the default schema, as in Fabric: `orders` and `dbo.orders` are the same table, and `CREATE TABLE t` makes `dbo.t`.
 - With `naming = "flat"`, folders don't set the schema: `Sales/Customer.csv` is `dbo.Sales_Customer`. A different default schema, or a name for one file (`names = {"sales/2026.csv": "raw.sales_2026"}`), can be set per folder.
 - When two files would get the same name, Parquet wins over CSV and CSV over JSON, and the other file is listed as a conflict. A file never replaces a table or view you created.
@@ -63,7 +64,7 @@ The same statements work in Spark SQL (`INSERT INTO TABLE sales ...`, `INSERT OV
 
 Times are UTC. A time picks the last version committed at or before it. To restore a version, overwrite from it: `INSERT OVERWRITE sales SELECT * FROM sales AT (VERSION => 3)`, which is a new version itself. Delta tables in registered folders can be read as of a version too.
 
-**Fabric-safe.** Tables are written in the plain Delta profile Fabric reads reliably (reader version 1, writer version 2, no table features), checked before and after every write, so a later publish to OneLake needs no conversion:
+**Fabric-safe.** Tables this engine creates are plain Delta (reader version 1, writer version 2, no table features), which every Fabric reader reads, so a later publish to OneLake needs no conversion. A write to an existing table is checked against the [Delta profile](delta-reader-matrix.md#the-profiles) first:
 
 - `TIMESTAMP` columns are stored as UTC timestamps. (A Delta `timestamp_ntz` column would need reader version 3.)
 - Unsigned integers widen to the next signed type (`UTINYINT` to `SMALLINT`, `UBIGINT` to `DECIMAL(20,0)`).
@@ -113,6 +114,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `VAR(x)`, `STDEV(x)`, `VARP(x)`, `STDEVP(x)` | The sample variance and standard deviation, and the population's (one row: `NULL` for `VAR` and `STDEV`, `0` for `VARP` and `STDEVP`) |
 | `LEN('ab  ')` | `2`: trailing spaces aren't counted |
 | `SUBSTRING('abc', 0, 2)`, `STUFF('abc', 5, 1, 'x')`, `REPLICATE('ab', -1)`, `SPACE(1.7)` | `'a'`, `NULL`, `NULL`, one space: a start below 1 counts the positions before 1, `STUFF` past the end or below 1 and `REPLICATE` or `SPACE` of a negative count are `NULL`, a count with a fraction is cut toward zero, and a negative `SUBSTRING` length is an error |
+| `ASCII('')`, `UNICODE('')`, `CHAR(300)`, `CHAR(65.7)` | `NULL`, `NULL`, `NULL`, `'A'`: an empty text has no first character, `CHAR` outside 0 to 255 is `NULL`, and a code with a fraction is cut toward zero. `CHAR` of 128 to 255 gives that Latin-1 character, which a warehouse's code page may not. Text such as `CHAR('66')` or `REPLICATE('ab', '3')` is made an int first, as T-SQL does, and text that isn't a whole number, such as `'6.5'`, is a conversion error |
 | `LEFT(s, -1)`, `RIGHT(s, -1)`, `TRANSLATE('abc', 'ab', 'x')` | An error, as in T-SQL: a negative length, or `TRANSLATE` lists of different lengths. With literal values the query is refused before it runs |
 | `DATEPART(weekday, d)` | `1` for Sunday to `7` for Saturday (DATEFIRST 7) |
 | `DATEPART(week, d)` | Week 1 is the week of 1 January; weeks start on Sunday |

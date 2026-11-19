@@ -220,3 +220,27 @@ def test_without_webhook_hides_the_urls_percent_encoded_forms_too():
                     "/WEBHOOKB2/abc-123%40DEF/IncomingWebhook/S3CR3T%20PATH/x"):
         out = redact.without_webhook(f"Max retries exceeded with url: {written}", url)
         assert "s3cr3t" not in out.lower() and "[webhook]" in out, written
+
+
+@pytest.mark.parametrize("unit", ["a.", "a-", "-a", "a", "a_", "a:", "x@", "aB"])
+def test_long_text_is_redacted_in_linear_time(unit):
+    # Each rule used to restart from every word of a long dotted or dashed run, so 40,000
+    # characters took tens of seconds; read once, they take a fraction of one.
+    import time
+
+    text = unit * 20000
+    started = time.perf_counter()
+    redact.for_support(text)
+    redact.one_line(text)
+    assert time.perf_counter() - started < 3
+
+
+def test_rules_that_start_later_still_find_what_they_did():
+    # An address right after another, a name made of words and the user info of an unusual scheme.
+    assert redact.for_support("ann@contoso.com+bob@contoso.com") == "[email][email]"
+    assert redact.secrets("x-y_access_token=abc x__token=def") == "x-y_access_token=[removed] x__token=[removed]"
+    assert redact.secrets("git+ssh://me:" + "pw@host x-ref://tok@host") == "git+ssh://[removed]@host x-ref://[removed]@host"
+    assert redact.secrets("abfss://ws@onelake.dfs.fabric.microsoft.com/x") == "abfss://ws@onelake.dfs.fabric.microsoft.com/x"
+    assert redact.secrets("x.abfss://ws@onelake.dfs.fabric.microsoft.com/x") == "x.abfss://[removed]@onelake.dfs.fabric.microsoft.com/x"
+    assert redact.for_support("a.b-contoso.onmicrosoft.com and a-b.sharepoint.com") == (
+        "[tenant].onmicrosoft.com and [tenant].sharepoint.com")

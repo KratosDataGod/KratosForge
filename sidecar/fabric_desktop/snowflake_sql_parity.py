@@ -120,6 +120,12 @@ _CONTRACTORS = (
     "zip_code VARCHAR); INSERT INTO contractors VALUES ('Bradley', 'Greenbloom', '1-650-445-0676', 'San Francisco', "
     "'94110'), ('Cole', 'Simpson', '1-212-285-8904', 'New York', '10001'), ('Laurel', 'Slater', '1-650-633-4495', "
     "'San Francisco', '94115');")
+_DEMO1 = ("CREATE TABLE demo1 (id INTEGER, json_data VARCHAR); "
+          "INSERT INTO demo1 SELECT 1, '{\"level_1_key\": \"level_1_value\"}'; "
+          "INSERT INTO demo1 SELECT 2, '{\"level_1_key\": {\"level_2_key\": \"level_2_value\"}}'; "
+          "INSERT INTO demo1 SELECT 3, '{\"level_1_key\": {\"level_2_key\": [\"zero\", \"one\", \"two\"]}}';")
+_TESTTABLE = "CREATE TABLE testtable (i INTEGER); INSERT INTO testtable VALUES (1), (2), (3), (4), (5);"
+_T2 = "CREATE TABLE t2 (i INTEGER); INSERT INTO t2 VALUES (1), (2), (3), (4), (5);"
 
 
 def _values(*rows: Any) -> str:
@@ -1102,6 +1108,35 @@ CASES: tuple[Case, ...] = (
        31.5, page="get"),
     _c("CHECK_JSON", "Semi-structured", "SELECT check_json('{\"a\": 1}')", None),
     _c("TRY_PARSE_JSON", "Semi-structured", "SELECT try_parse_json('{\"x\": \"abc\", \"y\": false')", None),
+    # TRY_TO_TIMESTAMP's page: its one example calls TRY_TO_TIMESTAMP, which "maps to TRY_TO_TIMESTAMP_NTZ by
+    # default" (TIMESTAMP_TYPE_MAPPING's default, TIMESTAMP_NTZ), so these are its values for the _NTZ form
+    _c("TRY_TO_TIMESTAMP_NTZ", "Conversion", "SELECT try_to_timestamp_ntz('2024-01-15 12:30:00')",
+       dt.datetime(2024, 1, 15, 12, 30), page="try_to_timestamp"),
+    _c("TRY_TO_TIMESTAMP_NTZ (not a timestamp)", "Conversion", "SELECT try_to_timestamp_ntz('Invalid')", None,
+       page="try_to_timestamp"),
+    _c("JSON_EXTRACT_PATH_TEXT", "Semi-structured", f"{_DEMO1} SELECT list(JSON_EXTRACT_PATH_TEXT(json_data, "
+       "'level_1_key') ORDER BY id) FROM demo1",
+       ["level_1_value", '{"level_2_key":"level_2_value"}', '{"level_2_key":["zero","one","two"]}']),
+    _c("JSON_EXTRACT_PATH_TEXT (two levels)", "Semi-structured", f"{_DEMO1} SELECT list(JSON_EXTRACT_PATH_TEXT("
+       "json_data, 'level_1_key.level_2_key') ORDER BY id) FROM demo1", [None, "level_2_value", '["zero","one","two"]'],
+       page="json_extract_path_text"),
+    _c("JSON_EXTRACT_PATH_TEXT (array index)", "Semi-structured", f"{_DEMO1} SELECT list(JSON_EXTRACT_PATH_TEXT("
+       "json_data, 'level_1_key.level_2_key[1]') ORDER BY id) FROM demo1", [None, None, "one"],
+       page="json_extract_path_text"),
+    _c("ARRAY_UNIQUE_AGG", "Semi-structured", "CREATE OR REPLACE TABLE array_unique_agg_test (a INTEGER); "
+       "INSERT INTO array_unique_agg_test VALUES (5), (2), (1), (2), (1); "
+       "SELECT ARRAY_SIZE(ARRAY_UNIQUE_AGG(a)) AS number_of_distinct_values FROM array_unique_agg_test", 3,
+       page="../../user-guide/querying-arrays-for-distinct-counts"),
+    # the page's testtable isn't created there; SAMPLE ROW (0) is empty and TABLESAMPLE (100) is every row, as it says
+    _c("SAMPLE (ROW 0)", "Operators", f"{_TESTTABLE} SELECT count(*) FROM testtable SAMPLE ROW (0)", 0,
+       page="../constructs/sample"),
+    _c("SAMPLE (TABLESAMPLE 100)", "Operators", f"{_TESTTABLE} SELECT count(*) FROM testtable TABLESAMPLE (100)", 5,
+       page="../constructs/sample"),
+    # the page's t2 (SHOW TABLES says 5 rows), then SHOW TABLES LIKE 't2%' read from information_schema: empty
+    _c("DROP TABLE", "Statements", f"{_T2} DROP TABLE t2; SELECT count(*) FROM information_schema.tables "
+       "WHERE table_name ILIKE 't2%'", 0, page="../sql/drop-table"),
+    _c("DROP TABLE (IF EXISTS)", "Statements", f"{_T2} DROP TABLE t2; DROP TABLE IF EXISTS t2; "
+       "SELECT count(*) FROM information_schema.tables WHERE table_name ILIKE 't2%'", 0, page="../sql/drop-table"),
 )
 
 

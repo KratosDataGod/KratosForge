@@ -126,4 +126,4 @@ def test_an_audit_line_without_a_queued_count_says_zero():
 
     notify.audit_trouble(Audit(), {"error": "ConnectionError: down"}, "agent")
     [(args, _kw)] = lines
-    assert args[3] == {"outbox": "agent", "queued": 0, "dropped": 0, "waiting": 0}
+    assert args[3] == {"outbox": "agent", "queued": 0, "dropped": 0, "unconfirmed": 0, "waiting": 0}

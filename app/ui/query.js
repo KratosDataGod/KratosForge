@@ -470,6 +470,7 @@ function renderQuery() {
     Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "", chart: null, grid: sqlGridCarry(tab.grid),
       multi: multi ? { units, part: null, change, grids: {} } : null, old: null, ranParams: used });
     drawResults();
+    announce("Query running");  // the pill is redrawn, not a live region: say the start and the end
     let status;
     try {
       status = await rpc("sql_start", wh
@@ -524,13 +525,15 @@ function renderQuery() {
     if (here()) {
       editor.recheck();
       runFx(status, allow);
+      announce(status?.state === "completed" && !tab.error
+        ? `Query succeeded: ${(status.rows ?? 0).toLocaleString()} row${status.rows === 1 ? "" : "s"}`
+        : `Query ${(SQL_STATE[status?.state]?.[1] || "failed").toLowerCase()}`);
     }
   }
 
   // KF-MO-005: a spark on the Results pill when a query that took a while succeeds, the ember when one
   // fails; a stop, a quick query or a confirmation the person declined plays nothing. Uses the
-  // engine's own seconds, and runs after the redraw, which replaces the pill. The pill already
-  // says the outcome to a screen reader, so nothing extra is announced.
+  // engine's own seconds, and runs after the redraw, which replaces the pill. run() announces the outcome.
   function runFx(status, allow) {
     const pill = band.querySelector(".sql-pill");
     if (status?.state === "completed" && !tab.error && status.seconds > SQL_SPARK_SECONDS) forgeEvent("sql.succeeded", pill);
@@ -813,6 +816,7 @@ function renderQuery() {
     }
     tab.exporting = out;
     sqlPage.redraw?.();
+    announce(`Exporting ${format === "xlsx" ? "Excel" : format.toUpperCase()}`);  // the progress line is redrawn, so it isn't read
     let st = out;
     while (st.state === "running") {
       await new Promise((r) => setTimeout(r, 300));

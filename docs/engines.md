@@ -179,6 +179,7 @@ Rules 2026.11.19.
 | SFN-022 | Runs only in Snowflake | ALTER SESSION, other than SET TIMEZONE: other session parameters and UNSET change how Snowflake itself reads or prints values. |
 | SFN-023 | Runs only in Snowflake | IDENTIFIER($name) where the same cell doesn't set the variable to a string first: its value isn't known here. |
 | SFN-024 | Runs only in Snowflake | PIVOT ... IN (ANY ...) or IN (subquery): DuckDB's PIVOT takes a list of values. |
+| SFN-025 | Runs only in Snowflake | An array written with both text and numbers in it (ARRAY_CONSTRUCT, ARRAY_CONSTRUCT_COMPACT, ARRAY_INSERT, ARRAY_PREPEND, ARRAY_APPEND): a DuckDB list holds one type. |
 | SFN-026 | Runs only in Snowflake | INSERT ALL and INSERT FIRST: DuckDB has no multi-table INSERT, and separate INSERTs wouldn't be one statement. |
 | SFN-027 | Runs only in Snowflake | CREATE TABLE ... LIKE: Snowflake copies the other table's defaults and constraints, which the rewrite can't see. |
 | SFN-028 | Runs only in Snowflake | TRUNCATE TABLE IF EXISTS: DuckDB's TRUNCATE has no IF EXISTS. |

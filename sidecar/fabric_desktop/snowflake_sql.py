@@ -192,6 +192,34 @@ SFD_NUMBER = _n("SFD-008", "A JSON fraction counts as a decimal",
                 "Write JSON numbers meant as DOUBLE without an exponent check, or cast before testing.",
                 f"{_DOCS}/functions/is_decimal")
 
+def _scalar_kind(node: exp.Expression | None) -> str:
+    """The kind of a value written in the query (or cast to a type): text, number, null, or other."""
+    while isinstance(node, (exp.Paren, exp.Neg)):
+        node = node.this
+    if isinstance(node, exp.Null):
+        return "null"
+    if isinstance(node, exp.Literal):
+        return "text" if node.is_string else "number"
+    if isinstance(node, (exp.Cast, exp.TryCast)) and _scalar_kind(node.this) in ("text", "number"):
+        if node.to.this in exp.DataType.TEXT_TYPES:
+            return "text"
+        if node.to.this in exp.DataType.NUMERIC_TYPES:
+            return "number"
+    return "other"
+
+
+def _mixed_array(node: object) -> bool:
+    """SFN-025: an array written in the query with both text and numbers in it (ARRAY_CONSTRUCT,
+    ARRAY_CONSTRUCT_COMPACT, or an ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one)."""
+    if isinstance(node, (exp.Array, exp.ArrayConstructCompact)):
+        values = list(node.expressions)
+    elif isinstance(node, (exp.ArrayInsert, exp.ArrayPrepend, exp.ArrayAppend)) and isinstance(node.this, exp.Array):
+        values = [*node.this.expressions, node.args.get("expression")]
+    else:
+        return False
+    return {_scalar_kind(v) for v in values} - {"null"} == {"text", "number"}
+
+
 _ONLY_IN_SNOWFLAKE = "Runs only in Snowflake"
 
 
@@ -382,6 +410,12 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
                 isinstance(node, exp.DataType) and node.this == exp.DataType.Type.DECFLOAT):
             return _refuse("SFN-018", "DECFLOAT", "DuckDB has no decimal floating-point type to hold Snowflake's "
                            "DECFLOAT (38 significant digits with an exponent).", f"{_DOCS}/functions/to_decfloat")
+        if _mixed_array(node) and isinstance(node, exp.Func):
+            name = "ARRAY_CONSTRUCT" if isinstance(node, exp.Array) else _function_name(node)
+            return _refuse("SFN-025", f"{name}: text and numbers in one array",
+                           "A DuckDB list holds values of one type, so an array written with both text and numbers "
+                           "can't be made here. Cast them to one type (for example each value ::VARCHAR), or "
+                           "build the array from a column.", f"{_DOCS}/functions/array_construct")
         if isinstance(node, exp.MatchRecognize):
             return _refuse("SFN-019", "MATCH_RECOGNIZE", "DuckDB has no row pattern matching.",
                            f"{_DOCS}/constructs/match_recognize")
@@ -2264,6 +2298,8 @@ CATALOG = (
     ("SFN-023", "Runs only in Snowflake", ("IDENTIFIER($name) where the same cell doesn't set the variable to a "
                 "string first: its value isn't known here.")),
     ("SFN-024", "Runs only in Snowflake", "PIVOT ... IN (ANY ...) or IN (subquery): DuckDB's PIVOT takes a list of values."),
+    ("SFN-025", "Runs only in Snowflake", ("An array written with both text and numbers in it (ARRAY_CONSTRUCT, "
+                "ARRAY_CONSTRUCT_COMPACT, ARRAY_INSERT, ARRAY_PREPEND, ARRAY_APPEND): a DuckDB list holds one type.")),
     ("SFN-026", "Runs only in Snowflake", ("INSERT ALL and INSERT FIRST: DuckDB has no multi-table INSERT, and "
                 "separate INSERTs wouldn't be one statement.")),
     ("SFN-027", "Runs only in Snowflake", ("CREATE TABLE ... LIKE: Snowflake copies the other table's defaults and "

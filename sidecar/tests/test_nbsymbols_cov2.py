@@ -64,3 +64,15 @@ def test_a_nonlocal_name_takes_what_the_enclosing_function_has():
 def test_a_node_that_is_not_a_scope_binds_nothing():
     scope = nbsymbols._scope_of(ast.parse("total = 1").body[0])
     assert scope.bound == scope.globals == scope.nonlocals == set()
+
+
+def test_a_global_name_after_a_backslash_is_found_so_a_rename_changes_it_too():
+    # Before the fix only line 5 was found, so a rename left "global total" behind and made the
+    # renamed assignment a new local name.
+    src = "total = 1\ndef f():\n    global \\\n        total\n    total = 2\n"
+    assert spots(src) == [("definition", 1, 0), ("reference", 4, 8), ("definition", 5, 4)]
+
+
+def test_a_global_statement_lists_the_name_once_even_when_it_is_written_again_later():
+    src = "total = 1\ndef f():\n    global a, \\\n        total, b\n    return total\n"
+    assert spots(src) == [("definition", 1, 0), ("reference", 4, 8), ("reference", 5, 11)]

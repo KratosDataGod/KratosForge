@@ -173,6 +173,15 @@ def parse(text: str) -> dict[str, Any]:
     return doc
 
 
+def model_name(doc: dict[str, Any]) -> str:
+    """The model's name: at the top of a flat file, or in Snowflake's 0.1.1 wrapper ``semantic_model[0].name``
+    (a list) or ``semantic_model.name`` (one object). "" when there is none."""
+    wrapper = doc.get("semantic_model")
+    inner = wrapper[0] if isinstance(wrapper, list) and wrapper else wrapper
+    name = doc.get("name") if "name" in doc else inner.get("name") if isinstance(inner, dict) else None
+    return name.strip() if isinstance(name, str) else ""
+
+
 def not_convertible(doc: dict[str, Any]) -> str:
     """Why the converter can't take ``doc`` (what ``parse`` read), or "" when it can. The vendored converter reads
     Ossie 0.2.0.dev0 only; a 0.3.0.dev0 file or Snowflake's 0.1.1 wrapper is read and checked, never handed to it

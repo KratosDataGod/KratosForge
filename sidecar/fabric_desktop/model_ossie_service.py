@@ -341,7 +341,7 @@ class ModelOssieMixin:
         doc = model_ossie.parse(text)  # read once: the conversion, the merge, the reports and the schema check share it
         refusal = model_ossie.not_convertible(doc)
         if refusal:  # a known profile the converter can't read: no Fabric call, nothing converted
-            return {"refused": refusal, "doc": doc, "cfg": cfg, "name": (name or str(doc.get("name") or "")).strip()}
+            return {"refused": refusal, "doc": doc, "cfg": cfg, "name": (name or model_ossie.model_name(doc)).strip()}
         name = (name or doc["name"]).strip()
         store = self._store(project, env)  # type: ignore[attr-defined]
         lakehouse = project.layer(self._model_layer(project, layer)).lakehouse  # type: ignore[attr-defined]

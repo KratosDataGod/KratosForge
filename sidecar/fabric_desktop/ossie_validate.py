@@ -266,12 +266,15 @@ def _where(parts: tuple[Any, ...]) -> str:
 
 def _result(version: str, diagnostics: list[dict[str, Any]], checked: bool, total: int | None = None,
             stopped: bool = False, profile: str = "", warnings: list[dict[str, Any]] | None = None,
-            unverified: bool = False, rules: list[str] | None = None) -> dict[str, Any]:
+            unverified: bool = False, rules: list[str] | None = None,
+            notes: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """The answer: diagnostics sorted by path, cut at MAX_DIAGNOSTICS with one ``more`` line for the rest.
     ``total`` is how many there were when the caller already cut the list to keep memory bounded; ``stopped``
     says the check stopped at MAX_RAW_ERRORS, so there may be more than ``total``. ``profile`` is the profile
     that checked it ("" when none could), ``warnings`` (same shape, never failing the check) what the target
-    would drop, and ``unverified`` a profile with no pinned schema, whose result is never valid."""
+    would drop, ``notes`` (same shape) what limits the check itself, and ``unverified`` a profile with no pinned
+    schema: its result is never valid, and its status is "Unverified" only when its documented rules found no
+    error ("Invalid" when they did)."""
     total = len(diagnostics) if total is None else total
     diagnostics.sort(key=_sort_key)
     more = max(1 if stopped else 0, total - MAX_DIAGNOSTICS)  # stopped: the error it stopped at is one more
@@ -282,15 +285,17 @@ def _result(version: str, diagnostics: list[dict[str, Any]], checked: bool, tota
         count = f"at least {more}" if stopped else str(more)
         shown.append({"path": "$", "rule": "more", "value": "", "message": f"{count} more problems not shown",
                       "fix": "Fix the problems above and check again."})
-    warned = sorted(warnings or [], key=_sort_key)
-    for d in warned:
+    warned, noted = sorted(warnings or [], key=_sort_key), sorted(notes or [], key=_sort_key)
+    for d in warned + noted:
         d.pop("_parts", None)
     valid = checked and total == 0 and not stopped and not unverified
-    status = "Unverified" if unverified else "Valid" if valid else "Invalid" if checked or (profile and total) else "Not checked"
+    errors = bool(total or stopped)
+    status = ("Invalid" if errors and (checked or profile) else "Unverified" if unverified else "Valid" if valid
+              else "Invalid" if checked else "Not checked")
     return {"valid": valid, "effect": EFFECT, "version": version,
             "checked": checked, "schema": schema_info(version) if checked and version in SCHEMAS else None,
             "diagnostics": shown, "more": more, "stopped": stopped, "profile": profile, "status": status,
-            "warnings": warned, "rules": list(rules or [])}
+            "warnings": warned, "notes": noted, "rules": list(rules or [])}
 
 
 def validate(doc_or_text: Any, profile: str | None = None) -> dict[str, Any]:

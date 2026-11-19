@@ -205,17 +205,28 @@ reads a file by its profile (OSSIE-003b, engine only; `sidecar/fabric_desktop/os
   profile. Import's preview still returns the schema check, with `convertible` false. Converting
   between versions comes later (OSSIE-012c).
 - Fabric rules: every metric needs a `DAX` expression, and relationships have one column on each
-  side. A view has at most 20 `.yaml` files (`.yml` files are ignored, with a warning), 16 MB of
-  YAML combined and 30 MB of generated TMDL. The TMDL size is checked only when the TMDL is given.
-  "MB" is read as 1,000,000 bytes, the stricter reading. A warning says what Fabric leaves out:
-  `custom_extensions`, dataset `fields`, `primary_key`, `unique_keys` and `ai_context`. Warnings
-  never fail the check. `validate_files` checks a set of files, and `validate` checks one.
+  side. A view has at most 20 `.yaml` files, 16 MB of YAML combined and 30 MB of generated TMDL.
+  The TMDL size is checked only when the TMDL is given. Files without the `.yaml` extension, `.yml`
+  among them, are ignored, with a warning. Two readings are labelled derived, because the page
+  doesn't say: "MB" is read as 1,000,000 bytes, the stricter reading, and `.yaml` is matched in any
+  case. A warning says what Fabric leaves out: `custom_extensions`, dataset `fields`,
+  `primary_key`, `unique_keys` and `ai_context`. Warnings never fail the check.
+- A Fabric view can be split across files, and publishing merges them into one view
+  ([YAML reference](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-yaml-reference),
+  updated 2026-11-17). `validate_files` checks each file as a fragment: it needs `version` and
+  `name`, and `datasets`, when the file declares it, is a nonempty list. It then checks the merged
+  view by the Fabric rules and shows each problem in the file it came from. Repeated names and
+  different top-level descriptions across files are errors. A view whose files declare no datasets
+  is valid, with a warning that Fabric infers the datasets. `validate` checks one whole document.
 - Snowflake rules: version `0.1.1` and the `semantic_model` wrapper. A field or metric with no
   `SNOWFLAKE` or `ANSI_SQL` expression gets a warning, because Snowflake skips it. That rule is
-  labelled derived: Snowflake documents the behaviour but not where fields sit in 0.1.1.
-- Each rule records its source page, the page date from the phase 0 research, and its basis:
-  pinned schema, documented or derived. The result gives the `profile`, a `status` (Valid,
-  Invalid, Unverified or Not checked), `warnings` and the `rules` that ran. It still only informs.
+  labelled derived: Snowflake documents the behaviour but not where fields sit in 0.1.1. A correct
+  0.1.1 file has no errors, a `notes` line that no schema is pinned, and the status Unverified. A
+  file that breaks a Snowflake rule is Invalid.
+- Each rule records its source page, the page date from the phase 0 research, its basis (pinned
+  schema, documented or derived) and, in `derived`, any part of it that KratosForge reads in. The
+  result gives the `profile`, a `status` (Valid, Invalid, Unverified or Not checked), `warnings`,
+  `notes` and the `rules` that ran. It still only informs.
 
 ## Keeping Git in step
 

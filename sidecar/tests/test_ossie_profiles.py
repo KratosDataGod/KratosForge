@@ -118,6 +118,14 @@ def test_a_snowflake_wrapper_previews_as_unverified(svc):  # noqa: F811
     assert preview["schema_validation"]["status"] == "Unverified"
 
 
+@pytest.mark.parametrize("wrap", [lambda m: [m], lambda m: m], ids=["list", "object"])
+def test_the_preview_of_a_wrapper_names_the_model_inside_it(svc, wrap):  # noqa: F811
+    doc = _v011()
+    doc["semantic_model"] = wrap(doc["semantic_model"][0])
+    assert svc.meta_model_ossie_preview("test", _text(doc))["name"] == "orders"
+    assert model_ossie.model_name({"version": "0.1.1", "semantic_model": []}) == ""
+
+
 def test_a_0_2_file_still_previews_and_converts(svc):  # noqa: F811
     preview = svc.meta_model_ossie_preview("test", _text(_v02()), "SM_Gold")
     assert preview["convertible"] is True and preview["schema_validation"]["profile"] == "ossie-0.2"
@@ -202,8 +210,9 @@ def test_the_snowflake_wrapper_is_recognized_and_always_unverified():
     result = ossie_validate.validate(_text(_v011()))
     assert result["profile"] == "snowflake-ossie" and result["status"] == "Unverified"
     assert not result["valid"] and not result["checked"] and result["schema"] is None
-    assert [(d["path"], d["rule"]) for d in result["diagnostics"]] == [("$.version", "version")]
-    assert "Unverified" in result["diagnostics"][0]["message"] and result["warnings"] == []
+    assert result["diagnostics"] == [] and result["warnings"] == []  # a correct 0.1.1 file has no errors
+    (note,) = result["notes"]
+    assert (note["path"], note["rule"]) == ("$.version", "unverified") and "Unverified" in note["message"]
     assert model_ossie.parse(_text(_v011()))["semantic_model"][0]["name"] == "orders"
 
 
@@ -214,8 +223,10 @@ def test_a_broken_snowflake_wrapper_is_named_and_still_unverified():
     (w,) = warned["warnings"]
     assert w["rule"] == "snowflake/dialect" and w["path"] == "$.semantic_model[0].datasets[0].fields[0].expression"
     flat = ossie_validate.validate(_v02(), "snowflake-ossie")
-    assert {d["rule"] for d in flat["diagnostics"]} == {"version", "snowflake/version", "snowflake/wrapper"}
-    assert flat["status"] == "Unverified" and not flat["valid"]
+    # real errors make it Invalid; Unverified is only for a file whose documented shape passes
+    assert {d["rule"] for d in flat["diagnostics"]} == {"snowflake/version", "snowflake/wrapper"}
+    assert flat["status"] == "Invalid" and not flat["valid"] and flat["notes"][0]["rule"] == "unverified"
+    assert warned["status"] == "Unverified"  # a warning isn't an error
 
 
 def test_an_unknown_profile_name_is_refused():
@@ -228,7 +239,12 @@ def test_an_unknown_profile_name_is_refused():
 # ---- Fabric's limits on a set of files
 
 def _files(count, ext=".yaml"):
-    return {f"part{i:02}{ext}": _text(_v02()) for i in range(count)}
+    """A view split across ``count`` files: the first holds the model, each other one more dataset."""
+    files = {f"part00{ext}": _text(_v02())}
+    files |= {f"part{i:02}{ext}": _text({"version": "0.2.0.dev0", "name": "orders",
+                                          "datasets": [{"name": f"extra{i}", "source": f"dbo.extra{i}"}]})
+              for i in range(1, count)}
+    return files
 
 
 @pytest.mark.parametrize("count, ok", [(20, True), (21, False)])
@@ -241,11 +257,19 @@ def test_the_fabric_20_file_limit(count, ok):
 
 
 def test_yml_files_are_ignored_with_a_warning():
-    files = _files(20) | _files(3, ".yml")
+    files = _files(20) | _files(3, ".yml") | {"notes.json": "{}"}
     result = ossie_validate.validate_files(files)
     assert result["valid"] and result["counts"]["yaml_files"] == 20
     assert [w["rule"] for w in result["warnings"]] == ["fabric/yml-ignored"]
-    assert result["counts"]["ignored"] == sorted(_files(3, ".yml"))
+    assert result["counts"]["ignored"] == sorted([*_files(3, ".yml"), "notes.json"])
+
+
+def test_the_yaml_extension_is_matched_in_any_case_which_is_labelled_derived():
+    result = ossie_validate.validate_files({"A.YAML": _text(_v02()), "b.YML": "x"})
+    assert result["valid"] and result["counts"]["yaml_files"] == 1 and result["counts"]["ignored"] == ["b.YML"]
+    by_id = {r["id"]: r for r in ossie_profiles.rules("fabric-semantic-view")}
+    for rule_id in ("fabric/file-count", "fabric/yml-ignored"):
+        assert "derived" in by_id[rule_id]["says"] and "case" in by_id[rule_id]["derived"]
 
 
 def _padded(total):
@@ -259,7 +283,8 @@ def _padded(total):
 def test_the_fabric_16_mb_yaml_limit(extra, ok):
     limit = ossie_profiles.FABRIC_MAX_YAML_BYTES
     assert limit == 16_000_000
-    files = {"a.yaml": _text(_v02())}
+    files = {"a.yaml": _text({"version": "0.2.0.dev0", "name": "orders",
+                              "datasets": [{"name": "returns", "source": "dbo.returns"}]})}
     files["b.yaml"] = _padded(limit + extra - len(files["a.yaml"].encode()))
     result = ossie_validate.validate_files(files)
     assert result["counts"]["yaml_bytes"] == limit + extra
@@ -283,12 +308,60 @@ def test_the_tmdl_limit_is_checked_only_when_tmdl_is_given():
 
 
 def test_a_file_in_the_set_is_checked_by_the_fabric_rules():
-    bad = _v02()
-    bad["metrics"][0]["expression"] = {"sql": "SUM(amount)"}
+    bad = {"version": "0.2.0.dev0", "name": "orders",
+           "metrics": [{"name": "rows", "expression": {"sql": "COUNT(*)"}}]}
     result = ossie_validate.validate_files({"a.yaml": _text(_v02()), "b.yaml": _text(bad)})
     assert not result["valid"] and result["diagnostics"] == []
     assert result["files"]["a.yaml"]["valid"]
-    assert [d["rule"] for d in result["files"]["b.yaml"]["diagnostics"]] == ["fabric/metric-dax"]
+    # found in the merged view's metrics[1], shown at its own place in b.yaml
+    assert [(d["path"], d["rule"]) for d in result["files"]["b.yaml"]["diagnostics"]] == [
+        ("$.metrics[0].expression", "fabric/metric-dax")]
+
+
+# ---- a view split across files (semantic-views-yaml-reference, "Validation across files")
+
+def _part(**more):
+    return _text({"version": "0.2.0.dev0", "name": "orders"} | more)
+
+
+def test_a_view_split_into_fragments_is_checked_merged():
+    files = {"datasets.yaml": _part(datasets=_v02()["datasets"]),
+             "relationships.yaml": _part(relationships=_v02()["relationships"]),
+             "metrics.yaml": _part(metrics=_v02()["metrics"])}
+    result = ossie_validate.validate_files(files)
+    assert result["valid"] and result["status"] == "Valid" and result["merged"]["checked"]
+    assert all(r["valid"] for r in result["files"].values())
+
+
+def test_each_fragment_needs_version_and_name_and_nonempty_datasets():
+    files = {"a.yaml": _text(_v02()), "b.yaml": _text({"name": "orders"}), "c.yaml": _part(datasets=[]),
+             "d.yaml": "# only a comment\n", "e.yaml": _text({"version": "0.2.0.dev0"})}
+    result = ossie_validate.validate_files(files)
+    got = {n: [(d["path"], d["rule"]) for d in r["diagnostics"]] for n, r in result["files"].items()}
+    assert got == {"a.yaml": [], "b.yaml": [("$.version", "fabric/fragment")],
+                   "c.yaml": [("$.datasets", "fabric/fragment")], "d.yaml": [("$", "fabric/fragment")],
+                   "e.yaml": [("$.name", "fabric/fragment")]}
+    assert not result["valid"]
+
+
+def test_names_repeated_across_files_and_different_descriptions_are_named():
+    files = {"a.yaml": _text(_v02() | {"description": "Orders"}),
+             "b.yaml": _part(datasets=[{"name": "sales", "source": "dbo.sales2"}], description="Sales")}
+    result = ossie_validate.validate_files(files)
+    assert [(d["path"], d["rule"]) for d in result["files"]["b.yaml"]["diagnostics"]] == [
+        ("$.datasets[0].name", "fabric/duplicate-name"), ("$.description", "fabric/description")]
+    assert "a.yaml" in result["files"]["b.yaml"]["diagnostics"][0]["message"]
+
+
+def test_metrics_without_datasets_are_valid_and_datasets_are_inferred():
+    result = ossie_validate.validate_files({"metrics.yaml": _part(metrics=_v02()["metrics"])})
+    assert result["valid"]
+    assert [w["rule"] for w in result["warnings"]] == ["fabric/datasets-inferred"]
+
+
+def test_a_view_with_no_yaml_files_fails():
+    result = ossie_validate.validate_files({"view.yml": _text(_v02())})
+    assert not result["valid"] and [d["rule"] for d in result["diagnostics"]] == ["fabric/fragment"]
 
 
 # ---- every rule cites its source
@@ -338,10 +411,10 @@ def test_a_document_is_not_changed_by_any_profile():
 
 
 def test_past_the_file_count_only_the_first_twenty_files_are_checked_one_by_one(monkeypatch):
-    from fabric_desktop import ossie_profiles, ossie_validate
+    from fabric_desktop import ossie_profiles
     calls = []
-    real = ossie_validate.validate
-    monkeypatch.setattr(ossie_validate, "validate", lambda doc, profile=None: calls.append(1) or real(doc, profile))
+    real = model_ossie.load_text
+    monkeypatch.setattr(model_ossie, "load_text", lambda text: calls.append(1) or real(text))  # one per file read
     files = {f"f{i:04}.yaml": "version: 0.2.0.dev0\nname: x\ndatasets: []\n" for i in range(500)}
     out = ossie_profiles.validate_files(files)
     assert len(calls) == ossie_profiles.FABRIC_MAX_FILES and len(out["files"]) == ossie_profiles.FABRIC_MAX_FILES

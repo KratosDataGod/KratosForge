@@ -19,10 +19,11 @@ fetched and nothing is executed. The results inform and never block (``ossie_val
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
 
-from . import ossie_validate as ov
+from . import model_ossie, ossie_validate as ov
 
 _RAW = "https://raw.githubusercontent.com/apache/ossie/{commit}/core-spec/ossie-schema.json"
 _LEARN = "https://learn.microsoft.com/en-us/fabric/fundamentals/"
@@ -58,9 +59,16 @@ PROFILES: dict[str, dict[str, Any]] = {
 
 
 def _rule(rule_id: str, profile: str, source: str, page_date: str, basis: str, scope: str, severity: str,
-          says: str) -> dict[str, str]:
+          says: str, derived: str = "") -> dict[str, str]:
+    """One rule. ``derived`` names the part of a documented rule that KratosForge reads into it because the page
+    doesn't say (empty when nothing is)."""
     return {"id": rule_id, "profile": profile, "source": source, "page_date": page_date, "basis": basis,
-            "scope": scope, "severity": severity, "says": says}
+            "scope": scope, "severity": severity, "says": says, "derived": derived}
+
+
+_CASE = ("Matching the .yaml extension in any case (.YAML too) is derived: the page names .yaml and doesn't say "
+         "whether the match is case-sensitive.")
+_MB = "1 MB is read as 1,000,000 bytes, the stricter reading (derived: the page says MB and doesn't say which)."
 
 
 RULES: tuple[dict[str, str], ...] = (
@@ -88,15 +96,36 @@ RULES: tuple[dict[str, str], ...] = (
           "documented", "document", "warning",
           "Dataset fields, primary_key, unique_keys and all ai_context are omitted with warnings."),
     _rule("fabric/file-count", "fabric-semantic-view", FABRIC_YAML_REFERENCE, FABRIC_YAML_REFERENCE_DATE,
-          "documented", "files", "error", f"At most {FABRIC_MAX_FILES} .yaml files in a view."),
-    _rule("fabric/yml-ignored", "fabric-semantic-view", FABRIC_YAML_REFERENCE, FABRIC_YAML_REFERENCE_DATE,
-          "documented", "files", "warning", ".yml files are ignored; only .yaml files count."),
+          "documented", "files", "error",
+          f"At most {FABRIC_MAX_FILES} .yaml files in a view, including subfolders and shortcut content. "
+          + _CASE, _CASE),
+    _rule("fabric/yml-ignored", "fabric-semantic-view", FABRIC_CREATE, FABRIC_YAML_REFERENCE_DATE,
+          "documented", "files", "warning",
+          "Files with other extensions, including .yml, are ignored (Fabric gives no warning; this check does) and "
+          "don't count toward the limits. " + _CASE, _CASE),
     _rule("fabric/yaml-size", "fabric-semantic-view", FABRIC_YAML_REFERENCE, FABRIC_YAML_REFERENCE_DATE,
           "documented", "files", "error",
-          "At most 16 MB of YAML combined (1 MB read as 1,000,000 bytes, the stricter reading)."),
+          "At most 16 MB of YAML combined: the total of the .yaml files, not a per-file allowance. " + _MB, _MB),
     _rule("fabric/tmdl-size", "fabric-semantic-view", FABRIC_YAML_REFERENCE, FABRIC_YAML_REFERENCE_DATE,
           "documented", "files", "error",
-          "At most 30 MB of generated TMDL (1 MB read as 1,000,000 bytes); checked only when the TMDL is given."),
+          "At most 30 MB of generated TMDL; checked only when the TMDL is given. " + _MB, _MB),
+    _rule("fabric/fragment", "fabric-semantic-view", FABRIC_YAML_REFERENCE, FABRIC_YAML_REFERENCE_DATE,
+          "documented", "files", "error",
+          "A view can be split across files, and each YAML file requires version and name. A file may leave out "
+          "datasets, but datasets it declares are a nonempty array. Empty or comment-only files aren't valid."),
+    _rule("fabric/merged", "fabric-semantic-view", FABRIC_YAML_REFERENCE, FABRIC_YAML_REFERENCE_DATE,
+          "documented", "files", "error",
+          "Publishing merges the files into one view (file order doesn't matter), so the merged view is checked "
+          "by this profile's document rules, and each problem is shown in the file it came from."),
+    _rule("fabric/duplicate-name", "fabric-semantic-view", FABRIC_YAML_REFERENCE, FABRIC_YAML_REFERENCE_DATE,
+          "documented", "files", "error", "Resolve duplicate names and conflicting definitions across files."),
+    _rule("fabric/description", "fabric-semantic-view", FABRIC_YAML_REFERENCE, FABRIC_YAML_REFERENCE_DATE,
+          "documented", "files", "error",
+          "Define the top-level description in one file, or repeat the same text; different ones fail publishing."),
+    _rule("fabric/datasets-inferred", "fabric-semantic-view", FABRIC_YAML_REFERENCE, FABRIC_YAML_REFERENCE_DATE,
+          "documented", "files", "warning",
+          "Metrics or relationships can be published without datasets, which are then inferred; relationship "
+          "table references then resolve only in dbo."),
     _rule("snowflake/version", "snowflake-ossie", SNOWFLAKE_IMPORT, NO_PAGE_DATE, "documented", "document",
           "error", "Only Ossie 0.1.1 is supported."),
     _rule("snowflake/wrapper", "snowflake-ossie", SNOWFLAKE_EXPORT, NO_PAGE_DATE, "documented", "document",
@@ -104,7 +133,8 @@ RULES: tuple[dict[str, str], ...] = (
     _rule("snowflake/dialect", "snowflake-ossie", SNOWFLAKE_IMPORT, NO_PAGE_DATE, "derived", "document",
           "warning",
           "Fields and metrics without a SNOWFLAKE or ANSI_SQL expression are silently skipped. Documented; where "
-          "fields and metrics sit inside the wrapper is assumed from 0.2.0.dev0's names, so the rule is derived."),
+          "fields and metrics sit inside the wrapper is assumed from 0.2.0.dev0's names, so the rule is derived.",
+          "where fields and metrics sit inside the 0.1.1 wrapper"),
 )
 BASES = ("pinned schema", "documented", "derived")
 
@@ -281,18 +311,19 @@ def check(doc: dict[str, Any], profile: str) -> dict[str, Any]:
         errors, total, stopped = ov.schema_errors(doc, ov._validator(p["schema"]), p["schema"])
         checked = True
     extra: list[dict[str, Any]] = []
+    notes: list[dict[str, Any]] = []
     if profile == "fabric-semantic-view":
         _fabric(doc, extra, warnings)
     elif profile == "snowflake-ossie":
-        extra.append(ov._diag(("version",), "version", ov.short(raw),
-                              f"no pinned schema for {ov.short(raw)}: Snowflake's {V011} wrapper is checked for its "
+        notes.append(ov._diag(("version",), "unverified", ov.short(raw),
+                              f"no pinned schema for {V011}: Snowflake's {V011} wrapper is checked for its "
                               "documented shape only, so the result is Unverified",
                               "Nothing to change for this; Snowflake checks the file itself when "
                               "SYSTEM$CREATE_SEMANTIC_VIEW_FROM_OSSIE_YAML imports it."))
         _snowflake(doc, extra, warnings)
     total = (total if checked else len(errors)) + len(extra)
     return ov._result(p["schema"] or version, errors + extra, checked, total, stopped, profile=profile,
-                      warnings=warnings, unverified=p["unverified"],
+                      warnings=warnings, notes=notes, unverified=p["unverified"],
                       rules=[r["id"] for r in RULES if r["profile"] == profile and r["scope"] == "document"])
 
 
@@ -306,24 +337,110 @@ def _size(name: str, value: Any) -> int:
     raise TypeError(f"{name} should be text or bytes")
 
 
+_LISTS = ("datasets", "relationships", "metrics")  # what publishing merges from every file
+_LISTED = re.compile(r"^\$\.(datasets|relationships|metrics)\[(\d+)\](.*)$", re.S)
+_ROOT_KEY = re.compile(r"^\$\.([A-Za-z_][A-Za-z0-9_]*)(.*)$", re.S)
+
+
+def _fragment(name: str, value: str | bytes) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """One view file read and checked as a fragment (fabric/fragment, fabric/version): what it holds, or None
+    when it can't be merged, and its problems."""
+    try:
+        doc = model_ossie.load_text(value.decode("utf-8") if isinstance(value, bytes) else value)
+    except (ValueError, TypeError) as exc:  # narrow: load_text's plain refusals (and bad UTF-8), shown as the diagnostic
+        return None, [ov._diag((), "parse", "", str(exc), "Open the file and fix what the message names.")]
+    if doc is None:
+        return None, [ov._diag((), "fabric/fragment", "", "is empty or holds only comments, which isn't a valid "
+                               "definition", "Write version and name and what this file adds, or delete the file.")]
+    if not isinstance(doc, dict):
+        return None, [ov._diag((), "fabric/fragment", ov.short(doc), "should be an object with version and name",
+                               "Write version: 0.2.0.dev0, name and what this file adds at the top.")]
+    problems = [ov._diag((key,), "fabric/fragment", "(missing)", "is required in every file of a view",
+                         f"Add {key}." if key == "name" else f"Add version: {V02}.")
+                for key in ("version", "name") if doc.get(key) in (None, "")]
+    if "datasets" in doc and (not isinstance(doc["datasets"], list) or not doc["datasets"]):
+        problems.append(ov._diag(("datasets",), "fabric/fragment", ov.short(doc["datasets"]),
+                                 "should be a nonempty list when a file declares it",
+                                 "Add the datasets, or leave datasets out of this file."))
+    if doc.get("version") not in (None, "", V02):
+        problems += _fabric_version(doc)
+    return doc, problems
+
+
+def _merge(docs: list[tuple[str, dict[str, Any]]], per_file: dict[str, list[dict[str, Any]]]) -> tuple[
+        dict[str, Any], dict[str, list[tuple[str, int]]], dict[str, str]]:
+    """The files merged into one view as publishing does: datasets, relationships and metrics from every file,
+    one description (fabric/description), names that are unique (fabric/duplicate-name). Also where each merged
+    item and each other top-level key came from, so a problem is shown in its own file."""
+    merged: dict[str, Any] = {"version": V02, "name": docs[0][1].get("name")}
+    origins: dict[str, list[tuple[str, int]]] = {k: [] for k in _LISTS}
+    owner = {"name": docs[0][0], "version": docs[0][0]}
+    for name, doc in docs:
+        for key, value in doc.items():
+            if key in ("version", "name"):
+                continue
+            if key in _LISTS and isinstance(value, list):
+                if not value:  # an empty list is the file's own problem (fabric/fragment), not the view's
+                    continue
+                merged.setdefault(key, []).extend(value)
+                origins[key] += [(name, i) for i in range(len(value))]
+            elif key == "description" and key in merged and value != merged[key]:
+                per_file[name].append(ov._diag(("description",), "fabric/description", ov.short(value),
+                                               f"differs from the description in {owner[key]}, so publishing fails",
+                                               "Define the description in one file, or repeat the same text."))
+            elif key not in merged:
+                merged[key], owner[key] = value, name
+    for key in _LISTS:
+        seen: dict[Any, str] = {}
+        for (name, i), item in zip(origins[key], merged.get(key) or [], strict=True):
+            label = item.get("name") if isinstance(item, dict) else None
+            if not isinstance(label, str):
+                continue
+            if label in seen:
+                per_file[name].append(ov._diag((key, i, "name"), "fabric/duplicate-name", ov.short(label),
+                                               f"is also the name of one of the {key} in {seen[label]}",
+                                               "Give it another name, or keep one definition."))
+            else:
+                seen[label] = name
+    return merged, origins, owner
+
+
+def _home(d: dict[str, Any], origins: dict[str, list[tuple[str, int]]], owner: dict[str, str]) -> tuple[str | None,
+                                                                                                        dict[str, Any]]:
+    """The file a merged view's problem came from (None for the view as a whole), with its path in that file."""
+    m = _LISTED.match(d["path"])
+    if m and int(m[2]) < len(origins[m[1]]):
+        name, i = origins[m[1]][int(m[2])]
+        return name, d | {"path": f"$.{m[1]}[{i}]{m[3]}"}
+    r = _ROOT_KEY.match(d["path"])
+    return (owner.get(r[1]) if r else None), d
+
+
 def validate_files(files: Mapping[str, str | bytes], profile: str = "fabric-semantic-view",
                    tmdl: Mapping[str, str | bytes] | None = None) -> dict[str, Any]:
-    """A view's files (name -> YAML text or bytes) checked by ``profile``'s file-set rules, and each ``.yaml``
-    file by its document rules. ``.yml`` files are ignored, as Fabric ignores them, with one warning. ``tmdl``
-    (path -> text) is the TMDL generated for the view; its combined size is checked only when it is given.
+    """A view's files (name -> YAML text or bytes) checked as Fabric reads them. Publishing merges every
+    ``.yaml`` file into one view, and a file may hold only part of it (fabric/fragment), so each file is checked
+    as a fragment, and the merged view by the profile's document rules (fabric/merged), each problem shown in the
+    file it came from (``files``; ``diagnostics`` holds the set's own). Files without the ``.yaml`` extension,
+    ``.yml`` among them, are ignored as Fabric ignores them, with one warning. ``tmdl`` (path -> text) is the TMDL
+    generated for the view; its combined size is checked only when it is given.
 
-    When the YAML is over the combined limit the files aren't checked one by one (``files_checked`` false), so
-    the cost stays bounded. ``valid`` is true only when no set rule failed and every file was checked and valid."""
+    When the YAML is over the combined limit nothing is read (``files_checked`` false), and past the file-count
+    limit only the first FABRIC_MAX_FILES are, so the cost stays bounded. ``valid`` is true only when no rule
+    failed and every file was checked."""
     if profile != "fabric-semantic-view":
         raise ValueError(f"Only fabric-semantic-view has rules for a set of files; {profile!r} checks one document "
                          "at a time (ossie_validate.validate)")
     names = sorted(files)
-    yaml_names = [n for n in names if n.lower().endswith(".yaml")]
-    ignored = [n for n in names if n.lower().endswith(".yml")]
+    yaml_names = [n for n in names if n.lower().endswith(".yaml")]  # any case: derived (_CASE)
+    ignored = [n for n in names if not n.lower().endswith(".yaml")]
     yaml_bytes = sum(_size(n, files[n]) for n in yaml_names)
     tmdl_bytes = None if tmdl is None else sum(_size(n, v) for n, v in tmdl.items())
     errors: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
+    if not yaml_names:
+        errors.append(ov._diag((), "fabric/fragment", "0", "has no .yaml files, so the view fails to publish",
+                               "Add the view's .yaml files."))
     if len(yaml_names) > FABRIC_MAX_FILES:
         errors.append(ov._diag((), "fabric/file-count", str(len(yaml_names)),
                                f"has {len(yaml_names)} .yaml files; a Fabric semantic view takes at most "
@@ -339,26 +456,57 @@ def validate_files(files: Mapping[str, str | bytes], profile: str = "fabric-sema
     if ignored:
         listed = ", ".join(ignored[:5]) + (", …" if len(ignored) > 5 else "")
         warnings.append(ov._diag((), "fabric/yml-ignored", str(len(ignored)),
-                                 f"Fabric ignores .yml files, so these are left out: {ov._short_text(listed)}",
-                                 "Rename them to .yaml if they belong to the view."))
+                                 f"Fabric ignores files without the .yaml extension, so these are left out: "
+                                 f"{ov._short_text(listed)}", "Rename them to .yaml if they belong to the view."))
     checked = yaml_bytes <= FABRIC_MAX_YAML_BYTES
     # past the file-count limit only the first FABRIC_MAX_FILES are checked one by one, so many tiny files
     # can't cost a schema check each; the set has already failed fabric/file-count
-    to_check = yaml_names[:FABRIC_MAX_FILES]
+    to_check = yaml_names[:FABRIC_MAX_FILES] if checked else []
     if checked and len(yaml_names) > FABRIC_MAX_FILES:
         warnings.append(ov._diag((), "fabric/not-checked", str(len(yaml_names) - FABRIC_MAX_FILES),
                                  f"only the first {FABRIC_MAX_FILES} .yaml files were checked one by one; "
                                  f"{len(yaml_names) - FABRIC_MAX_FILES} more weren't",
                                  "Bring the view to 20 files or fewer, then check it again."))
-    results = {n: ov.validate(files[n], profile) for n in to_check} if checked else {}
-    for group in (errors, warnings):
+    per_file: dict[str, list[dict[str, Any]]] = {n: [] for n in to_check}
+    per_warn: dict[str, list[dict[str, Any]]] = {n: [] for n in to_check}
+    docs = []
+    for n in to_check:
+        doc, problems = _fragment(n, files[n])
+        per_file[n] += problems
+        if doc is not None:
+            docs.append((n, doc))
+    merged_result: dict[str, Any] | None = None
+    if docs:
+        merged, origins, owner = _merge(docs, per_file)
+        merged_result = ov.validate(merged, profile)
+        found = merged_result["diagnostics"]
+        if "datasets" not in merged:  # inferred by Fabric, or a file's empty list (fabric/fragment): not missing
+            found = [d for d in found if (d["path"], d["rule"]) != ("$.datasets", "required")]
+        if not any("datasets" in doc for _, doc in docs):
+            warnings.append(ov._diag(("datasets",), "fabric/datasets-inferred", "(none)",
+                                     "no file declares datasets, so Fabric infers them; relationship table "
+                                     "references then resolve only in dbo",
+                                     "Declare the datasets with schema-qualified sources if they aren't in dbo."))
+        for group, target, rest in ((found, per_file, errors), (merged_result["warnings"], per_warn, warnings)):
+            for d in group:
+                home, moved = _home(d, origins, owner)
+                (target[home] if home in target else rest).append(moved)
+    for group in (errors, warnings, *per_file.values(), *per_warn.values()):
         for d in group:
             d.pop("_parts", None)
+    results = {n: {"valid": not per_file[n], "status": "Invalid" if per_file[n] else "Valid",
+                   "diagnostics": sorted(per_file[n], key=lambda d: (d["path"], d["rule"])),
+                   "warnings": sorted(per_warn[n], key=lambda d: (d["path"], d["rule"]))} for n in to_check}
     checked = checked and len(yaml_names) <= FABRIC_MAX_FILES
-    valid = not errors and checked and all(r["valid"] for r in results.values())
+    stopped = bool(merged_result and (merged_result["stopped"] or merged_result["more"]))
+    valid = (not errors and checked and not stopped and merged_result is not None
+             and all(r["valid"] for r in results.values()))
     status = "Valid" if valid else "Invalid" if errors or results else "Not checked"
     return {"valid": valid, "effect": ov.EFFECT, "profile": profile, "status": status, "diagnostics": errors,
             "warnings": warnings, "files": results, "files_checked": checked,
+            "merged": None if merged_result is None else {
+                "status": merged_result["status"], "checked": merged_result["checked"],
+                "schema": merged_result["schema"], "more": merged_result["more"], "stopped": merged_result["stopped"]},
             "counts": {"yaml_files": len(yaml_names), "yaml_bytes": yaml_bytes, "tmdl_bytes": tmdl_bytes,
                        "ignored": ignored},
             "rules": [r["id"] for r in RULES if r["profile"] == profile and r["scope"] == "files"]}

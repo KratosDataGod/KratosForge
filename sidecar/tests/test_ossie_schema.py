@@ -368,8 +368,10 @@ def test_another_version_is_a_named_diagnostic_never_a_pass():
 
 
 def test_the_older_wrapper_layout_is_a_named_diagnostic():
+    # OSSIE-003b: Snowflake's 0.1.1 wrapper is recognized; with no 0.1.1 schema it is a note, never a pass
     result = ossie_validate.validate({"version": "0.1.1", "semantic_model": [{"name": "x"}]})
-    assert [d["rule"] for d in result["diagnostics"]] == ["version"] and not result["valid"]
+    assert result["diagnostics"] == [] and [d["rule"] for d in result["notes"]] == ["unverified"]
+    assert not result["valid"] and result["status"] == "Unverified"
 
 
 @pytest.mark.parametrize("version", [None, 2, ["0.2.0.dev0"]])

@@ -59,6 +59,7 @@ Priority: P0 blocks the Fabric foundation, P1 completes it, P2 follows. "Evidenc
 - **Dependencies:** CP-004.
 - **Security:** no paid resource without confirm; capacity choice explicit; refuses names that collide with an existing non-KratosForge item.
 - **Acceptance:** plan makes no writes; apply with `confirmed=False` refuses; a rerun after a failed step finishes without duplicates.
+- **Lakehouse optimize co-sign conditions (2026-11-19):** pass this PC's `Installation` to `setup.initialize(lake, installation, approve, family)` and keep `setup.inspect`'s state dict; `plan()` maps `newer` and `conflict` to a blocked step and never calls initialize on them, and `apply` shows that message without retrying; `apply(confirmed=False)` relies on `approve=False` refusing before any write, and with `confirmed=True` the core family is initialized first under the same approval; rows go through `optimize/shared.py` and the outbox (provenance and `record_id` MERGE), never a new writer, and reads keep the newer-schema read-only rule; the environment config row uses a family-prefixed key in the existing config table with `record_id` `env:<key>`. Changes to `schema.py`, `shared.py` or `setup.py` go to that thread for co-sign.
 - **Tests:** fakes. Live: part of CP-012.
 - **Owner:** Central control plane thread; Lakehouse optimize co-sign for `optimize/setup` calls.
 
@@ -121,6 +122,7 @@ Priority: P0 blocks the Fabric foundation, P1 completes it, P2 follows. "Evidenc
 - **Evidence:** `fdopt_sync`, Measured overhead rows from `optimize_service._record_overhead`.
 - **Solution:** read-only summary: measured sync overhead, Fabric CU for the environment's items when the FinOps import provides it, otherwise Unknown; net shown only when both are known.
 - **Dependencies:** FinOps capacity import; ESI reporting schema (ESI-501).
+- **ESI notes (2026-11-19):** read `fdopt_` the way `setup.write` does and refuse a newer schema; keep measured, estimated and scenario figures apart and unknown as unknown (`measurement.py`); the Fabric CU import waits on ESI decisions D3 and D4, so until then there is no measured Fabric CU to read; currency comes from `savings/pricing.py` and is always a Scenario figure.
 - **Security:** none new.
 - **Acceptance:** with no cost data, net savings is never shown.
 - **Tests:** unit tests.

@@ -40,6 +40,7 @@ from .duckdb_rows import keep_try_cast
 from . import spark_hash, spark_time_zone
 from .spark_complex import spark_complex_types
 from .spark_decimals import spark_decimal_types
+from .spark_text_compare import spark_text_comparisons
 from . import trees
 
 
@@ -1579,7 +1580,7 @@ class LocalSparkSession(SparkSession):
                 name = _sql.table_name(target)  # with its catalog: main.dbo.t is refused, never written to dbo.t
                 query = statement.expression.copy()
                 self._bind(query)
-                data = self.conn.sql(_sql.duckdb_sql(spark_complex_types(spark_decimal_types(query, self.conn), self.conn)))
+                data = self.conn.sql(_sql.duckdb_sql(spark_complex_types(spark_decimal_types(spark_text_comparisons(query, self.conn), self.conn), self.conn)))
                 insert = isinstance(statement, exp.Insert)
                 mode = "append" if insert and not statement.args.get("overwrite") else "overwrite"
                 if insert and (statement.find(exp.Partition) or statement.args.get("where")):
@@ -1610,7 +1611,8 @@ class LocalSparkSession(SparkSession):
                     print(lakehouse.write_table(arrow, name, mode=mode))
                 return None
         self._bind(statement)
-        statement = spark_complex_types(spark_decimal_types(statement, self.conn), self.conn)
+        statement = spark_complex_types(spark_decimal_types(spark_text_comparisons(statement, self.conn), self.conn),
+                                        self.conn)
         text = _sql.duckdb_sql(statement)
         if isinstance(statement, (exp.Query, exp.Select, exp.Describe, exp.Show)) or text.upper().startswith(("SELECT", "WITH", "FROM", "VALUES", "DESCRIBE", "SHOW")):
             return DataFrame(self.conn.sql(text), self)

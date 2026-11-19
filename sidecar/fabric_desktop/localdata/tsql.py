@@ -1329,7 +1329,7 @@ def _cast_in_place(node: exp.Expression, precision: int, scale: int) -> None:
     cast.set("this", node)
 
 
-def _text_as_number(node: exp.Add, side: str, to: exp.DataType) -> None:
+def _text_as_number(node: exp.Expression, side: str, to: exp.DataType) -> None:
     """The text side of ``+`` converted to the number's type, as T-SQL does: ``'' + 1`` is 1 and ``f + ''`` is f,
     since '' converts to 0 for an integer or a float (DuckDB refuses it); text for an integer has to be a whole
     number, as in a CAST. A decimal refuses '' in both."""
@@ -1738,7 +1738,7 @@ def _in_class(ch: str) -> str:
     return "\\" + ch if ch in "\\[]^-" else ch
 
 
-_COMPARISONS = (exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.In, exp.Like)
+_COMPARISONS = (exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.In, exp.Like, exp.Between)
 _PADDED_NOTE = ("Couldn't tell the types in some comparisons, so they are done as DuckDB does them: T-SQL ignores "
                 "trailing spaces when it compares text ('a' = 'a  ', and 'a  ' LIKE 'a'), and here they count.")
 _TOP = "\U0010ffff"  # the last character: 'ab ' and then it sorts after 'ab', any spaces, and anything after them
@@ -1759,10 +1759,15 @@ def _padded(here: list[exp.Expression], there: list[exp.Expression]) -> list[str
             elif _unknown(info.this.type) and _is(info.expression.type, _TEXT):
                 unsure = True  # as for =: a text pattern on a value whose type can't be told
             continue
+        if isinstance(node, exp.Between):
+            _text_against_numbers(node, info, ["this", "low", "high"])
+            continue
         if isinstance(node, exp.In):
             if info.args.get("query") is not None or not info.expressions:
                 continue
             sides = [info.this, *info.expressions]
+            if _text_against_numbers(node, info, ["this"], listed=True):
+                continue
             if all(_is(v.type, _TEXT) for v in sides):
                 node.set("this", _rtrim(node.this))
                 node.set("expressions", [_rtrim(v) for v in node.expressions])
@@ -1770,6 +1775,8 @@ def _padded(here: list[exp.Expression], there: list[exp.Expression]) -> list[str
                 unsure = True
             continue
         a, b = info.this.type, info.expression.type
+        if _text_against_numbers(node, info, ["this", "expression"]):
+            continue
         if _is(a, _TEXT) and _is(b, _TEXT):
             if isinstance(node, exp.EQ) and _column_and_text(node):
                 _padded_equal(node)
@@ -1847,6 +1854,40 @@ def _column_and_text(node: exp.EQ) -> bool:
     sides = (node.this, node.expression)
     return any(isinstance(x, exp.Column) for x in sides) and any(isinstance(x, exp.Literal) and x.is_string
                                                                  for x in sides)
+
+
+_CONVERTED = (_INTEGERS - {exp.DataType.Type.BIT}) | {exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT}
+
+
+def _text_against_numbers(node: exp.Expression, info: exp.Expression, keys: list[str], listed: bool = False) -> bool:
+    """Text compared with an integer or a float, converted to the number's type as T-SQL converts it (a number
+    outranks text): ``0 = ''`` is true and ``2 = '1.5'`` is T-SQL's conversion error, where DuckDB stopped on ''
+    and rounded '1.5' to 2. ``keys`` name the compared sides (with ``listed``, IN's list too). Whether any was."""
+    sides: list[tuple[exp.Expression, exp.Expression, str | int]] = [(node, info, key) for key in keys]
+    if listed:
+        sides += [(node, typed, i) for i, typed in enumerate(info.expressions)]
+    kinds = [(i.args[k] if isinstance(k, str) else i).type for _, i, k in sides]
+    numbers = [k for k in kinds if k is not None and _is(k, _CONVERTED)]
+    if not numbers or not any(_is(k, _TEXT) for k in kinds) or any(k is not None and not (
+            _is(k, _TEXT) or _is(k, _NUMBERS)) for k in kinds):
+        return False
+    to = numbers[0]
+    if any(not _is(k, _CONVERTED) and not _is(k, _TEXT) for k in kinds) or any(
+            k is not None and k.this != to.this for k in numbers):
+        return False  # a decimal, or numbers of two types: T-SQL's precedence picks one, left to DuckDB
+    items = list(node.expressions) if listed else []
+    for (_, _, key), kind in zip(sides, kinds, strict=True):
+        if not _is(kind, _TEXT):
+            continue
+        if isinstance(key, str):
+            _text_as_number(node, key, to)
+        else:
+            holder = exp.Paren(this=items[key].copy())
+            _text_as_number(holder, "this", to)
+            items[key] = holder.this
+    if listed:
+        node.set("expressions", items)
+    return True
 
 
 def _padded_equal(node: exp.EQ) -> None:
@@ -2472,6 +2513,10 @@ def _whole_count(count: exp.Expression) -> exp.Expression:
     return count.copy() if _whole(count, 0) else exp.cast(exp.Trunc(this=count.copy()), "BIGINT")
 
 
+# No text is longer than this (2 GB in T-SQL), so a longer LEFT or RIGHT is the whole text; DuckDB stops past 2^32 - 1.
+_LONGEST = 2 ** 31 - 1
+
+
 def _left_right(node: exp.Left | exp.Right) -> None:
     """``LEFT`` and ``RIGHT``: a negative length is an error (see _string_edges)."""
     name = "LEFT" if isinstance(node, exp.Left) else "RIGHT"
@@ -2479,18 +2524,24 @@ def _left_right(node: exp.Left | exp.Right) -> None:
     message = f"Invalid length parameter passed to the {name} function."
     value = _number(length)
     if value is not None:
-        # T-SQL makes the length an integer first, toward zero: LEFT(s, -0.5) is ''.
-        if int(value) < 0:
+        # T-SQL makes the length an integer first, toward zero: LEFT(s, -0.5) is ''. It takes a bigint, so a
+        # literal past one, or past a float (400 nines), is T-SQL's overflow error, not Python's.
+        # A whole literal is read exactly (a float would round 9223372036854775807 up past a bigint).
+        exact = _digits(length.name, "bigint") if _whole(length, 0) else \
+            int(value) if math.isfinite(value) else _INFINITE
+        whole = _in_range(exact, "bigint")
+        if whole < 0:
             raise ValueError(f"This T-SQL can't be run on the local engine: {message} T-SQL gives the same error.")
-        if not _whole(length, 0):  # 2.0, 1e1, 2.7: DuckDB rounds or won't bind them
-            node.set("expression", exp.Literal.number(int(value)))
+        if not _whole(length, 0) or whole > _LONGEST:  # 2.0, 1e1, 2.7: DuckDB rounds or won't bind them
+            node.set("expression", exp.Literal.number(min(whole, _LONGEST)))
         return
     if _whole(length, 0):
         return
 
     def build(text: exp.Expression, n: exp.Expression) -> exp.Expression:
         whole = _whole_count(n)
-        call = type(node)(this=text, expression=whole.copy())
+        longest = exp.func("LEAST", whole.copy(), exp.Literal.number(_LONGEST))
+        call = type(node)(this=text, expression=longest)
         negative = exp.LT(this=whole, expression=exp.Literal.number(0))
         return exp.Case(ifs=[exp.If(this=negative, true=exp.func("ERROR", exp.Literal.string(message)))], default=call)
     node.replace(_once([node.this, length], build))

@@ -96,6 +96,26 @@ These cases can still differ, and LOC-005 notes them:
 | `spark.sql.ansi.enabled` set to true in a notebook | A division by zero is an error | NULL |
 | On the DuckDB engine, a statement that reads a table made earlier in the same cell | Spark's decimal types | DuckDB's types: the table isn't there yet when the cell is read. Make the table in its own cell |
 
+## Rounding a double on this PC
+
+Spark SQL run on this PC, and the DataFrame API's `round` and `bround`, round a `double` or `float` as Spark does: the value's shortest decimal text is rounded half up (`round`) or half even (`bround`) and turned back into a `double` (a `float` stays a `float`). For example, `round(0.285D, 2)` is 0.29 and `round(1.005D, 2)` is 1.01, as in Spark, where rounding the binary value gives 0.28 and 1.0. NaN and infinity are kept. These are checked against Apache Spark 3.5.3's own answers in `sidecar/tests/test_spark_double_rounding.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| More than 20 places, or fewer than -20, such as `round(x, 25)` | Rounds | Refused by name: cast the value to a decimal first |
+| A number of places that isn't written in the query, such as `round(x, n)` | Rounds the decimal text | Rounds the binary value, as DuckDB does |
+| A statement whose types can't be worked out | Rounds the decimal text | Rounds the binary value, as DuckDB does |
+
+## Text compared with a number on this PC
+
+Spark SQL run on this PC, and the DataFrame API's filters and columns, compare text with a number as Spark does with ANSI mode off: the text is cast to the number's type, as Spark's `CAST` reads it. So `'1.5' = 1` is true, and `0 = ''`, `'abc' = 1` and `'1e2' = 100` are NULL, where DuckDB rounded `'1.5'` to 2, read `'1e2'` as 100 and stopped on `''`. Text and a decimal are compared as doubles, so `'1.55' = 1.6` is false. `IN` with text and numbers compares them all as text, so `'1.0' IN (1, 2)` is false. `BETWEEN` and `CASE x WHEN ...` compare each pair the same way. `CAST('.5' AS INT)` is 0, as in Spark. These are checked against Apache Spark 3.5.3's own answers in `sidecar/tests/test_spark_text_comparisons.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| A statement whose types can't be worked out | Casts the text to the number's type | DuckDB's own comparison, which can round the text or stop on it |
+| `IN` with a subquery | Casts to the wider type | DuckDB's own comparison |
+| `CASE x WHEN ...` whose values mix text and numbers, or numbers of two types | Casts each pair | DuckDB's own comparison |
+
 ## Whole-number arithmetic on this PC
 
 Spark SQL run on this PC, in a notebook or on the DuckDB engine, computes `+`, `-` and `*` of two whole numbers as Spark does with ANSI mode off: in the wider of the two types (`tinyint`, `smallint`, `int` or `bigint`; a whole-number literal is an `int` when it fits, else a `bigint`), wrapping around past the type's range as Java does. For example, `2147483647 + 1` is `-2147483648` and `CAST(100 AS TINYINT) + CAST(100 AS TINYINT)` is `-56`, where DuckDB stops with "Overflow in addition". The cases are checked against Apache Spark 3.5.3's own answers in `sidecar/tests/test_spark_integer_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric. Databricks SQL on the DuckDB engine, which runs with ANSI mode on, still stops on an overflow, as Databricks does.

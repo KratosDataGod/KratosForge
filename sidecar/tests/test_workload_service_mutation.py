@@ -1,0 +1,768 @@
+"""Workloads (workload_service.py) edges the main tests don't pin down (mutation batch 196,
+docs/quality/mutation-testing.md): how long a read counts as fresh, cached or stale, to the second;
+default page sizes and limits as numbers; when an item scan starts and what it says; the timeline's
+texts; which runs can be cancelled; and audit lines sent, counted and tried again on time."""
+
+import datetime as dt
+import os
+import threading
+import types
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
+
+from fabric_desktop import schedule_service, workload_service
+from fabric_desktop.auth import FABRIC_SCOPES, STORAGE_SCOPES
+from fabric_desktop.fabric_api import FabricError
+from fabric_desktop.workloads import inventory, model
+
+from test_workloads import (  # noqa: F401 - svc and project are fixtures
+    USER,
+    FakeFabric,
+    _inject,
+    _test_env,
+    project,
+    scan,
+    signed_in,
+    svc,
+)
+
+T = dt.datetime(2026, 11, 19, 12, 0, 0, tzinfo=dt.timezone.utc)
+
+
+def frozen(monkeypatch):
+    monkeypatch.setattr(model, "now", lambda: T)
+
+
+def ago(seconds):
+    return model.iso(T - dt.timedelta(seconds=seconds))
+
+
+class Threads:
+    """Stands in for the threading module in workload_service: records each thread asked for."""
+
+    def __init__(self):
+        self.started = []
+        outer = self
+
+        class Thread:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def start(self):
+                outer.started.append(self.kwargs)
+
+        self.Thread = Thread
+        self.Lock = threading.Lock
+
+
+def fake_threads(monkeypatch):
+    threads = Threads()
+    monkeypatch.setattr(workload_service, "threading", threads)
+    return threads
+
+
+# ---- how old a read is, and when it is stale
+
+
+def test_the_age_of_a_read_is_seconds_since_it_or_none_when_its_time_cant_be_read(
+    monkeypatch,
+):
+    frozen(monkeypatch)
+    assert workload_service._age_s(ago(90)) == 90.0
+    assert (
+        workload_service._age_s("not a time") is None
+        and workload_service._age_s(None) is None
+    )
+
+
+def test_a_cached_run_log_is_cached_for_exactly_an_hour_then_stale(svc, monkeypatch):  # noqa: F811
+    frozen(monkeypatch)
+    payload = {"runs": [{"run_id": "r1"}], "deployments": []}
+    for age, state in ((3600, "cached"), (3601, "stale")):
+        out = svc._wl_cached_or(
+            {"collected_at": ago(age), "payload": payload},
+            "src",
+            "offline",
+            "No network.",
+        )
+        assert out["configured"] is True and out["runs"] == [{"run_id": "r1"}]
+        assert out["observation"]["state"] == state
+        assert (
+            out["observation"]["detail"] == "Showing what was read earlier. No network."
+        )
+
+
+# ---- one environment's run log
+
+
+class Frame:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def to_dicts(self):
+        return self.rows
+
+
+def _env_service(svc, monkeypatch, envs):
+    asked = []
+
+    def runs(env, limit=100):
+        asked.append((env, limit))
+        return [{"run_id": f"{env}-1"}]
+
+    monkeypatch.setattr(svc, "meta_runs", runs)
+    monkeypatch.setattr(
+        svc,
+        "_store",
+        lambda project, env, create=False: types.SimpleNamespace(
+            meta=lambda table: Frame(
+                [{"env": env, "at": dt.datetime(2026, 11, 1, 9, 0)}]
+            )
+        ),
+    )
+    return types.SimpleNamespace(environments=envs), asked
+
+
+def test_dev_without_a_target_is_read_on_this_pc_and_other_environments_on_onelake(
+    svc, monkeypatch
+):  # noqa: F811
+    project, asked = _env_service(
+        svc,
+        monkeypatch,
+        {
+            "dev": {},
+            "test": {"workspace_id": "ws-test", "workspace_name": "Sales Test"},
+        },
+    )
+    dev = svc._wl_meta_env(project, "proj", "dev", False)
+    assert (
+        dev["configured"] is True
+        and dev["runs"] == [{"run_id": "dev-1"}]
+        and dev["deployments"] == []
+    )
+    assert (
+        dev["observation"]["state"] == "live"
+        and dev["observation"]["source"] == "meta.run_log in Dev"
+    )
+    assert asked == [("dev", 2000)]  # up to 2000 runs
+    assert (
+        svc.workload_store.cache_get("meta:proj:dev") is None
+    )  # a local read isn't cached
+    test = svc._wl_meta_env(
+        project, "proj", "test", False
+    )  # signed out: OneLake can't be read
+    assert test["observation"]["state"] == "signed_out" and test["runs"] == []
+    assert test["observation"]["source"] == "meta.run_log in Test (Sales Test)"
+    assert asked == [("dev", 2000)]
+
+
+def test_onelake_needs_both_a_storage_and_a_fabric_token(svc, monkeypatch):  # noqa: F811
+    project, asked = _env_service(
+        svc, monkeypatch, {"test": {"target": "onelake", "workspace_id": "ws-test"}}
+    )
+    for only in (STORAGE_SCOPES, FABRIC_SCOPES):
+        svc._auth = types.SimpleNamespace(
+            signed_in_user=lambda: USER,
+            silent_token=lambda scopes, only=only: "tok" if scopes == only else None,
+        )
+        out = svc._wl_meta_env(project, "proj", "test", True)
+        assert out["observation"]["state"] == "signed_out"
+        assert (
+            out["observation"]["detail"] == "Sign in to read this environment's runs."
+        )
+    assert asked == []
+    signed_in(svc)
+    out = svc._wl_meta_env(project, "proj", "test", True)
+    assert out["observation"]["state"] == "live" and asked == [("test", 2000)]
+    assert out["deployments"] == [{"env": "test", "at": "2026-11-01T09:00:00"}]
+    assert svc.workload_store.cache_get("meta:proj:test")["payload"]["runs"] == [
+        {"run_id": "test-1"}
+    ]
+
+
+def test_a_onelake_read_under_two_minutes_old_is_reused_without_a_token(
+    svc, monkeypatch
+):  # noqa: F811
+    frozen(monkeypatch)
+    project, asked = _env_service(
+        svc, monkeypatch, {"test": {"target": "onelake", "workspace_id": "ws-test"}}
+    )
+    payload = {"runs": [{"run_id": "kept"}], "deployments": []}
+    svc.workload_store.cache_put("meta:proj:test", payload, collected_at=ago(119))
+    out = svc._wl_meta_env(project, "proj", "test", False)  # signed out
+    assert out["configured"] is True and out["runs"] == [{"run_id": "kept"}]
+    assert (
+        out["observation"]["state"] == "cached"
+        and out["observation"]["detail"] == ""
+        and asked == []
+    )
+    out = svc._wl_meta_env(
+        project, "proj", "test", True
+    )  # a refresh asks, and keeps what it had
+    assert (
+        out["runs"] == [{"run_id": "kept"}] and out["observation"]["state"] == "cached"
+    )
+    assert (
+        out["observation"]["detail"]
+        == "Showing what was read earlier. Sign in to read this environment's runs."
+    )
+
+
+# ---- the metadata project: freshness and Fabric schedules
+
+
+def test_freshness_reads_the_newest_run_first_in_every_readable_environment(
+    svc, project, monkeypatch
+):  # noqa: F811
+    name = sorted(project.entities)[0]
+    svc.meta_set_freshness(name, within_hours=24, envs=["dev"])
+    rows = [
+        {
+            "run_id": "r1",
+            "entity": name,
+            "status": "ok",
+            "started_at": "2026-11-18T06:00:00+00:00",
+            "seconds": 5,
+        },
+        {
+            "run_id": "r2",
+            "entity": name,
+            "status": "failed",
+            "started_at": "2026-11-18T07:00:00+00:00",
+            "seconds": 1,
+            "message": "boom",
+        },
+    ]  # oldest first: the service puts the newest first
+    monkeypatch.setattr(
+        svc,
+        "meta_runs",
+        lambda env, limit=100: [dict(r) for r in rows] if env == "dev" else [],
+    )
+    records, _ = svc._wl_meta(False, {}, [], "")
+    dev = next(
+        d
+        for d in next(r for r in records if r["name"] == name)["deployments"]
+        if d["env"] == "dev"
+    )
+    assert dev["freshness"] is not None  # Dev was read, so its promise is checked
+    assert (
+        dev["freshness"]["last_failed"] is True
+        and dev["freshness"]["failed_run"] == "r2"
+    )
+
+
+def test_only_the_runner_notebooks_schedules_in_an_environments_workspace_are_its_schedules(
+    svc, project
+):  # noqa: F811
+    _test_env(svc, project)
+    svc._fabric_schedules = {
+        "items": [
+            {
+                "id": "s1",
+                "workspace_id": "ws-test",
+                "name": inventory.RUNNER_NOTEBOOK,
+                "text": "daily",
+            },
+            {
+                "id": "s2",
+                "workspace_id": "ws-test",
+                "name": "Other notebook",
+                "text": "hourly",
+            },
+            {
+                "id": "s3",
+                "workspace_id": "ws-elsewhere",
+                "name": inventory.RUNNER_NOTEBOOK,
+                "text": "weekly",
+            },
+        ]
+    }
+    records, _ = svc._wl_meta(False, {}, [], "")
+    test = next(d for d in records[0]["deployments"] if d["env"] == "test")
+    assert [s["id"] for s in test["schedules"] if s["where"] == "Fabric"] == ["s1"]
+
+
+# ---- Fabric items: when a scan starts and what the source says
+
+
+def test_items_read_without_a_scan_say_so_or_ask_for_a_sign_in(svc, monkeypatch):  # noqa: F811
+    started = []
+    monkeypatch.setattr(svc, "_wl_start_scan", started.append)
+    items, obs, scanning = svc._wl_items(False)  # signed out, nothing read yet
+    assert (items, obs["state"], obs["detail"], scanning) == (
+        None,
+        "signed_out",
+        "Sign in to list them.",
+        False,
+    )
+    assert started == []
+    signed_in(svc)
+    items, obs, scanning = svc._wl_items(False)  # nothing read yet: a scan starts
+    assert (items, obs["state"], obs["detail"], scanning) == (
+        None,
+        "unknown",
+        "Reading them now.",
+        True,
+    )
+    assert started == ["tok"]
+
+
+def test_a_refresh_scans_again_even_with_items_read_before(svc, monkeypatch):  # noqa: F811
+    started = []
+    monkeypatch.setattr(svc, "_wl_start_scan", started.append)
+    signed_in(svc)
+    svc.workload_store.cache_put(
+        "fabric_items", {"items": [{"id": "i1"}], "errors": [], "workspaces": 1}
+    )
+    items, _, scanning = svc._wl_items(False)
+    assert items == [{"id": "i1"}] and scanning is False and started == []
+    items, _, scanning = svc._wl_items(True)
+    assert scanning is True and started == ["tok"]
+
+
+def test_items_are_cached_for_exactly_a_day_then_stale(svc, monkeypatch):  # noqa: F811
+    frozen(monkeypatch)
+    for age, state in ((24 * 3600, "cached"), (24 * 3600 + 1, "stale")):
+        svc.workload_store.cache_put(
+            "fabric_items",
+            {"items": [], "errors": [], "workspaces": 1},
+            collected_at=ago(age),
+        )
+        assert svc._wl_items(False)[1]["state"] == state
+
+
+def test_items_are_live_only_from_this_scan_and_under_two_minutes_old(svc, monkeypatch):  # noqa: F811
+    frozen(monkeypatch)
+    for age, scanned, state in (
+        (119, None, "live"),
+        (120, None, "cached"),
+        (60, ago(30), "cached"),
+    ):
+        collected = ago(age)
+        svc.workload_store.cache_put(
+            "fabric_items",
+            {"items": [], "errors": [], "workspaces": 1},
+            collected_at=collected,
+        )
+        svc._wl_scan = {"pending": False, "collected_at": scanned or collected}
+        assert svc._wl_items(False)[1]["state"] == state, (age, scanned)
+
+
+def test_a_scan_runs_on_a_background_thread_and_a_second_ask_waits_for_it(
+    svc, monkeypatch
+):  # noqa: F811
+    threads = fake_threads(monkeypatch)
+    svc._wl_start_scan("tok")
+    [t] = threads.started
+    assert (
+        t["daemon"] is True
+        and t["args"] == ("tok",)
+        and svc._wl_scan == {"pending": True}
+    )
+    svc._wl_start_scan("tok2")
+    assert len(threads.started) == 1 and svc._wl_scan_again == "tok2"
+
+
+def test_a_scan_says_when_it_ended_and_why_a_workspace_couldnt_be_read(
+    svc, monkeypatch
+):  # noqa: F811
+    frozen(monkeypatch)
+    pools = []
+
+    class Pool(ThreadPoolExecutor):
+        def __init__(self, max_workers=None):
+            pools.append(max_workers)
+            super().__init__(max_workers=max_workers)
+
+    monkeypatch.setattr(workload_service, "ThreadPoolExecutor", Pool)
+    monkeypatch.setattr(schedule_service, "FabricClient", FakeFabric)
+    for ws in ("ws1", "ws2", "ws3"):
+        svc.set_workspace_mark(ws, "pins", True)
+    out = svc._wl_scan_items("tok", client=FakeFabric())
+    assert (
+        out == {"pending": False, "collected_at": model.iso(T)} and svc._wl_scan is out
+    )
+    assert pools == [8]  # eight workspaces at a time
+    cached = svc.workload_store.cache_get("fabric_items")
+    message = model.classify_error(
+        FabricError("GET /workspaces/ws2/items failed with 403: Forbidden")
+    )[1]
+    assert message != "unauthorized"
+    assert cached["payload"]["errors"] == [
+        {"workspace": "Locked", "workspace_id": "ws2", "message": message}
+    ]
+    assert cached["payload"]["workspaces"] == 3
+
+
+# ---- collecting and paging
+
+
+def test_a_listing_is_not_a_refresh_unless_asked(svc, monkeypatch):  # noqa: F811
+    signed_in(svc)
+    runs_refresh, items_refresh = [], []
+    monkeypatch.setattr(
+        svc, "fabric_runs", lambda n, refresh=False: runs_refresh.append(refresh) or []
+    )
+    monkeypatch.setattr(
+        svc,
+        "_wl_items",
+        lambda refresh: (
+            items_refresh.append(refresh)
+            or (None, model.observation("Fabric items", "unknown"), False)
+        ),
+    )
+    svc._wl_collect()
+    assert runs_refresh == [False] and items_refresh == [False]
+
+
+def test_a_page_of_workloads_is_100_by_default(svc):  # noqa: F811
+    for i in range(101):
+        svc.notebooks.save(f"nb{i:03d}", [{"type": "code", "source": "x = 1"}])
+    page = svc.workloads_list()
+    assert page["total"] == 101 and len(page["rows"]) == 100
+
+
+def test_actions_are_listed_50_at_a_time_by_default(svc):  # noqa: F811
+    for _ in range(51):
+        svc.workload_store.start_action("notebook:x", "run")
+    assert (
+        len(svc.workload_actions()) == 50
+        and len(svc.workload_actions("notebook:x")) == 50
+    )
+
+
+def test_a_pipeline_listing_that_fails_says_why_in_300_characters(svc, monkeypatch):  # noqa: F811
+    def broken():
+        raise RuntimeError("x" * 500)
+
+    monkeypatch.setattr(svc, "pipeline_list", broken)
+    records, obs = svc._wl_pipelines([], [], {}, "")
+    assert (
+        records == []
+        and obs["state"] == "error"
+        and obs["detail"] == ("RuntimeError: " + "x" * 500)[:300]
+    )
+
+
+def test_a_fabric_items_history_keeps_its_newest_50_runs(svc, monkeypatch):  # noqa: F811
+    class Many(FakeFabric):
+        def list_job_instances(self, ws, item):
+            return [
+                {
+                    "id": f"j{i}",
+                    "status": "Completed",
+                    "startTimeUtc": "2026-10-16T05:00:00Z",
+                }
+                for i in range(51)
+            ]
+
+    signed_in(svc)
+    monkeypatch.setattr(workload_service, "FabricClient", Many)
+    w = {
+        "definition": {
+            "workspace_id": "ws1",
+            "item_id": "pl1",
+            "workspace_name": "Sales Dev",
+        },
+        "runs": [],
+    }
+    runs, obs = svc._wl_fabric_history(w)
+    assert len(runs) == 50 and obs["state"] == "live"
+
+
+# ---- the timeline
+
+
+def test_the_timeline_says_who_promoted_and_changed_what(svc, tmp_path):  # noqa: F811
+    nb = tmp_path / "nb.ipynb"
+    nb.write_text("{}", encoding="utf-8")
+    os.utime(nb, (1_700_000_000, 1_700_000_000))
+    w = {
+        "runs": [],
+        "deployments": [
+            {
+                "env_label": "Test",
+                "version": {
+                    "at": "2026-10-14T11:05:00+00:00",
+                    "from": "dev",
+                    "deployed": "0123456789abcdef",
+                },
+            }
+        ],
+        "definition": {"path": str(nb), "modified": 1.0},
+        "assignment_history": [
+            {
+                "at": "2026-10-15T09:00:00+00:00",
+                "field": "technical_owner",
+                "before": "",
+                "after": "Dana",
+                "by": "",
+            },
+            {
+                "at": "2026-10-16T09:00:00+00:00",
+                "field": "team",
+                "before": "Data team",
+                "after": "",
+                "by": USER,
+            },
+        ],
+    }
+    events = svc._wl_timeline(w, [])
+    assert [(e["kind"], e["text"]) for e in events] == [
+        ("ownership", f"Team: Data team → none by {USER}"),
+        ("ownership", "Technical owner: none → Dana by you"),
+        ("deployment", "Promoted Dev → Test · version 01234567"),
+        ("definition", "Definition changed"),
+    ]
+    # The file's own time, not the recorded one.
+    assert events[-1]["at"] == "2023-11-14T22:13:20+00:00"
+    # With no file, the recorded time is the definition's change.
+    w = {"runs": [], "deployments": [], "definition": {"modified": 1_700_000_000}}
+    assert [(e["kind"], e["at"]) for e in svc._wl_timeline(w, [])] == [
+        ("definition", "2023-11-14T22:13:20+00:00")
+    ]
+
+
+def test_the_timeline_keeps_the_newest_100_events(svc):  # noqa: F811
+    actions = [
+        {
+            "at": f"2026-11-01T00:{i // 60:02d}:{i % 60:02d}+00:00",
+            "action": "run",
+            "status": "succeeded",
+            "by": USER,
+        }
+        for i in range(101)
+    ]
+    events = svc._wl_timeline(
+        {"runs": [], "deployments": [], "definition": {}}, actions
+    )
+    assert len(events) == 100
+    assert (
+        events[0]["at"] == "2026-11-01T00:01:40+00:00"
+        and events[-1]["at"] == "2026-11-01T00:00:01+00:00"
+    )
+
+
+# ---- consumers
+
+
+def test_a_product_is_matched_by_its_id_or_its_name_and_shown_by_its_name(
+    svc, monkeypatch
+):  # noqa: F811
+    w = {
+        "definition": {"project": "sales"},
+        "dependencies": {"products": [{"product": "orders"}]},
+    }
+    monkeypatch.setattr(
+        svc,
+        "platform_products",
+        lambda: {
+            "products": [
+                {
+                    "id": "sales.orders",
+                    "name": "Orders renamed",
+                    "consumers": ["finance"],
+                },
+                {"id": "other.id", "name": "orders", "consumers": ["ops"]},
+                {"id": "sales.orders", "consumers": ["audit"]},
+                {"id": "x", "name": "y", "consumers": ["nobody"]},
+            ]
+        },
+        raising=False,
+    )
+    assert [(c["product"], c["consumer"]) for c in svc._wl_consumers(w)] == [
+        ("Orders renamed", "finance"),
+        ("orders", "ops"),
+        ("sales.orders", "audit"),
+    ]
+
+
+# ---- what can be done, and the preflight
+
+
+def test_only_a_running_fabric_job_with_an_id_can_be_cancelled(svc):  # noqa: F811
+    w = {
+        "deployments": [
+            {
+                "env": None,
+                "actions": ["cancel"],
+                "location": {"label": "Fabric · Sales Dev"},
+            }
+        ],
+        "runs": [
+            {"state": "running", "job_id": "j1", "where": "fabric"},
+            {"state": "ok", "job_id": "j2", "where": "fabric"},
+            {"state": "running", "job_id": "j3", "where": "this_pc"},
+            {"state": "running", "job_id": "", "where": "fabric"},
+        ],
+    }
+    assert svc._wl_available(w) == [
+        {
+            "action": "cancel",
+            "label": "Cancel the run",
+            "env": None,
+            "job_id": "j1",
+            "where": "Fabric · Sales Dev",
+        }
+    ]
+
+
+def test_a_run_on_this_pc_needs_no_sign_in_and_runs_as_its_identity(svc, project):  # noqa: F811
+    wid = model.meta_id("proj", sorted(project.entities)[0])
+    pre = svc.workload_preflight(wid, "run", "dev", assess=False)  # signed out
+    assert pre["allowed"] is True and pre["identity"] == "You, signed in on this PC"
+
+
+def test_a_run_in_fabric_runs_as_the_person_who_starts_it(svc, monkeypatch):  # noqa: F811
+    signed_in(svc)
+    scan(svc, monkeypatch)
+    pre = svc.workload_preflight(
+        model.fabric_id("ws1", "pl1"), "run_item", assess=False
+    )
+    assert (
+        pre["identity"]
+        == f"You ({USER}): a run started here runs as the person who starts it"
+    )
+
+
+def test_a_run_in_test_warns_of_the_version_there_and_runs_in_test(
+    svc, project, monkeypatch
+):  # noqa: F811
+    _test_env(svc, project)
+    signed_in(svc)
+    name = sorted(project.entities)[0]
+    _inject(
+        svc,
+        monkeypatch,
+        "test",
+        [],
+        deployments=[
+            {
+                "env": "test",
+                "version": "0123456789abcdef",
+                "source_env": "dev",
+                "at": "2026-10-14T11:05:00+00:00",
+            }
+        ],
+    )
+    wid = model.meta_id("proj", name)
+    pre = svc.workload_preflight(wid, "run", "test", assess=False)
+    assert (
+        pre["allowed"]
+        and (
+            "Test has version 01234567; your newer changes are not included until you "
+            "promote them."
+        )
+        in pre["warnings"]
+    )
+    asked = []
+    monkeypatch.setattr(
+        svc,
+        "meta_run",
+        lambda names, env: (
+            asked.append((names, env))
+            or [{"entity": names[0], "status": "ok", "run_id": "x"}]
+        ),
+    )
+    assert svc.workload_act(wid, "run", "test")["action"]["status"] == "succeeded"
+    assert asked == [([name], "test")]
+
+
+@pytest.mark.parametrize(
+    "kind,action", [("meta_entity", "explode"), ("notebook", "run")]
+)
+def test_only_an_entitys_run_goes_to_the_metadata_run(svc, monkeypatch, kind, action):  # noqa: F811
+    w = {"name": "n", "kind": kind, "definition": {}, "deployments": [], "runs": []}
+    monkeypatch.setattr(
+        svc,
+        "workload_preflight",
+        lambda *a, **k: {
+            "allowed": True,
+            "target": "t",
+            "where": "This PC",
+            "identity": "you",
+        },
+    )
+    monkeypatch.setattr(svc, "_wl_record", lambda id: w)
+    asked = []
+    monkeypatch.setattr(svc, "meta_run", lambda names, env: asked.append(names) or [])
+    with pytest.raises(ValueError, match=f"unknown action {action}"):
+        svc.workload_act("x:n", action)
+    assert asked == []
+
+
+# ---- settling a schedule run
+
+
+def test_a_manual_run_that_started_in_the_same_second_settles_the_action(svc):  # noqa: F811
+    store = svc.workload_store
+    rec = store.start_action(
+        "nb:x", "run_schedule", "", {"target": "t", "where": "This PC"}, "you", ""
+    )
+    store.update_action(rec["id"], ref={"schedule_id": "s1"})
+    svc._wl_reconcile(
+        [],
+        [
+            {
+                "schedule_id": "s1",
+                "trigger": "manual",
+                "started": rec["at"][:19],
+                "status": "ok",
+            }
+        ],
+    )
+    done = store.actions("nb:x")[0]
+    assert done["status"] == "succeeded" and done["detail"] == "ok"
+
+
+# ---- the platform's audit lines
+
+
+class Platform:
+    def __init__(self, refuse=()):
+        self.refuse, self.calls = set(refuse), []
+
+    def call(self, name, **kw):
+        if kw["entry"].get("name") in self.refuse:
+            raise ConnectionError("no network")
+        self.calls.append((name, kw["workload"], kw["status"]))
+
+
+def test_audit_lines_sent_are_counted_and_none_go_without_a_platform(svc, monkeypatch):  # noqa: F811
+    store = svc.workload_store
+    for i in range(3):
+        store.audit_queue(f"k{i}", "nb:x", "run", "submitted", {"name": f"line{i}"})
+    monkeypatch.setattr(svc, "_wl_audit_platform", lambda: None)
+    sent = svc._wl_audit_send()
+    assert sent == 0 and sent is not None and len(store.audit_waiting(10)) == 3
+    platform = Platform(refuse={"line1"})
+    monkeypatch.setattr(svc, "_wl_audit_platform", lambda: platform)
+    assert (
+        svc._wl_audit_send() == 1 and len(store.audit_waiting(10)) == 2
+    )  # stopped at the one refused
+    platform.refuse = set()
+    assert svc._wl_audit_send() == 2 and store.audit_waiting(10) == []
+    assert platform.calls == [("log_workload_action", "nb:x", "submitted")] * 3
+
+
+def test_waiting_audit_lines_are_tried_again_after_ten_minutes(svc, monkeypatch):  # noqa: F811
+    frozen(monkeypatch)
+    threads = fake_threads(monkeypatch)
+    state = {"waiting": 1, "platform": "this_pc", "tried_at": ago(599)}
+    monkeypatch.setattr(svc, "workload_audit_state", lambda: dict(state))
+    svc._wl_audit_retry()
+    assert threads.started == []
+    state["tried_at"] = ago(600)
+    svc._wl_audit_retry()
+    [t] = threads.started
+    assert t["name"] == "workload-audit" and t["daemon"] is True
+    state["tried_at"] = (
+        None  # never tried: tried now, unless nothing waits or there is no platform
+    )
+    svc._wl_audit_retry()
+    assert len(threads.started) == 2
+    for change in ({"waiting": 0}, {"platform": "none"}):
+        state.update({"waiting": 1, "platform": "this_pc"} | change)
+        svc._wl_audit_retry()
+    assert len(threads.started) == 2

@@ -8067,3 +8067,43 @@ No bugs were found.
 
 None.
 
+# Mutation testing, batch 196
+
+Workloads as the desktop UI lists them (`workload_service.py`): reading the metadata project, notebooks, pipelines and Fabric items into one inventory, a workload's page and timeline, the preflight and the actions, settling them from run records, and the audit lines sent to the platform.
+
+The run was at `main` bdf2c177 (2026-11-19), with the method of batch 142. The module has 449 mutants, so 150 were sampled. No `-k` filter or `--deselect` was needed. One mutant's run timed out (line 725, the audit send's lock taken with `blocking=True`, which waits for ever on the lock a test holds), and it counts as killed.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workload_service.py` | test_workload_service_paths, test_workloads, test_workload_pipelines, test_workload_audit, test_workload_query, test_workload_capacity_use (+ test_workload_service_mutation) | 150 of 449 (147 + 3) | 105 / 45 | **70.0%** | 105/147 → 147/147 | 0/3 → 3/3 | 150 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workload_service.py**:
+  - A cached run log is cached for exactly an hour, then stale; Fabric items for exactly a day. The existing tests used the names, so a changed number still passed.
+  - A read's age is the seconds since it, or none when its time can't be read.
+  - Dev without a target is read on this PC and isn't cached; another environment without one is read on OneLake. Up to 2000 runs are read.
+  - OneLake needs both a storage and a Fabric token. A read under two minutes old is used again without either, and a refresh keeps it, marked as cached and why.
+  - Freshness reads the newest run first, in every environment that was read.
+  - Only the runner notebook's schedules in an environment's workspace are that environment's Fabric schedules.
+  - With no items read, a scan starts and says it is reading them, or asks for a sign-in; a refresh scans again even with items read before.
+  - Items are live only when this scan read them, under exactly two minutes ago.
+  - A scan runs on a background thread, eight workspaces at a time, and returns when it ended. A workspace that can't be read keeps the reason, not the state.
+  - A listing isn't a refresh unless asked. A page holds 100 workloads by default, and actions list 50 at a time.
+  - A pipeline listing that fails says why in 300 characters. A Fabric item's history keeps its newest 50 runs.
+  - The timeline says who promoted what (version cut to 8 characters) and who changed an owner, with none and you for empty values. A definition's time is the file's own, or the recorded one with no file. The newest 100 events are kept.
+  - A product is matched by its id or its name and shown by its name, or its id with no name.
+  - Only a running Fabric job with an id can be cancelled.
+  - A run on this PC needs no sign-in and runs as its identity; a run in Fabric runs as the person who starts it.
+  - A run in Test warns of the version there, cut to 8 characters, and runs in Test. Only an entity's run goes to the metadata run.
+  - A manual run that started in the same second settles a schedule action.
+  - Audit lines sent are counted, none go without a platform, and waiting lines are tried again after exactly ten minutes, on a background thread.
+  - → `test_workload_service_mutation.py`.
+
+### Left
+
+None.

@@ -36,6 +36,7 @@ import re
 import sqlite3
 import time
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any, Callable, ContextManager
 
@@ -166,6 +167,9 @@ def single(url: str) -> Routing:
 class Outbox:
     def __init__(self, path: Path, clock: Callable[[], float] = time.time):
         self.path, self.clock = Path(path), clock
+        # Messages already posted (or sent with no answer) whose row couldn't be deleted, the file being
+        # locked: never sent again from this process, and deleted on the next use that can write.
+        self._gone: set[int] = set()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # A file SQLite can't read is moved aside and the outbox starts empty: messages still waiting
         # in it are kept in the moved file but not sent, and new ones are sent as usual.
@@ -221,36 +225,63 @@ class Outbox:
             return int(conn.execute(sql, values).lastrowid or 0)
 
     def not_sent(self, item_id: int, error: str) -> None:
-        """A post that failed: the message waits like any other that Teams didn't take."""
-        with self._db() as db:
-            db.execute("UPDATE outbox SET attempts = attempts + 1, error = ?, not_before = 0, sending = 0 WHERE id = ?",
-                       (error[:500], item_id))
+        """A post that failed: the message waits like any other that Teams didn't take. Never raises: on a
+        locked file it stays marked as sending, so it goes once more after SENDING_GRACE, as after a stop."""
+        try:
+            with self._db() as db:
+                db.execute("UPDATE outbox SET attempts = attempts + 1, error = ?, not_before = 0, sending = 0 "
+                           "WHERE id = ?", (error[:500], item_id))
+        except (sqlite3.Error, OSError) as exc:
+            _log.warning("Couldn't note a failed post in %s; it's tried again later: %s", self.path.name, failure(exc))
 
     def pending(self) -> list[dict[str, Any]]:
+        self._settle_gone()
         with self._db() as db:
             rows = db.execute("SELECT id, created, title, lines, attempts, error, route, not_before, sending, idempotent "
                               "FROM outbox ORDER BY id").fetchall()
         return [{"id": r[0], "created": r[1], "title": r[2], "lines": json.loads(r[3]), "attempts": r[4],
                  "error": r[5], "route": r[6] or DEFAULT_ROUTE, "not_before": r[7] or 0.0, "sending": bool(r[8]),
                  "idempotent": bool(r[9])}
-                for r in rows]
+                for r in rows if r[0] not in self._gone]
 
     def idempotent(self, item_id: int) -> bool:
-        with self._db() as db:
-            row = db.execute("SELECT idempotent FROM outbox WHERE id = ?", (item_id,)).fetchone()
+        """Whether a kept message may be sent again after a post with no answer. False when the outbox
+        can't be read: a message is then never sent twice, which is the safe side (at most once)."""
+        try:
+            with self._db() as db:
+                row = db.execute("SELECT idempotent FROM outbox WHERE id = ?", (item_id,)).fetchone()
+        except (sqlite3.Error, OSError) as exc:
+            _log.warning("Couldn't read %s; a post with no answer isn't sent again: %s", self.path.name, failure(exc))
+            return False
         return bool(row and row[0])
 
     def done(self, item_id: int) -> None:
-        with self._db() as db:
-            db.execute("DELETE FROM outbox WHERE id = ?", (item_id,))
+        """Take out a message that went (or may have). Never raises: when the file is locked, the message
+        is kept from being sent again by this process and deleted on the next use that can write."""
+        self._gone.add(item_id)
+        self._settle_gone()
+
+    def _settle_gone(self) -> None:
+        if not self._gone:
+            return
+        ids = sorted(self._gone)
+        try:
+            with self._db() as db:
+                db.executemany("DELETE FROM outbox WHERE id = ?", [(i,) for i in ids])
+        except (sqlite3.Error, OSError) as exc:
+            _log.warning("Couldn't take %d sent message(s) out of %s yet; they aren't sent again: %s",
+                         len(ids), self.path.name, failure(exc))
+            return
+        self._gone.difference_update(ids)
 
     def failed(self, item_id: int, error: str) -> None:
         with self._db() as db:
             db.execute("UPDATE outbox SET attempts = attempts + 1, error = ? WHERE id = ?", (error[:500], item_id))
 
     def count(self) -> int:
+        self._settle_gone()
         with self._db() as db:
-            return int(db.execute("SELECT COUNT(*) FROM outbox").fetchone()[0])
+            return int(db.execute("SELECT COUNT(*) FROM outbox").fetchone()[0]) - len(self._gone)
 
     def trim(self) -> int:
         """Remove messages older than KEEP_TRYING, then the oldest beyond MAX_WAITING. How many went."""
@@ -271,7 +302,15 @@ class Outbox:
                 if r[0] in addresses and r[1] == _fingerprint(addresses[r[0]]) and t < r[2] <= t + BACKOFF_MAX + CLOCK_MARGIN}
 
     def route_failed(self, route: str, address: str, error: str) -> float:
-        """Count a failure and set when the route is next tried. Returns that wait in seconds."""
+        """Count a failure and set when the route is next tried. Returns that wait in seconds. Never raises:
+        on a locked file the route rests only for the rest of this send (0 is returned)."""
+        try:
+            return self._route_failed(route, address, error)
+        except (sqlite3.Error, OSError) as exc:
+            _log.warning("Couldn't note a failing route in %s: %s", self.path.name, failure(exc))
+            return 0.0
+
+    def _route_failed(self, route: str, address: str, error: str) -> float:
         fp = _fingerprint(address)
         with self._db() as db:
             row = db.execute("SELECT address, failures FROM route_state WHERE route = ?", (route,)).fetchone()
@@ -284,8 +323,12 @@ class Outbox:
         return wait
 
     def route_ok(self, route: str) -> None:
-        with self._db() as db:
-            db.execute("DELETE FROM route_state WHERE route = ?", (route,))
+        """The route took a post: it no longer rests. Never raises: on a locked file it is noted next time."""
+        try:
+            with self._db() as db:
+                db.execute("DELETE FROM route_state WHERE route = ?", (route,))
+        except (sqlite3.Error, OSError) as exc:
+            _log.warning("Couldn't note a route that works again in %s: %s", self.path.name, failure(exc))
 
 
 def _fingerprint(address: str) -> str:
@@ -336,17 +379,19 @@ _ADDRESS = re.compile(r"(?:flow:)?https?://\S+|/workflows/\S+|mailto:\S+|[\w.%+-
 
 def audit_trouble(audit: Any, result: dict[str, Any], outbox: str) -> None:
     """One audit line (NOT_DELIVERED, outcome error) when a send's post failed this time or its outbox
-    dropped messages unsent, so neither is only in a log: ``queued``, ``dropped`` and ``unconfirmed``
-    (sent with no answer, so not sent again) say which, and the error is kept without any address. A route resting between tries writes nothing: it sent nothing.
+    dropped messages unsent, so neither is only in a log: ``queued``, ``dropped``, ``unconfirmed``
+    (sent with no answer, so not sent again) and ``lost`` (couldn't be kept nor posted) say which, and the error is kept without any address. A route resting between tries writes nothing: it sent nothing.
     Never raises: a line that can't be written is logged, and the messages still wait."""
     error, dropped = str(result.get("error") or ""), int(result.get("dropped") or 0)
-    unconfirmed = int(result.get("unconfirmed") or 0)
-    if not error and not dropped and not unconfirmed:
+    unconfirmed, lost = int(result.get("unconfirmed") or 0), int(result.get("lost") or 0)
+    if not error and not dropped and not unconfirmed and not lost:
         return
+    params = {"outbox": outbox, "queued": int(result.get("queued") or 0), "dropped": dropped,
+              "unconfirmed": unconfirmed, "waiting": int(result.get("waiting") or 0)}
+    if lost:  # couldn't be kept (a locked outbox) nor posted: never sent
+        params["lost"] = lost
     try:
-        audit.record(NOT_DELIVERED, "error", 0.0,
-                     {"outbox": outbox, "queued": int(result.get("queued") or 0), "dropped": dropped,
-                      "unconfirmed": unconfirmed, "waiting": int(result.get("waiting") or 0)},
+        audit.record(NOT_DELIVERED, "error", 0.0, params,
                      error=_ADDRESS.sub("<address>", redact.secrets(error))[:300], reason="failed")
     except Exception as exc:  # noqa: BLE001 - the audit line is extra: the messages are kept either way
         _log.warning("A notice that wasn't delivered couldn't be recorded in the audit log: %s", type(exc).__name__)
@@ -426,24 +471,54 @@ def _messages(changes: list[dict[str, Any]], source: str, digest_over: int) -> l
     return out
 
 
-def send(changes: list[dict[str, Any]], routing: Routing, outbox: Outbox, source: str,
+OUTBOX_TROUBLE = "{path} couldn't be used ({error})"
+LOST = "{n} notice(s) couldn't be kept to send later, so they weren't sent"
+_NOT_KEPT = object()
+
+
+def send(changes: list[dict[str, Any]], routing: Routing, outbox: Outbox | None, source: str,
          post: Callable[[str, str, list[str]], None], digest_over: int = DIGEST_OVER,
          now: dt.datetime | None = None, idempotent: bool = False) -> dict[str, Any]:
     """Post what these changes need, after anything still waiting. Never raises. ``dropped`` counts
     messages removed unsent (older than KEEP_TRYING, or beyond MAX_WAITING); ``error`` is set only
-    when a request was sent and failed this time, not while a route rests; ``waiting`` is what
-    the outbox still holds; ``unconfirmed`` counts posts sent with no answer, not sent again. ``idempotent``:
-    these messages' receiver drops a repeat, so one sent with no answer waits to be sent again."""
+    when a request was sent and failed this time, not while a route rests, or when the outbox couldn't
+    be used; ``waiting`` is what the outbox still holds; ``unconfirmed`` counts posts sent with no answer,
+    not sent again. ``idempotent``: these messages' receiver drops a repeat, so one sent with no answer
+    waits to be sent again.
+
+    An outbox that can't be used (``None``, or its file locked past SQLite's wait) doesn't lose the new
+    messages: each is posted once, straight away, without being kept. One that can't be posted then, or
+    held for quiet hours, is counted in ``lost`` and named in ``error``, never sent later. Nothing is sent
+    twice: a message already posted whose row can't be deleted isn't sent again (``Outbox.done``)."""
     if not routing.routes:
         return {"sent": 0, "queued": 0, "held": 0, "dropped": 0, "skipped": "no Teams webhook set"}
-    now = now or dt.datetime.fromtimestamp(outbox.clock()).astimezone()
-    sent = queued = held = 0
-    dropped = outbox.trim()  # never sent: the caller logs and counts them
-    # route name -> why it isn't tried now: resting after earlier failures, or failed this time
-    down = outbox.resting({r.name: r.url for r in routing.routes})
+    now = now or dt.datetime.fromtimestamp(outbox.clock() if outbox is not None else time.time()).astimezone()
+    sent = queued = held = lost = direct_unconfirmed = 0
+    trouble: list[str] = []
+
+    def kept(step: Callable[[], Any], default: Any = _NOT_KEPT) -> Any:
+        """Run one outbox step; on a locked or broken file, note why and return ``default``."""
+        try:
+            return step()
+        except Exception as exc:  # noqa: BLE001 - an outbox that can't be used must not stop the send; logged
+            why = OUTBOX_TROUBLE.format(path=outbox.path.name if outbox is not None else "The outbox", error=failure(exc))
+            _log.warning("%s; new messages are posted without being kept", why)
+            trouble.append(why)
+            return default
+
     failed: dict[str, str] = {}
     unconfirmed: list[int] = []
-    sent += flush(outbox, routing.by_name, post, down, failed, "From {when}; Teams couldn't be reached then.", unconfirmed)
+    dropped = 0
+    down: dict[str, str] | None = None
+    if outbox is not None:
+        dropped = kept(outbox.trim, 0)  # never sent: the caller logs and counts them
+        # route name -> why it isn't tried now: resting after earlier failures, or failed this time
+        down = kept(lambda: outbox.resting({r.name: r.url for r in routing.routes}), None)
+    usable = down is not None
+    down = down or {}
+    if usable and outbox is not None:
+        sent += kept(lambda: flush(outbox, routing.by_name, post, down, failed,
+                                   "From {when}; Teams couldn't be reached then.", unconfirmed), 0)
     by_route: dict[str, list[dict[str, Any]]] = {}
     later: dict[tuple[str, float], list[dict[str, Any]]] = {}
     for c in changes:
@@ -455,20 +530,50 @@ def send(changes: list[dict[str, Any]], routing: Routing, outbox: Outbox, source
                 by_route.setdefault(r.name, []).append(c)
     for (name, until), cs in later.items():
         for title, lines in messages(cs, source, digest_over):
-            outbox.add(title, lines, "", route=name, not_before=until, idempotent=idempotent)
-            held += 1
+            if usable and outbox is not None and kept(partial(outbox.add, title, lines, "", route=name, not_before=until,
+                                                              idempotent=idempotent)) is not _NOT_KEPT:
+                held += 1
+            else:  # posting it now would break quiet hours, and it can't wait: lost, and said so
+                lost += 1
     for name, cs in by_route.items():
         route = routing.by_name(name)
         assert route is not None
         for title, lines in messages(cs, source, digest_over):
             if name in down:
-                outbox.add(title, lines, down[name], route=name, idempotent=idempotent)
-                queued += 1
+                if usable and outbox is not None and kept(partial(outbox.add, title, lines, down[name], route=name,
+                                                                  idempotent=idempotent)) is not _NOT_KEPT:
+                    queued += 1
+                else:
+                    lost += 1
                 continue
-            item_id = outbox.sending(title, lines, route=name, idempotent=idempotent)
-            if post_kept(outbox, item_id, route, title, lines, post, down, failed, unconfirmed):
+            item_id = kept(partial(outbox.sending, title, lines, route=name, idempotent=idempotent)) \
+                if usable and outbox is not None else _NOT_KEPT
+            if outbox is None or not isinstance(item_id, int):  # not kept: posted once now, never again
+                try:
+                    post(route.url, title, lines)
+                except Exception as exc:  # noqa: BLE001 - a route that can't be sent to: counted as lost, logged
+                    why = failure(exc)
+                    if outcome_unknown(exc):
+                        direct_unconfirmed += 1
+                        why = UNCONFIRMED.format(error=why)
+                    else:
+                        lost += 1
+                    down[name] = failed[name] = why
+                    _log.warning("A notice that couldn't be kept wasn't posted either: %s", why)
+                    continue
                 sent += 1
-            elif item_id not in unconfirmed:
+                continue
+            ok = kept(partial(post_kept, outbox, item_id, route, title, lines, post, down, failed, unconfirmed), None)
+            if ok:
+                sent += 1
+            elif ok is False and item_id not in unconfirmed:
                 queued += 1
-    return {"sent": sent, "queued": queued, "held": held, "dropped": dropped, "unconfirmed": len(unconfirmed),
-            "waiting": outbox.count(), "error": next(iter(failed.values()), None)}
+    waiting = kept(outbox.count, 0) if outbox is not None and usable else 0
+    error = next(iter(failed.values()), None) or (trouble[0] if trouble else None)
+    if lost and not error:
+        error = LOST.format(n=lost)
+    out = {"sent": sent, "queued": queued, "held": held, "dropped": dropped,
+           "unconfirmed": len(unconfirmed) + direct_unconfirmed, "waiting": waiting, "error": error}
+    if lost:
+        out["lost"] = lost
+    return out

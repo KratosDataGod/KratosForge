@@ -138,8 +138,12 @@ def read_all(reader: Callable[[], Raw] | None = None) -> tuple[dict[str, Any], l
         st = kinds.get(name)
         if isinstance(items, OSError) and st is not None and st.kind == "list":
             unknown.add(name)
-            problems.append(f"Group Policy key {name} couldn't be read ({items}), so {name} is kept as it is and "
-                            "can't be changed here until it can be read")
+            if name in RESTRICTED:  # no lockout (Chris, 2026-10-18): the file's value or the default applies
+                problems.append(f"Group Policy key {name} couldn't be read ({items}), so the restriction it sets may "
+                                f"not apply: {name} comes from the policy file or its default until it can be read")
+            else:
+                problems.append(f"Group Policy key {name} couldn't be read ({items}), so {name} is kept as it is and "
+                                "can't be changed here until it can be read")
             continue
         if st is None or st.kind != "list" or isinstance(items, OSError):
             problems.append(f"Group Policy key {name[:80]!r} isn't a list setting KratosForge reads, so it's ignored")

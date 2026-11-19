@@ -91,3 +91,12 @@ def test_the_record_of_policy_changes_notes_group_policy_it_couldnt_read(policy,
     policy_watch.check(tmp_path, audit)
     [changed] = audit.recent(5, "policy_file_changed")
     assert "registry_unreadable" not in changed["target"]
+
+
+def test_an_unreadable_tenant_list_says_the_restriction_may_not_apply(policy, gp):  # noqa: F811
+    gp({}, {"allowed_tenants": PermissionError(5, "Access is denied")})
+    _, problems, unknown = registry_policy.read_all()
+    assert unknown == {"allowed_tenants"}
+    assert problems == [("Group Policy key allowed_tenants couldn't be read ([Errno 5] Access is denied), so the "
+                         "restriction it sets may not apply: allowed_tenants comes from the policy file or its "
+                         "default until it can be read")]

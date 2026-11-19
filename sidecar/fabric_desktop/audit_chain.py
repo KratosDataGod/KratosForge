@@ -14,6 +14,15 @@ ends before it. If the newest line is gone when the next write comes, the old he
 rewrite this file too (and the whole chain): it catches lines cut off by a tool or by hand, not
 an attacker with write access.
 
+So the head is also written, each time it moves, to the Windows Application event log, which a
+user who isn't an administrator can add to but not change or clear (audit_anchor.py). ``verify()``
+compares the trail with the newest record there for this folder: a trail that ends before it, or
+whose line at its line number has another hash (the chain re-sealed), is reported, and so is a
+missing ``head.json`` when such a record exists (only a version that writes ``head.json`` writes
+them; nothing in the lines themselves tells a trail from before ``head.json`` apart). With no record
+to read (off Windows, or an event log that can't be read), ``verify()`` adds a note on Windows and
+relies on ``head.json`` alone.
+
 An organization can cap how long a trail is kept (policy ``audit_retention_days``, retention.py).
 ``prune()`` then deletes whole month files whose month ended longer ago, oldest first, never the
 newest file. Before it deletes anything it records in ``head.json`` where the trail now starts
@@ -36,7 +45,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-from . import jsonfile
+from . import audit_anchor, jsonfile
 
 GENESIS = "0" * 64
 HEAD = "head.json"  # the newest hash and line count, checked by verify()
@@ -165,6 +174,19 @@ def write(folder: Path, entry: dict[str, Any], line: str) -> None:
     if head.get("base"):  # where a pruned trail starts
         new["base"] = head["base"]
     jsonfile.write_json(folder / HEAD, new)
+    _anchor(folder, new)
+
+
+def _anchor(folder: Path, head: dict[str, Any]) -> None:
+    """The head, also in the Windows event log (audit_anchor.py), counting lines a prune deleted."""
+    if isinstance(head.get("lines"), int):
+        audit_anchor.record(folder, str(head.get("hash") or ""), head["lines"] + _base_lines(head))
+
+
+def _base_lines(head: dict[str, Any]) -> int:
+    base = head.get("base")
+    lines = base.get("lines") if isinstance(base, dict) else 0
+    return lines if isinstance(lines, int) else 0
 
 
 def append(folder: Path, entry: dict[str, Any]) -> dict[str, Any]:
@@ -227,6 +249,7 @@ def prune(folder: Path, days: int, now: float | None = None) -> dict[str, Any]:
             else:  # lines lost before the cut: they were in the history deleted now
                 new.pop("lost", None)
         jsonfile.write_json(folder / HEAD, new)
+        _anchor(folder, new)
         for path in old:
             path.unlink(missing_ok=True)
     return {"files": [p.name for p in old], "lines": lines, "through": _month(old[-1])}
@@ -271,12 +294,35 @@ def verify(folder: Path) -> dict[str, Any]:
         lines, want = mark.get("lines"), mark.get("hash")
         if want and isinstance(lines, int) and seen.get(lines) != want:
             problems.append(f"{HEAD}: the trail ends before the {name} (line {lines}); lines were deleted from the end")
+    anchor, note = audit_anchor.newest(folder)
+    if note:
+        notes.append(note)
+    if anchor is not None:
+        problems.extend(_against(anchor, head, seen, count, missing=not (Path(folder) / HEAD).exists()))
     result: dict[str, Any] = {"lines": count, "ok": not problems, "problems": problems}
     if notes:  # only when the clock went back: the usual result keeps its shape
         result["notes"] = notes
     if base.get("through"):
         result["pruned"] = {"through": base["through"], "lines": base.get("lines")}
     return result
+
+
+def _against(anchor: audit_anchor.Anchor, head: dict[str, Any], seen: dict[int, str], count: int,
+             missing: bool) -> list[str]:
+    """The trail against the newest end the event log recorded. Only a version that writes head.json
+    writes these records, so with one on record a missing head.json was deleted."""
+    problems = [f"{HEAD}: missing, so the end of the trail can't be confirmed"] if missing else []
+    pruned = _base_lines(head)
+    line = anchor.lines - pruned  # its line number in the trail as it now starts
+    if line > count:
+        problems.append(f"event log: the trail ends before the newest line the Windows event log recorded "
+                        f"(line {line}); lines were deleted from the end")
+    elif line > 0 and seen.get(line) != anchor.hash:
+        problems.append(f"event log: line {line} isn't the line the Windows event log recorded, so the trail "
+                        f"was re-sealed at or before line {line}")
+    elif line == 0 and pruned and anchor.hash != (head.get("base") or {}).get("hash"):
+        problems.append("event log: the trail's start isn't the one the Windows event log recorded")
+    return problems
 
 
 def _span(delta: dt.timedelta) -> str:

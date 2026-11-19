@@ -262,13 +262,14 @@ class MetaMixin:
         fine: Blocked, a Warning and an unknown reading all stop it, and X-ray, which shows the capacity and
         asks, is the way to V-Order the table then."""
         found = self._maintenance_capacity(workspace_id)
-        if found is None:
-            return "the capacity of its workspace isn't known, and a job run doesn't start an Optimize unchecked"
-        if found["outcome"] == risk.BLOCKED:
+        if found is not None and found["outcome"] == risk.PASS:
+            return None
+        if found is not None and found["outcome"] == risk.BLOCKED:
             return f"the capacity check is Blocked ({found['title']})"
-        if found["outcome"] == risk.WARNING:
+        if found is not None and found["outcome"] == risk.WARNING:
             return f"the capacity check has a warning ({found['title']}), and a job run can't accept one"
-        return None
+        # None, risk.UNKNOWN (never read, unreadable or stale) or any outcome this doesn't know: not checked.
+        return "the capacity of its workspace isn't known, and a job run doesn't start an Optimize unchecked"
 
     def meta_project(self) -> dict[str, Any]:
         try:

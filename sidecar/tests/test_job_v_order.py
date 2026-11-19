@@ -219,7 +219,9 @@ def test_the_service_passes_its_job_capacity_check(tmp_path, monkeypatch):
     ({"outcome": "blocked", "title": "Capacity paused"}, "the capacity check is Blocked (Capacity paused)"),
     ({"outcome": "warning", "title": "Reading over an hour old"},
      "the capacity check has a warning (Reading over an hour old), and a job run can't accept one"),
-    ({"outcome": "ok", "title": "Fine"}, None),
+    ({"outcome": "unknown", "title": "Capacity not read yet"},
+     "the capacity of its workspace isn't known, and a job run doesn't start an Optimize unchecked"),
+    ({"outcome": "pass", "title": "Capacity running"}, None),
 ])
 def test_a_job_starts_v_order_only_on_a_capacity_known_to_be_fine(tmp_path, monkeypatch, found, reason):
     """A job runs unattended (the CLI from Task Scheduler too), so it can't accept a warning, and an unknown
@@ -228,7 +230,8 @@ def test_a_job_starts_v_order_only_on_a_capacity_known_to_be_fine(tmp_path, monk
     from fabric_desktop.service import Service
     service = Service(client_id="x", root=tmp_path)
     if found is not None:
-        found = dict(found, outcome={"blocked": risk.BLOCKED, "warning": risk.WARNING}.get(found["outcome"], "ok"))
+        found = dict(found, outcome={"blocked": risk.BLOCKED, "warning": risk.WARNING, "unknown": risk.UNKNOWN,
+                                     "pass": risk.PASS}[found["outcome"]])
     monkeypatch.setattr(Service, "_maintenance_capacity", lambda self, ws: found)
     assert service._job_v_order_refusal("ws1", "dbo.orders") == reason
 
@@ -244,3 +247,18 @@ def test_a_warning_from_the_real_capacity_check_stops_v_order_end_to_end(lake, t
                              capacity_gate=service._job_v_order_refusal)
     assert fabric.maintenance == [] and record.delta_version == 0
     assert "has a warning (Throttling likely), and a job run can't accept one" in record.v_order_error
+
+
+def test_a_capacity_never_read_stops_v_order_through_the_real_check(lake, tmp_path, monkeypatch):  # noqa: F811
+    """With no reading, risk.check_capacity says "unknown" rather than None; that isn't a pass either."""
+    from fabric_desktop import risk
+    from fabric_desktop.service import Service
+    service = Service(client_id="x", root=tmp_path)
+    monkeypatch.setattr(Service, "_risk_capacity", lambda self, *a: None)
+    found = service._maintenance_capacity("ws1")
+    assert found is not None and found["outcome"] == risk.UNKNOWN
+    fabric = Fabric()
+    record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path,
+                             capacity_gate=service._job_v_order_refusal)
+    assert fabric.maintenance == [] and record.delta_version == 0
+    assert "the capacity of its workspace isn't known" in record.v_order_error

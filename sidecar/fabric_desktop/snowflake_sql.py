@@ -985,7 +985,11 @@ def _whole(value: exp.Expression | None, default: int) -> int:
     if not (isinstance(number, exp.Literal) and not number.is_string and number.name.isdigit()):
         raise _Untranslatable(_refuse("SFX-000", "Not rewritten for DuckDB", "AUTOINCREMENT and IDENTITY are "
                                       "rewritten only with whole numbers written for their start and step."))
-    return -int(number.name) if negative else int(number.name)
+    whole = None if len(number.name) > 19 else (-int(number.name) if negative else int(number.name))
+    if whole is None or not -(2 ** 63) <= whole < 2 ** 63:
+        raise _Untranslatable(_refuse("SFX-000", "Not rewritten for DuckDB", "AUTOINCREMENT and IDENTITY are "
+                                      "rewritten only when their start and step fit in a BIGINT."))
+    return whole
 
 
 def _rewrite_tables(statement: exp.Expression) -> list[exp.Expression]:

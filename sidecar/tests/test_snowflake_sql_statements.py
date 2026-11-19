@@ -146,3 +146,15 @@ def test_ddl_in_a_transaction_runs_nothing_in_a_session():
             == [[0]]
     finally:
         session.close()
+
+
+@pytest.mark.parametrize("step", ["99999999999999999999", "9" * 5000])
+def test_an_identity_step_too_big_for_a_bigint_is_refused(step):
+    translation = s.translate(f"CREATE TABLE t (id INT IDENTITY(1, {step}))")
+    assert not translation.runnable
+    assert "fit in a BIGINT" in translation.first_refusal()
+
+
+def test_a_hybrid_table_which_enforces_its_keys_is_not_made_here():
+    # hybrid tables enforce PRIMARY KEY, UNIQUE and FOREIGN KEY (create-hybrid-table), so the keys must not be dropped
+    assert not s.translate("CREATE HYBRID TABLE h (id INT PRIMARY KEY, v INT)").runnable

@@ -2374,7 +2374,10 @@ def _string_split(node: exp.Anonymous) -> None:
 
 def _whole(node: exp.Expression | None, low: int) -> bool:
     """A whole-number literal of at least ``low``: then the edge rules can't apply."""
-    return isinstance(node, exp.Literal) and not node.is_string and node.name.isdigit() and int(node.name) >= low
+    if not (isinstance(node, exp.Literal) and not node.is_string and node.name.isdigit()):
+        return False
+    return len(node.name.lstrip("0")) > 20 or int(node.name) >= low  # past 20 digits is past any int, and int()
+    # of 4,300 digits or more would stop with Python's own error
 
 
 def _number(node: exp.Expression | None) -> float | None:
@@ -2580,10 +2583,17 @@ def _repeat(node: exp.Repeat | exp.Space) -> None:
     count = node.args.get(key)
     if count is None:
         return
+    # REPLICATE takes any integer type, bigint included; SPACE takes an int (functions/replicate-transact-sql,
+    # functions/space-transact-sql). A negative count is NULL for both, as SQL Server answers it.
+    width = "bigint" if replicate else "int"
     value = _number(count)
     if not _whole(count, 0) and value is not None and math.isfinite(value) and int(value) >= 0:
-        count = exp.Literal.number(int(value))  # 1.7 is 1 and -0.5 is 0: toward zero, as T-SQL makes it an int
+        count = exp.Literal.number(_in_range(int(value), width))  # 1.7 is 1 and -0.5 is 0: toward zero, as T-SQL
         node.set(key, count)
+    elif _whole(count, 0):
+        _in_range(_digits(count.name, width), width)
+    elif value is not None and not math.isfinite(value):  # 1e400, or more digits than a float holds
+        _in_range(_INFINITE, width)
     kind = node.meta.get("kf_replicate", "text") if replicate else "max"
     if _whole(count, 0) and kind == "max":
         return
@@ -2593,12 +2603,14 @@ def _repeat(node: exp.Repeat | exp.Space) -> None:
     if not _whole(count, 0):
         # #3007: text is a whole number or an error, a number is cut toward zero. _int_of names its value several
         # times, so the count is read once first: RAND() is one value, and a nested call isn't copied.
-        count = _once([count], _int_of)
+        count = _once([count], lambda c: _int_of(c, width))
 
     def build(n: exp.Expression, text: exp.Expression | None) -> exp.Expression:
         whole = n
         ifs = []
         if not _whole(n, 0):
+            if not replicate:  # a bigint past an int; a REPLICATE count past a bigint stops in _int_of's cast
+                ifs.append(_past(whole, width))
             ifs.append(exp.If(this=exp.LT(this=whole.copy(), expression=exp.Literal.number(0)), true=exp.null()))
         if text is not None and kind != "max" and not _known_within(text, n, national, most):
             one = exp.func("LENGTH", text.copy()) if national else \
@@ -2622,29 +2634,69 @@ def _known_within(text: exp.Expression, n: exp.Expression, national: bool, most:
     return size * int(n.name) <= most
 
 
-_INT_TEXT = re.compile(r"\s*[+-]?[0-9]+\s*")
+_INT_TEXT = re.compile(r"\s*([+-]?[0-9]+)?\s*")  # '' and spaces alone are 0, as T-SQL converts them
+_INFINITE = 2 ** 64  # a literal past a float: past any int too
+_RANGES = {"int": (-2 ** 31, 2 ** 31 - 1), "bigint": (-2 ** 63, 2 ** 63 - 1)}
 
 
-def _int_of(value: exp.Expression) -> exp.Expression:
+def _digits(text: str, size: str) -> int:
+    """A whole number's text as an int; T-SQL's overflow error past 20 digits, before Python's int() reads it
+    (it stops at 4,300 digits with an error of its own)."""
+    text = text.strip()
+    sign = -1 if text.startswith("-") else 1
+    body = text.lstrip("+-").lstrip("0")  # leading zeros count for nothing, also in int()'s 4,300 digits
+    if len(body) > 20:
+        raise ValueError(f"{_NOT_YET}{_OVERFLOW.format(kind=size)} T-SQL gives the same error.")
+    return sign * int(body or "0")
+
+
+def _in_range(value: int, size: str) -> int:
+    """``value``, or T-SQL's overflow error when an int or a bigint (``size``) can't hold it."""
+    low, high = _RANGES[size]
+    if not low <= value <= high:
+        raise ValueError(f"{_NOT_YET}{_OVERFLOW.format(kind=size)} T-SQL gives the same error.")
+    return value
+
+
+def _past(value: exp.Expression, size: str) -> exp.If:
+    """The CASE branch that stops with T-SQL's overflow error when ``value`` is past an int or a bigint."""
+    low, high = _RANGES[size]
+    outside = exp.Not(this=exp.Between(this=value.copy(), low=exp.Literal.number(low), high=exp.Literal.number(high)))
+    return exp.If(this=outside, true=exp.func("ERROR", exp.Literal.string(_OVERFLOW.format(kind=size))))
+
+
+def _int_of(value: exp.Expression, size: str = "int") -> exp.Expression:
     """``value`` made an int as T-SQL makes a count or code one: a number is cut toward zero, and text
     must be a whole number (``'66'`` is 66, ``'6.5'`` is a conversion error, as in T-SQL; DuckDB's cast
     would round it). A column's type isn't known here, so both ways are written and DuckDB keeps the
     one its type takes; each reads the value through VARCHAR so that both bind whatever the type."""
     if isinstance(value, exp.Literal) and value.is_string:
         if not _INT_TEXT.fullmatch(value.name):
-            raise ValueError(f"This T-SQL can't be run on the local engine: Conversion failed when converting the "
-                             f"varchar value '{value.name}' to data type int. T-SQL gives the same error.")
-        return exp.Literal.number(int(value.name))
+            raise ValueError(f"{_NOT_YET}{_not_whole(value.name, size)} T-SQL gives the same error.")
+        return exp.Literal.number(_in_range(_digits(value.name, size), size))
     text = exp.cast(value.copy(), "VARCHAR")
-    message = exp.DPipe(this=exp.DPipe(this=exp.Literal.string("Conversion failed when converting the varchar value '"),
-                                       expression=text.copy()),
-                        expression=exp.Literal.string("' to data type int."))
+    if size == "int":
+        message: exp.Expression = exp.DPipe(
+            this=exp.DPipe(this=exp.Literal.string("Conversion failed when converting the varchar value '"),
+                           expression=text.copy()),
+            expression=exp.Literal.string("' to data type int."))
+    else:
+        message = exp.Literal.string(_not_whole("", size))
+    whole = exp.func("COALESCE", exp.Nullif(this=exp.func("TRIM", text.copy()), expression=exp.Literal.string("")),
+                     exp.Literal.string("0"))
     strict = exp.Case(ifs=[exp.If(this=exp.func("REGEXP_FULL_MATCH", text.copy(), exp.Literal.string(_INT_TEXT.pattern)),
-                                  true=exp.cast(exp.func("TRIM", text.copy()), "BIGINT"))],
+                                  true=exp.cast(whole, "BIGINT"))],
                       default=exp.func("ERROR", message))
     is_text = exp.EQ(this=exp.func("TYPEOF", value.copy()), expression=exp.Literal.string("VARCHAR"))
     cut = exp.cast(exp.Trunc(this=exp.cast(text.copy(), "DOUBLE")), "BIGINT")
     return exp.Case(ifs=[exp.If(this=is_text, true=strict)], default=cut)
+
+
+def _not_whole(text: str, size: str) -> str:
+    """T-SQL's error for text that isn't a whole number, made an int or a bigint."""
+    if size == "int":
+        return f"Conversion failed when converting the varchar value '{text}' to data type int."
+    return f"Error converting data type varchar to {size}."
 
 
 def _char_codes(tree: exp.Expression) -> None:
@@ -2654,7 +2706,7 @@ def _char_codes(tree: exp.Expression) -> None:
     - ``CHAR(n)`` is NULL outside 0 to 255 ("CHAR returns a NULL value for integer expressions outside this
       input range", functions/char-transact-sql), and a count with a fraction is made an int first, toward
       zero (DuckDB gave the code point, stopped below 0, and didn't bind a decimal)."""
-    for node in list(tree.find_all(exp.Ascii, exp.Unicode, exp.Chr)):
+    for node in reversed(list(tree.find_all(exp.Ascii, exp.Unicode, exp.Chr))):  # deepest first: see _once
         if isinstance(node, (exp.Ascii, exp.Unicode)):
             text = node.this
             if not (isinstance(text, exp.Literal) and text.is_string and text.name):
@@ -2664,18 +2716,20 @@ def _char_codes(tree: exp.Expression) -> None:
             continue
         code = node.expressions[0]
         value = _number(code)
-        if value is not None and math.isfinite(value):
-            whole = int(value)
+        if value is not None:
+            whole = _in_range(int(value) if math.isfinite(value) else _INFINITE, "int")
             node.replace(exp.Chr(expressions=[exp.Literal.number(whole)]) if 0 <= whole <= 255
                          else exp.cast(exp.null(), "TEXT"))
             continue
-        # The code is read once, through a lambda, so CHAR(RAND() * 300) checks and converts the same value.
-        v = exp.to_identifier("kf_code")
-        inside = exp.Between(this=exp.column(v.copy()), low=exp.Literal.number(0), high=exp.Literal.number(255))
-        case = exp.Case(ifs=[exp.If(this=inside, true=exp.Chr(expressions=[exp.cast(exp.column(v.copy()), "INT")]))])
-        bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[_int_of(code)]),
-                         exp.Lambda(this=case, expressions=[v]))
-        node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))
+        # The code is read once, and then its int once, so CHAR(RAND() * 300) draws one number, checks and
+        # converts that one, and a call nested in the code is written once.
+        node.replace(_once([code], lambda c: _once([_int_of(c)], _char_of)))
+
+
+def _char_of(v: exp.Expression) -> exp.Expression:
+    """``CHAR`` of the int ``v``: T-SQL's overflow error past an int, NULL outside 0 to 255."""
+    inside = exp.Between(this=v.copy(), low=exp.Literal.number(0), high=exp.Literal.number(255))
+    return exp.Case(ifs=[_past(v, "int"), exp.If(this=inside, true=exp.Chr(expressions=[exp.cast(v.copy(), "INT")]))])
 
 
 def _charindex(node: exp.StrPosition) -> None:

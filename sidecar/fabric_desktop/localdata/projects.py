@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from .discovery import Source
-from .. import jsonfile
+from .. import jsonfile, win_paths
 from ..redact import describe
 
 _log = logging.getLogger(__name__)
@@ -187,7 +187,7 @@ class ProjectStore:
         if (target / "project.json").exists():
             raise ValueError(f"{target} already holds a local data project. Open it instead.")
         target.mkdir(parents=True, exist_ok=True)
-        project = Project(id=pid, name=name, folder=str(target.resolve()), storage=storage,
+        project = Project(id=pid, name=name, folder=win_paths.keep_drive_letter(str(target), str(target.resolve())), storage=storage,
                           settings=Settings(**(settings or {})),
                           created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
         self.save(project)

@@ -146,7 +146,7 @@ def test_the_engine_refuses_test_and_prod_workspaces_of_the_metadata_project():
     envs = {"dev": {"workspace_id": "w-dev"}, "test": {"workspace_id": "w-test"},
             "prod": {"workspace_id": "w-prod", "workspaces": {"gold": {"id": "w-gold"}}}}
     mixin = SimpleNamespace(_project=lambda: SimpleNamespace(environments=envs),
-                            _maintenance_capacity_refusal=lambda *a: None, _maintenance_audit=lambda *a: a[-1])
+                            _maintenance_capacity_refusal=lambda *a, **k: None, _maintenance_audit=lambda *a: a[-1])
     refuse = MetaMixin._maintenance_refusal
     assert refuse(mixin, "vacuum", "w-dev", "dbo.t") is None
     assert "Test's" in refuse(mixin, "optimize", "w-test", "dbo.t")
@@ -154,7 +154,7 @@ def test_the_engine_refuses_test_and_prod_workspaces_of_the_metadata_project():
 
     def none():
         raise LookupError("no project")
-    assert refuse(SimpleNamespace(_project=none, _maintenance_capacity_refusal=lambda *a: None,
+    assert refuse(SimpleNamespace(_project=none, _maintenance_capacity_refusal=lambda *a, **k: None,
                                   _maintenance_audit=lambda *a: a[-1]),
                   "vacuum", "w-prod", "dbo.t") is None
 
@@ -181,7 +181,8 @@ def test_the_engine_refuses_when_the_capacity_check_is_blocked():
                 raise cap
             return cap
         m = SimpleNamespace(_project=lambda: SimpleNamespace(environments={}), _risk_capacity=read)
-        m._maintenance_capacity_refusal = lambda *a: MetaMixin._maintenance_capacity_refusal(m, *a)
+        m._maintenance_capacity = lambda ws: MetaMixin._maintenance_capacity(m, ws)
+        m._maintenance_capacity_refusal = lambda *a, **k: MetaMixin._maintenance_capacity_refusal(m, *a, **k)
         m._maintenance_audit = lambda *a: MetaMixin._maintenance_audit(m, *a)  # no audit log here: the refusal as is
         return m
 

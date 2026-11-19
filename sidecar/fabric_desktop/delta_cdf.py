@@ -10,7 +10,7 @@ time travel in the same read.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 import pyarrow as pa
 
@@ -24,8 +24,9 @@ def asked(options: dict[str, Any]) -> bool:
     return str(value).strip().lower() == "true" if value is not None else False
 
 
-def bounds(options: dict[str, Any]) -> dict[str, Any]:
-    """delta-rs' load_cdf arguments for the reader's options. Spark's own errors where it has one."""
+def bounds(options: dict[str, Any], instant: Callable[[str], datetime] | None = None) -> dict[str, Any]:
+    """delta-rs' load_cdf arguments for the reader's options. Spark's own errors where it has one. ``instant``
+    reads a time with no zone in the session time zone (spark.sql.session.timeZone); without it, UTC."""
     given = {k: options[k] for k in _OPTIONS if options.get(k) is not None}
     if "startingversion" not in given and "startingtimestamp" not in given:
         raise ValueError("[DELTA_NO_START_FOR_CDC_READ] No startingVersion or startingTimestamp provided for CDC read, "
@@ -40,7 +41,7 @@ def bounds(options: dict[str, Any]) -> dict[str, Any]:
             out[key.replace("version", "_version")] = _version(key, given[key])
     for key in ("startingtimestamp", "endingtimestamp"):
         if key in given:
-            out[key.replace("timestamp", "_timestamp")] = _timestamp(key, given[key])
+            out[key.replace("timestamp", "_timestamp")] = _timestamp(key, given[key], instant)
     if "starting_version" in out and "ending_version" in out and out["ending_version"] < out["starting_version"]:
         raise ValueError(f"[DELTA_INVALID_CDC_RANGE] CDC range from start {out['starting_version']} to end "
                          f"{out['ending_version']} was invalid. End cannot be before start.")
@@ -61,28 +62,36 @@ def _version(key: str, value: Any) -> int:
     return number
 
 
-def _timestamp(key: str, value: Any) -> str:
-    """An RFC 3339 time; without a zone it is UTC, as a Databricks or Fabric Spark session reads it."""
+def _timestamp(key: str, value: Any, instant: Callable[[str], datetime] | None) -> str:
+    """An RFC 3339 time in UTC. A time with no zone is in the session time zone (``instant``), as Spark reads
+    it; UTC, a Databricks or Fabric session's default, when no session is given."""
     name = {"startingtimestamp": "startingTimestamp", "endingtimestamp": "endingTimestamp"}[key]
-    if isinstance(value, datetime):
+    if isinstance(value, datetime) and value.tzinfo:
         when = value
     else:
+        text = value.isoformat(sep=" ") if isinstance(value, datetime) else str(value).strip()
         try:
-            when = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+            datetime.fromisoformat(text.replace("Z", "+00:00"))  # a date or a date and time, as Spark takes
+            when = instant(text) if instant is not None else _utc(text)
         except ValueError:
             raise ValueError(f"{name} must be a date or a date and time like 2026-10-20 13:00:00, not {value!r}, "
                              f"{_STOP}.") from None
-    when = when if when.tzinfo else when.replace(tzinfo=timezone.utc)
     return when.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def read(opened: Any, name: str, options: dict[str, Any]) -> pa.Table:
+def _utc(text: str) -> datetime:
+    when = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+
+
+def read(opened: Any, name: str, options: dict[str, Any],
+         instant: Callable[[str], datetime] | None = None) -> pa.Table:
     """The changes to ``opened`` (a deltalake DeltaTable, ``name`` for messages) the options ask for, as an Arrow
     table with the table's columns, then _change_type, _commit_version (a long) and _commit_timestamp (UTC)."""
     if options.get("versionasof") is not None or options.get("timestampasof") is not None:
         raise ValueError(f"A change data feed read of {name} with versionAsOf or timestampAsOf: the feed is read "
                          f"between startingVersion and endingVersion instead, {_STOP}.")
-    arguments = bounds(options)
+    arguments = bounds(options, instant)
     configuration = {k.lower(): str(v).lower() for k, v in (opened.metadata().configuration or {}).items()}
     if configuration.get("delta.columnmapping.mode", "none") != "none":
         raise NotImplementedError(f"The change data feed of {name} can't be read on this PC the way Databricks and "
@@ -92,13 +101,20 @@ def read(opened: Any, name: str, options: dict[str, Any]) -> pa.Table:
         reader = opened.load_cdf(**arguments)
         table = pa.table(reader.read_all())
     except Exception as exc:  # noqa: BLE001 - delta-rs' own errors, said plainly
-        raise ValueError(_said(str(exc), name, arguments)) from None
+        raise ValueError(_said(str(exc), name, arguments, opened)) from None
     return _spark_types(table)
 
 
-def _said(text: str, name: str, arguments: dict[str, Any]) -> str:
+def _said(text: str, name: str, arguments: dict[str, Any], opened: Any) -> str:
     start = arguments.get("starting_version", arguments.get("starting_timestamp"))
     end = arguments.get("ending_version", arguments.get("ending_timestamp", "latest"))
+    if "Invalid table version" in text:
+        try:
+            latest = f"; its latest version is {opened.version()}"
+        except Exception:  # noqa: BLE001  # silent-ok: the message only leaves out the latest version
+            latest = ""
+        return (f"[DELTA_INVALID_CDC_RANGE] CDC range from start {start} to end {end} was invalid: {name} has no "
+                f"version {start}{latest}, {_STOP}. DESCRIBE HISTORY {name} lists its versions.")
     if "does not have change data enabled" in text:
         return (f"[DELTA_MISSING_CHANGE_DATA] Error getting change data for range [{start} , {end}] as change data "
                 f"was not recorded for a version in it, {_STOP}. Turn it on with ALTER TABLE {name} SET "

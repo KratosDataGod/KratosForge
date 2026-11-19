@@ -1100,7 +1100,8 @@ class LakehouseReader:
         self._no_schema("a table")
         from . import delta_cdf
         if delta_cdf.asked(self._options):  # readChangeFeed: the table's changes, never the table itself
-            return self._session._from_arrow_dataset(delta_cdf.read(lakehouse.open_table(name), name, self._options))
+            return self._session._from_arrow_dataset(delta_cdf.read(lakehouse.open_table(name), name, self._options,
+                                                                    self._session._instant))
         if self._as_of():
             data = lakehouse.table_dataset(lakehouse.open_table(name, **self._as_of()))
             return self._session._from_arrow_dataset(data)
@@ -1152,7 +1153,8 @@ class LakehouseReader:
             opened = DeltaTable(path)
             from . import delta_cdf
             if delta_cdf.asked(self._options):
-                return self._session._from_arrow_dataset(delta_cdf.read(opened, path, self._options))
+                return self._session._from_arrow_dataset(delta_cdf.read(opened, path, self._options,
+                                                                        self._session._instant))
             point = lakehouse.as_of(**self._as_of())
             if point is not None:
                 opened.load_as_version(point)
@@ -1404,6 +1406,18 @@ class LocalSparkSession(SparkSession):
             result = self._statement(statement, evolve=evolve)
         return result if result is not None else DataFrame(self.conn.sql("SELECT 1 WHERE false"), self)
 
+    def _instant(self, text: str) -> datetime.datetime:
+        """``text`` (a date, or a date and time with or without a zone) as an instant, a time with no zone read
+        in the session time zone (spark.sql.session.timeZone), as Spark reads it."""
+        from zoneinfo import ZoneInfo
+
+        from . import spark_time_zone
+        when = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if when.tzinfo is None:  # no query on the connection here: a cell's own result may still be open on it
+            zone = spark_time_zone.zone_id(self.conf.get("spark.sql.session.timeZone", "UTC"))
+            when = when.replace(tzinfo=ZoneInfo(zone))
+        return when
+
     def _table_changes(self, statement: Any) -> Any:
         """Each ``table_changes(table_str, start [, end])`` in ``statement`` read from the table's change data
         feed (delta_cdf) into a view, as Databricks and Fabric read it: a whole number is a version, text a
@@ -1416,6 +1430,14 @@ class LocalSparkSession(SparkSession):
                 continue
             values = []
             for arg in node.expressions:
+                if isinstance(arg, exp.Neg) and isinstance(arg.this, exp.Literal) and not arg.this.is_string:
+                    raise ValueError("table_changes takes versions from 0 up, so nothing ran. A version can't be "
+                                     "negative.")
+                if isinstance(arg, exp.Literal) and arg.is_string and arg.name.strip().isdigit() \
+                        and arg is not node.expressions[0]:
+                    raise ValueError(f"table_changes reads '{arg.name}' in quotes as a timestamp, and it isn't one, "
+                                     f"so nothing ran. Write a version without quotes: table_changes(..., "
+                                     f"{arg.name.strip()}).")
                 if not isinstance(arg, exp.Literal):
                     raise ValueError("table_changes takes a table name and versions or timestamps written as "
                                      "literals on this PC, so nothing ran. Write each one as a number or a "
@@ -1431,7 +1453,7 @@ class LocalSparkSession(SparkSession):
             views = self._bound()
             view = f"__lakehouse_changes_{len(views)}"
             views[f"changes:{name.lower()}:{len(views)}"] = view
-            self.conn.register(view, delta_cdf.read(lakehouse.open_table(name), name, options))
+            self.conn.register(view, delta_cdf.read(lakehouse.open_table(name), name, options, self._instant))
             holder = node.parent if isinstance(node.parent, exp.Table) else node
             replacement = exp.Table(this=exp.to_identifier(view))
             if isinstance(holder, exp.Table) and holder.args.get("alias") is not None:

@@ -105,7 +105,7 @@ from pyspark.sql import functions as F
   `spark.read.option("versionAsOf", 3).table("dbo.sales")` (or `"timestampAsOf", "2026-10-20 13:00:00"`, in UTC), the same options on `spark.read.format("delta").load("Tables/dbo/sales")`, `SELECT * FROM dbo.sales VERSION AS OF 3`, `TIMESTAMP AS OF '...'` and `dbo.sales@v3` in SQL (also on the SQL query page), and `lakehouse.read_table("dbo.sales", version=3)`. `DESCRIBE HISTORY dbo.sales`, `lakehouse.table_history("dbo.sales")` and `from delta.tables import DeltaTable` (`forName`, `forPath`, `history`, `detail`, `toDF`) list a table's versions from its Delta log. Reading uses OneLake, so it uses capacity like any other read. `RESTORE`, `OPTIMIZE` and `VACUUM` run here too (see OPTIMIZE, VACUUM and RESTORE below). `DeltaTable.merge`, `update`, `updateExpr` and `delete` run here (see MERGE, UPDATE and DELETE below). A version removed by `VACUUM` can't be read.
 - **Delta change data feed** reads a table's changes, as in Fabric and Databricks, for a table with
   `delta.enableChangeDataFeed = true`: `spark.read.option("readChangeFeed", "true").option("startingVersion", 1).table("dbo.orders")`
-  (also `startingTimestamp`, `endingVersion` and `endingTimestamp`, times in UTC, and the same options on
+  (also `startingTimestamp`, `endingVersion` and `endingTimestamp`, a time without a zone read in `spark.sql.session.timeZone`, UTC unless a cell sets it, and the same options on
   `spark.read.format("delta").load(...)`), and `SELECT * FROM table_changes('dbo.orders', 1, 3)` in `spark.sql`.
   Each changed row comes with `_change_type` (`insert`, `update_preimage`, `update_postimage`, `delete`),
   `_commit_version` and `_commit_timestamp`. A read with no start stops with `DELTA_NO_START_FOR_CDC_READ`, as

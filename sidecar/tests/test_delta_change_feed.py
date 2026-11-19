@@ -160,3 +160,36 @@ def test_table_changes_needs_literals_and_a_start(lake):
     assert "table_changes takes a table name, a start and an optional end" in out["outputs"][-1]["evalue"]
     out = Kernel().run("spark.sql(\"SELECT * FROM table_changes('orders', 1 + 1)\")")
     assert "written as literals" in out["outputs"][-1]["evalue"]
+
+
+def test_a_time_without_a_zone_is_read_in_the_session_time_zone(lake, monkeypatch):
+    # Spark reads startingTimestamp in spark.sql.session.timeZone (WR-120): 13:00 in Chicago in November (CST,
+    # UTC-6) is 19:00 UTC.
+    k = Kernel()
+    out = k.run("spark.conf.set('spark.sql.session.timeZone', 'America/Chicago')\n"
+                "spark.read.option('readChangeFeed', 'true').option('startingTimestamp', '2000-01-01')"
+                ".table('orders').count()")
+    assert out["outputs"][-1]["text"] == "7", out
+    seen = {}
+
+    def fake(opened, name, options, instant=None):
+        seen["bounds"] = delta_cdf.bounds(options, instant)
+        return pa.table({"id": pa.array([], pa.int64())})
+    monkeypatch.setattr(delta_cdf, "read", fake)
+    k.run("spark.read.option('readChangeFeed', 'true').option('startingTimestamp', '2026-11-19 13:00:00')"
+          ".table('orders')")
+    assert seen["bounds"] == {"starting_timestamp": "2026-11-19T19:00:00Z"}
+
+
+def test_a_start_past_the_latest_version_says_so_as_databricks_does(lake):
+    out = Kernel().run("spark.read.option('readChangeFeed', 'true').option('startingVersion', 9).table('orders')")
+    evalue = out["outputs"][-1]["evalue"]
+    assert evalue.startswith("[DELTA_INVALID_CDC_RANGE] CDC range from start 9 to end latest was invalid: orders "
+                             "has no version 9; its latest version is 3"), evalue
+
+
+def test_table_changes_names_a_negative_version_and_a_quoted_number(lake):
+    out = Kernel().run("spark.sql(\"SELECT * FROM table_changes('orders', -1)\")")
+    assert "A version can't be negative" in out["outputs"][-1]["evalue"]
+    out = Kernel().run("spark.sql(\"SELECT * FROM table_changes('orders', '1')\")")
+    assert "reads '1' in quotes as a timestamp" in out["outputs"][-1]["evalue"]

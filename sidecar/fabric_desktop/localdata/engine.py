@@ -794,7 +794,12 @@ class LocalEngine:
             finished = False
             run = {"query_id": query_id, "started": started, "statements": steps, "dialect": dialect}
             try:
-                statements = self._statements(con, sql, dialect, run)
+                try:
+                    statements = self._statements(con, sql, dialect, run)
+                except ValueError as exc:
+                    if dialect != "tsql" or (said := _as_warehouse_says(exc, {})) is exc:
+                        raise
+                    raise said from None
                 if write is not None:
                     statements = [self._as_write(statements, write, sql)]
                 if change and (len(statements) != 1 or statements[0]["change"] is None):
@@ -864,7 +869,18 @@ class LocalEngine:
                         raise _in_script(said, i, len(statements), step["kind"]) from None
                     steps.append({"statement": i + 1, "type": step["kind"],
                                   "seconds": round(time.monotonic() - step_started, 3)})
-                yield result, run
+                try:
+                    yield result, run
+                except duckdb.Error as exc:
+                    # DuckDB 2.0 runs the last query as its result is read, so its error comes from here
+                    if dialect != "tsql" or isinstance(exc, duckdb.InterruptException) or not statements:
+                        raise
+                    said = _as_warehouse_says(exc, statements[-1])
+                    if said is exc:
+                        raise
+                    if len(statements) > 1:
+                        said = _in_script(said, len(statements) - 1, len(statements), statements[-1]["kind"])
+                    raise said from None
                 finished = True
             except (duckdb.InterruptException, OSError) as exc:
                 # An interrupt while a result streams comes out of pyarrow's reader as OSError.
@@ -1907,17 +1923,22 @@ def _in_script(exc: Exception, i: int, n: int, kind: str) -> Exception:
 def _as_warehouse_says(exc: Exception, step: dict[str, Any]) -> Exception:
     """WR-233: a DuckDB error from a T-SQL statement in SQL Server's words where they map with certainty, and
     without a suggestion of DuckDB's own system tables; DuckDB's text goes to the log for support."""
-    if not isinstance(exc, duckdb.Error):
-        return exc
     text = str(exc)
-    words = tsql_errors.warehouse(text, step.get("sql") or "", step.get("kind") or "")
-    if words is None:
-        words = tsql_errors.without_system_hint(text)
-        if words == text:
-            return exc
+    if not isinstance(exc, duckdb.Error):
+        words = tsql_errors.numbered(text)  # WR-234: such as the duplicate CTE name, in SQL Server's words already
+        return exc if words == text else _same_kind(exc, words)
+    mapped = tsql_errors.warehouse(text, step.get("sql") or "", step.get("kind") or "")
+    words = tsql_errors.without_system_hint(text) if mapped is None else mapped
+    if words == text:
+        return exc
+    words = tsql_errors.numbered(words)
     # Only DuckDB's message, never the statement it quotes after it ("LINE 1: ..."), which can hold a value
     _log.info("Local T-SQL error shown as %r; DuckDB said: %s", words.split("\n", 1)[0],
               one_line(text.split("\n\nLINE ", 1)[0], 1000))
+    return _same_kind(exc, words)
+
+
+def _same_kind(exc: Exception, words: str) -> Exception:
     try:
         return type(exc)(words)
     except TypeError:  # an error type that needs more than a message: as it was

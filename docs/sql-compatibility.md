@@ -683,7 +683,7 @@ What can still differ:
 - `BEGIN TRAN`, `COMMIT`, `ROLLBACK` and `SET TRANSACTION` are refused here (see Local T-SQL scripts), so a conflict here is always about one statement.
 - A commit delta-rs refuses for another reason, such as a change to a table with `delta.appendOnly`, isn't called a conflict. It stops with delta-rs's own reason and says nothing was committed.
 
-## Local T-SQL errors for a missing name
+## Local T-SQL errors
 
 When a T-SQL statement on this PC names a column or table that isn't there, the error uses SQL Server's own words, as a Fabric Warehouse does:
 
@@ -693,7 +693,11 @@ When a T-SQL statement on this PC names a column or table that isn't there, the 
 | `Invalid object name 'dbo.x'.` (error 208) | A table or view that isn't there, with its schema as the statement wrote it, and a `#temp` table after it's dropped |
 | `Ambiguous column name 'x'.` (error 209) | A column two of the tables the statement reads both have |
 
-Any other error from the local engine keeps its own words, without a "Did you mean" that names one of DuckDB's system tables (such as `pg_catalog.pg_settings`), which a warehouse project never has. `DROP TABLE` of a table that isn't there, and a column prefixed by a table alias that isn't in `FROM` (`x.id`), keep the local engine's words too, because a warehouse answers those with other errors (3701 and 4104) whose text the local engine can't give in full. The error number isn't shown yet.
+Any other error from the local engine keeps its own words, without a "Did you mean" that names one of DuckDB's system tables (such as `pg_catalog.pg_settings`), which a warehouse project never has. `DROP TABLE` of a table that isn't there, and a column prefixed by a table alias that isn't in `FROM` (`x.id`), keep the local engine's words too, because a warehouse answers those with other errors (3701 and 4104) whose text the local engine can't give in full.
+
+Where SQL Server's number is certain, the error shows it and its severity as SQL Server prints them, such as `Msg 207, Level 16: Invalid column name 'x'.` That covers 207, 208 and 209 above, `Msg 239` for two CTEs of one name and `Msg 8134` for `Divide by zero error encountered.`. In a script, the error also names the statement and what ran before it: `Statement 2 of 3 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run.` No number is guessed for any other error. SQL Server's state and line aren't shown, and the statement number takes the line's place.
+
+`@@ERROR`, `ERROR_NUMBER()`, `ERROR_MESSAGE()`, `ERROR_SEVERITY()`, `ERROR_STATE()`, `ERROR_LINE()` and `ERROR_PROCEDURE()` read an error after it happened, in `TRY...CATCH` or the next statement. The local engine doesn't run `TRY...CATCH` yet, so each is refused by name. Run the batch in a Fabric Warehouse to handle the error in T-SQL.
 
 ## Local T-SQL wide tables and long values
 

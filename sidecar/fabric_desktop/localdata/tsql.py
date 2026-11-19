@@ -79,6 +79,12 @@ _REFUSED = {
     exp.Commit: "transactions (COMMIT)",
     exp.Rollback: "transactions (ROLLBACK)",
 }
+# WR-234: what reads an error after it happened, which waits on the T-SQL interpreter (TRY...CATCH)
+_ERROR_READERS = {"ERROR_NUMBER", "ERROR_MESSAGE", "ERROR_SEVERITY", "ERROR_STATE", "ERROR_LINE", "ERROR_PROCEDURE"}
+_ERROR_READ = ("{name} isn't mapped yet. It reads an error after it happened, in TRY...CATCH or the next statement, "
+               "and the local engine doesn't run TRY...CATCH yet. Here a script stops at its first error and names "
+               "it, with its number where it's certain, such as \"Msg 8134, Level 16: Divide by zero error "
+               "encountered.\" Run it in a Fabric Warehouse to handle the error in T-SQL.")
 _LATER = ("Run the statements one at a time, with values in place of variables. A batch with variables and "
           "control flow runs in a Fabric Warehouse, not on the local engine yet.")
 
@@ -665,6 +671,8 @@ def _refuse(tree: exp.Expression) -> None:
         collate.replace(collate.this)  # a binary collation is how text compares here already (WR-210)
     for p in tree.find_all(exp.Parameter, exp.SessionParameter):
         name = p.sql(dialect="tsql")
+        if name.upper() == "@@ERROR":
+            raise ValueError(_NOT_YET + _ERROR_READ.format(name="@@ERROR"))
         raise ValueError(f"The local engine doesn't run T-SQL variables ({name}) yet. {_LATER}")
 
 
@@ -2336,6 +2344,8 @@ def _unknown_functions(tree: exp.Expression, known: Container[str]) -> None:
     """A function DuckDB doesn't have is refused by its T-SQL name, not with DuckDB's catalog error."""
     for call in tree.find_all(exp.Anonymous):
         name = call.name.upper()
+        if name in _ERROR_READERS:
+            raise ValueError(_NOT_YET + _ERROR_READ.format(name=f"{name}()"))
         if name and name not in known:
             raise ValueError(_NOT_YET + f"{name} isn't mapped yet.")
     if any(True for _ in tree.find_all(exp.CurrentTimestampLTZ)):

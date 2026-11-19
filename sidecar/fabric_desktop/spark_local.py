@@ -1520,6 +1520,8 @@ class LocalSparkSession(SparkSession):
                     raise ValueError("table_changes takes a table name and versions or timestamps written as "
                                      "literals on this PC, so nothing ran. Write each one as a number or a "
                                      "quoted time.")
+                if not arg.is_string and arg.name.isdigit() and len(arg.name.lstrip("0")) > delta_cdf._VERSION_DIGITS:
+                    raise ValueError("table_changes takes a version up to a long's largest value, so nothing ran.")
                 values.append(int(arg.name) if not arg.is_string and arg.name.isdigit() else arg.name)
             if len(values) not in (2, 3) or not isinstance(values[0], str):
                 raise ValueError("table_changes takes a table name, a start and an optional end: "

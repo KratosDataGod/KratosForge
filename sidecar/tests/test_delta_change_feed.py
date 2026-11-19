@@ -176,9 +176,11 @@ def test_a_time_without_a_zone_is_read_in_the_session_time_zone(lake, monkeypatc
         seen["bounds"] = delta_cdf.bounds(options, instant)
         return pa.table({"id": pa.array([], pa.int64())})
     monkeypatch.setattr(delta_cdf, "read", fake)
-    k.run("spark.read.option('readChangeFeed', 'true').option('startingTimestamp', '2026-11-19 13:00:00')"
-          ".table('orders')")
-    k.run("spark.conf.unset('spark.sql.session.timeZone')")  # so no later test in this worker sees Chicago
+    try:
+        k.run("spark.read.option('readChangeFeed', 'true').option('startingTimestamp', '2026-11-19 13:00:00')"
+              ".table('orders')")
+    finally:
+        k.run("spark.conf.unset('spark.sql.session.timeZone')")  # so no later test in this worker sees Chicago
     assert seen["bounds"] == {"starting_timestamp": "2026-11-19T19:00:00Z"}
 
 
@@ -194,3 +196,15 @@ def test_table_changes_names_a_negative_version_and_a_quoted_number(lake):
     assert "A version can't be negative" in out["outputs"][-1]["evalue"]
     out = Kernel().run("spark.sql(\"SELECT * FROM table_changes('orders', '1')\")")
     assert "reads '1' in quotes as a timestamp" in out["outputs"][-1]["evalue"]
+
+
+def test_huge_versions_stop_before_they_are_read_whole(lake):
+    huge = "9" * 5000
+    with pytest.raises(ValueError) as raised:
+        delta_cdf.bounds({"startingversion": huge})
+    assert "is past any table's versions" in str(raised.value) and len(str(raised.value)) < 200
+    out = Kernel().run(f"spark.sql(\"SELECT * FROM table_changes('orders', {huge})\")")
+    assert "up to a long's largest value" in out["outputs"][-1]["evalue"]
+    with pytest.raises(ValueError) as raised:
+        delta_cdf.bounds({"startingversion": "x" * 500})
+    assert len(str(raised.value)) < 200

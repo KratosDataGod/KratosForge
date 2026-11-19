@@ -3837,6 +3837,49 @@ body[data-skin-cells="rounded"] .cells.editing .cell.selected .cell-box { box-sh
 .assess-ev { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .assess-ev li { display: flex; flex-direction: column; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: 6px; }
 
+/* Optimize > Assessment > Excellence (FEA-109, Preview; optimize-excellence.js), from the FEA-108 mockup.
+   No art and no color besides status. */
+.exc-views { margin-top: 4px; }
+.exc-hero { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.exc-stat { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 6px; min-width: 0; }
+.exc-k { font-size: 12px; color: var(--muted); }
+.exc-v { font-size: 30px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.exc-v small { font-size: 14px; font-weight: 400; color: var(--muted); }
+.exc-v-s { font-size: 20px; }
+.exc-h { font-size: 12px; color: var(--muted); }
+.exc-rating { align-self: flex-start; padding: 2px 8px; border-radius: 10px; background: var(--info-soft); color: var(--info); font-size: 12px; font-weight: 600; }
+.exc-rating.prov { background: var(--warn-soft); color: var(--warn-ink); }
+.exc-rating.none { background: var(--hover); color: var(--text-2); }
+.exc-crit { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; padding: 10px 14px; border: 1px solid var(--danger); border-radius: 6px; background: var(--danger-soft-2); color: var(--danger); font-size: 13px; }
+.exc-crit > .tool { margin-left: auto; }
+.exc-info { padding: 10px 14px; border-radius: 6px; background: var(--warn-soft); color: var(--warn-ink); font-size: 13px; }
+.exc-info.grey { background: var(--surface-2); color: var(--text); }
+.exc-sec { margin: 4px 0 0; font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.exc-dims { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.exc-dim { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.exc-dim:hover, .exc-dim:focus-visible { border-color: var(--accent); }
+.exc-dim.ne { border-style: dashed; background: var(--surface-2); }
+.exc-dn { font-size: 13px; font-weight: 600; }
+.exc-ds { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.exc-dr { font-size: 12px; color: var(--info); }
+.exc-dr.prov { color: var(--warn-ink); font-weight: 600; }
+.exc-dr.none { color: var(--muted); font-weight: 600; }
+.exc-dm { font-size: 12px; color: var(--muted); }
+.exc-acts { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 6px; }
+.exc-act { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 10px 12px; font-size: 13px; }
+.exc-act + .exc-act { border-top: 1px solid var(--border-soft); }
+.exc-sev { text-align: center; }
+.exc-t { font-weight: 600; }
+.exc-w { font-size: 12px; color: var(--muted); }
+.exc-counts { display: flex; flex-wrap: wrap; gap: 22px; font-size: 13px; }
+.exc-counts b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+.exc-foot { margin: 0; padding-top: 12px; border-top: 1px solid var(--border-soft); font-size: 12px; color: var(--muted); }
+.exc-refs, .assess-evidence > .row { flex-wrap: wrap; }
+.exc-counts .tool.link { padding: 0; min-height: 0; }
+.dialog.exc-sheet { max-width: 760px; }
+.exc-outcomes td { vertical-align: top; }
+@media (max-width: 560px) { .exc-act { grid-template-columns: minmax(0, 1fr); } }
+
 /* Notebook Export > PDF (notebook-formats.js): the web page export, shown alone when printing. */
 .nbf-print { display: none; }
 @media print {

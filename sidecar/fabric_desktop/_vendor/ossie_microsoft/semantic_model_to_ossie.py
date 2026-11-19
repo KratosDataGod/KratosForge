@@ -859,6 +859,10 @@ class _OssieDumper(yaml.SafeDumper):
 def _represent_str(dumper, data):
     # Multi-line DAX/M/SQL reads far better as a literal block than as an escaped scalar.
     style = "|" if "\n" in data else None
+    # KratosForge: PyYAML writes U+0085 (NEL) raw when allow_unicode is on and reads it back as a line break,
+    # so a name or description holding one came back with a space in its place. Double quotes escape it as \N.
+    if "\x85" in data:
+        style = '"'
     return dumper.represent_scalar("tag:yaml.org,2002:str", data, style=style)
 
 

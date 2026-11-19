@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import logging
 import re
@@ -199,7 +200,8 @@ class MetaMixin:
                            "shows what it does first, or run the cell against a Dev workspace. Nothing was changed.")
                 break
         if refusal is None:
-            refusal = self._maintenance_capacity_refusal(operation, workspace_id, table)
+            # Notebook code has no way to accept a warning, so a Warning reading refuses here too (Chris, 2026-11-18).
+            refusal = self._maintenance_capacity_refusal(operation, workspace_id, table, warnings=True)
         return self._maintenance_audit(operation, workspace_id, table, refusal)
 
     def _maintenance_audit(self, operation: str, workspace_id: str, table: str, refusal: str | None) -> str | None:
@@ -223,17 +225,33 @@ class MetaMixin:
             return audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {describe_error(exc)}")
         return None
 
-    def _maintenance_capacity_refusal(self, operation: str, workspace_id: str, table: str) -> str | None:
-        """Blocked by the workspace's capacity, from its last reading (no refresh). A reading that fails is
-        an unknown state, which doesn't stop the run, as in every other risk check."""
+    def _maintenance_capacity(self, workspace_id: str) -> dict[str, Any] | None:
+        """The workspace's capacity finding from its last reading (no refresh), with ``risk_id``, a fingerprint
+        of what it says, so a person who accepted a warning accepted this one. None when it isn't known: no
+        workspace, or a reading that fails, which doesn't stop a run, as in every other risk check."""
         if not workspace_id:
             return None
         try:
             cap = self._risk_capacity(workspace_id, "", False, [])  # type: ignore[attr-defined]
             found = risk.check_capacity({"where": "fabric", "capacity": cap}, dt.datetime.now(dt.timezone.utc))
         except Exception as exc:  # noqa: BLE001 - unknown, as the risk check treats a failed read
-            _log.info("Capacity of %s unknown for %s: %s", workspace_id, operation, describe_error(exc))
+            _log.info("Capacity of %s unknown: %s", workspace_id, describe_error(exc))
             return None
+        if found is None:
+            return None
+        seen = [workspace_id, found["outcome"], found.get("title"), found.get("detail"),
+                (cap or {}).get("observed_at") if isinstance(cap, dict) else None]
+        return dict(found, risk_id=hashlib.sha256(json.dumps(seen, default=str).encode()).hexdigest()[:32])
+
+    def _maintenance_capacity_refusal(self, operation: str, workspace_id: str, table: str,
+                                      warnings: bool = False) -> str | None:
+        """Blocked by the workspace's capacity, from its last reading, and with ``warnings`` a Warning too:
+        notebook code can't accept one, so it is sent to X-ray, which shows the warning and asks."""
+        found = self._maintenance_capacity(workspace_id)
+        if found is not None and warnings and found["outcome"] == risk.WARNING:
+            return (f"{_statement(operation)} on {table} from notebook code didn't run, because the capacity check "
+                    f"has a warning ({found['title']}) and a notebook can't accept one, so nothing was changed. Run "
+                    "Optimize or Vacuum from X-ray, which shows the warning and asks before it starts.")
         if found is None or found["outcome"] != risk.BLOCKED:
             return None
         return (f"{_statement(operation)} on {table} is refused: the capacity check is Blocked ({found['title']}). "

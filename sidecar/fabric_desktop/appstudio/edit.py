@@ -113,6 +113,7 @@ def to_ops(reply: Any, spec: dict[str, Any], metadata: dict[str, Any]) -> dict[s
     done: list[str] = []
     left_out: list[str] = []
     page_len = {p["id"]: len(p["components"]) for p in spec["pages"]}
+    on_page = {p["id"]: {c["id"] for c in p["components"]} for p in spec["pages"]}  # with this change's adds
     layout = {c["id"]: c["layout"] for p in spec["pages"] for c in p["components"]}
 
     def measure_id(name: str) -> str | None:
@@ -189,14 +190,15 @@ def to_ops(reply: Any, spec: dict[str, Any], metadata: dict[str, Any]) -> dict[s
                 left_out.append(f"{what}: its measure or field isn't in the model")
                 continue
             w, h = generate._SIZE.get(ctype, generate._DEFAULT_SIZE)
-            bottom = max((lay["y"] + lay["h"] for cid, lay in layout.items()
-                          if any(c["id"] == cid for p in spec["pages"] if p["id"] == page for c in p["components"])), default=0)
+            bottom = max((lay["y"] + lay["h"] for cid, lay in layout.items() if cid in on_page.setdefault(page, set())),
+                         default=0)
             cid = _new_id("c", taken)
             ctitle = _text(ch.get("title"), 200) or ctype
             value = {"id": cid, "type": ctype, "title": ctitle, "measures": [mid] if mid else [], "fields": [ref] if ref else [],
                      "layout": {"x": 0, "y": bottom, "w": w, "h": h}, "props": {"text": ctitle} if ctype == "text" else {}}
             ops.append({"op": "add", "kind": "component", "page": page, "index": page_len[page], "value": value})
             page_len[page] += 1
+            on_page[page].add(cid)
             layout[cid] = value["layout"]
             done.append(f"Add a {ctype} {ctitle!r}")
         elif action == "add_page":

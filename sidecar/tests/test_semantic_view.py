@@ -330,14 +330,14 @@ def test_the_report_lists_every_omitted_construct():
 # ---- hostile view names
 
 @pytest.mark.parametrize("name", ["../up", "a/b", "a\\b", "..", "x..y", "CON", "con.txt", "LPT1", "", "   ", "...",
-                                  None, 7])
+                                  None, 7, "Sales.", "Sales ", " Sales", ".Sales", "Sales. ", "Sales\t"])
 def test_a_hostile_view_name_is_refused(name):
     with pytest.raises(ValueError):
         sv.semantic_view(_bim(), view_name=name)
 
 
-@pytest.mark.parametrize("name, folder", [('Sales: "Q1"?', 'Sales_ _Q1__'), (" Sales ", "Sales"), ("a\x00b", "a_b"),
-                                          ("Sales.", "Sales")])
+@pytest.mark.parametrize("name, folder", [('Sales: "Q1"?', 'Sales_ _Q1__'), ("a\x00b", "a_b"), ("Sales v2", "Sales v2"),
+                                          ("Sales.v2", "Sales.v2")])
 def test_a_view_name_is_sanitised_like_a_tmdl_file_name(name, folder):
     out = sv.semantic_view(_bim(), view_name=name)
     assert out["report"]["view"] == folder and list(out["files"]) == [f"{folder}.yaml"]
@@ -494,3 +494,92 @@ def test_the_writer_refuses_a_hostile_view_name_before_reading(svc, name):  # no
     with pytest.raises(ValueError):
         svc.meta_model_semantic_view_save(name, text=_ossie())
     assert not _views(svc).exists()
+
+
+# ---- review follow-ups
+
+@pytest.mark.parametrize("brk", ["\x85", "\u2028", "\u2029"])
+def test_yaml_line_break_characters_are_escaped_and_read_back_exactly(brk):
+    doc = _doc()
+    doc["datasets"][0]["description"] = f"Orders{brk}by day"
+    doc["metrics"] = [{"name": f"rows{brk}today", "description": f"a{brk}b", "expression": {"dialects": [
+        {"dialect": "DAX", "expression": "COUNTROWS('fact_sales')"},
+        {"dialect": "ANSI_SQL", "expression": f"SUM(CASE WHEN channel = 'a{brk}b' THEN 1 END)"}]}}]
+    for split in sv.SPLITS:
+        out = sv.semantic_view(doc, view_name="V", split=split)
+        text = "".join(out["files"].values())
+        assert brk not in text  # escaped (\\N, \\L, \\P), never written raw
+        merged = sv.merged(out["files"])
+        metric = next(m for m in merged["metrics"] if m["name"] == f"rows{brk}today")
+        assert metric["description"] == f"a{brk}b"
+        assert metric["expression"]["dialects"][1]["expression"] == f"SUM(CASE WHEN channel = 'a{brk}b' THEN 1 END)"
+        assert merged["datasets"][0]["description"] == f"Orders{brk}by day"
+        assert out["report"]["validation"]["status"] == "Valid"
+
+
+def test_a_file_that_wouldnt_read_back_as_written_is_refused(monkeypatch):
+    real = sv.mo.yaml.safe_load
+    monkeypatch.setattr(sv.mo.yaml, "safe_load", lambda text: {**real(text), "name": "other"})
+    with pytest.raises(ValueError, match="wouldn't read back as written"):
+        sv._dump({"version": op.V02, "name": "V"})
+
+
+def test_a_forged_report_cant_hide_a_measure_dropped_from_the_view():
+    bim = _bim()
+    out = sv.semantic_view(bim, view_name="V")
+    doc = yaml.safe_load(out["files"]["V.yaml"])
+    doc["metrics"] = [m for m in doc["metrics"] if m["name"] != "fact_sales rows"]  # dropped by hand
+    forged = {"files": {"V.yaml": yaml.safe_dump(doc, sort_keys=False)}, "report": copy.deepcopy(out["report"])}
+    forged["report"]["objects"].append({"object": "metric 'fact_sales rows'", "kind": "measure",
+                                        "class": "unsupported", "key": ["measure", "fact_sales rows"],
+                                        "rule": "fabric/metric-dax", "reason": "excluded before export (forged)"})
+    rows = {o["id"]: o for o in sp.parity_l1(bim, forged, right_kind="semantic_view")["objects"]}
+    dropped = rows["table 'fact_sales' measure 'fact_sales rows'"]
+    assert dropped["result"] == sp.DIFFERENT and "forged" not in " ".join(dropped["notes"])
+    assert rows["role 'EU only'"]["result"] == sp.UNSUPPORTED  # what the emitter really strips stays Unsupported
+
+
+def test_schema_metrics_writes_learns_schema_and_metrics_files_that_pass_the_check():
+    out = sv.semantic_view(_doc(description="Orders"), view_name="Orders", split="schema_metrics")
+    assert sorted(out["files"]) == ["metrics/metrics.yaml", "schema/schema.yaml"]
+    files = _files(out)
+    schema, metrics = files["schema/schema.yaml"], files["metrics/metrics.yaml"]
+    assert schema["version"] == metrics["version"] == op.V02 and schema["name"] == metrics["name"] == "Orders"
+    assert set(schema) == {"version", "name", "description", "datasets", "relationships"}
+    assert set(metrics) == {"version", "name", "metrics"} and metrics["metrics"][0]["name"] == "net revenue"
+    result = op.validate_files(out["files"], "fabric-semantic-view")
+    assert result["valid"] and result["status"] == "Valid" and result["counts"]["yaml_files"] == 2
+    assert out["report"]["split"] == {"requested": "schema_metrics", "used": "schema_metrics", "message": ""}
+
+
+def test_schema_metrics_with_no_metrics_still_gives_a_valid_pair():
+    out = sv.semantic_view(_bim(), view_name="V", split="schema_metrics")
+    out2 = sv.semantic_view(_doc(), view_name="V", split="schema_metrics")
+    for o in (out, out2):
+        assert op.validate_files(o["files"], "fabric-semantic-view")["valid"]
+
+
+@pytest.mark.parametrize("split", sv.SPLITS)
+def test_files_summary_says_what_each_file_holds(split):
+    out = sv.semantic_view(_ossie(UNTRANSLATABLE), view_name="V", split=split)
+    summary = out["report"]["files_summary"]
+    assert [f["path"] for f in summary] == sorted(out["files"])
+    for f in summary:
+        assert f["bytes"] == len(out["files"][f["path"]].encode("utf-8"))
+        doc = yaml.safe_load(out["files"][f["path"]])
+        assert (f["datasets"], f["relationships"], f["metrics"]) == tuple(
+            len(doc.get(k) or []) for k in ("datasets", "relationships", "metrics"))
+        assert f["dax_metrics"] == f["metrics"]  # every metric written has DAX
+    totals = {k: sum(f[k] for f in summary) for k in ("datasets", "relationships", "metrics", "dax_metrics")}
+    assert totals == {"datasets": 2, "relationships": 1, "metrics": 1, "dax_metrics": 1}  # median excluded
+
+
+def test_the_writer_writes_the_schema_metrics_subfolders(svc):  # noqa: F811
+    plan = svc.meta_model_semantic_view_save("Sales", text=_ossie(), split="schema_metrics")["confirm"]
+    svc.meta_model_semantic_view_save("Sales", text=_ossie(), split="schema_metrics", confirmed=True,
+                                      token=plan["token"])
+    folder = _views(svc) / "Sales"
+    assert (folder / "schema" / "schema.yaml").is_file() and (folder / "metrics" / "metrics.yaml").is_file()
+    plan = svc.meta_model_semantic_view_save("Sales", text=_ossie())["confirm"]
+    assert sorted(plan["removed"]) == ["semantic-views/Sales/metrics/metrics.yaml",
+                                       "semantic-views/Sales/schema/schema.yaml"]

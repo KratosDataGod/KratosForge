@@ -28,7 +28,12 @@ is added beside the SQL (Unverified: the two aren't compared, as in the fidelity
 can't translate is flagged before any file is written: Unsupported with the converter's reason, left out of the
 files and listed in ``excluded``. A relationship that isn't single-column is Unsupported and excluded too.
 
-``split="single"`` writes one file. ``split="by_dataset"`` writes the model-level parts (description,
+``split="single"`` writes one file. ``split="schema_metrics"`` writes ``schema/schema.yaml`` (description, datasets
+and relationships) and ``metrics/metrics.yaml`` (the metrics), each with ``version`` and ``name``: the layout of
+"Separate schema from metrics" on semantic-views-create
+(https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#separate-schema-from-metrics, ms.date
+2026-10-20, updated 2026-11-17; read 2026-11-19), which puts them in ``schema/`` and ``metrics/`` subfolders so each
+can be shortcut on its own; "Subfolders don't create separate views". ``split="by_dataset"`` writes the model-level parts (description,
 relationships, metrics with no home dataset) in the first file and one dataset, with the metrics whose home it
 is, in each other file, as the YAML reference's "Validation across files" allows: every file has ``version`` and
 ``name``, ``datasets`` is never an empty list, and the top-level description is in one file only. A view never
@@ -41,6 +46,7 @@ Pure: nothing is fetched, written or executed.
 from __future__ import annotations
 
 import copy
+import functools
 import json
 import re
 from collections.abc import Mapping
@@ -50,7 +56,8 @@ import sqlglot
 
 from . import model_ossie as mo, ossie_profiles as op, tmdl
 
-SPLITS = ("single", "by_dataset")
+SPLITS = ("single", "by_dataset", "schema_metrics")
+SCHEMA_FILE, METRICS_FILE = "schema/schema.yaml", "metrics/metrics.yaml"
 KIND = "Semantic View YAML"  # plan D.1's name for this kind of object
 MODEL_FILE = "00_model.yaml"
 _ROOT_KEYS = ("version", "name", "description", "datasets", "relationships", "metrics")
@@ -101,10 +108,15 @@ _STASH_COLLECTIONS = (("roles", "role"), ("perspectives", "perspective"), ("cult
 def folder_name(view_name: Any) -> str:
     """The view's folder name (Fabric names the view and its model after the folder) for ``view_name``: never a
     path. A name with a path separator, ``..``, a device name such as ``CON`` or nothing in it is refused
-    (ValueError); other characters Windows doesn't allow become ``_``, as ``tmdl.file_name`` writes them."""
+    (ValueError). So is a name that starts or ends with a space or a dot: Windows drops a trailing dot or space,
+    and ``tmdl.file_name`` drops leading ones, so "Sales." or " Sales" would share the folder of "Sales". Other
+    characters Windows doesn't allow become ``_``, as ``tmdl.file_name`` writes them."""
     if not isinstance(view_name, str) or not view_name.strip():
         raise ValueError("Give the semantic view a name")
-    name = view_name.strip()
+    name = view_name
+    if name != name.strip() or name.startswith(".") or name.endswith("."):
+        raise ValueError("A semantic view's name can't start or end with a space or a dot: Windows drops them, so "
+                         "it would share another view's folder")
     if "/" in name or "\\" in name or ".." in name:
         raise ValueError("A semantic view's name is a folder name, not a path: leave out /, \\ and ..")
     if not name.strip(". "):
@@ -484,7 +496,7 @@ def semantic_view(source: Any, *, view_name: str, split: str = "single") -> dict
     report = {
         "kind": KIND, "profile": "fabric-semantic-view", "version": op.V02, "preview": True,
         "view": folder, "source_kind": kind, "split": split_note,
-        "files": sorted(files), "validation": validation, "valid": validation["valid"],
+        "files": sorted(files), "files_summary": _summary(files), "validation": validation, "valid": validation["valid"],
         "objects": rows.rows, "counts": {c: len(v) for c, v in by_class.items()}, "by_class": by_class,
         "omitted": [{"object": r["object"], "construct": r["stripped"], "rule": r["rule"], "source": r["source"],
                      "path": r["path"]} for r in rows.rows if r["stripped"]],
@@ -498,14 +510,71 @@ def semantic_view(source: Any, *, view_name: str, split: str = "single") -> dict
     return {"files": files, "report": report}
 
 
+# Characters YAML reads as a line break besides \n. Written raw (allow_unicode writes U+0085, U+2028 and U+2029 as
+# they are), another reader can break the line there, and PyYAML reads a raw U+0085 back as a line break. A string
+# holding one is written in double quotes, where each is an escape (\N, \L, \P, \r).
+_BREAKS = ("\x85", "\u2028", "\u2029", "\r")
+
+
+@functools.lru_cache(maxsize=1)
+def _dumper() -> Any:
+    """The vendored converter's YAML dumper (multi-line text as a literal block, its NEL fix in
+    ``semantic_model_to_ossie._represent_str``) extended to every YAML line break, not only U+0085."""
+    from ._vendor.ossie_microsoft.semantic_model_to_ossie import _OssieDumper, _represent_str
+
+    class _ViewDumper(_OssieDumper):
+        pass
+
+    def represent(dumper: Any, data: str) -> Any:
+        if any(c in data for c in _BREAKS):
+            return dumper.represent_scalar("tag:yaml.org,2002:str", data, style='"')
+        return _represent_str(dumper, data)
+
+    _ViewDumper.add_representer(str, represent)
+    return _ViewDumper
+
+
+def _summary(files: dict[str, str]) -> list[dict[str, Any]]:
+    """What each file holds, for the publish panel's Holds column: its path, size in bytes (UTF-8, as Fabric's
+    16 MB limit counts) and how many datasets, relationships and metrics, and of the metrics how many publish
+    (have DAX)."""
+    out = []
+    for path in sorted(files):
+        doc = mo.yaml.safe_load(files[path]) or {}
+        metrics = [m for m in doc.get("metrics") or [] if isinstance(m, dict)]
+        out.append({"path": path, "bytes": len(files[path].encode("utf-8")),
+                    "datasets": len(doc.get("datasets") or []), "relationships": len(doc.get("relationships") or []),
+                    "metrics": len(metrics),
+                    "dax_metrics": sum(1 for m in metrics if any(
+                        isinstance(e, dict) and e.get("dialect") == "DAX" and e.get("expression")
+                        for e in (m.get("expression") or {}).get("dialects") or []))})
+    return out
+
+
 def _dump(doc: dict[str, Any]) -> str:
-    text: str = mo.yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, width=120)
+    """One view file's YAML, refused (ValueError) unless it reads back as exactly ``doc``."""
+    text: str = mo.yaml.dump(doc, Dumper=_dumper(), sort_keys=False, default_flow_style=False, allow_unicode=True,
+                             width=float("inf"))
+    if any(c in text for c in _BREAKS[:3]) or mo.yaml.safe_load(text) != doc:
+        raise ValueError(f"The view file for {mo._q(doc.get('name'))} wouldn't read back as written, so it wasn't "
+                         "made; check names and expressions for unusual line-break characters")
     return text
 
 
 def _files(folder: str, root: dict[str, Any], datasets: list[dict[str, Any]], relationships: list[dict[str, Any]],
            metrics: list[tuple[dict[str, Any], str | None]], split: str) -> tuple[dict[str, str], dict[str, Any]]:
     head = {"version": root["version"], "name": root["name"]}
+    if split == "schema_metrics":
+        schema = dict(root)
+        if datasets:
+            schema["datasets"] = datasets
+        if relationships:
+            schema["relationships"] = relationships
+        part = dict(head)
+        if metrics:
+            part["metrics"] = [m for m, _ in metrics]
+        return {SCHEMA_FILE: _dump(schema), METRICS_FILE: _dump(part)}, {"requested": split, "used": split,
+                                                                          "message": ""}
     if split == "single" or not datasets:
         doc = dict(root)
         if datasets:

@@ -327,13 +327,24 @@ What's written:
 - The files go to `semantic-views/<view>/` in the project's folder, and only `.yaml` files are
   written. Each file has `version: 0.2.0.dev0` and `name`. Fabric names the view and its model
   after the folder, so the view's name is a folder name. A name with `/`, `\` or `..` is refused,
-  and so is a Windows device name such as `CON`. Other characters Windows doesn't allow become `_`.
+  and so is a Windows device name such as `CON`, or a name that starts or ends with a space or a dot
+  (Windows drops those, so "Sales." would share the folder of "Sales"). Other characters Windows
+  doesn't allow become `_`.
   Nothing is ever written to a path that has a folder named `Context` or `SystemContext`.
 - **Single file** writes the whole view as `<view>.yaml`. **One file per dataset** writes the
   description, relationships and any metric with no home dataset to `00_model.yaml`. Each other
   file holds one dataset and the metrics whose home it is. That follows the YAML reference's
   rules for a view split across files. A view never has more than 20 files. Past 19 datasets,
-  several datasets share a file, and the report says so.
+  several datasets share a file, and the report says so. **Schema and metrics** writes
+  `schema/schema.yaml` (description, datasets, relationships) and `metrics/metrics.yaml` (the
+  metrics), the layout of
+  [Separate schema from metrics](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#separate-schema-from-metrics),
+  so each part can be shortcut on its own. `files_summary` in the report gives each file's path,
+  size in bytes and how many datasets, relationships and metrics it holds, and how many of the
+  metrics have DAX.
+- Characters YAML reads as a line break (U+0085, U+2028, U+2029) are written as escapes, never
+  raw, and each file is read back before it's returned; one that wouldn't read back exactly is
+  refused.
 - Each metric's DAX is written first. A metric with SQL only is translated to DAX by the same
   converter Import uses, and the DAX goes beside the SQL. That metric is **Unverified**, because
   the two expressions aren't compared. Its other dialects stay in the file: Fabric recognizes them
@@ -365,7 +376,9 @@ updated 2026-11-17):
 
 Structural parity can compare a model with its view: pass the view as `semantic_view`
 (`parity_l1(model, view, right_kind="semantic_view")`), as its files or as what the emitter
-returned. Everything the view leaves out is **Unsupported** in that report, never a match.
+returned. Everything the view leaves out is **Unsupported** in that report, never a match. What
+the view leaves out is worked out again from the other side, so a report passed in is never
+trusted: a metric taken out of the files by hand stays **Different results**.
 
 ## Keeping Git in step
 

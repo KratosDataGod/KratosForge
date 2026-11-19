@@ -9,7 +9,8 @@ detected or named with ``left_kind`` / ``right_kind``:
 - ``tmdl``: a ``.SemanticModel`` folder's files (path -> text), read with ``tmdl.to_bim``;
 - ``ossie``: an Ossie document (a dict, or its YAML/JSON text) in any profile ``ossie_profiles`` detects;
 - ``semantic_view``: a Fabric Semantic View (OSSIE-005a): its ``.yaml`` files (name -> text, merged as publishing
-  merges them), one merged document, or what ``semantic_view.semantic_view`` returned (its files and report). Never
+  merges them), one merged document, or what ``semantic_view.semantic_view`` returned (only its files are read;
+  the emitter is run again on the other side to learn what it leaves out, so a supplied report is never trusted). Never
   detected, because a view is the same Ossie version as ``ossie``: name it with ``left_kind`` / ``right_kind``.
 
 Both sides become one structural view: a list of objects with a structural key (their full names) and the
@@ -425,13 +426,13 @@ def _json_text(text: str) -> Any:
 
 def _read_view(side: _Side, value: Any) -> None:
     """A Fabric Semantic View, read as written (no conversion): its files merged, one document, or the emitter's
-    output, whose report says why each object it left out isn't in the view."""
+    output (only its files are read: why an object is left out comes from ``_view_stripped``, never from a report
+    the caller supplies)."""
     from . import ossie_profiles, semantic_view
 
     mo.require()
-    report = None
     if isinstance(value, dict) and isinstance(value.get("files"), dict) and "version" not in value:
-        report, value = value.get("report"), value["files"]
+        value = value["files"]  # the emitter's output: its report is never read (see _view_stripped)
     if isinstance(value, str):
         value = mo.load_text(value)
     elif isinstance(value, dict) and value and all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()) \
@@ -446,11 +447,28 @@ def _read_view(side: _Side, value: Any) -> None:
     side.kind, side.format, side.version = "semantic_view", "Fabric Semantic View", meta["version"]
     side.profile, side.label = "fabric-semantic-view", meta["label"]
     side.native_ossie = side.view = True
-    rows = report.get("objects") if isinstance(report, dict) else None
-    for row in rows if isinstance(rows, list) else []:
-        if isinstance(row, dict) and row.get("class") == "unsupported" and isinstance(row.get("key"), list):
-            side.stripped.setdefault(mo._canon(row["key"]), str(row.get("reason") or ""))
     _walk_ossie(side, value)
+
+
+def _view_stripped(view: _Side, source: Any, kind: str | None) -> dict[str, str]:
+    """Why the emitter leaves each object of ``source`` (the other side, as the caller gave it) out of a view:
+    ``semantic_view.semantic_view`` run again on it here, so a report the caller hands in can't hide anything.
+    Only objects that really are absent from ``view`` are taken; an object the view lacks for another reason (a
+    metric deleted by hand) stays Different. Empty when the source can't be made into a view."""
+    from . import semantic_view
+
+    try:
+        report = semantic_view.semantic_view(source, view_name="view")["report"]
+    except _READ_ERRORS:  # narrow: a source the emitter refuses has no emitter reasons; kind rules still apply
+        return {}
+    present = {mo._canon(e["key"]) for e in view.entries}
+    out: dict[str, str] = {}
+    for row in report["objects"]:
+        if row["class"] == "unsupported" and isinstance(row.get("key"), list):
+            key = mo._canon(row["key"])
+            if key not in present:
+                out.setdefault(key, str(row["reason"]))
+    return out
 
 
 def _view_reason(side: _Side, entry: dict[str, Any]) -> str:
@@ -1521,6 +1539,9 @@ def _parity(left: Any, right: Any, tolerances: dict[str, Any] | None, left_kind:
             _read(side, value, kind)
         except _READ_ERRORS as exc:  # narrow: what a hostile or wrong input raises; the reason is the result
             side.error = f"{type(exc).__name__}: {mo._short(exc)}"
+    for view, other, value, kind in ((sides[0], sides[1], right, right_kind), (sides[1], sides[0], left, left_kind)):
+        if view.view and not view.error and not other.error and not other.view:
+            view.stripped = _view_stripped(view, value, kind)
     failed = [s for s in sides if s.error]
     if failed:
         reason = "; ".join(f"the {s.which} side couldn't be read: {s.error}" for s in failed)

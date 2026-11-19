@@ -602,7 +602,14 @@ class ModelOssieMixin:
         the view), the report and a token. With it and the preview's token, every file is written whole (temporary
         file, then swapped in) and only regular ``.yaml`` files the preview listed are removed. The token binds the
         confirm to what the preview showed: if the files or the removals changed since, nothing is written. Links
-        and junctions are never followed."""
+        and junctions are never followed.
+
+        The token is only a staleness binding, not an authorization: anyone can compute it from the same inputs.
+        The approval is the confirmed call itself, which the audit log records before it runs (``confirmed`` is
+        one of ``audit.GUARD_PARAMS``, so the call fails closed when it can't be recorded).
+
+        For later (OSSIE-005b): a screen that calls this with removals must show a danger confirmDialog listing
+        every file it removes before it sends ``confirmed``, and that screen needs a UX review first."""
         from . import ossie_profiles, semantic_view
 
         model_ossie.require()

@@ -28,8 +28,9 @@ CALLS = {"run_table_maintenance", "compact", "z_order", "vacuum"}
 REVIEWED = {
     ("xray_service.py", "xray_optimize"): "gate: _xray_risk_gate (Blocked raises PermissionError)",
     ("xray_service.py", "xray_vacuum"): "gate: _xray_risk_gate (Blocked raises PermissionError)",
-    ("cloud_service.py", "_maintain"): "gate: _maintenance_capacity_refusal per workspace (Maintain > Optimize, "
-                                       "and Optimize after a run); its local branch is a PC-only table",
+    ("cloud_service.py", "_maintain"): "gate: _maintenance_gate per workspace (Maintain > Optimize, and "
+                                       "Optimize after a run: Blocked stops, a Warning needs its risk_id); its "
+                                       "local branch is a PC-only table",
     ("lakehouse.py", "maintain_table"): "gate: maintenance_guard -> MetaMixin._maintenance_refusal (notebook "
                                         "OPTIMIZE, ZORDER BY, VACUUM, RESTORE)",
     ("fabric_compute.py", "_optimize"): "none needed: runs inside a Fabric notebook on the capacity itself, after "
@@ -95,8 +96,12 @@ def mixin(capacity_by_ws, monkeypatch):
     m = SimpleNamespace(_project=lambda: SimpleNamespace(environments={}),
                         _risk_capacity=lambda ws, name, refresh, reads: capacity_by_ws.get(ws),
                         fabric_jobs=SimpleNamespace(run_table_maintenance=lambda *a, **k: jobs.append(a) or f"job-{len(jobs)}"),
-                        _log_fabric_run=lambda r: r | {"status": "NotStarted"})
-    m._maintenance_capacity_refusal = lambda *a: MetaMixin._maintenance_capacity_refusal(m, *a)
+                        _log_fabric_run=lambda r: r | {"status": "NotStarted"},
+                        _wl_user=lambda: "chris", acks=[])
+    m._risk_ack_write = m.acks.append
+    m._maintenance_capacity = lambda ws: MetaMixin._maintenance_capacity(m, ws)
+    m._maintenance_capacity_refusal = lambda *a, **k: MetaMixin._maintenance_capacity_refusal(m, *a, **k)
+    m._maintenance_gate = lambda *a: CloudMixin._maintenance_gate(m, *a)
     return m, jobs, retention
 
 

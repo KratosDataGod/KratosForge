@@ -203,3 +203,57 @@ def test_a_malformed_promise_is_left_out_and_other_incidents_still_open(svc, bad
     got = evaluate.signals("crm", {"silver.customers": {}}, [_run(status="failed", run_id="r7")], "prod",
                            now=NOW, promises=promised)
     assert [s["kind"] for s in got] == ["run_failed"]
+
+
+def test_a_name_with_edge_spaces_is_checked_like_the_name_it_is_saved_as(svc):
+    # The file is written under the stripped name, so the gate and the undo must use that name too.
+    _save(svc, {"within_hours": 24})
+    good = svc._project().root / "metadata" / "products" / "customers.toml"
+    before = good.read_text(encoding="utf-8")
+    with pytest.raises(GateError) as err:
+        svc.mesh_save_product({"name": " customers", "access": "public", "status": "published", "version": "1",
+                               "promise": {"within_hours": -1}, "ports": [{"name": "customers", "entity": "silver.customers"}]})
+    assert "within_hours" in str(err.value)
+    assert good.read_text(encoding="utf-8") == before
+
+    svc.mesh_save_product({"name": " customers", "access": "public", "status": "published", "version": "1",
+                           "ports": [{"name": "customers", "entity": "silver.customers"}]}, original="customers")
+    assert good.is_file()  # renamed to itself: the file just written stays
+
+
+@pytest.mark.parametrize("call", [
+    lambda svc: svc.mesh_delete_product("../entities/silver.customers"),
+    lambda svc: svc.mesh_save_product({"name": "customers", "access": "public", "status": "published", "version": "1",
+                                       "ports": [{"name": "customers", "entity": "silver.customers"}]},
+                                      original="../entities/silver.customers"),
+    lambda svc: ((svc._project().root / "metadata" / "links").mkdir(exist_ok=True),
+                 svc.mesh_delete_link("../entities/silver.customers")),
+])
+def test_a_product_or_link_name_that_isnt_one_removes_no_file(svc, call):
+    _save(svc, {"within_hours": 24})  # the products folder is there, so ../ in a name leads out of it
+    entity = svc._project().root / "metadata" / "entities" / "silver.customers.toml"
+    assert entity.is_file()
+    with pytest.raises(ValueError, match="isn't a (product|link) name"):
+        call(svc)
+    assert entity.is_file()
+
+
+def test_a_product_name_is_checked_before_its_file_is_read(svc, monkeypatch):
+    import pathlib
+
+    _save(svc, {"within_hours": 24})  # the products folder is there, so ../ in a name leads out of it
+    read = []
+    real = pathlib.Path.read_text
+    monkeypatch.setattr(pathlib.Path, "read_text", lambda self, *a, **k: (read.append(str(self)), real(self, *a, **k))[1])
+    with pytest.raises(ValueError, match="A product name is"):
+        svc.mesh_save_product({"name": "../entities/silver.customers", "access": "public", "status": "published",
+                               "version": "1", "ports": []})
+    assert not [p for p in read if ".." in p]
+
+
+@pytest.mark.parametrize("name", ["con", "nul", "aux", "prn", "com1", "lpt9"])
+def test_a_name_windows_keeps_for_a_device_is_not_a_product_or_link_name(name):
+    for check in (mesh.product_name, mesh.link_alias, lambda v: mesh.file_name(v, "product name")):
+        with pytest.raises(ValueError):
+            check(name)
+    assert mesh.product_name(name + "_x") == name + "_x" and mesh.link_alias("console") == "console"

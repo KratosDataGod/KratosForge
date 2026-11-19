@@ -236,7 +236,7 @@ def test_a_clock_jump_forwards_keeps_the_months_a_longer_limit_covers(tmp_path):
 
 def test_a_prune_stopped_part_way_and_a_clock_put_back_still_finishes_and_verifies(tmp_path, monkeypatch):
     folder = tmp_path / "audit"
-    log = _trail(folder, [(2020, 1), (2020, 2), (2020, 3), (2026, 11)])
+    log = _trail(folder, [(2020, 1), (2020, 2), (2020, 3), (2020, 5)])
     now = audit_chain._month_end("2020-03") + 30 * DAY + 1
     real, calls = Path.unlink, {"n": 0}
 
@@ -249,17 +249,20 @@ def test_a_prune_stopped_part_way_and_a_clock_put_back_still_finishes_and_verifi
     with pytest.raises(KeyboardInterrupt):
         retention.prune_audit(folder, 30, lambda *a: None, "app", now=now)
     monkeypatch.setattr(Path, "unlink", real)
-    assert _names(folder) == ["audit-2020-02.jsonl", "audit-2020-03.jsonl", "audit-2026-11.jsonl"]
+    assert _names(folder) == ["audit-2020-02.jsonl", "audit-2020-03.jsonl", "audit-2020-05.jsonl"]
     # The clock is put back before the next prune: by it, only January and February are old enough.
     back = audit_chain._month_end("2020-02") + 30 * DAY + 1
     done = retention.prune_audit(folder, 30, lambda *a: None, "app", now=back)
-    assert done["files"] == ["audit-2020-02.jsonl", "audit-2020-03.jsonl"] and done["through"] == "2020-03"
-    assert _names(folder) == ["audit-2026-11.jsonl"]
+    assert done["files"] == ["audit-2020-02.jsonl"]  # March waits for the clock: only the clock decides
+    assert _names(folder) == ["audit-2020-03.jsonl", "audit-2020-05.jsonl"]
+    check = log.verify()
+    assert check["ok"], check["problems"]
+    assert check["pruned"] == {"through": "2020-03", "lines": 3}  # the head never moved back
+    assert retention.prune_audit(folder, 30, lambda *a: None, "app", now=now)["files"] == ["audit-2020-03.jsonl"]
+    assert _names(folder) == ["audit-2020-05.jsonl"]
     check = log.verify()
     assert check["ok"], check["problems"]
     assert check["pruned"] == {"through": "2020-03", "lines": 3}  # every deleted line counted once
-    assert retention.prune_audit(folder, 30, lambda *a: None, "app", now=now) == {"files": [], "lines": 0}
-    assert log.verify()["pruned"] == {"through": "2020-03", "lines": 3}
 
 
 def test_a_head_edited_to_claim_recent_months_were_pruned_never_has_them_deleted(tmp_path):
@@ -271,6 +274,53 @@ def test_a_head_edited_to_claim_recent_months_were_pruned_never_has_them_deleted
     head_path.write_text(json.dumps(head), encoding="utf-8")
     now = audit_chain._month_end("2026-11") - DAY
     assert [p.name for p in audit_chain.prunable(folder, 30, now=now)] == ["audit-2020-01.jsonl"]
+
+
+@pytest.mark.parametrize("days", [45, 60])
+@pytest.mark.parametrize("through", ["9999-12", "2026-09", "2026-10"])
+def test_a_through_that_doesnt_match_the_chain_never_widens_a_prune(tmp_path, days, through):
+    folder = tmp_path / "audit"
+    _trail(folder, [(2026, 8), (2026, 9), (2026, 10), (2026, 11)])
+    head_path = folder / audit_chain.HEAD
+    head = json.loads(head_path.read_text(encoding="utf-8"))
+    head["base"] = {"hash": "0" * 64, "through": through, "lines": 0}  # not what a prune writes
+    head_path.write_text(json.dumps(head), encoding="utf-8")
+    now = datetime(2026, 11, 5, tzinfo=timezone.utc).timestamp()
+    assert [p.name for p in audit_chain.prunable(folder, days, now=now)] == ["audit-2026-08.jsonl"]
+
+
+@pytest.mark.parametrize("days", [45, 60])
+def test_a_file_named_after_a_later_month_never_makes_a_prune_take_recent_months(tmp_path, days):
+    folder = tmp_path / "audit"
+    _trail(folder, [(2026, 5), (2026, 6), (2026, 7), (2026, 8), (2026, 9), (2026, 10), (2026, 11)])
+    (folder / "audit-2099-12.jsonl").write_text("", encoding="utf-8")  # a file that shouldn't be there
+    head_path = folder / audit_chain.HEAD
+    plain = head_path.read_text(encoding="utf-8")
+    now = datetime(2026, 11, 5, tzinfo=timezone.utc).timestamp()
+    cutoff = now - days * DAY
+    want = [f"audit-2026-{m:02d}.jsonl" for m in range(5, 12) if audit_chain._month_end(f"2026-{m:02d}") < cutoff]
+    assert want and "audit-2026-10.jsonl" not in want
+    for through in ("9999-12", "2026-10", "2099-12"):
+        head = json.loads(plain)
+        head["base"] = {"hash": "0" * 64, "through": through, "lines": 0}
+        head_path.write_text(json.dumps(head), encoding="utf-8")
+        assert [p.name for p in audit_chain.prunable(folder, days, now=now)] == want, through
+    head_path.write_text(plain, encoding="utf-8")
+    assert [p.name for p in audit_chain.prunable(folder, days, now=now)] == want
+    audit_chain.prune(folder, days, now=now)
+    assert "audit-2026-11.jsonl" in _names(folder) and "audit-2026-10.jsonl" in _names(folder)
+
+
+def test_a_through_with_no_hash_or_whose_month_is_gone_is_not_taken(tmp_path):
+    folder = tmp_path / "audit"
+    _trail(folder, [(2026, 8), (2026, 9), (2026, 10), (2026, 11)])
+    head_path = folder / audit_chain.HEAD
+    head = json.loads(head_path.read_text(encoding="utf-8"))
+    now = datetime(2026, 11, 5, tzinfo=timezone.utc).timestamp()
+    for base in ({"through": "2026-09"}, {"through": "2026-07", "hash": "0" * 64}, "2026-09"):
+        head["base"] = base
+        head_path.write_text(json.dumps(head), encoding="utf-8")
+        assert [p.name for p in audit_chain.prunable(folder, 45, now=now)] == ["audit-2026-08.jsonl"], base
 
 
 def test_a_prune_whose_head_couldnt_be_written_deletes_nothing(tmp_path, monkeypatch):

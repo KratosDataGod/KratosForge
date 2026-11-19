@@ -188,21 +188,19 @@ def _month_end(month: str) -> float:
 
 def prunable(folder: Path, days: int, now: float | None = None) -> list[Path]:
     """The month files ``prune`` would delete: oldest first, every month that ended more than ``days``
-    days ago (one that ended exactly ``days`` days ago stays), never the newest file. None when ``days``
-    is 0 or less (the trail is kept). Months a prune stopped part way already cut from the trail
-    (``head.json`` says through which) are always among them, even if the clock has gone back since:
-    otherwise the head would move back over months it already counted."""
+    days ago by the clock (one that ended exactly ``days`` days ago stays), never the newest file. None
+    when ``days`` is 0 or less (the trail is kept). Only the clock and the limit decide: ``head.json`` is
+    never read here, so nothing written in it changes which months are removed. The newest file is the
+    newest one up to the clock's own month, so a file named after a later month doesn't take its place."""
     if days <= 0:
         return []
-    cutoff = (now if now is not None else time.time()) - days * 86400
+    t = now if now is not None else time.time()
+    cutoff = t - days * 86400
     every = [p for p in files(folder) if _MONTH.fullmatch(_month(p))]
-    base = _head(folder).get("base")
-    done = str(base.get("through") or "") if isinstance(base, dict) else ""
-    # head.json can be edited by hand: a "through" is only taken for months that were old enough by
-    # the trail's own newest month too, so an edited head can never have a prune delete recent months.
-    latest = _month_end(_month(every[-1])) - days * 86400 if every else cutoff
-    return [p for p in every[:-1]
-            if _month_end(_month(p)) < cutoff or (_month(p) <= done and _month_end(_month(p)) < latest)]
+    this_month = dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime("%Y-%m")
+    current = [p for p in every if _month(p) <= this_month]
+    newest = current[-1] if current else (every[-1] if every else None)
+    return [p for p in every if p != newest and _month_end(_month(p)) < cutoff]
 
 
 def prune(folder: Path, days: int, now: float | None = None) -> dict[str, Any]:
@@ -225,7 +223,9 @@ def prune(folder: Path, days: int, now: float | None = None) -> dict[str, Any]:
         except (ValueError, KeyError, TypeError):  # a damaged last line: verify() reports the break that follows
             last_hash = ""
         new = dict(head)
-        new["base"] = {"hash": last_hash, "through": _month(old[-1]),
+        # The head only moves forward: after a prune stopped part way and a clock put back, months it already
+        # counted may wait for the clock; ``through`` stays where it was, and they aren't counted again.
+        new["base"] = {"hash": last_hash, "through": max(done, _month(old[-1])),
                        "lines": int(base.get("lines") or 0) + lines}
         if isinstance(head.get("lines"), int):
             new["lines"] = max(0, head["lines"] - lines)
@@ -276,6 +276,11 @@ def verify(folder: Path) -> dict[str, Any]:
                 notes.append(f"{path.name} line {number}: its time is {_span(last_at - at)} earlier than the line "
                              "before it, so this PC's clock was changed (the chain itself is intact)")
             last_at = at if at is not None and (last_at is None or at > last_at) else last_at
+    # Lines in months a prune already counted, still waiting to be deleted (the clock was put back after a
+    # prune stopped part way), aren't in the head's count of lines.
+    counted = sum(1 for path in files(folder) if base.get("through") and _month(path) <= str(base["through"])
+                  for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+    seen = {n - counted: h for n, h in seen.items()}
     for name, mark in (("newest line recorded", head), ("line recorded before lines went missing", head.get("lost") or {})):
         lines, want = mark.get("lines"), mark.get("hash")
         if want and isinstance(lines, int) and seen.get(lines) != want:

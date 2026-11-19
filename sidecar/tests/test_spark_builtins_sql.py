@@ -637,3 +637,25 @@ def test_calls_nested_in_each_other_grow_the_sql_in_step_not_exponentially(call,
     query = f"SELECT {text} AS v FROM (SELECT 'a.b.c' AS x)"
     assert len(sql.duckdb_sql(sql.parse(query)[0])) < 100_000
     assert one(query) == want
+
+
+def test_an_argument_that_can_raise_is_copied_not_worked_out_once():
+    # Bound, an argument is worked out on every row; one with raise_error stays where the template put it.
+    inner = "upper(lower(upper(lower(x))))"
+    bound = f"SELECT substring_index({inner}, '.', 2) AS v FROM (SELECT 'a.b.c' AS x)"
+    raising = (f"SELECT substring_index(CASE WHEN x IS NULL THEN raise_error('boom') ELSE {inner} END, '.', 2) AS v "
+               "FROM (SELECT 'a.b.c' AS x)")
+    assert "kf_bound" in sql.duckdb_sql(sql.parse(bound)[0])
+    assert "kf_bound" not in sql.duckdb_sql(sql.parse(raising)[0])
+    assert one(raising) == "A.B"
+
+
+@pytest.mark.parametrize("inner", ["max(x)", "(SELECT max(x) FROM t)", "first_value(x) OVER ()"])
+def test_calls_nested_over_an_aggregate_a_subquery_or_a_window_grow_in_step(inner):
+    # The innermost value goes in the list outside the lambda, where these may be.
+    text = inner
+    for _ in range(8):
+        text = f"substring_index({text}, '.', 2)"
+    query = f"WITH t AS (SELECT 'a.b.c' AS x) SELECT {text} AS v FROM t"
+    assert len(sql.duckdb_sql(sql.parse(query)[0])) < 100_000
+    assert one(query) == "a.b"

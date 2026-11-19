@@ -31,6 +31,17 @@ from .spark_hash import hash_sql
 _BIND_ABOVE = 40
 # A lambda's body can't hold these, so an argument or template with one is copied as before.
 _NOT_IN_LAMBDA = (exp.AggFunc, exp.Window, exp.Subquery, exp.Select)
+# Nor is one that can raise on a row's values put in once: bound, it is worked out on every row, where
+# the template may have read it only on some (a raise_error a CASE would have skipped would stop the
+# query). raise_error and assert_true come here as ERROR(<the row's message>); an ERROR with a fixed
+# message is a refusal by type (spark_text_arg's), the same on every row, and can be bound.
+_RAISES = {"RAISE_ERROR", "ASSERT_TRUE"}
+
+
+def _raises(node: exp.Expression) -> bool:
+    return any(f.name.upper() in _RAISES or (f.name.upper() == "ERROR" and not (
+        f.expressions and isinstance(f.expressions[0], exp.Literal) and f.expressions[0].is_string))
+        for f in node.find_all(exp.Anonymous))
 
 
 def _with_args(template: str | exp.Expression, args: list[exp.Expression]) -> exp.Expression:
@@ -43,8 +54,15 @@ def _with_args(template: str | exp.Expression, args: list[exp.Expression]) -> ex
     for column in list(tree.find_all(exp.Column)):
         if column.name.startswith("fj_arg") and not column.table:
             places.setdefault(int(column.name[6:]), []).append(column)
-    bound = [] if any(tree.find(*_NOT_IN_LAMBDA) or a.find(*_NOT_IN_LAMBDA) for a in args) else [
-        i for i, cols in places.items() if len(cols) > 1 and sum(1 for _ in args[i].walk()) > _BIND_ABOVE]
+    bound = [i for i, cols in places.items()
+             if len(cols) > 1 and sum(1 for _ in args[i].walk()) > _BIND_ABOVE and not _raises(args[i])]
+    # An aggregate, window or subquery may be in a bound argument, which goes in the list outside the
+    # lambda, but not in the lambda's body: so not in the template or an argument left in place, and in
+    # one bound argument at most, which is put in outermost.
+    held = [i for i in places if args[i].find(*_NOT_IN_LAMBDA)]
+    if tree.find(*_NOT_IN_LAMBDA) or len(held) > 1 or any(i not in bound for i in held):
+        bound = []
+    bound.sort(key=lambda i: i not in held)  # the first is put in outermost
     for i, cols in places.items():
         for column in cols:
             column.replace(exp.column(f"kf_bound{i}") if i in bound else args[i].copy())

@@ -25,7 +25,9 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
 - matches ``LIKE`` patterns with ``[a-c]`` and ``[^a-c]`` character ranges, as a regular expression;
 - compares text without trailing spaces (``'a' = 'a  '``) when both sides are known to be text, matches
   ``LIKE`` without the text's trailing spaces, notes that ``GROUP BY``, ``DISTINCT`` and ``UNION`` keep
-  them apart, runs a binary ``COLLATE`` and refuses any other by name (WR-210);
+  them apart, runs a binary ``COLLATE`` and refuses any other by name (WR-210); and pads text the same way in
+  ``BETWEEN``, ``IN``/``= ANY`` with a subquery, ``NULLIF``, a simple ``CASE``, ``COUNT(DISTINCT ...)``,
+  a window's ``PARTITION BY``/``ORDER BY`` and an ``ORDER BY`` key before the last (WR-246);
 - keeps ``#temp`` tables apart from ordinary tables of the same name (as temporary ``"#name"``);
 - returns ``GETDATE()`` and friends as UTC times without a zone, as a Fabric Warehouse does.
 
@@ -121,6 +123,7 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
                 continue
             tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
             _refuse(tree)
+            notes += _collations(tree)
             _replicate_inputs(tree)  # WR-235: before N'' text and CONVERT's (MAX) are rewritten
             _national_text(tree)
             notes += tsql_ctes.check(tree)  # WR-230: no recursive CTE, no change through a CTE
@@ -655,17 +658,48 @@ def _refuse(tree: exp.Expression) -> None:
                                                                                    "TRIGGER"):
         raise ValueError(f"T-SQL CREATE {tree.args['kind'].upper()} doesn't run on the local engine. "
                          "Procedures and functions run in a Fabric Warehouse.")
-    for collate in list(tree.find_all(exp.Collate)):
-        name = collate.expression.sql(dialect="tsql").strip("[]\"'")
-        if not re.search(r"_BIN2?(_|$)", name, re.IGNORECASE):
-            raise ValueError(_NOT_YET + f"COLLATE {name} isn't mapped yet: text here compares as a Fabric Warehouse's "
-                             "default collation (Latin1_General_100_BIN2_UTF8) does, by code point and case-sensitive. "
-                             "Use UPPER or LOWER on both sides to compare without case, or run it in a Fabric "
-                             "Warehouse.")
-        collate.replace(collate.this)  # a binary collation is how text compares here already (WR-210)
     for p in tree.find_all(exp.Parameter, exp.SessionParameter):
         name = p.sql(dialect="tsql")
         raise ValueError(f"The local engine doesn't run T-SQL variables ({name}) yet. {_LATER}")
+
+
+_COLLATE_REFUSED = ("text here compares as a Fabric Warehouse's default collation (Latin1_General_100_BIN2_UTF8) "
+                    "does, by code point and case-sensitive. Use UPPER or LOWER on both sides to compare without "
+                    "case, or run it in a Fabric Warehouse.")
+_CODE_PAGE_NOTE = ("COLLATE {name} runs here as Latin1_General_100_BIN2_UTF8. They agree on ASCII text; a warehouse "
+                   "first converts other text to {name}'s code page, which can order it another way (code page "
+                   "1252 puts '€' before 'é') or turn a character it hasn't got into '?'. Use "
+                   "Latin1_General_100_BIN2_UTF8 to compare as a warehouse does by default.")
+
+
+def _collations(tree: exp.Expression) -> list[str]:
+    """COLLATE as a Fabric Warehouse runs it (WR-210, WR-246). Text here always compares as the default
+    Latin1_General_100_BIN2_UTF8, so that collation and ``database_default`` (a warehouse's own, the default one
+    unless it was made case-insensitive) are taken off. Another binary collation is too, with a note: it agrees
+    on ASCII and is a code page's order past it. Any other is refused by name, in a query and on a column."""
+    notes: list[str] = []
+    for collate in list(tree.find_all(exp.Collate)):
+        name = collate.expression.sql(dialect="tsql").strip("[]\"'")
+        if not re.search(r"_BIN2?(_|$)|^database_default$", name, re.IGNORECASE):
+            raise ValueError(_NOT_YET + f"COLLATE {name} isn't mapped yet: {_COLLATE_REFUSED}")
+        if not re.search(r"_BIN2_UTF8$|^database_default$", name, re.IGNORECASE):
+            notes.append(_CODE_PAGE_NOTE.format(name=name))
+        collate.replace(collate.this)  # a binary collation is how text compares here already (WR-210)
+    for constraint in list(tree.find_all(exp.CollateColumnConstraint)):
+        name = constraint.this.sql(dialect="tsql").strip("[]\"'")
+        if name.upper() != "LATIN1_GENERAL_100_BIN2_UTF8":
+            column = constraint.find_ancestor(exp.ColumnDef)
+            where = f" (column {column.name})" if column is not None else ""
+            raise ValueError(_NOT_YET + f"a column with COLLATE {name}{where} isn't mapped yet: a Fabric Warehouse's "
+                             "tables take Latin1_General_100_BIN2_UTF8 and Latin1_General_100_CI_AS_KS_WS_SC_UTF8 "
+                             f"only, and {_COLLATE_REFUSED} Leave the COLLATE "
+                             "out to get the warehouse's default.")
+        wrapper = constraint.parent
+        (wrapper if isinstance(wrapper, exp.ColumnConstraint) else constraint).pop()
+    for join in tree.find_all(exp.Join):  # an UPDATE's or DELETE's is refused in _joined_changes
+        if join.args.get("using") and not isinstance(tree, (exp.Update, exp.Delete)):
+            raise ValueError(_NOT_YET + "JOIN ... USING isn't T-SQL: a Fabric Warehouse refuses it. Use JOIN ... ON.")
+    return notes
 
 
 _SYSTEM_SCHEMAS = {"sys"}
@@ -960,7 +994,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
              tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup)
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
-    grouped = any(True for _ in tree.find_all(exp.Group, exp.Distinct, exp.SetOperation))
+    grouped = any(True for _ in tree.find_all(exp.Group, exp.Distinct, exp.SetOperation, *_COLLATED))
     if not here and not compared and not grouped:
         return []
     sized = [n for n in here if isinstance(n, (exp.Cast, exp.TryCast))]
@@ -979,7 +1013,9 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 "floats joined into text are done as DuckDB does them (T-SQL divides and averages integers as "
                 "integers, cuts a decimal cast to an integer toward zero, ignores trailing spaces when it compares "
                 "text, and writes a float in CONCAT with at most 6 significant digits).")]
+    collated = _in_order(tree, _COLLATED)
     notes = _padded(compared, _in_order(typed, _COMPARISONS)) + _grouped_text(typed)
+    notes += _collated(collated, _in_order(typed, _COLLATED))
     there = _in_order(typed, kinds)
     if len(there) != len(here):
         for cast_node in sized:
@@ -1738,7 +1774,7 @@ def _in_class(ch: str) -> str:
     return "\\" + ch if ch in "\\[]^-" else ch
 
 
-_COMPARISONS = (exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.In, exp.Like)
+_COMPARISONS = (exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.In, exp.Like, exp.Between)
 _PADDED_NOTE = ("Couldn't tell the types in some comparisons, so they are done as DuckDB does them: T-SQL ignores "
                 "trailing spaces when it compares text ('a' = 'a  ', and 'a  ' LIKE 'a'), and here they count.")
 _TOP = "\U0010ffff"  # the last character: 'ab ' and then it sorts after 'ab', any spaces, and anything after them
@@ -1759,8 +1795,19 @@ def _padded(here: list[exp.Expression], there: list[exp.Expression]) -> list[str
             elif _unknown(info.this.type) and _is(info.expression.type, _TEXT):
                 unsure = True  # as for =: a text pattern on a value whose type can't be told
             continue
+        if isinstance(node, exp.Between):
+            sides = [info.this, info.args["low"], info.args["high"]]
+            if all(_is(v.type, _TEXT) for v in sides):
+                for key in ("this", "low", "high"):
+                    node.set(key, _rtrim(node.args[key]))
+            elif any(_is(v.type, _TEXT) for v in sides) and any(_unknown(v.type) for v in sides):
+                unsure = True
+            continue
+        if isinstance(node, exp.In) and info.args.get("query") is not None:
+            unsure |= _padded_subquery(node, node, "query", info.this, info.args["query"])
+            continue
         if isinstance(node, exp.In):
-            if info.args.get("query") is not None or not info.expressions:
+            if not info.expressions:
                 continue
             sides = [info.this, *info.expressions]
             if all(_is(v.type, _TEXT) for v in sides):
@@ -1768,6 +1815,9 @@ def _padded(here: list[exp.Expression], there: list[exp.Expression]) -> list[str
                 node.set("expressions", [_rtrim(v) for v in node.expressions])
             elif any(_is(v.type, _TEXT) for v in sides) and any(_unknown(v.type) for v in sides):
                 unsure = True
+            continue
+        if isinstance(node.expression, (exp.Any, exp.All)) and isinstance(node.expression.this, exp.Subquery):
+            unsure |= _padded_subquery(node, node.expression, "this", info.this, info.expression.this)
             continue
         a, b = info.this.type, info.expression.type
         if _is(a, _TEXT) and _is(b, _TEXT):
@@ -1803,6 +1853,8 @@ def _grouped_text(typed: exp.Expression) -> list[str]:
             if node.args.get("distinct") is False:
                 continue  # UNION ALL keeps every row anyway
             sets += [side.selects for side in (node.left, node.right) if isinstance(side, exp.Query)]
+        elif isinstance(node, exp.Distinct) and isinstance(node.parent, exp.Count):
+            continue  # COUNT(DISTINCT text) counts RTRIM(text): _collated
         elif isinstance(node, exp.Distinct) and not node.expressions and isinstance(node.parent, exp.Select):
             sets.append(node.parent.selects)  # SELECT DISTINCT: its columns
         else:
@@ -1840,7 +1892,9 @@ def _rtrim(node: exp.Expr) -> exp.Expr:
     if isinstance(node, exp.Literal) and node.is_string:
         return exp.Literal.string(node.name.rstrip(" "))
     # T-SQL takes off spaces only; DuckDB's RTRIM(x) also takes off other whitespace, such as a no-break space.
-    return exp.func("RTRIM", node, exp.Literal.string(" "))
+    # The node itself goes inside, not a copy (exp.func copies): a later pass that rewrites it, such as + on
+    # text becoming ||, must find it in the tree, or its rewrite took the RTRIM's place (WR-246).
+    return exp.Trim(this=node, expression=exp.Literal.string(" "), position="TRAILING")
 
 
 def _column_and_text(node: exp.EQ) -> bool:
@@ -1858,6 +1912,135 @@ def _padded_equal(node: exp.EQ) -> None:
     node.replace(exp.paren(exp.and_(
         exp.GTE(this=column.copy(), expression=low), exp.LTE(this=column.copy(), expression=high),
         exp.EQ(this=_rtrim(column), expression=low.copy())), copy=False))
+
+
+def _padded_subquery(node: exp.Expression, holder: exp.Expression, key: str, value: exp.Expression,
+                     query: exp.Expression) -> bool:
+    """``x IN (SELECT y ...)`` and ``x = ANY (SELECT y ...)`` compare as ``=`` does, without trailing spaces:
+    the value and the subquery's one column are both taken through RTRIM when both are text. A subquery that is
+    one SELECT has its column trimmed in place; a UNION is read from inside a FROM. True when it couldn't
+    tell the types and one side is text."""
+    inner = query.this if isinstance(query, exp.Subquery) else query
+    selects = inner.selects if isinstance(inner, exp.Query) else []
+    there = selects[0].type if len(selects) == 1 else None
+    if not (_is(value.type, _TEXT) and _is(there, _TEXT)):
+        return (_is(value.type, _TEXT) or _is(there, _TEXT)) and (_unknown(value.type) or _unknown(there))
+    node.set("this", _rtrim(node.this))
+    subquery = holder.args[key]
+    body = subquery.this
+    if isinstance(body, exp.Select) and len(body.expressions) == 1:
+        column = body.expressions[0]
+        if isinstance(column, exp.Alias):
+            column.set("this", _rtrim(column.this))
+        else:
+            body.set("expressions", [_rtrim(column)])
+    elif isinstance(body, exp.Query):
+        subquery.set("this", exp.select(_rtrim(exp.column("kf_v", table="kf_in"))).from_(exp.Subquery(
+            this=body, alias=exp.TableAlias(this=exp.to_identifier("kf_in"), columns=[exp.to_identifier("kf_v")]))))
+    return False
+
+
+_COLLATED = (exp.Window, exp.Order, exp.Nullif, exp.Case, exp.Count)
+_SET_ORDER_NOTE = ("T-SQL counts text that differs only in trailing spaces ('a' and 'a  ') as equal, so in ORDER BY "
+                   "text, then another column, the next column orders them. After a UNION, INTERSECT or EXCEPT, "
+                   "here they stay in code point order ('a' before 'a  ') and the next column only breaks real "
+                   "ties. Put the set operation in a FROM and order by RTRIM(...) to get T-SQL's order.")
+
+
+def _collated(here: list[exp.Expression], there: list[exp.Expression]) -> list[str]:
+    """The rest of T-SQL's padding (WR-246): text that differs only in trailing spaces is one value to
+    ``NULLIF``, a simple ``CASE x WHEN ...``, ``COUNT(DISTINCT ...)``, a window's ``PARTITION BY`` and
+    ``ORDER BY`` (so ``RANK`` ties them, and ``ROW_NUMBER`` counts them as one partition), and a query's
+    ``ORDER BY`` before its last key (``ORDER BY s, n`` orders 'a' and 'a ' by n). Where the text is known
+    to be text, it is compared through RTRIM; the values shown stay as they are."""
+    if len(here) != len(there):
+        return []
+    notes: list[str] = []
+    for node, info in zip(here, there, strict=True):
+        if isinstance(node, exp.Nullif):
+            if _is(info.this.type, _TEXT) and _is(info.expression.type, _TEXT) and not _volatile(node.this):
+                node.replace(exp.Case(ifs=[exp.If(this=exp.EQ(this=_rtrim(node.this.copy()),
+                                                              expression=_rtrim(node.expression)),
+                                                  true=exp.null())], default=node.this))
+        elif isinstance(node, exp.Case):
+            if node.this is None or not _is(info.this.type, _TEXT):
+                continue
+            arms = [(arm, seen) for arm, seen in zip(node.args.get("ifs") or [], info.args.get("ifs") or [],
+                                                     strict=False)]
+            if len(arms) != len(info.args.get("ifs") or []) or not all(_is(seen.this.type, _TEXT) for _, seen in arms):
+                continue
+            node.set("this", _rtrim(node.this))
+            for arm, _ in arms:
+                arm.set("this", _rtrim(arm.this))
+        elif isinstance(node, exp.Count):
+            if isinstance(node.this, exp.Distinct) and len(node.this.expressions) == 1 \
+                    and _is(info.this.expressions[0].type, _TEXT):
+                node.this.set("expressions", [_rtrim(node.this.expressions[0])])
+        elif isinstance(node, exp.Window):
+            parts, seen = node.args.get("partition_by") or [], info.args.get("partition_by") or []
+            if len(parts) == len(seen):
+                node.set("partition_by", [_rtrim(p) if _is(s.type, _TEXT) else p
+                                          for p, s in zip(parts, seen, strict=True)])
+            order, typed_order = node.args.get("order"), info.args.get("order")
+            if isinstance(order, exp.Order) and isinstance(typed_order, exp.Order):
+                _trimmed_keys(order.expressions, typed_order.expressions)
+        elif isinstance(node, exp.Order) and not isinstance(node.parent, exp.Window):
+            keys, seen = node.expressions[:-1], info.expressions[:-1]  # the last key's ties are any order
+            if isinstance(node.parent, exp.SetOperation):
+                if any(_is(s.this.type, _TEXT) for s in seen):
+                    notes.append(_SET_ORDER_NOTE)
+            elif isinstance(node.parent, exp.Select):
+                _trimmed_keys(keys, seen, node.parent)
+    return notes
+
+
+def _trimmed_keys(keys: list[exp.Expression], seen: list[exp.Expression], select: exp.Select | None = None) -> None:
+    """Order by RTRIM(key) for each key that is text. In a query's ORDER BY, a key that names an output column
+    (``ORDER BY 2``, or its alias) is ordered by that column's expression, since RTRIM(alias) could read a
+    table's column of the same name. A SELECT DISTINCT is left alone: DuckDB orders it only by its columns."""
+    if len(keys) != len(seen) or (select is not None and select.args.get("distinct")):
+        return
+    for key, typed in zip(keys, seen, strict=True):
+        if not isinstance(key, exp.Ordered) or not isinstance(typed, exp.Ordered):
+            continue
+        value, kind = key.this, typed.this.type
+        if select is not None:
+            named = _output_column(select, value)
+            if named is not None:
+                at, column = named
+                if isinstance(column, exp.Star) or _has_window(column):
+                    continue
+                kind = _typed_select_column(typed, at) or column.type
+                value = column.this if isinstance(column, exp.Alias) else column
+            elif isinstance(value, exp.Literal):
+                continue
+        if _is(kind, _TEXT):
+            key.set("this", _rtrim(value.copy()))
+
+
+def _output_column(select: exp.Select, key: exp.Expression) -> tuple[int, exp.Expression] | None:
+    columns = select.expressions
+    if isinstance(key, exp.Literal) and not key.is_string:
+        at = int(key.name) - 1 if key.name.isdigit() else -1
+        return (at, columns[at]) if 0 <= at < len(columns) else None
+    if isinstance(key, exp.Column) and not key.table:
+        for at, column in enumerate(columns):
+            if isinstance(column, exp.Alias) and column.alias.lower() == key.name.lower():
+                return at, column
+    return None
+
+
+def _has_window(node: exp.Expression) -> bool:
+    return any(True for _ in node.find_all(exp.Window))
+
+
+def _typed_select_column(typed: exp.Ordered, at: int) -> exp.DataType | None:
+    order = typed.parent
+    select = order.parent if order is not None else None
+    if isinstance(select, exp.Select) and at < len(select.expressions):
+        column = select.expressions[at]
+        return column.this.type if isinstance(column, exp.Alias) else column.type
+    return None
 
 
 def _in_order(tree: exp.Expression, kinds: tuple) -> list[exp.Expression]:

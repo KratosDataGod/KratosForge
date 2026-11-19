@@ -93,7 +93,7 @@ def test_exactly_seven_series_have_no_other_slot():
 
 def test_a_result_of_exactly_a_sheets_rows_goes_to_excel(tmp_path, monkeypatch):
     wrote = []
-    monkeypatch.setattr(frames, "write_xlsx", lambda table, sink: wrote.append(table.num_rows))
+    monkeypatch.setattr(frames, "write_xlsx", lambda table, sink, *_notes: wrote.append(table.num_rows))
     f = Frames()
     fid = f.keep(pa.table({"n": pa.array(range(frames.EXCEL_MAX_ROWS), pa.int32())}))
     target = tmp_path / "full.xlsx"

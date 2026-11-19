@@ -82,11 +82,15 @@ def current(w: dict[str, Any], usage: dict[tuple[str, str], dict[str, Any]], now
 
 
 def _monthly(parts: list[dict[str, Any]], metric: str, unit: str, days_of: list[float], what: str,
-             ids: dict[str, Any]) -> dict[str, Any]:
+             ids: dict[str, Any], raw: list[float | None] | None = None) -> dict[str, Any]:
+    """``parts`` scaled to MONTH_DAYS. The scaling uses ``raw``, the unrounded measured values behind
+    the parts (None, or a None in it: the part's own value). A part's value is rounded for display, and scaling a rounded value up by up to 30 times
+    could state more than was measured."""
     missing = [p for p in parts if p["value"] is None]
     if missing:
         return ms.unknown(metric, unit, missing[0].get("reason") or "Not measured.", **ids)
-    value = sum(p["value"] / max(d, 1.0) * MONTH_DAYS for p, d in zip(parts, days_of, strict=True))
+    exact = [p["value"] if r is None else r for p, r in zip(parts, raw or [None] * len(parts), strict=True)]
+    value = sum(v / max(d, 1.0) * MONTH_DAYS for v, d in zip(exact, days_of, strict=True))
     return ms.make(ms.ESTIMATED, metric, unit, value, method=f"measured {what} scaled to {MONTH_DAYS} days",
                    assumptions=[f"the next {MONTH_DAYS} days run like the measured period",
                                 "OneLake reads and writes the workload makes are not counted separately"], **ids)
@@ -95,6 +99,13 @@ def _monthly(parts: list[dict[str, Any]], metric: str, unit: str, days_of: list[
 def _days(m: dict[str, Any], fallback: float) -> float:
     start, end = ms.parse_time(m["period"]["start"]), ms.parse_time(m["period"]["end"])
     return max((end - start).total_seconds() / 86400, 1.0) if start and end else fallback
+
+
+def _raw(w: dict[str, Any], usage: dict[tuple[str, str], dict[str, Any]]) -> tuple[float | None, float | None]:
+    """The unrounded run seconds and CU seconds behind current()'s measurements."""
+    u = usage.get(_key(w.get("workspace_name"), w["name"]))
+    secs = w["runs"]["seconds_total"] if w["runs"]["read"] else None
+    return (None if secs is None else float(secs)), (None if u is None else float(u["cu_seconds"]))
 
 
 def avoidable(removed: list[dict[str, Any]], usage: dict[tuple[str, str], dict[str, Any]], now: dt.datetime, *,
@@ -108,11 +119,12 @@ def avoidable(removed: list[dict[str, Any]], usage: dict[tuple[str, str], dict[s
         secs = ms.unknown("fabric_run_seconds_avoided", ms.SECONDS, partial_reason, **ids)
         cu = ms.unknown("fabric_cu_avoided", ms.CU_SECONDS, partial_reason, **ids)
     else:
+        raw = [_raw(w, usage) for w in removed]
         secs = _monthly([c["run_seconds"] for c in now_of], "fabric_run_seconds_avoided", ms.SECONDS,
-                        [float(w["runs"]["days"]) for w in removed], "Fabric run time", ids)
+                        [float(w["runs"]["days"]) for w in removed], "Fabric run time", ids, [r[0] for r in raw])
         cu = _monthly([c["cu"] for c in now_of], "fabric_cu_avoided", ms.CU_SECONDS,
                       [_days(c["cu"], float(w["runs"]["days"])) for c, w in zip(now_of, removed, strict=True)],
-                      "CU from imported usage", ids)
+                      "CU from imported usage", ids, [r[1] for r in raw])
     worth = value(cu, price, ids)
     return {"basis": "part of the workload" if partial_reason else "whole workload",
             "current": now_of, "run_seconds_per_month": secs, "cu_per_month": cu, "cu_value_per_month": worth,
@@ -141,7 +153,8 @@ def per_workload(w: dict[str, Any], usage: dict[tuple[str, str], dict[str, Any]]
     c = current(w, usage, now)
     ids = {"workload_id": w["item_id"], "workspace_id": w.get("workspace_id")}
     days = float(w["runs"]["days"])
+    raw_secs, raw_cu = _raw(w, usage)
     return {"run_seconds_per_month": _monthly([c["run_seconds"]], "fabric_run_seconds_avoided", ms.SECONDS, [days],
-                                              "Fabric run time", ids),
+                                              "Fabric run time", ids, [raw_secs]),
             "cu_per_month": _monthly([c["cu"]], "fabric_cu_avoided", ms.CU_SECONDS, [_days(c["cu"], days)],
-                                     "CU from imported usage", ids)}
+                                     "CU from imported usage", ids, [raw_cu])}

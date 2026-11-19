@@ -278,20 +278,27 @@ def test_the_local_api_listens_on_loopback_only(client, monkeypatch):
     store, _, token = client
     monkeypatch.setattr(http_server, "BODY_SECONDS", 0.5)
     reg, _ = answering(lambda cap: lambda ctx: {"ran": True})
-    probe = socket.socket()
-    probe.bind(("127.0.0.1", 0))
-    port = probe.getsockname()[1]
-    probe.close()
-    config = server_config(api(reg, store, port), port)
-    assert config.host == "127.0.0.1"
-    server = uvicorn.Server(config)
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    try:
+    # uvicorn binds the port itself here (from server_config's host), since that bind is what's
+    # tested. A free port is picked first; if another test takes it in between, try another one.
+    for _ in range(3):
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        config = server_config(api(reg, store, port), port)
+        assert config.host == "127.0.0.1"
+        server = uvicorn.Server(config)
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
         deadline = time.monotonic() + 30
         while not server.started and thread.is_alive() and time.monotonic() < deadline:
             time.sleep(0.05)
-        assert server.started
+        if server.started:
+            break
+        server.should_exit = True
+        thread.join(10)
+    try:
+        assert server.started, "the local API didn't start on any of 3 free ports"
         with socket.create_connection(("127.0.0.1", port), timeout=5):
             pass
         addr = other_address()

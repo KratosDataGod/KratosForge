@@ -40,3 +40,14 @@ def test_a_variant_result_after_a_change_comes_from_the_last_statement_only(cell
     cell("CREATE TABLE c (v VARIANT)", "duckdb")
     assert cell("INSERT INTO c VALUES (1::VARIANT); SELECT v FROM c", "duckdb") == [["1"]]
     assert cell("SELECT count(*) FROM c", "duckdb") == [[1]]
+
+
+def test_the_query_of_a_variant_result_runs_once():
+    session = local_sql.DuckDBSession(SessionConfig("nb"))
+    try:
+        session._con.execute("CREATE SEQUENCE s")
+        first = session.execute(CellRequest("SELECT 1 AS a; SELECT nextval('s')::VARIANT AS v", "sql", "duckdb"))
+        assert first.outputs[-1]["rows"] == [["1"]]
+        assert session._con.execute("SELECT nextval('s')").fetchall() == [(2,)]
+    finally:
+        session.close()

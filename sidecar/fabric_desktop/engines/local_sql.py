@@ -427,23 +427,39 @@ class DuckDBSession(_SqlSession):
             reader = _variants_as_json(rel).to_arrow_reader()
         else:
             # On 1.x con.sql gives no result for a change, where execute gives its Count, so keep execute.
+            # DuckDB 1.x can't hand a VARIANT to Arrow, so a cell that ends in a query runs the statements
+            # before it, then binds the query as a relation (which runs nothing) to see its columns: one with
+            # a VARIANT is read through a relation that writes them as JSON. Each statement runs once.
+            relation, code = self._last_query(code)
+            if relation is not None:
+                table, total = _drain(_variants_as_json(relation).to_arrow_reader(), request.preview_rows,
+                                      request.result_rows)
+                return self._keep(table, total, request)
             cur = self._con.execute(code)
             if cur is None or cur.description is None:  # 1.x gives no cursor for a cell with no statement
                 return None, 0
-            if any(_has_variant(column[1]) for column in cur.description):
-                # DuckDB 1.x can't hand a VARIANT to Arrow. The cell's last statement is a query (a change
-                # gives no VARIANT), so it is asked again, read-only, as a relation that writes them as JSON
-                import duckdb
-                last = self._con.extract_statements(code)[-1]
-                if last.type == duckdb.StatementType.SELECT:
-                    rel = self._con.sql(last.query)
-                    if rel is not None:
-                        reader = _variants_as_json(rel).to_arrow_reader()
-                        table, total = _drain(reader, request.preview_rows, request.result_rows)
-                        return self._keep(table, total, request)
             reader = (getattr(cur, "to_arrow_reader", None) or cur.fetch_record_batch)()
         table, total = _drain(reader, request.preview_rows, request.result_rows)
         return self._keep(table, total, request)
+
+    def _last_query(self, code: str) -> tuple[Any, str]:
+        """DuckDB 1.x: when ``code`` ends in a query, the statements before it are run and the query is bound
+        as a relation (nothing runs). A relation whose result holds a VARIANT is given back, with nothing left
+        to run; otherwise None and what is left to execute (the query alone once the ones before it ran)."""
+        import duckdb
+        try:
+            statements = self._con.extract_statements(code)
+        except duckdb.Error:  # silent-ok: execute reports the same error for the whole cell
+            return None, code
+        if not statements or statements[-1].type != duckdb.StatementType.SELECT:
+            return None, code
+        for statement in statements[:-1]:
+            self._con.execute(statement.query)
+        last = statements[-1].query
+        relation = self._con.sql(last)
+        if relation is None or not any(_has_variant(k) for k in relation.types):
+            return None, last
+        return relation, ""
 
     def _interrupt(self) -> None:
         self._con.interrupt()

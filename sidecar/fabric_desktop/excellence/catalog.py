@@ -15,6 +15,7 @@ from typing import Any
 
 from . import catalog_artifacts
 from . import catalog_architecture
+from . import catalog_performance
 from . import controls as ct
 
 WRITE_ROLES = ("Admin", "Member", "Contributor")
@@ -317,6 +318,6 @@ def registry() -> ct.Registry:
     r = ct.Registry()
     for c in (*CONTROLS, *catalog_artifacts.CONTROLS):
         r.register(c)
-    for c in catalog_architecture.CONTROLS:
+    for c in (*catalog_architecture.CONTROLS, *catalog_performance.CONTROLS):
         r.register(c)
     return r

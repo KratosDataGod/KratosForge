@@ -861,7 +861,19 @@ function renderQuery() {
     if (!name) return;
     toast(`Writing ${name}...`);
     let out = await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, dialect: tab.dialect }), "Could not save the table");
-    if (out?.exists) {
+    if (out?.prod) {  // a workspace marked Prod: every write waits for the workspace's typed name (WR-249)
+      const ws = out.prod, exists = out.exists;
+      const go = await confirmDialog(exists ? "Replace the table in Prod?" : "Write to Prod?", exists
+        ? `${ws} is a Prod workspace, and ${ref.name} already has a table called ${name}. Saving replaces all of its rows with this query's result.`
+        : `${ws} is a Prod workspace. Saving writes the table ${name} to ${ref.name} there.`,
+        exists ? "Replace" : "Save", { danger: true, typeToConfirm: ws });
+      out = go && await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, mode: exists ? "overwrite" : "new", dialect: tab.dialect, confirm_name: ws }),
+        "Could not save the table");
+      if (out?.exists) {
+        toast(`${ref.name} got a table called ${name} while you confirmed, so nothing was written. Save again to replace it.`, true);
+        out = null;
+      }
+    } else if (out?.exists) {
       const replace = await confirmDialog("Replace the table?",
         `${ref.name} already has a table called ${name}. Saving replaces all of its rows with this query's result.`, "Replace", { danger: true, typeToConfirm: name });
       out = replace && await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, mode: "overwrite", dialect: tab.dialect, confirm_name: name }),

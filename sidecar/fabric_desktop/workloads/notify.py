@@ -212,15 +212,27 @@ class Outbox:
         with _GONE_LOCK:
             self._gone = _GONE.setdefault(key, {})
             self._created: dict[int, float] = {}  # row id -> created, for rows this Outbox wrote or read
+            self._gone_seen: float | None = None  # the kept-ids file's mtime when last read
             if fresh or self.set_aside is not None:  # a new, empty file: ids kept for an old one mean nothing in it
                 self._gone.clear()
                 self._gone_file.unlink(missing_ok=True)
-            else:
-                saved = jsonfile.read_json(self._gone_file, [])
-                for pair in saved if isinstance(saved, list) else []:
-                    if isinstance(pair, list) and len(pair) == 2 and type(pair[0]) is int \
-                            and (pair[1] is None or type(pair[1]) in (int, float)):
-                        self._gone[pair[0]] = pair[1]
+        self._load_gone()
+
+    def _load_gone(self) -> None:
+        """Take in the ids another Outbox (this process or another) kept in the file beside the outbox, when
+        it changed since last read. Only (id, created) pairs: one that matches no row hides nothing."""
+        try:
+            seen = self._gone_file.stat().st_mtime
+        except OSError:  # no file: nothing kept on disk
+            return
+        if seen == self._gone_seen:
+            return
+        saved = jsonfile.read_json(self._gone_file, [])
+        with _GONE_LOCK:
+            self._gone_seen = seen
+            for pair in saved if isinstance(saved, list) else []:
+                if isinstance(pair, list) and len(pair) == 2 and type(pair[0]) is int and type(pair[1]) in (int, float):
+                    self._gone[pair[0]] = float(pair[1])
 
     def _first_open(self) -> None:
         with self._db() as db:
@@ -283,6 +295,7 @@ class Outbox:
             _log.warning("Couldn't note a failed post in %s; it's tried again later: %s", self.path.name, failure(exc))
 
     def pending(self) -> list[dict[str, Any]]:
+        self._load_gone()
         self._settle_gone()
         with self._db() as db:
             rows = db.execute("SELECT id, created, title, lines, attempts, error, route, not_before, sending, idempotent "
@@ -317,7 +330,7 @@ class Outbox:
 
     def _save_gone(self) -> None:
         with _GONE_LOCK:
-            pairs = [[i, c] for i, c in sorted(self._gone.items())]
+            pairs = [[i, c] for i, c in sorted(self._gone.items()) if c is not None]  # on disk, only a full match
         try:
             jsonfile.write_json(self._gone_file, pairs, indent=None)
         except OSError as exc:

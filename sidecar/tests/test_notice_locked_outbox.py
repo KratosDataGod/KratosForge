@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime as dt
+import json
 import logging
 import sqlite3
 
@@ -161,6 +162,36 @@ def test_a_row_id_reused_after_another_process_deleted_the_row_is_a_new_message(
     assert other.sending("New: second", ["b"]) == x
     assert [r["title"] for r in a.pending()] == ["New: second"]  # not hidden, and not deleted by the settle
     assert a.count() == 1
+
+
+def test_a_kept_ids_file_that_outlived_its_rows_never_hides_a_new_notice(tmp_path, quick, monkeypatch):
+    t = [1_000_000.0]
+    a = _box(tmp_path, t)
+    teams = LockingTeams(a.path)
+    notify.send([_change()], single(HOOK), a, "KratosForge", teams)
+    teams.release()
+    gone_file = tmp_path / ("alerts.sqlite3" + notify.GONE_SUFFIX)
+    stale = gone_file.read_text(encoding="utf-8")
+    a.pending()  # the row's delete commits...
+    gone_file.write_text(stale, encoding="utf-8")  # ...but the app stopped before the file went
+    monkeypatch.setattr(notify, "_GONE", {})
+    t[0] += 60
+    down = Teams(requests.exceptions.ConnectTimeout("connect timed out"))
+    assert notify.send([_change()], single(HOOK), _box(tmp_path, t), "KratosForge", down)["queued"] == 1  # reuses id 1
+    t[0] += notify.BACKOFF_MAX + 1
+    up = Teams()
+    out = notify.send([], single(HOOK), _box(tmp_path, t), "KratosForge", up)
+    assert out["sent"] == 1 and len(up.posted) == 1  # the new notice went: the old pair matched nothing
+
+
+def test_a_long_lived_outbox_sees_ids_another_process_kept_later(tmp_path, quick):
+    t = [1_000_000.0]
+    agent = _box(tmp_path, t)  # made first, and kept, as the agent keeps its outbox
+    item = agent.sending("New: x", ["a"])
+    created = agent.pending()[0]["created"]
+    # Another process posted it and couldn't delete the row: it kept the pair in the file beside the outbox.
+    (tmp_path / ("alerts.sqlite3" + notify.GONE_SUFFIX)).write_text(json.dumps([[item, created]]), encoding="utf-8")
+    assert agent.pending() == [] and agent.count() == 0  # read again: that message went already
 
 
 def test_a_bug_in_a_send_isnt_taken_for_a_busy_outbox(tmp_path, monkeypatch):

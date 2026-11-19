@@ -28,6 +28,13 @@ def _column_type(select: str, table: str, column: str = "v") -> dict:
 
 
 CLAIMS: list[Claim] = [
+    # Whole-number arithmetic wraps as Spark's does with ANSI off (WR-116, #3031)
+    Claim("sql-compatibility.md", "2147483647 + 1", "notebook"),
+    Claim("sql-compatibility.md", "CAST(100 AS TINYINT) + CAST(100 AS TINYINT)", "notebook"),
+    # Array and string functions at their edges (#3069)
+    Claim("sql-compatibility.md", "substring_index('aaa', 'aa', -1)", "notebook"),
+    Claim("sql-compatibility.md", "upper('ß')", "notebook"),
+    Claim("sql-compatibility.md", "lower('İ')", "notebook"),
     # ANSI mode on this PC: Spark SQL here, ANSI off
     _nb("CAST(2147483648 AS INT)"),
     _nb("CAST(1e10 AS INT)"),

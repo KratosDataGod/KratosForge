@@ -105,10 +105,8 @@ def test_sections_were_found():
 
 # Afters the checker still reports, though the page and the rule's own advice call them the fix. Each is a
 # checker gap, not a docs error, so the test fails (strict xfail) once the checker is fixed.
-CHECKER_GAPS = {
-    ("notebook-best-practices.md", "NB003"): "the checker reports toPandas() after groupBy().agg(), though NB003's "
-                                             "own description says 'or aggregate first'",
-}
+# Rules whose checker disagrees with its own page, each an expected failure until the checker is fixed.
+CHECKER_GAPS: dict[tuple[str, str], str] = {}
 
 
 def _params(after: bool) -> list:

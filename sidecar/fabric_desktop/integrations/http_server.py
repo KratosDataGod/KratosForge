@@ -15,7 +15,7 @@ Every request passes ``Guard`` before anything else:
   shared PC or Remote Desktop server another person's program can't use a token it got hold of;
 - it must carry ``Authorization: Bearer <token>`` for a connected tool (only the OpenAPI document
   and the health check are open); tokens are stored hashed and stop working when revoked;
-- bodies over 1 MiB are refused, each tool is rate limited, and only a few calls run at once.
+- bodies over 1 MiB, or whose whole body doesn't arrive within 10 seconds in total, are refused, each tool is rate limited, and only a few calls run at once.
 
 Resources (``fabric-desktop://`` URIs) are readable at /api/v1/resources/read?uri=... too.
 
@@ -55,6 +55,7 @@ MAX_CONCURRENT = 4         # calls running at once in this server
 QUEUE_WAIT_SECONDS = 10.0
 MAX_CONNECTIONS = 32       # open connections; past this a request gets 503 (uvicorn's limit_concurrency)
 HEADER_SECONDS = 10.0      # a connection's request line and headers must all arrive within this
+BODY_SECONDS = 10.0        # and then its whole body, within this in total (not per chunk)
 IDLE_SECONDS = 5           # between requests on a kept-alive connection
 OPEN_PATHS = {"/api/v1/health", "/api/v1/openapi.json"}
 
@@ -177,7 +178,36 @@ class Guard:
                     {"Retry-After": "1"}, client=found)
                 return
             scope.setdefault("state", {})["fd_client"] = found
-        await self.app(scope, _limit_body(receive), send)
+        # The whole body is read here, within BODY_SECONDS: a client that promises more than it sends
+        # (a Content-Length it never fills, a chunked body that stalls) would otherwise hold its
+        # connection, and one of MAX_CONNECTIONS, for as long as it liked.
+        messages: list[Message] = []
+        limited = _limit_body(receive)
+        try:
+            with anyio.fail_after(BODY_SECONDS):
+                while not messages or (messages[-1]["type"] == "http.request" and messages[-1].get("more_body")):
+                    messages.append(await limited())
+        except TimeoutError:
+            await self._refuse(scope, receive, send, IntegrationError(
+                "timeout", f"The request body didn't all arrive within {BODY_SECONDS:g} seconds.", retryable=True,
+                hint="Send the whole body, with a Content-Length that matches it."), {"Connection": "close"}, 408,
+                client=scope.get("state", {}).get("fd_client"))
+            return
+        except IntegrationError as err:
+            # The rest of the body is never read, so the connection can't carry another request.
+            await self._refuse(scope, receive, send, err, {"Connection": "close"},
+                               client=scope.get("state", {}).get("fd_client"))
+            return
+        if messages[-1]["type"] == "http.disconnect":
+            return  # the client went away mid-body: nobody to answer
+        await self.app(scope, _replay(messages, receive), send)
+
+
+def _replay(messages: list[Message], receive: Receive) -> Receive:
+    """The body Guard read, then the connection's own messages (a disconnect, for a long response)."""
+    async def replayed() -> Message:
+        return messages.pop(0) if messages else await receive()
+    return replayed
 
 
 def _limit_body(receive: Receive) -> Receive:
@@ -369,6 +399,7 @@ def _protocol() -> type:
     as long as it liked. Here the request line and headers must all arrive within HEADER_SECONDS of
     the connection opening, or of the last response. A request that is running is never cut off.
     """
+    import h11
     from uvicorn.protocols.http.h11_impl import H11Protocol
 
     class Protocol(H11Protocol):
@@ -391,6 +422,18 @@ def _protocol() -> type:
             if self._deadline is not None:
                 self._deadline.cancel()
             self._deadline = self.loop.call_later(HEADER_SECONDS, self._headers_late)
+
+        def send_400_response(self, msg: str) -> None:
+            # A request line or headers h11 can't take (too big, malformed): answered in the API's
+            # error shape, like every other refusal, rather than uvicorn's plain text.
+            body = json.dumps({"ok": False, "error": IntegrationError(
+                "invalid_input", "The request line or headers are malformed or too big.").to_dict()}).encode()
+            headers = [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode()),
+                       (b"connection", b"close")]
+            self.transport.write(self.conn.send(h11.Response(status_code=400, headers=headers, reason=b"Bad Request")))
+            self.transport.write(self.conn.send(h11.Data(data=body)))
+            self.transport.write(self.conn.send(h11.EndOfMessage()))
+            self.transport.close()
 
         def _headers_late(self) -> None:
             if (self.cycle is None or self.cycle.response_complete) and not self.transport.is_closing():

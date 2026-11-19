@@ -3,10 +3,24 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-18 11:42 UTC, main 7be2906d.** Covers the PRs merged from #135 to #2972.
+**Product check of 2026-11-19 11:42 UTC, main 1719d5db.** Covers the PRs merged from #135 to #3078.
 
 ## Summary
 
+- Morning check, 2026-11-19: 39 PRs merged after ad1ac4cf. 1 was a product data PR, and the other 38 were linked.
+  The Excellence scorecard is on Optimize > Assessment in Preview (FEA-109, PB-138), with notebook and pipeline
+  controls. A semantic model card saves an Ossie file as TMDL with a Round-trip check (PB-110 slice 3). Optimize asks
+  first on a capacity warning, and Prod schedules write their started line before they run (PB-124). Fuzzing, coverage
+  and mutation batches 94 to 148 hardened the engine (PB-101). No item changed state.
+- Evening check, 2026-11-18: 50 PRs merged after 7be2906d. 4 were product data and work queue PRs, and the other 46
+  were linked. Writes to Delta tables now use deletion vectors and column mapping by default (PB-099, #2971), as the
+  product owner asked. Savings Intelligence added sync states, period figures and pricing scenarios (PB-137), and the
+  Excellence Assessment its first controls (PB-138), all engine only. Spark SQL on this PC matches Spark 3.5 for JSON,
+  hashing and the session time zone (PB-103). The mastery engine (#2206, PB-134) and the Ossie to TMDL save (#2910,
+  PB-110) merged, and an accessibility audit covered every page (#3016). No item changed state.
+- Acceptance, 2026-11-18: the product owner accepted PB-061 (missing policy keys) with documented limitations on
+  the decision card at 12:55 UTC. The Group Policy templates haven't been applied from a live domain or Intune yet, and
+  the sign-in tenant key (#2419) joins the trust-widening list when it lands.
 - Morning check, 2026-11-18: 52 PRs merged after 8838a247. 5 were product data, docs audit and plan PRs, and the
   other 47 were linked. Two new programs have items: PB-137 Enterprise Savings Intelligence (plan #2940; schema v2 and
   the attribution waterfall engine merged) and PB-138 Fabric Excellence Assessment (plan #2939; the assessment engine
@@ -278,7 +292,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 126 items (7 P0, 33 P1, 60 P2, 26 P3). 14 are Proposed, 31 In progress, 3 In review and 78 Accepted.
+- Backlog: 126 items (7 P0, 33 P1, 60 P2, 26 P3). 14 are Proposed, 31 In progress, 2 In review and 79 Accepted.
 - PB-125 (Learn ranks and profile pictures) and PB-126 (Learn curriculum content batches) are new and Proposed, from the
   product owner's ask of 2026-11-02; they build once the rank ladder is approved.
 - PB-124 (new, In progress, P0 like PB-101): the enterprise audit's EA remediation backlog (docs/audits/), tracked as its own item.
@@ -305,7 +319,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 3 In review items (PB-024, PB-045, PB-061), a tenant run of
+two release gates. Also waiting: acceptance of the 2 In review items (PB-024, PB-045), a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

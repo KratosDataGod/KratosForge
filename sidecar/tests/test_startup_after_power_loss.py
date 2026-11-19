@@ -128,12 +128,14 @@ def test_an_audit_line_cut_off_by_a_power_cut_doesnt_stop_the_history_or_damage_
     log.record("second", "ok", 0.1)
     trail = audit_chain.files(tmp_path)[-1]
     trail.write_bytes(trail.read_bytes() + tail)  # the append stopped before its newline
-    assert [e["action"] for e in log.recent()] == ["second", "first"]
+    # The history still shows, with the cut line as a placeholder row that says where it is (#3088).
+    assert [e["action"] for e in log.recent()] == [audit.UNREADABLE, "second", "first"]
+    assert [e["action"] for e in log.recent(action="second")] == ["second"]
     log.record("third", "ok", 0.1)
     lines = trail.read_bytes().splitlines()  # the trail is written in text mode: CRLF on Windows
     assert lines[2] == tail  # kept as it was: the trail is never rewritten
     assert json.loads(lines[3])["action"] == "third"  # on a line of its own, whole
-    assert [e["action"] for e in log.recent()] == ["third", "second", "first"]
+    assert [e["action"] for e in log.recent()] == ["third", audit.UNREADABLE, "second", "first"]
     problems = audit_chain.verify(tmp_path)["problems"]
     assert any("line 3: not an audit line" in p for p in problems), problems
     assert not any("deleted from the end" in p for p in problems), problems  # the head counts the cut line

@@ -607,8 +607,10 @@ async function sourceRequestDialog(target, done) {
   withJob.onchange = () => { jobBox.hidden = !withJob.checked; };
   let connections = [];
   (async () => {
-    for (let i = 0; i < 20 && document.body.contains(conn); i++) {
+    // The first read starts before showDialog below puts the select on the page, so it's checked after.
+    for (let i = 0; i < 20; i++) {
       const out = await reqQuietly("fabric_connections");
+      if (!document.body.contains(conn)) return;
       if (out && !out.pending) {
         connections = (out.connections || []).filter((c) => /sql/i.test(c.type || ""));
         conn.replaceChildren(...reqOptions(connections.length ? [["", "Pick one"], ...connections.map((c) => [c.id, `${c.name}${c.type ? ` (${c.type})` : ""}`])]

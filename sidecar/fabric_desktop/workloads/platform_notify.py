@@ -169,14 +169,17 @@ class PlatformRouting:
         return [default] if default and default.url else []
 
     @staticmethod
-    def parse(raw: dict[str, Any]) -> "PlatformRouting":
+    def parse(raw: dict[str, Any], saved: bool = False) -> "PlatformRouting":
+        """``saved``: read back from settings, where quiet hours an older build saved with seconds
+        still read (Quiet.parse_saved). Without it (saving), quiet hours are hours and minutes."""
         routes = [PlatformRoute.parse(r) for r in raw.get("routes") or []]
         names = [r.name for r in routes]
         if len(set(names)) != len(names):
             raise ValueError("route names are unique")
         quiet_text = str(raw.get("quiet") or "").strip()
         try:
-            quiet = Quiet.parse(quiet_text, tuple(_strs(raw.get("quiet_exempt"), "quiet_exempt"))) if quiet_text else None
+            read = Quiet.parse_saved if saved else Quiet.parse
+            quiet = read(quiet_text, tuple(_strs(raw.get("quiet_exempt"), "quiet_exempt"))) if quiet_text else None
         except ValueError:
             raise ValueError("quiet hours look like 22:00-07:00") from None
         return PlatformRouting(routes, quiet)
@@ -283,7 +286,8 @@ def send(events: list[dict[str, Any]], routing: PlatformRouting, outbox: Outbox,
     raises: the message waits in the outbox. The outbox and the ledger must be one file.
 
     Returns counts plus one result per event: ``sent``, ``queued`` (Teams unreachable, retried
-    on the next call), ``held`` (quiet hours), or ``skipped`` with the reason. ``dropped``,
+    on the next call), ``held`` (quiet hours), ``unconfirmed`` (sent with no answer, so it may have
+    arrived and isn't sent again) or ``skipped`` with the reason. ``dropped``, ``unconfirmed``,
     ``waiting``, ``error`` and a failing route's rest between tries are as for notify.send."""
     if outbox.path != ledger.path:  # a caller's mistake, not a delivery problem
         raise ValueError("the outbox and the ledger are one file, so a notice and its key are kept together")
@@ -292,7 +296,8 @@ def send(events: list[dict[str, Any]], routing: PlatformRouting, outbox: Outbox,
     dropped = outbox.trim()  # never sent: the caller logs and counts them
     down = outbox.resting({r.name: r.url for r in routing.routes})
     failed: dict[str, str] = {}
-    sent += flush(outbox, routing.by_name, post, down, failed, "From {when}; it couldn't be sent then.")
+    unconfirmed: list[int] = []
+    sent += flush(outbox, routing.by_name, post, down, failed, "From {when}; it couldn't be sent then.", unconfirmed)
     results: list[dict[str, Any]] = []
     for event in events:
         live: list[tuple[int, PlatformRoute]] = []
@@ -328,11 +333,15 @@ def send(events: list[dict[str, Any]], routing: PlatformRouting, outbox: Outbox,
                 outbox.not_sent(item_id, down[r.name])
                 ok = False
             else:
-                ok = post_kept(outbox, item_id, r, title, lines, post, down, failed)
+                ok = post_kept(outbox, item_id, r, title, lines, post, down, failed, unconfirmed)
             sent += ok
-            queued += not ok
-            if not ok:
+            if ok:
+                continue
+            if item_id in unconfirmed:
+                outcome = "unconfirmed" if outcome in ("sent", "queued") else outcome
+            else:
+                queued += 1
                 outcome = "queued" if outcome == "sent" else outcome
         results.append({"dedupe": event["dedupe"], "result": outcome, "routes": [r.name for r in routes]})
-    return {"sent": sent, "queued": queued, "held": held, "dropped": dropped, "waiting": outbox.count(),
-            "events": results, "error": next(iter(failed.values()), None)}
+    return {"sent": sent, "queued": queued, "held": held, "dropped": dropped, "unconfirmed": len(unconfirmed),
+            "waiting": outbox.count(), "events": results, "error": next(iter(failed.values()), None)}

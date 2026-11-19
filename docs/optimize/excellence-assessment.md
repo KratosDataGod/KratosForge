@@ -116,13 +116,13 @@ they are then not applicable, never passed). Profiles are versioned and stored w
 
 | Profile | Arch. | Perf. | Security | Gov. | Data eng. | Models | Capacity | Reliab. | DevOps | Local |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Microsoft-aligned baseline (default) | 12 | 15 | 18 | 10 | 10 | 10 | 10 | 7 | 5 | 3 |
+| Baseline (default) | 12 | 15 | 18 | 10 | 10 | 10 | 10 | 7 | 5 | 3 |
 | Enterprise security | 8 | 5 | 35 | 20 | 5 | 5 | 5 | 7 | 8 | 2 |
 | Data engineering excellence | 10 | 18 | 10 | 8 | 24 | 8 | 5 | 10 | 5 | 2 |
 | Capacity optimization | 8 | 25 | 10 | 5 | 10 | 10 | 22 | 5 | 2 | 3 |
 | KratosForge local-first | 10 | 15 | 15 | 8 | 12 | 8 | 10 | 5 | 5 | 12 |
 
-These are KratosForge defaults. The baseline uses the weights from the product brief.
+These are KratosForge defaults, not Microsoft standards. The baseline uses the weights from the product brief and the applicable Microsoft guidance.
 
 ## Snapshots, rescoring and trends
 
@@ -141,11 +141,87 @@ a promised saving), effort, risk of change, how to validate, how to roll back, r
 confidence and the exact rule version. Findings are ranked by severity first, so a critical security
 finding is never listed below a minor one with a bigger estimate.
 
+## The engine call
+
+`excellence_assess(workspace_id, days, profile, demo)` assesses one workspace, and its capacity when you
+can see it. It reads only, with your own access, and makes no read the app didn't already make: the
+optimization engine's reads (the workspace, its items, notebook and pipeline definitions, job history),
+the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`), the capacities you can see
+(`GET /capacities`) and each lakehouse's properties (`GET /workspaces/{id}/lakehouses/{id}`, the read the
+app already makes before it writes a table; at most 50 per assessment). A read that fails is listed in `reads` and leaves its controls not evaluated.
+`demo=True` assesses a labelled demonstration fixture without calling Fabric.
+
+## Controls
+
+| Control | Dimension | Severity | Checks | Evidence |
+| --- | --- | --- | --- | --- |
+| FEA-SEC-001 | Security | Medium | At most 4 Admin assignments | Role assignments |
+| FEA-SEC-002 | Security | High | No guest account from another organization is Admin, Member or Contributor | Role assignments |
+| FEA-SEC-003 | Security | Medium | No app (service principal) is Admin | Role assignments |
+| FEA-SEC-004 | Security | Low | At most 5 people have a write role through their own account rather than a group | Role assignments |
+| FEA-GOV-001 | Governance | Low | The workspace has a description | Workspace settings |
+| FEA-CAP-001 | Capacity and FinOps | Medium | The workspace's capacity is Active (only a capacity you can see) | Capacities |
+| FEA-PERF-001 | Performance | Medium | A notebook doesn't run the same code on the same data as another (OE-DUP-NB) | Optimization engine |
+| FEA-PERF-002 | Performance | Medium | A pipeline doesn't copy a source another pipeline also copies (OE-DUP-COPY, OE-REPEAT-EXTRACT) | Optimization engine |
+| FEA-DE-001 | Data engineering | Medium | A scheduled notebook or pipeline doesn't rewrite whole tables (OE-FULL-REFRESH); not applicable when it isn't scheduled | Optimization engine |
+| FEA-DE-002 | Data engineering | Low | A notebook's code isn't copied into another one per lakehouse (OE-DUP-NB-PARAM) | Optimization engine |
+| FEA-SEC-005 | Security | High | No key, password or connection string is written in a notebook's code (NB001) | Definition inspection |
+| FEA-DEVOPS-001 | DevOps | Low | No OneLake path in a notebook names a workspace or item id (NB002) | Definition inspection |
+| FEA-REL-001 | Reliability | Medium | A notebook doesn't catch an error and ignore it (NB012) | Definition inspection |
+| FEA-REL-002 | Reliability | Low | Every package a notebook installs has a version (NB009) | Definition inspection |
+| FEA-DE-003 | Data engineering | Medium | No VACUUM in a notebook keeps less than 7 days of history (NB020) | Definition inspection |
+| FEA-REL-003 | Reliability | Low | No pipeline activity is deactivated (skipped, and reported as Succeeded by default) | Definition inspection |
+| FEA-DEVOPS-002 | DevOps | Low | No pipeline activity names a workspace id as text rather than a parameter or variable | Definition inspection |
+| FEA-ARCH-001 | Architecture | Medium | One lakehouse per medallion layer: no lakehouse named for two of bronze, silver and gold, and no two named for the same layer | Item names (inferred, advice only) |
+| FEA-ARCH-002 | Architecture | Low | A lakehouse is schema-enabled | Lakehouse properties |
+| FEA-ARCH-003 | Architecture | Low | A workspace whose name says production holds no item named tmp, temp, test, staging, copy, old, backup or similar; not applicable when the name says Dev or Test | Workspace and item names (inferred, advice only) |
+| FEA-ARCH-004 | Architecture | Medium | A notebook's default lakehouse is in its own workspace (a cross-workspace dependency otherwise); not applicable without a default lakehouse | Notebook definition and item list |
+
+The thresholds (4 Admins, 5 direct writers) are KratosForge's: Microsoft's guidance asks for least
+privilege but gives no number. A profile can turn any control off, with a reason, or change its
+severity. Listing role assignments needs a workspace role that can see them; for anyone else the
+security controls are not evaluated.
+
+Role controls look at direct assignments only: members of a group aren't expanded. A user whose sign-in
+name Fabric didn't send can't be told apart from a guest, so FEA-SEC-002 is then not evaluated. The
+controls that compare an item with the others of its kind (FEA-PERF-001, FEA-PERF-002, FEA-DE-002)
+pass an item only when every other notebook or pipeline in the workspace was read; if one wasn't (no
+access, or the read budget ran out), they are not evaluated and name the ones that weren't read.
+
+The architecture controls follow the KratosForge standing decision: one schema-enabled lakehouse per
+medallion layer. FEA-ARCH-001 and FEA-ARCH-003 read layers, environment and left-overs from names, which
+is **inferred** evidence: a name is what someone typed, not what the item is. Their results are shown as
+advice and are never scored; when no name says a layer, or the workspace name doesn't say whether it is
+production, they are not evaluated. Fabric's own Dataflow staging items aren't counted as left-overs.
+FEA-ARCH-002 and FEA-ARCH-004 are verified: the lakehouse's properties (Fabric gives a default schema
+only for schema-enabled lakehouses) and the notebook definition the optimization engine already reads. A
+default lakehouse that isn't in the workspace's item list is in another workspace or was deleted;
+either way a deployment won't rebind it. Dev/Test/Prod separation isn't checked yet: it needs
+deployment pipeline or Git configuration the assessment doesn't read, and a name alone can't prove it.
+
+### Notebook and pipeline inspection
+
+The notebook and pipeline controls use the definitions the optimization engine already reads; they
+make no Fabric call of their own. While the engine has a definition in memory, it is inspected on
+this PC and only the result is kept as evidence (`item.inspection`):
+
+- for a notebook, which [notebook best-practice rules](../notebook-best-practices.md) matched, how
+  often, and the cell and line of each. For a secret (NB001), only that one was found and where,
+  never what it was;
+- for a pipeline, how many activities it has, and the names of those that are deactivated or name a
+  fixed workspace id. Not the ids themselves.
+
+Notebook code and pipeline JSON never enter the evidence or the snapshot. A definition that couldn't
+be read leaves these controls not evaluated. Retry, timeout and failure-path settings aren't checked
+yet: the engine's pipeline reader doesn't keep an activity's `policy` and `dependsOn`, and a control
+that can't see a setting is never passed.
+
 ## Limitations
 
-- Phase 1 is the engine only. The controls themselves come in the next stories, starting with
-  controls built on evidence the app already reads (optimization engine, Estate X-ray, the workspace
-  role review, governance checks).
+- There is no screen yet. The scorecard waits on its approved mockup.
+- The first controls cover what the app already reads. Estate X-ray (table layout), governance checks,
+  semantic models, DevOps and reliability controls come in later stories; until then those dimensions
+  show as not applicable or not evaluated, never as passing.
 - Controls that need a Fabric administrator (tenant settings) are not evaluated for anyone else.
 - Live capacity utilization has no public API. Capacity controls use imported Capacity Metrics
   exports only; without one they are not evaluated.

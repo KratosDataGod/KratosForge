@@ -14,6 +14,14 @@ from deltalake import DeltaTable, write_deltalake
 from fabric_desktop import delta_profile as P
 from fabric_desktop.meta.store import LocalStore
 
+
+@pytest.fixture(autouse=True)
+def _conservative(monkeypatch):
+    """These cases pin the conservative (Fabric-safe) profile's rules. The default is the modern profile
+    since 2026-11-17; test_delta_profile_modern.py covers it."""
+    monkeypatch.setattr(P, "DEFAULT_PROFILE", P.CONSERVATIVE)
+
+
 # Each setting outside the profile, what problems() said about it before readers were named (so the
 # check refuses the same tables for the same reasons), and the words the refusal now adds.
 CASES = {

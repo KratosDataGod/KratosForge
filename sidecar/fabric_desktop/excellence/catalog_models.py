@@ -129,8 +129,8 @@ def _fallback(ctx: ct.Context) -> dict[str, Any]:
     if sources == ["onelake"]:
         return ct.passed([rid], f"Its {tables} read through OneLake, which doesn't fall back to DirectQuery.")
     if behavior.lower() == "directlakeonly":
-        return ct.passed([rid], f"Its {tables} are set to Direct Lake only: a query that can't use Direct Lake "
-                                "fails visibly instead of falling back.")
+        return ct.passed([rid], f"Its {tables} are set to Direct Lake only, so a query that can't use Direct "
+                                "Lake fails visibly instead of falling back.")
     if behavior.lower() == "directqueryonly":
         return ct.failed([rid], f"Its {tables} are set to DirectQuery only, so no query uses Direct Lake.",
                          detail={"behavior": behavior, "tables": n})
@@ -148,14 +148,14 @@ def _rule(ctx: ct.Context, rule: str, found: str, clean: str, unknown_key: str) 
     if hit:
         count = int(hit.get("count") or 0)
         objects = list(hit.get("objects") or [])
-        return ct.failed([rid], f"{found} ({rule}, {count}: {_names(objects, count)}).",
+        return ct.failed([rid], f"{found} ({rule}). {count} found: {_names(objects, count)}.",
                          detail={"rule": rule, "count": count, "objects": objects})
     unknown = list(p.get(unknown_key) or [])
     if unknown:
         return ct.not_evaluated(f"The definition doesn't show what this checks for {len(unknown)} "
                                 f"{_s(len(unknown), 'relationship', 'relationships')} ({_names(unknown, len(unknown))}).",
                                 needs="the relationship columns' definitions")
-    return ct.passed([rid], f"{clean} ({rule}, {p['relationships']} relationships checked).")
+    return ct.passed([rid], f"{clean} ({rule}, {p['relationships']} {_s(p['relationships'], 'relationship', 'relationships')} checked).")
 
 
 def _types_differ(ctx: ct.Context) -> dict[str, Any]:
@@ -203,14 +203,14 @@ CONTROLS = (
                        "that needs both, if any.",
                        ["Open the model and find the relationships named in the finding.",
                         "Set Cross filter direction to Single.",
-                        "Check the reports that use them; add CROSSFILTER to a measure that needs the other way.",
+                        "Check the reports that use them. Add CROSSFILTER to a measure that needs the other way.",
                         "Assess again."],
                        "Queries filter along the paths you designed, and run faster.", "medium", "medium",
                        "Report totals are unchanged where they were right, and the control passes.",
                        "Set the direction back to Both.")),
     _sm(id="FEA-SM-002", title="Model has no row-level security", severity="informational",
         requirement="kratosforge_recommendation", evaluate=_row_security, references=(_RLS_DOC, _RLS_GUIDANCE),
-        description="No security role filters rows. Noted, not scored: many models are meant for every reader.",
+        description="No security role filters rows. Noted, not scored, because many models are meant for every reader.",
         remediation=_t("Without a role that filters rows, everyone who can read the model sees every row.",
                        "If some readers may see only part of the data, add a role with a row filter and assign "
                        "people to it; otherwise nothing needs to change.",
@@ -226,12 +226,12 @@ CONTROLS = (
         references=(_DIRECT_LAKE_DOC, _FEA_DOC),
         description="The model's Direct Lake behavior is Automatic (or DirectQuery only). Not applicable to a "
                     "model with no Direct Lake table.",
-        remediation=_t("With Automatic, a query Direct Lake can't answer runs as DirectQuery: slower, on more "
-                       "capacity, and nobody is told.",
+        remediation=_t("With Automatic, a query Direct Lake can't answer runs as DirectQuery instead, which is "
+                       "slower and uses more capacity, and nobody is told.",
                        "Set the model's Direct Lake behavior to Direct Lake only, so fallback shows as an error you "
                        "can fix (compact the table, replace the view).",
                        ["Run the Direct Lake check on the Semantic model tab to see what would fall back.",
-                        "Fix what it finds.", "Set the Direct Lake behavior to DirectLakeOnly.",
+                        "Fix what it finds.", "Set the Direct Lake behavior to Direct Lake only.",
                         "Open the main reports to confirm they load.", "Assess again."],
                        "Queries stay on Direct Lake, or fail where you can see them.", "low", "medium",
                        "The main reports load, and the control passes.",

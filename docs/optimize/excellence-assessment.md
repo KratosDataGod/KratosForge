@@ -179,7 +179,7 @@ Semantic model tab already makes). A read that fails is listed in `reads` and le
 | FEA-ARCH-003 | Architecture | Low | A workspace whose name says production holds no item named tmp, temp, test, staging, copy, old, backup or similar; not applicable when the name says Dev or Test | Workspace and item names (inferred, advice only) |
 | FEA-ARCH-004 | Architecture | Medium | A notebook's default lakehouse is in its own workspace (a cross-workspace dependency otherwise); not applicable without a default lakehouse | Notebook definition and item list |
 | FEA-SM-001 | Semantic models | Medium | No active relationship filters in both directions | Model definition |
-| FEA-SM-002 | Semantic models | Informational | At least one security role filters rows (noted, not scored: many models are for every reader) | Model definition |
+| FEA-SM-002 | Semantic models | Informational | At least one security role filters rows (noted, not scored, because many models are meant for every reader) | Model definition |
 | FEA-SM-003 | Semantic models | Low | A Direct Lake model is set to Direct Lake only, or reads through OneLake, so it doesn't fall back to DirectQuery silently; not applicable without Direct Lake tables | Model definition |
 | FEA-SM-004 | Semantic models | Medium | Both columns of every relationship have the same type (SM001) | Model definition |
 | FEA-SM-005 | Semantic models | Low | Every relationship key is a whole number (SM002) | Model definition |
@@ -234,10 +234,10 @@ with the relationship or column names. DAX, M, a role's filter and members, and 
 never enter the evidence or the snapshot. A definition that couldn't be read, or a model past the 30
 read, leaves these controls not evaluated.
 
-What needs the model's data isn't checked here: high-cardinality columns, model size and the Direct
+What needs the model's data isn't checked here. High-cardinality columns, model size and the Direct
 Lake guardrails need VertiPaq statistics or the Delta tables' numbers. The
 [Direct Lake check](../direct-lake-check.md) on the Semantic model tab reads those, and the full Best
-Practice Analyzer runs in Fabric only when you ask for it; the assessment starts neither.
+Practice Analyzer runs in Fabric only when you ask for it, and the assessment starts neither.
 
 ## Limitations
 

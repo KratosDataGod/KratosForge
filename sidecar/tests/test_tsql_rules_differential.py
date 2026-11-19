@@ -294,6 +294,7 @@ def test_replicate_takes_a_bigint_count(engine) -> None:
     assert one("REPLICATE(CAST('' AS VARCHAR(MAX)), 3000000000)") == ""
     assert one("(SELECT REPLICATE(CAST('' AS VARCHAR(MAX)), c) FROM (VALUES (3000000000)) AS t(c))") == ""
     assert one("LEN(REPLICATE(CAST('ab' AS VARCHAR(MAX)), '3'))") == 6
+    assert one("LEN(REPLICATE(CAST('a' AS VARCHAR(MAX)), " + "0" * 5000 + "3))") == 3  # a number literal too
     assert one("REPLICATE('x', '')") == ""  # '' is 0, as SQL Server's CAST('' AS INT)
     assert one("LEN(REPLICATE(CAST('a' AS VARCHAR(MAX)), '" + "0" * 5000 + "3'))") == 3  # leading zeros
     with pytest.raises(Exception, match="Error converting data type varchar to bigint"):

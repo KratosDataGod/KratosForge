@@ -20,6 +20,8 @@ from sqlglot.optimizer.annotate_types import annotate_types
 from sqlglot.optimizer.qualify import qualify
 from sqlglot.schema import MappingSchema
 
+from .spark_decimals import Refused
+
 log = logging.getLogger(__name__)
 
 _T = exp.DataType.Type
@@ -36,7 +38,8 @@ _DOUBLE_TEXT = r"^\s*([+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?)[dDfF]?\
 
 
 def whole_text(value: str, duck_type: str) -> str:
-    """DuckDB SQL for the text ``value`` cast to a whole-number type as Spark casts it with ANSI off."""
+    """DuckDB SQL for the text ``value`` cast to a whole-number type as Spark casts it with ANSI off. ``value``
+    is written twice: give a column, a literal or a lambda's name (_text_as binds anything else once)."""
     text = f"CAST({value} AS VARCHAR)"
     digits = f"regexp_replace(regexp_extract({text}, '^\\s*([+-]?[0-9]*)', 1), '^[+-]?$', '0')"
     return f"CASE WHEN regexp_matches({text}, '{_WHOLE_TEXT}') THEN TRY_CAST({digits} AS {duck_type}) END"
@@ -44,15 +47,26 @@ def whole_text(value: str, duck_type: str) -> str:
 
 def double_text(value: str, duck_type: str = "DOUBLE") -> str:
     """DuckDB SQL for the text ``value`` cast to a double (or float) as Spark casts it: spaces trimmed, a d
-    or f after the number taken, and NaN and infinity read in any case."""
+    or f after the number taken, and NaN and infinity read in any case. ``value`` is written three times, as
+    in whole_text."""
     text = f"CAST({value} AS VARCHAR)"
     return (f"CASE WHEN regexp_matches({text}, '{_DOUBLE_TEXT}') THEN TRY_CAST(regexp_extract({text}, "
             f"'{_DOUBLE_TEXT}', 1) AS {duck_type}) ELSE TRY_CAST(TRIM({text}) AS {duck_type}) END")
 
 
-def _parsed(text: str) -> exp.Expr:
-    import sqlglot
-    return exp.paren(sqlglot.parse_one(text, read="duckdb"))
+# The lambda parameter the text side is bound to, so it is written once however deep comparisons nest. A
+# statement that can see a column of this name is left as it was (DuckDB takes the column first).
+_LAMBDA = "kf_text_cmp"
+_LAMBDA_X = "kf_text_cmpx"  # BETWEEN's value, when its two ends are of two types
+
+
+def _bound(template: str, side: exp.Expr) -> exp.Expr:
+    """``template`` (DuckDB SQL over ``_LAMBDA``) applied to ``side``, which is read once: a column or a
+    literal goes in as it is, anything else through a lambda over a one-element list."""
+    from .sql import _with_args
+    if isinstance(side, (exp.Column, exp.Literal)):
+        return exp.paren(_with_args(template.replace(_LAMBDA, "fj_arg0"), [cast(Any, side)]))
+    return exp.paren(_with_args(f"(LIST_TRANSFORM([fj_arg0], {_LAMBDA} -> {template}))[1]", [cast(Any, side)]))
 
 
 def _kind(node: exp.Expr, copies: dict[int, exp.Expr]) -> exp.DataType | None:
@@ -63,15 +77,13 @@ def _kind(node: exp.Expr, copies: dict[int, exp.Expr]) -> exp.DataType | None:
 
 def _text_as(side: exp.Expr, kind: exp.DataType) -> exp.Expr | None:
     """``side`` (text) cast to the number type ``kind`` as Spark's comparison casts it, or None when
-    ``kind`` isn't a number type."""
-    from .sql import duckdb_sql
-    value = duckdb_sql(side)
+    ``kind`` isn't a number type. ``side`` appears once in the result."""
     if kind.this in _WHOLE:
-        return _parsed(whole_text(value, _WHOLE[kind.this]))
+        return _bound(whole_text(_LAMBDA, _WHOLE[kind.this]), side)
     if kind.this in _FLOATS:
-        return _parsed(double_text(value, _FLOATS[kind.this]))
+        return _bound(double_text(_LAMBDA, _FLOATS[kind.this]), side)
     if kind.this == _T.DECIMAL:
-        return _parsed(double_text(value))
+        return _bound(double_text(_LAMBDA), side)
     return None
 
 
@@ -84,9 +96,9 @@ def _number_of(side: exp.Expr, kind: exp.DataType) -> exp.Expr:
 
 def _as_text(side: exp.Expr, kind: exp.DataType) -> exp.Expr:
     """A number as Spark's CAST to STRING writes it (IN with text compares as text)."""
-    from .sql import duckdb_sql, spark_text_cast
+    from .sql import spark_text_cast
     if kind.this in _FLOATS:
-        return _parsed(spark_text_cast(duckdb_sql(side)))
+        return _bound(spark_text_cast(_LAMBDA), side)
     return exp.cast(side, exp.DataType.build("VARCHAR"))
 
 
@@ -154,16 +166,39 @@ def spark_text_comparisons(statement: exp.Expr, conn: Any, schema: MappingSchema
     def kind(side: exp.Expr) -> exp.DataType | None:
         return _literal_kind(side) or _kind(side, copies)
 
-    root = statement
-    for node in reversed(found):
-        new = _rewritten(node, kind)
-        if new is None:
-            continue
-        if node is root:
-            root = new
-        else:
-            node.replace(new)
+    from .sql import duckdb_sql
+    if any(i.name.lower() == _LAMBDA for i in statement.find_all(exp.Identifier)) or any(
+            _LAMBDA in cast(dict[str, str], columns) for columns in schema.mapping.values()):
+        log.info("Spark text comparisons not applied: a column is named like the rewrite's lambda %s", _LAMBDA)
+        return statement
+    before = statement.copy()
+    try:
+        size = len(duckdb_sql(before))
+        root, rewrites = statement, 0
+        for node in reversed(found):
+            new = _rewritten(node, kind)
+            if new is None:
+                continue
+            rewrites += 1
+            if node is root:
+                root = new
+            else:
+                node.replace(new)
+        grown = len(duckdb_sql(root)) if rewrites else size
+    except Exception as exc:  # noqa: BLE001 - a fix of comparisons only: the statement runs as it was; logged
+        log.info("Spark text comparisons not applied: %s: %s", type(exc).__name__, exc)
+        return before
+    # Each rewrite reads its sides once, so the SQL grows by a bounded amount per comparison; past that, a
+    # statement is refused by name rather than run as DuckDB compares (a different answer) or sent huge.
+    if grown > 2 * size + _GROWTH * rewrites:
+        raise Refused(f"The query's {rewrites} comparisons of text with numbers can't run on this PC the way they run "
+                      "in Spark, "
+                      "because written out as Spark compares them the query gets too large, so nothing ran. Cast the "
+                      "text to the number's type in the query, for example CAST(col AS INT) = 1.")
     return root
+
+
+_GROWTH = 20_000  # characters a comparison's rewrite may add: the casts' fixed text (a double written as Java writes it is the longest), with its sides read once
 
 
 def _has_text_column(sides: list[exp.Expr], conn: Any, schema: MappingSchema | None) -> bool:
@@ -196,26 +231,57 @@ def _rewritten(node: exp.Expr, kind: Any) -> exp.Expr | None:
             return None
         return type(node)(this=pair[0], expression=pair[1])
     if isinstance(node, exp.Between):
-        low = _pair(node.this, node.args["low"], kind)
-        high = _pair(node.this, node.args["high"], kind)
-        if low is None and high is None:
-            return None
-        # Spark compares each end on its own: x >= low AND x <= high.
-        first = exp.GTE(this=low[0], expression=low[1]) if low else exp.GTE(
-            this=node.this.copy(), expression=node.args["low"].copy())
-        second = exp.LTE(this=high[0], expression=high[1]) if high else exp.LTE(
-            this=node.this.copy(), expression=node.args["high"].copy())
-        return exp.paren(exp.and_(first, second))
+        this, low, high = node.this, node.args["low"], node.args["high"]
+        a, b, c = kind(this), kind(low), kind(high)
+        if _text(a) and _numeric(b) and _numeric(c):
+            if b.this == c.this:
+                cast_ = _text_as(this, b)
+                if cast_ is None:
+                    return None
+                return exp.Between(this=cast_, low=_number_of(low.copy(), b), high=_number_of(high.copy(), c))
+            # Spark compares each end on its own (x >= low AND x <= high), each cast to its end's type: x is read
+            # once, through a lambda.
+            first, second = _text_as(exp.column(_LAMBDA_X), b), _text_as(exp.column(_LAMBDA_X), c)
+            if first is None or second is None:
+                return None
+            test = exp.and_(exp.GTE(this=first, expression=_number_of(low.copy(), b)),
+                            exp.LTE(this=second, expression=_number_of(high.copy(), c)))
+            from .sql import _with_args
+            return exp.paren(_with_args(f"(LIST_TRANSFORM([fj_arg0], {_LAMBDA_X} -> fj_arg1))[1]",
+                                        [cast(Any, this.copy()), cast(Any, test)]))
+        if _numeric(a) and (_text(b) or _text(c)) and all(_numeric(k) or _text(k) for k in (b, c)):
+            ends = []
+            for end, k in ((low, b), (high, c)):
+                ends.append(_text_as(end, a) if _text(k) else end.copy())
+            if any(e is None for e in ends):
+                return None
+            return exp.Between(this=_number_of(this.copy(), a), low=ends[0], high=ends[1])
+        return None
     if isinstance(node, exp.Case):
-        # CASE x WHEN v THEN ... is Spark's CASE WHEN x = v THEN ...: each branch's comparison is cast on its own.
+        # CASE x WHEN v THEN ... is Spark's CASE WHEN x = v THEN ...: each pair is cast as a comparison casts it.
         ifs = node.args.get("ifs") or []
-        pairs = [_pair(node.this, i.this, kind) for i in ifs]
-        if not any(pairs):
-            return None
-        searched = [exp.If(this=exp.EQ(this=p[0], expression=p[1]) if p else exp.EQ(
-            this=node.this.copy(), expression=i.this.copy()), true=i.args["true"].copy()) for i, p in zip(ifs, pairs, strict=True)]
+        operand, values = kind(node.this), [kind(i.this) for i in ifs]
         default = node.args.get("default")
-        return exp.Case(ifs=searched, default=default.copy() if default is not None else None)
+        if _text(operand) and any(_numeric(v) for v in values):
+            numbers = {v.this for v in values if _numeric(v)}
+            if len(numbers) != 1 or any(not (_numeric(v) or _text(v)) for v in values):
+                return None  # numbers of two types: Spark casts x to each; left to DuckDB, as before
+            to = next(v for v in values if _numeric(v))
+            cast_ = _text_as(node.this, to)  # x once, as the CASE's operand
+            if cast_ is None or any(_text(v) for v in values):
+                return None
+            whens = [exp.If(this=_number_of(i.this.copy(), v), true=i.args["true"].copy()) for i, v in zip(ifs, values, strict=True)]
+        elif _numeric(operand) and any(_text(v) for v in values):
+            whens = []
+            for i, v in zip(ifs, values, strict=True):
+                value = _text_as(i.this, operand) if _text(v) else i.this.copy()
+                if value is None:
+                    return None
+                whens.append(exp.If(this=value, true=i.args["true"].copy()))
+            cast_ = _number_of(node.this.copy(), operand)
+        else:
+            return None
+        return exp.Case(this=cast_, ifs=whens, default=default.copy() if default is not None else None)
     if isinstance(node, exp.In) and node.args.get("query") is None and node.args.get("unnest") is None:
         values = [node.this, *node.expressions]
         kinds = [kind(v) for v in values]
@@ -260,6 +326,8 @@ def spark_text_comparison_columns(expressions: list[str], columns: list[tuple[st
                 named = isinstance(projection, exp.Alias)
                 out[i] = (duckdb_sql(projection.this if named else projection), projection.alias if named else None)
         return out
+    except Refused:
+        raise
     except Exception as exc:  # noqa: BLE001 - a fix of comparisons only: the column runs as it was; logged
         log.info("Spark text comparisons not applied: %s: %s", type(exc).__name__, exc)
         return unchanged

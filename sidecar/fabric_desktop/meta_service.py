@@ -174,11 +174,20 @@ class MetaMixin:
         try:
             project = self._project()
         except LookupError:
+            project = None
+        if project is not None:
+            for env in ("test", "prod"):
+                if workspace_id in _env_workspaces(project.environments.get(env, {})):
+                    return (f"This workspace is {env.title()}'s, which changes only by promote. "
+                            "Point the job at a Dev or scratch workspace.")
+        # WR-248: a workspace an earlier project named Prod stays Prod on this PC with no project open, as it does
+        # for a notebook's changes (prod_writes_service); a job's write there would skip every typed-name check
+        marked = getattr(self, "_prod_marked", None)
+        if marked is not None and marked(workspace_id):
+            return ("This workspace was named Prod by a project opened on this PC, and Prod changes only by promote. "
+                    "Point the job at a Dev or scratch workspace.")
+        if project is None:
             return None
-        for env in ("test", "prod"):
-            if workspace_id in _env_workspaces(project.environments.get(env, {})):
-                return (f"This workspace is {env.title()}'s, which changes only by promote. "
-                        "Point the job at a Dev or scratch workspace.")
         return lakehouse.write_guard(lakehouse_name, schema, table) if lakehouse.write_guard else None
 
     def _maintenance_refusal(self, operation: str, workspace_id: str, table: str) -> str | None:

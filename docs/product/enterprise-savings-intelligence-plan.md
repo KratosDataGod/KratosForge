@@ -322,7 +322,7 @@ Assessment), `calibration.py` and `costs.py` (FinOps rules, Quality reads the co
 
 ### Phase 1: Shared telemetry foundation
 
-**ESI-101 Schema v2 for `fdopt_`.** Additive migration: provenance `tenant_id`; execution,
+**ESI-101 Schema v2 for `fdopt_`.** **Built** (#2962): the new nullable columns and the six new tables; writes use the columns of the version the lakehouse is at, and other families no longer wait for Optimize's upgrade. The provenance `tenant_id` and other identity columns wait for ESI-102's decision. Additive migration: provenance `tenant_id`; execution,
 optimization, ledger and sync columns from 4.1; new tables `fdopt_pricing`,
 `fdopt_optimization_link`, `fdopt_baseline`, `fdopt_validation`, `fdopt_attribution`,
 `fdopt_sync`. Owner: Optimize lakehouse thread (schema.py), specified here.
@@ -394,7 +394,7 @@ rules in `calibration.py` (additive).
   measurement row (the old row stays).
 - Tests: scenario 13, baseline version change (12).
 
-**ESI-202 Overhead per execution.** Data transfer seconds and bytes, sync overhead, and any
+**ESI-202 Overhead per execution.** **Built** (engine only, no writes). `savings/overhead.py`. Data transfer seconds and bytes, sync overhead, and any
 OneLake operations, as separate measurements; Unknown where not measured.
 
 **ESI-203 Execution ledger accruals.** Gross, overhead and net CU avoided per execution as
@@ -446,13 +446,13 @@ linked to optimizations by a confirmed person action; measure F.
 - Acceptance: nothing is labelled realized without billing or capacity-change evidence; an F64
   with lower utilization shows value and headroom, not realized savings.
 
-**ESI-404 Corrections.** Correction and reversal events with `corrects`; reconciliation report
+**ESI-404 Corrections.** **Built** (engine only, no writes). `savings/corrections.py`. Writing its events waits on an additive `fdopt_savings` change (layer, CU hours, classification, result CU hours and classification, layer removed, reason), co-signed with Lakehouse optimize. Correction and reversal events with `corrects`; reconciliation report
 that rebuilds totals from the ledger and compares.
 - Tests: scenario 19.
 
 ### Phase 5: Enterprise reporting
 
-**ESI-501 Reporting schema.** Documented star schema (`dim_*`, `fact_*`) over `fdopt_`, with
+**ESI-501 Reporting schema.** **Documented** in [savings-reporting-schema.md](savings-reporting-schema.md). Documented star schema (`dim_*`, `fact_*`) over `fdopt_`, with
 measure definitions; SQL views or a semantic model only after D6.
 
 **ESI-502 Cost and savings mockup.** Section 5's screens, light shell, via the UX thread, then

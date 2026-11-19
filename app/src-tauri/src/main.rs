@@ -3142,6 +3142,9 @@ fn main() {
         let _ = std::fs::remove_file(exe.with_extension("exe.new"));
         let _ = std::fs::remove_file(exe.with_extension("exe.failed"));
     }
+    // And by an engine install cut off part way (closed, asleep, power cut): the installed engine
+    // is whole, since an engine goes in place by one rename once complete; this gives the space back.
+    engine_patch::discard_unfinished(&engine_root());
     tauri::Builder::default()
         .manage(PendingLink(Mutex::new(pending)))
         .setup(move |app| {

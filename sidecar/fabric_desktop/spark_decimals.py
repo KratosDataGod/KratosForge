@@ -647,9 +647,12 @@ def _double_round(node: exp.Expr, operand: exp.Expr, places: int, even: bool, an
     double first and narrowed after). DuckDB's ROUND of a double scales it in binary, so round(0.285D, 2) was
     0.28 where Spark gives 0.29. NaN and infinity are kept."""
     if not -_DOUBLE_PLACES <= places <= _DOUBLE_PLACES:
-        raise Refused(f"This Spark SQL can't be run on this PC: round or bround of a double to {places} places isn't "
-                      f"written here (from -{_DOUBLE_PLACES} to {_DOUBLE_PLACES} are). Spark rounds the double's "
-                      "decimal text; cast the value to a decimal first to round it further.")
+        inside = node.parent if isinstance(node.parent, exp.Case) else None  # bround's CASE holds a ROUND
+        name = "bround" if even or (inside is not None and _written(inside) == "BROUND") else "round"
+        raise Refused(f"{name}() of a double to {places} places can't run on this PC the way it runs in Spark, because "
+                      f"this PC rounds a double's decimal text only from -{_DOUBLE_PLACES} to {_DOUBLE_PLACES} places, so "
+                      f"nothing ran. Cast the value to a decimal first, for example "
+                      f"{name}(CAST(x AS DECIMAL(38, {30 if places > 0 else 0})), {places}).")
     branches = []
     for bound, scale in _DOUBLE_SCALES:
         value = f"CAST(CAST(kf_decv AS VARCHAR) AS DECIMAL(38, {scale}))"

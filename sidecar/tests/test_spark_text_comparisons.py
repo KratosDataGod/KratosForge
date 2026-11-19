@@ -61,6 +61,10 @@ SPARK = [
     ("1 = '1.5' AND '2' = 2", True),
     ("'true' = true", True),
     ("'2024-01-01' = DATE'2024-01-01'", True),
+    ("'1.5' BETWEEN 1 AND 1.4D", False),
+    ("'1.5' BETWEEN 1 AND 1.6D", True),
+    ("2 BETWEEN '1.5' AND 3", True),
+    ("CASE '1.5' WHEN 1 THEN 'a' WHEN 2 THEN 'b' ELSE 'c' END", "a"),
 ]
 
 
@@ -111,3 +115,42 @@ def test_text_compared_with_text_and_numbers_with_numbers_are_unchanged(spark):
     assert one(spark, "'10' < '9'") is True
     assert one(spark, "10 < 9.5") is False
     assert one(spark, "CAST(1 AS DECIMAL(10, 2)) = 1") is True
+
+
+def _rewritten_size(query: str) -> int:
+    import sqlglot
+    from sqlglot.schema import MappingSchema
+
+    from fabric_desktop.spark_text_compare import spark_text_comparisons
+    from fabric_desktop.sql import duckdb_sql
+    schema = MappingSchema({"t": {"s": "VARCHAR", "n": "INTEGER"}}, dialect="duckdb", normalize=False)
+    return len(duckdb_sql(spark_text_comparisons(sqlglot.parse_one(query, read="duckdb"), None, schema)))
+
+
+def test_nested_comparisons_grow_the_sql_linearly():
+    # Each text side is read once (bound through a lambda), so nesting adds a fixed amount per level; it doubled.
+    sizes = []
+    for depth in range(1, 9):
+        condition = "s = 1"
+        for _ in range(depth):
+            condition = f"CAST(({condition}) AS VARCHAR) = 1"
+        sizes.append(_rewritten_size(f"SELECT {condition} FROM t"))
+    steps = {b - a for a, b in zip(sizes, sizes[1:], strict=False)}
+    assert len(steps) == 1, sizes
+
+
+def test_a_nested_simple_case_casts_its_operand_once():
+    # The operand was copied into every WHEN, so four WHENs nested four deep made a 380-character query 1 MB.
+    ratios = []
+    for depth in range(1, 5):
+        value = "'x'"
+        for _ in range(depth):
+            value = f"CASE s WHEN 1 THEN {value} WHEN 2 THEN {value} WHEN 3 THEN {value} WHEN 4 THEN {value} END"
+        query = f"SELECT {value} FROM t"
+        ratios.append(_rewritten_size(query) / len(query))
+    assert max(ratios) < 5, ratios
+
+
+def test_a_column_named_like_the_rewrites_lambda_is_left_as_it_was(spark):
+    spark.createDataFrame([("1", 1)], "kf_text_cmp string, i int").createOrReplaceTempView("kf_c254_lambda")
+    assert spark.sql("SELECT kf_text_cmp = i FROM kf_c254_lambda").collect()[0][0] is True

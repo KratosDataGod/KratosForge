@@ -79,7 +79,6 @@ def test_a_plan_that_is_not_more_capable_is_refused(today, planned):
     assert "planned must be more capable than today's classification" in check_entry(e)
 
 
-@pytest.mark.xfail(strict=True, reason="an unknown planned classification raises KeyError instead of being listed")
 def test_an_unknown_planned_classification_is_reported_not_raised():
     e = entry(planned=Planned("magic", "ORCH-009"))
     assert "planned classification is unknown" in check_entry(e)

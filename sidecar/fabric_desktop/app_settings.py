@@ -321,6 +321,36 @@ RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO
                               "allow_notebook_packages": False, "allow_pypi_packages": False,
                               "allow_signed_out_schedules": False, "allow_staging_cleanup": False}
 
+# What each policy setting does when a policy source sets it, so a new setting can't be added without
+# someone deciding (tests/test_policy_classes.py fails until it is listed here):
+#   "loosens"    widens what KratosForge trusts, or where it sends or fetches things (LOOSENING; the two
+#                SHELL_LOOSENING keys are checked by the shell itself, main.rs and engine_folder.rs)
+#   "restricts"  can only take away from what the person could do or choose without it
+#   "preference" the person's own choice, which policy may set for them; it reaches nothing the person
+#                couldn't choose in Settings
+#   "neutral"    policy only, but neither widens trust nor takes anything away; the reason is given
+SHELL_LOOSENING = ("engine_download_url", "engine_folder")  # where the engine's code comes from
+POLICY_NEUTRAL: dict[str, str] = {
+    "platform": "where the platform catalog is; the person can choose their own in Settings > Platform",
+    "local_retention_days": "how long local copies of tables are kept; they can be fetched again, and the person can delete them",
+    "incident_sla": "targets an incident is measured against; changes no access",
+}
+POLICY_RESTRICTS = (*RESTRICTED, "auto_update", "register_link_scheme", "integrations",
+                    "integrations_max_permissions", "integrations_extensions", "integrations_editors",
+                    "receipt_redactions", "appstudio_models", "appstudio_providers", "appstudio_sample_rows")
+
+
+def policy_effect(key: str) -> str:
+    """"loosens", "restricts", "preference" or "neutral" for a policy setting (see POLICY_NEUTRAL's comment);
+    "" for a name that isn't one."""
+    if key in LOOSENING or key in SHELL_LOOSENING:
+        return "loosens"
+    if key in POLICY_RESTRICTS:
+        return "restricts"
+    if key in POLICY_NEUTRAL:
+        return "neutral"
+    return "preference" if key in USER_KEYS and key in POLICY_KEYS else ""
+
 
 def policy_path() -> Path:
     base = os.environ.get("ProgramData") or os.environ.get("PROGRAMDATA") or "/etc"

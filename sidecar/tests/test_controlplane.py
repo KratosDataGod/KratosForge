@@ -461,3 +461,137 @@ def test_the_streamed_read_stops_past_the_cap_without_content_length():
         backend.read(st.NAME)  # the backend itself refuses, before from_json sees anything
     dfs.files[url] = (b"x" * mf.MAX_BYTES, '"2"')
     assert len(backend.read(st.NAME).data) == mf.MAX_BYTES
+# ---- CP-005 Fabric provisioning
+
+class ProvFabric:
+    """Fabric for provisioning: records every create, so a test can say exactly what was made."""
+
+    def __init__(self, workspaces=(), lakehouses=()):
+        self.workspaces = [dict(w) for w in workspaces]
+        self.lakehouses = {w["id"]: [] for w in self.workspaces} | {k: list(v) for k, v in dict(lakehouses).items()}
+        self.created = []
+
+    def list_workspaces(self):
+        return list(self.workspaces)
+
+    def find_lakehouse(self, ws, name):
+        return next((lh for lh in self.lakehouses.get(ws, []) if lh["displayName"] == name), None)
+
+    def create_workspace(self, name, capacity_id="", description=""):
+        ws = {"id": "66666666-6666-4666-8666-666666666666", "displayName": name}
+        self.workspaces.append(ws)
+        self.lakehouses[ws["id"]] = []
+        self.created.append(("workspace", name, capacity_id))
+        return ws
+
+    def create_lakehouse(self, ws, name, description=""):
+        lh = {"id": "77777777-7777-4777-8777-777777777777", "displayName": name}
+        self.lakehouses[ws].append(lh)
+        self.created.append(("lakehouse", name))
+        return lh
+
+
+def provisioning(tmp_path, fab, families=None):
+    from fabric_desktop.controlplane.provisioning import FabricProvisioning
+    from fabric_desktop.optimize.installation import Installation
+    from fabric_desktop.optimize.lakehouse import LocalLakehouse
+    from fabric_desktop.optimize import schema
+
+    lakes = {}
+
+    def open_lake(ws, lh, schemas):
+        return lakes.setdefault(lh, LocalLakehouse(tmp_path / "lakes" / lh))
+
+    prov = FabricProvisioning(fab, open_lake, lambda ws, lh: st.local_store(tmp_path / "lakes" / lh),
+                              Installation(tmp_path / "pc" / "optimize"), families or [schema.OPTIMIZE])
+    return prov, lakes
+
+
+def test_plan_reads_only_and_says_what_it_costs(tmp_path):
+    fab = ProvFabric()
+    prov, lakes = provisioning(tmp_path, fab)
+    plan = prov.plan({"name": "Ours", "capacity_id": "cap"})
+    assert fab.created == [] and lakes == {}
+    assert [(s.action, s.target) for s in plan.steps] == [
+        ("create", "workspace KratosForge"), ("create", "lakehouse KratosForgeLakehouse"),
+        ("initialize", "Optimize tables (fdopt_)"), ("write_manifest", "Files/_kratosforge/environment.json")]
+    assert plan.steps[0].cost and plan.steps[0].permission and not plan.blocked
+
+
+def test_apply_without_confirm_creates_nothing(tmp_path):
+    fab = ProvFabric()
+    prov, lakes = provisioning(tmp_path, fab)
+    with pytest.raises(pv.NotConfirmed):
+        prov.apply(prov.plan({"name": "Ours", "capacity_id": "cap"}), confirmed=False)
+    assert fab.created == [] and lakes == {}
+
+
+def test_create_makes_each_thing_once_and_writes_the_manifest_last(tmp_path):
+    from fabric_desktop.optimize import setup
+    fab = ProvFabric()
+    prov, lakes = provisioning(tmp_path, fab)
+    out = prov.apply(prov.plan({"name": "Ours", "capacity_id": "cap", "owner_object_id": OID}), confirmed=True)
+    assert out["ok"] and fab.created == [("workspace", "KratosForge", "cap"), ("lakehouse", "KratosForgeLakehouse")]
+    m = out["manifest"]
+    assert m["analytical_store"]["lakehouse_id"] == out["lakehouse_id"] and m["schema"]["families"]["fdopt_"] >= 2
+    assert m["owner"] == {"object_id": OID} and [s["step"] for s in out["steps"]][-1] == "Manifest"
+    assert setup.inspect(lakes[out["lakehouse_id"]])["state"] == setup.READY
+    # A second PC asking for the same thing is told the names are taken: it connects instead.
+    again = prov.plan({"name": "Ours", "capacity_id": "cap"})
+    assert "already exists" in again.blocked[0]
+    picked = prov.plan({"name": "Ours", "workspace_id": out["workspace_id"], "lakehouse_id": out["lakehouse_id"]})
+    assert picked.blocked == ["This lakehouse already holds a KratosForge Environment. Connect to it instead."]
+    with pytest.raises(PermissionError, match="Connect to it"):
+        prov.apply(picked, confirmed=True)
+    assert len(fab.created) == 2
+
+
+def test_a_blocked_plan_never_runs_and_says_why(tmp_path):
+    fab = ProvFabric(workspaces=[{"id": WS, "displayName": "KratosForge"}])
+    prov, _ = provisioning(tmp_path, fab)
+    for request, why in [({"capacity_id": "cap"}, "name"), ({"name": "x"}, "already exists"),
+                         ({"name": "x", "workspace_name": "Other"}, "capacity"),
+                         ({"name": "x", "workspace_id": "nope"}, "can open"),
+                         ({"name": "x", "workspace_name": "Other", "capacity_id": "c", "lakehouse_id": LH}, "existing workspace")]:
+        plan = prov.plan(request)
+        assert any(why in b for b in plan.blocked), (request, plan.blocked)
+        with pytest.raises(PermissionError):
+            prov.apply(plan, confirmed=True)
+    assert fab.created == []
+
+
+def test_an_existing_central_lakehouse_is_upgraded_in_place_and_newer_is_refused(tmp_path):
+    from fabric_desktop.optimize import setup
+    from fabric_desktop.optimize.installation import Installation
+    fab = ProvFabric(workspaces=[{"id": WS, "displayName": "Data"}], lakehouses={WS: [{"id": LH, "displayName": "FabricDesktop_Central"}]})
+    prov, lakes = provisioning(tmp_path, fab)
+    lake = prov._open_lake(WS, LH, None)
+    setup.initialize(lake, Installation(tmp_path / "other" / "optimize"), approve=True)
+    plan = prov.plan({"name": "Ours", "workspace_id": WS, "lakehouse_id": LH})
+    assert [s.action for s in plan.steps] == ["find", "find", "find", "write_manifest"] and not plan.blocked
+    out = prov.apply(plan, confirmed=True)
+    assert out["ok"] and fab.created == [] and out["manifest"]["analytical_store"]["lakehouse_id"] == LH
+    # A lakehouse a newer app upgraded is read-only here: the plan is blocked, nothing is initialized.
+    other = "88888888-8888-4888-8888-888888888888"
+    newer = prov._open_lake(WS, other, None)
+    setup.initialize(newer, Installation(tmp_path / "o2" / "optimize"), approve=True)
+    setup.write(newer, Installation(tmp_path / "o2" / "optimize"), "schema_version",
+                [{"record_id": "v99", "version": 99, "description": "later", "applied_at": AT}])
+    blocked = prov.plan({"name": "Ours", "workspace_id": WS, "lakehouse_id": other})
+    assert blocked.blocked and "newer" in blocked.blocked[0].lower()
+
+
+def test_a_failed_step_stops_the_rest_and_a_new_plan_finishes_it(tmp_path):
+    fab = ProvFabric()
+    prov, lakes = provisioning(tmp_path, fab)
+
+    def fails(*a, **k):
+        raise RuntimeError("capacity paused")
+
+    fab.create_lakehouse, real = fails, fab.create_lakehouse
+    out = prov.apply(prov.plan({"name": "Ours", "capacity_id": "cap"}), confirmed=True)
+    assert not out["ok"] and out["steps"][-1]["status"] == "failed" and "capacity paused" in out["steps"][-1]["detail"]
+    assert out["manifest"] is None and lakes == {}
+    fab.create_lakehouse = real
+    done = prov.apply(prov.plan({"name": "Ours", "workspace_id": out["workspace_id"]}), confirmed=True)
+    assert done["ok"] and [c[0] for c in fab.created] == ["workspace", "lakehouse"]

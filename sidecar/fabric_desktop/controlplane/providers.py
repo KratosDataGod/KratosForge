@@ -176,6 +176,7 @@ class PlanStep:
 class ProvisionPlan:
     provider: str
     steps: tuple[PlanStep, ...]
+    request: dict[str, Any] = field(default_factory=dict)  # what was asked, so apply does exactly that
 
     @property
     def blocked(self) -> list[str]:

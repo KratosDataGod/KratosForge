@@ -187,6 +187,40 @@ outside the local pane (a log, a support bundle, a CI artifact, GitHub text) mus
 `semantic_parity.redacted(report)`, which gives counts of members and a length and hash of each
 filter instead.
 
+### Expression parity (L2)
+
+`semantic_parity.parity_l2(left, right)` (OSSIE-006b, engine only) runs L1 and keeps all its rows.
+For each measure or metric on both sides, it also compares the expressions. Each expression is
+read into a small canonical form, but only inside the subset the converter itself translates
+between DAX and SQL. An Ossie metric is compared through its SQL when it has SQL the converter
+reads, otherwise through its DAX. DAX is read by a small tokenizer that knows only this subset.
+SQL is read by the converter's SQL reader, after a size check. Nothing is run or evaluated.
+
+| DAX | SQL | Result |
+| --- | --- | --- |
+| `SUM`, `AVERAGE`, `MIN`, `MAX` over `'Table'[Column]` | `SUM`, `AVG`, `MIN`, `MAX` over the column | Structurally compatible but behavior unverified |
+| `COUNTA` (or `COUNT` on a column that isn't a boolean) | `COUNT(column)` | Compatible, with a note that a blank and an empty string can differ |
+| `DISTINCTCOUNTNOBLANK` | `COUNT(DISTINCT column)` | Compatible: the converter maps these two; NULL handling is left to L3 |
+| `DISTINCTCOUNT` | `COUNT(DISTINCT column)` | Different results: DISTINCTCOUNT counts BLANK as a value |
+| `COUNTROWS('Table')` | `COUNT(*)` | Compatible |
+| `DIVIDE(a, b)` | `a / NULLIF(b, 0)`, or a safe division | Compatible: the converter's own form |
+| `DIVIDE(a, b)`, `DIVIDE(a, b, x)` or `a / b` | `a / b`, or any division for the last two | Different results: a zero divisor gives a different answer |
+| `[Measure]` | the metric's name | Compatible, by name only |
+
+L2 is Unsupported, never Different, when either side is outside the subset. That covers CALCULATE
+and other filters, TOTALYTD and the rest of time intelligence, iterators such as SUMX, variables,
+IF and SWITCH, window functions, filtered aggregates (`FILTER (WHERE ...)`), CASE, COALESCE, other
+arithmetic, a column that doesn't resolve to exactly one field, and anything past the caps
+(4,096 characters, 64 tokens, 8 levels of parentheses) or holding invisible characters. Identifiers
+are compared without case, as DAX does. Each measure row carries `expressions` (`left`, `right`,
+`left_form`, `right_form`, cut short like every other name), and the report lists the subset
+under `subset`.
+
+**No L2 result means the numbers match.** L2 compares the shape of two expressions, never what they
+return. The best result is still Structurally compatible but behavior unverified. Behavior (L3) and
+performance (L4) are listed under `not_checked`. Expressions can hold literals, so `redacted()`
+replaces their text and forms with a length and a hash.
+
 ## Schema validation
 
 Import's preview also checks the Ossie file against the official Apache Ossie JSON Schema for the

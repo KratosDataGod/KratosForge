@@ -630,13 +630,22 @@ class LocalEngine:
         """Every schema, table, view and column in the project: discovered files and what people made."""
         # The session's own connection sees its temporary tables; while a query holds it, a cursor
         # lists the rest without waiting.
-        self.open()
         own = self._lock.acquire(blocking=False)
-        held = cast(duckdb.DuckDBPyConnection, self._con)  # open() made it
-        con = held if own else held.cursor()
+        con: duckdb.DuckDBPyConnection | None = None
         try:
+            if not own:
+                held = self._con  # a running query holds the lock, so the connection is open
+                try:
+                    con = held.cursor() if held is not None else None
+                except duckdb.Error:  # it was closed between the two lines
+                    con = None
+                if con is None:  # nothing open to share: wait, as opening does
+                    self._lock.acquire()
+                    own = True
             if own:
+                con = self._open_locked()
                 self._refresh_own_if_moved()  # WR-243: the columns another writer's commit left, not the old ones
+            assert con is not None  # opened here, or a cursor on the one a query holds
             discovered = {k: v for k, v in self.project.catalog.items()}
             out: list[dict[str, Any]] = []
             cols: dict[tuple[str, str], list[dict[str, str]]] = {}
@@ -662,7 +671,7 @@ class LocalEngine:
         finally:
             if own:
                 self._lock.release()
-            else:
+            elif con is not None:
                 con.close()
 
     def set_override(self, table: str, columns: dict[str, str]) -> dict[str, Any]:

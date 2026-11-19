@@ -243,7 +243,16 @@ function keyboardScan(scope) {
     if (el.closest(focusable) || el.querySelector(focusable) || (label?.control && label.control.tabIndex >= 0) || keyedElsewhere(el)) continue;
     unreachable.push(css(el));
   }
-  return { unreachable };
+  // Icon-only controls: a button or link whose visible text has no letter or digit (an icon, or a glyph such as
+  // × or ⋯, which axe takes as a name) must be named in words by aria-label, aria-labelledby or title.
+  const words = (t) => /[\p{L}\p{N}]/u.test(t || "");
+  const unnamed = [];
+  for (const el of [...roots].flatMap((r) => [...r.querySelectorAll("button, a[href], [role=button], [role=tab], [role=menuitem]")])) {
+    if (!el.checkVisibility() || el.closest("[aria-hidden=true]") || words(el.textContent)) continue;
+    const by = (el.getAttribute("aria-labelledby") || "").split(/\s+/).map((id) => document.getElementById(id)?.textContent).join(" ");
+    if (!words(el.getAttribute("aria-label")) && !words(by) && !words(el.title)) unnamed.push(css(el));
+  }
+  return { unreachable, unnamed };
 }
 
 // Runs in the page before a Tab walk: each element's outline and box shadow with focus elsewhere, so a
@@ -358,7 +367,7 @@ async function audit(page, target, scheme) {
     const brief = (v) => ({ id: v.id, impact: v.impact, help: v.help, nodes: v.nodes.map((n) => n.target.join(" ")).slice(0, 5) });
     return { violations: res.violations.map(brief), incomplete: res.incomplete.map(brief), passes: res.passes.length };
   }, [scope, RULES, mode.off || []]);
-  const { unreachable } = await page.evaluate(keyboardScan, scope);
+  const { unreachable, unnamed } = await page.evaluate(keyboardScan, scope);
   const { stops, trap } = mode.walk ? await tabStops(page, scope) : { stops: [], trap: null };
   if (trap) unreachable.push(`Tab returns to ${trap.key}, ${trap.left} Tab stops later never reached`);
   // At 200%, the page as a whole must not need scrolling sideways (WCAG 1.4.10); a table or code inside it may.
@@ -366,7 +375,7 @@ async function audit(page, target, scheme) {
     [document.scrollingElement, document.getElementById("view")].filter((e) => e && e.scrollWidth > e.clientWidth + 1)
       .map((e) => `${e.id ? `#${e.id}` : "the page"} is ${e.scrollWidth}px wide in a ${e.clientWidth}px window`)) : [];
   const view = await page.evaluate(() => state.view);
-  const result = { page: target.name, id: target.id, scheme, view, ...axeOut, unreachable, stops, sideways,
+  const result = { page: target.name, id: target.id, scheme, view, ...axeOut, unreachable, unnamed, stops, sideways,
     noRing: stops.filter((s) => !s.shown).map((s) => s.key),
     hidden: mode.viewport ? stops.filter((s) => !s.visible).map((s) => s.key) : [] };
   results.push(result);
@@ -414,6 +423,12 @@ test("everything clickable is reached with Tab, and every Tab stop shows focus, 
   }
 });
 
+test("every icon-only button and link on every page is named in words", { skip }, async () => {
+  const light = results.filter((r) => r.scheme === "light");
+  assert.ok(light.length >= EXTRA.length + 5, `checked ${light.length} pages`);
+  assert.deepStrictEqual(light.flatMap((r) => r.unnamed.map((k) => `${r.id}: ${k}`)), [], "icon-only controls with no name in words");
+});
+
 test("at 200% no page scrolls sideways, and focus is never off screen or under something", { skip }, async () => {
   const zoomed = results.filter((r) => r.scheme === "zoom-200");
   assert.ok(zoomed.length >= EXTRA.length + 5, `checked ${zoomed.length} pages at 200%`);
@@ -448,6 +463,8 @@ test("the audit catches a violation put into a page", { skip }, async () => {
     document.getElementById("view").append(clicky,
       h("img", { src: "data:image/gif;base64,R0lGODlhAQABAAAAACw=" }),
       h("button", { class: "a11y-bare", style: "outline:none" }),
+      h("button", { class: "a11y-glyph" }, "×"),  // axe takes the glyph as its name
+      h("button", { class: "a11y-glyph-named", "aria-label": "Close" }, "×"),
       // A button with no ring of its own inside a container that always has a shadow, as a dialog has.
       h("div", { style: "box-shadow:0 4px 16px rgba(0,0,0,.2);padding:8px" }, h("button", { class: "a11y-shadowed", style: "outline:none" }, "Shadowed")));
   }) }, "light");
@@ -455,6 +472,7 @@ test("the audit catches a violation put into a page", { skip }, async () => {
   const ids = r.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => v.id);
   for (const id of ["image-alt", "color-contrast", "button-name"]) assert.ok(ids.includes(id), `${id} in ${ids.join(", ")}`);
   assert.ok(r.unreachable.includes("#a11y-injected"), r.unreachable.join(", "));
+  assert.ok(r.unnamed.some((k) => k.startsWith("button.a11y-glyph")) && !r.unnamed.some((k) => k.startsWith("button.a11y-glyph-named")), r.unnamed.join(", "));
   assert.ok(r.noRing.some((k) => k.startsWith("button.a11y-bare")), r.noRing.join(", "));
   assert.ok(r.noRing.some((k) => k.startsWith("button.a11y-shadowed")), `a container's own shadow isn't a ring: ${r.noRing.join(", ")}`);
 });

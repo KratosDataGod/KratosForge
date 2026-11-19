@@ -104,6 +104,7 @@ def test_failed_operations_from_item_totals_only_are_not_evaluated():
 def test_refreshes_pass_and_fail():
     bad = outcome(run([ops_import(refreshes("Sales model", 25) + SPAN)]), "FEA-CAP-003")
     assert bad["outcome"] == "fail" and "Sales model (25 on 2026-10-31)" in bad["text"]
+    assert "in one day, 1 time:" in bad["text"]
     assert "isn't money saved" in bad["benefit"]
     ok = outcome(run([ops_import(refreshes("Sales model", 24) + SPAN)]), "FEA-CAP-003")
     assert ok["outcome"] == "pass" and ok["basis"] == "measured"
@@ -134,7 +135,7 @@ def test_utilization_pass_and_fail():
     available = 64 * 14 * DAY
     bad = outcome(run([items_import(0.05 * available)]), "FEA-CAP-004")
     assert bad["outcome"] == "fail" and bad["basis"] == "measured" and "5.0%" in bad["text"]
-    assert len(bad["evidence_ids"]) == 2 and "money is saved only when" in bad["benefit"]
+    assert len(bad["evidence_ids"]) == 2 and "Money is saved only when" in bad["benefit"] and "planner" not in bad["benefit"]
     ok = outcome(run([items_import(0.2 * available)]), "FEA-CAP-004")
     assert ok["outcome"] == "pass"
 
@@ -271,3 +272,18 @@ def test_the_demo_shows_capacity_controls_labelled_and_without_fabric(make):
     assert all(f["fixture"] for f in r["findings"])
     again = assess.rescore(json.loads(json.dumps(r)), catalog.registry())
     assert again["scores"] == r["scores"]
+
+
+def test_refreshes_over_count_every_item_day_not_only_the_top_ones():
+    rows = [r for i in range(25) for r in refreshes(f"m{i:02d}", 25, start_key=i * 100)] + SPAN
+    bad = outcome(run([ops_import(rows)]), "FEA-CAP-003")
+    assert bad["outcome"] == "fail" and "in one day, 25 times:" in bad["text"]
+
+
+def test_overlapping_compute_exports_count_their_days_and_cu_once():
+    two = [items_import(1.0, days=4, id_="u-0000000000000002"), items_import(1.0, days=4, id_="u-0000000000000003")]
+    assert outcome(run([*two]), "FEA-CAP-004")["outcome"] == "not_evaluated"  # 4 days, not 8
+    big = 64 * 14 * 86400 * 0.06  # 6% of an F64 over 14 days in each export
+    both = [items_import(big, days=14, id_="u-0000000000000002"), items_import(big, days=14, id_="u-0000000000000003")]
+    bad = outcome(run(both), "FEA-CAP-004")
+    assert bad["outcome"] == "fail" and "6.0%" in bad["text"] and "from the imported rows" in bad["benefit"]

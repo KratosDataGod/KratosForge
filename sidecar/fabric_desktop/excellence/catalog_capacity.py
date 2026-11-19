@@ -108,7 +108,9 @@ def _operations(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {"rows": len(starts), "cu_seconds": round(total, 3), "status_rows": status_rows,
             "cu_by_status": {k: round(v, 3) for k, v in sorted(by_status.items())}, "operation_rows": operation_rows,
             "window": {"start": _iso(min(starts)) if starts else None, "end": _iso(max(ends)) if ends else None},
-            "refreshes_per_day": [{"workspace": w, "item": i, "day": d, "count": n} for (w, i, d), n in top]}
+            "refreshes_per_day": [{"workspace": w, "item": i, "day": d, "count": n} for (w, i, d), n in top],
+            # counted before the cut to the top _TOP, so a fail gives the true number
+            "refresh_days_over": sum(1 for n in refreshes.values() if n > MAX_REFRESHES_PER_DAY)}
 
 
 def _items(doc: dict[str, Any]) -> dict[str, Any] | None:
@@ -209,7 +211,9 @@ def _refreshes(ctx: ct.Context) -> dict[str, Any]:
     if over:
         worst = over[0]
         names = ", ".join(f"{r['item']} ({r['count']} on {r['day']})" for r in over[:5])
-        return ct.failed([u["id"]], f"{len(over)} item-day(s) with more than {MAX_REFRESHES_PER_DAY} refreshes: {names}.",
+        n = int(ops.get("refresh_days_over") or len(over))
+        return ct.failed([u["id"]], f"An item refreshed more than {MAX_REFRESHES_PER_DAY} times in one day, {n} "
+                                    f"{'time' if n == 1 else 'times'}: {names}.",
                          benefit=f"Refreshing {worst['item']} hourly instead would leave out about "
                                  f"{worst['count'] - MAX_REFRESHES_PER_DAY} refreshes that day. The capacity freed is "
                                  "estimated, and measured only by a new export. Capacity freed isn't money saved.",
@@ -220,6 +224,16 @@ def _refreshes(ctx: ct.Context) -> dict[str, Any]:
                                 "too often.", needs=NEEDS_OPS + " covering at least a day")
     return ct.passed([u["id"]], f"No item refreshed more than {MAX_REFRESHES_PER_DAY} times on any day of the imported "
                      f"window ({start.date()} to {end.date()}).")
+
+
+def _apart(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The Compute-page imports whose periods don't overlap, longest first, so no day or CU counts
+    twice when two exports cover the same days."""
+    kept: list[dict[str, Any]] = []
+    for x in sorted(items, key=lambda x: (-x["seconds"], x["period"]["start"], x["import_id"])):
+        if all(x["period"]["end"] <= k["period"]["start"] or x["period"]["start"] >= k["period"]["end"] for k in kept):
+            kept.append(x)
+    return sorted(kept, key=lambda x: x["period"]["start"])
 
 
 def _utilization(ctx: ct.Context) -> dict[str, Any]:
@@ -244,6 +258,7 @@ def _utilization(ctx: ct.Context) -> dict[str, Any]:
     items = u["payload"].get("items") or []
     if not items:
         return ct.not_evaluated("No imported Compute-page export gives use over a stated period.", needs=NEEDS_ITEMS)
+    items = _apart(items)
     seconds = sum(x["seconds"] for x in items)
     if seconds < MIN_ITEMS_DAYS * 86400:
         return ct.not_evaluated(f"The imported Compute-page periods cover {seconds / 86400:.1f} days, less than "
@@ -256,11 +271,14 @@ def _utilization(ctx: ct.Context) -> dict[str, Any]:
     cited = [st["id"], u["id"]]
     if share >= MIN_UTILIZATION:
         return ct.passed(cited, f"Items used {share:.0%} of the {sku}'s capacity over {days} imported.")
-    return ct.failed(cited, f"Over {days} imported, items used {_hours(used)}: {share:.1%} of the {_hours(available)} "
+    return ct.failed(cited, f"Over {days} imported, items used {_hours(used)}, which is {share:.1%} of the {_hours(available)} "
                      f"an {sku} provides. The size is today's; if it changed during the period, so does the share.",
-                     benefit=f"About {_hours(available - used)} of capacity unused over the period, measured. A smaller "
-                             "SKU or pausing outside working hours could free capacity (estimated by the capacity "
-                             "planner); money is saved only when the capacity is resized or paused.",
+                     benefit=f"About {_hours(available - used)} of capacity unused over the period, from the imported rows. "
+                             "If the export was filtered, to one workspace for example, the capacity's real use is "
+                             "higher. A smaller "
+                             "SKU or pausing outside working hours could free capacity, but how much isn't "
+                             "estimated yet. Money is saved only when the capacity is resized or paused, and on a "
+                             "reservation not until it renews.",
                      detail={"cu_seconds": round(used, 3), "available_cu_seconds": round(available, 3),
                              "share": round(share, 4), "sku": sku, "periods": [x["period"] for x in items]})
 
@@ -311,7 +329,7 @@ CONTROLS = (
                     f"{MIN_ITEMS_DAYS} days of imported Compute-page exports. Doesn't apply to trial, A or P SKUs, "
                     "or to a capacity that isn't running.",
         remediation=_t("An F capacity is billed for every hour it runs, used or not.",
-                       "Review the size with the capacity planner: a smaller SKU, or pausing when nothing runs.",
+                       "Check whether a smaller SKU, or pausing when nothing runs, still covers the peaks.",
                        ["Open the Capacity Metrics app's Compute page and look at utilization over the same days.",
                         "Check the peaks and what runs at them, so a smaller SKU wouldn't throttle them.",
                         "Decide with the capacity admin: resize, pause outside working hours, or keep it.",

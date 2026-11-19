@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator, NoReturn, cast
 
 import pyarrow as pa
 
-from . import app_control, chart_output, disk_full, jsonfile, notebook_cells
+from . import app_control, chart_output, disk_full, file_locks, jsonfile, notebook_cells
 from . import notebook_resources
 from . import magics
 from . import history
@@ -2915,7 +2915,14 @@ def _write_atomic(path: Path, text: str) -> None:
     has it open, so a refused replace is waited out by the shared jsonfile.replace."""
     tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     try:
-        with open(tmp, "w", encoding="utf-8", newline="") as f:  # the line endings are the text's own
+        try:
+            f = open(tmp, "w", encoding="utf-8", newline="")  # the line endings are the text's own
+        except OSError as exc:
+            refused = file_locks.folder_error(exc, path)  # Controlled folder access, a folder it can't change
+            if refused is None:
+                raise
+            raise refused from exc
+        with f:
             f.write(text)
             f.flush()
             os.fsync(f.fileno())  # on disk before the swap: a power cut leaves the old or the new notebook

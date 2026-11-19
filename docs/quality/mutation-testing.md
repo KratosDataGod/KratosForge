@@ -8067,3 +8067,109 @@ No bugs were found.
 
 None.
 
+
+# Property tests: the optimizer never invents a saving
+
+Before batches 198 to 201, `tests/test_optimizer_properties.py` checks four properties of the figures that feed Optimize and the `fdopt_` tables, over generated inputs: calibration (`calibration.py`), what an opportunity could avoid and its value (`opportunities/impact.py`), totals, units and rounding (`measurement.py`), and the duplicate notebook analyzer (`opportunities/analyzers.py`). hypothesis isn't in the CI lock, so each property draws 200 cases from `random.Random` with seeds 1, 7 and 42, and puts the inputs of a failure in its message. The file runs in about 4 s.
+
+- **No saving is negative, and none is more than what it avoids.**
+  - A run on this PC avoids at least 0, and never more or less than the baselines it comes from (scaled by rows read only when both sides have rows).
+  - An opportunity's monthly CU is between 0 and the imported usage of the workloads it removes, scaled to 30 days.
+  - A duplicate never counts the kept notebook: however much the keeper used, the figure is the same.
+  - A value is CU hours times the price. A negative price is refused, never turned into a negative value.
+  - A total is never less than 0 and never more than its parts, and scenario figures are never added to measured or estimated ones.
+- **The same inputs always give the same output.** Calibration, impact, measurement ids and the kept notebook are the same every time, and the same when baselines, parts or notebooks come in another order.
+- **Rounding never makes a figure bigger than half a unit in its sixth decimal.** Converting CU-seconds to CU-hours and back never grows a figure, and a 0 stays 0. One measured part is rounded before it is scaled up to 30 days (a period of a day or less), so a monthly figure can be up to 30 × 0.0000005 above the unrounded figure for each part. The tests state that tolerance. It's 0.000015 CU-seconds at most, not a saving.
+- **With no evidence the figure is Unknown with a reason, never 0.** That covers no usable baseline, no imported usage, no run history, no price, a partial reduction, an all-unknown total, and copies with no known lakehouse, which claim nothing.
+
+All four held. No bug was found, so there is no xfail.
+
+# Mutation testing, batch 198
+
+`measurement.py`, run with `--kinds all` at `main` bdf2c177 (2026-11-19), with the earlier tests and the property tests. 147 mutants, so all of them ran.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `measurement.py` | test_measurement, test_measurement_mutation, test_optimizer_properties (+ test_optimizer_properties_mutation) | 147 of 147 (142 + 5) | 141 / 6 | **95.9%** | 137/142 → 141/142 | 4/5 → 5/5 | 146 / 1 | **99.3%** | 1 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- A collection time given as a datetime is stored as ISO text.
+- A period that starts and ends at the same moment is valid.
+- A currency given for a CU total is ignored, not refused, and the total has no currency.
+- → `test_optimizer_properties_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `measurement.py` | 57 | `_STRENGTH` unknown 2 → 3 | Equivalent, as in batch 43: only the order of the strengths matters. |
+
+# Mutation testing, batch 199
+
+`calibration.py`, run with `--kinds all` at `main` bdf2c177, with the earlier tests and the property tests. 65 mutants, so all of them ran.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `calibration.py` | test_calibration, test_calibration_mutation, test_optimizer_properties | 65 of 65 (60 + 5) | 64 / 1 | **98.5%** | 59/60 → 59/60 | 5/5 → 5/5 | 64 / 1 | **98.5%** | 1 equivalent |
+
+No bugs were found, and no new tests were needed.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `calibration.py` | 26 | `return False` → `return None` | Equivalent, as in batch 38: `_usable` is only a filter, where None is as false as False. |
+
+# Mutation testing, batch 200
+
+`opportunities/impact.py`, run with `--kinds all` at `main` bdf2c177, with the earlier tests and the property tests. 68 mutants, so all of them ran.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `opportunities/impact.py` | test_opportunities, test_opportunities_impact_mutation, test_optimizer_properties | 68 of 68 (68 + 0) | 65 / 3 | **95.6%** | 65/68 → 65/68 | none | 65 / 3 | **95.6%** | 3 equivalent |
+
+No bugs were found, and no new tests were needed.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `opportunities/impact.py` | 49 | `start is None or end is None` → `and` | Equivalent, as in batch 40: `end` falls back to `start`, so it is None only when `start` is. |
+| `opportunities/impact.py` | 89, 114 | `zip(..., strict=True)` → `strict=False` | Equivalent: both lists are built from the same workloads, so they are always the same length. |
+
+# Mutation testing, batch 201
+
+`opportunities/analyzers.py`, run with `--kinds all` at `main` bdf2c177, with the earlier tests and the property tests. It has 191 mutants, so 150 were sampled (seed 7).
+
+`optimize/shared.py` was looked at as well. It computes no figure: it stores the measurements and recommendations it is given, under stable ids. So batches 202 to 204 are unused.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `opportunities/analyzers.py` | test_opportunities, test_opportunities_analyzers_mutation, test_optimizer_properties (+ test_optimizer_properties_mutation) | 150 of 191 (144 + 6) | 145 / 5 | **96.7%** | 139/144 → 141/144 | 6/6 → 6/6 | 147 / 3 | **98.0%** | 3 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- A whole-table rewrite is quoted to 120 characters.
+- Copies with no known lakehouse name their code by a 16-character fingerprint.
+- → `test_optimizer_properties_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `opportunities/analyzers.py` | 147 | `same[0]` → `same[1]` for the tables read and written | Equivalent: every notebook in the group has the same code, so the same tables. |
+| `opportunities/analyzers.py` | 270 | `sort_keys=True` → `False` | Equivalent, as in batch 25: `_canon` already builds every dictionary in key order. |
+| `opportunities/analyzers.py` | 375 | `scheduled=True` → `False` | Equivalent, as in batch 25: only NB007 is switched on, and it isn't one of the scheduled-only rules. |

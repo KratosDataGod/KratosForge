@@ -83,3 +83,13 @@ def test_crosstab_on_an_array_column_still_labels_its_rows(spark):
 def test_initcap_keeps_title_case_on_both_paths(spark):
     assert _one(spark, "SELECT initcap('hello wORLD')") == "Hello World"
     assert _one(spark, "SELECT initcap('ßa \u01c6ungla')") == "ßa \u01c5ungla"  # the one-letter dž is ǅ
+
+
+def test_upper_of_upper_is_written_once(spark):
+    # Java's toUpperCase of upper-case text is itself, so an outer upper reads the inner one as it is.
+    df = spark.sql("SELECT upper(upper('straße')) AS v, upper(upper(upper(concat('ß', 'x')))) AS w")
+    assert list(df.collect()[0]) == ["STRASSE", "SSX"]
+    from fabric_desktop import sql
+    once = sql.duckdb_sql(sql.parse("SELECT upper(x) FROM t")[0])
+    thrice = sql.duckdb_sql(sql.parse("SELECT upper(upper(upper(x))) FROM t")[0])
+    assert len(thrice) < len(once) + 100  # only the column name, upper(upper(upper(x))), is longer

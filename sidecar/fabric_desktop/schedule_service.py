@@ -387,22 +387,25 @@ class ScheduleMixin:
                                "Edit the schedule to run only while you're signed in."}
             schedules.log_run(row)
             return row
-        if audit.fails_closed("run_schedule", {"target": s["target"]}):
-            # Aimed at Prod: as for the app's own calls, it runs only once its audit line is written.
-            try:
-                self.audit.record("run_schedule", "started", 0.0,  # type: ignore[attr-defined]
-                                  {"schedule_id": schedule_id, "trigger": trigger, "target": s["target"]})
-            except Exception as exc:  # noqa: BLE001 - any failure to write refuses the run
-                row |= {"ended": _now(), "seconds": 0, "status": "failed",
-                        "message": audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {exc}")}
-                schedules.log_run(row)
-                return row
         lock = self._lock(schedule_id, {"started": row["started"], "trigger": trigger})
         if lock is None:
             row |= {"ended": _now(), "seconds": 0, "status": "skipped",
                     "message": "The previous run of this schedule was still going"}
             schedules.log_run(row)
             return row
+        params = {"schedule_id": schedule_id, "trigger": trigger, "target": s["target"]}
+        prod = audit.fails_closed("run_schedule", {"target": s["target"]})
+        if prod:
+            # Aimed at Prod: as for the app's own calls, it runs only once its audit line is written. After
+            # the overlap lock, so a run skipped because the last one was still going leaves no "started" line.
+            try:
+                self.audit.record("run_schedule", "started", 0.0, params)  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - any failure to write refuses the run
+                lock.unlink(missing_ok=True)
+                row |= {"ended": _now(), "seconds": 0, "status": "failed",
+                        "message": audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {exc}")}
+                schedules.log_run(row)
+                return row
         t0 = time.monotonic()
         try:
             if s["target"]["kind"] == "notebook":
@@ -416,6 +419,13 @@ class ScheduleMixin:
         finally:
             lock.unlink(missing_ok=True)
         row |= {"ended": _now(), "seconds": round(time.monotonic() - t0, 1)}
+        if prod:  # how it went, after its "started" line; best effort, as for the app's own calls
+            failed = row.get("status") != "ok"
+            try:
+                self.audit.record("run_schedule", "error" if failed else "ok", row["seconds"], params,  # type: ignore[attr-defined]
+                                  error=str(row.get("message") or "")[:300] if failed else "")
+            except Exception as exc:  # noqa: BLE001 - the run already happened; its row on Monitor still says how it went
+                _log.warning("A Prod schedule's outcome couldn't be written to the audit log: %s", type(exc).__name__)
         problem = self._send_schedule_alerts(row)
         if problem:  # recorded with the run, so Monitor shows the alert didn't go out
             row["alert_error"] = problem

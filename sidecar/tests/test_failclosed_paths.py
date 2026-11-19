@@ -62,6 +62,28 @@ def test_a_prod_pc_schedule_writes_its_started_line_first(svc, monkeypatch):  # 
     assert started and started[0]["target"]["target"]["env"] == "prod"
 
 
+def test_a_prod_pc_schedule_skipped_for_overlap_leaves_no_started_line(svc, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(type(svc), "_run_meta_here", lambda self, env, names: pytest.fail("it mustn't run"))
+    monkeypatch.setattr(type(svc), "_lock", lambda self, sid, info: None)  # the last run is still going
+    sid = svc.pc_schedules.add({"kind": "meta", "env": "prod"}, DAILY)["id"]
+    assert svc.run_schedule(sid)["status"] == "skipped"
+    assert not [e for e in svc.audit.recent(10) if e["action"] == "run_schedule"]
+
+
+@pytest.mark.parametrize("result, outcome", [({"status": "ok", "message": "2 ran"}, "ok"),
+                                             ({"status": "failed", "message": "silver.orders failed"}, "error")])
+def test_a_prod_pc_schedule_records_how_it_went_after_its_started_line(svc, monkeypatch, result, outcome):  # noqa: F811
+    monkeypatch.setattr(type(svc), "_run_meta_here", lambda self, env, names: dict(result))
+    sid = svc.pc_schedules.add({"kind": "meta", "env": "prod"}, DAILY)["id"]
+    svc.run_schedule(sid)
+    lines = [e for e in svc.audit.recent(10) if e["action"] == "run_schedule"]
+    assert [e["outcome"] for e in lines] == [outcome, "started"]  # newest first
+    assert (lines[0].get("error") or "") == ("" if outcome == "ok" else "silver.orders failed")
+    dev = svc.pc_schedules.add({"kind": "meta", "env": "dev"}, DAILY)["id"]
+    svc.run_schedule(dev)
+    assert len([e for e in svc.audit.recent(10) if e["action"] == "run_schedule"]) == 2  # Dev: as before
+
+
 def _prod_agent(setup):  # noqa: F811
     import dataclasses
     return Agent(dataclasses.replace(setup, environments=["dev", "prod"]))

@@ -394,7 +394,7 @@ rules in `calibration.py` (additive).
   measurement row (the old row stays).
 - Tests: scenario 13, baseline version change (12).
 
-**ESI-202 Overhead per execution.** Data transfer seconds and bytes, sync overhead, and any
+**ESI-202 Overhead per execution.** **Built** (engine only, no writes). `savings/overhead.py`. Data transfer seconds and bytes, sync overhead, and any
 OneLake operations, as separate measurements; Unknown where not measured.
 
 **ESI-203 Execution ledger accruals.** Gross, overhead and net CU avoided per execution as
@@ -446,13 +446,13 @@ linked to optimizations by a confirmed person action; measure F.
 - Acceptance: nothing is labelled realized without billing or capacity-change evidence; an F64
   with lower utilization shows value and headroom, not realized savings.
 
-**ESI-404 Corrections.** Correction and reversal events with `corrects`; reconciliation report
+**ESI-404 Corrections.** **Built** (engine only, no writes). `savings/corrections.py`. Writing its events waits on an additive `fdopt_savings` change (layer, CU hours, classification, result CU hours and classification, layer removed, reason), co-signed with Lakehouse optimize. Correction and reversal events with `corrects`; reconciliation report
 that rebuilds totals from the ledger and compares.
 - Tests: scenario 19.
 
 ### Phase 5: Enterprise reporting
 
-**ESI-501 Reporting schema.** Documented star schema (`dim_*`, `fact_*`) over `fdopt_`, with
+**ESI-501 Reporting schema.** **Documented** in [savings-reporting-schema.md](savings-reporting-schema.md). Documented star schema (`dim_*`, `fact_*`) over `fdopt_`, with
 measure definitions; SQL views or a semantic model only after D6.
 
 **ESI-502 Cost and savings mockup.** Section 5's screens, light shell, via the UX thread, then

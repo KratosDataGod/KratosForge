@@ -207,7 +207,7 @@ def test_download_app_refuses_a_release_without_a_checksum(monkeypatch, tmp_path
     for info in ({"commit": SHA}, {"commit": SHA, "exe_sha256": "not-a-checksum"}):
         serve(monkeypatch, {"kratosforge.exe": b"MZ..." + SHA.encode() + b"...", "version.json": json.dumps(info).encode()})
         assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
-        assert "gives no checksum" in capsys.readouterr().out
+        assert "gives no checksum for the app, so it wasn't installed. Report it so the release can be fixed." in capsys.readouterr().out
 
 
 def test_download_app_refuses_when_the_checksum_cant_be_read(monkeypatch, tmp_path, capsys):
@@ -280,6 +280,80 @@ def test_download_app_refuses_a_cut_off_download(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(updater.urllib.request, "urlopen", lambda req, timeout=None: Short(b"MZ..." + SHA.encode()))
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
     assert "stopped at" in capsys.readouterr().out
+
+
+def _last_line(capsys) -> str:
+    return capsys.readouterr().out.strip().splitlines()[-1]
+
+
+def test_a_tampered_download_is_deleted_and_the_last_line_says_why(monkeypatch, tmp_path, capsys):
+    import hashlib
+    good = b"MZ..." + SHA.encode()
+    info = {"commit": SHA, "exe_sha256": hashlib.sha256(good).hexdigest()}
+    serve(monkeypatch, {"version.json": json.dumps(info).encode(), "kratosforge.exe": good + b"tampered"})
+    dest = tmp_path / "kratosforge.exe.new"
+    assert updater.main(["download-app", str(dest), SHA]) == 1
+    assert not dest.exists(), "a download that failed its checksum was left where the shell installs from"
+    assert _last_line(capsys) == ("The download does not match build 0123456's checksum, so it was discarded "
+                                  "and not installed. Try the update again, and report it if it keeps happening. "
+                                  "This version stays as it is.")
+
+
+def test_a_download_cut_off_each_time_is_deleted_and_the_last_line_says_why(monkeypatch, tmp_path, capsys):
+    class Short(FakeResponse):
+        def __init__(self, body):
+            super().__init__(body)
+            self.headers = {"Content-Length": str(len(body) + 1000)}
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", lambda req, timeout=None: Short(b"MZ..." + SHA.encode()))
+    dest = tmp_path / "kratosforge.exe.new"
+    assert updater.main(["download-app", str(dest), SHA]) == 1
+    assert not dest.exists()
+    assert _last_line(capsys) == ("The download of build 0123456 kept stopping part way, so it was discarded and "
+                                  "not installed. Try again in a few minutes. This version stays as it is.")
+
+
+def test_a_connection_dropped_mid_download_leaves_no_partial_file(monkeypatch, tmp_path, capsys):
+    import hashlib
+    good = b"MZ..." + SHA.encode()
+    info = {"commit": SHA, "exe_sha256": hashlib.sha256(good).hexdigest()}
+
+    class Dropping(FakeResponse):  # a sleep, hibernate or network drop part way through
+        def read(self, n=-1):
+            if not self.body:
+                raise ConnectionResetError("connection reset")
+            return super().read(4)
+
+    def urlopen(req, timeout=None):
+        if "version.json" in req.full_url:
+            return FakeResponse(json.dumps(info).encode())
+        return Dropping(good)
+    monkeypatch.setattr(updater.urllib.request, "urlopen", urlopen)
+    dest = tmp_path / "kratosforge.exe.new"
+    assert updater.main(["download-app", str(dest), SHA]) == 1
+    assert not dest.exists(), "half an exe was left behind"
+    assert _last_line(capsys) == "The download failed: connection reset"
+
+
+def test_a_partial_file_from_a_killed_download_is_replaced_not_installed(monkeypatch, tmp_path, capsys):
+    import hashlib
+    good = b"MZ..." + SHA.encode()
+    info = {"commit": SHA, "exe_sha256": hashlib.sha256(good).hexdigest()}
+    dest = tmp_path / "kratosforge.exe.new"
+    dest.write_bytes(b"MZ half of an earlier download")  # the app was closed part way through last time
+    serve(monkeypatch, {"version.json": json.dumps(info).encode(), "kratosforge.exe": good})
+    assert updater.download_app(str(dest), SHA) == 0
+    assert dest.read_bytes() == good
+    assert _last_line(capsys) == f"verified {info['exe_sha256']}"
+
+
+def test_a_release_without_a_checksum_leaves_no_download(monkeypatch, tmp_path, capsys):
+    good = b"MZ..." + SHA.encode()
+    serve(monkeypatch, {"version.json": json.dumps({"commit": SHA, "exe_sha256": ""}).encode(), "kratosforge.exe": good})
+    dest = tmp_path / "kratosforge.exe.new"
+    assert updater.download_app(str(dest), SHA) == 1
+    assert not dest.exists()
+    assert _last_line(capsys).endswith("so it wasn't installed. Report it so the release can be fixed. This version stays as it is.")
 
 
 def test_download_app_takes_the_legacy_name_from_an_older_release(monkeypatch, tmp_path):

@@ -967,7 +967,7 @@ def test_uniform_from_random_still_runs():
 def _first(sql):
     translation = sf.translate(sql)
     assert translation.runnable, translation.first_refusal()
-    return duckdb.sql(translation.duckdb_sql).fetchall()[0][0]
+    return duckdb.connect().sql(translation.duckdb_sql).fetchall()[0][0]
 
 
 def test_alter_session_sets_the_time_zone_and_refuses_other_parameters():

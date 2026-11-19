@@ -260,17 +260,18 @@ class AuditLog:
         return entry
 
     def entries(self) -> Iterator[dict[str, Any]]:
-        """Every line, oldest first. A line that isn't a JSON object is left out: ``verify()`` names it,
-        and the app can still show the rest of the trail and that check."""
+        """Each audit line, oldest first. A line that isn't one (cut off by a power cut, or edited) is
+        passed over here, so the history still shows; ``verify()`` reports it as a break in the trail."""
         for path in self._files():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    try:
-                        entry = json.loads(line)
-                    except ValueError:  # reported by verify()
-                        continue
-                    if isinstance(entry, dict):
-                        yield entry
+            for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue  # reported by verify(), which the audit page shows
+                if isinstance(entry, dict):
+                    yield entry
 
     def recent(self, limit: int = 200, action: str = "") -> list[dict[str, Any]]:
         rows = [e for e in self.entries() if not action or e.get("action") == action]

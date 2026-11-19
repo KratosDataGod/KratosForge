@@ -246,7 +246,7 @@ def _refusal_text(text: str) -> str:
     """A refusal written into the query (an error(...) with a Databricks error class, such as MERGE's) without
     the "Invalid Input Error: " DuckDB puts in front of it, so it reads as Databricks writes it."""
     prefix = "Invalid Input Error: "
-    return text[len(prefix):] if text.startswith(prefix + "[DELTA_") else text
+    return text[len(prefix):] if text.startswith((prefix + "[DELTA_", prefix + "[SCHEMA_NOT_FOUND]")) else text
 
 
 class OutsideSession(PermissionError):
@@ -306,6 +306,8 @@ def _databricks(code: str) -> list[Any]:
         if "the way it runs in Fabric" not in text:
             raise
         raise ValueError(_databricks_wording(text)) from None
+    # and Unity Catalog names: main.default.t, the schema default, USE CATALOG and USE SCHEMA (WR-316)
+    rewritten = [written for statement in rewritten for written in databricks_builtins_sql.unity_names(statement)]
     # and its table statements: identity and generated columns, USING DELTA, refusals for the rest (WR-309)
     rewritten = [written for statement in rewritten for written in databricks_builtins_sql.table_statements(statement)]
     # and the statements Databricks answers another way: DESCRIBE TABLE, MERGE's multiple matches, refusals

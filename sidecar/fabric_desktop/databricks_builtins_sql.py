@@ -1075,3 +1075,86 @@ def other_statements(statement: exp.Expression) -> list[exp.Expression]:
     if isinstance(statement, exp.Merge):
         return [_merge_matches_once(statement)]
     return [statement]
+
+
+# Unity Catalog names (WR-316). A Databricks SQL cell here runs in one session database, which stands for the
+# workspace's default catalog: main (and workspace, hive_metastore and spark_catalog, the other names a notebook
+# uses for it) is this session, and its schema default is DuckDB's main schema. Any other catalog is a Unity
+# Catalog catalog this PC doesn't hold, so a name in it is refused by name rather than read from somewhere else.
+SESSION_CATALOGS = ("main", "workspace", "hive_metastore", "spark_catalog")
+_DUCKDB_CATALOGS = {"system", "temp", "memory"}  # USE x in DuckDB would switch to one of its own catalogs
+
+
+def _catalog_refusal(name: str, what: str | None = None) -> ValueError:
+    return _statement_refusal(what or f"A name in the catalog {name}",
+                              f"{name} is a Unity Catalog catalog and this session holds only its own tables, in "
+                              f"the catalog main ({', '.join(SESSION_CATALOGS[1:])} name it too)",
+                              "name the table as schema.table or table, or as main.schema.table")
+
+
+def _default_schema(identifier: exp.Identifier | None) -> exp.Identifier | None:
+    if identifier is not None and identifier.name.lower() == "default":
+        return exp.to_identifier("main")
+    return identifier
+
+
+def _current_schema() -> exp.Expression:
+    """Databricks' current_schema() (and current_database(), the same thing there): default for DuckDB's main."""
+    return exp.Case(this=exp.CurrentSchema(), ifs=[exp.If(this=exp.Literal.string("main"),
+                                                          true=exp.Literal.string("default"))],
+                    default=exp.CurrentSchema())
+
+
+def unity_names(statement: exp.Expression) -> list[exp.Expression]:
+    """``statement`` with Unity Catalog names read as Databricks reads them: catalog.schema.table in the session's
+    catalog, the schema default, current_catalog(), current_schema() and current_database(), and USE CATALOG,
+    USE SCHEMA, USE DATABASE and USE. A name in another catalog is refused by name."""
+    if isinstance(statement, exp.Use):
+        return _use(statement)
+    for table in list(statement.find_all(exp.Table)):
+        if table.args.get("catalog") is not None:
+            catalog = table.catalog.lower()
+            if catalog == "system" and table.db.lower() == "information_schema":
+                pass  # the session's own information_schema
+            elif catalog in SESSION_CATALOGS:
+                table.set("catalog", None)
+            else:
+                raise _catalog_refusal(table.catalog)
+        table.set("db", _default_schema(table.args.get("db")))
+    for node in list(statement.find_all(exp.CurrentSchema, exp.CurrentDatabase, exp.CurrentCatalog)):
+        node.replace(exp.Literal.string("main") if isinstance(node, exp.CurrentCatalog) else _current_schema())
+    return [statement]
+
+
+def _use(statement: exp.Use) -> list[exp.Expression]:
+    """USE CATALOG main (or another name for this session's catalog) makes default the current schema, as on
+    Databricks. USE [SCHEMA | DATABASE] [catalog.]schema makes it current for the cells after it, and a schema
+    the session doesn't have stops the cell with Databricks' SCHEMA_NOT_FOUND."""
+    kind = str(statement.args.get("kind") or "").upper()
+    target = statement.this
+    parts = [p for p in (target.args.get("catalog"), target.args.get("db"), target.this) if p is not None] \
+        if isinstance(target, exp.Table) else [target]
+    names = [p.name for p in parts]
+    said = f"USE {kind + ' ' if kind else ''}{'.'.join(names)}"
+    if kind == "CATALOG":
+        if len(names) != 1:
+            raise ValueError(f"[PARSE_SYNTAX_ERROR] {said}: USE CATALOG takes one catalog name.")
+        if names[0].lower() not in SESSION_CATALOGS:
+            raise _catalog_refusal(names[0], said)
+        schema = "main"
+    else:
+        if len(names) > 2:
+            raise ValueError(f"[PARSE_SYNTAX_ERROR] {said}: a schema is named as schema or catalog.schema.")
+        if len(names) == 2 and names[0].lower() not in SESSION_CATALOGS:
+            raise _catalog_refusal(names[0], said)
+        schema = "main" if names[-1].lower() == "default" else names[-1]
+        if schema.lower() in _DUCKDB_CATALOGS:
+            raise _statement_refusal(said, f"DuckDB keeps the name {schema} for one of its own catalogs",
+                                     "give the schema another name")
+    shown = "default" if schema == "main" else schema
+    check = cast(exp.Expression, parse_one(
+        "SELECT error(" + _quoted(f"[SCHEMA_NOT_FOUND] The schema `main`.`{shown}` cannot be found. Verify the "
+                                  "spelling and correctness of the schema and catalog.") + ") "
+        "WHERE NOT EXISTS (SELECT 1 FROM duckdb_schemas() WHERE database_name = current_database() "
+        f"AND lower(schema_name) = lower({_quoted(schema)}))", read="duckdb"))
+    return [check, exp.Use(this=exp.Table(this=exp.to_identifier(schema, quoted=True)))]

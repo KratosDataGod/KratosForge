@@ -276,6 +276,33 @@ These cases still differ:
 | `from_json` text in single quotes, such as `{'a':1}` | Read (`allowSingleQuotes` is on by default) | NULL |
 | Databricks SQL on the DuckDB engine | As in Spark SQL | `from_json` and `schema_of_json` options are refused, and `to_json` is DuckDB's own |
 
+## Array and string functions at their edges
+
+Spark SQL run on this PC gives Spark's answers for these array and string functions at their edges, with ANSI mode off as Fabric runs it. The queries in `sidecar/tools/spark_value_cases/arrays_strings.txt` were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_arrays_strings_values.py`.
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `array_join` | NULL elements are skipped, or replaced by the third argument; a NULL delimiter or replacement gives NULL, and an array with nothing left gives `''` |
+| `array_size`, `size` | `array_size` of NULL is NULL; `size` of NULL is -1 |
+| `array_insert` | A position past the end pads with NULLs; a negative one counts from the end (-1 is after the last element) and pads at the front; 0 is an error |
+| `locate`, `instr`, `position` | An empty search text is found at 1 from any start of 1 or more |
+| `substring_index` | A delimiter that overlaps itself is counted at each place it starts (`substring_index('aaa', 'aa', -1)` is `''`) |
+| `concat_ws` | With only a separator it is `''` (NULL for a NULL separator) |
+| `format_number` | A whole number or a decimal keeps every digit; a decimal rounds half-even and keeps a `-` that rounds to 0 (`-0`) |
+| `contains` | A bare NULL argument gives NULL |
+| `upper`, `lower`, `initcap` | Java's full case mapping: `upper('ß')` is `SS`, `lower('İ')` is `i̇`, a final capital sigma is `ς`, and `initcap` gives a letter's title case |
+| `array_distinct` | `0.0` and `-0.0` are kept apart |
+
+Refused by name, and nothing runs:
+
+| Case | Why |
+| --- | --- |
+| `split` with a pattern written in the query that can match empty text, such as `'|'` or `'x*'` | Java and this PC split around an empty match differently |
+| `format_number` with a pattern, such as `'#,###.00'` | Java's DecimalFormat patterns aren't written here. Give the number of decimal places |
+| `format_number` with more than 18 decimal places | A decimal here keeps at most 38 digits in all |
+| `array_insert` that would pad the array with more than 10,000,000 NULLs | Spark pads up to its array limit, but that many would use up this PC's memory |
+| `format_string` and `printf` with `%s` of an array, map or struct | Spark writes them as text its own way (`[1,2]`) |
+
 ## Hashing and encoding on this PC (WR-119)
 
 Spark SQL run on this PC gives Spark's answers for its hashing and encoding functions, with ANSI mode off as Fabric runs it. 84 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_hashing_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.

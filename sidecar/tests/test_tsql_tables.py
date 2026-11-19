@@ -40,7 +40,7 @@ def run(engine, sql):
 
 
 def test_values_that_fit_the_declared_length_are_kept(engine):
-    assert run(engine, "INSERT INTO dbo.t VALUES (1, 'abcde', 'ab', 0x0102, REPLICATE('x', 9000)), "
+    assert run(engine, "INSERT INTO dbo.t VALUES (1, 'abcde', 'ab', 0x0102, REPLICATE(CAST('x' AS VARCHAR(MAX)), 9000)), "
                        "(2, N'éé', NULL, NULL, NULL), (3, NULL, NULL, NULL, NULL)") == [[3]]
     assert run(engine, "SELECT id, v, c, LEN(m) FROM dbo.t ORDER BY id") == [[1, "abcde", "ab", 9000],
                                                                               [2, "éé", None, None],
@@ -104,12 +104,12 @@ def test_a_temp_table_lasts_for_the_session(tmp_path):
     e.execute("INSERT INTO #t VALUES (1), (2)", dialect="tsql")
     assert run(e, "SELECT COUNT(*) FROM #t") == [[2]]
     e.execute("DROP TABLE #t", dialect="tsql")
-    with pytest.raises(Exception, match="#t does not exist"):
+    with pytest.raises(Exception, match=r"Invalid object name '#t'\."):
         e.execute("SELECT * FROM #t", dialect="tsql")
     e.execute("CREATE TABLE #u (id INT)", dialect="tsql")
     local.close_all()
     reopened = LocalData(tmp_path / "temp" / "local-data")
-    with pytest.raises(Exception, match="#u does not exist"):
+    with pytest.raises(Exception, match=r"Invalid object name '#u'\."):
         reopened.engine(project).execute("SELECT * FROM #u", dialect="tsql")
     reopened.close_all()
 
@@ -120,7 +120,7 @@ def test_drop_table_if_exists_and_truncate(engine):
     engine.execute("TRUNCATE TABLE dbo.t", dialect="tsql")
     assert run(engine, "SELECT COUNT(*) FROM dbo.t") == [[0]]
     engine.execute("DROP TABLE IF EXISTS dbo.t", dialect="tsql")
-    with pytest.raises(Exception, match="does not exist"):
+    with pytest.raises(Exception, match=r"Invalid object name 'dbo\.t'\."):
         engine.execute("SELECT * FROM dbo.t", dialect="tsql")
 
 

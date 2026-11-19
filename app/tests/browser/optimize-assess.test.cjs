@@ -29,7 +29,7 @@ const page = () => app.page;
 const shot = async (name) => { if (SHOTS) await page().screenshot({ path: path.join(SHOTS, `${name}.png`), fullPage: true }); };
 
 test("Assessment is a tab of Optimize and starts with what it reads", { skip }, async () => {
-  await page().evaluate(() => { optimizePage.tab = "assessment"; go("optimize"); });
+  await page().evaluate(() => { optimizeExcellence.view = "opportunities"; optimizePage.tab = "assessment"; go("optimize"); });
   await page().waitForSelector(".assess-empty");
   const tabs = (await page().locator(".page.optimize .subtabs .tab").allTextContents());
   assert.ok(tabs.includes("Assessment"), tabs.join(", "));

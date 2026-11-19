@@ -158,6 +158,15 @@ def _check_schema(schema: Any, what: str, cap_id: str) -> None:
         raise ValueError(f"{cap_id}: {what} properties must be an object")
 
 
+_EXECUTION_ID = re.compile(r"ex_[0-9a-f]{20}")
+
+
+def _is_execution_record(result: Any) -> bool:
+    """True for an execution's own record as a start-run tool returns it (Execution.view)."""
+    return (isinstance(result, dict) and isinstance(result.get("id"), str) and bool(_EXECUTION_ID.fullmatch(result["id"]))
+            and {"kind", "state", "title"} <= set(result))
+
+
 class Registry:
     def __init__(self, authorizer: Authorizer | None = None):
         self._caps: dict[str, Capability] = {}
@@ -331,6 +340,10 @@ class Registry:
                 if isinstance(source, dict) and isinstance(source.get("execution_id"), str):
                     execution = source["execution_id"]
                     break
+            # A call that starts one returns the execution's own record (Execution.view), whose id is
+            # "id". Only that shape counts: a tool whose result is someone's data with an "id" isn't one.
+            if not execution and _is_execution_record(result):
+                execution = result["id"]
             self._audit(ctx, cap_id, cap.permission if cap else "", arguments, arrived, time.monotonic() - clock,
                         error, execution)
 

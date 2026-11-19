@@ -5,6 +5,8 @@ optimization engine's reads (``optimization_assess``: the workspace, its items, 
 definitions, job history), the workspace's role assignments, the capacities the person can see, and
 each lakehouse's properties (``GET .../lakehouses/{id}``, the read the app makes before writing a
 table, for the architecture controls; at most ``MAX_LAKEHOUSE_READS`` per assessment).
+Notebook and pipeline definitions are inspected while the engine has them (excellence.inspect_items):
+the evidence keeps the rules that matched and where, never the code.
 A read that fails is reported in ``reads`` and leaves the controls that need it *not evaluated*;
 it never stops the assessment and never counts as a pass. No Fabric job starts and nothing is
 written to Fabric, OneLake or this PC.
@@ -18,7 +20,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from .excellence import adapters, assess, catalog, catalog_architecture, profiles
+from .excellence import adapters, assess, catalog, catalog_architecture, inspect_items, profiles
 from .opportunities_service import _guid
 from .redact import describe
 
@@ -86,7 +88,7 @@ class ExcellenceMixin:
         reads: list[dict[str, Any]] = []
         info_read = True
         if demo:
-            opt = self.optimization_assess(demo=True)  # type: ignore[attr-defined]
+            opt = self._optimization_assess(demo=True, inspect=inspect_items.inspect)  # type: ignore[attr-defined]
             ws_raw = dict(opt["workspaces"][0])
             ws = {"id": ws_raw["id"], "displayName": ws_raw["name"], "capacityId": ws_raw["capacity_id"],
                   "description": "Sales reporting: orders, customers and products (demonstration fixture)."}
@@ -108,7 +110,8 @@ class ExcellenceMixin:
                 reads.append({"read": "workspace settings", "ok": False,
                               "problem": f"Couldn't be read ({describe(exc)}); its capacity isn't known either."})
             try:
-                opt = self.optimization_assess(workspace_id=wid, days=days)  # type: ignore[attr-defined]
+                opt = self._optimization_assess(workspace_id=wid, days=days,  # type: ignore[attr-defined]
+                                                inspect=inspect_items.inspect)
             except Exception as exc:  # noqa: BLE001 - its controls are then not evaluated
                 opt = {"workspaces": [{"id": wid, "problem": f"Couldn't be read ({describe(exc)})."}],
                        "workloads": [], "opportunities": [], "scope": {}}
@@ -134,6 +137,7 @@ class ExcellenceMixin:
                    + adapters.roles(ws, assignments, collected_at=at)
                    + adapters.capacity(cap_id, capacities, collected_at=at)
                    + adapters.optimization(opt, collected_at=at)
+                   + adapters.inspection(opt, collected_at=at)
                    + catalog_architecture.evidence(ws, _items(opt), opt, lakehouses, collected_at=at))
         scope = {"workspaces": [{"id": str(ws["id"]), "name": ws.get("displayName")}],
                  "capacities": [cap_id] if cap_id else []}

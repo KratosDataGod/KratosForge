@@ -90,7 +90,7 @@ def _operands(node: exp.Expr) -> list[Any]:
 _KEY = "kf_decimal"
 # The rewrite's lambda parameters. DuckDB takes a column of the same name before a lambda parameter, so a
 # statement that can see a column of either name is left as it was.
-_LAMBDAS = ("kf_decv", "kf_decn", "kf_decsum", "kf_decr")
+_LAMBDAS = ("kf_decv", "kf_decn", "kf_decsum")
 
 
 def _adjust(precision: int, scale: int) -> tuple[int, int]:
@@ -347,11 +347,8 @@ def _retype(statement: exp.Expr, targets: list[Any], schema: MappingSchema, ansi
             continue
         top = replacement[1]
         new = exp.paren(replacement[0])
-        if replacement[2] is None:  # a double (_double_round): no decimal type for the nodes around it
-            new.meta[_DOUBLE] = True
-        else:
-            typed[id(new)] = replacement[2]
-            typed[id(new.this)] = replacement[2]
+        typed[id(new)] = replacement[2]
+        typed[id(new.this)] = replacement[2]
         if top is root:
             root = new
         else:
@@ -408,8 +405,7 @@ def _output_names(statement: exp.Expr, conn: Any, targets: list[Any]
 
 
 def _rewrite(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]], annotated: dict[int, exp.Expr],
-             operands: list[Any], ansi: bool = False
-             ) -> tuple[exp.Expr, exp.Expr, tuple[int, int] | tuple[str, int] | None] | None:
+             operands: list[Any], ansi: bool = False) -> tuple[exp.Expr, exp.Expr, tuple[int, int] | tuple[str, int]] | None:
     if isinstance(node, _AGGREGATES):
         argument = node.this
         bare = argument.expressions[0] if isinstance(argument, exp.Distinct) and len(argument.expressions) == 1 \
@@ -583,18 +579,12 @@ def _places(arg: exp.Expr | None) -> int | None:
 
 
 def _rounding(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]], annotated: dict[int, exp.Expr],
-              operands: list[Any]) -> tuple[exp.Expr, exp.Expr, tuple[int, int] | None] | None:
-    """round, bround, ceil and floor of a decimal, typed by Spark's RoundBase (and Ceil, Floor) rules, and
-    round of a double as Spark rounds it (_double_round)."""
+              operands: list[Any]) -> tuple[exp.Expr, exp.Expr, tuple[int, int]] | None:
+    """round, bround, ceil and floor of a decimal, typed by Spark's RoundBase (and Ceil, Floor) rules."""
     if not operands or operands[0] is None:
         return None
     operand = operands[0]
     found = _decimal(operand, typed, annotated)
-    if type(node) is exp.Round and found is None:  # sqlglot types 0.1 as a DOUBLE: _decimal reads it as Spark's decimal
-        kind = _double_kind(operand, annotated)
-        places = _places(node.args.get("decimals"))
-        if kind is not None and places is not None:
-            return _with_args(_double_round(places, kind), [operand]), node, None
     if (isinstance(node, (exp.Ceil, exp.Floor)) and node.args.get("decimals") is None and found is None
             and _is_double(operand, annotated)):  # sqlglot types 0.1 as a DOUBLE: _decimal reads it as Spark's decimal
         # Spark's ceil and floor of a double are a BIGINT (math.ceil(d).toLong: NaN is 0, past the range the
@@ -622,40 +612,6 @@ def _rounding(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]
             return None
         return _with_args(f"CAST({text} AS DECIMAL({precision}, {scale}))", [operand]), node, (precision, scale)
     return _with_args(f"CAST(fj_arg0 AS DECIMAL({precision}, {scale}))", [node]), node, (precision, scale)
-
-
-_DOUBLE = "kf_decimal_double"
-
-
-def _double_kind(node: exp.Expr, annotated: dict[int, exp.Expr]) -> str | None:
-    """"DOUBLE" or "FLOAT" when ``node`` is one, else None."""
-    while isinstance(node, (exp.Paren, exp.Neg)):
-        if node.meta.get(_DOUBLE):
-            return "DOUBLE"
-        node = node.this
-    copy = annotated.get(id(node))
-    kind = copy.type if copy is not None else None
-    if not isinstance(kind, exp.DataType):
-        return None
-    return {exp.DataType.Type.DOUBLE: "DOUBLE", exp.DataType.Type.FLOAT: "FLOAT"}.get(kind.this)
-
-
-def _double_round(places: int, kind: str) -> str:
-    """Spark's round(x, places) of a double (or float, as a double) (WR-116): BigDecimal(x).setScale(places,
-    HALF_UP), which rounds the digits Double.toString writes for x, so round(1.005D, 2) is 1.01 where
-    DuckDB's ROUND, on the binary value just under 1.005, gives 1.0. Those digits (DuckDB's shortest ones,
-    at most 17) are read as a decimal wide enough to hold all of them, rounded half up as a decimal, and
-    read back. NaN and infinity stay as they are. A value of 1e37 or more is a whole number, so it stays as
-    it is too, or for a negative ``places`` takes DuckDB's ROUND; so does one below 1e-21 rounded to more
-    than 20 places, the one case whose digits can reach past 38."""
-    def exact(scale: int) -> str:
-        return f"CAST(ROUND(CAST(CAST(kf_decr AS VARCHAR) AS DECIMAL(38, {scale})), {places}) AS DOUBLE)"
-    tiny = f"WHEN ABS(kf_decr) < 1e-21 THEN ROUND(kf_decr, {places}) " if places > 20 else ""
-    rounded = (f"(LIST_TRANSFORM([CAST(fj_arg0 AS DOUBLE)], lambda kf_decr: CASE WHEN ISNAN(kf_decr) OR ISINF(kf_decr) "
-               f"THEN kf_decr {tiny}WHEN ABS(kf_decr) < 1 THEN {exact(37)} WHEN ABS(kf_decr) < 1e17 THEN {exact(20)} "
-               f"WHEN ABS(kf_decr) < 1e37 THEN {exact(0)} ELSE "
-               f"{'kf_decr' if places >= 0 else f'ROUND(kf_decr, {places})'} END))[1]")
-    return rounded if kind == "DOUBLE" else f"CAST({rounded} AS FLOAT)"
 
 
 def _is_double(node: exp.Expr, annotated: dict[int, exp.Expr]) -> bool:

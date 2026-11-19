@@ -357,13 +357,19 @@ Refused by name, and nothing runs:
 | --- | --- |
 | `hash` or `xxhash64` of a struct, or of an array of structs or arrays | This PC can't yet hash a struct's fields in Spark's order. Hash its fields instead: `hash(s.a, s.b)` gives the same number as `hash(s)` |
 | A cast of binary to string where the bytes aren't UTF-8 | Spark reads them with replacement characters. Use `hex()` or `base64()` instead |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| Databricks SQL on the DuckDB engine | `base64` and `unbase64` as in Spark SQL | `base64` writes one line, and `unbase64` reads only strict base64 |
+
 ## Math functions on this PC (WR-116)
 
 Spark SQL run on this PC gives Spark's answers for its math functions at the edges where DuckDB stops with an error or answers as C does, with ANSI mode off as Fabric runs it. 28 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_math_values.py`, on DuckDB 1.5 and 2.0. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
 
 | Function | On this PC, as in Spark |
 | --- | --- |
-| `round` of a `double` | Rounds half up on the digits Java writes for the value: `round(1.005D, 2)` is 1.01 and `round(9.995D, 2)` is 10.0. A `float` is rounded as a `double`. NaN and infinity stay as they are |
 | `log`, `ln`, `log10`, `log2` | NULL for 0 or a negative number, and for a base of 0 or a negative base. A base of 1 gives `inf` (`log(1, 8)`) |
 | `pow`, `power` | Java's `Math.pow`: NaN for a NaN exponent, and for 1 or -1 to an infinite power |
 | `hypot` | `inf` when either side is infinite, even beside NaN; very large or very small sides don't overflow (`hypot(1e200, 1e200)`) |
@@ -376,10 +382,7 @@ These cases still differ:
 
 | Case | Spark | This PC |
 | --- | --- | --- |
-| `round` of a `double` whose `round` sqlglot can't type (a column in a query whose types can't be worked out here) | Half up on the digits Java writes | DuckDB's `ROUND`, on the binary value (`round(1.005D, 2)` is 1.0) |
-| `round` of a `double` of 1e37 or more to a negative number of places, or below 1e-21 to more than 20 places | Half up on the digits Java writes | DuckDB's `ROUND`, on the binary value |
 | `abs(-2147483648)` and `round(2147483647, -1)` | Wraps around (ANSI off) | Widens the type, or stops on DuckDB 2.0 |
-| Databricks SQL on the DuckDB engine | `base64` and `unbase64` as in Spark SQL | `base64` writes one line, and `unbase64` reads only strict base64 |
 
 ## Session, reflection and error functions on this PC (WR-122)
 

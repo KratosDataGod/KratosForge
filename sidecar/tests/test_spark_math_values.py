@@ -69,3 +69,12 @@ def test_an_argument_that_changes_between_reads_is_read_once():
 def test_a_column_argument_costs_no_lambda_per_row():
     assert "LIST_TRANSFORM" not in duckdb_text("SELECT ln(x), log(2, x), pow(x, 2), hypot(x, x), atan2(x, x) "
                                                "FROM VALUES (1.0D) AS t(x)")
+
+
+def test_the_smallest_int_literal_stays_a_plain_cast_so_try_can_take_it():
+    # -2147483648 is CAST(-2147483648 AS INT); written out as Spark's cast it held ERROR(), which DuckDB 2.0's
+    # TRY refuses ("TRY can not be used in combination with a volatile function")
+    assert "ERROR(" not in duckdb_text("SELECT try_add(-2147483648, 1)")
+    got = sql.run("SELECT try_add(-2147483648, 1) a, CAST(-9999999999 AS INT) b, CAST(-200 AS TINYINT) c, "
+                  "typeof(-2147483648) d", dialect="spark").to_pylist()
+    assert got == [{"a": -2147483647, "b": -1410065407, "c": 56, "d": "int"}]

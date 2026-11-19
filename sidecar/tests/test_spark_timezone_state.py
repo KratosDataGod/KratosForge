@@ -120,6 +120,23 @@ def test_sql_reset_restores_utc_as_spark_conf_unset_does(spark, reset):
         spark.conf.unset(KEY)
 
 
+def test_a_bare_reset_resets_the_time_zone_only_and_keeps_builder_and_other_settings(spark):
+    from fabric_desktop.spark_local import LocalSparkSession
+    LocalSparkSession.builder.config("spark.sql.adaptive.enabled", "false")  # the builder's, a session default
+    try:
+        spark.conf.set("spark.sql.shuffle.partitions", "8")
+        spark.sql("SET TIME ZONE 'America/Chicago'")
+        spark.sql("RESET")
+        assert _answers(spark) == ("UTC", "UTC", 1730597400)
+        assert spark.conf.get("spark.sql.adaptive.enabled") == "false"
+        assert spark.conf.get("spark.sql.shuffle.partitions") == "8"
+        spark.sql("RESET spark.sql.shuffle.partitions")  # a key named is put back to its default
+        assert spark.conf.get("spark.sql.shuffle.partitions") == "200"
+    finally:
+        for key in (KEY, "spark.sql.shuffle.partitions", "spark.sql.adaptive.enabled"):
+            spark.conf.unset(key)
+
+
 def test_a_zone_set_in_sql_applies_to_the_statements_after_it_in_the_same_call(spark):
     try:
         got = spark.sql(f"SET TIME ZONE 'America/Chicago'; {FALL_BACK}").collect()

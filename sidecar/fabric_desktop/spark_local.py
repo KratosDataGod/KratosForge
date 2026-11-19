@@ -1416,8 +1416,9 @@ class LocalSparkSession(SparkSession):
             self.conf.set(key, value)
             return self.createDataFrame([(key, value)], ["key", "value"])
         if (reset := _SPARK_RESET.fullmatch(head)) is not None:  # RESET [spark.x]: back to the default, as in Spark
-            for key in [reset["key"]] if reset["key"] else list(cast(spark_api.LocalRuntimeConfig, self._conf).getAll):
-                self.conf.unset(key)
+            # Spark's bare RESET puts every key back to its session default, builder settings included; those
+            # aren't kept apart from later ones here, so a bare RESET resets the session time zone only
+            self.conf.unset(reset["key"] or _TIME_ZONE_KEY)
             return DataFrame(self.conn.sql("SELECT 1 WHERE false"), self)
         if len(pieces := _session_setting_pieces(sqlQuery)) > 1:
             # a later statement is written for the time zone an earlier one sets, so each runs on its own

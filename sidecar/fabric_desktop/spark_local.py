@@ -1409,6 +1409,34 @@ class LocalSparkSession(SparkSession):
         with spark_time_zone.for_session(self):  # its casts are written for this session's time zone
             return self._sql(sqlQuery)
 
+    @staticmethod
+    def _setting_pieces(query: str) -> list[str]:
+        """``_session_setting_pieces(query)``, checked before any piece runs: a call holding OPTIMIZE, VACUUM,
+        RESTORE or MERGE WITH SCHEMA EVOLUTION isn't split, so it stops as it would without the time zone
+        statement (each must be the only statement in its call), and one holding a MERGE, UPDATE or DELETE
+        is refused, as any call with one beside other statements is."""
+        pieces = _session_setting_pieces(query)
+        if not pieces:
+            return []
+        from sqlglot import exp
+
+        from . import spark_maint
+        heads = [delta_dml_comments.sub("", p) for p in pieces]
+        if any(spark_maint.STARTS.match(h) or _SCHEMA_EVOLUTION.match(h) for h in heads):
+            return []
+        for head in heads:
+            if _CHANGE.match(head):
+                raise ValueError(_ONE_CHANGE)
+            if _SET_TIME_ZONE.fullmatch(head) or _SPARK_SET.fullmatch(head) or _SPARK_RESET.fullmatch(head):
+                continue
+            try:
+                trees = _sql.parse(head)
+            except Exception:  # noqa: BLE001  # silent-ok: the piece's own run reports what it can't read
+                continue
+            if any(t is not None and t.find(exp.Merge, exp.Update, exp.Delete) for t in trees):
+                raise ValueError(_ONE_CHANGE)  # WITH c AS (...) DELETE ... too
+        return pieces
+
     def _sql(self, sqlQuery: str) -> DataFrame:  # noqa: N803
         head = delta_dml_comments.sub("", sqlQuery)  # a leading comment doesn't hide RESTORE or SCHEMA EVOLUTION
         if (zone := _SET_TIME_ZONE.fullmatch(head)) is not None:  # SET TIME ZONE 'z' is spark.conf's, as in Spark
@@ -1422,10 +1450,8 @@ class LocalSparkSession(SparkSession):
             # aren't kept apart from later ones here, so a bare RESET resets the session time zone only
             self.conf.unset(reset["key"] or _TIME_ZONE_KEY)
             return DataFrame(self.conn.sql("SELECT 1 WHERE false"), self)
-        if len(pieces := _session_setting_pieces(sqlQuery)) > 1:
+        if len(pieces := self._setting_pieces(sqlQuery)) > 1:
             # a later statement is written for the time zone an earlier one sets, so each runs on its own
-            if any(_CHANGE.match(delta_dml_comments.sub("", p)) for p in pieces):
-                raise ValueError(_ONE_CHANGE)
             result: DataFrame | None = None
             for piece in pieces:
                 result = self._sql(piece)

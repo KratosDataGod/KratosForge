@@ -154,3 +154,41 @@ def test_an_offset_with_minutes_in_sql_is_refused_as_spark_conf_set_refuses_it(s
             spark.sql(statement)
         assert str(by_sql.value) == str(by_conf.value)
     assert _answers(spark) == ("UTC", "UTC", 1730597400)
+
+
+@pytest.mark.parametrize("query", [
+    "SET TIME ZONE 'UTC'; VACUUM t RETAIN 0 HOURS",
+    "RESET; VACUUM t RETAIN 0 HOURS",
+    "SET TIME ZONE 'UTC'; RESTORE TABLE t TO VERSION AS OF 0",
+    "SET TIME ZONE 'UTC'; OPTIMIZE t",
+    ("SET spark.sql.session.timeZone = 'UTC'; MERGE WITH SCHEMA EVOLUTION INTO t USING s ON t.id = s.id "
+     "WHEN MATCHED THEN UPDATE SET *"),
+])
+def test_a_zone_setting_doesnt_let_maintenance_run_beside_another_statement(spark, query, monkeypatch):
+    """OPTIMIZE, VACUUM, RESTORE and MERGE WITH SCHEMA EVOLUTION must be the only statement in the call; a time
+    zone statement before one doesn't split the call into pieces that each pass alone."""
+    from fabric_desktop import spark_maint
+
+    ran: list = []
+    monkeypatch.setattr(spark_maint, "run", lambda spec: ran.append(spec) or (None, ""))
+    try:
+        with pytest.raises(Exception):  # noqa: B017  # the same stop as without the zone statement
+            spark.sql(query)
+        assert ran == []
+    finally:
+        spark.conf.unset(spark_local._TIME_ZONE_KEY)
+
+
+@pytest.mark.parametrize("change", [
+    "DELETE FROM t WHERE id = 1",
+    "WITH c AS (SELECT 1 AS id) DELETE FROM t WHERE id IN (SELECT id FROM c)",
+    "UPDATE t SET id = 2",
+    "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE",
+])
+def test_a_zone_setting_beside_a_change_is_refused_before_anything_runs(spark, change):
+    try:
+        with pytest.raises(ValueError, match="only statement in the call"):
+            spark.sql(f"SET TIME ZONE 'America/Chicago'; {change}")
+        assert spark.conf.get(spark_local._TIME_ZONE_KEY, "UTC") in ("UTC", "Etc/UTC")  # the SET didn't run
+    finally:
+        spark.conf.unset(spark_local._TIME_ZONE_KEY)

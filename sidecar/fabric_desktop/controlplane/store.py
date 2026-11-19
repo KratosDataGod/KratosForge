@@ -54,8 +54,9 @@ class OneLakeManifestBackend(OneLakeBackend):
     def read(self, key: str) -> Stored | None:
         """The file, read at most ``manifest.MAX_BYTES``: anyone who can write to the workspace can put a
         file here, and discovery reads one per lakehouse, so a huge one is refused, not loaded."""
-        resp = send_with_retry(lambda: self._http.get(self._url(key), headers=self._headers(), timeout=self.timeout,
-                                                      stream=True), "GET", sleep=self._sleep)
+        resp = send_with_retry(lambda: self._http.get(self._url(key), headers=self._headers(**{"Accept-Encoding": "identity"}),
+                                                      timeout=self.timeout, stream=True),
+                               "GET", sleep=self._sleep)  # identity: the cap counts the real bytes
         try:
             if resp.status_code == 404:
                 return None

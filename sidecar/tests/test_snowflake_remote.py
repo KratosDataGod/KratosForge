@@ -136,7 +136,7 @@ def test_a_refused_sign_in_is_one_problem_without_the_token():
     assert not out["signed_in"] and not out["ok"]
     [problem] = out["problems"]
     assert problem["field"] == "sign-in" and "HTTP 401, code 390144" in problem["message"]
-    assert "Check the connection's sign-in" in problem["message"] and "tok-abc" not in json.dumps(out)
+    assert "Check the connection's user name" in problem["message"] and "tok-abc" not in json.dumps(out)
 
 
 def test_a_refused_pat_is_not_sent_again():

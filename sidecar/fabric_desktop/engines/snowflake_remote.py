@@ -56,11 +56,12 @@ class SnowflakeError(RuntimeError):
 
 
 def _hint(status: int) -> str:
-    return {401: "Check the connection's sign-in: the user name, the key registered on the user, or the token.",
-            403: "Your role may not use the SQL API from this network: a network policy may block this PC.",
+    return {401: "Check the connection's user name, the key registered on that user, or the token.",
+            403: ("A network policy may block this PC, or your role may not use the SQL API from this network. "
+                  "Ask a Snowflake admin to check the network policy."),
             404: "Check the account identifier in the connection.",
-            408: "The statement took too long and Snowflake stopped it.",
-            429: "Snowflake is limiting requests; try again in a minute."}.get(status, "")
+            408: "The statement took too long and Snowflake stopped it. Check again in a minute.",
+            429: "Snowflake is limiting requests, so try again in a minute."}.get(status, "")
 
 
 class Client:
@@ -89,7 +90,8 @@ class Client:
             resp, _ = send_remote(send, repeatable, self._sleep,
                                   (lambda: False) if path.endswith("/cancel") else self.stopped)
         except Exception as exc:  # noqa: BLE001 - a network failure becomes the person's message
-            raise SnowflakeError(f"Couldn't reach {self.host}: {type(exc).__name__}.") from None
+            raise SnowflakeError(f"Couldn't reach {self.host} ({type(exc).__name__}). "
+                                 "Check this PC's network and the account identifier in the connection.") from None
         if resp.status_code == 401:
             self._tokens.drop(token)
         return resp
@@ -244,7 +246,7 @@ def check_connection(connection: dict[str, Any], client: Client | None = None, *
               "Check the name, or ask for USAGE on the database for your role.")
     if schema:
         if db_row is None:
-            check("schema", False, f"Schema {schema} wasn't checked: its database isn't set or wasn't found.",
+            check("schema", False, f"Schema {schema} wasn't checked, because its database isn't set or wasn't found.",
                   "Set a database the role can see first.")
         else:
             found = show(f"SHOW SCHEMAS LIKE {_literal(schema)} IN DATABASE {_ident(str(db_row['name']))}")
@@ -260,7 +262,7 @@ def check_connection(connection: dict[str, Any], client: Client | None = None, *
             state, size = str(row.get("state") or "").lower(), str(row.get("size") or "")
             check("warehouse", True, f"Warehouse {row['name']} is visible to {as_role}"
                   + (f" ({state}" + (f", {size}" if size else "") + ")" if state else "")
-                  + ". It wasn't resumed; running queries on it uses credits.")
+                  + ". It wasn't resumed. Running queries on it uses credits.")
         else:
             check("warehouse", False, f"Warehouse {warehouse} doesn't exist, or {as_role} can't use it.",
                   "Check the name, or ask for USAGE on the warehouse for your role.")

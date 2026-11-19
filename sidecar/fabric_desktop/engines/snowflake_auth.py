@@ -80,12 +80,13 @@ def load_private_key(path: str, passphrase: str | None) -> Any:
         key = serialization.load_pem_private_key(data, passphrase.encode("utf-8") if passphrase else None)
     except TypeError:  # encrypted without a passphrase, or a passphrase for an unencrypted key
         raise SnowflakeAuthError("Key-pair sign-in: the private key is encrypted and the connection names no passphrase, "
-                                 "or it isn't encrypted and a passphrase was given.") from None
+                                 "or it isn't encrypted and a passphrase was given. Set or clear the passphrase in the connection to match the key.") from None
     except ValueError:  # a wrong passphrase, or not a PEM key
         raise SnowflakeAuthError("Key-pair sign-in: the private key couldn't be opened. Check the passphrase, "
                                  "and that the file is a PEM private key (rsa_key.p8).") from None
     if not isinstance(key, rsa.RSAPrivateKey):
-        raise SnowflakeAuthError("Key-pair sign-in: Snowflake takes an RSA key; this file holds another kind.")
+        raise SnowflakeAuthError(("Key-pair sign-in: Snowflake takes an RSA key, but this file holds another kind. "
+                                 "Choose the RSA private key (rsa_key.p8) registered on the user."))
     return key
 
 

@@ -623,7 +623,7 @@ another computer.
 ### Checking a Snowflake connection (Preview)
 
 A Snowflake connection signed in with a key pair or a programmatic access token can be checked
-(`snowflake_check`), through Snowflake's SQL API. The check signs in, then checks each field the
+through Snowflake's SQL API (`snowflake_check`). The check signs in, then checks each field the
 connection sets, and says for each one what's wrong and what to do:
 
 | Field | Checked by | Fails when |
@@ -632,10 +632,10 @@ connection sets, and says for each one what's wrong and what to do:
 | Role | `CURRENT_AVAILABLE_ROLES()` | The role isn't granted to you |
 | Database | `SHOW DATABASES`, as that role | It doesn't exist, or the role can't see it |
 | Schema | `SHOW SCHEMAS` in that database | The same, or its database failed |
-| Warehouse | `SHOW WAREHOUSES` | The same; when found, its state and size are shown |
+| Warehouse | `SHOW WAREHOUSES` | The same. When it's found, its state and size are shown |
 
-The check never sends a warehouse, so no warehouse resumes and no warehouse credits are used: these
-statements are answered by Snowflake's cloud services. A passed check shows the connection works for
+The check never names a warehouse, because Snowflake's cloud services answer these statements. So
+no warehouse resumes and no warehouse credits are used. A passed check shows the connection works for
 metadata as that role, not that queries on the warehouse will. A key-pair token is made on this PC,
 lasts under an hour and is never stored; a token Snowflake refused is not sent again. Running
 queries on Snowflake comes in a later release. This has been tested against a fake of the SQL API,

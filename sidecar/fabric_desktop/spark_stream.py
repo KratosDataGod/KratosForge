@@ -239,6 +239,12 @@ class StreamReader:
         return self
 
     def _start(self, kind: str, fmt: str, target: str) -> DataFrame:
+        from . import delta_cdf
+        if delta_cdf.asked(self._options):
+            raise NotImplementedError("A stream of a table's change data feed (readChangeFeed) runs in Fabric and on "
+                                      "Databricks, so nothing was read. On this PC, read the changes as a batch: "
+                                      "spark.read.option(\"readChangeFeed\", \"true\")"
+                                      ".option(\"startingVersion\", 0).table(...).")
         for key in ("startingversion", "startingtimestamp"):
             if key in self._options:
                 raise NotImplementedError(f"{key} runs in Fabric. On this PC a stream starts from the table's "

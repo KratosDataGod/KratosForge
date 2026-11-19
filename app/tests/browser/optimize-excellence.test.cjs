@@ -106,8 +106,19 @@ test("Gaps lists the items no control covers yet, and Opportunities is the exist
   await page().locator(".exc-views .tab", { hasText: "Gaps" }).click();
   const gaps = await page().locator(".exc-inner").textContent();
   assert.match(gaps, /DEMONSTRATION FIXTURE/);
-  assert.match(gaps, /Items not inspected \(\d+\)/);
-  assert.match(gaps, /not supported yet\. No control covers this kind of item yet\./);
+  // Every item in the demonstration is covered by some control now, so there is no list of them.
+  assert.doesNotMatch(gaps, /Items not inspected/);
+  // An item no control covers is listed as not supported, never left out.
+  await page().evaluate(() => {
+    const r = JSON.parse(JSON.stringify(optimizeExcellence.result));
+    r.item_coverage.push({ item: { type: "item", id: "x", name: "Sales report", item_type: "Report" }, state: "unsupported",
+      reason: "No control covers this kind of item yet." });
+    window.__excGapsBase = optimizeExcellence.result; optimizeExcellence.result = r; render();
+  });
+  const listed = await page().locator(".exc-inner").textContent();
+  assert.match(listed, /Items not inspected \(1\)/);
+  assert.match(listed, /Sales report .*not supported yet\. No control covers this kind of item yet\./);
+  await page().evaluate(() => { optimizeExcellence.result = window.__excGapsBase; render(); });
   await page().locator(".exc-views .tab", { hasText: "Opportunities" }).click();
   await page().waitForSelector(".assess-empty, .assess-table");
   assert.ok((await page().locator(".assess-scope").count()) === 1);

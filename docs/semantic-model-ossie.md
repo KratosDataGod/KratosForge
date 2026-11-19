@@ -55,6 +55,25 @@ division of those. Anything else (CASE, window functions, filtered aggregates) i
 Ossie has no place for a composite key in Power BI, a many-to-many relationship, or a time
 zone on a date and time column, so those are listed as not converted.
 
+## Ossie file to TMDL (Preview)
+
+**Ossie file to TMDL...** writes a model's TMDL into the project straight from an Ossie file,
+on this PC with no Fabric call. Pick the file and the model folder name. The dialog shows
+whether `semantic/<name>.SemanticModel/` is new or already there.
+
+- A new folder: the counts from the file and the **Round-trip check**, then **Write TMDL**.
+- A folder already there: the file is laid over the TMDL like an Import update. The table
+  lists what is added and changed, and each table, column or measure the file doesn't have
+  with a **Keep it** tick. **Replace TMDL in <name>...** asks once more, in red, before it
+  rewrites the files. Translations under `cultures/` are left as they are.
+- The **Round-trip check** lists what is kept, what rides in the Power BI section, and what
+  can't be carried, by name. A measure whose SQL has no DAX equivalent is written with no
+  expression and shows blank until you add DAX.
+- A file that can't be converted says which object and what is missing, and nothing is written.
+
+Exporting a model kept as TMDL in the project shows the same Round-trip check, which says whether
+reading the Ossie file back gives the same model or names what differs.
+
 ## Keeping Git in step
 
 After an import, **Save TMDL to Git** reads the model back from Fabric as TMDL and writes it
@@ -79,7 +98,12 @@ Files Fabric no longer returns are removed from that folder.
   used. Anything that wouldn't come back exactly as it was, such as a blank first or last line in
   a value, or translations, is listed in the report by name. A name with a line break, or an
   expression with a line of three backticks, would break the TMDL layout, so it is refused and
-  the object is named. Table, role and perspective names never become file names as they are:
+  the object is named. Line breaks also include the characters other editors break lines on
+  (U+2028, U+2029, U+0085, vertical tab, form feed and the file, group and record separators),
+  and values holding them are written fenced.
+- Writing an Ossie file as TMDL into the project never follows a link or junction. Each file is
+  written whole and swapped in. Only `.tmdl` files under `definition/` that the model no longer
+  has are removed, and the preview lists them first. Table, role and perspective names never become file names as they are:
   characters Windows doesn't allow, device names such as `CON`, and names that clash are changed
   for the file name only. TMDL to Ossie and back keeps every object the reader reads. Roles,
   perspectives, hierarchies and calculation groups travel in the Ossie file's Power BI section,
@@ -100,6 +124,7 @@ see the preview and confirm.
 | --- | --- | --- |
 | `meta_model_ossie_models` | Models in the environment's workspace | Nothing |
 | `meta_model_ossie_export` | A model as Ossie YAML, with counts and the report | Nothing |
+| `meta_model_ossie_to_tmdl` | An Ossie file as TMDL in `semantic/<model>.SemanticModel/`, on this PC with no Fabric call (Preview). It shows the files, removals and report first, and writes only when confirmed with the preview's token, so a confirm never removes files the preview didn't list | Files |
 | `meta_model_ossie_save` | Saves an Ossie file under the project's folder | The file |
 | `meta_model_ossie_read` | Reads an Ossie file from the project's folder | Nothing |
 | `meta_model_ossie_preview` | What an import changes, and what it can't carry | Nothing |

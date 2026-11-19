@@ -8,7 +8,7 @@ import json
 import pytest
 
 from fabric_desktop import audit, server
-from fabric_desktop.excellence import adapters, assess, catalog, controls as ct, evidence as ev, profiles
+from fabric_desktop.excellence import adapters, assess, catalog, catalog_architecture, catalog_artifacts, controls as ct, evidence as ev, profiles
 from fabric_desktop.service import Service
 
 AT = "2026-11-18T02:00:00+00:00"
@@ -39,7 +39,7 @@ def run(assignments=None, *, ws=WS, items=None, capacities=None, opt=None) -> di
 
 def test_the_catalog_registers_and_every_control_is_complete():
     r = catalog.registry()
-    assert len(r) == len(catalog.CONTROLS) >= 10
+    assert len(r) == len(catalog.CONTROLS) + len(catalog_architecture.CONTROLS) + len(catalog_artifacts.CONTROLS) and len(catalog.CONTROLS) >= 10
     for c in r.controls():
         assert ct.problems(c) == []
         assert all(ref["url"].startswith("https://") for ref in c.references)

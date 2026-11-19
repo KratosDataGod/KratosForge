@@ -92,7 +92,7 @@ def remember(statements: list[Any], text: str) -> None:
         _FIRST.reset(reset)
 
 
-def _first_places(statement: exp.Expression, first: dict[int, int | None]) -> list[exp.Expression]:
+def _first_places(statement: exp.Expression, first: dict[int, int | None]) -> list[exp.Expr]:
     """Every node of ``statement`` (as walk() gives them), with its first place in the text put in ``first``:
     children come after their parent in walk(), so the reversed list has each child before its parent."""
     nodes = list(statement.walk())

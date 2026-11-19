@@ -66,7 +66,7 @@ def test_a_duckdb_relation_cell_result_pages_searches_and_downloads_every_row(tm
     import duckdb
     target = tmp_path / "r.csv"
     target.touch()
-    assert store.download(store.keep(duckdb.sql("SELECT range AS n FROM range(2500)")), "csv", str(target))["rows"] == 2500
+    assert store.download(store.keep(duckdb.connect().sql("SELECT range AS n FROM range(2500)")), "csv", str(target))["rows"] == 2500
 
 
 def test_odd_and_duplicate_column_names_are_safe():

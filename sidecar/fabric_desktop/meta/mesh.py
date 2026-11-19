@@ -40,7 +40,9 @@ ACCESS = ("public", "domain", "private")
 STATUS = ("draft", "published", "deprecated")
 CLASSIFICATIONS = ("public", "internal", "confidential", "restricted")
 ENVIRONMENTS = ("dev", "test", "prod")
-_NAME = re.compile(r"^[a-z][a-z0-9_]{0,60}$")
+# A name is also a file's name (metadata/products/<name>.toml), so not one Windows keeps for a
+# device: con.toml opens the console there, not a file.
+_NAME = re.compile(r"^(?!(?:con|prn|aux|nul|com\d|lpt\d)\Z)[a-z][a-z0-9_]{0,60}$")
 _PROJECT = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 _ACCEPTS = re.compile(r"^(\d+)(?:\s*-\s*(\d+)|(\+))?$")
 _TIME = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
@@ -360,11 +362,25 @@ def file_name(value: Any, what: str) -> str:
     return value
 
 
-def write_product(root: Path, p: dict[str, Any]) -> Path:
-    import json
-    name = str(p.get("name", "")).strip()
+def product_name(value: Any) -> str:
+    """A product's name as write_product saves it, or ValueError."""
+    name = str(value or "").strip()
     if not _NAME.fullmatch(name):
         raise ValueError("A product name is lowercase letters, digits or _, like customer_360")
+    return name
+
+
+def link_alias(value: Any) -> str:
+    """A link's alias as write_link saves it, or ValueError."""
+    alias = str(value or "").strip()
+    if not _NAME.fullmatch(alias):
+        raise ValueError("A link's name is lowercase letters, digits or _, like sales_customer")
+    return alias
+
+
+def write_product(root: Path, p: dict[str, Any]) -> Path:
+    import json
+    name = product_name(p.get("name", ""))
     lines = ["# A data product: the tables (ports) other teams may read, and the promise that comes with them.",
              f"name = {json.dumps(name)}"]
     for key in ("title", "description", "owner", "steward", "access", "status", "deprecated_on"):
@@ -393,9 +409,7 @@ def write_product(root: Path, p: dict[str, Any]) -> Path:
 
 def write_link(root: Path, l: dict[str, Any]) -> Path:
     import json
-    alias = str(l.get("alias", "")).strip()
-    if not _NAME.fullmatch(alias):
-        raise ValueError("A link's name is lowercase letters, digits or _, like sales_customer")
+    alias = link_alias(l.get("alias", ""))
     lines = ["# A link to another team's data product. Entities read it with [source] link = \"<alias>\".",
              f"alias = {json.dumps(alias)}", f"product = {json.dumps(str(l.get('product', '')))}",
              f"port = {json.dumps(str(l.get('port', '')))}"]

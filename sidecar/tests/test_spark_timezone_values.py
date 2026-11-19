@@ -32,7 +32,7 @@ def test_utc_keeps_duckdbs_own_casts_and_a_zone_with_daylight_saving_wraps_them(
     import sqlglot
 
     from fabric_desktop import spark_time_zone, sql
-    monkeypatch.setattr(spark_time_zone, "_SHIFTING", {})  # no other test's session in a zone that shifts
+    monkeypatch.setattr(spark, "_kf_zone_gaps", (), raising=False)  # no earlier test's zone left on it
     def written() -> str:
         return sql.duckdb_sql(sql.spark_fixes(sqlglot.parse_one("SELECT CAST(y AS TIMESTAMP), date_trunc('HOUR', y)",
                                                                 read="spark")))

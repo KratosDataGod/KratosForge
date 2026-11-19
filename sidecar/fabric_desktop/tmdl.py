@@ -142,6 +142,7 @@ class _Reader:
         self.lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
         self.i = 0
         self.report = report
+        self.table_order: list[str] = []  # "ref table" lines: the model's table order
 
     def _next_level(self) -> int | None:
         """The indent of the next non-blank line, or None at the end."""
@@ -165,8 +166,13 @@ class _Reader:
             while self.i < len(self.lines) and self.lines[self.i].strip() != "```":
                 body.append(self.lines[self.i])
                 self.i += 1
+            margins = [_indent(b) for b in body if b.strip()]
+            if not margins and self.i < len(self.lines):
+                # Only blank lines (a value of spaces): the closing fence marks the left edge, so the layout's
+                # tabs don't become part of the value.
+                margins.append(_indent(self.lines[self.i]))
             self.i += 1  # the closing fence
-            pad = min((_indent(b) for b in body if b.strip()), default=0)
+            pad = min(margins, default=0)
             return "\n".join(_strip_indent(b, pad) for b in body).strip("\n")
         body = []
         while self.i < len(self.lines):
@@ -207,9 +213,12 @@ class _Reader:
                 continue
             description, described = "\n".join(described), []
             word = text.split(None, 1)[0]
-            if word == "ref":
-                continue  # the order of tables in model.tmdl; the order here comes from the files
-            if word in SKIPPED:
+            if word == "ref":  # the order of tables in model.tmdl, kept; other refs aren't needed here
+                ref = text.split(None, 2)
+                if len(ref) == 3 and ref[1] == "table":
+                    self.table_order.append(unquote(ref[2]))
+                continue
+            if word in SKIPPED and not _EXPR.fullmatch(text):  # "culture = ..." is the model's culture property
                 self._skip_block(here)
                 self.report.append({"object": f"{word} {text.split(None, 1)[1] if ' ' in text else ''}".strip(),
                                     "kind": "lost", "message": f"{SKIPPED[word]} aren't read from TMDL on this PC ({where})"})
@@ -311,38 +320,51 @@ def to_bim(files: dict[str, str], name: str = "") -> tuple[dict[str, Any], list[
     ordered = sorted((p for p in files if p.endswith(".tmdl")), key=_file_order)
     if not ordered:
         raise ValueError("There are no .tmdl files in this folder; it should hold definition/model.tmdl")
+    table_order: list[str] = []
     for path in ordered:
         top: dict[str, Any] = {}
+        reader = _Reader(path, files[path], report)
         try:
-            _Reader(path, files[path], report).block(-1, top)
+            reader.block(-1, top)
         except RecursionError:
             raise ValueError(f"{path} is nested too deeply to be a semantic model") from None
+        table_order += reader.table_order
         db = top.pop("database", None)
         if isinstance(db, dict):
             root.update(db)
-        model.update(top.pop("model", {}))
+        found = top.pop("model", {})
+        if isinstance(found, dict):
+            model.update(found)
+        else:  # "model" or "model: x" with no name: not the model object
+            report.append({"object": "model", "kind": "lost", "message": f"not understood, left out ({path})"})
         for key, value in top.items():
             if isinstance(value, list):
                 model.setdefault(key, []).extend(value)
             else:
                 model[key] = value
     model.pop("name", None)
+    if table_order and isinstance(model.get("tables"), list):  # in model.tmdl's order; tables it doesn't name last
+        rank = {n: i for i, n in reversed(list(enumerate(table_order)))}
+        model["tables"].sort(key=lambda t: rank.get(t["name"], len(rank))
+                             if isinstance(t, dict) and isinstance(t.get("name"), str) else len(rank))
     bim = {"name": name or "Model", **{k: v for k, v in root.items() if k != "name"}, "model": model}
     bim.setdefault("compatibilityLevel", 1604)
     return bim, report
 
 
-def _file_order(path: str) -> tuple[int, str]:
-    """database, model, expressions and data sources first, then tables, relationships, the rest."""
+def _file_order(path: str) -> tuple[int, str, str]:
+    """database, model, expressions and data sources first, then tables, relationships, the rest. In a folder,
+    ``x.tmdl`` before ``X (2).tmdl``: the order ``file_name`` numbered them in, so writing again keeps the names."""
     name = PurePosixPath(path).name
+    key = path.removesuffix(".tmdl").casefold()
     first = ("database.tmdl", "model.tmdl", "expressions.tmdl", "dataSources.tmdl")
     if name in first:
-        return first.index(name), path
+        return first.index(name), key, path
     if "/tables/" in f"/{path}":
-        return 10, path
+        return 10, key, path
     if name == "relationships.tmdl":
-        return 20, path
-    return 30, path
+        return 20, key, path
+    return 30, key, path
 
 
 # ---- writing: TMSL model.bim as TMDL files, on this PC (PB-110)
@@ -507,9 +529,9 @@ class _Writer:
         default = None
         if kind == "column" and obj.get("expression") is not None:
             default = _joined(obj.pop("expression"))
-            if obj.get("type") == "calculated":
+            if obj.get("type") == "calculated" and default:  # the reader makes a column calculated by its expression
                 obj.pop("type")
-        elif kind == "partition":
+        elif kind == "partition" and isinstance(obj.get("source") or {}, dict):  # any other source: as written
             source = dict(obj.pop("source", None) or {})
             default = source.pop("type", None)
             expr = _joined(source.get("expression"))
@@ -530,9 +552,9 @@ class _Writer:
             head = f"{tabs}{kind} {quote(name)}"
         except _Unwritable as exc:
             raise _Unwritable(f"{where}: {exc}") from None
-        if isinstance(description, str) and description:
+        if isinstance(description, str):
             lines = description.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-            if all(line == line.strip() and not _breaks(line) for line in lines):
+            if description and all(line == line.strip() and not _breaks(line) for line in lines):
                 out.extend(f"{tabs}/// {line}" if line else f"{tabs}///" for line in lines)
             else:
                 obj["description"] = description  # written as a fenced property, keeping its spaces
@@ -568,7 +590,8 @@ def file_name(name: str, taken: set[str]) -> str:
     candidate, n = safe, 1
     while candidate.casefold() in taken:
         n += 1
-        candidate = f"{safe} ({n})"
+        suffix = f" ({n})"
+        candidate = (safe[:100 - len(suffix)].rstrip(". ") or "_") + suffix  # still at most 100 characters
     taken.add(candidate.casefold())
     return candidate
 
@@ -590,9 +613,11 @@ def _from_bim(bim: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, str]]
     naming the object)."""
     report: list[dict[str, str]] = []
     w = _Writer(report)
+    if not isinstance(bim, dict) or not isinstance(bim.get("model") or {}, dict):
+        raise ValueError("This isn't a semantic model: it should be one object, with its model as an object in it")
     model = dict(bim.get("model") or {})
     tables = model.get("tables") or []
-    if len(tables) > MAX_TABLES:
+    if isinstance(tables, list) and len(tables) > MAX_TABLES:
         raise ValueError(f"This model has {len(tables)} tables; TMDL is written on this PC for at most {MAX_TABLES}.")
     files: dict[str, str] = {}
 
@@ -609,6 +634,9 @@ def _from_bim(bim: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, str]]
             w.lost(f"culture {culture.get('name') if isinstance(culture, dict) else culture!r}",
                    "translations and linguistic metadata aren't written as TMDL on this PC")
         split = {k: model.pop(k) for k in list(model) if k in _FILES or k in _ONE_FILE}
+        for key in [k for k, v in split.items() if v and not isinstance(v, list)]:
+            w.lost(key, "this should be a list, so it was left out")
+            del split[key]
         lines = ["model Model"]
         w.body("model", model, 0, "model", lines)
         for t in split.get("tables") or []:
@@ -637,7 +665,10 @@ def _from_bim(bim: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, str]]
         raise ValueError(f"This model can't be written as TMDL: {str(exc).strip()}") from None
     if sum(len(t) for t in files.values()) > MAX_CHARS:
         raise ValueError("This model's TMDL would be larger than 20 MB, so it isn't written on this PC.")
-    back, read_report = to_bim(files, str(bim.get("name") or ""))
+    try:
+        back, read_report = to_bim(files, str(bim.get("name") or ""))
+    except ValueError as exc:  # a value the reader takes for something else, such as a column reference
+        raise ValueError(f"This model can't be written as TMDL: it wouldn't read back ({exc})") from None
     report += [r for r in read_report if r not in report]
     report += [{"object": where, "kind": "lost", "message": "wouldn't read back from TMDL as it was"}
                for where in differences(bim, back)

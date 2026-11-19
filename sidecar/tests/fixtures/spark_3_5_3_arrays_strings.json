@@ -1,0 +1,4557 @@
+{
+ "spark": "3.5.3",
+ "ansi": false,
+ "time_zone": "UTC",
+ "cases": [
+  {
+   "sql": "SELECT array_join(array('a','b','c'), ',') AS v",
+   "value": [
+    [
+     "a,b,c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('a','b','c'), '-') AS v",
+   "value": [
+    [
+     "a-b-c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('a','b','c'), '') AS v",
+   "value": [
+    [
+     "abc"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('a','b','c'), NULL) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('a','b','c'), ',', '?') AS v",
+   "value": [
+    [
+     "a,b,c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('a','b','c'), ',', '') AS v",
+   "value": [
+    [
+     "a,b,c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('a','b','c'), ',', NULL) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('a',NULL,'c'), ',') AS v",
+   "value": [
+    [
+     "a,c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('a',NULL,'c'), '-') AS v",
+   "value": [
+    [
+     "a-c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('a',NULL,'c'), '') AS v",
+   "value": [
+    [
+     "ac"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('a',NULL,'c'), NULL) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('a',NULL,'c'), ',', '?') AS v",
+   "value": [
+    [
+     "a,?,c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('a',NULL,'c'), ',', '') AS v",
+   "value": [
+    [
+     "a,,c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('a',NULL,'c'), ',', NULL) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(NULL,NULL), ',') AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(NULL,NULL), '-') AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(NULL,NULL), '') AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(NULL,NULL), NULL) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(NULL,NULL), ',', '?') AS v",
+   "value": [
+    [
+     "?,?"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(NULL,NULL), ',', '') AS v",
+   "value": [
+    [
+     ","
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(NULL,NULL), ',', NULL) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(), ',') AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(), '-') AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(), '') AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(), NULL) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(), ',', '?') AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(), ',', '') AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(), ',', NULL) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(CAST(NULL AS ARRAY<STRING>), ',') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(CAST(NULL AS ARRAY<STRING>), '-') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(CAST(NULL AS ARRAY<STRING>), '') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(CAST(NULL AS ARRAY<STRING>), NULL) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(CAST(NULL AS ARRAY<STRING>), ',', '?') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(CAST(NULL AS ARRAY<STRING>), ',', '') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(CAST(NULL AS ARRAY<STRING>), ',', NULL) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('x'), ',') AS v",
+   "value": [
+    [
+     "x"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('x'), '-') AS v",
+   "value": [
+    [
+     "x"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('x'), '') AS v",
+   "value": [
+    [
+     "x"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('x'), NULL) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('x'), ',', '?') AS v",
+   "value": [
+    [
+     "x"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('x'), ',', '') AS v",
+   "value": [
+    [
+     "x"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array('x'), ',', NULL) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(1, NULL, 3), '+') AS v",
+   "value": [
+    [
+     "1+3"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(1, NULL, 3), '+', '0') AS v",
+   "value": [
+    [
+     "1+0+3"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT size(array(1,2,3)) AS v",
+   "value": [
+    [
+     3
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_size(array(1,2,3)) AS v",
+   "value": [
+    [
+     3
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT size(array()) AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_size(array()) AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT size(CAST(NULL AS ARRAY<INT>)) AS v",
+   "value": [
+    [
+     -1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_size(CAST(NULL AS ARRAY<INT>)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT size(map(1,'a',2,'b')) AS v",
+   "value": [
+    [
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT size(map()) AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT size(CAST(NULL AS MAP<INT,INT>)) AS v",
+   "value": [
+    [
+     -1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_size(CAST(NULL AS MAP<INT,INT>)) AS v",
+   "error": "[DATATYPE_MISMATCH.UNEXPECTED_INPUT_TYPE] Cannot resolve \"array_size(NULL)\" due to data type mismatch: Parameter 1 requires the \"ARRAY\" type, however \"NULL\" has the type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT size(array(NULL)) AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_size(array(NULL)) AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT cardinality(CAST(NULL AS MAP<INT,INT>)) AS v",
+   "value": [
+    [
+     -1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT reverse(array(1,2,3)) AS v",
+   "value": [
+    [
+     [
+      3,
+      2,
+      1
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT reverse(array()) AS v",
+   "value": [
+    [
+     []
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT reverse(array('a',NULL)) AS v",
+   "value": [
+    [
+     [
+      null,
+      "a"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT reverse(CAST(NULL AS ARRAY<INT>)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT reverse('abc') AS v",
+   "value": [
+    [
+     "cba"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT reverse('') AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT reverse(array(array(1),array(2,3))) AS v",
+   "value": [
+    [
+     [
+      [
+       2,
+       3
+      ],
+      [
+       1
+      ]
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1,2,3), 1, 9) AS v",
+   "value": [
+    [
+     [
+      9,
+      1,
+      2,
+      3
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1,2,3), 2, 9) AS v",
+   "value": [
+    [
+     [
+      1,
+      9,
+      2,
+      3
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1,2,3), 3, 9) AS v",
+   "value": [
+    [
+     [
+      1,
+      2,
+      9,
+      3
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1,2,3), 4, 9) AS v",
+   "value": [
+    [
+     [
+      1,
+      2,
+      3,
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1,2,3), 5, 9) AS v",
+   "value": [
+    [
+     [
+      1,
+      2,
+      3,
+      null,
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1,2,3), 6, 9) AS v",
+   "value": [
+    [
+     [
+      1,
+      2,
+      3,
+      null,
+      null,
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1,2,3), -1, 9) AS v",
+   "value": [
+    [
+     [
+      1,
+      2,
+      3,
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1,2,3), -2, 9) AS v",
+   "value": [
+    [
+     [
+      1,
+      2,
+      9,
+      3
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1,2,3), -3, 9) AS v",
+   "value": [
+    [
+     [
+      1,
+      9,
+      2,
+      3
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1,2,3), -4, 9) AS v",
+   "value": [
+    [
+     [
+      9,
+      1,
+      2,
+      3
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1,2,3), -5, 9) AS v",
+   "value": [
+    [
+     [
+      9,
+      null,
+      1,
+      2,
+      3
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1,2,3), -6, 9) AS v",
+   "value": [
+    [
+     [
+      9,
+      null,
+      null,
+      1,
+      2,
+      3
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1), 1, 9) AS v",
+   "value": [
+    [
+     [
+      9,
+      1
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1), 2, 9) AS v",
+   "value": [
+    [
+     [
+      1,
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1), 3, 9) AS v",
+   "value": [
+    [
+     [
+      1,
+      null,
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1), 4, 9) AS v",
+   "value": [
+    [
+     [
+      1,
+      null,
+      null,
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1), 5, 9) AS v",
+   "value": [
+    [
+     [
+      1,
+      null,
+      null,
+      null,
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1), 6, 9) AS v",
+   "value": [
+    [
+     [
+      1,
+      null,
+      null,
+      null,
+      null,
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1), -1, 9) AS v",
+   "value": [
+    [
+     [
+      1,
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1), -2, 9) AS v",
+   "value": [
+    [
+     [
+      9,
+      1
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1), -3, 9) AS v",
+   "value": [
+    [
+     [
+      9,
+      null,
+      1
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1), -4, 9) AS v",
+   "value": [
+    [
+     [
+      9,
+      null,
+      null,
+      1
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1), -5, 9) AS v",
+   "value": [
+    [
+     [
+      9,
+      null,
+      null,
+      null,
+      1
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1), -6, 9) AS v",
+   "value": [
+    [
+     [
+      9,
+      null,
+      null,
+      null,
+      null,
+      1
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(), 1, 9) AS v",
+   "value": [
+    [
+     [
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(), 2, 9) AS v",
+   "value": [
+    [
+     [
+      null,
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(), 3, 9) AS v",
+   "value": [
+    [
+     [
+      null,
+      null,
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(), 4, 9) AS v",
+   "value": [
+    [
+     [
+      null,
+      null,
+      null,
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(), 5, 9) AS v",
+   "value": [
+    [
+     [
+      null,
+      null,
+      null,
+      null,
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(), 6, 9) AS v",
+   "value": [
+    [
+     [
+      null,
+      null,
+      null,
+      null,
+      null,
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(), -1, 9) AS v",
+   "value": [
+    [
+     [
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(), -2, 9) AS v",
+   "value": [
+    [
+     [
+      9,
+      null
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(), -3, 9) AS v",
+   "value": [
+    [
+     [
+      9,
+      null,
+      null
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(), -4, 9) AS v",
+   "value": [
+    [
+     [
+      9,
+      null,
+      null,
+      null
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(), -5, 9) AS v",
+   "value": [
+    [
+     [
+      9,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(), -6, 9) AS v",
+   "value": [
+    [
+     [
+      9,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array(1,2,3), 0, 9) AS v",
+   "error": "[INVALID_INDEX_OF_ZERO] The index 0 is invalid. An index shall be either < 0 or > 0 (the first element has index 1)."
+  },
+  {
+   "sql": "SELECT array_insert(array(1,2,3), NULL, 9) AS v",
+   "error": "[DATATYPE_MISMATCH.UNEXPECTED_INPUT_TYPE] Cannot resolve \"array_insert(array(1, 2, 3), NULL, 9)\" due to data type mismatch: Parameter 2 requires the \"INT\" type, however \"NULL\" has the type \"VOID\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array_insert(array(1,2,3), 2, NULL) AS v",
+   "value": [
+    [
+     [
+      1,
+      null,
+      2,
+      3
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(CAST(NULL AS ARRAY<INT>), 1, 9) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a|b', '|') AS v",
+   "value": [
+    [
+     [
+      "a",
+      "|",
+      "b",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a|b', ',') AS v",
+   "value": [
+    [
+     [
+      "a|b"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a|b', '') AS v",
+   "value": [
+    [
+     [
+      "a",
+      "|",
+      "b"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a|b', 'x*') AS v",
+   "value": [
+    [
+     [
+      "a",
+      "|",
+      "b",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a|b', 'b*') AS v",
+   "value": [
+    [
+     [
+      "a",
+      "|",
+      "",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a|b', ' +') AS v",
+   "value": [
+    [
+     [
+      "a|b"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a|b', '[,]') AS v",
+   "value": [
+    [
+     [
+      "a|b"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a,b,', '|') AS v",
+   "value": [
+    [
+     [
+      "a",
+      ",",
+      "b",
+      ",",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a,b,', ',') AS v",
+   "value": [
+    [
+     [
+      "a",
+      "b",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a,b,', '') AS v",
+   "value": [
+    [
+     [
+      "a",
+      ",",
+      "b",
+      ","
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a,b,', 'x*') AS v",
+   "value": [
+    [
+     [
+      "a",
+      ",",
+      "b",
+      ",",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a,b,', 'b*') AS v",
+   "value": [
+    [
+     [
+      "a",
+      ",",
+      "",
+      ",",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a,b,', ' +') AS v",
+   "value": [
+    [
+     [
+      "a,b,"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a,b,', '[,]') AS v",
+   "value": [
+    [
+     [
+      "a",
+      "b",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split(',a,,b,', '|') AS v",
+   "value": [
+    [
+     [
+      ",",
+      "a",
+      ",",
+      ",",
+      "b",
+      ",",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split(',a,,b,', ',') AS v",
+   "value": [
+    [
+     [
+      "",
+      "a",
+      "",
+      "b",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split(',a,,b,', '') AS v",
+   "value": [
+    [
+     [
+      ",",
+      "a",
+      ",",
+      ",",
+      "b",
+      ","
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split(',a,,b,', 'x*') AS v",
+   "value": [
+    [
+     [
+      ",",
+      "a",
+      ",",
+      ",",
+      "b",
+      ",",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split(',a,,b,', 'b*') AS v",
+   "value": [
+    [
+     [
+      ",",
+      "a",
+      ",",
+      ",",
+      "",
+      ",",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split(',a,,b,', ' +') AS v",
+   "value": [
+    [
+     [
+      ",a,,b,"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split(',a,,b,', '[,]') AS v",
+   "value": [
+    [
+     [
+      "",
+      "a",
+      "",
+      "b",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('abc', '|') AS v",
+   "value": [
+    [
+     [
+      "a",
+      "b",
+      "c",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('abc', ',') AS v",
+   "value": [
+    [
+     [
+      "abc"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('abc', '') AS v",
+   "value": [
+    [
+     [
+      "a",
+      "b",
+      "c"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('abc', 'x*') AS v",
+   "value": [
+    [
+     [
+      "a",
+      "b",
+      "c",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('abc', 'b*') AS v",
+   "value": [
+    [
+     [
+      "a",
+      "",
+      "c",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('abc', ' +') AS v",
+   "value": [
+    [
+     [
+      "abc"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('abc', '[,]') AS v",
+   "value": [
+    [
+     [
+      "abc"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('', '|') AS v",
+   "value": [
+    [
+     [
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('', ',') AS v",
+   "value": [
+    [
+     [
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('', '') AS v",
+   "value": [
+    [
+     [
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('', 'x*') AS v",
+   "value": [
+    [
+     [
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('', 'b*') AS v",
+   "value": [
+    [
+     [
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('', ' +') AS v",
+   "value": [
+    [
+     [
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('', '[,]') AS v",
+   "value": [
+    [
+     [
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a b  c', '|') AS v",
+   "value": [
+    [
+     [
+      "a",
+      " ",
+      "b",
+      " ",
+      " ",
+      "c",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a b  c', ',') AS v",
+   "value": [
+    [
+     [
+      "a b  c"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a b  c', '') AS v",
+   "value": [
+    [
+     [
+      "a",
+      " ",
+      "b",
+      " ",
+      " ",
+      "c"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a b  c', 'x*') AS v",
+   "value": [
+    [
+     [
+      "a",
+      " ",
+      "b",
+      " ",
+      " ",
+      "c",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a b  c', 'b*') AS v",
+   "value": [
+    [
+     [
+      "a",
+      " ",
+      "",
+      " ",
+      " ",
+      "c",
+      ""
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a b  c', ' +') AS v",
+   "value": [
+    [
+     [
+      "a",
+      "b",
+      "c"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a b  c', '[,]') AS v",
+   "value": [
+    [
+     [
+      "a b  c"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a,b,c', ',', 2) AS v",
+   "value": [
+    [
+     [
+      "a",
+      "b,c"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT split('a,b,c', ',', 0) AS v",
+   "value": [
+    [
+     [
+      "a",
+      "b",
+      "c"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'hello', 0) AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'hello', 0) AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'hello', 1) AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'hello', 1) AS v",
+   "value": [
+    [
+     3
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'hello', 3) AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'hello', 3) AS v",
+   "value": [
+    [
+     3
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'hello', 5) AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'hello', 5) AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'hello', 6) AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'hello', 6) AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'hello', 10) AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'hello', 10) AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'hello', -1) AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'hello', -1) AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', '') AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', '', 1) AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('hello', '') AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('', '') AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('', 'hello') AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'aa', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'aa', 2) AS v",
+   "value": [
+    [
+     "a"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'aa', -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'aa', -2) AS v",
+   "value": [
+    [
+     "a"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'aa', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'aa', 5) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'aa', -5) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'a', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'a', 2) AS v",
+   "value": [
+    [
+     "a"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'a', -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'a', -2) AS v",
+   "value": [
+    [
+     "a"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'a', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'a', 5) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'a', -5) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', '.', 1) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', '.', 2) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', '.', -1) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', '.', -2) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', '.', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', '.', 5) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', '.', -5) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'ab', 1) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'ab', 2) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'ab', -1) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'ab', -2) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'ab', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'ab', 5) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'ab', -5) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', '', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', '', 2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', '', -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', '', -2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', '', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', '', 5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', '', -5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'ba', 1) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'ba', 2) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'ba', -1) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'ba', -2) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'ba', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'ba', 5) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaa', 'ba', -5) AS v",
+   "value": [
+    [
+     "aaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'aa', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'aa', 2) AS v",
+   "value": [
+    [
+     "a"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'aa', -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'aa', -2) AS v",
+   "value": [
+    [
+     "a"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'aa', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'aa', 5) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'aa', -5) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'a', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'a', 2) AS v",
+   "value": [
+    [
+     "a"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'a', -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'a', -2) AS v",
+   "value": [
+    [
+     "a"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'a', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'a', 5) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'a', -5) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', '.', 1) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', '.', 2) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', '.', -1) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', '.', -2) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', '.', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', '.', 5) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', '.', -5) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'ab', 1) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'ab', 2) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'ab', -1) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'ab', -2) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'ab', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'ab', 5) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'ab', -5) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', '', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', '', 2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', '', -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', '', -2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', '', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', '', 5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', '', -5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'ba', 1) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'ba', 2) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'ba', -1) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'ba', -2) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'ba', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'ba', 5) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('aaaa', 'ba', -5) AS v",
+   "value": [
+    [
+     "aaaa"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'aa', 1) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'aa', 2) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'aa', -1) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'aa', -2) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'aa', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'aa', 5) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'aa', -5) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'a', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'a', 2) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'a', -1) AS v",
+   "value": [
+    [
+     ".b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'a', -2) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'a', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'a', 5) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'a', -5) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', '.', 1) AS v",
+   "value": [
+    [
+     "a"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', '.', 2) AS v",
+   "value": [
+    [
+     "a.b"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', '.', -1) AS v",
+   "value": [
+    [
+     "c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', '.', -2) AS v",
+   "value": [
+    [
+     "b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', '.', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', '.', 5) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', '.', -5) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'ab', 1) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'ab', 2) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'ab', -1) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'ab', -2) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'ab', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'ab', 5) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'ab', -5) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', '', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', '', 2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', '', -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', '', -2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', '', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', '', 5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', '', -5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'ba', 1) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'ba', 2) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'ba', -1) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'ba', -2) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'ba', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'ba', 5) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('a.b.c', 'ba', -5) AS v",
+   "value": [
+    [
+     "a.b.c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'aa', 1) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'aa', 2) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'aa', -1) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'aa', -2) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'aa', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'aa', 5) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'aa', -5) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'a', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'a', 2) AS v",
+   "value": [
+    [
+     "ab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'a', -1) AS v",
+   "value": [
+    [
+     "b"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'a', -2) AS v",
+   "value": [
+    [
+     "bab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'a', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'a', 5) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'a', -5) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', '.', 1) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', '.', 2) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', '.', -1) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', '.', -2) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', '.', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', '.', 5) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', '.', -5) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'ab', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'ab', 2) AS v",
+   "value": [
+    [
+     "ab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'ab', -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'ab', -2) AS v",
+   "value": [
+    [
+     "ab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'ab', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'ab', 5) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'ab', -5) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', '', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', '', 2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', '', -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', '', -2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', '', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', '', 5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', '', -5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'ba', 1) AS v",
+   "value": [
+    [
+     "a"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'ba', 2) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'ba', -1) AS v",
+   "value": [
+    [
+     "b"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'ba', -2) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'ba', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'ba', 5) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('abab', 'ba', -5) AS v",
+   "value": [
+    [
+     "abab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'aa', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'aa', 2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'aa', -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'aa', -2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'aa', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'aa', 5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'aa', -5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'a', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'a', 2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'a', -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'a', -2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'a', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'a', 5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'a', -5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', '.', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', '.', 2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', '.', -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', '.', -2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', '.', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', '.', 5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', '.', -5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'ab', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'ab', 2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'ab', -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'ab', -2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'ab', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'ab', 5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'ab', -5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', '', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', '', 2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', '', -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', '', -2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', '', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', '', 5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', '', -5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'ba', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'ba', 2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'ba', -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'ba', -2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'ba', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'ba', 5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('', 'ba', -5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'aa', 1) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'aa', 2) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'aa', -1) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'aa', -2) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'aa', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'aa', 5) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'aa', -5) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'a', 1) AS v",
+   "value": [
+    [
+     "www."
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'a', 2) AS v",
+   "value": [
+    [
+     "www.ap"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'a', -1) AS v",
+   "value": [
+    [
+     "che.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'a', -2) AS v",
+   "value": [
+    [
+     "pache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'a', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'a', 5) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'a', -5) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', '.', 1) AS v",
+   "value": [
+    [
+     "www"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', '.', 2) AS v",
+   "value": [
+    [
+     "www.apache"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', '.', -1) AS v",
+   "value": [
+    [
+     "org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', '.', -2) AS v",
+   "value": [
+    [
+     "apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', '.', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', '.', 5) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', '.', -5) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'ab', 1) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'ab', 2) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'ab', -1) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'ab', -2) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'ab', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'ab', 5) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'ab', -5) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', '', 1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', '', 2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', '', -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', '', -2) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', '', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', '', 5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', '', -5) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'ba', 1) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'ba', 2) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'ba', -1) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'ba', -2) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'ba', 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'ba', 5) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring_index('www.apache.org', 'ba', -5) AS v",
+   "value": [
+    [
+     "www.apache.org"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT concat_ws(',') AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT concat_ws(',', NULL) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT concat_ws(NULL, 'a') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT concat_ws('-', array('a','b'), 'c') AS v",
+   "value": [
+    [
+     "a-b-c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT concat_ws('-', array('a',NULL), NULL, 'c') AS v",
+   "value": [
+    [
+     "a-c"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT concat_ws('', 'a', 'b') AS v",
+   "value": [
+    [
+     "ab"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(123456789012345678, 0) AS v",
+   "value": [
+    [
+     "123,456,789,012,345,678"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(123456789012345678, 1) AS v",
+   "value": [
+    [
+     "123,456,789,012,345,678.0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(123456789012345678, 2) AS v",
+   "value": [
+    [
+     "123,456,789,012,345,678.00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(123456789012345678, 4) AS v",
+   "value": [
+    [
+     "123,456,789,012,345,678.0000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(-123456789012345678, 0) AS v",
+   "value": [
+    [
+     "-123,456,789,012,345,678"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(-123456789012345678, 1) AS v",
+   "value": [
+    [
+     "-123,456,789,012,345,678.0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(-123456789012345678, 2) AS v",
+   "value": [
+    [
+     "-123,456,789,012,345,678.00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(-123456789012345678, 4) AS v",
+   "value": [
+    [
+     "-123,456,789,012,345,678.0000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1234567, 0) AS v",
+   "value": [
+    [
+     "1,234,567"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1234567, 1) AS v",
+   "value": [
+    [
+     "1,234,567.0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1234567, 2) AS v",
+   "value": [
+    [
+     "1,234,567.00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1234567, 4) AS v",
+   "value": [
+    [
+     "1,234,567.0000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(CAST(12345678901234567890.125 AS DECIMAL(38,3)), 0) AS v",
+   "value": [
+    [
+     "12,345,678,901,234,567,890"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(CAST(12345678901234567890.125 AS DECIMAL(38,3)), 1) AS v",
+   "value": [
+    [
+     "12,345,678,901,234,567,890.1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(CAST(12345678901234567890.125 AS DECIMAL(38,3)), 2) AS v",
+   "value": [
+    [
+     "12,345,678,901,234,567,890.12"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(CAST(12345678901234567890.125 AS DECIMAL(38,3)), 4) AS v",
+   "value": [
+    [
+     "12,345,678,901,234,567,890.1250"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(0.5, 0) AS v",
+   "value": [
+    [
+     "0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(0.5, 1) AS v",
+   "value": [
+    [
+     "0.5"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(0.5, 2) AS v",
+   "value": [
+    [
+     "0.50"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(0.5, 4) AS v",
+   "value": [
+    [
+     "0.5000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1.5, 0) AS v",
+   "value": [
+    [
+     "2"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1.5, 1) AS v",
+   "value": [
+    [
+     "1.5"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1.5, 2) AS v",
+   "value": [
+    [
+     "1.50"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1.5, 4) AS v",
+   "value": [
+    [
+     "1.5000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(2.5, 0) AS v",
+   "value": [
+    [
+     "2"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(2.5, 1) AS v",
+   "value": [
+    [
+     "2.5"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(2.5, 2) AS v",
+   "value": [
+    [
+     "2.50"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(2.5, 4) AS v",
+   "value": [
+    [
+     "2.5000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(-2.5, 0) AS v",
+   "value": [
+    [
+     "-2"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(-2.5, 1) AS v",
+   "value": [
+    [
+     "-2.5"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(-2.5, 2) AS v",
+   "value": [
+    [
+     "-2.50"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(-2.5, 4) AS v",
+   "value": [
+    [
+     "-2.5000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1234.5678D, 0) AS v",
+   "value": [
+    [
+     "1,235"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1234.5678D, 1) AS v",
+   "value": [
+    [
+     "1,234.6"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1234.5678D, 2) AS v",
+   "value": [
+    [
+     "1,234.57"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1234.5678D, 4) AS v",
+   "value": [
+    [
+     "1,234.5678"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1e20D, 0) AS v",
+   "value": [
+    [
+     "100,000,000,000,000,000,000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1e20D, 1) AS v",
+   "value": [
+    [
+     "100,000,000,000,000,000,000.0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1e20D, 2) AS v",
+   "value": [
+    [
+     "100,000,000,000,000,000,000.00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1e20D, 4) AS v",
+   "value": [
+    [
+     "100,000,000,000,000,000,000.0000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(CAST(NULL AS INT), 0) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(CAST(NULL AS INT), 1) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(CAST(NULL AS INT), 2) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(CAST(NULL AS INT), 4) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(9223372036854775807, 0) AS v",
+   "value": [
+    [
+     "9,223,372,036,854,775,807"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(9223372036854775807, 1) AS v",
+   "value": [
+    [
+     "9,223,372,036,854,775,807.0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(9223372036854775807, 2) AS v",
+   "value": [
+    [
+     "9,223,372,036,854,775,807.00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(9223372036854775807, 4) AS v",
+   "value": [
+    [
+     "9,223,372,036,854,775,807.0000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1234.5, -1) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1234567.891, '#,###.00') AS v",
+   "value": [
+    [
+     "1,234,567.89"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1234567.891, '#.##') AS v",
+   "value": [
+    [
+     "1234567.89"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1234567.891, '0000') AS v",
+   "value": [
+    [
+     "1234568"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1234567.891, '') AS v",
+   "value": [
+    [
+     "1,234,568"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1234567.891, '#,##0.0#') AS v",
+   "value": [
+    [
+     "1,234,567.89"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT contains('abc', NULL) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT contains(NULL, 'a') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT contains(NULL, NULL) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT upper('ß') AS v",
+   "value": [
+    [
+     "SS"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT upper('straße') AS v",
+   "value": [
+    [
+     "STRASSE"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT upper('ﬁ') AS v",
+   "value": [
+    [
+     "FI"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT upper('ŉ') AS v",
+   "value": [
+    [
+     "ʼN"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT upper('ǰ') AS v",
+   "value": [
+    [
+     "J̌"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT upper('ΐ') AS v",
+   "value": [
+    [
+     "Ϊ́"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT upper('ᾳ') AS v",
+   "value": [
+    [
+     "ΑΙ"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT upper('abc') AS v",
+   "value": [
+    [
+     "ABC"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT lower('İ') AS v",
+   "value": [
+    [
+     "i̇"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT lower('İSTANBUL') AS v",
+   "value": [
+    [
+     "i̇stanbul"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT lower('ΑΣ') AS v",
+   "value": [
+    [
+     "ας"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT upper('ﬀ ﬃ ﬆ') AS v",
+   "value": [
+    [
+     "FF FFI ST"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT length(upper('ß')) AS v",
+   "value": [
+    [
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT initcap('ß') AS v",
+   "value": [
+    [
+     "ß"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT ucase('ß') AS v",
+   "value": [
+    [
+     "SS"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT lcase('İ') AS v",
+   "value": [
+    [
+     "i̇"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_string('%s', array(1,2)) AS v",
+   "value": [
+    [
+     "[1,2]"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_string('%s', array('a','b')) AS v",
+   "value": [
+    [
+     "[a,b]"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_string('%s-%s', 'a', 1) AS v",
+   "value": [
+    [
+     "a-1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_distinct(array(0.0D, -0.0D)) AS v",
+   "value": [
+    [
+     [
+      "float:0",
+      "float:-0"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_distinct(array(1, 1, NULL, NULL, 2)) AS v",
+   "value": [
+    [
+     [
+      1,
+      null,
+      2
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_distinct(array(-0.0D, 0.0D, 0.0D)) AS v",
+   "value": [
+    [
+     [
+      "float:-0",
+      "float:0"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(-0.4, 0) AS v",
+   "value": [
+    [
+     "-0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(-0.4D, 0) AS v",
+   "value": [
+    [
+     "-0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(0.125, 2) AS v",
+   "value": [
+    [
+     "0.12"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(0.135, 2) AS v",
+   "value": [
+    [
+     "0.14"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(-0.004, 2) AS v",
+   "value": [
+    [
+     "-0.00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(CAST(5 AS TINYINT), 2) AS v",
+   "value": [
+    [
+     "5.00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(-0.0D, 1) AS v",
+   "value": [
+    [
+     "-0.0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT format_number(1234567.891, 3) AS v",
+   "value": [
+    [
+     "1,234,567.891"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT initcap('ǆemal straße') AS v",
+   "value": [
+    [
+     "ǅemal Straße"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT lower('ΟΔΟΣ ΟΔΟΣ.') AS v",
+   "value": [
+    [
+     "οδος οδος."
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT lower('ΣΑΣ') AS v",
+   "value": [
+    [
+     "σας"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT upper('ﬃx ß') AS v",
+   "value": [
+    [
+     "FFIX SS"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_distinct(array(double('NaN'), double('NaN'), 1.0D, NULL, NULL)) AS v",
+   "value": [
+    [
+     [
+      "float:nan",
+      "float:1",
+      null
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(1.5D, NULL, 2.0D), '|') AS v",
+   "value": [
+    [
+     "1.5|2.0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_join(array(DATE'2024-01-02', NULL), ',') AS v",
+   "value": [
+    [
+     "2024-01-02"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_insert(array('a','b'), -1, 'z') AS v",
+   "value": [
+    [
+     [
+      "a",
+      "b",
+      "z"
+     ]
+    ]
+   ]
+  }
+ ]
+}

@@ -104,7 +104,8 @@ class LocalData:
     def start(self, pid: str, sql: str, **options: Any) -> dict[str, Any]:
         engine = self.engine(pid)
         query_id = uuid.uuid4().hex
-        record = {"query_id": query_id, "project": pid, "state": "running", "started_at": time.time()}
+        record = {"query_id": query_id, "project": pid, "state": "running", "started_at": time.time(),
+                  "_clock": time.monotonic()}  # elapsed comes from this, unmoved by a change to the PC's clock
         with self._queries_lock:
             self._queries[query_id] = record
 
@@ -130,8 +131,8 @@ class LocalData:
             snapshot = dict(record)
             if snapshot["state"] != "running":
                 self._queries.pop(query_id, None)  # collected
-        return {k: v for k, v in snapshot.items() if k != "started_at"} | \
-            {"elapsed": round(time.time() - snapshot["started_at"], 1)}
+        return {k: v for k, v in snapshot.items() if k not in ("started_at", "_clock")} | \
+            {"elapsed": round(max(0.0, time.monotonic() - snapshot["_clock"]), 1)}
 
     def cancel(self, query_id: str) -> dict[str, Any]:
         with self._queries_lock:

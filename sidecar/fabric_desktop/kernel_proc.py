@@ -166,6 +166,7 @@ class ProcessKernel:
         self.prod_allowed: frozenset[str] = frozenset()
         self._lock = threading.Lock()  # one process at a time: starting, stopping
         self._proc: subprocess.Popen[str] | None = None
+        self._awaited: subprocess.Popen[str] | None = None  # the ended process a poll already waited for
         self._tree: _Tree | None = None  # the process and everything its cells start
         # One send lock per process: a write stuck on an ended process's stdin can't hold up the next one's.
         self._send_locks: weakref.WeakKeyDictionary[subprocess.Popen[str], threading.Lock] = weakref.WeakKeyDictionary()
@@ -363,8 +364,10 @@ class ProcessKernel:
         if self._running and self._last is not None:
             outputs = list(self._last.get("outputs") or []) + [{"type": "error", "ename": "KernelStopped", "evalue": why,
                                                                 "traceback": [why]}]
-            self._last = {**self._last, "status": "cancelled" if why == STOPPED_TEXT else "error",
-                          "version": self._last.get("version", 0) + 1, "outputs": outputs}
+            # A cell paused in the debugger isn't paused any more: its process is gone.
+            last = {k: v for k, v in self._last.items() if k != "paused"}
+            self._last = {**last, "status": "cancelled" if why == STOPPED_TEXT else "error",
+                          "version": last.get("version", 0) + 1, "outputs": outputs}
         self._running = False
         self._proc = None
 
@@ -496,6 +499,7 @@ class ProcessKernel:
             except KernelGone:
                 return idle
         if self._proc is None or self._proc.poll() is not None:
+            self._await_gone()
             if self._last is None:
                 return {"status": "idle", "execution_count": self.count, "version": 0, "seconds": 0, "outputs": []}
             last = dict(self._last)
@@ -518,6 +522,17 @@ class ProcessKernel:
             if snap.get("outputs") is not None:
                 self._last = snap
         return snap
+
+    def _await_gone(self, seconds: float = 5.0) -> None:
+        """The process has ended but its reader may not have read the end yet (it lags on Windows):
+        wait for it to mark the cell ended, so a poll never shows a dead process's cell running or paused."""
+        proc = self._proc
+        if proc is None or proc is self._awaited:
+            return  # waited for this one already: a tree that keeps the pipe open doesn't slow every poll
+        self._awaited = proc
+        deadline = time.monotonic() + seconds
+        while self._proc is proc and time.monotonic() < deadline:
+            time.sleep(0.02)
 
     def _stuck(self, known_version: int) -> dict[str, Any]:
         last = dict(self._last or {"status": "running", "execution_count": self.count, "version": 0, "seconds": 0})

@@ -138,7 +138,7 @@ def test_a_format_string_definition_on_one_line_keeps_its_properties_apart():
 
 def test_a_line_not_understood_is_reported_by_its_first_80_characters():
     _, report = tmdl.to_bim({"definition/model.tmdl": "model Model\n\t" + "x" * 100 + " ! y\n"})
-    assert report == [{"object": "x" * 80, "kind": "lost", "message": "not understood, left out (definition/model.tmdl:2)"}]
+    assert report == [{"object": "x" * 80, "kind": "lost", "message": "not understood, left out (definition/model.tmdl:2)", "file": "definition/model.tmdl"}]
 
 
 def test_a_default_that_is_not_text_is_written_as_text():

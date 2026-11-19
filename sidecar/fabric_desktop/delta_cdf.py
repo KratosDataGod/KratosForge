@@ -51,8 +51,8 @@ def bounds(options: dict[str, Any], instant: Callable[[str], datetime] | None = 
 def _version(key: str, value: Any) -> int:
     name = {"startingversion": "startingVersion", "endingversion": "endingVersion"}[key]
     if str(value).strip().lower() == "latest" and key == "startingversion":
-        raise ValueError(f"startingVersion latest is for a stream of changes; a batch read starts at a version "
-                         f"number, {_STOP}.")
+        raise ValueError(f"startingVersion latest is for a stream of changes, {_STOP}. A batch read starts at a "
+                         "version number.")
     try:
         number = int(str(value).strip())
     except ValueError:
@@ -89,8 +89,8 @@ def read(opened: Any, name: str, options: dict[str, Any],
     """The changes to ``opened`` (a deltalake DeltaTable, ``name`` for messages) the options ask for, as an Arrow
     table with the table's columns, then _change_type, _commit_version (a long) and _commit_timestamp (UTC)."""
     if options.get("versionasof") is not None or options.get("timestampasof") is not None:
-        raise ValueError(f"A change data feed read of {name} with versionAsOf or timestampAsOf: the feed is read "
-                         f"between startingVersion and endingVersion instead, {_STOP}.")
+        raise ValueError(f"A change data feed read of {name} can't take versionAsOf or timestampAsOf, because the "
+                         f"feed is read between startingVersion and endingVersion instead, {_STOP}.")
     arguments = bounds(options, instant)
     configuration = {k.lower(): str(v).lower() for k, v in (opened.metadata().configuration or {}).items()}
     if configuration.get("delta.columnmapping.mode", "none") != "none":
@@ -119,7 +119,7 @@ def _said(text: str, name: str, arguments: dict[str, Any], opened: Any) -> str:
         return (f"[DELTA_MISSING_CHANGE_DATA] Error getting change data for range [{start} , {end}] as change data "
                 f"was not recorded for a version in it, {_STOP}. Turn it on with ALTER TABLE {name} SET "
                 "TBLPROPERTIES (delta.enableChangeDataFeed = true); changes are recorded from then on.")
-    return f"The change data feed of {name} from {start} to {end} couldn't be read, {_STOP}: {text.strip()}"
+    return f"Nothing was read from the change data feed of {name} from {start} to {end}: {text.strip()}"
 
 
 def _spark_types(table: pa.Table) -> pa.Table:

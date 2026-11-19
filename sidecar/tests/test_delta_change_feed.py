@@ -118,7 +118,7 @@ def test_asked_reads_true_only():
 def test_time_travel_with_the_feed_is_refused(lake):
     out = Kernel().run("spark.read.option('readChangeFeed', 'true').option('startingVersion', 0)"
                        ".option('versionAsOf', 1).table('orders')")
-    assert "with versionAsOf or timestampAsOf" in out["outputs"][-1]["evalue"]
+    assert "can't take versionAsOf or timestampAsOf" in out["outputs"][-1]["evalue"]
 
 
 def test_column_mapped_tables_are_refused(lake):

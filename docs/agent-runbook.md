@@ -227,7 +227,7 @@ Each failed request, and each drop, also adds a `notice_not_delivered` line to t
 
 - **Message** (`agent.py`, log): `couldn't confirm the alert reached Teams; it may have arrived, so it isn't sent again`
 
-**Means.** The message was sent, but no answer came: Teams or the flow didn't answer within 15 seconds, the connection dropped after the request went, or the mail server stopped answering while it took the email. It may have arrived, so it is taken out of the outbox and not sent again, so it can't be posted twice. It's counted as `unconfirmed` in a `notice_not_delivered` line in the agent's [audit log](agent.md#the-agents-audit-trail), and the error says `It was sent but no answer came, so it may have arrived`. A message that was refused or never sent (no connection, a connect timeout, any answer such as 429, 403 or 503) waits and is sent again as above. The route rests as it does after any failure.
+**Means.** The message was sent, but no answer came: Teams or the flow didn't answer within 15 seconds, the connection dropped after the request went, or the mail server stopped answering while it took the email. It may have arrived, so it is taken out of the outbox. It isn't sent again, so it can't be posted twice. It's counted as `unconfirmed` in a `notice_not_delivered` line in the agent's [audit log](agent.md#the-agents-audit-trail), and the error says `It was sent but no answer came, so it may have arrived`. A message that was refused or never sent (no connection, a connect timeout, any answer such as 429, 403 or 503) waits and is sent again as above. The route rests as it does after any failure.
 
 **Check first.** Look in the channel or inbox for the message at the time in the log.
 

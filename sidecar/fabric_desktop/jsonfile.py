@@ -176,9 +176,24 @@ def read_json(path: Path, default: Any) -> Any:
         return json.loads(read_text(path))
     except FileNotFoundError:
         return default
-    except ValueError:  # torn or not JSON (UnicodeDecodeError is a ValueError too)
+    except (ValueError, RecursionError):  # torn or not JSON (UnicodeDecodeError is a ValueError too), or nested too deep
         try:
             set_aside(path)
         except OSError as exc:
             _log.warning("%s could not be read or moved aside (%s); it is being treated as empty.", path, exc)
         return default
+
+
+def read_object(path: Path) -> dict[str, Any]:
+    """``read_json`` for a file that holds one JSON object (a settings file): {} when it is missing or
+    unreadable, and also when it parsed as something else (a list, a number), which is set aside first
+    like an unreadable one, so the next save doesn't silently replace what was in it."""
+    data = read_json(path, {})
+    if isinstance(data, dict):
+        return data
+    try:
+        set_aside(path)
+    except OSError as exc:
+        _log.warning("%s isn't one JSON object and could not be moved aside (%s); it is being treated as empty.",
+                     path, exc)
+    return {}

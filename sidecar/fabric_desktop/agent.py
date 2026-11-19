@@ -33,7 +33,7 @@ from typing import IO, Any, Callable
 
 from . import agent_status, jsonfile, policy_watch, shared_schedules, shortcut_watch
 from .agent_config import AgentConfig
-from .audit import AuditLog
+from .audit import NOT_RECORDED, AuditLog, fails_closed
 from .audit import outcome as audit_outcome
 from .dataops_service import post_teams
 from .fabric_api import FabricClient
@@ -629,6 +629,18 @@ class Agent:
         ctx = {"job_id": job["id"], "env": p.get("env"), "attempt": job["attempts"], "source": job["source"]}
         self.log.info("job started", extra=fields(**ctx, entities=p.get("entities")))
         claim = job.get("claim_id")
+        if fails_closed("agent_job", {"env": p.get("env")}):
+            # A Prod job runs only once its audit line is written, as the app's Prod calls do. One that
+            # can't be written waits in the queue (retried with backoff) and nothing is run.
+            try:
+                self.audit.record("agent_job", "started", 0.0, self._audit_params(job))
+            except Exception as exc:  # noqa: BLE001 - any failure to write refuses the run
+                error = NOT_RECORDED.format(error=f"{type(exc).__name__}: {exc}")
+                self.log.error("job not started: its audit line couldn't be written", extra=fields(**ctx, error=error))
+                after = self._settle(job, self.queue.retry_later, job["id"], owner, error, claim=claim)
+                if after and after["state"] == "dead":
+                    self._alert(job, after["error"])
+                return
         done, lost = threading.Event(), threading.Event()
         beat = threading.Thread(target=self._heartbeat, args=(job, done, lost), daemon=True)
         beat.start()
@@ -710,14 +722,17 @@ class Agent:
     def _audit(self, job: dict[str, Any], outcome: str, seconds: float, error: str = "", reason: str = "",
                **summary: Any) -> None:
         """One audit line per job run (FD-125), next to the desktop app's lines for the same actions."""
-        p = job["payload"]
-        params = {"job_id": job["id"], "env": p.get("env"), "entities": p.get("entities"),
-                  "backfill": p.get("backfill"), "cascade": p.get("cascade"), "source": job["source"],
-                  "attempt": job["attempts"], "agent": self.config.name, **summary}
+        params = {**self._audit_params(job), **summary}
         try:
             self.audit.record("agent_job", outcome, seconds, params, error=error, reason=reason)
         except Exception as exc:  # noqa: BLE001 - a full disk mustn't stop the job; the log has it
             self.log.warning("couldn't write the audit line", extra=fields(job_id=job["id"], error=str(exc)))
+
+    def _audit_params(self, job: dict[str, Any]) -> dict[str, Any]:
+        p = job["payload"]
+        return {"job_id": job["id"], "env": p.get("env"), "entities": p.get("entities"),
+                "backfill": p.get("backfill"), "cascade": p.get("cascade"), "source": job["source"],
+                "attempt": job["attempts"], "agent": self.config.name}
 
     def _narrow(self, job_id: str, entities: list[str]) -> None:
         """A retry runs only the tables that didn't finish; the rest are written already."""

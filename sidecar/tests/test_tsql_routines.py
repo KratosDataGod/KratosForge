@@ -161,7 +161,7 @@ def test_sp_rename_renames_a_project_table_and_then_a_column(engine):
     engine.execute("EXEC sp_rename 'dbo.t', 'orders'", dialect="tsql")
     engine.execute("EXEC sp_rename 'dbo.orders.amount', 'total', 'COLUMN'", dialect="tsql")
     assert [[r[0], str(r[1])] for r in rows(engine, "SELECT id, total FROM dbo.orders")] == [[1, "9.50"]]
-    with pytest.raises(Exception, match="Table with name t does not exist"):
+    with pytest.raises(Exception, match=r"Invalid object name 'dbo\.t'\."):
         engine.execute("SELECT id FROM dbo.t", dialect="tsql")
 
 

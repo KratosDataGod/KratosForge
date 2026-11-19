@@ -7814,7 +7814,7 @@ No bugs were found in the sampled lines that the tests now cover. One mutant tha
 | `workloads/notify.py` | 182, 184 | `lastrowid or 0` to `or 1` | Equivalent: an INSERT always gives a row id, so the fallback is never used. |
 | `workloads/notify.py` | 236 | `min(failures - 1, 20)` to `21` | Equivalent: 60 s × 2^20 is far beyond `BACKOFF_MAX` either way, and the wait is capped at `BACKOFF_MAX`. |
 | `workloads/notify.py` | 266 | `per_route.get(name, 0)` to `1` in the check | Equivalent: it only changes the first check for a route, where 1 is still below `MAX_PER_TRY` (25). |
-| `workloads/notify.py` | 96 | `end > now` to `>=` | Reachable only when quiet hours end on a second other than :00. agent.toml refuses such a time, but platform notice settings accept one (`22:00-06:00:30`), and a message held then waits until 06:00 the next day instead of 06:00:30. Reported for a decision, not changed here (tests only). Answered since: it was a bug, and the Governance fix on `claude/project-thread-y36q98-quiet-hours` (33fd910e) makes quiet hours accept only `H:MM-H:MM` and keeps the seconds in `until()`. |
+| `workloads/notify.py` | 96 | `end > now` to `>=` | Reachable only when quiet hours end on a second other than :00. agent.toml refuses such a time, but platform notice settings accept one (`22:00-06:00:30`), and a message held then waits until 06:00 the next day instead of 06:00:30. Reported for a decision, not changed here (tests only). Answered since: it was a bug, and the Governance fix, #3042, makes quiet hours accept only `H:MM-H:MM` and keeps the seconds in `until()`. |
 
 # Mutation testing, batch 143
 
@@ -8055,7 +8055,7 @@ Before the "after" run, the new tests passed in a copy of `sidecar/` on its own 
 
 | Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `localdata/engine.py` | batch 3's set, test_localdata_engine_mutation, test_localdata_engine_refused_write; survivors also with the T-SQL files above (+ test_localdata_engine_rescore) | 150 of 1,042 (148 + 2) | 129 / 21 | **86.0%** | 128/148 → 138/148 | 1/2 → 1/2 | 139 / 11 | **92.7%** | 10 equivalent, 1 behind a known gap |
+| `localdata/engine.py` | batch 3's set, test_localdata_engine_mutation, test_localdata_engine_refused_write; survivors also with the T-SQL files above (+ test_localdata_engine_rescore) | 150 of 1,042 (148 + 2) | 129 / 21 | **86.0%** | 128/148 → 138/148 | 1/2 → 1/2 | 139 / 11 | **92.7%** (140 / 150, 93.3%, after #3045) | 10 equivalent, 1 behind a known gap (killed since #3045) |
 
 One gap was found, and #3045 has since fixed it, so the test no longer carries a strict xfail: `tables()` is meant to list the project with a cursor while a query holds the connection, "without waiting", but it calls `open()` first, and `open()` waits for the lock the running query holds. On this PC, the object list waited about 4.5 s for a 6-second query.
 

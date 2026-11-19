@@ -1098,6 +1098,9 @@ class LakehouseReader:
 
     def table(self, name: str) -> DataFrame:
         self._no_schema("a table")
+        from . import delta_cdf
+        if delta_cdf.asked(self._options):  # readChangeFeed: the table's changes, never the table itself
+            return self._session._from_arrow_dataset(delta_cdf.read(lakehouse.open_table(name), name, self._options))
         if self._as_of():
             data = lakehouse.table_dataset(lakehouse.open_table(name, **self._as_of()))
             return self._session._from_arrow_dataset(data)
@@ -1147,6 +1150,9 @@ class LakehouseReader:
                 return self.table(".".join(p for p in rel.split("/")[1:] if p))
             from deltalake import DeltaTable
             opened = DeltaTable(path)
+            from . import delta_cdf
+            if delta_cdf.asked(self._options):
+                return self._session._from_arrow_dataset(delta_cdf.read(opened, path, self._options))
             point = lakehouse.as_of(**self._as_of())
             if point is not None:
                 opened.load_as_version(point)
@@ -1398,12 +1404,48 @@ class LocalSparkSession(SparkSession):
             result = self._statement(statement, evolve=evolve)
         return result if result is not None else DataFrame(self.conn.sql("SELECT 1 WHERE false"), self)
 
+    def _table_changes(self, statement: Any) -> Any:
+        """Each ``table_changes(table_str, start [, end])`` in ``statement`` read from the table's change data
+        feed (delta_cdf) into a view, as Databricks and Fabric read it: a whole number is a version, text a
+        timestamp. Only literal arguments, since the read happens before the query runs."""
+        from sqlglot import exp
+
+        from . import delta_cdf
+        for node in list(statement.find_all(exp.Anonymous)):
+            if node.name.lower() != "table_changes":
+                continue
+            values = []
+            for arg in node.expressions:
+                if not isinstance(arg, exp.Literal):
+                    raise ValueError("table_changes takes a table name and versions or timestamps written as "
+                                     "literals on this PC, so nothing ran. Write each one as a number or a "
+                                     "quoted time.")
+                values.append(int(arg.name) if not arg.is_string and arg.name.isdigit() else arg.name)
+            if len(values) not in (2, 3) or not isinstance(values[0], str):
+                raise ValueError("table_changes takes a table name, a start and an optional end: "
+                                 "table_changes('orders', 1) or table_changes('orders', 1, 3). Nothing ran.")
+            options: dict[str, Any] = {"readchangefeed": "true"}
+            for side, value in zip(("starting", "ending"), values[1:], strict=False):
+                options[f"{side}{'version' if isinstance(value, int) else 'timestamp'}"] = value
+            name = values[0]
+            views = self._bound()
+            view = f"__lakehouse_changes_{len(views)}"
+            views[f"changes:{name.lower()}:{len(views)}"] = view
+            self.conn.register(view, delta_cdf.read(lakehouse.open_table(name), name, options))
+            holder = node.parent if isinstance(node.parent, exp.Table) else node
+            replacement = exp.Table(this=exp.to_identifier(view))
+            if isinstance(holder, exp.Table) and holder.args.get("alias") is not None:
+                replacement.set("alias", holder.args["alias"])
+            holder.replace(replacement)
+        return statement
+
     def _statement(self, statement: Any, evolve: bool = False) -> DataFrame | None:
         from sqlglot import exp
         if isinstance(statement, exp.Use):
             _use(statement)
             return None
         statement = _sql.history_query(statement, self.conn, self._bound())  # DESCRIBE HISTORY t
+        statement = self._table_changes(statement)  # table_changes('t', 1): the table's change data feed
         if isinstance(statement, exp.Merge):
             return self._merge(statement, evolve)
         if isinstance(statement, (exp.Update, exp.Delete)):

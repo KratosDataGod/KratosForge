@@ -382,6 +382,7 @@ person's visible workspaces, grouped by workload, with per-device comparison.
 
 **ESI-109 Collector decision.** Feasibility note for mode C (UDF writing Delta, payload limits,
 CU per call) from documentation, then a recommendation. Building it needs Chris's typed go.
+**Note written**: [esi-109-collector-feasibility.md](esi-109-collector-feasibility.md). Building it still needs Chris's typed go.
 
 ### Phase 2: Unified execution savings
 

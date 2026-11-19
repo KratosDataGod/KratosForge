@@ -198,6 +198,7 @@ nav = [
       { "Competitive capability matrix" = "product/COMPETITIVE_CAPABILITY_MATRIX.md" },
       { "Notebook and SQL editor parity" = "product/editor-parity.md" },
       { "Fabric Excellence Assessment plan" = "product/fabric-excellence-assessment-plan.md" },
+      { "Enterprise Savings Intelligence plan" = "product/enterprise-savings-intelligence-plan.md" },
       { "Development status" = "product/DEVELOPMENT_STATUS.md" },
       { "Development operations" = "product/operations/README.md" },
       { "12-week roadmap" = "product/operations/roadmap.md" },

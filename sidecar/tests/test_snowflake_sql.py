@@ -986,6 +986,22 @@ def test_array_distinct_keeps_first_places_and_flatten_of_a_null_is_null():
     assert _first("SELECT array_flatten([[1], [NULL]])") == [1, None]
 
 
+def test_array_insert_past_the_end_fills_the_gap_and_keeps_its_places_before():
+    assert _first("SELECT array_insert(array_construct(0, 1), 4, 9)") == [0, 1, None, None, 9]
+    assert _first("SELECT array_insert(array_construct(0, 1), 1, 9)") == [0, 9, 1]
+    assert _first("SELECT array_insert(array_construct(0, 1), 2, 9)") == [0, 1, 9]
+    assert _first("SELECT array_insert(NULL::ARRAY, 2, 9)") is None
+
+
+def test_sample_row_and_block_are_bernoulli_and_system():
+    sql = sf.translate("SELECT * FROM t SAMPLE ROW (0); SELECT * FROM t SAMPLE BLOCK (3) SEED (82)").duckdb_sql
+    assert "BERNOULLI (0 PERCENT)" in sql and "SYSTEM (3 PERCENT) REPEATABLE (82)" in sql
+    con = duckdb.connect()
+    con.execute("CREATE TABLE t AS SELECT * FROM range(5) r(i)")
+    assert con.execute(sf.translate("SELECT count(*) FROM t SAMPLE ROW (0)").duckdb_sql).fetchone() == (0,)
+    assert con.execute(sf.translate("SELECT count(*) FROM t SAMPLE BLOCK (100)").duckdb_sql).fetchone() == (5,)
+
+
 def test_get_of_an_object_key_cast_to_text_has_no_json_quotes():
     assert _first("SELECT get(object_construct('a', 'x'), 'a')::VARCHAR") == "x"
     assert _first("SELECT strip_null_value(parse_json('{\"c\": \"3\"}'):c)::VARCHAR") == "3"
@@ -1134,3 +1150,18 @@ def test_session_variables_and_identifier_of_a_variable_the_cell_sets():
         "SELECT * FROM IDENTIFIER($nope)").first_refusal()
     # a value that isn't a plain name stays refused
     assert not sf.translate("SET tn = 't; DROP TABLE x'; SELECT * FROM IDENTIFIER($tn)").runnable
+
+
+@pytest.mark.parametrize("sql", ["SELECT array_construct(1, 'a', NULL)", "SELECT array_construct_compact(NULL, 'a', -1)",
+                                 "SELECT array_insert(array_construct(0, 1), 2, 'x')",
+                                 "SELECT array_prepend(array_construct('a'), 2.5::double)",
+                                 "SELECT array_append(array_construct(1, 2), 'a')"])
+def test_an_array_of_text_and_numbers_is_refused_by_name(sql):
+    translation = sf.translate(sql)
+    assert not translation.runnable
+    assert "SFN-025" in translation.as_output()["text"] or "text and numbers in one array" in translation.first_refusal()
+
+
+def test_an_array_of_one_kind_or_from_a_column_still_runs():
+    assert sf.translate("SELECT array_construct(1, 2), array_construct('a', NULL), array_append(array_construct(1), x) "
+                        "FROM t").runnable

@@ -153,3 +153,14 @@ def test_add_page_and_rename_app():
                                                    {"action": "rename_app", "title": "Sales 2"}]}, doc, meta)
     out = edit.preview(doc, made["ops"])
     assert out["spec"]["name"] == "Sales 2" and out["spec"]["pages"][-1]["title"] == "Details"
+
+
+def test_two_components_added_to_a_page_in_one_change_stack_below_each_other(svc):
+    before = {c["id"] for c in spec_of(svc)["pages"][0]["components"]}
+    svc.reply = {"summary": "Two cards", "changes": [
+        {"action": "add_component", "page": "pg_1", "type": "card", "title": "Big deals", "measure": "Big deals"},
+        {"action": "add_component", "page": "pg_1", "type": "card", "title": "More deals", "measure": "Big deals"},
+        {"action": "add_page", "title": "Extra"}]}
+    got = svc.appstudio_change_plan(svc.project, "Add two big deals cards")
+    first, second = [c["layout"] for c in got["spec"]["pages"][0]["components"] if c["id"] not in before]
+    assert second["y"] >= first["y"] + first["h"], "the second card starts below the first, not on its row"

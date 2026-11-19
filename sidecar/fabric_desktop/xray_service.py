@@ -283,6 +283,11 @@ class XRayMixin:
             raise RuntimeError(f"Couldn't read the table's history ({type(exc).__name__}: {exc}), so whether its "
                                "commits' dates can be trusted isn't known. Nothing was started. Try again when the "
                                "table can be read.") from exc
+        if safe > maintenance.MAX_SKEW_DAYS:
+            raise RuntimeError(f"A commit in this table's history is dated earlier than the one before it, by so much "
+                               f"(a writer's clock out of step) that Fabric's VACUUM would have to keep {safe:,} days "
+                               "of history, and so would in effect remove nothing. Nothing was started. Run VACUUM "
+                               "from a notebook on this PC instead, which keeps exactly the files those versions read.")
         if safe > days:
             return safe, "a commit dated earlier than the one before it (a writer's clock out of step)"
         return days, why

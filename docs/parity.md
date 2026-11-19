@@ -51,7 +51,7 @@ enterprise ready), see [Platform support levels](platforms.md); this page doesn'
 Notes:
 
 - **Every area, Visual familiarity:** The Fabric-familiar skin (Preview) gives a teal accent and Fabric's page order on the rail (Home, Create, Workspaces, OneLake and Monitor first); pages keep KratosForge's own layout.
-- **Sign-in and connections, Cloud API integration:** Signing in with the developer's own identity was recorded; no app registration or service principal is used. Live: KUDP comparison, 2026-10-29, re-run 2026-11-03 (docs/platforms.md, Live runs).
+- **Sign-in and connections, Cloud API integration:** Signing in with the developer's own identity was recorded. No app registration or service principal is used. Live: KUDP comparison, 2026-10-29, re-run 2026-11-03 (docs/platforms.md, Live runs).
 - **Workspaces and items, Workflow compatibility:** The skin's rail has Workspaces third, after Home and Create, as in Fabric; inside it, the page is KratosForge's own.
 - **Workspaces and items, Cloud API integration:** Listing workspaces and lakehouses was recorded; other item types were not. Live: KUDP comparison, 2026-10-29, re-run 2026-11-03 (docs/platforms.md, Live runs).
 - **Lakehouse tables and files, Workflow compatibility:** The skin's rail has OneLake fourth, after Workspaces, as in Fabric; inside it, the page is KratosForge's own.
@@ -119,8 +119,8 @@ documentation before it is built, and a new status lands with its tests.
 The three-platform parity program ([assessment](product/platform-parity-assessment.md),
 [backlog](product/platform-parity-backlog.md)) gives each area a feature family, a priority, the
 backlog items that move it and the workstream that owns it. **Runs** says where the area's work runs
-in KratosForge today, never more than the cells above show. A plan says what's next, not what's done:
-it never raises a status. This table is generated from `PLANS` in the same module.
+in KratosForge today, never more than the cells above show. A plan says what's next, not what's done,
+and it never raises a status. This table is generated from `PLANS` in the same module.
 
 <!-- BEGIN GENERATED: parity-plan -->
 | Platform | Area | Family | Priority | Runs | Next items | Owner |

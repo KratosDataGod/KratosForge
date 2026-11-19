@@ -159,7 +159,7 @@ AREAS: tuple[Area, ...] = (
     # Microsoft Fabric
     _skinned("fabric", "connect", "Sign-in and connections",
        cloud_api=Cell("verified", ("test_auth_edges.py", "test_credentials_config.py"), KUDP_RUN,
-                      "Signing in with the developer's own identity was recorded; no app registration or service principal is used.")),
+                      "Signing in with the developer's own identity was recorded. No app registration or service principal is used.")),
     _skinned("fabric", "workspaces", "Workspaces and items",
        workflow=Cell("partial", ("test_skins.py",),
                      note="The skin's rail has Workspaces third, after Home and Create, as in Fabric; inside it, the page is KratosForge's own."),

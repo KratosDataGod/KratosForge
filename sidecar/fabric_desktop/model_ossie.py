@@ -712,15 +712,22 @@ def _text(value: Any) -> str:
 
 
 def _role_shape(role: dict[str, Any]) -> dict[str, Any]:
-    """What a security role does: its model permission, each table's filter and column permissions, its members."""
+    """What a security role does: its model permission, each table's filter and column permissions, its members.
+    Keys use the full names, so two long names sharing a prefix stay apart; only messages cut them short."""
     perms = _dicts(role.get("tablePermissions"))
     return {"modelPermission": role.get("modelPermission"),
-            "filters": {(_short(p.get("name")), _text(p.get("filterExpression"))) for p in perms},
-            "tables": {(_short(p.get("name")), str(p.get("metadataPermission"))) for p in perms
+            "filters": {(str(p.get("name")), _text(p.get("filterExpression"))) for p in perms},
+            "tables": {(str(p.get("name")), str(p.get("metadataPermission"))) for p in perms
                        if "metadataPermission" in p},
-            "columns": {(_short(p.get("name")), _short(c.get("name")), str(c.get("metadataPermission")))
+            "columns": {(str(p.get("name")), str(c.get("name")), str(c.get("metadataPermission")))
                         for p in perms for c in _dicts(p.get("columnPermissions"))},
-            "members": {_short(m.get("memberName", m.get("name"))) for m in _dicts(role.get("members"))}}
+            # a member is a principal: the same name under another id or identity provider is someone else
+            "members": {(str(m.get("memberName", m.get("name"))), str(m.get("memberId", "")),
+                         str(m.get("identityProvider", ""))) for m in _dicts(role.get("members"))}}
+
+
+def _shown_key(key: tuple[str, ...]) -> str:
+    return "(" + ", ".join(_q(k) for k in key if k) + ")"
 
 
 def _shown(value: str) -> str:
@@ -746,15 +753,15 @@ def _role_changes(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
     for key, what in (("tables", "table permission"), ("columns", "column permission"), ("members", "member")):
         gone, added = sorted(a[key] - b[key]), sorted(b[key] - a[key])
         if gone:
-            out.append(f"{len(gone)} {what}(s) gone: {', '.join(map(str, gone[:5]))}")
+            out.append(f"{len(gone)} {what}(s) gone: {', '.join(map(_shown_key, gone[:5]))}")
         if added:
-            out.append(f"{len(added)} {what}(s) added: {', '.join(map(str, added[:5]))}")
+            out.append(f"{len(added)} {what}(s) added: {', '.join(map(_shown_key, added[:5]))}")
     return out
 
 
 def _calc_items(table: dict[str, Any]) -> dict[str, tuple[str, str, str]]:
     group: dict[str, Any] = table["calculationGroup"] if isinstance(table.get("calculationGroup"), dict) else {}
-    return {_short(i["name"]): (_text(i.get("expression")), str(i.get("ordinal", "")),
+    return {i["name"]: (_text(i.get("expression")), str(i.get("ordinal", "")),
                                 _text((i.get("formatStringDefinition") or {}).get("expression")
                                       if isinstance(i.get("formatStringDefinition"), dict) else i.get("formatStringDefinition")))
             for i in _named_items(group.get("calculationItems"))}

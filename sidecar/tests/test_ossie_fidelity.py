@@ -552,3 +552,34 @@ def test_a_round_trip_that_trips_is_reported_as_not_run(monkeypatch, error):
     monkeypatch.setattr(model_ossie, "round_trip", trips)
     check = model_ossie.round_trip_check(_bim())
     assert check["ran"] is False and check["passed"] is None and type(error).__name__ in check["error"]
+
+
+def test_a_role_member_under_another_id_or_provider_is_a_different_principal():
+    bim = _bim()
+    bim["model"]["roles"][0]["members"] = [{"memberName": "ana@contoso.example", "memberId": "id-1",
+                                            "identityProvider": "AzureAD"}]
+    text = model_ossie.export(bim)["yaml"]
+    back, report = model_ossie.to_tmsl(text)
+    assert _obj(model_ossie.fidelity(model_ossie.parse(text), back, report), "role 'EU only'")["class"] == "fully_preserved"
+    for key, value in (("memberId", "id-2"), ("identityProvider", "External")):
+        changed = copy.deepcopy(back)
+        changed["model"]["roles"][0]["members"][0][key] = value
+        obj = _obj(model_ossie.fidelity(model_ossie.parse(text), changed, report), "role 'EU only'")
+        assert obj["class"] == "partially_converted", key
+        assert any("member(s) gone" in c for c in obj["changes"]) and any("member(s) added" in c for c in obj["changes"])
+
+
+def test_two_long_table_names_sharing_a_prefix_keep_their_role_filters_apart():
+    long_a, long_b = "t" * 1100 + "a", "t" * 1100 + "b"  # same length, same first MAX_NAME characters
+    before = {"name": "R", "tablePermissions": [{"name": long_a, "filterExpression": "[x] = 1"},
+                                                {"name": long_b, "filterExpression": "[x] = 2"}]}
+    after = copy.deepcopy(before)
+    after["tablePermissions"][0]["filterExpression"], after["tablePermissions"][1]["filterExpression"] = "[x] = 2", "[x] = 1"
+    changes = model_ossie._role_changes(before, after)
+    assert len(changes) == 2 and all("changed from" in c and "(1101 characters)" in c for c in changes)
+    group = {"calculationGroup": {"calculationItems": [{"name": long_a, "expression": "1"},
+                                                       {"name": long_b, "expression": "2"}]}}
+    swapped = copy.deepcopy(group)
+    items = swapped["calculationGroup"]["calculationItems"]
+    items[0]["expression"], items[1]["expression"] = "2", "1"
+    assert len(model_ossie._calc_changes(group, swapped)) == 2

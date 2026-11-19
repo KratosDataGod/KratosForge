@@ -23,17 +23,24 @@ def one(query: str):
     return rows(query)[0][0]
 
 
+def value(query: str):
+    """The first value of ``query``, on a connection of its own: DuckDB's default one is shared with every
+    test in this process, and on DuckDB 2 a result left unread there stops the next test that uses it."""
+    with duckdb.connect() as con:
+        return con.execute(query).fetchone()[0]
+
+
 def test_next_day_as_the_whole_expression_is_left_for_sqlglot():
     out = sql.duckdb_sql(
         sql._spark_date_results(spark("next_day(DATE '2020-01-01', 'Mon')"), False)
     )
-    assert duckdb.execute(f"SELECT {out}").fetchone()[0].isoformat() == "2020-01-06"
+    assert value(f"SELECT {out}").isoformat() == "2020-01-06"
 
 
 def test_a_cast_function_as_the_whole_expression_becomes_a_try_cast():
     out = sql.spark_legacy_casts(spark("double('1')"))
     assert isinstance(out, sqlglot.exp.TryCast)
-    assert duckdb.execute(f"SELECT {sql.duckdb_sql(out)}").fetchone()[0] == 1.0
+    assert value(f"SELECT {sql.duckdb_sql(out)}") == 1.0
 
 
 def test_timestamp_text_drops_the_offset_and_leaves_other_values_as_they_are():
@@ -98,7 +105,7 @@ def test_get_json_object_refuses_a_key_with_a_quote():
 def test_a_date_cast_as_the_whole_expression_is_read_by_sparks_rules():
     out = sql.spark_legacy_times(spark("to_date('2020-01-01')"))
     assert (
-        duckdb.execute(f"SELECT {sql.duckdb_sql(out)}").fetchone()[0].isoformat()
+        value(f"SELECT {sql.duckdb_sql(out)}").isoformat()
         == "2020-01-01"
     )
 
@@ -177,9 +184,9 @@ def test_current_catalog_as_the_whole_expression_is_spark_catalog():
 def test_timestampdiff_as_the_whole_expression_and_with_a_unit_it_doesnt_count():
     whole = sql.duckdb_sql(sql._spark_timestampdiff(spark("timestampdiff(DAY, a, b)")))
     assert (
-        duckdb.execute(
+        value(
             f"SELECT {whole} FROM (SELECT DATE '2020-01-01' a, DATE '2020-02-01' b)"
-        ).fetchone()[0]
+        )
         == 31
     )
     assert (
@@ -203,12 +210,12 @@ def test_a_date_cast_as_the_whole_expression_reads_text_by_sparks_rules():
     out = sql.spark_legacy_times(
         sql.spark_legacy_casts(spark("CAST('24-02-29' AS DATE)"))
     )
-    assert duckdb.execute(f"SELECT {sql.duckdb_sql(out)}").fetchone()[0] is None
+    assert value(f"SELECT {sql.duckdb_sql(out)}") is None
     out = sql.spark_legacy_times(
         sql.spark_legacy_casts(spark("CAST('2024-02-29' AS DATE)"))
     )
     assert (
-        duckdb.execute(f"SELECT {sql.duckdb_sql(out)}").fetchone()[0].isoformat()
+        value(f"SELECT {sql.duckdb_sql(out)}").isoformat()
         == "2024-02-29"
     )
 
@@ -216,4 +223,4 @@ def test_a_date_cast_as_the_whole_expression_reads_text_by_sparks_rules():
 def test_to_timestamp_with_a_pattern_as_the_whole_expression_is_null_for_text_that_doesnt_match():
     out = sql.duckdb_sql(sql.spark_legacy_times(spark("to_timestamp(a, 'yyyy')")))
     assert "TRY_STRPTIME" in out
-    assert duckdb.execute(f"SELECT {out} FROM (SELECT 'nope' a)").fetchone()[0] is None
+    assert value(f"SELECT {out} FROM (SELECT 'nope' a)") is None

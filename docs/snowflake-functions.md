@@ -21,11 +21,11 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 368 |
+| Runs | 373 |
 | Differs | 24 |
 | Refused | 82 |
 | Fails | 0 |
-| Not checked | 21 |
+| Not checked | 16 |
 | **All** | **495** |
 
 ## String and binary
@@ -248,7 +248,7 @@ the known differences in more detail.
 | `TRY_TO_TIME` | Runs | 2 value checks |
 | `TRY_TO_TIMESTAMP` | Runs | 2 value checks |
 | `TRY_TO_TIMESTAMP_LTZ` | Differs | SFD-004 Local time zone is this PC's |
-| `TRY_TO_TIMESTAMP_NTZ` | Not checked | its page wasn't read yet; TRY_TO_TIMESTAMP is checked |
+| `TRY_TO_TIMESTAMP_NTZ` | Runs | 2 value checks |
 | `TRY_TO_TIMESTAMP_TZ` | Differs | SFD-002 TIMESTAMP_TZ loses its offset |
 | `TO_ARRAY` | Runs | 1 value check |
 | `TO_OBJECT` | Runs | 2 value checks |
@@ -260,7 +260,7 @@ the known differences in more detail.
 | --- | --- | --- | --- |
 | `CHECK_JSON` | Runs |  | 1 value check |
 | `CHECK_XML` | Refused |  | CHECK_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
-| `JSON_EXTRACT_PATH_TEXT` | Not checked |  | its page's example tables weren't copied exactly enough to compare |
+| `JSON_EXTRACT_PATH_TEXT` | Runs |  | 3 value checks; labelled SFD-001 Unquoted names keep their case |
 | `PARSE_JSON` | Runs |  | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
 | `TRY_PARSE_JSON` | Runs |  | 1 value check |
 | `PARSE_XML` | Refused |  | PARSE_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
@@ -290,7 +290,7 @@ the known differences in more detail.
 | `ARRAY_SORT` | Runs |  | 3 value checks |
 | `ARRAY_TO_STRING` | Runs |  | 1 value check |
 | `ARRAY_UNION_AGG` | Refused |  | Not rewritten for DuckDB. ARRAY_UNION_AGG is not supported in DuckDB. |
-| `ARRAY_UNIQUE_AGG` | Not checked |  | its page has no example (it points to a user guide) |
+| `ARRAY_UNIQUE_AGG` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
 | `ARRAYS_OVERLAP` | Runs |  | 3 value checks |
 | `ARRAYS_TO_OBJECT` | Runs |  | 3 value checks |
 | `ARRAYS_ZIP` | Runs |  | 2 value checks |
@@ -552,7 +552,7 @@ the known differences in more detail.
 | `PIVOT` | Runs |  | 2 value checks |
 | `UNPIVOT` | Runs |  | 3 value checks |
 | `LATERAL FLATTEN` | Runs |  | 5 value checks |
-| `SAMPLE` | Not checked | `SELECT * FROM t SAMPLE (50)` | its page prints no results |
+| `SAMPLE` | Runs |  | 2 value checks; labelled SFD-001 Unquoted names keep their case |
 | `MATCH_RECOGNIZE` | Refused | `SELECT * FROM t MATCH_RECOGNIZE (ORDER BY a MEASURES FIRST(a) AS f ONE ROW PER MATCH PATTERN (x+) DEFINE x AS a > 0)` | MATCH_RECOGNIZE. DuckDB has no row pattern matching. |
 | `GENERATOR` | Runs |  | 1 value check |
 
@@ -574,7 +574,7 @@ the known differences in more detail.
 | `DELETE USING` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
 | `MERGE` | Runs |  | 2 value checks; labelled SFD-001 Unquoted names keep their case |
 | `TRUNCATE TABLE` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
-| `DROP TABLE` | Not checked | `DROP TABLE s` | its page's examples drop a hybrid table or one the page doesn't create |
+| `DROP TABLE` | Runs |  | 2 value checks; labelled SFD-001 Unquoted names keep their case |
 | `ALTER TABLE ADD COLUMN` | Differs | `ALTER TABLE t ADD COLUMN c INT` | SFD-001 Unquoted names keep their case |
 | `ALTER TABLE RENAME` | Differs | `ALTER TABLE t RENAME TO t2` | SFD-001 Unquoted names keep their case |
 | `WITH` | Runs |  | 1 value check |

@@ -111,10 +111,21 @@ def filter_sql(c: str, field: pa.Field, column: int, text: str) -> tuple[str, li
 
 def _index(column: Any) -> int:
     """A column's position as sent, or -1 (refused as a column the result doesn't have) when it isn't a whole number."""
+    if isinstance(column, bool) or (isinstance(column, float) and not column.is_integer()):
+        return -1
     try:
-        return int(column) if not isinstance(column, bool) else -1
+        return int(column)
     except (TypeError, ValueError):
         return -1
+
+
+def entries(given: Any, what: str) -> list[dict[str, Any]]:
+    """The grid's list of sorts or filters, each a dict; anything else is refused by name, not with a bare error."""
+    if given is None:
+        return []
+    if not isinstance(given, list) or not all(isinstance(e, dict) for e in given):
+        raise ValueError(f"The {what} isn't in the form the grid sends, which is a list of {{column, ...}} entries.")
+    return given
 
 
 def _where(table: pa.Table, cols: list[str], filters: list[dict[str, Any]] | None) -> tuple[str, list[Any]]:
@@ -126,7 +137,7 @@ def where_parts(table: pa.Table, cols: list[str], filters: list[dict[str, Any]] 
     """Each filled filter box's condition, in parentheses, and their parameters in order."""
     parts: list[str] = []
     params: list[Any] = []
-    for f in filters or []:
+    for f in entries(filters, "filter"):
         i = _index(f.get("column"))
         if not 0 <= i < len(cols):
             raise ValueError("A filter names a column this result doesn't have.")
@@ -140,7 +151,7 @@ def where_parts(table: pa.Table, cols: list[str], filters: list[dict[str, Any]] 
 
 def _order(table: pa.Table, cols: list[str], sort: list[dict[str, Any]] | None) -> str:
     keys = []
-    for s in (sort or [])[:MAX_SORT_KEYS]:
+    for s in entries(sort, "sort")[:MAX_SORT_KEYS]:
         i = _index(s.get("column"))
         if not 0 <= i < len(cols):
             raise ValueError("The sort names a column this result doesn't have.")

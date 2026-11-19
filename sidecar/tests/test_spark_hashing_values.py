@@ -64,3 +64,14 @@ def test_the_chunked_sha2_function_gives_null_for_null_data_null_bits_or_another
     import hashlib
     assert got == [(hashlib.sha224(b"abc").hexdigest(),), (None,), (None,), (None,),
                    (hashlib.sha256(b"abc").hexdigest(),), (hashlib.sha256(b"abc").hexdigest(),)]
+
+
+def test_sha2_casts_its_length_to_an_int_first_as_spark_does(spark):
+    # Spark casts a decimal or text length to an int, cutting a fraction, before choosing the digest
+    import hashlib
+    row = spark.sql("SELECT sha2('abc', 256.0) a, sha2('abc', 384.9) b, sha2('abc', '512') c, "
+                    "sha2('abc', CAST(224.7 AS DECIMAL(4, 1))) d, sha2('abc', 255.9) e, "
+                    "sha2('abc', x) f FROM VALUES (CAST(256.7 AS DECIMAL(4, 1))) t(x)").collect()[0]
+    assert (row.a, row.b, row.c, row.d, row.e, row.f) == (
+        hashlib.sha256(b"abc").hexdigest(), hashlib.sha384(b"abc").hexdigest(), hashlib.sha512(b"abc").hexdigest(),
+        hashlib.sha224(b"abc").hexdigest(), None, hashlib.sha256(b"abc").hexdigest())

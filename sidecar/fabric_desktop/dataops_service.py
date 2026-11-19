@@ -14,7 +14,7 @@ import json
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from contextlib import ExitStack, contextmanager
 from typing import Any, Callable, Iterator
 
@@ -62,9 +62,19 @@ def _rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
 
 DATA_HEALTH_FILE = "data_health.json"
 DATA_HEALTH_MAX = 100  # tables one PC watches
+DATA_HEALTH_LIST_SECONDS = 120  # the whole list; a table not checked by then says so
 DATA_HEALTH_LOCK_SECONDS = 10  # waiting longer for another process's save is an error, not a hang
 DATA_HEALTH_RESET_DAYS = 7  # how long the list says it was started again after an unreadable file
 _DH_LOCK = threading.Lock()  # this process's threads; _dh_locked adds a file lock for other processes
+_DH_RUNNING_LOCK = threading.Lock()  # the checks still running, shared by refreshes
+
+
+def _dh_duration(seconds: float) -> str:
+    """How long, as a person would say it: "2 minutes", "1 minute", or "0.5 s" under a minute."""
+    if seconds >= 60 and seconds % 60 == 0:
+        minutes = int(seconds // 60)
+        return f"{minutes} minute" + ("" if minutes == 1 else "s")
+    return f"{seconds:g} s"
 
 
 def _dh_key(env: str, entity: str, kind: str, version: Any) -> str:
@@ -382,7 +392,7 @@ class DataOpsMixin:
             try:
                 held.enter_context(_file_lock(self.root / f"{DATA_HEALTH_FILE}.lock", timeout=DATA_HEALTH_LOCK_SECONDS))  # type: ignore[attr-defined]
             except TimeoutError:
-                raise TimeoutError("Another KratosForge window is saving the Data health list. Try again in a moment.") from None
+                raise TimeoutError("Another KratosForge window or tool is saving the Data health list. Try again in a moment.") from None
             yield
 
     def _dh_read(self) -> dict[str, Any]:
@@ -439,8 +449,26 @@ class DataOpsMixin:
             except Exception as exc:  # noqa: BLE001 - one table that can't be read doesn't hide the others
                 return {"entity": name, "env": env, "state": "error", "why": describe(exc)}
 
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            tables = list(pool.map(one, watched))
+        # Four at a time, and the whole list within DATA_HEALTH_LIST_SECONDS: a table whose log read
+        # hangs (OneLake not answering) shows as not checked, never holds up the others or reads as fine.
+        # A check still running from an earlier refresh is waited on again, not started twice, so a
+        # hung read leaves at most one thread per table however often the list is refreshed.
+        running: dict[tuple[str, str], Future[dict[str, Any]]] = self.__dict__.setdefault("_dh_running", {})
+        pool = ThreadPoolExecutor(max_workers=4)
+        futures = []
+        with _DH_RUNNING_LOCK:
+            for name in watched:
+                f = running.get((env, name))
+                if f is None or f.done():
+                    f = running[(env, name)] = pool.submit(one, name)
+                futures.append(f)
+        wait(futures, timeout=DATA_HEALTH_LIST_SECONDS)
+        pool.shutdown(wait=False, cancel_futures=True)
+        limit = _dh_duration(DATA_HEALTH_LIST_SECONDS)
+        tables = [f.result() if f.done() and not f.cancelled() else
+                  {"entity": name, "env": env, "state": "error",
+                   "why": f"The check of {name} didn't finish within {limit}, so it's not shown as healthy. Check again later."}
+                  for name, f in zip(watched, futures, strict=True)]
         now = dt.datetime.now(dt.timezone.utc)
         for t in tables:
             for a in t.get("alerts") or []:

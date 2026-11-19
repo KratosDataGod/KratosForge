@@ -121,7 +121,7 @@ class _SqlSession:
                 seconds = time.perf_counter() - started
                 status = "cancelled" if self._cancelled else "error"
                 out = {"type": "error", "ename": type(exc).__name__,
-                       "evalue": "Cancelled." if self._cancelled else str(exc)}
+                       "evalue": "Cancelled." if self._cancelled else _refusal_text(str(exc))}
                 outputs = [*self._preamble, out]
                 if on_output:
                     for o in outputs:
@@ -242,6 +242,30 @@ _DUCKDB_CLOSED = {"enable_external_access": False, "autoinstall_known_extensions
                   "autoload_known_extensions": False}
 
 
+def _has_variant(kind: object) -> bool:
+    return "VARIANT" in str(kind).upper()
+
+
+def _variants_as_json(rel: Any) -> Any:
+    """``rel`` with each column that is or holds a VARIANT (a Snowflake VARIANT or ARRAY column) written as
+    JSON, so a result shows its values as Snowflake does ([1,"a"]): DuckDB 1.x can't give a VARIANT to Arrow,
+    and DuckDB 2.0 gives its stored bytes. Other columns are as they were."""
+    names, kinds = list(rel.columns), list(rel.types)
+    if not any(_has_variant(k) for k in kinds) or len({n.lower() for n in names}) != len(names):
+        return rel
+    def quoted(name: str) -> str:
+        return '"' + name.replace('"', '""') + '"'
+    return rel.project(", ".join(f"CAST(CAST({quoted(n)} AS VARIANT) AS JSON) AS {quoted(n)}" if _has_variant(k)
+                                 else quoted(n) for n, k in zip(names, kinds, strict=True)))
+
+
+def _refusal_text(text: str) -> str:
+    """A refusal written into the query (an error(...) with a Databricks error class, such as MERGE's) without
+    the "Invalid Input Error: " DuckDB puts in front of it, so it reads as Databricks writes it."""
+    prefix = "Invalid Input Error: "
+    return text[len(prefix):] if text.startswith(prefix + "[DELTA_") else text
+
+
 class OutsideSession(PermissionError):
     """A statement would change something outside the session's own database."""
 
@@ -301,6 +325,8 @@ def _databricks(code: str) -> list[Any]:
         raise ValueError(_databricks_wording(text)) from None
     # and its table statements: identity and generated columns, USING DELTA, refusals for the rest (WR-309)
     rewritten = [written for statement in rewritten for written in databricks_builtins_sql.table_statements(statement)]
+    # and the statements Databricks answers another way: DESCRIBE TABLE, MERGE's multiple matches, refusals
+    rewritten = [written for statement in rewritten for written in databricks_builtins_sql.other_statements(statement)]
     # the same for a refusal written into the query, which stops it only when a row reaches it; only an
     # ERROR(...) that carries a refusal's own words, so a message the cell's author wrote stays as written
     for statement in rewritten:
@@ -358,9 +384,9 @@ class DuckDBSession(_SqlSession):
         from ..spark_decimals import spark_decimal_types
         statements = _databricks(code) if dialect == "databricks" else sql.parse(code, "spark")
         if dialect == "databricks":
-            from ..databricks_builtins_sql import refuse_identity_writes
+            from ..databricks_builtins_sql import table_writes
             try:
-                refuse_identity_writes(statements, self._con)
+                statements = table_writes(statements, self._con)
             except ValueError as exc:
                 raise Unsupported(str(exc)) from None
         try:
@@ -407,15 +433,42 @@ class DuckDBSession(_SqlSession):
             rel = self._con.sql(code)
             if rel is None:
                 return None, 0
-            reader = rel.to_arrow_reader()
+            reader = _variants_as_json(rel).to_arrow_reader()
         else:
             # On 1.x con.sql gives no result for a change, where execute gives its Count, so keep execute.
+            # DuckDB 1.x can't hand a VARIANT to Arrow, so a cell that ends in a query runs the statements
+            # before it, then binds the query as a relation (which runs nothing) to see its columns: one with
+            # a VARIANT is read through a relation that writes them as JSON. Each statement runs once.
+            relation, code = self._last_query(code)
+            if relation is not None:
+                table, total = _drain(_variants_as_json(relation).to_arrow_reader(), request.preview_rows,
+                                      request.result_rows)
+                return self._keep(table, total, request)
             cur = self._con.execute(code)
             if cur is None or cur.description is None:  # 1.x gives no cursor for a cell with no statement
                 return None, 0
             reader = (getattr(cur, "to_arrow_reader", None) or cur.fetch_record_batch)()
         table, total = _drain(reader, request.preview_rows, request.result_rows)
         return self._keep(table, total, request)
+
+    def _last_query(self, code: str) -> tuple[Any, str]:
+        """DuckDB 1.x: when ``code`` ends in a query, the statements before it are run and the query is bound
+        as a relation (nothing runs). A relation whose result holds a VARIANT is given back, with nothing left
+        to run; otherwise None and what is left to execute (the query alone once the ones before it ran)."""
+        import duckdb
+        try:
+            statements = self._con.extract_statements(code)
+        except duckdb.Error:  # silent-ok: execute reports the same error for the whole cell
+            return None, code
+        if not statements or statements[-1].type != duckdb.StatementType.SELECT:
+            return None, code
+        for statement in statements[:-1]:
+            self._con.execute(statement.query)
+        last = statements[-1].query
+        relation = self._con.sql(last)
+        if relation is None or not any(_has_variant(k) for k in relation.types):
+            return None, last
+        return relation, ""
 
     def _interrupt(self) -> None:
         self._con.interrupt()

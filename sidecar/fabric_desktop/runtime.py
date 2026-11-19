@@ -18,7 +18,7 @@ from .cloud_service import CloudMixin
 from .credentials import KEY_FILE_OPEN, Credential, from_config, key_file_open
 from .dataops_service import DataOpsMixin
 from .fabric_api import FabricClient
-from .jsonfile import read_json, write_json
+from .jsonfile import read_object, write_json
 from .meta import Engine, OneLakeStore, Project
 from .meta.store import META_LAKEHOUSE
 from .meta_service import MetaMixin
@@ -65,8 +65,9 @@ class Runtime(PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin):
                                       "teams_webhook": self.config.teams_webhook}
 
     def _save_settings(self, **changes: Any) -> None:
-        # read_json sets a torn file aside instead of letting this save drop everything in it (QA-011)
-        kept = {k: v for k, v in (read_json(self.settings_file, {}) | changes).items() if k not in _FROM_CONFIG}
+        # read_object sets a torn file (or one that isn't an object) aside instead of letting this save drop
+        # everything in it (QA-011)
+        kept = {k: v for k, v in (read_object(self.settings_file) | changes).items() if k not in _FROM_CONFIG}
         write_json(self.settings_file, kept, indent=2)
 
     # ---- guard rails

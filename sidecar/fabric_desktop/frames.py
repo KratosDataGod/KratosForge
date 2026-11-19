@@ -44,6 +44,7 @@ MAX_FRAMES = 20
 PAGE_ROWS = 100
 MAX_PAGE_ROWS = 1000
 EXCEL_MAX_ROWS = 1_048_575  # a sheet's 1,048,576 rows less the header
+EXCEL_MAX_COLUMNS = 16_384  # a sheet's columns, A to XFD: past them Excel opens the file only to repair it
 DOWNLOAD_FORMATS = ("csv", "xlsx", "parquet")
 PROFILE_COLUMNS = 200
 CHART_KINDS = ("bar", "stacked", "line", "area", "scatter", "pie", "histogram", "box")
@@ -520,6 +521,9 @@ class Frames:
         if fmt == "xlsx" and table.num_rows > EXCEL_MAX_ROWS:
             raise ValueError(f"Excel holds at most {EXCEL_MAX_ROWS:,} rows and this result has "
                              f"{table.num_rows:,}. Download it as CSV or Parquet instead.")
+        if fmt == "xlsx" and table.num_columns > EXCEL_MAX_COLUMNS:
+            raise ValueError(f"Excel holds at most {EXCEL_MAX_COLUMNS:,} columns and this result has "
+                             f"{table.num_columns:,}. Download it as CSV or Parquet instead.")
         target = Path(path)
         partial = target.with_name(target.name + ".partial")
         protected = 0

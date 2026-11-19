@@ -1,0 +1,536 @@
+# Spark 3.5 array and string functions at their edges (WR-116 split, from the 11-18 probe).
+# array_join: NULL elements are skipped unless a replacement is given; a NULL delimiter or replacement gives NULL.
+SELECT array_join(array('a','b','c'), ',') AS v
+SELECT array_join(array('a','b','c'), '-') AS v
+SELECT array_join(array('a','b','c'), '') AS v
+SELECT array_join(array('a','b','c'), NULL) AS v
+SELECT array_join(array('a','b','c'), ',', '?') AS v
+SELECT array_join(array('a','b','c'), ',', '') AS v
+SELECT array_join(array('a','b','c'), ',', NULL) AS v
+SELECT array_join(array('a',NULL,'c'), ',') AS v
+SELECT array_join(array('a',NULL,'c'), '-') AS v
+SELECT array_join(array('a',NULL,'c'), '') AS v
+SELECT array_join(array('a',NULL,'c'), NULL) AS v
+SELECT array_join(array('a',NULL,'c'), ',', '?') AS v
+SELECT array_join(array('a',NULL,'c'), ',', '') AS v
+SELECT array_join(array('a',NULL,'c'), ',', NULL) AS v
+SELECT array_join(array(NULL,NULL), ',') AS v
+SELECT array_join(array(NULL,NULL), '-') AS v
+SELECT array_join(array(NULL,NULL), '') AS v
+SELECT array_join(array(NULL,NULL), NULL) AS v
+SELECT array_join(array(NULL,NULL), ',', '?') AS v
+SELECT array_join(array(NULL,NULL), ',', '') AS v
+SELECT array_join(array(NULL,NULL), ',', NULL) AS v
+SELECT array_join(array(), ',') AS v
+SELECT array_join(array(), '-') AS v
+SELECT array_join(array(), '') AS v
+SELECT array_join(array(), NULL) AS v
+SELECT array_join(array(), ',', '?') AS v
+SELECT array_join(array(), ',', '') AS v
+SELECT array_join(array(), ',', NULL) AS v
+SELECT array_join(CAST(NULL AS ARRAY<STRING>), ',') AS v
+SELECT array_join(CAST(NULL AS ARRAY<STRING>), '-') AS v
+SELECT array_join(CAST(NULL AS ARRAY<STRING>), '') AS v
+SELECT array_join(CAST(NULL AS ARRAY<STRING>), NULL) AS v
+SELECT array_join(CAST(NULL AS ARRAY<STRING>), ',', '?') AS v
+SELECT array_join(CAST(NULL AS ARRAY<STRING>), ',', '') AS v
+SELECT array_join(CAST(NULL AS ARRAY<STRING>), ',', NULL) AS v
+SELECT array_join(array('x'), ',') AS v
+SELECT array_join(array('x'), '-') AS v
+SELECT array_join(array('x'), '') AS v
+SELECT array_join(array('x'), NULL) AS v
+SELECT array_join(array('x'), ',', '?') AS v
+SELECT array_join(array('x'), ',', '') AS v
+SELECT array_join(array('x'), ',', NULL) AS v
+SELECT array_join(array(1, NULL, 3), '+') AS v
+SELECT array_join(array(1, NULL, 3), '+', '0') AS v
+# size and array_size: size of NULL is -1 (legacy sizeOfNull, ANSI off); array_size of NULL is NULL.
+SELECT size(array(1,2,3)) AS v
+SELECT array_size(array(1,2,3)) AS v
+SELECT size(array()) AS v
+SELECT array_size(array()) AS v
+SELECT size(CAST(NULL AS ARRAY<INT>)) AS v
+SELECT array_size(CAST(NULL AS ARRAY<INT>)) AS v
+SELECT size(map(1,'a',2,'b')) AS v
+SELECT size(map()) AS v
+SELECT size(CAST(NULL AS MAP<INT,INT>)) AS v
+SELECT array_size(CAST(NULL AS MAP<INT,INT>)) AS v
+SELECT size(array(NULL)) AS v
+SELECT array_size(array(NULL)) AS v
+SELECT cardinality(CAST(NULL AS MAP<INT,INT>)) AS v
+# reverse of an array.
+SELECT reverse(array(1,2,3)) AS v
+SELECT reverse(array()) AS v
+SELECT reverse(array('a',NULL)) AS v
+SELECT reverse(CAST(NULL AS ARRAY<INT>)) AS v
+SELECT reverse('abc') AS v
+SELECT reverse('') AS v
+SELECT reverse(array(array(1),array(2,3))) AS v
+# array_insert: positions past the end pad with NULL; negative positions count from the end.
+SELECT array_insert(array(1,2,3), 1, 9) AS v
+SELECT array_insert(array(1,2,3), 2, 9) AS v
+SELECT array_insert(array(1,2,3), 3, 9) AS v
+SELECT array_insert(array(1,2,3), 4, 9) AS v
+SELECT array_insert(array(1,2,3), 5, 9) AS v
+SELECT array_insert(array(1,2,3), 6, 9) AS v
+SELECT array_insert(array(1,2,3), -1, 9) AS v
+SELECT array_insert(array(1,2,3), -2, 9) AS v
+SELECT array_insert(array(1,2,3), -3, 9) AS v
+SELECT array_insert(array(1,2,3), -4, 9) AS v
+SELECT array_insert(array(1,2,3), -5, 9) AS v
+SELECT array_insert(array(1,2,3), -6, 9) AS v
+SELECT array_insert(array(1), 1, 9) AS v
+SELECT array_insert(array(1), 2, 9) AS v
+SELECT array_insert(array(1), 3, 9) AS v
+SELECT array_insert(array(1), 4, 9) AS v
+SELECT array_insert(array(1), 5, 9) AS v
+SELECT array_insert(array(1), 6, 9) AS v
+SELECT array_insert(array(1), -1, 9) AS v
+SELECT array_insert(array(1), -2, 9) AS v
+SELECT array_insert(array(1), -3, 9) AS v
+SELECT array_insert(array(1), -4, 9) AS v
+SELECT array_insert(array(1), -5, 9) AS v
+SELECT array_insert(array(1), -6, 9) AS v
+SELECT array_insert(array(), 1, 9) AS v
+SELECT array_insert(array(), 2, 9) AS v
+SELECT array_insert(array(), 3, 9) AS v
+SELECT array_insert(array(), 4, 9) AS v
+SELECT array_insert(array(), 5, 9) AS v
+SELECT array_insert(array(), 6, 9) AS v
+SELECT array_insert(array(), -1, 9) AS v
+SELECT array_insert(array(), -2, 9) AS v
+SELECT array_insert(array(), -3, 9) AS v
+SELECT array_insert(array(), -4, 9) AS v
+SELECT array_insert(array(), -5, 9) AS v
+SELECT array_insert(array(), -6, 9) AS v
+SELECT array_insert(array(1,2,3), 0, 9) AS v
+SELECT array_insert(array(1,2,3), NULL, 9) AS v
+SELECT array_insert(array(1,2,3), 2, NULL) AS v
+SELECT array_insert(CAST(NULL AS ARRAY<INT>), 1, 9) AS v
+# split: Java regex, trailing empty strings kept (limit -1).
+SELECT split('a|b', '|') AS v
+SELECT split('a|b', ',') AS v
+SELECT split('a|b', '') AS v
+SELECT split('a|b', 'x*') AS v
+SELECT split('a|b', 'b*') AS v
+SELECT split('a|b', ' +') AS v
+SELECT split('a|b', '[,]') AS v
+SELECT split('a,b,', '|') AS v
+SELECT split('a,b,', ',') AS v
+SELECT split('a,b,', '') AS v
+SELECT split('a,b,', 'x*') AS v
+SELECT split('a,b,', 'b*') AS v
+SELECT split('a,b,', ' +') AS v
+SELECT split('a,b,', '[,]') AS v
+SELECT split(',a,,b,', '|') AS v
+SELECT split(',a,,b,', ',') AS v
+SELECT split(',a,,b,', '') AS v
+SELECT split(',a,,b,', 'x*') AS v
+SELECT split(',a,,b,', 'b*') AS v
+SELECT split(',a,,b,', ' +') AS v
+SELECT split(',a,,b,', '[,]') AS v
+SELECT split('abc', '|') AS v
+SELECT split('abc', ',') AS v
+SELECT split('abc', '') AS v
+SELECT split('abc', 'x*') AS v
+SELECT split('abc', 'b*') AS v
+SELECT split('abc', ' +') AS v
+SELECT split('abc', '[,]') AS v
+SELECT split('', '|') AS v
+SELECT split('', ',') AS v
+SELECT split('', '') AS v
+SELECT split('', 'x*') AS v
+SELECT split('', 'b*') AS v
+SELECT split('', ' +') AS v
+SELECT split('', '[,]') AS v
+SELECT split('a b  c', '|') AS v
+SELECT split('a b  c', ',') AS v
+SELECT split('a b  c', '') AS v
+SELECT split('a b  c', 'x*') AS v
+SELECT split('a b  c', 'b*') AS v
+SELECT split('a b  c', ' +') AS v
+SELECT split('a b  c', '[,]') AS v
+SELECT split('a,b,c', ',', 2) AS v
+SELECT split('a,b,c', ',', 0) AS v
+# locate and instr with an empty search text.
+SELECT locate('', 'hello', 0) AS v
+SELECT locate('l', 'hello', 0) AS v
+SELECT locate('', 'hello', 1) AS v
+SELECT locate('l', 'hello', 1) AS v
+SELECT locate('', 'hello', 3) AS v
+SELECT locate('l', 'hello', 3) AS v
+SELECT locate('', 'hello', 5) AS v
+SELECT locate('l', 'hello', 5) AS v
+SELECT locate('', 'hello', 6) AS v
+SELECT locate('l', 'hello', 6) AS v
+SELECT locate('', 'hello', 10) AS v
+SELECT locate('l', 'hello', 10) AS v
+SELECT locate('', 'hello', -1) AS v
+SELECT locate('l', 'hello', -1) AS v
+SELECT locate('', '') AS v
+SELECT locate('', '', 1) AS v
+SELECT instr('hello', '') AS v
+SELECT instr('', '') AS v
+SELECT position('', 'hello') AS v
+# substring_index counts overlapping delimiters.
+SELECT substring_index('aaa', 'aa', 1) AS v
+SELECT substring_index('aaa', 'aa', 2) AS v
+SELECT substring_index('aaa', 'aa', -1) AS v
+SELECT substring_index('aaa', 'aa', -2) AS v
+SELECT substring_index('aaa', 'aa', 0) AS v
+SELECT substring_index('aaa', 'aa', 5) AS v
+SELECT substring_index('aaa', 'aa', -5) AS v
+SELECT substring_index('aaa', 'a', 1) AS v
+SELECT substring_index('aaa', 'a', 2) AS v
+SELECT substring_index('aaa', 'a', -1) AS v
+SELECT substring_index('aaa', 'a', -2) AS v
+SELECT substring_index('aaa', 'a', 0) AS v
+SELECT substring_index('aaa', 'a', 5) AS v
+SELECT substring_index('aaa', 'a', -5) AS v
+SELECT substring_index('aaa', '.', 1) AS v
+SELECT substring_index('aaa', '.', 2) AS v
+SELECT substring_index('aaa', '.', -1) AS v
+SELECT substring_index('aaa', '.', -2) AS v
+SELECT substring_index('aaa', '.', 0) AS v
+SELECT substring_index('aaa', '.', 5) AS v
+SELECT substring_index('aaa', '.', -5) AS v
+SELECT substring_index('aaa', 'ab', 1) AS v
+SELECT substring_index('aaa', 'ab', 2) AS v
+SELECT substring_index('aaa', 'ab', -1) AS v
+SELECT substring_index('aaa', 'ab', -2) AS v
+SELECT substring_index('aaa', 'ab', 0) AS v
+SELECT substring_index('aaa', 'ab', 5) AS v
+SELECT substring_index('aaa', 'ab', -5) AS v
+SELECT substring_index('aaa', '', 1) AS v
+SELECT substring_index('aaa', '', 2) AS v
+SELECT substring_index('aaa', '', -1) AS v
+SELECT substring_index('aaa', '', -2) AS v
+SELECT substring_index('aaa', '', 0) AS v
+SELECT substring_index('aaa', '', 5) AS v
+SELECT substring_index('aaa', '', -5) AS v
+SELECT substring_index('aaa', 'ba', 1) AS v
+SELECT substring_index('aaa', 'ba', 2) AS v
+SELECT substring_index('aaa', 'ba', -1) AS v
+SELECT substring_index('aaa', 'ba', -2) AS v
+SELECT substring_index('aaa', 'ba', 0) AS v
+SELECT substring_index('aaa', 'ba', 5) AS v
+SELECT substring_index('aaa', 'ba', -5) AS v
+SELECT substring_index('aaaa', 'aa', 1) AS v
+SELECT substring_index('aaaa', 'aa', 2) AS v
+SELECT substring_index('aaaa', 'aa', -1) AS v
+SELECT substring_index('aaaa', 'aa', -2) AS v
+SELECT substring_index('aaaa', 'aa', 0) AS v
+SELECT substring_index('aaaa', 'aa', 5) AS v
+SELECT substring_index('aaaa', 'aa', -5) AS v
+SELECT substring_index('aaaa', 'a', 1) AS v
+SELECT substring_index('aaaa', 'a', 2) AS v
+SELECT substring_index('aaaa', 'a', -1) AS v
+SELECT substring_index('aaaa', 'a', -2) AS v
+SELECT substring_index('aaaa', 'a', 0) AS v
+SELECT substring_index('aaaa', 'a', 5) AS v
+SELECT substring_index('aaaa', 'a', -5) AS v
+SELECT substring_index('aaaa', '.', 1) AS v
+SELECT substring_index('aaaa', '.', 2) AS v
+SELECT substring_index('aaaa', '.', -1) AS v
+SELECT substring_index('aaaa', '.', -2) AS v
+SELECT substring_index('aaaa', '.', 0) AS v
+SELECT substring_index('aaaa', '.', 5) AS v
+SELECT substring_index('aaaa', '.', -5) AS v
+SELECT substring_index('aaaa', 'ab', 1) AS v
+SELECT substring_index('aaaa', 'ab', 2) AS v
+SELECT substring_index('aaaa', 'ab', -1) AS v
+SELECT substring_index('aaaa', 'ab', -2) AS v
+SELECT substring_index('aaaa', 'ab', 0) AS v
+SELECT substring_index('aaaa', 'ab', 5) AS v
+SELECT substring_index('aaaa', 'ab', -5) AS v
+SELECT substring_index('aaaa', '', 1) AS v
+SELECT substring_index('aaaa', '', 2) AS v
+SELECT substring_index('aaaa', '', -1) AS v
+SELECT substring_index('aaaa', '', -2) AS v
+SELECT substring_index('aaaa', '', 0) AS v
+SELECT substring_index('aaaa', '', 5) AS v
+SELECT substring_index('aaaa', '', -5) AS v
+SELECT substring_index('aaaa', 'ba', 1) AS v
+SELECT substring_index('aaaa', 'ba', 2) AS v
+SELECT substring_index('aaaa', 'ba', -1) AS v
+SELECT substring_index('aaaa', 'ba', -2) AS v
+SELECT substring_index('aaaa', 'ba', 0) AS v
+SELECT substring_index('aaaa', 'ba', 5) AS v
+SELECT substring_index('aaaa', 'ba', -5) AS v
+SELECT substring_index('a.b.c', 'aa', 1) AS v
+SELECT substring_index('a.b.c', 'aa', 2) AS v
+SELECT substring_index('a.b.c', 'aa', -1) AS v
+SELECT substring_index('a.b.c', 'aa', -2) AS v
+SELECT substring_index('a.b.c', 'aa', 0) AS v
+SELECT substring_index('a.b.c', 'aa', 5) AS v
+SELECT substring_index('a.b.c', 'aa', -5) AS v
+SELECT substring_index('a.b.c', 'a', 1) AS v
+SELECT substring_index('a.b.c', 'a', 2) AS v
+SELECT substring_index('a.b.c', 'a', -1) AS v
+SELECT substring_index('a.b.c', 'a', -2) AS v
+SELECT substring_index('a.b.c', 'a', 0) AS v
+SELECT substring_index('a.b.c', 'a', 5) AS v
+SELECT substring_index('a.b.c', 'a', -5) AS v
+SELECT substring_index('a.b.c', '.', 1) AS v
+SELECT substring_index('a.b.c', '.', 2) AS v
+SELECT substring_index('a.b.c', '.', -1) AS v
+SELECT substring_index('a.b.c', '.', -2) AS v
+SELECT substring_index('a.b.c', '.', 0) AS v
+SELECT substring_index('a.b.c', '.', 5) AS v
+SELECT substring_index('a.b.c', '.', -5) AS v
+SELECT substring_index('a.b.c', 'ab', 1) AS v
+SELECT substring_index('a.b.c', 'ab', 2) AS v
+SELECT substring_index('a.b.c', 'ab', -1) AS v
+SELECT substring_index('a.b.c', 'ab', -2) AS v
+SELECT substring_index('a.b.c', 'ab', 0) AS v
+SELECT substring_index('a.b.c', 'ab', 5) AS v
+SELECT substring_index('a.b.c', 'ab', -5) AS v
+SELECT substring_index('a.b.c', '', 1) AS v
+SELECT substring_index('a.b.c', '', 2) AS v
+SELECT substring_index('a.b.c', '', -1) AS v
+SELECT substring_index('a.b.c', '', -2) AS v
+SELECT substring_index('a.b.c', '', 0) AS v
+SELECT substring_index('a.b.c', '', 5) AS v
+SELECT substring_index('a.b.c', '', -5) AS v
+SELECT substring_index('a.b.c', 'ba', 1) AS v
+SELECT substring_index('a.b.c', 'ba', 2) AS v
+SELECT substring_index('a.b.c', 'ba', -1) AS v
+SELECT substring_index('a.b.c', 'ba', -2) AS v
+SELECT substring_index('a.b.c', 'ba', 0) AS v
+SELECT substring_index('a.b.c', 'ba', 5) AS v
+SELECT substring_index('a.b.c', 'ba', -5) AS v
+SELECT substring_index('abab', 'aa', 1) AS v
+SELECT substring_index('abab', 'aa', 2) AS v
+SELECT substring_index('abab', 'aa', -1) AS v
+SELECT substring_index('abab', 'aa', -2) AS v
+SELECT substring_index('abab', 'aa', 0) AS v
+SELECT substring_index('abab', 'aa', 5) AS v
+SELECT substring_index('abab', 'aa', -5) AS v
+SELECT substring_index('abab', 'a', 1) AS v
+SELECT substring_index('abab', 'a', 2) AS v
+SELECT substring_index('abab', 'a', -1) AS v
+SELECT substring_index('abab', 'a', -2) AS v
+SELECT substring_index('abab', 'a', 0) AS v
+SELECT substring_index('abab', 'a', 5) AS v
+SELECT substring_index('abab', 'a', -5) AS v
+SELECT substring_index('abab', '.', 1) AS v
+SELECT substring_index('abab', '.', 2) AS v
+SELECT substring_index('abab', '.', -1) AS v
+SELECT substring_index('abab', '.', -2) AS v
+SELECT substring_index('abab', '.', 0) AS v
+SELECT substring_index('abab', '.', 5) AS v
+SELECT substring_index('abab', '.', -5) AS v
+SELECT substring_index('abab', 'ab', 1) AS v
+SELECT substring_index('abab', 'ab', 2) AS v
+SELECT substring_index('abab', 'ab', -1) AS v
+SELECT substring_index('abab', 'ab', -2) AS v
+SELECT substring_index('abab', 'ab', 0) AS v
+SELECT substring_index('abab', 'ab', 5) AS v
+SELECT substring_index('abab', 'ab', -5) AS v
+SELECT substring_index('abab', '', 1) AS v
+SELECT substring_index('abab', '', 2) AS v
+SELECT substring_index('abab', '', -1) AS v
+SELECT substring_index('abab', '', -2) AS v
+SELECT substring_index('abab', '', 0) AS v
+SELECT substring_index('abab', '', 5) AS v
+SELECT substring_index('abab', '', -5) AS v
+SELECT substring_index('abab', 'ba', 1) AS v
+SELECT substring_index('abab', 'ba', 2) AS v
+SELECT substring_index('abab', 'ba', -1) AS v
+SELECT substring_index('abab', 'ba', -2) AS v
+SELECT substring_index('abab', 'ba', 0) AS v
+SELECT substring_index('abab', 'ba', 5) AS v
+SELECT substring_index('abab', 'ba', -5) AS v
+SELECT substring_index('', 'aa', 1) AS v
+SELECT substring_index('', 'aa', 2) AS v
+SELECT substring_index('', 'aa', -1) AS v
+SELECT substring_index('', 'aa', -2) AS v
+SELECT substring_index('', 'aa', 0) AS v
+SELECT substring_index('', 'aa', 5) AS v
+SELECT substring_index('', 'aa', -5) AS v
+SELECT substring_index('', 'a', 1) AS v
+SELECT substring_index('', 'a', 2) AS v
+SELECT substring_index('', 'a', -1) AS v
+SELECT substring_index('', 'a', -2) AS v
+SELECT substring_index('', 'a', 0) AS v
+SELECT substring_index('', 'a', 5) AS v
+SELECT substring_index('', 'a', -5) AS v
+SELECT substring_index('', '.', 1) AS v
+SELECT substring_index('', '.', 2) AS v
+SELECT substring_index('', '.', -1) AS v
+SELECT substring_index('', '.', -2) AS v
+SELECT substring_index('', '.', 0) AS v
+SELECT substring_index('', '.', 5) AS v
+SELECT substring_index('', '.', -5) AS v
+SELECT substring_index('', 'ab', 1) AS v
+SELECT substring_index('', 'ab', 2) AS v
+SELECT substring_index('', 'ab', -1) AS v
+SELECT substring_index('', 'ab', -2) AS v
+SELECT substring_index('', 'ab', 0) AS v
+SELECT substring_index('', 'ab', 5) AS v
+SELECT substring_index('', 'ab', -5) AS v
+SELECT substring_index('', '', 1) AS v
+SELECT substring_index('', '', 2) AS v
+SELECT substring_index('', '', -1) AS v
+SELECT substring_index('', '', -2) AS v
+SELECT substring_index('', '', 0) AS v
+SELECT substring_index('', '', 5) AS v
+SELECT substring_index('', '', -5) AS v
+SELECT substring_index('', 'ba', 1) AS v
+SELECT substring_index('', 'ba', 2) AS v
+SELECT substring_index('', 'ba', -1) AS v
+SELECT substring_index('', 'ba', -2) AS v
+SELECT substring_index('', 'ba', 0) AS v
+SELECT substring_index('', 'ba', 5) AS v
+SELECT substring_index('', 'ba', -5) AS v
+SELECT substring_index('www.apache.org', 'aa', 1) AS v
+SELECT substring_index('www.apache.org', 'aa', 2) AS v
+SELECT substring_index('www.apache.org', 'aa', -1) AS v
+SELECT substring_index('www.apache.org', 'aa', -2) AS v
+SELECT substring_index('www.apache.org', 'aa', 0) AS v
+SELECT substring_index('www.apache.org', 'aa', 5) AS v
+SELECT substring_index('www.apache.org', 'aa', -5) AS v
+SELECT substring_index('www.apache.org', 'a', 1) AS v
+SELECT substring_index('www.apache.org', 'a', 2) AS v
+SELECT substring_index('www.apache.org', 'a', -1) AS v
+SELECT substring_index('www.apache.org', 'a', -2) AS v
+SELECT substring_index('www.apache.org', 'a', 0) AS v
+SELECT substring_index('www.apache.org', 'a', 5) AS v
+SELECT substring_index('www.apache.org', 'a', -5) AS v
+SELECT substring_index('www.apache.org', '.', 1) AS v
+SELECT substring_index('www.apache.org', '.', 2) AS v
+SELECT substring_index('www.apache.org', '.', -1) AS v
+SELECT substring_index('www.apache.org', '.', -2) AS v
+SELECT substring_index('www.apache.org', '.', 0) AS v
+SELECT substring_index('www.apache.org', '.', 5) AS v
+SELECT substring_index('www.apache.org', '.', -5) AS v
+SELECT substring_index('www.apache.org', 'ab', 1) AS v
+SELECT substring_index('www.apache.org', 'ab', 2) AS v
+SELECT substring_index('www.apache.org', 'ab', -1) AS v
+SELECT substring_index('www.apache.org', 'ab', -2) AS v
+SELECT substring_index('www.apache.org', 'ab', 0) AS v
+SELECT substring_index('www.apache.org', 'ab', 5) AS v
+SELECT substring_index('www.apache.org', 'ab', -5) AS v
+SELECT substring_index('www.apache.org', '', 1) AS v
+SELECT substring_index('www.apache.org', '', 2) AS v
+SELECT substring_index('www.apache.org', '', -1) AS v
+SELECT substring_index('www.apache.org', '', -2) AS v
+SELECT substring_index('www.apache.org', '', 0) AS v
+SELECT substring_index('www.apache.org', '', 5) AS v
+SELECT substring_index('www.apache.org', '', -5) AS v
+SELECT substring_index('www.apache.org', 'ba', 1) AS v
+SELECT substring_index('www.apache.org', 'ba', 2) AS v
+SELECT substring_index('www.apache.org', 'ba', -1) AS v
+SELECT substring_index('www.apache.org', 'ba', -2) AS v
+SELECT substring_index('www.apache.org', 'ba', 0) AS v
+SELECT substring_index('www.apache.org', 'ba', 5) AS v
+SELECT substring_index('www.apache.org', 'ba', -5) AS v
+# concat_ws with only a separator, and with arrays.
+SELECT concat_ws(',') AS v
+SELECT concat_ws(',', NULL) AS v
+SELECT concat_ws(NULL, 'a') AS v
+SELECT concat_ws('-', array('a','b'), 'c') AS v
+SELECT concat_ws('-', array('a',NULL), NULL, 'c') AS v
+SELECT concat_ws('', 'a', 'b') AS v
+# format_number keeps every digit of a whole number or decimal.
+SELECT format_number(123456789012345678, 0) AS v
+SELECT format_number(123456789012345678, 1) AS v
+SELECT format_number(123456789012345678, 2) AS v
+SELECT format_number(123456789012345678, 4) AS v
+SELECT format_number(-123456789012345678, 0) AS v
+SELECT format_number(-123456789012345678, 1) AS v
+SELECT format_number(-123456789012345678, 2) AS v
+SELECT format_number(-123456789012345678, 4) AS v
+SELECT format_number(1234567, 0) AS v
+SELECT format_number(1234567, 1) AS v
+SELECT format_number(1234567, 2) AS v
+SELECT format_number(1234567, 4) AS v
+SELECT format_number(CAST(12345678901234567890.125 AS DECIMAL(38,3)), 0) AS v
+SELECT format_number(CAST(12345678901234567890.125 AS DECIMAL(38,3)), 1) AS v
+SELECT format_number(CAST(12345678901234567890.125 AS DECIMAL(38,3)), 2) AS v
+SELECT format_number(CAST(12345678901234567890.125 AS DECIMAL(38,3)), 4) AS v
+SELECT format_number(0.5, 0) AS v
+SELECT format_number(0.5, 1) AS v
+SELECT format_number(0.5, 2) AS v
+SELECT format_number(0.5, 4) AS v
+SELECT format_number(1.5, 0) AS v
+SELECT format_number(1.5, 1) AS v
+SELECT format_number(1.5, 2) AS v
+SELECT format_number(1.5, 4) AS v
+SELECT format_number(2.5, 0) AS v
+SELECT format_number(2.5, 1) AS v
+SELECT format_number(2.5, 2) AS v
+SELECT format_number(2.5, 4) AS v
+SELECT format_number(-2.5, 0) AS v
+SELECT format_number(-2.5, 1) AS v
+SELECT format_number(-2.5, 2) AS v
+SELECT format_number(-2.5, 4) AS v
+SELECT format_number(1234.5678D, 0) AS v
+SELECT format_number(1234.5678D, 1) AS v
+SELECT format_number(1234.5678D, 2) AS v
+SELECT format_number(1234.5678D, 4) AS v
+SELECT format_number(1e20D, 0) AS v
+SELECT format_number(1e20D, 1) AS v
+SELECT format_number(1e20D, 2) AS v
+SELECT format_number(1e20D, 4) AS v
+SELECT format_number(CAST(NULL AS INT), 0) AS v
+SELECT format_number(CAST(NULL AS INT), 1) AS v
+SELECT format_number(CAST(NULL AS INT), 2) AS v
+SELECT format_number(CAST(NULL AS INT), 4) AS v
+SELECT format_number(9223372036854775807, 0) AS v
+SELECT format_number(9223372036854775807, 1) AS v
+SELECT format_number(9223372036854775807, 2) AS v
+SELECT format_number(9223372036854775807, 4) AS v
+SELECT format_number(1234.5, -1) AS v
+SELECT format_number(1234567.891, '#,###.00') AS v
+SELECT format_number(1234567.891, '#.##') AS v
+SELECT format_number(1234567.891, '0000') AS v
+SELECT format_number(1234567.891, '') AS v
+SELECT format_number(1234567.891, '#,##0.0#') AS v
+# contains, upper and lower.
+SELECT contains('abc', NULL) AS v
+SELECT contains(NULL, 'a') AS v
+SELECT contains(NULL, NULL) AS v
+SELECT upper('ß') AS v
+SELECT upper('straße') AS v
+SELECT upper('ﬁ') AS v
+SELECT upper('ŉ') AS v
+SELECT upper('ǰ') AS v
+SELECT upper('ΐ') AS v
+SELECT upper('ᾳ') AS v
+SELECT upper('abc') AS v
+SELECT lower('İ') AS v
+SELECT lower('İSTANBUL') AS v
+SELECT lower('ΑΣ') AS v
+SELECT upper('ﬀ ﬃ ﬆ') AS v
+SELECT length(upper('ß')) AS v
+SELECT initcap('ß') AS v
+SELECT ucase('ß') AS v
+SELECT lcase('İ') AS v
+# format_string with an array argument.
+SELECT format_string('%s', array(1,2)) AS v
+SELECT format_string('%s', array('a','b')) AS v
+SELECT format_string('%s-%s', 'a', 1) AS v
+# array_distinct keeps 0.0 and -0.0 apart.
+SELECT array_distinct(array(0.0D, -0.0D)) AS v
+SELECT array_distinct(array(1, 1, NULL, NULL, 2)) AS v
+SELECT array_distinct(array(-0.0D, 0.0D, 0.0D)) AS v
+# format_number keeps a - that rounds to 0, and rounds a decimal half-even.
+SELECT format_number(-0.4, 0) AS v
+SELECT format_number(-0.4D, 0) AS v
+SELECT format_number(0.125, 2) AS v
+SELECT format_number(0.135, 2) AS v
+SELECT format_number(-0.004, 2) AS v
+SELECT format_number(CAST(5 AS TINYINT), 2) AS v
+SELECT format_number(-0.0D, 1) AS v
+SELECT format_number(1234567.891, 3) AS v
+# initcap takes a letter's title case; lower writes a final sigma.
+SELECT initcap('ǆemal straße') AS v
+SELECT lower('ΟΔΟΣ ΟΔΟΣ.') AS v
+SELECT lower('ΣΑΣ') AS v
+SELECT upper('ﬃx ß') AS v
+SELECT array_distinct(array(double('NaN'), double('NaN'), 1.0D, NULL, NULL)) AS v
+SELECT array_join(array(1.5D, NULL, 2.0D), '|') AS v
+SELECT array_join(array(DATE'2024-01-02', NULL), ',') AS v
+SELECT array_insert(array('a','b'), -1, 'z') AS v
+SELECT substring_index('a.b.c', '.', -2) AS v

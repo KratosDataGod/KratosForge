@@ -387,17 +387,18 @@ class ScheduleMixin:
                                "Edit the schedule to run only while you're signed in."}
             schedules.log_run(row)
             return row
+        params = {"schedule_id": schedule_id, "trigger": trigger, "target": s["target"]}
+        prod = audit.fails_closed("run_schedule", {"target": s["target"]})  # before the lock: nothing can leave it held
         lock = self._lock(schedule_id, {"started": row["started"], "trigger": trigger})
         if lock is None:
             row |= {"ended": _now(), "seconds": 0, "status": "skipped",
                     "message": "The previous run of this schedule was still going"}
             schedules.log_run(row)
             return row
-        params = {"schedule_id": schedule_id, "trigger": trigger, "target": s["target"]}
-        prod = audit.fails_closed("run_schedule", {"target": s["target"]})
         if prod:
-            # Aimed at Prod: as for the app's own calls, it runs only once its audit line is written. After
-            # the overlap lock, so a run skipped because the last one was still going leaves no "started" line.
+            # Aimed at Prod: as for the app's own calls, it runs only once its audit line is written. Only the
+            # check of whether it is aimed at Prod comes before the overlap lock; the line itself is written
+            # after it, so a run skipped because the last one was still going leaves no "started" line.
             try:
                 self.audit.record("run_schedule", "started", 0.0, params)  # type: ignore[attr-defined]
             except Exception as exc:  # noqa: BLE001 - any failure to write refuses the run

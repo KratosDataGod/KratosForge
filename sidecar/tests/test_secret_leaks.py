@@ -216,3 +216,58 @@ def test_an_empty_folder_goes_without_recurse_but_never_a_file_that_arrived(tmp_
     out = Kernel().run(f"dbutils.fs.rm('file:{folder.as_posix()}')")
     assert out["status"] == "error" and out["outputs"][-1]["ename"] == "IsADirectoryError"
     assert (folder / "late.csv").read_text() == "new"
+
+
+def test_partial_tail_holds_back_up_to_one_less_than_the_longest_value():
+    secret_redaction.remember(VAULT_VALUE)
+    longest = len(VAULT_VALUE)
+    assert secret_redaction.partial_tail("x" + VAULT_VALUE[:-1]) == longest - 1  # the most it can hold
+    assert secret_redaction.partial_tail(VAULT_VALUE) == 0  # a whole value is redacted, not held
+    raw = io.StringIO()
+    stream = server._RedactedStream(raw)
+    stream.write("x" * (stream.HOLD + 1) + VAULT_VALUE[:-1])
+    assert VAULT_VALUE[:-1] not in raw.getvalue()
+    stream.write(VAULT_VALUE[-1] + "\n")
+    assert not _leaks(raw.getvalue()) and raw.getvalue().endswith("[REDACTED]\n")
+
+
+def test_closing_the_stream_writes_out_what_it_held_and_leaves_stderr_open():
+    secret_redaction.remember(VAULT_VALUE)
+    raw = io.StringIO()
+    stream = server._RedactedStream(raw)
+    stream.write("no newline yet")
+    assert raw.getvalue() == ""
+    stream.close()
+    assert raw.getvalue() == "no newline yet" and stream.closed and not raw.closed
+
+
+def test_a_short_secret_never_breaks_a_picture_but_is_redacted_in_text_and_svg():
+    import base64
+    short = "Qk9" + "x"  # four characters, which a base64 picture is likely to hold
+    secret_redaction.remember(short)
+    png = "iVBORw0KGgo" + short + "AAAANSUhEUg=="
+    svg_text = f"<svg><text>{short}</text></svg>"
+    svg = base64.b64encode(svg_text.encode()).decode()
+    outputs = [{"type": "image", "mime": "image/png", "data": png},
+               {"type": "image", "mime": "image/jpeg", "data": png},
+               {"type": "image", "mime": "image/svg+xml", "data": svg},
+               {"type": "html", "html": f"<b>{short}</b>"},
+               {"type": "bundle", "data": {"image/png": png, "image/svg+xml": svg_text, "text/plain": short,
+                                           "text/html": f"<i>{short}</i>"}}]
+    shown = secret_redaction.redact_output(outputs)
+    assert shown[0]["data"] == png and shown[1]["data"] == png and shown[4]["data"]["image/png"] == png
+    assert base64.b64decode(shown[2]["data"]).decode() == "<svg><text>[REDACTED]</text></svg>"
+    assert shown[3]["html"] == "<b>[REDACTED]</b>"
+    assert shown[4]["data"]["image/svg+xml"] == "<svg><text>[REDACTED]</text></svg>"
+    assert shown[4]["data"]["text/plain"] == "[REDACTED]" and shown[4]["data"]["text/html"] == "<i>[REDACTED]</i>"
+
+
+def test_a_picture_a_cell_shows_arrives_whole(kernel):
+    import base64
+    out = kernel.run("import base64\nfrom IPython.display import Image, display\n"
+                     "data = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==')\n"
+                     "display(Image(data=data, format='png'))\n"
+                     "print(pw)")
+    assert out["status"] == "ok"
+    image = next(o for o in out["outputs"] if o["type"] == "image")
+    assert base64.b64decode(image["data"]).startswith(b"\x89PNG") and not _leaks(out)

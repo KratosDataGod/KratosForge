@@ -19,6 +19,8 @@ this stops a value being shown by mistake. It is not a wall: code that otherwise
 
 from __future__ import annotations
 
+import base64
+import binascii
 import io
 import re
 import threading
@@ -90,15 +92,45 @@ def redact(text: str) -> str:
     return pattern.sub(REDACTED, text)
 
 
+SVG = "image/svg+xml"
+
+
+def _is_picture(mime: Any) -> bool:
+    """An image type whose data is binary (PNG, JPEG, GIF, WebP...), sent as base64. SVG is text."""
+    return isinstance(mime, str) and mime.lower().startswith("image/") and mime.lower() != SVG
+
+
+def _redact_base64_svg(data: str) -> str:
+    """An SVG output's base64 data with the secrets in its text replaced; text that isn't base64
+    UTF-8 is redacted as it is."""
+    try:
+        text = base64.b64decode(data, validate=True).decode("utf-8")
+    except (binascii.Error, ValueError):
+        return redact(data)
+    shown = redact(text)
+    return data if shown == text else base64.b64encode(shown.encode("utf-8")).decode("ascii")
+
+
 def redact_output(value: Any) -> Any:
     """``value`` with every remembered secret replaced in each string inside it (dicts and lists
-    are copied, never changed in place). Bytes are left alone: images and other binary data."""
+    are copied, never changed in place). Bytes are left alone, and so is a picture's base64 data
+    (an image output's ``data``, or a bundle's ``image/png``): replacing characters in it would only
+    break the picture. An SVG is text, so its secrets are replaced, inside the base64 too."""
     if _pattern is None:
         return value
     if isinstance(value, str):
         return redact(value)
     if isinstance(value, dict):
-        return {k: redact_output(v) for k, v in value.items()}
+        mime = value.get("mime")
+        out = {}
+        for k, v in value.items():
+            if isinstance(v, str) and ((k == "data" and _is_picture(mime)) or _is_picture(k)):
+                out[k] = v
+            elif isinstance(v, str) and k == "data" and isinstance(mime, str) and mime.lower() == SVG:
+                out[k] = _redact_base64_svg(v)
+            else:
+                out[k] = redact_output(v)
+        return out
     if isinstance(value, list):
         return [redact_output(v) for v in value]
     if isinstance(value, tuple):
@@ -169,8 +201,5 @@ class RedactedStream(io.TextIOBase):
                 self.stream.write(self._clean(part))
         self.stream.flush()
 
-    def close(self) -> None:
-        """Writes out what is held; the stream underneath stays open (it is the process's stderr)."""
-        if not self.closed:
-            self.flush()
-        super().close()
+    # close() is io.IOBase's: it calls flush(), so what is held is written out, and the stream
+    # underneath (the process's stderr) stays open.

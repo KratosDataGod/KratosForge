@@ -564,11 +564,12 @@ def _download_app(dest: str, commit: str) -> tuple[int, str]:
             continue
         if not expected:
             # Every release CI publishes gives one; without it the download can't be checked (HD-022).
-            return 1, f"Build {short}'s release gives no checksum for the app, so it wasn't installed. {KEPT}"
+            return 1, (f"Build {short}'s release gives no checksum for the app, so it wasn't installed. "
+                       f"Report it so the release can be fixed. {KEPT}")
         if digest.hexdigest() != expected:
             print(f"The download does not match build {short}'s checksum; trying again", flush=True)
             why = (f"The download does not match build {short}'s checksum, so it was discarded and not installed. "
-                   f"{KEPT}")
+                   f"Try the update again, and report it if it keeps happening. {KEPT}")
             continue
         with open(dest, "rb") as f:
             if commit.encode() in f.read():

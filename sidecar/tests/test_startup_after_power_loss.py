@@ -92,7 +92,7 @@ def test_a_damaged_notebook_says_so_and_is_left_as_it_is(form, tmp_path):
     store = NotebookStore(tmp_path)
     store.save("Daily", [{"type": "code", "source": "x = 1"}])
     store.path("Daily").write_bytes(DAMAGE[form])
-    with pytest.raises(ValueError, match=r"Daily\.ipynb is damaged or isn't a notebook any more"):
+    with pytest.raises(ValueError, match=r"Daily\.ipynb is damaged or isn't a notebook any more.*Fix it in a text editor, or put back an earlier copy\."):
         store.load("Daily")
     assert store.path("Daily").read_bytes() == DAMAGE[form]
 
@@ -120,7 +120,8 @@ def test_missing_files_start_empty_and_nothing_is_set_aside(tmp_path):
     assert not list(tmp_path.rglob("*.corrupt-*"))
 
 
-@pytest.mark.parametrize("tail", [b'{"at": "2026-11', b"\x00" * 40], ids=["cut off", "NUL bytes"])
+@pytest.mark.parametrize("tail", [b'{"at": "2026-11', b"\x00" * 40, b'{"detail": "Caf\xc3'],
+                         ids=["cut off", "NUL bytes", "half of a multi-byte character"])
 def test_an_audit_line_cut_off_by_a_power_cut_doesnt_stop_the_history_or_damage_the_next_line(tail, tmp_path):
     log = audit.AuditLog(tmp_path)
     log.record("first", "ok", 0.1)
@@ -136,3 +137,12 @@ def test_an_audit_line_cut_off_by_a_power_cut_doesnt_stop_the_history_or_damage_
     problems = audit_chain.verify(tmp_path)["problems"]
     assert any("line 3: not an audit line" in p for p in problems), problems
     assert not any("deleted from the end" in p for p in problems), problems  # the head counts the cut line
+
+
+@pytest.mark.parametrize("text", ["[]", '"x"', "[" * 100000], ids=["a list", "a string", "nested too deeply"])
+def test_a_project_list_that_isnt_one_is_rebuilt_not_emptied(text, tmp_path):
+    store = ProjectStore(tmp_path / "local-data")
+    store.create("Sales")
+    store.create("Stock")
+    store.index_file.write_text(text)
+    assert sorted(p.name for p in store.list()) == ["Sales", "Stock"]

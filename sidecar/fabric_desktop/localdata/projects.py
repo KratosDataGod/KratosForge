@@ -29,7 +29,6 @@ from ..redact import describe
 
 _log = logging.getLogger(__name__)
 
-_log = logging.getLogger(__name__)
 # "id": "folder" in a projects.json, as far as a damaged one can still be read
 _INDEX_PAIR = re.compile(r'"([a-z0-9][a-z0-9-]*)"\s*:\s*"((?:[^"\\]|\\.)*)"')
 
@@ -129,12 +128,12 @@ class ProjectStore:
             index = json.loads(jsonfile.read_text(self.index_file))
         except FileNotFoundError:
             return {}
-        except ValueError:  # cut off by a power cut, or NUL bytes: rebuilt, rather than every project dropped
-            return self._rebuild_index()
+        except (ValueError, RecursionError):  # cut off by a power cut, NUL bytes, nested too deeply: rebuilt,
+            return self._rebuild_index()        # rather than every project dropped
         except OSError:
             return {}
-        if not isinstance(index, dict):
-            return {}
+        if not isinstance(index, dict):  # parses, but isn't the list: rebuilt too, or the next save keeps one project
+            return self._rebuild_index()
         # Only id -> folder entries: one of another type (a hand edit) is left off, not a crash for every
         # project. The next save of the list leaves it out, so it is logged with its value here.
         bad = {k: v for k, v in index.items() if not (isinstance(v, str) and v)}
@@ -170,7 +169,7 @@ class ProjectStore:
         for want, folder in folders:
             try:
                 pid = json.loads(jsonfile.read_text(Path(folder) / "project.json"))["id"]
-            except (OSError, ValueError, KeyError, TypeError):
+            except (OSError, ValueError, KeyError, TypeError, RecursionError):
                 continue
             if isinstance(pid, str) and pid not in index and want in (None, pid):
                 index[pid] = str(Path(folder).resolve())

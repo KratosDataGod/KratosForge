@@ -207,7 +207,7 @@ def test_download_app_refuses_a_release_without_a_checksum(monkeypatch, tmp_path
     for info in ({"commit": SHA}, {"commit": SHA, "exe_sha256": "not-a-checksum"}):
         serve(monkeypatch, {"kratosforge.exe": b"MZ..." + SHA.encode() + b"...", "version.json": json.dumps(info).encode()})
         assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
-        assert "gives no checksum" in capsys.readouterr().out
+        assert "gives no checksum for the app, so it wasn't installed. Report it so the release can be fixed." in capsys.readouterr().out
 
 
 def test_download_app_refuses_when_the_checksum_cant_be_read(monkeypatch, tmp_path, capsys):
@@ -295,7 +295,8 @@ def test_a_tampered_download_is_deleted_and_the_last_line_says_why(monkeypatch, 
     assert updater.main(["download-app", str(dest), SHA]) == 1
     assert not dest.exists(), "a download that failed its checksum was left where the shell installs from"
     assert _last_line(capsys) == ("The download does not match build 0123456's checksum, so it was discarded "
-                                  "and not installed. This version stays as it is.")
+                                  "and not installed. Try the update again, and report it if it keeps happening. "
+                                  "This version stays as it is.")
 
 
 def test_a_download_cut_off_each_time_is_deleted_and_the_last_line_says_why(monkeypatch, tmp_path, capsys):
@@ -352,7 +353,7 @@ def test_a_release_without_a_checksum_leaves_no_download(monkeypatch, tmp_path, 
     dest = tmp_path / "kratosforge.exe.new"
     assert updater.download_app(str(dest), SHA) == 1
     assert not dest.exists()
-    assert _last_line(capsys).endswith("so it wasn't installed. This version stays as it is.")
+    assert _last_line(capsys).endswith("so it wasn't installed. Report it so the release can be fixed. This version stays as it is.")
 
 
 def test_download_app_takes_the_legacy_name_from_an_older_release(monkeypatch, tmp_path):

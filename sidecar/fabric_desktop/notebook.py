@@ -2968,7 +2968,8 @@ class NotebookStore:
             nb = json.loads(self.path(name).read_text(encoding="utf-8"))
         except ValueError as exc:  # cut off by a power cut, NUL bytes, or Git conflict markers: left as it is
             raise ValueError(f"{self.path(name).name} is damaged or isn't a notebook any more, so it can't be "
-                             "opened. The file has been left as it is.") from exc
+                             "opened. The file has been left as it is. Fix it in a text editor, or put back an "
+                             "earlier copy.") from exc
         return {"name": name, **from_ipynb(nb), "disk_stamp": disk_stamp(nb)}
 
     def save(self, name: str, cells: builtins.list[dict[str, Any]], lakehouse: dict[str, Any] | None = None,

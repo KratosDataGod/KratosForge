@@ -27,7 +27,7 @@ import uvicorn
 from mcp import Client
 from starlette.testclient import TestClient
 
-from fabric_desktop.integrations import http_server, mcp_server
+from fabric_desktop.integrations import http_server, mcp_server, peer
 from fabric_desktop.integrations.core import validate
 from fabric_desktop.integrations.http_server import RateLimiter, build_app, server_config
 from fabric_desktop.integrations.mcp_server import build_server
@@ -48,6 +48,10 @@ def ENGINE():  # noqa: N802 - a stand-in for the engine's Service; the spied han
 @pytest.fixture(autouse=True)
 def no_policy(tmp_path, monkeypatch):
     monkeypatch.setenv("ProgramData", str(tmp_path / "programdata"))
+    # On Windows the local API also asks which account owns the caller's connection. The test client's
+    # made-up address and port have no connection to own, so that check (test_integrations_peer.py's
+    # subject) is left out here, as test_integrations_http_guard.py does.
+    monkeypatch.setattr(peer, "checked", lambda: False)
 
 
 @pytest.fixture(autouse=True)

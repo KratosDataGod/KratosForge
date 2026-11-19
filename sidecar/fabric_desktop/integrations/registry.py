@@ -158,12 +158,12 @@ def _check_schema(schema: Any, what: str, cap_id: str) -> None:
         raise ValueError(f"{cap_id}: {what} properties must be an object")
 
 
-_EXECUTION_ID = re.compile(r"^ex_[0-9a-f]{20}$")
+_EXECUTION_ID = re.compile(r"ex_[0-9a-f]{20}")
 
 
 def _is_execution_record(result: Any) -> bool:
     """True for an execution's own record as a start-run tool returns it (Execution.view)."""
-    return (isinstance(result, dict) and isinstance(result.get("id"), str) and bool(_EXECUTION_ID.match(result["id"]))
+    return (isinstance(result, dict) and isinstance(result.get("id"), str) and bool(_EXECUTION_ID.fullmatch(result["id"]))
             and {"kind", "state", "title"} <= set(result))
 
 

@@ -560,3 +560,17 @@ def test_conversion_from_a_parsed_document_matches_conversion_from_its_text():
     assert model_ossie.to_tmsl(doc) == model_ossie.to_tmsl(text)
     assert model_ossie.stashed(doc) == model_ossie.stashed(text)
     assert doc == before  # read only
+
+
+def test_inlining_a_diamond_of_defs_keeps_the_plain_schema_instead_of_growing_exponentially():
+    import time
+    defs = {"d0": {"type": "string"}}
+    for i in range(1, 25):  # each level refers to the one below twice: 2**24 copies if fully inlined
+        defs[f"d{i}"] = {"anyOf": [{"$ref": f"#/$defs/d{i - 1}"}, {"$ref": f"#/$defs/d{i - 1}"}]}
+    schema = {"$schema": "https://json-schema.org/draft/2020-12/schema", "$defs": defs, "$ref": "#/$defs/d24"}
+    start = time.perf_counter()
+    out = ossie_validate.inline_local_refs(schema)
+    assert time.perf_counter() - start < 2.0
+    assert out is schema  # fell back to the plain schema, which validates the same
+    for version in ossie_validate.SCHEMAS:  # the pinned schemas are far under the bound and are inlined
+        assert ossie_validate.inline_local_refs(_schema(version)) is not _schema(version)

@@ -75,12 +75,27 @@ def _pointer(root: Any, ref: str) -> Any:
     return node
 
 
+MAX_INLINED_NODES = 100_000  # a diamond of $defs grows exponentially when inlined; past this, keep the plain schema
+
+
+class _TooLarge(Exception):
+    """The inlined schema would pass MAX_INLINED_NODES."""
+
+
 def inline_local_refs(schema: dict[str, Any]) -> dict[str, Any]:
     """``schema`` with each ``{"$ref": "#/..."}`` that has no other keys replaced by what it points at, so the
     check doesn't look each one up again for every value (about a third of its time). A ref that points back into
     itself, a ref with other keys beside it and any other ref (another document, a URL) stay as they are, and
-    ``$defs`` stays, so the result validates exactly as ``schema`` does. ``schema`` itself is not changed."""
+    ``$defs`` stays, so the result validates exactly as ``schema`` does. ``schema`` itself is not changed.
+    When inlining would pass ``MAX_INLINED_NODES`` objects and lists (``$defs`` that refer to each other as a
+    diamond), ``schema`` is returned unchanged instead, which validates the same, only slower."""
+    count = [0]
+
     def resolve(node: Any, active: frozenset[str]) -> Any:
+        if isinstance(node, (list, dict)):
+            count[0] += 1
+            if count[0] > MAX_INLINED_NODES:
+                raise _TooLarge
         if isinstance(node, list):
             return [resolve(v, active) for v in node]
         if not isinstance(node, dict):
@@ -94,7 +109,10 @@ def inline_local_refs(schema: dict[str, Any]) -> dict[str, Any]:
             return resolve(target, active | {ref})
         return {k: resolve(v, active) for k, v in node.items()}
 
-    return dict(resolve(schema, frozenset()))
+    try:
+        return dict(resolve(schema, frozenset()))
+    except _TooLarge:
+        return schema
 
 
 @functools.lru_cache(maxsize=len(SCHEMAS))

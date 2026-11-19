@@ -249,12 +249,12 @@ def test_databricks_and_snowflake_claim_nothing_and_are_not_offered():
         assert all(c["level"] == "unsupported" for c in d["capabilities"].values())
 
 
-def test_fabric_is_preview_and_not_offered_until_provisioning_and_health_are_built():
+def test_fabric_is_offered_as_preview_until_a_live_run_is_recorded():
     d = pv.REGISTRY["fabric"].describe()
-    assert d["preview"] and not d["available"]
-    assert d["capabilities"]["discovery"]["level"] == "supported"
-    assert d["capabilities"]["provisioning"]["level"] == "unsupported"
+    assert d["preview"] and d["available"] and d["status"] == "Preview"
+    assert all(c["evidence"] != "live_verified" for c in d["capabilities"].values())
     assert d["capabilities"]["operational_store"]["level"] == "partial"
+    assert not pv.REGISTRY["local"].available  # its discovery and provisioning aren't built
 
 
 def test_a_claim_without_evidence_or_adapter_is_refused():
@@ -595,3 +595,90 @@ def test_a_failed_step_stops_the_rest_and_a_new_plan_finishes_it(tmp_path):
     fab.create_lakehouse = real
     done = prov.apply(prov.plan({"name": "Ours", "workspace_id": out["workspace_id"]}), confirmed=True)
     assert done["ok"] and [c[0] for c in fab.created] == ["workspace", "lakehouse"]
+
+
+# ---- CP-006 adopt, CP-007 compatibility, CP-008 status
+
+def test_adopt_previews_a_manifest_of_ids_from_this_pcs_connections(tmp_path):
+    from fabric_desktop.controlplane import health
+    from fabric_desktop.optimize import setup
+    from fabric_desktop.optimize.installation import Installation
+    from fabric_desktop.optimize.lakehouse import LocalLakehouse
+    lake = LocalLakehouse(tmp_path / "lh")
+    setup.initialize(lake, Installation(tmp_path / "pc" / "optimize"), approve=True)
+    before = sorted(lake.table_names())
+    m = health.adopt_preview(
+        name="Ours", inspections=[setup.inspect(lake)],
+        lake_connection={"workspace_id": WS, "workspace_name": "Data", "lakehouse_id": LH,
+                         "lakehouse_name": "FabricDesktop_Central", "schemas": True},
+        platform={"workspace_id": WS, "functions_id": FN, "sql_id": DB}, keys={"workspace_id": WS},
+        operational_version=5)
+    assert m["operational_store"]["database_id"] == DB and m["schema"]["operational"] == 5
+    assert m["deployments"] == {"prod": {"platform_workspace_id": WS}, "keys": {"workspace_id": WS}}
+    assert m["analytical_store"]["display_name"] == "FabricDesktop_Central" and m["schema"]["families"]["fdopt_"] >= 2
+    assert sorted(lake.table_names()) == before  # a preview touches nothing
+    store = st.local_store(tmp_path / "lh")
+    store.create(m)
+    assert store.read().manifest == m  # adopting is this one file; deleting it undoes it
+
+
+def test_adopt_refuses_an_empty_or_newer_lakehouse():
+    from fabric_desktop.controlplane import health
+    conn = {"workspace_id": WS, "lakehouse_id": LH}
+    with pytest.raises(mf.ManifestError, match="Create an environment"):
+        health.adopt_preview(name="x", lake_connection=conn, inspections=[{"family": "fdopt_", "state": "empty", "schema_version": None}])
+    with pytest.raises(mf.ManifestError, match="newer"):
+        health.adopt_preview(name="x", lake_connection=conn,
+                             inspections=[{"family": "fdopt_", "state": "newer", "schema_version": 9, "message": "a newer schema"}])
+
+
+@pytest.mark.parametrize("states,op,want", [
+    (["ready"], None, "ready"),
+    (["ready", "upgrade"], None, "upgrade"),
+    (["ready", "incomplete"], None, "incomplete"),
+    (["upgrade", "newer"], None, "read_only"),
+    (["ready", "conflict"], None, "read_only"),
+    (["empty"], None, "missing"),
+    (["ready"], 4, "upgrade"),
+    (["ready"], 6, "read_only"),
+])
+def test_the_environment_is_as_compatible_as_its_worst_store(states, op, want):
+    from fabric_desktop.controlplane import health
+    m = fabric(operational_store={"workspace_id": WS, "functions_id": FN}, operational_version=5)
+    got = health.compatibility(m, [{"family": f"f{i}x_", "state": s} for i, s in enumerate(states)], op, 5)
+    assert got["state"] == want and got["writable"] == (want != "read_only")
+    assert got["can_upgrade"] == (want in ("upgrade", "incomplete"))
+
+
+def test_a_newer_manifest_makes_the_environment_read_only():
+    from fabric_desktop.controlplane import health
+    newer = {"manifest_version": 2, "environment_id": "kfenv_" + "b" * 32, "name": "x", "provider": "fabric"}
+    assert health.compatibility(newer, [{"family": "fdopt_", "state": "ready"}])["state"] == "read_only"
+
+
+@pytest.mark.parametrize("kw,want", [
+    ({"reachable": None}, "Connected"),
+    ({"reachable": True, "sync": {"state": "synced", "kinds": {}}}, "Connected"),
+    ({"reachable": False}, "Working offline"),
+    ({"reachable": True, "sync": {"state": "offline", "kinds": {"analysis": {"pending": 2}}}}, "Working offline"),
+    ({"reachable": True, "sync": {"state": "synchronizing"}}, "Synchronizing"),
+    ({"reachable": True, "sync": {"state": "pending"}}, "Synchronizing"),
+    ({"reachable": True, "sync": {"state": "conflict"}}, "Upgrade required"),
+    ({"reachable": True, "compat": {"state": "upgrade"}}, "Upgrade required"),
+    ({"reachable": True, "compat": {"state": "read_only"}}, "Upgrade required"),
+    ({"reachable": True, "sync": {"state": "failed"}}, "Limited permissions"),
+    ({"reachable": True, "denied": True}, "Limited permissions"),
+])
+def test_every_status_has_a_next_step(kw, want):
+    from fabric_desktop.controlplane import health
+    got = health.status(connected=True, **kw)
+    assert got["status"] == want and (got["next"] or want == "Connected")
+
+
+def test_status_details():
+    from fabric_desktop.controlplane import health
+    offline = health.status(connected=True, reachable=False, sync={"state": "offline", "kinds": {"a": {"pending": 2}, "b": {"pending": 1}}})
+    assert offline["detail"] == "3 results waiting on this PC"
+    assert "Update KratosForge" in health.status(connected=True, reachable=True, compat={"state": "read_only"})["next"]
+    assert health.status(connected=False, reachable=None)["status"] == ""
+    assert health.failed("Its manifest is damaged")["status"] == "Connection failed"

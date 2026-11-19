@@ -44,9 +44,10 @@ _PREFIX = re.compile(r"^[a-z][a-z0-9]{1,9}_$")
 _SERVICE = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 _VERSION = re.compile(r"^\d+(?:\.\d+){0,3}$")
 _STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$")
-# Keys that hold credentials somewhere else. Matched on whole words of the key name.
+# Keys that hold credentials somewhere else, matched on whole words of the key name (and the words
+# run together), plus any key ending in "_key"/"Key". "keys" (the shared keys workspace) is allowed.
 _SECRET_WORDS = {"token", "secret", "password", "passwd", "pwd", "credential", "credentials", "apikey",
-                 "sas", "connectionstring", "key"}
+                 "sas", "connectionstring", "accountkey", "privatekey"}
 # Path-like values the manifest may hold, under Files/_kratosforge/ only.
 _CONFIG_REF = re.compile(r"^Files/_kratosforge/[A-Za-z0-9_./-]{1,200}$")
 
@@ -74,8 +75,7 @@ def _check_no_secrets(value: Any, path: str) -> None:
         for k, v in value.items():
             if not isinstance(k, str):
                 raise ManifestError(f"{path}: keys must be text")
-            # Resource ids are named like "..._id"; "key" alone would refuse nothing useful there.
-            if _words(k) & _SECRET_WORDS and not k.endswith("_id"):
+            if not k.endswith("_id") and (_words(k) & _SECRET_WORDS or k.lower().endswith("key")):
                 raise ManifestError(f"{path}.{k}: a manifest never holds credentials; keep them in the "
                                     "provider's own sign-in or a secret store")
             _check_no_secrets(v, f"{path}.{k}")

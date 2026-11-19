@@ -296,3 +296,70 @@ def test_the_contracts_are_small_protocols():
     plan = pv.ProvisionPlan("fabric", (pv.PlanStep("find", "KratosForge", False),
                                        pv.PlanStep("refuse", "fdopt_", False, blocked="newer schema")))
     assert plan.blocked == ["newer schema"]
+
+
+# ---- CP-004 Fabric discovery
+
+class FakeFabric:
+    """Fabric's list calls only. Anything that would change Fabric fails the test."""
+
+    def __init__(self, lakehouses):
+        self.lakehouses = lakehouses
+
+    def list_workspaces(self):
+        return [{"id": WS, "displayName": "zeta"}, {"id": "w2", "displayName": "Alpha"}]
+
+    def list_lakehouses(self, workspace_id):
+        return self.lakehouses
+
+    def __getattr__(self, name):
+        raise AssertionError(f"discovery must not call {name}")
+
+
+def discovery(tmp_path, lakehouses, tables=None, broken=()):
+    from fabric_desktop.controlplane.fabric import FabricDiscovery
+
+    def manifest_store(ws, lh):
+        if lh in broken:
+            raise PermissionError("403 Forbidden")
+        return st.local_store(tmp_path / lh)
+
+    return FabricDiscovery(FakeFabric(lakehouses), manifest_store, lambda ws, lh: (tables or {}).get(lh, []))
+
+
+def test_discovery_finds_by_manifest_not_by_name(tmp_path):
+    env = fabric(name="Ours")
+    st.local_store(tmp_path / "lh-renamed").create(env)
+    lakes = [{"id": "lh-renamed", "displayName": "Renamed by someone"},
+             {"id": "lh-named", "displayName": "KratosForgeLakehouse"},
+             {"id": "lh-legacy", "displayName": "FabricDesktop_Central"},
+             {"id": "lh-denied", "displayName": "Secret"}]
+    d = discovery(tmp_path, lakes, tables={"lh-legacy": ["fdopt_schema_version", "fdopt_findings"]},
+                  broken={"lh-denied"})
+    found = d.find_environments(WS)
+    assert [(f.ref.lakehouse_id, f.state) for f in found] == [
+        ("lh-renamed", "environment"), ("lh-legacy", "adoptable"), ("lh-denied", "unreadable")]
+    assert found[0].manifest["environment_id"] == env["environment_id"] and found[2].reason == "No access"
+    assert not d.truncated
+
+
+def test_a_damaged_manifest_is_reported_not_trusted(tmp_path):
+    st.local_store(tmp_path / "lh1").backend.create(st.NAME, b'{"manifest_version": 1}')
+    (f,) = discovery(tmp_path, [{"id": "lh1", "displayName": "x"}]).find_environments(WS)
+    assert f.state == "unreadable" and "damaged" in f.reason and f.manifest is None
+
+
+def test_namespaces_are_sorted_and_discovery_is_bounded(tmp_path):
+    from fabric_desktop.controlplane import fabric as fb
+    d = discovery(tmp_path, [{"id": f"lh{i}", "displayName": f"L{i}"} for i in range(fb.MAX_LAKEHOUSES + 5)])
+    assert [w["display_name"] for w in d.list_namespaces()] == ["Alpha", "zeta"]
+    assert d.find_environments(WS) == [] and d.truncated
+    assert isinstance(d, pv.EnvironmentDiscovery)
+
+
+def test_the_secret_key_rule_allows_the_specs_own_names():
+    m = fabric(deployments={"prod": {"platform_workspace_id": WS}, "keys": {"workspace_id": WS}})
+    assert m["deployments"]["keys"] == {"workspace_id": WS}
+    for name in ("api_key", "accountKey", "storage_key", "private_key"):
+        with pytest.raises(mf.ManifestError, match="credential"):
+            mf.validate(m | {"namespace": {"workspace_id": WS, name: "x"}})

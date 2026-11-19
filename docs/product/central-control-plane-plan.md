@@ -1,6 +1,11 @@
 # Central control plane: Phase 0 audit, gap analysis and target architecture
 
-Status: Phase 0 (discovery and architecture). Owner: Central control plane thread (claude-opus).
+Status: Phase 0 (discovery and architecture). Owner: Central control plane thread.
+
+Approval: Chris's master prompt of 2026-11-19 is his go for Phase 0 and for Phase 1 engine code
+(CP-001 to CP-009). It is not a go for anything that needs its own approval: new UI (CP-010) is built
+only after he approves a mockup, any run against a real tenant (CP-012) needs his typed "yes, run it"
+in the test workspace, and Phase 2 items marked "needs Chris's go" wait for that go.
 Companion files: [ADRs](central-control-plane-decisions.md) and [stories](central-control-plane-backlog.md).
 
 This plan answers one question: what does KratosForge need so that a person can create or join one
@@ -267,7 +272,9 @@ Rules (enforced by `controlplane/manifest.py`, CP-001):
   (`config.setting` and each family's `<prefix>schema_version`). A mismatch means the manifest is
   refreshed, not that the store is changed.
 - No key may hold a secret. The validator refuses values `redact.secrets` would change, and any key
-  named like `token`, `secret`, `password`, `connection_string`, `key`.
+  whose name contains the word `token`, `secret`, `password`, `pwd`, `credential`, `sas`,
+  `connection_string`, `api_key` or `account_key`, or ends in `_key`. Names such as `keys` (the
+  shared keys workspace binding) and ids ending in `_id` are allowed.
 - Unknown keys are kept on rewrite (forward compatibility); a `manifest_version` newer than the app
   knows opens the environment read-only.
 - `migration.state` is `idle`, `running` (with `by` installation and `started_at`, used as a lock

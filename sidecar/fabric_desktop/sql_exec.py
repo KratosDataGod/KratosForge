@@ -211,6 +211,23 @@ class Execution:
     failed_statement: int = 0  # S14: the statement that failed (1-based), 0 if none
     pinned: bool = False  # kept past MAX_KEPT and the retention time until unpinned (S27)
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        # started, ended and created stay the wall-clock times the page shows; each is also stamped on the
+        # monotonic clock, so a run's seconds stay right when the PC's clock is changed mid-run (by hand or
+        # by a time sync). DST doesn't move time.time, but a manual change does.
+        if name in ("created", "started", "ended") and value is not None:
+            object.__setattr__(self, f"_mono_{name}", time.monotonic())
+        object.__setattr__(self, name, value)
+
+    def seconds(self) -> float:
+        """How long the run has taken (or took), from the monotonic clock: never negative, and not moved by a
+        change to the PC's clock. Counted from the start, or from creation for a run that never started."""
+        begin = getattr(self, "_mono_started", None) if self.started else getattr(self, "_mono_created", None)
+        if begin is None:
+            return 0.0
+        end = getattr(self, "_mono_ended", None) if self.ended else None
+        return max(0.0, (end if end is not None else time.monotonic()) - begin)
+
     @property
     def snapshot(self) -> Path:
         if self.units and self.parts:  # S14: the run's own result is its last statement's
@@ -219,12 +236,11 @@ class Execution:
 
     def status(self) -> dict[str, Any]:
         """What the page shows: never the SQL or the token."""
-        end = self.ended or time.time()
         return {"id": self.id, "state": self.state, "target": self.target, "dialect": self.dialect,
                 "lakehouse": self.lakehouse.get("name", ""), "project": self.project_name,
                 "warehouse": self.warehouse.get("database", ""),
                 "created": self.created, "started": self.started, "ended": self.ended,
-                "seconds": round(end - self.started, 2) if self.started else 0.0,
+                "seconds": round(self.seconds(), 2) if self.started else 0.0,
                 "rows": self.rows, "columns": self.columns, "permission": self.permission,
                 "error": self.error, "error_kind": self.error_kind, "refused": self.refused,
                 "time_limit_minutes": round(self.time_limit_s / 60, 2),
@@ -842,7 +858,7 @@ class SqlExecutions:
             lh = run.lakehouse
             try:
                 self._audit("sql_execution", "ok" if run.state == "completed" else "error",
-                            (run.ended or time.time()) - (run.started or run.created),
+                            run.seconds(),
                             {"execution": run.id, "state": run.state, "dialect": run.dialect,
                              "permission": run.permission or "", "rows": run.rows, "target": run.target,
                              "workspace_id": lh.get("workspace_id", ""), "lakehouse_id": lh.get("lakehouse_id", ""),

@@ -67,19 +67,19 @@ so it changes when a call is added or refused.
 | Helper | Status | Note |
 | --- | --- | --- |
 | `%python` | Runs |  |
-| `%sql` | Differs | Runs on this PC's Spark SQL (DuckDB with Spark's functions). |
+| `%sql` | Differs | Runs on this PC's Spark SQL (DuckDB with Spark's functions). A query's result is the cell's result and _sqldf, which later Python and SQL cells read. |
 | `%md` | Runs |  |
-| `%sh` | Differs | Runs as a script on this PC, not on a cluster driver. |
-| `%scala` | Refused | Scala and R cells need Fabric's Spark. Switch Runs on to Fabric to run them. |
-| `%r` | Refused | Scala and R cells need Fabric's Spark. Switch Runs on to Fabric to run them. |
+| `%sh` | Differs | Runs as a script on this PC, not on a cluster driver. As in Databricks, a non-zero exit code fails the cell only when it starts with %sh -e. |
+| `%scala` | Refused | This %scala cell needs Fabric's Spark, which this PC doesn't have, so nothing ran. Switch Runs on to Fabric to run it, or write the cell in Python or SQL. |
+| `%r` | Refused | This %r cell needs Fabric's Spark, which this PC doesn't have, so nothing ran. Switch Runs on to Fabric to run it, or write the cell in Python or SQL. |
 
 ## Line magics
 
 | Helper | Status | Note |
 | --- | --- | --- |
-| `%run` | Differs | Runs a notebook from this PC's notebooks folder in the same session. |
-| `%fs` | Differs | ls, head, cp, mv, rm, mkdirs and put, with the same paths as dbutils.fs. A drive path (C:\data) is also taken. |
-| `%pip` | Differs | Installs into the notebook's own environment on this PC, never the engine's. Your organization's policy can turn installs off. |
+| `%run` | Differs | Runs a notebook from this PC's notebooks folder in the same session, so its variables and functions are shared. A ./ or ../ path finds the notebook by its name. A failure names the notebook and its cell. |
+| `%fs` | Differs | ls, head, cp, mv, rm, mkdirs and put, with the same paths as dbutils.fs. A drive path (C:\data) is also taken. mounts and refreshMounts answer as dbutils.fs does here. mount, unmount, updateMount and other commands are refused by name. |
+| `%pip` | Differs | Installs into the notebook's own environment on this PC, never the engine's. Python isn't restarted, as in Databricks. Your organization's policy can turn installs off. |
 | `%sh` | Differs | Runs on this PC. |
 
 Source: Databricks Utilities reference (docs.databricks.com/dev-tools/databricks-utils) and the notebook magic commands Databricks notebooks take (%python, %sql, %scala, %r, %md, %sh, %fs, %run, %pip).

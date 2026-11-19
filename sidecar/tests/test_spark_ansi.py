@@ -89,10 +89,12 @@ print('RESULT' + json.dumps(list(r)))
     assert json.loads(text.split("RESULT", 1)[1]) == [-1294967296, 2147483647, 0, None]
 
 
-def test_an_overflowing_sum_stops_here(kernel: Kernel) -> None:
-    """Spark with ANSI off wraps 2147483647 + 1 to -2147483648; this PC stops (documented)."""
-    out = kernel.run("spark.sql('SELECT 2147483647 + 1').collect()")
-    assert out["status"] == "error"
+def test_an_overflowing_sum_wraps_as_spark_does(kernel: Kernel) -> None:
+    """Spark with ANSI off wraps 2147483647 + 1 to -2147483648, and so does this PC (spark_decimals)."""
+    assert "RESULT[-2147483648]" in run(
+        kernel,
+        "print('RESULT' + str(list(spark.sql('SELECT 2147483647 + 1').collect()[0])))",
+    )
 
 
 def test_turning_ansi_mode_on_says_this_pc_keeps_it_off(kernel: Kernel) -> None:

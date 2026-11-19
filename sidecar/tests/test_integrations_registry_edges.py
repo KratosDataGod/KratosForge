@@ -173,3 +173,23 @@ def test_bound_arguments_need_the_engine_and_cant_set_an_input():
     with pytest.raises(IntegrationError, match="no such notebook"):
         reg.invoke(object(), "ext_hello", {"who": "x"}, ctx())
 
+
+
+def test_only_an_executions_own_record_puts_its_id_on_the_audit_line():
+    """A start-run tool returns the execution's record (Execution.view) and that id is audited. A
+    tool whose result is someone's data with an "id" that looks like one isn't taken as an execution."""
+    from fabric_desktop.integrations.executions import Execution
+    started = Execution("python", "cl_test", "a run", {"location": "this_pc"}, 30).view()
+    results = {
+        "started": started,
+        "data": {"id": "ex_" + "a" * 20, "name": "a row someone stored"},
+        "loose": {"id": "ex_notreally", "kind": "k", "state": "s", "title": "t"},
+        "nested": {"items": [started]},
+    }
+    reg = Registry()
+    lines = []
+    reg.audit = lambda *a, **kw: lines.append(a[-1])
+    reg.register(cap(handler=lambda svc, ctx, who: results[who]))
+    for who in results:
+        reg.invoke(None, "ext_hello", {"who": who}, ctx())
+    assert lines == [started["id"], "", "", ""]

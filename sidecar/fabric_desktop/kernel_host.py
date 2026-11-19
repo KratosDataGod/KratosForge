@@ -236,20 +236,53 @@ def main() -> None:
     host = Host(channel)
     channel.send({"id": "ready", "result": host.ping()})
     for line in proto_in:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            message = json.loads(line)
-        except ValueError:
-            print(f"kernel_host: not JSON: {line[:200]}", file=sys.stderr)
-            continue
-        if "op" in message:
-            threading.Thread(target=host.handle, args=(message,), daemon=True, name=f"request-{message.get('op')}").start()
-        else:
-            channel.answer(message)
+        dispatch(host, channel, line)
     # The engine closed our stdin: it is gone or wants us gone.
     os._exit(0)
+
+
+MAX_LINE = 64 * 1024 * 1024  # one protocol message; a cell's code and its outputs fit well inside
+
+
+def dispatch(host: Host, channel: Channel, line: str) -> str | None:
+    """One line from the engine: a request is run on its own thread, an answer wakes its caller.
+    A line that isn't a message (cut short, not JSON, nested too deep, too long, not an object, an
+    answer without an id) is refused by name on stderr and skipped, so the kernel and the cell
+    paused in it carry on. Returns the refusal, or None when the line was taken."""
+    line = line.strip()
+    if not line:
+        return None
+    problem = None
+    message: Any = None
+    if len(line) > MAX_LINE:
+        problem = f"longer than {MAX_LINE // (1024 * 1024)} MB"
+    else:
+        try:
+            message = json.loads(line)
+        except RecursionError:
+            problem = "nested too deep"
+        except ValueError:
+            problem = "not JSON"
+    if problem is None and not isinstance(message, dict):
+        problem = f"a JSON {type(message).__name__}, not an object"
+    if problem is None and "op" in message:
+        if not isinstance(message["op"], str) or ("args" in message and not isinstance(message["args"], (dict, type(None)))):
+            problem = "a request whose op isn't text or whose args aren't an object"
+            if "id" in message:  # its caller is waiting: it gets the refusal as its answer
+                channel.send({"id": message["id"], "error": {"type": "ValueError", "message": f"Malformed request: {problem}"}})
+    elif problem is None and not isinstance(message.get("id"), str):
+        problem = "an answer without an id"
+    if problem is not None:
+        # Never the line itself: it can carry cell code or values. Its length, and the op if it has one.
+        op = message.get("op") if isinstance(message, dict) and isinstance(message.get("op"), str) else None
+        print(f"kernel_host: skipped a line that is {problem} ({len(line)} characters"
+              f"{f', op {op[:40]!r}' if op else ''})", file=sys.stderr)
+        return problem
+    if "op" in message:
+        threading.Thread(target=host.handle, args=(message,), daemon=True, name=f"request-{message['op'][:40]}").start()
+    else:
+        channel.answer(message)
+    return None
 
 
 if __name__ == "__main__":

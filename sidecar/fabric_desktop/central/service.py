@@ -1399,8 +1399,9 @@ class PlatformMixin:
         users = [e.name for e in project.entities.values() if e.spec.get("source", {}).get("link") == alias]
         if users:
             names = users[0] if len(users) == 1 else ", ".join(users[:-1]) + " and " + users[-1]
-            raise GateError("save", [(f"Link {alias} can't be removed, because {names} read it. "
-                                     "Point them at another source first, then remove the link.")])
+            verb, them = ("reads", "it") if len(users) == 1 else ("read", "them")
+            raise GateError("save", [(f"Link {alias} can't be removed, because {names} {verb} it. "
+                                     f"Point {them} at another source first, then remove the link.")])
         (project.root / "metadata" / "links" / f"{mesh.file_name(alias, 'link name')}.toml").unlink(missing_ok=True)
         return self.mesh_overview()
 

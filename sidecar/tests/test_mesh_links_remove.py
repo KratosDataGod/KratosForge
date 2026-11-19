@@ -19,17 +19,17 @@ def _svc(tmp_path, readers):
     return SimpleNamespace(_project=lambda: project, mesh_overview=lambda: {"links": []})
 
 
-@pytest.mark.parametrize(("readers", "names"), [
-    (["silver.a"], "silver.a"),
-    (["silver.a", "silver.b"], "silver.a and silver.b"),
-    (["silver.a", "silver.b", "gold.c"], "silver.a, silver.b and gold.c"),
+@pytest.mark.parametrize(("readers", "names", "verb", "them"), [
+    (["silver.a"], "silver.a", "reads", "it"),
+    (["silver.a", "silver.b"], "silver.a and silver.b", "read", "them"),
+    (["silver.a", "silver.b", "gold.c"], "silver.a, silver.b and gold.c", "read", "them"),
 ])
-def test_a_link_still_read_is_kept_and_the_refusal_names_who_reads_it(tmp_path, readers, names):
+def test_a_link_still_read_is_kept_and_the_refusal_names_who_reads_it(tmp_path, readers, names, verb, them):
     svc = _svc(tmp_path, readers)
     with pytest.raises(GateError) as err:
         PlatformMixin.mesh_delete_link(svc, "regions")
-    assert err.value.errors == [(f"Link regions can't be removed, because {names} read it. "
-                                "Point them at another source first, then remove the link.")]
+    assert err.value.errors == [(f"Link regions can't be removed, because {names} {verb} it. "
+                                f"Point {them} at another source first, then remove the link.")]
     assert (tmp_path / "metadata" / "links" / "regions.toml").exists()
 
 

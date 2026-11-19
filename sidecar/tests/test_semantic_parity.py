@@ -7,6 +7,7 @@ metadata), plus the same model in three kinds, bad input, a property over random
 
 import copy
 import json
+import re
 import logging
 import time
 
@@ -474,3 +475,86 @@ def test_4000_columns_compare_in_under_two_seconds():
     assert report["summary"] == sp.COMPATIBLE
     assert sum(o["kind"] == "column" for o in report["objects"]) == 4000
     assert elapsed < 2.0, elapsed
+
+
+# ---- review follow-ups: TMSL text, detection order, redaction
+
+def test_a_model_bim_as_text_is_json_under_its_own_cap_past_ossies():
+    bim = _bim()
+    bim["model"]["description"] = "x" * (model_ossie.MAX_CHARS + 1_000)  # past Ossie's 20 MB, under TMSL's cap
+    text = json.dumps(bim)
+    assert model_ossie.MAX_CHARS < len(text) < sp.MAX_TMSL_CHARS
+    assert sp.MAX_TMSL_CHARS >= 200_000_000
+    report = _assert_l1(sp.parity_l1(text, _bim()))
+    assert report["summary"] == sp.COMPATIBLE and report["sides"]["left"]["kind"] == "tmsl"
+    report = _assert_l1(sp.parity_l1("﻿" + json.dumps(_bim()), _bim(), left_kind="tmsl"))
+    assert report["summary"] == sp.COMPATIBLE
+
+
+def test_a_model_bim_text_past_the_tmsl_cap_or_not_json_is_test_failed_with_the_reason(monkeypatch):
+    monkeypatch.setattr(sp, "MAX_TMSL_CHARS", 1_000)
+    report = sp.parity_l1(json.dumps(_bim()), _bim())
+    assert report["summary"] == sp.TEST_FAILED
+    assert "a model.bim is compared at most" in report["error"]
+    report = sp.parity_l1("{not json", _bim(), left_kind="tmsl")
+    assert report["summary"] == sp.TEST_FAILED and "isn't valid JSON" in report["error"]
+
+
+def test_an_ossie_json_document_past_ossies_cap_keeps_ossies_cap():
+    doc = _ossie_03(_bim())
+    doc["description"] = "x" * (model_ossie.MAX_CHARS + 1)
+    report = sp.parity_l1(json.dumps(doc), _bim())
+    assert report["summary"] == sp.TEST_FAILED and "an Ossie model is at most" in report["error"]
+
+
+def test_ossie_markers_win_over_a_stray_model_key():
+    doc = _ossie_03(_bim())
+    doc["model"] = {"tables": []}
+    report = _assert_l1(sp.parity_l1(doc, _bim()))
+    assert report["sides"]["left"]["kind"] == "ossie" and report["sides"]["left"]["profile"] == "ossie-0.3"
+    wrapped = {"semantic_model": [doc | {"version": None}], "model": {"tables": []}, "version": "0.1.1"}
+    assert sp.parity_l1(wrapped, _bim())["sides"]["left"]["profile"] == "snowflake-ossie"
+    bim = _bim() | {"version": 3}  # a version that isn't text isn't an Ossie version: TMSL
+    assert sp.parity_l1(bim, _bim())["sides"]["left"]["kind"] == "tmsl"
+    assert sp.parity_l1({"version": 3, "datasets": []}, _bim())["sides"]["left"]["kind"] == "ossie"
+    assert sp.parity_l1(_bim(), _bim())["sides"]["left"]["kind"] == "tmsl"
+
+
+def test_redacted_keeps_member_principals_and_filter_text_out_and_shows_counts():
+    secret_filter, secret_member = '[country] = "DE-SECRET"', "ana.secret@contoso.com"
+    left = _bim()
+    left["model"]["roles"][0]["tablePermissions"][0]["filterExpression"] = secret_filter
+    left["model"]["roles"][0]["members"] = [{"memberName": secret_member, "memberId": "oid-123"}]
+    right = copy.deepcopy(left)
+    right["model"]["roles"][0]["tablePermissions"][0]["filterExpression"] = '[country] = "FR-SECRET"'
+    right["model"]["roles"][0]["members"] = [{"memberName": "eve.secret@contoso.com", "memberId": "oid-456"}]
+    report = sp.parity_l1(left, right)
+    full = json.dumps(report)
+    assert "DE-SECRET" in full and secret_member in full  # the local pane's report is complete
+    safe = sp.redacted(report)
+    text = json.dumps(safe)
+    for leaked in ("SECRET", "secret@", "oid-123", "oid-456"):
+        assert leaked not in text, leaked
+    role = _obj(safe, "role 'EU only'")
+    assert role["result"] == sp.DIFFERENT
+    new_filter = right["model"]["roles"][0]["tablePermissions"][0]["filterExpression"]
+    changed = (f"the filter on table 'dim_customer' changed from {sp._fingerprint(secret_filter)} to "
+               f"{sp._fingerprint(new_filter)}")
+    assert role["changes"] == [changed, "1 member(s) gone", "1 member(s) added"]
+    assert re.search(r"23 characters, sha256 [0-9a-f]{12}", role["changes"][0])
+    assert safe["redacted"] is True and "redacted" not in report  # the original is unchanged
+    assert _obj(report, "role 'EU only'")["changes"][0].startswith("the filter on table 'dim_customer' changed from '")
+
+
+def test_redacted_withholds_role_evidence_from_the_ossie_extension():
+    bim = _with_members(_bim(), "ana.secret@contoso.com")
+    doc = _ossie_export(bim)
+    data = _stash(doc)
+    data["roles"][0]["members"] = []
+    _set_stash(doc, data)
+    report = sp.parity_l1(bim, doc)
+    safe = sp.redacted(report)
+    assert "secret" not in json.dumps(safe)
+    role = _obj(safe, "role 'EU only'")
+    assert role["changes"] == ["1 member(s) gone"]
+    assert all(e["source"] == "structure" or "withheld" in e for e in role["evidence"])

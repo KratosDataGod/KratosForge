@@ -179,7 +179,13 @@ what a query returns (L3) or how fast (L4), and the report lists these under `no
 behavior is checked later, DuckDB runs the SQL side only: DuckDB is not a DAX engine, so a DAX
 side with no execution path stays "behavior unverified". The report's `summary` is the worst
 object result, `counts` counts each result, and `tolerances` echoes the configured tolerances
-with their defaults (unused at L1).
+with their defaults (unused at L1). A Different results summary can hide Unsupported rows, so read
+`counts`, which has both. Model names are only noted, never counted as a difference.
+
+The report can name role members and quote row-level security filters. Anything that shows it
+outside the local pane (a log, a support bundle, a CI artifact, GitHub text) must use
+`semantic_parity.redacted(report)`, which gives counts of members and a length and hash of each
+filter instead.
 
 ## Schema validation
 

@@ -5,7 +5,7 @@ L1): the model, tables and datasets, columns and fields, measures and metrics, r
 calculation groups, hierarchies and perspectives. Each side is any of the four kinds KratosForge reads (plan D.1),
 detected or named with ``left_kind`` / ``right_kind``:
 
-- ``tmsl``: a parsed ``model.bim``;
+- ``tmsl``: a ``model.bim``, parsed or as JSON text (at most ``MAX_TMSL_CHARS`` characters);
 - ``tmdl``: a ``.SemanticModel`` folder's files (path -> text), read with ``tmdl.to_bim``;
 - ``ossie``: an Ossie document (a dict, or its YAML/JSON text) in any profile ``ossie_profiles`` detects.
 
@@ -23,13 +23,30 @@ or how fast (L4). L1 never reports Verified equivalent or Equivalent within tole
 a report that would. An object Unsupported on either side is reported Unsupported and never counts as a match.
 Input that can't be read is a Test failed result with the reason, never an exception.
 
+Model names are only noted, never counted as a change, for every pair of kinds, deliberately: an item's name
+isn't part of its structure (TMDL doesn't carry it, an export names the document after the item, a copy is named
+anew), so two definitions of one model named differently are not a difference.
+
+Reading the result (for the parity panel, OSSIE-006e): ``summary`` is the worst object result, so a Different
+results summary can hide Unsupported rows (and an Unsupported summary hides nothing worse). ``counts`` carries
+every result, both Different results and Unsupported; show both, never the summary alone.
+
+Security: the report carries security metadata. A role row's ``changes`` and evidence can name role member
+principals (names, ids, identity providers) and quote row-level security filter text. Any future output of it,
+whether an engine method, a screen, a log line or a file, must keep those out of logs, support bundles, CI
+artifacts and GitHub text (issues, pull requests, comments), and outside the local pane show counts instead:
+pass the report through ``redacted`` first. Only the local results pane may show the full report.
+
 Pure: nothing is fetched, written or executed, and no expression is evaluated.
 """
 
 from __future__ import annotations
 
 import collections
+import copy
 import functools
+import hashlib
+import json
 import math
 from typing import Any
 
@@ -72,6 +89,10 @@ _DEFAULT_CARDINALITY = ("many", "one")
 _DEFAULT_CROSS_FILTER = "oneDirection"
 COMPOSITE = "composite relationship"  # the one thing an Ossie relationship holds that TMSL can't
 MAX_WARNINGS = 50
+# A model.bim passed as text is JSON, read with json.loads under its own cap: a large real model.bim is tens of MB,
+# well past the 20 MB Ossie and TMDL caps. 200 million characters keeps a mistaken pick (a data file) from filling
+# memory. (model_ossie_service reads model.bim files from a folder under its own, smaller cap.)
+MAX_TMSL_CHARS = 200_000_000
 
 
 @functools.lru_cache(maxsize=1)
@@ -330,15 +351,32 @@ def _fidelity_evidence(side: _Side, entry: dict[str, Any], fobj: dict[str, Any])
 
 
 def _detect(value: Any) -> str:
+    """The kind of a parsed definition. Ossie's markers come first: a text ``version`` or a ``semantic_model`` key
+    is Ossie even beside a stray ``model`` key; a dict ``model`` with no Ossie version is TMSL."""
     if isinstance(value, dict):
+        if isinstance(value.get("version"), str) or "semantic_model" in value:
+            return "ossie"
         if isinstance(value.get("model"), dict):
             return "tmsl"
-        if "version" in value or "semantic_model" in value:
+        if "version" in value:  # a version that isn't text: Ossie's reader refuses it by name
             return "ossie"
         if value and any(isinstance(k, str) and k.endswith(".tmdl") for k in value):
             return "tmdl"
     raise ValueError("This isn't a semantic model KratosForge can compare: a model.bim (TMSL) has a model object, "
                      "a TMDL folder is its files (path -> text, with .tmdl files), and an Ossie document has a version")
+
+
+def _json_text(text: str) -> Any:
+    """JSON text (a model.bim, or an Ossie document written as JSON) under ``MAX_TMSL_CHARS``."""
+    if len(text) > MAX_TMSL_CHARS:
+        raise ValueError(f"This text is {len(text) // 1_000_000} million characters; a model.bim is compared at "
+                         f"most {MAX_TMSL_CHARS // 1_000_000} million characters")
+    try:
+        return json.loads(text.lstrip("\ufeff"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"This isn't valid JSON: {exc}") from None
+    except RecursionError:
+        raise ValueError("This JSON is nested too deeply to be a semantic model") from None
 
 
 def _read(side: _Side, value: Any, kind: str | None) -> None:
@@ -349,7 +387,14 @@ def _read(side: _Side, value: Any, kind: str | None) -> None:
     if isinstance(value, str):
         if kind == "tmdl":
             raise TypeError("TMDL is a folder of files: pass them as path -> text")
-        value = mo.load_text(value)  # YAML or JSON, size-capped, no aliases
+        size = len(value)
+        if kind == "tmsl" or (kind is None and value.lstrip("\ufeff \t\r\n").startswith("{")):
+            value = _json_text(value)  # a model.bim: JSON under its own, larger cap
+            if (kind or _detect(value)) == "ossie" and size > mo.MAX_CHARS:  # Ossie keeps Ossie's cap
+                raise ValueError(f"This file is {size // 1_000_000} MB; an Ossie model is at most "
+                                 f"{mo.MAX_CHARS // 1_000_000} MB")
+        else:
+            value = mo.load_text(value)  # Ossie YAML or JSON: size-capped, no aliases
     kind = kind or _detect(value)
     side.kind = kind
     if not isinstance(value, dict):
@@ -570,11 +615,74 @@ def _pair(a: dict[str, Any] | None, b: dict[str, Any] | None, left: _Side, right
         else:
             changes = _changes(kind, a, b, left, right, notes)
             result = DIFFERENT if changes else COMPATIBLE
-    return {"id": (a or b or {})["id"], "kind": kind, "result": result, "changes": changes,
-            "notes": list(dict.fromkeys(notes)), "evidence": evidence,
-            "ids": {"left": a["id"] if a else None, "right": b["id"] if b else None},
-            "fidelity": {"left": mo.CLASSES.get(a["cls"]) if a and a["cls"] else None,
-                         "right": mo.CLASSES.get(b["cls"]) if b and b["cls"] else None}}
+    row = {"id": (a or b or {})["id"], "kind": kind, "result": result, "changes": changes,
+           "notes": list(dict.fromkeys(notes)), "evidence": evidence,
+           "ids": {"left": a["id"] if a else None, "right": b["id"] if b else None},
+           "fidelity": {"left": mo.CLASSES.get(a["cls"]) if a and a["cls"] else None,
+                        "right": mo.CLASSES.get(b["cls"]) if b and b["cls"] else None}}
+    if kind == "role":  # the same changes without members or filter text, for redacted()
+        if a is not None and b is not None and result == DIFFERENT:
+            row["changes_redacted"] = _role_changes_redacted(a["raw"], b["raw"])
+        else:
+            row["changes_redacted"] = list(changes)
+    return row
+
+
+def _fingerprint(text: str) -> str:
+    """Text as its length and a short hash: enough to see that two filters differ, without the filter. A short
+    filter's hash can be guessed by trying values, so this keeps text out of logs, not out of reach."""
+    digest = hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()[:12]
+    return f"{len(text)} characters, sha256 {digest}"
+
+
+def _role_changes_redacted(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
+    """``model_ossie._role_changes`` line for line, with each filter as a length and hash and members, table and
+    column permissions as counts."""
+    a, b = mo._role_shape(before), mo._role_shape(after)
+    out = []
+    if a["modelPermission"] != b["modelPermission"]:
+        out.append(f"model permission {mo._shown(str(a['modelPermission']))} became "
+                   f"{mo._shown(str(b['modelPermission']))}")
+    old, new = dict(sorted(a["filters"] - b["filters"])), dict(sorted(b["filters"] - a["filters"]))
+    for table in sorted(old.keys() | new.keys()):
+        if table not in new:
+            out.append(f"the filter on table {mo._q(table)} is gone (it was {_fingerprint(old[table])})")
+        elif table not in old:
+            out.append(f"a filter on table {mo._q(table)} was added ({_fingerprint(new[table])})")
+        else:
+            out.append(f"the filter on table {mo._q(table)} changed from {_fingerprint(old[table])} to "
+                       f"{_fingerprint(new[table])}")
+    for key, what in (("tables", "table permission"), ("columns", "column permission"), ("members", "member")):
+        gone, added = len(a[key] - b[key]), len(b[key] - a[key])
+        if gone:
+            out.append(f"{gone} {what}(s) gone")
+        if added:
+            out.append(f"{added} {what}(s) added")
+    return out
+
+
+def _withheld(item: dict[str, Any]) -> dict[str, Any]:
+    kept = {k: item[k] for k in ("side", "source", "class") if k in item}
+    return kept | {"withheld": _fingerprint(json.dumps(item, sort_keys=True, ensure_ascii=False, default=str))}
+
+
+def redacted(report: dict[str, Any]) -> dict[str, Any]:
+    """A copy of ``report`` safe to log or attach outside the local pane: each role row's changes name no member
+    (counts instead) and quote no filter (a length and hash instead), and its evidence other than the structure
+    counts is withheld (a length and hash of it). Reader warnings about a role are withheld the same way. The
+    report itself is unchanged."""
+    out = copy.deepcopy(report)
+    for o in out.get("objects") or []:
+        if o.get("kind") != "role":
+            continue
+        o["changes"] = list(o.pop("changes_redacted", None) or
+                            ([f"{len(o['changes'])} change(s) withheld"] if o.get("changes") else []))
+        o["evidence"] = [e if e.get("source") == "structure" else _withheld(e) for e in o.get("evidence") or []]
+    for side in (out.get("sides") or {}).values():
+        side["warnings"] = [_withheld(w) if str(w.get("object", "")).startswith("role") else w
+                            for w in side.get("warnings") or []]
+    out["redacted"] = True
+    return out
 
 
 def _claim(queue: collections.deque[dict[str, Any]] | None, used: set[int]) -> dict[str, Any] | None:

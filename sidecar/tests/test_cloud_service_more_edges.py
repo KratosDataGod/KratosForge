@@ -6,6 +6,7 @@ OneLake are stand-ins; nothing reaches a tenant."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -204,8 +205,12 @@ def test_a_runner_fabric_returns_without_an_id_is_not_recorded(svc, tmp_path, mo
         svc._bundles_file.parent.mkdir(parents=True, exist_ok=True)
         svc._bundles_file.write_text(records, encoding="utf-8")  # not a dict: started again
     else:
-        def locked(path, default):
-            raise records
+        real = cloud_service.jsonfile.read_json
+
+        def locked(path, default):  # only the bundle records are locked; settings.json reads as usual
+            if Path(path) == svc._bundles_file:
+                raise records
+            return real(path, default)
 
         monkeypatch.setattr(cloud_service.jsonfile, "read_json", locked)
     monkeypatch.setattr(Service, "auth", property(lambda self: SimpleNamespace(storage_token=lambda: "tok")))

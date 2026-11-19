@@ -31,7 +31,7 @@ const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs")
 // axe covers dialogs: meta.js:pickKeysWorkspace, mesh.js:pickDesignationWorkspace, mesh.js:keysSetupDialog
 // axe covers dialogs: dataops.js:columnLineage, df-dataflows.js:dfRunInFabric, meta.js:metaRiskGate, meta.js:readSourceDialog
 // axe covers dialogs: governance.js:policyDialog, prove.js:showScorecard, xray.js:vacuumAll, optimize.js:optimizeMove
-// axe covers dialogs: platform.js:landingSetupDialog, meta.js:ossieImportDialog, platform.js:confirmApproval, git.js:gitPlatformDeploy
+// axe covers dialogs: platform.js:landingSetupDialog, meta.js:ossieImportDialog, meta.js:ossieToTmdlDialog, platform.js:confirmApproval, git.js:gitPlatformDeploy
 // axe covers dialogs: optimize.js:optimizeSyncDetails, meta.js:profileEntity, platform.js:confirmCopyJob, product-items.js:productItemDialog
 // axe covers dialogs: whmonitor.js:whMonitorBuild, xray.js:stagingDialog, optimize.js:optimizeCreateFlow, meta.js:moveSourcesToPlatform
 // axe covers dialogs: dataops.js:quarantinePanel, fabricstep.js:insertVOrderCell, governance.js:governancePolicy, mesh.js:keysPlatformCard
@@ -295,6 +295,7 @@ const CASES = [
   ["optimize.js:optimizeMove", "Dismiss this improvement?", () => { optimizeMove({ id: "rec1" }, "dismissed"); }],
   ["platform.js:landingSetupDialog", "Move to one landing workspace", () => { landingSetupDialog({ default_landing_name: "KratosForge Landing" }, () => {}); }],
   ["meta.js:ossieImportDialog", "Import from Ossie", () => { ossieImportDialog({ name: "Sales model", existing: true, workspace_name: "Sales Dev" }, null); }],
+  ["meta.js:ossieToTmdlDialog", "Ossie file to TMDL", () => { ossieToTmdlDialog(null); }],
   ["platform.js:confirmApproval", "Pick a capacity for Sales Dev", () => { confirmApproval({ kind: "workspace", target: "Sales Dev", detail: {} }); }],
   ["git.js:gitPlatformDeploy", "Deploy the platform repository", () => { gitPlatformDeploy("C:/repos/platform"); }],
   // Batch 7: the last dialogs, several opened from a step before them (next() presses that step's main button).

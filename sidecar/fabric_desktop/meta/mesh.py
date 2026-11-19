@@ -352,6 +352,14 @@ def write_project_file(root: Path, fields: dict[str, Any]) -> Path:
     return path
 
 
+def file_name(value: Any, what: str) -> str:
+    """A product's name or a link's alias as its file is named (metadata/products/<name>.toml), or
+    ValueError: nothing else may be joined to the folder, so ../ can't reach another file."""
+    if not isinstance(value, str) or not _NAME.fullmatch(value):
+        raise ValueError(f"{value!r} isn't a {what}: lowercase letters, digits or _")
+    return value
+
+
 def write_product(root: Path, p: dict[str, Any]) -> Path:
     import json
     name = str(p.get("name", "")).strip()

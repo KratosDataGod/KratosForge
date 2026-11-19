@@ -353,6 +353,42 @@ def test_names_repeated_across_files_and_different_descriptions_are_named():
     assert "a.yaml" in result["files"]["b.yaml"]["diagnostics"][0]["message"]
 
 
+def test_files_may_give_different_names_because_fabric_does_not_use_the_name():
+    # yaml-reference: name is "Required, but the value isn't used. The view folder name is used as the view and
+    # semantic model name."
+    files = {"a.yaml": _text(_v02()), "b.yaml": _text({"version": "0.2.0.dev0", "name": "something else",
+                                                       "datasets": [{"name": "returns", "source": "dbo.returns"}]})}
+    result = ossie_validate.validate_files(files)
+    assert result["valid"] and not any(r["diagnostics"] for r in result["files"].values())
+    assert not any(r["id"] == "fabric/name" for r in ossie_profiles.RULES)
+
+
+def test_a_top_level_key_given_differently_in_two_files_is_a_conflict():
+    files = {"a.yaml": _text(_v02() | {"ai_context": "orders"}),
+             "b.yaml": _part(ai_context="sales", datasets=[{"name": "returns", "source": "dbo.returns"}]),
+             "c.yaml": _part(ai_context="orders", datasets=[{"name": "stock", "source": "dbo.stock"}])}
+    result = ossie_validate.validate_files(files)
+    assert not result["valid"]
+    (d,) = result["files"]["b.yaml"]["diagnostics"]
+    assert (d["path"], d["rule"]) == ("$.ai_context", "fabric/conflict") and "a.yaml" in d["message"]
+    assert result["files"]["c.yaml"]["diagnostics"] == []  # the same value is no conflict
+    rule = {r["id"]: r for r in ossie_profiles.RULES}["fabric/conflict"]
+    assert rule["basis"] == "documented" and "conflicting definitions across files" in rule["says"]
+
+
+def test_files_that_cannot_be_read_are_named_in_the_merged_note():
+    files = {"a.yaml": _text(_v02()), "b.yaml": "a: [", "c.yaml": "{unclosed: ["}
+    result = ossie_validate.validate_files(files)
+    assert not result["valid"]
+    assert [d["rule"] for d in result["files"]["b.yaml"]["diagnostics"]] == ["parse"]
+    (note,) = result["merged"]["notes"]
+    assert note["rule"] == "fabric/merged" and note["value"] == "2"
+    assert note["message"].startswith("2 file(s) couldn't be read and aren't in the merged check; references to "
+                                      "them may show as unresolved")
+    assert "b.yaml" in note["message"] and "c.yaml" in note["message"]
+    assert ossie_validate.validate_files({"a.yaml": _text(_v02())})["merged"]["notes"] == []
+
+
 def test_metrics_without_datasets_are_valid_and_datasets_are_inferred():
     result = ossie_validate.validate_files({"metrics.yaml": _part(metrics=_v02()["metrics"])})
     assert result["valid"]

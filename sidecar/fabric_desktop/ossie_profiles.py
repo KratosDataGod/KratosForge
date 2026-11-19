@@ -126,6 +126,11 @@ RULES: tuple[dict[str, str], ...] = (
           "documented", "files", "warning",
           "Metrics or relationships can be published without datasets, which are then inferred; relationship "
           "table references then resolve only in dbo."),
+    _rule("fabric/conflict", "fabric-semantic-view", FABRIC_YAML_REFERENCE, FABRIC_YAML_REFERENCE_DATE,
+          "documented", "files", "error",
+          "\"Resolve duplicate names and conflicting definitions across files.\" Two files that give different "
+          "values for the same top-level key (other than description, which has its own rule, and version and "
+          "name) conflict; the merged check uses the first file's, in sorted order."),
     _rule("snowflake/version", "snowflake-ossie", SNOWFLAKE_IMPORT, NO_PAGE_DATE, "documented", "document",
           "error", "Only Ossie 0.1.1 is supported."),
     _rule("snowflake/wrapper", "snowflake-ossie", SNOWFLAKE_EXPORT, NO_PAGE_DATE, "documented", "document",
@@ -371,7 +376,15 @@ def _merge(docs: list[tuple[str, dict[str, Any]]], per_file: dict[str, list[dict
         dict[str, Any], dict[str, list[tuple[str, int]]], dict[str, str]]:
     """The files merged into one view as publishing does: datasets, relationships and metrics from every file,
     one description (fabric/description), names that are unique (fabric/duplicate-name). Also where each merged
-    item and each other top-level key came from, so a problem is shown in its own file."""
+    item and each other top-level key came from, so a problem is shown in its own file.
+
+    ``docs`` is in sorted file order. The view's ``name`` is the first file's, and files may give different
+    names: the YAML reference says ``name`` is "Required, but the value isn't used. The view folder name is used
+    as the view and semantic model name." Every other top-level key (``ai_context``, ``custom_extensions``, a key
+    the schema doesn't know) is taken from the first file that has it, and a different value in a later file is
+    an error (fabric/conflict): the reference says "Resolve duplicate names and conflicting definitions across
+    files." Values are never merged."""
+    # name: required in each file (fabric/fragment) but unused by Fabric, so different names aren't a problem
     merged: dict[str, Any] = {"version": V02, "name": docs[0][1].get("name")}
     origins: dict[str, list[tuple[str, int]]] = {k: [] for k in _LISTS}
     owner = {"name": docs[0][0], "version": docs[0][0]}
@@ -390,6 +403,12 @@ def _merge(docs: list[tuple[str, dict[str, Any]]], per_file: dict[str, list[dict
                                                "Define the description in one file, or repeat the same text."))
             elif key not in merged:
                 merged[key], owner[key] = value, name
+            elif key != "description" and not _same(value, merged[key]):  # "Resolve ... conflicting definitions"
+                per_file[name].append(ov._diag((key,), "fabric/conflict", ov.short(value),
+                                               f"conflicts with {key} in {owner[key]}; Fabric asks for conflicting "
+                                               f"definitions across files to be resolved (the check used "
+                                               f"{owner[key]}'s)", f"Give {key} in one file only, or the same value "
+                                               "in each."))
     for key in _LISTS:
         seen: dict[Any, str] = {}
         for (name, i), item in zip(origins[key], merged.get(key) or [], strict=True):
@@ -403,6 +422,13 @@ def _merge(docs: list[tuple[str, dict[str, Any]]], per_file: dict[str, list[dict
             else:
                 seen[label] = name
     return merged, origins, owner
+
+
+def _same(a: Any, b: Any) -> bool:
+    try:
+        return bool(a == b)
+    except RecursionError:  # nested past what == can compare: the depth check refuses it afterwards anyway
+        return False
 
 
 def _home(d: dict[str, Any], origins: dict[str, list[tuple[str, int]]], owner: dict[str, str]) -> tuple[str | None,
@@ -470,11 +496,22 @@ def validate_files(files: Mapping[str, str | bytes], profile: str = "fabric-sema
     per_file: dict[str, list[dict[str, Any]]] = {n: [] for n in to_check}
     per_warn: dict[str, list[dict[str, Any]]] = {n: [] for n in to_check}
     docs = []
+    unread = []
     for n in to_check:
         doc, problems = _fragment(n, files[n])
         per_file[n] += problems
         if doc is not None:
             docs.append((n, doc))
+        elif any(d["rule"] == "parse" for d in problems):
+            unread.append(n)
+    merge_notes = []
+    if unread:
+        listed = ", ".join(unread[:5]) + (", …" if len(unread) > 5 else "")
+        merge_notes.append(ov._diag((), "fabric/merged", str(len(unread)),
+                                    f"{len(unread)} file(s) couldn't be read and aren't in the merged check; "
+                                    f"references to them may show as unresolved: {ov._short_text(listed)}",
+                                    "Fix those files (each says why), then check again."))
+        merge_notes[-1].pop("_parts", None)
     merged_result: dict[str, Any] | None = None
     if docs:
         merged, origins, owner = _merge(docs, per_file)
@@ -506,7 +543,8 @@ def validate_files(files: Mapping[str, str | bytes], profile: str = "fabric-sema
             "warnings": warnings, "files": results, "files_checked": checked,
             "merged": None if merged_result is None else {
                 "status": merged_result["status"], "checked": merged_result["checked"],
-                "schema": merged_result["schema"], "more": merged_result["more"], "stopped": merged_result["stopped"]},
+                "schema": merged_result["schema"], "more": merged_result["more"], "stopped": merged_result["stopped"],
+                "notes": merge_notes},
             "counts": {"yaml_files": len(yaml_names), "yaml_bytes": yaml_bytes, "tmdl_bytes": tmdl_bytes,
                        "ignored": ignored},
             "rules": [r["id"] for r in RULES if r["profile"] == profile and r["scope"] == "files"]}

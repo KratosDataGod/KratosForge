@@ -215,9 +215,14 @@ reads a file by its profile (OSSIE-003b, engine only; `sidecar/fabric_desktop/os
   ([YAML reference](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-yaml-reference),
   updated 2026-11-17). `validate_files` checks each file as a fragment: it needs `version` and
   `name`, and `datasets`, when the file declares it, is a nonempty list. It then checks the merged
-  view by the Fabric rules and shows each problem in the file it came from. Repeated names and
-  different top-level descriptions across files are errors. A view whose files declare no datasets
-  is valid, with a warning that Fabric infers the datasets. `validate` checks one whole document.
+  view by the Fabric rules and shows each problem in the file it came from. Repeated names,
+  different top-level descriptions and any other top-level key given differently in two files
+  (`fabric/conflict`: "Resolve duplicate names and conflicting definitions across files") are
+  errors. Files may give different `name` values, because Fabric doesn't use the name: "Required,
+  but the value isn't used. The view folder name is used as the view and semantic model name." A
+  file that can't be read is left out of the merged check, and `merged.notes` names it. A view
+  whose files declare no datasets is valid, with a warning that Fabric infers the datasets.
+  `validate` checks one whole document.
 - Snowflake rules: version `0.1.1` and the `semantic_model` wrapper. A field or metric with no
   `SNOWFLAKE` or `ANSI_SQL` expression gets a warning, because Snowflake skips it. That rule is
   labelled derived: Snowflake documents the behaviour but not where fields sit in 0.1.1. A correct

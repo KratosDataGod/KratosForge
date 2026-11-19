@@ -415,7 +415,7 @@ never code text); rollback information; responsible user and device. Through the
 lakehouse thread (`shared.py`).
 - Tests: scenario 9 (concurrent updates), 10 (reversal), 11 (retirement).
 
-**ESI-302 Baselines and validation.** Versioned baselines with measurement windows; before and
+**ESI-302 Baselines and validation.** **Built** (engine only, no writes). `savings/baselines.py`. Versioned baselines with measurement windows; before and
 after comparison on equivalent inputs; output equivalence where measurable; validation result
 moves Validating → Verified or back. CU change only from measured CU or a labelled estimate,
 never from time alone.

@@ -167,7 +167,7 @@ when the file goes to other tools.
   0.2.0.dev0 (commit `21d14d7`, the last before Ossie moved to 0.3.0.dev0) and 0.3.0.dev0
   (commit `aa500d3`). The converter reads and writes 0.2.0.dev0, which Fabric Semantic Views take.
 - A file of any other version gets one problem, "no pinned schema for" that version, and never
-  passes.
+  passes. Snowflake's 0.1.1 wrapper is checked for its documented shape (see Version profiles).
 - Each problem gives where it is as a path such as `$.datasets[0].fields[2].name`, the schema
   rule it breaks (`required`, `additionalProperties`, `type`, `enum` and so on), a short form of
   the value, what is wrong and how to fix it. A missing property and an unexpected property are
@@ -180,10 +180,42 @@ when the file goes to other tools.
   aliases (`*name`), and no deeper nesting than a model needs. The schema can't refer to anything
   outside the copies it ships with.
 - `valid` is true only when a schema checked the file and found nothing. Rules beyond the schema,
-  such as what Fabric or Snowflake accept, come later (OSSIE-003b).
+  such as what Fabric or Snowflake accept, are the version profiles below.
 - Regular expressions in a schema (`pattern`, `patternProperties`) would be matched with Python's
   `re`, not the ECMA-262 dialect JSON Schema names. Neither pinned schema has any, and a test fails
   if a newly vendored schema adds one, so the dialect is reviewed before such a schema ships.
+
+## Version profiles
+
+Fabric, Snowflake and Apache Ossie itself each take a different Ossie version, so KratosForge
+reads a file by its profile (OSSIE-003b, engine only; `sidecar/fabric_desktop/ossie_profiles.py`).
+
+| Profile | Version and layout | Checked by |
+| --- | --- | --- |
+| `ossie-0.3` | 0.3.0.dev0, flat | the pinned schema at `aa500d3` |
+| `ossie-0.2` | 0.2.0.dev0, flat (what the converter reads and writes) | the pinned schema at `21d14d7` |
+| `fabric-semantic-view` | 0.2.0.dev0, flat | the 0.2 schema plus Fabric's documented rules |
+| `snowflake-ossie` | 0.1.1 in the `semantic_model` wrapper | documented shape only: always **Unverified** |
+
+- A file's profile comes from its version and layout. Any other version is refused with a message
+  that names it. Fabric's profile is never guessed, because it uses the same version as `ossie-0.2`;
+  ask for it by name.
+- A 0.3.0.dev0 file or a Snowflake 0.1.1 file is read and checked, but it isn't converted. The
+  converter reads 0.2.0.dev0 only, so Import and Ossie file to TMDL refuse these files and name the
+  profile. Import's preview still returns the schema check, with `convertible` false. Converting
+  between versions comes later (OSSIE-012c).
+- Fabric rules: every metric needs a `DAX` expression, and relationships have one column on each
+  side. A view has at most 20 `.yaml` files (`.yml` files are ignored, with a warning), 16 MB of
+  YAML combined and 30 MB of generated TMDL. The TMDL size is checked only when the TMDL is given.
+  "MB" is read as 1,000,000 bytes, the stricter reading. A warning says what Fabric leaves out:
+  `custom_extensions`, dataset `fields`, `primary_key`, `unique_keys` and `ai_context`. Warnings
+  never fail the check. `validate_files` checks a set of files, and `validate` checks one.
+- Snowflake rules: version `0.1.1` and the `semantic_model` wrapper. A field or metric with no
+  `SNOWFLAKE` or `ANSI_SQL` expression gets a warning, because Snowflake skips it. That rule is
+  labelled derived: Snowflake documents the behaviour but not where fields sit in 0.1.1.
+- Each rule records its source page, the page date from the phase 0 research, and its basis:
+  pinned schema, documented or derived. The result gives the `profile`, a `status` (Valid,
+  Invalid, Unverified or Not checked), `warnings` and the `rules` that ran. It still only informs.
 
 ## Keeping Git in step
 

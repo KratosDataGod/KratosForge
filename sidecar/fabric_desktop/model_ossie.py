@@ -156,19 +156,35 @@ def load_text(text: str) -> Any:
 
 
 def parse(text: str) -> dict[str, Any]:
-    """An Ossie document (YAML or JSON) as a dict, refusing what isn't one, with a plain reason."""
+    """An Ossie document (YAML or JSON) as a dict, refusing what isn't one, with a plain reason.
+
+    Any known profile is read (``ossie_profiles.detect_profile``: Ossie 0.2.0.dev0, 0.3.0.dev0, or Snowflake's
+    0.1.1 wrapper), and any other version is refused by name. Reading isn't converting: only a document
+    ``convertible`` names can go through the converter (``to_tmsl`` refuses the rest)."""
+    from . import ossie_profiles
+
     doc = load_text(text)
     if not isinstance(doc, dict):
         raise TypeError("This isn't an Ossie semantic model: it should be one object with version, name and datasets")
-    if "semantic_model" in doc:
-        raise ValueError("This file uses the older Ossie layout with a semantic_model list. "
-                         f"Ossie {OSSIE_VERSION} puts one model's name and datasets at the top of the file.")
-    version = str(doc.get("version") or "")
-    if version != OSSIE_VERSION:
-        raise ValueError(f"This file is Ossie version {version or '(none)'}; this app reads version {OSSIE_VERSION}.")
-    if not doc.get("name") or not isinstance(doc.get("datasets"), list) or not doc["datasets"]:
+    profile = ossie_profiles.detect_profile(doc)  # UnknownProfile, a ValueError naming the version
+    if ossie_profiles.PROFILES[profile]["root"] == "flat" and (
+            not doc.get("name") or not isinstance(doc.get("datasets"), list) or not doc["datasets"]):
         raise ValueError("An Ossie model needs a name and at least one dataset")
     return doc
+
+
+def not_convertible(doc: dict[str, Any]) -> str:
+    """Why the converter can't take ``doc`` (what ``parse`` read), or "" when it can. The vendored converter reads
+    Ossie 0.2.0.dev0 only; a 0.3.0.dev0 file or Snowflake's 0.1.1 wrapper is read and checked, never handed to it
+    as if it were 0.2. Converting between versions is OSSIE-012c."""
+    from . import ossie_profiles
+
+    profile = ossie_profiles.detect_profile(doc)
+    if ossie_profiles.PROFILES[profile]["convertible"]:
+        return ""
+    return (f"This file is {ossie_profiles.PROFILES[profile]['label']} (profile {profile}). KratosForge reads it and "
+            f"checks it, but can't convert it yet: the converter reads Ossie {OSSIE_VERSION} only, and converting "
+            "between Ossie versions comes later (OSSIE-012c). Import's preview still shows the schema check.")
 
 
 def export(bim: dict[str, Any], translate_dax: bool = True, read_report: list[dict[str, str]] | None = None,
@@ -256,7 +272,11 @@ def to_tmsl(text: str | dict[str, Any], source: dict[str, str] | None = None) ->
     """An Ossie document (its text, or what ``parse`` made of it) as a parsed ``model.bim``, and the report.
     ``source`` is the lakehouse new Direct Lake tables read: ``{"workspaceId": ..., "itemId": ...}``."""
     lifted: list[dict[str, str]] = []
-    doc = _lift_dataset_metrics(_parsed(text), lifted)  # works on a copy: the caller's document is unchanged
+    parsed = _parsed(text)
+    refusal = not_convertible(parsed)
+    if refusal:  # never fed to the 0.2 converter as if it were 0.2
+        raise ValueError(refusal)
+    doc = _lift_dataset_metrics(parsed, lifted)  # works on a copy: the caller's document is unchanged
     try:
         bim, report = _convert(convert_ossie_to_semantic_model, yaml.safe_dump(doc, sort_keys=False), source=source)
     except ConversionError as exc:

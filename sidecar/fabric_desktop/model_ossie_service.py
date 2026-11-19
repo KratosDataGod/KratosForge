@@ -339,6 +339,9 @@ class ModelOssieMixin:
         model_ossie.require()  # before any Fabric call, even when a name is given and the file isn't parsed yet
         project, cfg = self._ossie_workspace(env)
         doc = model_ossie.parse(text)  # read once: the conversion, the merge, the reports and the schema check share it
+        refusal = model_ossie.not_convertible(doc)
+        if refusal:  # a known profile the converter can't read: no Fabric call, nothing converted
+            return {"refused": refusal, "doc": doc, "cfg": cfg, "name": (name or str(doc.get("name") or "")).strip()}
         name = (name or doc["name"]).strip()
         store = self._store(project, env)  # type: ignore[attr-defined]
         lakehouse = project.layer(self._model_layer(project, layer)).lakehouse  # type: ignore[attr-defined]
@@ -372,9 +375,17 @@ class ModelOssieMixin:
         ``removable`` lists what an update keeps although the file doesn't have it; pass any of them in
         ``remove`` to take them out. ``schema_validation`` is the file checked against the pinned Ossie JSON Schema
         for its version (ossie_validate.validate), on this PC. It informs only: Import doesn't wait on it, because
-        the converter already refuses what it can't read."""
+        the converter already refuses what it can't read.
+
+        A file of a profile the converter can't read yet (Ossie 0.3.0.dev0, Snowflake's 0.1.1) is still checked:
+        the answer has ``convertible`` false, ``refused`` (why, by name), the schema check, and no changes."""
         p = self._ossie_import_plan(env, text, name, mode, remove, layer)
-        return {"env": env, "name": p["name"], "mode": mode, "exists": p["existing"] is not None,
+        if "refused" in p:
+            return {"env": env, "name": p["name"], "mode": mode, "exists": None,
+                    "workspace_name": p["cfg"].get("workspace_name", ""), "changes": [], "removable": [],
+                    "report": [], "fidelity": None, "convertible": False, "refused": p["refused"],
+                    "schema_validation": ossie_validate.validate(p["doc"])}
+        return {"convertible": True, "env": env, "name": p["name"], "mode": mode, "exists": p["existing"] is not None,
                 "workspace_name": p["cfg"].get("workspace_name", ""), "changes": p["changes"],
                 "removable": p["removable"], "report": p["report"], "fidelity": p["fidelity"],
                 "schema_validation": ossie_validate.validate(p["doc"])}
@@ -385,6 +396,8 @@ class ModelOssieMixin:
         """Write the Ossie document into the model. Without ``confirmed`` the answer is ``{"confirm": {...}}``
         and nothing is written, so the user sees what changes first. No refresh runs."""
         p = self._ossie_import_plan(env, text, name, mode, remove, layer)
+        if "refused" in p:
+            raise ValueError(p["refused"])
         counts: dict[str, int] = {}
         for row in p["changes"]:
             counts[row["change"]] = counts.get(row["change"], 0) + 1
@@ -471,12 +484,16 @@ class ModelOssieMixin:
         (``_refuse_unreadable``)."""
         model_ossie.require()
         project = self._project()  # type: ignore[attr-defined]
-        name = (name or str(model_ossie.parse(text)["name"])).strip()
+        doc = model_ossie.parse(text)  # read once
+        refusal = model_ossie.not_convertible(doc)
+        if refusal:  # Ossie 0.3.0.dev0 or Snowflake's 0.1.1: read, but never converted as if it were 0.2
+            raise ValueError(refusal)
+        name = (name or str(doc["name"])).strip()
         root = Path(project.root)
         folder = root / FOLDER / f"{_folder_name(name)}.SemanticModel"
         definition = folder / "definition"
         _no_links(root, definition)
-        incoming, report = model_ossie.to_tmsl(text)
+        incoming, report = model_ossie.to_tmsl(doc)
         current: dict[str, Any] | None = None
         read_report: list[dict[str, str]] = []
         if (_real(definition, stat.S_ISDIR) and _tmdl_files(definition)) or _real(folder / "model.bim", stat.S_ISREG):
@@ -484,7 +501,7 @@ class ModelOssieMixin:
         _refuse_unreadable(read_report)  # before the confirm too, so an old token never writes over such a file
         kept, kept_rows = _kept_cultures(folder, read_report)
         report = [r for r in read_report if r.get("file") not in kept] + kept_rows + report
-        final = model_ossie.merge(current, incoming, remove, model_ossie.stashed(text), report) if current else incoming
+        final = model_ossie.merge(current, incoming, remove, model_ossie.stashed(doc), report) if current else incoming
         final["name"] = name
         kept_names = {_file_key(n) for names in kept.values() for n in names}
         culture_refs = None
@@ -498,7 +515,7 @@ class ModelOssieMixin:
                 del final["model"]["cultures"]
         files, written = tmdl.from_bim(final, culture_refs)
         report = report + written
-        fid = model_ossie.safe_fidelity(model_ossie.parse(text), incoming, report, model_ossie.round_trip_check(incoming))
+        fid = model_ossie.safe_fidelity(doc, incoming, report, model_ossie.round_trip_check(incoming))
         files["definition.pbism"] = json.dumps({"version": "4.0", "settings": {}}, indent=2) + "\n"
         targets = {}
         kept_keys = {_file_key(rel) for rel in kept}

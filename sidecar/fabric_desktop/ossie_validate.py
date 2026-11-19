@@ -9,8 +9,10 @@ size limit and alias-refusing safe loader ``model_ossie.parse`` uses. The result
 JSON path, the schema rule it breaks, a short form of the value, a message and a fix, sorted by path. A version
 with no pinned schema gets one named diagnostic and is never a pass. The result informs and never blocks an import
 (``EFFECT``). The check stops after MAX_RAW_ERRORS schema errors, and runs on the schema with its local ``$ref``s
-inlined (``inline_local_refs``), so a file that is wrong everywhere costs bounded time. Version profiles (Fabric,
-Snowflake and the other rules beyond the schema) are OSSIE-003b.
+inlined (``inline_local_refs``), so a file that is wrong everywhere costs bounded time.
+
+Which rules apply is the document's profile (OSSIE-003b, ``ossie_profiles``): ``validate`` detects it from the
+version and layout when none is given, and ``validate_files`` checks the limits Fabric sets on a set of files.
 """
 
 from __future__ import annotations
@@ -263,10 +265,13 @@ def _where(parts: tuple[Any, ...]) -> str:
 
 
 def _result(version: str, diagnostics: list[dict[str, Any]], checked: bool, total: int | None = None,
-            stopped: bool = False) -> dict[str, Any]:
+            stopped: bool = False, profile: str = "", warnings: list[dict[str, Any]] | None = None,
+            unverified: bool = False, rules: list[str] | None = None) -> dict[str, Any]:
     """The answer: diagnostics sorted by path, cut at MAX_DIAGNOSTICS with one ``more`` line for the rest.
     ``total`` is how many there were when the caller already cut the list to keep memory bounded; ``stopped``
-    says the check stopped at MAX_RAW_ERRORS, so there may be more than ``total``."""
+    says the check stopped at MAX_RAW_ERRORS, so there may be more than ``total``. ``profile`` is the profile
+    that checked it ("" when none could), ``warnings`` (same shape, never failing the check) what the target
+    would drop, and ``unverified`` a profile with no pinned schema, whose result is never valid."""
     total = len(diagnostics) if total is None else total
     diagnostics.sort(key=_sort_key)
     more = max(1 if stopped else 0, total - MAX_DIAGNOSTICS)  # stopped: the error it stopped at is one more
@@ -277,19 +282,33 @@ def _result(version: str, diagnostics: list[dict[str, Any]], checked: bool, tota
         count = f"at least {more}" if stopped else str(more)
         shown.append({"path": "$", "rule": "more", "value": "", "message": f"{count} more problems not shown",
                       "fix": "Fix the problems above and check again."})
-    return {"valid": checked and total == 0 and not stopped, "effect": EFFECT, "version": version,
+    warned = sorted(warnings or [], key=_sort_key)
+    for d in warned:
+        d.pop("_parts", None)
+    valid = checked and total == 0 and not stopped and not unverified
+    status = "Unverified" if unverified else "Valid" if valid else "Invalid" if checked or (profile and total) else "Not checked"
+    return {"valid": valid, "effect": EFFECT, "version": version,
             "checked": checked, "schema": schema_info(version) if checked and version in SCHEMAS else None,
-            "diagnostics": shown, "more": more, "stopped": stopped}
+            "diagnostics": shown, "more": more, "stopped": stopped, "profile": profile, "status": status,
+            "warnings": warned, "rules": list(rules or [])}
 
 
-def validate(doc_or_text: Any) -> dict[str, Any]:
-    """Check an Ossie document (a dict, or YAML or JSON text) against the pinned schema for its ``version``.
+def validate(doc_or_text: Any, profile: str | None = None) -> dict[str, Any]:
+    """Check an Ossie document (a dict, or YAML or JSON text) by ``profile``'s rules, or, when ``profile`` is
+    None, by the profile its version and layout name (``ossie_profiles.detect_profile``); a document that names
+    no profile is one ``version`` (or ``profile``) diagnostic and never a pass.
 
     Returns ``valid`` (true only when a pinned schema checked it and found nothing), ``effect`` ("informs": the
     result never blocks an import), ``version``, ``checked``
     (whether a schema check ran), ``schema`` (version, commit, url), ``diagnostics`` (``path``, ``rule``,
     ``value``, ``message``, ``fix``, sorted by path, at most MAX_DIAGNOSTICS then one ``more`` line), ``more``
-    and ``stopped`` (the check stopped at MAX_RAW_ERRORS, so ``more`` is "at least"). Text that can't be read (too large, not YAML, aliases, too deep) is one ``parse`` diagnostic."""
+    and ``stopped`` (the check stopped at MAX_RAW_ERRORS, so ``more`` is "at least"). Text that can't be read (too large, not YAML, aliases, too deep) is one ``parse`` diagnostic.
+    Also ``profile``, ``status`` ("Valid", "Invalid", "Unverified" or "Not checked"), ``warnings`` (what the
+    target drops; never failing) and ``rules`` (the ids of the profile rules that ran, ``ossie_profiles.RULES``)."""
+    from . import ossie_profiles
+
+    if profile is not None and profile not in ossie_profiles.PROFILES:
+        raise ValueError(f"There's no Ossie profile {profile!r}; the profiles are {', '.join(ossie_profiles.PROFILES)}")
     doc = doc_or_text
     if isinstance(doc_or_text, (str, bytes)):
         try:
@@ -305,23 +324,40 @@ def validate(doc_or_text: Any) -> dict[str, Any]:
     version = raw_version if isinstance(raw_version, str) else ""
     if any(d["rule"] == "depth" for d in shape):
         return _result(version, shape, False)
-    if "version" not in doc:
-        return _result("", [_diag(("version",), "required", "(missing)", "is required",
-                                  f"Add version: {model_ossie.OSSIE_VERSION}, the version this app reads and "
-                                  "writes.")], False)
-    if version not in SCHEMAS:
-        known = " and ".join(SCHEMAS)
-        return _result(version, [_diag(("version",), "version", short(raw_version),
-                                        f"no pinned schema for {short(raw_version)}; this app has schemas for {known}",
-                                        f"Write the file as Ossie {model_ossie.OSSIE_VERSION}, the version this app "
-                                        "reads and writes.")], False)
+    if profile is None:
+        if "version" not in doc:
+            return _result("", [_diag(("version",), "required", "(missing)", "is required",
+                                      f"Add version: {model_ossie.OSSIE_VERSION}, the version this app reads and "
+                                      "writes.")], False)
+        try:
+            profile = ossie_profiles.detect_profile(doc)
+        except ossie_profiles.UnknownProfile as exc:  # narrow: the named refusal, shown as the diagnostic
+            message = f"no pinned schema for {short(raw_version)}: {exc}" if exc.rule == "version" else str(exc)
+            return _result(version, [_diag(exc.parts, exc.rule, short(doc.get(exc.parts[0]) if exc.parts else doc),
+                                           message, f"Write the file as Ossie {model_ossie.OSSIE_VERSION}, the "
+                                           "version this app converts, or as one of the versions named.")], False)
     if shape:
-        return _result(version, shape, False)
-    return check(doc, _validator(version), version)
+        return _result(version, shape, False, profile=profile)
+    return ossie_profiles.check(doc, profile)
+
+
+def validate_files(files: Any, profile: str = "fabric-semantic-view", tmdl: Any = None) -> dict[str, Any]:
+    """A set of files checked by ``profile``'s file-set rules and each file by its document rules
+    (``ossie_profiles.validate_files``)."""
+    from . import ossie_profiles
+
+    return ossie_profiles.validate_files(files, profile, tmdl)
 
 
 def check(doc: Any, validator: Any, version: str) -> dict[str, Any]:
     """Run ``validator`` on ``doc`` and build the result; an unresolvable ``$ref`` is a diagnostic, not a fetch."""
+    diagnostics, total, stopped = schema_errors(doc, validator, version)
+    return _result(version, diagnostics, True, total, stopped)
+
+
+def schema_errors(doc: Any, validator: Any, version: str) -> tuple[list[dict[str, Any]], int, bool]:
+    """``validator``'s errors on ``doc`` as diagnostics (still holding their ``_parts``, for ``_result``), how
+    many there were, and whether the check stopped at MAX_RAW_ERRORS."""
     from referencing.exceptions import Unresolvable
 
     ext_key = SCHEMAS.get(version, {}).get("extensions", "the extensions property")
@@ -351,4 +387,4 @@ def check(doc: Any, validator: Any, version: str) -> dict[str, Any]:
     except RecursionError:
         diagnostics.append(_diag((), "depth", "", "nested too deeply to check", "Take out the extra nesting."))
         total += 1
-    return _result(version, diagnostics, True, total, stopped)
+    return diagnostics, total, stopped

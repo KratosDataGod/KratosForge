@@ -152,13 +152,26 @@ def test_type_calls_nested_up_to_the_limit_still_read():
     assert time.monotonic() - start < SLOW
 
 
-def test_a_long_or_chain_and_a_long_in_list_read_in_linear_time():
+def _best_time(text: str) -> float:
+    """The quickest of three reads, so a busy runner's pause in one of them isn't counted."""
+    best = float("inf")
+    for _ in range(3):
+        start = time.perf_counter()
+        sql.parse(text, "spark")
+        best = min(best, time.perf_counter() - start)
+    return best
+
+
+@pytest.mark.parametrize("query", [
+    lambda n: "SELECT * FROM t WHERE " + " OR ".join(f"a = {i}" for i in range(n // 25)),
+    lambda n: "SELECT a IN (" + ",".join(str(i) for i in range(n)) + ")",  # 20,000 items: 14.7 s before
+], ids=["or chain", "in list"])
+def test_a_long_or_chain_and_a_long_in_list_read_in_linear_time(query):
     # Each call and operator once walked its whole subtree for its first place in the text: 3,000 ORs took 48 s.
-    start = time.monotonic()
-    ors = "SELECT * FROM t WHERE " + " OR ".join(f"a = {i}" for i in range(800))
-    sql.parse(ors, "spark")
-    sql.parse("SELECT a IN (" + ",".join(str(i) for i in range(20000)) + ")", "spark")  # 14.7 s before
-    assert time.monotonic() - start < SLOW
+    # The check is how the time grows, not a number of seconds (a loaded Windows runner took 5.06 s for both):
+    # four times the terms takes about four times as long now, and took sixteen times as long before.
+    small, large = _best_time(query(5000)), _best_time(query(20000))
+    assert large < 9 * small, f"{small:.3f}s for 5,000, {large:.3f}s for 20,000: grows faster than the length"
 
 
 @pytest.mark.parametrize("query, says", [

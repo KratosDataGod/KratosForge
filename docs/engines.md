@@ -178,6 +178,7 @@ Rules 2026.11.11.
 | SFN-022 | Runs only in Snowflake | ALTER SESSION, other than SET TIMEZONE: other session parameters and UNSET change how Snowflake itself reads or prints values. |
 | SFN-023 | Runs only in Snowflake | IDENTIFIER($name) where the same cell doesn't set the variable to a string first: its value isn't known here. |
 | SFN-024 | Runs only in Snowflake | PIVOT ... IN (ANY ...) or IN (subquery): DuckDB's PIVOT takes a list of values. |
+| SFN-025 | Runs only in Snowflake | An array written with both text and numbers in it (ARRAY_CONSTRUCT, ARRAY_CONSTRUCT_COMPACT, ARRAY_INSERT, ARRAY_PREPEND, ARRAY_APPEND): a DuckDB list holds one type. |
 | SFN-099 | Runs only in Snowflake | Any other Snowflake command sqlglot can't read as a statement. |
 
 ### Snowflake functions checked value by value
@@ -301,6 +302,13 @@ A table a Databricks SQL cell makes on this PC is a DuckDB table in the session.
 - **CHECK constraints** written in CREATE TABLE stop a write that breaks them, as Databricks does. `ALTER TABLE ... ADD CONSTRAINT` and `DROP CONSTRAINT` are refused, since DuckDB can't change a table's constraints after it is made.
 - **TBLPROPERTIES** (such as `delta.appendOnly`), in CREATE TABLE or `ALTER TABLE ... SET` or `UNSET`, are refused, because a DuckDB table has no table properties. `LOCATION` is refused too.
 - **MERGE WITH SCHEMA EVOLUTION** is refused: add the source's extra columns with `ALTER TABLE ... ADD COLUMN` first. Without it, `UPDATE SET *` and `INSERT *` from a source with columns the target lacks stop with an error, as Databricks' MERGE INTO reference says.
+- **MERGE with more than one source row for a target row** stops with `DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE` and changes nothing, as on Databricks. The `WHEN MATCHED` conditions count, as on Databricks after 15.4 LTS. The check reads the source once more than the MERGE does, so a source whose rows change between reads (such as one with `rand()`) can be checked against other rows than it merges. Databricks allows the matches when the only `WHEN MATCHED` clause is an unconditional `DELETE`; this PC deletes them too on DuckDB 1.x, while DuckDB 2.0 stops that MERGE with its own error.
+- **UPDATE ... FROM** is refused, as Databricks refuses it, since Databricks' UPDATE has no FROM clause, so write it as `MERGE INTO ... USING ... WHEN MATCHED THEN UPDATE`.
+- **INSERT OVERWRITE** and **INSERT INTO ... REPLACE WHERE** are refused, because DuckDB has neither. Empty the table (or `DELETE FROM ... WHERE` the condition), then `INSERT INTO`.
+- **DESCRIBE TABLE** answers with Databricks' columns, `col_name`, `data_type` and `comment`, and its type names (`int`, `string`, `decimal(10,2)`, `timestamp`, `timestamp_ntz`). A column of an array, map, struct or other type it doesn't name the same way stops it by name, and so do `DESCRIBE TABLE EXTENDED` and a DESCRIBE of one column or partition. A partitioned table shows no partition section, since the table is made without its partitions.
+- **ALTER TABLE ... ADD COLUMNS (a, b)** and **DROP COLUMNS (a, b)** change each column in turn, and an added column's `COMMENT` is kept. Added columns are NULL in the rows already there. `ADD COLUMN ... DEFAULT` is refused, because Databricks takes no default when it adds a column to a Delta table (the rows already there stay NULL) and DuckDB would fill them. Add the column, then `ALTER COLUMN ... SET DEFAULT`, which changes new rows only, as on Databricks. `FIRST` and `AFTER` are refused, since DuckDB adds a column at the end only.
+- **Session variables** (`DECLARE VARIABLE`, `SET VAR`) are refused, because a query reads a Databricks variable by its name and DuckDB can't, so write the value into the query.
+- **CACHE TABLE**, **UNCACHE TABLE**, **OPTIMIZE** (with or without `ZORDER BY`) and **VACUUM** are refused by name, because they work on Apache Spark's cache or a Delta table's files, which a table here doesn't have. Leave them out. For `CACHE TABLE name AS query`, write `CREATE TEMPORARY VIEW name AS query`.
 
 ## Databricks workspace discovery (Preview)
 

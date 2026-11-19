@@ -1169,7 +1169,7 @@ class PlatformMixin:
 
     def mesh_save_product(self, product: dict[str, Any], original: str = "") -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
-        name = str(product.get("name", "")).strip()  # the name write_product saves it under
+        name = mesh.product_name(product.get("name", ""))  # before its file is read: it names the file
         if original:
             mesh.file_name(original, "product name")  # before anything is written: it names a file to remove
         path = project.root / "metadata" / "products" / f"{name}.toml"
@@ -1305,7 +1305,7 @@ class PlatformMixin:
         product's current version, so a later breaking version doesn't reach it unnoticed."""
         project = self._project()  # type: ignore[attr-defined]
         reads = {env: (link.get("reads") or {}).get(env, env) for env in ENVIRONMENTS}
-        alias = str(link.get("alias", "")).strip()  # the alias write_link saves it under
+        alias = mesh.link_alias(link.get("alias", ""))  # before the catalog hears of it
         link = link | {"alias": alias}
         kept = project.links.get(alias)
         if kept is not None and kept.product != link.get("product", ""):

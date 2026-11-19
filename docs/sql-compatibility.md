@@ -18,7 +18,7 @@ The dialect list next to **Run** is also the engine the SQL is checked against:
 | **Fabric SQL database (T-SQL)** | What the SQL database limitations page lists: EXECUTE AS, BACKUP, change data capture, SQL Agent, Service Broker, in-memory and ledger tables, logins, distributed transactions, column names, cross-database and linked-server names |
 | **DuckDB (this PC)** | T-SQL syntax, and that DuckDB SQL runs only on this PC |
 
-T-SQL is checked and formatted here but never run on this PC.
+The check only checks and formats T-SQL; it never runs it. A local data project runs T-SQL on this PC: see [Local T-SQL changes](#local-t-sql-changes) and the sections after it.
 
 ## Findings
 
@@ -231,7 +231,7 @@ Spark SQL run on this PC gives Spark's values and types for its array, map and s
 | `reverse`, `concat` | Work on arrays as well as text |
 | `map_concat`, `map` | A key that repeats stops the query, as with Spark's default `spark.sql.mapKeyDedupPolicy` (EXCEPTION) |
 | `explode`, `explode_outer`, `inline` | One row per element; a map gives `key` and `value` columns. `explode` of an empty or NULL array gives no rows, `explode_outer` one row of NULLs |
-| `LATERAL VIEW explode(...)`, `LATERAL VIEW OUTER` | One row per element or map entry, joined to its row. `OUTER` keeps a row whose array or map is empty or NULL, with NULLs |
+| `LATERAL VIEW explode(...)`, `LATERAL VIEW OUTER` | One row per element or map entry, joined to its row. `OUTER` keeps a row whose array or map is empty or NULL, with NULLs. `stack`, `json_tuple` and `inline` after `LATERAL VIEW` give one column per name, as in Spark |
 | Struct fields | `s.a`, `named_struct`, `struct(1 AS a)`; written to a Delta table as Spark's `struct<a:int,b:string>`, with arrays and maps keeping their element types |
 
 These cases still differ:
@@ -247,7 +247,7 @@ These cases still differ:
 
 ## JSON functions on this PC (WR-118)
 
-Spark SQL run on this PC gives Spark's answers for its JSON functions, with ANSI mode off as Fabric runs it. 232 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_json_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+Spark SQL run on this PC gives Spark's answers for its JSON functions, with ANSI mode off as Fabric runs it. 260 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_json_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
 
 | Function | On this PC, as in Spark |
 | --- | --- |
@@ -909,7 +909,7 @@ In a Fabric Warehouse, `OPTION (FOR TIMESTAMP AS OF '2026-11-01T09:30:00')` at t
 | A time more than 120 days ago | Outside any warehouse's retention | Refused |
 | A time 30 to 120 days ago | Answered only if the warehouse's retention was raised | Runs, with a note that a warehouse with the default retention doesn't answer |
 
-Refused by name: the hint on `INSERT ... SELECT`, `SELECT ... INTO` or `CREATE TABLE AS` (Microsoft's pages disagree on whether a warehouse runs these), the hint beside another hint (`OPTION (MAXDOP 1, FOR TIMESTAMP AS OF ...)`), a batch with more than one statement beside a `SELECT` with the hint (put `GO` before and after it), and the hint twice in one batch. Other `OPTION (...)` hints are still refused.
+Refused by name: the hint on `INSERT ... SELECT`, `SELECT ... INTO` or `CREATE TABLE AS` (Microsoft's pages disagree on whether a warehouse runs these), the hint beside another hint (`OPTION (MAXDOP 1, FOR TIMESTAMP AS OF ...)`), a batch with more than one statement beside a `SELECT` with the hint (put `GO` before and after it), and the hint twice in one batch. Other `OPTION (...)` hints are left out or refused as [Local T-SQL hints, labels and statistics](#local-t-sql-hints-labels-and-statistics) says.
 
 On a warehouse, from the SQL page, a `SELECT` ending in the hint is sent as written, and the warehouse answers for its own retention.
 
@@ -960,9 +960,9 @@ Besides the hand-picked cases above, three tests generate queries from a fixed s
 
 A different answer, or an error where the target answers, fails these tests unless it is named in the test's `KNOWN` list. An entry that no case needs any more fails too, so each list is what still differs. Today they are:
 
-Fixed since the first run, each with a test named after its case in `sidecar/tests/test_spark_differential_fixes.py` and `test_spark_string_edges.py`: `substring` with a negative length, `overlay` before the first character, `locate` on NULL text, `levenshtein` on text outside ASCII (characters are counted, as in Spark, and a third argument is Spark's threshold), `bit_count` of a negative `int` (64 bits), `pmod(x, 0.0D)` inside another `pmod`, `a div b` of decimals in the SQL editor, `isnan(NULL)` (false), `to_date` and `CAST(... AS DATE)` of text (Spark's reading: a year of 4 to 7 digits, so `'24-02-29'` is NULL), `date_format` past year 9999 (a leading `+`), `ceil` and `floor` of a double or a whole number (a `bigint`, as in Spark, so `CAST(ceil(1.0E3D) AS STRING)` is `1000`), and `shiftleft`/`shiftright` (Java's rules: the count mod 32 for an `int`, mod 64 for a `bigint`). A shift whose value isn't an `int` literal is typed `bigint` here when the value's type is only known as the query runs.
-
 | Engine | What differs here | How |
 | --- | --- | --- |
 | Spark SQL | `date_add` by about 2^31 days (past DuckDB's timestamp range) | This stops here with an error, where Spark gives a date millions of years away |
 | Spark SQL | `split_part(s, d, 0)` | Refused by name before the query runs; Spark stops only when the call is reached |
+
+Fixed since the first run, each with a test named after its case in `sidecar/tests/test_spark_differential_fixes.py` and `test_spark_string_edges.py`: `substring` with a negative length, `overlay` before the first character, `locate` on NULL text, `levenshtein` on text outside ASCII (characters are counted, as in Spark, and a third argument is Spark's threshold), `bit_count` of a negative `int` (64 bits), `pmod(x, 0.0D)` inside another `pmod`, `a div b` of decimals in the SQL editor, `isnan(NULL)` (false), `to_date` and `CAST(... AS DATE)` of text (Spark's reading: a year of 4 to 7 digits, so `'24-02-29'` is NULL), `date_format` past year 9999 (a leading `+`), `ceil` and `floor` of a double or a whole number (a `bigint`, as in Spark, so `CAST(ceil(1.0E3D) AS STRING)` is `1000`), and `shiftleft`/`shiftright` (Java's rules: the count mod 32 for an `int`, mod 64 for a `bigint`). A shift whose value isn't an `int` literal is typed `bigint` here when the value's type is only known as the query runs. Later fixes: `initcap`, `soundex` of a cast, `trunc` and `make_date` inside another call, `sqrt` below 0 (NaN), `sign` of NaN and of -0.0 (themselves, as in Spark), and `div` by 0 (NULL), tested in `test_spark_error_edges.py` and `test_spark_make_date_div_zero.py`.

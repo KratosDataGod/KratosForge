@@ -34,9 +34,9 @@ from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.column import Column as _Column
 from duckdb.experimental.spark.sql.session import SparkSession
 
-from . import lakehouse, spark_api, spark_compat, spark_infer, sql as _sql, sql_dialects
+from . import lakehouse, spark_api, spark_compat, spark_infer, sql as _sql, spark_replace_where, sql_dialects
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
-from .duckdb_rows import first_row, keep_try_cast
+from .duckdb_rows import keep_try_cast
 from . import spark_hash
 from .spark_complex import spark_complex_types
 from .spark_decimals import spark_decimal_types
@@ -512,56 +512,12 @@ class LakehouseWriter:
 
 
 def _replace_where(condition: str, name: str) -> str:
-    """replaceWhere's condition, Spark SQL, as the predicate delta-rs replaces by: the table's column
-    names quoted as the table spells them. A subquery, or a column the table hasn't, is refused."""
-    import sqlglot
-    from sqlglot import exp
-    try:
-        nodes = [n for n in sqlglot.parse(condition, read="spark") if n is not None]
-    except sqlglot.errors.ParseError as exc:
-        raise ValueError(f"replaceWhere {condition!r} isn't a condition this PC reads "
-                         f"({sql_dialects.parse_problem(exc)}). Nothing was "
-                         "written.") from None
-    if len(nodes) != 1 or not isinstance(nodes[0], exp.Condition):  # "dt = 1; DROP TABLE t" is two statements
-        raise ValueError(f"replaceWhere {condition!r} must be a single condition, such as region = 'EU'. Nothing was written.")
-    node = nodes[0]
-    if node.find(exp.Subquery, exp.Select) or not node.find(exp.Column):
-        raise ValueError(f"replaceWhere {condition!r} must compare the table's columns, with no subquery. Nothing "
-                         "was written.")
-    cased = {c.lower(): c for c in _columns(name) or []}
-    for column in node.find_all(exp.Column):
-        actual = cased.get(column.name.lower())
-        if actual is None or column.table:
-            raise ValueError(f"replaceWhere {condition!r}: table {name} has no column {column.sql('spark')}. Its "
-                             f"columns are {', '.join(cased.values())}. Nothing was written.")
-        column.set("this", exp.to_identifier(actual, quoted=True))
-    return node.sql(dialect="postgres")
+    """replaceWhere's condition as the predicate delta-rs replaces by (spark_replace_where.predicate)."""
+    return spark_replace_where.predicate(condition, name, _columns(name) or [])
 
 
-def _replace_mismatch(replace: str, name: str, detail: str = "") -> ValueError:
-    return ValueError(f"[DELTA_REPLACE_WHERE_MISMATCH] Written data does not conform to partial table overwrite "
-                      f"condition or constraint '{replace}'.{detail} Every row written must match replaceWhere, so "
-                      f"nothing was written to {name}. Filter the rows to the condition first, or widen replaceWhere.")
-
-
-def _rows_match(data: pa.Table, predicate: str, replace: str, name: str) -> None:
-    """Delta's check, made before the write is queued: every row written must make replaceWhere true
-    (a NULL fails it, as in Delta's CheckDeltaInvariant). delta-rs checks again as it writes."""
-    import duckdb
-    con = duckdb.connect()
-    try:
-        con.register("kf_rows", data)
-        try:
-            bad = first_row(con.execute(f"SELECT count(*) FROM kf_rows WHERE ({predicate}) IS NOT TRUE"))
-        except duckdb.Error as exc:  # fail closed: every row written must be checked against it
-            raise ValueError(f"replaceWhere '{replace}' isn't run here, because this PC couldn't check the rows "
-                             f"against it. The check stopped on: {str(exc).splitlines()[0]}. Nothing was written to "
-                             f"{name}. Write the condition as column comparisons, such as region = 'EU'.") from None
-    finally:
-        con.close()
-    if bad and bad[0]:
-        verb = "doesn't" if bad[0] == 1 else "don't"
-        raise _replace_mismatch(replace, name, f" {bad[0]} of the {data.num_rows} rows {verb} match it.")
+_replace_mismatch = spark_replace_where.mismatch
+_rows_match = spark_replace_where.check_rows
 
 
 def _write_table(data: pa.Table, name: str, how: str, schema_mode: str | None, predicate: str | None = None,
@@ -1222,7 +1178,9 @@ class LakehouseReader:
         given = self._options
         self._refusal("csv")
         # A comma unless sep or delimiter says otherwise, as in Spark: DuckDB would guess one from the file.
-        extra: dict[str, Any] = {"sep": str(given.get("sep") or given.get("delimiter") or ",")}
+        # skiprows 0: Spark never leaves out a line, where DuckDB's sniffer drops the first lines of a file
+        # when they don't look like the rest (a title, or a first row with fewer columns), with no error.
+        extra: dict[str, Any] = {"sep": str(given.get("sep") or given.get("delimiter") or ","), "skiprows": 0}
         if not _true(given.get("inferschema", False)) or getattr(self, "_schema", None):
             extra["all_varchar"] = True
         if given.get("nullvalue") not in (None, ""):

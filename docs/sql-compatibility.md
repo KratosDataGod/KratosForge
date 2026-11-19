@@ -128,6 +128,30 @@ These cases can still differ. LOC-003 warns wherever a pattern is used:
 
 A cast of text that is only a year or a year and month, such as `CAST('2024-02' AS DATE)` or `to_timestamp('2024')`, also still differs. Spark reads it as the month's or the year's first day; here it is NULL. No rule warns about it yet.
 
+## The session time zone on this PC (WR-120)
+
+Spark SQL run on this PC reads and shows timestamps in `spark.sql.session.timeZone` as Spark does. Each case is checked against Apache Spark 3.5.3's own answers, in UTC, America/Chicago, Asia/Kolkata, Europe/London and two offsets, in `sidecar/tests/test_spark_timezone_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Case | On this PC, as in Spark |
+| --- | --- |
+| The session time zone | `spark.conf.set("spark.sql.session.timeZone", ...)` takes a region (`America/Chicago`), `UTC`, or an offset of whole hours (`-08:00`, `GMT-08:00`, `UTC+3`). `current_timezone()` gives the id as it was set |
+| `timestamp` and `timestamp_ntz` | A `timestamp` is an instant, shown in the session's zone; a `timestamp_ntz` is a wall clock with no zone. A cast between them, or from a date or text to a `timestamp`, reads the wall clock in the session's zone. `unix_timestamp` of a `timestamp_ntz` reads it as UTC |
+| The hour clocks skip | A wall clock that doesn't exist, such as 02:30 on the day America/Chicago springs forward, moves forward by the gap (03:30) |
+| The hour clocks repeat | A wall clock that happens twice, such as 01:30 on the day America/Chicago falls back, is the earlier of the two (01:30 CDT), as Java reads it. This holds for casts, `make_timestamp`, `to_timestamp`, `unix_timestamp` and `to_utc_timestamp`; `date_trunc` keeps the offset of the time it truncates |
+| An interval of hours added to a `timestamp` | Split into whole days and the rest, as Spark does: `INTERVAL 24 HOURS` adds a calendar day in the session's zone, 23 hours of real time on the day clocks spring forward |
+
+Refused by name, and nothing runs:
+
+| Case | Why |
+| --- | --- |
+| A session time zone, or a `from_utc_timestamp` or `to_utc_timestamp` zone, written as an offset with minutes, such as `+05:30` | The engine on this PC has a zone for an offset of whole hours only. Use the region's own zone, such as `Asia/Kolkata` |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| A `timestamp` from `collect()` | A `datetime` with no zone, in UTC (Fabric's driver runs in UTC) | A `datetime` with the session's zone, which is the same instant |
+
 ## Window functions on this PC
 
 Spark SQL and the DataFrame API run on this PC give Spark's answers for window functions, with ANSI mode off as Fabric runs it. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_windows.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
@@ -599,6 +623,25 @@ What can still differ:
 - A warehouse finds conflicts by table, so two changes to different rows of one table can conflict there. Here delta-rs finds them by the files each change read, so two changes to different files of one table can both commit.
 - `BEGIN TRAN`, `COMMIT`, `ROLLBACK` and `SET TRANSACTION` are refused here (see Local T-SQL scripts), so a conflict here is always about one statement.
 - A commit delta-rs refuses for another reason, such as a change to a table with `delta.appendOnly`, isn't called a conflict. It stops with delta-rs's own reason and says nothing was committed.
+
+## Local T-SQL wide tables and long values
+
+When a project runs T-SQL on this PC, wide tables and long values stay exact, or stop by name where a Fabric Warehouse differs. Nothing is cut without saying so. This was checked against Microsoft Learn's Fabric Data Warehouse pages for tables and data types, and the REPLICATE page, as they read on 2026-11-18.
+
+| What | Here |
+| --- | --- |
+| A table of up to 1,024 columns | Made, and every value comes back |
+| `CREATE TABLE`, `SELECT ... INTO` or `ALTER TABLE ... ADD` past 1,024 columns, a warehouse table's most | Stops with SQL Server's words, such as "CREATE TABLE failed because column 'c1024' in table 'w' exceeds the maximum of 1024 columns.", and nothing is made. `SELECT *` is counted as it reads |
+| A query result wider than 1,024 columns | Runs. The limit is a table's |
+| A `VARCHAR(MAX)` value of a megabyte or more | Comes back whole, and `LEN` and `DATALENGTH` count all of it |
+| `REPLICATE` of text that isn't `VARCHAR(MAX)` or `NVARCHAR(MAX)`, past 8,000 bytes (4,000 characters of `N''` text) | Stops at the row where a warehouse would cut the result, with the way to keep it whole: cast the input to `VARCHAR(MAX)`. A `VARCHAR(MAX)` column without a cast stops too, because the local engine doesn't keep a column's `(MAX)`, and the cast changes nothing in a warehouse |
+| A query that nests string calls dozens deep, or nests anything past what the translator can read | Stops by name and says the query is nested too deeply, so move the inner part into a CTE, a subquery or a variable. A `REPLICATE` inside another one is checked at each level. |
+| An Excel export of more than 16,384 columns, a sheet's most | Refused before anything is written, with CSV or Parquet named instead. A text cell past Excel's 32,767 characters is cut there with a note, as before |
+
+What can still differ:
+
+- A warehouse stores at most 16 MB in a `VARCHAR(MAX)` or `VARBINARY(MAX)` value. The local engine keeps a longer one.
+- `ALTER TABLE ... ADD` of several columns in one statement is refused by name here, because the local engine adds one at a time. Add each in an `ALTER TABLE` of its own.
 
 ## Local T-SQL tables
 

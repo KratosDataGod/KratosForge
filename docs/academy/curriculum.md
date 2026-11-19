@@ -113,6 +113,7 @@ validation checks both the fix and that nothing else changed.
 | E57 | An incremental load that misses late rows | 2.1.1, 2.2.9 | LV | duckdb | 20 | LM-12 |
 | E58 | A retried pipeline doubled a table | 2.2.9, 3.2.1 | LV | duckdb | 20 | LAB-04 |
 | E59 | A query that got slow: a filter that can't skip data | 3.3.6 | LV | duckdb | 20 | LAB-02 |
+| E68 | A notebook MERGE fails: two source rows for one key | 3.2.3, 2.2.9 | LV | pyspark | 20 | LM-11 |
 
 ## Capstone projects
 

@@ -14,7 +14,7 @@ dependencies = [
     "sqlglot>=30.22,<30.28",  # the versions the SQL tests pass on; CI runs them on both ends (tests/test_sqlglot_version.py)
     "polars>=1.20",
     "pyarrow>=16",
-    "deltalake>=0.25",
+    "deltalake>=1.2",  # VACUUM keep_versions (maintenance.vacuum_keep)
     "msal>=1.31",
     # Windows sign-in (Web Account Manager) for MSAL: single sign-on with the Windows work account,
     # and it passes "compliant device" Conditional Access. msal 1.3x pairs with 0.20.

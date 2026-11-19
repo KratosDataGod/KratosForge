@@ -272,7 +272,7 @@ class XRayMixin:
             return maintenance.kept_days(DeltaTable(uri, storage_options=options).metadata().configuration)
         except Exception as exc:  # its own retention setting may be longer than the layer's: don't guess
             raise RuntimeError(f"Couldn't read the table's retention setting ({type(exc).__name__}: {exc}), so the days "
-                               "of history it keeps aren't known. Nothing was started; try again when the table can be read.") from exc
+                               "of history it keeps aren't known. Nothing was started. Try again when the table can be read.") from exc
 
     def _xray_skew_days(self, uri: str, options: dict[str, str], days: int, why: str) -> tuple[int, str]:
         """More days than ``days`` when a commit dated out of step with the one before it (a writer's clock)
@@ -281,10 +281,10 @@ class XRayMixin:
             safe = maintenance.skew_safe_days(DeltaTable(uri, storage_options=options), days)
         except Exception as exc:  # the dates can't be read: which files a version still reads isn't known
             raise RuntimeError(f"Couldn't read the table's history ({type(exc).__name__}: {exc}), so whether its "
-                               "commits' dates can be trusted isn't known. Nothing was started; try again when the "
+                               "commits' dates can be trusted isn't known. Nothing was started. Try again when the "
                                "table can be read.") from exc
         if safe > days:
-            return safe, "a commit dated before the one ahead of it (a clock out of step)"
+            return safe, "a commit dated earlier than the one before it (a writer's clock out of step)"
         return days, why
 
     def _xray_mark_submitted(self, finding_id: str, job_id: str, workspace_id: str, item_id: str) -> None:

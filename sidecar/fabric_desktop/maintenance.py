@@ -146,7 +146,8 @@ def _retention_number(value: Any, unit: str) -> float:
     """``value`` as a finite number, or the refusal: NaN, infinity, True and text are no length of history."""
     if isinstance(value, bool) or not isinstance(value, numbers.Real) or not math.isfinite(float(value)):
         raise ValueError(f"VACUUM has to keep at least {MIN_RETENTION_DAYS} days of history, and {value!r} isn't a "
-                         f"number of {unit}. Nothing was changed.")
+                         f"number of {unit}. Nothing was changed. Give a number of {unit}, "
+                         f"{MIN_RETENTION_DAYS if unit == 'days' else MIN_RETENTION_DAYS * 24} or more.")
     return float(value)
 
 
@@ -157,8 +158,8 @@ def check_retention(days: int, allow_shorter: bool = False) -> None:
     number of days, or is negative, is refused whatever ``allow_shorter`` says."""
     n = _retention_number(days, "days")
     if n < 0 or (n < MIN_RETENTION_DAYS and not allow_shorter):
-        raise ValueError(f"VACUUM has to keep at least {MIN_RETENTION_DAYS} days of history, not {n:g}: with "
-                         "less, it can delete files that readers or writers in other processes still use, and time "
+        raise ValueError(f"VACUUM has to keep at least {MIN_RETENTION_DAYS} days of history, not {n:g}, because "
+                         "with less it can delete files that readers or writers in other processes still use, and time "
                          "travel to those versions stops working. Nothing was changed.")
 
 
@@ -168,9 +169,9 @@ def check_retain_hours(hours: Any) -> None:
     n = _retention_number(hours, "hours")
     if n < MIN_RETENTION_DAYS * 24:
         raise ValueError(f"VACUUM keeps at least {MIN_RETENTION_DAYS} days ({MIN_RETENTION_DAYS * 24} hours) of "
-                         f"history on this PC, not {n:g} hours: with less, it can delete files that readers or "
-                         "writers in other processes still use, and time travel to those versions stops working. "
-                         "Nothing was changed.")
+                         f"history on this PC, not {n:g} hours, because with less it can delete files that readers "
+                         "or writers in other processes still use, and time travel to those versions stops working. "
+                         f"Nothing was changed. Use RETAIN {MIN_RETENTION_DAYS * 24} HOURS or more, or leave RETAIN out.")
 
 
 def skewed_versions(table: DeltaTable, hours: float, now: float | None = None) -> tuple[list[int], int | None]:

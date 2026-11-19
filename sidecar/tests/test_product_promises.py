@@ -236,3 +236,24 @@ def test_a_product_or_link_name_that_isnt_one_removes_no_file(svc, call):
     with pytest.raises(ValueError, match="isn't a (product|link) name"):
         call(svc)
     assert entity.is_file()
+
+
+def test_a_product_name_is_checked_before_its_file_is_read(svc, monkeypatch):
+    import pathlib
+
+    _save(svc, {"within_hours": 24})  # the products folder is there, so ../ in a name leads out of it
+    read = []
+    real = pathlib.Path.read_text
+    monkeypatch.setattr(pathlib.Path, "read_text", lambda self, *a, **k: (read.append(str(self)), real(self, *a, **k))[1])
+    with pytest.raises(ValueError, match="A product name is"):
+        svc.mesh_save_product({"name": "../entities/silver.customers", "access": "public", "status": "published",
+                               "version": "1", "ports": []})
+    assert not [p for p in read if ".." in p]
+
+
+@pytest.mark.parametrize("name", ["con", "nul", "aux", "prn", "com1", "lpt9"])
+def test_a_name_windows_keeps_for_a_device_is_not_a_product_or_link_name(name):
+    for check in (mesh.product_name, mesh.link_alias, lambda v: mesh.file_name(v, "product name")):
+        with pytest.raises(ValueError):
+            check(name)
+    assert mesh.product_name(name + "_x") == name + "_x" and mesh.link_alias("console") == "console"

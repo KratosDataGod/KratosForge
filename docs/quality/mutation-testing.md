@@ -6618,6 +6618,67 @@ One defect was found and is recorded as a strict `xfail` in `test_receipts_mutat
 | `platforms.py` | 201 | `<=` to `<` in capping a strength | Equivalent: at equal rank both branches return the same evidence. |
 | `receipts.py` | 54 | `allow_nan=False` to `True` | Equivalent: the check before it already refuses NaN and infinity in every dict, list and tuple, and keys that aren't text. |
 
+# Mutation testing, batch 109
+
+Two modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- The app's incident calls: the list, the summary, the check and the watch, the agents and queue pages, the product status told to the catalog, and the openings an older app already posted (`incident_service.py`).
+- The incident desk: the board's counts, the bell's For you list, reported incidents, who an incident reaches and telling them, and the incident history and measures kept in the central lakehouse (`incident_desk.py`).
+
+The run was at `main` ad1ac4cf8 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902: each mutant ran without a bytecode cache, and the tests were first run once on the unmutated copy of `sidecar/`, where they passed. The method is the same as earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. Each module has fewer than 150 mutants (96 and 149), so all of them ran. Each test set was run with `-x`, so a mutant's run stops at its first failing test.
+
+Before each "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter or `--deselect` was needed: no test in these sets reads `docs/`, `examples/` or `app/`. `test_rpc_surface.py` names the desk's calls but reads `app/`, and doesn't call them, so it isn't in the `incident_desk.py` set. `test_dataops.py` calls `incidents_watch` for late and failed tables, so it is in the `incident_service.py` set, as are `test_agent_fleet.py`, `test_workload_queue.py` and `test_run_as.py` for the agents, queue and run-as pages.
+
+No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `incident_service.py` | test_incident_service_paths, test_incident_partial_work, test_incidents, test_product_status, test_dataops, test_agent_fleet, test_workload_queue, test_run_as (+ test_incident_service_mutation) | 96 of 96 (96 + 0) | 73 / 23 | **76.0%** | 73/96 → 95/96 | none | 95 / 1 | **99.0%** | 1 equivalent |
+| `incident_desk.py` | test_incident_desk, test_incident_partial_work (+ test_incident_desk_mutation) | 149 of 149 (148 + 1) | 112 / 37 | **75.2%** | 112/148 → 144/148 | 0/1 → 1/1 | 145 / 4 | **97.3%** | 4 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **incident_service.py**:
+  - The list shows resolved incidents unless asked not to, the queue looks 24 hours ahead, and a check or the watch tells Teams only when asked (no outbox is opened otherwise).
+  - Acknowledging gives back the acknowledged incident.
+  - The check reads the latest 2,000 runs, and the queue the last 100 Fabric jobs as last checked, never asking Fabric for fresh statuses.
+  - A OneLake environment's control area is read with the silent storage token, and an empty one when there is none.
+  - The incidents list says its agents could be read, and agents that can't be read say why in words, not as a state.
+  - The queue and run-as pages say whether the Fabric schedules were never read, are being read, failed (with Fabric's words) or were read (with when).
+  - A Fabric schedule shows the environment whose workspace it is in.
+  - Only this project's assignments set how critical a table is, and an assignment without a criticality sets none.
+  - The watch still tells the catalog the product status when an agent checks the environment, and only a live agent that checks incidents leaves the check to it.
+  - An agent offline with no other agent live is red.
+  - The log says whether the platform will be asked for the product status again.
+  - A late table without evidence is posted, even when an older app's record has a key that looks alike.
+  - → `test_incident_service_mutation.py`.
+- **incident_desk.py**:
+  - The board shows resolved incidents unless asked not to, says which incidents were detected and which reported, and counts as mine only my own, not someone else's.
+  - The bell puts breached before at risk before due, and missed before at risk, whatever was seen last, and gives each incident's last-seen time.
+  - An incident that is gone says so.
+  - A platform that keeps no followers, or an older one without the followers call, still names the owners.
+  - Impact shows the latest time people were told; telling says which routes it went to; a list of people too long for one note, already told, is noted once.
+  - The central lakehouse is read with schemas unless it says otherwise.
+  - History before any copy is empty, whether the table is missing by message or by type; a history that can't be read for another reason is an error.
+  - Within one second the later stage of handling wins (an unknown state counts as open), and a snapshot with no time never replaces a dated one.
+  - History is newest first, with undated incidents last and no bookkeeping columns; it shows 500 by default, at least one and at most 5,000, and one environment's when asked.
+  - Measures read up to 5,000 incidents, and say they were capped at 5,000 exactly.
+  - The history copy keeps every timeline entry and the workspace it came from.
+  - → `test_incident_desk_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `incident_service.py` | 179 | `split(":", 2)` to `split(":", 3)` for an assignment's table | Equivalent: a project's name (the save gate's pattern) and a table's name (a file name on Windows) have no `:`, so a workload id has exactly three parts either way. |
+| `incident_desk.py` | 95 | the bell's rank for any other SLA state from 2 to 3 | Equivalent: every ranked state is 0 or 1, so 2 and 3 sort the same. |
+| `incident_desk.py` | 237 | the history's rank for `resolved` from 2 to 3 | Equivalent: it is still the highest, so the same row wins. |
+| `incident_desk.py` | 239 | `unique(maintain_order=True)` to `False` | Equivalent: the rows are sorted by opening time right after, and that sort doesn't keep the order of ties either way. |
+| `incident_desk.py` | 258 | the measures' history limit from 5,000 to 5,001 | Equivalent: the history itself shows at most 5,000. |
+
 # Mutation testing, batch 110
 
 Two modules not covered before, none touched by an open pull request, run with `--kinds all`, so each score counts the boundary mutants together with the earlier kinds:
@@ -7706,3 +7767,303 @@ No bugs were found.
 ### Left
 
 None.
+
+# Mutation testing, batch 140
+
+One workload module not covered before, run with `--kinds all`:
+- Turning each native source into workload records: runs from the run log, Fabric and schedules on this PC, owners, and the metadata entity, notebook, local pipeline and Fabric item workloads with their deployments, schedules and links (`workloads/inventory.py`).
+
+The run was at `main` 4ddd3662 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902, and the method of earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. The module has 260 mutants, so 150 were sampled; the sample held no boundary mutant. No `-k` filter was used. One test was left out with `--deselect` to keep each mutant's run short: `test_workloads.py::test_ten_thousand_workloads_filter_and_page_quickly`, which builds 10,000 Fabric item records with this module and then times filtering and paging them (`workloads/query.py`); it checks the speed of the paging, not the records, which the other tests check, and takes about 1 s a run. Before the "after" run, the new tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it; they passed both ways. No mutant's run timed out.
+
+The first run used test_workloads only, and scored 61 / 89 (40.7%). Each survivor was run again with test_workload_pipelines, test_workload_service_paths, test_workload_audit and test_workload_query added, which reach this module through the workload service, and the "before" figures are from that run.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/inventory.py` | test_workloads, test_workload_pipelines, test_workload_service_paths, test_workload_audit, test_workload_query (+ test_workload_inventory_mutation) | 150 of 260 (150 + 0) | 85 / 65 | **56.7%** | 85/150 → 150/150 | none sampled | 150 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/inventory.py**:
+  - A run by an agent names the agent, and its host when it has one. A run ends its seconds after it started (0 seconds too), and one without seconds or a start has no end.
+  - A Fabric run started from this app, a Fabric job and a schedule run on this PC each get empty or "workspace" defaults for what they leave out, keep what they have, and a job takes either spelling of its times. Runs are newest first, one with no start last.
+  - A project with no name is "project", and one with no team or contacts has no team or business contact; one that has them names its team and first contact.
+  - Where tables go in each environment, which workspace and whose identity an environment that runs in Fabric shows, and that an environment not set up offers no run.
+  - The newest deployment says which version an environment runs.
+  - An environment's schedules on this PC are the ones for this entity or for all entities, on unless they say otherwise; Fabric schedules are off unless they say so.
+  - The products an entity feeds use the product's name when it has no title. An entity's errors are its own, without its name. Its upstream tables are the ones it reads.
+  - A kept link or a link from a run gets defaults for a missing workspace name and way of linking.
+  - A linked notebook's Fabric runs are cached until signed in, it has only its own schedules, names its lakehouse's workspace, can be cancelled while a run is going, and doesn't list a schedule's last run twice. One linked by name shows how the Fabric items were read. Its last run here is its newest schedule run.
+  - A pipeline run the app stopped says so, a message from the schedule wins, and its mocks are counted. A pipeline only a schedule runs is listed by its folder name; the first pipeline at a path is kept, and its place and problems are shown.
+  - Runs count for a pipeline through its schedule, or by its name only when the name is unique; a run whose record is gone shows the schedule's own row.
+  - A Fabric item gets defaults for a missing name, workspace name and description, its schedules are off unless they say so, it shows how it was read once it has runs, can be cancelled while one is going, and a Preview type can't be scheduled.
+  - → `test_workload_inventory_mutation.py`.
+
+### Left
+
+None.
+
+# Mutation testing, batch 141
+
+One workload module not covered before, run with `--kinds all`, so its score counts the boundary mutants together with the earlier kinds:
+- Workload ids, run states, observations and how a read error is shown (`workloads/model.py`).
+
+The run was at `main` 4ddd3662 (2026-11-18), with the same tool and method as batch 140. The module has fewer than 150 mutants, so all of them ran. `test_workloads.py::test_ten_thousand_workloads_filter_and_page_quickly` was left out with `--deselect`, as in batch 140, to keep each mutant's run short. Before the "after" run, the new tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it; they passed both ways. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/model.py` | test_workloads, test_workload_query, test_not_set_up, test_typed_errors, test_retrying (+ test_workload_model_mutation) | 95 of 95 (94 + 1) | 84 / 11 | **88.4%** | 84/94 → 94/94 | 0/1 → 1/1 | 95 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/model.py**:
+  - Every kind of id reads back, and an id missing a part (a project, entity, workspace, item, name or path) isn't one.
+  - A time given as seconds is UTC, a naive time is read as UTC, and an aware one keeps its offset.
+  - An unknown observation state is refused.
+  - A cached read exactly its maximum age old is still cached.
+  - A 401, 403 or 429 status is read from the error itself, not from its words.
+  - → `test_workload_model_mutation.py`.
+
+### Left
+
+None.
+
+# Mutation testing, batch 142
+
+Teams messages for incidents (`workloads/notify.py`): routes, quiet hours, the outbox that keeps a message until Teams takes it, a failing route's rest between tries, and the audit line for a notice that wasn't delivered.
+
+The run was at `main` 5865db95 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902, and the method of earlier batches (sample cap 150, seed 7, `--kinds all`). Test files were given as paths relative to `sidecar/`, each was checked to exist, and the tests first passed once on the unmutated copy. The module has 221 mutants, so 150 were sampled. No `-k` filter or `--deselect` was needed: none of these tests reads `docs/`, `examples/` or `app/`.
+
+The first run was stopped after 103 of its 150 mutants. The other 47 were run with `--only`, with the same seed and the same tests, so the "before" figures cover all 150. Before each "after" run, the new tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11, and passed both ways. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/notify.py` | test_notify_delivery, test_incidents, test_notice_failures, test_platform_notify, test_agent_clock_jumps (+ test_notify_mutation) | 150 of 221 (144 + 6) | 125 / 25 | **83.3%** | 124/144 → 140/144 | 1/6 → 5/6 | 145 / 5 | **96.7%** | 4 equivalent, 1 noted under Left |
+
+No bugs were found in the sampled lines that the tests now cover. One mutant that is left points at a small gap, described under Left.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/notify.py**:
+  - The outbox keeps 500 messages and sends at most 25 to a route in one call. The existing tests used the names, so a changed number still passed.
+  - Each kept error (a message added, a post that failed, a failed try, a failing route) is cut to 500 characters.
+  - A waiting message keeps the time it was made.
+  - A failing route's address is kept as a 16-digit fingerprint, never as the webhook.
+  - No routes send, queue and hold nothing.
+  - An escalation goes to the route the incident names, and to the escalation route when it names none.
+  - With no time given, quiet hours go by the outbox's clock.
+  - The outbox's folder is made with its parents, and a route can't be changed once made.
+  - A message due at exactly now goes now.
+  - A route at its longest rest is still resting, up to exactly the clock margin.
+  - Quiet hours start at exactly their start, by day and overnight.
+  - An audit line for a result without a queued count says 0.
+  - → `test_notify_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/notify.py` | 182, 184 | `lastrowid or 0` to `or 1` | Equivalent: an INSERT always gives a row id, so the fallback is never used. |
+| `workloads/notify.py` | 236 | `min(failures - 1, 20)` to `21` | Equivalent: 60 s × 2^20 is far beyond `BACKOFF_MAX` either way, and the wait is capped at `BACKOFF_MAX`. |
+| `workloads/notify.py` | 266 | `per_route.get(name, 0)` to `1` in the check | Equivalent: it only changes the first check for a route, where 1 is still below `MAX_PER_TRY` (25). |
+| `workloads/notify.py` | 96 | `end > now` to `>=` | Reachable only when quiet hours end on a second other than :00. agent.toml refuses such a time, but platform notice settings accept one (`22:00-06:00:30`), and a message held then waits until 06:00 the next day instead of 06:00:30. Reported for a decision, not changed here (tests only). |
+
+# Mutation testing, batch 143
+
+Tables scheduled in two places (`workloads/overlap.py`): an agent and this PC, or two agents, running the same tables.
+
+The run was at `main` 5865db95 (2026-11-18), with the method of batch 142. The module has 53 mutants, so all of them ran. No `-k` filter or `--deselect` was needed, and no mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/overlap.py` | test_schedule_overlap (+ test_schedule_overlap_mutation) | 53 of 53 (52 + 1) | 46 / 7 | **86.8%** | 46/52 → 51/52 | 0/1 → 1/1 | 52 / 1 | **98.1%** | 1 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/overlap.py**:
+  - A schedule that can't be described has empty text.
+  - An agent's tables against every table on this PC are the agent's tables.
+  - A schedule on this PC that doesn't say whether it is enabled counts, and keeps its text, or empty text when it has none.
+  - A record without an agent name is left out.
+  - Of two records with the same heartbeat, the later one speaks.
+  - → `test_schedule_overlap_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/overlap.py` | 80 | `known[i + 1:]` to `known[i:]` | Equivalent: the extra pair is a schedule with itself, which is skipped as the same place. |
+
+# Mutation testing, batch 144
+
+Teams messages for platform events (`workloads/platform_notify.py`): checking an event, its message, routes, and the ledger that posts each change once.
+
+The run was at `main` 5865db95 (2026-11-18), with the method of batch 142. The module has 167 mutants, so 150 were sampled. No `-k` filter or `--deselect` was needed, and no mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/platform_notify.py` | test_platform_notify, test_notify_delivery, test_notice_failures, test_deliver, test_governance_notices (+ test_platform_notify_mutation) | 150 of 167 (150 + 0) | 132 / 18 | **88.0%** | 132/150 → 150/150 | none | 150 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/platform_notify.py**:
+  - The scope line is there only when the event has a domain or an environment, and the environment is kept.
+  - A decision is news again after a new wait, also when the events name their own keys.
+  - The key a fix closes comes from its own key, or from its id when its key is its own.
+  - The outbox and the ledger must be one file.
+  - Ids and titles are kept to 200 characters and details to 500.
+  - A route can't be changed once made.
+  - The ledger gives a key's kind and whether it is open, and marks and forgets a key outside a send's transaction.
+  - A fix for a break that is closed already isn't posted.
+  - A notice for a resting route is queued.
+  - → `test_platform_notify_mutation.py`.
+
+### Left
+
+None.
+
+# Mutation testing, batch 145
+
+Views, search, grouping and paging over workload records (`workloads/query.py`).
+
+The run was at `main` 5865db95 (2026-11-18), with the method of batch 142. The module has 109 mutants, so all of them ran. No `-k` filter or `--deselect` was needed, and no mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/query.py` | test_workload_query, test_workloads (+ test_workload_query_mutation) | 109 of 109 (109 + 0) | 97 / 12 | **89.0%** | 97/109 → 107/109 | none | 107 / 2 | **98.2%** | 2 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/query.py**:
+  - Each row lands in its own environment group. The existing test grouped one Fabric-only and one PC-only workload, so swapping the two groups gave the same list.
+  - Prod comes before Test whatever order the deployments are in.
+  - The default page is 100 rows.
+  - Nobody signed in owns nothing (`False`, not just falsy).
+  - A row without tags or actions has empty lists.
+  - Search finds a deployment's environment and its label.
+  - → `test_workload_query_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/query.py` | 19 | `'dev': 2` to `3` | Equivalent: Dev is still after Prod and Test and before any other environment. |
+| `workloads/query.py` | 66 | the default order `9` to `10` | Equivalent: it is still after Prod, Test and Dev. |
+
+# Mutation testing, batch 146
+
+One list of running, queued and next work across this PC, each agent and Fabric (`workloads/queue.py`).
+
+The run was at `main` 5865db95 (2026-11-18), with the method of batch 142. The module has 105 mutants, so all of them ran. No `-k` filter or `--deselect` was needed, and no mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/queue.py` | test_workload_queue (+ test_workload_queue_mutation) | 105 of 105 (101 + 4) | 81 / 24 | **77.1%** | 81/101 → 99/101 | 0/4 → 4/4 | 103 / 2 | **98.1%** | 2 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/queue.py**:
+  - A live agent's schedule that is due is next, with no note; an offline agent's at exactly now is missed, and a later one says it is from the last report.
+  - The window ends at exactly 24 hours by default, for agents and for this PC.
+  - A schedule on this PC that doesn't say whether it is enabled runs, and keeps its environment and empty text.
+  - Fabric rows without names say what they are.
+  - A shared schedule held by one agent is one row. One past due with a live agent is next, and one at exactly now with no agent reporting is missed.
+  - Rows sort by state (running, unknown, queued, missed, next), then time, then name.
+  - → `test_workload_queue_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/queue.py` | 153 | `'next': 4` to `5` | Equivalent: next still sorts after every other state. |
+| `workloads/queue.py` | 163 | the default order `9` to `10` | Equivalent: every row has one of the five states, so the default is never used. |
+
+# Mutation testing, batch 147
+
+Who runs each workload and with what credential (`workloads/run_as.py`).
+
+The run was at `main` 5865db95 (2026-11-18), with the method of batch 142. The module has 88 mutants, so all of them ran. No `-k` filter or `--deselect` was needed, and no mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/run_as.py` | test_run_as (+ test_run_as_mutation) | 88 of 88 (85 + 3) | 69 / 19 | **78.4%** | 69/85 → 84/85 | 0/3 → 3/3 | 87 / 1 | **98.9%** | 1 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/run_as.py**:
+  - A certificate expiring at exactly now is expired, at exactly 30 days is expiring, and later is ok.
+  - An expiry with an offset keeps it, and one without is read as UTC.
+  - A certificate whose dates couldn't be read is unknown, and so is a secret without a token; a secret with one is ok.
+  - An older agent's credential kind follows its identity.
+  - The newest record speaks whichever comes first, and on a tie the first one.
+  - An agent in one environment names it.
+  - This PC, Fabric jobs and Fabric schedules are live, and a schedule without names says so.
+  - → `test_run_as_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/run_as.py` | 23 | `'expiring': 2` to `3` | Equivalent: expiring still sorts after expired and failed, the only other states listed. |
+
+# Mutation testing, batch 148
+
+The management records this PC keeps about workloads (`workloads/store.py`): assignments and their history, links from notebooks to Fabric items, actions, lines waiting for the platform's audit, and the collection cache.
+
+The run was at `main` 5865db95 (2026-11-18), with the method of batch 142. The module has 94 mutants, so all of them ran. No `-k` filter or `--deselect` was needed, and no mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/store.py` | test_workloads, test_workload_store_faults, test_sqlite_stores, test_store_upgrades, test_workload_audit (+ test_workload_store_mutation) | 94 of 94 (94 + 0) | 77 / 17 | **81.9%** | 77/94 → 94/94 | none | 94 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/store.py**:
+  - The schema version is 1 and 10,000 actions are kept.
+  - The file's folder is made with its parents.
+  - Assigning returns what the workload now has.
+  - History shows the newest 100 by default; actions and waiting audit lines page at 50.
+  - A link with a part missing is not kept. The same item again writes no history, and another item does.
+  - Unlinking a notebook that isn't linked gives empty text.
+  - An action that doesn't exist is a `KeyError`. An action has a 12-digit id, and ends only with an ending status.
+  - A reference is merged into the one kept.
+  - A failed audit try keeps 500 characters of why.
+  - → `test_workload_store_mutation.py`.
+
+### Left
+
+None.
+

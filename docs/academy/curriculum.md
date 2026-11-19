@@ -79,6 +79,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E41 | Design an eventstream: filter, aggregate and route to two destinations | 2.3.2 | C | SIM +FV | config | 25 | |
 | E42 | Structured streaming with foreachBatch and MERGE | 2.3.3 | C | LV +FV | pyspark | 30 | |
 | E43 | Tumbling, hopping and session windows over device events | 2.3.5 | G | LV +FV | duckdb | 25 | LM-15 |
+| E67 | Reload one day of a Delta table with replaceWhere | 2.1.1 | C | LV | pyspark | 20 | LM-21 |
 
 ## 3. Monitor and optimize an analytics solution
 
@@ -90,6 +91,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E47 | Capacity Metrics: find the throttled hour and what caused it | 3.1.2 | C | SIM | duckdb (`runs`) | 20 | FinOps |
 | E60 | Optimize a pipeline: parallel ForEach, fewer sequential steps | 3.3.2 | C | SIM +FV | config | 25 | |
 | E61 | Optimize a warehouse: loads, data types, statistics and result set caching | 3.3.3 | G | KO +FV | quiz | 15 | |
+| E66 | Optimize a warehouse table: the right exact type for each column | 3.3.3 | C | LV +FV | duckdb | 15 | LM-02 |
 | E62 | Optimize an eventhouse: caching, retention, materialized views and query shape | 3.3.4 | G | KO +FV | quiz | 15 | |
 | E63 | File layout for Spark: partitioning and file pruning on a Delta table | 3.3.5 | C | LV +FV | delta | 25 | LM-27 |
 | E64 | Read a query plan and fix the expensive step | 3.3.6 | G | LV | duckdb | 20 | LM-18 |
@@ -113,6 +115,7 @@ validation checks both the fix and that nothing else changed.
 | E57 | An incremental load that misses late rows | 2.1.1, 2.2.9 | LV | duckdb | 20 | LM-12 |
 | E58 | A retried pipeline doubled a table | 2.2.9, 3.2.1 | LV | duckdb | 20 | LAB-04 |
 | E59 | A query that got slow: a filter that can't skip data | 3.3.6 | LV | duckdb | 20 | LAB-02 |
+| E65 | A nightly T-SQL load stops on a bad value, a zero amount and an order sent twice | 3.2.6 | LV | duckdb | 25 | LAB-04 |
 | E68 | A notebook MERGE fails: two source rows for one key | 3.2.3, 2.2.9 | LV | pyspark | 20 | LM-11 |
 
 ## Capstone projects

@@ -245,6 +245,8 @@ async function sqlChartRows(execution, part) {
 }
 
 // A managed run's state on the Results band: [pill class, label].
+// An export's format as it is said and shown: Parquet is a name, not an acronym to spell out.
+const EXPORT_NAME = { csv: "CSV", json: "JSON", parquet: "Parquet", xlsx: "Excel" };
 const SQL_STATE = { queued: ["busy", "Queued"], running: ["busy", "Running"], cancelling: ["busy", "Stopping"],
   completed: ["ok", "Succeeded"], failed: ["bad", "Failed"], cancelled: ["", "Stopped"], timed_out: ["bad", "Timed out"] };
 
@@ -816,7 +818,7 @@ function renderQuery() {
     }
     tab.exporting = out;
     sqlPage.redraw?.();
-    announce(`Exporting ${format === "xlsx" ? "Excel" : format.toUpperCase()}`);  // the progress line is redrawn, so it isn't read
+    announce(`Exporting ${EXPORT_NAME[format] || format}`);  // the progress line is redrawn, so it isn't read
     let st = out;
     while (st.state === "running") {
       await new Promise((r) => setTimeout(r, 300));
@@ -1190,7 +1192,7 @@ function renderQuery() {
       tab.ranNotice && r && !busy ? h("span", { class: "sql-local-note", role: "note" }, tab.ranNotice) : null,
       h("span", { class: "spacer" }),
       x ? h("span", { class: "muted-text sql-export-progress", role: "status" },
-        `Exporting ${x.format === "xlsx" ? "Excel" : x.format.toUpperCase()}: ${x.rows.toLocaleString()} of ${x.total.toLocaleString()} rows`) : null,
+        `Exporting ${EXPORT_NAME[x.format] || x.format}: ${x.rows.toLocaleString()} of ${x.total.toLocaleString()} rows`) : null,
       x ? btn("Cancel", null, () => rpc("sql_export_cancel", { export: x.id }).catch(() => {}), "tool small") : null,
       r && (r.has_previous || r.has_next) ? btn("‹ Previous", null, () => goPage(r.offset - r.limit), "tool small",
         { disabled: !r.has_previous || tab.paging, "aria-label": "Previous page" }) : null,

@@ -71,7 +71,7 @@ Times are UTC. A time picks the last version committed at or before it. To resto
 - Unsigned integers widen to the next signed type (`UTINYINT` to `SMALLINT`, `UBIGINT` to `DECIMAL(20,0)`).
 - Types Delta has no column for are refused with what to cast them to: `TIME`, `INTERVAL`, decimals over 38 digits.
 - Column names can't have spaces or `,;{}()=`, and can't differ only in case.
-- A table whose own protocol is outside that profile (for example one written elsewhere with deletion vectors) isn't written to.
+- A table whose own protocol is outside that profile (for example one with column mapping by ID or V2 checkpoints) isn't written to.
 
 **Schemas.** Rows added to a table must have its columns. `INSERT` matches them by position, as SQL does; `BY NAME` and the `local_write_delta` call match them by name. A value goes into another column type of the same kind (a number into any number column, a date into a timestamp column); one that doesn't fit, such as 70000 in a `SMALLINT`, stops the write. New or missing columns are a schema change: `local_write_delta` with `schema_mode = "merge"` adds them, and `CREATE OR REPLACE TABLE` (or `schema_mode = "overwrite"`) gives the table a new schema and partitioning.
 

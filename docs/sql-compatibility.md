@@ -177,7 +177,7 @@ Spark SQL run on this PC reads and shows timestamps in `spark.sql.session.timeZo
 
 | Case | On this PC, as in Spark |
 | --- | --- |
-| The session time zone | `spark.conf.set("spark.sql.session.timeZone", ...)` takes a region (`America/Chicago`), `UTC`, or an offset of whole hours (`-08:00`, `GMT-08:00`, `UTC+3`). `current_timezone()` gives the id as it was set |
+| The session time zone | `spark.conf.set("spark.sql.session.timeZone", ...)` takes a region (`America/Chicago`), `UTC`, or an offset of whole hours (`-08:00`, `GMT-08:00`, `UTC+3`). `current_timezone()` gives the id as it was set `SET TIME ZONE 'America/Chicago'` and `SET spark.sql.session.timeZone = ...` in `spark.sql` set it the same way, and `RESET spark.sql.session.timeZone` puts it back to UTC. In a call with several statements, the ones after it use the new zone. |
 | `timestamp` and `timestamp_ntz` | A `timestamp` is an instant, shown in the session's zone; a `timestamp_ntz` is a wall clock with no zone. A cast between them, or from a date or text to a `timestamp`, reads the wall clock in the session's zone. `unix_timestamp` of a `timestamp_ntz` reads it as UTC |
 | The hour clocks skip | A wall clock that doesn't exist, such as 02:30 on the day America/Chicago springs forward, moves forward by the gap (03:30) |
 | The hour clocks repeat | A wall clock that happens twice, such as 01:30 on the day America/Chicago falls back, is the earlier of the two (01:30 CDT), as Java reads it. This holds for casts, `make_timestamp`, `to_timestamp`, `unix_timestamp` and `to_utc_timestamp`; `date_trunc` keeps the offset of the time it truncates |
@@ -194,6 +194,7 @@ These cases still differ:
 | Case | Spark | This PC |
 | --- | --- | --- |
 | A `timestamp` from `collect()` | A `datetime` with no zone, in UTC (Fabric's driver runs in UTC) | A `datetime` with the session's zone, which is the same instant |
+| A bare `RESET` in `spark.sql` | Puts every setting back to its default | Puts back only the session time zone |
 
 ## Window functions on this PC
 
@@ -570,12 +571,12 @@ These cases can still differ. LOC-002 warns wherever a pattern is used:
 | `.` and `\r`, `\u0085`, `\u2028`, `\u2029` | Doesn't match them | Matches them. Both leave out `\n` |
 | `(?i)` with letters outside ASCII | Without `(?u)`, only ASCII letters ignore case | Every letter ignores case |
 | `\b` next to a letter outside ASCII | Java counts it as a word character | RE2 doesn't |
-| `split` with a pattern that can match no text, such as `x*` | The array ends with an empty part | No empty part at the end |
+| `split` with a pattern that can match no text, taken from the data or given to the DataFrame API's `F.split` | The array ends with an empty part | No empty part at the end. One written in the query is refused (see above) |
 | `regexp_replace` with a replacement taken from the data that has a `$` or `\` | Read as groups and escapes | Refused by name |
 | `concat_ws` with an array column (not an array expression in SQL), or any array in the DataFrame API's `F.concat_ws` | The elements joined | The array written as text, such as `[a, b]` |
 | A pattern in the DataFrame API given as a column, such as `F.regexp_like(c, F.lit('...'))` | Java's syntax | RE2's: only a pattern given as a Python string is translated |
 | The DataFrame API's `F.split_part` with an empty delimiter, and `F.concat` with a NULL | As in the table above | `''`, and an `int` NULL. The DataFrame API's other string functions weren't compared. Use the SQL form, `F.expr(...)`, for Spark's |
-| `upper('ß')` | `SS` | `ẞ` |
+| The DataFrame API's `F.upper` of `'ß'` | `SS` | `ẞ`. Use `F.expr("upper(...)")` for Spark's |
 
 ## Rules
 

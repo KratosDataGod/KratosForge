@@ -101,10 +101,11 @@ result:
 A cell runs whole or not at all: if any statement runs only in Snowflake, nothing in the cell runs.
 A cell that can't be read as Snowflake SQL at all shows only the error, with no label.
 The same session rules apply as for any DuckDB cell (no files, extensions or network). **Plan**
-shows DuckDB's plan for the translated SQL, not Snowflake's.
+shows DuckDB's plan for the translated SQL, not Snowflake's. A result column that is or holds a VARIANT,
+such as an ARRAY, shows its values as JSON, as Snowflake does (`[1,"a"]`).
 
 The rules and differences come from a probe of 29 common Snowflake statements on the pinned sqlglot
-and DuckDB versions, and from 268 function checks against Snowflake's documented values (below);
+and DuckDB versions, and from the function checks against Snowflake's documented values (below);
 each is a test. [Snowflake functions on this PC](snowflake-functions.md) lists every Snowflake SQL
 function, with common operators and statements, and whether each runs, differs, is refused or fails
 here, kept current by CI.

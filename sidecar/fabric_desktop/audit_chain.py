@@ -308,7 +308,12 @@ def verify(folder: Path) -> dict[str, Any]:
         lines, want = mark.get("lines"), mark.get("hash")
         if want and isinstance(lines, int) and seen.get(lines) != want:
             problems.append(f"{HEAD}: the trail ends before the {name} (line {lines}); lines were deleted from the end")
-    anchor, note = audit_anchor.newest(folder)
+    try:  # the head file as it is now: an unchanged head reuses the last read of the event log
+        stat = (Path(folder) / HEAD).stat()
+        key: object = (stat.st_size, stat.st_mtime_ns, count)
+    except OSError:
+        key = ("no head", count)
+    anchor, note = audit_anchor.newest(folder, key)
     if note:
         notes.append(note)
     if anchor is not None:

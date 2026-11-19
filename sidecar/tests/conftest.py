@@ -45,6 +45,7 @@ def event_log(monkeypatch):
     monkeypatch.setattr(audit_anchor, "writer", log.write)
     monkeypatch.setattr(audit_anchor, "reader", log.read)
     monkeypatch.setattr(audit_anchor, "_off_until", 0.0)
+    monkeypatch.setattr(audit_anchor, "_cache", {})
     return log
 
 

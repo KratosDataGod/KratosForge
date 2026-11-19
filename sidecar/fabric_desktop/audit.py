@@ -265,7 +265,7 @@ class AuditLog:
         with ``unreadable`` given as a placeholder row (UNREADABLE) that says which line, so a list of the
         trail shows where it is damaged rather than skipping over it."""
         for path in self._files():
-            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):  # a stray byte: that line only
                 if not line.strip():
                     continue
                 try:

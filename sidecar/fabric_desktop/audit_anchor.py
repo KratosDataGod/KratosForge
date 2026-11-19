@@ -15,8 +15,9 @@ never raises, logs a warning once per process, and leaves the event log alone fo
 tries again, so a failing event log can't slow every audit write. Reading is bounded (the newest
 ``READ_RECORDS`` records, at most ``READ_SECONDS``).
 
-Limits: anyone on the PC can add a record from this source, so someone who forges the trail can add a
-matching anchor after it (only the newest one is compared, so a restored backup and a deleted
+Limits: anyone on the PC can add a record from this source. One with a higher line count than the trail
+makes ``verify()`` report lines deleted from the end that weren't (it only reports; nothing is refused).
+Someone who forges the trail can add a matching anchor after it (only the newest one is compared, so a restored backup and a deleted
 ``head.json``, the documented way to clear a gap, are accepted after the next write). An administrator
 can clear the event log, and the Application log overwrites its oldest records when it is full.
 
@@ -212,6 +213,8 @@ def record(folder: Path | str, head_hash: str, lines: int) -> None:
     global _off_until
     if not head_hash or time.monotonic() < _off_until:
         return
+    with _cache_lock:
+        _cache.pop(fingerprint(folder), None)
     try:
         writer(text(Anchor(fingerprint(folder), str(head_hash), int(lines))))
     except Exception as error:  # noqa: BLE001 - the event log is extra evidence; the audit write goes on
@@ -219,9 +222,31 @@ def record(folder: Path | str, head_hash: str, lines: int) -> None:
         _warn("written to", error)
 
 
-def newest(folder: Path | str) -> tuple[Anchor | None, str]:
-    """The newest anchor for ``folder``, and a note when none could be read (empty off Windows)."""
+CACHE_SECONDS = 60.0
+# fingerprint -> (the caller's key, when read, (anchor, note)): the audit page checks the trail on every load,
+# and reading the event log takes up to READ_SECONDS, so a read is reused while the trail's head is unchanged.
+_cache: dict[str, tuple[object, float, tuple[Anchor | None, str]]] = {}
+_cache_lock = threading.Lock()
+
+
+def newest(folder: Path | str, key: object = None) -> tuple[Anchor | None, str]:
+    """The newest anchor for ``folder``, and a note when none could be read (empty off Windows). With
+    ``key`` (what the trail's head file is now, such as its size and time), a read made for the same key in
+    the last CACHE_SECONDS is reused; writing an anchor here for the folder drops it."""
     want = fingerprint(folder)
+    if key is not None:
+        with _cache_lock:
+            hit = _cache.get(want)
+        if hit is not None and hit[0] == key and time.monotonic() - hit[1] < CACHE_SECONDS:
+            return hit[2]
+    found = _read_newest(want)
+    if key is not None:
+        with _cache_lock:
+            _cache[want] = (key, time.monotonic(), found)
+    return found
+
+
+def _read_newest(want: str) -> tuple[Anchor | None, str]:
     try:
         values = reader()
         if values is None:

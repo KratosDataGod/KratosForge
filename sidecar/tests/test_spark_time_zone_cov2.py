@@ -56,7 +56,12 @@ def test_a_negative_interval_of_hours_is_split_into_days_and_the_rest_toward_zer
     interval.set("unit", exp.Var(this="HOURS"))
     text = stz.fix(tree).sql("duckdb")
     assert "INTERVAL '-1' DAY" in text and "INTERVAL '-3600' SECOND" in text
-    assert duckdb.execute(text).fetchone()[0].isoformat() == "2026-03-09T11:00:00"
+    # Its own connection: DuckDB's default one is shared with every test in this process.
+    con = duckdb.connect()
+    try:
+        assert con.execute(text).fetchone()[0].isoformat() == "2026-03-09T11:00:00"
+    finally:
+        con.close()
 
 
 def test_an_interval_that_is_not_a_whole_number_is_left_to_duckdb(monkeypatch):

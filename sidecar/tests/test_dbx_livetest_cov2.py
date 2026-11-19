@@ -216,7 +216,9 @@ def test_a_cell_still_running_after_the_wait_fails_the_cancel(tmp_path, monkeypa
         def join(self, timeout=None):
             assert timeout == 300
 
-    monkeypatch.setattr(dl.threading, "Thread", Stuck)
+    # dl.threading is the threading module itself: give dl its own, so no other thread in this
+    # process (a session or timer an earlier test left running) is handed a Stuck thread.
+    monkeypatch.setattr(dl, "threading", SimpleNamespace(Thread=Stuck))
     times = iter([0.0, 0.0, dl.CANCEL_WAIT + 1])
     test = make(tmp_path)
     test.clock = lambda: next(times)

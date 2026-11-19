@@ -259,3 +259,20 @@ def test_the_demo_shows_performance_without_calling_fabric_or_onelake(make):
     assert set(FIXTURE_TABLES) <= {o["subject"]["id"] for o in r["outcomes"] if o["control_id"] == "FEA-PERF-003"}
     again = assess.rescore(json.loads(json.dumps(r)), catalog.registry())
     assert again["scores"] == r["scores"]
+
+
+class _NoPrompt:
+    """An auth that has no OneLake token cached: a prompt would be ``storage_token``, which fails."""
+
+    def silent_token(self, scopes):
+        return None
+
+    def storage_token(self):
+        raise AssertionError("an assessment must never prompt for a sign-in")
+
+
+def test_the_onelake_read_is_silent_and_never_prompts(tmp_path):
+    s = Service(root=tmp_path / "app")
+    s.__dict__["auth"] = _NoPrompt()
+    with pytest.raises(PermissionError, match="no OneLake sign-in yet"):
+        s._excellence_onelake()

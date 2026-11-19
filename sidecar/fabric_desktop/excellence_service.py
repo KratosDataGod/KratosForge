@@ -23,6 +23,7 @@ from typing import Any
 
 from . import delta_profile, maintenance, xray
 from .excellence import adapters, assess, catalog, catalog_architecture, catalog_performance, inspect_items, profiles
+from .auth import STORAGE_SCOPES
 from .onelake import FileStore, TableRef, read_storage_options
 from .opportunities_service import _guid
 from .redact import describe
@@ -147,8 +148,12 @@ def _summary(problems: list[str], total: int, what: str) -> str:
 
 class ExcellenceMixin:
     def _excellence_onelake(self) -> Any:
-        """The reader for the lakehouses' tables, with the person's own storage sign-in."""
-        return OneLakeTables(self.auth.storage_token())  # type: ignore[attr-defined]
+        """The reader for the lakehouses' tables, with the person's own storage sign-in. Silent only:
+        an assessment never shows a sign-in prompt, so without a storage sign-in no table is read."""
+        token = self.auth.silent_token(STORAGE_SCOPES)  # type: ignore[attr-defined]
+        if not token:
+            raise PermissionError("no OneLake sign-in yet; open a lakehouse's tables once, then assess again")
+        return OneLakeTables(token)
 
     def _table_layout(self, wid: str, items: list[dict[str, Any]] | None,
                       reads: list[dict[str, Any]]) -> dict[str, dict[str, Any] | None]:

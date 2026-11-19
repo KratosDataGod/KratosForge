@@ -149,7 +149,7 @@ the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`), the c
 (`GET /capacities`) and each lakehouse's properties (`GET /workspaces/{id}/lakehouses/{id}`, the read the
 app already makes before it writes a table; at most 50 per assessment), and each lakehouse's tables as the
 [Estate X-ray](../xray-fixes.md) reads them. That is the folders under Tables and each Delta table's log,
-never a data file, read through OneLake with your own storage sign-in (at most 100 tables per assessment). A read that fails is listed in `reads` and leaves its controls not evaluated.
+never a data file, read through OneLake with your own storage sign-in (at most 100 tables per assessment). The assessment never asks you to sign in for it, so without a OneLake sign-in on this PC no table is read. A read that fails is listed in `reads` and leaves its controls not evaluated.
 `demo=True` assesses a labelled demonstration fixture without calling Fabric.
 
 ## Controls

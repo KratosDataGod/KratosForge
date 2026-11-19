@@ -49,6 +49,7 @@ from . import notebook_resources
 from . import magics
 from . import history
 from . import write_queue
+from . import secret_redaction
 from .frames import Frames, pandas_table, type_name
 from .redact import describe
 
@@ -377,6 +378,7 @@ class _Run:
     def write(self, text: str) -> None:
         if not text:
             return
+        text = secret_redaction.redact(text)  # before the overflow file can keep it
         with self.lock:
             if self.clear_pending:
                 self._reset()
@@ -498,13 +500,14 @@ class _Run:
                     "outputs": None}
             if changed:
                 self._join()
-                snap["outputs"] = list(self._outputs)
+                # A secret split over two prints, or inside a rich output, is caught here.
+                snap["outputs"] = secret_redaction.redact_output(list(self._outputs))
             if self.watches is not None:
-                snap["watches"] = list(self.watches)
+                snap["watches"] = secret_redaction.redact_output(list(self.watches))
             if progress is not None:
                 snap["progress"] = progress
             if self.debugger is not None:
-                snap["paused"] = self.paused
+                snap["paused"] = secret_redaction.redact_output(self.paused)
             if (onelake := self.onelake.as_dict()) is not None:
                 snap["onelake"] = onelake
             return snap
@@ -517,13 +520,13 @@ class _OutputSink:
         self.out = out
 
     def write(self, text: str) -> None:
-        self.out._write(text)
+        self.out._write(secret_redaction.redact(text))
 
     def add(self, output: dict[str, Any]) -> None:
-        self.out._add(output)
+        self.out._add(secret_redaction.redact_output(output))
 
     def replace(self, display_id: str, output: dict[str, Any]) -> None:
-        self.out._replace(display_id, output)
+        self.out._replace(display_id, secret_redaction.redact_output(output))
 
     def clear(self, wait: bool = False) -> None:
         self.out.clear_output(wait)

@@ -8,6 +8,7 @@ Databricks notebooks run here unchanged where the same thing exists locally:
 - ``widgets``: text, dropdown, combobox and multiselect. Values come from the arguments a run
   passes, then the value set in the app, then the default.
 - ``secrets``: a secret scope is an Azure Key Vault name (Key Vault backed scopes), read as you.
+  A value read is shown as ``[REDACTED]`` in the notebook's output (secret_redaction.py).
 - ``jobs.taskValues``: kept for the run; runMultiple activities read their upstream values.
 - ``library.restartPython``: restarts Python after the cell, as in Databricks.
 - ``data.summarize``: a summary of a DataFrame.
@@ -22,7 +23,7 @@ import types
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from . import http_session
+from . import http_session, secret_redaction
 from .paging import Pages
 from .notebookutils_local import Host, NotebookExit, keyvault_error, on_vault, vault_url
 from .retrying import send_with_retry
@@ -180,7 +181,9 @@ def _make_secrets(get_secret: Callable[..., str], token: Callable[[str], str]) -
         return vault_url(scope)
 
     def get(scope: str, key: str) -> str:
-        return get_secret(scope, key)
+        value = get_secret(scope, key)
+        secret_redaction.remember(value)  # shown as [REDACTED] in the notebook's output, as in Databricks
+        return value
 
     def getBytes(scope: str, key: str) -> bytes:  # noqa: N802
         return get(scope, key).encode("utf-8")

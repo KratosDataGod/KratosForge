@@ -450,3 +450,14 @@ def test_deep_nesting_is_a_manifest_error_not_a_crash():
         cur = cur["a"]
     with pytest.raises(mf.ManifestError):
         mf.validate(fabric() | {"x_extra": nested})
+
+
+def test_the_streamed_read_stops_past_the_cap_without_content_length():
+    dfs = StreamingDfs()
+    backend = st.OneLakeManifestBackend(WS, LH, lambda: "tok", session=dfs)
+    url = backend._url(st.NAME)
+    dfs.files[url] = (b"x" * (mf.MAX_BYTES + 1), '"1"')
+    with pytest.raises(mf.ManifestError, match="larger"):
+        backend.read(st.NAME)  # the backend itself refuses, before from_json sees anything
+    dfs.files[url] = (b"x" * mf.MAX_BYTES, '"2"')
+    assert len(backend.read(st.NAME).data) == mf.MAX_BYTES

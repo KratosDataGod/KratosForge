@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from ..optimize import schema
 from ..optimize.setup import denied
 from ..redact import describe
 from . import manifest as mf
@@ -23,7 +24,7 @@ from .providers import Found, StoreRef
 from .store import ManifestStore
 
 ENVIRONMENT, ADOPTABLE, UNREADABLE = "environment", "adoptable", "unreadable"
-CORE_VERSION_TABLE = "fdopt_schema_version"
+CORE_VERSION_TABLE = schema.table("schema_version")  # fdopt_schema_version, as optimize_discover checks
 # A workspace with more lakehouses than this is cut short, said so, so one call stays bounded.
 MAX_LAKEHOUSES = 200
 

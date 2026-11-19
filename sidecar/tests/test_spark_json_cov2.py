@@ -47,8 +47,8 @@ def test_an_empty_struct_is_written_as_empty_braces():
     assert sql == "CASE WHEN x IS NULL THEN NULL ELSE '{}' END"
     con = duckdb.connect()
     try:
-        assert con.sql("SELECT " + sql.replace("x", "NULL")).fetchone() == (None,)
-        assert con.sql("SELECT " + sql.replace("x", "1")).fetchone() == ("{}",)
+        assert con.execute("SELECT " + sql.replace("x", "NULL")).fetchone() == (None,)
+        assert con.execute("SELECT " + sql.replace("x", "1")).fetchone() == ("{}",)
     finally:
         con.close()
 

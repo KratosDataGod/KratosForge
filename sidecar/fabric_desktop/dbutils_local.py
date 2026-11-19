@@ -89,9 +89,12 @@ class FileInfo(NamedTuple):
 
 
 def _file_info(e: Any) -> FileInfo:
+    # A path on this PC is written with / as on Databricks (file:C:/data/x on Windows), so code that joins or
+    # splits paths on / and isDir()'s trailing / work the same; the path still reads back through dbutils.fs.
+    path = "file:" + e.path[5:].replace("\\", "/") if e.path.startswith("file:") else e.path
     if not e.isDir:
-        return FileInfo(e.path, e.name, e.size, e.modificationTime)
-    return FileInfo(e.path.rstrip("/") + "/", e.name.rstrip("/") + "/", 0, e.modificationTime)
+        return FileInfo(path, e.name, e.size, e.modificationTime)
+    return FileInfo(path.rstrip("/") + "/", e.name.rstrip("/") + "/", 0, e.modificationTime)
 
 
 def _make_fs(nbu_fs: types.SimpleNamespace) -> types.SimpleNamespace:

@@ -8,7 +8,7 @@ import types
 
 import pytest
 
-from fabric_desktop import http_session
+from fabric_desktop import dbutils_local, http_session
 from fabric_desktop.notebook import Kernel
 
 
@@ -189,6 +189,23 @@ def test_ls_lists_databricks_file_info_with_a_folder_ending_in_a_slash(tmp_path)
     assert sub.isDir() and not sub.isFile() and sub.size == 0 and sub.path.endswith("/sub/")
     assert a.isFile() and a.size == 5 and a.modificationTime > 0 and tuple(a) == (a.path, "a.txt", 5, a.modificationTime)
     assert repr(a).startswith("FileInfo(path='file:") and "name='a.txt', size=5, modificationTime=" in repr(a)
+
+
+def test_ls_writes_a_windows_path_with_forward_slashes():
+    # Databricks paths use /; a Windows path listed here is written the same way, and still reads back.
+    from types import SimpleNamespace
+    folder = SimpleNamespace(path="file:C:\\data\\sub", name="sub", size=0, isDir=True, modificationTime=1)
+    file = SimpleNamespace(path="file:C:\\data\\a.txt", name="a.txt", size=5, isDir=False, modificationTime=1)
+    assert dbutils_local._file_info(folder).path == "file:C:/data/sub/"
+    assert dbutils_local._file_info(file).path == "file:C:/data/a.txt"
+    lake = SimpleNamespace(path="abfss://ws@onelake/lh/Files/x", name="x", size=1, isDir=False, modificationTime=1)
+    assert dbutils_local._file_info(lake).path == lake.path
+
+
+def test_ls_paths_read_back(tmp_path):
+    (tmp_path / "a.txt").write_text("hello")
+    k = Kernel()
+    _ok(k.run(f"p = dbutils.fs.ls('file:{tmp_path.as_posix()}')[0].path\nprint(dbutils.fs.head(p))"))
 
 
 def test_head_says_when_it_truncated_and_returns_only_the_text(tmp_path):

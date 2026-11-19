@@ -163,8 +163,10 @@ def rows(answer: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _literal(text: str) -> str:
-    """A SHOW ... LIKE pattern matching ``text`` exactly: quotes doubled, wildcards and backslashes escaped."""
-    escaped = text.replace("\\", "\\\\").replace("_", "\\_").replace("%", "\\%").replace("'", "''")
+    """``text`` as a Snowflake string literal for SHOW ... LIKE: backslashes and quotes escaped. SHOW's LIKE
+    has no escape character, so ``_`` and ``%`` in a name still match any character; the rows it lists
+    are filtered to the exact name afterwards (``_find``)."""
+    escaped = text.replace("\\", "\\\\").replace("'", "''")
     return f"'{escaped}'"
 
 
@@ -220,7 +222,7 @@ def check_connection(connection: dict[str, Any], client: Client | None = None, *
     role = str(connection.get("role") or "")
     role_ok = True
     if role:
-        match = next((r for r in roles if r == role or r.lower() == role.lower()), None)
+        match = next((r for r in roles if r == role), None) or next((r for r in roles if r.lower() == role.lower()), None)
         role_ok = match is not None
         check("role", role_ok, f"Role {match} is available to you." if match else
               f"Role {role} isn't granted to {out['identity']['user'] or 'this user'}.",
@@ -231,7 +233,7 @@ def check_connection(connection: dict[str, Any], client: Client | None = None, *
     def show(sql: str) -> list[dict[str, Any]] | None:
         try:
             return rows(client.statement(sql, role=use_role))
-        except SnowflakeError as exc:
+        except (SnowflakeError, SnowflakeAuthError) as exc:  # a token refresh can fail mid-check too
             out["problems"].append({"field": "show", "message": redact.secrets(str(exc)), "fix": ""})
             return None
 

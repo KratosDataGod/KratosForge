@@ -69,13 +69,13 @@ def load_private_key(path: str, passphrase: str | None) -> Any:
     if problem:
         raise SnowflakeAuthError(f"Key-pair sign-in: {problem}.")
     try:
-        file = Path(path)
-        if file.stat().st_size > MAX_KEY_BYTES:
-            raise SnowflakeAuthError("Key-pair sign-in: the private key file is too large to be a key.")
-        data = file.read_bytes()
+        with Path(path).open("rb") as file:
+            data = file.read(MAX_KEY_BYTES + 1)  # one read, so a file swapped after a size check can't be read whole
     except OSError:
         raise SnowflakeAuthError("Key-pair sign-in: the private key file can't be read. "
                                  "Check the path in the connection and that you can open the file.") from None
+    if len(data) > MAX_KEY_BYTES:
+        raise SnowflakeAuthError("Key-pair sign-in: the private key file is too large to be a key.")
     try:
         key = serialization.load_pem_private_key(data, passphrase.encode("utf-8") if passphrase else None)
     except TypeError:  # encrypted without a passphrase, or a passphrase for an unencrypted key

@@ -120,8 +120,38 @@ def test_like_patterns_and_names_are_escaped():
     fake.replies["SHOW SCHEMAS"] = answer(["name"], [["RAW"]])
     sr.check_connection(CONN | {"database": "MY_DB'X", "warehouse": ""}, client(fake))
     sqls = [c["body"]["statement"] for c in fake.calls]
-    assert "SHOW DATABASES LIKE 'MY\\_DB''X'" in sqls
+    assert "SHOW DATABASES LIKE 'MY_DB''X'" in sqls
+    assert sr._literal("a\\b") == "'a\\\\b'"
     assert "SHOW SCHEMAS LIKE 'raw' IN DATABASE \"MY_DB'X\"" in sqls
+
+
+def test_a_role_matches_exactly_before_ignoring_case():
+    fake = FakeSnowflake({"SELECT": answer(["KF_ACCOUNT", "KF_USER", "KF_ROLE", "KF_ROLES"],
+                                           [["A", "U", "PUBLIC", json.dumps(["analyst", "Analyst"])]])})
+    out = sr.check_connection({"account": "myorg-myaccount", "role": "Analyst"}, client(fake))
+    assert out["checks"][1]["detail"] == "Role Analyst is available to you."
+
+
+def test_a_sign_in_failing_mid_check_is_a_problem_not_a_crash():
+    calls = []
+
+    def fetch():
+        calls.append(1)
+        if len(calls) > 1:
+            raise sa.SnowflakeAuthError("The environment variable X isn't set on this PC.")
+        return "tok", None
+    provider = sa.TokenProvider("myorg-myaccount", "keypair", fetch, clock=lambda: 0.0)
+    provider._expires = -1.0  # every call after the first makes a new token
+    fake = full_fake()
+    orig = provider.token
+
+    def token():
+        provider._token = "" if calls else provider._token
+        return orig()
+    provider.token = token
+    out = sr.check_connection(CONN, sr.Client(provider, http=fake, sleep=lambda s: None))
+    assert out["signed_in"] and not out["ok"]
+    assert any(p["field"] == "show" and "isn't set" in p["message"] for p in out["problems"])
 
 
 def test_a_name_matches_exactly_or_by_case_when_only_one_does():

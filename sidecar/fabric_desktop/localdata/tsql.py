@@ -52,7 +52,7 @@ from sqlglot.helper import seq_get
 from sqlglot.tokens import Token, TokenType
 
 from ..sql import KfDuckDB
-from . import tsql_ctes, tsql_format, tsql_hints, tsql_routines, tsql_tables, tsql_types
+from . import tsql_ctes, tsql_format, tsql_hints, tsql_merge, tsql_routines, tsql_tables, tsql_types
 from .. import sql_dialects, tsql_clone
 
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
@@ -121,6 +121,7 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
                 continue
             tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
             _refuse(tree)
+            tsql_merge.check(tree, columns)  # WR-244: MERGE's clauses as a warehouse takes them
             _replicate_inputs(tree)  # WR-235: before N'' text and CONVERT's (MAX) are rewritten
             _national_text(tree)
             notes += tsql_ctes.check(tree)  # WR-230: no recursive CTE, no change through a CTE
@@ -549,6 +550,7 @@ def _parse(batch: str) -> list[exp.Expression]:
     _refuse_dbcc(batch)
     _refuse_output(batch)
     _refuse_control(batch)
+    tsql_merge.refuse_unterminated(tokens)  # WR-244: a MERGE ends with ;
     unsupported: list[str] = []
 
     class Catch(logging.Handler):

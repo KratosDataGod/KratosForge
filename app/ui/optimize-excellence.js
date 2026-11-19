@@ -17,8 +17,13 @@ const EXC_DIMS = {
 const EXC_SEV = { critical: ["Critical", "fail"], high: ["High", "wrn"], medium: ["Medium", "neu"], low: ["Low", "neu"], informational: ["Info", "neu"] };
 const EXC_OUTCOME = { pass: ["Passed", "pass"], fail: ["Failed", "fail"], not_applicable: ["Not applicable", "neu"], not_evaluated: ["Not evaluated", "wrn"], error: ["Not evaluated (error)", "wrn"] };
 const EXC_STATUS = { rated: "Rated", provisional: "Provisional", insufficient_evidence: "Insufficient evidence", not_applicable: "Not applicable", not_evaluated: "Not evaluated" };
+// Every evidence kind a control can need (test_excellence_ui_names keeps this in step with the catalog).
 const EXC_KIND = { "workspace.info": "Workspace settings", "workspace.inventory": "Item list", "workspace.roles": "Role assignments",
-  "capacity.state": "Capacity state", "item.optimization": "Definition and run history" };
+  "capacity.state": "Capacity state", "item.optimization": "Definition and run history",
+  "workspace.naming": "Workspace and item names", "lakehouse.properties": "Lakehouse properties",
+  "item.binding": "Default lakehouse", "item.inspection": "Notebook and pipeline definitions",
+  "item.model": "Semantic model definition", "capacity.usage": "Imported Capacity Metrics exports",
+  "workspace.git": "Git connection and status", "lakehouse.tables": "Table layout" };
 // What a control needed, in words: evidence kinds become their names; free text passes through.
 const excNeeds = (n) => String(n).split(", ").map((k) => (EXC_KIND[k] ? EXC_KIND[k].toLowerCase() : k)).join(", ");
 const EXC_CONF = { measured: "Measured", verified_configuration: "Verified configuration", inferred: "Inferred", insufficient: "Insufficient" };

@@ -427,7 +427,7 @@ The SQL query tab works like Fabric's. Open it with **SQL query** on a lakehouse
 | **Format SQL** | Lays out the selection, or the whole query: one clause per line, nested queries and CTEs indented, keywords in capitals. See [Format SQL](#format-sql). |
 | **Copy ▾** | Copies the rows on the current page: **Rows with headers** (tab-separated, for pasting into Excel), **CSV**, **JSON** (one object per row), or **INSERT statements** for the query's table (`results` when it reads more than one), with values quoted for the dialect. Export saves the full result. |
 | **Export ▾** | Saves the full result as CSV, Parquet, Excel or JSON in your Downloads folder, streamed with progress and **Cancel**; never replaces a file. A CSV keeps a spreadsheet from running a text cell as a formula unless you pick **CSV, Keep raw values**. See [Export](sql-execution.md#export) |
-| **Save as table** | Writes the full result to the lakehouse as a Delta table you name. If the table already exists, it asks before replacing it |
+| **Save as table** | Writes the full result to the lakehouse as a Delta table you name. If the table already exists, it asks you to type the table's name before replacing it, and the engine checks that name again, so a replace sent without it writes nothing |
 | **Open in notebook** | Turns the query into `lakehouse.sql(...)` in a new notebook (Spark SQL only) |
 | **+** or **New SQL query** | Adds a query tab. Double-click a tab to rename it. **×**, or **Delete** on the tab, closes it, asking first when the query has SQL of its own. |
 

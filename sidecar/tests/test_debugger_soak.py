@@ -1,0 +1,155 @@
+"""Notebook debugger soak (#2362 hardening, round 3): a thousand pauses and steps in one cell, in
+both kernels, leave no trace hook, thread or memory growth behind; a run of cells mixing Stop,
+Continue and a restart leaves nothing paused; and a poll waits for an ended process once only."""
+
+from __future__ import annotations
+
+import gc
+import time
+import tracemalloc
+
+import pytest
+
+from fabric_desktop.kernel_proc import ProcessKernel
+from fabric_desktop.notebook import Kernel
+
+
+@pytest.fixture(params=["engine", "process"])
+def kernel(request):
+    k = Kernel() if request.param == "engine" else ProcessKernel()
+    yield k
+    if request.param == "process":
+        k.close()
+
+
+def wait(k, timeout=20):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        snap = k.poll(-1, 0.3)
+        if snap.get("paused") or snap["status"] != "running":
+            return snap
+    raise AssertionError("the cell neither paused nor finished")
+
+
+def threads_and_trace(k):
+    """The kernel's thread count and whether a trace hook is left, read inside the kernel."""
+    k.start("import sys, threading\nprint(threading.active_count(), sys.gettrace() is None)")
+    snap = wait(k)
+    assert snap["status"] == "ok", snap
+    count, untraced = snap["outputs"][-1]["text"].split()
+    return int(count), untraced == "True"
+
+
+PAUSES = 1000
+
+
+def test_a_thousand_breakpoint_hits_leave_nothing_behind(kernel):
+    threads_and_trace(kernel)  # warm up: the kernel's own threads have started
+    before, _ = threads_and_trace(kernel)
+    kernel.start(f"total = 0\nfor i in range({PAUSES}):\n    total += i\nend = total", breakpoints=[3])
+    for i in range(PAUSES):
+        p = wait(kernel)["paused"]
+        assert p["line"] == 3, (i, p)
+        if i % 250 == 0:
+            assert {v["name"]: v["value"] for v in p["variables"]}["i"] == str(i)
+        kernel.debug("continue")
+    snap = wait(kernel)
+    assert snap["status"] == "ok" and snap.get("paused") is None
+    after, untraced = threads_and_trace(kernel)
+    assert untraced and after <= before
+
+
+def test_a_thousand_steps_leave_nothing_behind(kernel):
+    threads_and_trace(kernel)
+    before, _ = threads_and_trace(kernel)
+    kernel.start("def f(n):\n    return n + 1\nx = 0\nwhile x < 10**9:\n    x = f(x)", step=True)
+    lines = []
+    for _ in range(PAUSES):
+        lines.append(wait(kernel)["paused"]["line"])
+        kernel.debug("step")
+    assert set(lines) == {1, 3, 4, 5, 2}  # into f and back, over and over
+    assert kernel.interrupt()["interrupted"] is True
+    assert wait(kernel)["status"] == "cancelled"
+    after, untraced = threads_and_trace(kernel)
+    assert untraced and after <= before
+
+
+def test_repeated_pauses_in_the_engine_kernel_dont_grow_memory():
+    k = Kernel()
+
+    def round_trip():
+        k.start("a = 1\nb = 2\nc = 3", breakpoints=[2, 3])
+        for line in (2, 3):
+            assert wait(k)["paused"]["line"] == line
+            k.debug("continue")
+        assert wait(k)["status"] == "ok"
+
+    for _ in range(20):
+        round_trip()  # warm up caches, history and the kernel's own state
+    gc.collect()
+    tracemalloc.start()
+    try:
+        start, _ = tracemalloc.get_traced_memory()
+        for _ in range(200):
+            round_trip()
+        gc.collect()
+        end, _ = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    # A per-run leak of a frame, a debugger or a pause snapshot is a kilobyte or more: 200 runs would
+    # pass 300 KB. The kernel's cell history grows by a little per run (about 30 KB in all), which fits.
+    assert end - start < 300_000, end - start
+
+
+def test_a_run_of_cells_mixing_continue_stop_and_restart_leaves_nothing_paused(kernel):
+    for round_ in range(3):
+        for i in range(10):
+            kernel.start(f"v{i} = {i}\nw{i} = v{i} + 1", breakpoints=[2], step=i % 2 == 0)
+            p = wait(kernel)["paused"]
+            assert p["line"] == (1 if i % 2 == 0 else 2)
+            if i == 4:
+                assert kernel.interrupt()["interrupted"] is True
+                assert wait(kernel)["status"] == "cancelled"
+            elif i == 7:
+                kernel.restart()
+                assert kernel.poll(-1, 0.3).get("paused") is None
+            else:
+                kernel.debug("continue")
+                if i % 2 == 0:
+                    assert wait(kernel)["paused"]["line"] == 2
+                    kernel.debug("continue")
+                assert wait(kernel)["status"] == "ok"
+        _, untraced = threads_and_trace(kernel)
+        assert untraced, round_
+        with pytest.raises(RuntimeError):
+            kernel.debug("continue")
+
+
+# ---------- a poll waits for an ended process once ----------
+
+class _Ended:
+    """Stands in for an ended Popen whose reader never marks it gone (a tree that keeps the pipe open)."""
+
+    def poll(self):
+        return 1
+
+
+def test_a_poll_waits_for_an_ended_process_once_and_holds_it_weakly():
+    k = ProcessKernel()
+    ended = _Ended()
+    k._proc = ended
+    started = time.monotonic()
+    k._await_gone(0.3)
+    assert time.monotonic() - started >= 0.3
+    started = time.monotonic()
+    k._await_gone(0.3)
+    assert time.monotonic() - started < 0.1  # the same process: no second wait
+    other = _Ended()
+    k._proc = other
+    started = time.monotonic()
+    k._await_gone(0.3)
+    assert time.monotonic() - started >= 0.3  # a later process gets its own
+    k._proc = None
+    del ended, other
+    gc.collect()
+    assert k._awaited is not None and k._awaited() is None  # not kept alive for the check

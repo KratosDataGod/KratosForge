@@ -1148,7 +1148,7 @@ function dbgHelpers() {
   const src = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgBpRematch, dbgDroppedText, dbgPausedLine, dbgStackText, dbgKeyAction });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgBpRematch, dbgDroppedText, dbgPausedLine, dbgCleanPause, dbgStackText, dbgKeyAction });`, ctx);
   return ctx;
 }
 
@@ -3027,6 +3027,35 @@ test("a cell replaced whole keeps its breakpoints by line text, and names the on
   assert.strictEqual(dbgDroppedText([4], "its line was deleted"), "Removed the breakpoint on line 4, because its line was deleted.");
   assert.strictEqual(dbgDroppedText([2, 5, 9], "their lines were deleted"), "Removed the breakpoints on lines 2, 5 and 9, because their lines were deleted.");
   assert.strictEqual(dbgDroppedText([], "x"), "");
+});
+
+test("a garbled or oversized pause from the engine is cleaned to what the panel draws, never thrown on", () => {
+  const { dbgCleanPause } = dbgHelpers();
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  // No usable line: nothing to show as paused.
+  for (const bad of [null, undefined, 3, "paused", [], [{ line: 2 }], {}, { line: 0 }, { line: -1 }, { line: "2" }, { line: 2.5 }, { line: null }]) {
+    assert.strictEqual(dbgCleanPause(bad), null, JSON.stringify(bad));
+  }
+  // A good pause reads as sent.
+  const good = { line: 3, reason: "breakpoint", stack: [{ function: "(cell)", line: 5 }, { function: "f", line: 3 }],
+    variables: [{ name: "n", type: "int", size: "", value: "2" }], watches: [{ expr: "n", value: "2", type: "int", size: "" }],
+    evals: [{ expr: "m", error: "NameError: m" }], variables_total: 250, skipped: ["json.dumps"] };
+  assert.deepStrictEqual(plain(dbgCleanPause(good)), {
+    line: 3, reason: "breakpoint", stack: good.stack, variables: good.variables, watches: good.watches,
+    evals: [{ expr: "m", value: "", type: "", size: "", error: "NameError: m" }], variables_total: 250, skipped: ["json.dumps"] });
+  // Wrong types: lists that aren't lists, rows that aren't objects, values that are objects.
+  const odd = plain(dbgCleanPause({ line: 2, reason: { x: 1 }, stack: "(cell) line 2", variables: [null, 3, "x", [1], { name: { a: 1 }, value: 5 }],
+    watches: {}, evals: "e", variables_total: "9", skipped: [1, null, "ok"] }));
+  assert.deepStrictEqual(odd, { line: 2, reason: "", stack: [], variables: [{ name: "", type: "", size: "", value: "5" }], watches: [], evals: [], skipped: ["ok"] });
+  // Oversized: rows and text are capped.
+  const big = dbgCleanPause({ line: 1, variables: Array.from({ length: 5000 }, (_, i) => ({ name: `v${i}`, value: "x".repeat(10000) })),
+    stack: Array.from({ length: 5000 }, () => ({ function: "f", line: 1 })), skipped: Array.from({ length: 50 }, (_, i) => `f${i}`) });
+  assert.strictEqual(big.variables.length, 500);
+  assert.strictEqual(big.variables[0].value.length, 2000);
+  assert.strictEqual(big.stack.length, 500);
+  assert.strictEqual(big.skipped.length, 20);
+  const dbg = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
+  assert.match(dbg, /const now = snap\?\.status === "running" \? dbgCleanPause\(snap\.paused\) : null;/);
 });
 
 test("a pause in a cell edited mid-run is marked on its code, never on another line", () => {

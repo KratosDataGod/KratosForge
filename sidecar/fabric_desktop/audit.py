@@ -170,6 +170,8 @@ def _given(value: Any) -> bool:
 def _is_prod(value: Any) -> bool:
     if isinstance(value, (list, tuple, set, frozenset)):
         return any(_is_prod(v) for v in value)
+    if isinstance(value, dict):  # a target given as an object, such as a PC schedule's {"kind": "meta", "env": ...}
+        return any(_is_prod(value.get(key)) for key in _PROD_PARAMS)
     return isinstance(value, str) and value.strip().lower() == "prod"
 
 

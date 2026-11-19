@@ -277,7 +277,8 @@ class AuditLog:
                 elif unreadable:
                     yield {"schema": SCHEMA, "at": "", "action": UNREADABLE, "outcome": "error", "seconds": 0,
                            "who": "", "params": {}, "file": path.name, "line": number,
-                           "error": f"{path.name} line {number} isn't an audit line; the trail check names it"}
+                           "error": (f"{path.name} line {number} isn't an audit line, so it can't be shown. "
+                                     "Run --verify to see what the trail check finds.")}
 
     def recent(self, limit: int = 200, action: str = "") -> list[dict[str, Any]]:
         """The newest lines, newest first. A line that can't be read shows as a placeholder row

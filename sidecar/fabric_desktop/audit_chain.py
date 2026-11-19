@@ -335,7 +335,7 @@ def _against(anchor: audit_anchor.Anchor, head: dict[str, Any], seen: dict[int, 
     line = anchor.lines - pruned  # its line number in the trail as it now starts
     if line > count:
         problems.append(f"event log: the trail ends before the newest line the Windows event log recorded "
-                        f"(line {line}); lines were deleted from the end")
+                        f"(line {line}), so lines were deleted from the end")
     elif line > 0 and seen.get(line) != anchor.hash:
         problems.append(f"event log: line {line} isn't the line the Windows event log recorded, so the trail "
                         f"was re-sealed at or before line {line}")

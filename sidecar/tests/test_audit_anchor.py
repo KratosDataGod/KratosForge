@@ -50,7 +50,7 @@ def test_a_cut_end_with_the_head_rewritten_to_match_is_caught(tmp_path, event_lo
     path.write_text("".join(line + "\n" for line in lines[:2]), encoding="utf-8")
     (folder / audit_chain.HEAD).write_text(json.dumps({"hash": json.loads(lines[1])["hash"], "lines": 2}))
     assert log.verify()["problems"] == [
-        (f"event log: the trail ends before the newest line the Windows event log recorded (line {COUNT}); "
+        (f"event log: the trail ends before the newest line the Windows event log recorded (line {COUNT}), so "
         "lines were deleted from the end")]
 
 

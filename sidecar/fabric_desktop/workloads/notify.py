@@ -34,13 +34,14 @@ import json
 import logging
 import re
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, ContextManager
 
-from .. import redact, sqlitefile
+from .. import jsonfile, redact, sqlitefile
 from .evaluate import describe
 
 _log = logging.getLogger(__name__)
@@ -186,18 +187,35 @@ def single(url: str) -> Routing:
     return Routing([Route(DEFAULT_ROUTE, url)] if url else [])
 
 
+# Messages already posted (or sent with no answer) whose row couldn't be deleted, the outbox file being
+# locked, by the outbox's resolved path: shared by every Outbox on that file in this process, and kept in a
+# file beside it (GONE_SUFFIX) so a restart doesn't send them again either. Deleted on the next write that works.
+_GONE: dict[str, set[int]] = {}
+_GONE_LOCK = threading.Lock()
+GONE_SUFFIX = ".sent-not-removed.json"
+
+
 class Outbox:
     def __init__(self, path: Path, clock: Callable[[], float] = time.time):
         self.path, self.clock = Path(path), clock
-        # Messages already posted (or sent with no answer) whose row couldn't be deleted, the file being
-        # locked: never sent again from this process, and deleted on the next use that can write.
-        self._gone: set[int] = set()
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._gone_file = self.path.with_name(self.path.name + GONE_SUFFIX)
+        fresh = not self.path.exists()
         # A file SQLite can't read is moved aside and the outbox starts empty: messages still waiting
         # in it are kept in the moved file but not sent, and new ones are sent as usual.
         self.set_aside = sqlitefile.open_store(
             self.path, self._first_open,
             then="messages still waiting in it aren't sent; new ones are sent as usual")
+        key = str(self.path.resolve())
+        with _GONE_LOCK:
+            self._gone = _GONE.setdefault(key, set())
+            if fresh or self.set_aside is not None:  # a new, empty file: ids kept for an old one mean nothing in it
+                self._gone.clear()
+                self._gone_file.unlink(missing_ok=True)
+            else:
+                saved = jsonfile.read_json(self._gone_file, [])
+                if isinstance(saved, list):
+                    self._gone.update(i for i in saved if isinstance(i, int) and not isinstance(i, bool))
 
     def _first_open(self) -> None:
         with self._db() as db:
@@ -278,23 +296,49 @@ class Outbox:
         return bool(row and row[0])
 
     def done(self, item_id: int) -> None:
-        """Take out a message that went (or may have). Never raises: when the file is locked, the message
-        is kept from being sent again by this process and deleted on the next use that can write."""
-        self._gone.add(item_id)
-        self._settle_gone()
+        """Take out a message that went (or may have). Never raises: when the file is locked, its id is
+        kept, in this process and in the GONE_SUFFIX file beside the outbox, so it is never sent again, and
+        the row is deleted on the next use that can write. The one case left: the app stops between the post
+        and that file's write while the outbox is locked; the message then goes once more, marked as possibly
+        sent already (CUT_OFF), as after any stop mid-send."""
+        with _GONE_LOCK:
+            self._gone.add(item_id)
+        if not self._settle_gone():
+            self._save_gone()
 
-    def _settle_gone(self) -> None:
-        if not self._gone:
-            return
-        ids = sorted(self._gone)
+    def _save_gone(self) -> None:
+        with _GONE_LOCK:
+            ids = sorted(self._gone)
+        try:
+            jsonfile.write_json(self._gone_file, ids, indent=None)
+        except OSError as exc:
+            _log.warning("Couldn't keep the sent messages %s still holds in %s; this process won't send them "
+                         "again: %s", self.path.name, self._gone_file.name, failure(exc))
+
+    def _settle_gone(self) -> bool:
+        """Delete the rows of messages that went; True when none is left to delete."""
+        with _GONE_LOCK:
+            ids = sorted(self._gone)
+        if not ids:
+            return True
         try:
             with self._db() as db:
                 db.executemany("DELETE FROM outbox WHERE id = ?", [(i,) for i in ids])
         except (sqlite3.Error, OSError) as exc:
             _log.warning("Couldn't take %d sent message(s) out of %s yet; they aren't sent again: %s",
                          len(ids), self.path.name, failure(exc))
-            return
-        self._gone.difference_update(ids)
+            return False
+        with _GONE_LOCK:
+            self._gone.difference_update(ids)
+            left = bool(self._gone)
+        if left:
+            self._save_gone()
+        else:
+            try:
+                self._gone_file.unlink(missing_ok=True)
+            except OSError as exc:  # its ids are gone from the outbox: a stale file only filters ids no row has
+                _log.warning("Couldn't remove %s: %s", self._gone_file.name, failure(exc))
+        return not left
 
     def failed(self, item_id: int, error: str) -> None:
         with self._db() as db:
@@ -307,6 +351,7 @@ class Outbox:
 
     def trim(self) -> int:
         """Remove messages older than KEEP_TRYING, then the oldest beyond MAX_WAITING. How many went."""
+        self._settle_gone()
         with self._db() as db:
             gone = db.execute("DELETE FROM outbox WHERE created < ?", (self.clock() - KEEP_TRYING,)).rowcount
             gone += db.execute("DELETE FROM outbox WHERE id NOT IN (SELECT id FROM outbox ORDER BY id DESC LIMIT ?)",
@@ -501,7 +546,8 @@ _NOT_KEPT = object()
 def send(changes: list[dict[str, Any]], routing: Routing, outbox: Outbox | None, source: str,
          post: Callable[[str, str, list[str]], None], digest_over: int = DIGEST_OVER,
          now: dt.datetime | None = None, idempotent: bool = False) -> dict[str, Any]:
-    """Post what these changes need, after anything still waiting. Never raises. ``dropped`` counts
+    """Post what these changes need, after anything still waiting. Never raises for an outbox file that is
+    busy or broken, nor for a post that fails (a bug still does, so it's seen). ``dropped`` counts
     messages removed unsent (older than KEEP_TRYING, or beyond MAX_WAITING); ``error`` is set only
     when a request was sent and failed this time, not while a route rests, or when the outbox couldn't
     be used; ``waiting`` is what the outbox still holds; ``unconfirmed`` counts posts sent with no answer,
@@ -510,8 +556,9 @@ def send(changes: list[dict[str, Any]], routing: Routing, outbox: Outbox | None,
 
     An outbox that can't be used (``None``, or its file locked past SQLite's wait) doesn't lose the new
     messages: each is posted once, straight away, without being kept. One that can't be posted then, or
-    held for quiet hours, is counted in ``lost`` and named in ``error``, never sent later. Nothing is sent
-    twice: a message already posted whose row can't be deleted isn't sent again (``Outbox.done``)."""
+    held for quiet hours, is counted in ``lost`` and named in ``error``, never sent later. A message already
+    posted whose row can't be deleted isn't sent again, by this process or after a restart (``Outbox.done``
+    says the one case left)."""
     if not routing.routes:
         return {"sent": 0, "queued": 0, "held": 0, "dropped": 0, "skipped": "no Teams webhook set"}
     now = now or dt.datetime.fromtimestamp(outbox.clock() if outbox is not None else time.time()).astimezone()
@@ -522,7 +569,7 @@ def send(changes: list[dict[str, Any]], routing: Routing, outbox: Outbox | None,
         """Run one outbox step; on a locked or broken file, note why and return ``default``."""
         try:
             return step()
-        except Exception as exc:  # noqa: BLE001 - an outbox that can't be used must not stop the send; logged
+        except (sqlite3.Error, OSError) as exc:  # a locked or broken outbox file; any other error is a bug and raises
             why = OUTBOX_TROUBLE.format(path=outbox.path.name if outbox is not None else "The outbox", error=failure(exc))
             _log.warning("%s; new messages are posted without being kept", why)
             trouble.append(why)

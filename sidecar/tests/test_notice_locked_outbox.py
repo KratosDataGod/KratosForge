@@ -113,6 +113,45 @@ def test_a_notice_posted_whose_row_cant_be_deleted_is_never_sent_again(tmp_path,
     assert len(teams.posted) == 1 and outbox.count() == 0  # deleted once the file was free, never re-sent
 
 
+@pytest.mark.parametrize("restart", [False, True])
+def test_a_posted_notice_whose_row_cant_be_deleted_isnt_sent_again_by_a_new_outbox_or_after_a_restart(
+        tmp_path, quick, monkeypatch, restart):
+    t = [1_000_000.0]
+    outbox = _box(tmp_path, t)
+    teams = LockingTeams(outbox.path)
+    assert notify.send([_change()], single(HOOK), outbox, "KratosForge", teams)["sent"] == 1
+    teams.release()
+    if restart:  # a new process: only the file beside the outbox remembers
+        monkeypatch.setattr(notify, "_GONE", {})
+    assert (tmp_path / ("alerts.sqlite3" + notify.GONE_SUFFIX)).exists()
+    t[0] += notify.SENDING_GRACE + notify.BACKOFF_MAX + 1
+    fresh = _box(tmp_path, t)  # as the app's incident check and schedule alerts make one per call
+    notify.send([], single(HOOK), fresh, "KratosForge", teams)
+    assert len(teams.posted) == 1 and fresh.count() == 0
+    assert not (tmp_path / ("alerts.sqlite3" + notify.GONE_SUFFIX)).exists()  # settled: nothing left to remember
+
+
+def test_ids_remembered_for_an_outbox_file_that_was_replaced_filter_nothing(tmp_path, quick, monkeypatch):
+    t = [1_000_000.0]
+    outbox = _box(tmp_path, t)
+    teams = LockingTeams(outbox.path)
+    notify.send([_change()], single(HOOK), outbox, "KratosForge", teams)
+    teams.release()
+    monkeypatch.setattr(notify, "_GONE", {})
+    outbox.path.unlink()  # the outbox file was deleted; its ids would be reused by new rows
+    fresh = _box(tmp_path, t)
+    assert notify.send([], single(HOOK), fresh, "KratosForge", Teams(503))["sent"] == 0
+    item = fresh.sending("New: x", ["a"])
+    assert [r["id"] for r in fresh.pending()] == [item]  # not hidden by an old id
+
+
+def test_a_bug_in_a_send_isnt_taken_for_a_busy_outbox(tmp_path, monkeypatch):
+    outbox = _box(tmp_path, [1_000_000.0])
+    monkeypatch.setattr(Outbox, "pending", lambda self: [{"id": 1}])  # a row missing its fields
+    with pytest.raises(KeyError):
+        notify.send([], single(HOOK), outbox, "KratosForge", Teams())
+
+
 @pytest.mark.parametrize("waiting", [False, True])
 def test_a_post_with_no_answer_while_the_outbox_is_locked_is_never_sent_again(tmp_path, quick, waiting):
     t = [1_000_000.0]

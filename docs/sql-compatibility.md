@@ -785,6 +785,8 @@ Any other error from the local engine keeps its own words, without a "Did you me
 
 Where SQL Server's number is certain, the error shows it and its severity as SQL Server prints them, such as `Msg 207, Level 16: Invalid column name 'x'.` That covers 207, 208 and 209 above, `Msg 239` for two CTEs of one name and `Msg 8134` for `Divide by zero error encountered.`. In a script, the error also names the statement and what ran before it: `Statement 2 of 3 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run.` No number is guessed for any other error. SQL Server's state and line aren't shown, and the statement number takes the line's place.
 
+A statement of a script that the local engine refuses (one it can't translate, or Msg 239) is named by its place, such as "Statement 2 of 3 (WITH) failed: Msg 239, Level 16: …". The local engine checks the whole script before it runs any of it, so the message ends by saying none of the script ran. A warehouse also stops a batch before its first statement for an error it finds while compiling it, such as Msg 239. A script of one statement shows the refusal on its own.
+
 `@@ERROR`, `ERROR_NUMBER()`, `ERROR_MESSAGE()`, `ERROR_SEVERITY()`, `ERROR_STATE()`, `ERROR_LINE()` and `ERROR_PROCEDURE()` read an error after it happened, in `TRY...CATCH` or the next statement. The local engine doesn't run `TRY...CATCH` yet, so each is refused by name. Run the batch in a Fabric Warehouse to handle the error in T-SQL.
 
 ## Local T-SQL wide tables and long values

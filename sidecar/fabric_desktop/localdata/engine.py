@@ -810,7 +810,12 @@ class LocalEngine:
                 try:
                     statements = self._statements(con, sql, dialect, run)
                 except ValueError as exc:
-                    if dialect != "tsql" or (said := _as_warehouse_says(exc, {})) is exc:
+                    if isinstance(exc, tsql.InScript):  # WR-238: which statement, and that none of it ran
+                        said: Exception = ValueError(_refused_in_script(_as_warehouse_says(ValueError(str(exc)), {}),
+                                                                        exc))
+                    else:
+                        said = exc if dialect != "tsql" else _as_warehouse_says(exc, {})
+                    if said is exc:
                         raise
                     raise said from None
                 if write is not None:
@@ -2030,6 +2035,17 @@ def _without_leading_comments(text: str) -> str:
                     i += 1
         else:
             return text[i:]
+
+
+def _refused_in_script(said: Exception, where: "tsql.InScript") -> str:
+    """The refusal of one statement of a T-SQL script, naming it. The script is translated whole before any of it
+    runs, so nothing ran, where a warehouse would also stop the batch before it runs for an error it finds in
+    compiling it, such as Msg 239."""
+    error = str(said)
+    if not error.endswith((".", "!", "?")):
+        error += "."
+    return (f"Statement {where.index + 1} of {where.count} ({where.kind}) failed: {error} None of the script ran, "
+            "because every statement is checked before the first one runs.")
 
 
 def _as_warehouse_says(exc: Exception, step: dict[str, Any]) -> Exception:

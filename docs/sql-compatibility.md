@@ -128,6 +128,30 @@ These cases can still differ. LOC-003 warns wherever a pattern is used:
 
 A cast of text that is only a year or a year and month, such as `CAST('2024-02' AS DATE)` or `to_timestamp('2024')`, also still differs. Spark reads it as the month's or the year's first day; here it is NULL. No rule warns about it yet.
 
+## The session time zone on this PC (WR-120)
+
+Spark SQL run on this PC reads and shows timestamps in `spark.sql.session.timeZone` as Spark does. Each case is checked against Apache Spark 3.5.3's own answers, in UTC, America/Chicago, Asia/Kolkata, Europe/London and two offsets, in `sidecar/tests/test_spark_timezone_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Case | On this PC, as in Spark |
+| --- | --- |
+| The session time zone | `spark.conf.set("spark.sql.session.timeZone", ...)` takes a region (`America/Chicago`), `UTC`, or an offset of whole hours (`-08:00`, `GMT-08:00`, `UTC+3`). `current_timezone()` gives the id as it was set |
+| `timestamp` and `timestamp_ntz` | A `timestamp` is an instant, shown in the session's zone; a `timestamp_ntz` is a wall clock with no zone. A cast between them, or from a date or text to a `timestamp`, reads the wall clock in the session's zone. `unix_timestamp` of a `timestamp_ntz` reads it as UTC |
+| The hour clocks skip | A wall clock that doesn't exist, such as 02:30 on the day America/Chicago springs forward, moves forward by the gap (03:30) |
+| The hour clocks repeat | A wall clock that happens twice, such as 01:30 on the day America/Chicago falls back, is the earlier of the two (01:30 CDT), as Java reads it. This holds for casts, `make_timestamp`, `to_timestamp`, `unix_timestamp` and `to_utc_timestamp`; `date_trunc` keeps the offset of the time it truncates |
+| An interval of hours added to a `timestamp` | Split into whole days and the rest, as Spark does: `INTERVAL 24 HOURS` adds a calendar day in the session's zone, 23 hours of real time on the day clocks spring forward |
+
+Refused by name, and nothing runs:
+
+| Case | Why |
+| --- | --- |
+| A session time zone, or a `from_utc_timestamp` or `to_utc_timestamp` zone, written as an offset with minutes, such as `+05:30` | The engine on this PC has a zone for an offset of whole hours only. Use the region's own zone, such as `Asia/Kolkata` |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| A `timestamp` from `collect()` | A `datetime` with no zone, in UTC (Fabric's driver runs in UTC) | A `datetime` with the session's zone, which is the same instant |
+
 ## Window functions on this PC
 
 Spark SQL and the DataFrame API run on this PC give Spark's answers for window functions, with ANSI mode off as Fabric runs it. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_windows.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
@@ -239,6 +263,36 @@ These cases still differ:
 | --- | --- | --- |
 | `from_json` text in single quotes, such as `{'a':1}` | Read (`allowSingleQuotes` is on by default) | NULL |
 | Databricks SQL on the DuckDB engine | As in Spark SQL | `from_json` and `schema_of_json` options are refused, and `to_json` is DuckDB's own |
+
+## Hashing and encoding on this PC (WR-119)
+
+Spark SQL run on this PC gives Spark's answers for its hashing and encoding functions, with ANSI mode off as Fabric runs it. 84 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_hashing_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `hash`, `xxhash64` | Spark's Murmur3 and xxHash64 numbers with seed 42, for each type: whole numbers, doubles, decimals, booleans, text, binary, dates, timestamps, arrays, and several arguments. NULL keeps the seed. A map stops, as in Spark |
+| `md5`, `sha1`, `sha`, `crc32` | Of text's UTF-8 bytes, or of binary |
+| `sha2` | 0 and 256 bits are SHA-256; 224, 384 and 512 are those SHA-2 digests; any other length gives NULL |
+| `base64` | Text's UTF-8 bytes or binary; a line break (CR LF) after every 76 characters, as Spark 3.5 writes it |
+| `unbase64` | Characters outside the base64 alphabet are skipped and padding is optional. Padding that doesn't end a group of four, base64 after the padding, or one character left over at the end stops, as in Spark |
+| `hex`, `unhex` | `hex` of a double or decimal cuts it to a whole number first. `unhex` puts a `0` before an odd number of digits and gives NULL for anything that isn't hex digits |
+| `conv` | Spaces around the number are trimmed first |
+| `CAST(x AS BINARY)` | A whole number's big-endian bytes: 1 for a `tinyint`, 2 for a `smallint`, 4 for an `int` and 8 for a `bigint` |
+| `CAST(x AS STRING)` of binary | Its UTF-8 text |
+| `-9223372036854775808L`, `-2147483648` | Read as one literal of its type, as Spark reads them |
+
+Refused by name, and nothing runs:
+
+| Case | Why |
+| --- | --- |
+| `hash` or `xxhash64` of a struct, or of an array of structs or arrays | This PC can't yet hash a struct's fields in Spark's order. Hash its fields instead: `hash(s.a, s.b)` gives the same number as `hash(s)` |
+| A cast of binary to string where the bytes aren't UTF-8 | Spark reads them with replacement characters. Use `hex()` or `base64()` instead |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| Databricks SQL on the DuckDB engine | `base64` and `unbase64` as in Spark SQL | `base64` writes one line, and `unbase64` reads only strict base64 |
 
 ## Local T-SQL changes
 
@@ -570,6 +624,25 @@ What can still differ:
 - `BEGIN TRAN`, `COMMIT`, `ROLLBACK` and `SET TRANSACTION` are refused here (see Local T-SQL scripts), so a conflict here is always about one statement.
 - A commit delta-rs refuses for another reason, such as a change to a table with `delta.appendOnly`, isn't called a conflict. It stops with delta-rs's own reason and says nothing was committed.
 
+## Local T-SQL wide tables and long values
+
+When a project runs T-SQL on this PC, wide tables and long values stay exact, or stop by name where a Fabric Warehouse differs. Nothing is cut without saying so. This was checked against Microsoft Learn's Fabric Data Warehouse pages for tables and data types, and the REPLICATE page, as they read on 2026-11-18.
+
+| What | Here |
+| --- | --- |
+| A table of up to 1,024 columns | Made, and every value comes back |
+| `CREATE TABLE`, `SELECT ... INTO` or `ALTER TABLE ... ADD` past 1,024 columns, a warehouse table's most | Stops with SQL Server's words, such as "CREATE TABLE failed because column 'c1024' in table 'w' exceeds the maximum of 1024 columns.", and nothing is made. `SELECT *` is counted as it reads |
+| A query result wider than 1,024 columns | Runs. The limit is a table's |
+| A `VARCHAR(MAX)` value of a megabyte or more | Comes back whole, and `LEN` and `DATALENGTH` count all of it |
+| `REPLICATE` of text that isn't `VARCHAR(MAX)` or `NVARCHAR(MAX)`, past 8,000 bytes (4,000 characters of `N''` text) | Stops at the row where a warehouse would cut the result, with the way to keep it whole: cast the input to `VARCHAR(MAX)`. A `VARCHAR(MAX)` column without a cast stops too, because the local engine doesn't keep a column's `(MAX)`, and the cast changes nothing in a warehouse |
+| A query that nests string calls dozens deep, or nests anything past what the translator can read | Stops by name and says the query is nested too deeply, so move the inner part into a CTE, a subquery or a variable. A `REPLICATE` inside another one is checked at each level. |
+| An Excel export of more than 16,384 columns, a sheet's most | Refused before anything is written, with CSV or Parquet named instead. A text cell past Excel's 32,767 characters is cut there with a note, as before |
+
+What can still differ:
+
+- A warehouse stores at most 16 MB in a `VARCHAR(MAX)` or `VARBINARY(MAX)` value. The local engine keeps a longer one.
+- `ALTER TABLE ... ADD` of several columns in one statement is refused by name here, because the local engine adds one at a time. Add each in an `ALTER TABLE` of its own.
+
 ## Local T-SQL tables
 
 When a project runs T-SQL on this PC, tables are made and emptied as in a Fabric Warehouse, and what a warehouse doesn't have is refused by name. This was checked against Microsoft Learn's Fabric Data Warehouse pages for tables, temporary tables, IDENTITY and the T-SQL surface area, as they read on 2026-11-17.
@@ -831,7 +904,7 @@ Fabric Warehouse loads files with `COPY INTO`, `BULK INSERT` and `OPENROWSET(BUL
 Besides the hand-picked cases above, three tests generate queries from a fixed seed and compare each answer here with the target's:
 
 - **Spark SQL** (`sidecar/tests/test_spark_differential.py` and `_more.py`): about 1,580 random scalar expressions over the functions this page lists (arithmetic, `div`, `pmod`, casts, text, dates, `LIKE`, three-valued logic), with NULLs mixed in. Each was run in Apache Spark 3.5.3 (local mode, UTC, ANSI mode off, as Fabric) by `sidecar/tools/capture_spark_differential.py`, and its answer is kept in `sidecar/tests/fixtures/spark_3_5_3_differential.json`. CI has no Spark, so the capture is run by hand and the fixture is checked in.
-- **T-SQL** (`sidecar/tests/test_tsql_rules_differential.py`): about 1,700 inputs for `SUBSTRING`, `LEFT`, `RIGHT`, `CHARINDEX`, `REPLICATE`, `SPACE`, `LEN`, integer `/` and `%`, `ROUND`, `CAST` to `int`, `=` and `<` with trailing spaces, `LIKE` with `[a-c]` ranges, `DATEDIFF`, `DATEADD`, `EOMONTH`, `DATEPART`, `CONCAT`, `CONCAT_WS` and `+`, each with `'...'` and with `N'...'` text. The expected answer is a short model of the rule in T-SQL's reference. No warehouse was used.
+- **T-SQL** (`sidecar/tests/test_tsql_rules_differential.py`): about 1,700 inputs for `SUBSTRING`, `LEFT`, `RIGHT`, `CHARINDEX`, `REPLICATE`, `SPACE`, `ASCII`, `UNICODE`, `CHAR`, `LEN`, integer `/` and `%`, `ROUND`, `CAST` to `int`, `=` and `<` with trailing spaces, `LIKE` with `[a-c]` ranges, `DATEDIFF`, `DATEADD`, `EOMONTH`, `DATEPART`, `CONCAT`, `CONCAT_WS` and `+`, each with `'...'` and with `N'...'` text. The expected answer is a short model of the rule in T-SQL's reference. No warehouse was used.
 - **Snowflake** (`sidecar/tests/test_snowflake_rules_differential.py`): about 1,700 inputs for `SUBSTR`, `LEFT`, `RIGHT`, `REPEAT`, `CONCAT`, `||`, `CONCAT_WS`, `MOD`, `DIV0`, `DIV0NULL`, `ROUND` (both modes), `DATEDIFF`, `DAYOFWEEK`, `DAYOFWEEKISO`, `DATE_TRUNC('week')`, `WEEKISO`, `LAST_DAY`, `POSITION`, `CHARINDEX`, `SPLIT_PART`, `LPAD`, `RPAD` and `ORDER BY`'s NULL order, modeled on Snowflake's SQL reference with the default session parameters. No Snowflake account was used.
 
 A different answer, or an error where the target answers, fails these tests unless it is named in the test's `KNOWN` list. An entry that no case needs any more fails too, so each list is what still differs. Today they are:

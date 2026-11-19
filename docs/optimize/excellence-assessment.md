@@ -147,8 +147,10 @@ finding is never listed below a minor one with a bigger estimate.
 can see it. It reads only, with your own access, and makes no read the app didn't already make: the
 optimization engine's reads (the workspace, its items, notebook and pipeline definitions, job history),
 the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`), the capacities you can see
-(`GET /capacities`), and the definition of each semantic model in the workspace, at most 30, as TMSL
-(`getDefinition?format=TMSL`, the read the Semantic model tab already makes). A read that fails is listed in `reads` and leaves its controls not evaluated.
+(`GET /capacities`), each lakehouse's properties (`GET /workspaces/{id}/lakehouses/{id}`, the read the
+app already makes before it writes a table; at most 50 per assessment), and the definition of each
+semantic model in the workspace, at most 30, as TMSL (`getDefinition?format=TMSL`, the read the
+Semantic model tab already makes). A read that fails is listed in `reads` and leaves its controls not evaluated.
 `demo=True` assesses a labelled demonstration fixture without calling Fabric.
 
 ## Controls
@@ -172,6 +174,10 @@ the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`), the c
 | FEA-DE-003 | Data engineering | Medium | No VACUUM in a notebook keeps less than 7 days of history (NB020) | Definition inspection |
 | FEA-REL-003 | Reliability | Low | No pipeline activity is deactivated (skipped, and reported as Succeeded by default) | Definition inspection |
 | FEA-DEVOPS-002 | DevOps | Low | No pipeline activity names a workspace id as text rather than a parameter or variable | Definition inspection |
+| FEA-ARCH-001 | Architecture | Medium | One lakehouse per medallion layer: no lakehouse named for two of bronze, silver and gold, and no two named for the same layer | Item names (inferred, advice only) |
+| FEA-ARCH-002 | Architecture | Low | A lakehouse is schema-enabled | Lakehouse properties |
+| FEA-ARCH-003 | Architecture | Low | A workspace whose name says production holds no item named tmp, temp, test, staging, copy, old, backup or similar; not applicable when the name says Dev or Test | Workspace and item names (inferred, advice only) |
+| FEA-ARCH-004 | Architecture | Medium | A notebook's default lakehouse is in its own workspace (a cross-workspace dependency otherwise); not applicable without a default lakehouse | Notebook definition and item list |
 | FEA-SM-001 | Semantic models | Medium | No relationship filters in both directions | Model definition |
 | FEA-SM-002 | Semantic models | Informational | At least one security role filters rows (noted, not scored: many models are for every reader) | Model definition |
 | FEA-SM-003 | Semantic models | Low | A Direct Lake model is set to Direct Lake only, or reads through OneLake, so it doesn't fall back to DirectQuery silently; not applicable without Direct Lake tables | Model definition |
@@ -189,6 +195,17 @@ name Fabric didn't send can't be told apart from a guest, so FEA-SEC-002 is then
 controls that compare an item with the others of its kind (FEA-PERF-001, FEA-PERF-002, FEA-DE-002)
 pass an item only when every other notebook or pipeline in the workspace was read; if one wasn't (no
 access, or the read budget ran out), they are not evaluated and name the ones that weren't read.
+
+The architecture controls follow the KratosForge standing decision: one schema-enabled lakehouse per
+medallion layer. FEA-ARCH-001 and FEA-ARCH-003 read layers, environment and left-overs from names, which
+is **inferred** evidence: a name is what someone typed, not what the item is. Their results are shown as
+advice and are never scored; when no name says a layer, or the workspace name doesn't say whether it is
+production, they are not evaluated. Fabric's own Dataflow staging items aren't counted as left-overs.
+FEA-ARCH-002 and FEA-ARCH-004 are verified: the lakehouse's properties (Fabric gives a default schema
+only for schema-enabled lakehouses) and the notebook definition the optimization engine already reads. A
+default lakehouse that isn't in the workspace's item list is in another workspace or was deleted;
+either way a deployment won't rebind it. Dev/Test/Prod separation isn't checked yet: it needs
+deployment pipeline or Git configuration the assessment doesn't read, and a name alone can't prove it.
 
 ### Notebook and pipeline inspection
 

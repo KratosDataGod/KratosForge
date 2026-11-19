@@ -11,7 +11,6 @@ import json
 import logging
 import re
 import socket
-import time
 import urllib.request
 from pathlib import Path
 
@@ -323,16 +322,26 @@ def test_a_document_with_many_breaches_is_cut_with_a_count():
     assert not result["valid"]
 
 
-def test_a_file_wrong_everywhere_stops_after_the_raw_error_cap_in_bounded_time():
+def test_a_file_wrong_everywhere_stops_after_the_raw_error_cap(monkeypatch):
     doc = _doc()
     template = doc["datasets"][0]
     field = dict(copy.deepcopy(template["fields"][0]), colour="blue")
     doc["datasets"] = [dict(copy.deepcopy(template), name=f"d{i}", fields=[dict(field, name=f"f{j}") for j in range(50)])
                        for i in range(2_000)]  # 100,000 bad fields
-    started = time.perf_counter()
+    real, pulled = ossie_validate._validator, []
+
+    class Counting:  # counts the errors the check asks the schema validator for: work, not wall-clock time
+        def __init__(self, inner):
+            self.inner = inner
+
+        def iter_errors(self, instance):
+            for error in self.inner.iter_errors(instance):
+                pulled.append(1)
+                yield error
+
+    monkeypatch.setattr(ossie_validate, "_validator", lambda version: Counting(real(version)))
     result = ossie_validate.validate(doc)
-    elapsed = time.perf_counter() - started
-    assert elapsed < 2.0, f"took {elapsed:.2f} s"
+    assert len(pulled) == ossie_validate.MAX_RAW_ERRORS + 1  # not 100,000: the check stops at the cap
     assert result["stopped"] and not result["valid"]
     assert len(result["diagnostics"]) == ossie_validate.MAX_DIAGNOSTICS + 1
     assert result["more"] == ossie_validate.MAX_RAW_ERRORS - ossie_validate.MAX_DIAGNOSTICS

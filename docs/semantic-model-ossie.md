@@ -200,17 +200,19 @@ SQL is read by the converter's SQL reader, after a size check. Nothing is run or
 | --- | --- | --- |
 | `SUM`, `AVERAGE`, `MIN`, `MAX` over `'Table'[Column]` | `SUM`, `AVG`, `MIN`, `MAX` over the column | Structurally compatible but behavior unverified |
 | `COUNTA` (or `COUNT` on a column that isn't a boolean) | `COUNT(column)` | Compatible, with a note that a blank and an empty string can differ |
+| `COUNT` | `COUNTA` | Compatible only on a column known not to be a boolean; otherwise Unsupported |
 | `DISTINCTCOUNTNOBLANK` | `COUNT(DISTINCT column)` | Compatible: the converter maps these two; NULL handling is left to L3 |
 | `DISTINCTCOUNT` | `COUNT(DISTINCT column)` | Different results: DISTINCTCOUNT counts BLANK as a value |
 | `COUNTROWS('Table')` | `COUNT(*)` | Compatible |
 | `DIVIDE(a, b)` | `a / NULLIF(b, 0)`, or a safe division | Compatible: the converter's own form |
 | `DIVIDE(a, b)`, `DIVIDE(a, b, x)` or `a / b` | `a / b`, or any division for the last two | Different results: a zero divisor gives a different answer |
-| `[Measure]` | the metric's name | Compatible, by name only |
+| `[Measure]` | the metric's name | Compatible, by name only (a bare `[X]` that isn't a measure, or a SQL name that is both a metric and a column, is Unsupported) |
 
 L2 is Unsupported, never Different, when either side is outside the subset. That covers CALCULATE
 and other filters, TOTALYTD and the rest of time intelligence, iterators such as SUMX, variables,
 IF and SWITCH, window functions, filtered aggregates (`FILTER (WHERE ...)`), CASE, COALESCE, other
-arithmetic, a column that doesn't resolve to exactly one field, and anything past the caps
+arithmetic, a column that doesn't resolve to exactly one field, a DIVIDE alternate that isn't a
+plain decimal number, and anything past the caps
 (4,096 characters, 64 tokens, 8 levels of parentheses) or holding invisible characters. Identifiers
 are compared without case, as DAX does. Each measure row carries `expressions` (`left`, `right`,
 `left_form`, `right_form`, cut short like every other name), and the report lists the subset

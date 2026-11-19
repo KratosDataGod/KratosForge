@@ -379,3 +379,53 @@ def test_l2_reports_its_level_subset_and_tolerances_and_bad_input_is_test_failed
     assert sp.parity_l1(_bim(), _bim())["level"] == "L1" and "subset" not in sp.parity_l1(_bim(), _bim())
     bad = _assert_l2(sp.parity_l2(None, _bim()))
     assert bad["summary"] == sp.TEST_FAILED
+
+
+# ---- review follow-ups
+
+def test_a_bare_dax_column_reference_is_never_read_as_a_measure():
+    with pytest.raises(sp._Outside, match="unqualified column reference"):
+        sp._dax_form("[Amount]", frozenset({"total"}))
+    assert sp._dax_form("[Total]", frozenset({"total"}))[0] == ("measure", "total")
+    m = _l2("[amount]", "SUM(amount)")
+    assert m["result"] == sp.UNSUPPORTED and any("unqualified column reference" in n for n in m["notes"])
+    # a column [amount] against a SQL metric that names a metric "amount": never a match
+    bim = _model("[amount]")
+    doc = _ossie(bim, '"amount"')
+    doc["metrics"].append({"name": "amount", "expression": {"dialects": [{"dialect": "ANSI_SQL",
+                                                                          "expression": "SUM(fact_sales.amount)"}]}})
+    m = _measure(_assert_l2(sp.parity_l2(bim, doc)))
+    assert m["result"] != sp.COMPATIBLE and any("unqualified column reference" in n for n in m["notes"])
+
+
+def test_dax_count_against_dax_counta_is_unsupported_on_a_boolean_or_untyped_column():
+    def pair(column, data_type):
+        left, right = _model(f"COUNT('fact_sales'[{column}])"), _model(f"COUNTA('fact_sales'[{column}])")
+        for bim in (left, right):
+            if data_type is not None:
+                bim["model"]["tables"][0]["columns"].append(
+                    {"name": column, "dataType": data_type, "sourceColumn": column})
+        return _measure(_assert_l2(sp.parity_l2(left, right)))
+    for column, data_type in (("flag", "boolean"), ("ghost", None)):
+        m = pair(column, data_type)
+        assert m["result"] == sp.UNSUPPORTED, m
+        assert any("DAX COUNTA" in n and "boolean or has no known type" in n for n in m["notes"])
+    m = pair("amount", None)  # decimal in the test model
+    assert m["result"] == sp.COMPATIBLE and any("this column isn't a boolean" in n for n in m["notes"])
+    both = _model("COUNT('fact_sales'[ghost])")
+    assert _measure(sp.parity_l2(both, copy.deepcopy(both)))["result"] == sp.COMPATIBLE  # the same function
+
+
+def test_a_bare_sql_name_that_is_both_a_metric_and_a_column_is_ambiguous():
+    bim = _model("[amount]")
+    bim["model"]["tables"][0]["measures"].append({"name": "amount", "expression": "SUM('fact_sales'[amount])"})
+    m = _measure(_assert_l2(sp.parity_l2(bim, _ossie(bim, "amount"))))
+    assert m["result"] == sp.UNSUPPORTED, m
+    assert any("names both a measure and a column" in n and "ambiguous" in n for n in m["notes"])
+
+
+@pytest.mark.parametrize("alternate", ["1e3", "1.5E-3", "2.e1", "1."])
+def test_a_divide_alternate_with_an_exponent_is_outside_as_not_a_plain_decimal(alternate):
+    with pytest.raises(sp._Outside, match="a plain decimal number"):
+        sp._dax_form(f"DIVIDE([a], [b], {alternate})", frozenset({"a", "b"}))
+    assert sp._dax_form("DIVIDE([a], [b], -1.50)", frozenset({"a", "b"}))[0][3] == "ALT:-1.5"

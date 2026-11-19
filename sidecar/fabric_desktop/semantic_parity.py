@@ -785,8 +785,10 @@ def _compare(left: _Side, right: _Side, level: str = LEVEL) -> list[dict[str, An
 #   no alternate result, so DIVIDE(a, b, x) against any SQL division is Different.
 # - COUNT: SQL COUNT(c) is the same form as DAX COUNTA (``_sql_to_dax`` writes COUNTA for it) and as DAX COUNT, with
 #   a note that a blank and an empty string can differ (L3). ``_dax_to_sql`` refuses DAX COUNT because it doesn't
-#   count TRUE/FALSE values, so DAX COUNT against SQL COUNT matches only when the DAX side's column is known and isn't
-#   a boolean; otherwise it is Unsupported with that reason.
+#   count TRUE/FALSE values, so DAX COUNT against SQL COUNT, or against DAX COUNTA, matches only when the column on
+#   the DAX COUNT side is known and isn't a boolean; otherwise it is Unsupported with that reason.
+# - A bare DAX [X] is a measure reference only when X is a measure on that side; otherwise it is an unqualified
+#   column reference, outside. A bare SQL name that is both a metric and a column is ambiguous, outside.
 # - DISTINCTCOUNT counts BLANK as a value, SQL COUNT(DISTINCT c) skips NULL: Different. The converter maps COUNT
 #   (DISTINCT c) to DISTINCTCOUNTNOBLANK and back, so that pair matches, with a note that NULL handling is for L3.
 
@@ -856,6 +858,11 @@ _DAX_TOKEN = re.compile(r"""
 """, re.VERBOSE)
 # SQL tokens for the size check only (quoted names and strings, words, single characters): linear, never parsed.
 _SQL_TOKEN = re.compile(r"\"(?:[^\"]|\"\")*\"|'(?:[^']|'')*'|`[^`]*`|\[[^\]]*\]|\w+|\S")
+
+
+def _dax_count(table: str, column: str) -> str:
+    """The flag that one COUNT term was written as DAX COUNT (not COUNTA), per casefolded column."""
+    return f"dax_count\x00{table}\x00{column}"
 
 
 class _Outside(Exception):
@@ -957,7 +964,10 @@ class _DaxReader:
         kind, value = self.peek()
         if kind == "column":
             self.i += 1
-            return ("measure", self.unquote(kind, value).casefold())
+            name = self.unquote(kind, value).casefold()
+            if name in self.names:
+                return ("measure", name)
+            raise _Outside("an unqualified column reference, not a measure on this side")
         if kind in ("table", "name") and self.peek(1)[0] == "column":
             self.i += 2
             name = self.unquote("column", self.tokens[self.i - 1][1]).casefold()
@@ -976,7 +986,7 @@ class _DaxReader:
                 column = self.unquote("column", self.take("column", None, f"one fully qualified column (Table[Column]) in {fn}"))
                 self.take("punct", ")", f"')' after {fn}'s column: the subset aggregates one column")
                 if fn == "COUNT":
-                    self.flags.add("dax_count")
+                    self.flags.add(_dax_count(table, column.casefold()))
                 return ("agg", _DAX_AGGREGATES[fn], table, column.casefold())
             raise _Outside(f"{mo._short(fn)} inside another expression" if fn == "DIVIDE" else _dax_reason(fn))
         raise _Outside(f"expected an aggregate, COUNTROWS or a measure at token {self.i + 1}")
@@ -988,7 +998,11 @@ class _DaxReader:
             return "BLANK"
         sign = "-" if self.peek() == ("op", "-") else ""
         self.i += bool(sign)
-        number = Decimal(sign + self.take("number", None, "a number or BLANK() as DIVIDE's alternate result"))
+        what = "a plain decimal number or BLANK() as DIVIDE's alternate result"
+        number = Decimal(sign + self.take("number", None, what))
+        follow = self.peek()
+        if (follow[0] == "name" and follow[1][:1] in ("e", "E")) or follow == ("op", "."):
+            raise _Outside("DIVIDE's alternate result isn't a plain decimal number (an exponent or a stray '.')")
         return f"ALT:{format(number.normalize() if number else Decimal(0), 'f')}"
 
     def done(self) -> None:
@@ -1161,6 +1175,10 @@ def _sql_form(text: str, dialect: str, side: _Side, scope: str | None,
             dataset, field = resolve(arg)
             return ("agg", fn, dataset.casefold(), field.casefold())
         if isinstance(n, exp.Column) and not n.table and n.name.casefold() in names:
+            index = _column_index(side)
+            keys = ([f"{scope}.{n.name}"] if scope else []) + [n.name]
+            if any(k.casefold() in index for k in keys):
+                raise _Outside(f"{mo._q(n.name)} names both a measure and a column on this side, so it is ambiguous")
             return ("measure", n.name.casefold())
         if isinstance(n, exp.Column):
             raise _Outside("a column outside an aggregate")
@@ -1289,17 +1307,21 @@ def _caveats(pl: dict[str, Any], pr: dict[str, Any], left: _Side, right: _Side) 
     if cross and "COUNT" in fns:
         notes.append("COUNT counts non-blank values in DAX and non-NULL values in SQL; a blank and an empty string "
                      "can differ, which L3 checks")
-        dax, side = (pl, left) if pl["dialect"] == "DAX" else (pr, right)
-        if "dax_count" in dax["flags"]:
-            for t in terms:
-                if t[0] == "agg" and t[1] == "COUNT" and _is_boolean(side, t[2], t[3]) is not False:
-                    return UNSUPPORTED, [(f"DAX COUNT doesn't count TRUE/FALSE values where SQL COUNT does, and "
-                                          f"the {side.which} side's column {mo._short(t[2])}[{mo._short(t[3])}] is a "
-                                          "boolean or has no known type (the converter refuses this pair and writes "
-                                          "COUNTA for SQL COUNT)")]
-            notes.append("DAX COUNT doesn't count TRUE/FALSE values; this column isn't a boolean")
-    if not cross and "COUNT" in fns and ("dax_count" in pl["flags"]) != ("dax_count" in pr["flags"]):
-        notes.append("COUNT on one side and COUNTA on the other: they differ only on a TRUE/FALSE column")
+    for t in terms:  # DAX COUNT doesn't count TRUE/FALSE; SQL COUNT and DAX COUNTA do
+        if t[0] != "agg" or t[1] != "COUNT":
+            continue
+        flag = _dax_count(t[2], t[3])
+        counted = [(p, s) for p, s in ((pl, left), (pr, right)) if p["dialect"] == "DAX" and flag in p["flags"]]
+        if len(counted) != 1:
+            continue  # no DAX COUNT, or DAX COUNT on both sides (the same function)
+        side = counted[0][1]
+        other = "SQL COUNT" if cross else "DAX COUNTA"
+        if _is_boolean(side, t[2], t[3]) is not False:
+            return UNSUPPORTED, [(f"DAX COUNT doesn't count TRUE/FALSE values where {other} does, and the "
+                                  f"{side.which} side's column {mo._short(t[2])}[{mo._short(t[3])}] is a boolean or "
+                                  "has no known type (the converter refuses DAX COUNT for this reason and writes "
+                                  "COUNTA for SQL COUNT)")]
+        notes.append(f"DAX COUNT doesn't count TRUE/FALSE values where {other} does; this column isn't a boolean")
     if cross and "DISTINCTCOUNTNOBLANK" in fns:
         notes.append("the converter maps SQL COUNT(DISTINCT) to DAX DISTINCTCOUNTNOBLANK and back, so the forms "
                      "match; how each side skips NULL and BLANK is checked at L3")

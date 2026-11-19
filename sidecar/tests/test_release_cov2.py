@@ -23,7 +23,7 @@ def repo(tmp_path):
     root = tmp_path / "proj"
     (root / "metadata").mkdir(parents=True)
     (root / "metadata" / "a.toml").write_bytes(b"name = 'a'\r\n")
-    (root / "metadata" / "notes.md").write_text("notes\n", encoding="utf-8")
+    (root / "metadata" / "notes.md").write_bytes(b"notes\n")  # write_text would give CRLF on Windows
     (root / "metadata" / "blob.toml").write_bytes(b"\x00\x01\x02binary")
     git(root, "init", "-q", "-b", "main")
     git(root, "config", "user.email", "test@example.com")

@@ -1741,6 +1741,14 @@ class DataFrameNaFunctions:
         return _replace(self._df, to_replace, value, subset)
 
 
+def _df_count(self: DataFrame) -> int:
+    """The number of rows, with the count's result read to its end. DuckDB 1.x's own count() reads it with
+    fetchone(), which leaves the result open; the next statement on the session's connection that fails
+    (a read of a file that isn't there, say) then leaves every later one failing with "Current transaction
+    is aborted", until the notebook restarts."""
+    return int(one_row(self.relation.count("*"))[0])
+
+
 def _describe(self: DataFrame, *cols: str) -> DataFrame:
     """count, mean, stddev, min and max of each column, as text, as Spark's describe() shows them."""
     names = _known(self, list(_flat(cols))) or [c for c, t in _types(self) if _NUMERIC.fullmatch(t) or t.upper() == "VARCHAR"]
@@ -2557,6 +2565,7 @@ def install() -> None:
     DataFrame.replace = _replace  # type: ignore[attr-defined]
     DataFrame.na = property(DataFrameNaFunctions)  # type: ignore[attr-defined]
     DataFrame.describe = _describe  # type: ignore[attr-defined]
+    DataFrame.count = _df_count  # type: ignore[method-assign]
     DataFrame.summary = _summary  # type: ignore[attr-defined]
     DataFrame.drop = _drop_cols(DataFrame.drop)  # type: ignore[method-assign]
     DataFrame.withColumnRenamed = _with_column_renamed(DataFrame.withColumnRenamed)  # type: ignore[method-assign]

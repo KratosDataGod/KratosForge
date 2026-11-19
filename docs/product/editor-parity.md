@@ -4,7 +4,7 @@ Chris asked on 2026-11-13 for the notebook and SQL editor to have the same funct
 notebooks and SQL editors: a feature parity matrix against the top ten, a roadmap, and an execution
 plan ordered by capability and usefulness, reaching 95% as soon as possible and the last 5% soon after.
 
-This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and rows move as their PRs merge (last update 2026-11-17: SQL rows at main `4c4d2d9`, notebook rows after #2803).
+This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and rows move as their PRs merge (last update 2026-11-18: SQL rows at main `d9c8868`, notebook rows after #2803).
 
 ## How to read it
 
@@ -33,15 +33,15 @@ This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and r
 | Group | Counted rows | Have | Partial | Gap | Score |
 | --- | --- | --- | --- | --- | --- |
 | Notebook | 54 | 52 | 0 | 2 | 96% |
-| SQL editor | 45 | 40 | 3 | 2 | 92% |
-| **Both** | **99** | **92** | **3** | **4** | **94%** |
+| SQL editor | 45 | 41 | 2 | 2 | 93% |
+| **Both** | **99** | **93** | **2** | **4** | **95%** |
 
 The notebook is at 96%: its two gaps are rich-text Markdown editing (N23) and presentation mode
 (N49), the wave 2 items. Their mockup is approved (2026-11-17), and the builds wait on Chris's go. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
 signature help, Format SQL and a compatibility check that none of the others have), and its results
 grid now sorts, filters, resizes, opens and copies over every row, with several statements and
-result sets per run. Its open rows are go to definition (S08: no peek or scripted definition yet),
-data compare (S34), open transactions across runs (S18), and two rows that need Chris's decision:
+result sets per run. Its open rows are data compare
+(S34, mockups approved), open transactions across runs (S18), and two rows that need Chris's decision:
 editing rows in the grid (S35) and other engines (S42).
 
 ## Notebook matrix
@@ -124,7 +124,7 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S05 | Find and replace, multi-cursor, folding, comment toggle | Y | Y | Y | Y | Y | Have | `sqleditor.js` |
 | S06 | Live error and compatibility underlines | P | Y | Y | Y | P | Have | `sqlcompat`, ahead of the others |
 | S07 | Hover a table, column or function for its details | P | Y | Y | Y | Y | Have | hover cards for tables, columns and functions in Spark SQL, T-SQL and DuckDB (#2598) |
-| S08 | Go to (peek) definition of a table, view or procedure | Y | Y | Y | Y | N | Partial | F12 opens the table or warehouse object in the Explorer (#2610); no peek or scripted definition, no procedures |
+| S08 | Go to (peek) definition of a table, view or procedure | Y | Y | Y | Y | N | Have | F12 opens a table, view, procedure or function in the Explorer (#2610, #2915); Alt+F12 peeks at its definition and opens it as a script (#2915) |
 | S09 | Rename an alias everywhere | N | N | Y | N | N | Not counted | one product |
 | S10 | Snippets and templates | Y | Y | Y | Y | P | Have | `sqltemplates.js` |
 | S11 | Signature help for functions | P | Y | Y | P | P | Have | signature help for functions (#2598) |

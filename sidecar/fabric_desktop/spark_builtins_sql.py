@@ -617,11 +617,37 @@ def _strposition(node: exp.Expression, args: list[exp.Expression]) -> exp.Expres
     """locate(substr, str, pos) and instr: an empty substr is found at 1 from any start of 1 or more, as
     Spark's UTF8String.indexOf has it (DuckDB found it at the start). Otherwise as instr."""
     _text_this("instr")(node, args)
+    find = node.args.get("substr")
+    if isinstance(find, exp.Expression):  # instr(12345, 34) is 3: Spark casts the substring to text too
+        node.set("substr", _text_of(find, "instr"))
     start = node.args.get("position")
     find = node.args.get("substr")
     if start is None or find is None or (isinstance(find, exp.Literal) and find.is_string and find.name):
         return None
     return _with_args("CASE WHEN fj_arg0 = '' AND fj_arg1 >= 1 THEN 1 ELSE fj_arg2 END", [find, start, node.copy()])
+
+
+_CONCAT_WS_NESTED = ("concat_ws() takes text or arrays of text, as in Spark, where a map or struct is a data type "
+                     "mismatch, so nothing ran on this PC. Cast it to string, or pick its fields, first.")
+
+
+def refuse_nested_concat_ws(statement: exp.Expression) -> exp.Expression:
+    """concat_ws of a map or struct refused by name, as Spark refuses it ([DATATYPE_MISMATCH]); DuckDB wrote its own
+    text of it ({'a': 1}). Run on the Spark tree as read, before its parts are cast to text: a part that isn't a
+    literal or an array is checked by its DuckDB type when the query runs."""
+    for node in list(statement.find_all(exp.ConcatWs)):
+        for part in list(node.expressions)[1:]:
+            if isinstance(part, (exp.Struct, exp.Map, exp.VarMap)):
+                raise ValueError(_CONCAT_WS_NESTED)
+            from .spark_strings import _ARRAYS
+            if isinstance(part, (exp.Literal, exp.Null, exp.Cast, exp.TryCast, *_ARRAYS)):
+                continue  # an array call stays as it is: spark_strings joins its elements
+            kind = exp.Anonymous(this="TYPEOF", expressions=[part.copy()])
+            nested = exp.or_(exp.Like(this=kind, expression=exp.Literal.string("STRUCT(%")),
+                             exp.Like(this=kind.copy(), expression=exp.Literal.string("MAP(%")))
+            refuse = exp.Anonymous(this="ERROR", expressions=[exp.Literal.string(_CONCAT_WS_NESTED)])
+            part.replace(exp.Case(ifs=[exp.If(this=nested, true=refuse)], default=part.copy()))
+    return statement
 
 
 def _concat_ws(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:

@@ -47,7 +47,8 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
         statements = _statements(sql_dialects.parse(diff_spellings(query) if chosen["id"] == "spark" else query,
                                                     read=chosen["sqlglot"]))
         if chosen["id"] == "spark":
-            statements = [spark_legacy_times(spark_fixes(spark_legacy_casts(s))) for s in statements]
+            statements = [spark_legacy_times(spark_fixes(spark_legacy_casts(spark_builtins_sql.refuse_nested_concat_ws(s))))
+                          for s in statements]
     except (ParseError, TokenError) as first_error:  # an unclosed quote is a TokenError
         if chosen["id"] == "spark" and (respelled := _spark_spellings(query)) != query:
             try:

@@ -111,7 +111,7 @@ def test_a_delta_table_with_column_mapping_is_read_by_its_column_names(tmp_path)
     folder = str(tmp_path / "mapped")
     write_deltalake(folder, pa.table({"a": [1]}), configuration={"delta.columnMapping.mode": "name"})
     sql, _ = eng.delta_select(folder)
-    assert duckdb.sql(sql).fetchall() == [(1,)] and duckdb.sql(sql).columns == ["a"]
+    assert duckdb.connect().sql(sql).fetchall() == [(1,)] and duckdb.connect().sql(sql).columns == ["a"]
 
 
 def test_a_timestamp_before_a_tables_first_version_says_when_that_was(engine):

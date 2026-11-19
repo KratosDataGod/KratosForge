@@ -24,6 +24,7 @@ import time
 import unicodedata
 from typing import Any
 
+from . import win_paths
 from .editor_channel import Channel
 from .editor_pairing import Pairings
 from .jsonfile import read_json, write_json
@@ -60,7 +61,7 @@ def _folder_problem(folder: Any) -> str | None:
     if not isinstance(folder, str) or not _absolute(folder) or _is_root(folder):
         return ("Pair from a folder with notebooks in it, not a whole drive or no folder: "
                 "open the notebooks folder or repository in VS Code first.")
-    if folder.replace("/", "\\").startswith("\\\\"):
+    if win_paths.is_share(folder.replace("/", "\\")):
         return (f"{folder} is a network folder. KratosForge runs notebooks from folders on this PC's drives: "
                 "clone or copy the notebooks to this PC, or open them from the drive letter the share is mapped to.")
     odd = next((c for c in folder if unicodedata.category(c) == "Cc" or c in _DIRECTION_MARKS), None)

@@ -4,6 +4,11 @@ hold up or break the others.
 
 Separate tools are separate connected clients with their own tokens on the real local API (MCP
 over Streamable HTTP and REST), as on a PC with Claude Code, Cursor and a script all connected.
+
+Each tool sends 20 calls at once, and the MCP client asks for the tool list again whenever a result
+arrives before it has one, so a tool can send 40 or more requests in a moment: past the local API's
+per-tool rate limit (RATE_BURST). That limit isn't what these tests are about, so it is lifted for
+them; the last test checks it with the real limits, and that one tool reaching it doesn't slow the others.
 """
 
 import json
@@ -18,6 +23,7 @@ import pytest
 from deltalake import DeltaTable, write_deltalake
 
 from fabric_desktop import lakehouse
+from fabric_desktop.integrations import http_server as local_api
 from fabric_desktop.integrations.audit import IntegrationAudit
 from fabric_desktop.integrations.mcp_server import MAX_RESULT_BYTES
 from fabric_desktop.integrations.registry import Capability, schema
@@ -55,6 +61,14 @@ def call_threads():
 def error_of(result):
     assert result.is_error, result
     return result.structured_content["error"]
+
+
+@pytest.fixture(autouse=True)
+def no_rate_limit(request, monkeypatch):
+    """The local API built in these tests has no rate limit, except where a test says it wants the real one."""
+    if "real_rate_limit" not in request.keywords:
+        unlimited = local_api.RateLimiter
+        monkeypatch.setattr(local_api, "RateLimiter", lambda: unlimited(rate=1e6, burst=10**6))
 
 
 @pytest.fixture
@@ -316,3 +330,21 @@ def test_an_approval_given_to_one_client_cant_be_used_by_another(env, tools, htt
     lines = IntegrationAudit(store).recent(100, client_id=b["id"])
     assert len(lines) == 3 and {r["decision"] for r in lines} == {"approval_pending"}
     assert all(r.get("approval_id", "") != a_approval for r in lines)
+
+
+# ---- 5. one tool reaching its rate limit
+
+@pytest.mark.real_rate_limit
+def test_one_tool_reaching_its_rate_limit_doesnt_limit_the_others(env, tools, http_server):
+    port = http_server
+
+    def status(tool):
+        sock = _rest_call(port, tool["token"], "fabric_desktop_get_status")
+        try:
+            return int(sock.recv(4096).split(b" ", 2)[1])
+        finally:
+            sock.close()
+    noisy, quiet = tools[0], tools[1]
+    codes = [status(noisy) for _ in range(local_api.RATE_BURST + 5)]
+    assert 429 in codes and codes[:local_api.RATE_BURST // 2] == [200] * (local_api.RATE_BURST // 2), codes
+    assert [status(quiet) for _ in range(5)] == [200] * 5

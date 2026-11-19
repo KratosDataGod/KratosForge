@@ -2,9 +2,8 @@
 
 The Fabric Excellence Assessment reviews a workspace or a capacity against versioned **controls** in
 ten dimensions and gives each a score you can trace back to the evidence behind it. This page explains
-how the engine decides and scores. The screen that shows it comes later, from an approved mockup, and
-until then the engine has no user interface. The plan and phased stories are in the
-[assessment plan](../product/fabric-excellence-assessment-plan.md).
+how the engine decides and scores, and the screen that shows it. The plan and phased stories are in
+the [assessment plan](../product/fabric-excellence-assessment-plan.md).
 
 The engine is in `sidecar/fabric_desktop/excellence/`. It's pure: it reads nothing from Fabric and
 writes nothing. The services that collect evidence use the readers the app already has.
@@ -216,11 +215,33 @@ be read leaves these controls not evaluated. Retry, timeout and failure-path set
 yet: the engine's pipeline reader doesn't keep an activity's `policy` and `dependsOn`, and a control
 that can't see a setting is never passed.
 
+## The scorecard
+
+**Optimize > Assessment > Excellence** shows the assessment. Like the rest of Assessment, it is a Preview feature. Pick a workspace and choose
+**Assess**, or try the demonstration fixture, which makes no Fabric call and is labelled everywhere.
+
+- The overall score, the assured score, coverage and status sit side by side. The rating chip says
+  **Provisional** or **Insufficient evidence** when coverage is under the profile's thresholds, and a
+  **Critical Risk** banner stands above the score whenever a critical control failed.
+- Ten dimension cards. A dimension no control covers yet shows as **Not applicable**, never as
+  passing. Each card opens its controls, every outcome on every resource, and the evidence each one
+  cites.
+- **Next actions** lists up to five findings, severity first. Each opens the full finding: what was
+  found, why it matters, the steps, the expected benefit, how to check it worked, how to undo it, the
+  evidence, references and the exact rule version.
+- **Gaps** lists the reads that failed, the controls that weren't evaluated with what they needed, and
+  the items no control covers yet.
+- **Opportunities** is the existing opportunity view, unchanged, one tab over.
+
+Nothing on the screen changes anything in Fabric. The last result stays on screen until you assess
+again or leave the app; snapshots aren't saved yet, so there is no trend or comparison on screen.
+
 ## Limitations
 
-- There is no screen yet. The scorecard waits on its approved mockup.
+- Snapshots aren't stored yet, so the scorecard has no trend arrows and no "Compare with an earlier
+  one". The engine can already compare two snapshots.
 - The first controls cover what the app already reads. Estate X-ray (table layout), governance checks,
-  semantic models, DevOps and reliability controls come in later stories; until then those dimensions
+  semantic models and more DevOps and reliability controls come in later stories; until then those dimensions
   show as not applicable or not evaluated, never as passing.
 - Controls that need a Fabric administrator (tenant settings) are not evaluated for anyone else.
 - Live capacity utilization has no public API. Capacity controls use imported Capacity Metrics

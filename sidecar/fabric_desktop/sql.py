@@ -24,8 +24,7 @@ from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
 from . import (spark_aggregates, spark_builtins_sql, spark_complex, spark_datetime, spark_decimals, spark_hash,
-               spark_sql_names,
-               spark_strings, spark_windows, sql_dialects)
+               spark_sql_names, spark_strings, spark_time_zone, spark_windows, sql_dialects)
 from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
 
 # sqlglot logs a warning when it reads a statement as a bare command ('SHOW TABLES' ...). With no
@@ -192,20 +191,23 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
         ansi=databricks))
     statement = spark_windows.spark_window_results(spark_complex.spark_complex_results(statement))
     if databricks:
-        return _spark_range(_ansi_divisions(statement))
-    return _spark_range(_spark_session_functions(_null_remainders(_not_in_spark_3_5(statement))))
+        return _spark_range(spark_time_zone.fix(_ansi_divisions(statement)))
+    return _spark_range(spark_time_zone.fix(_spark_session_functions(_null_remainders(_not_in_spark_3_5(statement)))))
 
 
 def _spark_range(statement: exp.Expression) -> exp.Expression:
     """FROM range(...): Spark's column is ``id``, DuckDB's is ``range``. A fourth argument (Spark's number
     of partitions) changes no values, so it is left out. Written last, so the cast stays a plain cast. A
-    query that reads a column named ``range`` (written for DuckDB's range, which Spark stops on) keeps it."""
-    if any(c.name.lower() == "range" for c in statement.find_all(exp.Column)):
+    query that reads range()'s column ``range`` (written for DuckDB's range, which Spark stops on) keeps it; a
+    table's own column named range (t.range) doesn't count."""
+    calls = [t for t in statement.find_all(exp.Table) if isinstance(t.this, exp.Anonymous)
+             and t.this.name.upper() == "RANGE" and 1 <= len(t.this.expressions) <= 4]
+    names = {(t.alias or "range").lower() for t in calls}
+    if any(c.name.lower() == "range" and (not c.table or c.table.lower() in names)
+           for c in statement.find_all(exp.Column)):
         return statement
-    for table in list(statement.find_all(exp.Table)):
+    for table in calls:
         call = table.this
-        if not (isinstance(call, exp.Anonymous) and call.name.upper() == "RANGE" and 1 <= len(call.expressions) <= 4):
-            continue
         args = ", ".join(duckdb_sql(a.copy()) for a in call.expressions[:3])
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier("range"))
         query = sql_dialects.parse_one(f"SELECT CAST(range AS BIGINT) AS id FROM range({args})", read="duckdb")
@@ -377,8 +379,9 @@ def _spark_session_functions(statement: exp.Expression) -> exp.Expression:
                                         exp.CurrentSchema)):
         if isinstance(node, exp.CurrentCatalog):
             new: exp.Expression = exp.Literal.string("spark_catalog")
-        elif isinstance(node, exp.CurrentTimezone):
-            new = exp.Anonymous(this="CURRENT_SETTING", expressions=[exp.Literal.string("TimeZone")])
+        elif isinstance(node, exp.CurrentTimezone):  # the id spark.conf set (spark_api), else DuckDB's zone
+            new = cast(exp.Expression, sqlglot.parse_one(
+                "COALESCE(GETVARIABLE('kf_spark_time_zone'), CURRENT_SETTING('TimeZone'))", read="duckdb"))
         else:
             name = "current_database" if isinstance(node, exp.CurrentDatabase) else "current_schema"
             raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric, so nothing ran: in Fabric "
@@ -1825,6 +1828,7 @@ def _spark_timestampdiff(statement: exp.Expression) -> exp.Expression:
 
 
 _TIME_TYPES = "'DATE', 'TIMESTAMP', 'TIMESTAMP WITH TIME ZONE', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP_NS'"
+_NTZ_TYPES = "'TIMESTAMP', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP_NS'"
 
 
 def _strptime_format(node: exp.Expression) -> tuple[str, bool]:
@@ -2054,7 +2058,8 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
         swapped = between.replace(cast(exp.Expression, sqlglot.parse_one(value, read="duckdb")))
         node = swapped if between is node else node
     for unix in list(node.find_all(exp.StrToUnix)):
-        value = duckdb_sql(unix.this)
+        # The argument goes in as its node (_with_args), so a call in it is still rewritten by the later passes.
+        value = "fj_arg0"
         pattern = spark_builtins_sql.written_pattern(unix) if unix.args.get("format") else None
         if pattern is not None:  # read as Spark reads its pattern (spark_datetime)
             name = unix.meta.get(spark_sql_names._NAME) or "unix_timestamp"
@@ -2063,9 +2068,12 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
             fmt, has_year = _strptime_format(unix) if unix.args.get("format") else ("'%Y-%m-%d %H:%M:%S'", True)
             # Without a year Spark reads the date as 1970-01-01; strptime starts from 1900-01-01.
             parsed = f"try_strptime(CAST({value} AS VARCHAR), {fmt})" + ("" if has_year else " + INTERVAL 70 YEAR")
-        swapped = unix.replace(cast(exp.Expression, sqlglot.parse_one(
-            f"CAST(floor(epoch(CASE WHEN typeof({value}) IN ({_TIME_TYPES}) THEN TRY_CAST({value} AS TIMESTAMPTZ) "
-            f"ELSE CAST({parsed} AS TIMESTAMPTZ) END)) AS BIGINT)", read="duckdb")))
+        # A timestamp_ntz (DuckDB's TIMESTAMP) is read as UTC, as Spark reads it; a date and text are read in
+        # the session's time zone.
+        swapped = unix.replace(_with_args(
+            f"CAST(floor(CASE WHEN typeof({value}) IN ({_NTZ_TYPES}) THEN epoch(TRY_CAST({value} AS TIMESTAMP)) "
+            f"WHEN typeof({value}) IN ({_TIME_TYPES}) THEN epoch(TRY_CAST({value} AS TIMESTAMPTZ)) "
+            f"ELSE epoch(CAST({parsed} AS TIMESTAMPTZ)) END) AS BIGINT)", [unix.this]))
         node = swapped if unix is node else node
     for sub in list(node.find_all(exp.Substring)):
         start = sub.args.get("start")

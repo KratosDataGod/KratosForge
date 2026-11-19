@@ -223,6 +223,16 @@ Each failed request, and each drop, also adds a `notice_not_delivered` line to t
 
 **Recover.** If the webhook was replaced, set the new address in the environment variable that `alerts.teams_webhook_env` (or the route's `webhook_env`) names. Then restart the agent, since it reads its environment at start. Waiting messages go with the next try.
 
+### A message to Teams may have arrived, and isn't sent again
+
+- **Message** (`agent.py`, log): `couldn't confirm the alert reached Teams; it may have arrived, so it isn't sent again`
+
+**Means.** The message was sent, but no answer came: Teams or the flow didn't answer within 15 seconds, the connection dropped after the request went, or the mail server stopped answering while it took the email. It may have arrived, so it is taken out of the outbox. It isn't sent again, so it can't be posted twice. It's counted as `unconfirmed` in a `notice_not_delivered` line in the agent's [audit log](agent.md#the-agents-audit-trail), and the error says `It was sent but no answer came, so it may have arrived`. A message that was refused or never sent (no connection, a connect timeout, any answer such as 429, 403 or 503) waits and is sent again as above. The route rests as it does after any failure.
+
+**Check first.** Look in the channel or inbox for the message at the time in the log.
+
+**Recover.** If it didn't arrive, its incident or job is still shown on Monitor; nothing else waits on the message.
+
 ### A message was dropped
 
 - **Message** (`agent.py`, log): `Teams or flow messages waited three days without being sent and were dropped`

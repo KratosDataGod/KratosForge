@@ -92,7 +92,7 @@ from sqlglot import exp
 
 from . import app_settings, csv_cells, free_memory, jsonfile, sql, sql_params, sql_policy, sql_view, warehouse
 from .filenames import file_stem
-from .frames import EXCEL_MAX_ROWS, ExportNotes, csv_ready_batch, csv_ready_schema, write_xlsx_batches
+from .frames import EXCEL_MAX_COLUMNS, EXCEL_MAX_ROWS, ExportNotes, csv_ready_batch, csv_ready_schema, write_xlsx_batches
 from . import known_folders
 
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
@@ -889,7 +889,7 @@ class SqlExecutions:
         limit = int(limit or self._limits()["sql_page_rows"])
         limit = max(1, min(limit, app_settings.SQL_RANGES["sql_page_rows"][1]))
         part_of = {"part": res.part} if res.part is not None else {}
-        filters = [f for f in filters or [] if str(f.get("text") or "").strip()]
+        filters = [f for f in sql_view.entries(filters, "filter") if str(f.get("text") or "").strip()]
         if sort or filters:
             sql_view.check_size(res.rows, "Sorting and filtering")
             rows, total = sql_view.view_page(_whole(res.path, res.rows), max(0, int(offset)), limit, sort, filters)
@@ -957,6 +957,9 @@ class SqlExecutions:
         if fmt == "xlsx" and res.rows > EXCEL_MAX_ROWS:
             raise ValueError(f"Excel holds at most {EXCEL_MAX_ROWS:,} rows and this result has "
                              f"{res.rows:,}. Export it as CSV or Parquet instead.")
+        if fmt == "xlsx" and len(res.columns) > EXCEL_MAX_COLUMNS:
+            raise ValueError(f"Excel holds at most {EXCEL_MAX_COLUMNS:,} columns and this result has "
+                             f"{len(res.columns):,}. Export it as CSV or Parquet instead.")
         if not res.path.exists():
             return {"rerun_needed": True, "message": "This result was cleaned up. Run the query again to export it."}
         folder = self._downloads()
@@ -1102,10 +1105,11 @@ class SqlExecutions:
                     # not at the result's retention. Kept: a link (never followed), a spill written in
                     # the last SPILL_QUIET_S (a live run, should sql_temp_dir be shared), and a file
                     # still open (Windows won't delete it).
+                    # Its age is read first: removing the spill touches the folder, which would make it new.
+                    age = now - folder.stat().st_mtime
                     spill = folder / "spill"
                     if not (_linked(folder) or _linked(spill)) and _quiet(spill, now):
                         shutil.rmtree(spill, ignore_errors=True)
-                    age = now - folder.stat().st_mtime
                     if hours <= 0 or age > hours * 3600:
                         shutil.rmtree(folder, ignore_errors=True)
 

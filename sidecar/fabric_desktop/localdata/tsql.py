@@ -2513,6 +2513,10 @@ def _whole_count(count: exp.Expression) -> exp.Expression:
     return count.copy() if _whole(count, 0) else exp.cast(exp.Trunc(this=count.copy()), "BIGINT")
 
 
+# No text is longer than this (2 GB in T-SQL), so a longer LEFT or RIGHT is the whole text; DuckDB stops past 2^32 - 1.
+_LONGEST = 2 ** 31 - 1
+
+
 def _left_right(node: exp.Left | exp.Right) -> None:
     """``LEFT`` and ``RIGHT``: a negative length is an error (see _string_edges)."""
     name = "LEFT" if isinstance(node, exp.Left) else "RIGHT"
@@ -2520,18 +2524,24 @@ def _left_right(node: exp.Left | exp.Right) -> None:
     message = f"Invalid length parameter passed to the {name} function."
     value = _number(length)
     if value is not None:
-        # T-SQL makes the length an integer first, toward zero: LEFT(s, -0.5) is ''.
-        if int(value) < 0:
+        # T-SQL makes the length an integer first, toward zero: LEFT(s, -0.5) is ''. It takes a bigint, so a
+        # literal past one, or past a float (400 nines), is T-SQL's overflow error, not Python's.
+        # A whole literal is read exactly (a float would round 9223372036854775807 up past a bigint).
+        exact = _digits(length.name, "bigint") if _whole(length, 0) else \
+            int(value) if math.isfinite(value) else _INFINITE
+        whole = _in_range(exact, "bigint")
+        if whole < 0:
             raise ValueError(f"This T-SQL can't be run on the local engine: {message} T-SQL gives the same error.")
-        if not _whole(length, 0):  # 2.0, 1e1, 2.7: DuckDB rounds or won't bind them
-            node.set("expression", exp.Literal.number(int(value)))
+        if not _whole(length, 0) or whole > _LONGEST:  # 2.0, 1e1, 2.7: DuckDB rounds or won't bind them
+            node.set("expression", exp.Literal.number(min(whole, _LONGEST)))
         return
     if _whole(length, 0):
         return
 
     def build(text: exp.Expression, n: exp.Expression) -> exp.Expression:
         whole = _whole_count(n)
-        call = type(node)(this=text, expression=whole.copy())
+        longest = exp.func("LEAST", whole.copy(), exp.Literal.number(_LONGEST))
+        call = type(node)(this=text, expression=longest)
         negative = exp.LT(this=whole, expression=exp.Literal.number(0))
         return exp.Case(ifs=[exp.If(this=negative, true=exp.func("ERROR", exp.Literal.string(message)))], default=call)
     node.replace(_once([node.this, length], build))

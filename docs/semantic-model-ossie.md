@@ -157,7 +157,9 @@ The `kind` (kept or lost) of the existing rows is unchanged, so the current card
 Each side can be a `model.bim` (TMSL), a TMDL folder's files, or an Ossie document in any profile
 KratosForge reads. An Ossie 0.2.0.dev0 document goes through the converter, and each of its objects
 carries its fidelity class; an Ossie 0.3.0.dev0 document or Snowflake's 0.1.1 wrapper is compared as
-written, without conversion.
+written, without conversion. A Fabric Semantic View is a fourth kind, named
+`semantic_view` because it has the same version as Ossie 0.2.0.dev0. It's compared as written, and
+anything the view has no place for is Unsupported (see Semantic View files).
 
 It compares the model, tables, columns, measures, relationships, roles, calculation groups,
 hierarchies and perspectives: whether each is there, its name, its data type (through the
@@ -306,6 +308,65 @@ reads a file by its profile (OSSIE-003b, engine only; `sidecar/fabric_desktop/os
   result gives the `profile`, a `status` (Valid, Invalid, Unverified or Not checked), `warnings`,
   `notes` and the `rules` that ran. It still only informs.
 
+## Semantic View files (Preview)
+
+Fabric Semantic Views (Preview) take Fabric's own profile of Ossie: version 0.2.0.dev0, a flat
+root and a DAX expression on every metric. KratosForge can write the files of a view on this PC
+and check them (OSSIE-005a, engine only, no screen yet; `sidecar/fabric_desktop/semantic_view.py`).
+
+**KratosForge doesn't publish Semantic Views.** It never writes to a lakehouse's `Context/` folder,
+where Fabric reads a view's YAML, and it never calls Fabric for a view. Publishing is manual, in
+Fabric: a person uploads the files to the view's folder in the lakehouse, then saves and
+publishes it. The steps, with links to each Learn page, come in OSSIE-005b, which waits on its
+mockup.
+
+What's written:
+
+- The view is made from a model (a `model.bim`, or a model folder under `semantic/`) or from an
+  Ossie 0.2.0.dev0 file. A model goes to Ossie first, as Export does.
+- The files go to `semantic-views/<view>/` in the project's folder, and only `.yaml` files are
+  written. Each file has `version: 0.2.0.dev0` and `name`. Fabric names the view and its model
+  after the folder, so the view's name is a folder name. A name with `/`, `\` or `..` is refused,
+  and so is a Windows device name such as `CON`. Other characters Windows doesn't allow become `_`.
+  Nothing is ever written to a path that has a folder named `Context` or `SystemContext`.
+- **Single file** writes the whole view as `<view>.yaml`. **One file per dataset** writes the
+  description, relationships and any metric with no home dataset to `00_model.yaml`. Each other
+  file holds one dataset and the metrics whose home it is. That follows the YAML reference's
+  rules for a view split across files. A view never has more than 20 files. Past 19 datasets,
+  several datasets share a file, and the report says so.
+- Each metric's DAX is written first. A metric with SQL only is translated to DAX by the same
+  converter Import uses, and the DAX goes beside the SQL. That metric is **Unverified**, because
+  the two expressions aren't compared. Its other dialects stay in the file: Fabric recognizes them
+  but publishes only DAX.
+- The files are checked with `validate_files` and the `fabric-semantic-view` profile (see
+  Version profiles). The result is in the report, and it informs only.
+- Writing previews first. The preview lists the files, any `.yaml` file in the folder that would
+  be removed (Fabric merges every `.yaml` file in a view's folder, so an old file would join the
+  view) and a token. A write needs `confirmed` and that token, so it writes exactly what the
+  preview showed. Each file is written whole and swapped in, and links and junctions are never
+  followed.
+
+What's left out, and why. Each item is a report row in the class **Unsupported**, with the rule
+and the Learn page it comes from
+([YAML reference](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-yaml-reference),
+updated 2026-11-17):
+
+| Left out | Why |
+| --- | --- |
+| `custom_extensions`, everywhere | "omitted with warnings", including Microsoft's own |
+| Dataset `fields`, `primary_key`, `unique_keys` | "omitted with warnings". Fabric reads the columns from the lakehouse table |
+| Every `ai_context` | "omitted with warnings" |
+| A metric's `datatype` | Fabric ignores it |
+| Any other key | not in the YAML reference's supported list |
+| Security roles, calculation groups, perspectives, cultures, shared expressions, hierarchies, and the tables, columns, measures and relationships the converter set aside | They live only in the Power BI section (`custom_extensions`), which Fabric omits. Each is named. A role is a prominent **security warning**: the published view's model has no row-level security for it |
+| A metric whose SQL can't be translated to DAX, or that has no expression | "Published metrics require DAX". It's flagged before any file is written, left out and listed in `excluded` with the converter's reason. Add a DAX expression to include it |
+| A relationship with more than one column on a side | "Relationships are single-column only". It's left out and listed in `excluded` |
+| A dataset whose source is a query, with its metrics and relationships | "Query sources are not supported". They're left out and listed in `excluded` |
+
+Structural parity can compare a model with its view: pass the view as `semantic_view`
+(`parity_l1(model, view, right_kind="semantic_view")`), as its files or as what the emitter
+returned. Everything the view leaves out is **Unsupported** in that report, never a match.
+
 ## Keeping Git in step
 
 After an import, **Save TMDL to Git** reads the model back from Fabric as TMDL and writes it
@@ -375,3 +436,4 @@ see the preview and confirm.
 | `meta_model_tmdl_save` | The model's TMDL into `semantic/<model>.SemanticModel/` | Files |
 | `meta_model_ossie_folders` | Models kept under `semantic/` in the project's folder | Nothing |
 | `meta_model_ossie_export_folder` | A model kept in Git as Ossie YAML, read on this PC | Nothing |
+| `meta_model_semantic_view_save` | A Fabric Semantic View's YAML files in `semantic-views/<view>/`, made on this PC from an Ossie file or a model (Preview, no screen yet). It shows the files, removals and report first, and writes only when confirmed with the preview's token. It never publishes and never writes a lakehouse's `Context/` folder | Files |

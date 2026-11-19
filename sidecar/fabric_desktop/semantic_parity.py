@@ -7,7 +7,10 @@ detected or named with ``left_kind`` / ``right_kind``:
 
 - ``tmsl``: a ``model.bim``, parsed or as JSON text (at most ``MAX_TMSL_CHARS`` characters);
 - ``tmdl``: a ``.SemanticModel`` folder's files (path -> text), read with ``tmdl.to_bim``;
-- ``ossie``: an Ossie document (a dict, or its YAML/JSON text) in any profile ``ossie_profiles`` detects.
+- ``ossie``: an Ossie document (a dict, or its YAML/JSON text) in any profile ``ossie_profiles`` detects;
+- ``semantic_view``: a Fabric Semantic View (OSSIE-005a): its ``.yaml`` files (name -> text, merged as publishing
+  merges them), one merged document, or what ``semantic_view.semantic_view`` returned (its files and report). Never
+  detected, because a view is the same Ossie version as ``ossie``: name it with ``left_kind`` / ``right_kind``.
 
 Both sides become one structural view: a list of objects with a structural key (their full names) and the
 properties L1 compares. A TMSL or TMDL side is read as it is. An Ossie 0.2.0.dev0 side goes through the vendored
@@ -85,8 +88,15 @@ NOT_CHECKED = (
 # are echoed so a report has the same shape at every level.
 DEFAULT_TOLERANCES: dict[str, float] = {"absolute": 0.0, "relative": 0.0}
 
-KINDS = ("tmsl", "tmdl", "ossie")
-_KIND_ALIASES = {"tmsl": "tmsl", "bim": "tmsl", "tmdl": "tmdl", "ossie": "ossie"}
+KINDS = ("tmsl", "tmdl", "ossie", "semantic_view")
+_KIND_ALIASES = {"tmsl": "tmsl", "bim": "tmsl", "tmdl": "tmdl", "ossie": "ossie", "semantic_view": "semantic_view",
+                 "semantic-view": "semantic_view", "fabric-semantic-view": "semantic_view"}
+# What a Fabric Semantic View has no place for, by kind (semantic_view.STRIPPED has the rules): its datasets have no
+# fields, and roles, calculation groups, hierarchies and perspectives live only in the POWER_BI extension, which
+# Fabric omits.
+_VIEW_OMITS = {"column": "Fabric omits dataset fields from a Semantic View",
+               **{k: "in Ossie it lives only in the POWER_BI extension, and Fabric omits custom_extensions"
+                  for k in ("role", "calculation_group", "hierarchy", "perspective")}}
 _COMPARED = ("model", "table", "calculation_group", "column", "measure", "hierarchy", "relationship", "role",
              "perspective")
 # What reading a hostile input can raise: refused shapes and values (ValueError, including UnknownProfile), wrong
@@ -124,6 +134,8 @@ class _Side:
         self.profile = ""
         self.label = which
         self.native_ossie = False  # read as an Ossie document, not through the converter
+        self.view = False  # a Fabric Semantic View: it holds no Power BI-only feature and no composite relationship
+        self.stripped: dict[str, str] = {}  # canonical key -> why the emitter left the object out of the view
         self.error = ""
         self.unsupported = ""
         self.entries: list[dict[str, Any]] = []
@@ -146,7 +158,9 @@ class _Side:
 
     def holds(self, need: str) -> bool:
         """Whether this side can represent an object that needs ``need`` (a Power BI-only feature, or a
-        composite relationship)."""
+        composite relationship). A Semantic View holds neither."""
+        if self.view:
+            return False
         return need == COMPOSITE if self.native_ossie else need != COMPOSITE
 
     def warn(self, row: dict[str, Any]) -> None:
@@ -409,11 +423,50 @@ def _json_text(text: str) -> Any:
         raise ValueError("This JSON is nested too deeply to be a semantic model") from None
 
 
+def _read_view(side: _Side, value: Any) -> None:
+    """A Fabric Semantic View, read as written (no conversion): its files merged, one document, or the emitter's
+    output, whose report says why each object it left out isn't in the view."""
+    from . import ossie_profiles, semantic_view
+
+    mo.require()
+    report = None
+    if isinstance(value, dict) and isinstance(value.get("files"), dict) and "version" not in value:
+        report, value = value.get("report"), value["files"]
+    if isinstance(value, str):
+        value = mo.load_text(value)
+    elif isinstance(value, dict) and value and all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()) \
+            and all(k.lower().endswith((".yaml", ".yml")) for k in value):
+        value = semantic_view.merged(value)
+    if not isinstance(value, dict):
+        raise TypeError(f"A semantic view is its .yaml files or one document, not {type(value).__name__}")
+    if ossie_profiles.detect_profile(value) != "ossie-0.2":
+        raise ValueError(f"A Fabric Semantic View is Ossie {ossie_profiles.V02}, and this is version "
+                         f"{mo._short(value.get('version'))}")
+    meta = ossie_profiles.PROFILES["fabric-semantic-view"]
+    side.kind, side.format, side.version = "semantic_view", "Fabric Semantic View", meta["version"]
+    side.profile, side.label = "fabric-semantic-view", meta["label"]
+    side.native_ossie = side.view = True
+    rows = report.get("objects") if isinstance(report, dict) else None
+    for row in rows if isinstance(rows, list) else []:
+        if isinstance(row, dict) and row.get("class") == "unsupported" and isinstance(row.get("key"), list):
+            side.stripped.setdefault(mo._canon(row["key"]), str(row.get("reason") or ""))
+    _walk_ossie(side, value)
+
+
+def _view_reason(side: _Side, entry: dict[str, Any]) -> str:
+    """Why ``side`` (a Semantic View) has no ``entry`` of the other side: what the emitter reported, else what a
+    view has no place for by kind; "" when a view could hold it."""
+    return side.stripped.get(mo._canon(entry["key"])) or _VIEW_OMITS.get(entry["kind"], "")
+
+
 def _read(side: _Side, value: Any, kind: str | None) -> None:
     if kind is not None:
         if not isinstance(kind, str) or kind.lower() not in _KIND_ALIASES:
             raise ValueError(f"There's no kind {mo._short(kind)!r} to compare; the kinds are {', '.join(KINDS)}")
         kind = _KIND_ALIASES[kind.lower()]
+    if kind == "semantic_view":
+        _read_view(side, value)
+        return
     if isinstance(value, str):
         if kind == "tmdl":
             raise TypeError("TMDL is a folder of files: pass them as path -> text")
@@ -627,6 +680,9 @@ def _pair(a: dict[str, Any] | None, b: dict[str, Any] | None, left: _Side, right
         if e["cls"] == "unsupported":
             result = UNSUPPORTED
             notes.append(f"Unsupported on {_who(here)}: the conversion couldn't carry it")
+        elif there.view and _view_reason(there, e):
+            result = UNSUPPORTED
+            notes.append(f"Unsupported on {_who(there)}: {_view_reason(there, e)}")
         elif need is not None:
             result = UNSUPPORTED
             notes.append(f"{_who(there)} has no place for a {need}, so it can't be compared")

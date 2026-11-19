@@ -25,8 +25,13 @@ from .notebook_files_service import _is_link
 
 METHODS = {"meta_model_ossie_models", "meta_model_ossie_export", "meta_model_ossie_save", "meta_model_ossie_read",
            "meta_model_ossie_preview", "meta_model_ossie_import", "meta_model_tmdl_save",
-           "meta_model_ossie_folders", "meta_model_ossie_export_folder", "meta_model_ossie_to_tmdl"}
+           "meta_model_ossie_folders", "meta_model_ossie_export_folder", "meta_model_ossie_to_tmdl",
+           "meta_model_semantic_view_save"}
 FOLDER = "semantic"
+VIEW_FOLDER = "semantic-views"  # semantic-views/<view>/: the local copy of a Fabric Semantic View (OSSIE-005a)
+# A lakehouse's Context/ (a view's source YAML) and SystemContext/ (its generated TMDL) are Fabric's; nothing is ever
+# written to a path with either as a folder name, compared as Windows compares names.
+_LAKEHOUSE_CONTEXT = frozenset({"context", "systemcontext"})
 MODES = ("update", "replace", "new")
 _SAFE = re.compile(r"[^A-Za-z0-9 _.-]+")
 
@@ -81,6 +86,17 @@ def _no_links(root: Path, target: Path) -> None:
         here = here / part
         if os.path.lexists(here) and not _real(here, stat.S_ISDIR):
             raise ValueError(f"{here.relative_to(root).as_posix()} is a link, a junction or a file, so nothing is written there")
+
+
+def _no_context(path: Path) -> None:
+    """Refuse a target with ``Context`` (or ``SystemContext``) as a folder or file name anywhere in its path, as
+    given or resolved: a Semantic View's copy is written only in the project, never where Fabric reads a view."""
+    for parts in (path.parts, path.resolve().parts):
+        hit = next((p for p in parts if p.casefold() in _LAKEHOUSE_CONTEXT), None)
+        if hit is not None:
+            raise ValueError(f"{path.as_posix()} has a folder named {hit}, like a lakehouse's {hit}/ folder, and "
+                             "KratosForge never writes there, so nothing was written. Pick another view name or "
+                             "project folder; publishing a view is done by hand in Fabric.")
 
 
 def _file_key(rel: str) -> str:
@@ -557,3 +573,84 @@ class ModelOssieMixin:
             if _real(old, stat.S_ISREG) and old.suffix == ".tmdl":
                 old.unlink()
         return out
+
+    def _view_source(self, project: Any, text: str, path: str) -> Any:
+        """What a Semantic View is made from: ``text`` (Ossie YAML or JSON, or a model.bim as JSON) or ``path``, a
+        model folder in the project (semantic/<name>.SemanticModel, read on this PC)."""
+        if bool(text) == bool(path):
+            raise ValueError("Give either the Ossie file's or model.bim's text, or a model folder in the project")
+        if path:
+            rel = PurePosixPath(path.replace("\\", "/")).as_posix()
+            folder = next((p for p in self._model_folders(project) if p.relative_to(project.root).as_posix() == rel),
+                          None)
+            if folder is None:
+                raise LookupError(f"There's no model folder {path}; pick one from {FOLDER}/<name>.SemanticModel")
+            return _folder_bim(folder, folder.name.removesuffix(".SemanticModel"), path)[0]
+        if len(text) > tmdl.MAX_CHARS * 4:
+            raise ValueError("This text is too large to be a semantic model")
+        return text
+
+    def meta_model_semantic_view_save(self, view_name: str = "", text: str = "", path: str = "",
+                                      split: str = "single", confirmed: bool = False, token: str = "") -> dict[str, Any]:
+        """A Fabric Semantic View's YAML files written to semantic-views/<view>/ in the project's folder (OSSIE-005a,
+        Preview), made on this PC from ``text`` (an Ossie 0.2.0.dev0 document, or a model.bim as JSON) or ``path``
+        (a model folder in the project) by ``semantic_view.semantic_view``. Nothing is sent to Fabric and nothing is
+        published: publishing is done by hand in Fabric. No path with a ``Context`` folder is ever written.
+
+        Without ``confirmed`` nothing is written: the answer lists the files, the ``.yaml`` files in that folder
+        that would be removed (Fabric merges every ``.yaml`` file in a view's folder, so a stale one would join
+        the view), the report and a token. With it and the preview's token, every file is written whole (temporary
+        file, then swapped in) and only regular ``.yaml`` files the preview listed are removed. The token binds the
+        confirm to what the preview showed: if the files or the removals changed since, nothing is written. Links
+        and junctions are never followed."""
+        from . import ossie_profiles, semantic_view
+
+        model_ossie.require()
+        project = self._project()  # type: ignore[attr-defined]
+        root = Path(project.root)
+        name = semantic_view.folder_name(view_name)  # refuses a path, .. and device names before anything is read
+        folder = root / VIEW_FOLDER / name
+        _no_context(folder)
+        _no_links(root, folder)
+        out = semantic_view.semantic_view(self._view_source(project, text, path), view_name=view_name, split=split)
+        files = out["files"]
+        if len(files) > ossie_profiles.FABRIC_MAX_FILES:  # the emitter never makes more; refused if it ever did
+            raise ValueError(f"{len(files)} files is more than the {ossie_profiles.FABRIC_MAX_FILES} a Fabric "
+                             "semantic view takes, so nothing was written")
+        found = _tmdl_files(folder, suffixes=("",)) if _real(folder, stat.S_ISDIR) else []
+        existing = _by_key(folder, [f for f in found if f.name.lower().endswith(".yaml")])
+        targets: dict[Path, str] = {}
+        for rel, content in files.items():  # every target is checked before anything is written
+            target = _in_place(folder, rel, existing)
+            _no_context(target)
+            _no_links(root, target.parent)
+            if os.path.lexists(target) and not _real(target, stat.S_ISREG):
+                raise ValueError(f"{target.relative_to(root).as_posix()} is a link or a folder, so it isn't overwritten")
+            if not target.resolve().is_relative_to(folder.resolve()):
+                raise ValueError(f"{rel} would be written outside {folder.relative_to(root).as_posix()}, so nothing "
+                                 "was written.")
+            targets[target] = content
+        stale = sorted(f for group in existing.values() for f in group if f not in targets)
+        status = {p: ("same" if _same_text(p, c) else "changed") if _real(p, stat.S_ISREG) else "new"
+                  for p, c in targets.items()}
+        summary = {"view": name, "folder": folder.relative_to(root).as_posix(),
+                   "files": sorted(p.relative_to(root).as_posix() for p in targets),
+                   "removed": [p.relative_to(root).as_posix() for p in stale],
+                   "file_changes": sorted([{"path": p.relative_to(folder).as_posix(), "change": status[p]}
+                                           for p in targets], key=lambda f: f["path"])
+                   + [{"path": p.relative_to(folder).as_posix(), "change": "removed"} for p in stale],
+                   "report": out["report"], "published": False, "publish": semantic_view.PUBLISH}
+        digest = hashlib.sha256(json.dumps([summary["folder"], summary["removed"], sorted(
+            (p.relative_to(root).as_posix(), c) for p, c in targets.items())], ensure_ascii=False).encode()).hexdigest()
+        if not confirmed:
+            return {"confirm": summary | {"token": digest}}
+        if not hmac.compare_digest(str(token).encode(), digest.encode()):
+            raise ValueError("The folder or the definition changed since the preview, so nothing was written. "
+                             "Preview again.")
+        for target, content in targets.items():
+            write_text(target, content, newline="\n")
+        for old in stale:
+            _no_links(root, old.parent)  # checked again just before the unlink
+            if _real(old, stat.S_ISREG) and old.resolve().is_relative_to(folder.resolve()):
+                old.unlink()
+        return summary

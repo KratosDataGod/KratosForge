@@ -72,6 +72,21 @@ def test_outputs_flow_from_a_mock(tmp_path):
     assert res["passed"], res
 
 
+def test_a_check_can_run_the_pipeline_with_its_own_parameters(tmp_path):
+    ret = act("Return", "SetVariable", variableName="pipelineReturnValue", setSystemVariable=True,
+              value=[{"key": "t", "value": {"type": "Expression", "content": "@pipeline().parameters.tables"}}])
+    driven = json.dumps({"name": "p", "properties": {"parameters": {"tables": {"type": "string"}},
+                                                     "activities": [ret]}})
+    fixed = driven.replace("@pipeline().parameters.tables", "a,b")
+    ex = {**EX, "mocks": {}, "parameters": {"tables": "a,b"},
+          "validation": [{"kind": "pipeline_outcome", "return_value": {"t": "a,b"}},
+                         {"kind": "pipeline_outcome", "parameters": {"tables": "c"}, "return_value": {"t": "c"}}]}
+    assert pipelab.grade(_write(tmp_path, driven), ex)["passed"]
+    res = pipelab.grade(_write(tmp_path, fixed), ex)   # hard-coded: right with the exercise's value only
+    assert [r["passed"] for r in res["results"]] == [True, False]
+    assert pipelab.check_problems({"kind": "pipeline_outcome", "parameters": ["c"]})
+
+
 @pytest.mark.parametrize("typ", ["Copy", "WebActivity", "TridentNotebook", "Script", "Lookup", "MadeUpActivity"])
 def test_activities_outside_control_flow_need_the_exercises_mock(tmp_path, typ):
     text = pipeline(act("Call out", typ, url="https://example.com"), ON_FAIL)

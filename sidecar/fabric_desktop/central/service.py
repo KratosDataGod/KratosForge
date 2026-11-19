@@ -1169,24 +1169,27 @@ class PlatformMixin:
 
     def mesh_save_product(self, product: dict[str, Any], original: str = "") -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
-        path = project.root / "metadata" / "products" / f"{product.get('name', '')}.toml"
+        name = str(product.get("name", "")).strip()  # the name write_product saves it under
+        if original:
+            mesh.file_name(original, "product name")  # before anything is written: it names a file to remove
+        path = project.root / "metadata" / "products" / f"{name}.toml"
         old = path.read_text(encoding="utf-8") if path.exists() else None
         new_path = mesh.write_product(project.root, product)
         project.reload()
-        problems = [e for e in mesh.validate(project) if e.startswith(f"products/{product.get('name')}")]
+        problems = [e for e in mesh.validate(project) if e.startswith(f"products/{name}")]
         if problems:
             if old is None:
                 new_path.unlink()
             else:
                 jsonfile.write_text(new_path, old)
             raise GateError("save", problems)
-        if original and original != product.get("name"):
+        if original and original != name:
             (project.root / "metadata" / "products" / f"{original}.toml").unlink(missing_ok=True)
         return self.mesh_overview()
 
     def mesh_delete_product(self, name: str) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
-        (project.root / "metadata" / "products" / f"{name}.toml").unlink(missing_ok=True)
+        (project.root / "metadata" / "products" / f"{mesh.file_name(name, 'product name')}.toml").unlink(missing_ok=True)
         return self.mesh_overview()
 
     def _port_location(self, project: Any, env: str, entity: str) -> dict[str, Any]:
@@ -1302,7 +1305,8 @@ class PlatformMixin:
         product's current version, so a later breaking version doesn't reach it unnoticed."""
         project = self._project()  # type: ignore[attr-defined]
         reads = {env: (link.get("reads") or {}).get(env, env) for env in ENVIRONMENTS}
-        alias = link.get("alias", "")
+        alias = str(link.get("alias", "")).strip()  # the alias write_link saves it under
+        link = link | {"alias": alias}
         kept = project.links.get(alias)
         if kept is not None and kept.product != link.get("product", ""):
             kept = None  # the alias now names another product: its versions and columns don't carry over
@@ -1395,7 +1399,7 @@ class PlatformMixin:
         users = [e.name for e in project.entities.values() if e.spec.get("source", {}).get("link") == alias]
         if users:
             raise GateError("save", [f"can't delete link {alias}: {', '.join(users)} read it"])
-        (project.root / "metadata" / "links" / f"{alias}.toml").unlink(missing_ok=True)
+        (project.root / "metadata" / "links" / f"{mesh.file_name(alias, 'link name')}.toml").unlink(missing_ok=True)
         return self.mesh_overview()
 
     def _link_table(self, project: Any, env: str) -> Callable[[str], str]:

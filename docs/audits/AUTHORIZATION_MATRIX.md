@@ -306,19 +306,19 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `local_writes_reveal` | `sidecar/fabric_desktop/local_writes_service.py:126` | this PC | the signed-in Windows user's own files |
 | `mail_server_forget` | `sidecar/fabric_desktop/platform_notify_service.py:196` | this PC | the signed-in Windows user's own files |
 | `mail_server_save` | `sidecar/fabric_desktop/platform_notify_service.py:172` | this PC | the signed-in Windows user's own files |
-| `mesh_delete_link` | `sidecar/fabric_desktop/central/service.py:1393` | this PC | the signed-in Windows user's own files |
-| `mesh_delete_product` | `sidecar/fabric_desktop/central/service.py:1187` | this PC | the signed-in Windows user's own files |
-| `mesh_publish` | `sidecar/fabric_desktop/central/service.py:1203` | platform: register_link, register_product; Fabric or OneLake | platform's check per operation; Fabric's own rights |
-| `mesh_resolve_links` | `sidecar/fabric_desktop/central/service.py:1417` | this PC | the signed-in Windows user's own files |
-| `mesh_save_about` | `sidecar/fabric_desktop/central/service.py:1445` | platform: save_enrichment | platform's check per operation |
-| `mesh_save_link` | `sidecar/fabric_desktop/central/service.py:1299` | platform: register_link | platform's check per operation |
+| `mesh_delete_link` | `sidecar/fabric_desktop/central/service.py:1397` | this PC | the signed-in Windows user's own files |
+| `mesh_delete_product` | `sidecar/fabric_desktop/central/service.py:1190` | this PC | the signed-in Windows user's own files |
+| `mesh_publish` | `sidecar/fabric_desktop/central/service.py:1206` | platform: register_link, register_product; Fabric or OneLake | platform's check per operation; Fabric's own rights |
+| `mesh_resolve_links` | `sidecar/fabric_desktop/central/service.py:1421` | this PC | the signed-in Windows user's own files |
+| `mesh_save_about` | `sidecar/fabric_desktop/central/service.py:1449` | platform: save_enrichment | platform's check per operation |
+| `mesh_save_link` | `sidecar/fabric_desktop/central/service.py:1302` | platform: register_link | platform's check per operation |
 | `mesh_save_product` | `sidecar/fabric_desktop/central/service.py:1170` | this PC | the signed-in Windows user's own files |
 | `mesh_set_member` | `sidecar/fabric_desktop/central/service.py:1126` | platform: set_project_member | platform's check per operation |
 | `mesh_set_project` | `sidecar/fabric_desktop/central/service.py:1152` | platform: register_project | platform's check per operation; confirm or approve argument |
 | `meta_add_rules` | `sidecar/fabric_desktop/cloud_service.py:937` | Fabric or OneLake | Fabric's own rights |
 | `meta_add_schedule` | `sidecar/fabric_desktop/cloud_service.py:735` | Fabric or OneLake; runs code or a pipeline on this PC | Fabric's own rights |
 | `meta_build_model` | `sidecar/fabric_desktop/cloud_service.py:814` | Fabric or OneLake | Fabric's own rights; confirm or approve argument |
-| `meta_create_designation_workspace` | `sidecar/fabric_desktop/central/service.py:1477` | Fabric or OneLake | Fabric's own rights |
+| `meta_create_designation_workspace` | `sidecar/fabric_desktop/central/service.py:1481` | Fabric or OneLake | Fabric's own rights |
 | `meta_create_workspace` | `sidecar/fabric_desktop/meta_service.py:403` | Fabric or OneLake | Fabric's own rights |
 | `meta_data_health_quiet` | `sidecar/fabric_desktop/dataops_service.py:489` | this PC | the signed-in Windows user's own files |
 | `meta_data_health_watch` | `sidecar/fabric_desktop/dataops_service.py:470` | this PC | the signed-in Windows user's own files |
@@ -332,16 +332,16 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `meta_impact` | `sidecar/fabric_desktop/meta_service.py:725` | this PC | the signed-in Windows user's own files |
 | `meta_init` | `sidecar/fabric_desktop/meta_service.py:250` | this PC | the signed-in Windows user's own files |
 | `meta_keys_sync` | `sidecar/fabric_desktop/meta_service.py:1103` | Fabric or OneLake | Fabric's own rights |
-| `meta_keys_to_lakehouse` | `sidecar/fabric_desktop/central/service.py:1508` | Fabric or OneLake | Fabric's own rights |
-| `meta_keys_to_platform` | `sidecar/fabric_desktop/central/service.py:1488` | Fabric or OneLake | Fabric's own rights |
+| `meta_keys_to_lakehouse` | `sidecar/fabric_desktop/central/service.py:1512` | Fabric or OneLake | Fabric's own rights |
+| `meta_keys_to_platform` | `sidecar/fabric_desktop/central/service.py:1492` | Fabric or OneLake | Fabric's own rights |
 | `meta_lineage` | `sidecar/fabric_desktop/meta_service.py:740` | this PC | the signed-in Windows user's own files |
 | `meta_model_dictionary_export` | `sidecar/fabric_desktop/model_dictionary_service.py:54` | this PC | the signed-in Windows user's own files |
 | `meta_model_dictionary_import` | `sidecar/fabric_desktop/model_dictionary_service.py:78` | platform: save_enrichment | platform's check per operation; confirm or approve argument |
 | `meta_model_dictionary_save` | `sidecar/fabric_desktop/model_dictionary_service.py:65` | this PC | the signed-in Windows user's own files |
-| `meta_model_ossie_import` | `sidecar/fabric_desktop/model_ossie_service.py:240` | Fabric or OneLake | Fabric's own rights; confirm or approve argument |
-| `meta_model_ossie_save` | `sidecar/fabric_desktop/model_ossie_service.py:182` | this PC | the signed-in Windows user's own files |
-| `meta_model_ossie_to_tmdl` | `sidecar/fabric_desktop/model_ossie_service.py:290` | this PC | confirm or approve argument |
-| `meta_model_tmdl_save` | `sidecar/fabric_desktop/model_ossie_service.py:262` | Fabric or OneLake | Fabric's own rights |
+| `meta_model_ossie_import` | `sidecar/fabric_desktop/model_ossie_service.py:291` | Fabric or OneLake | Fabric's own rights; confirm or approve argument |
+| `meta_model_ossie_save` | `sidecar/fabric_desktop/model_ossie_service.py:233` | this PC | the signed-in Windows user's own files |
+| `meta_model_ossie_to_tmdl` | `sidecar/fabric_desktop/model_ossie_service.py:358` | this PC | confirm or approve argument |
+| `meta_model_tmdl_save` | `sidecar/fabric_desktop/model_ossie_service.py:313` | Fabric or OneLake | Fabric's own rights |
 | `meta_new_entity` | `sidecar/fabric_desktop/meta_service.py:474` | Fabric or OneLake; runs code or a pipeline on this PC | Fabric's own rights |
 | `meta_new_key_table` | `sidecar/fabric_desktop/meta_service.py:1033` | Fabric or OneLake | Fabric's own rights |
 | `meta_open` | `sidecar/fabric_desktop/meta_service.py:260` | this PC | the signed-in Windows user's own files |
@@ -357,7 +357,7 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `meta_save_source_system` | `sidecar/fabric_desktop/meta_service.py:1064` | Fabric or OneLake | Fabric's own rights |
 | `meta_set_alerts` | `sidecar/fabric_desktop/dataops_service.py:521` | this PC | the signed-in Windows user's own files |
 | `meta_set_compute` | `sidecar/fabric_desktop/cloud_service.py:613` | this PC | the signed-in Windows user's own files |
-| `meta_set_designation` | `sidecar/fabric_desktop/central/service.py:1456` | this PC | the signed-in Windows user's own files |
+| `meta_set_designation` | `sidecar/fabric_desktop/central/service.py:1460` | this PC | the signed-in Windows user's own files |
 | `meta_set_environment` | `sidecar/fabric_desktop/meta_service.py:375` | this PC | the signed-in Windows user's own files |
 | `meta_set_freshness` | `sidecar/fabric_desktop/dataops_service.py:329` | Fabric or OneLake | Fabric's own rights |
 | `meta_set_keys_workspace` | `sidecar/fabric_desktop/meta_service.py:415` | Fabric or OneLake | Fabric's own rights |

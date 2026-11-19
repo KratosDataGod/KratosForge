@@ -943,6 +943,18 @@ def _describe(statement: exp.Describe) -> exp.Expression:
     with Databricks' type names. A column of a type this PC doesn't name as Databricks does stops the query by
     name, and so does a table that isn't there."""
     table = statement.this
+    kind, style = str(statement.args.get("kind") or "TABLE").upper(), str(statement.args.get("style") or "").upper()
+    if kind in ("SCHEMA", "DATABASE"):
+        raise _statement_refusal(f"DESCRIBE {kind}", "its Location is where Unity Catalog keeps the schema's files, "
+                                 "which a schema in this session doesn't have", "list its tables with SHOW TABLES IN "
+                                 "the schema")
+    if style in ("EXTENDED", "FORMATTED"):
+        raise _statement_refusal(f"DESCRIBE TABLE {style}", "its detailed table information (Type, Provider, "
+                                 f"Location, Owner) is a Delta table's, and {_LOCAL_TABLE}",
+                                 "write DESCRIBE TABLE for the columns only")
+    if style == "HISTORY":
+        raise _statement_refusal("DESCRIBE HISTORY", f"it lists a Delta table's versions, and {_LOCAL_TABLE}",
+                                 _LEAVE_OUT)
     if any(statement.args.get(k) for k in ("style", "properties", "expressions", "partition", "format", "as_json")) \
             or not isinstance(table, exp.Table) or str(statement.args.get("kind") or "TABLE").upper() != "TABLE":
         raise _statement_refusal("This DESCRIBE", "only a plain DESCRIBE TABLE answers here with Databricks' columns",
@@ -1048,8 +1060,8 @@ def _alter_columns(statement: exp.Alter) -> list[exp.Expression]:
 
 def other_statements(statement: exp.Expression) -> list[exp.Expression]:
     """``statement`` as Databricks answers it, for statements table_statements leaves as they are: DESCRIBE TABLE
-    with Databricks' columns, and a MERGE that stops when more than one source row matches a target row. What
-    Databricks reads another way is refused by name: UPDATE ... FROM (Databricks' UPDATE has no FROM), INSERT
+    and SHOW CATALOGS, SCHEMAS, TABLES, VIEWS and COLUMNS with Databricks' columns, and a MERGE that stops when more than one source row matches a target row. What
+    Databricks reads another way is refused by name: the metadata statements of a Delta table, UPDATE ... FROM (Databricks' UPDATE has no FROM), INSERT
     OVERWRITE and REPLACE WHERE, session variables, CACHE TABLE, OPTIMIZE and VACUUM."""
     for kind, (what, why, instead) in _NOT_HERE.items():
         if isinstance(statement, kind):
@@ -1072,6 +1084,8 @@ def other_statements(statement: exp.Expression) -> list[exp.Expression]:
         return _alter_columns(statement)
     if isinstance(statement, exp.Describe):
         return [_describe(statement)]
+    if isinstance(statement, exp.Command) and statement.name.upper() == "SHOW":
+        return [show(statement)]
     if isinstance(statement, exp.Merge):
         return [_merge_matches_once(statement)]
     return [statement]
@@ -1158,3 +1172,174 @@ def _use(statement: exp.Use) -> list[exp.Expression]:
         "WHERE NOT EXISTS (SELECT 1 FROM duckdb_schemas() WHERE database_name = current_database() "
         f"AND lower(schema_name) = lower({_quoted(schema)}))", read="duckdb"))
     return [check, exp.Use(this=exp.Table(this=exp.to_identifier(schema, quoted=True)))]
+
+
+# Databricks SQL's metadata statements (SHOW and DESCRIBE), answered from the session's own catalog with the columns
+# Databricks' reference gives each one, in the Unity Catalog names above: the schema main is default, and catalog,
+# schema, table and view names are lowercase, as Unity Catalog stores them (column names keep their case). Each is
+# a read-only query over DuckDB's duckdb_schemas(), duckdb_tables(), duckdb_views() and duckdb_columns(), so the
+# policy check sees a query that reads the session only. What only a Delta table or Unity Catalog has is refused.
+_IDENT = r"(?:`(?:[^`]|``)+`|\w+)"
+_QUALIFIED = rf"{_IDENT}(?:\s*\.\s*{_IDENT})*"
+_PATTERN = r"(?:\s+(?:LIKE\s+)?(?:'([^'\\]*)'|\"([^\"\\]*)\"))?"
+_IN = r"(?:FROM|IN)"
+_SHOW_FORMS = {  # what Databricks' syntax for each takes, after SHOW
+    "CATALOGS": re.compile(rf"CATALOGS{_PATTERN}", re.IGNORECASE),
+    "SCHEMAS": re.compile(rf"(?:SCHEMAS|DATABASES)(?:\s+{_IN}\s+({_QUALIFIED}))?{_PATTERN}", re.IGNORECASE),
+    "TABLES": re.compile(rf"TABLES(?:\s+{_IN}\s+({_QUALIFIED}))?{_PATTERN}", re.IGNORECASE),
+    "VIEWS": re.compile(rf"VIEWS(?:\s+{_IN}\s+({_QUALIFIED}))?{_PATTERN}", re.IGNORECASE),
+    "COLUMNS": re.compile(rf"COLUMNS\s+{_IN}\s+({_QUALIFIED})(?:\s+{_IN}\s+({_QUALIFIED}))?", re.IGNORECASE),
+}
+_SHOW_SYNTAX = {
+    "CATALOGS": "SHOW CATALOGS [LIKE 'pattern']", "SCHEMAS": "SHOW SCHEMAS [IN catalog] [LIKE 'pattern']",
+    "TABLES": "SHOW TABLES [IN schema] [LIKE 'pattern']", "VIEWS": "SHOW VIEWS [IN schema] [LIKE 'pattern']",
+    "COLUMNS": "SHOW COLUMNS IN table [IN schema]"}
+_SHOWN_CATALOGS = ("hive_metastore", "main", "workspace")  # spark_catalog is another name for one, not a catalog
+_UNITY_CATALOGS = ("main", "workspace")  # Unity Catalog catalogs, each of which has an information_schema
+_COMMENTS = re.compile(r"('(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"|`(?:[^`]|``)*`)|--[^\n]*|/\*.*?\*/", re.DOTALL)
+_ESCAPED_UNDERSCORE = "\\_"  # _ is a name's own character, not LIKE's any one character
+_SHOWN_SCHEMA = "CASE WHEN schema_name = 'main' THEN 'default' ELSE lower(schema_name) END"
+
+
+def _names(text: str) -> list[str]:
+    return [p[1:-1].replace("``", "`") if p.startswith("`") else p for p in re.findall(_IDENT, text)]
+
+
+def _pattern(column: str, match: re.Match[str], group: int) -> str:
+    """Databricks' SHOW pattern as a condition on ``column``: * is any text and | separates alternatives, matched
+    case-insensitively against the whole name after the pattern's leading and trailing blanks are trimmed (as
+    spark.catalog's patterns, spark_local). Databricks reads the rest as a regular expression, so a pattern with
+    anything but letters, digits, _, * and | (which read the same either way) is refused by name."""
+    pattern = match.group(group) if match.group(group) is not None else match.group(group + 1)
+    if pattern is None:
+        return "TRUE"
+    pattern = pattern.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_*|]*", pattern):
+        raise _statement_refusal(f"The SHOW pattern {_quoted(pattern)}", "Databricks reads a pattern as a regular "
+                                 "expression, apart from * and |, and this PC reads only letters, digits, _, * and | "
+                                 "in one the same way", "write the pattern with those only, or filter the rows in a "
+                                 "query")
+    likes = [f"{column} LIKE {_quoted(a.lower().replace('_', _ESCAPED_UNDERSCORE).replace('*', '%'))} ESCAPE '\\'"
+             for a in pattern.split("|") if a]  # an empty alternative matches only an empty name
+    return "(" + " OR ".join(likes) + ")" if likes else "FALSE"
+
+
+def _schema(parts: list[str], said: str) -> tuple[str | None, str]:
+    """The DuckDB schema [catalog.]schema names (None for the current one), and the catalog it is shown in."""
+    if len(parts) > 2:
+        raise ValueError(f"[PARSE_SYNTAX_ERROR] {said}: a schema is named as schema or catalog.schema.")
+    if len(parts) == 2 and parts[0].lower() not in SESSION_CATALOGS:
+        raise _catalog_refusal(parts[0], f"{said} IN {'.'.join(parts)}")
+    catalog = parts[0].lower() if len(parts) == 2 else "main"
+    if not parts:
+        return None, catalog
+    return ("main" if parts[-1].lower() == "default" else parts[-1]), catalog
+
+
+def _schema_missing(schema: str | None, catalog: str, columns: int) -> str:
+    """A UNION ALL branch that stops the query with Databricks' SCHEMA_NOT_FOUND when ``schema`` isn't there."""
+    if schema is None:
+        return ""
+    shown = "default" if schema == "main" else schema.lower()
+    message = (f"[SCHEMA_NOT_FOUND] The schema `{catalog}`.`{shown}` cannot be found. Verify the spelling and "
+               "correctness of the schema and catalog.")
+    return (f" UNION ALL SELECT error({_quoted(message)}){', NULL' * (columns - 1)} WHERE NOT EXISTS (SELECT 1 FROM "
+            f"duckdb_schemas() WHERE database_name = current_database() AND lower(schema_name) = lower({_quoted(schema)}))")
+
+
+def _in_schema(schema: str | None) -> str:
+    if schema is None:
+        return "schema_name = current_schema()"
+    return f"lower(schema_name) = lower({_quoted(schema)})"
+
+
+def _show_columns(match: re.Match[str], said: str) -> str:
+    """SHOW COLUMNS {IN | FROM} table [{IN | FROM} schema]: col_name for each column, in order. Databricks stops it
+    when the table and the schema name different schemas, and when the table isn't there."""
+    parts = _names(match.group(1))
+    if len(parts) > 3:
+        raise ValueError(f"[PARSE_SYNTAX_ERROR] {said}: a table is named as table, schema.table or "
+                         "catalog.schema.table.")
+    name = parts[-1]
+    schema_parts = parts[:-1]
+    if match.group(2) is not None:
+        given = _names(match.group(2))
+        if schema_parts:
+            asked, _ = _schema(given, said)
+            named, _ = _schema(schema_parts, said)
+            if (asked or "").lower() != (named or "").lower():
+                raise _databricks_stops(f"{said} names two schemas", "because the table's own schema and the one "
+                                        "after it conflict", "Name the schema once")
+        schema_parts = given
+    schema, _ = _schema(schema_parts, said)
+    if schema is None:  # as DuckDB reads the name: a temporary table or view first, then the current schema
+        where = "(database_name = 'temp' OR (database_name = current_database() AND schema_name = current_schema()))"
+    else:
+        where = f"database_name = current_database() AND {_in_schema(schema)}"
+    missing = (f"[TABLE_OR_VIEW_NOT_FOUND] The table or view {'.'.join(parts)} cannot be found, so SHOW COLUMNS has "
+               "nothing to list.")
+    return (f"WITH c AS (SELECT column_name, column_index, CASE WHEN database_name = 'temp' THEN 0 ELSE 1 END AS r "
+            f"FROM duckdb_columns() WHERE NOT internal AND lower(table_name) = lower({_quoted(name)}) AND {where}) "
+            "SELECT \"col_name\" FROM (SELECT column_name AS \"col_name\", column_index AS i FROM c "
+            "WHERE r = (SELECT min(r) FROM c) "
+            f"UNION ALL SELECT error({_quoted(missing)}), 0 WHERE NOT EXISTS (SELECT 1 FROM c)) ORDER BY i")
+
+
+def _show_query(word: str, match: re.Match[str], said: str) -> str:
+    if word == "CATALOGS":
+        rows = " UNION ALL ".join(f"SELECT {_quoted(c)} AS \"catalog\"" for c in _SHOWN_CATALOGS)
+        return f'SELECT "catalog" FROM ({rows}) WHERE {_pattern('"catalog"', match, 1)} ORDER BY "catalog"'
+    if word == "SCHEMAS":
+        parts = _names(match.group(1) or "")
+        if len(parts) > 1:
+            raise ValueError(f"[PARSE_SYNTAX_ERROR] {said}: SHOW SCHEMAS takes one catalog name.")
+        if parts and parts[0].lower() not in SESSION_CATALOGS:
+            raise _catalog_refusal(parts[0], f"{said} IN {parts[0]}")
+        catalog = parts[0].lower() if parts else "main"
+        extra = " UNION ALL SELECT 'information_schema'" if catalog in _UNITY_CATALOGS else ""
+        return (f'SELECT "databaseName" FROM (SELECT {_SHOWN_SCHEMA} AS "databaseName" FROM duckdb_schemas() '
+                f'WHERE database_name = current_database(){extra}) WHERE {_pattern('"databaseName"', match, 2)} '
+                'ORDER BY "databaseName"')
+    if word == "COLUMNS":
+        return _show_columns(match, said)
+    # TABLES and VIEWS: the schema's tables (SHOW TABLES lists its views too) and the session's temporary ones,
+    # whichever schema is named, with a blank schema, as Databricks lists them
+    schema, catalog = _schema(_names(match.group(1) or ""), said)
+    schema_col, name_col = ('"database"', '"tableName"') if word == "TABLES" else ('"namespace"', '"viewName"')
+    objects = "SELECT database_name, schema_name, view_name AS name, temporary FROM duckdb_views() WHERE NOT internal"
+    if word == "TABLES":
+        objects = ("SELECT database_name, schema_name, table_name AS name, temporary FROM duckdb_tables() "
+                   f"WHERE NOT internal UNION ALL {objects}")
+    return (f"SELECT {schema_col}, {name_col}, \"isTemporary\" FROM (SELECT CASE WHEN temporary THEN '' ELSE "
+            f"{_SHOWN_SCHEMA} END AS {schema_col}, lower(name) AS {name_col}, temporary AS \"isTemporary\" "
+            f"FROM ({objects}) WHERE temporary OR (database_name = current_database() AND {_in_schema(schema)})) "
+            f"WHERE {_pattern(name_col, match, 2)}{_schema_missing(schema, catalog, 3)} "
+            f"ORDER BY \"isTemporary\", {schema_col}, {name_col}")
+
+
+def show(statement: exp.Command) -> exp.Expression:
+    """SHOW CATALOGS, SCHEMAS (or DATABASES), TABLES, VIEWS and COLUMNS as a query of the session's catalog that
+    answers with Databricks' columns. SHOW TBLPROPERTIES and SHOW CREATE TABLE, which describe a Delta table, and
+    any other SHOW are refused by name."""
+    text = _COMMENTS.sub(lambda m: m.group(1) or " ", str(statement.expression.name if statement.expression else ""))
+    text = text.strip().rstrip(";").strip()
+    words = text.split()
+    word = words[0].upper() if words else ""
+    if word == "TBLPROPERTIES":
+        raise _statement_refusal("SHOW TBLPROPERTIES", f"{_LOCAL_TABLE}, and a DuckDB table has none of a Delta "
+                                 "table's properties", _LEAVE_OUT)
+    if word == "CREATE":
+        raise _statement_refusal("SHOW CREATE TABLE", f"{_LOCAL_TABLE}, and its DDL here isn't the CREATE TABLE ... "
+                                 "USING delta that Databricks writes", "read its columns with DESCRIBE TABLE")
+    key = "SCHEMAS" if word == "DATABASES" else word
+    form = _SHOW_FORMS.get(key)
+    if form is None:
+        said = " ".join(w.upper() for w in words[:2] if w.upper() in ("EXTENDED", word)) or "this statement"
+        raise _statement_refusal(f"SHOW {said}", "this PC answers only SHOW CATALOGS, SCHEMAS, TABLES, VIEWS and "
+                                 "COLUMNS from the session's own catalog", _LEAVE_OUT)
+    said = f"SHOW {word}"
+    match = form.fullmatch(text)
+    if match is None:
+        raise _statement_refusal(f"This {said}", f"this PC reads it only as {_SHOW_SYNTAX[key]}",
+                                 "write it in that form")
+    return cast(exp.Expression, parse_one(_show_query(key, match, said), read="duckdb"))

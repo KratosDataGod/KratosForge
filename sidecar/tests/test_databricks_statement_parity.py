@@ -123,7 +123,7 @@ def test_describe_stops_for_a_missing_table_or_a_type_it_cant_name(cell):
     cell("CREATE TABLE nested (a ARRAY<INT>)")
     answer = cell("DESCRIBE nested")
     assert answer.startswith("error: ") and "DESCRIBE TABLE of this column's type can't run on this PC" in answer
-    _refused(cell("CREATE TABLE p (a INT); DESCRIBE TABLE EXTENDED p"), "This DESCRIBE")
+    _refused(cell("CREATE TABLE p (a INT); DESCRIBE TABLE EXTENDED p"), "DESCRIBE TABLE EXTENDED")
 
 
 # https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-alter-table-manage-column: ADD COLUMNS

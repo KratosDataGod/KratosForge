@@ -263,7 +263,8 @@ def _refusal_text(text: str) -> str:
     """A refusal written into the query (an error(...) with a Databricks error class, such as MERGE's) without
     the "Invalid Input Error: " DuckDB puts in front of it, so it reads as Databricks writes it."""
     prefix = "Invalid Input Error: "
-    return text[len(prefix):] if text.startswith((prefix + "[DELTA_", prefix + "[SCHEMA_NOT_FOUND]")) else text
+    return text[len(prefix):] if text.startswith((prefix + "[DELTA_", prefix + "[SCHEMA_NOT_FOUND]",
+                                                                  prefix + "[TABLE_OR_VIEW_NOT_FOUND]")) else text
 
 
 class OutsideSession(PermissionError):
@@ -310,6 +311,10 @@ def _databricks(code: str) -> list[Any]:
             raise _statement_refusal("MERGE WITH SCHEMA EVOLUTION", "DuckDB's MERGE can't add the source's "
                                      "extra columns to the target table", "add them with ALTER TABLE ... ADD "
                                      "COLUMN first, then MERGE without WITH SCHEMA EVOLUTION") from None
+        if re.search(r"(?:^|;)\s*DESC(?:RIBE)?\s+DETAIL\b", code, re.IGNORECASE | re.MULTILINE):  # nor this
+            from ..databricks_builtins_sql import _LOCAL_TABLE, _statement_refusal
+            raise _statement_refusal("DESCRIBE DETAIL", "it describes a Delta table's files and versions, and "
+                                     f"{_LOCAL_TABLE}", "read its columns with DESCRIBE TABLE") from None
         raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(exc)}") from None
     if not statements:
         raise ValueError("The query is empty.")
@@ -327,7 +332,9 @@ def _databricks(code: str) -> list[Any]:
     rewritten = [written for statement in rewritten for written in databricks_builtins_sql.unity_names(statement)]
     # and its table statements: identity and generated columns, USING DELTA, refusals for the rest (WR-309)
     rewritten = [written for statement in rewritten for written in databricks_builtins_sql.table_statements(statement)]
-    # and the statements Databricks answers another way: DESCRIBE TABLE, MERGE's multiple matches, refusals
+    # and the statements Databricks answers another way: DESCRIBE TABLE, SHOW TABLES and the other SHOWs (answered
+    # here as read-only queries of the session's catalog, before the policy check sees them), MERGE's multiple
+    # matches, refusals
     rewritten = [written for statement in rewritten for written in databricks_builtins_sql.other_statements(statement)]
     # the same for a refusal written into the query, which stops it only when a row reaches it; only an
     # ERROR(...) that carries a refusal's own words, so a message the cell's author wrote stays as written

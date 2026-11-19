@@ -23,7 +23,7 @@ import datetime
 import tempfile
 import threading
 import weakref
-from typing import Any, NamedTuple, NoReturn
+from typing import Any, NamedTuple, NoReturn, cast
 
 import duckdb
 import pyarrow as pa
@@ -34,9 +34,10 @@ from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.column import Column as _Column
 from duckdb.experimental.spark.sql.session import SparkSession
 
-from . import lakehouse, spark_api, spark_compat, spark_infer, sql as _sql, sql_dialects
+from . import lakehouse, spark_api, spark_compat, spark_infer, sql as _sql, spark_replace_where, sql_dialects
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
-from .duckdb_rows import first_row, keep_try_cast
+from .duckdb_rows import keep_try_cast
+from . import spark_hash, spark_time_zone
 from .spark_complex import spark_complex_types
 from .spark_decimals import spark_decimal_types
 from . import trees
@@ -511,56 +512,12 @@ class LakehouseWriter:
 
 
 def _replace_where(condition: str, name: str) -> str:
-    """replaceWhere's condition, Spark SQL, as the predicate delta-rs replaces by: the table's column
-    names quoted as the table spells them. A subquery, or a column the table hasn't, is refused."""
-    import sqlglot
-    from sqlglot import exp
-    try:
-        nodes = [n for n in sqlglot.parse(condition, read="spark") if n is not None]
-    except sqlglot.errors.ParseError as exc:
-        raise ValueError(f"replaceWhere {condition!r} isn't a condition this PC reads "
-                         f"({sql_dialects.parse_problem(exc)}). Nothing was "
-                         "written.") from None
-    if len(nodes) != 1 or not isinstance(nodes[0], exp.Condition):  # "dt = 1; DROP TABLE t" is two statements
-        raise ValueError(f"replaceWhere {condition!r} must be a single condition, such as region = 'EU'. Nothing was written.")
-    node = nodes[0]
-    if node.find(exp.Subquery, exp.Select) or not node.find(exp.Column):
-        raise ValueError(f"replaceWhere {condition!r} must compare the table's columns, with no subquery. Nothing "
-                         "was written.")
-    cased = {c.lower(): c for c in _columns(name) or []}
-    for column in node.find_all(exp.Column):
-        actual = cased.get(column.name.lower())
-        if actual is None or column.table:
-            raise ValueError(f"replaceWhere {condition!r}: table {name} has no column {column.sql('spark')}. Its "
-                             f"columns are {', '.join(cased.values())}. Nothing was written.")
-        column.set("this", exp.to_identifier(actual, quoted=True))
-    return node.sql(dialect="postgres")
+    """replaceWhere's condition as the predicate delta-rs replaces by (spark_replace_where.predicate)."""
+    return spark_replace_where.predicate(condition, name, _columns(name) or [])
 
 
-def _replace_mismatch(replace: str, name: str, detail: str = "") -> ValueError:
-    return ValueError(f"[DELTA_REPLACE_WHERE_MISMATCH] Written data does not conform to partial table overwrite "
-                      f"condition or constraint '{replace}'.{detail} Every row written must match replaceWhere, so "
-                      f"nothing was written to {name}. Filter the rows to the condition first, or widen replaceWhere.")
-
-
-def _rows_match(data: pa.Table, predicate: str, replace: str, name: str) -> None:
-    """Delta's check, made before the write is queued: every row written must make replaceWhere true
-    (a NULL fails it, as in Delta's CheckDeltaInvariant). delta-rs checks again as it writes."""
-    import duckdb
-    con = duckdb.connect()
-    try:
-        con.register("kf_rows", data)
-        try:
-            bad = first_row(con.execute(f"SELECT count(*) FROM kf_rows WHERE ({predicate}) IS NOT TRUE"))
-        except duckdb.Error as exc:  # fail closed: every row written must be checked against it
-            raise ValueError(f"replaceWhere '{replace}' isn't run here, because this PC couldn't check the rows "
-                             f"against it. The check stopped on: {str(exc).splitlines()[0]}. Nothing was written to "
-                             f"{name}. Write the condition as column comparisons, such as region = 'EU'.") from None
-    finally:
-        con.close()
-    if bad and bad[0]:
-        verb = "doesn't" if bad[0] == 1 else "don't"
-        raise _replace_mismatch(replace, name, f" {bad[0]} of the {data.num_rows} rows {verb} match it.")
+_replace_mismatch = spark_replace_where.mismatch
+_rows_match = spark_replace_where.check_rows
 
 
 def _write_table(data: pa.Table, name: str, how: str, schema_mode: str | None, predicate: str | None = None,
@@ -608,6 +565,40 @@ def _check_types(data: pa.Table, table: str, how: str) -> None:
 
 _AUTO_MERGE = "spark.databricks.delta.schema.autoMerge.enabled"
 _SPARK_SET = re.compile(r"\s*SET\s+(?P<key>spark\.[\w.]+)\s*=\s*(?P<value>[^;]*?)\s*;?\s*", re.I)
+_ONE_CHANGE = ("spark.sql runs MERGE INTO, UPDATE and DELETE only as the only statement in the call. "
+               "Nothing ran. Call spark.sql once for each statement.")
+_CHANGE = re.compile(r"\s*(?:MERGE|UPDATE|DELETE)\b", re.I)
+_TIME_ZONE_KEY = "spark.sql.session.timeZone"
+_SET_TIME_ZONE = re.compile(r"\s*SET\s+TIME\s+ZONE\s+(?P<zone>'[^']*'|\"[^\"]*\")\s*;?\s*", re.I)
+_SPARK_RESET = re.compile(r"\s*RESET(?:\s+(?P<key>spark\.[\w.]+))?\s*;?\s*", re.I)
+_SESSION_SETTING = re.compile(r"(?i)\bRESET\b|\bTIME\s+ZONE\b|\bspark\.sql\.session\.timeZone\b")
+
+
+def _session_setting_pieces(query: str) -> list[str]:
+    """``query``'s statements as text, when there are several and one sets (or resets) the session time zone
+    (SET TIME ZONE, SET spark.sql.session.timeZone, RESET); else []."""
+    if not _SESSION_SETTING.search(query):
+        return []
+    import sqlglot
+    from sqlglot.tokens import TokenType
+    try:
+        tokens = sqlglot.Dialect.get_or_raise("spark").tokenize(query)
+    except Exception:  # noqa: BLE001  # silent-ok: text the tokenizer can't read is parse()'s to report
+        return []
+    pieces, start = [], 0
+    for token in tokens:
+        if token.token_type == TokenType.SEMICOLON:
+            pieces.append(query[start:token.start])
+            start = token.end + 1
+    pieces = [p for p in (*pieces, query[start:]) if p.strip()]
+    def sets(piece: str) -> bool:
+        head = delta_dml_comments.sub("", piece)
+        setting = _SPARK_SET.fullmatch(head)
+        return bool(_SET_TIME_ZONE.fullmatch(head) or _SPARK_RESET.fullmatch(head)
+                    or (setting is not None and setting["key"] == _TIME_ZONE_KEY))
+    return pieces if len(pieces) > 1 and any(sets(p) for p in pieces) else []
+
+
 _SCHEMA_EVOLUTION = re.compile(r"\s*MERGE\s+WITH\s+SCHEMA\s+EVOLUTION\b", re.I)
 _SCHEMA_EVOLUTION_WORDS = re.compile(r"\s+WITH\s+SCHEMA\s+EVOLUTION\b", re.I)
 
@@ -1221,7 +1212,9 @@ class LakehouseReader:
         given = self._options
         self._refusal("csv")
         # A comma unless sep or delimiter says otherwise, as in Spark: DuckDB would guess one from the file.
-        extra: dict[str, Any] = {"sep": str(given.get("sep") or given.get("delimiter") or ",")}
+        # skiprows 0: Spark never leaves out a line, where DuckDB's sniffer drops the first lines of a file
+        # when they don't look like the rest (a title, or a first row with fewer columns), with no error.
+        extra: dict[str, Any] = {"sep": str(given.get("sep") or given.get("delimiter") or ","), "skiprows": 0}
         if not _true(given.get("inferschema", False)) or getattr(self, "_schema", None):
             extra["all_varchar"] = True
         if given.get("nullvalue") not in (None, ""):
@@ -1301,6 +1294,7 @@ class LocalSparkSession(SparkSession):
         super().__init__(SparkContext("local"))
         self.conn.execute("SET TimeZone = 'UTC'")  # like Fabric's Spark sessions, not this PC's zone
         keep_try_cast(self.conn)
+        spark_hash.register(self.conn)  # sha2 at 224, 384 and 512 bits
         # The running query's progress, for the line under a running cell (progress()); never printed.
         self.conn.execute("SET enable_progress_bar = true")
         self.conn.execute("SET enable_progress_bar_print = false")
@@ -1412,11 +1406,56 @@ class LocalSparkSession(SparkSession):
                 lambda v: isinstance(v, DataFrame), lambda v: isinstance(v, _Column))
         if args is not None:
             sqlQuery = spark_sql_params.bind(sqlQuery, args)
+        with spark_time_zone.for_session(self):  # its casts are written for this session's time zone
+            return self._sql(sqlQuery)
+
+    @staticmethod
+    def _setting_pieces(query: str) -> list[str]:
+        """``_session_setting_pieces(query)``, checked before any piece runs: a call holding OPTIMIZE, VACUUM,
+        RESTORE or MERGE WITH SCHEMA EVOLUTION isn't split, so it stops as it would without the time zone
+        statement (each must be the only statement in its call), and one holding a MERGE, UPDATE or DELETE
+        is refused, as any call with one beside other statements is."""
+        pieces = _session_setting_pieces(query)
+        if not pieces:
+            return []
+        from sqlglot import exp
+
+        from . import spark_maint
+        heads = [delta_dml_comments.sub("", p) for p in pieces]
+        if any(spark_maint.STARTS.match(h) or _SCHEMA_EVOLUTION.match(h) for h in heads):
+            return []
+        for head in heads:
+            if _CHANGE.match(head):
+                raise ValueError(_ONE_CHANGE)
+            if _SET_TIME_ZONE.fullmatch(head) or _SPARK_SET.fullmatch(head) or _SPARK_RESET.fullmatch(head):
+                continue
+            try:
+                trees = _sql.parse(head)
+            except Exception:  # noqa: BLE001  # silent-ok: the piece's own run reports what it can't read
+                continue
+            if any(t is not None and t.find(exp.Merge, exp.Update, exp.Delete) for t in trees):
+                raise ValueError(_ONE_CHANGE)  # WITH c AS (...) DELETE ... too
+        return pieces
+
+    def _sql(self, sqlQuery: str) -> DataFrame:  # noqa: N803
         head = delta_dml_comments.sub("", sqlQuery)  # a leading comment doesn't hide RESTORE or SCHEMA EVOLUTION
+        if (zone := _SET_TIME_ZONE.fullmatch(head)) is not None:  # SET TIME ZONE 'z' is spark.conf's, as in Spark
+            head = f"SET {_TIME_ZONE_KEY} = {zone['zone']}"
         if (setting := _SPARK_SET.fullmatch(head)) is not None:  # SET spark.x = y goes to spark.conf, as in Spark
             key, value = setting["key"], setting["value"].strip().strip("'\"")
             self.conf.set(key, value)
             return self.createDataFrame([(key, value)], ["key", "value"])
+        if (reset := _SPARK_RESET.fullmatch(head)) is not None:  # RESET [spark.x]: back to the default, as in Spark
+            # Spark's bare RESET puts every key back to its session default, builder settings included; those
+            # aren't kept apart from later ones here, so a bare RESET resets the session time zone only
+            self.conf.unset(reset["key"] or _TIME_ZONE_KEY)
+            return DataFrame(self.conn.sql("SELECT 1 WHERE false"), self)
+        if len(pieces := self._setting_pieces(sqlQuery)) > 1:
+            # a later statement is written for the time zone an earlier one sets, so each runs on its own
+            result: DataFrame | None = None
+            for piece in pieces:
+                result = self._sql(piece)
+            return cast(DataFrame, result)
         from . import spark_maint
         spec = spark_maint.statement(head)  # OPTIMIZE, VACUUM, RESTORE (Preview), as the only statement
         if spec is not None:
@@ -1431,9 +1470,8 @@ class LocalSparkSession(SparkSession):
         from sqlglot import exp
         if len(statements) > 1 and any(isinstance(s, (exp.Merge, exp.Update, exp.Delete)) for s in statements):
             # The change would commit before a later statement could fail; Spark runs one statement per call.
-            raise ValueError("spark.sql runs MERGE INTO, UPDATE and DELETE only as the only statement in the call. "
-                             "Nothing ran. Call spark.sql once for each statement.")
-        result: DataFrame | None = None
+            raise ValueError(_ONE_CHANGE)
+        result = None
         for statement in statements:
             result = self._statement(statement, evolve=evolve)
         return result if result is not None else DataFrame(self.conn.sql("SELECT 1 WHERE false"), self)

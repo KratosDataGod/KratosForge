@@ -48,7 +48,7 @@
     "After your stream runs, silver.orders holds each order's newest state once, on the exercise data and on data you haven't seen, and a second run leaves it the same, on this PC."
   ],
   "does_not_verify": [
-    "It doesn't run on Apache Spark or in Fabric: the stream runs as availableNow and the MERGE runs on delta-rs. Spark refuses a MERGE where several source rows match one target row; delta-rs doesn't, so here that mistake shows up as duplicate rows instead of an error.",
+    "It doesn't run on Apache Spark or in Fabric: the stream runs as availableNow and the MERGE runs on delta-rs, with Delta's rule that refuses a MERGE where several source rows match one target row checked on this PC.",
     "Ties: two events for one order at the same time. The data has none.",
     "Deletes, and watermarks for late data in stateful streaming aggregations."
   ],
@@ -123,6 +123,6 @@
   "reset": "Reset rebuilds both tables from setup.sql, removes the checkpoint, and puts the starter back.",
   "review_notes": [
     "foreachBatch and Delta MERGE are documented by Apache Spark and Delta Lake; Fabric's lakehouse streaming page doesn't cover them.",
-    "delta-rs accepts a MERGE with several source rows per target row (Spark raises an error); the no-dedup wrong answer fails on the unique key instead, and does_not_verify says so."
+    "Since the lab checks Delta's one-match rule (WR-115), a MERGE with several source rows per target row stops with Spark's error here too; a batch whose duplicates are all new keys still inserts twice and fails on the unique key."
   ]
 }

@@ -145,6 +145,24 @@ def test_ids_remembered_for_an_outbox_file_that_was_replaced_filter_nothing(tmp_
     assert [r["id"] for r in fresh.pending()] == [item]  # not hidden by an old id
 
 
+def test_a_row_id_reused_after_another_process_deleted_the_row_is_a_new_message(tmp_path, quick):
+    t = [1_000_000.0]
+    a = _box(tmp_path, t)
+    teams = LockingTeams(a.path)
+    notify.send([_change()], single(HOOK), a, "KratosForge", teams)  # posted; its row X couldn't be deleted
+    teams.release()
+    [(x, kept)] = notify._GONE[str(a.path.resolve())].items()
+    assert kept is not None
+    with sqlite3.connect(a.path) as db:  # another process deletes row X, and its next message reuses id X
+        db.execute("DELETE FROM outbox WHERE id = ?", (x,))
+    t[0] += 1
+    other = _box(tmp_path, t)
+    notify._GONE[str(a.path.resolve())][x] = kept  # still held for the old message
+    assert other.sending("New: second", ["b"]) == x
+    assert [r["title"] for r in a.pending()] == ["New: second"]  # not hidden, and not deleted by the settle
+    assert a.count() == 1
+
+
 def test_a_bug_in_a_send_isnt_taken_for_a_busy_outbox(tmp_path, monkeypatch):
     outbox = _box(tmp_path, [1_000_000.0])
     monkeypatch.setattr(Outbox, "pending", lambda self: [{"id": 1}])  # a row missing its fields

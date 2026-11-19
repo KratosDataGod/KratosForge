@@ -190,7 +190,9 @@ def single(url: str) -> Routing:
 # Messages already posted (or sent with no answer) whose row couldn't be deleted, the outbox file being
 # locked, by the outbox's resolved path: shared by every Outbox on that file in this process, and kept in a
 # file beside it (GONE_SUFFIX) so a restart doesn't send them again either. Deleted on the next write that works.
-_GONE: dict[str, set[int]] = {}
+# Each kept as id -> its row's created time (None when unknown): a row id SQLite reuses after another process
+# deleted the row is a different message, with another created time, and is neither hidden nor deleted.
+_GONE: dict[str, dict[int, float | None]] = {}
 _GONE_LOCK = threading.Lock()
 GONE_SUFFIX = ".sent-not-removed.json"
 
@@ -208,14 +210,17 @@ class Outbox:
             then="messages still waiting in it aren't sent; new ones are sent as usual")
         key = str(self.path.resolve())
         with _GONE_LOCK:
-            self._gone = _GONE.setdefault(key, set())
+            self._gone = _GONE.setdefault(key, {})
+            self._created: dict[int, float] = {}  # row id -> created, for rows this Outbox wrote or read
             if fresh or self.set_aside is not None:  # a new, empty file: ids kept for an old one mean nothing in it
                 self._gone.clear()
                 self._gone_file.unlink(missing_ok=True)
             else:
                 saved = jsonfile.read_json(self._gone_file, [])
-                if isinstance(saved, list):
-                    self._gone.update(i for i in saved if isinstance(i, int) and not isinstance(i, bool))
+                for pair in saved if isinstance(saved, list) else []:
+                    if isinstance(pair, list) and len(pair) == 2 and type(pair[0]) is int \
+                            and (pair[1] is None or type(pair[1]) in (int, float)):
+                        self._gone[pair[0]] = pair[1]
 
     def _first_open(self) -> None:
         with self._db() as db:
@@ -260,9 +265,12 @@ class Outbox:
                "VALUES (?, ?, ?, 0, '', ?, ?, 1, ?)")
         values = (self.clock(), title, json.dumps(lines), route, self.clock() + SENDING_GRACE, int(idempotent))
         if db is not None:
-            return int(db.execute(sql, values).lastrowid or 0)
-        with self._db() as conn:
-            return int(conn.execute(sql, values).lastrowid or 0)
+            item_id = int(db.execute(sql, values).lastrowid or 0)
+        else:
+            with self._db() as conn:
+                item_id = int(conn.execute(sql, values).lastrowid or 0)
+        self._created[item_id] = values[0]
+        return item_id
 
     def not_sent(self, item_id: int, error: str) -> None:
         """A post that failed: the message waits like any other that Teams didn't take. Never raises: on a
@@ -279,10 +287,11 @@ class Outbox:
         with self._db() as db:
             rows = db.execute("SELECT id, created, title, lines, attempts, error, route, not_before, sending, idempotent "
                               "FROM outbox ORDER BY id").fetchall()
+        self._created.update((r[0], r[1]) for r in rows)
         return [{"id": r[0], "created": r[1], "title": r[2], "lines": json.loads(r[3]), "attempts": r[4],
                  "error": r[5], "route": r[6] or DEFAULT_ROUTE, "not_before": r[7] or 0.0, "sending": bool(r[8]),
                  "idempotent": bool(r[9])}
-                for r in rows if r[0] not in self._gone]
+                for r in rows if not self._is_gone(r[0], r[1])]
 
     def idempotent(self, item_id: int) -> bool:
         """Whether a kept message may be sent again after a post with no answer. False when the outbox
@@ -302,15 +311,15 @@ class Outbox:
         and that file's write while the outbox is locked; the message then goes once more, marked as possibly
         sent already (CUT_OFF), as after any stop mid-send."""
         with _GONE_LOCK:
-            self._gone.add(item_id)
+            self._gone[item_id] = self._created.pop(item_id, None)
         if not self._settle_gone():
             self._save_gone()
 
     def _save_gone(self) -> None:
         with _GONE_LOCK:
-            ids = sorted(self._gone)
+            pairs = [[i, c] for i, c in sorted(self._gone.items())]
         try:
-            jsonfile.write_json(self._gone_file, ids, indent=None)
+            jsonfile.write_json(self._gone_file, pairs, indent=None)
         except OSError as exc:
             _log.warning("Couldn't keep the sent messages %s still holds in %s; this process won't send them "
                          "again: %s", self.path.name, self._gone_file.name, failure(exc))
@@ -318,18 +327,21 @@ class Outbox:
     def _settle_gone(self) -> bool:
         """Delete the rows of messages that went; True when none is left to delete."""
         with _GONE_LOCK:
-            ids = sorted(self._gone)
-        if not ids:
+            kept = dict(self._gone)
+        if not kept:
             return True
         try:
             with self._db() as db:
-                db.executemany("DELETE FROM outbox WHERE id = ?", [(i,) for i in ids])
+                db.executemany("DELETE FROM outbox WHERE id = ? AND (? IS NULL OR created = ?)",
+                               [(i, c, c) for i, c in kept.items()])
         except (sqlite3.Error, OSError) as exc:
             _log.warning("Couldn't take %d sent message(s) out of %s yet; they aren't sent again: %s",
-                         len(ids), self.path.name, failure(exc))
+                         len(kept), self.path.name, failure(exc))
             return False
         with _GONE_LOCK:
-            self._gone.difference_update(ids)
+            for i, c in kept.items():
+                if i in self._gone and self._gone[i] == c:
+                    del self._gone[i]
             left = bool(self._gone)
         if left:
             self._save_gone()
@@ -347,7 +359,15 @@ class Outbox:
     def count(self) -> int:
         self._settle_gone()
         with self._db() as db:
-            return int(db.execute("SELECT COUNT(*) FROM outbox").fetchone()[0]) - len(self._gone)
+            rows = db.execute("SELECT id, created FROM outbox").fetchall()
+        return sum(1 for r in rows if not self._is_gone(r[0], r[1]))
+
+    def _is_gone(self, item_id: int, created: float) -> bool:
+        with _GONE_LOCK:
+            if item_id not in self._gone:
+                return False
+            kept = self._gone[item_id]
+        return kept is None or kept == created
 
     def trim(self) -> int:
         """Remove messages older than KEEP_TRYING, then the oldest beyond MAX_WAITING. How many went."""

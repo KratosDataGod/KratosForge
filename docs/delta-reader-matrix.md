@@ -36,7 +36,7 @@ KratosForge writes to a table only when the table is inside the profile and ever
 
 | Profile | Allows | Readers that can't read it |
 | --- | --- | --- |
-| Modern (the default) | Reader version 3 at most, and writer version 2 or 7, with deletion vectors and column mapping by name. Writer versions 3 to 6 are refused, because they turn on features without listing them | Fabric Python notebooks, pipelines and eventstreams |
+| Modern (the default) | Reader version 3 at most, and writer version 2 or 7, with deletion vectors and column mapping by name. Writer versions 3 to 5 turn on features without listing them, so a table at one of them is written only when its settings and schema show none of those features in use but column mapping by name: no check constraint (a `delta.constraints.` setting), no change data feed (`delta.enableChangeDataFeed` true) and no generated column (a `delta.generationExpression` on any column, nested ones included). That lets older column-mapped tables, which Spark and Databricks made as reader 2 and writer 5, be written; the refusal names the feature in use. Writer version 6 (identity columns) is refused | Fabric Python notebooks, pipelines and eventstreams |
 | Conservative ("Fabric-safe") | Reader version 1 and writer version 2 at most, no table features | None in the matrix |
 
 Both profiles refuse column mapping by ID, because Fabric's SQL analytics endpoint can't read it. Both also refuse V2 checkpoints, which users report the endpoint refusing, and any other table feature.

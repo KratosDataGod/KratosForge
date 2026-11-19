@@ -19,6 +19,7 @@ https://learn.microsoft.com/fabric/fundamentals/delta-lake-interoperability
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -351,6 +352,37 @@ _LEGACY_WRITER_FEATURES = (("check constraints",), ("change data feed", "generat
                            ("identity columns",))
 
 
+def _field_metadata_keys(node: Any) -> set[str]:
+    """Every field metadata key in a Delta schema's JSON, nested fields (structs, arrays, maps) included."""
+    keys: set[str] = set()
+    if isinstance(node, dict):
+        meta = node.get("metadata")
+        if isinstance(meta, dict) and "name" in node:
+            keys.update(str(k) for k in meta)
+        for value in node.values():
+            keys |= _field_metadata_keys(value)
+    elif isinstance(node, list):
+        for value in node:
+            keys |= _field_metadata_keys(value)
+    return keys
+
+
+def _legacy_features_in_use(table: DeltaTable, writer: int) -> list[str]:
+    """Which of the features writer version ``writer`` (3 to 5) turns on the table uses, each with what shows it.
+    Column mapping isn't here: its mode is a table setting the profile checks on its own."""
+    config = {k: str(v) for k, v in (table.metadata().configuration or {}).items()}
+    used = []
+    constraints = sorted(k for k in config if k.startswith("delta.constraints."))
+    if constraints:
+        used.append(f"check constraints ({', '.join(constraints)})")
+    if writer >= 4:
+        if config.get("delta.enableChangeDataFeed", "").lower() == "true":
+            used.append("change data feed (delta.enableChangeDataFeed is true)")
+        if "delta.generationExpression" in _field_metadata_keys(json.loads(table.schema().to_json())):
+            used.append("generated columns (a column has delta.generationExpression)")
+    return used
+
+
 class ProfileViolation(ValueError):
     pass
 
@@ -367,10 +399,21 @@ def problems(table: DeltaTable, within: str | Profile | None = None) -> list[str
     elif p.max_writer >= 7 and MAX_WRITER < protocol.min_writer_version < 7:
         # Writer versions 3 to 6 turn on features without listing them (check constraints, change data
         # feed, generated columns, column mapping, identity columns), so the feature check below can't
-        # see them. Only version 7 lists its features.
-        names = [f for step in _LEGACY_WRITER_FEATURES[: protocol.min_writer_version - MAX_WRITER] for f in step]
-        implied = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
-        found.append(f"writer version {protocol.min_writer_version}, which turns on {implied} without listing them")
+        # see them. Only version 7 lists its features. Versions 3 to 5 are inside when the table's settings
+        # and schema show none of them in use but column mapping, whose mode the settings check below
+        # decides: older Spark and Databricks made column-mapped tables as reader 2, writer 5, and delta-rs
+        # appends, overwrites and merges into those as Spark does (tests/fixtures/delta_spark/cm_legacy).
+        # Version 6 stays outside: no writer version 6 table was checked that way.
+        writer = protocol.min_writer_version
+        names = [f for step in _LEGACY_WRITER_FEATURES[: writer - MAX_WRITER] for f in step]
+        implied = _names(names)
+        if writer == 6:
+            found.append(f"writer version 6, which turns on {implied} without listing them")
+        else:
+            used = _legacy_features_in_use(table, writer)
+            if used:
+                found.append(f"writer version {writer}, which turns on {implied} without listing them, and the "
+                             f"table uses {_names(used)}, which the {p.label} Delta profile doesn't include")
     for features, kind in ((protocol.reader_features, "reader"), (protocol.writer_features, "writer")):
         outside = sorted(set(features or []) - p.features)
         if outside:

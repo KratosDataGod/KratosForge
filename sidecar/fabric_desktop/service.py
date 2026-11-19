@@ -1287,14 +1287,21 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 "row_count": row_count, "seconds": round(time.monotonic() - started, 2)}
 
     def save_sql(self, query: str, lakehouse_ref: dict[str, str], table: str, mode: str = "new",
-                 dialect: str = "spark") -> dict[str, Any]:
+                 dialect: str = "spark", confirm_name: str = "") -> dict[str, Any]:
         """Write the query result as a table. "new" (the default) writes nothing when the table
-        exists and says so, so the page can ask before replacing it."""
+        exists and says so, so the page can ask before replacing it. Replacing a table that exists ("overwrite")
+        needs ``confirm_name``, the table's name as the person typed it on the page (WR-248): the engine checks it,
+        so no caller replaces a table's rows without it."""
         self._attach(lakehouse_ref)
         if mode == "new":
             if lakehouse.table_exists(table):
                 return {"table": table, "exists": True}
             mode = "overwrite"
+        elif mode == "overwrite" and confirm_name != table and lakehouse.table_exists(table):
+            raise PermissionError(f"Replacing {table} deletes all of its rows, so it runs only after you type its "
+                                  "name to confirm. Nothing was written.")
+        elif mode not in ("overwrite", "append"):
+            raise ValueError(f"mode must be new, overwrite or append, not {mode!r}")
         written = lakehouse.write_table(sql.run(query, dialect), table, mode)
         return {"table": written.table, "rows": written.rows, "message": repr(written)}
 

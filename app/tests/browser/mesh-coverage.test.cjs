@@ -71,7 +71,10 @@ before(async () => {
     mesh_set_project: () => db.setProject,
     mesh_publish: () => ({ published: db.published }),
     mesh_save_link: (p) => ({ link: p.link }),
-    mesh_delete_link: () => ({ removed: true }),
+    mesh_delete_link: ({ alias }) => {
+      if (alias === "ledger_entries") throw new Error("Link ledger_entries can't be removed, because silver.ledger reads it. Point it at another source first, then remove the link.");
+      return { removed: true };
+    },
     mesh_delete_product: () => ({ removed: true }),
     mesh_resolve_links: () => { if (db.resolveFail) throw new Error("HTTPError: 403 Client Error: Forbidden for url: https://api.fabric.microsoft.com/v1/x"); return db.resolved; },
     meta_set_designation: () => ({ ok: true }),
@@ -207,6 +210,13 @@ test("Links shows where each link points, who uses it, and Remove asks in a dang
   await view().locator("tr", { hasText: "stores" }).last().getByRole("button", { name: "Remove" }).click();
   await dialog().getByRole("button", { name: "Remove" }).click();
   assert.deepStrictEqual((await waitCall("mesh_delete_link", 1)).params, { alias: "stores" });
+
+  // A link silver.ledger reads asks nothing: the engine refuses and says who reads it.
+  const calls = app.calls.filter((c) => c.method === "mesh_delete_link").length;
+  await view().locator("tr", { hasText: "ledger_entries" }).last().getByRole("button", { name: "Remove" }).click();
+  await page().waitForFunction(() => /silver\.ledger reads it\. Point it at another source first/.test(document.getElementById("toast").textContent));
+  assert.strictEqual(await page().getByRole("dialog", { name: "Remove link ledger_entries?" }).count(), 0, "no confirm for a link still read");
+  assert.deepStrictEqual(app.calls.filter((c) => c.method === "mesh_delete_link").slice(calls).map((c) => c.params), [{ alias: "ledger_entries" }]);
 });
 
 test("a link check the workspace refuses says not checked; no links shows the empty state; nothing to link says so", { skip }, async () => {

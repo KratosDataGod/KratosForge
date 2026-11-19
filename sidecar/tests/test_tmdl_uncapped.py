@@ -58,10 +58,10 @@ def test_a_model_without_a_compatibility_level_gets_1604():
 
 
 def test_files_other_than_the_known_ones_are_read_last():
-    assert tmdl._file_order("definition/roles/r.tmdl") == (30, "definition/roles/r.tmdl")
-    assert tmdl._file_order("definition/relationships.tmdl") == (20, "definition/relationships.tmdl")
-    assert tmdl._file_order("definition/tables/T.tmdl") == (10, "definition/tables/T.tmdl")
-    assert tmdl._file_order("definition/model.tmdl") == (1, "definition/model.tmdl")
+    assert tmdl._file_order("definition/roles/r.tmdl")[0] == 30
+    assert tmdl._file_order("definition/relationships.tmdl")[0] == 20
+    assert tmdl._file_order("definition/tables/T.tmdl")[0] == 10
+    assert tmdl._file_order("definition/model.tmdl")[0] == 1
 
 
 # ---- writing

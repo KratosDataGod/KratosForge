@@ -1396,10 +1396,9 @@ def _grouping_id(node: exp.Expression) -> exp.Expression | None:
 
 
 def _any(node: exp.Expression) -> exp.Expression | None:
-    """any(col) as an aggregate (not ``x = ANY (subquery)`` or ``s LIKE ANY ('a%', 'b%')``). A quantifier is the
-    right side of its comparison, so ``any(x) = true``, on the left, is the aggregate."""
-    if isinstance(node.parent, (exp.Binary, exp.Predicate)) and not isinstance(node.parent, (exp.And, exp.Or)) \
-            and node.arg_key != "this":
+    """any(col) as an aggregate (not ``x = ANY (subquery)`` or ``s LIKE ANY ('a%', 'b%')``). Spark's quantifier
+    takes a subquery, or a list after LIKE, so ``any(x) = true`` and ``true = any(x)`` are the aggregate."""
+    if isinstance(node.parent, (exp.Like, exp.ILike)) and node.arg_key != "this":
         return None
     inner = node.this.this if isinstance(node.this, exp.Paren) else node.this
     if isinstance(inner, (exp.Subquery, exp.Select, exp.Query)):

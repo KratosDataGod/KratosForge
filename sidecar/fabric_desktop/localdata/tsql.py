@@ -2699,7 +2699,7 @@ def _sharp_s(tree: exp.Expression) -> None:
     """``UPPER`` keeps ``ß``, as T-SQL does: it has no one-letter capital in Unicode's simple case mapping, which
     T-SQL follows, and DuckDB alone gives the capital ``ẞ``. The text is split at each ``ß``, the parts are made
     upper case, and the ``ß`` are put back, so the value is read once."""
-    for node in list(tree.find_all(exp.Upper)):
+    for node in reversed(list(tree.find_all(exp.Upper))):  # deepest first, so an outer UPPER copies a rewritten one
         text = node.this
         if isinstance(text, exp.Literal) and _SHARP_S not in text.name:
             if not text.is_string:  # UPPER(5) is '5', as T-SQL makes the number text

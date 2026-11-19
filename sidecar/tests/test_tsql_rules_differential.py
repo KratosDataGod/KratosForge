@@ -260,6 +260,9 @@ def test_upper_keeps_sharp_s(engine) -> None:
     assert [tuple(r) for r in rows] == [("STRAßE", "ßAß"), ("STRAßE", ""), ("STRAßE", None), ("STRAßE", "GRÜßE")]
     one = engine.execute("SELECT UPPER(5) AS a, UPPER(N'abc') AS b, UPPER(N'ẞ') AS c", dialect="tsql")["rows"][0]
     assert list(one) == ["5", "ABC", "ẞ"]
+    nested = engine.execute("SELECT UPPER(UPPER(N'ß')) AS a, UPPER(LOWER(UPPER(x))) AS b FROM (VALUES (N'ßa')) AS t(x)",
+                            dialect="tsql")["rows"][0]
+    assert list(nested) == ["ß", "ßA"]
 
 
 def test_upper_reads_its_text_once() -> None:

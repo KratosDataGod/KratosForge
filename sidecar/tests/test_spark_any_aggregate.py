@@ -21,6 +21,8 @@ def spark():
     ("SELECT any(x) = false FROM kf_any", False),
     ("SELECT some(x) = true FROM kf_any WHERE NOT x", False),
     ("SELECT any(x) FROM kf_any", True),
+    ("SELECT true = any(x) FROM kf_any", True),
+    ("SELECT any(x) AND NOT any(x) FROM kf_any", False),
 ])
 def test_any_on_the_left_of_a_comparison_is_the_aggregate(spark, query: str, want: bool) -> None:
     assert spark.sql(query).collect()[0][0] is want
@@ -29,3 +31,5 @@ def test_any_on_the_left_of_a_comparison_is_the_aggregate(spark, query: str, wan
 def test_any_on_the_right_stays_a_quantifier() -> None:
     written = sql.parse("SELECT x = ANY (SELECT y FROM u) FROM t")[0].sql(dialect=sql.KfDuckDB)
     assert "ANY (SELECT" in written and "BOOL_OR" not in written
+    liked = sql.parse("SELECT s LIKE ANY ('a%', 'b%') FROM t")[0].sql(dialect=sql.KfDuckDB)
+    assert "BOOL_OR" not in liked and "LIKE 'b%'" in liked

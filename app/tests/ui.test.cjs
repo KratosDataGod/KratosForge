@@ -6162,7 +6162,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker",
       "Databricks workspace discovery", "Connection profiles in Settings",
       "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
-      "Databricks workspace sync", "Databricks Asset Bundles in Source control"],
+      "Databricks workspace sync", "Databricks Asset Bundles in Source control", "Checking a Snowflake connection"],
     embedStudio: ["Embed Studio"], sqlStatements: ["Several statements in one run"], sqlParams: ["Query parameters"],
     sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"], ossie: ["Ossie file to TMDL"],
   };

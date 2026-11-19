@@ -47,12 +47,14 @@ def error(engine, sql, dialect="tsql"):
     ("SELECT id FROM t JOIN u ON t.id = u.id", "Ambiguous column name 'id'."),
 ])
 def test_a_name_that_isnt_there_is_said_as_sql_server_says_it(engine, sql, says):
-    assert error(engine, sql) == says
+    number = {"Invalid column": 207, "Invalid object": 208, "Ambiguous column": 209}[" ".join(says.split()[:2])]
+    assert error(engine, sql) == f"Msg {number}, Level 16: {says}"
 
 
 def test_in_a_script_it_names_the_statement_and_what_ran(engine):
     text = error(engine, "SELECT * FROM t; SELECT nope FROM t")
-    assert text == "Statement 2 of 2 (SELECT) failed: Invalid column name 'nope'. Statement 1 ran, and what it " \
+    assert text == "Statement 2 of 2 (SELECT) failed: Msg 207, Level 16: Invalid column name 'nope'. " \
+                   "Statement 1 ran, and what it " \
                    "changed is kept."
 
 

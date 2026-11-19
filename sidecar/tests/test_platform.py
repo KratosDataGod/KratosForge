@@ -417,7 +417,7 @@ def test_an_entity_reads_another_teams_table_through_a_link(svc, tmp_path):
     res = Engine(project, store, link_table=lambda alias: uri).run("silver.regions")
     assert res.status == "ok", res.message
     assert store.read("LH_Silver", "dbo", "regions").height == 2
-    with pytest.raises(GateError, match="read it"):
+    with pytest.raises(GateError, match="silver.regions reads it"):
         svc.mesh_delete_link("regions")
 
 

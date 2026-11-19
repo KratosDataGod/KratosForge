@@ -1274,8 +1274,11 @@ def spark_integer_cast(value: str, duck_type: str, spark_type: str, mode: str) -
         string = (f"CASE WHEN regexp_matches({text}, '{_WHOLE_NUMBER}') THEN CAST(regexp_extract({text}, "
                   f"'{_WHOLE_NUMBER}', 1) AS {duck_type}) ELSE ERROR({message}) END")
     else:
-        pattern = _PLAIN_NUMBER if mode == "legacy" else _WHOLE_NUMBER
-        string = f"TRY_CAST(NULLIF(regexp_extract({text}, '{pattern}', 1), '') AS {duck_type})"
+        if mode == "legacy":  # '.5' and '-.5' are 0 too, as Spark's UTF8String.toInt reads them
+            from .spark_text_compare import whole_text
+            string = whole_text(value, duck_type)
+        else:
+            string = f"TRY_CAST(NULLIF(regexp_extract({text}, '{_WHOLE_NUMBER}', 1), '') AS {duck_type})"
     # A timestamp is its seconds since 1970 (UTC), rounded down, as in Spark (EA-014); DuckDB has no such
     # cast. It is read through text, so the CASE binds whatever the value's type.
     seconds = f"floor(epoch(TRY_CAST({text} AS TIMESTAMPTZ)))"
@@ -2369,6 +2372,8 @@ def _decimal_types(statement: exp.Expression, con: duckdb.DuckDBPyConnection, di
 written from its argument's type as Spark writes it (spark_json)."""
     if sql_dialects.get(dialect)["id"] != "spark":
         return statement
+    from . import spark_text_compare
+    statement = cast(exp.Expression, spark_text_compare.spark_text_comparisons(statement, con))
     statement = cast(exp.Expression, spark_decimals.spark_decimal_types(statement, con))
     return cast(exp.Expression, spark_complex.spark_complex_types(statement, con, kinds=("to_json",)))
 

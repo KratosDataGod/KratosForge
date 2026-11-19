@@ -713,7 +713,8 @@
               "exercises": [
                 "E32",
                 "E33",
-                "E34"
+                "E34",
+                "E69"
               ],
               "capstones": [
                 "C1"
@@ -775,7 +776,8 @@
               "fabric_required": false,
               "best_local": "local_verified",
               "exercises": [
-                "E36"
+                "E36",
+                "E70"
               ],
               "capstones": [
                 "C1"

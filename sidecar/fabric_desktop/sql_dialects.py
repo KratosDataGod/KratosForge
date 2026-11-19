@@ -27,8 +27,8 @@ _ESCAPES = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 # sqlglot reads and writes a query by recursion, so brackets or operators nested too deeply (about 60 brackets)
 # (SELECT ((((...1)))), or 1 + 1 + ... a thousand times) run out of Python's stack: a RecursionError,
 # which no caller expected and so came out as a crash. It is this refusal instead.
-TOO_DEEP = ("The query is nested too deeply to read on this PC: too many brackets, operators or calls "
-            "inside one another. Split it into smaller parts, such as a WITH clause or a view.")
+TOO_DEEP = ("The query is nested too deeply to read on this PC, because too many brackets, operators or calls "
+            "sit inside one another, so nothing ran. Split it into smaller parts, such as a WITH clause or a view.")
 
 
 def parse_problem(exc: Exception) -> str:
@@ -140,7 +140,8 @@ def bad_number() -> Exception:
     """The ParseError for a number sqlglot can't read as a decimal (Spark's 1e10.5BD stopped its build_cast
     with decimal.InvalidOperation). ``final``: DuckDB SQL wouldn't read it either."""
     from sqlglot.errors import ParseError
-    error = ParseError("A number in the query isn't written the way Spark SQL reads one (such as 1.5BD or 1e10).")
+    error = ParseError("A number in the query isn't written the way Spark SQL reads one, so nothing ran. "
+                       "Write it like 1.5BD or 1e10.")
     error.final = True  # type: ignore[attr-defined]
     return error
 
@@ -173,7 +174,8 @@ def _check_arguments(statements: list[Any], read: Any) -> None:
                 while isinstance(call.parent, exp.Func) and call.meta.get("start") is None:
                     call = call.parent  # the call as written: sqlglot wraps arguments in its own conversions
                 name = call.name if isinstance(call, exp.Anonymous) else call.sql_name()
-                error = ParseError(f"{str(name).lower()}() is missing an argument it needs.")
+                error = ParseError(f"{str(name).lower()}() is missing an argument it needs, so nothing ran. "
+                                   "Spark stops on it too. Add the missing argument.")
                 error.final = True  # type: ignore[attr-defined]
                 raise error
 

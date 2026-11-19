@@ -58,7 +58,7 @@ Queries over 100,000 characters are checked when you press **Check now** in the 
 ## Queries this PC refuses to read
 
 Spark SQL that runs on this PC is read first, and a query that can't be read is refused with a message that
-says why; nothing runs. Besides SQL with a mistake in it, that is:
+says why, and nothing runs. Besides SQL with a mistake in it, that is:
 
 - A query nested too deeply: brackets, operators or calls inside one another a few dozen levels deep, or
   more than 12 calls named like a type (`string(`, `int(`, `struct(`, `decimal(`...) inside one another, which

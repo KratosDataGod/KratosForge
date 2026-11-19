@@ -1178,7 +1178,9 @@ class LakehouseReader:
         given = self._options
         self._refusal("csv")
         # A comma unless sep or delimiter says otherwise, as in Spark: DuckDB would guess one from the file.
-        extra: dict[str, Any] = {"sep": str(given.get("sep") or given.get("delimiter") or ",")}
+        # skiprows 0: Spark never leaves out a line, where DuckDB's sniffer drops the first lines of a file
+        # when they don't look like the rest (a title, or a first row with fewer columns), with no error.
+        extra: dict[str, Any] = {"sep": str(given.get("sep") or given.get("delimiter") or ","), "skiprows": 0}
         if not _true(given.get("inferschema", False)) or getattr(self, "_schema", None):
             extra["all_varchar"] = True
         if given.get("nullvalue") not in (None, ""):

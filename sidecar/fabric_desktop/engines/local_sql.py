@@ -121,7 +121,7 @@ class _SqlSession:
                 seconds = time.perf_counter() - started
                 status = "cancelled" if self._cancelled else "error"
                 out = {"type": "error", "ename": type(exc).__name__,
-                       "evalue": "Cancelled." if self._cancelled else str(exc)}
+                       "evalue": "Cancelled." if self._cancelled else _refusal_text(str(exc))}
                 outputs = [*self._preamble, out]
                 if on_output:
                     for o in outputs:
@@ -242,6 +242,13 @@ _DUCKDB_CLOSED = {"enable_external_access": False, "autoinstall_known_extensions
                   "autoload_known_extensions": False}
 
 
+def _refusal_text(text: str) -> str:
+    """A refusal written into the query (an error(...) with a Databricks error class, such as MERGE's) without
+    the "Invalid Input Error: " DuckDB puts in front of it, so it reads as Databricks writes it."""
+    prefix = "Invalid Input Error: "
+    return text[len(prefix):] if text.startswith(prefix + "[DELTA_") else text
+
+
 class OutsideSession(PermissionError):
     """A statement would change something outside the session's own database."""
 
@@ -301,6 +308,8 @@ def _databricks(code: str) -> list[Any]:
         raise ValueError(_databricks_wording(text)) from None
     # and its table statements: identity and generated columns, USING DELTA, refusals for the rest (WR-309)
     rewritten = [written for statement in rewritten for written in databricks_builtins_sql.table_statements(statement)]
+    # and the statements Databricks answers another way: DESCRIBE TABLE, MERGE's multiple matches, refusals
+    rewritten = [written for statement in rewritten for written in databricks_builtins_sql.other_statements(statement)]
     # the same for a refusal written into the query, which stops it only when a row reaches it; only an
     # ERROR(...) that carries a refusal's own words, so a message the cell's author wrote stays as written
     for statement in rewritten:

@@ -676,6 +676,12 @@ On this PC:
 | Two sessions in the app (two SQL tabs, a tab and a pipeline step) changing one table at once | They take turns: a project runs one statement at a time, so every change lands and none is lost. A read sees a change whole or not at all |
 | Another writer (a notebook, another tool) commits to a project Delta table between this statement's read and its commit, with an `UPDATE`, `DELETE` or `MERGE` | This statement stops with "Nothing was committed to …, because another writer changed it after this statement read it" (a Fabric Warehouse reports this as error 24556). The table then shows the other writer's change, and running it again applies it on top |
 | Another writer's `INSERT` beside this statement's `UPDATE` | Both commit, as in a warehouse |
+| Another writer commits to a project Delta table (adds or deletes rows, adds a column, replaces it, runs `VACUUM`), makes one in `Tables` or deletes one | The next statement reads the table as that writer left it, without a refresh, as a warehouse's next snapshot would |
+| Another writer changes a project Delta table's columns, properties or constraints while this statement's `UPDATE`, `DELETE` or `MERGE` runs | Stopped as above, with "Nothing was committed to …" (error 24556), and the table keeps the other writer's change |
+| Another writer deletes a project Delta table's folder while this statement changes it | Stops with "… was dropped by another writer while this statement ran", nothing of it kept, and the table is gone from the list. A warehouse then says `Invalid object name` |
+| Two sessions in the app: one adding, dropping or replacing a table or its columns, the other reading or changing it | They take turns, so every statement sees the table whole, before or after the change. A read after a `DROP TABLE` says the table doesn't exist |
+| `ALTER TABLE … ADD`, `DROP` or `ALTER COLUMN` on a project Delta table | Refused by name. Write the table again with the columns you want: `CREATE OR REPLACE TABLE … USING DELTA AS SELECT … FROM …`, which keeps every version before it |
+| `TRUNCATE TABLE` on a project Delta table | Refused by name. `DELETE FROM` the table removes every row the same way, as a new version |
 
 What can still differ:
 

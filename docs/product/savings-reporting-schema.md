@@ -23,7 +23,13 @@ Plan: [enterprise-savings-intelligence-plan.md](enterprise-savings-intelligence-
 3. **Gross never exceeds the baseline.** Per execution, the layers (optimizations in order, then
    this PC, then unattributed) add up to at most the workload's baseline CU per run.
 4. **Append-only.** Ledger rows are never edited. A correction or reversal is a new row naming
-   the row it corrects (`corrects`). The current value of an execution is the sum of its rows.
+   the row it corrects (`corrects`). Each layer's rows form a chain from its accrual through
+   each correction. The layer's current value is what the chain's head (the row nothing corrects)
+   says it is now: `result_cu_hours` and `result_classification` on a correction or reversal, or
+   the accrual's own figure when nothing corrects it. Never add a chain's rows to get the value:
+   when a correction withdraws a figure (the layer became Unknown, or was removed), the rows add up
+   to 0 while the layer is Unknown, and a sum would show 0 as Measured. The sum of a chain is only
+   a check that the ledger adds up (`savings/corrections.py`, `reconcile`).
 5. **Realized savings need billing evidence.** Only a Cost Management export or a capacity SKU
    change, confirmed by a person, is labelled realized (measure E). Lower utilization on the same
    SKU is capacity value and headroom, never realized savings.
@@ -63,7 +69,7 @@ strings. Who did something (tenant and user ids) is not stored until decision D3
 | --- | --- | --- | --- |
 | `fact_execution` | One run | `fdopt_local_execution` | `seconds`, `rows`, `bytes`, `cpu_seconds`, `peak_memory_bytes`, `input_bytes`, `output_bytes`, `reads`, `writes`, `transfer_seconds` (null where not measured). |
 | `fact_fabric_comparison` | One comparison of a run with Fabric runs of the same workload | `fdopt_measurements` where `metric = 'fabric_job_cu_avoided'` | `value` (CU), `classification`, `baseline_version`, `comparison_id`; the Fabric runs it rests on are in `assumptions`. |
-| `fact_savings_ledger` | One event per execution and attribution layer | `fdopt_savings` | `value` (CU hours avoided, signed: regressions and corrections can be negative), `event_type` (accrual, regression, correction, reversal), `attribution` (optimization id, `local`, `unattributed`), `classification`, `baseline_version`, `pricing_version`, `corrects`, `money` and `currency` (Scenario only). |
+| `fact_savings_ledger` | One event per execution and attribution layer | `fdopt_savings` | `value` (CU hours avoided, signed: regressions and corrections can be negative), `event_type` (accrual, regression, correction, reversal), `attribution` (optimization id, `local`, `unattributed`), `classification`, `baseline_version`, `pricing_version`, `corrects`, `money` and `currency` (Scenario only); on corrections and reversals `result_cu_hours`, `result_classification`, `layer_removed` and `reason`. The last four aren't columns of `fdopt_savings` yet (see "Not in this layer yet"). |
 | `fact_attribution` | One waterfall layer of one execution | `fdopt_attribution` | `cu_hours`, `layer`, `layer_order`, `classification`, `ledger_event_id` (joins to the ledger). |
 | `fact_optimization_event` | One lifecycle event | `fdopt_recommendations` | State changes by `version`; a change made against an older version is a conflict, not an overwrite. |
 | `fact_validation` | One before-and-after comparison | `fdopt_validation` | `result`, `outputs_match`, before and after measurement ids. |
@@ -77,7 +83,7 @@ The letters match plan section 4.6.
 
 | Measure | Definition | Classification |
 | --- | --- | --- |
-| **A. Fabric CU avoided, gross** | Sum of `fact_savings_ledger.value` per execution, at most the baseline per execution | Weakest of the rows; Unknown rows counted beside |
+| **A. Fabric CU avoided, gross** | Per execution, the sum over its layers of each layer's current value (rule 4: the chain head's result), at most the baseline per execution | Weakest of the layers' current classifications; Unknown layers counted beside, never as 0 |
 | **A. Fabric CU avoided, net** | Gross minus overhead events (OneLake I/O, sync) for the same execution | Incomplete where overhead is Unknown |
 | **A by source** | Gross split by `attribution`: each optimization, `local` (this PC), `unattributed` (split waits for an after measurement) | As above |
 | **B. Capacity headroom** | CU avoided as a share of capacity over time, from `fact_capacity_utilization` timepoints, never from totals alone | Estimated |
@@ -105,6 +111,11 @@ each row, and the allocations add up to exactly E.
 - Every fact's `installation_id` to `dim_device`.
 
 ## Not in this layer yet
+
+- Writing corrections and reversals: `fdopt_savings` has no `layer`, `cu_hours`, `classification`,
+  `result_cu_hours`, `result_classification`, `layer_removed` or `reason` columns yet. Adding them
+  is an additive schema change co-signed with the Lakehouse optimize owners, before ESI-404 events
+  are written.
 
 - Per-person and per-tenant reporting, the leaderboard and developer contribution: after D3 and D5.
 - Organization-wide totals collected through a central UDF: after the mode C decision.

@@ -412,3 +412,15 @@ def test_applying_corrections_makes_the_ledger_equal_the_latest_attribution():
         else:
             assert report["ledger"]["value"] in (None, 0)
         assert len({e["ledger_event_id"] for e in ledger}) == len(ledger)  # nothing collides
+
+
+def test_matching_totals_with_a_ledger_problem_are_not_reconciled():
+    a = at.attribute(run(at.FABRIC), measured(10), [opt("o1", measured(6))])
+    first = a["layers"][0]
+    # The same event id again with a different figure: only the first counts, so the totals match,
+    # but the ledger is out of order and must not be called reconciled.
+    clash = dict(first, cu_hours=first["cu_hours"] + 1)
+    report = co.reconcile(a["layers"] + [clash], [a])
+    assert report["mismatched"] == 0 and report["runs"][0]["status"] == "matched"
+    assert report["problems"] and "twice with different figures" in report["problems"][0]
+    assert report["reconciled"] is False

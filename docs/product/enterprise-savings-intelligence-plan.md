@@ -446,7 +446,7 @@ linked to optimizations by a confirmed person action; measure F.
 - Acceptance: nothing is labelled realized without billing or capacity-change evidence; an F64
   with lower utilization shows value and headroom, not realized savings.
 
-**ESI-404 Corrections.** **Built** (engine only, no writes). `savings/corrections.py`. Correction and reversal events with `corrects`; reconciliation report
+**ESI-404 Corrections.** **Built** (engine only, no writes). `savings/corrections.py`. Writing its events waits on an additive `fdopt_savings` change (layer, CU hours, classification, result CU hours and classification, layer removed, reason), co-signed with Lakehouse optimize. Correction and reversal events with `corrects`; reconciliation report
 that rebuilds totals from the ledger and compares.
 - Tests: scenario 19.
 

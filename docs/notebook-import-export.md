@@ -54,7 +54,7 @@ Every Databricks import (source files and `.dbc` archives) and every export as D
 | In Databricks | In KratosForge | Listed as |
 | --- | --- | --- |
 | Cells, markdown (`%md`), Python (`%python`) | The same | Not listed |
-| `%sql`, `%scala`, `%r`, `%sh` cells | `%%sql`, `%%spark`, `%%sparkr`, `%%sh` cells | Changed |
+| `%sql`, `%scala`, `%r`, `%sh` cells | `%%sql`, `%%spark`, `%%sparkr`, `%%sh` cells. A `%%sh` cell fails on a non-zero exit code, as `%sh -e` does in Databricks. A `%sh -e` cell stays `%sh -e` | Changed |
 | `%md-sandbox` | A markdown cell; its HTML and styles may look different | Changed |
 | `%run`, `%fs`, `%pip` and other line magics | Kept as written; they run on this PC | Not listed, except `%run` with a workspace path (`./`, `../` or `/`), which runs the notebook of that name from this PC's notebooks folder: import that notebook too (Check) |
 | `dbutils.notebook`, `dbutils.secrets`, `dbutils.jobs.taskValues`, `dbutils.fs` | Kept; they run on this PC ([dbutils on this PC](notebooks.md)) | Not listed |

@@ -19,7 +19,7 @@ from typing import Any
 
 from . import magics
 from .onelake import DFS_HOST
-from .notebook import _RUN_SCRIPT, MAX_RUN_DEPTH, _run_target, configure_report, to_ipynb
+from .notebook import _RUN_SCRIPT, MAX_RUN_DEPTH, _run_target, configure_report, fs_magic_blocker, to_ipynb
 
 SHIM_MARKER = "# Fabric Desktop setup"
 # Another notebook by name: its cells, or {"cells", "lakehouse"} (compute_check).
@@ -904,6 +904,11 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
                             local.append({"cell": n, "text": refused[1], "code": _line(source, line_magic.line)})
                             break
                         sql_unknown.append((line_magic.line, refused[1]))
+        if len(local) == blocked and language == "python":
+            for fs_line in (m for m in magics.find(source) if m.name == "fs"):
+                if fs_text := fs_magic_blocker(fs_line.rest):
+                    local.append({"cell": n, "text": fs_text, "code": _line(source, fs_line.line)})
+                    break
         if read:
             unknown = list(read["unknown"])
         runs: list[tuple[int, str | None, str, bool | None]] = list(read["runs"]) if read else []

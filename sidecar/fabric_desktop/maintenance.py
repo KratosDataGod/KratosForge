@@ -205,17 +205,26 @@ def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[
     """OPTIMIZE (compaction, no V-Order) and VACUUM for a table on this PC, keeping ``days`` of history.
     Fewer than MIN_RETENTION_DAYS is refused before anything changes, unless ``allow_shorter``."""
     check_retention(days, allow_shorter)
-    before = DeltaTable(uri).version()
+    first = DeltaTable(uri)
+    before, files_before = first.version(), len(first.file_uris())
     set_retention(uri, days, allow_shorter=allow_shorter)
     table = DeltaTable(uri)
     metrics = table.optimize.compact()
-    removed = table.vacuum(retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False)
+    present = {Path(e.path).relative_to(uri).as_posix() for e in _data_folder_files(uri)}
+    listed = table.vacuum(retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False)
+    # Counted from what this VACUUM actually removed: delta-rs also lists a file already gone meanwhile.
+    root = uri.rstrip("/") + "/"
+    listed = [unquote(p[len(root):] if p.startswith(root) else p) for p in listed]
+    removed = [p for p in listed if p in present and not (Path(uri) / p).exists()]
     # A data file no commit names (a write stopped before its commit) goes once it's as old as the
     # history kept, the age at which VACUUM removes any file: a write still under way never loses one.
     unnamed = _remove(uri, _unnamed(uri, table, retention_hours(days)))
     staged = _remove(uri, _stale_staged(uri))
-    durable.sync_commits(uri, before + 1, DeltaTable(uri).version())  # the compacted files and their commits
+    after = DeltaTable(uri)
+    durable.sync_commits(uri, before + 1, after.version())  # the compacted files and their commits
+    # files_before and files_after are counted from the Delta log, before and after: measured, not estimated.
     return {"files_added": metrics.get("numFilesAdded", 0), "files_removed": metrics.get("numFilesRemoved", 0),
+            "files_before": files_before, "files_after": len(after.file_uris()),
             "vacuumed": len(removed), "unnamed_removed": unnamed, "staged_removed": staged}
 
 

@@ -24,8 +24,7 @@ from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
 from . import (spark_aggregates, spark_builtins_sql, spark_complex, spark_datetime, spark_decimals, spark_hash,
-               spark_sql_names,
-               spark_strings, spark_windows, sql_dialects)
+               spark_sql_names, spark_strings, spark_time_zone, spark_windows, sql_dialects)
 from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
 
 # sqlglot logs a warning when it reads a statement as a bare command ('SHOW TABLES' ...). With no
@@ -192,20 +191,23 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
         ansi=databricks))
     statement = spark_windows.spark_window_results(spark_complex.spark_complex_results(statement))
     if databricks:
-        return _spark_range(_ansi_divisions(statement))
-    return _spark_range(_spark_session_functions(_null_remainders(_not_in_spark_3_5(statement))))
+        return _spark_range(spark_time_zone.fix(_ansi_divisions(statement)))
+    return _spark_range(spark_time_zone.fix(_spark_session_functions(_null_remainders(_not_in_spark_3_5(statement)))))
 
 
 def _spark_range(statement: exp.Expression) -> exp.Expression:
     """FROM range(...): Spark's column is ``id``, DuckDB's is ``range``. A fourth argument (Spark's number
     of partitions) changes no values, so it is left out. Written last, so the cast stays a plain cast. A
-    query that reads a column named ``range`` (written for DuckDB's range, which Spark stops on) keeps it."""
-    if any(c.name.lower() == "range" for c in statement.find_all(exp.Column)):
+    query that reads range()'s column ``range`` (written for DuckDB's range, which Spark stops on) keeps it; a
+    table's own column named range (t.range) doesn't count."""
+    calls = [t for t in statement.find_all(exp.Table) if isinstance(t.this, exp.Anonymous)
+             and t.this.name.upper() == "RANGE" and 1 <= len(t.this.expressions) <= 4]
+    names = {(t.alias or "range").lower() for t in calls}
+    if any(c.name.lower() == "range" and (not c.table or c.table.lower() in names)
+           for c in statement.find_all(exp.Column)):
         return statement
-    for table in list(statement.find_all(exp.Table)):
+    for table in calls:
         call = table.this
-        if not (isinstance(call, exp.Anonymous) and call.name.upper() == "RANGE" and 1 <= len(call.expressions) <= 4):
-            continue
         args = ", ".join(duckdb_sql(a.copy()) for a in call.expressions[:3])
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier("range"))
         query = sql_dialects.parse_one(f"SELECT CAST(range AS BIGINT) AS id FROM range({args})", read="duckdb")
@@ -389,8 +391,9 @@ def _spark_session_functions(statement: exp.Expression) -> exp.Expression:
                                         exp.CurrentSchema)):
         if isinstance(node, exp.CurrentCatalog):
             new: exp.Expression = exp.Literal.string("spark_catalog")
-        elif isinstance(node, exp.CurrentTimezone):
-            new = exp.Anonymous(this="CURRENT_SETTING", expressions=[exp.Literal.string("TimeZone")])
+        elif isinstance(node, exp.CurrentTimezone):  # the id spark.conf set (spark_api), else DuckDB's zone
+            new = cast(exp.Expression, sqlglot.parse_one(
+                "COALESCE(GETVARIABLE('kf_spark_time_zone'), CURRENT_SETTING('TimeZone'))", read="duckdb"))
         else:
             name = "current_database" if isinstance(node, exp.CurrentDatabase) else "current_schema"
             raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric, so nothing ran: in Fabric "
@@ -458,15 +461,35 @@ def _bround(places: int) -> str:
             f"THEN TRUNC({{0}}, {places}) ELSE ROUND({{0}}, {places}) END")
 
 
-# format_number(x, d) with a whole number of places: decimals round half-even first, as Spark's
-# BigDecimal does; doubles are formatted as they are, as Java's DecimalFormat does.
-_FORMAT_NUMBER = ("CASE WHEN TYPEOF({0}) LIKE 'DECIMAL%' THEN FORMAT('{{:,.{1}f}}', CAST(ROUND_EVEN({0}, {1}) AS DOUBLE)) "
-                  "ELSE FORMAT('{{:,.{1}f}}', CAST({0} AS DOUBLE)) END")
+_FORMAT_NUMBER_MOST = 18  # places: DECIMAL(38, 18) still keeps 20 whole digits
+
+
+def _format_number(places: int) -> str:
+    """format_number(x, d) with a whole number of places, as Java's DecimalFormat writes it for Spark. A whole
+    number or a decimal keeps every digit (a BIGINT or DECIMAL(38) went through DOUBLE, so
+    123456789012345678 was written 123,456,789,012,345,680); a decimal rounds half-even, as Spark's BigDecimal
+    does, and keeps a - when it rounds to 0 (-0.4 is -0). Doubles are formatted as they are."""
+    zeros = f" || '.{'0' * places}'" if places else ""
+    # + 0.0 makes a whole number a decimal before it is scaled: DuckDB 2 works out this branch for an integer
+    # constant too, and an INT64 times 10^d could overflow there.
+    rounded = f"CAST(({_bround(places)}) AS DECIMAL(38, {places}))".replace("{0}", "({0} + 0.0)")
+    whole = f"SPLIT_PART(CAST({rounded} AS VARCHAR), '.', 1)"
+    fraction = f" || '.' || SPLIT_PART(CAST({rounded} AS VARCHAR), '.', 2)" if places else ""
+    exact = (f"(CASE WHEN {{0}} < 0 AND CAST({whole} AS HUGEINT) = 0 THEN '-' ELSE '' END) || "
+             f"FORMAT('{{{{:,}}}}', CAST({whole} AS HUGEINT)){fraction}")
+    return (f"CASE WHEN TYPEOF({{0}}) IN ('TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT') "
+            f"THEN FORMAT('{{{{:,}}}}', CAST({{0}} AS HUGEINT)){zeros} "
+            f"WHEN TYPEOF({{0}}) LIKE 'DECIMAL%' THEN {exact} "
+            f"ELSE FORMAT('{{{{:,.{places}f}}}}', CAST({{0}} AS DOUBLE)) END")
 # exists(array, x -> ...): true if any is true, else NULL if any is NULL, else false (Spark's
 # three-valued exists).
 _EXISTS = ("(LIST_TRANSFORM([LIST_TRANSFORM({0}, {1})], kf_t -> CASE WHEN kf_t IS NULL THEN NULL "
            "WHEN LIST_BOOL_OR(kf_t) THEN TRUE WHEN LIST_POSITION(kf_t, NULL) IS NOT NULL THEN NULL ELSE FALSE END))[1]")
-_DISTINCT = "LIST_FILTER({0}, (kf_v, kf_i) -> LIST_POSITION({0}, kf_v) = kf_i)"
+# A DOUBLE or FLOAT array is kept apart by each value's text, since Spark keeps 0.0 and -0.0 apart (DuckDB's
+# = takes them as one); NaN is one value either way. TYPEOF folds when the query is planned.
+_DISTINCT = ("CASE WHEN TYPEOF({0}) IN ('DOUBLE[]', 'FLOAT[]') THEN LIST_FILTER({0}, (kf_v, kf_i) -> "
+             "LIST_POSITION(LIST_TRANSFORM({0}, kf_w -> CAST(kf_w AS VARCHAR)), CAST(kf_v AS VARCHAR)) = kf_i) "
+             "ELSE LIST_FILTER({0}, (kf_v, kf_i) -> LIST_POSITION({0}, kf_v) = kf_i) END")
 # array_intersect and array_except: first-seen order of the first array, each value once, NULL included.
 _INTERSECT = ("CASE WHEN ({0}) IS NULL OR ({1}) IS NULL THEN NULL ELSE LIST_FILTER({0}, (kf_v, kf_i) -> "
               "LIST_POSITION({0}, kf_v) = kf_i AND LIST_POSITION({1}, kf_v) IS NOT NULL) END")
@@ -702,8 +725,17 @@ def _spark_functions(databricks: bool, statement: exp.Expression) -> exp.Express
                 places = args[1]
                 if isinstance(places, exp.Neg) and places.this.is_int:  # a negative count is NULL in Spark
                     node.replace(exp.Null())
-                elif places.is_int:
-                    node.replace(_from_template(_FORMAT_NUMBER.replace("{1}", str(int(places.name))), [args[0]]))
+                elif places.is_int or (isinstance(places, exp.Literal) and not places.is_string and places.name.isdigit()):
+                    # isdigit first: sqlglot's is_int is False past Python's 4,300 digits
+                    if len(places.name.lstrip("0")) > 2 or int(places.name.lstrip("0") or "0") > _FORMAT_NUMBER_MOST:
+                        raise ValueError(f"This Spark SQL can't be run on this PC: format_number with more than "
+                                         f"{_FORMAT_NUMBER_MOST} decimal places isn't written here. Spark writes "
+                                         "them, but a decimal here keeps at most 38 digits in all.")
+                    node.replace(_from_template(_format_number(int(places.name.lstrip("0") or "0")), [args[0]]))
+                elif isinstance(places, exp.Literal) and places.is_string:
+                    raise ValueError("format_number() with a pattern can't run on this PC the way it runs in Fabric, "
+                                     "so nothing ran: Java's DecimalFormat patterns aren't written here. Give the number "
+                                     "of decimal places, or run the cell in Fabric.")
             elif name == "FORALL" and len(args) == 2 and isinstance(args[1], exp.Lambda):
                 # forall(a, x -> p) is NOT exists(a, x -> NOT p): FALSE on any FALSE, else NULL on any NULL.
                 negated = exp.Lambda(this=exp.Not(this=exp.paren(args[1].this.copy())),
@@ -1873,6 +1905,7 @@ def _spark_timestampdiff(statement: exp.Expression) -> exp.Expression:
 
 
 _TIME_TYPES = "'DATE', 'TIMESTAMP', 'TIMESTAMP WITH TIME ZONE', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP_NS'"
+_NTZ_TYPES = "'TIMESTAMP', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP_NS'"
 
 
 def _strptime_format(node: exp.Expression) -> tuple[str, bool]:
@@ -2102,7 +2135,8 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
         swapped = between.replace(cast(exp.Expression, sqlglot.parse_one(value, read="duckdb")))
         node = swapped if between is node else node
     for unix in list(node.find_all(exp.StrToUnix)):
-        value = duckdb_sql(unix.this)
+        # The argument goes in as its node (_with_args), so a call in it is still rewritten by the later passes.
+        value = "fj_arg0"
         pattern = spark_builtins_sql.written_pattern(unix) if unix.args.get("format") else None
         if pattern is not None:  # read as Spark reads its pattern (spark_datetime)
             name = unix.meta.get(spark_sql_names._NAME) or "unix_timestamp"
@@ -2111,9 +2145,12 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
             fmt, has_year = _strptime_format(unix) if unix.args.get("format") else ("'%Y-%m-%d %H:%M:%S'", True)
             # Without a year Spark reads the date as 1970-01-01; strptime starts from 1900-01-01.
             parsed = f"try_strptime(CAST({value} AS VARCHAR), {fmt})" + ("" if has_year else " + INTERVAL 70 YEAR")
-        swapped = unix.replace(cast(exp.Expression, sqlglot.parse_one(
-            f"CAST(floor(epoch(CASE WHEN typeof({value}) IN ({_TIME_TYPES}) THEN TRY_CAST({value} AS TIMESTAMPTZ) "
-            f"ELSE CAST({parsed} AS TIMESTAMPTZ) END)) AS BIGINT)", read="duckdb")))
+        # A timestamp_ntz (DuckDB's TIMESTAMP) is read as UTC, as Spark reads it; a date and text are read in
+        # the session's time zone.
+        swapped = unix.replace(_with_args(
+            f"CAST(floor(CASE WHEN typeof({value}) IN ({_NTZ_TYPES}) THEN epoch(TRY_CAST({value} AS TIMESTAMP)) "
+            f"WHEN typeof({value}) IN ({_TIME_TYPES}) THEN epoch(TRY_CAST({value} AS TIMESTAMPTZ)) "
+            f"ELSE epoch(CAST({parsed} AS TIMESTAMPTZ)) END) AS BIGINT)", [unix.this]))
         node = swapped if unix is node else node
     for sub in list(node.find_all(exp.Substring)):
         start = sub.args.get("start")

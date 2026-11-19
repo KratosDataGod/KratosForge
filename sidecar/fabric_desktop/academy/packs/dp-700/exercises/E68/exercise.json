@@ -1,0 +1,146 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E68",
+  "version": 1,
+  "status": "draft",
+  "title": "Broken: a notebook MERGE fails because the source has two rows for one key",
+  "objectives": [
+    "3.2.3",
+    "2.2.9"
+  ],
+  "objective_text": "Read the error from a failing notebook MERGE, find the repeated keys in the source batch behind it, and keep each order's newest change so the MERGE runs, updates and inserts the right rows, and is safe to run again.",
+  "scenario": "A notebook merges each day's order updates into silver.orders, which holds one row per order. Today it fails at the MERGE. The source now sends every change to an order, not just the last one, and sometimes sends the same change twice. silver.orders must end up with each order's newest state, and the orders that had no changes today must stay as they are.",
+  "prerequisites": [
+    "LM-11"
+  ],
+  "minutes": 20,
+  "mode": "troubleshoot",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "lesson": "lesson.md",
+  "datasets": [
+    {
+      "name": "silver.orders",
+      "rows": 4,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    },
+    {
+      "name": "bronze.order_updates",
+      "rows": 6,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    }
+  ],
+  "starting_environment": "Delta tables silver.orders (one row per order, from yesterday) and bronze.order_updates (today's changes) in the exercise folder, and the failing notebook as answer.py.",
+  "fault": {
+    "summary": "Today's batch holds more than one row for some orders, so several source rows match the same row of silver.orders and Delta refuses the MERGE.",
+    "planted": [
+      {
+        "where": "bronze.order_updates",
+        "what": "order 2 arrives twice with different statuses, order 3 twice with the same values, and new order 5 twice with different amounts"
+      },
+      {
+        "where": "answer.py, the MERGE",
+        "what": "the batch is merged as it arrives, with no step that keeps one row per order_id"
+      }
+    ],
+    "symptom": "The MERGE stops with DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE: multiple source rows matched the same target row."
+  },
+  "required": [
+    "The MERGE runs: the source holds one row per order_id.",
+    "Each order that changed today gets its newest change, by updated_at.",
+    "New orders are added once, with their newest values.",
+    "Orders with no change today stay as they were, and a second run leaves the table the same."
+  ],
+  "expected": {
+    "description": "silver.orders has 5 rows: 1 placed, 2 cancelled, 3 shipped, 4 shipped and 5 placed at 55.00."
+  },
+  "verifies": [
+    "After your notebook runs, silver.orders holds each order's newest state once, with untouched orders unchanged, on the exercise data and on data you haven't seen, on this PC.",
+    "order_id is unique and never empty, the types are kept, and a second run leaves silver.orders the same."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark or in a Fabric notebook. The MERGE here runs on delta-rs, and the one-match check is made by the Academy's own code before it; it uses Delta's error name, but the full message is worded differently from Spark's.",
+    "Ties: two changes for one order with the same updated_at. The data has none; a real load needs a second column to break them.",
+    "Late changes older than what silver.orders already holds: the MERGE here updates every matched order. E42 adds that condition.",
+    "How Fabric shows the failure (the notebook's cell output and the Spark monitoring pages)."
+  ],
+  "validation": [
+    {
+      "kind": "result_matches",
+      "table": "silver.orders",
+      "data": "practice",
+      "weight": 2,
+      "required": true,
+      "pass": "silver.orders holds each order's newest state.",
+      "fail": "silver.orders doesn't match: look at which of an order's changes reached the table, and at the orders that had none today."
+    },
+    {
+      "kind": "result_matches",
+      "table": "silver.orders",
+      "data": "hidden",
+      "weight": 2,
+      "required": true,
+      "pass": "The fix also works on data you haven't seen.",
+      "fail": "The fix doesn't hold on other data: don't rely on these exact orders or on the order rows arrive in."
+    },
+    {
+      "kind": "table_shape",
+      "table": "silver.orders",
+      "columns": {
+        "order_id": "INT",
+        "status": "VARCHAR",
+        "amount": "DECIMAL",
+        "updated_at": "TIMESTAMP"
+      },
+      "unique": [
+        "order_id"
+      ],
+      "not_null": [
+        "order_id",
+        "status",
+        "updated_at"
+      ],
+      "weight": 1,
+      "required": true,
+      "pass": "One row per order, with the right types.",
+      "fail": "silver.orders has a repeated order_id, an empty key or a changed type: see the detail."
+    },
+    {
+      "kind": "idempotent",
+      "table": "silver.orders",
+      "weight": 1,
+      "required": true,
+      "pass": "A second run leaves silver.orders the same.",
+      "fail": "A second run changed silver.orders: look at what the load does to rows that are already there."
+    }
+  ],
+  "hints": [
+    "Read the error, then count the batch's rows per key: updates.groupBy(\"order_id\").count().where(\"count > 1\").show().",
+    "Some repeated rows are exact copies and some are different changes to the same order. Removing exact copies isn't enough: decide which one change per order should win.",
+    "A window function ranks the rows within each order_id: number them by updated_at, newest first, keep the first, then merge that."
+  ],
+  "explanation": "MERGE decides, for each row of the target, which source row changes it. If two source rows match the same target row, the result would depend on which one happened to be applied last, so Delta refuses the whole MERGE instead of guessing, and nothing is changed. The fix is in the source, not the MERGE: reduce the batch to one row per key before merging. Dropping exact duplicates only removes resent copies; two different changes to the same order are both still there. Ranking each order's rows with row_number over a window partitioned by the key and ordered by the change time, newest first, keeps the change that should win. With one row per key, an unconditional update and an insert for new keys make the load safe to rerun. Overwriting the table, or deleting and appending, makes the error go away but loses untouched orders or repeats the batch's duplicates.",
+  "troubleshooting": [
+    "The MERGE still fails after dropDuplicates(): only the exact copies were removed; an order with two different changes still has two rows.",
+    "Order 2 is shipped instead of cancelled: the window keeps the oldest change; order it newest first.",
+    "Orders 1 and 4 are gone: the batch overwrote the table instead of being merged into it.",
+    "Orders appear twice: the batch was appended without reducing it to one row per order."
+  ],
+  "remediation": [
+    "LM-11",
+    "LM-21",
+    "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
+  ],
+  "reset": "Reset rebuilds silver.orders and bronze.order_updates from setup.sql and puts the failing notebook back.",
+  "parity": null,
+  "review_notes": [
+    "The Academy's MergeBuilder checks Delta's one-match rule before delta-rs runs (pyspark_delta.MergeBuilder._one_match_each, WR-115), so the planted fault fails as it does in Spark rather than as duplicate rows.",
+    "wrong-drop-exact-duplicates fails with the same MERGE error, because order 2 still has two different changes.",
+    "The insert-only and unconditional-delete MERGE shapes skip the one-match check, as in Delta; the starter uses update and insert, so the check runs."
+  ]
+}

@@ -1,7 +1,7 @@
 {
   "schema": "kratosforge/academy-exercise@1",
   "id": "E21",
-  "version": 1,
+  "version": 2,
   "status": "live",
   "title": "Full or incremental: load orders with a watermark that misses nothing",
   "objectives": [
@@ -28,7 +28,7 @@
   "starter": "starter.sql",
   "datasets": [],
   "expected": {
-    "description": "silver_orders holds orders 1 to 5 once each, order 2 complete, and the watermark is 2026-03-02 13:30."
+    "description": "silver_orders holds orders 1 to 5 once each, order 2 complete at its new amount, and the watermark is 2026-03-02 13:30."
   },
   "validation": [
     {

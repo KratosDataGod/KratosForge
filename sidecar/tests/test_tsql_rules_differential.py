@@ -116,6 +116,19 @@ def cases(prefix: str) -> list[tuple[str, str, object]]:
         out.append(("REPLICATE", f"REPLICATE({q(s)}, {n})", None if n < 0 else s * n))
     for s in WORDS:  # functions/len-transact-sql: trailing spaces aren't counted
         out.append(("LEN", f"LEN({q(s)})", len(s.rstrip(" "))))
+    codes = random.Random(SEED + 2)  # its own draws too
+    for _ in range(40):
+        # functions/ascii-transact-sql and unicode-transact-sql: the code of the first character; '' gives NULL.
+        s = codes.choice([w for w in WORDS if w.isascii()])
+        out.append(("ASCII", f"ASCII({q(s)})", ord(s[0]) if s else None))
+        s = codes.choice(WORDS)
+        out.append(("UNICODE", f"UNICODE({q(s)})", ord(s[0]) if s else None))
+        # functions/char-transact-sql: "CHAR returns a NULL value for integer expressions outside this input
+        # range" (0 to 255); a fraction is cut toward zero as the int conversion does. 128 to 255 depend on the
+        # collation's code page, so they aren't drawn.
+        n = codes.choice([codes.randint(-5, 127), codes.randint(256, 400), round(codes.uniform(-2.9, 127.9), 1)])
+        # + '|' keeps a digit's character from reading back as a number; NULL + '|' is NULL.
+        out.append(("CHAR", f"CHAR({n}) + '|'", chr(int(n)) + "|" if 0 <= int(n) <= 127 else None))
     counts = random.Random(SEED + 1)  # its own draws, so the families after it keep their inputs
     for _ in range(40):
         # functions/space-transact-sql and replicate-transact-sql: a negative count gives NULL, and a count
@@ -214,3 +227,83 @@ def test_cases_are_seeded_and_cover_every_family() -> None:
     first = cases("")
     assert first == cases("") and len(first) > 1500
     assert {f for f, _, _ in first} >= {f for f, _ in KNOWN} | {"EQ", "LT", "LIKE", "PLUS"}
+
+
+@pytest.mark.parametrize(("expression", "want"), [
+    # T-SQL makes text an int before CHAR, SPACE or REPLICATE use it (data-type-conversion-database-engine).
+    ("CHAR('66')", "B"), ("CHAR(' 67 ')", "C"), ("CHAR('300')", None), ("SPACE('2') + '|'", "  |"),
+    ("REPLICATE('ab', '3')", "ababab"), ("REPLICATE('ab', '-1')", None),
+    ("(SELECT CHAR(c) FROM (VALUES ('66')) AS t(c))", "B"),
+    ("(SELECT REPLICATE('ab', c) FROM (VALUES ('2')) AS t(c))", "abab"),
+    ("(SELECT SPACE(c) + '|' FROM (VALUES ('1')) AS t(c))", " |"),
+    # '' and spaces alone convert to 0 (CAST('' AS INT) is 0 in T-SQL)
+    ("REPLICATE('ab', '') + '|'", "|"), ("SPACE('  ') + '|'", "|"), ("ASCII(CHAR(''))", 0),
+    ("(SELECT REPLICATE('ab', c) + '|' FROM (VALUES ('')) AS t(c))", "|"),
+    ("CHAR(-2147483648)", None), ("REPLICATE('a', 2147483647 - 2147483647)", ""),
+])
+def test_text_codes_and_counts_are_made_ints_as_tsql_does(engine, expression: str, want: object) -> None:
+    assert engine.execute(f"SELECT {expression} AS v", dialect="tsql")["rows"][0][0] == want
+
+
+@pytest.mark.parametrize("expression", [
+    "CHAR('6.5')", "(SELECT CHAR(c) FROM (VALUES ('6.5')) AS t(c))",
+    "(SELECT SPACE(c) FROM (VALUES ('x')) AS t(c))", "SPACE(1e400)", "CHAR('+')",
+    # past an int (CHAR, SPACE) or a bigint (REPLICATE): T-SQL's overflow error
+    "CHAR('9999999999')", "CHAR(1e10)", "CHAR(-2147483649)", "SPACE(2147483648)",
+    "(SELECT CHAR(c) FROM (VALUES ('9999999999')) AS t(c))", "(SELECT SPACE(c) FROM (VALUES (3000000000)) AS t(c))",
+    "REPLICATE('a', 9223372036854775808)",
+    # more digits than Python's int() reads (4,300) or a float holds: still the overflow error, not Python's own
+    "CHAR(1" + "0" * 5000 + ")", "SPACE('1" + "0" * 5000 + "')", "REPLICATE('a', '1" + "0" * 5000 + "')",
+])
+def test_text_that_is_not_a_whole_number_stops_as_in_tsql(engine, expression: str) -> None:
+    # T-SQL: "Conversion failed when converting the varchar value '6.5' to data type int."; a float too
+    # large for an int is an overflow there.
+    with pytest.raises(Exception, match=r"Conversion failed when converting the varchar value|out of range|Arithmetic overflow"):
+        engine.execute(f"SELECT {expression} AS v", dialect="tsql")
+
+
+@pytest.mark.parametrize("expression", ["CHAR(RAND() * 300)", "REPLICATE('a', RAND() * 6 - 3)", "SPACE(RAND() * 4)"])
+def test_a_computed_code_or_count_is_read_once(expression: str) -> None:
+    from fabric_desktop.localdata import tsql
+    assert tsql.translate(f"SELECT {expression}")[0][-1].upper().count("RANDOM()") == 1
+
+
+def test_nested_codes_and_counts_grow_the_sql_linearly() -> None:
+    from fabric_desktop.localdata import tsql
+    sizes = []
+    for depth in range(1, 6):
+        expression = "x"
+        for _ in range(depth):
+            expression = f"CHAR(ASCII(REPLICATE({expression}, x)))"
+        sizes.append(len(tsql.translate(f"SELECT {expression} FROM (VALUES ('1')) AS t(x)")[0][-1]))
+    steps = [b - a for a, b in zip(sizes, sizes[1:], strict=False)]
+    assert max(steps) <= 1.2 * min(steps), sizes
+
+
+def test_a_call_nested_in_a_count_is_rewritten_too(engine) -> None:
+    got = engine.execute("SELECT REPLICATE(REPLICATE('ab', c), c) AS v FROM (VALUES ('2'), ('-1')) AS t(c)",
+                         dialect="tsql")["rows"]
+    assert [r[0] for r in got] == ["abababab", None]
+
+
+def test_replicate_takes_a_bigint_count(engine) -> None:
+    # REPLICATE takes "any integer type, including bigint" (functions/replicate-transact-sql): a count past an
+    # int runs on VARCHAR(MAX) text, text is made a bigint, and a count past a bigint is the overflow error.
+    def one(sql: str) -> object:
+        return engine.execute(f"SELECT {sql} AS v", dialect="tsql")["rows"][0][0]
+    assert one("REPLICATE(CAST('' AS VARCHAR(MAX)), 3000000000)") == ""
+    assert one("(SELECT REPLICATE(CAST('' AS VARCHAR(MAX)), c) FROM (VALUES (3000000000)) AS t(c))") == ""
+    assert one("LEN(REPLICATE(CAST('ab' AS VARCHAR(MAX)), '3'))") == 6
+    assert one("REPLICATE('x', '')") == ""  # '' is 0, as SQL Server's CAST('' AS INT)
+    assert one("LEN(REPLICATE(CAST('a' AS VARCHAR(MAX)), '" + "0" * 5000 + "3'))") == 3  # leading zeros
+    with pytest.raises(Exception, match="Error converting data type varchar to bigint"):
+        one("REPLICATE('a', '2.5')")
+    # Text that isn't VARCHAR(MAX) is cut at 8,000 bytes in a warehouse, so a long result is refused by name.
+    with pytest.raises(Exception, match="8,000 bytes"):
+        one("REPLICATE('a', 3000000000)")
+
+
+def test_space_of_a_negative_count_is_null(engine) -> None:
+    # Checked against SQL Server: SPACE(-1) is NULL, as REPLICATE of a negative count is.
+    got = engine.execute("SELECT SPACE(-1) AS a, SPACE(c) AS b FROM (VALUES (-2)) AS t(c)", dialect="tsql")["rows"]
+    assert list(got[0]) == [None, None]

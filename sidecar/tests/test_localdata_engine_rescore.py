@@ -1,7 +1,7 @@
 """Mutation batch 152, a re-score of localdata/engine.py from batch 3 (docs/quality/mutation-testing.md):
 the totals of an analyzed query's profile, Stop with nothing running, how often changed files are looked
 for, a write's seconds and commits synced, appends to a partitioned table or one they don't fit, a MERGE
-source's column names, and a table list that shouldn't wait for a running query (a known gap, xfail)."""
+source's column names, and a table list that doesn't wait for a running query (fixed in #3045)."""
 
 from __future__ import annotations
 
@@ -89,9 +89,6 @@ def test_a_merge_source_may_have_a_column_name_a_table_couldnt(engine):
     assert engine.execute("SELECT amount FROM sales")["rows"] == [[99]]
 
 
-@pytest.mark.xfail(strict=True, reason="tables() calls open() first, which waits for the lock a running query "
-                   "holds, so the non-blocking acquire and the cursor after it never get the chance to list "
-                   "without waiting")
 def test_the_table_list_doesnt_wait_for_a_running_query(engine):
     import threading
 

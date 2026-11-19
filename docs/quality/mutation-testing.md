@@ -8057,7 +8057,7 @@ Before the "after" run, the new tests passed in a copy of `sidecar/` on its own 
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `localdata/engine.py` | batch 3's set, test_localdata_engine_mutation, test_localdata_engine_refused_write; survivors also with the T-SQL files above (+ test_localdata_engine_rescore) | 150 of 1,042 (148 + 2) | 129 / 21 | **86.0%** | 128/148 → 138/148 | 1/2 → 1/2 | 139 / 11 | **92.7%** | 10 equivalent, 1 behind a known gap |
 
-One gap was found. It is pinned with a strict xfail and not fixed here: `tables()` is meant to list the project with a cursor while a query holds the connection, "without waiting", but it calls `open()` first, and `open()` waits for the lock the running query holds. On this PC, the object list waited about 4.5 s for a 6-second query.
+One gap was found, and #3045 has since fixed it, so the test no longer carries a strict xfail: `tables()` is meant to list the project with a cursor while a query holds the connection, "without waiting", but it calls `open()` first, and `open()` waits for the lock the running query holds. On this PC, the object list waited about 4.5 s for a 6-second query.
 
 ### What the survivors were, and the tests that now kill them
 
@@ -8075,7 +8075,7 @@ One gap was found. It is pinned with a strict xfail and not fixed here: `tables(
 
 | Module | Line | Mutant | Why it is left |
 | --- | --- | --- | --- |
-| `localdata/engine.py` | 616 | `acquire(blocking=False)` to `True` in `tables()` | Behind the gap above: `open()` has already waited for the lock, so the acquire never finds it held. The xfail test kills it once the gap is fixed. |
+| `localdata/engine.py` | 616 | `acquire(blocking=False)` to `True` in `tables()` | Behind the gap above when this batch ran. Since #3045 fixed it (the line is now 630), `test_the_table_list_doesnt_wait_for_a_running_query` kills it: checked by hand on main 70345f60, so the score after the fix is 140 / 150 (93.3%). |
 | `localdata/engine.py` | 1227 | `result is None or not result.description` to `and` | Equivalent, as in batch 3 (then line 987): the query was checked to read, and a query that reads always has a description. |
 | `localdata/engine.py` | 935 | `len(texts) > 1` to `> 0` | Equivalent, as in batch 3 (then line 748): one statement was already checked by DuckDB when the script was split. |
 | `localdata/engine.py` | 819 (×2) | the lazy branch's `i == len(statements) - 1` and `kind == "select"` negated | Equivalent in rows: as in batch 3 (then line 539), a lazy relation and an executed result give the same rows, and `con.sql` runs a statement that isn't a query at once. Only memory use differs, which a unit test doesn't measure. |

@@ -4,6 +4,7 @@ docs/quality/mutation-testing.md) showed no test checked. Each expected value is
 from __future__ import annotations
 
 import datetime
+import hashlib
 import math
 
 import pytest
@@ -33,12 +34,12 @@ def test_base64_breaks_a_long_line_after_76_characters_as_spark_3_5_does():
     "length to an int (sha2 takes an int, and a decimal casts to one implicitly) and gives the SHA-256. "
     "_sha2 reads a number literal's digits itself and takes 256.0 for a length it doesn't know."))
 def test_sha2_with_a_decimal_bit_length_hashes_as_spark_does():
-    assert one("SELECT sha2('abc', 256.0)") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    assert one("SELECT sha2('abc', 256.0)") == hashlib.sha256(b"abc").hexdigest()
 
 
 def test_sha2_with_a_bit_length_from_the_data():
     assert one("SELECT sha2('abc', n) FROM VALUES (256) t(n)") == (
-        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        hashlib.sha256(b"abc").hexdigest())
     assert one("SELECT sha2('abc', n) FROM VALUES (1) t(n)") is None
 
 
@@ -175,14 +176,11 @@ def test_to_date_with_a_format_reads_the_text_with_it():
 
 
 def test_sha2_with_a_bit_length_written_out():
-    sha256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    sha256 = hashlib.sha256(b"abc").hexdigest()
     assert one("SELECT sha2('abc', 256)") == sha256 and one("SELECT sha2('abc', 0)") == sha256
-    assert one("SELECT sha2('abc', 224)") == "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7"
-    assert one("SELECT sha2('abc', 384)") == (
-        "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7")
-    assert one("SELECT sha2('abc', 512)") == (
-        "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a"
-        "2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f")
+    assert one("SELECT sha2('abc', 224)") == hashlib.sha224(b"abc").hexdigest()
+    assert one("SELECT sha2('abc', 384)") == hashlib.sha384(b"abc").hexdigest()
+    assert one("SELECT sha2('abc', 512)") == hashlib.sha512(b"abc").hexdigest()
     assert one("SELECT sha2('abc', 1)") is None
 
 

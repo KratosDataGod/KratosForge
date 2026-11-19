@@ -203,8 +203,9 @@ MCP resources give context without moving data. A read-only capability that does
 | --- | --- |
 | `fabric-desktop://status` | Version, sign-in, how this client is connected |
 | `fabric-desktop://capabilities` | Every capability with schemas and availability |
-| `fabric-desktop://projects`, `.../projects/{id}`, `.../projects/metadata/validation`, `.../projects/metadata/lineage/{entity}` | Notebooks folder and metadata project, and a metadata entity's column lineage |
-| `fabric-desktop://local-data`, `.../local-data/{project}/tables` | Local data projects on this PC and their tables, read from the saved catalog |
+| `fabric-desktop://projects`, `.../projects/{id}`, `.../projects/metadata/validation` | Notebooks folder and metadata project |
+| `fabric-desktop://projects/metadata/lineage/{entity}` | An entity's column lineage, from the project's files |
+| `fabric-desktop://local-data`, `.../local-data/{project}/tables` | Local data projects and their tables (metadata only) |
 | `fabric-desktop://workspaces`, `.../workspaces/{workspace_id}/items`, `.../items/{item_id}` | Fabric workspaces and items |
 | `fabric-desktop://workspaces/{workspace_id}/lakehouses/{lakehouse_id}/tables`, `.../tables/{table}/schema` | Tables and their columns |
 | `fabric-desktop://notebooks`, `.../notebooks/{name}` | Notebooks and their cells (secrets removed, no outputs) |

@@ -33,7 +33,7 @@ from typing import IO, Any, Callable
 
 from . import agent_status, jsonfile, policy_watch, shared_schedules, shortcut_watch
 from .agent_config import AgentConfig
-from .audit import AuditLog
+from .audit import NOT_RECORDED, AuditLog, fails_closed
 from .audit import outcome as audit_outcome
 from .dataops_service import post_teams
 from .fabric_api import FabricClient
@@ -301,13 +301,15 @@ class Agent:
             try:
                 project = self.runtime._project()
                 runs = self.runtime.meta_runs(env, 2000)
-            except Exception as exc:  # noqa: BLE001 - an unreadable environment becomes its own signal
-                signals, _ = evaluate.unreadable(env, exc)
-            else:
                 specs = {n: e.spec for n, e in project.entities.items()}
+                # Inside the try: one environment that can't be evaluated must not lose the changes the
+                # environments before it already wrote, whose notices go out after the loop.
                 signals = evaluate.signals(mesh_mod.project_name(project), specs, runs, env, now=now,
                                            team=mesh_mod.identity(project)["team"],
                                            promises=mesh_mod.promises(project))
+            except Exception as exc:  # noqa: BLE001 - an unreadable environment becomes its own signal
+                signals, _ = evaluate.unreadable(env, exc)
+            else:
                 evaluated |= evaluate.WORKLOAD_KINDS
             try:
                 signals += evaluate.agent_signals(read_status(log.backend), env, now, me=self.config.name)
@@ -330,7 +332,11 @@ class Agent:
         all_changes = [c for cs in changed.values() for c in cs]
         if routing.routes:  # also when nothing changed: messages left from before go out
             if self._outbox is None:
-                self._outbox = Outbox(self.config.home / "alerts.sqlite3", clock=self.clock)
+                try:
+                    self._outbox = Outbox(self.config.home / "alerts.sqlite3", clock=self.clock)
+                except Exception as exc:  # noqa: BLE001 - the incidents are already written: post them without the outbox
+                    self.log.error("couldn't open the alerts outbox; incident changes are posted once, without it",
+                                   extra=fields(error=f"{type(exc).__name__}: {exc}"))
             result = send(all_changes, routing, self._outbox, f"agent {self.config.name}", self._post,
                           self.config.incidents.digest_over, now=now)
             self._count_dropped(result, "alerts.sqlite3")
@@ -629,6 +635,18 @@ class Agent:
         ctx = {"job_id": job["id"], "env": p.get("env"), "attempt": job["attempts"], "source": job["source"]}
         self.log.info("job started", extra=fields(**ctx, entities=p.get("entities")))
         claim = job.get("claim_id")
+        if fails_closed("agent_job", {"env": p.get("env")}):
+            # A Prod job runs only once its audit line is written, as the app's Prod calls do. One that
+            # can't be written waits in the queue (retried with backoff) and nothing is run.
+            try:
+                self.audit.record("agent_job", "started", 0.0, self._audit_params(job))
+            except Exception as exc:  # noqa: BLE001 - any failure to write refuses the run
+                error = NOT_RECORDED.format(error=f"{type(exc).__name__}: {exc}")
+                self.log.error("job not started: its audit line couldn't be written", extra=fields(**ctx, error=error))
+                after = self._settle(job, self.queue.retry_later, job["id"], owner, error, claim=claim)
+                if after and after["state"] == "dead":
+                    self._alert(job, after["error"])
+                return
         done, lost = threading.Event(), threading.Event()
         beat = threading.Thread(target=self._heartbeat, args=(job, done, lost), daemon=True)
         beat.start()
@@ -710,14 +728,17 @@ class Agent:
     def _audit(self, job: dict[str, Any], outcome: str, seconds: float, error: str = "", reason: str = "",
                **summary: Any) -> None:
         """One audit line per job run (FD-125), next to the desktop app's lines for the same actions."""
-        p = job["payload"]
-        params = {"job_id": job["id"], "env": p.get("env"), "entities": p.get("entities"),
-                  "backfill": p.get("backfill"), "cascade": p.get("cascade"), "source": job["source"],
-                  "attempt": job["attempts"], "agent": self.config.name, **summary}
+        params = {**self._audit_params(job), **summary}
         try:
             self.audit.record("agent_job", outcome, seconds, params, error=error, reason=reason)
         except Exception as exc:  # noqa: BLE001 - a full disk mustn't stop the job; the log has it
             self.log.warning("couldn't write the audit line", extra=fields(job_id=job["id"], error=str(exc)))
+
+    def _audit_params(self, job: dict[str, Any]) -> dict[str, Any]:
+        p = job["payload"]
+        return {"job_id": job["id"], "env": p.get("env"), "entities": p.get("entities"),
+                "backfill": p.get("backfill"), "cascade": p.get("cascade"), "source": job["source"],
+                "attempt": job["attempts"], "agent": self.config.name}
 
     def _narrow(self, job_id: str, entities: list[str]) -> None:
         """A retry runs only the tables that didn't finish; the rest are written already."""

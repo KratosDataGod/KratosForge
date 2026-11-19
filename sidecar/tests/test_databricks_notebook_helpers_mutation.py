@@ -8,7 +8,7 @@ import types
 import pytest
 
 from fabric_desktop import databricks_notebook_helpers as helpers
-from fabric_desktop import dbutils_local
+from fabric_desktop import dbutils_local, magics
 
 NS = types.SimpleNamespace
 
@@ -139,7 +139,7 @@ def test_rows_refuse_scala_and_r_cells_and_keep_the_rest(fake):
     assert cells["%python"] == {"group": "cells", "name": "%python", "status": "runs", "note": ""}
     assert cells["%sql"] == {"group": "cells", "name": "%sql", "status": "differs", "note": "Runs on DuckDB."}
     for header in ("%scala", "%r"):
-        assert cells[header] == {"group": "cells", "name": header, "status": "refused", "note": helpers.SCALA_R}
+        assert cells[header] == {"group": "cells", "name": header, "status": "refused", "note": magics.runs_in_fabric(header)}
 
 
 def test_rows_list_line_magics_in_order(fake):
@@ -167,7 +167,7 @@ def test_the_page_counts_each_status_per_group_and_lists_every_helper(fake, monk
     assert "## dbutils" in lines and "## Cell magics" in lines and "## Line magics" in lines
     assert "| `dbutils.fs.cp` | Differs | Paths differ. |" in lines
     assert "| `dbutils.jobs.gone` | Missing |  |" in lines
-    assert "| `%scala` | Refused | " + helpers.SCALA_R + " |" in lines
+    assert "| `%scala` | Refused | " + magics.runs_in_fabric("%scala") + " |" in lines
     assert "| `%x` | Refused | a / b |" in lines
     assert page.endswith("\n\nSource: The source line.\n")
 

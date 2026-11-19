@@ -449,15 +449,35 @@ def _bround(places: int) -> str:
             f"THEN TRUNC({{0}}, {places}) ELSE ROUND({{0}}, {places}) END")
 
 
-# format_number(x, d) with a whole number of places: decimals round half-even first, as Spark's
-# BigDecimal does; doubles are formatted as they are, as Java's DecimalFormat does.
-_FORMAT_NUMBER = ("CASE WHEN TYPEOF({0}) LIKE 'DECIMAL%' THEN FORMAT('{{:,.{1}f}}', CAST(ROUND_EVEN({0}, {1}) AS DOUBLE)) "
-                  "ELSE FORMAT('{{:,.{1}f}}', CAST({0} AS DOUBLE)) END")
+_FORMAT_NUMBER_MOST = 18  # places: DECIMAL(38, 18) still keeps 20 whole digits
+
+
+def _format_number(places: int) -> str:
+    """format_number(x, d) with a whole number of places, as Java's DecimalFormat writes it for Spark. A whole
+    number or a decimal keeps every digit (a BIGINT or DECIMAL(38) went through DOUBLE, so
+    123456789012345678 was written 123,456,789,012,345,680); a decimal rounds half-even, as Spark's BigDecimal
+    does, and keeps a - when it rounds to 0 (-0.4 is -0). Doubles are formatted as they are."""
+    zeros = f" || '.{'0' * places}'" if places else ""
+    # + 0.0 makes a whole number a decimal before it is scaled: DuckDB 2 works out this branch for an integer
+    # constant too, and an INT64 times 10^d could overflow there.
+    rounded = f"CAST(({_bround(places)}) AS DECIMAL(38, {places}))".replace("{0}", "({0} + 0.0)")
+    whole = f"SPLIT_PART(CAST({rounded} AS VARCHAR), '.', 1)"
+    fraction = f" || '.' || SPLIT_PART(CAST({rounded} AS VARCHAR), '.', 2)" if places else ""
+    exact = (f"(CASE WHEN {{0}} < 0 AND CAST({whole} AS HUGEINT) = 0 THEN '-' ELSE '' END) || "
+             f"FORMAT('{{{{:,}}}}', CAST({whole} AS HUGEINT)){fraction}")
+    return (f"CASE WHEN TYPEOF({{0}}) IN ('TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT') "
+            f"THEN FORMAT('{{{{:,}}}}', CAST({{0}} AS HUGEINT)){zeros} "
+            f"WHEN TYPEOF({{0}}) LIKE 'DECIMAL%' THEN {exact} "
+            f"ELSE FORMAT('{{{{:,.{places}f}}}}', CAST({{0}} AS DOUBLE)) END")
 # exists(array, x -> ...): true if any is true, else NULL if any is NULL, else false (Spark's
 # three-valued exists).
 _EXISTS = ("(LIST_TRANSFORM([LIST_TRANSFORM({0}, {1})], kf_t -> CASE WHEN kf_t IS NULL THEN NULL "
            "WHEN LIST_BOOL_OR(kf_t) THEN TRUE WHEN LIST_POSITION(kf_t, NULL) IS NOT NULL THEN NULL ELSE FALSE END))[1]")
-_DISTINCT = "LIST_FILTER({0}, (kf_v, kf_i) -> LIST_POSITION({0}, kf_v) = kf_i)"
+# A DOUBLE or FLOAT array is kept apart by each value's text, since Spark keeps 0.0 and -0.0 apart (DuckDB's
+# = takes them as one); NaN is one value either way. TYPEOF folds when the query is planned.
+_DISTINCT = ("CASE WHEN TYPEOF({0}) IN ('DOUBLE[]', 'FLOAT[]') THEN LIST_FILTER({0}, (kf_v, kf_i) -> "
+             "LIST_POSITION(LIST_TRANSFORM({0}, kf_w -> CAST(kf_w AS VARCHAR)), CAST(kf_v AS VARCHAR)) = kf_i) "
+             "ELSE LIST_FILTER({0}, (kf_v, kf_i) -> LIST_POSITION({0}, kf_v) = kf_i) END")
 # array_intersect and array_except: first-seen order of the first array, each value once, NULL included.
 _INTERSECT = ("CASE WHEN ({0}) IS NULL OR ({1}) IS NULL THEN NULL ELSE LIST_FILTER({0}, (kf_v, kf_i) -> "
               "LIST_POSITION({0}, kf_v) = kf_i AND LIST_POSITION({1}, kf_v) IS NOT NULL) END")
@@ -695,8 +715,17 @@ def _spark_functions(databricks: bool, statement: exp.Expression) -> exp.Express
                 places = args[1]
                 if isinstance(places, exp.Neg) and places.this.is_int:  # a negative count is NULL in Spark
                     node.replace(exp.Null())
-                elif places.is_int:
-                    node.replace(_from_template(_FORMAT_NUMBER.replace("{1}", str(int(places.name))), [args[0]]))
+                elif places.is_int or (isinstance(places, exp.Literal) and not places.is_string and places.name.isdigit()):
+                    # isdigit first: sqlglot's is_int is False past Python's 4,300 digits
+                    if len(places.name.lstrip("0")) > 2 or int(places.name.lstrip("0") or "0") > _FORMAT_NUMBER_MOST:
+                        raise ValueError(f"This Spark SQL can't be run on this PC: format_number with more than "
+                                         f"{_FORMAT_NUMBER_MOST} decimal places isn't written here. Spark writes "
+                                         "them, but a decimal here keeps at most 38 digits in all.")
+                    node.replace(_from_template(_format_number(int(places.name.lstrip("0") or "0")), [args[0]]))
+                elif isinstance(places, exp.Literal) and places.is_string:
+                    raise ValueError("format_number() with a pattern can't run on this PC the way it runs in Fabric, "
+                                     "so nothing ran: Java's DecimalFormat patterns aren't written here. Give the number "
+                                     "of decimal places, or run the cell in Fabric.")
             elif name == "FORALL" and len(args) == 2 and isinstance(args[1], exp.Lambda):
                 # forall(a, x -> p) is NOT exists(a, x -> NOT p): FALSE on any FALSE, else NULL on any NULL.
                 negated = exp.Lambda(this=exp.Not(this=exp.paren(args[1].this.copy())),

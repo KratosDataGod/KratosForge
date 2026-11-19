@@ -111,10 +111,10 @@ CASES: list[tuple[str, str, str, Any, int]] = [
     ("date_format", "date_format(date_add({}, 1), 'yyyy-MM-dd')", "dt + 0", "2024-03-05", 9_000),
     ("array_append", "array_append(concat({}, array(1)), i)", "array(i + 1)", [6] + [1, 5] * LEVELS, 1_500),
     ("array_insert", "array_insert(concat({}, array(0)), 1, i)", "array(i - 1)",
-     _times(lambda a: [5] + a + [0], [4]), 1_500),
+     _times(lambda a: [5] + a + [0], [4]), 8_000),  # about 1,200 a level: its padding checks (#3050)
     ("slice", "slice(concat({}, array(9, 8)), 2, 3)", "array(i, i + 1)",
      _times(lambda a: (a + [9, 8])[1:4], [5, 6]), 1_200),
-    ("array_distinct", "array_distinct(concat({}, array(i)))", "array(i + 1, i + 1)", [6, 5], 1_500),
+    ("array_distinct", "array_distinct(concat({}, array(i)))", "array(i + 1, i + 1)", [6, 5], 3_000),  # its double check (#3050)
     ("zip_with", "zip_with(concat({}, array(1)), array(1, 2), (x, y) -> coalesce(x, 0) + coalesce(y, 0))",
      "array(i - 5)", _times(lambda a: [(x or 0) + (y or 0) for x, y in zip(a + [1], ([1, 2] + [None] * len(a))[:len(a) + 1], strict=True)], [0]),
      4_500),

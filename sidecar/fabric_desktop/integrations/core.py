@@ -128,6 +128,28 @@ _TYPES: dict[str, Callable[[Any], bool]] = {
 }
 
 
+def _end_of_text(pattern: str) -> str:
+    """JSON Schema's $ (ECMA-262) is the end of the text, but Python's also matches before a final
+    line break, so "abc\\n" would pass ^[a-z]+$. Every unescaped $ outside [...] becomes \\Z, so
+    ^a$|^b$ is held to the end of the text too."""
+    out: list[str] = []
+    escaped = in_class = False
+    for ch in pattern:
+        if escaped:
+            escaped = False
+        elif ch == "\\":
+            escaped = True
+        elif in_class:
+            in_class = ch != "]"
+        elif ch == "[":
+            in_class = True
+        elif ch == "$":
+            out.append(r"\Z")
+            continue
+        out.append(ch)
+    return "".join(out)
+
+
 def _problems(schema: dict[str, Any], value: Any, path: str) -> list[str]:
     """The JSON Schema keywords capabilities use: type, enum, const, properties, required,
     additionalProperties, items, min/max(Length|Items|imum), pattern, anyOf."""
@@ -150,7 +172,7 @@ def _problems(schema: dict[str, Any], value: Any, path: str) -> list[str]:
             out.append(f"{where} is too short")
         if "maxLength" in schema and len(value) > schema["maxLength"]:
             out.append(f"{where} is longer than {schema['maxLength']} characters")
-        if "pattern" in schema and not re.search(schema["pattern"], value):
+        if "pattern" in schema and not re.search(_end_of_text(schema["pattern"]), value):
             out.append(f"{where} isn't in the expected form")
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         if "minimum" in schema and value < schema["minimum"]:

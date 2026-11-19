@@ -6449,7 +6449,7 @@ The new tests for `kernel_sessions.py` use stand-in kernels, so they start no en
 | `replay.py` | test_replay, test_replay_edges, test_prove_service_mutation (+ test_replay_mutation) | 150 of 203 (144 + 6) | 125 / 25 | **83.3%** | 123/144 → 140/144 | 2/6 → 6/6 | 146 / 4 | **97.3%** | 4 equivalent |
 | `kernel_sessions.py` | test_kernel_sessions, test_shared_sessions, test_engines, test_frames, test_wrangler, test_kernel_default (+ test_kernel_sessions_mutation) | 148 of 148 (145 + 3) | 109 / 39 | **73.6%** | 107/145 → 144/145 | 2/3 → 3/3 | 147 / 1 | **99.3%** | 1 equivalent |
 
-One bug was found, in `orchestration/registry.py`: an entry whose planned classification isn't one of the known ones makes `check_entry` raise `KeyError`, instead of listing "planned classification is unknown" with the entry's other problems. `test_an_unknown_planned_classification_is_reported_not_raised` pins it with `xfail(strict=True)`.
+One bug was found, in `orchestration/registry.py`: an entry whose planned classification isn't one of the known ones makes `check_entry` raise `KeyError`, instead of listing "planned classification is unknown" with the entry's other problems. `test_an_unknown_planned_classification_is_reported_not_raised` pinned it with `xfail(strict=True)`. Fixed: the marker is gone.
 
 ### What the survivors were, and the tests that now kill them
 
@@ -6574,7 +6574,7 @@ No mutant's run timed out.
 | `platforms.py` | test_platforms (+ test_platforms_mutation) | 81 of 81 (77 + 4) | 62 / 19 | **76.5%** | 61/77 → 76/77 | 1/4 → 2/4 | 78 / 3 | **96.3%** | 3 equivalent |
 | `receipts.py` | test_receipts_edges, test_receipts_env, test_prove_service_edges, test_scorecard_cost, test_advisor, test_side_by_side, test_wizard (+ test_receipts_mutation) | 150 of 177 (148 + 2) | 107 / 43 | **71.3%** | 107/148 → 147/148 | 0/2 → 2/2 | 149 / 1 | **99.3%** | 1 equivalent |
 
-One defect was found and is recorded as a strict `xfail` in `test_receipts_mutation.py`: the export's redaction note lowercases each choice, so "This PC's name and hardware" reads "this pc's name and hardware".
+One defect was found and is recorded as a strict `xfail` in `test_receipts_mutation.py`: the export's redaction note lowercases each choice, so "This PC's name and hardware" reads "this pc's name and hardware". Fixed: the note now lowercases only each choice's first letter, and the `xfail` marker is gone.
 
 ### What the survivors were, and the tests that now kill them
 

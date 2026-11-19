@@ -2376,7 +2376,7 @@ def _whole(node: exp.Expression | None, low: int) -> bool:
     """A whole-number literal of at least ``low``: then the edge rules can't apply."""
     if not (isinstance(node, exp.Literal) and not node.is_string and node.name.isdigit()):
         return False
-    return len(node.name.lstrip("0")) > 20 or int(node.name) >= low  # past 20 digits is past any int, and int()
+    return len(node.name.lstrip("0")) > 20 or int(node.name.lstrip("0") or "0") >= low  # past 20 digits is past any int, and int()
     # of 4,300 digits or more would stop with Python's own error
 
 
@@ -2631,7 +2631,7 @@ def _known_within(text: exp.Expression, n: exp.Expression, national: bool, most:
     if not (isinstance(literal, exp.Literal) and literal.is_string and _whole(n, 0)):
         return False
     size = len(literal.name) if national else len(literal.name.encode("utf-8"))
-    return size * int(n.name) <= most
+    return size * int(n.name.lstrip("0") or "0") <= most
 
 
 _INT_TEXT = re.compile(r"\s*([+-]?[0-9]+)?\s*")  # '' and spaces alone are 0, as T-SQL converts them

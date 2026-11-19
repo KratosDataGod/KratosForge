@@ -123,6 +123,67 @@ def _model_counts(bim: dict[str, Any]) -> dict[str, int]:
             "hierarchies": sum(len(t.get("hierarchies") or []) for t in tables)}
 
 
+_CULTURE_LINE = re.compile(r"^(?:cultureInfo|culture)[ \t]", re.M)  # only such files can define a culture
+
+
+def _kept_cultures(folder: Path, read_report: list[dict[str, str]]) -> tuple[dict[str, list[str]], list[dict[str, str]]]:
+    """The culture files under ``folder`` kept as they are, each with the cultures it defines, and one report row per
+    file saying so. A file the reader couldn't read in full (``read_report`` names it in ``file``) is kept: rewriting
+    it from what was read would drop the translations KratosForge can't read. So is every other culture file that
+    defines one of those cultures (to a fixed point), or its part of the culture would be dropped with nobody to
+    write it. Culture names compare as file names do (``_file_key``). A kept culture also defined outside
+    cultures/ can't be kept whole, so that is refused."""
+    lost: dict[str, list[str]] = {}
+    for r in read_report:
+        rel = str(r.get("file") or "")
+        if r.get("kind") == "lost" and PurePosixPath(rel).parts[:2] == ("definition", "cultures"):
+            lost.setdefault(rel, []).append(r["object"])
+    if not lost:
+        return {}, []
+    defined: dict[str, list[str]] = {}  # every culture file: the cultures it defines
+    cultures_dir = folder / "definition" / "cultures"
+    for f in sorted(_tmdl_files(cultures_dir) if _real(cultures_dir, stat.S_ISDIR) else []):
+        rel = f.relative_to(folder).as_posix()
+        _no_links(folder, f.parent)
+        if not _real(f, stat.S_ISREG):  # read as a file in place, never through a link
+            raise ValueError(f"{rel} is a link or not a file, so it isn't read")
+        cultures = tmdl.to_bim({rel: f.read_text(encoding="utf-8-sig")})[0]["model"].get("cultures") or []
+        defined[rel] = [c["name"] for c in cultures if isinstance(c, dict) and isinstance(c.get("name"), str)]
+    kept = {rel: defined.get(rel, []) for rel in lost}
+    names = {_file_key(n) for ns in kept.values() for n in ns}
+    grew = True
+    while grew:
+        grew = False
+        for rel, ns in defined.items():
+            if rel not in kept and names & {_file_key(n) for n in ns}:
+                kept[rel] = ns
+                names |= {_file_key(n) for n in ns}
+                grew = True
+    definition = folder / "definition"
+    for f in sorted(_tmdl_files(definition) if _real(definition, stat.S_ISDIR) else []):
+        rel = f.relative_to(folder).as_posix()
+        if PurePosixPath(rel).parts[:2] == ("definition", "cultures"):
+            continue
+        text = f.read_text(encoding="utf-8-sig")  # _tmdl_files lists regular files in place only
+        if not _CULTURE_LINE.search(text):
+            continue
+        for c in tmdl.to_bim({rel: text})[0]["model"].get("cultures") or []:
+            if isinstance(c, dict) and _file_key(str(c.get("name"))) in names:
+                raise ValueError(f"Culture {c.get('name')} is kept as it is in cultures/, and defined outside cultures/ too, "
+                                 "so it can't be kept whole and nothing was written. Move it into its culture file.")
+    rows = []
+    for rel in sorted(kept):
+        short = PurePosixPath(rel).relative_to("definition").as_posix()
+        if rel in lost:
+            message = f"kept as it is, because it holds translations KratosForge can't read: {', '.join(lost[rel])}"
+        else:
+            shared = sorted(n for n in kept[rel] if any(_file_key(n) in {_file_key(m) for m in kept[o]} for o in lost))
+            message = (f"kept as it is, because it defines {', '.join(shared or kept[rel])} with a culture file that is "
+                       "kept as it is, so rewriting it would drop that part of the culture")
+        rows.append({"object": short, "kind": "lost", "file": rel, "message": message})
+    return kept, rows
+
+
 def _folder_bim(folder: Path, name: str, path: str) -> tuple[dict[str, Any], list[dict[str, str]]]:
     """The model kept in ``folder`` (semantic/<name>.SemanticModel) as a parsed model.bim, read on this PC from its
     TMDL (or its model.bim), and the reader's report. ``path`` names it in messages."""
@@ -370,7 +431,11 @@ class ModelOssieMixin:
         When the folder already holds the model, the file is laid over it like an Import update
         (``model_ossie.merge``): what the file doesn't have stays (roles, hierarchies, measures written by hand)
         unless named in ``remove``, and ``changes`` and ``removable`` say what changes, as Import's preview does.
-        Translations (cultures/), which TMDL isn't written with here, are left as they are."""
+        Translations (cultures/) are read and written like the rest, so they stay too: a culture the file doesn't
+        have is kept, and one it has (from the Power BI section of an Ossie file this app wrote) is laid over.
+        A culture file the reader can't read in full (a partition's or a KPI's translation, a property it doesn't
+        know) is kept byte for byte: never rewritten or removed, shown as "same", with one report row naming what it
+        holds that KratosForge can't read (``_kept_cultures``)."""
         model_ossie.require()
         project = self._project()  # type: ignore[attr-defined]
         name = (name or str(model_ossie.parse(text)["name"])).strip()
@@ -379,18 +444,34 @@ class ModelOssieMixin:
         definition = folder / "definition"
         _no_links(root, definition)
         incoming, report = model_ossie.to_tmsl(text)
-        current = None
+        current: dict[str, Any] | None = None
+        read_report: list[dict[str, str]] = []
         if (_real(definition, stat.S_ISDIR) and _tmdl_files(definition)) or _real(folder / "model.bim", stat.S_ISREG):
             current, read_report = _folder_bim(folder, name, folder.relative_to(root).as_posix())
-            report = read_report + report
+        kept, kept_rows = _kept_cultures(folder, read_report)
+        report = [r for r in read_report if r.get("file") not in kept] + kept_rows + report
         final = model_ossie.merge(current, incoming, remove) if current else incoming
         final["name"] = name
-        files, written = tmdl.from_bim(final)
-        report = report + [r for r in written if not r["object"].startswith("culture ")]
+        kept_names = {_file_key(n) for names in kept.values() for n in names}
+        culture_refs = None
+        if kept_names:
+            # Written by no one but the files kept for them, so nothing else claims those cultures; model.tmdl
+            # still lists them where they were, so the cultures' order stays.
+            all_cultures = [c for c in (final.get("model") or {}).get("cultures") or [] if isinstance(c, dict)]
+            culture_refs = list(dict.fromkeys(str(c.get("name")) for c in all_cultures if isinstance(c.get("name"), str)))
+            final["model"]["cultures"] = [c for c in all_cultures if _file_key(str(c.get("name"))) not in kept_names]
+            if not final["model"]["cultures"]:
+                del final["model"]["cultures"]
+        files, written = tmdl.from_bim(final, culture_refs)
+        report = report + written
         files["definition.pbism"] = json.dumps({"version": "4.0", "settings": {}}, indent=2) + "\n"
         targets = {}
+        kept_keys = {_file_key(rel) for rel in kept}
         existing = _by_key(folder, _tmdl_files(definition) if _real(definition, stat.S_ISDIR) else [])
         for rel, content in files.items():
+            if _file_key(rel) in kept_keys:
+                raise ValueError(f"{rel} is kept as it is, because it holds translations KratosForge can't read, and another "
+                                 "culture would be written to it, so nothing was written. Rename that file.")
             path = _in_place(folder, rel, existing)
             _no_links(root, path.parent)
             if os.path.lexists(path) and not _real(path, stat.S_ISREG):
@@ -398,8 +479,8 @@ class ModelOssieMixin:
             if not path.resolve().is_relative_to(folder.resolve()):  # never outside the model's folder
                 raise ValueError(f"{rel} would be written outside {folder.relative_to(root).as_posix()}, so nothing was written.")
             targets[path] = content
-        stale = sorted(f for group in existing.values() for f in group  # by key: see _in_place
-                       if f not in targets and f.relative_to(definition).parts[0] != "cultures")
+        stale = sorted(f for group in existing.values() for f in group
+                       if f not in targets and _file_key(f.relative_to(folder).as_posix()) not in kept_keys)
         status = {p: ("same" if _same_text(p, c) else "changed") if _real(p, stat.S_ISREG) else "new" for p, c in targets.items()}
         unchanged = sum(1 for v in status.values() if v == "same")
         changes = model_ossie.plan(current, final)
@@ -409,9 +490,10 @@ class ModelOssieMixin:
                "changes": changes if current else [r for r in changes if r["change"] == "needs_dax"],
                "removable": model_ossie.removable(current, incoming) if current else [],
                "unchanged": unchanged, "counts": _model_counts(final),
-               "file_changes": [{"path": p.relative_to(folder).as_posix(), "change": status[p]} for p in sorted(targets)]
+               "file_changes": sorted([{"path": p.relative_to(folder).as_posix(), "change": status[p]} for p in targets]
+                                      + [{"path": rel, "change": "same"} for rel in kept], key=lambda f: f["path"])
                + [{"path": p.relative_to(folder).as_posix(), "change": "removed"} for p in stale]}
-        digest = hashlib.sha256(json.dumps([out["folder"], out["removed"], sorted(
+        digest = hashlib.sha256(json.dumps([out["folder"], out["removed"], sorted(kept), sorted(
             (p.relative_to(root).as_posix(), c) for p, c in targets.items())], ensure_ascii=False).encode()).hexdigest()
         if not confirmed:
             return {"confirm": out | {"token": digest}}

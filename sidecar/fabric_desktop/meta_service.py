@@ -29,7 +29,7 @@ from .meta.promote import promote_checks, releases, rollback
 from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, ran_on
 from .meta.templates import TEMPLATES, describe, entity_text, init_project
 from .redact import describe as describe_error
-from .jsonfile import read_json, write_json, write_text
+from .jsonfile import read_object, write_json, write_text
 from . import known_folders
 
 _log = logging.getLogger(__name__)
@@ -122,8 +122,7 @@ class MetaMixin:
         return self.root / "settings.json"
 
     def _settings(self) -> dict[str, Any]:
-        settings = read_json(self.settings_file, {})
-        settings = settings if isinstance(settings, dict) else {}
+        settings = read_object(self.settings_file)  # a file that isn't one object is set aside, not overwritten
         if sealed_settings.needs_sealing(settings):  # saved in the clear by an earlier version
             try:
                 write_json(self.settings_file, sealed_settings.seal(settings))

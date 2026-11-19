@@ -176,3 +176,108 @@ test("An engine without PyYAML turns off only this card, and says why", { skip }
   assert.strictEqual(await page.locator("#model-under-test .dl-card").count(), 1, "the Direct Lake check is still there");
   assert.deepStrictEqual(errors, []);
 });
+
+// PB-110: an Ossie file to TMDL in this project, on this PC with no Fabric call (mockup "Ossie to TMDL").
+const TMDL_COUNTS = { tables: 6, columns: 41, measures: 22, relationships: 5, roles: 2, hierarchies: 1 };
+const TMDL_REPORT = [{ object: "model", kind: "kept", message: "row-level security roles ('roles') kept in the Power BI section" }];
+const toTmdl = (calls, exists) => (p) => {
+  calls.push(["to_tmdl", p]);
+  if (p.text === "bad") throw new Error("Dataset returns uses column returns.reason in relationship orders_to_returns, but the file doesn't define that column");
+  const out = { name: p.name || "orders", folder: `semantic/${p.name || "orders"}.SemanticModel`, exists, counts: TMDL_COUNTS,
+    files: ["semantic/orders.SemanticModel/definition/model.tmdl"], removed: (p.remove || []).length ? ["semantic/orders.SemanticModel/definition/tables/dim_customer.tmdl"] : [],
+    report: TMDL_REPORT, unchanged: 14, removable: exists ? ["dim_customer"] : [],
+    file_changes: [{ path: "definition/tables/fact_sales.tmdl", change: "changed" }, { path: "definition/tables/dim_channel.tmdl", change: "new" },
+      { path: "definition/roles/EU only.tmdl", change: "same" }],
+    changes: [...(exists ? [{ change: "add", kind: "table", object: "dim_channel", detail: "2 columns, 0 measures" }] : []),
+      { change: "needs_dax", kind: "measure", object: "fact_sales[repeat rate]", detail: "" }] };
+  return p.confirmed ? out : { confirm: { ...out, token: "t0k" } };
+};
+
+test("Ossie file to TMDL: a new folder shows counts and the Round-trip check, then writes with no Fabric call", { skip }, async () => {
+  const calls = [];
+  const { page, errors } = await open(calls, { meta_model_ossie_to_tmdl: toTmdl(calls, false) });
+  await page.locator("#model-under-test button:has-text('Ossie file to TMDL')").click();
+  const dialog = page.locator(".dialog");
+  await dialog.locator("input[aria-label='Ossie file in the project']").fill("semantic/orders.ossie.yaml");
+  await dialog.locator("button:has-text('Read')").click();
+  await dialog.locator(".ossie-roundtrip").waitFor();
+  const text = await dialog.textContent();
+  assert.match(text, /semantic\/orders\.SemanticModel\/ \(new\)/);
+  assert.match(text, /From the file: 6 tables, 41 columns, 22 measures, 5 relationships\./);
+  assert.match(text, /Kept \(74\)/);
+  assert.match(text, /Kept in the Power BI section \(1\)/);
+  assert.match(text, /Can't be carried \(1\)fact_sales\[repeat rate\] its SQL has no DAX equivalent/);
+  assert.strictEqual(await dialog.locator("table").count(), 0, "no Keep it table for a new folder");
+  await shot(page, "6-tmdl-new", ".dialog");
+  await dialog.locator("button:has-text('Write TMDL')").click();
+  await page.locator("#model-under-test .ossie-done").waitFor();
+  const write = calls.filter(([n]) => n === "to_tmdl").pop()[1];
+  assert.deepStrictEqual(write, { text: YAML, name: "", remove: [], confirmed: true, token: "t0k" });
+  const done = await page.locator("#model-under-test .ossie-done").textContent();
+  assert.match(done, /Wrote semantic\/orders\.SemanticModel\/ from semantic\/orders\.ossie\.yaml\./);
+  assert.match(done, /1 measure has no expression yet, so it shows blank until you add DAX: fact_sales\[repeat rate\]/);
+  assert.ok(!calls.some(([n]) => ["export", "import", "preview"].includes(n)), "nothing goes to Fabric");
+  assert.deepStrictEqual(errors, []);
+});
+
+test("Ossie file to TMDL over a folder already there: Keep it ticks, then a danger confirm before Replace", { skip }, async () => {
+  const calls = [];
+  const { page, errors } = await open(calls, { meta_model_ossie_to_tmdl: toTmdl(calls, true) });
+  await page.locator("#model-under-test button:has-text('Ossie file to TMDL')").click();
+  const dialog = page.locator(".dialog");
+  await dialog.locator("input[aria-label='Ossie file in the project']").fill("semantic/orders.ossie.yaml");
+  await dialog.locator("button:has-text('Read')").click();
+  await dialog.locator(".ossie-preview table").waitFor();
+  assert.match(await dialog.textContent(), /already there/);
+  assert.match(await dialog.textContent(), /1 added, 0 changed, 0 removed \(1 kept\)\. 14 files unchanged\./);
+  await dialog.locator("label:has-text('Keep it') input").uncheck();
+  await page.waitForFunction(() => /1 removed/.test(document.querySelector(".dialog").textContent));
+  assert.match(await dialog.textContent(), /1 added, 0 changed, 1 removed \(0 kept\)\./, "kept counts what is left after the ticks");
+  assert.deepStrictEqual(calls.filter(([n]) => n === "to_tmdl").pop()[1].remove, ["dim_customer"]);
+  await shot(page, "7-tmdl-existing", ".dialog");
+  await dialog.locator("button:has-text('Replace TMDL in orders...')").click();
+  const confirm = page.locator(".dialog:has-text('Replace TMDL in orders?')");
+  await confirm.waitFor();
+  assert.match(await confirm.textContent(), /definition\/tables\/fact_sales\.tmdlChanged.*definition\/tables\/dim_channel\.tmdlNew.*definition\/roles\/EU only\.tmdlSame/);
+  assert.ok(calls.filter(([n]) => n === "to_tmdl").every(([, p]) => !p.confirmed), "nothing is written before the confirm");
+  assert.match(await confirm.textContent(), /Writing replaces the files below, with 1 added, 0 changed and 1 removed, and keeps the 0 the Ossie file doesn't have, as you ticked\./);
+  assert.match(await confirm.textContent(), /Nothing in Fabric changes, and you can undo it in Source control before you commit\./);
+  assert.strictEqual(await confirm.locator("button.danger-solid:has-text('Replace TMDL')").count(), 1, "danger styling");
+  await shot(page, "8-tmdl-confirm", ".dialog");
+  await confirm.locator("button:has-text('Replace TMDL')").last().click();
+  await page.locator("#model-under-test .ossie-done").waitFor();
+  const write = calls.filter(([n]) => n === "to_tmdl").pop()[1];
+  assert.strictEqual(write.confirmed, true);
+  assert.strictEqual(write.token, "t0k");
+  assert.deepStrictEqual(write.remove, ["dim_customer"]);
+  assert.deepStrictEqual(errors, []);
+});
+
+test("Ossie file to TMDL that can't be converted says why, writes nothing and keeps Write off", { skip }, async () => {
+  const calls = [];
+  const { page, errors } = await open(calls, { meta_model_ossie_to_tmdl: toTmdl(calls, false), meta_model_ossie_read: (p) => ({ path: p.path, text: "bad" }) });
+  await page.locator("#model-under-test button:has-text('Ossie file to TMDL')").click();
+  const dialog = page.locator(".dialog");
+  await dialog.locator("input[aria-label='Ossie file in the project']").fill("semantic/bad.ossie.yaml");
+  await dialog.locator("button:has-text('Read')").click();
+  await dialog.locator("[role=alert]").waitFor();
+  assert.match(await dialog.locator("[role=alert]").textContent(), /Can't convert this file, so nothing was written\. .*returns\.reason/);
+  assert.ok(await dialog.locator("button:has-text('Write TMDL')").isDisabled());
+  await shot(page, "9-tmdl-refused", ".dialog");
+  assert.ok(calls.filter(([n]) => n === "to_tmdl").every(([, p]) => !p.confirmed));
+  assert.deepStrictEqual(errors, []);
+});
+
+test("TMDL in this project exports with the Round-trip check", { skip }, async () => {
+  const calls = [];
+  const { page, errors } = await open(calls, {
+    meta_model_ossie_export_folder: (p) => { calls.push(["export_folder", p]); return { ...EXPORT, model: "Finance KPIs", path: "semantic/Finance KPIs.ossie.yaml", round_trip: [] }; } });
+  const card = page.locator("#model-under-test .ossie-card");
+  await page.waitForFunction(() => document.querySelectorAll(".ossie-card select option").length === 3);
+  await card.locator("select").selectOption("git:semantic/Finance KPIs.SemanticModel");
+  await card.locator("button:has-text('Export to Ossie')").click();
+  await card.locator(".pass-box").waitFor();
+  assert.match(await card.textContent(), /Round-trip check Reading this file back gives the same model\./);
+  assert.match(await card.textContent(), /Ossie file to TMDL and TMDL to Ossie don't call Fabric at all/);
+  assert.deepStrictEqual(errors, []);
+});

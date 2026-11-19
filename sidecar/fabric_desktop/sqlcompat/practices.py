@@ -83,7 +83,9 @@ _BY_ID = {r.id: r for r in RULES}
 # Functions that, wrapped round a column in WHERE, hide the column from data skipping.
 _WRAPS = {"YEAR", "MONTH", "DAY", "DATEPART", "DATENAME", "DATEADD", "DATEDIFF", "EOMONTH", "CAST", "CONVERT",
           "TRY_CAST", "TRY_CONVERT", "UPPER", "LOWER", "LTRIM", "RTRIM", "TRIM", "SUBSTRING", "LEFT", "RIGHT",
-          "LEN", "ISNULL", "COALESCE", "FORMAT", "REPLACE", "ABS", "ROUND", "FLOOR", "CEILING"}
+          "LEN", "ISNULL", "COALESCE", "FORMAT", "REPLACE", "ABS", "ROUND", "FLOOR", "CEILING",
+          # the same date wrapping in T-SQL 2022 (DATETRUNC) and the Spark SQL and DuckDB spellings learners bring
+          "DATETRUNC", "DATE_TRUNC", "DATE_PART", "DATE_FORMAT", "STRFTIME"}
 _COMPARES = {TokenType.EQ, TokenType.NEQ, TokenType.GT, TokenType.GTE, TokenType.LT, TokenType.LTE}
 _COMPARE_WORDS = {"LIKE", "IN", "BETWEEN", "IS"}
 _CLAUSE_END = {"GROUP", "ORDER", "HAVING", "UNION", "EXCEPT", "INTERSECT", "OPTION", "INSERT", "UPDATE", "DELETE",
@@ -280,10 +282,15 @@ def _wrapped_columns(s: Stmt, where: int) -> Iterator[int]:
         for k in range(i + 2, close):
             a, before = toks[k], toks[k - 1]
             variable = a.raw.startswith("@") or (before.raw.startswith("@") and before.end == a.start)
-            if _is_name(a) and not variable and a.type != TokenType.STRING and a.kw not in _TYPE_WORDS:
+            called = k + 1 < close and toks[k + 1].type == TokenType.L_PAREN   # GETDATE(), now(): a function, not a column
+            if _is_name(a) and not variable and not called and a.type != TokenType.STRING \
+                    and a.kw not in _TYPE_WORDS and a.kw not in _NILADIC:
                 yield t.start
                 break
 
+
+# keywords that name today's date or time, not a column: wrapping them hides nothing from data skipping
+_NILADIC = {"CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", "LOCALTIMESTAMP", "LOCALTIME"}
 
 # type names and date parts inside CAST(x AS int) / DATEPART(year, x) aren't columns
 _TYPE_WORDS = {"INT", "BIGINT", "SMALLINT", "TINYINT", "BIT", "DECIMAL", "NUMERIC", "FLOAT", "REAL", "DATE", "TIME",

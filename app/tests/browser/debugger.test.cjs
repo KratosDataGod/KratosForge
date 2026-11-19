@@ -226,3 +226,30 @@ test("a kernel restart while paused unpauses, and a Debug from here run doesn't 
   assert.strictEqual(await p.evaluate(() => state.notebook.dbgRun), null);
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("a cell edited while paused marks the pause on its code, or nowhere, never on another line", { skip }, async () => {
+  const p = page();
+  await p.evaluate(() => {
+    loadIntoState({ name: "Edit paused", cells: [{ type: "code", cell_id: "p1", source: "a = 1\nb = 2\nc = 3", meta: { breakpoints: [2] } }] });
+    go("notebook");
+  });
+  await p.evaluate(() => { runCell(state.notebook.cells[0]); });
+  const panel = p.locator(".dbg-paused");
+  await panel.getByText("Paused at line 2 (breakpoint)").waitFor({ timeout: 30000 });
+  assert.strictEqual(await panel.locator(".dbg-edited").count(), 0);
+  // Two lines inserted above: the paused mark moves with line 2's code, and the panel says why.
+  await p.evaluate(() => { setSource(state.notebook.cells[0], "# one\n# two\na = 1\nb = 2\nc = 3"); });
+  await panel.locator(".dbg-edited").waitFor();
+  assert.match(await p.locator(".cm-line.cm-paused").innerText(), /^b = 2$/);
+  assert.match(await panel.locator(".dbg-edited").innerText(),
+    /You changed this cell after it started\. It's paused at line 2 of the code as it ran, which is line 4 now\. Your edits and breakpoint changes take effect the next time the cell runs\./);
+  // The paused line's code is gone: no mark at all, and the panel names the line as it ran.
+  await p.evaluate(() => { setSource(state.notebook.cells[0], "a = 1\nc = 3"); });
+  await panel.locator(".dbg-edited", { hasText: "isn't in the cell now" }).waitFor();
+  assert.strictEqual(await p.locator(".cm-line.cm-paused").count(), 0);
+  assert.match(await panel.locator(".dbg-edited").innerText(), /Line 2 as it ran \(b = 2\) isn't in the cell now\./);
+  await panel.getByRole("button", { name: "Continue" }).click();
+  await p.locator(".cell-status", { hasText: "Succeeded" }).waitFor({ timeout: 30000 });
+  assert.strictEqual(await p.locator(".dbg-paused").count(), 0);
+  assert.deepStrictEqual(app.errors, []);
+});

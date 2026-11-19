@@ -150,6 +150,37 @@ conversion still goes ahead, and the report says so with `status` "unverified" a
 
 The `kind` (kept or lost) of the existing rows is unchanged, so the current card still works.
 
+## Structural parity (L1)
+
+`semantic_parity.parity_l1(left, right)` compares two semantic definitions object by object
+(OSSIE-006a, engine only: no engine method and no screen yet; the results panel is OSSIE-006e).
+Each side can be a `model.bim` (TMSL), a TMDL folder's files, or an Ossie document in any profile
+KratosForge reads. An Ossie 0.2.0.dev0 document goes through the converter, and each of its objects
+carries its fidelity class; an Ossie 0.3.0.dev0 document or Snowflake's 0.1.1 wrapper is compared as
+written, without conversion.
+
+It compares the model, tables, columns, measures, relationships, roles, calculation groups,
+hierarchies and perspectives: whether each is there, its name, its data type (through the
+converter's own type maps only, so Ossie `Time` is never the same as `dateTime`), each
+relationship's endpoints, cardinality, active flag and cross-filter direction, each role's
+permission, filters and members, and each calculation item. Measures are compared by name and
+home table only. Each object gets one of the plan's results:
+
+| Result | When |
+| --- | --- |
+| Structurally compatible but behavior unverified | The structure matches. This is the best L1 result. |
+| Different results | Missing on one side (the side is named), or a change, each listed. |
+| Unsupported | The conversion couldn't carry it, or the other side has no place for it (a role, calculation group or inactive relationship against Ossie 0.3). Never counted as a match. |
+| Test failed | A side couldn't be read; the reason is in `error`. |
+
+**L1 never claims equivalence.** It never reports Verified equivalent or Equivalent within
+tolerance: matching structure says nothing about what the expressions compute (L2, OSSIE-006b),
+what a query returns (L3) or how fast (L4), and the report lists these under `not_checked`. When
+behavior is checked later, DuckDB runs the SQL side only: DuckDB is not a DAX engine, so a DAX
+side with no execution path stays "behavior unverified". The report's `summary` is the worst
+object result, `counts` counts each result, and `tolerances` echoes the configured tolerances
+with their defaults (unused at L1).
+
 ## Schema validation
 
 Import's preview also checks the Ossie file against the official Apache Ossie JSON Schema for the

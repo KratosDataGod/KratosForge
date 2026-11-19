@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "ad1ac4cf82112eca88f7301a0eb7e67f9ea630c0",
-    "date": "2026-11-18",
+    "commit": "1719d5db421da54ad8293a1853747482048b85cf",
+    "date": "2026-11-19",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -71,7 +71,8 @@
       "Acceptance of PB-136 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-17 21:46 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpEtcrZXWaMEYBQ8vWkddrHx).",
       "Product check 2026-11-17 23:42 at 8838a247cf80733953ff7b3a3887db7075e0d742: 45 PRs merged after 80cebf61; 1 were product data, docs audit or operations PRs and the other 44 were linked by title; other rows were not re-read.",
       "Product check 2026-11-18 11:42 at 7be2906d5598929e807e510f471972010cbb0421: 52 PRs merged after 8838a247; 5 were product data, docs audit, operations or plan PRs and the other 47 were linked by title; other rows were not re-read.",
-      "Product check 2026-11-18 23:42 at ad1ac4cf82112eca88f7301a0eb7e67f9ea630c0: 50 PRs merged after 7be2906d; 4 were product data, docs audit, operations or plan PRs and the other 46 were linked by title; other rows were not re-read."
+      "Product check 2026-11-18 23:42 at ad1ac4cf82112eca88f7301a0eb7e67f9ea630c0: 50 PRs merged after 7be2906d; 4 were product data, docs audit, operations or plan PRs and the other 46 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-19 11:42 at 1719d5db421da54ad8293a1853747482048b85cf: 39 PRs merged after ad1ac4cf; 1 were product data, docs audit, operations or plan PRs and the other 38 were linked by title; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -291,7 +292,13 @@
         2961,
         2974,
         3008,
-        3032
+        3012,
+        3032,
+        3038,
+        3042,
+        3044,
+        3051,
+        3068
       ]
     },
     {
@@ -1456,7 +1463,8 @@
         2054,
         2524,
         2733,
-        2739
+        2739,
+        3059
       ]
     },
     {
@@ -2729,7 +2737,11 @@
         2988,
         2991,
         2995,
-        3028
+        3011,
+        3028,
+        3031,
+        3046,
+        3054
       ]
     },
     {
@@ -3341,8 +3353,12 @@
         2978,
         2981,
         2992,
+        2993,
+        2999,
         3004,
-        3007
+        3007,
+        3043,
+        3045
       ],
       "workstream": "SQL development sprint",
       "next_action": "SQL editor rows are tracked by the warehouse program now (WH-08 Messages and Chart merged).",
@@ -5895,7 +5911,8 @@
         2467,
         2979,
         3000,
-        3009
+        3009,
+        3049
       ],
       "workstream": "Workloads (FD-123)",
       "next_action": "Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127",
@@ -6700,7 +6717,9 @@
         1521,
         1689,
         2976,
-        3006
+        3006,
+        3057,
+        3071
       ],
       "workstream": "Bring your own AI integration",
       "next_action": "Finish the client checklist on Windows with a Fabric sign-in for each named AI tool (PB-096); HD-006 and HD-014 harden approvals and workspace limits",
@@ -8183,8 +8202,10 @@
         2969,
         2977,
         2986,
+        2990,
         2998,
-        3010
+        3010,
+        3013
       ],
       "workstream": "Optimize central lakehouse (PB-104)",
       "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-09): Optimize's central lakehouse set up on a tenant.",
@@ -8516,7 +8537,10 @@
         2960,
         2994,
         3015,
-        3020
+        3018,
+        3020,
+        3047,
+        3048
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
@@ -8663,7 +8687,9 @@
         758,
         777,
         2592,
-        2910
+        2910,
+        3039,
+        3064
       ],
       "workstream": "TMDL and OSI semantic model conversion",
       "limitations": [
@@ -9059,8 +9085,11 @@
         2541,
         2566,
         2612,
+        3019,
         3024,
-        3029
+        3029,
+        3052,
+        3053
       ],
       "backlog": [
         "PB-119",

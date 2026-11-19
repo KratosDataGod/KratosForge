@@ -3,10 +3,16 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-18 11:42 UTC, main 7be2906d.** Covers the PRs merged from #135 to #2972.
+**Product check of 2026-11-18 23:42 UTC, main ad1ac4cf.** Covers the PRs merged from #135 to #3032.
 
 ## Summary
 
+- Evening check, 2026-11-18: 50 PRs merged after 7be2906d. 4 were product data and work queue PRs, and the other 46
+  were linked. Writes to Delta tables now use deletion vectors and column mapping by default (PB-099, #2971), as the
+  product owner asked. Savings Intelligence added sync states, period figures and pricing scenarios (PB-137), and the
+  Excellence Assessment its first controls (PB-138), all engine only. Spark SQL on this PC matches Spark 3.5 for JSON,
+  hashing and the session time zone (PB-103). The mastery engine (#2206, PB-134) and the Ossie to TMDL save (#2910,
+  PB-110) merged, and an accessibility audit covered every page (#3016). No item changed state.
 - Acceptance, 2026-11-18: the product owner accepted PB-061 (missing policy keys) with documented limitations on
   the decision card at 12:55 UTC. The Group Policy templates haven't been applied from a live domain or Intune yet, and
   the sign-in tenant key (#2419) joins the trust-widening list when it lands.

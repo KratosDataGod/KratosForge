@@ -16,7 +16,7 @@ from fabric_desktop.service import Service
 AT = "2026-11-18T02:00:00+00:00"
 WSID = "11111111-2222-3333-4444-555555555555"
 SM1 = "5e5e5e5e-0000-4000-8000-000000000001"
-SECRET_DAX = "CALCULATE(SUM(Sales[secret_margin]), KEEPFILTERS(Region[code] = \"zz-hidden\"))"
+SECRET_DAX = "CALCULATE(SUM(Sales[secret_margin]), KEEPFILTERS(Region[code] = \"zz-hidden\"))"  # pragma: allowlist secret (made-up DAX that must never reach evidence)
 SECRET_FILTER = "[owner_email] = USERPRINCIPALNAME() && [tier] = \"platinum-only\""
 SECRET_M = 'let Source = Sql.Database("hidden-endpoint.example", "aaaaaaaa-2222-3333-4444-555555555555") in Source'
 LEAKS = ("secret_margin", "zz-hidden", "platinum-only", "USERPRINCIPALNAME", "hidden-endpoint", "Sql.Database",

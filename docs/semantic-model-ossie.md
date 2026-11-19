@@ -421,7 +421,8 @@ view's folder on this PC, or save the view's files in the project's folder.
 
 The card reads with `meta_model_semantic_view_status`. It reads only `semantic-views/<view>/` in
 the project's folder, refuses a link or junction there, and reads nothing past 200 entries or
-16 MB of YAML.
+16 MB of YAML. **Open folder** uses `meta_model_semantic_view_reveal`, which opens only that view's
+existing folder in File Explorer and is written to the audit log, as the other Open folder buttons are.
 
 ## Keeping Git in step
 
@@ -493,4 +494,5 @@ see the preview and confirm.
 | `meta_model_ossie_folders` | Models kept under `semantic/` in the project's folder | Nothing |
 | `meta_model_ossie_export_folder` | A model kept in Git as Ossie YAML, read on this PC | Nothing |
 | `meta_model_semantic_view_save` | A Fabric Semantic View's YAML files in `semantic-views/<view>/`, made on this PC from an Ossie file or a model (Preview; **Save view files** on the publish-steps card). It shows the files, removals and report first, and writes only when confirmed with the preview's token. It never publishes and never writes a lakehouse's `Context/` folder | Files |
-| `meta_model_semantic_view_status` | The saved view's files: what each holds and Fabric's documented checks, and, given its model, whether the files still match and what the view leaves out (Preview). With `reveal`, opens the view's folder in File Explorer | Nothing |
+| `meta_model_semantic_view_status` | The saved view's files: what each holds and Fabric's documented checks, and, given its model, whether the files still match and what the view leaves out (Preview) | Nothing |
+| `meta_model_semantic_view_reveal` | Opens one saved view's folder, `semantic-views/<view>/`, in File Explorer, only if it exists (Preview; **Open folder** on the publish-steps card). Audited | Nothing |

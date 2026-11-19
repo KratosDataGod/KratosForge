@@ -47,7 +47,11 @@ async function open(calls, status, extra = {}, scale = 1) {
       calls.push(["status", p]);
       const now = typeof status === "function" ? status() : status;
       if (!p.view_name) return { views: now.views, folder: "semantic-views" };
-      return p.reveal ? { ...now, shown: "C:\\proj\\semantic-views\\Sales" } : now;
+      return now;
+    },
+    meta_model_semantic_view_reveal: (p) => {
+      calls.push(["reveal", p]);
+      return { folder: "semantic-views/Sales", shown: "C:\\proj\\semantic-views\\Sales" };
     },
     ...extra,
   } });
@@ -108,9 +112,9 @@ test("Ready: the files, where they go and every step with its Learn link; only c
   assert.deepStrictEqual(opened, [`${LEARN}semantic-views-create#create-a-view-with-the-starter-file`]);
   await card.locator("button:has-text('Open folder')").click();
   await page.waitForFunction(() => document.body.textContent.includes("in File Explorer"));
-  assert.deepStrictEqual(calls.filter(([, p]) => p.reveal).map(([, p]) => p), [{ view_name: "Sales", reveal: true }]);
+  assert.deepStrictEqual(calls.filter(([kind]) => kind === "reveal").map(([, p]) => p), [{ view_name: "Sales" }]);
   assert.deepStrictEqual(calls.find(([, p]) => p.path)[1], { view_name: "Sales", path: "semantic/Sales.SemanticModel" });
-  assert.ok(!calls.some(([n]) => n !== "status"), "the card only reads the saved files");
+  assert.ok(!calls.some(([n]) => n !== "status" && n !== "reveal"), "the card only reads the saved files and opens their folder");
   if (SHOT) {
     await page.evaluate(() => document.getElementById("toast")?.remove());
     fs.mkdirSync(path.dirname(SHOT), { recursive: true });
@@ -174,7 +178,7 @@ test("No files yet: only Save the view's files first, which previews, confirms, 
   assert.match(await confirm.textContent(), /Writes metrics\.yaml and schema\.yaml to semantic-views\/Sales\/ in the project's folder, made on this PC from semantic\/Sales\.SemanticModel\. Nothing is sent to Fabric\./);
   assert.ok(calls.filter(([n]) => n === "save").every(([, p]) => !p.confirmed), "nothing is written before the confirm");
   await confirm.locator("button:has-text('Save view files')").click();
-  await page.waitForFunction(() => document.body.textContent.includes("ready to commit"));
+  await page.waitForFunction(() => document.body.textContent.includes("Commit them from Source control"));
   const writes = calls.filter(([n, p]) => n === "save" && p.confirmed).map(([, p]) => p);
   assert.deepStrictEqual(writes, [{ view_name: "Sales", path: "semantic/Sales.SemanticModel", split: "schema_metrics", confirmed: true, token: "t0k" }]);
   assert.ok(calls.some(([n, p]) => n === "status" && p.view_name === "Sales"), "the card reads the saved view after the save");

@@ -27,7 +27,8 @@ from .notebook_resources_service import _reveal
 METHODS = {"meta_model_ossie_models", "meta_model_ossie_export", "meta_model_ossie_save", "meta_model_ossie_read",
            "meta_model_ossie_preview", "meta_model_ossie_import", "meta_model_tmdl_save",
            "meta_model_ossie_folders", "meta_model_ossie_export_folder", "meta_model_ossie_to_tmdl",
-           "meta_model_semantic_view_save", "meta_model_semantic_view_status"}
+           "meta_model_semantic_view_save", "meta_model_semantic_view_status",
+           "meta_model_semantic_view_reveal"}
 FOLDER = "semantic"
 VIEW_FOLDER = "semantic-views"  # semantic-views/<view>/: the local copy of a Fabric Semantic View (OSSIE-005a)
 # A lakehouse's Context/ (a view's source YAML) and SystemContext/ (its generated TMDL) are Fabric's; nothing is ever
@@ -699,20 +700,25 @@ class ModelOssieMixin:
             raise ValueError("The view's .yaml files hold more than 16 MB, and Fabric takes at most 16 MB of YAML "
                              "combined, so they aren't read. Take out what the view doesn't need.")
         out: dict[str, str | bytes] = {}
+        left = ossie_profiles.FABRIC_MAX_YAML_BYTES
         for f in sorted(found):
             rel = f.relative_to(folder).as_posix()
             if f not in yaml_files:
                 out[rel] = b""
                 continue
-            data = f.read_bytes()
+            with open(f, "rb") as fh:  # capped: a file that grew after the size check can't take more
+                data = fh.read(left + 1)
+            left -= len(data)
+            if left < 0:
+                raise ValueError("The view's .yaml files hold more than 16 MB, and Fabric takes at most 16 MB of "
+                                 "YAML combined, so they aren't read. Take out what the view doesn't need.")
             try:  # a CRLF copy (Git on Windows) reads as the same file
                 out[rel] = data.decode("utf-8-sig").replace("\r\n", "\n")
             except UnicodeDecodeError:  # kept as bytes: validate_files reports it, the table marks it unreadable
                 out[rel] = data
         return out
 
-    def meta_model_semantic_view_status(self, view_name: str = "", path: str = "",
-                                        reveal: bool = False) -> dict[str, Any]:
+    def meta_model_semantic_view_status(self, view_name: str = "", path: str = "") -> dict[str, Any]:
         """The saved copy of a Fabric Semantic View in semantic-views/<view>/ (OSSIE-005b, Preview), for the
         publish-steps card: what each file holds (``files_summary``) and the files checked as Fabric reads them
         (``ossie_profiles.validate_files``, profile fabric-semantic-view). Reads only, on this PC: nothing is
@@ -721,15 +727,13 @@ class ModelOssieMixin:
         With ``path`` (a model folder in the project, semantic/<name>.SemanticModel, as Save view files takes)
         the model is converted again on this PC, with the saved files' layout, and ``source`` says whether the
         saved files are what it gives now (``same``) and what the view leaves out (``left_out``, from the
-        report). With ``reveal`` the view's folder is shown in File Explorer, only when it exists in place:
-        nothing is made, and no other path can be opened."""
+        report). Opening the folder is ``meta_model_semantic_view_reveal``, which is audited."""
         from . import ossie_profiles, semantic_view
 
         project = self._project()  # type: ignore[attr-defined]
         root = Path(project.root)
         base = root / VIEW_FOLDER
-        views = sorted((e.name for e in os.scandir(base) if _real(Path(e.path), stat.S_ISDIR)),
-                       key=str.lower) if _real(base, stat.S_ISDIR) else []
+        views = self._saved_views(base)
         if not view_name:
             return {"views": views, "folder": VIEW_FOLDER}
         name = semantic_view.folder_name(view_name)  # refuses a path, .. and device names before anything is read
@@ -740,8 +744,6 @@ class ModelOssieMixin:
                                "validation": None, "valid": False, "source": None, "published": False,
                                "publish": semantic_view.PUBLISH}
         if not out["exists"]:
-            if reveal:
-                raise ValueError(f"{out['folder']} isn't there yet. Save the view's files first.")
             return out
         model_ossie.require()  # the YAML reader, before a file is read
         files = self._view_files(folder)
@@ -764,11 +766,37 @@ class ModelOssieMixin:
                               "excluded": r["excluded"], "rule": r["rule"], "reason": r["reason"],
                               "source": r["source"]} for r in report["objects"] if r["stripped"] or r["excluded"]],
                 "warnings": report["warnings"]}
-        if reveal:
-            _no_links(root, folder)  # checked again just before Explorer opens it
-            _reveal(folder, select=False)
-            out["shown"] = str(folder)
         return out
+
+    @staticmethod
+    def _saved_views(base: Path) -> list[str]:
+        """The folder names under semantic-views/, at most VIEW_MAX_ENTRIES of them read."""
+        if not _real(base, stat.S_ISDIR):
+            return []
+        names: list[str] = []
+        with os.scandir(base) as entries:
+            for i, e in enumerate(entries):
+                if i >= VIEW_MAX_ENTRIES:
+                    raise ValueError(f"{VIEW_FOLDER}/ holds more than {VIEW_MAX_ENTRIES} entries, so it isn't read")
+                if _real(Path(e.path), stat.S_ISDIR):
+                    names.append(e.name)
+        return sorted(names, key=str.lower)
+
+    def meta_model_semantic_view_reveal(self, view_name: str) -> dict[str, Any]:
+        """Show one saved view's folder, semantic-views/<view>/, in File Explorer (OSSIE-005b, Preview). Only when
+        it exists in place: nothing is made, a link or junction on the way is refused, and no other path can be
+        opened. Audited, as the other reveal methods are, because it starts File Explorer on this PC."""
+        from . import semantic_view
+
+        root = Path(self._project().root)  # type: ignore[attr-defined]
+        folder = root / VIEW_FOLDER / semantic_view.folder_name(view_name)
+        rel = folder.relative_to(root).as_posix()
+        _no_links(root, folder)
+        if not _real(folder, stat.S_ISDIR):
+            raise ValueError(f"{rel} isn't there yet. Save the view's files first.")
+        _no_links(root, folder)  # checked again just before Explorer opens it
+        _reveal(folder, select=False)
+        return {"folder": rel, "shown": str(folder)}
 
 
 def _file_summary(rel: str, text: str) -> dict[str, Any]:

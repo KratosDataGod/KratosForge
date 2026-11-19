@@ -5999,12 +5999,12 @@ test("the semantic view publish-steps card reads the saved files and writes noth
   const card = meta.split("// ---------- Fabric Semantic View: the publish steps")[1].split("// ---------- profiling ----------")[0];
   assert.match(card, /preview\("semanticView", /, "the card is a Preview feature and hides with them");
   assert.match(meta, /\n    ossieCard\(plan\),\n    semanticViewCard\(plan\),\n/, "the card sits under the Apache Ossie card");
-  for (const method of ["meta_model_semantic_view_status", "meta_model_semantic_view_save", "meta_model_ossie_folders"]) {
+  for (const method of ["meta_model_semantic_view_status", "meta_model_semantic_view_reveal", "meta_model_semantic_view_save", "meta_model_ossie_folders"]) {
     assert.match(card, new RegExp(`"${method}"`), `${method} has a caller`);
   }
   // Only these engine calls: nothing that reaches Fabric.
   const called = new Set([...card.matchAll(/(?:rpc|metaCall)\("(\w+)"/g)].map(([, m]) => m));
-  assert.deepStrictEqual([...called].sort(), ["meta_model_ossie_folders", "meta_model_semantic_view_save", "meta_model_semantic_view_status"]);
+  assert.deepStrictEqual([...called].sort(), ["meta_model_ossie_folders", "meta_model_semantic_view_reveal", "meta_model_semantic_view_save", "meta_model_semantic_view_status"]);
   // Save view files: the write carries confirmed and the preview's token only after confirmDialog said yes, danger when it deletes.
   const save = card.split("async function svSaveFiles(")[1].split("\n}\n")[0];
   assert.ok(save.indexOf("confirmDialog(") < save.indexOf("confirmed: true"), "confirm comes before the write");

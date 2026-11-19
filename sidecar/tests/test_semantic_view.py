@@ -692,21 +692,39 @@ def test_status_caps_count_and_size_before_reading(svc, monkeypatch):  # noqa: F
         svc.meta_model_semantic_view_status("Sales")
 
 
+def test_status_caps_the_read_when_a_file_grows_after_the_size_check(svc, monkeypatch):  # noqa: F811
+    from fabric_desktop import model_ossie_service as mos
+    _saved(svc)
+    real = os.lstat
+
+    class Small:  # the size check sees an empty file; the read then finds the real, larger one
+        def __init__(self, st):
+            self.st = st
+
+        def __getattr__(self, key):
+            return 0 if key == "st_size" else getattr(self.st, key)
+
+    monkeypatch.setattr(mos.os, "lstat", lambda p: Small(real(p)))
+    monkeypatch.setattr(op, "FABRIC_MAX_YAML_BYTES", 10)
+    with pytest.raises(ValueError, match="16 MB"):
+        svc.meta_model_semantic_view_status("Sales")
+
+
 @pytest.mark.parametrize("name", ["../x", "CON", "a/b"])
 def test_status_refuses_a_hostile_view_name(svc, name):  # noqa: F811
     with pytest.raises(ValueError):
         svc.meta_model_semantic_view_status(name)
 
 
-def test_status_opens_only_the_saved_view_folder(svc, monkeypatch):  # noqa: F811
+def test_reveal_opens_only_the_saved_view_folder(svc, monkeypatch):  # noqa: F811
     from fabric_desktop import model_ossie_service as mos
     shown = []
     monkeypatch.setattr(mos, "_reveal", lambda path, select: shown.append((path, select)))
     with pytest.raises(ValueError, match="Save the view's files first"):
-        svc.meta_model_semantic_view_status("Sales", reveal=True)
+        svc.meta_model_semantic_view_reveal("Sales")
     assert shown == [] and not _views(svc).exists()
     folder = _saved(svc)
-    out = svc.meta_model_semantic_view_status("Sales", reveal=True)
+    out = svc.meta_model_semantic_view_reveal("Sales")
     assert shown == [(folder, False)] and out["shown"] == str(folder)
 
 
@@ -715,3 +733,5 @@ def test_status_is_read_only_in_the_audit_and_has_a_ui_caller():
     assert "meta_model_semantic_view_status" in server.METHODS
     assert not audit.audited("meta_model_semantic_view_status")
     assert audit.audited("meta_model_semantic_view_save")
+    assert "meta_model_semantic_view_reveal" in server.METHODS
+    assert audit.audited("meta_model_semantic_view_reveal")  # starts File Explorer: audited like local_writes_reveal

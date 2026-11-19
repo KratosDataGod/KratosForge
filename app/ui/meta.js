@@ -2111,7 +2111,8 @@ function ossieImportResult(res, file) {
 // ---------- Fabric Semantic View: the publish steps (OSSIE-005b, model_ossie_service.py) ----------
 
 // KratosForge never publishes a view or calls Fabric from this card: it reads the files saved in the project's
-// folder (meta_model_semantic_view_status), and its only buttons copy text, open that folder on this PC, or save
+// folder (meta_model_semantic_view_status), and its only buttons copy text, open that folder on this PC
+// (meta_model_semantic_view_reveal, audited), or save
 // the view's files there (meta_model_semantic_view_save, previewed and confirmed). Each step links the Learn
 // section it follows (docs/semantic-model-ossie.md#publish-the-view-in-fabric-preview).
 const SV_LEARN = {
@@ -2143,8 +2144,13 @@ function svSize(bytes) {
 const svCount = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 // "4 datasets, 3 relationships" or "9 metrics, all DAX": what one file holds.
+// "a", "a and b", "a, b and c"
+function svList(items) {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
 function svHolds(f) {
-  if (f.unreadable) return "Not readable as one YAML object; the check above says why";
+  if (f.unreadable) return "Not readable as one YAML object. The check above says why.";
   const parts = [];
   if (f.datasets) parts.push(svCount(f.datasets, "dataset", "datasets"));
   if (f.relationships) parts.push(svCount(f.relationships, "relationship", "relationships"));
@@ -2184,13 +2190,13 @@ async function svSaveFiles(view, modelPath, split, done) {
   const names = c.files.map((f) => f.split("/").pop());
   const removed = c.removed.map((f) => f.slice(c.folder.length + 1));
   const ok = await confirmDialog(`Save the ${view} view's files?`,
-    `Writes ${names.join(" and ")} to ${c.folder}/ in the project's folder, made on this PC from ${modelPath}. `
-    + (removed.length ? `Deletes ${removed.join(", ")} there, because Fabric merges every .yaml file in a view's folder into the view. ` : "")
+    `Writes ${svList(names)} to ${c.folder}/ in the project's folder, made on this PC from ${modelPath}. `
+    + (removed.length ? `Deletes ${svList(removed)} there, because Fabric merges every .yaml file in a view's folder into the view. ` : "")
     + "Nothing is sent to Fabric.", removed.length ? "Save and delete" : "Save view files", { danger: removed.length > 0 });
   if (!ok) return;
   const out = await metaCall("meta_model_semantic_view_save", { ...params, confirmed: true, token: c.token }, "View files not saved");
   if (!out) return;
-  toast(`Saved the ${view} view's files in ${out.folder}/. They're in Source control, ready to commit.`);
+  toast(`Saved the ${view} view's files in ${out.folder}/. Commit them from Source control.`);
   done(view);
 }
 
@@ -2270,7 +2276,7 @@ function svBody(st, plan, folders, reload) {
   const left = s?.same ? s.left_out : [];
   const resave = source ? btn("Save view files", "save", () => svSaveFiles(view, source.path, s?.split || "schema_metrics", reload), "tool outline small") : null;
   const open = btn("Open folder", "folderOpen", async () => {
-    const res = await metaCall("meta_model_semantic_view_status", { view_name: view, reveal: true }, "Couldn't open the folder");
+    const res = await metaCall("meta_model_semantic_view_reveal", { view_name: view }, "Couldn't open the folder");
     if (res?.shown) toast(`Opened ${st.folder} in File Explorer.`);
   }, "tool outline small");
   const copy = btn("Copy path", "copyArrowRight", () => copyText(where, "Path"), "tool outline small");
@@ -2285,7 +2291,7 @@ function svBody(st, plan, folders, reload) {
     s && !s.same ? h("div", { class: "row wrap sv-line" }, h("span", { class: "pill-s info" }, "Changed"),
       h("span", { class: "grow" }, `These files aren't what ${source.name} in ${source.path} gives now. Save the view's files again to bring them in step.`), resave) : null,
     left.length ? h("p", { class: "sv-line" }, h("span", { class: "pill-s wrn" }, `${left.length} left out`),
-      ` The view publishes without ${svLeftOutText(left)}: Fabric's YAML reference omits these or doesn't support them, so the files leave them out. `,
+      ` The view publishes without ${svLeftOutText(left)}, because Fabric's YAML reference omits them or doesn't support them, so the files leave them out. `,
       h("a", { href: "#", class: "learn-more", onclick: (e) => { e.preventDefault(); svReportDialog(view, left); } }, "See the report")) : null,
     h("h3", { class: "sv-h" }, "2. Where they go"),
     h("div", { class: "sv-path" }, h("span", { class: "mono grow" }, where), copy),

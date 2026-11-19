@@ -70,8 +70,8 @@ so it changes when a call is added or refused.
 | `%sql` | Differs | Runs on this PC's Spark SQL (DuckDB with Spark's functions). A query's result is the cell's result and _sqldf, which later Python and SQL cells read. |
 | `%md` | Runs |  |
 | `%sh` | Differs | Runs as a script on this PC, not on a cluster driver. As in Databricks, a non-zero exit code fails the cell only when it starts with %sh -e. |
-| `%scala` | Refused | This %scala cell needs Fabric's Spark, which this PC doesn't have. Only Python, SQL, Markdown and shell cells run here. Switch Runs on to Fabric to run it, or write the cell in Python or SQL. |
-| `%r` | Refused | This %r cell needs Fabric's Spark, which this PC doesn't have. Only Python, SQL, Markdown and shell cells run here. Switch Runs on to Fabric to run it, or write the cell in Python or SQL. |
+| `%scala` | Refused | This %scala cell needs Fabric's Spark, which this PC doesn't have, so nothing ran. Switch Runs on to Fabric to run it, or write the cell in Python or SQL. |
+| `%r` | Refused | This %r cell needs Fabric's Spark, which this PC doesn't have, so nothing ran. Switch Runs on to Fabric to run it, or write the cell in Python or SQL. |
 
 ## Line magics
 

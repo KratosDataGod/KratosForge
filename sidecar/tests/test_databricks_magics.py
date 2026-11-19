@@ -104,6 +104,18 @@ def test_sqldf_is_left_alone_when_qualified_or_in_a_comment_and_a_result_has_one
     assert notebook._with_sqldf("SELECT 1 /* _sqldf never closed", namespace) == "SELECT 1 /* _sqldf never closed"
 
 
+@pytest.mark.parametrize("quote", ["'", '"'])
+def test_sqldf_reads_an_unclosed_quote_in_linear_time(quote):
+    import time
+
+    from fabric_desktop import notebook
+    text = "SELECT 1 " + (quote + "\\") * 50_000  # an unclosed quote ending in a backslash, 100 KB
+    started = time.perf_counter()
+    assert notebook._with_sqldf(text + " _sqldf", {"_sqldf": object()}) == text + " _sqldf"
+    assert notebook._SQLDF.sub(lambda m: "X" if m["name"] else m.group(0), text + " _sqldf") == text + " _sqldf"
+    assert time.perf_counter() - started < 2
+
+
 # ---- %python in a notebook whose default language isn't Python. "commands of the previous default
 # language are automatically prefixed with a language magic command" (notebooks-code).
 
@@ -135,9 +147,15 @@ def test_python_cells_run_in_a_sql_default_notebook():
 def test_scala_and_r_cells_are_refused_naming_the_magic(header):
     out = Kernel().run(f"{header}\nval x = 1")
     assert out["outputs"][-1]["ename"] == "RunsInFabric"
-    assert _error(out) == (f"This {header} cell needs Fabric's Spark, which this PC doesn't have. Only Python, SQL, "
-                           "Markdown and shell cells run here. Switch Runs on to Fabric to run it, or write the cell "
-                           "in Python or SQL.")
+    assert _error(out) == (f"This {header} cell needs Fabric's Spark, which this PC doesn't have, so nothing ran. "
+                           "Switch Runs on to Fabric to run it, or write the cell in Python or SQL.")
+
+
+def test_a_csharp_cell_is_refused_without_sending_it_to_fabric():
+    out = Kernel().run("%%csharp\nvar x = 1;")
+    assert out["outputs"][-1]["ename"] == "RunsInFabric"
+    assert _error(out) == ("This %%csharp cell is .NET for Spark, which neither this PC nor Fabric runs, so nothing "
+                           "ran. Write the cell in Python, Scala or SQL.")
 
 
 def test_runs_on_check_names_the_scala_cell():

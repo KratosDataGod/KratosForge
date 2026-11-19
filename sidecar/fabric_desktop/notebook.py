@@ -77,9 +77,9 @@ _ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_
 _SECRET_NAME = re.compile(r"(pass(word)?|pwd|secret|token|key|credential)", re.I)
 # The last SQL cell's result, which Databricks' later SQL cells can read by name
 # (https://docs.databricks.com/aws/en/notebooks/notebooks-code). Quoted strings are matched only to
-# be skipped, so the text '_sqldf' in a string or a comment stays as written, and so does a qualified
-# name (mydb._sqldf), which is a table of that name.
-_SQLDF = re.compile(r"""'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|--[^\n]*|/\*.*?(?:\*/|\Z)|"""
+# be skipped (an unclosed one runs to the end, in linear time), so the text '_sqldf' in a string or a
+# comment stays as written, and so does a qualified name (mydb._sqldf), which is a table of that name.
+_SQLDF = re.compile(r"""'(?:\\.|[^'\\])*+(?:'|\\?\Z)|"(?:\\.|[^"\\])*+(?:"|\\?\Z)|--[^\n]*|/\*.*?(?:\*/|\Z)|"""
                     r"""(?<![\w`.])(?P<name>`_sqldf`|_sqldf)(?!\w)""", re.IGNORECASE | re.DOTALL)
 _SQLDF_VIEWS = itertools.count(1)
 

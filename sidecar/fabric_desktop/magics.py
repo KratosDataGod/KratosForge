@@ -298,5 +298,7 @@ def fabric_cell(c: dict) -> dict:
 def runs_in_fabric(header: str) -> str:
     """Why a Scala, R or .NET cell stops on this PC, naming its header (%scala, %%spark, %r...)."""
     named = f"This {header} cell" if header else "This cell"
-    return (f"{named} needs Fabric's Spark, which this PC doesn't have. Only Python, SQL, Markdown and shell "
-            "cells run here. Switch Runs on to Fabric to run it, or write the cell in Python or SQL.")
+    if header.lower() == "%%csharp":  # Fabric's notebooks run PySpark, Scala, Spark SQL and SparkR, not .NET
+        return f"{named} is .NET for Spark, which neither this PC nor Fabric runs, so nothing ran. Write the cell in Python, Scala or SQL."
+    return (f"{named} needs Fabric's Spark, which this PC doesn't have, so nothing ran. Switch Runs on to Fabric to "
+            "run it, or write the cell in Python or SQL.")

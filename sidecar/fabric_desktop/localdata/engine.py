@@ -63,6 +63,10 @@ class EngineBusy(RuntimeError):
     pass
 
 
+# A statement of a script: what gives its SQL (to see which tables it names), and what reads it (engine._statements).
+_Pending = tuple[Callable[[], str], Callable[[], "dict[str, Any] | None"]]
+
+
 def q(name: str) -> str:
     """A quoted DuckDB identifier."""
     return '"' + name.replace('"', '""') + '"'
@@ -770,9 +774,9 @@ class LocalEngine:
             finished = False
             run = {"query_id": query_id, "started": started, "statements": steps, "dialect": dialect}
             try:
-                # Each statement is read and translated just before it runs, after the ones before it have run:
-                # a script that makes a Delta table and then writes to it needs the table to be there.
-                statements = self._statements(con, sql, dialect, run)
+                # Every statement is read and checked before the first one runs, except one that names a table an
+                # earlier statement of the script makes: that one is read just before it runs (_read_ahead).
+                statements = self._read_ahead(self._statements(con, sql, dialect, run))
                 if write is not None or change or explain is not None:
                     prepared = [s for s in (prepare() for prepare in statements) if s is not None]
                     if write is not None:
@@ -870,13 +874,31 @@ class LocalEngine:
 
     # Statements, and the project's own Delta tables
 
+    def _read_ahead(self, pending: list[_Pending]) -> list[Callable[[], dict[str, Any] | None]]:
+        """Read each statement now, against the tables there are, and apply every check and refusal before
+        anything runs, as for a single statement. A statement that names a table an earlier statement of the
+        script makes (CREATE TABLE ... USING DELTA, which isn't one of the project's tables until it has run) is
+        left to be read when it runs, and gets every check then."""
+        made: set[str] = set()  # names of the tables earlier statements make, lower case
+        out: list[Callable[[], dict[str, Any] | None]] = []
+        for text, prepare in pending:
+            if made and _names_any(text(), made):
+                out.append(prepare)
+                continue
+            step = prepare()
+            out.append(partial(_given, step))
+            write = step["write"] if step is not None else None
+            if write is not None and not self._is_own(write.schema, write.table):
+                made.add(write.table.lower())
+        return out
+
     def _statements(self, con: duckdb.DuckDBPyConnection, sql: str, dialect: str,
-                    run: dict[str, Any] | None = None) -> list[Callable[[], dict[str, Any] | None]]:
-        """For each statement, in order, what reads it as DuckDB SQL, or as the Delta write or change it makes,
-        with any tables it reads at a version or time (None: nothing to run). The script is split and parsed
-        here; each statement is read against the project's tables when that is called, which ``_query`` does
-        just before it runs, so it sees what the statements before it made. T-SQL is translated first
-        (tsql.py), and ``run`` gets what may differ."""
+                    run: dict[str, Any] | None = None) -> list[_Pending]:
+        """For each statement, in order, its SQL and what reads it as DuckDB SQL, or as the Delta write or change
+        it makes, with any tables it reads at a version or time (None: nothing to run). The script is split and
+        parsed here; each statement is read against the project's tables when its reader is called, so a reader
+        called after earlier statements have run sees what they made. T-SQL is translated first (tsql.py), and
+        ``run`` gets what may differ."""
         n = [0]  # the AS OF views numbered so far, across the statements
         if dialect == "spark":
             from sqlglot import exp
@@ -903,7 +925,7 @@ class LocalEngine:
                     self._refuse_drop(text)
                 return {"sql": text, "write": write, "change": None, "as_of": found,
                         "kind": "write delta" if write else _kind(text)}
-            return [partial(spark_step, tree) for tree in trees]
+            return [(tree.sql, partial(spark_step, tree)) for tree in trees]
         if dialect == "tsql":
             # The function list is read only for a query that calls a function sqlglot doesn't know: building it
             # is most of a short T-SQL query's time (about 15 ms of 21 in examples/benchmark).
@@ -923,7 +945,7 @@ class LocalEngine:
         return self._duckdb_steps(con, texts, n, checked=True)
 
     def _duckdb_steps(self, con: duckdb.DuckDBPyConnection, texts: list[str], n: list[int],
-                      checked: bool) -> list[Callable[[], dict[str, Any] | None]]:
+                      checked: bool) -> list[_Pending]:
         """``checked``: DuckDB has read the whole script. Otherwise each statement of a script that DuckDB can't
         read, and that isn't shaped as a Delta write or change (which only DuckDB SQL around it is), is refused
         before anything runs; the rest are read when they run, against the tables made before them."""
@@ -936,7 +958,8 @@ class LocalEngine:
                     if not self._delta_shaped(text):
                         raise ValueError(_short(exc)) from None
                     unread[i] = True
-        return [partial(self._duckdb_step, con, text, n, unread[i]) for i, text in enumerate(texts)]
+        return [(partial(str, text), partial(self._duckdb_step, con, text, n, unread[i]))
+                for i, text in enumerate(texts)]
 
     @staticmethod
     def _delta_shaped(text: str) -> bool:
@@ -1630,8 +1653,14 @@ def _one_query(sql: str) -> str:
 _EXPLAIN_ONE = "Explain takes one query that reads (SELECT, WITH ... SELECT, FROM or VALUES), with no other statements."
 
 
-def _given(step: dict[str, Any]) -> dict[str, Any] | None:
+def _given(step: dict[str, Any] | None) -> dict[str, Any] | None:
     return step
+
+
+def _names_any(sql: str, names: set[str]) -> bool:
+    """``sql`` has one of ``names`` (lower case) as a word: it may name that table."""
+    words = {w.lower() for w in re.findall(r"\w+", sql)}
+    return not words.isdisjoint(names)
 
 
 def _one_read(con: duckdb.DuckDBPyConnection, steps: list[dict[str, Any]]) -> None:

@@ -83,8 +83,30 @@ def test_a_failing_later_statement_stops_the_script_and_keeps_what_ran(engine):
     assert _ids(engine, "t") == [1, 2]
 
 
-def test_a_later_statement_refused_when_read_stops_the_script_and_keeps_what_ran(engine):
-    # The refusal comes when the statement is read, which is now just before it runs.
+@pytest.mark.parametrize("dialect", ["duckdb", "spark"])
+def test_a_refusal_on_a_table_that_is_there_runs_nothing(engine, dialect):
+    # Every statement that names only tables that are there is read and checked before the first one runs.
+    engine.execute("CREATE TABLE t USING DELTA AS SELECT 1 AS id")
+    with pytest.raises(ValueError, match="local_drop_delta"):
+        engine.execute("INSERT INTO t SELECT 2; CREATE TABLE d AS SELECT 1 AS id; DROP TABLE t; "
+                       "INSERT INTO t SELECT 3", dialect=dialect)
+    assert _ids(engine, "t") == [1]
+    assert engine.execute("SELECT count(*) FROM duckdb_tables() WHERE table_name = 'd'")["rows"] == [[0]]
+
+
+def test_a_refusal_after_a_create_then_write_runs_nothing(engine):
+    # The refused statement names no table the script makes, so it is read up front, and the create never runs.
+    engine.execute("CREATE TABLE old USING DELTA AS SELECT 1 AS id")
+    with pytest.raises(ValueError, match="local_drop_delta"):
+        engine.execute("CREATE TABLE t USING DELTA AS SELECT 1 AS id; INSERT OVERWRITE t SELECT 2 AS id; "
+                       "DROP TABLE old")
+    assert "t" not in {r[0] for r in engine.execute("SELECT view_name FROM duckdb_views()")["rows"]}
+    assert not (engine.tables_dir / "dbo" / "t").exists()
+    assert _ids(engine, "old") == [1]
+
+
+def test_a_statement_on_a_table_the_script_made_is_checked_when_it_runs(engine):
+    # Read only once the table is there, so its refusal comes after the statements before it ran.
     with pytest.raises(ValueError, match="local_drop_delta"):
         engine.execute("CREATE TABLE t USING DELTA AS SELECT 1 AS id; INSERT INTO t SELECT 2; DROP TABLE t; "
                        "INSERT INTO t SELECT 3")

@@ -59,7 +59,7 @@ class FabricDiscovery:
             return Found(ref, ENVIRONMENT, manifest=got.manifest)
         try:
             names = self._table_names(workspace_id, lh["id"])
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - one lakehouse that can't be listed is reported, not fatal
             return Found(ref, UNREADABLE, reason="No access" if denied(exc) else f"Couldn't be read ({describe(exc)})")
         return Found(ref, ADOPTABLE) if CORE_VERSION_TABLE in names else None
 

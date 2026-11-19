@@ -49,3 +49,11 @@ def test_arguments_that_are_not_an_object_come_back_as_they_are():
 def test_a_list_with_too_few_items_is_refused():
     schema = {"properties": {"ids": {"type": "array", "minItems": 2}}}
     assert _problems(schema, {"ids": ["a"]}) == ["ids needs at least 2 items"]
+
+
+def test_a_pattern_ending_in_dollar_refuses_a_final_line_break():
+    schema = {"type": "object", "properties": {"id": {"type": "string", "pattern": r"^[A-Za-z0-9-]+$"}}}
+    assert validate(schema, {"id": "abc-1"}) == {"id": "abc-1"}
+    assert _problems(schema, {"id": "abc-1\n"}) == ["id isn't in the expected form"]
+    price = {"type": "object", "properties": {"p": {"type": "string", "pattern": r"^[0-9]+\$"}}}
+    assert validate(price, {"p": "12$"}) == {"p": "12$"}  # an escaped $ is a dollar sign, left as it is

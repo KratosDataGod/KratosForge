@@ -55,6 +55,25 @@ division of those. Anything else (CASE, window functions, filtered aggregates) i
 Ossie has no place for a composite key in Power BI, a many-to-many relationship, or a time
 zone on a date and time column, so those are listed as not converted.
 
+## Ossie file to TMDL (Preview)
+
+**Ossie file to TMDL...** writes a model's TMDL into the project straight from an Ossie file,
+on this PC with no Fabric call. Pick the file and the model folder name. The dialog shows
+whether `semantic/<name>.SemanticModel/` is new or already there.
+
+- A new folder: the counts from the file and the **Round-trip check**, then **Write TMDL**.
+- A folder already there: the file is laid over the TMDL like an Import update. The table
+  lists what is added and changed, and each table, column or measure the file doesn't have
+  with a **Keep it** tick. **Replace TMDL in <name>...** asks once more, in red, before it
+  rewrites the files. Translations under `cultures/` are left as they are.
+- The **Round-trip check** lists what is kept, what rides in the Power BI section, and what
+  can't be carried, by name. A measure whose SQL has no DAX equivalent is written with no
+  expression and shows blank until you add DAX.
+- A file that can't be converted says which object and what is missing, and nothing is written.
+
+Exporting a model kept as TMDL in the project shows the same Round-trip check, which says whether
+reading the Ossie file back gives the same model or names what differs.
+
 ## Keeping Git in step
 
 After an import, **Save TMDL to Git** reads the model back from Fabric as TMDL and writes it

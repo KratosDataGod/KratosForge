@@ -326,7 +326,10 @@ def test_sql_result_saves_as_a_table_and_exports_csv(tmp_path, monkeypatch):
     # An existing table is only replaced once the person says so.
     written.clear()
     assert service.save_sql("SELECT 1 AS x", LH, "regions") == {"table": "regions", "exists": True} and not written
-    assert service.save_sql("SELECT 1 AS x", LH, "regions", mode="overwrite")["rows"] == 1
+    with pytest.raises(PermissionError, match="type its name"):  # WR-248: the engine checks the typed name
+        service.save_sql("SELECT 1 AS x", LH, "regions", mode="overwrite")
+    assert not written
+    assert service.save_sql("SELECT 1 AS x", LH, "regions", mode="overwrite", confirm_name="regions")["rows"] == 1
 
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))

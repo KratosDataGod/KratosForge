@@ -209,7 +209,7 @@ test("overwriting a table asks first in a danger confirm that wants the name typ
   await confirm.waitFor({ state: "detached" });
   assert.match(await toastSays(/^Wrote 42 rows to sales_summary/), /\(Delta version 3\)$/);
   assert.deepStrictEqual(writes(from), [firstSave("sales_summary"),
-    { method: "save_sql", params: { query: PICKED, lakehouse_ref: LH, table: "sales_summary", mode: "overwrite", dialect: "spark" } }]);
+    { method: "save_sql", params: { query: PICKED, lakehouse_ref: LH, table: "sales_summary", mode: "overwrite", dialect: "spark", confirm_name: "sales_summary" } }]);
 });
 
 test("Cancel on the Replace confirm sends no overwrite", { skip }, async () => {

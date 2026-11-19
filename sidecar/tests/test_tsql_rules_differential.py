@@ -294,6 +294,7 @@ def test_replicate_takes_a_bigint_count(engine) -> None:
     assert one("REPLICATE(CAST('' AS VARCHAR(MAX)), 3000000000)") == ""
     assert one("(SELECT REPLICATE(CAST('' AS VARCHAR(MAX)), c) FROM (VALUES (3000000000)) AS t(c))") == ""
     assert one("LEN(REPLICATE(CAST('ab' AS VARCHAR(MAX)), '3'))") == 6
+    assert one("LEN(REPLICATE(CAST('a' AS VARCHAR(MAX)), " + "0" * 5000 + "3))") == 3  # a number literal too
     assert one("REPLICATE('x', '')") == ""  # '' is 0, as SQL Server's CAST('' AS INT)
     assert one("LEN(REPLICATE(CAST('a' AS VARCHAR(MAX)), '" + "0" * 5000 + "3'))") == 3  # leading zeros
     with pytest.raises(Exception, match="Error converting data type varchar to bigint"):
@@ -307,3 +308,18 @@ def test_space_of_a_negative_count_is_null(engine) -> None:
     # Checked against SQL Server: SPACE(-1) is NULL, as REPLICATE of a negative count is.
     got = engine.execute("SELECT SPACE(-1) AS a, SPACE(c) AS b FROM (VALUES (-2)) AS t(c)", dialect="tsql")["rows"]
     assert list(got[0]) == [None, None]
+
+
+@pytest.mark.parametrize("call", ["LEFT('abc', {0})", "RIGHT('abc', {0})"])
+@pytest.mark.parametrize("length", ["9" * 400, "9223372036854775808", "1e400"])
+def test_left_and_right_past_a_bigint_are_the_overflow_error(engine, call: str, length: str) -> None:
+    # LEFT and RIGHT take a bigint length; past one is T-SQL's overflow error, not Python's OverflowError.
+    with pytest.raises(ValueError, match="Arithmetic overflow error converting expression to data type bigint"):
+        engine.execute(f"SELECT {call.format(length)} AS v", dialect="tsql")
+
+
+def test_left_with_a_long_bigint_length_keeps_the_whole_text(engine) -> None:
+    assert engine.execute("SELECT LEFT('abc', 9223372036854775807) AS v", dialect="tsql")["rows"][0][0] == "abc"
+    rows = engine.execute("SELECT LEFT(s, n) AS a, RIGHT(s, n) AS b FROM (VALUES ('abc', CAST(5000000000 AS BIGINT)))"
+                          " AS t(s, n)", dialect="tsql")["rows"]
+    assert list(rows[0]) == ["abc", "abc"]

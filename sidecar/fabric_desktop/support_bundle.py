@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import __version__, app_settings, policy_watch, win_paths
+from . import __version__, app_settings, policy_watch, secret_redaction, win_paths
 from .redact import for_support, secret_key
 
 log = logging.getLogger(__name__)
@@ -222,7 +222,10 @@ def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
                 "about.json has the policy file's SHA-256, to compare with the file IT shipped, and when this PC last saw it change.",
                 f"Logs are the last {LOG_LINES} lines."]
     files["CONTENTS.txt"] = "\n".join(contents) + "\n"
-    return {name: for_support(text) for name, text in files.items()}
+    # Values dbutils.secrets read are remembered by the kernel process that read them, which redacts its
+    # own output and stderr before sidecar.log gets it (kernel_host.py). This engine remembers only
+    # what a kernel running inside it read, so here it is a second pass, not the protection.
+    return {name: secret_redaction.redact(for_support(text)) for name, text in files.items()}
 
 
 def preview(data_dir: Path | None = None, agent_home: Path | None = None) -> dict[str, Any]:

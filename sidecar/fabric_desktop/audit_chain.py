@@ -14,6 +14,15 @@ ends before it. If the newest line is gone when the next write comes, the old he
 rewrite this file too (and the whole chain): it catches lines cut off by a tool or by hand, not
 an attacker with write access.
 
+So the head is also written, each time it moves, to the Windows Application event log, which a
+user who isn't an administrator can add to but not change or clear (audit_anchor.py). ``verify()``
+compares the trail with the newest record there for this folder: a trail that ends before it, or
+whose line at its line number has another hash (the chain re-sealed), is reported, and so is a
+missing ``head.json`` when such a record exists (only a version that writes ``head.json`` writes
+them; nothing in the lines themselves tells a trail from before ``head.json`` apart). With no record
+to read (off Windows, or an event log that can't be read), ``verify()`` adds a note on Windows and
+relies on ``head.json`` alone.
+
 An organization can cap how long a trail is kept (policy ``audit_retention_days``, retention.py).
 ``prune()`` then deletes whole month files whose month ended longer ago, oldest first, never the
 newest file. Before it deletes anything it records in ``head.json`` where the trail now starts
@@ -36,7 +45,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-from . import jsonfile
+from . import audit_anchor, jsonfile
 
 GENESIS = "0" * 64
 HEAD = "head.json"  # the newest hash and line count, checked by verify()
@@ -84,6 +93,19 @@ def last_hash(folder: Path) -> str:
     return GENESIS
 
 
+def _ends_mid_line(path: Path) -> bool:
+    """Whether ``path`` ends part way through a line: an append a power cut stopped before its newline."""
+    try:
+        with path.open("rb") as f:
+            f.seek(0, os.SEEK_END)
+            if f.tell() == 0:
+                return False
+            f.seek(-1, os.SEEK_END)
+            return f.read(1) != b"\n"
+    except OSError:
+        return False
+
+
 @contextmanager
 def locked(folder: Path) -> Iterator[None]:
     """One writer at a time across every process, through ``<folder>/.lock``."""
@@ -124,7 +146,7 @@ def _hashes(folder: Path) -> list[str | None]:
     """Each line's stored hash in trail order (None for a line that isn't an audit line)."""
     out: list[str | None] = []
     for path in files(folder):
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
             if line.strip():
                 try:
                     out.append(str(json.loads(line)["hash"]))
@@ -149,10 +171,13 @@ def write(folder: Path, entry: dict[str, Any], line: str) -> None:
     newest = files(folder)
     if newest and newest[-1].name > name:
         name = newest[-1].name
+    # A line a power cut left without its newline stays as it is (the trail is never rewritten; verify()
+    # reports it), and this one starts on a line of its own instead of being joined onto it.
+    cut = _ends_mid_line(folder / name)
     with (folder / name).open("a", encoding="utf-8") as f:
-        f.write(line + "\n")
+        f.write(("\n" if cut else "") + line + "\n")
     new = {"hash": entry["hash"]}
-    if head.get("hash") == entry["prev"] and isinstance(head.get("lines"), int):
+    if not cut and head.get("hash") == entry["prev"] and isinstance(head.get("lines"), int):
         new["lines"] = head["lines"] + 1
     else:  # no head yet (a trail from before HD-017), a write that stopped before its head, or lines gone
         hashes = _hashes(folder)
@@ -165,6 +190,19 @@ def write(folder: Path, entry: dict[str, Any], line: str) -> None:
     if head.get("base"):  # where a pruned trail starts
         new["base"] = head["base"]
     jsonfile.write_json(folder / HEAD, new)
+    _anchor(folder, new)
+
+
+def _anchor(folder: Path, head: dict[str, Any]) -> None:
+    """The head, also in the Windows event log (audit_anchor.py), counting lines a prune deleted."""
+    if isinstance(head.get("lines"), int):
+        audit_anchor.record(folder, str(head.get("hash") or ""), head["lines"] + _base_lines(head))
+
+
+def _base_lines(head: dict[str, Any]) -> int:
+    base = head.get("base")
+    lines = base.get("lines") if isinstance(base, dict) else 0
+    return lines if isinstance(lines, int) else 0
 
 
 def append(folder: Path, entry: dict[str, Any]) -> dict[str, Any]:
@@ -216,7 +254,7 @@ def prune(folder: Path, days: int, now: float | None = None) -> dict[str, Any]:
         base: dict[str, Any] = head["base"] if isinstance(head.get("base"), dict) else {}
         done = str(base.get("through") or "")  # a prune stopped part way already counted these months
         lines = sum(1 for p in old if _month(p) > done
-                    for line in p.read_text(encoding="utf-8").splitlines() if line.strip())
+                    for line in p.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip())
         last = _last_line(old[-1])
         try:
             last_hash = str(json.loads(last)["hash"])
@@ -236,6 +274,7 @@ def prune(folder: Path, days: int, now: float | None = None) -> dict[str, Any]:
             else:  # lines lost before the cut: they were in the history deleted now
                 new.pop("lost", None)
         jsonfile.write_json(folder / HEAD, new)
+        _anchor(folder, new)
         for path in old:
             path.unlink(missing_ok=True)
     return {"files": [p.name for p in old], "lines": lines, "through": _month(old[-1])}
@@ -252,7 +291,7 @@ def verify(folder: Path) -> dict[str, Any]:
     seen: dict[int, str] = {}  # line number across the trail -> its hash
     last_at: dt.datetime | None = None
     for path in files(folder):
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
             if not line.strip():
                 continue
             count += 1
@@ -279,18 +318,46 @@ def verify(folder: Path) -> dict[str, Any]:
     # Lines in months a prune already counted, still waiting to be deleted (the clock was put back after a
     # prune stopped part way), aren't in the head's count of lines.
     counted = sum(1 for path in files(folder) if base.get("through") and _month(path) <= str(base["through"])
-                  for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+                  for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip())
     seen = {n - counted: h for n, h in seen.items()}
     for name, mark in (("newest line recorded", head), ("line recorded before lines went missing", head.get("lost") or {})):
         lines, want = mark.get("lines"), mark.get("hash")
         if want and isinstance(lines, int) and seen.get(lines) != want:
             problems.append(f"{HEAD}: the trail ends before the {name} (line {lines}); lines were deleted from the end")
+    try:  # the head file as it is now: an unchanged head reuses the last read of the event log
+        stat = (Path(folder) / HEAD).stat()
+        key: object = (stat.st_size, stat.st_mtime_ns, count)
+    except OSError:
+        key = ("no head", count)
+    anchor, note = audit_anchor.newest(folder, key)
+    if note:
+        notes.append(note)
+    if anchor is not None:
+        problems.extend(_against(anchor, head, seen, count, missing=not (Path(folder) / HEAD).exists()))
     result: dict[str, Any] = {"lines": count, "ok": not problems, "problems": problems}
     if notes:  # only when the clock went back: the usual result keeps its shape
         result["notes"] = notes
     if base.get("through"):
         result["pruned"] = {"through": base["through"], "lines": base.get("lines")}
     return result
+
+
+def _against(anchor: audit_anchor.Anchor, head: dict[str, Any], seen: dict[int, str], count: int,
+             missing: bool) -> list[str]:
+    """The trail against the newest end the event log recorded. Only a version that writes head.json
+    writes these records, so with one on record a missing head.json was deleted."""
+    problems = [f"{HEAD}: missing, so the end of the trail can't be confirmed"] if missing else []
+    pruned = _base_lines(head)
+    line = anchor.lines - pruned  # its line number in the trail as it now starts
+    if line > count:
+        problems.append(f"event log: the trail ends before the newest line the Windows event log recorded "
+                        f"(line {line}), so lines were deleted from the end")
+    elif line > 0 and seen.get(line) != anchor.hash:
+        problems.append(f"event log: line {line} isn't the line the Windows event log recorded, so the trail "
+                        f"was re-sealed at or before line {line}")
+    elif line == 0 and pruned and anchor.hash != (head.get("base") or {}).get("hash"):
+        problems.append("event log: the trail's start isn't the one the Windows event log recorded")
+    return problems
 
 
 def _span(delta: dt.timedelta) -> str:
@@ -349,7 +416,7 @@ def export(folder: Path, out: Path, since: str = "", replace: bool = False) -> d
     lines: list[str] = []
     with locked(folder):  # a still copy: no line lands half-way through
         for path in files(folder):
-            for line in path.read_text(encoding="utf-8").splitlines():
+            for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
                 if not line.strip():
                     continue
                 if not lines and start is not None:
@@ -390,7 +457,7 @@ def verify_export(out: Path, folder: Path | None = None) -> dict[str, Any]:
     if _sha256(out) != manifest.get("sha256"):
         problems.append(f"{out.name}: its SHA-256 isn't the manifest's: the file was changed after it was exported")
     prev, count, hashes = str(manifest.get("first_prev", GENESIS)), 0, []
-    for number, line in enumerate(out.read_text(encoding="utf-8").splitlines(), 1):
+    for number, line in enumerate(out.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
         if not line.strip():
             continue
         count += 1

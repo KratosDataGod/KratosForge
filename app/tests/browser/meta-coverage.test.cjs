@@ -135,6 +135,7 @@ const mocks = {
   meta_source_read: guard("meta_source_read", () => ({ ok: true })),
   meta_sources_move: guard("meta_sources_move", () => ({ moved: [], conflicts: ["LEG: id 5 is already the platform's HR source"] })),
   meta_health: () => structuredClone(db.health),
+  meta_optimize_check: guard("meta_optimize_check", ({ env }) => ({ env, local: false, workspaces: [{ workspace: "ws-test", result: "pass" }] })),
   meta_optimize: guard("meta_optimize", ({ entities }) => db.optimize.shift() || (entities || ["a", "b"]).map(() => ({ status: "NotStarted" }))),
   meta_set_maintenance: guard("meta_set_maintenance", (p) => p),
 };
@@ -681,12 +682,13 @@ test("Table health shows what needs maintenance and Optimize sends one table or 
   const from = app.calls.length;
   await rows.first().getByRole("button", { name: "Optimize" }).click();
   await toastSays(/Queued 1 maintenance job in Fabric/);
-  assert.deepStrictEqual(callsFrom(from, "meta_optimize"), [{ env: "test", entities: ["silver.customers"] }]);
+  assert.deepStrictEqual(callsFrom(from, "meta_optimize"), [{ env: "test", entities: ["silver.customers"], risk_ids: null }]);
+  assert.deepStrictEqual(callsFrom(from, "meta_optimize_check"), [{ env: "test", entities: ["silver.customers"] }]);
 
   db.optimize.push([{ status: "Failed", message: "The capacity is paused" }, { status: "NotStarted" }]);
   await page().getByRole("button", { name: "Optimize all in Fabric" }).click();
   await toastSays(/1 of 2 didn't start: The capacity is paused/);
-  assert.deepStrictEqual(callsFrom(from, "meta_optimize").at(-1), { env: "test", entities: null });
+  assert.deepStrictEqual(callsFrom(from, "meta_optimize").at(-1), { env: "test", entities: null, risk_ids: null });
 
   await page().getByLabel(/Optimize every table a Test run writes/).check();
   await toastSays(/Every table a run writes gets optimized in Fabric afterwards/);

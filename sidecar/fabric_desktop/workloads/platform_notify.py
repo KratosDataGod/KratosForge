@@ -169,14 +169,17 @@ class PlatformRouting:
         return [default] if default and default.url else []
 
     @staticmethod
-    def parse(raw: dict[str, Any]) -> "PlatformRouting":
+    def parse(raw: dict[str, Any], saved: bool = False) -> "PlatformRouting":
+        """``saved``: read back from settings, where quiet hours an older build saved with seconds
+        still read (Quiet.parse_saved). Without it (saving), quiet hours are hours and minutes."""
         routes = [PlatformRoute.parse(r) for r in raw.get("routes") or []]
         names = [r.name for r in routes]
         if len(set(names)) != len(names):
             raise ValueError("route names are unique")
         quiet_text = str(raw.get("quiet") or "").strip()
         try:
-            quiet = Quiet.parse(quiet_text, tuple(_strs(raw.get("quiet_exempt"), "quiet_exempt"))) if quiet_text else None
+            read = Quiet.parse_saved if saved else Quiet.parse
+            quiet = read(quiet_text, tuple(_strs(raw.get("quiet_exempt"), "quiet_exempt"))) if quiet_text else None
         except ValueError:
             raise ValueError("quiet hours look like 22:00-07:00") from None
         return PlatformRouting(routes, quiet)

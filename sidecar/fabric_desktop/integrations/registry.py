@@ -331,6 +331,9 @@ class Registry:
                 if isinstance(source, dict) and isinstance(source.get("execution_id"), str):
                     execution = source["execution_id"]
                     break
+            # A call that starts one returns the execution's own record, whose id is "id".
+            if not execution and isinstance(result, dict) and str(result.get("id", "")).startswith("ex_"):
+                execution = result["id"]
             self._audit(ctx, cap_id, cap.permission if cap else "", arguments, arrived, time.monotonic() - clock,
                         error, execution)
 

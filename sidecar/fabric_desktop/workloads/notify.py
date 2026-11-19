@@ -57,7 +57,7 @@ LINE_MAX = 500  # characters in one title or line of a Teams message
 # email: 20 s), so a message still marked sending after this was cut off by a stop, not slow.
 SENDING_GRACE = 600.0
 CUT_OFF = "From {when}; sending it was cut off, so it may have arrived already."
-UNCONFIRMED = ("{error}. It was sent but no answer came, so it may have arrived; it isn't sent again, "
+UNCONFIRMED = ("{error}. It was sent but no answer came, so it may have arrived. It isn't sent again, "
                "so it can't be posted twice. Check the channel or inbox.")
 
 
@@ -105,6 +105,9 @@ class Route:
                 and ok(self.envs, inc.get("env")))
 
 
+_QUIET = re.compile(r"([01]?\d|2[0-3]):([0-5]\d)-([01]?\d|2[0-3]):([0-5]\d)")  # as agent_config's _QUIET
+
+
 @dataclass(frozen=True)
 class Quiet:
     """Hours (this machine's clock) when messages wait, except for the listed criticalities."""
@@ -114,8 +117,26 @@ class Quiet:
 
     @staticmethod
     def parse(text: str, exempt: tuple[str, ...] = ("critical",)) -> "Quiet":
-        a, b = (dt.time.fromisoformat(x.strip()) for x in text.split("-"))
+        """Two times in hours and minutes, like 22:00-06:00. Anything else (seconds, 24:00, one time) is
+        refused with ValueError, as agent.toml refuses it, so every caller reads quiet hours alike."""
+        match = _QUIET.fullmatch(text.strip())
+        if not match:
+            raise ValueError("quiet hours look like 22:00-07:00")
+        a, b = (dt.time(int(h), int(m)) for h, m in (match.group(1, 2), match.group(3, 4)))
         return Quiet(a, b, exempt)
+
+    @staticmethod
+    def parse_saved(text: str, exempt: tuple[str, ...] = ("critical",)) -> "Quiet":
+        """Quiet hours read back from saved settings. Builds before hours-and-minutes were enforced
+        saved any ISO times (22:00:00-06:00:30): those still read, seconds kept, with a warning, so
+        an old setting never stops notices. Saving them again needs hours and minutes (``parse``)."""
+        try:
+            return Quiet.parse(text, exempt)
+        except ValueError:
+            a, b = (dt.time.fromisoformat(x.strip()) for x in text.split("-"))  # ValueError as before
+            _log.warning("Quiet hours %r were saved with seconds; read as %s-%s. Save them again as "
+                         "hours and minutes, like 22:00-06:00.", text, a.isoformat(), b.isoformat())
+            return Quiet(a, b, exempt)
 
     def until(self, now: dt.datetime, criticality: str) -> dt.datetime | None:
         """When quiet hours end, if ``now`` is inside them and ``criticality`` isn't exempt."""
@@ -125,7 +146,8 @@ class Quiet:
         inside = (self.start <= t < self.end) if self.start < self.end else (t >= self.start or t < self.end)
         if not inside:
             return None
-        end = now.replace(hour=self.end.hour, minute=self.end.minute, second=0, microsecond=0)
+        end = now.replace(hour=self.end.hour, minute=self.end.minute, second=self.end.second,
+                          microsecond=self.end.microsecond)
         return end if end > now else end + dt.timedelta(days=1)
 
 

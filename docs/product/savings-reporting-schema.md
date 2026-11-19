@@ -16,7 +16,7 @@ Plan: [enterprise-savings-intelligence-plan.md](enterprise-savings-intelligence-
    those rows by run time, cut in UTC. Nothing is accrued per period, so nothing is counted
    twice.
 2. **Classifications never mix silently.** Every figure carries `classification`: Measured,
-   Estimated, Scenario or Unknown. Measured and Estimated may be added; the sum is labelled as
+   Estimated, Scenario or Unknown. Measured and Estimated may be added. The sum is labelled as
    its weakest part and shows the measured part beside it. Scenario figures (prices applied to
    CU) are only ever added to other Scenario figures. Unknown is null, never 0, and is counted
    beside a total ("3 runs not known"), not inside it.

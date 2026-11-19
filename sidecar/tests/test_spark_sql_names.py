@@ -28,7 +28,8 @@ def test_a_column_is_named_as_spark_names_it(query):
     assert _name(query) == FIXTURE["names"][query]
 
 
-_REFUSED = {"input_file_name()", "spark_partition_id()"}
+# format_number with a pattern: Java's DecimalFormat patterns aren't written here (docs/sql-compatibility.md)
+_REFUSED = {"input_file_name()", "spark_partition_id()", "format_number(d, '#.#')"}
 
 
 def run(code: str) -> str:

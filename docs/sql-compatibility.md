@@ -664,7 +664,8 @@ T-SQL run on this PC takes the data types Microsoft's "Data types in Fabric Data
 | `image` | Refused: use `varbinary(max)` | Yes, as `varbinary` |
 | `tinyint` | Refused: use `smallint` | Yes, 0 to 255 |
 | `money`, `smallmoney` | Refused: use `decimal(19, 4)` or `decimal(10, 4)` | Refused by name (their conversion styles aren't carried) |
-| `datetimeoffset`, `xml`, `geography`, `geometry`, `json`, `sql_variant`, `rowversion` (`timestamp`), `hierarchyid`, `vector`, CLR types | Refused, with Microsoft's alternative | Refused by name: the local engine has no form of them. Run the query in a Fabric Warehouse |
+| `datetimeoffset` | Refused: use `datetime2(6)`, converted with `AT TIME ZONE` | Yes, with `AT TIME ZONE`, `SWITCHOFFSET` and `TODATETIMEOFFSET`. See [Local T-SQL datetimeoffset and time zones](#local-t-sql-datetimeoffset-and-time-zones) |
+| `xml`, `geography`, `geometry`, `json`, `sql_variant`, `rowversion` (`timestamp`), `hierarchyid`, `vector`, CLR types | Refused, with Microsoft's alternative | Refused by name: the local engine has no form of them. Run the query in a Fabric Warehouse |
 | `sysname` | As `nvarchar(128)`: refused | Yes, as `varchar(128)` |
 
 "In a table or view" covers `CREATE TABLE`, `ALTER TABLE ... ADD` and `ALTER COLUMN`, `CREATE TABLE ... AS SELECT` and `SELECT ... INTO` with a column cast to the type, and `CREATE VIEW` with a column cast to it.
@@ -680,6 +681,36 @@ What can still differ:
 - `CHAR(n)` isn't padded with spaces (see [Local T-SQL tables](#local-t-sql-tables)).
 - `GETDATE()` and `CURRENT_TIMESTAMP` give the time to the microsecond here. In T-SQL they're `datetime`, in 1/300-second steps.
 - A Delta table's own length limits aren't kept: a `varchar(10)` column written to Delta is text of any length there, as in a Spark table.
+
+## Local T-SQL datetimeoffset and time zones
+
+A Fabric Warehouse can't keep a `datetimeoffset` column, but a query can use one. Microsoft's datetimeoffset page says, as it read on 2026-11-18: "In Microsoft Fabric, currently you can't create columns with the datetimeoffset data type, but you can use datetimeoffset for converting data with the AT TIME ZONE function". The AT TIME ZONE, SWITCHOFFSET and TODATETIMEOFFSET pages list Warehouse in Microsoft Fabric. The answers below are those pages' examples, or follow from their rules: a value is compared and sorted by its UTC time, and converting one to `date`, `time` or `datetime2` keeps its local date and time.
+
+| T-SQL | Here, as in a warehouse |
+| --- | --- |
+| `CAST('2024-01-01 10:00 +01:00' AS DATETIMEOFFSET)` | Text written `yyyy-mm-dd hh:mi:ss.nnnnnnn +hh:mi`, where the time, seconds, fraction and offset may be left out, and the offset may be `-hh:mi` (or ISO 8601 with `T` and `Z`). No offset is `+00:00`. A date with an offset and no time is T-SQL's conversion error (`NULL` with `TRY_CAST`), and so is an offset past 14 hours |
+| `CAST(x AS VARCHAR(34))` | `2024-01-01 10:00:00.0000000 +01:00`, with the value's digits of a second (`datetimeoffset(0)` is 26 characters) |
+| `CAST(x AS DATE)`, `AS TIME(n)`, `AS DATETIME2` | The local date and time: `2025-12-10 12:32:10.1237 +01:00` is `2025-12-10`, and `12:32:10.124` as `time(3)` (rounded, as Microsoft's page shows) |
+| `=`, `<>`, `<`, `>`, `BETWEEN`, `ORDER BY`, `IS NULL` | By UTC time: `'10:00 +01:00'` equals `'09:00 +00:00'`. Text or a `datetime2` on the other side is read as a datetimeoffset, a `datetime2` at `+00:00` |
+| `DATEPART`, `DATENAME`, `YEAR`, `MONTH`, `DAY` | The local date and time; `TZOFFSET` is the offset in minutes (`DATEPART(tzoffset, '2007-05-10 00:00:01.1234567 +05:10')` is `310`), and `DATENAME(tzoffset, ...)` is `+05:10`. A `datetime2`'s offset is `0` and `+00:00`. `ISO_WEEK` is the local date's week: `2024-12-30 01:00 +14:00` is week 1 |
+| `SWITCHOFFSET(x, '-08:00')` | The same moment at another offset: `1998-09-20 07:45:50.71345 -05:00` is `1998-09-20 04:45:50.7134500 -08:00`. Across the date line, `2024-12-31 23:30 +00:00` is `2025-01-01 13:30 +14:00` and `2024-12-31 11:30 -12:00`, which are equal |
+| `TODATETIMEOFFSET(x, '+13:00')`, `TODATETIMEOFFSET(x, -120)` | The `datetime2` with that offset. An offset is `+hh:mi`, `-hh:mi` or minutes, from -14:00 to +14:00 |
+| `x AT TIME ZONE 'Pacific Standard Time'` | A `datetime2` or `datetime` is read as local time in the zone, and a datetimeoffset is moved to it. A time skipped when the clocks go forward takes the offset after the change (`2026-03-08 02:30` is `03:30 -07:00`), and a time that happens twice when they go back takes the offset before it (`2026-11-01 01:30` is `01:30 -07:00`), as Microsoft's AT TIME ZONE page shows for `'Central European Standard Time'` |
+| A datetimeoffset returned as a column | Its UTC time, without the offset, as this app gives a warehouse's result, with a note in `translation.notes`. Convert it to text to keep the offset |
+
+`AT TIME ZONE` takes Windows time zone names, as a warehouse does. Each is mapped to the IANA zone that CLDR's windowsZones.xml gives it: `UTC`, `GMT Standard Time`, `W. Europe Standard Time`, `Central Europe Standard Time`, `Romance Standard Time`, `Central European Standard Time`, `Eastern Standard Time`, `Central Standard Time`, `Mountain Standard Time`, `Pacific Standard Time`, `US Mountain Standard Time`, `Alaskan Standard Time`, `Hawaiian Standard Time`, `Tokyo Standard Time`, `Korea Standard Time`, `China Standard Time`, `Singapore Standard Time`, `India Standard Time`, `AUS Eastern Standard Time` and `New Zealand Standard Time`. Only times from 2007 (2009 for the Australian and New Zealand zones) through 2037 are carried, where these zones' daylight saving rules have been the same law in Windows and in the local engine's time zone data. A time outside those years stops with a message naming the zone; `UTC` takes any time. Any other name, an IANA name such as `'America/Los_Angeles'` (which a warehouse doesn't take), and a zone that isn't written in the query are refused by name.
+
+Refused by name, so nothing runs with another answer:
+
+- A `datetimeoffset` column in a table: `CREATE TABLE`, `ALTER TABLE`, `SELECT ... INTO` and `CREATE TABLE ... AS SELECT`, as a warehouse refuses it.
+- A datetimeoffset value anywhere but the uses above: in arithmetic, `CASE` and `COALESCE` values, `FORMAT`, a CTE's, subquery's or view's column, or an `INSERT`. Convert it to `datetime2` or text first.
+- `DATEADD`, `DATEDIFF`, `DATETRUNC` and `EOMONTH` of one, and converting one to `datetime` or `smalldatetime`, or to fewer digits of a second than it has: Microsoft's pages don't say how those are worked out. Times are kept to the microsecond here, so a seventh digit of a second that isn't 0 is refused too.
+- Text in another form (`'12-10-25 12:32:10 +01:00'`), `CONVERT` styles, text shorter than the value (`VARCHAR` with no length is 30 characters), and text of a column that came from `AT TIME ZONE` on a table's column, whose digits of a second aren't known here: cast it to `datetimeoffset(6)` first.
+- `SYSDATETIMEOFFSET` (Microsoft's page doesn't list Warehouse in Microsoft Fabric; use `SYSUTCDATETIME()`) and `DATETIMEOFFSETFROMPARTS`.
+
+`DATENAME` of every part now gives T-SQL's text: `DATENAME(hour, ...)` is `7`, `DATENAME(day, ...)` is `5` and `DATENAME(quarter, ...)` is `1`. They gave the month's short name, `05` and the word `quarter` before.
+
+Sources, read 2026-11-18: Microsoft Learn's datetimeoffset (last updated 2026-09-21), AT TIME ZONE (2026-09-29), SWITCHOFFSET (2026-10-08), TODATETIMEOFFSET (2026-10-08), DATEPART (2026-10-08), SYSDATETIMEOFFSET (2026-09-29) and Data types in Fabric Data Warehouse (2026-06-11), and the Unicode CLDR windowsZones.xml mapping.
 
 ## Local T-SQL decimals
 

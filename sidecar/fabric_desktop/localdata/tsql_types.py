@@ -12,9 +12,9 @@ the type to use instead. Locally:
   engine gives T-SQL's value: ``CAST(... AS datetime)`` rounds to T-SQL's 1/300 of a second and
   ``smalldatetime`` to the minute, with T-SQL's range errors; ``nvarchar``, ``nchar``, ``text``, ``ntext``,
   ``image`` and ``tinyint`` hold the same values as ``varchar``, ``varbinary`` and a 0 to 255 integer here. The
-  types the local engine has no form of (``datetimeoffset``, ``xml``, ``geography``, ``geometry``, ``json``,
+  types the local engine has no form of (``xml``, ``geography``, ``geometry``, ``json``,
   ``sql_variant``, ``rowversion``, ``hierarchyid``, ``vector`` and CLR types) are refused by name, as are
-  ``money`` and ``smallmoney``.
+  ``money`` and ``smallmoney``. A ``datetimeoffset`` in a query is carried by tsql_offsets (WR-241).
 - A ``#temp`` table can take ``nvarchar``, ``nchar``, ``text``, ``ntext``, ``image`` and ``tinyint`` with a note,
   since Microsoft's temp table page lists only the warehouse's table types; ``datetime`` and ``smalldatetime``
   columns are refused there, since a stored value isn't rounded as T-SQL rounds it.
@@ -119,7 +119,8 @@ def check(tree: exp.Expression) -> list[str]:
         elif kind.this in (T.MONEY, T.SMALLMONEY):
             raise ValueError(_NOT_YET + "MONEY and SMALLMONEY aren't carried yet, and neither are their CONVERT "
                              "styles. Use DECIMAL(19, 4) for money and DECIMAL(10, 4) for smallmoney.")
-        elif kind.this in _ALTERNATIVE_KEY and kind.this not in _SAME_HERE | _ROUNDED or kind.this == T.USERDEFINED:
+        elif kind.this in _ALTERNATIVE_KEY and kind.this not in _SAME_HERE | _ROUNDED | {T.TIMESTAMPTZ} \
+                or kind.this == T.USERDEFINED:  # a query's datetimeoffset is tsql_offsets' (WR-241)
             raise ValueError(_NOT_YET + f"the data type {_name(kind)} isn't mapped yet. The local engine has no form "
                              "of it, and a Fabric Warehouse table can't hold it either. Use "
                              f"{_alternative(kind)}, or run it in a Fabric Warehouse.")

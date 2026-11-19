@@ -67,7 +67,7 @@ def test_each_supported_type_makes_a_table(written):
 
 
 @pytest.mark.parametrize("written", ["XML", "GEOGRAPHY", "GEOMETRY", "JSON", "SQL_VARIANT", "ROWVERSION",
-                                     "HIERARCHYID", "DATETIMEOFFSET", "DATETIMEOFFSET(7)", "VECTOR(3)", "dbo.Phone"])
+                                     "HIERARCHYID", "VECTOR(3)", "dbo.Phone"])
 @pytest.mark.parametrize("statement", ["SELECT CAST(NULL AS {t}) AS c", "SELECT TRY_CONVERT({t}, NULL) AS c",
                                        "CREATE TABLE #t (c {t})", "SELECT CAST(NULL AS {t}) AS c INTO #t"])
 def test_a_type_with_no_local_form_is_refused_by_name_in_a_query(statement, written):
@@ -76,6 +76,17 @@ def test_a_type_with_no_local_form_is_refused_by_name_in_a_query(statement, writ
     message = str(err.value)
     assert message.startswith("This T-SQL can't be run on the local engine: the data type ")
     assert "isn't mapped yet. The local engine has no form of it" in message and "Fabric Warehouse" in message
+
+
+@pytest.mark.parametrize("written", ["DATETIMEOFFSET", "DATETIMEOFFSET(7)"])
+def test_a_datetimeoffset_runs_in_a_query_but_not_in_a_temp_table(written):
+    # WR-241: a warehouse query can use one (tsql_offsets); no table can keep one
+    translate(f"SELECT CAST(NULL AS {written}) AS c")
+    translate(f"SELECT TRY_CONVERT({written}, NULL) AS c")
+    for statement in ("CREATE TABLE #t (c {t})", "SELECT CAST(NULL AS {t}) AS c INTO #t"):
+        with pytest.raises(ValueError, match=r"datetimeoffset isn't supported in a Fabric Warehouse table or view "
+                                             r"\(column c\)"):
+            translate(statement.format(t=written))
 
 
 @pytest.mark.parametrize("sql", ["SELECT CAST(1 AS MONEY) AS c", "CREATE TABLE #t (c SMALLMONEY)"])

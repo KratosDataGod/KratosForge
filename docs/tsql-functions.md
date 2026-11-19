@@ -21,11 +21,11 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 75 |
+| Runs | 78 |
 | Differs | 0 |
-| Refused | 33 |
+| Refused | 31 |
 | Fails | 0 |
-| Not checked | 70 |
+| Not checked | 69 |
 | **All** | **178** |
 
 ## String
@@ -101,7 +101,7 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `DATEDIFF` | Runs |  | 2 value checks |
 | `DATEDIFF_BIG` | Not checked | `SELECT DATEDIFF_BIG(second, '2024-01-01', '2024-01-02')` |  |
 | `DATEFROMPARTS` | Runs |  | 1 value check |
-| `DATENAME` | Runs |  | 1 value check |
+| `DATENAME` | Runs |  | 2 value checks |
 | `DATEPART` | Runs |  | 8 value checks |
 | `DATETIME2FROMPARTS` | Refused | `SELECT DATETIME2FROMPARTS(2024, 3, 6, 13, 45, 30, 0, 0)` | DATETIME2FROMPARTS isn't mapped yet. |
 | `DATETIMEFROMPARTS` | Not checked | `SELECT DATETIMEFROMPARTS(2024, 3, 6, 13, 45, 30, 0)` |  |
@@ -113,20 +113,20 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `ISDATE` | Refused |  | ISDATE isn't mapped yet. |
 | `MONTH` | Not checked |  |  |
 | `SMALLDATETIMEFROMPARTS` | Refused | `SELECT SMALLDATETIMEFROMPARTS(2024, 3, 6, 13, 45)` | SMALLDATETIMEFROMPARTS isn't mapped yet. |
-| `SWITCHOFFSET` | Refused | `SELECT SWITCHOFFSET(SYSDATETIMEOFFSET(), '+01:00')` | SWITCHOFFSET isn't mapped yet. |
+| `SWITCHOFFSET` | Runs |  | 1 value check |
 | `SYSDATETIME` | Not checked | `SELECT SYSDATETIME()` |  |
 | `SYSDATETIMEOFFSET` | Refused | `SELECT SYSDATETIMEOFFSET()` | SYSDATETIMEOFFSET isn't mapped yet. A warehouse's clock is UTC: SYSUTCDATETIME() gives the same time without the of |
 | `SYSUTCDATETIME` | Not checked | `SELECT SYSUTCDATETIME()` |  |
 | `TIMEFROMPARTS` | Runs |  | 4 value checks |
-| `TODATETIMEOFFSET` | Refused | `SELECT TODATETIMEOFFSET(CAST('2024-03-06' AS datetime2), '+01:00')` | TODATETIMEOFFSET isn't mapped yet. |
+| `TODATETIMEOFFSET` | Runs |  | 1 value check |
 | `YEAR` | Not checked |  |  |
 
 ## Conversion
 
 | Function | Status | Note |
 | --- | --- | --- |
-| `CAST` | Runs | 30 value checks |
-| `CONVERT` | Runs | 2 value checks |
+| `CAST` | Runs | 34 value checks |
+| `CONVERT` | Runs | 3 value checks |
 | `PARSE` | Runs | 1 value check |
 | `TRY_CAST` | Runs | 3 value checks |
 | `TRY_CONVERT` | Runs | 1 value check |
@@ -228,7 +228,7 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `GROUP BY CUBE` | Not checked | `SELECT a, SUM(b) FROM dbo.t GROUP BY CUBE(a)` |  |
 | `GROUPING SETS` | Not checked | `SELECT a, SUM(b) FROM dbo.t GROUP BY GROUPING SETS ((a), ())` |  |
 | `UNION, EXCEPT, INTERSECT` | Not checked | `SELECT a FROM dbo.t EXCEPT SELECT 9` |  |
-| `AT TIME ZONE` | Not checked | `SELECT CAST('2024-03-06' AS datetime2) AT TIME ZONE 'UTC'` |  |
+| `AT TIME ZONE` | Runs |  | 1 value check |
 | `QUALIFY` | Runs |  | 1 value check |
 | `SELECT ... INTO` | Not checked | `SELECT a INTO dbo.t_copy FROM dbo.t` |  |
 | `Temporary tables (#t)` | Runs |  | 1 value check |

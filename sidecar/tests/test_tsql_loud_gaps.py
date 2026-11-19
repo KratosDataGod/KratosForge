@@ -84,6 +84,14 @@ MAPPED = [  # decimals come back as text, as the engine sends them
     ("JSON_QUERY of a scalar, lax", "SELECT JSON_QUERY('{" + DQ + "a" + DQ + ": 1}', '$.a')", None),
     ("JSON_OBJECT keeps NULL", "SELECT JSON_OBJECT('name':'value', 'type':NULL)", '{"name":"value","type":null}'),
     ("JSON_ARRAY leaves NULL out", "SELECT JSON_ARRAY('a', 1, 'b', NULL)", '["a",1,"b"]'),
+    # WR-241: datetimeoffset, as T-SQL's reference gives it (more in test_tsql_datetimeoffset.py)
+    ("SWITCHOFFSET", ("SELECT CAST(SWITCHOFFSET(CAST('1998-09-20 7:45:50.71345 -5:00' AS DATETIMEOFFSET), '-08:00') "
+                      "AS VARCHAR(34))"), "1998-09-20 04:45:50.7134500 -08:00"),
+    ("TODATETIMEOFFSET in minutes", ("SELECT CAST(TODATETIMEOFFSET(CAST('2019-04-22 11:39:21.698681' AS DATETIME2), "
+                                     "-120) AS VARCHAR(34))"), "2019-04-22 11:39:21.6986810 -02:00"),
+    ("AT TIME ZONE, a time that happens twice", ("SELECT CAST(CONVERT(DATETIME2(0), "
+     "'2022-10-30T02:00:00', 126) AT TIME ZONE 'Central European Standard Time' AS VARCHAR(26))"), "2022-10-30 02:00:00 +02:00"),
+    ("DATENAME of the hour", "SELECT DATENAME(hour, CAST('2024-03-05 07:08:09' AS DATETIME2))", "7"),
 ]
 # Refused with the local-engine message: mapping them faithfully needs more than a rewrite.
 REFUSED = [

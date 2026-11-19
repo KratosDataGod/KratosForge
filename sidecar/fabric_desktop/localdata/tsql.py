@@ -46,13 +46,14 @@ from typing import Any, cast
 
 import sqlglot
 from sqlglot import ErrorLevel, exp, jsonpath
+from sqlglot.dialects.dialect import map_date_part
 from sqlglot.dialects.tsql import TSQL
 from sqlglot.errors import SqlglotError
 from sqlglot.helper import seq_get
 from sqlglot.tokens import Token, TokenType
 
 from ..sql import KfDuckDB
-from . import tsql_ctes, tsql_format, tsql_hints, tsql_routines, tsql_tables, tsql_types
+from . import tsql_ctes, tsql_format, tsql_hints, tsql_offsets, tsql_routines, tsql_tables, tsql_types
 from .. import sql_dialects, tsql_clone
 
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
@@ -124,6 +125,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             notes += _names(tree, columns)
             notes += _as_of(tree)
             _table_columns(tree)
+            notes += tsql_offsets.rewrite(tree, schema)  # WR-241: datetimeoffset, before CONVERT's rewrite
             for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
                 parts.replace(_timefromparts(parts))
             tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
@@ -173,7 +175,7 @@ class KfTSQL(TSQL):
         # PARSE and TRY_PARSE take "x AS type USING culture", which sqlglot can't read (WR-229).
         FUNCTION_PARSERS = {**TSQL.Parser.FUNCTION_PARSERS, "PARSE": tsql_format.parser(False),
                             "TRY_PARSE": tsql_format.parser(True)}
-        FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build,
+        FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build, "DATENAME": lambda args: _datename(args),
                      "SQUARE": lambda args: exp.Pow(this=exp.Cast(this=seq_get(args, 0), to=exp.DataType.build("DOUBLE")),
                                                     expression=exp.Literal.number(2)),
                      "JSON_VALUE": lambda args: exp.JSONExtractScalar(this=seq_get(args, 0), expression=seq_get(args, 1),
@@ -181,6 +183,26 @@ class KfTSQL(TSQL):
                      "JSON_QUERY": lambda args: exp.JSONExtract(this=seq_get(args, 0),
                                                                 expression=seq_get(args, 1) or exp.Literal.string("$"),
                                                                 json_query=True)}
+
+
+_MONTH_OR_DAY = {"MONTH": "%B", "MM": "%B", "M": "%B", "WEEKDAY": "%A", "DW": "%A", "W": "%A"}
+
+
+def _datename(args: list[Any]) -> exp.Expression:
+    """DATENAME(part, x): the month's and the weekday's English names, the offset as '+hh:mi' (tsql_offsets), and
+    every other part as DATEPART's number as text. sqlglot wrote each part as a STRFTIME format, so DATENAME(hour,
+    x) gave the month's short name, DATENAME(day, x) '05' and DATENAME(quarter, x) the word 'quarter'."""
+    part, value = seq_get(args, 0), seq_get(args, 1)
+    if part is None or value is None or len(args) != 2:
+        raise ValueError("The datename function requires 2 argument(s).")
+    name = part.name.upper()
+    if name in _MONTH_OR_DAY:
+        return exp.TimeToStr(this=exp.cast(value, exp.DataType.Type.DATETIME2),
+                             format=exp.Literal.string(_MONTH_OR_DAY[name]))
+    if name in ("TZOFFSET", "TZ"):
+        return exp.Anonymous(this=tsql_offsets.DATENAME_TZ, expressions=[value])
+    number = exp.Extract(this=map_date_part(exp.var(name), KfTSQL), expression=value)
+    return exp.Cast(this=number, to=exp.DataType.build("VARCHAR(30)"))
 
 
 def _refuse_output(batch: str) -> None:

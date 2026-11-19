@@ -1301,7 +1301,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             raise PermissionError(f"Replacing {table} deletes all of its rows, so it runs only after you type its "
                                   "name to confirm. Nothing was written.")
         elif mode not in ("overwrite", "append"):
-            raise ValueError(f"mode must be new, overwrite or append, got {mode!r}")
+            raise ValueError(f"mode must be new, overwrite or append, not {mode!r}")
         written = lakehouse.write_table(sql.run(query, dialect), table, mode)
         return {"table": written.table, "rows": written.rows, "message": repr(written)}
 

@@ -4,6 +4,8 @@ the type it had."""
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import duckdb
 import pytest
 import sqlglot
@@ -14,13 +16,12 @@ from fabric_desktop import spark_time_zone as stz
 
 
 @pytest.fixture
-def shifting(monkeypatch):
-    """A session in America/Chicago, whose clocks change, and no other test's sessions."""
-    monkeypatch.setattr(stz, "_SHIFTING", {})
-    session = object()
+def shifting():
+    """SQL written for a session in America/Chicago, whose clocks change."""
+    session = SimpleNamespace()
     stz.session_zone(session, "America/Chicago")
-    yield session
-    stz.session_zone(session, None)
+    with stz.for_session(session):
+        yield session
 
 
 @pytest.mark.parametrize("zone, duckdb_zone", [
@@ -49,12 +50,11 @@ def interval_in(sql):
     return tree, tree.find(exp.Interval)
 
 
-def test_a_negative_interval_of_hours_is_split_into_days_and_the_rest_toward_zero(monkeypatch):
-    monkeypatch.setattr(stz, "_SHIFTING", {})
+def test_a_negative_interval_of_hours_is_split_into_days_and_the_rest_toward_zero():
     tree, interval = interval_in("SELECT TIMESTAMP '2026-03-10 12:00:00' + INTERVAL 1 HOUR AS t")
     interval.set("this", exp.Neg(this=exp.Literal.number(25)))  # INTERVAL -25 HOURS
     interval.set("unit", exp.Var(this="HOURS"))
-    text = stz.fix(tree).sql("duckdb")
+    text = stz.fix(tree, ()).sql("duckdb")  # a zone that keeps its offset
     assert "INTERVAL '-1' DAY" in text and "INTERVAL '-3600' SECOND" in text
     # Its own connection: DuckDB's default one is shared with every test in this process.
     con = duckdb.connect()
@@ -64,10 +64,9 @@ def test_a_negative_interval_of_hours_is_split_into_days_and_the_rest_toward_zer
         con.close()
 
 
-def test_an_interval_that_is_not_a_whole_number_is_left_to_duckdb(monkeypatch):
-    monkeypatch.setattr(stz, "_SHIFTING", {})
+def test_an_interval_that_is_not_a_whole_number_is_left_to_duckdb():
     tree, _ = interval_in("SELECT TIMESTAMP '2026-03-10 12:00:00' + INTERVAL '36.5' HOUR AS t")
-    assert stz.fix(tree).sql("duckdb") == "SELECT CAST('2026-03-10 12:00:00' AS TIMESTAMP) + INTERVAL '36.5' HOUR AS t"
+    assert stz.fix(tree, ()).sql("duckdb") == "SELECT CAST('2026-03-10 12:00:00' AS TIMESTAMP) + INTERVAL '36.5' HOUR AS t"
 
 
 def test_a_truncation_keeps_its_type_and_is_rewritten_only_once(shifting):

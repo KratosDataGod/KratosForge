@@ -133,9 +133,22 @@ counted as a loss. A row that names no object is a warning. The report also give
 destination formats and versions, the converter (`apache/ossie-converters`, commit `82b9eff`), the
 excluded objects, the metadata changes, the warnings, the round-trip check as `validation`, and one
 remediation line for each object that isn't fully preserved. Security roles and calculation
-groups are always listed and flagged. A role that is lost, or that is kept only in the extension
-where other tools won't apply it, is a security warning at the top of the warnings. The `kind`
-(kept or lost) of the existing rows is unchanged, so the current card still works.
+groups are always listed and flagged, and compared by what they do, not only by name: a role's
+model permission, each table's filter and column permissions and its members, and each
+calculation item's name, expression, ordinal and format string expression. One that arrives with
+any of these changed is Partially converted, with each change listed. A role that is lost,
+changed, or kept only in the extension where other tools won't apply it, is a security warning;
+security warnings come first. Object names longer than 1,024 characters are cut short in the
+report, with their length.
+
+Every export now runs the round-trip check (Ossie and back) for the validation result, so an
+export takes about three to four times as long as the conversion alone (3.5 times on a model of
+2,400 columns). Imports run it on the model they write. A model with more than 20,000 columns and
+measures isn't checked: the validation says "model too large for round-trip check", and a check
+that didn't run is never shown as passed. If the report can't be built from a document, the
+conversion still goes ahead, and the report says so with `status` "unverified" and the reason.
+
+The `kind` (kept or lost) of the existing rows is unchanged, so the current card still works.
 
 ## Keeping Git in step
 

@@ -13,6 +13,7 @@ Fabric) unless the caller names it in ``remove``. Lineage tags are kept by name,
 
 from __future__ import annotations
 
+import collections
 import copy
 import json
 import re
@@ -183,10 +184,11 @@ def export(bim: dict[str, Any], translate_dax: bool = True, read_report: list[di
            "counts": {"datasets": len(datasets), "fields": sum(len(d.get("fields") or []) for d in datasets),
                       "metrics": len(metrics), "portable_metrics": portable,
                       "relationships": len(doc.get("relationships") or [])},
-           "fidelity": fidelity(bim, doc, report, check)}
-    if check is not None:
+           "fidelity": safe_fidelity(bim, doc, report, check)}
+    if check is not None:  # a check that didn't run is never an empty (passing) list
         out["round_trip"] = check["rows"] if check["ran"] else [
-            {"object": "model", "kind": "lost", "message": f"the round-trip check couldn't run: {check['error']}"}]
+            {"object": "model", "kind": "lost",
+             "message": f"the round-trip check didn't run: {check['reason']}" + (f" ({check['error']})" if check["error"] else "")}]
     return out
 
 
@@ -685,8 +687,90 @@ _DIALECT_ANNOTATION = "OssieExpressionDialect"
 _COLLECTION_ROWS = (*_STASHED_OBJECTS, ("hierarchies", "hierarchy"))
 
 
+MAX_NAME = 1024  # longer than any real object name: a report names it cut short, so no row costs more than this
+
+
+def _short(name: Any) -> str:
+    """``name`` as text, cut short with its length past ``MAX_NAME`` characters."""
+    text = str(name)
+    return text if len(text) <= MAX_NAME else f"{text[:MAX_NAME]}... ({len(text)} characters)"
+
+
 def _q(name: Any) -> str:
-    return f"'{name}'"
+    return f"'{_short(name)}'"
+
+
+def _canon(obj: Any) -> str:
+    """One object as comparable text, so lists of them compare as key sets rather than item by item."""
+    return json.dumps(obj, sort_keys=True, ensure_ascii=False, default=str)
+
+
+def _text(value: Any) -> str:
+    """A TMSL expression (a string or a list of lines) as one string with \\n line ends."""
+    text = "\n".join(str(v) for v in value) if isinstance(value, list) else "" if value is None else str(value)
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _role_shape(role: dict[str, Any]) -> dict[str, Any]:
+    """What a security role does: its model permission, each table's filter and column permissions, its members."""
+    perms = _dicts(role.get("tablePermissions"))
+    return {"modelPermission": role.get("modelPermission"),
+            "filters": {(_short(p.get("name")), _text(p.get("filterExpression"))) for p in perms},
+            "tables": {(_short(p.get("name")), str(p.get("metadataPermission"))) for p in perms
+                       if "metadataPermission" in p},
+            "columns": {(_short(p.get("name")), _short(c.get("name")), str(c.get("metadataPermission")))
+                        for p in perms for c in _dicts(p.get("columnPermissions"))},
+            "members": {_short(m.get("memberName", m.get("name"))) for m in _dicts(role.get("members"))}}
+
+
+def _shown(value: str) -> str:
+    return repr(value if len(value) <= 80 else value[:80] + "...")
+
+
+def _role_changes(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
+    """How the role ``after`` differs from ``before`` in what it lets people see, one line each."""
+    a, b = _role_shape(before), _role_shape(after)
+    out = []
+    if a["modelPermission"] != b["modelPermission"]:
+        out.append(f"model permission {_shown(str(a['modelPermission']))} became {_shown(str(b['modelPermission']))}")
+    old, new = dict(sorted(a["filters"] - b["filters"])), dict(sorted(b["filters"] - a["filters"]))
+    for table in sorted(old.keys() | new.keys()):
+        if table not in new:
+            out.append(f"the filter on table {_q(table)} is gone (it was {_shown(old[table])})")
+        elif table not in old:
+            out.append(f"a filter on table {_q(table)} was added: {_shown(new[table])}")
+        elif not new[table].strip():
+            out.append(f"the filter on table {_q(table)} came back empty (it was {_shown(old[table])})")
+        else:
+            out.append(f"the filter on table {_q(table)} changed from {_shown(old[table])} to {_shown(new[table])}")
+    for key, what in (("tables", "table permission"), ("columns", "column permission"), ("members", "member")):
+        gone, added = sorted(a[key] - b[key]), sorted(b[key] - a[key])
+        if gone:
+            out.append(f"{len(gone)} {what}(s) gone: {', '.join(map(str, gone[:5]))}")
+        if added:
+            out.append(f"{len(added)} {what}(s) added: {', '.join(map(str, added[:5]))}")
+    return out
+
+
+def _calc_items(table: dict[str, Any]) -> dict[str, tuple[str, str, str]]:
+    group: dict[str, Any] = table["calculationGroup"] if isinstance(table.get("calculationGroup"), dict) else {}
+    return {_short(i["name"]): (_text(i.get("expression")), str(i.get("ordinal", "")),
+                                _text((i.get("formatStringDefinition") or {}).get("expression")
+                                      if isinstance(i.get("formatStringDefinition"), dict) else i.get("formatStringDefinition")))
+            for i in _named_items(group.get("calculationItems"))}
+
+
+def _calc_changes(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
+    """How calculation group ``after`` differs from ``before``: each item's name, expression, ordinal and format
+    string expression."""
+    a, b = _calc_items(before), _calc_items(after)
+    out = [f"calculation item {_q(n)} is gone" for n in a if n not in b]
+    out += [f"calculation item {_q(n)} was added" for n in b if n not in a]
+    for n in (n for n in a if n in b):
+        for i, what in enumerate(("expression", "ordinal", "format string expression")):
+            if a[n][i] != b[n][i]:
+                out.append(f"calculation item {_q(n)} {what} changed from {_shown(a[n][i])} to {_shown(b[n][i])}")
+    return out
 
 
 def _dicts(items: Any) -> list[dict[str, Any]]:
@@ -709,14 +793,22 @@ class _Objects:
         self.items: list[dict[str, Any]] = []
         self.ids: dict[str, dict[str, Any]] = {}
         self.aliases: dict[str, dict[str, Any] | None] = {}  # None: more than one object goes by it
+        self.children: dict[tuple[str, str], list[dict[str, Any]]] = {}  # (parent id, kind) -> objects
+        self.lengths: set[int] = set()  # of the ids and aliases, so find tries only cuts that can match
+        self._next: dict[str, int] = {}  # the next number to try for a name used again
+        self._cuts: list[int] | None = None  # lengths, longest first, sorted once for every find
 
     def add(self, kind: str, ident: str, cls: str, changes: list[str] | None = None, notes: list[str] | None = None,
-            aliases: tuple[str, ...] = (), in_extension: list[str] | None = None) -> dict[str, Any]:
-        n, base = 2, ident
-        while ident in self.ids:  # the same name twice (a file can say anything): still one row each
-            ident, n = f"{base} #{n}", n + 1
+            aliases: tuple[str, ...] = (), in_extension: list[str] | None = None, parent: str = "model") -> dict[str, Any]:
+        base = ident
+        if ident in self.ids:  # the same name twice (a file can say anything): still one row each
+            n = self._next.get(base, 2)
+            while f"{base} #{n}" in self.ids:
+                n += 1
+            ident = f"{base} #{n}"
+            self._next[base] = n + 1
         changes = list(changes or [])
-        if cls == "fully_preserved" and changes:
+        if changes and cls in ("fully_preserved", "preserved_through_extensions", "unverified"):
             cls = "partially_converted"
         obj: dict[str, Any] = {"object": ident, "kind": kind, "class": cls, "changes": changes,
                                "notes": list(notes or []), "in_extension": sorted(in_extension or []),
@@ -727,20 +819,27 @@ class _Objects:
             obj["flag"] = "calculation_group"
         self.items.append(obj)
         self.ids[ident] = obj
+        self.lengths.add(len(ident))
+        self._cuts = None
+        self.children.setdefault((parent, kind), []).append(obj)
         for alias in (base, *aliases):
             if alias != ident:
                 self.aliases[alias] = obj if self.aliases.get(alias, obj) is obj else None
+                self.lengths.add(len(alias))
         return obj
 
     def find(self, where: str) -> dict[str, Any] | None:
-        """The object a report row names: the longest id or alias ``where`` starts with, whole words only."""
-        cut = len(where)
-        while cut > 0:
+        """The object a report row names: the longest id or alias ``where`` starts with, whole words only. Only
+        cuts as long as some id or alias are tried, so a row naming a huge name costs no more than the ids do."""
+        if self._cuts is None:
+            self._cuts = sorted(self.lengths, reverse=True)
+        for cut in self._cuts:
+            if cut > len(where) or (cut < len(where) and where[cut] != " "):
+                continue
             prefix = where[:cut]
             hit = self.ids.get(prefix) or self.aliases.get(prefix)
             if hit is not None:
                 return hit
-            cut = where.rfind(" ", 0, cut)
         return None
 
 
@@ -773,9 +872,11 @@ def _tmsl_to_ossie(bim: dict[str, Any], doc: dict[str, Any], objs: _Objects) -> 
         if ds is not None:
             objs.add(kind, tid, "fully_preserved", in_extension=_extension_keys(ds_stash))
         else:
-            objs.add(kind, tid, "preserved_through_extensions" if ex is not None else "unsupported")
+            objs.add(kind, tid, "preserved_through_extensions" if ex is not None else "unsupported",
+                     _calc_changes(t, ex) if ex is not None and kind == "calculation_group" else [])
         fields = {f["name"]: f for f in _named_items((ds or {}).get("fields"))}
         set_aside = _names(ds_stash.get("excludedColumns"))
+        ex_columns, ex_measures = _names((ex or {}).get("columns")), _names((ex or {}).get("measures"))
         for c in _named_items(t.get("columns")):
             cid = f"{tid} column {_q(c['name'])}"
             field = fields.get(c["name"])
@@ -785,12 +886,12 @@ def _tmsl_to_ossie(bim: dict[str, Any], doc: dict[str, Any], objs: _Objects) -> 
                     changes.append(f"data type {dt} has no Ossie type; written as Opaque (kept in the POWER_BI extension)")
                 elif isinstance(dt, str) and dt and not field.get("datatype"):
                     changes.append(f"data type {dt} has no Ossie type; left out (kept in the POWER_BI extension)")
-                objs.add("column", cid, "fully_preserved", changes, aliases=(f"{name}[{c['name']}]",),
+                objs.add("column", cid, "fully_preserved", changes, aliases=(f"{_short(name)}[{_short(c['name'])}]",),
                          in_extension=_extension_keys(_stash_data(field)))
             else:
-                kept = c["name"] in set_aside or (ex is not None and c["name"] in _names(ex.get("columns")))
+                kept = c["name"] in set_aside or c["name"] in ex_columns
                 objs.add("column", cid, "preserved_through_extensions" if kept else "unsupported",
-                         aliases=(f"{name}[{c['name']}]",))
+                         aliases=(f"{_short(name)}[{_short(c['name'])}]",))
         for m in _named_items(t.get("measures")):
             mid = f"{tid} measure {_q(m['name'])}"
             metric = metrics.get((name, m["name"]))
@@ -802,43 +903,55 @@ def _tmsl_to_ossie(bim: dict[str, Any], doc: dict[str, Any], objs: _Objects) -> 
                 cls = "unverified" if translated else "fully_preserved"
                 notes = [(f"translated from DAX to {', '.join(translated)}; the DAX is kept beside it, and the two "
                           "aren't compared")] if translated else []
-                objs.add("measure", mid, cls, changes, notes, aliases=(f"{name}[{m['name']}]",),
+                objs.add("measure", mid, cls, changes, notes, aliases=(f"{_short(name)}[{_short(m['name'])}]",),
                          in_extension=_extension_keys(_stash_data(metric)))
             else:
-                kept = (name, m["name"]) in excluded_measures or (ex is not None and m["name"] in _names(ex.get("measures")))
+                kept = (name, m["name"]) in excluded_measures or m["name"] in ex_measures
                 objs.add("measure", mid, "preserved_through_extensions" if kept else "unsupported",
-                         aliases=(f"{name}[{m['name']}]",))
+                         aliases=(f"{_short(name)}[{_short(m['name'])}]",))
         stashed_hierarchies = _names(ds_stash.get("hierarchies")) | _names((ex or {}).get("hierarchies"))
         for h in _named_items(t.get("hierarchies")):
             objs.add("hierarchy", f"{tid} hierarchy {_q(h['name'])}",
-                     "preserved_through_extensions" if h["name"] in stashed_hierarchies else "unsupported")
-    core: dict[Any, dict[str, Any]] = {}
+                     "preserved_through_extensions" if h["name"] in stashed_hierarchies else "unsupported", parent=tid)
+    by_name: dict[Any, dict[str, Any]] = {}
+    by_ends: dict[tuple[Any, ...], collections.deque[dict[str, Any]]] = {}
     for r in _named_items(doc.get("relationships")):
         data = _stash_data(r)
         ends = (r.get("from"), (r.get("from_columns") or [None])[0], r.get("to"), (r.get("to_columns") or [None])[0])
         if "name" in data:
-            core.setdefault(("name", data["name"]), r)
-        core.setdefault(ends, r)
-        core.setdefault((ends[2], ends[3], ends[0], ends[1]), r)
-    set_aside_rels = _dicts(stash.get("excludedRelationships"))
+            by_name.setdefault(_canon(data["name"]), r)
+        for pair in {ends, (ends[2], ends[3], ends[0], ends[1])}:
+            by_ends.setdefault(tuple(map(_canon, pair)), collections.deque()).append(r)
+    set_aside_rels = collections.Counter(_canon(r) for r in _dicts(stash.get("excludedRelationships")))
+    used: set[int] = set()  # each core relationship matches one relationship of the model, never two
     unnamed = len([r for r in _dicts(model.get("relationships")) if "name" not in r])
     for r in _dicts(model.get("relationships")):
         label = r.get("name") if isinstance(r.get("name"), str) and r.get("name") else _rel_key(r)
-        ends = (r.get("fromTable"), r.get("fromColumn"), r.get("toTable"), r.get("toColumn"))
-        hit = core.get(("name", r["name"])) if r.get("name") else core.get(ends)
-        aliases = (f"relationship {label!r}",) + (("relationship '<unnamed>'",) if "name" not in r and unnamed == 1 else ())
+        rid = f"relationship {_q(label)}"
+        aliases = (f"relationship {_short(label)!r}",) + (("relationship '<unnamed>'",) if "name" not in r and unnamed == 1 else ())
+        if set_aside_rels[_canon(r)] > 0:  # what the converter set aside (inactive, many to many, a duplicate)
+            set_aside_rels[_canon(r)] -= 1
+            objs.add("relationship", rid, "preserved_through_extensions", aliases=aliases)
+            continue
+        hit = by_name.get(_canon(r["name"])) if r.get("name") else None
+        if hit is None or id(hit) in used:
+            queue = by_ends.get(tuple(map(_canon, (r.get("fromTable"), r.get("fromColumn"), r.get("toTable"),
+                                                   r.get("toColumn")))), collections.deque())
+            while queue and id(queue[0]) in used:
+                queue.popleft()
+            hit = queue.popleft() if queue and not r.get("name") else None
         if hit is not None:
-            objs.add("relationship", f"relationship {_q(label)}", "fully_preserved", aliases=aliases,
-                     in_extension=_extension_keys(_stash_data(hit)))
+            used.add(id(hit))
+            objs.add("relationship", rid, "fully_preserved", aliases=aliases, in_extension=_extension_keys(_stash_data(hit)))
         else:
-            objs.add("relationship", f"relationship {_q(label)}",
-                     "preserved_through_extensions" if r in set_aside_rels else "unsupported", aliases=aliases)
+            objs.add("relationship", rid, "unsupported", aliases=aliases)
     for key, kind in _STASHED_OBJECTS:
-        in_stash = _names(stash.get(key))
+        in_stash = {i["name"]: i for i in _named_items(stash.get(key))}
         for item in _named_items(model.get(key)):
-            objs.add(kind, f"{kind} {_q(item['name'])}",
-                     "preserved_through_extensions" if item["name"] in in_stash else "unsupported",
-                     aliases=(f"{kind} {item['name']!r}",))
+            stashed_item = in_stash.get(item["name"])
+            objs.add(kind, f"{kind} {_q(item['name'])}", "preserved_through_extensions" if stashed_item else "unsupported",
+                     _role_changes(item, stashed_item) if stashed_item is not None and kind == "role" else [],
+                     aliases=(f"{kind} {_short(item['name'])!r}",))
 
 
 def _ossie_drops(obj: dict[str, Any]) -> list[str]:
@@ -872,8 +985,17 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
     tables = {t["name"]: t for t in _named_items(model.get("tables"))}
     stash = _stash_data(doc)
 
+    index: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
+
     def member(table: Any, key: str, name: Any) -> dict[str, Any] | None:
-        return next((i for i in _named_items((tables.get(table) or {}).get(key)) if i["name"] == name), None)
+        """The table's column, measure or hierarchy ``name``, from an index built once per table and key."""
+        if not isinstance(table, str) or not isinstance(name, str):
+            return None
+        if (table, key) not in index:
+            found = index[(table, key)] = {}
+            for i in _named_items((tables.get(table) or {}).get(key)):
+                found.setdefault(i["name"], i)
+        return index[(table, key)].get(name)
 
     def placed(name: Any, recorded: Any) -> tuple[Any, dict[str, Any] | None]:
         """Where the converter puts a metric's measure ``name`` (its recorded home table when the model has it,
@@ -914,7 +1036,7 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
                 changes.append(f"data type {dt} has no Power BI type; left unspecified")
             cls = _expression_class(col, changes, notes)
             objs.add("column", f"{did} field {_q(f['name'])}", cls, changes if col is not None else [], notes,
-                     aliases=(f"table {_q(name)} column {_q(f['name'])}", f"{name}[{f['name']}]"))
+                     aliases=(f"table {_q(name)} column {_q(f['name'])}", f"{_short(name)}[{_short(f['name'])}]"))
         for c in _named_items(ds_stash.get("excludedColumns")):
             objs.add("column", f"table {_q(name)} column {_q(c['name'])}",
                      "fully_preserved" if member(name, "columns", c["name"]) else "unsupported",
@@ -922,7 +1044,7 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
         for h in _named_items(ds_stash.get("hierarchies")):
             objs.add("hierarchy", f"table {_q(name)} hierarchy {_q(h['name'])}",
                      "fully_preserved" if member(name, "hierarchies", h["name"]) else "unsupported",
-                     notes=["restored from the POWER_BI extension"])
+                     notes=["restored from the POWER_BI extension"], parent=did)
         for m in _named_items(d.get("metrics")):
             mid = f"{did} metric {_q(m['name'])}"
             if id(m) not in lifted:
@@ -933,31 +1055,62 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
     for m in model_metrics:
         _metric(objs, m, f"metric {_q(m['name'])}", None, placed, ())
     rels = _dicts(model.get("relationships"))
-    by_name = {r.get("name"): r for r in rels if r.get("name")}
-    by_ends = {(r.get("fromTable"), r.get("fromColumn"), r.get("toTable"), r.get("toColumn")): r for r in rels}
+    used: set[int] = set()  # each relationship of the model matches one of the file's, never two
+    by_canon: dict[str, collections.deque[dict[str, Any]]] = {}
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    by_ends: dict[str, collections.deque[dict[str, Any]]] = {}
+    for r in rels:
+        by_canon.setdefault(_canon(r), collections.deque()).append(r)
+        by_name.setdefault(_canon(r.get("name")), []).append(r)
+        by_ends.setdefault(_canon((r.get("fromTable"), r.get("fromColumn"), r.get("toTable"), r.get("toColumn"))),
+                           collections.deque()).append(r)
+
+    def claim(queue: collections.deque[dict[str, Any]] | None) -> dict[str, Any] | None:
+        while queue:
+            candidate = queue.popleft()
+            if id(candidate) not in used:
+                used.add(id(candidate))
+                return candidate
+        return None
+
+    # The extension's set-aside relationships come back verbatim; matched first, so one never also counts as
+    # a converted relationship.
+    set_aside = [(r, claim(by_canon.get(_canon(r))) is not None) for r in _dicts(stash.get("excludedRelationships"))]
     for r in _dicts(doc.get("relationships")):
         data, label = _stash_data(r), r.get("name") or "<unnamed>"
         ends = (r.get("from"), (r.get("from_columns") or [None])[0], r.get("to"), (r.get("to_columns") or [None])[0])
-        hit = by_name.get(data.get("name", r.get("name"))) or by_name.get(r.get("name")) or by_ends.get(ends) \
-            or by_ends.get((ends[2], ends[3], ends[0], ends[1]))
-        if len(r.get("from_columns") or []) != 1 or len(r.get("to_columns") or []) != 1:
-            hit = None  # a composite relationship never converts, whatever else matches its name
+        hit = None
+        if len(r.get("from_columns") or []) == 1 and len(r.get("to_columns") or []) == 1:  # composite never converts
+            hit = next((x for n in (data.get("name", r.get("name")), r.get("name")) if n
+                        for x in by_name.get(_canon(n), [])[:1] if id(x) not in used), None)
+            if hit is not None:
+                used.add(id(hit))
+            for pair in (ends, (ends[2], ends[3], ends[0], ends[1])):
+                hit = hit or claim(by_ends.get(_canon(pair)))
         objs.add("relationship", f"relationship {_q(label)}", "fully_preserved" if hit else "unsupported",
                  _ossie_drops(r) if hit else [])
     for key, kind in _STASHED_OBJECTS:
-        have = _names(model.get(key))
+        have: dict[str, dict[str, Any]] = {}
+        for i in _named_items(model.get(key)):
+            have.setdefault(i["name"], i)
         for item in _named_items(stash.get(key)):
-            objs.add(kind, f"{kind} {_q(item['name'])}", "fully_preserved" if item["name"] in have else "unsupported",
-                     notes=["restored from the POWER_BI extension"], aliases=(f"{kind} {item['name']!r}",))
+            restored_item = have.get(item["name"])
+            objs.add(kind, f"{kind} {_q(item['name'])}", "fully_preserved" if restored_item is not None else "unsupported",
+                     _role_changes(item, restored_item) if restored_item is not None and kind == "role" else [],
+                     notes=["restored from the POWER_BI extension"], aliases=(f"{kind} {_short(item['name'])!r}",))
     for t in _named_items(stash.get("excludedTables")):
         tid = f"table {_q(t['name'])}"
-        objs.add("calculation_group" if t.get("calculationGroup") else "table", tid,
-                 "fully_preserved" if t["name"] in tables else "unsupported", notes=["restored from the POWER_BI extension"])
+        out_table = tables.get(t["name"])
+        group = bool(t.get("calculationGroup"))
+        objs.add("calculation_group" if group else "table", tid, "fully_preserved" if out_table else "unsupported",
+                 _calc_changes(t, out_table) if out_table is not None and group else [],
+                 notes=["restored from the POWER_BI extension"])
         for key, kind in (("columns", "column"), ("measures", "measure"), ("hierarchies", "hierarchy")):
             for i in _named_items(t.get(key)):
                 objs.add(kind, f"{tid} {kind} {_q(i['name'])}",
                          "fully_preserved" if member(t["name"], key, i["name"]) else "unsupported",
-                         notes=["restored from the POWER_BI extension"], aliases=(f"{t['name']}[{i['name']}]",))
+                         notes=["restored from the POWER_BI extension"], parent=tid,
+                         aliases=(f"{_short(t['name'])}[{_short(i['name'])}]",))
     for e in _dicts(stash.get("excludedMeasures")):
         kept = e.get("measure")
         if not isinstance(kept, dict) or not isinstance(kept.get("name"), str):
@@ -965,10 +1118,10 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
         objs.add("measure", f"table {_q(e.get('table'))} measure {_q(kept['name'])}",
                  "fully_preserved" if member(e.get("table"), "measures", kept["name"]) else "unsupported",
                  notes=["restored from the POWER_BI extension"],
-                 aliases=(f"excluded measure {_q(kept['name'])}", f"{e.get('table')}[{kept['name']}]"))
-    for r in _dicts(stash.get("excludedRelationships")):
+                 aliases=(f"excluded measure {_q(kept['name'])}", f"{_short(e.get('table'))}[{_short(kept['name'])}]"))
+    for r, back in set_aside:
         label = r.get("name") if isinstance(r.get("name"), str) and r.get("name") else _rel_key(r)
-        objs.add("relationship", f"relationship {_q(label)}", "fully_preserved" if r in rels else "unsupported",
+        objs.add("relationship", f"relationship {_q(label)}", "fully_preserved" if back else "unsupported",
                  notes=["restored from the POWER_BI extension"])
 
 
@@ -987,7 +1140,8 @@ def _metric(objs: _Objects, m: dict[str, Any], mid: str, home: Any, placed: Any,
     cls = _expression_class(measure, changes, notes)
     if measure is None and not _dialect_entries(m):
         notes.append("the metric has no expression")
-    objs.add("measure", mid, cls, changes, notes, aliases=aliases + ((f"{table}[{measure['name']}]",) if measure else ()))
+    objs.add("measure", mid, cls, changes, notes,
+             aliases=aliases + ((f"{_short(table)}[{_short(measure['name'])}]",) if measure else ()))
 
 
 def _dialect_entries(m: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1007,6 +1161,12 @@ def _remediation(obj: dict[str, Any], to_ossie: bool) -> str:
         return ("Check that the translated expression gives the same results as the original before relying on it; "
                 "KratosForge hasn't compared them.")
     if cls == "partially_converted":
+        if kind == "role":
+            return ("This security role came through changed (see changes). Check its filters, permission and "
+                    "members by hand and put them right before anyone uses the model.")
+        if kind == "calculation_group":
+            return ("This calculation group came through changed (see changes). Check each calculation item's "
+                    "expression, order and format string by hand before relying on it.")
         if any(c.startswith("needs_dax") for c in obj["changes"]):
             return "Write this measure in DAX in Fabric or the TMDL; it is BLANK() until then."
         return "Review the changes listed and set them by hand in the destination if they matter."
@@ -1051,13 +1211,14 @@ def fidelity(source: dict[str, Any], destination: dict[str, Any], rows: list[dic
         hit = objs.find(str(row.get("object", "")))
         # A row about a whole collection ("row-level security roles ('roles') ...") is evidence for its members.
         kind = next((k for key, k in _COLLECTION_ROWS if f"('{key}')" in str(row.get("message", ""))), None)
-        members = [] if hit is None or kind is None else [
-            o for o in objs.items if o["kind"] == kind and (hit["kind"] == "model" or o["object"].startswith(hit["object"] + " "))]
+        members = [] if hit is None or kind is None else \
+            objs.children.get(("model" if hit["kind"] == "model" else hit["object"], kind), [])
         for target in members or ([hit] if hit is not None else []):
             target["evidence"].append(dict(row))
         if hit is None:
             warnings_.append({"object": row.get("object", ""), "message": row.get("message", ""), "severity": "warning"})
-    check = dict(validation or {"check": "round_trip", "ran": False, "passed": None, "error": "", "rows": []})
+    check = dict(validation or {"check": "round_trip", "ran": False, "passed": None, "error": "",
+                                "reason": "not run for this conversion", "rows": []})
     differences = list(check.pop("rows", []) or [])
     affected = []
     for row in differences:
@@ -1072,7 +1233,10 @@ def fidelity(source: dict[str, Any], destination: dict[str, Any], rows: list[dic
     for obj in objs.items:
         obj["label"] = CLASSES[obj["class"]]
         obj["remediation"] = "" if obj["class"] == "fully_preserved" else _remediation(obj, to_ossie)
-        if obj["kind"] == "role" and obj["class"] == "unsupported":
+        if obj["kind"] == "role" and obj["class"] == "partially_converted":
+            security.append({"object": obj["object"], "severity": "security", "prominent": True,
+                             "message": "This security role came through changed: " + "; ".join(obj["changes"])})
+        elif obj["kind"] == "role" and obj["class"] == "unsupported":
             security.append({"object": obj["object"], "severity": "security", "prominent": True,
                              "message": "This security role is lost: the result has no row-level security for it"})
         elif obj["kind"] == "role" and obj["class"] == "preserved_through_extensions":
@@ -1082,11 +1246,15 @@ def fidelity(source: dict[str, Any], destination: dict[str, Any], rows: list[dic
         elif obj["kind"] == "calculation_group" and obj["class"] == "unsupported":
             security.append({"object": obj["object"], "severity": "warning", "prominent": True,
                              "message": "This calculation group is lost"})
+        elif obj["kind"] == "calculation_group" and obj["class"] == "partially_converted":
+            security.append({"object": obj["object"], "severity": "warning", "prominent": True,
+                             "message": "This calculation group came through changed: " + "; ".join(obj["changes"])})
+    security.sort(key=lambda w: w["severity"] != "security")  # security roles first, in input order
     by_class: dict[str, list[str]] = {c: [] for c in CLASSES}
     for obj in objs.items:
         by_class[obj["class"]].append(obj["object"])
     return {
-        "source": src, "destination": dst, "converter": dict(CONVERTER),
+        "status": "complete", "error": "", "source": src, "destination": dst, "converter": dict(CONVERTER),
         "objects": objs.items,
         "counts": {c: len(v) for c, v in by_class.items()},
         "by_class": by_class,
@@ -1104,12 +1272,49 @@ def fidelity(source: dict[str, Any], destination: dict[str, Any], rows: list[dic
     }
 
 
+# What a report can't be built from (a document of the wrong shape): the conversion still stands, reported as such.
+_SHAPE_ERRORS = (ValueError, TypeError, KeyError, IndexError, AttributeError)
+
+
+def safe_fidelity(source: dict[str, Any], destination: dict[str, Any], rows: list[dict[str, str]] | None = None,
+                  validation: dict[str, Any] | None = None) -> dict[str, Any]:
+    """``fidelity``, or when it can't be built, a report with ``status`` "unverified", the reason in ``error`` and
+    the model as one Unverified object, so the conversion it describes still goes ahead and nothing claims to
+    be preserved."""
+    try:
+        return fidelity(source, destination, rows, validation)
+    except _SHAPE_ERRORS as exc:  # narrow: the shape errors a hostile document causes; the reason is in the report
+        reason = f"The fidelity report couldn't be built: {type(exc).__name__}: {_short(exc)}"
+    model = {"object": "model", "kind": "model", "class": "unverified", "label": CLASSES["unverified"], "changes": [],
+             "notes": [reason], "in_extension": [], "evidence": [],
+             "remediation": "Check the converted model by hand: KratosForge couldn't compare it with the file."}
+    return {"status": "unverified", "error": reason, "source": {}, "destination": {}, "converter": dict(CONVERTER),
+            "objects": [model], "counts": {c: int(c == "unverified") for c in CLASSES},
+            "by_class": {c: ["model"] if c == "unverified" else [] for c in CLASSES}, "excluded": [],
+            "metadata_changes": [], "flagged": {"roles": [], "calculation_groups": []},
+            "warnings": [{"object": "model", "severity": "warning", "prominent": True, "message": reason}],
+            "validation": {"check": "round_trip", "ran": False, "passed": None, "error": "", "reason": reason,
+                           "differences": [], "objects": []},
+            "remediation": [{"object": "model", "class": "unverified", "action": model["remediation"]}]}
+
+
+MAX_ROUND_TRIP_OBJECTS = 20_000  # columns plus measures; above it the check (two more conversions) is skipped
+
+
 def round_trip_check(bim: dict[str, Any]) -> dict[str, Any]:
     """``round_trip`` as the fidelity report's validation result: ``ran``, ``passed`` and the ``rows``. A model
     the check can't send to Ossie and back is a result too (``ran`` false, with the ``error``), not a failure
-    of the conversion it validates."""
+    of the conversion it validates. A model with more than ``MAX_ROUND_TRIP_OBJECTS`` columns and measures
+    isn't checked (``reason`` says so); a check that didn't run never passes."""
+    model = bim.get("model") if isinstance(bim, dict) else None
+    size = sum(len(_dicts(t.get(key))) for t in _dicts(model.get("tables") if isinstance(model, dict) else None)
+               for key in ("columns", "measures"))
+    if size > MAX_ROUND_TRIP_OBJECTS:
+        return {"check": "round_trip", "ran": False, "passed": None, "error": "",
+                "reason": "model too large for round-trip check", "rows": []}
     try:
         rows = round_trip(bim)
-    except (ValueError, TypeError) as exc:  # narrow: what the converter refuses, kept in the result and shown
-        return {"check": "round_trip", "ran": False, "passed": None, "error": str(exc), "rows": []}
-    return {"check": "round_trip", "ran": True, "passed": not rows, "error": "", "rows": rows}
+    except _SHAPE_ERRORS as exc:  # narrow: what the converter refuses or trips on, kept in the result and shown
+        return {"check": "round_trip", "ran": False, "passed": None, "error": f"{type(exc).__name__}: {exc}",
+                "reason": "the round trip couldn't run", "rows": []}
+    return {"check": "round_trip", "ran": True, "passed": not rows, "error": "", "reason": "", "rows": rows}

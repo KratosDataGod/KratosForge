@@ -386,3 +386,169 @@ def test_scenario_13_an_update_keeps_roles_and_the_report_says_so(svc):
 def test_fidelity_refuses_two_models_of_the_same_kind():
     with pytest.raises(ValueError, match="fidelity compares"):
         model_ossie.fidelity(_bim(), _bim())
+
+
+# ---- roles and calculation groups are compared by content, not by name
+
+def _restash(doc, stash):
+    doc["custom_extensions"] = [e for e in doc.get("custom_extensions") or [] if e.get("vendor_name") != "POWER_BI"] + [
+        {"vendor_name": "POWER_BI", "data": json.dumps(stash)}]
+    return doc
+
+
+@pytest.mark.parametrize("new_filter, says", [("", "came back empty"), ("TRUE()", "changed from")])
+def test_a_role_whose_filter_changes_on_export_is_partially_converted_and_the_first_warning(new_filter, says):
+    bim = _with_calculation_group(_bim())
+    doc = yaml.safe_load(model_ossie.export(bim)["yaml"])
+    stash = _stash(doc)
+    stash["roles"][0]["tablePermissions"][0]["filterExpression"] = new_filter
+    stash["excludedTables"][0]["calculationGroup"]["calculationItems"][0]["expression"] = "SELECTEDMEASURE()"
+    fid = model_ossie.fidelity(bim, _restash(doc, stash))
+    role = _obj(fid, "role 'EU only'")
+    assert role["class"] == "partially_converted" and role["flag"] == "security"
+    assert any(says in c and "dim_customer" in c for c in role["changes"])
+    assert "filters" in role["remediation"]
+    first = fid["warnings"][0]  # roles first, although the calculation group comes before them in the model
+    assert first["object"] == "role 'EU only'" and first["severity"] == "security" and first["prominent"]
+    assert says in first["message"]
+    group = _obj(fid, "table 'Time calc'")
+    assert group["class"] == "partially_converted"
+    assert group["changes"] == [("calculation item 'YTD' expression changed from "
+                                 "\"CALCULATE(SELECTEDMEASURE(), DATESYTD('Date'[Date]))\" to 'SELECTEDMEASURE()'")]
+    assert any(w["object"] == "table 'Time calc'" and w["prominent"] for w in fid["warnings"][1:])
+    assert {"object": "role 'EU only'", "class": "partially_converted"} in fid["flagged"]["roles"]
+
+
+def test_a_role_whose_filter_members_or_permission_change_on_import_is_partially_converted():
+    bim = _bim()
+    bim["model"]["roles"][0]["members"] = [{"memberName": "ana@contoso.example"}]
+    text = model_ossie.export(bim)["yaml"]
+    back, report = model_ossie.to_tmsl(text)
+    assert _obj(model_ossie.fidelity(model_ossie.parse(text), back, report), "role 'EU only'")["class"] == "fully_preserved"
+    role = back["model"]["roles"][0]
+    role["tablePermissions"][0]["filterExpression"] = ""
+    role["members"] = []
+    role["modelPermission"] = "administrator"
+    fid = model_ossie.fidelity(model_ossie.parse(text), back, report)
+    obj = _obj(fid, "role 'EU only'")
+    assert obj["class"] == "partially_converted"
+    changes = " | ".join(obj["changes"])
+    assert "came back empty" in changes and "member(s) gone" in changes and "'administrator'" in changes
+    assert fid["warnings"][0]["object"] == "role 'EU only'" and fid["warnings"][0]["severity"] == "security"
+
+
+def test_a_calculation_item_whose_expression_changes_on_import_is_partially_converted():
+    bim = _with_calculation_group(_bim())
+    text = model_ossie.export(bim)["yaml"]
+    back, report = model_ossie.to_tmsl(text)
+    group = next(t for t in back["model"]["tables"] if t["name"] == "Time calc")
+    group["calculationGroup"]["calculationItems"][0]["expression"] = "BLANK()"
+    group["calculationGroup"]["calculationItems"][0]["ordinal"] = 3
+    fid = model_ossie.fidelity(model_ossie.parse(text), back, report)
+    obj = _obj(fid, "table 'Time calc'")
+    assert obj["class"] == "partially_converted" and obj["kind"] == "calculation_group"
+    assert [c.split(" changed")[0] for c in obj["changes"]] == ["calculation item 'YTD' expression",
+                                                               "calculation item 'YTD' ordinal"]
+    assert "calculation item" in obj["remediation"]
+
+
+# ---- hostile sizes stay linear
+
+def test_rows_naming_a_huge_name_are_matched_fast_and_the_name_is_cut_short():
+    import time
+    big = "a " * 20_000  # 40 KB, a space every other character
+    bim = {"name": "m", "model": {"tables": [{"name": big, "columns": [{"name": "c", "dataType": "string"}]}]}}
+    doc = {"version": model_ossie.OSSIE_VERSION, "name": "m", "datasets": [{"name": big, "fields": [{"name": "c"}]}]}
+    rows = [{"object": f"nothing {big} {i}", "kind": "lost", "message": "m"} for i in range(200)]
+    started = time.perf_counter()
+    fid = model_ossie.fidelity(bim, doc, rows)
+    assert time.perf_counter() - started < 1.0  # 26 s before the fix
+    assert len(fid["warnings"]) == 200
+    table = fid["objects"][1]
+    assert table["object"].endswith("... (40000 characters)'") and len(table["object"]) < model_ossie.MAX_NAME + 40
+
+
+def test_four_thousand_columns_of_one_name_are_numbered_fast():
+    import time
+    bim = {"name": "m", "model": {"tables": [{"name": "T", "columns": [{"name": "c", "dataType": "string"}] * 4000}]}}
+    doc = {"version": model_ossie.OSSIE_VERSION, "name": "m", "datasets": [{"name": "T", "fields": [{"name": "c"}]}]}
+    started = time.perf_counter()
+    fid = model_ossie.fidelity(bim, doc)
+    assert time.perf_counter() - started < 1.0
+    ids = [o["object"] for o in fid["objects"]]
+    assert len(ids) == len(set(ids)) == 4002 and ids[-1] == "table 'T' column 'c' #4000"
+
+
+# ---- a report that can't be built, and relationships on the same columns
+
+def test_a_document_whose_datasets_isnt_a_list_gives_an_unverified_report_not_an_error():
+    back, _ = model_ossie.to_tmsl(_ossie(), SOURCE)
+    fid = model_ossie.safe_fidelity({"version": model_ossie.OSSIE_VERSION, "datasets": "fact_sales"}, back)
+    assert fid["status"] == "unverified" and "couldn't be built" in fid["error"]
+    assert fid["objects"][0]["class"] == "unverified" and fid["counts"]["unverified"] == 1
+    assert fid["validation"]["passed"] is None and fid["warnings"][0]["prominent"]
+    assert model_ossie.fidelity(model_ossie.parse(_ossie()), back)["status"] == "complete"
+
+
+def test_the_preview_and_ossie_to_tmdl_still_convert_when_the_report_cant_be_built(svc, monkeypatch):
+    def broken(*args):
+        raise AttributeError("'str' object has no attribute 'get'")
+    monkeypatch.setattr(model_ossie, "fidelity", broken)
+    preview = svc.meta_model_ossie_preview("test", _ossie(), name="SM_Gold", mode="update")
+    assert preview["changes"] and preview["fidelity"]["status"] == "unverified"
+    plan = svc.meta_model_ossie_to_tmdl(_ossie())["confirm"]
+    assert plan["files"] and plan["fidelity"]["status"] == "unverified"
+    out = svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token=plan["token"])
+    assert out["fidelity"]["status"] == "unverified"
+
+
+def _same_columns():
+    bim = _bim()
+    rel = {"fromTable": "fact_sales", "fromColumn": "customer_sk", "toTable": "dim_customer", "toColumn": "customer_sk"}
+    bim["model"]["relationships"] = [dict(rel), dict(rel, isActive=False)]
+    return bim
+
+
+def test_an_unnamed_relationship_matches_one_core_relationship_once():
+    bim = _same_columns()
+    doc = yaml.safe_load(model_ossie.export(bim)["yaml"])
+    ident = "relationship 'fact_sales.customer_sk -> dim_customer.customer_sk'"
+    fid = model_ossie.fidelity(bim, doc)
+    assert [_obj(fid, ident)["class"], _obj(fid, ident + " #2")["class"]] == ["fully_preserved", "preserved_through_extensions"]
+    stash = _stash(doc)
+    del stash["excludedRelationships"]  # the inactive one dropped: it must not borrow the active one's match
+    fid = model_ossie.fidelity(bim, _restash(copy.deepcopy(doc), stash))
+    assert [_obj(fid, ident)["class"], _obj(fid, ident + " #2")["class"]] == ["fully_preserved", "unsupported"]
+    gone = copy.deepcopy(doc)
+    del gone["relationships"]  # the active one dropped instead
+    fid = model_ossie.fidelity(bim, gone)
+    assert [_obj(fid, ident)["class"], _obj(fid, ident + " #2")["class"]] == ["unsupported", "preserved_through_extensions"]
+
+
+def test_an_unnamed_relationship_set_aside_and_one_converted_on_the_same_columns_import_once_each():
+    text = model_ossie.export(_same_columns())["yaml"]
+    doc = model_ossie.parse(text)
+    back, report = model_ossie.to_tmsl(text)
+    classes = lambda fid: sorted(o["class"] for o in fid["objects"] if o["kind"] == "relationship")  # noqa: E731
+    assert classes(model_ossie.fidelity(doc, back, report)) == ["fully_preserved", "fully_preserved"]
+    back["model"]["relationships"] = [r for r in back["model"]["relationships"] if r.get("isActive") is not False]
+    assert classes(model_ossie.fidelity(doc, back, report)) == ["fully_preserved", "unsupported"]
+
+
+# ---- the round-trip check: skipped above a size, and never a crash
+
+def test_a_model_too_large_for_the_round_trip_is_not_checked_and_never_passes(monkeypatch):
+    monkeypatch.setattr(model_ossie, "MAX_ROUND_TRIP_OBJECTS", 3)
+    out = model_ossie.export(_bim(), validate=True)
+    check = out["fidelity"]["validation"]
+    assert check["ran"] is False and check["passed"] is None and check["reason"] == "model too large for round-trip check"
+    assert out["round_trip"] and "model too large" in out["round_trip"][0]["message"]
+
+
+@pytest.mark.parametrize("error", [KeyError("x"), IndexError("y"), AttributeError("z"), TypeError("t")])
+def test_a_round_trip_that_trips_is_reported_as_not_run(monkeypatch, error):
+    def trips(bim):
+        raise error
+    monkeypatch.setattr(model_ossie, "round_trip", trips)
+    check = model_ossie.round_trip_check(_bim())
+    assert check["ran"] is False and check["passed"] is None and type(error).__name__ in check["error"]

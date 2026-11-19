@@ -359,8 +359,8 @@ class ModelOssieMixin:
                                   report) if mode == "update" else incoming
         final["name"] = name
         return {"final": final, "existing": existing, "cfg": cfg, "name": name, "report": report,
-                "fidelity": model_ossie.fidelity(model_ossie.parse(text), incoming, report,
-                                                 model_ossie.round_trip_check(incoming)),
+                "fidelity": model_ossie.safe_fidelity(model_ossie.parse(text), incoming, report,
+                                                      model_ossie.round_trip_check(incoming)),
                 "changes": model_ossie.plan(current, final),
                 "removable": model_ossie.removable(current, incoming) if mode == "update" else []}
 
@@ -494,7 +494,7 @@ class ModelOssieMixin:
                 del final["model"]["cultures"]
         files, written = tmdl.from_bim(final, culture_refs)
         report = report + written
-        fid = model_ossie.fidelity(model_ossie.parse(text), incoming, report, model_ossie.round_trip_check(incoming))
+        fid = model_ossie.safe_fidelity(model_ossie.parse(text), incoming, report, model_ossie.round_trip_check(incoming))
         files["definition.pbism"] = json.dumps({"version": "4.0", "settings": {}}, indent=2) + "\n"
         targets = {}
         kept_keys = {_file_key(rel) for rel in kept}

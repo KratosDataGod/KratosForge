@@ -287,6 +287,8 @@ Refused by name, and nothing runs:
 | --- | --- |
 | `split` with a pattern written in the query that can match empty text, such as `'|'` or `'x*'` | Java and this PC split around an empty match differently |
 | `format_number` with a pattern, such as `'#,###.00'` | Java's DecimalFormat patterns aren't written here. Give the number of decimal places |
+| `format_number` with more than 18 decimal places | A decimal here keeps at most 38 digits in all |
+| `array_insert` that would pad the array with more than 10,000,000 NULLs | Spark pads up to its array limit, but that many would use up this PC's memory |
 | `format_string` and `printf` with `%s` of an array, map or struct | Spark writes them as text its own way (`[1,2]`) |
 
 ## Hashing and encoding on this PC (WR-119)

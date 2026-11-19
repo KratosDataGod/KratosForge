@@ -449,6 +449,9 @@ def _bround(places: int) -> str:
             f"THEN TRUNC({{0}}, {places}) ELSE ROUND({{0}}, {places}) END")
 
 
+_FORMAT_NUMBER_MOST = 18  # places: DECIMAL(38, 18) still keeps 20 whole digits
+
+
 def _format_number(places: int) -> str:
     """format_number(x, d) with a whole number of places, as Java's DecimalFormat writes it for Spark. A whole
     number or a decimal keeps every digit (a BIGINT or DECIMAL(38) went through DOUBLE, so
@@ -710,7 +713,12 @@ def _spark_functions(databricks: bool, statement: exp.Expression) -> exp.Express
                 places = args[1]
                 if isinstance(places, exp.Neg) and places.this.is_int:  # a negative count is NULL in Spark
                     node.replace(exp.Null())
-                elif places.is_int:
+                elif places.is_int or (isinstance(places, exp.Literal) and not places.is_string and places.name.isdigit()):
+                    # isdigit first: sqlglot's is_int is False past Python's 4,300 digits
+                    if len(places.name.lstrip("0")) > 2 or int(places.name) > _FORMAT_NUMBER_MOST:
+                        raise ValueError(f"This Spark SQL can't be run on this PC: format_number with more than "
+                                         f"{_FORMAT_NUMBER_MOST} decimal places isn't written here. Spark writes "
+                                         "them, but a decimal here keeps at most 38 digits in all.")
                     node.replace(_from_template(_format_number(int(places.name)), [args[0]]))
                 elif isinstance(places, exp.Literal) and places.is_string:
                     raise ValueError("format_number() with a pattern can't run on this PC the way it runs in Fabric, "

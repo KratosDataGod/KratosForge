@@ -209,21 +209,25 @@ _LUHN = ("(LIST_TRANSFORM([CAST(fj_arg0 AS VARCHAR)], kf_s -> CASE WHEN kf_s IS 
 
 # substring_index(s, delim, n): before the n-th delim from the left (n > 0), after the n-th from the
 # right (n < 0), the whole text when there are fewer, '' for n = 0 or an empty delim.
+# Both forms read the text and count once, bound in one struct (kf_r), so a nested call isn't copied. The plain
+# form's delimiter is a literal (ARRAY_TO_STRING needs a constant one), and the other form binds it too.
 _SUBSTRING_INDEX = (
-    "CASE WHEN fj_arg0 IS NULL OR fj_arg1 IS NULL OR fj_arg2 IS NULL THEN NULL "
-    "WHEN fj_arg2 = 0 OR fj_arg1 = '' THEN '' "
-    "WHEN fj_arg2 > 0 THEN ARRAY_TO_STRING(LIST_SLICE(STRING_SPLIT(fj_arg0, fj_arg1), 1, fj_arg2), fj_arg1) "
-    "ELSE ARRAY_TO_STRING(LIST_SLICE(STRING_SPLIT(fj_arg0, fj_arg1), "
-    "GREATEST(LEN(STRING_SPLIT(fj_arg0, fj_arg1)) + fj_arg2 + 1, 1), LEN(STRING_SPLIT(fj_arg0, fj_arg1))), fj_arg1) END")
+    "(LIST_TRANSFORM([{'s': fj_arg0, 'n': fj_arg2}], kf_r -> "
+    "CASE WHEN kf_r.s IS NULL OR fj_arg1 IS NULL OR kf_r.n IS NULL THEN NULL "
+    "WHEN kf_r.n = 0 OR fj_arg1 = '' THEN '' "
+    "WHEN kf_r.n > 0 THEN ARRAY_TO_STRING(LIST_SLICE(STRING_SPLIT(kf_r.s, fj_arg1), 1, kf_r.n), fj_arg1) "
+    "ELSE ARRAY_TO_STRING(LIST_SLICE(STRING_SPLIT(kf_r.s, fj_arg1), "
+    "GREATEST(LEN(STRING_SPLIT(kf_r.s, fj_arg1)) + kf_r.n + 1, 1), LEN(STRING_SPLIT(kf_r.s, fj_arg1))), fj_arg1) END))[1]")
 
 # A delimiter that can overlap itself ('aa' in 'aaa'): Spark looks for the next one from the character after
 # the last one found, so each is counted, from the left for n > 0 and the right for n < 0.
 _SUBSTRING_INDEX_OVERLAP = (
-    "CASE WHEN fj_arg0 IS NULL OR fj_arg1 IS NULL OR fj_arg2 IS NULL THEN NULL "
-    "WHEN fj_arg2 = 0 OR fj_arg1 = '' THEN '' ELSE (LIST_TRANSFORM([LIST_FILTER(RANGE(1, LENGTH(fj_arg0) - "
-    "LENGTH(fj_arg1) + 2), kf_i -> SUBSTRING(fj_arg0, kf_i, LENGTH(fj_arg1)) = fj_arg1)], kf_p -> "
-    "CASE WHEN LEN(kf_p) < ABS(fj_arg2) THEN fj_arg0 WHEN fj_arg2 > 0 THEN LEFT(fj_arg0, LIST_EXTRACT(kf_p, fj_arg2) - 1) "
-    "ELSE SUBSTRING(fj_arg0, LIST_EXTRACT(kf_p, LEN(kf_p) + fj_arg2 + 1) + LENGTH(fj_arg1)) END))[1] END")
+    "(LIST_TRANSFORM([{'s': fj_arg0, 'd': fj_arg1, 'n': fj_arg2}], kf_r -> "
+    "CASE WHEN kf_r.s IS NULL OR kf_r.d IS NULL OR kf_r.n IS NULL THEN NULL "
+    "WHEN kf_r.n = 0 OR kf_r.d = '' THEN '' ELSE (LIST_TRANSFORM([LIST_FILTER(RANGE(1, LENGTH(kf_r.s) - "
+    "LENGTH(kf_r.d) + 2), kf_i -> SUBSTRING(kf_r.s, kf_i, LENGTH(kf_r.d)) = kf_r.d)], kf_p -> "
+    "CASE WHEN LEN(kf_p) < ABS(kf_r.n) THEN kf_r.s WHEN kf_r.n > 0 THEN LEFT(kf_r.s, LIST_EXTRACT(kf_p, kf_r.n) - 1) "
+    "ELSE SUBSTRING(kf_r.s, LIST_EXTRACT(kf_p, LEN(kf_p) + kf_r.n + 1) + LENGTH(kf_r.d)) END))[1] END))[1]")
 
 
 def _substring_index(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression:
@@ -336,15 +340,18 @@ def java_value_text(a: str) -> str:
     return duckdb_sql(cast(exp.Expression, sqlglot.parse_one(_java_text(a), read="duckdb")))
 
 
-def _java_text(a: str) -> str:
-    """Java's String.valueOf of a value, as %s prints it (a double as Java writes it)."""
+def _java_text(a: str, refuse_nested: bool = False) -> str:
+    """Java's String.valueOf of a value, as %s prints it (a double as Java writes it). With ``refuse_nested``
+    (format_string's %s, array_join), an array, map or struct stops by name: Spark writes them its own way
+    there ([1,2], no spaces). Elsewhere (crosstab's labels, java_value_text) DuckDB's text of them is kept,
+    which is what Spark gives there."""
+    nested = (f"WHEN TYPEOF({a}) LIKE '%]' OR TYPEOF({a}) LIKE 'STRUCT(%' OR TYPEOF({a}) LIKE 'MAP(%' "
+              f"THEN CAST(ERROR('An array, map or struct isn''t written as text here as Spark writes it, so nothing "
+              f"ran on this PC. Cast it to string in Fabric, or run the cell there.') AS VARCHAR) "
+              if refuse_nested else "")
     return (f"(CASE WHEN TYPEOF({a}) = 'DOUBLE' THEN {java_double_text(f'TRY_CAST({a} AS DOUBLE)')} "
             f"WHEN TYPEOF({a}) = 'FLOAT' THEN {java_double_text(f'TRY_CAST({a} AS FLOAT)')} "
-            # Spark writes these its own way ([1,2], no spaces); DuckDB's text of them differs
-            f"WHEN TYPEOF({a}) LIKE '%]' OR TYPEOF({a}) LIKE 'STRUCT(%' OR TYPEOF({a}) LIKE 'MAP(%' "
-            f"THEN CAST(ERROR('An array, map or struct isn''t written as text here as Spark writes it, so nothing "
-            f"ran on this PC. Cast it to string in Fabric, or run the cell there.') AS VARCHAR) "
-            f"ELSE CAST({a} AS VARCHAR) END)")
+            f"{nested}ELSE CAST({a} AS VARCHAR) END)")
 
 
 def spark_text_arg(a: str, fn: str) -> str:
@@ -392,9 +399,16 @@ def _initcap(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression
     if delimiter is not None and not (isinstance(delimiter, exp.Literal) and delimiter.is_string
                                       and delimiter.name == " "):
         return None
-    first = f"CASE LEFT(kf_w, 1) {_title_whens()} ELSE UPPER(LEFT(kf_w, 1)) END"
-    return _with_args("ARRAY_TO_STRING(LIST_TRANSFORM(STRING_SPLIT(" + _lower_sql(spark_text_arg("fj_arg0", "initcap"))
-                      + f", ' '), kf_w -> {first} || SUBSTRING(kf_w, 2)), ' ')", [node.this])
+    table = _title_table()
+    special = _sql_text("[" + "".join(table) + "]")
+    whens = " ".join(f"WHEN {_sql_text(c)} THEN {_sql_text(t)}" for c, t in table.items())
+    title = f"CASE LEFT(kf_w, 1) {whens} ELSE UPPER(LEFT(kf_w, 1)) END"
+    plain = "UPPER(LEFT(kf_w, 1))"
+    # The text is checked for those characters first, as upper does, so other text skips the long CASE.
+    return _with_args(f"(LIST_TRANSFORM([{_lower_sql(spark_text_arg('fj_arg0', 'initcap'))}], kf_x -> CASE WHEN "
+                      f"REGEXP_MATCHES(kf_x, {special}) THEN ARRAY_TO_STRING(LIST_TRANSFORM(STRING_SPLIT(kf_x, ' '), "
+                      f"kf_w -> {title} || SUBSTRING(kf_w, 2)), ' ') ELSE ARRAY_TO_STRING(LIST_TRANSFORM("
+                      f"STRING_SPLIT(kf_x, ' '), kf_w -> {plain} || SUBSTRING(kf_w, 2)), ' ') END))[1]", [node.this])
 
 
 # levenshtein counts character edits in Spark (UTF8String.levenshteinDistance); DuckDB's LEVENSHTEIN counts
@@ -462,15 +476,17 @@ def _lower(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression |
 
 
 @functools.cache
-def _title_whens() -> str:
-    """CASE branches for the characters whose title case (Java's Character.toTitleCase, a character's own
-    simple mapping) isn't DuckDB's UPPER of it: ß stays ß, dž is ǅ, Georgian letters stay as they are."""
+def _title_table() -> dict[str, str]:
+    """The characters whose title case (Java's Character.toTitleCase, a character's own simple mapping) isn't
+    DuckDB's UPPER of it, and that title case: ß stays ß, dž is ǅ, Georgian letters stay as they are. It reads
+    the installed DuckDB's UPPER on purpose, so the table holds what that DuckDB gets wrong and nothing it already
+    gets right, whichever DuckDB version runs."""
     def title(c: str) -> str:
         t, u = c.title(), c.upper()
         return t if len(t) == 1 else u if len(u) == 1 else c
     chars = [c for c in map(chr, range(0x80, 0x20000)) if not 0xD800 <= ord(c) <= 0xDFFF]
     upper = dict(zip(chars, _duckdb_upper(chars), strict=True))
-    return " ".join(f"WHEN {_sql_text(c)} THEN {_sql_text(title(c))}" for c in chars if title(c) != upper[c])
+    return {c: title(c) for c in chars if title(c) != upper[c]}
 
 
 def _duckdb_upper(chars: list[str]) -> list[str]:
@@ -483,7 +499,7 @@ def _array_join(node: exp.Expression, args: list[exp.Expression]) -> exp.Express
     elements skipped (or replaced), and '' for an array with nothing left; elements are written as Spark
     casts them to text. DuckDB's ARRAY_TO_STRING ignored a NULL delimiter and gave NULL for [NULL, NULL]."""
     replacement = node.args.get("null")
-    text = _java_text("kf_e")
+    text = _java_text("kf_e", refuse_nested=True)
     if replacement is None:
         parts = f"LIST_FILTER(LIST_TRANSFORM(fj_arg0, kf_e -> {text}), kf_s -> kf_s IS NOT NULL)"
         return _with_args(f"CASE WHEN fj_arg0 IS NULL OR fj_arg1 IS NULL THEN NULL "
@@ -495,18 +511,25 @@ def _array_join(node: exp.Expression, args: list[exp.Expression]) -> exp.Express
 
 # array_insert(array, pos, value) as Spark 3.5's: a position past the end pads with NULLs, and a negative one
 # counts from the end, -1 being after the last element, padding at the front past the start. 0 is an error.
+# Each argument is read once (kf_q.a, .p, .v), and padding of more than _PAD_MOST NULLs is refused by name before
+# it is built: Spark pads up to its array limit, but a billion NULLs would use up this PC's memory.
+_PAD_MOST = 10_000_000
 _ARRAY_INSERT = (
-    "(LIST_TRANSFORM([{'p': CAST(fj_arg1 AS BIGINT), 'n': CAST(LEN(fj_arg0) AS BIGINT)}], kf_q -> "
-    "CASE WHEN fj_arg0 IS NULL OR kf_q.p IS NULL THEN NULL "
+    "(LIST_TRANSFORM([{'a': fj_arg0, 'p': CAST(fj_arg1 AS BIGINT), 'v': fj_arg2}], kf_q -> "
+    "(LIST_TRANSFORM([CAST(LEN(kf_q.a) AS BIGINT)], kf_n -> "
+    "CASE WHEN kf_q.a IS NULL OR kf_q.p IS NULL THEN NULL "
     "WHEN kf_q.p = 0 THEN ERROR('[INVALID_INDEX_OF_ZERO] The index 0 is invalid. An index shall be either < 0 or > 0 "
     "(the first element has index 1).') "
-    "WHEN kf_q.p > kf_q.n + 1 THEN LIST_CONCAT(fj_arg0, LIST_TRANSFORM(RANGE(kf_q.p - kf_q.n - 1), "
-    "kf_i -> CASE WHEN FALSE THEN fj_arg2 END), [fj_arg2]) "
-    "WHEN kf_q.p > 0 THEN LIST_CONCAT(LIST_SLICE(fj_arg0, 1, kf_q.p - 1), [fj_arg2], LIST_SLICE(fj_arg0, kf_q.p, kf_q.n)) "
-    "WHEN kf_q.n + kf_q.p + 1 >= 0 THEN LIST_CONCAT(LIST_SLICE(fj_arg0, 1, kf_q.n + kf_q.p + 1), [fj_arg2], "
-    "LIST_SLICE(fj_arg0, kf_q.n + kf_q.p + 2, kf_q.n)) "
-    "ELSE LIST_CONCAT([fj_arg2], LIST_TRANSFORM(RANGE(-(kf_q.n + kf_q.p + 1)), kf_i -> CASE WHEN FALSE THEN fj_arg2 END), "
-    "fj_arg0) END))[1]")
+    f"WHEN kf_q.p - kf_n - 1 > {_PAD_MOST} OR -(kf_n + kf_q.p + 1) > {_PAD_MOST} THEN ERROR('This Spark SQL can''t be "
+    f"run on this PC: array_insert would pad the array with more than {_PAD_MOST:,} NULLs. Spark pads up to its "
+    "array limit, but this PC refuses that many to keep its memory.') "
+    "WHEN kf_q.p > kf_n + 1 THEN LIST_CONCAT(kf_q.a, LIST_TRANSFORM(RANGE(kf_q.p - kf_n - 1), "
+    "kf_i -> CASE WHEN FALSE THEN kf_q.v END), [kf_q.v]) "
+    "WHEN kf_q.p > 0 THEN LIST_CONCAT(LIST_SLICE(kf_q.a, 1, kf_q.p - 1), [kf_q.v], LIST_SLICE(kf_q.a, kf_q.p, kf_n)) "
+    "WHEN kf_n + kf_q.p + 1 >= 0 THEN LIST_CONCAT(LIST_SLICE(kf_q.a, 1, kf_n + kf_q.p + 1), [kf_q.v], "
+    "LIST_SLICE(kf_q.a, kf_n + kf_q.p + 2, kf_n)) "
+    "ELSE LIST_CONCAT([kf_q.v], LIST_TRANSFORM(RANGE(-(kf_n + kf_q.p + 1)), kf_i -> CASE WHEN FALSE THEN kf_q.v END), "
+    "kf_q.a) END))[1]))[1]")
 
 
 def _array_insert(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
@@ -631,7 +654,7 @@ def java_format_sql(fmt: str, count: int) -> str:
         cut = f".{precision}" if precision is not None else ""
         null = f"PRINTF('%{size}{cut}s', 'null')"  # a NULL prints as null, padded and cut as text
         if kind == "s":
-            text = f"(CASE WHEN {a} IS NULL THEN {null} ELSE PRINTF('%{size}{cut}s', {_java_text(a)}) END)"
+            text = f"(CASE WHEN {a} IS NULL THEN {null} ELSE PRINTF('%{size}{cut}s', {_java_text(a, refuse_nested=True)}) END)"
         elif kind == "b":
             truth = f"(CASE WHEN {a} IS NULL THEN 'false' WHEN TYPEOF({a}) = 'BOOLEAN' THEN CAST({a} AS VARCHAR) ELSE 'true' END)"
             text = f"PRINTF('%{size}{cut}s', {truth})"

@@ -60,8 +60,19 @@ def hash_entry(prev: str, entry: dict[str, Any]) -> str:
     return hashlib.sha256((prev + body).encode()).hexdigest()
 
 
+_FILE = re.compile(r"audit-\d{4}-\d{2}\.jsonl")
+
+
 def files(folder: Path) -> list[Path]:
-    return sorted(Path(folder).glob("audit-*.jsonl"))
+    """The trail's month files, oldest first. Only ``audit-YYYY-MM.jsonl``: a copy or a rotated name
+    (``audit-2026-10 (1).jsonl``, ``audit-2026-10.jsonl.1``) isn't read as part of the trail, and
+    ``verify()`` names it (``strays``)."""
+    return sorted(p for p in Path(folder).glob("audit-*") if _FILE.fullmatch(p.name) and p.is_file())
+
+
+def strays(folder: Path) -> list[str]:
+    """Files beside the trail that look like a month of it under another name (renamed, copied, rotated)."""
+    return sorted(p.name for p in Path(folder).glob("audit-*") if not _FILE.fullmatch(p.name) and ".jsonl" in p.name)
 
 
 def _last_line(path: Path) -> str:
@@ -173,6 +184,7 @@ def write(folder: Path, entry: dict[str, Any], line: str) -> None:
         new["lost"] = head["lost"]
     if head.get("base"):  # where a pruned trail starts
         new["base"] = head["base"]
+    new["folder"] = audit_anchor.fingerprint(folder)  # where its event-log records are kept, if it moves
     jsonfile.write_json(folder / HEAD, new)
     _anchor(folder, new)
 
@@ -244,7 +256,7 @@ def prune(folder: Path, days: int, now: float | None = None) -> dict[str, Any]:
             last_hash = str(json.loads(last)["hash"])
         except (ValueError, KeyError, TypeError):  # a damaged last line: verify() reports the break that follows
             last_hash = ""
-        new = dict(head)
+        new = dict(head, folder=audit_anchor.fingerprint(folder))
         # The head only moves forward: after a prune stopped part way and a clock put back, months it already
         # counted may wait for the clock; ``through`` stays where it was, and they aren't counted again.
         new["base"] = {"hash": last_hash, "through": max(done, _month(old[-1])),
@@ -313,9 +325,12 @@ def verify(folder: Path) -> dict[str, Any]:
         key: object = (stat.st_size, stat.st_mtime_ns, count)
     except OSError:
         key = ("no head", count)
-    anchor, note = audit_anchor.newest(folder, key)
+    anchor, note = _recorded(folder, head, key, notes)
     if note:
         notes.append(note)
+    for name in strays(folder)[:MAX_NOTES]:
+        notes.append(f"{name}: looks like a month of this trail under another name (renamed, copied or rotated), "
+                     f"so it isn't checked. Name a month's file audit-YYYY-MM.jsonl to check it with the trail")
     if anchor is not None:
         problems.extend(_against(anchor, head, seen, count, missing=not (Path(folder) / HEAD).exists()))
     result: dict[str, Any] = {"lines": count, "ok": not problems, "problems": problems}
@@ -324,6 +339,21 @@ def verify(folder: Path) -> dict[str, Any]:
     if base.get("through"):
         result["pruned"] = {"through": base["through"], "lines": base.get("lines")}
     return result
+
+
+def _recorded(folder: Path, head: dict[str, Any], key: object,
+              notes: list[str]) -> tuple[audit_anchor.Anchor | None, str]:
+    """The newest event-log record for this trail. A trail moved here from another folder (its head names
+    the folder it was written in) is checked against that folder's records until its next write here."""
+    here = audit_anchor.fingerprint(folder)
+    was = head.get("folder")
+    if isinstance(was, str) and was and was != here:
+        anchor, note = audit_anchor.newest_for(was, key)
+        if anchor is not None:
+            notes.append("this trail was moved from the folder it was written in, so it's checked against "
+                         "the Windows event log's records for that folder")
+            return anchor, ""
+    return audit_anchor.newest(folder, key)
 
 
 def _against(anchor: audit_anchor.Anchor, head: dict[str, Any], seen: dict[int, str], count: int,
@@ -335,10 +365,12 @@ def _against(anchor: audit_anchor.Anchor, head: dict[str, Any], seen: dict[int, 
     line = anchor.lines - pruned  # its line number in the trail as it now starts
     if line > count:
         problems.append(f"event log: the trail ends before the newest line the Windows event log recorded "
-                        f"(line {line}); lines were deleted from the end")
+                        f"(line {line}); lines were deleted from the end. The event log recorded "
+                        f"{anchor.lines} lines in all, ending with {anchor.hash[:12]}; the trail has {count + pruned}")
     elif line > 0 and seen.get(line) != anchor.hash:
         problems.append(f"event log: line {line} isn't the line the Windows event log recorded, so the trail "
-                        f"was re-sealed at or before line {line}")
+                        f"was re-sealed at or before line {line}. Its hash is {str(seen.get(line) or 'unreadable')[:12]}; "
+                        f"the event log recorded {anchor.hash[:12]}")
     elif line == 0 and pruned and anchor.hash != (head.get("base") or {}).get("hash"):
         problems.append("event log: the trail's start isn't the one the Windows event log recorded")
     return problems
@@ -419,7 +451,7 @@ def export(folder: Path, out: Path, since: str = "", replace: bool = False) -> d
     manifest = {
         "schema": EXPORT_SCHEMA, "lines": len(lines), "since": since, "first_prev": first.get("prev", GENESIS),
         "first_at": first.get("at", ""), "last_hash": last.get("hash", GENESIS), "last_at": last.get("at", ""),
-        "sha256": _sha256(out), "trail_head": {"hash": head.get("hash", ""), "lines": head.get("lines")},
+        "sha256": _sha256(out), "file": out.name, "trail_head": {"hash": head.get("hash", ""), "lines": head.get("lines")},
         "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     jsonfile.write_json(manifest_path(out), manifest)
@@ -430,14 +462,29 @@ def verify_export(out: Path, folder: Path | None = None) -> dict[str, Any]:
     """Check an export: the file is the one the manifest describes (SHA-256, line count), every line's
     hash matches its content and the line before it, and the chain runs from the manifest's first
     ``prev`` to its last ``hash``. Anyone can rebuild a file and its manifest so they agree, so with
-    ``folder`` (the trail it came from) the export's lines must also be the trail's own lines."""
+    ``folder`` (the trail it came from) the export's lines must also be the trail's own lines.
+
+    The pair can be moved together anywhere. A renamed export still finds its manifest in its folder by
+    the SHA-256 the manifest holds, and an export of lines a prune has since deleted from the trail is
+    checked against what the trail still has (``notes`` says what couldn't be compared)."""
     out = Path(out)
+    if out.name.endswith(".manifest.json"):  # given the manifest: check the export it describes
+        out = out.with_name(out.name[:-len(".manifest.json")])
     problems: list[str] = []
-    manifest = jsonfile.read_json(manifest_path(out), None)
-    if not isinstance(manifest, dict) or manifest.get("schema") != EXPORT_SCHEMA:
-        return {"ok": False, "lines": 0, "problems": [f"{manifest_path(out).name}: missing or not an audit export manifest"]}
+    notes: list[str] = []
     if not out.exists():
         return {"ok": False, "lines": 0, "problems": [f"{out.name}: missing"]}
+    manifest = jsonfile.read_json(manifest_path(out), None)
+    if manifest is None and not manifest_path(out).exists():
+        manifest, found = _manifest_by_checksum(out)
+        if found is None:
+            return {"ok": False, "lines": 0, "problems": [
+                (f"{manifest_path(out).name}: missing. An export is checked with the manifest written beside it: "
+                f"if the export was renamed, keep its manifest in the same folder (or name it {manifest_path(out).name})")]}
+        notes.append(f"{found.name}: the manifest for this export, written for {manifest.get('file') or 'another name'} "
+                     f"(the export was renamed)")
+    if not isinstance(manifest, dict) or manifest.get("schema") != EXPORT_SCHEMA:
+        return {"ok": False, "lines": 0, "problems": [f"{manifest_path(out).name}: missing or not an audit export manifest"]}
     if _sha256(out) != manifest.get("sha256"):
         problems.append(f"{out.name}: its SHA-256 isn't the manifest's: the file was changed after it was exported")
     prev, count, hashes = str(manifest.get("first_prev", GENESIS)), 0, []
@@ -462,11 +509,48 @@ def verify_export(out: Path, folder: Path | None = None) -> dict[str, Any]:
     if count and prev != manifest.get("last_hash"):
         problems.append("the last line isn't the one the manifest names: lines were cut from the end")
     if folder is not None and hashes:
-        trail = [h for h in _hashes(Path(folder)) if h]
-        if hashes[0] not in trail:
-            problems.append("the export's lines aren't in this trail")
-        else:
-            start = trail.index(hashes[0])
-            if trail[start:start + len(hashes)] != hashes:
-                problems.append("the export's lines differ from this trail's")
-    return {"ok": not problems, "lines": count, "problems": problems}
+        problems.extend(_export_against_trail(Path(folder), hashes, str(manifest.get("last_at") or ""), notes))
+    result: dict[str, Any] = {"ok": not problems, "lines": count, "problems": problems}
+    if notes:
+        result["notes"] = notes
+    return result
+
+
+def _manifest_by_checksum(out: Path) -> tuple[Any, Path | None]:
+    """The export manifest in ``out``'s folder whose SHA-256 is ``out``'s: the pair after a rename."""
+    digest = _sha256(out)
+    for path in sorted(out.parent.glob("*.manifest.json")):
+        manifest = jsonfile.read_json(path, None)
+        if isinstance(manifest, dict) and manifest.get("schema") == EXPORT_SCHEMA and manifest.get("sha256") == digest:
+            return manifest, path
+    return None, None
+
+
+def _export_against_trail(folder: Path, hashes: list[str], last_at: str, notes: list[str]) -> list[str]:
+    """The export's lines must be the trail's own, in order. Lines a prune has deleted since the export
+    can't be compared: the rest must start the trail, chained onto the last line pruned."""
+    trail = [h for h in _hashes(folder) if h]
+    base = _head(folder).get("base")
+    base = base if isinstance(base, dict) else {}
+    through = str(base.get("through") or "")
+    where = {h: i for i, h in reversed(list(enumerate(trail)))}
+    first = next((i for i, h in enumerate(hashes) if h in where), None)
+    if first is None:
+        if through and hashes[-1] == base.get("hash"):
+            notes.append(f"the export's lines were all pruned from this trail (through {through}) after it was "
+                         "taken; its last line is the one the trail now starts after")
+            return []
+        at = _moment(last_at)
+        if through and at is not None and at.timestamp() <= _month_end(through):
+            notes.append(f"the export's lines are in months pruned from this trail (through {through}), so it's "
+                         "checked against its manifest only")
+            return []
+        return ["the export's lines aren't in this trail"]
+    start = where[hashes[first]]
+    if first and not (start == 0 and through and hashes[first - 1] == base.get("hash")):
+        return ["the export's lines differ from this trail's"]
+    if first:
+        notes.append(f"the export's first {first} lines were pruned from this trail (through {through}) after "
+                     "it was taken; the rest match the trail")
+    rest = hashes[first:]
+    return [] if trail[start:start + len(rest)] == rest else ["the export's lines differ from this trail's"]

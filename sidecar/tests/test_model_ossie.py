@@ -835,7 +835,8 @@ def test_a_table_file_with_a_line_it_cant_read_is_refused_and_nothing_is_written
         svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token="anything")
     assert _snapshot(folder) == before
     # A property it doesn't know, written as key: value, is read and written back, so it isn't refused.
-    table.write_bytes(before[table].replace(b"\tcalendar 'Fiscal year'\n\t\tcolumn: customer_sk\n\tsparkle mode on\n", b""))
+    table.write_text(table.read_text(encoding="utf-8").replace(  # by text: on Windows the file has CRLF line ends
+        "\tcalendar 'Fiscal year'\n\t\tcolumn: customer_sk\n\tsparkle mode on\n", ""), encoding="utf-8")
     kept = folder / "definition" / "tables" / "dim_customer.tmdl"  # a table the file doesn't have: kept by the merge
     kept.write_text(kept.read_text(encoding="utf-8").replace("\n", "\n\tsparkleMode: on\n", 1), encoding="utf-8")
     plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]

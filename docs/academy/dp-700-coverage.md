@@ -43,7 +43,7 @@ four original exam questions (ACD-013).
 
 | Id | Objective | Exercises | Best local | Fabric | Lessons |
 | --- | --- | --- | --- | --- | --- |
-| 2.1.1 | Design and implement full and incremental data loads | E21, E22, E57, C1 | LV | No | LM-12, LM-21 |
+| 2.1.1 | Design and implement full and incremental data loads | E21, E22, E57, E67, C1 | LV | No | LM-12, LM-21 |
 | 2.1.2 | Prepare data for loading into a dimensional model | E23, E24, E25, C1 | LV | No | LAB-03, LAB-05 |
 | 2.1.3 | Design and implement a loading pattern for streaming data | E26, C2 | LV | Yes | |
 | 2.2.1 | Choose an appropriate data store | E27 | KO | No | LM-06, LM-23 |

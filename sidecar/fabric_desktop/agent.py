@@ -301,13 +301,15 @@ class Agent:
             try:
                 project = self.runtime._project()
                 runs = self.runtime.meta_runs(env, 2000)
-            except Exception as exc:  # noqa: BLE001 - an unreadable environment becomes its own signal
-                signals, _ = evaluate.unreadable(env, exc)
-            else:
                 specs = {n: e.spec for n, e in project.entities.items()}
+                # Inside the try: one environment that can't be evaluated must not lose the changes the
+                # environments before it already wrote, whose notices go out after the loop.
                 signals = evaluate.signals(mesh_mod.project_name(project), specs, runs, env, now=now,
                                            team=mesh_mod.identity(project)["team"],
                                            promises=mesh_mod.promises(project))
+            except Exception as exc:  # noqa: BLE001 - an unreadable environment becomes its own signal
+                signals, _ = evaluate.unreadable(env, exc)
+            else:
                 evaluated |= evaluate.WORKLOAD_KINDS
             try:
                 signals += evaluate.agent_signals(read_status(log.backend), env, now, me=self.config.name)
@@ -330,7 +332,11 @@ class Agent:
         all_changes = [c for cs in changed.values() for c in cs]
         if routing.routes:  # also when nothing changed: messages left from before go out
             if self._outbox is None:
-                self._outbox = Outbox(self.config.home / "alerts.sqlite3", clock=self.clock)
+                try:
+                    self._outbox = Outbox(self.config.home / "alerts.sqlite3", clock=self.clock)
+                except Exception as exc:  # noqa: BLE001 - the incidents are already written: post them without the outbox
+                    self.log.error("couldn't open the alerts outbox; incident changes are posted once, without it",
+                                   extra=fields(error=f"{type(exc).__name__}: {exc}"))
             result = send(all_changes, routing, self._outbox, f"agent {self.config.name}", self._post,
                           self.config.incidents.digest_over, now=now)
             self._count_dropped(result, "alerts.sqlite3")

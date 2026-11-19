@@ -124,6 +124,32 @@ function dbgKeyAction(e) {
   return null;
 }
 
+// A pause as the engine sent it, in the shape the panel draws: every field checked and capped, so
+// a garbled or oversized snapshot (an engine bug, a newer engine) shows less, never breaks the
+// notebook. No usable line means no pause to show.
+const DBG_MAX_ROWS = 500;
+function dbgCleanPause(p) {
+  if (!p || typeof p !== "object" || Array.isArray(p)) return null;
+  const whole = (v) => (Number.isInteger(v) && v >= 1 ? v : null);
+  if (whole(p.line) == null) return null;
+  const text = (v, n = 2000) => (v == null ? "" : typeof v === "object" ? "" : String(v)).slice(0, n);
+  const items = (v, n) => (Array.isArray(v) ? v.slice(0, n).filter((x) => x && typeof x === "object" && !Array.isArray(x)) : []);
+  const value = (r) => ({ expr: text(r.expr), value: text(r.value), type: text(r.type, 200), size: text(r.size, 200),
+    ...(r.error != null ? { error: text(r.error) } : {}) });
+  const out = {
+    line: p.line,
+    reason: text(p.reason, 40),
+    stack: items(p.stack, DBG_MAX_ROWS).map((f) => ({ function: text(f.function, 200), line: whole(f.line) ?? 0 })),
+    variables: items(p.variables, DBG_MAX_ROWS).map((r) => ({ name: text(r.name, 200), type: text(r.type, 200), size: text(r.size, 200), value: text(r.value) })),
+    watches: items(p.watches, 100).map(value),
+    evals: items(p.evals, 100).map(value),
+  };
+  if (whole(p.variables_total) != null) out.variables_total = p.variables_total;
+  const skipped = Array.isArray(p.skipped) ? p.skipped.filter((n) => typeof n === "string").slice(0, 20).map((n) => n.slice(0, 200)) : [];
+  if (skipped.length) out.skipped = skipped;
+  return out;
+}
+
 // ---------- state ----------
 
 function dbgOn() {
@@ -469,7 +495,7 @@ function dbgStartArgs(cell, debug) {
 // Called by runCell with each snapshot: shows or clears the paused line and panel.
 function dbgSnapshot(cell, snap) {
   const was = cell.paused?.line;
-  const now = snap?.status === "running" ? snap.paused || null : null;
+  const now = snap?.status === "running" ? dbgCleanPause(snap.paused) : null;
   const changed = JSON.stringify(cell.paused || null) !== JSON.stringify(now);
   cell.paused = now;
   if (was !== now?.line) dbgRepaintMarks(cell);

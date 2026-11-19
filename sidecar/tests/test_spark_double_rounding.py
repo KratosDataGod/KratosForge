@@ -110,8 +110,10 @@ def test_a_view_of_doubles_keeps_sparks_names_and_answers(spark):
 
 
 def test_more_places_than_written_here_are_refused_by_name(spark):
-    with pytest.raises(Refused, match="round or bround of a double to 25 places"):
+    with pytest.raises(Refused, match=r"round\(\) of a double to 25 places can\'t run on this PC"):
         one(spark, "round(0.285D, 25)")
+    with pytest.raises(Refused, match=r"bround\(CAST\(x AS DECIMAL\(38, 30\)\), -21\)"):
+        one(spark, "bround(0.285D, -21)")
 
 
 def test_a_decimal_still_rounds_as_a_decimal(spark):

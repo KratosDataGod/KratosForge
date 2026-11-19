@@ -191,8 +191,9 @@ def spark_text_comparisons(statement: exp.Expr, conn: Any, schema: MappingSchema
     # Each rewrite reads its sides once, so the SQL grows by a bounded amount per comparison; past that, a
     # statement is refused by name rather than run as DuckDB compares (a different answer) or sent huge.
     if grown > 2 * size + _GROWTH * rewrites:
-        raise Refused(f"This Spark SQL can't be run on this PC: its {rewrites} comparisons of text with numbers "
-                      "would be written out too large here. Cast the text to the number's type in the query.")
+        raise Refused(f"Its {rewrites} comparisons of text with numbers can't run on this PC the way they run in Spark, "
+                      "because written out as Spark compares them the query gets too large, so nothing ran. Cast the "
+                      "text to the number's type in the query, for example CAST(col AS INT) = 1.")
     return root
 
 

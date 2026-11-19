@@ -7,7 +7,9 @@ already read is still in memory (opportunities.assess.assess ``inspect=``). It r
   its severity, how many times it matched, and the cell and line of the first ones. Never the cell
   text, and for a secret (NB001) never what was found, only that it was found and where;
 - for a pipeline, counts and activity names: which activities are deactivated and which name a
-  fixed workspace id. Never the activity JSON or the ids themselves.
+  fixed workspace id; of the activities that call out (CALLOUT_TYPES), which have no retry and which
+  have no timeout below the 12-hour default; and whether any activity runs on another's failure.
+  Never the activity JSON, the ids or the policy values themselves.
 
 No Fabric call is made here, and nothing runs.
 """
@@ -23,6 +25,22 @@ MAX_PLACES = 20  # cell and line kept per rule; ``count`` has them all
 MAX_NAMES = 50  # activity names kept per list
 _GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 _WORKSPACE_KEYS = {"workspaceid"}
+
+# Activities that call out to another service or compute, where a transient failure (throttling, a
+# busy Spark pool, a dropped connection) is ordinary and a hang holds the pipeline: data movement,
+# notebooks and Spark jobs, queries and procedures, HTTP calls, and Fabric item refreshes. Left out:
+# control flow (ForEach, If, Switch, Until, Wait, variables, Filter, Fail: nothing to retry), child
+# pipelines (Invoke/Execute pipeline: the child's own activities carry the policy), WebHook (its
+# timeout is a typeProperty), and Outlook and Teams (a retry can send the message twice).
+CALLOUT_TYPES = frozenset({
+    "Copy", "TridentNotebook", "Notebook", "SparkJobDefinition", "DatabricksNotebook", "Lookup", "GetMetadata",
+    "Script", "SqlServerStoredProcedure", "WebActivity", "AzureFunctionActivity", "RefreshDataflow",
+    "PBISemanticModelRefresh", "AzureDataExplorerCommand",
+})
+DEFAULT_TIMEOUT_SECONDS = 12 * 3600  # Fabric and Data Factory's activity timeout when none is set (0.12:00:00)
+_TIMESPAN = re.compile(r"^(?:(\d+)\.)?(\d{1,2}):(\d{2}):(\d{2})(?:\.\d+)?$")
+_FAILURE_CONDITIONS = {"failed", "completed"}
+MAX_NAME = 256  # characters kept of an activity name
 
 
 def inspect(w: dict[str, Any]) -> dict[str, Any]:
@@ -73,13 +91,53 @@ def _names_fixed_workspace(node: Any) -> bool:
     return False
 
 
+def _expression(value: Any) -> bool:
+    """A setting given by an expression: set on purpose, its value only known at run time."""
+    return ((isinstance(value, str) and value.lstrip().startswith("@"))
+            or (isinstance(value, dict) and str(value.get("type", "")).lower() == "expression"))
+
+
+def _retry_set(policy: dict[str, Any]) -> bool | None:
+    """True when a retry count above 0 (or an expression) is set, False when none is, None when unreadable."""
+    value = policy.get("retry")
+    if value is None:
+        return False
+    if _expression(value):
+        return True
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(str(value).strip()) > 0
+    except ValueError:
+        return None
+
+
+def _timeout_set(policy: dict[str, Any]) -> bool | None:
+    """True when a timeout under the 12-hour default (or an expression) is set, False when none is or
+    it is 12 hours or more, None when it can't be read."""
+    value = policy.get("timeout")
+    if value is None:
+        return False
+    if _expression(value):
+        return True
+    m = _TIMESPAN.match(str(value).strip())
+    if not m:
+        return None
+    days, hours, minutes, seconds = (int(g or 0) for g in m.groups())
+    if minutes > 59 or seconds > 59:
+        return None
+    return 0 < ((days * 24 + hours) * 60 + minutes) * 60 + seconds < DEFAULT_TIMEOUT_SECONDS
+
+
 def pipeline(w: dict[str, Any]) -> dict[str, Any]:
     acts = w.get("activities")
     if not isinstance(acts, list):
         return {"read": True, "error": "The pipeline's activities weren't available."}
     inactive, fixed, no_state, no_props = [], [], [], []
+    no_retry, no_timeout, no_policy, no_depends = [], [], [], []
+    callouts, failure_path = 0, False
     for a in acts:
-        name = str(a.get("name") or a.get("type") or "activity")
+        name = str(a.get("name") or a.get("type") or "activity")[:MAX_NAME]
         if not isinstance(a.get("inactive"), bool):
             no_state.append(name)
         elif a["inactive"]:
@@ -89,7 +147,30 @@ def pipeline(w: dict[str, Any]) -> dict[str, Any]:
             no_props.append(name)
         elif _names_fixed_workspace(tp):
             fixed.append(name)
+        deps = a.get("depends_on")
+        if not isinstance(deps, list):
+            no_depends.append(name)
+        elif any(str(c).lower() in _FAILURE_CONDITIONS for d in deps if isinstance(d, dict)
+                 for c in (d.get("conditions") or [])):
+            failure_path = True
+        if str(a.get("type")) not in CALLOUT_TYPES:
+            continue
+        callouts += 1
+        policy = a.get("policy")
+        retry = _retry_set(policy) if isinstance(policy, dict) else None
+        timeout = _timeout_set(policy) if isinstance(policy, dict) else None
+        if retry is None or timeout is None:  # an older engine, or a policy that can't be read: never a pass
+            no_policy.append(name)
+            continue
+        if not retry:
+            no_retry.append(name)
+        if not timeout:
+            no_timeout.append(name)
     return {"read": True, "kind": "pipeline", "activities": len(acts),
             "inactive": sorted(inactive)[:MAX_NAMES], "inactive_count": len(inactive),
             "fixed_workspace": sorted(fixed)[:MAX_NAMES], "fixed_workspace_count": len(fixed),
-            "state_unknown": sorted(no_state)[:MAX_NAMES], "properties_unknown": sorted(no_props)[:MAX_NAMES]}
+            "state_unknown": sorted(no_state)[:MAX_NAMES], "properties_unknown": sorted(no_props)[:MAX_NAMES],
+            "calls_out": callouts, "no_retry": sorted(no_retry)[:MAX_NAMES], "no_retry_count": len(no_retry),
+            "no_timeout": sorted(no_timeout)[:MAX_NAMES], "no_timeout_count": len(no_timeout),
+            "policy_unknown": sorted(no_policy)[:MAX_NAMES], "failure_path": failure_path,
+            "depends_unknown": sorted(no_depends)[:MAX_NAMES]}

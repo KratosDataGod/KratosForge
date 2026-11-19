@@ -4,10 +4,9 @@ engine already reads (evidence ``item.inspection``, excellence.inspect_items).
 The notebook controls are notebook best-practice rules (notebook_practices, docs/notebook-best-practices.md)
 turned into controls: no new detection logic, the same rule that underlines a cell in the editor
 decides here. The pipeline controls read only what the engine's pipeline reader exposes for each
-activity (its type, whether it is deactivated, and its typeProperties). Retry, timeout and failure
-paths live in an activity's ``policy`` and ``dependsOn``, which that reader doesn't expose yet, so
-there are no controls for them: a control that can't see the setting would only ever be not
-evaluated, and it must never pass.
+activity (its type, whether it is deactivated, its typeProperties, the retry and timeout its
+``policy`` states, and its ``dependsOn`` conditions). An activity whose policy or dependencies the
+reader didn't keep (an older engine) leaves the control that needs them not evaluated, never passed.
 
 Evidence keeps rule ids with cell and line, and activity names and counts. Never the code, and
 never what a secret looked like. A definition that wasn't read leaves these controls not evaluated.
@@ -46,6 +45,10 @@ _ACTIVITY_STATE_DOC = {"title": "Pipelines and activities: activity state",
                        "url": "https://learn.microsoft.com/azure/data-factory/concepts-pipelines-activities"}
 _PARAMETERS_DOC = {"title": "Parameters for Data Factory in Microsoft Fabric",
                    "url": "https://learn.microsoft.com/fabric/data-factory/parameters"}
+_POLICY_DOC = {"title": "Pipelines and activities: activity policy (retry and timeout)",
+               "url": "https://learn.microsoft.com/azure/data-factory/concepts-pipelines-activities#activity-policy"}
+_CONDITIONAL_DOC = {"title": "Errors and conditional execution in pipelines",
+                    "url": "https://learn.microsoft.com/azure/data-factory/tutorial-pipeline-failure-error-handling"}
 _VARIABLES_DOC = {"title": "What is a variable library?",
                   "url": "https://learn.microsoft.com/fabric/cicd/variable-library/variable-library-overview"}
 
@@ -179,6 +182,72 @@ def _fixed_workspace(ctx: ct.Context) -> dict[str, Any]:
     return ct.passed([rid], f"None of its {p['activities']} activities names a fixed workspace id.")
 
 
+def _callouts(ctx: ct.Context, what: str) -> tuple[str, dict[str, Any], dict[str, Any] | None]:
+    rid, p, stop = _pipeline(ctx, "policy_unknown")
+    if stop:
+        return rid, p, stop
+    if not isinstance(p.get("calls_out"), int):  # inspected before these settings were kept
+        return rid, p, ct.not_evaluated(f"The activities' {what} weren't inspected.", needs="the activities' policy")
+    if not p["calls_out"]:
+        return rid, p, ct.not_applicable("No activity calls out to another service (Copy, notebook, Web, "
+                                         "stored procedure, Lookup and the like).")
+    return rid, p, None
+
+
+def _no_retry(ctx: ct.Context) -> dict[str, Any]:
+    """Medium: an activity that calls another service with no retry fails the whole run on the first
+    transient error (throttling, a busy Spark pool, a dropped connection), so tables are late until
+    someone reruns it. A retry is the documented answer to transient failures. Medium, not high: the
+    run fails visibly and nothing is lost; not low, because transient errors are routine for these
+    activities and each one costs a stale table and a manual rerun."""
+    rid, p, stop = _callouts(ctx, "retry settings")
+    if stop:
+        return stop
+    count = int(p.get("no_retry_count") or 0)
+    if count:
+        return ct.failed([rid], f"{count} of its {p['calls_out']} activities that call out ha"
+                                f"{'ve' if count != 1 else 's'} no retry: {_names(list(p.get('no_retry') or []), count)}.",
+                         detail={"activities": list(p.get("no_retry") or []), "count": count})
+    return ct.passed([rid], f"All {p['calls_out']} of its activities that call out retry on failure.")
+
+
+def _no_timeout(ctx: ct.Context) -> dict[str, Any]:
+    """Medium: with no timeout, or one of 12 hours or more, a hung activity (a stuck query, an
+    endpoint that never answers) holds the run, and the capacity it uses, for up to 12 hours before it
+    fails, and the next scheduled run can start on top of it. Medium like FEA-REL-001: a silent stall
+    with late data, but bounded and visible in run history. The threshold is KratosForge's: any
+    explicit timeout under the 12-hour default, because only the owner knows how long a step should
+    take; Microsoft gives the default, not a number to use."""
+    rid, p, stop = _callouts(ctx, "timeout settings")
+    if stop:
+        return stop
+    count = int(p.get("no_timeout_count") or 0)
+    if count:
+        return ct.failed([rid], f"{count} of its {p['calls_out']} activities that call out ha"
+                                f"{'ve' if count != 1 else 's'} no timeout under the 12-hour default: "
+                                f"{_names(list(p.get('no_timeout') or []), count)}.",
+                         detail={"activities": list(p.get("no_timeout") or []), "count": count})
+    return ct.passed([rid], f"All {p['calls_out']} of its activities that call out have a timeout under 12 hours.")
+
+
+def _no_failure_path(ctx: ct.Context) -> dict[str, Any]:
+    """Low: a pipeline with no activity on a Failed or Completed dependency does nothing of its own
+    when a step fails: no alert, no clean-up, no logging. Fabric still marks the run failed, so
+    monitoring and run-failure alerts set elsewhere still see it; that is why this is low. A profile
+    can turn it off where alerts are handled outside the pipeline."""
+    rid, p, stop = _pipeline(ctx, "depends_unknown")
+    if stop:
+        return stop
+    if not isinstance(p.get("calls_out"), int) or "failure_path" not in p:
+        return ct.not_evaluated("The activities' dependencies weren't inspected.", needs="the activities' dependsOn")
+    if not p["calls_out"]:
+        return ct.not_applicable("No activity calls out to another service, so there is little to handle on failure.")
+    if p["failure_path"]:
+        return ct.passed([rid], "An activity runs when another fails or completes (a failure path).")
+    return ct.failed([rid], f"None of its {p['activities']} activities runs when another fails or completes, so a "
+                            f"failed step has no failure path.", detail={"activities": p["activities"]})
+
+
 def _t(why: str, solution: str, steps: list[str], benefit: str, effort: str, risk: str, validation: str,
        rollback: str) -> dict[str, Any]:
     return {"why": why, "solution": solution, "steps": steps, "benefit": benefit, "effort": effort, "risk": risk,
@@ -281,4 +350,48 @@ CONTROLS = (
                         "Set the value per stage.", "Run it in each stage.", "Assess again."],
                        "The pipeline runs against its own stage after deployment.", "medium", "low",
                        "A run in another stage reads and writes only that stage.", "Put the fixed id back.")),
+    _pl(id="FEA-REL-004", dimension="reliability", title="Pipeline activity has no retry", severity="medium",
+        requirement="microsoft_recommendation", evaluate=_no_retry,
+        references=(_ACTIVITY_DOC, _POLICY_DOC, _FEA_DOC),
+        description="An activity that calls out (Copy, notebook, Spark job, Lookup, Get Metadata, Script, stored "
+                    "procedure, Web, Azure Function, Dataflow, semantic model refresh, KQL) has a retry of 0.",
+        remediation=_t("Without a retry, one transient error (throttling, a busy Spark pool, a dropped connection) "
+                       "fails the run, and the tables it loads stay late until someone reruns it.",
+                       "Set a retry (for example 2) and a retry interval (for example 60 seconds) on the activity.",
+                       ["Open the activities named in the finding.",
+                        ("Check the step can safely run twice (a stored procedure or Web call that isn't "
+                         "idempotent may need changing first)."),
+                        "On General settings, set Retry and Retry interval.", "Run once.", "Assess again."],
+                       "Transient failures are retried instead of failing the run.", "low", "medium",
+                       "The activity shows its retry settings, and the control passes.",
+                       "Set Retry back to 0.")),
+    _pl(id="FEA-REL-005", dimension="reliability", title="Pipeline activity has no timeout", severity="medium",
+        requirement="kratosforge_recommendation", evaluate=_no_timeout,
+        references=(_ACTIVITY_DOC, _POLICY_DOC, _FEA_DOC),
+        description="An activity that calls out has no timeout, or one of 12 hours or more (the default, "
+                    "0.12:00:00).",
+        remediation=_t("With the 12-hour default, a hung step holds the run, and its capacity, for up to 12 hours "
+                       "before anyone is told, and the next scheduled run can start on top of it.",
+                       "Set a timeout that fits the step: its longest normal run plus a margin.",
+                       ["Open the activities named in the finding.",
+                        "Look up each one's longest recent run in the Monitoring hub.",
+                        "On General settings, set Timeout to that plus a margin, under 12 hours.", "Run once.",
+                        "Assess again."],
+                       "A hung step fails within its timeout instead of after 12 hours.", "low", "medium",
+                       "A normal run still succeeds, and the control passes.",
+                       "Put the previous timeout back.")),
+    _pl(id="FEA-REL-006", dimension="reliability", title="Pipeline has no failure path", severity="low",
+        requirement="kratosforge_recommendation", evaluate=_no_failure_path,
+        references=(_ACTIVITY_DOC, _CONDITIONAL_DOC, _FEA_DOC),
+        description="No activity depends on another with the Failed or Completed condition, so a failed step "
+                    "has nothing that alerts, logs or cleans up.",
+        remediation=_t("Without a failure path, a failed step does nothing of its own: no alert, no log entry and "
+                       "no clean-up of what it left half done.",
+                       "Add an activity (Teams, Outlook, a log write, or a Fail activity after clean-up) on the "
+                       "On fail or On completion path of the steps that call out.",
+                       ["Decide what should happen when a step fails: alert, log, clean up.",
+                        ("Add that activity and connect it with On fail (or On completion) from the steps that "
+                         "call out."), "Run once with a forced failure.", "Assess again."],
+                       "Failures are handled and reported by the pipeline itself.", "low", "low",
+                       "A forced failure runs the failure path.", "Remove the added activity.")),
 )

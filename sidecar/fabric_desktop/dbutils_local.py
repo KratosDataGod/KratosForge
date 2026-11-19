@@ -315,12 +315,14 @@ def _make_task_values(host: Host) -> types.SimpleNamespace:
     def set(key: str, value: Any) -> None:  # noqa: A001
         size = len(json.dumps(value).encode("utf-8"))  # Databricks keeps task values as JSON
         if size > TASK_VALUE_BYTES:
-            raise ValueError(f"Task value {key!r} is {size:,} bytes as JSON; Databricks keeps at most "
-                             f"{TASK_VALUE_BYTES:,} (48 KiB).")
+            raise ValueError(f"Task value {key!r} is {size:,} bytes as JSON, and Databricks keeps at most "
+                             f"{TASK_VALUE_BYTES:,} (48 KiB), so it wasn't set. Set a smaller value, or write the "
+                             "data to a file and set its path.")
         task = host.tasks[-1] if host.tasks else host.notebook_name()
         values = host.task_values.setdefault(task, {})
         if str(key) not in values and sum(map(len, host.task_values.values())) >= TASK_VALUES:
-            raise ValueError(f"A job run sets at most {TASK_VALUES} task values, as in Databricks.")
+            raise ValueError(f"A job run sets at most {TASK_VALUES} task values, as in Databricks, so {key!r} "
+                             "wasn't set. Put related values together in one value.")
         values[str(key)] = value
 
     def get(taskKey: str, key: str, default: Any = None, debugValue: Any = None) -> Any:  # noqa: N803
@@ -331,7 +333,8 @@ def _make_task_values(host: Host) -> types.SimpleNamespace:
                                 "or run the notebooks with runMultiple.")
             return debugValue
         if str(taskKey) not in host.task_values:  # with a default too, as in Databricks
-            raise ValueError(f"No task named {taskKey!r} has run in this job run.")
+            raise ValueError(f"No task named {taskKey!r} has run in this job run. Check the activity's name, and "
+                             "that it runs before this one.")
         values = host.task_values[str(taskKey)]
         if str(key) in values:
             return values[str(key)]

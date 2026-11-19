@@ -55,7 +55,7 @@ from ..sql import KfDuckDB
 from . import tsql_ctes, tsql_format, tsql_hints, tsql_routines, tsql_tables, tsql_types
 from .. import sql_dialects, tsql_clone
 
-_GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
+_GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?\r?$", re.IGNORECASE | re.MULTILINE)
 _INTEGERS = exp.DataType.INTEGER_TYPES
 _TEXT = exp.DataType.TEXT_TYPES
 _NUMBERS = exp.DataType.NUMERIC_TYPES
@@ -89,7 +89,7 @@ _LATER = ("Run the statements one at a time, with values in place of variables. 
           "control flow runs in a Fabric Warehouse, not on the local engine yet.")
 
 
-_GO_TIMES = re.compile(r"^[ \t]*GO[ \t]+(\d+)[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
+_GO_TIMES = re.compile(r"^[ \t]*GO[ \t]+(\d+)[ \t]*(?:--[^\n]*)?\r?$", re.IGNORECASE | re.MULTILINE)
 
 
 def split_batches(sql: str) -> list[str]:
@@ -97,7 +97,53 @@ def split_batches(sql: str) -> list[str]:
     if (times := _GO_TIMES.search(sql)) is not None:
         raise ValueError(_NOT_YET + f"GO {times[1]} (run the batch {times[1]} times) isn't mapped yet. Repeat the "
                          "statements, or use GO on its own.")
-    return [part for part in _GO.split(sql) if part.strip()]
+    parts = _GO.split(sql)
+    line = 1
+    for part in parts[:-1]:
+        line += part.count("\n")
+        if (open_ := _left_open(part)) is not None:
+            raise ValueError(_NOT_YET + f"the GO on line {line} is inside {open_}, and batches are split at every GO "
+                             f"line here. Move the GO out of {open_.replace('a ', 'the ', 1)}, or put something else "
+                             "on that line.")
+    return [part for part in parts if part.strip()]
+
+
+def _left_open(text: str) -> str | None:
+    """What ``text`` ends inside: a string, a quoted or bracketed name, or a comment; None when nothing is open.
+    T-SQL doubles a quote or ``]`` inside one, and nests ``/* */`` comments."""
+    i, n, depth = 0, len(text), 0
+    while i < n:
+        c = text[i]
+        if depth:
+            if text.startswith("/*", i):
+                depth, i = depth + 1, i + 2
+            elif text.startswith("*/", i):
+                depth, i = depth - 1, i + 2
+            else:
+                i += 1
+            continue
+        if text.startswith("--", i):
+            end = text.find("\n", i)
+            if end < 0:
+                return None
+            i = end + 1
+        elif text.startswith("/*", i):
+            depth, i = 1, i + 2
+        elif c in "'\"[":
+            close = "]" if c == "[" else c
+            i += 1
+            while True:
+                end = text.find(close, i)
+                if end < 0:
+                    return {"'": "a string", '"': "a quoted name", "[": "a bracketed name"}[c]
+                if text.startswith(close * 2, end):
+                    i = end + 2
+                    continue
+                i = end + 1
+                break
+        else:
+            i += 1
+    return "a comment" if depth else None
 
 
 def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = None,
@@ -122,6 +168,8 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
     schema = _schema(columns or {})
     for batch in split_batches(sql):
         for tree in _parse(batch):
+            if isinstance(tree, exp.Semicolon):  # WR-236: only a comment after the last ``;``, not a statement
+                continue
             if _harmless_setting(tree):
                 skipped = True
                 continue
@@ -568,7 +616,7 @@ def _parse(batch: str) -> list[exp.Expression]:
     try:
         trees = [t for t in sql_dialects.parse(batch, read=KfTSQL) if t is not None]
     except SqlglotError as exc:
-        raise ValueError(f"Could not read the query as T-SQL: {_first_line(exc)}") from None
+        raise ValueError(_unreadable(exc)) from None
     finally:
         log.removeHandler(handler)
     if unsupported:
@@ -2903,6 +2951,25 @@ def _sunday_week_start(node: exp.TimestampTrunc) -> None:
     wrapper = exp.Sub(expression=day.copy())
     node.replace(wrapper)
     wrapper.set("this", node)
+
+
+# what starts a statement: after one of these, a parse error at it is a statement with no ``;`` before it
+_STARTS = {"SELECT", "INSERT", "UPDATE", "DELETE", "MERGE", "CREATE", "ALTER", "DROP", "TRUNCATE", "WITH",
+           "DECLARE", "EXEC", "EXECUTE", "PRINT"}
+
+
+def _unreadable(exc: Any) -> str:
+    """WR-236: why sqlglot couldn't read a batch. T-SQL lets one statement follow another with no ``;``, which the
+    local engine can't split safely, so that case is named rather than left as "Unexpected token"."""
+    errors = getattr(exc, "errors", None) or [{}]
+    first = errors[0]
+    word = str(first.get("highlight") or "").upper()
+    if first.get("description") == "Invalid expression / Unexpected token" and word in _STARTS and \
+            str(first.get("start_context") or "").strip() and str(first.get("end_context") or "").strip():
+        return (f"{_NOT_YET}the {word} on line {first.get('line')} starts a new statement with no ; before it. A "
+                "warehouse reads that, but the local engine needs a ; (or a GO line) between statements. Add a ; at "
+                "the end of the statement before it.")
+    return f"Could not read the query as T-SQL: {_first_line(exc)}"
 
 
 def _first_line(exc: Any) -> str:

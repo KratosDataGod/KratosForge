@@ -25,6 +25,12 @@ from .spark_hash import hash_sql
 # ---- helpers
 
 
+# The lambda parameters of a value read once (_read_once) and of Spark's cast to text (spark_text_arg). Named so
+# no column is: a column of the same name, where a body repeats it, would be read as the lambda's instead.
+ONCE = "__kf_once_7d1"
+TEXT = "__kf_text_7d1"
+
+
 def _with_args(template: str | exp.Expression, args: list[exp.Expression]) -> exp.Expression:
     """``template`` read as DuckDB SQL (or already read: a copy is used), with the arguments in place
     of fj_arg0, fj_arg1, ... (as sql._with_args). Lambda names in templates start with kf_, which a
@@ -33,8 +39,18 @@ def _with_args(template: str | exp.Expression, args: list[exp.Expression]) -> ex
             else cast(exp.Expression, sqlglot.parse_one(template, read="duckdb")))
     for column in list(tree.find_all(exp.Column)):
         if column.name.startswith("fj_arg") and not column.table:
-            column.replace(args[int(column.name[6:])].copy())
+            column.replace(operand(column, args[int(column.name[6:])].copy()))
     return tree
+
+
+def operand(at: exp.Expression, arg: exp.Expression) -> exp.Expression:
+    """``arg`` to put in place of ``at``: in parentheses where ``at`` is an operand of an operator and ``arg``
+    is an operation itself, since the SQL is written from the tree as it is (try_subtract(5, 3 - 1) was
+    5 - 3 - 1)."""
+    if isinstance(at.parent, (exp.Binary, exp.Unary)) and not isinstance(at.parent, exp.Paren) \
+            and isinstance(arg, (exp.Binary, exp.Unary)) and not isinstance(arg, exp.Paren):
+        return exp.paren(arg, copy=False)
+    return arg
 
 
 _JAVA = "it calls a Java method by reflection, and this PC runs no Java."
@@ -61,7 +77,7 @@ _BASE64_LINES = (f"(LIST_TRANSFORM([{_BASE64_BYTES}], kf_b -> ARRAY_TO_STRING(LI
 
 
 def _base64(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
-    return _with_args(_BASE64_BYTES if _ANSI.get() else _BASE64_LINES, args) if len(args) == 1 else None
+    return _read_once(_BASE64_BYTES if _ANSI.get() else _BASE64_LINES, args) if len(args) == 1 else None
 
 
 # unbase64 as Spark 3.5 reads text (Java's MIME decoder): characters outside the base64 alphabet are skipped
@@ -98,19 +114,23 @@ def _sha2(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | 
     if isinstance(bits, exp.Literal) and not bits.is_string:
         n = int(bits.name) if bits.name.lstrip("-").isdigit() else None
         if n in (0, 256):
-            return _with_args(f"SHA256({data})", args)
+            return _read_once(f"SHA256({data})", args)
         if n in (224, 384, 512):
-            return _with_args(f"__kf_sha2({data}, {n})", args)
-        return _with_args("CAST(NULL AS VARCHAR)", args)
-    return _with_args(f"(LIST_TRANSFORM([CAST(fj_arg1 AS INTEGER)], kf_n -> CASE WHEN kf_n IN (0, 256) THEN SHA256({data}) "
+            return _read_once(f"__kf_sha2({data}, {n})", args)
+        return _read_once("CAST(NULL AS VARCHAR)", args)
+    return _read_once(f"(LIST_TRANSFORM([CAST(fj_arg1 AS INTEGER)], kf_n -> CASE WHEN kf_n IN (0, 256) THEN SHA256({data}) "
                       f"WHEN kf_n IN (224, 384, 512) THEN __kf_sha2({data}, kf_n) END))[1]", args)
 
 
-def _template(text: str, count: int | tuple[int, ...]) -> Callable[..., exp.Expression | None]:
+def _template(text: str, count: int | tuple[int, ...], once: bool = True) -> Callable[..., exp.Expression | None]:
+    """``text`` with the call's arguments put in, each read once (_read_once); ``once`` False for an
+    aggregate, whose argument is read per row inside each aggregate it names."""
     counts = (count,) if isinstance(count, int) else count
 
     def build(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
-        return _with_args(text, args) if len(args) in counts else None
+        if len(args) not in counts:
+            return None
+        return _read_once(text, args) if once else _with_args(text, args)
     return build
 
 
@@ -171,13 +191,22 @@ _KURTOSIS = "CASE WHEN COUNT(fj_arg0) < 1 OR VAR_POP(fj_arg0) = 0 THEN NULL ELSE
 
 # Generators in a select list: one row per element, columns named as Spark names them. An empty or
 # NULL array gives one row of NULLs for the _outer forms.
-_EXPLODE_OUTER = "UNNEST(CASE WHEN fj_arg0 IS NULL OR LEN(fj_arg0) = 0 THEN [NULL] ELSE fj_arg0 END)"
-_POSEXPLODE_OUTER = ("UNNEST(CASE WHEN fj_arg0 IS NULL OR LEN(fj_arg0) = 0 THEN [{'pos': NULL, 'col': NULL}] "
-                     "ELSE LIST_TRANSFORM(fj_arg0, (kf_v, kf_i) -> {'pos': CAST(kf_i - 1 AS INTEGER), 'col': kf_v}) END, "
-                     "max_depth := 2)")
+_EXPLODE_OUTER = "CASE WHEN fj_arg0 IS NULL OR LEN(fj_arg0) = 0 THEN [NULL] ELSE fj_arg0 END"
+_POSEXPLODE_OUTER = ("CASE WHEN fj_arg0 IS NULL OR LEN(fj_arg0) = 0 THEN [{'pos': NULL, 'col': NULL}] "
+                     "ELSE LIST_TRANSFORM(fj_arg0, (kf_v, kf_i) -> {'pos': CAST(kf_i - 1 AS INTEGER), 'col': kf_v}) END")
 _INLINE = "UNNEST(fj_arg0, max_depth := 2)"
-_INLINE_OUTER = ("UNNEST(CASE WHEN fj_arg0 IS NULL OR LEN(fj_arg0) = 0 THEN [NULL] ELSE fj_arg0 END, "
-                 "max_depth := 2)")
+_INLINE_OUTER = "CASE WHEN fj_arg0 IS NULL OR LEN(fj_arg0) = 0 THEN [NULL] ELSE fj_arg0 END"
+
+
+def _unnest(rows: str, depth: int | None) -> Callable[..., exp.Expression | None]:
+    """A generator: UNNEST of ``rows`` (its argument read once, so it isn't repeated), spread ``depth``
+    levels deep when given."""
+    spread = "UNNEST(fj_arg0)" if depth is None else f"UNNEST(fj_arg0, max_depth := {depth})"
+
+    def build(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+        return _with_args(spread, [_read_once(rows, args)]) if len(args) == 1 else None
+    return build
+
 
 # Spark's CRC-32 (java.util.zip.CRC32) of the UTF-8 bytes of text, or of binary, bit by bit.
 _CRC32 = (
@@ -267,7 +296,7 @@ def _sign(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | 
     # Spark's signum is Java's Math.signum, a double: 1.0 or -1.0, and the value itself for NaN, 0.0 and -0.0
     # (DuckDB's SIGN gives 0 for NaN and loses the sign of -0.0).
     # The value is read once, through a lambda, so sign(rand() - 0.5) checks and signs the same sample.
-    return _with_args("(LIST_TRANSFORM([CAST(fj_arg0 AS DOUBLE)], kf_v -> CASE WHEN ISNAN(kf_v) OR kf_v = 0 THEN kf_v "
+    return _read_once("(LIST_TRANSFORM([CAST(fj_arg0 AS DOUBLE)], kf_v -> CASE WHEN ISNAN(kf_v) OR kf_v = 0 THEN kf_v "
                       "ELSE CAST(SIGN(kf_v) AS DOUBLE) END))[1]", args) if len(args) == 1 else None
 
 
@@ -275,7 +304,7 @@ def _elt(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | N
     if len(args) < 2:
         return None
     whens = " ".join(f"WHEN {i} THEN fj_arg{i}" for i in range(1, len(args)))
-    return _with_args(f"CASE fj_arg0 {whens} ELSE NULL END", args)
+    return _read_once(f"CASE fj_arg0 {whens} ELSE NULL END", args)
 
 
 # ---- format_string / printf: Java's Formatter, as Spark's
@@ -334,18 +363,18 @@ def spark_text_arg(a: str, fn: str, bind: bool = False) -> str:
     Unbound, ``a`` is written three times, which suits a column or a literal. With ``bind`` the whole
     cast is a lambda over ``a``, written once, so calls nested in each other (lower(trim(x))) don't
     multiply their argument's SQL with each level, and an argument such as rand() is evaluated once."""
-    kind = "TYPEOF(kf_t)"
+    kind = f"TYPEOF({TEXT})"
     other = (f"CASE WHEN {kind} = 'BLOB' OR {kind} LIKE '%]' OR {kind} LIKE 'STRUCT(%' "
              f"OR {kind} LIKE 'MAP(%' OR {kind} LIKE 'UNION(%' THEN CAST(ERROR('{fn}() reads text here, and on this PC "
              f"a binary, array, map or struct argument isn''t read as Spark reads it, so nothing ran. Cast it to "
              f"string first, or run the cell in Fabric.') AS VARCHAR) "
-             f"WHEN {kind} = 'TIMESTAMP WITH TIME ZONE' THEN CAST(CAST(kf_t AS TIMESTAMP) AS VARCHAR) "
-             f"ELSE {_java_text('kf_t')} END")
+             f"WHEN {kind} = 'TIMESTAMP WITH TIME ZONE' THEN CAST(CAST({TEXT} AS TIMESTAMP) AS VARCHAR) "
+             f"ELSE {_java_text(TEXT)} END")
     if bind:
-        return (f"(LIST_TRANSFORM([{a}], lambda kf_t: CASE WHEN {kind} = 'VARCHAR' THEN CAST(kf_t AS VARCHAR) "
+        return (f"(LIST_TRANSFORM([{a}], lambda {TEXT}: CASE WHEN {kind} = 'VARCHAR' THEN CAST({TEXT} AS VARCHAR) "
                 f"ELSE {other} END))[1]")
     return (f"(CASE WHEN TYPEOF({a}) = 'VARCHAR' THEN CAST({a} AS VARCHAR) "
-            f"ELSE (LIST_TRANSFORM([{a}], kf_t -> {other}))[1] END)")
+            f"ELSE (LIST_TRANSFORM([{a}], {TEXT} -> {other}))[1] END)")
 
 
 # A plain column, a parameter or a literal: cheap to write more than once in a rewrite.
@@ -382,21 +411,90 @@ def _text_of(arg: exp.Expression, fn: str) -> exp.Expression:
     return _with_args(spark_text_arg("fj_arg0", fn, bind=not _cheap(arg)), [arg])
 
 
-def _read_once(template: str, args: list[exp.Expression], cheap: list[bool] | None = None) -> exp.Expression:
+def _read_once(template: str | exp.Expression, args: list[exp.Expression],
+               cheap: list[bool] | None = None) -> exp.Expression:
     """``template`` with ``args`` in place of fj_arg0, fj_arg1, ... (as _with_args), where an argument the
-    template names more than once and that isn't a column or literal (or, given ``cheap``, isn't marked
-    cheap there) is bound once, through a lambda over a one-element list: its SQL isn't repeated, and
-    rand() in it is one sample."""
-    def uses(i: int) -> int:
-        return len(re.findall(rf"\bfj_arg{i}\b", template))
+    template names more than once, or names inside one of its lambdas (where it would be read once per
+    element), and that isn't a column or literal (or, given ``cheap``, isn't marked cheap there) is bound
+    once, through a lambda over a one-element list: its SQL isn't repeated, so nesting the call doesn't
+    multiply it, and rand() in it is one sample, as in Spark."""
+    tree = (template.copy() if isinstance(template, exp.Expression)
+            else cast(exp.Expression, sqlglot.parse_one(template, read="duckdb")))
+    uses: dict[int, int] = {}
+    for column in tree.find_all(exp.Column):
+        if column.name.startswith("fj_arg") and not column.table:
+            i = int(column.name[6:])
+            uses[i] = uses.get(i, 0) + (2 if column.find_ancestor(exp.Lambda) else 1)
     marks = cheap if cheap is not None else [_cheap(a) for a in args]
-    bound = [i for i in range(len(args)) if uses(i) > 1 and not marks[i]]
+    bound = [i for i in range(len(args)) if uses.get(i, 0) > 1 and not marks[i]]
     if not bound:
-        return _with_args(template, args)
-    body = re.sub(r"\bfj_arg(\d+)\b",
-                  lambda m: f"kf_once.a{m.group(1)}" if int(m.group(1)) in bound else m.group(0), template)
+        return _with_args(tree, args)
+    for column in list(tree.find_all(exp.Column)):
+        if column.name.startswith("fj_arg") and not column.table and int(column.name[6:]) in bound:
+            column.replace(exp.column(f"a{column.name[6:]}", table=ONCE))
     fields = ", ".join(f"'a{i}': fj_arg{i}" for i in bound)
-    return _with_args(f"(LIST_TRANSFORM([{{{fields}}}], lambda kf_once: {body}))[1]", args)
+    once = cast(exp.Expression, sqlglot.parse_one(
+        f"(LIST_TRANSFORM([{{{fields}}}], lambda {ONCE}: kf_once_body))[1]", read="duckdb"))
+    next(c for c in once.find_all(exp.Column) if c.name == "kf_once_body").replace(tree)
+    return _with_args(once, args)
+
+
+def _once_node(*keys: str) -> Callable[..., exp.Expression | None]:
+    """A typed node whose DuckDB SQL (as sqlglot writes it) names these arguments more than once: each that
+    isn't a column or literal (or a cast of one) is read once, through a lambda over a one-element list,
+    so nesting the call doesn't multiply its SQL and rand() in it is one sample."""
+    def cheap(value: exp.Expression) -> bool:
+        inner = cast(exp.Expression, value.unnest())
+        return _cheap(inner) or (isinstance(inner, (exp.Cast, exp.TryCast)) and _cheap(inner.this))
+
+    def build(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+        bound = [k for k in keys if isinstance(node.args.get(k), exp.Expression) and not cheap(node.args[k])]
+        if not bound:
+            return None
+        values = [node.args[k] for k in bound]
+        for i, k in enumerate(bound):
+            node.set(k, exp.column(f"a{i}", table=ONCE))
+        fields = ", ".join(f"'a{i}': fj_arg{i}" for i in range(len(bound)))
+        once = cast(exp.Expression, sqlglot.parse_one(
+            f"(LIST_TRANSFORM([{{{fields}}}], lambda {ONCE}: kf_once_body))[1]", read="duckdb"))
+        next(c for c in once.find_all(exp.Column) if c.name == "kf_once_body").replace(node.copy())
+        return _with_args(once, values)
+    build.kf_once_only = True  # type: ignore[attr-defined]  # its only lambda is ONCE, which no column is named
+    return build
+
+
+def once_body(node: exp.Expr) -> exp.Expr:
+    """The template inside ``node`` when _read_once bound its arguments (the lambda's body), else ``node``."""
+    if isinstance(node, exp.Bracket):
+        lam = node.find(exp.Lambda)
+        if lam is not None and [p.name for p in lam.expressions] == [ONCE]:
+            return lam.this
+    return node
+
+
+def once_value(node: exp.Expr) -> exp.Expr:
+    """The argument _read_once bound, for its __kf_once_7d1.aN in the template; ``node`` itself otherwise."""
+    field = once_field(node)
+    return field.expression if field is not None else node
+
+
+def once_field(node: exp.Expr) -> exp.PropertyEQ | None:
+    """The struct field ('aN': value) holding the argument _read_once bound, for its __kf_once_7d1.aN (in
+    parentheses or not) in the template; None for anything else. The field stays where it is when its
+    value is rewritten, so it still holds the value as it is then."""
+    while isinstance(node, exp.Paren):
+        node = node.this
+    if not (isinstance(node, exp.Column) and node.table == ONCE and re.fullmatch(r"a\d+", node.name)):
+        return None
+    lam = node.find_ancestor(exp.Lambda)
+    while lam is not None and [p.name for p in lam.expressions] != [ONCE]:
+        lam = lam.find_ancestor(exp.Lambda)
+    values = lam.parent.this if lam is not None and isinstance(lam.parent, exp.Expression) else None
+    struct = values.expressions[0] if isinstance(values, exp.Array) and values.expressions else None
+    for field in struct.expressions if isinstance(struct, exp.Struct) else []:
+        if isinstance(field, exp.PropertyEQ) and field.name == node.name:
+            return field
+    return None
 
 
 def spark_text_arg_sql(a: str, fn: str) -> str:
@@ -430,7 +528,7 @@ def _initcap(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression
     if delimiter is not None and not (isinstance(delimiter, exp.Literal) and delimiter.is_string
                                       and delimiter.name == " "):
         return None
-    capped = _with_args("ARRAY_TO_STRING(LIST_TRANSFORM(STRING_SPLIT(LOWER(fj_arg0), ' '), "
+    capped = _read_once("ARRAY_TO_STRING(LIST_TRANSFORM(STRING_SPLIT(LOWER(fj_arg0), ' '), "
                         "kf_w -> UPPER(LEFT(kf_w, 1)) || SUBSTRING(kf_w, 2)), ' ')", [_text_of(node.this, "initcap")])
     capped.meta[_TEXT_KEY] = True
     return capped
@@ -463,7 +561,7 @@ def _levenshtein(node: exp.Expression, args: list[exp.Expression]) -> exp.Expres
     threshold = node.args.get("ins_cost")
     if threshold is None:
         return distance
-    return _with_args("(LIST_TRANSFORM([fj_arg0], kf_v -> CASE WHEN fj_arg1 IS NULL THEN NULL "
+    return _read_once("(LIST_TRANSFORM([fj_arg0], kf_v -> CASE WHEN fj_arg1 IS NULL THEN NULL "
                       "WHEN kf_v <= fj_arg1 THEN kf_v ELSE -1 END))[1]", [distance, threshold])
 
 
@@ -482,14 +580,14 @@ def _split(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression |
     text, pattern = node.this, node.expression
     if isinstance(pattern, exp.Literal) and pattern.is_string and pattern.this == "":
         chars = "STRING_SPLIT(fj_arg0, '')"
-        return _with_args(chars if n <= 0 else f"{chars}[1:{n}]", [text])
+        return _read_once(chars if n <= 0 else f"{chars}[1:{n}]", [text])
     parts = "REGEXP_SPLIT_TO_ARRAY(fj_arg0, fj_arg1)"
     if n <= 0:
-        return _with_args(parts, [text, pattern])
+        return _read_once(parts, [text, pattern])
     seps = "REGEXP_EXTRACT_ALL(fj_arg0, fj_arg1)"
     before = (f"COALESCE(LIST_SUM(LIST_TRANSFORM({parts}[1:{n - 1}], kf_p -> LENGTH(kf_p))), 0) + "
               f"COALESCE(LIST_SUM(LIST_TRANSFORM({seps}[1:{n - 1}], kf_p -> LENGTH(kf_p))), 0)")
-    return _with_args(f"CASE WHEN fj_arg0 IS NULL THEN NULL WHEN LEN({parts}) <= {n} THEN {parts} "
+    return _read_once(f"CASE WHEN fj_arg0 IS NULL THEN NULL WHEN LEN({parts}) <= {n} THEN {parts} "
                       f"ELSE LIST_CONCAT({parts}[1:{n - 1}], [SUBSTRING(fj_arg0, CAST({before} + 1 AS BIGINT))]) END",
                       [text, pattern])
 
@@ -601,7 +699,7 @@ def _map_zip_with(node: exp.Expression, args: list[exp.Expression]) -> exp.Expre
         return None
     body = _bind(args[2], ("kf_k", "fj_arg0[kf_k]", "fj_arg1[kf_k]"))
     keys = "LIST_CONCAT(MAP_KEYS(fj_arg0), MAP_KEYS(fj_arg1))"
-    return _with_args(f"CASE WHEN fj_arg0 IS NULL OR fj_arg1 IS NULL THEN NULL ELSE MAP_FROM_ENTRIES(LIST_TRANSFORM("
+    return _read_once(f"CASE WHEN fj_arg0 IS NULL OR fj_arg1 IS NULL THEN NULL ELSE MAP_FROM_ENTRIES(LIST_TRANSFORM("
                       f"LIST_FILTER({keys}, (kf_v, kf_i) -> LIST_POSITION({keys}, kf_v) = kf_i), "
                       f"kf_k -> {{'key': kf_k, 'value': {body}}})) END", args[:2])
 
@@ -617,14 +715,16 @@ def _arrays_zip(node: exp.Expression, args: list[exp.Expression]) -> exp.Express
     one), its fields named after the arrays when they are columns and "0", "1", ... otherwise, as
     Spark names them. NULL when any array is NULL."""
     if not args:
-        return _with_args("[]", [])
+        return _read_once("[]", [])
     names = [a.name if isinstance(a, exp.Column) else str(i) for i, a in enumerate(args)]
     longest = "GREATEST(" + ", ".join(f"LEN(fj_arg{i})" for i in range(len(args))) + ")"
-    tree = _with_args(f"CASE WHEN {' OR '.join(f'fj_arg{i} IS NULL' for i in range(len(args)))} THEN NULL "
-                      f"ELSE LIST_TRANSFORM(RANGE({longest}), kf_i -> kf_struct) END", args)
-    struct = _struct([(n, _with_args(f"fj_arg{i}[kf_i + 1]", args)) for i, n in enumerate(names)])
+    tree = cast(exp.Expression, sqlglot.parse_one(
+        f"CASE WHEN {' OR '.join(f'fj_arg{i} IS NULL' for i in range(len(args)))} THEN NULL "
+        f"ELSE LIST_TRANSFORM(RANGE({longest}), kf_i -> kf_struct) END", read="duckdb"))
+    struct = _struct([(n, cast(exp.Expression, sqlglot.parse_one(f"fj_arg{i}[kf_i + 1]", read="duckdb")))
+                      for i, n in enumerate(names)])
     next(c for c in tree.find_all(exp.Column) if c.name == "kf_struct").replace(struct)
-    return tree
+    return _read_once(tree, args)
 
 
 def _named_tuples(statement: exp.Expression) -> None:
@@ -668,7 +768,8 @@ def _json_tuple(node: exp.Expression, args: list[exp.Expression]) -> exp.Express
                        f"fj_arg{i + 1}), fj_n -> fj_o.v[fj_n] ->> '$'))[-1]" for i in range(len(args) - 1))
     members = ("CASE WHEN JSON_VALID(fj_arg0) AND JSON_TYPE(fj_arg0) = 'OBJECT' THEN {'k': JSON_KEYS(fj_arg0), "
                "'v': JSON_EXTRACT(fj_arg0, '$.*')} END")
-    return _with_args(f"UNNEST(LIST_TRANSFORM([{members}], fj_o -> {{{fields}}}), max_depth := 2)", args)
+    rows = _read_once(f"LIST_TRANSFORM([{members}], fj_o -> {{{fields}}})", args)
+    return _with_args("UNNEST(fj_arg0, max_depth := 2)", [rows])
 
 
 def _mask(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
@@ -685,7 +786,7 @@ def _mask(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | 
         if char is not None:
             text = char.replace("\\", "\\\\").replace("'", "''")
             out = f"REGEXP_REPLACE({out}, '{pattern}', '{text}', 'g')"
-    return _with_args(out, args[:1])
+    return _read_once(out, args[:1])
 
 
 _CSV_REFUSED = ("ERROR('to_csv() can''t run on this PC the way it runs in Fabric, so nothing ran: Spark writes "
@@ -707,7 +808,7 @@ def _to_csv(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression 
         f"THEN {_CSV_REFUSED} ELSE (LIST_TRANSFORM([TRIM(CAST(fj_arg{i} AS VARCHAR))], kf_v -> CASE WHEN kf_v IS NULL "
         f"THEN '' WHEN kf_v = '' THEN '\"\"' WHEN REGEXP_MATCHES(kf_v, '[,\"\\r\\n]') "
         f"THEN '\"' || REPLACE(kf_v, '\"', '\\\"') || '\"' ELSE kf_v END))[1] END" for i in range(len(values)))
-    return _with_args(f"ARRAY_TO_STRING([{parts}], ',')", values)
+    return _read_once(f"ARRAY_TO_STRING([{parts}], ',')", values)
 
 
 def _from_csv(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
@@ -726,18 +827,20 @@ def _from_csv(node: exp.Expression, args: list[exp.Expression]) -> exp.Expressio
         if not isinstance(column, exp.ColumnDef) or column.args.get("kind") is None:
             return None
         kind = duckdb_sql(column.args["kind"])
-        fields.append((column.name, _with_args(f"TRY_CAST(NULLIF(STRING_SPLIT(fj_arg0, ',')[{i + 1}], '') AS {kind})", args)))
-    tree = _with_args("CASE WHEN fj_arg0 IS NULL THEN NULL WHEN STRPOS(fj_arg0, '\"') > 0 THEN ERROR('from_csv() "
-                      "can''t run on this PC the way it runs in Fabric, so nothing ran: quoted values aren''t read "
-                      "here. Run the cell in Fabric.') ELSE kf_struct END", args)
+        fields.append((column.name, cast(exp.Expression, sqlglot.parse_one(
+            f"TRY_CAST(NULLIF(STRING_SPLIT(fj_arg0, ',')[{i + 1}], '') AS {kind})", read="duckdb"))))
+    tree = cast(exp.Expression, sqlglot.parse_one(
+        "CASE WHEN fj_arg0 IS NULL THEN NULL WHEN STRPOS(fj_arg0, '\"') > 0 THEN ERROR('from_csv() "
+        "can''t run on this PC the way it runs in Fabric, so nothing ran: quoted values aren''t read "
+        "here. Run the cell in Fabric.') ELSE kf_struct END", read="duckdb"))
     next(c for c in tree.find_all(exp.Column) if c.name == "kf_struct").replace(_struct(fields))
-    return tree
+    return _read_once(tree, args[:1])
 
 
 def _try_to_binary(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
     fmt = args[1].name.lower().replace("-", "") if len(args) == 2 and args[1].is_string else ("hex" if len(args) == 1 else None)
     template = {"utf8": "ENCODE(fj_arg0)", "hex": "TRY(UNHEX(fj_arg0))", "base64": "TRY(FROM_BASE64(fj_arg0))"}.get(fmt or "")
-    return _with_args(template, args[:1]) if template else None
+    return _read_once(template, args[:1]) if template else None
 
 
 def _timestamp_from(scale: int) -> Callable[..., exp.Expression | None]:
@@ -752,7 +855,7 @@ def _make_dt_interval(node: exp.Expression, args: list[exp.Expression]) -> exp.E
         return None
     parts = ["TO_DAYS(CAST(fj_arg0 AS INTEGER))", "TO_HOURS(CAST(fj_arg1 AS BIGINT))",
              "TO_MINUTES(CAST(fj_arg2 AS BIGINT))", "TO_MICROSECONDS(CAST(ROUND(fj_arg3 * 1000000) AS BIGINT))"]
-    return _with_args(" + ".join(parts[:len(args)]) if args else "INTERVAL 0 SECOND", args)
+    return _read_once(" + ".join(parts[:len(args)]) if args else "INTERVAL 0 SECOND", args)
 
 
 def _to_timestamp(safe: bool) -> Callable[..., exp.Expression | None]:
@@ -763,11 +866,11 @@ def _to_timestamp(safe: bool) -> Callable[..., exp.Expression | None]:
         from . import spark_datetime
         ntz = node.name.upper() == "TO_TIMESTAMP_NTZ"
         if len(args) == 1:
-            return _with_args(f"TRY_CAST(fj_arg0 AS {'TIMESTAMP' if ntz else 'TIMESTAMPTZ'})", args)
+            return _read_once(f"TRY_CAST(fj_arg0 AS {'TIMESTAMP' if ntz else 'TIMESTAMPTZ'})", args)
         if len(args) != 2 or not args[1].is_string:
             return None  # sqlglot reads a format only when it is written out
         if not ntz:
-            return _with_args(spark_datetime.parse_sql(args[1].name, node.name.lower()), args[:1])
+            return _read_once(spark_datetime.parse_sql(args[1].name, node.name.lower()), args[:1])
         tree = sqlglot.parse_one(f"SELECT TO_TIMESTAMP(fj_arg0, {args[1].sql('spark')})", read="spark").expressions[0]
         for column in list(tree.find_all(exp.Column)):
             if column.name == "fj_arg0":
@@ -793,10 +896,10 @@ def _make_timestamp(node: exp.Expression, args: list[exp.Expression]) -> exp.Exp
     ntz = isinstance(node, exp.Anonymous) and node.name.upper() == "MAKE_TIMESTAMP_NTZ"
     made = "TRY(MAKE_TIMESTAMP(fj_arg0, fj_arg1, fj_arg2, fj_arg3, fj_arg4, CAST(fj_arg5 AS DOUBLE)))"
     if len(args) == 6:
-        return _with_args(made if ntz else f"CAST({made} AS TIMESTAMPTZ)", args)
+        return _read_once(made if ntz else f"CAST({made} AS TIMESTAMPTZ)", args)
     if len(args) == 7 and not ntz:
         zone = "CAST(fj_arg6 AS VARCHAR)"
-        return _with_args(f"TRY({spark_time_zone.earlier_in(zone, f'TIMEZONE({zone}, {made})')})",
+        return _read_once(f"TRY({spark_time_zone.earlier_in(zone, f'TIMEZONE({zone}, {made})')})",
                           [*args[:6], _zone(args[6])])
     return None  # left to DuckDB, which refuses it
 
@@ -805,8 +908,8 @@ def _octet_length(node: exp.Expression, args: list[exp.Expression]) -> exp.Expre
     if len(args) != 1:
         return None
     if args[0].is_string:
-        return _with_args("OCTET_LENGTH(ENCODE(fj_arg0))", args)
-    return _with_args("OCTET_LENGTH(CASE WHEN TYPEOF(fj_arg0) = 'BLOB' THEN fj_arg0::BLOB "
+        return _read_once("OCTET_LENGTH(ENCODE(fj_arg0))", args)
+    return _read_once("OCTET_LENGTH(CASE WHEN TYPEOF(fj_arg0) = 'BLOB' THEN fj_arg0::BLOB "
                       "ELSE ENCODE(CAST(fj_arg0 AS VARCHAR)) END)", args)
 
 
@@ -832,8 +935,8 @@ def _time_window(node: exp.Expression, args: list[exp.Expression]) -> exp.Expres
     text = text[len("interval"):].strip() if text.startswith("interval") else text
     if not re.fullmatch(r"(\d+\s*[a-z]+\s*)+", text) or re.search(r"mon|year", text):
         _refuse("window", "its duration isn't one this PC reads: " + _WINDOWS_HERE)(node, args)
-    start = _with_args(_WINDOW_START, [args[0], exp.Literal.string(text)])
-    return _with_args(_WINDOW, [start, exp.Literal.string(text)])
+    start = _read_once(_WINDOW_START, [args[0], exp.Literal.string(text)])
+    return _read_once(_WINDOW, [start, exp.Literal.string(text)])
 
 
 def _is_window(node: exp.Expression) -> bool:
@@ -896,7 +999,7 @@ def _hash(name: str) -> Callable[..., exp.Expression]:
     def build(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression:
         if not args:
             raise ValueError(f"{name}() needs at least one argument, as in Spark.")
-        return _with_args(_hash_template(name, len(args)), [_spark_literal(a) for a in args])
+        return _read_once(_hash_template(name, len(args)), [_spark_literal(a) for a in args])
     return build
 
 
@@ -913,7 +1016,7 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     "ASSERT_TRUE": _template("CASE WHEN fj_arg0 THEN NULL ELSE ERROR('''' || CAST(fj_arg0 AS VARCHAR) "
                              "|| ''' is not true!') END", 1),
     # spaces, or each of the characters given, off both ends
-    "BTRIM": lambda n, a: _with_args("TRIM(fj_arg0)" if len(a) == 1 else "TRIM(fj_arg0, fj_arg1)", a) if len(a) in (1, 2) else None,
+    "BTRIM": lambda n, a: _read_once("TRIM(fj_arg0)" if len(a) == 1 else "TRIM(fj_arg0, fj_arg1)", a) if len(a) in (1, 2) else None,
     # cardinality is size: spark_complex gives -1 for NULL, an int, and a map's key count.
     "CARDINALITY": lambda n, a: None if len(a) != 1 else _user_size(a[0]),
     "CRC32": _template(_CRC32, 1),
@@ -924,7 +1027,7 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     "GET": _template("CASE WHEN fj_arg1 < 0 THEN NULL ELSE fj_arg0[fj_arg1 + 1] END", 2),
     "HASH": _hash("hash"),
     "HYPOT": _template("SQRT(POW(CAST(fj_arg0 AS DOUBLE), 2) + POW(CAST(fj_arg1 AS DOUBLE), 2))", 2),
-    "INLINE_OUTER": _template(_INLINE_OUTER, 1),
+    "INLINE_OUTER": _unnest(_INLINE_OUTER, 2),
     "ISNOTNULL": _template("(fj_arg0 IS NOT NULL)", 1),
     "ISNULL": _template("(fj_arg0 IS NULL)", 1),
     # regexp(str, regex) is rlike and regexp_like under another name: a match anywhere in str
@@ -1053,8 +1156,8 @@ def _shift(left: bool) -> Callable[..., exp.Expression | None]:
         operands = [node.this, node.expression]
         literal = _int_literal(node.this)
         if literal is not None:
-            return exp.paren(_with_args(_shift_sql(left, 32 if -2 ** 31 <= literal < 2 ** 31 else 64), operands))
-        return exp.paren(_with_args(f"CASE WHEN TYPEOF(fj_arg0) IN {_LONG_TYPES} THEN {_shift_sql(left, 64)} "
+            return exp.paren(_read_once(_shift_sql(left, 32 if -2 ** 31 <= literal < 2 ** 31 else 64), operands))
+        return exp.paren(_read_once(f"CASE WHEN TYPEOF(fj_arg0) IN {_LONG_TYPES} THEN {_shift_sql(left, 64)} "
                                     f"ELSE {_shift_sql(left, 32)} END", operands))
     return build
 
@@ -1063,10 +1166,20 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
     """Rewrites of nodes sqlglot reads into its own classes, looked up by name so a sqlglot without
     one of them still loads."""
     table: list[tuple[str, Callable[..., exp.Expression | None]]] = [
+        # sqlglot's DuckDB SQL for these names the array (or value) more than once
+        ("ArrayAppend", _once_node("this")),
+        ("ArrayPrepend", _once_node("this")),
+        ("ArrayInsert", _once_node("this")),
+        ("BitmapBitPosition", _once_node("this")),
+        ("BitmapBucketNumber", _once_node("this")),
+        ("NextDay", _once_node("this")),
+        ("MonthsBetween", _once_node("this", "expression")),
+        ("RegexpInstr", _once_node("this", "expression")),
+        ("SafeDivide", _once_node("expression")),
         ("ApproxQuantile", lambda n, a: exp.Anonymous(this="QUANTILE_DISC", expressions=[n.this.copy(), n.args["quantile"].copy()])),
-        ("ArrayRemove", lambda n, a: _with_args("CASE WHEN fj_arg1 IS NULL THEN NULL ELSE LIST_FILTER(fj_arg0, "
+        ("ArrayRemove", lambda n, a: _read_once("CASE WHEN fj_arg1 IS NULL THEN NULL ELSE LIST_FILTER(fj_arg0, "
                                                 "kf_x -> kf_x IS NULL OR kf_x <> fj_arg1) END", [n.this, n.expression])),
-        ("Getbit", lambda n, a: _with_args("CAST((fj_arg0 >> fj_arg1) & 1 AS TINYINT)", [n.this, n.expression])),
+        ("Getbit", lambda n, a: _read_once("CAST((fj_arg0 >> fj_arg1) & 1 AS TINYINT)", [n.this, n.expression])),
         ("Csc", _template("1 / SIN(CAST(fj_arg0 AS DOUBLE))", 1)),
         ("Sec", _template("1 / COS(CAST(fj_arg0 AS DOUBLE))", 1)),
         ("DateFromUnixDate", _template("CAST(DATE '1970-01-01' + CAST(fj_arg0 AS INTEGER) AS DATE)", 1)),
@@ -1074,7 +1187,7 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         # Spark's uuid() is a string; DuckDB's is its own UUID type, which string functions don't take.
         ("Uuid", lambda n, a: exp.cast(n.copy(), exp.DataType.build("VARCHAR")) if not a else None),
         ("Shuffle", _template(_SHUFFLE, 1)),
-        ("Randn", lambda n, a: _with_args(_RANDN, []) if not a else _SEEDED_RANDN(n, a)),
+        ("Randn", lambda n, a: _read_once(_RANDN, []) if not a else _SEEDED_RANDN(n, a)),
         ("TsOrDsToDate", _to_date_with_format),
         ("TimeToStr", _date_format),
         ("StrToTime", _to_timestamp_with_format),
@@ -1088,9 +1201,9 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("Format", _format_string),
         # from_utc_timestamp and to_utc_timestamp: Spark's timestamp (with time zone), whose wall time in
         # the session's zone is the converted one
-        ("AtTimeZone", lambda n, a: _with_args("CAST(TIMEZONE(fj_arg1, TIMEZONE('UTC', TRY_CAST(fj_arg0 AS TIMESTAMP))) "
+        ("AtTimeZone", lambda n, a: _read_once("CAST(TIMEZONE(fj_arg1, TIMEZONE('UTC', TRY_CAST(fj_arg0 AS TIMESTAMP))) "
                                                "AS TIMESTAMPTZ)", [_uncast(n.this), _zone(n.args["zone"])])),
-        ("FromTimeZone", lambda n, a: _with_args(
+        ("FromTimeZone", lambda n, a: _read_once(
             "CAST(TIMEZONE('UTC', " + spark_time_zone.earlier_in("fj_arg1", "TIMEZONE(fj_arg1, TRY_CAST(fj_arg0 AS TIMESTAMP))")
             + ") AS TIMESTAMPTZ)", [_uncast(n.this), _zone(n.args["zone"])])),
         ("TimestampFromParts", _make_timestamp),
@@ -1109,20 +1222,20 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("RegexpSplit", _split),
         ("Replace", _replace),
         ("ToBase64", _base64),
-        ("FromBase64", lambda n, a: None if _ANSI.get() else _with_args(_UNBASE64, [n.this])),
-        ("Hex", lambda n, a: _with_args(_HEX.replace("kf_spark_whole", _spark_whole("fj_arg0", "BIGINT")), [n.this])),
+        ("FromBase64", lambda n, a: None if _ANSI.get() else _read_once(_UNBASE64, [n.this])),
+        ("Hex", lambda n, a: _read_once(_HEX.replace("kf_spark_whole", _spark_whole("fj_arg0", "BIGINT")), [n.this])),
         ("Unhex", _template(_UNHEX, 1)),
         ("SHA2", _sha2),
         ("Minute", _template(f"MINUTE({_TS})", 1)),
         ("Second", _template(f"SECOND({_TS})", 1)),
         ("Quarter", _template(f"QUARTER({_DATE})", 1)),
         ("Inline", _template(_INLINE, 1)),
-        ("Kurtosis", _template(_KURTOSIS, 1)),
-        ("Skewness", _template(_SKEWNESS, 1)),
+        ("Kurtosis", _template(_KURTOSIS, 1, once=False)),
+        ("Skewness", _template(_SKEWNESS, 1, once=False)),
         ("Nanvl", _template("CASE WHEN ISNAN(CAST(fj_arg0 AS DOUBLE)) THEN CAST(fj_arg1 AS DOUBLE) "
                             "ELSE CAST(fj_arg0 AS DOUBLE) END", 2)),
         ("Negative", _template("(-fj_arg0)", 1)),
-        ("Overlay", lambda n, a: _with_args(
+        ("Overlay", lambda n, a: _read_once(
             # LEFT of 0 or less: Spark's substringSQL(1, pos - 1) is empty there, where DuckDB's LEFT(s, -n) drops
             # the last n characters (overlay('abc' PLACING ',' FROM 0) is ',abc', not 'ab,abc').
             "LEFT(fj_arg0, GREATEST(fj_arg2 - 1, 0)) || fj_arg1 || SUBSTR(fj_arg0, fj_arg2 + "
@@ -1135,25 +1248,25 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
                            "CAST('NaN' AS DOUBLE) ELSE SQRT(kf_v) END))[1]", 1)),
         ("Levenshtein", _levenshtein),
         # bit_count counts the bits of the value as a long (Long.bitCount), so -1 gives 64 for an int too.
-        ("BitwiseCount", lambda n, a: _with_args(f"CAST(BIT_COUNT({_spark_whole('fj_arg0', 'BIGINT')}) AS INTEGER)",
+        ("BitwiseCount", lambda n, a: _read_once(f"CAST(BIT_COUNT({_spark_whole('fj_arg0', 'BIGINT')}) AS INTEGER)",
                                                  [n.this])),
         ("BitwiseLeftShift", _shift(left=True)),
         ("BitwiseRightShift", _shift(left=False)),
         # isnan(NULL) is false in Spark (IsNaN isn't nullable)
         ("IsNan", _template("COALESCE(ISNAN(fj_arg0), FALSE)", 1)),
-        ("PosexplodeOuter", _template(_POSEXPLODE_OUTER, 1)),
-        ("ExplodeOuter", _template(_EXPLODE_OUTER, 1)),
-        ("RegexpSubstr", lambda n, a: None if len(a) != 2 else _with_args(
+        ("PosexplodeOuter", _unnest(_POSEXPLODE_OUTER, 2)),
+        ("ExplodeOuter", _unnest(_EXPLODE_OUTER, None)),
+        ("RegexpSubstr", lambda n, a: None if len(a) != 2 else _read_once(
             "CASE WHEN REGEXP_MATCHES(fj_arg0, fj_arg1) THEN REGEXP_EXTRACT(fj_arg0, fj_arg1) END", a)),
         ("Rint", _template("ROUND_EVEN(CAST(fj_arg0 AS DOUBLE), 0)", 1)),
         ("Sign", _sign),
         ("Stack", _stack),
-        ("SubstringIndex", lambda n, a: _with_args(_SUBSTRING_INDEX, [n.this, n.args["delimiter"], n.args["count"]])),
+        ("SubstringIndex", lambda n, a: _read_once(_SUBSTRING_INDEX, [n.this, n.args["delimiter"], n.args["count"]])),
         ("SafeAdd", _template("TRY(fj_arg0 + fj_arg1)", 2)),
         ("SafeSubtract", _template("TRY(fj_arg0 - fj_arg1)", 2)),
         ("SafeMultiply", _template("TRY(fj_arg0 * fj_arg1)", 2)),
         ("Typeof", _typeof),
-        ("WidthBucket", lambda n, a: _with_args(_WIDTH_BUCKET, [n.this, n.args["min_value"], n.args["max_value"],
+        ("WidthBucket", lambda n, a: _read_once(_WIDTH_BUCKET, [n.this, n.args["min_value"], n.args["max_value"],
                                                                 n.args["num_buckets"]])),
     ]
     return [(cls, build) for name, build in table if (cls := getattr(exp, name, None)) is not None]
@@ -1182,10 +1295,10 @@ def _date_format(node: exp.Expression, args: list[exp.Expression]) -> exp.Expres
     if pattern is None:
         return None
     if isinstance(node, exp.UnixToStr):
-        value: exp.Expression = _with_args("TO_TIMESTAMP(TRUNC(CAST(fj_arg0 AS DOUBLE)))", [node.this])
+        value: exp.Expression = _read_once("TO_TIMESTAMP(TRUNC(CAST(fj_arg0 AS DOUBLE)))", [node.this])
     else:
         value = node.this.this if isinstance(node.this, exp.TimeStrToTime) else node.this
-    return _with_args(spark_datetime.format_sql(pattern, strict=_ANSI.get()), [value])
+    return _read_once(spark_datetime.format_sql(pattern, strict=_ANSI.get()), [value])
 
 
 def _to_timestamp_with_format(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
@@ -1197,7 +1310,7 @@ def _to_timestamp_with_format(node: exp.Expression, args: list[exp.Expression]) 
     pattern = written_pattern(node)
     if pattern is None:
         return None
-    return _with_args(spark_datetime.parse_sql(pattern, "to_timestamp", strict=_ANSI.get()), [node.this])
+    return _read_once(spark_datetime.parse_sql(pattern, "to_timestamp", strict=_ANSI.get()), [node.this])
 
 
 # Spark's reading of text as a date (DateTimeUtils.stringToDate): spaces and control characters trimmed, an
@@ -1218,8 +1331,8 @@ def text_date(value: exp.Expression) -> exp.Expression:
     """to_date(value), or Spark's CAST(value AS DATE), as Spark gives it (spark_text_date). In Databricks SQL
     (ANSI on) text that isn't a date stops with CAST_INVALID_INPUT, as Databricks does."""
     if not _ANSI.get():
-        return _with_args(spark_text_date("fj_arg0"), [value])
-    return _with_args(f"(LIST_TRANSFORM([{{'t': fj_arg0, 'd': {spark_text_date('fj_arg0')}}}], kf_a -> "
+        return _read_once(spark_text_date("fj_arg0"), [value])
+    return _read_once(f"(LIST_TRANSFORM([{{'t': fj_arg0, 'd': {spark_text_date('fj_arg0')}}}], kf_a -> "
                       f"CASE WHEN kf_a.t IS NOT NULL AND kf_a.d IS NULL THEN CAST(ERROR({_DATE_MALFORMED}) AS DATE) "
                       "ELSE kf_a.d END))[1]", [value])
 
@@ -1247,7 +1360,7 @@ def _to_date_with_format(node: exp.Expression, args: list[exp.Expression]) -> ex
     pattern = written_pattern(node)
     if pattern is not None:
         read = spark_datetime.parse_sql(pattern, "to_date", strict=_ANSI.get())
-        return _with_args(f"CAST({read} AS DATE)", [node.this])
+        return _read_once(f"CAST({read} AS DATE)", [node.this])
     parsed = exp.StrToTime(this=node.this.copy(), format=fmt.copy(), safe=True)
     return exp.cast(exp.cast(parsed, exp.DataType.Type.TIMESTAMP), exp.DataType.Type.DATE)
 
@@ -1279,7 +1392,7 @@ def _to_number(try_: bool) -> Callable[..., exp.Expression | None]:
         fail = "NULL" if try_ else (f"ERROR('{name}(): the input ''' || kf_s || ''' doesn''t match the format "
                                     f"''{shown}'', as in Fabric.')")
         text, _, _ = spark_number_format.parse_sql(fmt, fail)
-        return _with_args(text, [args[0]])
+        return _read_once(text, [args[0]])
     return build
 
 
@@ -1292,7 +1405,7 @@ def _to_char(name: str) -> Callable[..., exp.Expression | None]:
         fmt = _format_text(args[1])
         if fmt is None:
             raise ValueError(f"{name}()'s format must be written out as text ('999.99'), as Spark requires.")
-        return _with_args(spark_number_format.format_sql(fmt), [args[0]])
+        return _read_once(spark_number_format.format_sql(fmt), [args[0]])
     return build
 
 
@@ -1373,7 +1486,7 @@ def _parse_url(node: exp.Expression, args: list[exp.Expression]) -> exp.Expressi
     template = (f"CASE WHEN {nulls} THEN NULL ELSE LIST_TRANSFORM([{inputs}], kf_a -> "
                 f"LIST_TRANSFORM([{pieces}], kf_b -> LIST_TRANSFORM([{{'ok': {valid}, 'sv': {server}}}], "
                 f"kf_c -> {answer})[1])[1])[1] END")
-    return _with_args(template, [node.this, part] + ([key] if keyed else []))
+    return _read_once(template, [node.this, part] + ([key] if keyed else []))
 
 
 # Spark's EXTRACT / date_part fields whose value DuckDB's EXTRACT gives differently: the day of the
@@ -1392,20 +1505,20 @@ def _extract(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression
         return None
     ts = "TRY_CAST(fj_arg0 AS TIMESTAMP)"
     if part in _SPARK_DOW:
-        return _with_args(f"CAST(DAYOFWEEK({ts}) + 1 AS INTEGER)", [value])
+        return _read_once(f"CAST(DAYOFWEEK({ts}) + 1 AS INTEGER)", [value])
     if part in _SPARK_DOW_ISO:
-        return _with_args(f"CAST(ISODOW({ts}) AS INTEGER)", [value])
+        return _read_once(f"CAST(ISODOW({ts}) AS INTEGER)", [value])
     if part in _SPARK_SECOND:
-        return _with_args(f"CAST(CAST(MICROSECOND({ts}) AS DECIMAL(14, 6)) / 1000000 AS DECIMAL(8, 6))", [value])
+        return _read_once(f"CAST(CAST(MICROSECOND({ts}) AS DECIMAL(14, 6)) / 1000000 AS DECIMAL(8, 6))", [value])
     out = node.copy()
     if not isinstance(value, exp.Literal) and (value.type is None or value.is_type(exp.DataType.Type.UNKNOWN)) \
             and re.fullmatch(r"[A-Z_]+", part):
         # A column's type isn't known here: text is read as a timestamp, as Spark casts it, and an interval
         # keeps its own fields. TYPEOF is fixed when DuckDB plans the query, so only one branch runs.
-        return _with_args(f"CAST(CASE WHEN TYPEOF(fj_arg0) = 'INTERVAL' THEN EXTRACT({part} FROM TRY_CAST(fj_arg0 AS INTERVAL)) "
+        return _read_once(f"CAST(CASE WHEN TYPEOF(fj_arg0) = 'INTERVAL' THEN EXTRACT({part} FROM TRY_CAST(fj_arg0 AS INTERVAL)) "
                           f"ELSE EXTRACT({part} FROM {ts}) END AS INTEGER)", [value])
     if (isinstance(value, exp.Literal) and value.is_string) or value.is_type(*exp.DataType.TEXT_TYPES):
-        out.set("expression", _with_args(ts, [value]))  # text is read as a timestamp, as Spark casts it
+        out.set("expression", _read_once(ts, [value]))  # text is read as a timestamp, as Spark casts it
     elif value.is_type(exp.DataType.Type.TIMESTAMPTZ, exp.DataType.Type.TIMESTAMPLTZ):
         if isinstance(value, (exp.Cast, exp.TryCast)):
             plain = value.copy()
@@ -1510,6 +1623,9 @@ def mark(statement: exp.Expression) -> exp.Expression:
     _raw_unix_formats(statement)
     for node in _candidates(statement):
         if isinstance(node, exp.Anonymous) and node.name.upper() not in _ANON:
+            continue
+        if any(isinstance(node, cls) and getattr(build, "kf_once_only", False) for cls, build in _TYPED):
+            node.meta[_MARK] = True  # read once only, through ONCE: a kf_ name of the person's can't clash
             continue
         for ident in node.find_all(exp.Identifier):
             if ident.name.lower().startswith("kf_"):  # the rewrites' own lambda names (as sql._no_reserved_names)

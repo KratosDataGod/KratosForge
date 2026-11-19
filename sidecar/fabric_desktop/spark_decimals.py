@@ -74,11 +74,12 @@ ZERO_GUARD = "kf_zero_guard"
 
 def _operands(node: exp.Expr) -> list[Any]:
     if _written(node):
+        from .spark_builtins_sql import once_field  # an operand read once: the field that holds its value
         last = node.args.get("default")  # ELSE (a) % (b), or ELSE ROUND(x, places)
         if isinstance(last, exp.Mod):
-            return [last.this, last.expression]
+            return [once_field(last.this) or last.this, once_field(last.expression) or last.expression]
         if isinstance(last, exp.Round):
-            return [last.this, last.args.get("decimals")]
+            return [once_field(last.this) or last.this, last.args.get("decimals")]
         return []
     if isinstance(node, _ROUNDING):
         return [node.this]
@@ -113,8 +114,15 @@ def _decimal(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]]
              ) -> tuple[int, int] | tuple[str, int] | None:
     """Spark's (precision, scale) for ``node`` as a decimal operand, "int" for a whole-number column,
     or None when it is anything else."""
-    while isinstance(node, exp.Paren) or _zero_guard(node):
-        node = node.this if isinstance(node, exp.Paren) else node.args["default"]
+    from .spark_builtins_sql import once_body, once_value  # a value read once: the value, and its template
+    while (isinstance(node, (exp.Paren, exp.PropertyEQ)) or _zero_guard(node) or once_value(node) is not node
+           or once_body(node) is not node):
+        if isinstance(node, (exp.Paren, exp.PropertyEQ)):
+            node = node.this if isinstance(node, exp.Paren) else node.expression
+        elif _zero_guard(node):
+            node = node.args["default"]
+        else:
+            node = once_value(node) if once_value(node) is not node else once_body(node)
     if id(node) in typed:
         return typed[id(node)]
     if isinstance(node, exp.Literal):
@@ -295,15 +303,23 @@ def spark_decimal_columns(expressions: list[str], columns: list[tuple[str, str]]
 def _retype(statement: exp.Expr, targets: list[Any], schema: MappingSchema, ansi: bool = False) -> exp.Expr:
     """``statement`` with each of ``targets`` (its arithmetic and sums) given Spark's decimal type, typed
     against ``schema``. Raises when sqlglot can't qualify or type it."""
+    from .spark_builtins_sql import once_body, once_value
     marked = 0
     for node in targets:
         for operand in _operands(node):
-            while isinstance(operand, (exp.Paren, exp.Neg, exp.Distinct)) or _zero_guard(operand):
+            while (isinstance(operand, (exp.Paren, exp.Neg, exp.Distinct, exp.PropertyEQ)) or _zero_guard(operand)
+                   or (isinstance(operand, exp.Expr) and (once_value(operand) is not operand
+                                                          or once_body(operand) is not operand))):
                 if _zero_guard(operand):
                     operand = operand.args["default"]
-                    continue
-                operand = operand.this if not isinstance(operand, exp.Distinct) else (
-                    operand.expressions[0] if len(operand.expressions) == 1 else None)
+                elif isinstance(operand, exp.PropertyEQ):  # read once (spark_builtins_sql._read_once): its value
+                    operand = operand.expression
+                elif isinstance(operand, exp.Distinct):
+                    operand = operand.expressions[0] if len(operand.expressions) == 1 else None
+                elif isinstance(operand, (exp.Paren, exp.Neg)):
+                    operand = operand.this
+                else:
+                    operand = once_value(operand) if once_value(operand) is not operand else once_body(operand)
             if isinstance(operand, exp.Expr):
                 operand.meta[_KEY] = marked
                 marked += 1
@@ -311,6 +327,7 @@ def _retype(statement: exp.Expr, targets: list[Any], schema: MappingSchema, ansi
         copy = qualify(statement.copy(), schema=schema, dialect="spark", validate_qualify_columns=False,
                        quote_identifiers=False, identify=False)
         annotate_types(copy, schema=schema, dialect="spark")
+        _type_read_once(copy, schema)
     except Exception:
         _unmark(statement)
         raise
@@ -324,8 +341,9 @@ def _retype(statement: exp.Expr, targets: list[Any], schema: MappingSchema, ansi
     # A pmod's or bround's operands as they are now: they sit inside nodes rewritten before it.
     written = {id(node): _operands(node) for node in targets if _written(node)}
     root = statement
-    # Innermost first, so an operand that is itself rewritten has its Spark type.
-    for node in reversed(targets):
+    # Innermost first, so an operand that is itself rewritten has its Spark type; a value read once
+    # (spark_builtins_sql._read_once) before the template that reads it.
+    for node in sorted(reversed(targets), key=lambda n: -_read_once_depth(n)):
         replacement = _rewrite(node, typed, annotated, written.get(id(node)) or _operands(node), ansi)
         if replacement is None:
             continue
@@ -338,6 +356,42 @@ def _retype(statement: exp.Expr, targets: list[Any], schema: MappingSchema, ansi
         else:
             top.replace(new)
     return root
+
+
+def _once_lambda(node: Any) -> bool:
+    from .spark_builtins_sql import ONCE
+    return (isinstance(node, exp.Lambda) and len(node.expressions) == 1
+            and node.expressions[0].name == ONCE)
+
+
+def _read_once_depth(node: exp.Expr) -> int:
+    """How many values read once (spark_builtins_sql._read_once) ``node`` sits in."""
+    depth, child, parent = 0, node, node.parent
+    while parent is not None:
+        if isinstance(parent, exp.Transform) and child is parent.this and _once_lambda(parent.expression):
+            depth += 1
+        child, parent = parent, parent.parent
+    return depth
+
+
+def _type_read_once(copy: exp.Expr, schema: MappingSchema) -> None:
+    """sqlglot can't type a lambda's argument, so each __kf_once_7d1.aN of a value read once
+    (spark_builtins_sql._read_once) is given its value's type in the typed copy, as a NULL of that
+    type, and the copy typed again; a value read once inside another takes one more round."""
+    from .spark_builtins_sql import once_value
+    refs = [c for c in copy.find_all(exp.Column) if once_value(c) is not c]
+    while refs:
+        left = []
+        for ref in refs:
+            kind = once_value(ref).type
+            if isinstance(kind, exp.DataType) and kind.this != exp.DataType.Type.UNKNOWN:
+                ref.replace(exp.cast(exp.Null(), kind.copy()))
+            else:
+                left.append(ref)
+        if len(left) == len(refs):
+            return
+        annotate_types(copy, schema=schema, dialect="spark")
+        refs = left
 
 
 def _unmark(statement: exp.Expr) -> exp.Expr:

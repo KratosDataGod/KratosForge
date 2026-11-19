@@ -325,7 +325,7 @@ def _spark_date_results(statement: exp.Expression, ansi: bool) -> exp.Expression
     date_trunc doesn't take, and a day name next_day doesn't know, give NULL; make_date of a day
     that doesn't exist is NULL."""
     def wrap(node: exp.Expression, sql_text: str, args: list[exp.Expression]) -> exp.Expression:
-        new = _with_args(sql_text, args)
+        new = spark_builtins_sql._read_once(sql_text, args)  # an argument named twice is read once
         new.meta.update(spark_sql_names.kept(node))
         node.replace(new)
         return new
@@ -538,8 +538,10 @@ def _higher_order(node: exp.Anonymous) -> exp.Expression | None:
     func = args[-1] if args else None
     if len(args) != count or not isinstance(func, exp.Lambda) or len(func.expressions) != 2:
         return None
-    text = template.format(*(duckdb_sql(a) for a in args[:-1]), _bind(func, values))
-    return cast(exp.Expression, sqlglot.parse_one(text, read="duckdb"))
+    # The arguments go in as their nodes, each read once (spark_builtins_sql._read_once): zip_with names
+    # both arrays three times, so nesting it multiplied its SQL.
+    text = template.format(*(f"fj_arg{i}" for i in range(len(args) - 1)), _bind(func, values))
+    return spark_builtins_sql._read_once(text, args[:-1])
 
 
 # aggregate/reduce with a finish lambda. DuckDB's LIST_REDUCE keeps the accumulator in the elements'
@@ -560,9 +562,8 @@ def _reduce_finish(node: exp.Reduce) -> exp.Expression | None:
     if not (isinstance(finish, exp.Lambda) and len(finish.expressions) == 1
             and isinstance(merge, exp.Lambda) and len(merge.expressions) == 2):
         return None
-    text = _REDUCE_FINISH.format(duckdb_sql(node.this), duckdb_sql(node.args["initial"]),
-                                 _bind(merge, ("kf_a.s", "kf_b.x")), _bind(finish, ("kf_f",)))
-    return cast(exp.Expression, sqlglot.parse_one(text, read="duckdb"))
+    text = _REDUCE_FINISH.format("fj_arg0", "fj_arg1", _bind(merge, ("kf_a.s", "kf_b.x")), _bind(finish, ("kf_f",)))
+    return spark_builtins_sql._read_once(text, [node.this, node.args["initial"]])
 
 
 # array_sort(a, (left, right) -> ...) as Spark's stable sort with that comparator: each element's place
@@ -601,8 +602,9 @@ def _arity(template: str) -> int:
 def _from_template(template: str, args: list[exp.Expression]) -> exp.Expression:
     """``template`` ({0}, {1}, ... for the arguments) with the argument nodes themselves put in, not
     their text: a call inside one that spark_builtins_sql marked keeps its mark, so it is still written
-    as Spark's (pmod(hash(x), 7) is Spark's hash, not DuckDB's)."""
-    return _with_args(template.format(*(f"fj_arg{i}" for i in range(len(args)))), args)
+    as Spark's (pmod(hash(x), 7) is Spark's hash, not DuckDB's). An argument the template names more than
+    once is read once (spark_builtins_sql._read_once), so nesting the call doesn't multiply its SQL."""
+    return spark_builtins_sql._read_once(template.format(*(f"fj_arg{i}" for i in range(len(args)))), args)
 
 
 # sqlglot 30.24 folded SortArray into ArraySort, which then carries asc and nulls_first itself.
@@ -686,7 +688,7 @@ def _spark_functions(databricks: bool, statement: exp.Expression) -> exp.Express
             places = args[1] if name == "BROUND" and len(args) == 2 else None
             if places is not None and (places.is_int or (isinstance(places, exp.Neg) and places.this.is_int)):
                 written = _from_template(_bround(int(places.sql())), [args[0]])
-                written.meta[SPARK_FUNCTION] = name  # spark_decimals types it as Spark's round
+                spark_builtins_sql.once_body(written).meta[SPARK_FUNCTION] = name  # spark_decimals types it as Spark's round
                 node.replace(written)
                 continue
             if name == "FORMAT_NUMBER" and len(args) == 2:
@@ -702,7 +704,7 @@ def _spark_functions(databricks: bool, statement: exp.Expression) -> exp.Express
                 node.replace(exp.Not(this=exp.paren(_from_template(_EXISTS, [args[0], negated]))))
             elif name in _ANON_TEMPLATES and len(args) == _arity(_ANON_TEMPLATES[name]):
                 written = _from_template(_ANON_TEMPLATES[name], args)
-                written.meta[SPARK_FUNCTION] = name  # spark_decimals types pmod by Spark's Remainder rule
+                spark_builtins_sql.once_body(written).meta[SPARK_FUNCTION] = name  # spark_decimals types pmod by Spark's Remainder rule
                 node.replace(written)
     return statement
 
@@ -1197,7 +1199,7 @@ def _with_args(template: str, args: list[exp.Expression]) -> exp.Expression:
     tree = cast(exp.Expression, sqlglot.parse_one(template, read="duckdb"))
     for column in list(tree.find_all(exp.Column)):
         if column.name.startswith("fj_arg") and not column.table:
-            column.replace(args[int(column.name[6:])].copy())
+            column.replace(spark_builtins_sql.operand(column, args[int(column.name[6:])].copy()))
     return tree
 
 
@@ -1861,11 +1863,6 @@ def _strptime_format(node: exp.Expression) -> tuple[str, bool]:
     return exp.Literal.string(fmt).sql("duckdb"), bool(re.search(r"%-?[Yy]", fmt.replace("%%", "")))
 
 
-def _as_timestamp(value: exp.Expression) -> str:
-    """A date, timestamp or text as a timestamp, as Spark reads one (text that isn't one is NULL)."""
-    return f"TRY_CAST({duckdb_sql(value)} AS TIMESTAMP)"
-
-
 # Spark's hash is Murmur3 (32-bit, seed 42) and xxhash64 is XXH64 (seed 42); DuckDB's hash is
 # neither. spark_fixes gives Spark's value (spark_hash.py); paths without it refuse them (EA-017).
 _SPARK_HASHES = ("HASH", "XXHASH64")
@@ -2014,9 +2011,13 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
         column = holder.parent if holder else None
         if holder is not None and isinstance(column, exp.ColumnDef) and isinstance(column.parent, exp.DataType):
             holder.pop()
-    for part in list(node.find_all(exp.ArraySlice)):  # Spark refuses index 0 and a negative length
+    # Spark refuses index 0 and a negative length. Deepest first: a slice read once is copied into its template.
+    for part in reversed(list(node.find_all(exp.ArraySlice))):
         if not part.args.get("is_length"):
             continue
+        # A start or length that is a column or literal stays written out, its check (below) with it
+        keys = ["this", *(k for k in ("start", "end") if isinstance(part.args.get(k), exp.Expression)
+                          and not spark_builtins_sql._cheap(part.args[k]))]
         for key, refused, message in (("start", lambda n: n == 0, _SLICE_INDEX_0),
                                       ("end", lambda n: n < 0, _SLICE_LENGTH)):
             bound = part.args.get(key)
@@ -2029,9 +2030,14 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
             except ValueError:
                 pass
             test = "= 0" if key == "start" else "< 0"
-            part.set(key, sqlglot.parse_one(
-                f"CASE WHEN {v} {test} THEN error({exp.Literal.string(message).sql('duckdb')}) ELSE {v} END",
-                read="duckdb"))
+            part.set(key, spark_builtins_sql._read_once(
+                f"CASE WHEN fj_arg0 {test} THEN error({exp.Literal.string(message).sql('duckdb')}) ELSE fj_arg0 END",
+                [bound]))
+        # sqlglot's DuckDB SQL for slice names the array and the start several times: each is read once
+        once = spark_builtins_sql._once_node(*keys)(part, [])
+        if once is not None:
+            node = once if part is node else node
+            part.replace(once)
     for item in list(node.find_all(exp.Bracket)):  # element_at: an array's index 0 is refused
         if item.args.get("offset") != 1 or item.args.get("safe") or len(item.expressions) != 1:
             continue
@@ -2045,7 +2051,9 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
             f"CASE WHEN TRY_CAST({v} AS BIGINT) = 0 AND typeof({duckdb_sql(item.this)}) LIKE '%[]' "
             f"THEN error({exp.Literal.string(_SLICE_INDEX_0).sql('duckdb')}) ELSE {v} END", read="duckdb")])
     for between in list(node.find_all(exp.MonthsBetween)):
-        later, earlier = (_as_timestamp(between.this), _as_timestamp(between.expression))
+        later, earlier = "fj_arg0", "fj_arg1"  # each read once (spark_builtins_sql._read_once)
+        stamps: list[exp.Expression] = [exp.TryCast(this=v, to=exp.DataType.build("TIMESTAMP"))
+                                        for v in (between.this, between.expression)]
         month_count = (f"((year({later}) * 12 + month({later})) - (year({earlier}) * 12 + month({earlier})))")
         same = (f"day({later}) = day({earlier}) OR (day({later}) = day(last_day({later})) "
                 f"AND day({earlier}) = day(last_day({earlier})))")
@@ -2055,7 +2063,8 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
         roundoff = between.args.get("roundoff")
         if not (isinstance(roundoff, exp.Boolean) and roundoff.this is False):
             value = f"round({value}, 8)"
-        swapped = between.replace(cast(exp.Expression, sqlglot.parse_one(value, read="duckdb")))
+        swapped = between.replace(spark_builtins_sql._read_once(
+            value, stamps, [spark_builtins_sql._cheap(v.this) for v in stamps]))
         node = swapped if between is node else node
     for unix in list(node.find_all(exp.StrToUnix)):
         # The argument goes in as its node (_with_args), so a call in it is still rewritten by the later passes.

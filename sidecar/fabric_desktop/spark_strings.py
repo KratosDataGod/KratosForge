@@ -293,8 +293,9 @@ def _swap(node: exp.Expression, new: exp.Expression) -> exp.Expression:
 
 
 def _with(template: str, args: list[exp.Expression]) -> exp.Expression:
-    from .spark_builtins_sql import _with_args
-    return _with_args(template, [a.copy() for a in args])
+    """``template`` with ``args`` in place of fj_arg0, fj_arg1, ..., each read once (spark_builtins_sql._read_once)."""
+    from .spark_builtins_sql import _read_once
+    return _read_once(template, [a.copy() for a in args])
 
 
 def _around(node: exp.Expression, template: str, args: list[exp.Expression]) -> exp.Expression:
@@ -370,7 +371,13 @@ def _split_part(node: exp.Expression) -> exp.Expression:
 
 
 def _left_right(node: exp.Expression) -> exp.Expression:
-    """left and right give '' for a length of 0 or less (DuckDB's count from the other end)."""
+    """left and right give '' for a length of 0 or less (DuckDB's count from the other end). The text and
+    the length are each named twice, so one that isn't a column or literal is read once first."""
+    from .spark_builtins_sql import _once_node, once_body
+    once = _once_node("this", "expression")(node, [])
+    if once is not None:
+        _swap(node, once)
+        node = cast(exp.Expression, once_body(once))
     return _around(node, "CASE WHEN fj_arg1 <= 0 THEN CASE WHEN fj_arg2 IS NULL THEN NULL ELSE '' END "
                          "ELSE fj_arg0 END", [node.expression, node.this])
 
@@ -430,9 +437,11 @@ def _wrap(node: exp.Expression, kind: str) -> None:
 
 def spark_text_results(statement: exp.Expression) -> exp.Expression:
     """Spark's regular expressions and string results on DuckDB (see the module's docstring)."""
-    for regex in list(statement.find_all(*_REGEX)):
+    # Deepest first: a rewrite puts a copy of its arguments in its new SQL, so a call inside one is rewritten
+    # before it is copied (the inner regexp_count of regexp_count(s, regexp_count(t, p)) was left as DuckDB's).
+    for regex in reversed(list(statement.find_all(*_REGEX))):
         _regex(cast(exp.Expression, regex), _REGEX[type(regex)])
-    for found in list(statement.find_all(exp.SplitPart, exp.Left, exp.Right, exp.Pad, exp.Chr, exp.ConcatWs)):
+    for found in reversed(list(statement.find_all(exp.SplitPart, exp.Left, exp.Right, exp.Pad, exp.Chr, exp.ConcatWs))):
         call = cast(exp.Expression, found)
         if isinstance(call, exp.SplitPart):
             _split_part(call)

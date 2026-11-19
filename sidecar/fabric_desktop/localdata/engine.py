@@ -340,7 +340,11 @@ def file_select(found: Found) -> str:
     source = _paths(found.paths)
     hive = ", hive_partitioning = true" if found.hive else ""
     reader = {"parquet": "read_parquet", "csv": "read_csv", "json": "read_json"}[found.format]
-    return f"SELECT * FROM {reader}({source}, union_by_name = true{hive})"
+    # skip = 0: DuckDB's sniffer otherwise leaves out the first lines of a CSV file when they don't
+    # look like the rest (a title, or a first row with fewer columns), and sometimes the header and
+    # data rows with them, with no error. A line that doesn't fit now shows as a row, or fails the read.
+    skip = ", skip = 0" if found.format == "csv" else ""
+    return f"SELECT * FROM {reader}({source}, union_by_name = true{hive}{skip})"
 
 
 _TYPE_OK = re.compile(r"^[A-Za-z][A-Za-z0-9_ ]*(\(\s*\d+\s*(,\s*\d+\s*)?\))?(\[\])?$")
@@ -448,6 +452,15 @@ class LocalEngine:
         con.execute("SET enable_external_access = false")
 
     def _open_locked(self) -> duckdb.DuckDBPyConnection:
+        if self._con is not None and _invalidated(self._con):
+            # DuckDB gave up on the database after an internal error (DuckDB 2.0 does that reading some
+            # corrupt Parquet files), and every later statement would fail until it is opened again.
+            _log.warning("The project database %s stopped after an internal error; opening it again.", self.project.name)
+            try:
+                self._con.close()
+            except duckdb.Error as exc:
+                _log.info("Closing the stopped connection: %s", describe(exc))
+            self._con = None
         if self._con is not None and self._allowed != self._allowed_directories():
             # A folder was added or removed: the locked connection can't change its folders.
             # Temporary tables don't survive this; the database's own tables and views do.
@@ -572,6 +585,8 @@ class LocalEngine:
                 con.execute(f"CREATE OR REPLACE VIEW {q(table.schema)}.{q(table.table)} AS {select}")
                 entry["columns"] = [{"name": r[0], "type": r[1]} for r in
                                     con.execute(f"DESCRIBE {q(table.schema)}.{q(table.table)}").fetchall()]
+                if table.format == "csv" and (above := _lines_above_the_rows(con, table.paths[0])):
+                    issues.append({"path": table.paths[0], "problem": _lines_above_problem(above, table)})
             except Exception as exc:  # noqa: BLE001 - one unreadable file never stops the others
                 entry["status"], entry["error"] = "error", _short(exc)
                 con.execute(f"DROP VIEW IF EXISTS {q(table.schema)}.{q(table.table)}")
@@ -1527,6 +1542,40 @@ class LocalEngine:
 
 class QueryCancelled(RuntimeError):
     pass
+
+
+def _lines_above_problem(above: int, table: Found) -> str:
+    one = above == 1
+    lines, verb, it = ("line", "doesn't", "it") if one else (f"{above} lines", "don't", "them")
+    return (f"The first {lines} of this file {verb} look like the rest, so {'it is' if one else 'they are'} probably "
+            f"a title or notes above the header. {table.schema}.{table.table} keeps {it} as rows, so no line is left "
+            f"out. Remove {it} from the file to read it with its header.")
+
+
+def _lines_above_the_rows(con: duckdb.DuckDBPyConnection, path: str) -> int:
+    """How many lines at the start of a CSV file DuckDB's sniffer would have skipped as not part of the
+    table (a title, notes): file_select reads them as rows (skip = 0), and the folder's issues say so."""
+    try:
+        row = first_row(con.execute("SELECT SkipRows FROM sniff_csv(?)", [path]))
+    except duckdb.Error as exc:  # the view itself was made: a file the sniffer can't read fails its queries
+        _log.info("Couldn't sniff %s: %s", path, describe(exc))
+        return 0
+    return int(row[0]) if row and row[0] else 0
+
+
+def _invalidated(con: duckdb.DuckDBPyConnection) -> bool:
+    """True when DuckDB has invalidated the connection's database after a fatal or internal error."""
+    try:
+        cur = con.cursor()
+    except duckdb.FatalException:
+        return True
+    try:
+        cur.execute("SELECT 1")
+    except duckdb.FatalException:
+        return True
+    finally:
+        cur.close()
+    return False
 
 
 def _release(con: duckdb.DuckDBPyConnection) -> None:

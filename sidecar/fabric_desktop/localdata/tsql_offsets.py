@@ -236,7 +236,7 @@ def _literal_offset(node: exp.Expression | None, what: str) -> int:
     elif isinstance(value, exp.Neg) and isinstance(value.this, exp.Literal) and value.this.is_int:
         minutes = -int(value.this.name)
     elif isinstance(value, exp.Literal) and value.is_string:
-        match = _OFFSET.match(value.name.strip())
+        match = _OFFSET.fullmatch(value.name.strip())
         if not match or int(match.group(3)) > 59:
             raise ValueError(_NOT_YET + f"the offset '{value.name}' given to {what} isn't read here: write it as "
                              "'+hh:mi' or '-hh:mi', or as a whole number of minutes.")
@@ -252,7 +252,7 @@ def _literal_offset(node: exp.Expression | None, what: str) -> int:
 def parse_literal(text: str, digits: int, safe: bool, exact: bool = True) -> _Dto:
     """A datetimeoffset(``digits``) from text, as T-SQL reads it, or a refusal for a form not read here. Only the
     offset is read when not ``exact``, so the digits of a second aren't checked."""
-    match = _LITERAL.match(text)
+    match = _LITERAL.fullmatch(text)
     if not match:
         raise ValueError(_NOT_YET + f"the text '{text}' isn't read as a datetimeoffset here. Write it as "
                          f"'{_TEXT_FORM}'.")

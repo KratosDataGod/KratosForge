@@ -53,6 +53,9 @@ dependencies = [
     # Semantic models to and from Apache Ossie (the vendored converter in _vendor/ossie_microsoft
     # needs PyYAML and sqlglot>=30.12; bokeh brings PyYAML already, so this only makes it explicit).
     "PyYAML>=6",
+    # Ossie files checked against the pinned Apache Ossie JSON Schema (ossie_validate.py, _vendor/ossie_schema),
+    # draft 2020-12, with no remote $ref. mcp brings it already; this makes it explicit.
+    "jsonschema>=4.26,<5",
 ]
 
 [project.optional-dependencies]
@@ -69,6 +72,7 @@ include = ["fabric_desktop*"]
 "fabric_desktop" = ["spark_function_help.json", "tsql_function_help.json"]
 # Vendored third-party code ships with its license and notice.
 "fabric_desktop._vendor.ossie_microsoft" = ["LICENSE", "NOTICE", "README.md"]
+"fabric_desktop._vendor.ossie_schema" = ["*.json", "LICENSE", "NOTICE", "README.md"]
 # Hash-pinned Databricks Connect requirements, one file per runtime line.
 "fabric_desktop.engines" = ["dbconnect_locks/*.txt"]
 # Learn lessons and labs (learn/content.py), one folder per module.

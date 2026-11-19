@@ -150,6 +150,28 @@ conversion still goes ahead, and the report says so with `status` "unverified" a
 
 The `kind` (kept or lost) of the existing rows is unchanged, so the current card still works.
 
+## Schema validation
+
+Import's preview also checks the Ossie file against the official Apache Ossie JSON Schema for the
+version the file declares, and returns the result as `schema_validation` (OSSIE-003a, engine
+only; no screen shows it yet). The check runs on this PC and never goes online.
+
+- KratosForge carries two copies of the schema, each fixed to one upstream commit, in
+  `sidecar/fabric_desktop/_vendor/ossie_schema` with their licence and SHA-256 hashes:
+  0.2.0.dev0 (commit `21d14d7`, the last before Ossie moved to 0.3.0.dev0) and 0.3.0.dev0
+  (commit `aa500d3`). The converter reads and writes 0.2.0.dev0, which Fabric Semantic Views take.
+- A file of any other version gets one problem, "no pinned schema for" that version, and never
+  passes.
+- Each problem gives where it is as a path such as `$.datasets[0].fields[2].name`, the schema
+  rule it breaks (`required`, `additionalProperties`, `type`, `enum` and so on), a short form of
+  the value, what is wrong and how to fix it. A missing property and an unexpected property are
+  one problem each. Problems are sorted by path; after 200 the rest are counted in one line.
+- The file is read with the same limits as Import: at most 20 million characters, no YAML
+  aliases (`*name`), and no deeper nesting than a model needs. The schema can't refer to anything
+  outside the copies it ships with.
+- `valid` is true only when a schema checked the file and found nothing. Rules beyond the schema,
+  such as what Fabric or Snowflake accept, come later (OSSIE-003b).
+
 ## Keeping Git in step
 
 After an import, **Save TMDL to Git** reads the model back from Fabric as TMDL and writes it

@@ -18,7 +18,7 @@ import stat
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
-from . import model_ossie, tmdl
+from . import model_ossie, ossie_validate, tmdl
 from .jsonfile import write_text
 from .meta.store import OneLakeStore
 from .notebook_files_service import _is_link
@@ -369,11 +369,13 @@ class ModelOssieMixin:
         """What importing the Ossie document would change, and what can't be carried over. Writes nothing.
 
         ``removable`` lists what an update keeps although the file doesn't have it; pass any of them in
-        ``remove`` to take them out."""
+        ``remove`` to take them out. ``schema_validation`` is the file checked against the pinned Ossie JSON Schema
+        for its version (ossie_validate.validate), on this PC."""
         p = self._ossie_import_plan(env, text, name, mode, remove, layer)
         return {"env": env, "name": p["name"], "mode": mode, "exists": p["existing"] is not None,
                 "workspace_name": p["cfg"].get("workspace_name", ""), "changes": p["changes"],
-                "removable": p["removable"], "report": p["report"], "fidelity": p["fidelity"]}
+                "removable": p["removable"], "report": p["report"], "fidelity": p["fidelity"],
+                "schema_validation": ossie_validate.validate(text)}
 
     def meta_model_ossie_import(self, env: str = "test", text: str = "", name: str = "", mode: str = "update",
                                 remove: list[str] | None = None, layer: str | None = None,

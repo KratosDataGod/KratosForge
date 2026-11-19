@@ -139,17 +139,25 @@ def _convert(fn: Any, *args: Any, **kwargs: Any) -> tuple[Any, list[dict[str, st
     return result, report
 
 
-def parse(text: str) -> dict[str, Any]:
-    """An Ossie document (YAML or JSON) as a dict, refusing what isn't one, with a plain reason."""
+def load_text(text: str) -> Any:
+    """Untrusted YAML or JSON text as plain values: at most MAX_CHARS, a SafeLoader that also refuses aliases,
+    and no nesting deeper than Python's recursion limit. Refuses with a plain reason (ValueError or TypeError)."""
     require()
+    if not isinstance(text, str):
+        raise TypeError("An Ossie file is text (YAML or JSON)")
     if len(text) > MAX_CHARS:
         raise ValueError(f"This file is {len(text) // 1_000_000} MB; an Ossie model is at most {MAX_CHARS // 1_000_000} MB")
     try:
-        doc = yaml.load(text, Loader=_NoAliasLoader)  # noqa: S506 - a SafeLoader that also refuses aliases
+        return yaml.load(text, Loader=_NoAliasLoader)  # noqa: S506 - a SafeLoader that also refuses aliases
     except yaml.YAMLError as exc:
         raise ValueError(f"This isn't valid YAML or JSON: {exc}") from exc
     except RecursionError:
         raise ValueError("This file is nested too deeply to be an Ossie model") from None
+
+
+def parse(text: str) -> dict[str, Any]:
+    """An Ossie document (YAML or JSON) as a dict, refusing what isn't one, with a plain reason."""
+    doc = load_text(text)
     if not isinstance(doc, dict):
         raise TypeError("This isn't an Ossie semantic model: it should be one object with version, name and datasets")
     if "semantic_model" in doc:

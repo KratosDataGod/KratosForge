@@ -562,6 +562,8 @@ def _parse(batch: str) -> list[exp.Expression]:
     try:
         trees = [t for t in sql_dialects.parse(batch, read=KfTSQL) if t is not None]
     except SqlglotError as exc:
+        if getattr(exc, "too_deep", False):  # sql_dialects.parse caught the RecursionError: the T-SQL message
+            raise ValueError(_TOO_DEEP) from None
         raise ValueError(f"Could not read the query as T-SQL: {_first_line(exc)}") from None
     finally:
         log.removeHandler(handler)

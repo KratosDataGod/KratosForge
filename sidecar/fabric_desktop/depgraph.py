@@ -222,6 +222,9 @@ def analyze(source: str) -> dict[str, Any]:
     cell = magics.cell(source)
     if cell.language == "sql":
         _sql(cell.body, out, 1)
+        if any(r["name"] == "dbo._sqldf" for r in out["reads"]):  # the last SQL result, not a table
+            out["reads"] = [r for r in out["reads"] if r["name"] != "dbo._sqldf"]
+            out["uses"].append("_sqldf")
         if magics.returns_rows(cell.body):
             out["defines"].append("_sqldf")
     elif cell.language == "shell":

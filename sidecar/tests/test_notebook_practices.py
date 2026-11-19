@@ -38,6 +38,15 @@ def test_collect_after_aggregating_first_is_fine():
                 'rows = df.selectExpr("upper(name)").collect()',
                 'rows = spark.sql("SELECT id, amount FROM sales").collect()',
                 'rows = spark.sql("SELECT id FROM sales WHERE id IN (SELECT max(id) FROM s)").collect()']) == ["NB003"] * 4
+    # Aggregated but not reducing: a window, a GROUP BY only in a subquery, rows brought back after the aggregate,
+    # or a name reassigned to a whole frame.
+    assert ids(['rows = spark.sql("SELECT id, COUNT(*) OVER (PARTITION BY region) AS n FROM sales").collect()',
+                'rows = spark.sql("SELECT s.id, t.n FROM sales s JOIN (SELECT region, COUNT(*) n FROM sales GROUP BY region) t ON s.region = t.region").collect()',
+                'rows = df.groupBy("r").agg(F.sum("x")).join(big, "r").collect()',
+                'rows = df.groupBy("r").agg(F.collect_list("x").alias("xs")).select(F.explode("xs")).collect()',
+                'rows = df.agg(F.max("ts")).union(other).collect()',
+                'rows = df.selectExpr("count(*) OVER (PARTITION BY r)").collect()',
+                'totals = df.groupBy("r").agg(F.sum("x"))\ntotals = spark.table("sales")\nrows = totals.collect()']) == ["NB003"] * 7
 
 
 def test_csv_and_json_reads_need_a_schema():

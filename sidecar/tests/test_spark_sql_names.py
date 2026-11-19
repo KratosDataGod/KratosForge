@@ -21,7 +21,7 @@ def _name(query: str) -> str:
 
 @pytest.mark.parametrize("query", sorted(FIXTURE["names"]))
 def test_a_column_is_named_as_spark_names_it(query):
-    if query in _REFUSED:  # DuckDB has no such function: refused by name before any column is named
+    if query in _REFUSED:  # none here, or Fabric answers it itself: refused before any column is named
         with pytest.raises(ValueError, match="can't run on this PC the way it runs in Fabric"):
             _name(query)
         return
@@ -29,7 +29,7 @@ def test_a_column_is_named_as_spark_names_it(query):
 
 
 # format_number with a pattern: Java's DecimalFormat patterns aren't written here (docs/sql-compatibility.md)
-_REFUSED = {"input_file_name()", "spark_partition_id()", "format_number(d, '#.#')"}
+_REFUSED = {"input_file_name()", "spark_partition_id()", "current_user()", "version()", "format_number(d, '#.#')"}
 
 
 def run(code: str) -> str:

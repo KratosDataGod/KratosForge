@@ -65,10 +65,13 @@ def error_of(result):
 
 @pytest.fixture(autouse=True)
 def no_rate_limit(request, monkeypatch):
-    """The local API built in these tests has no rate limit, except where a test says it wants the real one."""
-    if "real_rate_limit" not in request.keywords:
-        unlimited = local_api.RateLimiter
-        monkeypatch.setattr(local_api, "RateLimiter", lambda: unlimited(rate=1e6, burst=10**6))
+    """The local API built in these tests has no rate limit, except where a test says it wants the real one.
+    That one's clock stands still, so its bucket doesn't refill between calls on a slow runner."""
+    real = local_api.RateLimiter
+    if "real_rate_limit" in request.keywords:
+        monkeypatch.setattr(local_api, "RateLimiter", lambda: real(clock=lambda: 0.0))
+    else:
+        monkeypatch.setattr(local_api, "RateLimiter", lambda: real(rate=1e6, burst=10**6))
 
 
 @pytest.fixture

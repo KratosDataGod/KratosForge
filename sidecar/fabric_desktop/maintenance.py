@@ -24,7 +24,7 @@ from urllib.parse import unquote
 from deltalake import DeltaTable
 from deltalake.exceptions import TableNotFoundError
 
-from . import durable
+from . import durable, retrying
 
 SMALL_FILE_BYTES = 32 * 1024 * 1024
 SMALL_FILE_COUNT = 20     # this many files averaging under SMALL_FILE_BYTES is worth compacting
@@ -288,8 +288,10 @@ def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[
     before, files_before = first.version(), len(first.file_uris())
     days = _with_own(first, days)
     set_retention(uri, days, allow_shorter=allow_shorter)
+    # On Windows a writer committing the same next version at the same moment makes this commit fail to open
+    # its staged log file (retrying.staged_commit_race); nothing was committed, so compacting again is safe.
+    metrics = retrying.local_retry(lambda: DeltaTable(uri).optimize.compact())
     table = DeltaTable(uri)
-    metrics = table.optimize.compact()
     present = {Path(e.path).relative_to(uri).as_posix() for e in _data_folder_files(uri)}
     keep, _oldest = skewed_versions(table, retention_hours(days))
     listed = table.vacuum(retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False,

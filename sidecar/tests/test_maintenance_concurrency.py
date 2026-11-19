@@ -468,3 +468,37 @@ def test_vacuum_at_the_minimum_keeps_every_file_a_version_inside_the_retention_n
     assert_read_cleanly(seen)
     check_snapshots(seen["seen"], base, APPENDER_KEY, wrote["ok"])
     assert sorted(ids(uri)) == expected_ids(base_ids, APPENDER_KEY, wrote["ok"])
+
+
+def test_compact_tries_again_when_a_writer_wins_the_same_commit_on_windows(tmp_path, monkeypatch):
+    """Windows CI: a writer committing the same next version at the same moment leaves compaction unable to open
+    its staged log file (``NNN.json#1``, os error 5). Nothing was committed, so Compact compacts again and the
+    table keeps every row."""
+    from deltalake.table import TableOptimizer
+    uri = str(tmp_path / "t")
+    for b in range(3):
+        write_deltalake(uri, pa.table({"id": [b]}), mode="append")
+    real, calls = TableOptimizer.compact, []
+
+    def racing(self, *a, **k):
+        calls.append(1)
+        if len(calls) == 1:
+            raise OSError(f"Generic LocalFileSystem error: Unable to open file {uri}\\_delta_log\\"
+                          "00000000000000000004.json#1: Access is denied. (os error 5)")
+        return real(self, *a, **k)
+    monkeypatch.setattr(TableOptimizer, "compact", racing)
+    out = maintenance.compact_local(uri, maintenance.MIN_RETENTION_DAYS)
+    assert len(calls) == 2 and out["files_added"] == 1 and out["files_removed"] == 3
+    assert sorted(ids(uri)) == [0, 1, 2]
+
+
+def test_compact_doesnt_repeat_any_other_failure(tmp_path, monkeypatch):
+    from deltalake.table import TableOptimizer
+    uri = str(tmp_path / "t")
+    write_deltalake(uri, pa.table({"id": [0]}), mode="append")
+    calls = []
+    monkeypatch.setattr(TableOptimizer, "compact", lambda self, *a, **k: calls.append(1) or (_ for _ in ()).throw(
+        OSError("Generic LocalFileSystem error: disk full (os error 112)")))
+    with pytest.raises(OSError, match="disk full"):
+        maintenance.compact_local(uri, maintenance.MIN_RETENTION_DAYS)
+    assert calls == [1]

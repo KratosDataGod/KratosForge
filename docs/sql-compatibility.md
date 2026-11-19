@@ -624,6 +624,25 @@ What can still differ:
 - `BEGIN TRAN`, `COMMIT`, `ROLLBACK` and `SET TRANSACTION` are refused here (see Local T-SQL scripts), so a conflict here is always about one statement.
 - A commit delta-rs refuses for another reason, such as a change to a table with `delta.appendOnly`, isn't called a conflict. It stops with delta-rs's own reason and says nothing was committed.
 
+## Local T-SQL wide tables and long values
+
+When a project runs T-SQL on this PC, wide tables and long values stay exact, or stop by name where a Fabric Warehouse differs. Nothing is cut without saying so. This was checked against Microsoft Learn's Fabric Data Warehouse pages for tables and data types, and the REPLICATE page, as they read on 2026-11-18.
+
+| What | Here |
+| --- | --- |
+| A table of up to 1,024 columns | Made, and every value comes back |
+| `CREATE TABLE`, `SELECT ... INTO` or `ALTER TABLE ... ADD` past 1,024 columns, a warehouse table's most | Stops with SQL Server's words, such as "CREATE TABLE failed because column 'c1024' in table 'w' exceeds the maximum of 1024 columns.", and nothing is made. `SELECT *` is counted as it reads |
+| A query result wider than 1,024 columns | Runs. The limit is a table's |
+| A `VARCHAR(MAX)` value of a megabyte or more | Comes back whole, and `LEN` and `DATALENGTH` count all of it |
+| `REPLICATE` of text that isn't `VARCHAR(MAX)` or `NVARCHAR(MAX)`, past 8,000 bytes (4,000 characters of `N''` text) | Stops at the row where a warehouse would cut the result, with the way to keep it whole: cast the input to `VARCHAR(MAX)`. A `VARCHAR(MAX)` column without a cast stops too, because the local engine doesn't keep a column's `(MAX)`, and the cast changes nothing in a warehouse |
+| A query that nests string calls dozens deep, or nests anything past what the translator can read | Stops by name and says the query is nested too deeply, so move the inner part into a CTE, a subquery or a variable. A `REPLICATE` inside another one is checked at each level. |
+| An Excel export of more than 16,384 columns, a sheet's most | Refused before anything is written, with CSV or Parquet named instead. A text cell past Excel's 32,767 characters is cut there with a note, as before |
+
+What can still differ:
+
+- A warehouse stores at most 16 MB in a `VARCHAR(MAX)` or `VARBINARY(MAX)` value. The local engine keeps a longer one.
+- `ALTER TABLE ... ADD` of several columns in one statement is refused by name here, because the local engine adds one at a time. Add each in an `ALTER TABLE` of its own.
+
 ## Local T-SQL tables
 
 When a project runs T-SQL on this PC, tables are made and emptied as in a Fabric Warehouse, and what a warehouse doesn't have is refused by name. This was checked against Microsoft Learn's Fabric Data Warehouse pages for tables, temporary tables, IDENTITY and the T-SQL surface area, as they read on 2026-11-17.

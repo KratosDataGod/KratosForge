@@ -313,7 +313,7 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
                        "column definitions out in CREATE TABLE.", f"{_DOCS}/sql/create-table")
     if isinstance(statement, exp.TruncateTable) and statement.args.get("exists"):
         return _refuse("SFN-028", "TRUNCATE TABLE IF EXISTS", "DuckDB's TRUNCATE has no IF EXISTS, and the "
-                       "rewrite can't tell whether the table is there. Leave out IF EXISTS when it is.",
+                       "rewrite can't tell whether the table is there. Leave out IF EXISTS when you know the table is there.",
                        f"{_DOCS}/sql/truncate-table")
     if isinstance(statement, exp.Alter) and (statement.args.get("kind") or "").upper() == "TABLE":
         actions = statement.args.get("actions") or []

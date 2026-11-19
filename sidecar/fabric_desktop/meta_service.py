@@ -661,6 +661,29 @@ class MetaMixin:
 
     # ---- promote
 
+    def _confirm_name(self, project: Any, env: str) -> str:
+        """The name a promote, rollback or restore in ``env`` waits for, or "" when it asks for none: Prod's
+        workspace name (WR-250), or the workspace's own when a project opened on this PC named it Prod, as
+        another project's Test can be (WR-251)."""
+        if env == "prod":
+            return prod_name(project)
+        cfg = project.environments.get(env, {}) or {}
+        marked = getattr(self, "_prod_marked", None)
+        if marked is not None and any(marked(ws) for ws in sorted(_env_workspaces(cfg))):
+            return str(cfg.get("workspace_name") or cfg.get("workspace_id"))
+        return ""
+
+    def _confirm_typed(self, project: Any, env: str, confirm_name: str, doing: str, nothing: str) -> None:
+        """Refuse unless ``confirm_name`` is exactly the name ``_confirm_name`` asks for. It is a guard parameter,
+        so the audit line is written before the change runs (audit.fails_closed)."""
+        if env == "prod":
+            prod_typed(project, env, confirm_name, doing, nothing)
+            return
+        name = self._confirm_name(project, env)
+        if name and confirm_name != name:
+            raise PermissionError(f"{name} is a workspace that a project opened on this PC named as Prod, so {doing} "
+                                  f"runs only after you type its name to confirm. {nothing}")
+
     def meta_promote_check(self, source: str, target: str) -> dict[str, Any]:
         project = self._project()
         try:
@@ -688,7 +711,8 @@ class MetaMixin:
         errors += policies["errors"]
         return {"source": source, "target": target, "version": project.version, "errors": errors, "tests": tests,
                 "notes": notes + more + duty_notes + policies["notes"], "git": git,
-                "policy_exceptions": policies["excepted"]}
+                "policy_exceptions": policies["excepted"],
+                **({"confirm_name": name} if (name := self._confirm_name(project, target)) else {})}
 
     def meta_promote(self, source: str, target: str, confirm_name: str = "") -> dict[str, Any]:
         project = self._project()
@@ -710,7 +734,7 @@ class MetaMixin:
         errors += policies["errors"]
         if errors:
             raise GateError("promote", errors)
-        prod_typed(project, target, confirm_name, "promoting to it", "Nothing was promoted.")
+        self._confirm_typed(project, target, confirm_name, "promoting to it", "Nothing was promoted.")
         target_store = self._store(project, target, create=True)
         uses_keys = bool(project.key_tables or project.source_systems)
         keys_store = self._keys_store(project, target, create=True) if uses_keys else None  # fails before promoting
@@ -787,7 +811,7 @@ class MetaMixin:
         except Exception as exc:  # noqa: BLE001 - the environment can't be read: say so
             return {"env": env, "releases": [], "problem": str(exc)}
         return {"env": env, "releases": history, "problem": None,
-                **({"confirm_name": prod_name(project)} if env == "prod" else {})}
+                **({"confirm_name": name} if (name := self._confirm_name(project, env)) else {})}
 
     def meta_rollback_preview(self, env: str, version: str) -> dict[str, Any]:
         """What rolling ``env`` back to ``version`` changes, by meaning, entity by entity. Reads only."""
@@ -813,7 +837,7 @@ class MetaMixin:
         errors, _ = self._duties_gate(project, env, env, separation=False)  # undoing a release isn't a second promote
         if errors:
             raise GateError("rollback", errors)
-        prod_typed(project, env, confirm_name, "rolling it back", "Nothing was rolled back.")
+        self._confirm_typed(project, env, confirm_name, "rolling it back", "Nothing was rolled back.")
         store = self._store(project, env)
         result = rollback(project, store, version, duties.current_user(), self._signed_in_object_id())
         released = result.pop("project")

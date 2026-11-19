@@ -50,7 +50,7 @@ def test_a_damaged_project_list_is_rebuilt_from_the_projects_own_files(form, tmp
 
 def test_a_project_kept_in_another_folder_is_found_again_from_what_the_cut_off_list_still_names(tmp_path):
     store = ProjectStore(tmp_path / "local-data")
-    elsewhere = store.create("Finance", folder=str(tmp_path / "D drive" / "finance \"2026\""))
+    elsewhere = store.create("Finance", folder=str(tmp_path / "D drive" / "finance 'Ünï' 2026"))  # a name JSON escapes; no " on Windows
     store.create("Sales")
     store.create("Later", folder=str(tmp_path / "later"))
     text = store.index_file.read_text()
@@ -130,7 +130,7 @@ def test_an_audit_line_cut_off_by_a_power_cut_doesnt_stop_the_history_or_damage_
     trail.write_bytes(trail.read_bytes() + tail)  # the append stopped before its newline
     assert [e["action"] for e in log.recent()] == ["second", "first"]
     log.record("third", "ok", 0.1)
-    lines = trail.read_bytes().split(b"\n")
+    lines = trail.read_bytes().splitlines()  # the trail is written in text mode: CRLF on Windows
     assert lines[2] == tail  # kept as it was: the trail is never rewritten
     assert json.loads(lines[3])["action"] == "third"  # on a line of its own, whole
     assert [e["action"] for e in log.recent()] == ["third", "second", "first"]

@@ -180,3 +180,10 @@ def test_a_go_line_saved_with_windows_line_endings_splits_there(sql, n):
 def test_go_n_with_windows_line_endings_is_refused_by_name():
     with pytest.raises(ValueError, match="GO 3 .run the batch 3 times. isn't mapped yet"):
         tsql.translate("SELECT 1\r\nGO 3\r\n")
+
+
+@pytest.mark.parametrize("sql", ["-- it's [ \" /* a note\nSELECT 1 AS a", "/* it's -- [ */ SELECT 1 AS a",
+                                 "SELECT 1 AS a -- it's /* [\n", "SELECT 1 /* it's */ AS a"])
+def test_a_comment_carries_no_meaning_whatever_it_holds(engine, sql):
+    result = engine.execute(sql, dialect="tsql")
+    assert result["rows"] == [[1]] and result["columns"][0]["name"] == "a", result

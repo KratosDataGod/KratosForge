@@ -211,7 +211,7 @@ class GovernanceMixin:
         warned for this end date isn't asked about again (no call). A platform that can't claim (an older
         UDF_Platform) gets no Teams notice at all rather than one from every PC; the bell and banner still show."""
         try:
-            routing = PlatformRouting.parse(self._pn_raw())  # type: ignore[attr-defined]
+            routing = PlatformRouting.parse(self._pn_raw(), saved=True)  # type: ignore[attr-defined]
         except ValueError as exc:
             _log.warning("Platform Teams routes can't be read, so no exception notice is claimed: %s", exc)
             return []

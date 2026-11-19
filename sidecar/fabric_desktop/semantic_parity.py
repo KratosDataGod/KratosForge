@@ -50,7 +50,7 @@ import json
 import math
 from typing import Any
 
-from . import model_ossie as mo
+from . import model_ossie as mo, tmdl
 
 VERIFIED = "Verified equivalent"
 WITHIN_TOLERANCE = "Equivalent within tolerance"
@@ -92,7 +92,7 @@ MAX_WARNINGS = 50
 # A model.bim passed as text is JSON, read with json.loads under its own cap: a large real model.bim is tens of MB,
 # well past the 20 MB Ossie and TMDL caps. 200 million characters keeps a mistaken pick (a data file) from filling
 # memory. (model_ossie_service reads model.bim files from a folder under its own, smaller cap.)
-MAX_TMSL_CHARS = 200_000_000
+MAX_TMSL_CHARS = tmdl.MAX_CHARS * 4  # the same bound Save TMDL and the service put on a model.bim
 
 
 @functools.lru_cache(maxsize=1)

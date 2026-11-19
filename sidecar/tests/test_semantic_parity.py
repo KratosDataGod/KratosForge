@@ -484,7 +484,7 @@ def test_a_model_bim_as_text_is_json_under_its_own_cap_past_ossies():
     bim["model"]["description"] = "x" * (model_ossie.MAX_CHARS + 1_000)  # past Ossie's 20 MB, under TMSL's cap
     text = json.dumps(bim)
     assert model_ossie.MAX_CHARS < len(text) < sp.MAX_TMSL_CHARS
-    assert sp.MAX_TMSL_CHARS >= 200_000_000
+    assert sp.MAX_TMSL_CHARS == tmdl.MAX_CHARS * 4  # one bound for a model.bim everywhere
     report = _assert_l1(sp.parity_l1(text, _bim()))
     assert report["summary"] == sp.COMPATIBLE and report["sides"]["left"]["kind"] == "tmsl"
     report = _assert_l1(sp.parity_l1("﻿" + json.dumps(_bim()), _bim(), left_kind="tmsl"))

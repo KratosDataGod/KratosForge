@@ -289,7 +289,8 @@ def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[
     days = _with_own(first, days)
     set_retention(uri, days, allow_shorter=allow_shorter)
     # On Windows a writer committing the same next version at the same moment makes this commit fail to open
-    # its staged log file (retrying.staged_commit_race); nothing was committed, so compacting again is safe.
+    # its staged log file, or another process holds a log file (retrying.windows_log_race); nothing was committed,
+    # so compacting again is safe.
     metrics = retrying.local_retry(lambda: DeltaTable(uri).optimize.compact())
     table = DeltaTable(uri)
     present = {Path(e.path).relative_to(uri).as_posix() for e in _data_folder_files(uri)}

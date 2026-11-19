@@ -98,7 +98,9 @@ def test_a_table_with_not_null_comment_default_and_identity_columns(cell):
         == []
     )
     assert cell("ALTER TABLE t ADD COLUMN d INT") == []
-    assert cell("ALTER TABLE t DROP COLUMN d") == []
+    # DROP COLUMNS (...): sqlglot 30.22, the oldest pyproject allows, reads the one-column DROP COLUMN d
+    # of Databricks SQL as a statement it can't parse, which the session then refuses.
+    assert cell("ALTER TABLE t DROP COLUMNS (d)") == []
     assert cell("INSERT INTO t (a) VALUES (1)") == [[1]]
     assert cell("SELECT * FROM t") == [[1, 5, 1]]
     assert cell("INSERT INTO t (a) VALUES (NULL)").startswith("error: ")

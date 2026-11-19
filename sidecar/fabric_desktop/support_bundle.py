@@ -222,7 +222,9 @@ def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
                 "about.json has the policy file's SHA-256, to compare with the file IT shipped, and when this PC last saw it change.",
                 f"Logs are the last {LOG_LINES} lines."]
     files["CONTENTS.txt"] = "\n".join(contents) + "\n"
-    # And any value a notebook in this engine read with dbutils.secrets (secret_redaction.py).
+    # Values dbutils.secrets read are remembered by the kernel process that read them, which redacts its
+    # own output and stderr before sidecar.log gets it (kernel_host.py). This engine remembers only
+    # what a kernel running inside it read, so here it is a second pass, not the protection.
     return {name: secret_redaction.redact(for_support(text)) for name, text in files.items()}
 
 

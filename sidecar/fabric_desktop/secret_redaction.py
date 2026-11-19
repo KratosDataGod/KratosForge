@@ -6,12 +6,15 @@ tracebacks) and the text kept in an overflow file then have every remembered val
 before anything leaves the kernel. A value shorter than ``MIN_CHARS`` isn't redacted: replacing a
 one or two character value would garble every output, and it is no secret at that length.
 
-The engine's and each kernel process's stderr (sidecar.log, and so the support bundle) go through
-``RedactedStream``, so a value a cell's background thread prints, or a log line holding one, is
-replaced there too.
+Values are remembered in the process that read them, so the kernel process is where they are
+redacted. Its stderr, which reaches sidecar.log, goes through ``RedactedStream``, so a value a cell's
+background thread prints, or a log line holding one, is replaced before the engine keeps it. The
+engine's own stderr goes through it too, but the engine knows only the values a kernel running
+inside it read.
 
-Like Databricks, this stops a value being shown by mistake. It is not a wall: code that changes
-the value (reverses it, splits it, encodes it) prints what it made.
+A value is also redacted as its repr and its UTF-8 bytes' repr print it (escaped). Like Databricks,
+this stops a value being shown by mistake. It is not a wall: code that otherwise changes the value
+(reverses it, splits it, encodes it) prints what it made.
 """
 
 from __future__ import annotations
@@ -29,23 +32,48 @@ _values: set[str] = set()
 _pattern: re.Pattern[str] | None = None
 
 
-def remember(value: Any) -> None:
-    """Redact ``value`` (text, or bytes read as UTF-8) from this kernel's output from now on."""
+def _forms(value: Any) -> set[str]:
+    """How ``value`` can appear in printed text: as itself, and as the inside of its repr and of its
+    UTF-8 bytes' repr (``print(b)`` and ``repr(s)`` escape what isn't printable ASCII)."""
     if isinstance(value, (bytes, bytearray)):
-        value = bytes(value).decode("utf-8", errors="ignore")
-    if not isinstance(value, str) or len(value) < MIN_CHARS:
+        data = bytes(value)
+        forms = {data.decode("utf-8", errors="ignore"), repr(data)[2:-1]}
+    elif isinstance(value, str):
+        forms = {value, repr(value)[1:-1], repr(value.encode("utf-8", errors="surrogatepass"))[2:-1]}
+    else:
+        return set()
+    return {f for f in forms if len(f) >= MIN_CHARS}
+
+
+def remember(value: Any) -> None:
+    """Redact ``value`` (text or bytes) from this kernel's output from now on, in each form printing
+    it can take."""
+    forms = _forms(value)
+    if not forms:
         return
     global _pattern
     with _lock:
-        if value in _values:
+        if forms <= _values:
             return
-        _values.add(value)
+        _values.update(forms)
         # Longest first, so a value that holds another is replaced whole.
         _pattern = re.compile("|".join(re.escape(v) for v in sorted(_values, key=len, reverse=True)))
 
 
 def active() -> bool:
     return _pattern is not None
+
+
+def partial_tail(text: str) -> int:
+    """The length of the longest end of ``text`` that is the start, but not the whole, of a value
+    remembered: how much of it must wait for the next write before it can be redacted."""
+    with _lock:
+        values = list(_values)
+    for n in range(min(len(text), max(map(len, values), default=1) - 1), 0, -1):
+        tail = text[-n:]
+        if any(len(v) > n and v.startswith(tail) for v in values):
+            return n
+    return 0
 
 
 def longest() -> int:
@@ -126,6 +154,9 @@ class RedactedStream(io.TextIOBase):
             cut = held.rfind("\n") + 1
             if len(held) - cut > self.HOLD:
                 cut = len(held)
+            # What could be the start of a remembered value waits for the rest of it, even past HOLD
+            # or a newline (a value can hold one).
+            cut -= partial_tail(held[:cut]) if active() else 0
             self._part = held[cut:]
             if cut:
                 self.stream.write(self._clean(held[:cut]))
@@ -137,3 +168,9 @@ class RedactedStream(io.TextIOBase):
             if part:
                 self.stream.write(self._clean(part))
         self.stream.flush()
+
+    def close(self) -> None:
+        """Writes out what is held; the stream underneath stays open (it is the process's stderr)."""
+        if not self.closed:
+            self.flush()
+        super().close()

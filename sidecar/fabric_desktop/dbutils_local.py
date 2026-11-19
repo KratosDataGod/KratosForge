@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import builtins
 import json
+import os
 import re
 import types
 from dataclasses import dataclass
@@ -26,7 +27,7 @@ from typing import Any, Callable, NamedTuple
 
 from . import http_session, secret_redaction
 from .paging import Pages
-from .notebookutils_local import Host, NotebookExit, keyvault_error, on_vault, vault_url
+from .notebookutils_local import Host, NotebookExit, _split, keyvault_error, on_vault, vault_url
 from .retrying import send_with_retry
 
 
@@ -150,9 +151,14 @@ def _make_fs(nbu_fs: types.SimpleNamespace) -> types.SimpleNamespace:
         try:
             return bool(nbu_fs.rm(dir, recurse))
         except IsADirectoryError:
-            if recurse or nbu_fs.ls(dir):
+            where, local = _split(dir)
+            if recurse or where != "local":
                 raise
-            return bool(nbu_fs.rm(dir, True))  # an empty folder on this PC's disk
+            try:
+                os.rmdir(local)  # only while it is empty: never what a recursive remove would take
+            except OSError:
+                raise IsADirectoryError(f"{dir} is a folder that isn't empty. Pass recurse=True to remove it.") from None
+            return True
 
     def mount(*_a: Any, **_kw: Any) -> None:
         raise NotImplementedError("Mounting storage runs in Databricks. On this PC, read the attached lakehouse.")

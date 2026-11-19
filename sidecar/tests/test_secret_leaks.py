@@ -153,3 +153,66 @@ def test_repr_of_dbutils_secrets_and_its_errors_hold_no_value(kernel):
     assert out["status"] == "ok" and not _leaks(out)
     out = kernel.run("dbutils.secrets.get('kv', 'bad_name')")
     assert out["status"] == "error" and not _leaks(out)
+
+
+def test_a_long_write_ending_partway_through_a_secret_holds_the_start_back():
+    secret_redaction.remember(VAULT_VALUE)
+    raw = io.StringIO()
+    stream = server._RedactedStream(raw)
+    stream.write("x" * (stream.HOLD + 10) + VAULT_VALUE[:8])  # past HOLD, no newline, half a value
+    assert raw.getvalue() and VAULT_VALUE[:8] not in raw.getvalue()
+    stream.write(VAULT_VALUE[8:] + " done\n")
+    stream.write("tail " + VAULT_VALUE[:5])
+    stream.close()  # writes out what it held
+    text = raw.getvalue()
+    assert not _leaks(text) and "[REDACTED] done\n" in text and text.endswith("tail " + VAULT_VALUE[:5])
+
+
+def test_a_line_that_cant_start_a_secret_isnt_held():
+    secret_redaction.remember(VAULT_VALUE)
+    raw = io.StringIO()
+    stream = server._RedactedStream(raw)
+    stream.write("engine started\n")
+    assert raw.getvalue() == "engine started\n"
+
+
+def test_a_secret_printed_escaped_is_redacted(monkeypatch):
+    """print(bytes) and repr(str) escape what isn't printable ASCII, so the value as read never appears."""
+    escaped_value = "päss-wörd\n" + "-".join(["vault", "4471"])
+
+    class Resp:
+        status_code = 200
+
+        def json(self):
+            return {"value": escaped_value}
+
+    monkeypatch.setattr(http_session, "session", lambda: type("S", (), {"get": lambda self, *a, **k: Resp()})())
+    k = Kernel(token=lambda audience: "tok")
+    out = k.run("b = dbutils.secrets.getBytes('kv', 'pw')\nprint(b)\nprint(repr(dbutils.secrets.get('kv', 'pw')))\nb")
+    assert out["status"] == "ok"
+    text = json.dumps(out["outputs"])
+    forms = [escaped_value, repr(escaped_value)[1:-1], repr(escaped_value.encode())[2:-1]]
+    assert not any(f in text or json.dumps(f)[1:-1] in text for f in forms) and text.count("[REDACTED]") == 3
+
+
+def test_bytes_that_arent_utf8_are_redacted_as_printed():
+    data = b"ab" + bytes([0xFF]) + b"cd" + bytes([0xFE]) + b"ef" + bytes([0xFF]) + b"gh"
+    secret_redaction.remember(data)
+    shown = secret_redaction.redact(f"got {data!r} and {data}")
+    assert repr(data)[2:-1] not in shown and shown == "got b'[REDACTED]' and b'[REDACTED]'"
+
+
+def test_an_empty_folder_goes_without_recurse_but_never_a_file_that_arrived(tmp_path, monkeypatch):
+    """rm without recurse removes a folder only while it is empty: a file written into it meanwhile stays."""
+    folder = tmp_path / "landing"
+    folder.mkdir()
+    real_rmdir = os.rmdir
+
+    def file_arrives_first(path, *a, **kw):
+        (Path(path) / "late.csv").write_text("new")
+        return real_rmdir(path, *a, **kw)
+
+    monkeypatch.setattr(os, "rmdir", file_arrives_first)
+    out = Kernel().run(f"dbutils.fs.rm('file:{folder.as_posix()}')")
+    assert out["status"] == "error" and out["outputs"][-1]["ename"] == "IsADirectoryError"
+    assert (folder / "late.csv").read_text() == "new"

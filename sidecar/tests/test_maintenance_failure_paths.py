@@ -94,7 +94,8 @@ def engine(tmp_path, capacity=None):
     """The engine's maintenance guard over a real audit log, with the workspace's last capacity reading."""
     m = SimpleNamespace(_project=lambda: SimpleNamespace(environments={}), audit=AuditLog(tmp_path / "audit"),
                         _risk_capacity=lambda ws, name, refresh, reads: capacity)
-    m._maintenance_capacity_refusal = lambda *a: MetaMixin._maintenance_capacity_refusal(m, *a)
+    m._maintenance_capacity = lambda ws: MetaMixin._maintenance_capacity(m, ws)
+    m._maintenance_capacity_refusal = lambda *a, **k: MetaMixin._maintenance_capacity_refusal(m, *a, **k)
     m._maintenance_audit = lambda *a: MetaMixin._maintenance_audit(m, *a)
     return m
 
@@ -226,3 +227,15 @@ def test_vacuum_stopped_partway_leaves_the_last_version_readable(lake, monkeypat
     assert after.version() == version and sales(lake) == rows
     monkeypatch.setattr(DeltaTable, "vacuum", real)
     lakehouse.maintain_table("dbo.sales", "vacuum", dry_run=True)  # and VACUUM can run again
+
+
+def test_a_vacuum_keeping_too_little_history_is_refused_before_it_is_recorded_as_started(lake, tmp_path, monkeypatch):  # noqa: F811
+    m = engine(tmp_path, RUNNING)
+    monkeypatch.setattr(lakehouse, "maintenance_guard", lambda op, ws, t: MetaMixin._maintenance_refusal(m, op, ws, t))
+    before = DeltaTable(str(lake / "dbo" / "sales")).version()
+    for hours in (0, 24, 167):
+        with pytest.raises(ValueError, match="at least 7 days"):
+            lakehouse.maintain_table("dbo.sales", "vacuum", retain_hours=hours)
+    assert recorded(m) == [] and DeltaTable(str(lake / "dbo" / "sales")).version() == before
+    lakehouse.maintain_table("dbo.sales", "vacuum", retain_hours=168, dry_run=True)
+    assert recorded(m) == [("started", "vacuum", "dbo.sales", "")]

@@ -21,12 +21,12 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 373 |
-| Differs | 24 |
-| Refused | 82 |
+| Runs | 380 |
+| Differs | 22 |
+| Refused | 88 |
 | Fails | 0 |
 | Not checked | 16 |
-| **All** | **495** |
+| **All** | **506** |
 
 ## String and binary
 
@@ -561,22 +561,33 @@ the known differences in more detail.
 | Name | Status | Sample | Note |
 | --- | --- | --- | --- |
 | `CREATE TABLE` | Differs | `CREATE TABLE n (a INT, b VARCHAR)` | SFD-001 Unquoted names keep their case |
-| `CREATE TABLE AS` | Differs | `CREATE TABLE n AS SELECT * FROM t` | SFD-001 Unquoted names keep their case |
+| `CREATE TABLE AS` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
 | `CREATE VIEW` | Differs | `CREATE VIEW v AS SELECT * FROM t` | SFD-001 Unquoted names keep their case |
 | `CREATE SCHEMA` | Differs | `CREATE SCHEMA n` | SFD-001 Unquoted names keep their case |
 | `CREATE TEMPORARY TABLE` | Differs | `CREATE TEMPORARY TABLE n (a INT)` | SFD-001 Unquoted names keep their case |
-| `CREATE TRANSIENT TABLE` | Refused | `CREATE TRANSIENT TABLE n (a INT)` | Not rewritten for DuckDB. Unsupported property transientproperty. |
+| `CREATE TRANSIENT TABLE` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
 | `INSERT INTO` | Runs |  | 2 value checks; labelled SFD-001 Unquoted names keep their case |
 | `INSERT OVERWRITE` | Refused | `INSERT OVERWRITE INTO t SELECT * FROM s` | INSERT OVERWRITE. Snowflake empties the table and inserts in one statement inside the current transaction; DuckDB has no INSERT OVERWRITE, and a DELETE then INSERT written here wouldn't be one statement. |
 | `UPDATE` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
 | `UPDATE FROM` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
 | `DELETE` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
 | `DELETE USING` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
-| `MERGE` | Runs |  | 2 value checks; labelled SFD-001 Unquoted names keep their case |
+| `MERGE` | Runs |  | 5 value checks; labelled SFD-001 Unquoted names keep their case |
 | `TRUNCATE TABLE` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
 | `DROP TABLE` | Runs |  | 2 value checks; labelled SFD-001 Unquoted names keep their case |
 | `ALTER TABLE ADD COLUMN` | Differs | `ALTER TABLE t ADD COLUMN c INT` | SFD-001 Unquoted names keep their case |
-| `ALTER TABLE RENAME` | Differs | `ALTER TABLE t RENAME TO t2` | SFD-001 Unquoted names keep their case |
+| `ALTER TABLE RENAME` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `CREATE TABLE LIKE` | Refused |  | CREATE TABLE LIKE: Statement 2 runs only in Snowflake: CREATE TABLE ... LIKE. Snowflake copies the other table's column names, types, defaults and constraints, and the rewrite can't see that table's definition. Write the column definitions out in CREATE TABLE. |
+| `AUTOINCREMENT` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `PRIMARY KEY` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `INSERT ALL` | Refused | `INSERT ALL INTO t INTO s SELECT 1, 2` | INSERT ALL. DuckDB has no multi-table INSERT, and separate INSERT statements written here wouldn't be one statement. Write one INSERT ... SELECT for each table, with a WHERE that picks the rows it takes. |
+| `INSERT FIRST` | Refused |  | INSERT FIRST: Statement 5 runs only in Snowflake: INSERT FIRST. DuckDB has no multi-table INSERT, and separate INSERT statements written here wouldn't be one statement. Write one INSERT ... SELECT for each table, with a WHERE that picks the rows it takes. |
+| `TRUNCATE TABLE IF EXISTS` | Refused |  | TRUNCATE TABLE IF EXISTS: Statement 3 runs only in Snowflake: TRUNCATE TABLE IF EXISTS. DuckDB's TRUNCATE has no IF EXISTS, and the rewrite can't tell whether the table is there. Leave out IF EXISTS when it is. |
+| `ALTER TABLE DROP COLUMN A, B` | Refused |  | ALTER TABLE DROP COLUMN A, B: Statement 2 runs only in Snowflake: ALTER TABLE with more than one column. DuckDB's ALTER TABLE changes one column at a time, and separate statements written here wouldn't change the table in one step. Write one ALTER TABLE for each column. |
+| `ALTER TABLE SWAP WITH` | Refused | `ALTER TABLE t SWAP WITH s` | ALTER TABLE ... SWAP WITH. DuckDB has no SWAP WITH. Rename the two tables one at a time with ALTER TABLE ... RENAME TO. |
+| `BEGIN` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `START TRANSACTION` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `DDL INSIDE BEGIN` | Refused |  | DDL INSIDE BEGIN: Statement 4 runs only in Snowflake: CREATE, ALTER or DROP inside a transaction. Snowflake commits the open transaction before a CREATE, ALTER or DROP and runs it as its own transaction, where DuckDB keeps it inside the open one, so a later ROLLBACK would undo different work here. Put COMMIT before the statement. |
 | `WITH` | Runs |  | 1 value check |
 | `UNION ALL` | Runs |  | 1 value check |
 | `CREATE STREAM` | Refused | `CREATE STREAM st ON TABLE t` | Streams. A stream tracks changes inside Snowflake; DuckDB has no equivalent. |
@@ -592,8 +603,8 @@ the known differences in more detail.
 | `COPY INTO` | Refused | `COPY INTO t FROM @stage` | Stages. COPY INTO and PUT move files through Snowflake stages; a session on this PC reads no files. |
 | `PUT` | Refused | `PUT file:///tmp/a.csv @stage` | Stages. COPY INTO and PUT move files through Snowflake stages; a session on this PC reads no files. |
 | `USE` | Refused | `USE WAREHOUSE w` | USE. Warehouses, roles, databases and schemas are chosen in Snowflake; the session on this PC has one database. |
-| `SHOW` | Refused | `SHOW TABLES` | SHOW and DESCRIBE. These list Snowflake's own objects. |
-| `DESCRIBE` | Refused | `DESCRIBE TABLE t` | SHOW and DESCRIBE. These list Snowflake's own objects. |
+| `SHOW` | Refused | `SHOW TABLES` | SHOW and DESCRIBE. These list Snowflake's own objects, in columns DuckDB's SHOW and DESCRIBE don't give. To see a table this session made, query information_schema.columns or information_schema.tables. |
+| `DESCRIBE` | Refused | `DESCRIBE TABLE t` | SHOW and DESCRIBE. These list Snowflake's own objects, in columns DuckDB's SHOW and DESCRIBE don't give. To see a table this session made, query information_schema.columns or information_schema.tables. |
 | `GRANT` | Refused | `GRANT SELECT ON TABLE t TO ROLE r` | Access control. Roles and grants exist only in Snowflake. |
 | `CREATE STAGE` | Refused | `CREATE STAGE sg` | Stage objects. A stage exists only in Snowflake. |
 | `CREATE SEQUENCE` | Refused | `CREATE SEQUENCE sq` | Sequence objects. A sequence exists only in Snowflake. |

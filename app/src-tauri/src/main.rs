@@ -108,10 +108,26 @@ fn engine_mirror_state() -> Result<Option<String>, String> {
     let file = std::env::var_os("ProgramData").map(|dir| PathBuf::from(dir).join("FabricDesktop").join("policy.json"));
     let file_trusted = file.as_deref().map_or(Err("there is no policy file".into()), policy_trust::admin_only);
     let registry_trusted = policy_registry::admin_only(&[]);
-    let found = policy_registry::read();
-    let text = policy_registry::overlay(&file.map(|f| std::fs::read_to_string(f).unwrap_or_default()).unwrap_or_default(), &found);
+    let file_text = file.map(|f| std::fs::read_to_string(f).unwrap_or_default()).unwrap_or_default();
+    mirror_state_from(policy_registry::read_checked(), &file_text, file_trusted, registry_trusted)
+}
+
+/// engine_mirror_state for Group Policy's values (`found`, or why they couldn't be read), the policy
+/// file's text and whether only administrators could have written each: none when Group Policy can't
+/// be read, whatever the file says.
+fn mirror_state_from(found: Result<Vec<(String, policy_registry::Raw)>, String>, file_text: &str,
+                     file_trusted: Result<(), String>, registry_trusted: Result<(), String>) -> Result<Option<String>, String> {
+    let found = found.map_err(gp_unreadable)?;
+    let text = policy_registry::overlay(file_text, &found);
     let trusted = if policy_registry::sets(&found, "engine_download_url") { registry_trusted } else { file_trusted };
     mirror_from(&text, trusted)
+}
+
+/// Why the engine's source is the built-in one when Group Policy can't be read: IT may have set
+/// engine_download_url or engine_folder there to override the policy file, so neither the file's nor a
+/// half-read Group Policy's is used.
+fn gp_unreadable(why: String) -> String {
+    format!("Group Policy couldn't be read ({why}), so only the built-in engine source is used")
 }
 
 /// engine_mirror_state's rule for the policy's `text` (the file with Group Policy laid over it), given
@@ -186,7 +202,22 @@ fn dns_name(host: &str) -> bool {
 
 #[cfg(test)]
 mod policy_tests {
-    use super::{policy_allows_link_scheme, policy_allows_updates, policy_engine_url};
+    use super::{mirror_state_from, policy_allows_link_scheme, policy_allows_updates, policy_engine_url, policy_registry};
+
+    #[test]
+    fn group_policy_that_cant_be_read_leaves_only_the_built_in_engine_source() {
+        let file = r#"{"auto_update": false, "engine_download_url": "https://files.contoso.com/kf/"}"#;
+        // Readable and not configured: the trusted file's folder is used.
+        assert_eq!(mirror_state_from(Ok(Vec::new()), file, Ok(()), Ok(())), Ok(Some("https://files.contoso.com/kf".into())));
+        // Unreadable (access denied, a damaged hive): never the file's folder, and the reason is given.
+        let why = mirror_state_from(Err("HKLM\\Software\\Policies\\KratosBI\\KratosForge couldn't be read (Windows error 5)".into()),
+                                    file, Ok(()), Ok(())).unwrap_err();
+        assert!(why.starts_with("Group Policy couldn't be read (") && why.contains("Windows error 5")
+                && why.ends_with("so only the built-in engine source is used"), "{why}");
+        // Readable and setting its own folder: Group Policy's, trusted by its key.
+        let gp = vec![("engine_download_url".to_string(), policy_registry::Raw::Text("https://gp.contoso.com/e".into()))];
+        assert_eq!(mirror_state_from(Ok(gp), file, Ok(()), Ok(())), Ok(Some("https://gp.contoso.com/e".into())));
+    }
 
     #[test]
     fn engine_download_url_is_an_https_folder_or_nothing() {
@@ -492,6 +523,10 @@ fn engine_root() -> PathBuf {
 /// otherwise this build's python.exe there or why it can't be used. The policy file's permissions
 /// are checked before it is read, as for engine_download_url.
 fn it_engine() -> Option<Result<PathBuf, String>> {
+    if let Err(why) = policy_registry::read_checked() {
+        eprintln!("engine_folder ignored, so the engine is kept in this app's own folder: {}", gp_unreadable(why));
+        return None;
+    }
     let file = PathBuf::from(std::env::var_os("ProgramData")?).join("FabricDesktop").join("policy.json");
     let trusted = policy_trust::admin_only(&file);
     let text = std::fs::read_to_string(&file).ok()?;

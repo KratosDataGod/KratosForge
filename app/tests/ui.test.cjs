@@ -1148,7 +1148,7 @@ function dbgHelpers() {
   const src = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgBpRematch, dbgDroppedText, dbgStackText, dbgKeyAction });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgBpRematch, dbgDroppedText, dbgPausedLine, dbgStackText, dbgKeyAction });`, ctx);
   return ctx;
 }
 
@@ -3027,6 +3027,25 @@ test("a cell replaced whole keeps its breakpoints by line text, and names the on
   assert.strictEqual(dbgDroppedText([4], "its line was deleted"), "Removed the breakpoint on line 4, because its line was deleted.");
   assert.strictEqual(dbgDroppedText([2, 5, 9], "their lines were deleted"), "Removed the breakpoints on lines 2, 5 and 9, because their lines were deleted.");
   assert.strictEqual(dbgDroppedText([], "x"), "");
+});
+
+test("a pause in a cell edited mid-run is marked on its code, never on another line", () => {
+  const { dbgPausedLine } = dbgHelpers();
+  const ran = "a = 1\nb = 2\nc = 3";
+  // Not edited: the kernel's line as is.
+  assert.deepStrictEqual({ ...dbgPausedLine(ran, ran, 2) }, { line: 2, edited: false });
+  assert.deepStrictEqual({ ...dbgPausedLine(undefined, "x", 1) }, { line: 1, edited: false });
+  // Two lines inserted above: the mark moves with line 2's code.
+  assert.deepStrictEqual({ ...dbgPausedLine(ran, "# new\n# new\na = 1\nb = 2\nc = 3", 2) }, { line: 4, edited: true, text: "b = 2" });
+  // The paused line was deleted or rewritten: no mark at all, rather than one on some other line.
+  assert.deepStrictEqual({ ...dbgPausedLine(ran, "a = 1\nc = 3", 2) }, { line: null, edited: true, text: "b = 2" });
+  assert.deepStrictEqual({ ...dbgPausedLine(ran, "a = 1\nb = 20\nc = 3", 2) }, { line: null, edited: true, text: "b = 2" });
+  // An edit elsewhere: same line, but still said to be the code as it ran.
+  assert.deepStrictEqual({ ...dbgPausedLine(ran, "a = 1\nb = 2\nc = 30", 2) }, { line: 2, edited: true, text: "b = 2" });
+  const dbg = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
+  assert.match(dbg, /cell\.dbgRan = cell\.source;/);
+  assert.match(dbg, /if \(cell\.paused\) dbgPausedEdited\(cell\);/);
+  assert.match(dbg, /dbgEditedNote\(dbgPausedLine\(cell\.dbgRan, cell\.source, p\.line\), p\.line\)/);
 });
 
 test("the notebook editor wires breakpoints and the debugger through debugging.js", () => {
@@ -6116,7 +6135,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
       "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
       "Databricks workspace sync", "Databricks Asset Bundles in Source control"],
     embedStudio: ["Embed Studio"], sqlStatements: ["Several statements in one run"], sqlParams: ["Query parameters"],
-    sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"],
+    sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"], ossie: ["Ossie file to TMDL"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {

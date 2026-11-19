@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
-from . import app_settings, notebook_cells
+from . import app_settings, audit, notebook_cells
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL, describe_schedule, schedule_configuration
 from .fabric_step import is_step
@@ -387,6 +387,16 @@ class ScheduleMixin:
                                "Edit the schedule to run only while you're signed in."}
             schedules.log_run(row)
             return row
+        if audit.fails_closed("run_schedule", {"target": s["target"]}):
+            # Aimed at Prod: as for the app's own calls, it runs only once its audit line is written.
+            try:
+                self.audit.record("run_schedule", "started", 0.0,  # type: ignore[attr-defined]
+                                  {"schedule_id": schedule_id, "trigger": trigger, "target": s["target"]})
+            except Exception as exc:  # noqa: BLE001 - any failure to write refuses the run
+                row |= {"ended": _now(), "seconds": 0, "status": "failed",
+                        "message": audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {exc}")}
+                schedules.log_run(row)
+                return row
         lock = self._lock(schedule_id, {"started": row["started"], "trigger": trigger})
         if lock is None:
             row |= {"ended": _now(), "seconds": 0, "status": "skipped",

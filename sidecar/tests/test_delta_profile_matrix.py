@@ -21,6 +21,14 @@ from deltalake import DeltaTable, TableFeatures, write_deltalake
 from fabric_desktop import delta_profile as P
 from fabric_desktop.meta.store import LocalStore
 
+
+@pytest.fixture(autouse=True)
+def _conservative(monkeypatch):
+    """These cases pin the conservative (Fabric-safe) profile's rules. The default is the modern profile
+    since 2026-11-17; test_delta_profile_modern.py covers it."""
+    monkeypatch.setattr(P, "DEFAULT_PROFILE", P.CONSERVATIVE)
+
+
 MATRIX = Path(__file__).resolve().parents[2] / "docs" / "delta-reader-matrix.md"
 
 DV = "deletion vectors, which Fabric Python notebooks, pipelines and eventstreams can't read"

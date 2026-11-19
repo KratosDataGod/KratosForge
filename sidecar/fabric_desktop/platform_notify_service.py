@@ -61,7 +61,7 @@ class PlatformNotifyMixin:
                 checked.append(validate(event))
             except ValueError as exc:
                 raise ValueError(f"event {i + 1}: {exc}") from None
-        routing = PlatformRouting.parse(self._pn_raw())
+        routing = PlatformRouting.parse(self._pn_raw(), saved=True)
         if not routing.routes:
             return {"sent": 0, "queued": 0, "held": 0, "error": None, "skipped": "no platform Teams route set",
                     "events": [{"dedupe": e["dedupe"], "result": "skipped", "reason": "no platform Teams route set"}

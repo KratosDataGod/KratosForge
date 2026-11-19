@@ -51,6 +51,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E18 | Schedule a pipeline and trigger it when a file lands | 1.4.2 | C | SIM +FV | config | 20 | |
 | E19 | Parameterised pipeline: ForEach over tables with dynamic expressions | 1.4.3 | C | LV | pipeline | 30 | Orchestration |
 | E20 | Notebook orchestration with runMultiple, parameters and exit values | 1.4.3 | C | LV | pyspark | 25 | notebookutils |
+| E71 | Dynamic data masking: work out what each person's SELECT returns | 1.3.4 | C | SIM +FV | duckdb | 20 | |
 
 ## 2. Ingest and transform data
 
@@ -93,6 +94,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E62 | Optimize an eventhouse: caching, retention, materialized views and query shape | 3.3.4 | G | KO +FV | quiz | 15 | |
 | E63 | File layout for Spark: partitioning and file pruning on a Delta table | 3.3.5 | C | LV +FV | delta | 25 | LM-27 |
 | E64 | Read a query plan and fix the expensive step | 3.3.6 | G | LV | duckdb | 20 | LM-18 |
+| E72 | Monitor ingestion: the Copy runs that succeeded but didn't load what they should | 3.1.1 | C | SIM +FV | duckdb (`runs`) | 20 | |
 
 ## Broken environments (Troubleshoot)
 

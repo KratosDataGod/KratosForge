@@ -32,7 +32,7 @@ four original exam questions (ACD-013).
 | 1.3.1 | Implement workspace-level access controls | E10, C3 | SIM | Yes | |
 | 1.3.2 | Implement item-level access controls | E11, C3 | SIM | Yes | LM-24 |
 | 1.3.3 | Implement row-level, column-level, object-level, and file-level access controls | E12, E13, E14, C3 | LV (row filter logic only) | Yes | LM-24 |
-| 1.3.4 | Implement dynamic data masking | E15, C3 | SIM | Yes | |
+| 1.3.4 | Implement dynamic data masking | E15, E71, C3 | SIM | Yes | |
 | 1.3.5 | Apply sensitivity labels to items | E16 | KO | Yes | |
 | 1.3.6 | Endorse items | E16 | KO | Yes | |
 | 1.4.1 | Choose between a pipeline and a notebook | E17 | KO | No | LM-08 |
@@ -65,7 +65,7 @@ four original exam questions (ACD-013).
 
 | Id | Objective | Exercises | Best local | Fabric | Lessons |
 | --- | --- | --- | --- | --- | --- |
-| 3.1.1 | Monitor data ingestion | E44 | SIM | Yes | |
+| 3.1.1 | Monitor data ingestion | E44, E72 | SIM | Yes | |
 | 3.1.2 | Monitor data transformation | E44, E47 | SIM | Yes | |
 | 3.1.3 | Monitor semantic model refresh | E45 | SIM | Yes | LM-09 |
 | 3.1.4 | Configure alerts | E46 | SIM | Yes | |

@@ -167,6 +167,7 @@ def test_a_change_to_a_table_another_writer_dropped_meanwhile_is_refused_by_name
         rows(engine, "UPDATE lake SET n = 1 WHERE id = 1")
     text = str(caught.value)
     assert "dbo.lake was dropped by another writer" in text and "Invalid object name 'dbo.lake'" in text, text
+    assert text.endswith("Create dbo.lake again before you run the statement again."), text
     monkeypatch.undo()
     assert "lake" not in [t["table"] for t in engine.tables()]
 

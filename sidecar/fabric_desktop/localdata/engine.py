@@ -1469,9 +1469,10 @@ class LocalEngine:
             if not (folder / "_delta_log").is_dir():
                 # WR-243: another writer (Explorer, a notebook, another tool) dropped the table while this ran
                 self._refresh_own()
-                raise ValueError(f"{name} was dropped by another writer while this statement ran: its folder or "
-                                 "_delta_log is gone, so nothing of this statement is kept. A Fabric Warehouse "
-                                 f"then says Invalid object name '{name}'.") from None
+                raise ValueError(f"{name} was dropped by another writer while this statement ran, because its "
+                                 "folder or _delta_log is gone, so nothing of this statement is kept. A Fabric "
+                                 f"Warehouse then says Invalid object name '{name}'. Create {name} again before you "
+                                 "run the statement again.") from None
             committed = not dry_run and _committed(folder, before, query_id)
             if not committed and _lost_to_another_writer(exc, folder, before):
                 # WR-232: as a warehouse's snapshot isolation does, the first to commit wins. Read the table again,

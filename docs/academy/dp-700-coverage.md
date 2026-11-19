@@ -74,10 +74,10 @@ four original exam questions (ACD-013).
 | 3.2.3 | Identify and resolve notebook errors | E51, E52, E68 | LV | No | |
 | 3.2.4 | Identify and resolve eventhouse errors | E53 | SIM | Yes | |
 | 3.2.5 | Identify and resolve eventstream errors | E54 | SIM | Yes | |
-| 3.2.6 | Identify and resolve T-SQL errors | E55 | SIM | Yes | LAB-09 |
+| 3.2.6 | Identify and resolve T-SQL errors | E55, E65 | LV | Yes | LAB-09 |
 | 3.3.1 | Optimize a lakehouse table | E56 | LV (OPTIMIZE, Z-order, VACUUM); KO (V-Order) | Yes | LM-25 |
 | 3.3.2 | Optimize a pipeline | E60 | SIM | Yes | |
-| 3.3.3 | Optimize a data warehouse | E61 | KO | Yes | |
+| 3.3.3 | Optimize a data warehouse | E61, E66 | LV | Yes | |
 | 3.3.4 | Optimize eventstreams and eventhouses | E62 | KO | Yes | |
 | 3.3.5 | Optimize Spark performance | E52, E63 | LV (file layout and pruning on Delta); KO (Spark settings) | Yes | LM-27 |
 | 3.3.6 | Optimize query performance | E59, E64 | LV | No | LM-18, LAB-02 |

@@ -202,7 +202,7 @@ def test_a_learner_like_process_loads_no_engine_or_sign_in_code(tmp_path):
 
 # ---- the shim's table names
 
-@pytest.mark.parametrize("name", ["../x", "a.b.c", "x;drop", "", "silver/orders", "1abc"])
+@pytest.mark.parametrize("name", ["../x", "a.b.c", "x;drop", "", "silver/orders", "1abc", "orders\n", "silver.orders\n"])
 def test_table_names_that_could_leave_the_tables_folder_are_refused(tmp_path, name):
     with pytest.raises(ValueError):
         pyspark_shim.table_path(tmp_path, name)

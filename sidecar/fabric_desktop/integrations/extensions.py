@@ -68,7 +68,7 @@ class Extension:
 def check(ext: Extension) -> list[Capability]:
     """The extension's capabilities, after checking the extension is well formed and they keep to
     what it declared. Raises ValueError naming the problem."""
-    if not isinstance(ext.id, str) or not SOURCE_PATTERN.match(ext.id) or ext.id == "core":
+    if not isinstance(ext.id, str) or not SOURCE_PATTERN.fullmatch(ext.id) or ext.id == "core":
         raise ValueError(f"extension id {ext.id!r} must be lower case letters, digits, '.', '-' and '_' (2-64), not 'core'")
     if ext.prefix.startswith(CORE_PREFIX):
         raise ValueError(f"{ext.id}: an extension id can't start with fabric_desktop")

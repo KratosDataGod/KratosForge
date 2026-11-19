@@ -53,7 +53,7 @@ _NAME = re.compile(rf"^{_PART}(\.{_PART})?$")
 
 def table_path(work: Path, name: str) -> Path:
     """Where table ``name`` lives under ``work``; refuses any name that isn't ``schema.table`` or ``table``."""
-    if not isinstance(name, str) or not _NAME.match(name):
+    if not isinstance(name, str) or not _NAME.fullmatch(name):
         raise ValueError(f"{name!r} isn't a table name like silver.orders")
     part = Path(work) / TABLES
     for step in ("", *name.lower().split(".")):

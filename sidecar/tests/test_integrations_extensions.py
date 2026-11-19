@@ -70,6 +70,7 @@ def ext(caps=None, **changes):
 @pytest.mark.parametrize("change, message", [
     ({"id": "core"}, "not 'core'"),
     ({"id": "Bad Id"}, "lower case"),
+    ({"id": "sample-thing\n"}, "lower case"),
     ({"id": "fabric_desktop.more"}, "fabric_desktop"),
     ({"version": "latest"}, "1.2.3"),
     ({"publisher": " "}, "publisher"),

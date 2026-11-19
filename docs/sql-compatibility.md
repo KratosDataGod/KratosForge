@@ -364,6 +364,32 @@ These cases still differ:
 | --- | --- | --- |
 | Databricks SQL on the DuckDB engine | `base64` and `unbase64` as in Spark SQL | `base64` writes one line, and `unbase64` reads only strict base64 |
 
+## Session, reflection and error functions on this PC (WR-122)
+
+Spark SQL run on this PC answers as Spark does for `raise_error`, or refuses the function by name, with ANSI mode off as Fabric runs it. 42 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_functions_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `raise_error` | Stops the query only when a row reaches it, so a `CASE`, `if` or `coalesce` that doesn't reach it gives its other value. A NULL message stops it too. `typeof(raise_error(...))` is `void` |
+
+Refused by name, and nothing runs:
+
+| Case | Why |
+| --- | --- |
+| `aes_encrypt`, `aes_decrypt`, `try_aes_encrypt`, `try_aes_decrypt` | AES isn't available in the engine on this PC |
+| `java_method`, `reflect` | They call a Java method by reflection, and this PC runs no Java |
+| `input_file_name`, `input_file_block_start`, `input_file_block_length` | This PC doesn't track the file each row was read from. Spark gives `''`, `-1` and `-1` for a row that wasn't read from a file |
+| `sql_keywords()` | This PC doesn't have Spark's list of SQL keywords and which of them are reserved |
+| `current_user()`, `user()`, `session_user()` | In Fabric they name the identity running the notebook. DuckDB would name itself |
+| `version()` | In Fabric it gives Fabric's Spark build and its git revision. DuckDB would give its own version |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| `raise_error`'s error | `[USER_RAISED_EXCEPTION]` with the message | DuckDB's `Invalid Input Error:` with the message |
+| `user` written without brackets | The identity running the notebook, when no column is named `user` | `duckdb` |
+
 ## Local T-SQL changes
 
 When a project runs T-SQL on this PC, `MERGE`, `UPDATE`, `DELETE` and `INSERT` on a database table give a warehouse's rows, or stop by name. Each case below is checked against T-SQL's reference.

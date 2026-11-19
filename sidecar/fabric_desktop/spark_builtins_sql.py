@@ -25,15 +25,38 @@ from .spark_hash import hash_sql
 # ---- helpers
 
 
+# An argument a template reads more than once is put in once, as a lambda's parameter, when it is this big
+# (in nodes): copied into each place, calls nested in each other (upper(lower(...)), substring_index of
+# substring_index) would grow exponentially, to megabytes of SQL that take seconds to plan.
+_BIND_ABOVE = 40
+# A lambda's body can't hold these, so an argument or template with one is copied as before.
+_NOT_IN_LAMBDA = (exp.AggFunc, exp.Window, exp.Subquery, exp.Select)
+
+
 def _with_args(template: str | exp.Expression, args: list[exp.Expression]) -> exp.Expression:
     """``template`` read as DuckDB SQL (or already read: a copy is used), with the arguments in place
     of fj_arg0, fj_arg1, ... (as sql._with_args). Lambda names in templates start with kf_, which a
-    query can't use."""
+    query can't use. A big argument read more than once is read once (_BIND_ABOVE)."""
     tree = (template.copy() if isinstance(template, exp.Expression)
             else cast(exp.Expression, sqlglot.parse_one(template, read="duckdb")))
+    places: dict[int, list[exp.Column]] = {}
     for column in list(tree.find_all(exp.Column)):
         if column.name.startswith("fj_arg") and not column.table:
-            column.replace(args[int(column.name[6:])].copy())
+            places.setdefault(int(column.name[6:]), []).append(column)
+    bound = [] if any(tree.find(*_NOT_IN_LAMBDA) or a.find(*_NOT_IN_LAMBDA) for a in args) else [
+        i for i, cols in places.items() if len(cols) > 1 and sum(1 for _ in args[i].walk()) > _BIND_ABOVE]
+    for i, cols in places.items():
+        for column in cols:
+            column.replace(exp.column(f"kf_bound{i}") if i in bound else args[i].copy())
+    for i in reversed(bound):
+        wrap = cast(exp.Expression, sqlglot.parse_one(f"(LIST_TRANSFORM([fj_value], kf_bound{i} -> fj_body))[1]",
+                                                      read="duckdb"))
+        for column in list(wrap.find_all(exp.Column)):
+            if column.name == "fj_value":
+                column.replace(args[i].copy())
+            elif column.name == "fj_body":
+                column.replace(tree)
+        tree = wrap
     return tree
 
 

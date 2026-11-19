@@ -621,3 +621,19 @@ def test_sqlglot_marks_a_cast_function_but_not_a_typed_literal():
     literal = sqlglot.parse_one("SELECT DATE '2026-01-01'", read="spark").expressions[0]
     function = sqlglot.parse_one("SELECT date('2026-01-01')", read="spark").expressions[0]
     assert "start" not in literal.meta and "start" in function.meta
+
+
+@pytest.mark.parametrize(("call", "depth", "want"), [
+    ("upper(lower({}))", 8, "A.B.C"),
+    ("trim({})", 8, "a.b.c"),
+    ("substring_index({}, '.', 2)", 12, "a.b"),
+])
+def test_calls_nested_in_each_other_grow_the_sql_in_step_not_exponentially(call, depth, want):
+    # Each call reads its argument several times; copied into each place, 8 nested upper(lower(...))
+    # came to megabytes of SQL that took minutes to plan.
+    text = "x"
+    for _ in range(depth):
+        text = call.format(text)
+    query = f"SELECT {text} AS v FROM (SELECT 'a.b.c' AS x)"
+    assert len(sql.duckdb_sql(sql.parse(query)[0])) < 100_000
+    assert one(query) == want

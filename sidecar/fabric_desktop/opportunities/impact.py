@@ -82,14 +82,14 @@ def current(w: dict[str, Any], usage: dict[tuple[str, str], dict[str, Any]], now
 
 
 def _monthly(parts: list[dict[str, Any]], metric: str, unit: str, days_of: list[float], what: str,
-             ids: dict[str, Any], raw: list[float | None]) -> dict[str, Any]:
+             ids: dict[str, Any], raw: list[float | None] | None = None) -> dict[str, Any]:
     """``parts`` scaled to MONTH_DAYS. The scaling uses ``raw``, the unrounded measured values behind
-    the parts: a part's value is rounded for display, and scaling a rounded value up by up to 30 times
+    the parts (None, or a None in it: the part's own value). A part's value is rounded for display, and scaling a rounded value up by up to 30 times
     could state more than was measured."""
     missing = [p for p in parts if p["value"] is None]
     if missing:
         return ms.unknown(metric, unit, missing[0].get("reason") or "Not measured.", **ids)
-    exact = [p["value"] if r is None else r for p, r in zip(parts, raw, strict=True)]
+    exact = [p["value"] if r is None else r for p, r in zip(parts, raw or [None] * len(parts), strict=True)]
     value = sum(v / max(d, 1.0) * MONTH_DAYS for v, d in zip(exact, days_of, strict=True))
     return ms.make(ms.ESTIMATED, metric, unit, value, method=f"measured {what} scaled to {MONTH_DAYS} days",
                    assumptions=[f"the next {MONTH_DAYS} days run like the measured period",

@@ -22,11 +22,12 @@ from . import model_ossie, ossie_validate, tmdl
 from .jsonfile import write_text
 from .meta.store import OneLakeStore
 from .notebook_files_service import _is_link
+from .notebook_resources_service import _reveal
 
 METHODS = {"meta_model_ossie_models", "meta_model_ossie_export", "meta_model_ossie_save", "meta_model_ossie_read",
            "meta_model_ossie_preview", "meta_model_ossie_import", "meta_model_tmdl_save",
            "meta_model_ossie_folders", "meta_model_ossie_export_folder", "meta_model_ossie_to_tmdl",
-           "meta_model_semantic_view_save"}
+           "meta_model_semantic_view_save", "meta_model_semantic_view_status"}
 FOLDER = "semantic"
 VIEW_FOLDER = "semantic-views"  # semantic-views/<view>/: the local copy of a Fabric Semantic View (OSSIE-005a)
 # A lakehouse's Context/ (a view's source YAML) and SystemContext/ (its generated TMDL) are Fabric's; nothing is ever
@@ -47,6 +48,7 @@ def _real(path: Path, kind: Any) -> bool:
     return not _is_link(st) and kind(st.st_mode)
 
 
+VIEW_MAX_ENTRIES = 200  # files a saved view folder may hold before the status refuses to read it (Fabric takes 20)
 MAX_DEPTH = 8  # definition/tables/x.tmdl is two deep; Power BI projects never go near this
 MAX_FILES = 20_000
 
@@ -661,3 +663,137 @@ class ModelOssieMixin:
             if _real(old, stat.S_ISREG) and old.resolve().is_relative_to(folder.resolve()):
                 old.unlink()
         return summary
+
+    def _view_files(self, folder: Path) -> dict[str, str | bytes]:
+        """Every file in a saved view's folder (path in the folder -> its text), read as Fabric would merge them:
+        ``.yaml`` files in subfolders too. A link or junction anywhere in the folder is refused, never followed.
+        More than VIEW_MAX_ENTRIES entries, more than MAX_DEPTH folders down, or more YAML than Fabric's 16 MB
+        is refused before a file is read. Files that aren't ``.yaml`` are listed with no content: Fabric ignores
+        them and validate_files only names them."""
+        from . import ossie_profiles
+
+        found: list[Path] = []
+        stack: list[tuple[Path, int]] = [(folder, 0)]
+        seen = 0
+        while stack:
+            here, depth = stack.pop()
+            if depth > MAX_DEPTH:
+                raise ValueError(f"{here.relative_to(folder).as_posix()} is nested too deeply for a semantic view")
+            with os.scandir(here) as entries:
+                for e in entries:
+                    seen += 1
+                    if seen > VIEW_MAX_ENTRIES:
+                        raise ValueError(f"The view's folder holds more than {VIEW_MAX_ENTRIES} files or folders, "
+                                         f"and a Fabric semantic view takes {ossie_profiles.FABRIC_MAX_FILES} .yaml "
+                                         "files, so it isn't read. Keep only the view's files there.")
+                    path = Path(e.path)
+                    if _real(path, stat.S_ISDIR):
+                        stack.append((path, depth + 1))
+                    elif _real(path, stat.S_ISREG):
+                        found.append(path)
+                    else:
+                        raise ValueError(f"{path.relative_to(folder).as_posix()} is a link, a junction or not a "
+                                         "file, so the view's folder isn't read")
+        yaml_files = [f for f in found if f.name.lower().endswith(".yaml")]
+        if sum(os.lstat(f).st_size for f in yaml_files) > ossie_profiles.FABRIC_MAX_YAML_BYTES:
+            raise ValueError("The view's .yaml files hold more than 16 MB, and Fabric takes at most 16 MB of YAML "
+                             "combined, so they aren't read. Take out what the view doesn't need.")
+        out: dict[str, str | bytes] = {}
+        for f in sorted(found):
+            rel = f.relative_to(folder).as_posix()
+            if f not in yaml_files:
+                out[rel] = b""
+                continue
+            data = f.read_bytes()
+            try:  # a CRLF copy (Git on Windows) reads as the same file
+                out[rel] = data.decode("utf-8-sig").replace("\r\n", "\n")
+            except UnicodeDecodeError:  # kept as bytes: validate_files reports it, the table marks it unreadable
+                out[rel] = data
+        return out
+
+    def meta_model_semantic_view_status(self, view_name: str = "", path: str = "",
+                                        reveal: bool = False) -> dict[str, Any]:
+        """The saved copy of a Fabric Semantic View in semantic-views/<view>/ (OSSIE-005b, Preview), for the
+        publish-steps card: what each file holds (``files_summary``) and the files checked as Fabric reads them
+        (``ossie_profiles.validate_files``, profile fabric-semantic-view). Reads only, on this PC: nothing is
+        written, nothing is sent to Fabric and nothing is published. ``views`` lists every saved view's folder.
+
+        With ``path`` (a model folder in the project, semantic/<name>.SemanticModel, as Save view files takes)
+        the model is converted again on this PC, with the saved files' layout, and ``source`` says whether the
+        saved files are what it gives now (``same``) and what the view leaves out (``left_out``, from the
+        report). With ``reveal`` the view's folder is shown in File Explorer, only when it exists in place:
+        nothing is made, and no other path can be opened."""
+        from . import ossie_profiles, semantic_view
+
+        project = self._project()  # type: ignore[attr-defined]
+        root = Path(project.root)
+        base = root / VIEW_FOLDER
+        views = sorted((e.name for e in os.scandir(base) if _real(Path(e.path), stat.S_ISDIR)),
+                       key=str.lower) if _real(base, stat.S_ISDIR) else []
+        if not view_name:
+            return {"views": views, "folder": VIEW_FOLDER}
+        name = semantic_view.folder_name(view_name)  # refuses a path, .. and device names before anything is read
+        folder = base / name
+        _no_links(root, folder)
+        out: dict[str, Any] = {"views": views, "view": name, "folder": folder.relative_to(root).as_posix(),
+                               "exists": _real(folder, stat.S_ISDIR), "files": [], "files_summary": [],
+                               "validation": None, "valid": False, "source": None, "published": False,
+                               "publish": semantic_view.PUBLISH}
+        if not out["exists"]:
+            if reveal:
+                raise ValueError(f"{out['folder']} isn't there yet. Save the view's files first.")
+            return out
+        model_ossie.require()  # the YAML reader, before a file is read
+        files = self._view_files(folder)
+        yaml_files = {k: v for k, v in files.items() if k.lower().endswith(".yaml")}
+        out["files"] = sorted(files)
+        out["files_summary"] = [_file_summary(rel, text) if isinstance(text, str)
+                                else {"path": rel, "bytes": len(text), "unreadable": True}
+                                for rel, text in sorted(yaml_files.items())]
+        if files:
+            out["validation"] = ossie_profiles.validate_files(files, "fabric-semantic-view")
+            out["valid"] = out["validation"]["valid"]
+        if path and yaml_files:
+            split = ("schema_metrics" if set(yaml_files) == {semantic_view.SCHEMA_FILE, semantic_view.METRICS_FILE}
+                     else "by_dataset" if semantic_view.MODEL_FILE in yaml_files else "single")
+            made = semantic_view.semantic_view(self._view_source(project, "", path), view_name=view_name, split=split)
+            report = made["report"]
+            out["source"] = {
+                "path": path, "split": split, "same": made["files"] == yaml_files,
+                "left_out": [{"object": r["object"], "kind": r["kind"], "construct": r["stripped"],
+                              "excluded": r["excluded"], "rule": r["rule"], "reason": r["reason"],
+                              "source": r["source"]} for r in report["objects"] if r["stripped"] or r["excluded"]],
+                "warnings": report["warnings"]}
+        if reveal:
+            _no_links(root, folder)  # checked again just before Explorer opens it
+            _reveal(folder, select=False)
+            out["shown"] = str(folder)
+        return out
+
+
+def _file_summary(rel: str, text: str) -> dict[str, Any]:
+    """One saved view file's row for the card's table, counted as semantic_view's files_summary counts: its path,
+    UTF-8 bytes, datasets, relationships, metrics and the metrics with DAX. Read with the loader that refuses
+    aliases. A file that isn't one YAML object gets ``unreadable`` instead of counts; validate_files says why."""
+    try:
+        doc = model_ossie.load_text(text)
+    except (ValueError, TypeError):  # narrow: load_text's refusals; the check names the problem
+        doc = None
+    row: dict[str, Any] = {"path": rel, "bytes": len(text.encode("utf-8"))}
+    if not isinstance(doc, dict):
+        return row | {"unreadable": True}
+
+    def items(key: str) -> list[Any]:
+        value = doc.get(key)
+        return value if isinstance(value, list) else []
+
+    metrics = [m for m in items("metrics") if isinstance(m, dict)]
+
+    def has_dax(m: dict[str, Any]) -> bool:
+        expression = m.get("expression")
+        dialects = expression.get("dialects") if isinstance(expression, dict) else None
+        return any(isinstance(e, dict) and e.get("dialect") == "DAX" and e.get("expression")
+                   for e in (dialects if isinstance(dialects, list) else []))
+
+    return row | {"datasets": len(items("datasets")), "relationships": len(items("relationships")),
+                  "metrics": len(metrics), "dax_metrics": sum(1 for m in metrics if has_dax(m))}

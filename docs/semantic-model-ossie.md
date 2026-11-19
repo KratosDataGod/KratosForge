@@ -312,13 +312,14 @@ reads a file by its profile (OSSIE-003b, engine only; `sidecar/fabric_desktop/os
 
 Fabric Semantic Views (Preview) take Fabric's own profile of Ossie: version 0.2.0.dev0, a flat
 root and a DAX expression on every metric. KratosForge can write the files of a view on this PC
-and check them (OSSIE-005a, engine only, no screen yet; `sidecar/fabric_desktop/semantic_view.py`).
+and check them (OSSIE-005a; `sidecar/fabric_desktop/semantic_view.py`). The card below saves them and shows
+the steps to publish them.
 
 **KratosForge doesn't publish Semantic Views.** It never writes to a lakehouse's `Context/` folder,
 where Fabric reads a view's YAML, and it never calls Fabric for a view. Publishing is manual, in
 Fabric: a person uploads the files to the view's folder in the lakehouse, then saves and
-publishes it. The steps, with links to each Learn page, come in OSSIE-005b, which waits on its
-mockup.
+publishes it. The steps, with links to each Learn page, are on the card in
+[Publish the view in Fabric](#publish-the-view-in-fabric-preview).
 
 What's written:
 
@@ -380,6 +381,47 @@ Structural parity can compare a model with its view: pass the view as `semantic_
 returned. Everything the view leaves out is **Unsupported** in that report, never a match. What
 the view leaves out is worked out again from the other side, so a report passed in is never
 trusted: a metric taken out of the files by hand stays **Different results**.
+
+## Publish the view in Fabric (Preview)
+
+On **Data mesh > Deploy > Semantic model**, under the Apache Ossie card, the card **Publish the
+`<view>` semantic view in Fabric** shows the steps to publish a view's saved files by hand
+(OSSIE-005b). Nothing on it writes to Fabric or calls Fabric. Its only buttons copy text, open the
+view's folder on this PC, or save the view's files in the project's folder.
+
+- **No files yet.** The card shows only **Save the view's files first**. **Save view files** makes
+  the files on this PC from a model under `semantic/` (Schema and metrics, so `schema.yaml` and
+  `metrics.yaml`). It lists the files it writes, and any it deletes, in a confirm first, and
+  writes nothing until you confirm.
+- **1. The files.** The files in `semantic-views\<view>\` are checked as Fabric reads them
+  (`validate_files`, `fabric-semantic-view`). **Ready** means every documented check passed:
+  version 0.2.0.dev0, DAX on every metric, single-column relationships, at most 20 files and
+  16 MB. A table shows each file, what it holds and its size. **Open folder** opens that folder in
+  File Explorer. When the view has a model of the same name under `semantic/`, the card converts
+  it again on this PC. If the files differ from what it gives now, it says so and offers **Save
+  view files** again. If they match, a **left out** line counts what the view leaves out, with the
+  report.
+- **A check fails.** The card lists each failure with its fix, and steps 2 to 5 wait with **Fix
+  the files first**.
+- **2. Where they go.** `<lakehouse> > Context/Semantic Views/<view>/`, with **Copy path**. The
+  lakehouse and workspace are named only when the view comes from this layer's model, which
+  reads that lakehouse. Otherwise the card says "the lakehouse the view's datasets read".
+- **3. The steps in Fabric.** Create the view's folder, upload the files, save if you edit one in
+  Fabric, publish, then check the result. Each step links its Learn section:
+  [Create a view](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#create-a-view-with-the-starter-file),
+  [Upload files](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#upload-existing-yaml-files),
+  [Edit and save](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#edit-and-save),
+  [Publish a view](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-publish#publish-a-view)
+  and [Check the result](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-publish#check-the-result).
+  The card also lists the permissions each step needs and what to know before you publish, from
+  the same pages and the
+  [overview](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-overview).
+- **Published model: not read.** KratosForge doesn't read the model Fabric makes yet, so it
+  can't compare it with the files.
+
+The card reads with `meta_model_semantic_view_status`. It reads only `semantic-views/<view>/` in
+the project's folder, refuses a link or junction there, and reads nothing past 200 entries or
+16 MB of YAML.
 
 ## Keeping Git in step
 
@@ -450,4 +492,5 @@ see the preview and confirm.
 | `meta_model_tmdl_save` | The model's TMDL into `semantic/<model>.SemanticModel/` | Files |
 | `meta_model_ossie_folders` | Models kept under `semantic/` in the project's folder | Nothing |
 | `meta_model_ossie_export_folder` | A model kept in Git as Ossie YAML, read on this PC | Nothing |
-| `meta_model_semantic_view_save` | A Fabric Semantic View's YAML files in `semantic-views/<view>/`, made on this PC from an Ossie file or a model (Preview, no screen yet). It shows the files, removals and report first, and writes only when confirmed with the preview's token. It never publishes and never writes a lakehouse's `Context/` folder | Files |
+| `meta_model_semantic_view_save` | A Fabric Semantic View's YAML files in `semantic-views/<view>/`, made on this PC from an Ossie file or a model (Preview; **Save view files** on the publish-steps card). It shows the files, removals and report first, and writes only when confirmed with the preview's token. It never publishes and never writes a lakehouse's `Context/` folder | Files |
+| `meta_model_semantic_view_status` | The saved view's files: what each holds and Fabric's documented checks, and, given its model, whether the files still match and what the view leaves out (Preview). With `reveal`, opens the view's folder in File Explorer | Nothing |

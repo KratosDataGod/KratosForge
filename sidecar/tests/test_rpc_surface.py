@@ -75,8 +75,6 @@ NO_UI_CALLER: dict[str, str] = {
     "fabric_git_links": _FABRIC_GIT,  # the tab reads links through fabric_git_overview
     # Listed by QA-017 as having no screen.
     "platform_sources": _QA017,
-    # OSSIE-005a: writes a Semantic View's local copy; the manual publish panel (OSSIE-005b) waits on its mockup.
-    "meta_model_semantic_view_save": "OSSIE-005a engine call; the Semantic View panel (OSSIE-005b) waits on its mockup",
 }
 
 
@@ -150,7 +148,6 @@ NO_SCREEN_GATE: dict[str, str] = {
     "local_write_delta": "confirm",            # mode overwrite, like INSERT OVERWRITE
     "optimization_share": "confirm",
     "optimize_share_local_runs": "confirm",
-    "meta_model_semantic_view_save": "confirmed",  # writes files only when confirmed with the preview's token
 }
 NOT_DESTRUCTIVE: dict[str, str] = {
     "local_add_source": "adds views over a folder; the files are only read",

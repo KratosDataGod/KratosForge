@@ -604,3 +604,114 @@ def test_switching_from_one_file_to_schema_metrics_lists_the_old_root_file_as_re
     folder = _views(svc) / "Sales"
     assert sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*.yaml")) == [
         "metrics.yaml", "schema.yaml"]
+
+
+# ---- the publish-steps card's read (meta_model_semantic_view_status, OSSIE-005b)
+
+def _saved(svc, split="schema_metrics", text=None):  # noqa: F811
+    text = text or _ossie()
+    plan = svc.meta_model_semantic_view_save("Sales", text=text, split=split)["confirm"]
+    svc.meta_model_semantic_view_save("Sales", text=text, split=split, confirmed=True, token=plan["token"])
+    return _views(svc) / "Sales"
+
+
+def test_status_lists_views_and_reads_nothing_else(svc):  # noqa: F811
+    assert svc.meta_model_semantic_view_status() == {"views": [], "folder": "semantic-views"}
+    out = svc.meta_model_semantic_view_status("Sales")
+    assert out["exists"] is False and out["files_summary"] == [] and out["valid"] is False
+    assert not _views(svc).exists()  # nothing is made
+
+
+def test_status_gives_the_summary_and_the_check(svc):  # noqa: F811
+    _saved(svc)
+    out = svc.meta_model_semantic_view_status("Sales")
+    assert out["views"] == ["Sales"] and out["folder"] == "semantic-views/Sales" and out["published"] is False
+    assert [f["path"] for f in out["files_summary"]] == ["metrics.yaml", "schema.yaml"]
+    schema = out["files_summary"][1]
+    assert (schema["datasets"], schema["relationships"], schema["metrics"]) == (2, 1, 0)
+    assert out["valid"] and out["validation"]["counts"]["yaml_files"] == 2
+
+
+def test_status_reads_a_crlf_copy_as_the_same_files(svc):  # noqa: F811
+    folder = _saved(svc)
+    before = svc.meta_model_semantic_view_status("Sales")
+    for f in folder.iterdir():  # as Git on Windows checks them out
+        f.write_bytes(f.read_bytes().replace(b"\n", b"\r\n"))
+    after = svc.meta_model_semantic_view_status("Sales")
+    assert after["valid"] and after["files_summary"] == before["files_summary"]
+
+
+def test_status_shows_a_failed_check_with_its_fix(svc):  # noqa: F811
+    folder = _saved(svc)
+    (folder / "extra.yaml").write_text("version: 0.1.0\nname: Sales\n", encoding="utf-8")
+    (folder / "notes.yml").write_text("x: 1\n", encoding="utf-8")
+    (folder / "bad.yaml").write_bytes(b"\xff\xfe")
+    out = svc.meta_model_semantic_view_status("Sales")
+    assert out["valid"] is False
+    assert all(d["fix"] for r in out["validation"]["files"].values() for d in r["diagnostics"])
+    assert out["validation"]["files"]["extra.yaml"]["valid"] is False
+    assert {f["path"] for f in out["files_summary"] if f.get("unreadable")} == {"bad.yaml"}
+    assert "notes.yml" in out["validation"]["counts"]["ignored"]
+
+
+def test_status_compares_with_the_model_and_lists_what_is_left_out(svc):  # noqa: F811
+    model = Path(svc._project().root) / "semantic" / "Sales.SemanticModel"
+    model.mkdir(parents=True)
+    (model / "model.bim").write_text(json.dumps(_rich_bim()), encoding="utf-8")
+    plan = svc.meta_model_semantic_view_save("Sales", path="semantic/Sales.SemanticModel", split="schema_metrics")["confirm"]
+    svc.meta_model_semantic_view_save("Sales", path="semantic/Sales.SemanticModel", split="schema_metrics", confirmed=True,
+                                      token=plan["token"])
+    src = svc.meta_model_semantic_view_status("Sales", path="semantic/Sales.SemanticModel")["source"]
+    assert src["same"] and src["split"] == "schema_metrics"
+    assert "role 'EU only'" in [r["object"] for r in src["left_out"]]
+    (_views(svc) / "Sales" / "metrics.yaml").write_text("version: 0.2.0.dev0\nname: Sales\n", encoding="utf-8")
+    assert svc.meta_model_semantic_view_status("Sales", path="semantic/Sales.SemanticModel")["source"]["same"] is False
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="needs symbolic links")
+def test_status_refuses_a_link_in_the_view_folder(svc, tmp_path):  # noqa: F811
+    folder = _saved(svc)
+    outside = tmp_path / "outside.yaml"
+    outside.write_text("version: 0.2.0.dev0\nname: X\n", encoding="utf-8")
+    (folder / "linked.yaml").symlink_to(outside)
+    with pytest.raises(ValueError, match="link"):
+        svc.meta_model_semantic_view_status("Sales")
+
+
+def test_status_caps_count_and_size_before_reading(svc, monkeypatch):  # noqa: F811
+    from fabric_desktop import model_ossie_service as mos
+    folder = _saved(svc)
+    monkeypatch.setattr(mos, "VIEW_MAX_ENTRIES", 3)
+    for i in range(3):
+        (folder / f"{i}.md").write_text("x", encoding="utf-8")
+    with pytest.raises(ValueError, match="more than 3"):
+        svc.meta_model_semantic_view_status("Sales")
+    monkeypatch.setattr(mos, "VIEW_MAX_ENTRIES", 200)
+    monkeypatch.setattr(op, "FABRIC_MAX_YAML_BYTES", 10)
+    with pytest.raises(ValueError, match="16 MB"):
+        svc.meta_model_semantic_view_status("Sales")
+
+
+@pytest.mark.parametrize("name", ["../x", "CON", "a/b"])
+def test_status_refuses_a_hostile_view_name(svc, name):  # noqa: F811
+    with pytest.raises(ValueError):
+        svc.meta_model_semantic_view_status(name)
+
+
+def test_status_opens_only_the_saved_view_folder(svc, monkeypatch):  # noqa: F811
+    from fabric_desktop import model_ossie_service as mos
+    shown = []
+    monkeypatch.setattr(mos, "_reveal", lambda path, select: shown.append((path, select)))
+    with pytest.raises(ValueError, match="Save the view's files first"):
+        svc.meta_model_semantic_view_status("Sales", reveal=True)
+    assert shown == [] and not _views(svc).exists()
+    folder = _saved(svc)
+    out = svc.meta_model_semantic_view_status("Sales", reveal=True)
+    assert shown == [(folder, False)] and out["shown"] == str(folder)
+
+
+def test_status_is_read_only_in_the_audit_and_has_a_ui_caller():
+    from fabric_desktop import audit, server
+    assert "meta_model_semantic_view_status" in server.METHODS
+    assert not audit.audited("meta_model_semantic_view_status")
+    assert audit.audited("meta_model_semantic_view_save")

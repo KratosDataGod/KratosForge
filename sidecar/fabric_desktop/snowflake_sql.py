@@ -973,7 +973,9 @@ def _merge_set_names(statement: exp.Expression) -> None:
                 column.set("table", None)
 
 
-_IDENTITY_SEQUENCE = "__kf_identity_"  # local_sql's plan() makes these first, as for a Databricks identity column
+# databricks_builtins_sql.IDENTITY_PREFIXES names it, so DuckDBSession.plan() makes these sequences before it
+# plans the CREATE TABLE, as for a Databricks identity column
+_IDENTITY_SEQUENCE = "__kf_identity_"
 _BIGINT_RANGE = "MINVALUE -9223372036854775808 MAXVALUE 9223372036854775807"
 
 
@@ -2201,7 +2203,8 @@ CATALOG = (
                 "aren't enforced, so they are dropped, and a PRIMARY KEY column keeps NOT NULL, which the "
                 "constraint implies. AUTOINCREMENT and IDENTITY columns take their DEFAULT from a sequence that "
                 "starts and steps as written (1 and 1 unless given); Snowflake's values are unique but not always "
-                "one after another, so these are among those it could give. TRANSIENT and CLUSTER BY are dropped, "
+                "one after another, so these are among those it could give. The sequence stays in the session when the "
+                "table is replaced or dropped. TRANSIENT and CLUSTER BY are dropped, "
                 "as they don't change what a query reads. In MERGE, UPDATE SET target.column = ... names the "
                 "target's column. START TRANSACTION is BEGIN.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),

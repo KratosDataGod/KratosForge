@@ -641,13 +641,13 @@ def test_calls_nested_in_each_other_grow_the_sql_in_step_not_exponentially(call,
 
 def test_an_argument_that_can_raise_is_copied_not_worked_out_once():
     # Bound, an argument is worked out on every row; one with raise_error stays where the template put it.
-    inner = "upper(lower(upper(lower(x))))"
-    bound = f"SELECT substring_index({inner}, '.', 2) AS v FROM (SELECT 'a.b.c' AS x)"
-    raising = (f"SELECT substring_index(CASE WHEN x IS NULL THEN raise_error('boom') ELSE {inner} END, '.', 2) AS v "
-               "FROM (SELECT 'a.b.c' AS x)")
+    inner = "lpad(rpad(lpad(rpad(x, 9, '-'), 12, '-'), 14, '-'), 16, '-')"
+    bound = f"SELECT find_in_set({inner}, 'a,b') AS v FROM (SELECT 'a' AS x)"
+    raising = (f"SELECT find_in_set(CASE WHEN x IS NULL THEN raise_error('boom') ELSE {inner} END, 'a,b') AS v "
+               "FROM (SELECT 'a' AS x)")
     assert "kf_bound" in sql.duckdb_sql(sql.parse(bound)[0])
     assert "kf_bound" not in sql.duckdb_sql(sql.parse(raising)[0])
-    assert one(raising) == "A.B"
+    assert one(raising) == one(bound) == 0
 
 
 @pytest.mark.parametrize("inner", ["max(x)", "(SELECT max(x) FROM t)", "first_value(x) OVER ()"])

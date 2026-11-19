@@ -2642,10 +2642,12 @@ _RANGES = {"int": (-2 ** 31, 2 ** 31 - 1), "bigint": (-2 ** 63, 2 ** 63 - 1)}
 def _digits(text: str, size: str) -> int:
     """A whole number's text as an int; T-SQL's overflow error past 20 digits, before Python's int() reads it
     (it stops at 4,300 digits with an error of its own)."""
-    body = text.strip().lstrip("+-").lstrip("0")
+    text = text.strip()
+    sign = -1 if text.startswith("-") else 1
+    body = text.lstrip("+-").lstrip("0")  # leading zeros count for nothing, also in int()'s 4,300 digits
     if len(body) > 20:
         raise ValueError(f"{_NOT_YET}{_OVERFLOW.format(kind=size)} T-SQL gives the same error.")
-    return int(text.strip() or "0")
+    return sign * int(body or "0")
 
 
 def _in_range(value: int, size: str) -> int:

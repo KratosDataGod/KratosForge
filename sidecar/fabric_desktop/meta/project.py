@@ -523,9 +523,26 @@ def describe_exceptions(project: Project, today: dt.date | None = None,
 # --------------------------------------------------------------------------- gate 1: on save
 
 
+# Polars parses a chain of operators (a + b + c ...) recursively, and a long enough one overflows the
+# stack and kills the process instead of raising: about 2,000 links on an 8 MB stack, 250 on a 1 MB
+# thread stack. An expression with more operators than this is refused before Polars sees it.
+MAX_EXPR_OPERATORS = 200
+_QUOTED_PART = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")
+_OPERATOR = re.compile(r"[-+*/%<>=|&^~!]+|\b(?:AND|OR|NOT|IS|IN|LIKE|ILIKE|BETWEEN)\b", re.IGNORECASE)
+
+
+def sql_expr(expr: str) -> pl.Expr:
+    """``pl.sql_expr``, but raising ValueError for an expression too long to parse without crashing."""
+    if not isinstance(expr, str):
+        raise TypeError("an expression must be text")
+    if len(_OPERATOR.findall(_QUOTED_PART.sub("''", expr))) > MAX_EXPR_OPERATORS:
+        raise ValueError(f"expression has more than {MAX_EXPR_OPERATORS} operators; split it into steps")
+    return pl.sql_expr(expr)
+
+
 def check_expr(expr: str, available: set[str]) -> list[str]:
     try:
-        roots = pl.sql_expr(expr).meta.root_names()
+        roots = sql_expr(expr).meta.root_names()
     except Exception as ex:  # noqa: BLE001 - any parse failure is reported as a problem with the expression
         return [f"expression {expr!r} does not parse ({type(ex).__name__})"]
     return [f"uses unknown column {c}" for c in roots if c not in available]

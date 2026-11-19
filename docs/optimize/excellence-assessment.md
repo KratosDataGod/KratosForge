@@ -147,7 +147,9 @@ can see it. It reads only, with your own access, and makes no read the app didn'
 optimization engine's reads (the workspace, its items, notebook and pipeline definitions, job history),
 the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`), the capacities you can see
 (`GET /capacities`) and each lakehouse's properties (`GET /workspaces/{id}/lakehouses/{id}`, the read the
-app already makes before it writes a table; at most 50 per assessment). A read that fails is listed in `reads` and leaves its controls not evaluated.
+app already makes before it writes a table; at most 50 per assessment), and the workspace's Git connection
+and Git status (`GET /workspaces/{id}/git/connection` and `GET /workspaces/{id}/git/status`, the reads the
+Git tab makes). A read that fails is listed in `reads` and leaves its controls not evaluated.
 `demo=True` assesses a labelled demonstration fixture without calling Fabric.
 
 ## Controls
@@ -175,6 +177,9 @@ app already makes before it writes a table; at most 50 per assessment). A read t
 | FEA-ARCH-002 | Architecture | Low | A lakehouse is schema-enabled | Lakehouse properties |
 | FEA-ARCH-003 | Architecture | Low | A workspace whose name says production holds no item named tmp, temp, test, staging, copy, old, backup or similar; not applicable when the name says Dev or Test | Workspace and item names (inferred, advice only) |
 | FEA-ARCH-004 | Architecture | Medium | A notebook's default lakehouse is in its own workspace (a cross-workspace dependency otherwise); not applicable without a default lakehouse | Notebook definition and item list |
+| FEA-DEVOPS-003 | DevOps | Medium | The workspace is connected to a Git branch and was synced at least once | Git connection |
+| FEA-DEVOPS-004 | DevOps | Low | No item has changes in the workspace that aren't committed to its branch; not applicable when the workspace isn't in Git | Git status |
+| FEA-DEVOPS-005 | DevOps | Low | No item has changes in the branch that aren't in the workspace yet; not applicable when the workspace isn't in Git | Git status |
 
 The thresholds (4 Admins, 5 direct writers) are KratosForge's: Microsoft's guidance asks for least
 privilege but gives no number. A profile can turn any control off, with a reason, or change its
@@ -196,7 +201,7 @@ FEA-ARCH-002 and FEA-ARCH-004 are verified: the lakehouse's properties (Fabric g
 only for schema-enabled lakehouses) and the notebook definition the optimization engine already reads. A
 default lakehouse that isn't in the workspace's item list is in another workspace or was deleted;
 either way a deployment won't rebind it. Dev/Test/Prod separation isn't checked yet: it needs
-deployment pipeline or Git configuration the assessment doesn't read, and a name alone can't prove it.
+deployment pipeline configuration the assessment doesn't read, and a name alone can't prove it.
 
 ### Notebook and pipeline inspection
 
@@ -214,6 +219,30 @@ Notebook code and pipeline JSON never enter the evidence or the snapshot. A defi
 be read leaves these controls not evaluated. Retry, timeout and failure-path settings aren't checked
 yet: the engine's pipeline reader doesn't keep an activity's `policy` and `dependsOn`, and a control
 that can't see a setting is never passed.
+
+### Git and deployment evidence
+
+The DevOps controls FEA-DEVOPS-003 to FEA-DEVOPS-005 use the two Git reads the app already makes for
+the Git tab. Get Connection says whether the workspace is connected to a branch and whether its first
+sync was done. Get Status lists the items that differ between the workspace and the branch. The
+evidence (`workspace.git`) keeps the provider type, the branch name and the connection state. It also
+keeps how many items changed in the workspace and aren't committed, how many changed in the branch and
+aren't in the workspace, and how many are in conflict. It never keeps the repository, its owner or organization, a URL, a
+commit, an item's name or anything inside an item, and text is cut to 256 characters.
+
+When Fabric says the workspace isn't connected to Git, that is what Fabric answered, not a read that
+failed. FEA-DEVOPS-003 fails on it, and the two status controls don't apply because there is no branch
+to compare with. A sandbox kept out of Git on purpose can turn FEA-DEVOPS-003 off in a profile. A
+connection that couldn't be read, including for a role that can't see it, is listed in `reads` and
+leaves all three controls not evaluated.
+
+Get Status needs the Workspace.GitUpdate.All permission, which the app asks for the first time you open
+a workspace's Git item status. The assessment never asks for it. Without it, the status read is listed
+in `reads` as not made and FEA-DEVOPS-004 and FEA-DEVOPS-005 are not evaluated. The assessment never
+commits, never updates the workspace from Git and never resolves a conflict.
+
+Deployment pipeline stages and drift between stages aren't checked yet. The app makes no deployment
+pipeline read, so a control for them could only ever be not evaluated.
 
 ## The scorecard
 

@@ -407,7 +407,8 @@ def test_yaml_aliases_and_alias_bombs_are_refused_by_the_loader():
         assert d["rule"] == "parse" and "aliases" in d["message"]
 
 
-@pytest.mark.parametrize("text", ["[" * 100_000, '{"a":' * 100_000, "a:\n" + "".join(" " * i + "- \n" for i in range(1, 3000))])
+@pytest.mark.parametrize("text", ["[" * 100_000, '{"a":' * 100_000, "a:\n" + "".join(" " * i + "- \n" for i in range(1, 3000))],
+                         ids=["flow-list", "flow-map", "block-list"])  # ids short: Windows caps PYTEST_CURRENT_TEST
 def test_deep_nesting_in_text_is_refused_cleanly(text):
     result = ossie_validate.validate(text)
     assert len(result["diagnostics"]) == 1 and not result["valid"]

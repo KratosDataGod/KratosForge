@@ -45,7 +45,7 @@ EFFECT = "informs"
 MAX_VALUE = 80  # characters of a value's short form
 MAX_DEPTH = 64  # a real Ossie model nests about 8 levels; deeper is refused before the schema check recurses
 _ONCE = frozenset({"required", "additionalProperties"})  # one diagnostic per property, however often it is seen
-_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _REPR = reprlib.Repr(maxlevel=2, maxdict=4, maxlist=4, maxtuple=4, maxset=4, maxstring=MAX_VALUE - 10,
                      maxother=MAX_VALUE - 10, maxlong=40)
 _ARTICLE = {"object": "an object", "array": "a list", "string": "text", "integer": "a whole number",
@@ -134,7 +134,7 @@ def json_path(parts: Any) -> str:
     for p in parts:
         if isinstance(p, int) and not isinstance(p, bool):
             out += f"[{p}]"
-        elif isinstance(p, str) and _IDENT.match(p):
+        elif isinstance(p, str) and _IDENT.fullmatch(p):
             out += f".{p}"
         else:
             out += "[" + json.dumps(_short_text(str(p)), ensure_ascii=False) + "]"

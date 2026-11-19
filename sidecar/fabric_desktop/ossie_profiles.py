@@ -343,8 +343,8 @@ def _size(name: str, value: Any) -> int:
 
 
 _LISTS = ("datasets", "relationships", "metrics")  # what publishing merges from every file
-_LISTED = re.compile(r"^\$\.(datasets|relationships|metrics)\[(\d+)\](.*)$", re.S)
-_ROOT_KEY = re.compile(r"^\$\.([A-Za-z_][A-Za-z0-9_]*)(.*)$", re.S)
+_LISTED = re.compile(r"\$\.(datasets|relationships|metrics)\[(\d+)\](.*)", re.S)
+_ROOT_KEY = re.compile(r"\$\.([A-Za-z_][A-Za-z0-9_]*)(.*)", re.S)
 
 
 def _fragment(name: str, value: str | bytes) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
@@ -434,11 +434,11 @@ def _same(a: Any, b: Any) -> bool:
 def _home(d: dict[str, Any], origins: dict[str, list[tuple[str, int]]], owner: dict[str, str]) -> tuple[str | None,
                                                                                                         dict[str, Any]]:
     """The file a merged view's problem came from (None for the view as a whole), with its path in that file."""
-    m = _LISTED.match(d["path"])
+    m = _LISTED.fullmatch(d["path"])
     if m and int(m[2]) < len(origins[m[1]]):
         name, i = origins[m[1]][int(m[2])]
         return name, d | {"path": f"$.{m[1]}[{i}]{m[3]}"}
-    r = _ROOT_KEY.match(d["path"])
+    r = _ROOT_KEY.fullmatch(d["path"])
     return (owner.get(r[1]) if r else None), d
 
 

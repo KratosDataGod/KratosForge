@@ -471,9 +471,8 @@ async function renderMeshLinksTab(body) {
       h("td", {}, p_usedBy(l.alias)),
       where,
       h("td", {}, btn("Remove", null, async () => {
-        // A link an entity still reads is refused by the engine, which names who reads it: no confirm first.
-        const read = (state.meta.project?.entities || []).some((e) => e.link === l.alias);
-        if (!read && !(await confirmDialog(`Remove link ${l.alias}?`, "Its file in metadata/links is deleted. No entity reads it, and nothing in Fabric changes. You can bring it back from Source control until you commit.", "Remove", { danger: true }))) return;
+        // Always asks: the project shown here can be older than the engine's, which refuses while an entity reads the link.
+        if (!(await confirmDialog(`Remove link ${l.alias}?`, "Its file in metadata/links is deleted, and nothing in Fabric changes. You can bring it back from Source control until you commit.", "Remove", { danger: true }))) return;
         if (await metaCall("mesh_delete_link", { alias: l.alias }, "Not removed")) rerender();
       }, "tool small danger"))) };
   });

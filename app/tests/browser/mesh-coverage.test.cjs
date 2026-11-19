@@ -202,7 +202,7 @@ test("Links shows where each link points, who uses it, and Remove asks in a dang
   const before = app.calls.filter((c) => c.method === "mesh_delete_link").length;
   await view().locator("tr", { hasText: "stores" }).last().getByRole("button", { name: "Remove" }).click();
   await page().getByRole("dialog", { name: "Remove link stores?" }).waitFor();
-  assert.match(await dialog().textContent(), /Its file in metadata\/links is deleted\. No entity reads it, and nothing in Fabric changes\. You can bring it back from Source control until you commit\./);
+  assert.match(await dialog().textContent(), /Its file in metadata\/links is deleted, and nothing in Fabric changes\. You can bring it back from Source control until you commit\./);
   assert.ok(await dialog().locator("button.danger-solid").count() > 0, "a danger confirm");
   await dialog().getByRole("button", { name: "Cancel" }).click();
   await page().getByRole("dialog", { name: "Remove link stores?" }).waitFor({ state: "detached" });
@@ -211,11 +211,19 @@ test("Links shows where each link points, who uses it, and Remove asks in a dang
   await dialog().getByRole("button", { name: "Remove" }).click();
   assert.deepStrictEqual((await waitCall("mesh_delete_link", 1)).params, { alias: "stores" });
 
-  // A link silver.ledger reads asks nothing: the engine refuses and says who reads it.
+  // A link the shown project says silver.ledger reads still asks first, since the engine's project may differ:
+  // Cancel sends nothing, and Remove gets the engine's refusal naming who reads it.
   const calls = app.calls.filter((c) => c.method === "mesh_delete_link").length;
-  await view().locator("tr", { hasText: "ledger_entries" }).last().getByRole("button", { name: "Remove" }).click();
+  const ledger = () => view().locator("tr", { hasText: "ledger_entries" }).last().getByRole("button", { name: "Remove" });
+  await ledger().click();
+  await page().getByRole("dialog", { name: "Remove link ledger_entries?" }).waitFor();
+  assert.ok(await dialog().locator("button.danger-solid").count() > 0, "a danger confirm");
+  await dialog().getByRole("button", { name: "Cancel" }).click();
+  await page().getByRole("dialog", { name: "Remove link ledger_entries?" }).waitFor({ state: "detached" });
+  assert.strictEqual(app.calls.filter((c) => c.method === "mesh_delete_link").length, calls, "Cancel removes nothing");
+  await ledger().click();
+  await dialog().getByRole("button", { name: "Remove" }).click();
   await page().waitForFunction(() => /silver\.ledger reads it\. Point it at another source first/.test(document.getElementById("toast").textContent));
-  assert.strictEqual(await page().getByRole("dialog", { name: "Remove link ledger_entries?" }).count(), 0, "no confirm for a link still read");
   assert.deepStrictEqual(app.calls.filter((c) => c.method === "mesh_delete_link").slice(calls).map((c) => c.params), [{ alias: "ledger_entries" }]);
 });
 

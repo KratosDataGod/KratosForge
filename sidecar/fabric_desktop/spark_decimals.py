@@ -15,6 +15,8 @@ operands' types are known:
 - ``avg``: decimal(min(38, p + 4), min(38, s + 4));
 - ``%`` (and ``pmod``): scale max(s1, s2), precision min(p1 - s1, p2 - s2) + scale;
 - ``div``: BIGINT, the quotient truncated toward zero, NULL for a zero divisor;
+- ``round`` and ``bround`` of a DOUBLE or FLOAT: the shortest decimal text of the value, rounded half up
+  (half even) and turned back into a double, as Spark's RoundBase reads BigDecimal(Double.toString(x));
 - ``round``, ``ceil`` and ``floor`` to ``d`` places (0 when not given): scale min(s, d) (0 for
   a negative ``d``), precision p - s + 1 + scale (at least 1 - d for a negative ``d``); ``ceil`` and
   ``floor`` of a decimal(p, 0) keep its type.
@@ -244,6 +246,9 @@ def spark_decimal_types(statement: exp.Expr, conn: Any, ansi: bool = False) -> e
         if names is None:
             return statement
         root = _retype(statement, targets, schema, ansi)
+    except Refused:
+        _unmark(statement)
+        raise
     except Exception as exc:  # noqa: BLE001 - a type fix only: any failure runs the statement unchanged; logged
         # Only a type fix: a statement sqlglot can't type runs with DuckDB's types, as before, and says so.
         log.info("Spark decimal types not applied: %s: %s", type(exc).__name__, exc)
@@ -265,8 +270,10 @@ def spark_decimal_columns(expressions: list[str], columns: list[tuple[str, str]]
     as (DuckDB SQL, its ``AS`` name or None), or None when that changes nothing. Expressions whose
     types can't be worked out are None too, and keep DuckDB's types (logged)."""
     unchanged: list[tuple[str, str | None] | None] = [None] * len(expressions)
-    if not expressions or not any(t.upper().startswith("DECIMAL") for _, t in columns):
-        return unchanged  # Spark's rules only change an expression with a decimal operand
+    rounds = any(t.upper() in ("DOUBLE", "FLOAT", "REAL") for _, t in columns) and any(
+        "ROUND" in e.upper() for e in expressions)  # round and bround of a double (_double_round)
+    if not expressions or not (rounds or any(t.upper().startswith("DECIMAL") for _, t in columns)):
+        return unchanged  # Spark's rules only change an expression with a decimal operand, or a double's round
     from sqlglot import parse_one
 
     from .sql import duckdb_sql
@@ -293,6 +300,8 @@ def spark_decimal_columns(expressions: list[str], columns: list[tuple[str, str]]
             if duckdb_sql(projection) != was:
                 named = isinstance(projection, exp.Alias)
                 out[i] = (duckdb_sql(projection.this if named else projection), projection.alias if named else None)
+    except Refused:
+        raise
     except Exception as exc:  # noqa: BLE001 - a type fix only: any failure runs the statement unchanged; logged
         log.info("Spark decimal types not applied: %s: %s", type(exc).__name__, exc)
         return unchanged
@@ -584,6 +593,9 @@ def _rounding(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]
         from .sql import _java_narrowed
         return _with_args(_java_narrowed(f"{fn}(fj_arg0)", "BIGINT", from_double=True), [operand]), node, ("int", 20)  # type: ignore[return-value]
     places = _places(operands[1] if len(operands) > 1 else node.args.get("decimals"))
+    if (found is None and places is not None and (isinstance(node, exp.Round) or _written(node) == "BROUND")
+            and _is_double(operand, annotated)):
+        return _double_round(node, operand, places, even=_written(node) == "BROUND", annotated=annotated)
     if found is not None and found[0] == "int" and isinstance(node, (exp.Ceil, exp.Floor)) and node.args.get("decimals") is None:
         return _with_args("CAST(fj_arg0 AS BIGINT)", [operand]), node, ("int", 20)  # type: ignore[return-value]  # a whole number's ceil is itself, a BIGINT in Spark
     if found is None or found[0] == "int" or places is None:
@@ -603,11 +615,59 @@ def _rounding(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]
 
 
 def _is_double(node: exp.Expr, annotated: dict[int, exp.Expr]) -> bool:
+    return _float_kind(node, annotated) is not None
+
+
+def _float_kind(node: exp.Expr, annotated: dict[int, exp.Expr]) -> Any:
+    """DOUBLE or FLOAT when sqlglot typed ``node`` as one, else None."""
     while isinstance(node, (exp.Paren, exp.Neg)):
         node = node.this
     copy = annotated.get(id(node))
     kind = copy.type if copy is not None else None
-    return isinstance(kind, exp.DataType) and kind.this in (exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT)
+    if isinstance(kind, exp.DataType) and kind.this in (exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT):
+        return kind.this
+    return None
+
+
+class Refused(ValueError):
+    """A Spark statement this module can't run as Spark does: raised to the caller, never run unchanged."""
+
+
+_DOUBLE_PLACES = 20
+# The decimal scale a double's text is read at, by its size: every digit of the shortest text of a double
+# under 1 at 10^-21 or more fits 37 places (a smaller one rounds to 0 at 20 places or fewer), one from 1
+# up to 10^17 fits 20, and one up to 10^37 is a whole number. A double past that has no digit under 10^21.
+_DOUBLE_SCALES = ((1, 37), (10 ** 17, 20), (10 ** 37, 0))
+
+
+def _double_round(node: exp.Expr, operand: exp.Expr, places: int, even: bool, annotated: dict[int, exp.Expr]
+                  ) -> tuple[exp.Expr, exp.Expr, Any]:
+    """Spark's round (half up) and bround (half even) of a DOUBLE or FLOAT: RoundBase reads the value as
+    BigDecimal(Double.toString(x)), rounds that, and turns it back into a double (a float is widened to a
+    double first and narrowed after). DuckDB's ROUND of a double scales it in binary, so round(0.285D, 2) was
+    0.28 where Spark gives 0.29. NaN and infinity are kept."""
+    if not -_DOUBLE_PLACES <= places <= _DOUBLE_PLACES:
+        raise Refused(f"This Spark SQL can't be run on this PC: round or bround of a double to {places} places isn't "
+                      f"written here (from -{_DOUBLE_PLACES} to {_DOUBLE_PLACES} are). Spark rounds the double's "
+                      "decimal text; cast the value to a decimal first to round it further.")
+    branches = []
+    for bound, scale in _DOUBLE_SCALES:
+        value = f"CAST(CAST(kf_decv AS VARCHAR) AS DECIMAL(38, {scale}))"
+        rounded = f"ROUND({value}, {places})"
+        if even:
+            cut = f"TRUNC({value}, {places})"
+            half = "0." + "0" * places + "5" if places >= 0 else "5" + "0" * (-places - 1)
+            digits = f"LPAD(REPLACE(CAST(CAST({cut} AS DECIMAL(38, {max(places, 0)})) AS VARCHAR), '-', ''), 40, '0')"
+            last = f"RIGHT({digits}, 1)" if places >= 0 else f"SUBSTR({digits}, {40 + places}, 1)"
+            rounded = (f"CASE WHEN ABS({value} - {cut}) = CAST('{half}' AS DECIMAL(38, {max(places + 1, 0)})) "
+                       f"AND {last} IN ('0', '2', '4', '6', '8') THEN {cut} ELSE {rounded} END")
+        branches.append(f"WHEN ABS(kf_decv) < {bound}{'' if bound < 10 else '::DOUBLE'} "
+                        f"THEN CAST(CAST({rounded} AS VARCHAR) AS DOUBLE)")
+    float_kind = _float_kind(operand, annotated)
+    kind = "FLOAT" if float_kind == exp.DataType.Type.FLOAT else "DOUBLE"
+    text = (f"CAST((LIST_TRANSFORM([CAST(fj_arg0 AS DOUBLE)], kf_decv -> CASE WHEN kf_decv IS NULL "
+            f"OR NOT ISFINITE(kf_decv) THEN kf_decv {' '.join(branches)} ELSE kf_decv END))[1] AS {kind})")
+    return _with_args(text, [operand]), node, None
 
 
 def _ceil_floor(fn: str, p: int, s: int, places: int) -> str | None:

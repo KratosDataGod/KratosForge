@@ -1906,9 +1906,9 @@ def _div0_branch(node: exp.Div) -> bool:
         return True
     if isinstance(cond, exp.And):  # DIV0: b = 0 AND NOT a IS NULL
         return zero(cond.this) and isinstance(cond.expression, exp.Not) and cond.expression.this == exp.Is(
-            this=node.this, expression=exp.Null())
+            this=node.this.copy(), expression=exp.Null())
     if isinstance(cond, exp.Or):  # DIV0NULL: b = 0 OR b IS NULL
-        return zero(cond.this) and cond.expression == exp.Is(this=b, expression=exp.Null())
+        return zero(cond.this) and cond.expression == exp.Is(this=b.copy(), expression=exp.Null())
     return False
 
 

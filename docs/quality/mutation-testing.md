@@ -8067,3 +8067,97 @@ No bugs were found.
 
 None.
 
+
+# Savings properties: the savings package never invents a saving
+
+`savings/attribution.py`, `savings/recurring.py` and `savings/pricing.py` turn CU figures into avoided CU, period figures, a monthly projection and a priced value. `tests/test_savings_properties.py` checks four promises over random inputs. hypothesis isn't in the test lock, so each property draws its cases from a seeded `random.Random` (seeds 7, 11 and 2026, a few hundred cases each). The same cases come back on every run, a failing case is printed in its assert message, and the whole file runs in about 2 s.
+
+The inputs are runs on a PC or in Fabric, with measured, estimated or no baselines. They include optimizations whose afters are lower, higher (a regression) or not known yet, and optimizations reverted, rejected, superseded or not yet in place when the run happened. This PC's figure and the overhead are each known or not. Values include ones next to a 6-decimal half point (`2.5e-7`, `1.5e-6`, `1.0000005`, `9.9999995`).
+
+1. **No saving is negative, and none is more than what it saves from.** Gross is between 0 and the baseline, and net is between 0 and gross. Gross is the known layers' sum kept between 0 and the baseline, and only a regression layer is negative. This PC's layer is at most what the optimized workload needs, an unattributed layer is at most the baseline, and a Fabric run has neither. Period figures are the sums of their runs, with a run from a second device counted once. A projection is never negative and is the known runs' average times their rate. A price is CU times the rate in effect when the run happened.
+2. **The same inputs give the same output.** The same attribution comes back every time, layer ids included, in any order of optimizations. Period figures, projections and priced totals don't depend on the order of runs or price versions, and a price version's id depends only on its price and dates.
+3. **Rounding never creates a saving.** Rounded gross never exceeds the baseline, and the rounded layers never add up past it by more than their rounding. A half-point value isn't rounded into a saving or into a higher price.
+4. **With no evidence, the figure is unknown, never 0.** No baseline gives unknown gross, net and layers. An unknown figure for this PC is an unknown layer and an incomplete run. A period of runs with no figure has no total and counts them as unknown. Too few known runs give no projection. No CU figure, or no price in effect, gives an unknown value.
+
+Together, these mean a figure only appears when there is evidence for it, and it can't be bigger than the CU it came from, below 0, changed by input order, or pushed up by rounding.
+
+Run against the mutants on their own, the properties kill 69 of 112 mutants of `attribution.py`, 38 of 88 of `recurring.py` and 76 of 111 of `pricing.py`. Batches 191 to 193 below give the full scores.
+
+**Two gaps found, pinned with strict xfails, not fixed** (savings/ belongs to Enterprise Savings Intelligence):
+
+- **Gross can be rounded above the baseline.** `attribute` caps gross at the baseline and then rounds it to 6 places. A baseline given in CU seconds isn't on the 6-place grid once converted, so it can round up. With a baseline and a PC figure of 1.9 CU seconds, the baseline is 0.000527777... CU hours and gross comes back as 0.000528, 2.2e-7 above it (`test_a_baseline_in_cu_seconds_doesnt_round_gross_above_it`). Baselines in CU hours are already rounded to 6 places by `measurement.make`, so the random properties, which use CU hours, hold.
+- **A priced total can depend on input order.** `value_runs` keeps the first attribution it reads for each run. Given two different attributions of one run, the total depends on which comes first, while `recurring.by_period` refuses the same input (`test_two_different_attributions_of_one_run_dont_make_the_priced_total_depend_on_order`).
+
+# Mutation testing, batch 191
+
+`savings/attribution.py`, the attribution waterfall, run with `--kinds all` on `main` bdf2c177 (2026-11-19). The method is the same as batch 95: sample cap 150, seed 7, test files given relative to `sidecar/` and passing once on the unmutated copy first. The module has 112 mutants, so all of them ran. "Before" uses the tests that were there. "After" adds `test_savings_properties.py` and re-runs the survivors with `--only`. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `savings/attribution.py` | test_savings_attribution, test_savings_attribution_mutation, test_savings_recurring, test_savings_pricing, test_measurement (+ test_savings_properties) | 112 of 112 | 110 / 2 | **98.2%** | 110 / 2 | **98.2%** | 2 equivalent |
+
+No bugs were found by the mutants. The rounding gap is in the properties section above.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `savings/attribution.py` | 58 | `ms.UNKNOWN: 2` to `3` in `_STRENGTH` | Equivalent: only the order of the three strengths is used, and it stays the same. |
+| `savings/attribution.py` | 218 | `complete = False` to `True` when the overhead is unknown | Equivalent: the result's `complete` is `complete and o is not None`, and `o` is None on that branch. |
+
+# Mutation testing, batch 192
+
+`savings/recurring.py`, period figures and the monthly projection, run the same way as batch 191 (88 mutants, all run).
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `savings/recurring.py` | as batch 191 (+ test_savings_properties, test_savings_recurring_mutation) | 88 of 88 | 79 / 9 | **89.8%** | 85 / 3 | **96.6%** | 3 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **savings/recurring.py**:
+  - A period with a measured run and an estimated one is estimated, whichever comes first.
+  - A window of one day projects, and a window of 0 days is refused.
+  - A rebaselined projection has no runs of its own.
+  - The per-run figure is rounded to six places.
+  - → `test_savings_recurring_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `savings/recurring.py` | 36 | `ms.UNKNOWN: 2` to `3` in `_STRENGTH` | Equivalent: only the order of the strengths is used. |
+| `savings/recurring.py` | 88, 90 | `round(..., 6)` to `7` for a period's gross and net | Equivalent: each run's figure is already rounded to 6 places, so their sum differs from 6 places only by float noise far below 5e-8. |
+
+# Mutation testing, batch 193
+
+`savings/pricing.py`, versioned price scenarios and the value of avoided CU, run the same way as batch 191 (111 mutants, all run).
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `savings/pricing.py` | as batch 191 (+ test_savings_properties, test_savings_pricing_mutation) | 111 of 111 | 101 / 10 | **91.0%** | 110 / 1 | **99.1%** | 1 equivalent |
+
+No bugs were found by the mutants. The order gap in `value_runs` is in the properties section above.
+
+### What the survivors were, and the tests that now kill them
+
+- **savings/pricing.py**:
+  - A version keeps its rate to six places and its source trimmed, and has a 16-digit id.
+  - A version that ends when it starts is refused, and an overlap names the scenario.
+  - Zero and fractional CU are priced, and a negative figure is refused.
+  - Runs are priced on net by default, and on gross when asked.
+  - → `test_savings_pricing_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `savings/pricing.py` | 177 | the "more than one currency" raise removed in `value_runs` | Equivalent: every price comes from one scenario, and `check` refuses a scenario in more than one currency before any run is priced, so the line can't be reached. |

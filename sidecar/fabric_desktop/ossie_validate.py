@@ -7,8 +7,10 @@ no way to retrieve anything, so a ``$ref`` to any other URL is unresolved and re
 ``validate`` takes a parsed document or untrusted text. Text goes through ``model_ossie.load_text``, the same
 size limit and alias-refusing safe loader ``model_ossie.parse`` uses. The result lists diagnostics, each with a
 JSON path, the schema rule it breaks, a short form of the value, a message and a fix, sorted by path. A version
-with no pinned schema gets one named diagnostic and is never a pass. Version profiles (Fabric, Snowflake and the
-other rules beyond the schema) are OSSIE-003b.
+with no pinned schema gets one named diagnostic and is never a pass. The result informs and never blocks an import
+(``EFFECT``). The check stops after MAX_RAW_ERRORS schema errors, and runs on the schema with its local ``$ref``s
+inlined (``inline_local_refs``), so a file that is wrong everywhere costs bounded time. Version profiles (Fabric,
+Snowflake and the other rules beyond the schema) are OSSIE-003b.
 """
 
 from __future__ import annotations
@@ -32,6 +34,12 @@ SCHEMAS: dict[str, dict[str, str]] = {
                    "extensions": "nonportable_extensions"},
 }
 MAX_DIAGNOSTICS = 200  # more than this are counted in one "N more" line
+# The check stops after this many schema errors, so a file that is wrong everywhere costs bounded time; the rest
+# are then counted as "at least N more". Errors arrive in document order, so those shown are from the file's start.
+MAX_RAW_ERRORS = 5_000
+# The result informs and never blocks: Import goes ahead whatever it says, because the converter already refuses
+# what it can't read. A caller that wants to stop on it decides that itself.
+EFFECT = "informs"
 MAX_VALUE = 80  # characters of a value's short form
 MAX_DEPTH = 64  # a real Ossie model nests about 8 levels; deeper is refused before the schema check recurses
 _ONCE = frozenset({"required", "additionalProperties"})  # one diagnostic per property, however often it is seen
@@ -59,9 +67,39 @@ def _validator_for(schema: dict[str, Any]) -> Any:
     return Draft202012Validator(schema, registry=registry)
 
 
+def _pointer(root: Any, ref: str) -> Any:
+    node = root
+    for token in ref[2:].split("/"):
+        token = token.replace("~1", "/").replace("~0", "~")
+        node = node[int(token)] if isinstance(node, list) else node[token]
+    return node
+
+
+def inline_local_refs(schema: dict[str, Any]) -> dict[str, Any]:
+    """``schema`` with each ``{"$ref": "#/..."}`` that has no other keys replaced by what it points at, so the
+    check doesn't look each one up again for every value (about a third of its time). A ref that points back into
+    itself, a ref with other keys beside it and any other ref (another document, a URL) stay as they are, and
+    ``$defs`` stays, so the result validates exactly as ``schema`` does. ``schema`` itself is not changed."""
+    def resolve(node: Any, active: frozenset[str]) -> Any:
+        if isinstance(node, list):
+            return [resolve(v, active) for v in node]
+        if not isinstance(node, dict):
+            return node
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/") and len(node) == 1 and ref not in active:
+            try:
+                target = _pointer(schema, ref)
+            except (KeyError, IndexError, ValueError, TypeError):  # narrow: a dangling pointer stays a $ref
+                return dict(node)
+            return resolve(target, active | {ref})
+        return {k: resolve(v, active) for k, v in node.items()}
+
+    return dict(resolve(schema, frozenset()))
+
+
 @functools.lru_cache(maxsize=len(SCHEMAS))
 def _validator(version: str) -> Any:
-    return _validator_for(_schema(version))
+    return _validator_for(inline_local_refs(_schema(version)))
 
 
 def schema_info(version: str) -> dict[str, str]:
@@ -103,23 +141,34 @@ def _diag(parts: Any, rule: str, value: str, message: str, fix: str) -> dict[str
 
 def _shape(doc: Any) -> list[dict[str, Any]]:
     """Problems the schema check can't be trusted with, found without recursion: nesting deeper than MAX_DEPTH
-    (the check would recurse that deep) and keys that aren't text (YAML allows them, JSON doesn't)."""
+    (the check would recurse that deep) and keys that aren't text (YAML allows them, JSON doesn't). Only
+    containers are visited, and a path is built only for a problem (each entry links to its parent)."""
     found: list[dict[str, Any]] = []
-    stack: list[tuple[Any, tuple[Any, ...]]] = [(doc, ())]
+    stack: list[tuple[Any, int, Any]] = [(doc, 0, None)]  # (value, depth, (parent link, key) or None)
+    containers = (dict, list)
     while stack:
-        value, parts = stack.pop()
-        if len(parts) > MAX_DEPTH:
-            return [_diag(parts[:MAX_DEPTH], "depth", "", f"nested more than {MAX_DEPTH} levels deep",
+        value, depth, link = stack.pop()
+        if depth > MAX_DEPTH:
+            return [_diag(_parts(link)[:MAX_DEPTH], "depth", "", f"nested more than {MAX_DEPTH} levels deep",
                           "An Ossie model nests a few levels; take out the extra nesting.")]
         if isinstance(value, dict):
             for k, v in value.items():
                 if not isinstance(k, str):
-                    found.append(_diag(parts, "key", short(k), f"has a key that isn't text: {short(k)}",
+                    found.append(_diag(_parts(link), "key", short(k), f"has a key that isn't text: {short(k)}",
                                        "Quote the key so it is text."))
-                stack.append((v, (*parts, k if isinstance(k, str) else str(k))))
-        elif isinstance(value, list):
-            stack.extend((v, (*parts, i)) for i, v in enumerate(value))
+                if isinstance(v, containers):
+                    stack.append((v, depth + 1, (link, k if isinstance(k, str) else str(k))))
+        else:  # a list
+            stack.extend((v, depth + 1, (link, i)) for i, v in enumerate(value) if isinstance(v, containers))
     return found
+
+
+def _parts(link: Any) -> tuple[Any, ...]:
+    out = []
+    while link is not None:
+        link, key = link
+        out.append(key)
+    return tuple(reversed(out))
 
 
 def _type_names(types: Any) -> str:
@@ -169,6 +218,8 @@ def _flatten(error: Any, ext_key: str) -> list[dict[str, Any]]:
                 for p in error.validator_value if p not in instance]
     if rule == "additionalProperties" and isinstance(instance, dict):
         props = error.schema.get("properties") or {}
+        # Python's re, not ECMA-262 as JSON Schema specifies (and jsonschema uses re too). The pinned schemas have
+        # no pattern or patternProperties (tests/test_ossie_schema.py checks), so review this before vendoring one.
         patterns = list((error.schema.get("patternProperties") or {}).keys())
         extra = [k for k in instance if k not in props and not any(re.search(p, str(k)) for p in patterns)]
         return [_diag((*parts, k), "additionalProperties", short(instance[k]), f"isn't a property here{_where(parts)}",
@@ -193,29 +244,34 @@ def _where(parts: tuple[Any, ...]) -> str:
     return f" in {json_path(parts)}" if parts else ""
 
 
-def _result(version: str, diagnostics: list[dict[str, Any]], checked: bool, total: int | None = None) -> dict[str, Any]:
+def _result(version: str, diagnostics: list[dict[str, Any]], checked: bool, total: int | None = None,
+            stopped: bool = False) -> dict[str, Any]:
     """The answer: diagnostics sorted by path, cut at MAX_DIAGNOSTICS with one ``more`` line for the rest.
-    ``total`` is how many there were when the caller already cut the list to keep memory bounded."""
+    ``total`` is how many there were when the caller already cut the list to keep memory bounded; ``stopped``
+    says the check stopped at MAX_RAW_ERRORS, so there may be more than ``total``."""
     total = len(diagnostics) if total is None else total
     diagnostics.sort(key=_sort_key)
-    more = max(0, total - MAX_DIAGNOSTICS)
+    more = max(1 if stopped else 0, total - MAX_DIAGNOSTICS)  # stopped: the error it stopped at is one more
     shown = diagnostics[:MAX_DIAGNOSTICS]
     for d in shown:
         d.pop("_parts", None)
-    if more:
-        shown.append({"path": "$", "rule": "more", "value": "", "message": f"{more} more problems not shown",
+    if more or stopped:
+        count = f"at least {more}" if stopped else str(more)
+        shown.append({"path": "$", "rule": "more", "value": "", "message": f"{count} more problems not shown",
                       "fix": "Fix the problems above and check again."})
-    return {"valid": checked and total == 0, "version": version, "checked": checked,
-            "schema": schema_info(version) if checked and version in SCHEMAS else None, "diagnostics": shown, "more": more}
+    return {"valid": checked and total == 0 and not stopped, "effect": EFFECT, "version": version,
+            "checked": checked, "schema": schema_info(version) if checked and version in SCHEMAS else None,
+            "diagnostics": shown, "more": more, "stopped": stopped}
 
 
 def validate(doc_or_text: Any) -> dict[str, Any]:
     """Check an Ossie document (a dict, or YAML or JSON text) against the pinned schema for its ``version``.
 
-    Returns ``valid`` (true only when a pinned schema checked it and found nothing), ``version``, ``checked``
+    Returns ``valid`` (true only when a pinned schema checked it and found nothing), ``effect`` ("informs": the
+    result never blocks an import), ``version``, ``checked``
     (whether a schema check ran), ``schema`` (version, commit, url), ``diagnostics`` (``path``, ``rule``,
-    ``value``, ``message``, ``fix``, sorted by path, at most MAX_DIAGNOSTICS then one ``more`` line) and
-    ``more``. Text that can't be read (too large, not YAML, aliases, too deep) is one ``parse`` diagnostic."""
+    ``value``, ``message``, ``fix``, sorted by path, at most MAX_DIAGNOSTICS then one ``more`` line), ``more``
+    and ``stopped`` (the check stopped at MAX_RAW_ERRORS, so ``more`` is "at least"). Text that can't be read (too large, not YAML, aliases, too deep) is one ``parse`` diagnostic."""
     doc = doc_or_text
     if isinstance(doc_or_text, (str, bytes)):
         try:
@@ -252,10 +308,15 @@ def check(doc: Any, validator: Any, version: str) -> dict[str, Any]:
 
     ext_key = SCHEMAS.get(version, {}).get("extensions", "the extensions property")
     diagnostics: list[dict[str, Any]] = []
-    total = 0
+    total = raw = 0
+    stopped = False
     seen: set[tuple[str, str]] = set()
     try:
         for error in validator.iter_errors(doc):
+            raw += 1
+            if raw > MAX_RAW_ERRORS:
+                stopped = True
+                break
             # jsonschema raises one required error per missing property; each becomes every missing one, so once
             found = [d for d in _flatten(error, ext_key) if d["rule"] not in _ONCE or (d["path"], d["rule"]) not in seen]
             seen.update((d["path"], d["rule"]) for d in found if d["rule"] in _ONCE)
@@ -272,4 +333,4 @@ def check(doc: Any, validator: Any, version: str) -> dict[str, Any]:
     except RecursionError:
         diagnostics.append(_diag((), "depth", "", "nested too deeply to check", "Take out the extra nesting."))
         total += 1
-    return _result(version, diagnostics, True, total)
+    return _result(version, diagnostics, True, total, stopped)

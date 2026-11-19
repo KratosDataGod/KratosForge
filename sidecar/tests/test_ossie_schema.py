@@ -11,6 +11,7 @@ import json
 import logging
 import re
 import socket
+import time
 import urllib.request
 from pathlib import Path
 
@@ -97,6 +98,70 @@ def test_the_converters_version_has_a_pinned_schema():
     assert model_ossie.OSSIE_VERSION in ossie_validate.SCHEMAS
 
 
+def _keys(value):
+    """Every key anywhere in a JSON value, without recursion."""
+    stack, found = [value], set()
+    while stack:
+        v = stack.pop()
+        if isinstance(v, dict):
+            found.update(v)
+            stack.extend(v.values())
+        elif isinstance(v, list):
+            stack.extend(v)
+    return found
+
+
+@pytest.mark.parametrize("version", sorted(ossie_validate.SCHEMAS))
+def test_the_pinned_schemas_use_no_regular_expressions(version):
+    # The validator matches patternProperties with Python's re, and jsonschema checks pattern with it too, not
+    # with ECMA-262 as JSON Schema specifies. Fine while no pinned schema has one; a schema that adds one trips
+    # this, so the dialect is reviewed (and the docs note updated) before it is vendored.
+    assert not {"pattern", "patternProperties"} & _keys(_schema(version))
+
+
+def _broken_docs():
+    """Documents that break the schema in different ways, for comparing two validators."""
+    docs = []
+    for change in (
+        lambda d: d["datasets"][0].pop("name"),
+        lambda d: d["datasets"][0]["fields"][0].update(colour="blue", datatype="Nope"),
+        lambda d: d["datasets"][0]["fields"][1].update(expression={}),
+        lambda d: d["datasets"][1]["fields"][2].update(ai_context={"synonyms": 5}),
+        lambda d: d["datasets"][0].update(ai_context=5),
+        lambda d: d.update(name=5, relationships="x"),
+        lambda d: d["relationships"][0].update(from_columns=[]),
+    ):
+        doc = _doc()
+        change(doc)
+        docs.append(doc)
+    return docs
+
+
+@pytest.mark.parametrize("version", sorted(ossie_validate.SCHEMAS))
+def test_inlining_the_local_refs_changes_no_result(version):
+    schema = _schema(version)
+    before = copy.deepcopy(schema)
+    inlined = ossie_validate.inline_local_refs(schema)
+    assert schema == before  # not changed in place
+    assert "$ref" not in json.dumps(inlined["properties"])  # every local ref resolved: none is cyclic
+    plain, fast = ossie_validate._validator_for(schema), ossie_validate._validator_for(inlined)
+    examples = [model_ossie.load_text(p.read_text(encoding="utf-8")) for p in EXAMPLES if p.parent.name == version]
+    for doc in _broken_docs() + examples:
+        doc["version"] = version
+        assert ossie_validate.check(doc, fast, version) == ossie_validate.check(doc, plain, version)
+
+
+def test_inlining_leaves_other_refs_and_cycles_as_refs():
+    schema = {"$defs": {"Tree": {"type": "object", "properties": {"child": {"$ref": "#/$defs/Tree"}}}},
+              "properties": {"t": {"$ref": "#/$defs/Tree"}, "r": {"$ref": "https://example.com/x.json"},
+                             "s": {"$ref": "#/$defs/Tree", "description": "kept beside its ref"},
+                             "d": {"$ref": "#/$defs/Missing"}}}
+    props = ossie_validate.inline_local_refs(schema)["properties"]
+    assert props["t"]["properties"]["child"] == {"$ref": "#/$defs/Tree"}
+    assert props["r"] == {"$ref": "https://example.com/x.json"} and props["d"] == {"$ref": "#/$defs/Missing"}
+    assert props["s"] == schema["properties"]["s"]
+
+
 def test_the_vendored_license_is_apache_2():
     assert "Apache License" in (VENDOR / "LICENSE").read_text(encoding="utf-8")
     assert "Apache Ossie" in (VENDOR / "NOTICE").read_text(encoding="utf-8")
@@ -109,6 +174,7 @@ def test_the_upstream_examples_validate(path):
     result = ossie_validate.validate(path.read_text(encoding="utf-8"))
     assert result["diagnostics"] == []
     assert result["valid"] and result["checked"] and result["version"] == path.parent.name
+    assert result["effect"] == "informs" and result["stopped"] is False
     assert result["schema"] == ossie_validate.schema_info(path.parent.name)
 
 
@@ -243,6 +309,29 @@ def test_a_document_with_many_breaches_is_cut_with_a_count():
     last = result["diagnostics"][-1]
     assert last["rule"] == "more" and last["message"] == f"{result['more']} more problems not shown"
     assert not result["valid"]
+
+
+def test_a_file_wrong_everywhere_stops_after_the_raw_error_cap_in_bounded_time():
+    doc = _doc()
+    template = doc["datasets"][0]
+    field = dict(copy.deepcopy(template["fields"][0]), colour="blue")
+    doc["datasets"] = [dict(copy.deepcopy(template), name=f"d{i}", fields=[dict(field, name=f"f{j}") for j in range(50)])
+                       for i in range(2_000)]  # 100,000 bad fields
+    started = time.perf_counter()
+    result = ossie_validate.validate(doc)
+    elapsed = time.perf_counter() - started
+    assert elapsed < 2.0, f"took {elapsed:.2f} s"
+    assert result["stopped"] and not result["valid"]
+    assert len(result["diagnostics"]) == ossie_validate.MAX_DIAGNOSTICS + 1
+    assert result["more"] == ossie_validate.MAX_RAW_ERRORS - ossie_validate.MAX_DIAGNOSTICS
+    last = result["diagnostics"][-1]
+    assert last["rule"] == "more" and last["message"] == f"at least {result['more']} more problems not shown"
+    assert result["diagnostics"][0]["path"] == "$.datasets[0].fields[0].colour"
+
+
+def test_under_the_raw_error_cap_the_count_is_exact():
+    result = ossie_validate.validate(_doc())
+    assert result["stopped"] is False and result["more"] == 0
 
 
 def test_a_long_value_is_cut_short():
@@ -391,7 +480,8 @@ def test_the_vendored_registry_refuses_a_remote_ref(offline):
     resolver = ossie_validate._validator("0.2.0.dev0")._resolver
     with pytest.raises(Unresolvable):
         resolver.lookup("https://example.com/ossie-schema.json")
-    assert resolver.lookup("#/$defs/Dataset").contents == _schema()["$defs"]["Dataset"]
+    inlined = ossie_validate.inline_local_refs(_schema())  # what the check runs on (see the inlining tests)
+    assert resolver.lookup("#/$defs/Dataset").contents == inlined["$defs"]["Dataset"]
     assert offline == []
 
 
@@ -423,3 +513,38 @@ def test_import_preview_returns_the_schema_check(svc):  # noqa: F811 - the fixtu
     doc["datasets"][0]["colour"] = "blue"
     out = svc.meta_model_ossie_preview("test", json.dumps(doc), "SM_Gold")
     assert [d["path"] for d in out["schema_validation"]["diagnostics"]] == ["$.datasets[0].colour"]
+    assert out["schema_validation"]["effect"] == "informs"
+
+
+@pytest.mark.parametrize("name", ["SM_Gold", ""])  # without a name the file's own name is read from it
+def test_the_preview_reads_the_file_once(svc, monkeypatch, name):  # noqa: F811 - the fixture
+    text = model_ossie.export(_bim())["yaml"]
+    real, reads = model_ossie.load_text, []
+
+    def counting(t):
+        if t == text:
+            reads.append(1)
+        return real(t)
+
+    monkeypatch.setattr(model_ossie, "load_text", counting)
+    out = svc.meta_model_ossie_preview("test", text, name)
+    assert len(reads) == 1
+    assert out["schema_validation"]["valid"] and out["name"] == "SM_Gold"
+
+
+def test_a_failing_schema_check_never_blocks_the_import(svc):  # noqa: F811 - the fixture
+    doc = model_ossie.parse(_ossie())
+    doc["datasets"][0]["colour"] = "blue"  # the converter ignores it; the schema doesn't allow it
+    text = json.dumps(doc)
+    assert not svc.meta_model_ossie_preview("test", text, "SM_Gold")["schema_validation"]["valid"]
+    out = svc.meta_model_ossie_import("test", text, "SM_Gold", confirmed=True)
+    assert out["name"] == "SM_Gold" and svc.fake.saved
+
+
+def test_conversion_from_a_parsed_document_matches_conversion_from_its_text():
+    text = model_ossie.export(_bim())["yaml"]
+    doc = model_ossie.parse(text)
+    before = copy.deepcopy(doc)
+    assert model_ossie.to_tmsl(doc) == model_ossie.to_tmsl(text)
+    assert model_ossie.stashed(doc) == model_ossie.stashed(text)
+    assert doc == before  # read only

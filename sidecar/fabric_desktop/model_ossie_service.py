@@ -338,13 +338,14 @@ class ModelOssieMixin:
             raise ValueError(f"mode is one of {', '.join(MODES)}")
         model_ossie.require()  # before any Fabric call, even when a name is given and the file isn't parsed yet
         project, cfg = self._ossie_workspace(env)
-        name = (name or model_ossie.parse(text)["name"]).strip()
+        doc = model_ossie.parse(text)  # read once: the conversion, the merge, the reports and the schema check share it
+        name = (name or doc["name"]).strip()
         store = self._store(project, env)  # type: ignore[attr-defined]
         lakehouse = project.layer(self._model_layer(project, layer)).lakehouse  # type: ignore[attr-defined]
         source = None
         if isinstance(store, OneLakeStore) and lakehouse in store.lakehouse_ids:
             source = {"workspaceId": store.workspace_of(lakehouse), "itemId": store.lakehouse_ids[lakehouse]}
-        incoming, report = model_ossie.to_tmsl(text, source=source)
+        incoming, report = model_ossie.to_tmsl(doc, source=source)
         if source is None:
             report.append({"object": "Direct Lake", "kind": "lost",
                            "message": f"{lakehouse} isn't in this environment yet, so new tables read from placeholder ids; promote first"})
@@ -355,11 +356,11 @@ class ModelOssieMixin:
         if mode != "new" and existing is None:
             raise LookupError(f"There's no semantic model named {name} to {mode}; pick New model to create it")
         current = self._model_bim(cfg["workspace_id"], existing) if existing else None
-        final = model_ossie.merge(cast(dict[str, Any], current), incoming, remove, model_ossie.stashed(text),
+        final = model_ossie.merge(cast(dict[str, Any], current), incoming, remove, model_ossie.stashed(doc),
                                   report) if mode == "update" else incoming
         final["name"] = name
-        return {"final": final, "existing": existing, "cfg": cfg, "name": name, "report": report,
-                "fidelity": model_ossie.safe_fidelity(model_ossie.parse(text), incoming, report,
+        return {"final": final, "existing": existing, "cfg": cfg, "name": name, "report": report, "doc": doc,
+                "fidelity": model_ossie.safe_fidelity(doc, incoming, report,
                                                       model_ossie.round_trip_check(incoming)),
                 "changes": model_ossie.plan(current, final),
                 "removable": model_ossie.removable(current, incoming) if mode == "update" else []}
@@ -370,12 +371,13 @@ class ModelOssieMixin:
 
         ``removable`` lists what an update keeps although the file doesn't have it; pass any of them in
         ``remove`` to take them out. ``schema_validation`` is the file checked against the pinned Ossie JSON Schema
-        for its version (ossie_validate.validate), on this PC."""
+        for its version (ossie_validate.validate), on this PC. It informs only: Import doesn't wait on it, because
+        the converter already refuses what it can't read."""
         p = self._ossie_import_plan(env, text, name, mode, remove, layer)
         return {"env": env, "name": p["name"], "mode": mode, "exists": p["existing"] is not None,
                 "workspace_name": p["cfg"].get("workspace_name", ""), "changes": p["changes"],
                 "removable": p["removable"], "report": p["report"], "fidelity": p["fidelity"],
-                "schema_validation": ossie_validate.validate(text)}
+                "schema_validation": ossie_validate.validate(p["doc"])}
 
     def meta_model_ossie_import(self, env: str = "test", text: str = "", name: str = "", mode: str = "update",
                                 remove: list[str] | None = None, layer: str | None = None,

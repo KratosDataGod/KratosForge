@@ -247,11 +247,16 @@ def _lift_dataset_metrics(doc: dict[str, Any], report: list[dict[str, str]]) -> 
     return doc
 
 
-def to_tmsl(text: str, source: dict[str, str] | None = None) -> tuple[dict[str, Any], list[dict[str, str]]]:
-    """An Ossie document as a parsed ``model.bim``, and the report. ``source`` is the lakehouse new Direct Lake
-    tables read: ``{"workspaceId": ..., "itemId": ...}``."""
+def _parsed(text: str | dict[str, Any]) -> dict[str, Any]:
+    """``text`` parsed, or as it is when the caller already has it from ``parse`` (so a file is read once)."""
+    return text if isinstance(text, dict) else parse(text)
+
+
+def to_tmsl(text: str | dict[str, Any], source: dict[str, str] | None = None) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """An Ossie document (its text, or what ``parse`` made of it) as a parsed ``model.bim``, and the report.
+    ``source`` is the lakehouse new Direct Lake tables read: ``{"workspaceId": ..., "itemId": ...}``."""
     lifted: list[dict[str, str]] = []
-    doc = _lift_dataset_metrics(parse(text), lifted)
+    doc = _lift_dataset_metrics(_parsed(text), lifted)  # works on a copy: the caller's document is unchanged
     try:
         bim, report = _convert(convert_ossie_to_semantic_model, yaml.safe_dump(doc, sort_keys=False), source=source)
     except ConversionError as exc:
@@ -277,7 +282,7 @@ def _stash_data(obj: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def stashed(text: str) -> set[str]:
+def stashed(text: str | dict[str, Any]) -> set[str]:
     """The tables (``"table"``), columns and measures (``"table[name]"``) the Ossie document gives a Power BI section
     (a POWER_BI custom extension, as Export to Ossie writes for each object with Fabric-only properties). For those
     the file speaks for every property, so ``merge`` takes the file's set; for the rest it carries the model's
@@ -286,8 +291,9 @@ def stashed(text: str) -> set[str]:
     A measure is named by the table the converter puts it on: a dataset's metric is lifted with that dataset as
     its table unless its section names one (``_lift_dataset_metrics``, which leaves out one a model-level metric
     already names); the section's ``table`` and ``name`` stand when that table is in the model (a dataset or
-    one of the model section's excluded tables), and otherwise the first dataset is its home."""
-    doc = parse(text)
+    one of the model section's excluded tables), and otherwise the first dataset is its home. ``text`` may be
+    what ``parse`` made of the file; it is only read."""
+    doc = _parsed(text)
     datasets = [d for d in doc.get("datasets") or [] if isinstance(d, dict) and d.get("name")]
     if not datasets:
         return set()

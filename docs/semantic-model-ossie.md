@@ -154,7 +154,13 @@ The `kind` (kept or lost) of the existing rows is unchanged, so the current card
 
 Import's preview also checks the Ossie file against the official Apache Ossie JSON Schema for the
 version the file declares, and returns the result as `schema_validation` (OSSIE-003a, engine
-only; no screen shows it yet). The check runs on this PC and never goes online.
+only; no screen shows it yet). The check runs on this PC and never goes online. The preview
+reads the file once and the check uses what it read.
+
+The result only informs (`"effect": "informs"`). A file that fails it (`valid` false) can still be
+imported: Import never waits on this check, because the converter already refuses what it can't
+read, and says why. The check shows where the file departs from the specification, which matters
+when the file goes to other tools.
 
 - KratosForge carries two copies of the schema, each fixed to one upstream commit, in
   `sidecar/fabric_desktop/_vendor/ossie_schema` with their licence and SHA-256 hashes:
@@ -166,11 +172,18 @@ only; no screen shows it yet). The check runs on this PC and never goes online.
   rule it breaks (`required`, `additionalProperties`, `type`, `enum` and so on), a short form of
   the value, what is wrong and how to fix it. A missing property and an unexpected property are
   one problem each. Problems are sorted by path; after 200 the rest are counted in one line.
+- A file that is wrong almost everywhere costs bounded time: the check stops after 5,000 schema
+  errors and the last line says "at least N more" (`stopped` is true). The problems shown are
+  then the first ones in the file. A file of 2,000 datasets with 50 bad fields each is checked in
+  about a second.
 - The file is read with the same limits as Import: at most 20 million characters, no YAML
   aliases (`*name`), and no deeper nesting than a model needs. The schema can't refer to anything
   outside the copies it ships with.
 - `valid` is true only when a schema checked the file and found nothing. Rules beyond the schema,
   such as what Fabric or Snowflake accept, come later (OSSIE-003b).
+- Regular expressions in a schema (`pattern`, `patternProperties`) would be matched with Python's
+  `re`, not the ECMA-262 dialect JSON Schema names. Neither pinned schema has any, and a test fails
+  if a newly vendored schema adds one, so the dialect is reviewed before such a schema ships.
 
 ## Keeping Git in step
 

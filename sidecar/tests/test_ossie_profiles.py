@@ -236,7 +236,8 @@ def test_the_fabric_20_file_limit(count, ok):
     result = ossie_validate.validate_files(_files(count))
     assert result["valid"] is ok and result["counts"]["yaml_files"] == count
     assert [d["rule"] for d in result["diagnostics"]] == ([] if ok else ["fabric/file-count"])
-    assert result["files_checked"] and len(result["files"]) == count
+    # past the limit only the first 20 are checked one by one, and the set says so
+    assert result["files_checked"] is ok and len(result["files"]) == min(count, 20)
 
 
 def test_yml_files_are_ignored_with_a_warning():
@@ -334,3 +335,33 @@ def test_a_document_is_not_changed_by_any_profile():
         before = copy.deepcopy(doc)
         ossie_validate.validate(doc, profile)
         assert doc == before
+
+
+def test_past_the_file_count_only_the_first_twenty_files_are_checked_one_by_one(monkeypatch):
+    from fabric_desktop import ossie_profiles, ossie_validate
+    calls = []
+    real = ossie_validate.validate
+    monkeypatch.setattr(ossie_validate, "validate", lambda doc, profile=None: calls.append(1) or real(doc, profile))
+    files = {f"f{i:04}.yaml": "version: 0.2.0.dev0\nname: x\ndatasets: []\n" for i in range(500)}
+    out = ossie_profiles.validate_files(files)
+    assert len(calls) == ossie_profiles.FABRIC_MAX_FILES and len(out["files"]) == ossie_profiles.FABRIC_MAX_FILES
+    assert not out["valid"] and not out["files_checked"]
+    assert [d["rule"] for d in out["diagnostics"]] == ["fabric/file-count"]
+    assert any(w["rule"] == "fabric/not-checked" and "480 more" in w["message"] for w in out["warnings"])
+
+
+def test_profile_rules_run_only_after_the_depth_and_key_checks(monkeypatch):
+    # ossie_profiles.check is reached only through ossie_validate.validate, after _shape; validate_files goes
+    # through validate for each file too
+    from fabric_desktop import ossie_profiles, ossie_validate
+    seen = []
+    monkeypatch.setattr(ossie_profiles, "check", lambda doc, profile: seen.append(profile) or {})
+    deep: dict = {}
+    node = deep
+    for _ in range(ossie_validate.MAX_DEPTH + 5):
+        node["x"] = {}
+        node = node["x"]
+    doc = {"version": "0.2.0.dev0", "name": "m", "datasets": [], "deep": deep}
+    assert ossie_validate.validate(doc)["diagnostics"][0]["rule"] == "depth" and not seen
+    ossie_profiles.validate_files({"a.yaml": "version: 0.2.0.dev0\nname: m\ndatasets: []\n" + "x: [" * 200 + "]" * 200})
+    assert not seen

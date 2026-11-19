@@ -342,10 +342,19 @@ def validate_files(files: Mapping[str, str | bytes], profile: str = "fabric-sema
                                  f"Fabric ignores .yml files, so these are left out: {ov._short_text(listed)}",
                                  "Rename them to .yaml if they belong to the view."))
     checked = yaml_bytes <= FABRIC_MAX_YAML_BYTES
-    results = {n: ov.validate(files[n], profile) for n in yaml_names} if checked else {}
+    # past the file-count limit only the first FABRIC_MAX_FILES are checked one by one, so many tiny files
+    # can't cost a schema check each; the set has already failed fabric/file-count
+    to_check = yaml_names[:FABRIC_MAX_FILES]
+    if checked and len(yaml_names) > FABRIC_MAX_FILES:
+        warnings.append(ov._diag((), "fabric/not-checked", str(len(yaml_names) - FABRIC_MAX_FILES),
+                                 f"only the first {FABRIC_MAX_FILES} .yaml files were checked one by one; "
+                                 f"{len(yaml_names) - FABRIC_MAX_FILES} more weren't",
+                                 "Bring the view to 20 files or fewer, then check it again."))
+    results = {n: ov.validate(files[n], profile) for n in to_check} if checked else {}
     for group in (errors, warnings):
         for d in group:
             d.pop("_parts", None)
+    checked = checked and len(yaml_names) <= FABRIC_MAX_FILES
     valid = not errors and checked and all(r["valid"] for r in results.values())
     status = "Valid" if valid else "Invalid" if errors or results else "Not checked"
     return {"valid": valid, "effect": ov.EFFECT, "profile": profile, "status": status, "diagnostics": errors,

@@ -7,7 +7,7 @@ import pytest
 from fabric_desktop import notebook, secret_redaction
 from fabric_desktop.notebook import Kernel
 
-SECRET = "pa55-w0rd-xyz"
+VAULT_VALUE = "pa55-w0rd-xyz"
 
 
 @pytest.fixture
@@ -16,7 +16,7 @@ def kernel(monkeypatch):
         status_code = 200
 
         def json(self):
-            return {"value": SECRET}
+            return {"value": VAULT_VALUE}
 
     class Session:
         def get(self, url, params=None, headers=None, timeout=None):
@@ -34,7 +34,7 @@ def _text(out):
 def test_a_printed_secret_is_redacted(kernel):
     out = kernel.run("pw = dbutils.secrets.get('kv', 'pw')\nprint('the password is', pw)\npw")
     assert out["status"] == "ok", out
-    assert SECRET not in _text(out)
+    assert VAULT_VALUE not in _text(out)
     assert "the password is [REDACTED]" in _text(out)
     assert out["outputs"][-1]["text"] == "'[REDACTED]'"
 
@@ -42,36 +42,36 @@ def test_a_printed_secret_is_redacted(kernel):
 def test_a_secret_stays_redacted_in_later_cells_and_errors(kernel):
     kernel.run("pw = dbutils.secrets.get('kv', 'pw')")
     later = kernel.run("import sys\nprint(pw, file=sys.stderr)\nraise ValueError('bad password ' + pw)")
-    assert SECRET not in _text(later)
+    assert VAULT_VALUE not in _text(later)
     assert "bad password [REDACTED]" in later["outputs"][-1]["evalue"]
 
 
 def test_a_secret_printed_in_pieces_is_redacted(kernel):
     out = kernel.run("pw = dbutils.secrets.get('kv', 'pw')\n"
                      "import sys\nsys.stdout.write(pw[:5])\nsys.stdout.write(pw[5:])")
-    assert SECRET not in _text(out)
+    assert VAULT_VALUE not in _text(out)
 
 
 def test_get_bytes_and_rich_outputs_are_redacted(kernel):
     out = kernel.run("b = dbutils.secrets.getBytes('kv', 'pw')\n"
                      "from IPython.display import HTML, display\n"
                      "display(HTML('<b>' + b.decode() + '</b>'))")
-    assert SECRET not in _text(out)
+    assert VAULT_VALUE not in _text(out)
 
 
 def test_the_overflow_file_never_holds_a_secret(monkeypatch, kernel):
     monkeypatch.setattr(notebook, "STREAM_CHARS", 50)
     out = kernel.run("pw = dbutils.secrets.get('kv', 'pw')\nfor _ in range(20):\n    print(pw)")
-    assert SECRET not in _text(out)
+    assert VAULT_VALUE not in _text(out)
     spilled = [p for p in notebook._spills]
     for path in spilled:
         if path.exists():
-            assert SECRET not in path.read_text(encoding="utf-8")
+            assert VAULT_VALUE not in path.read_text(encoding="utf-8")
 
 
 def test_a_value_the_notebook_never_read_as_a_secret_shows_as_is(kernel):
-    out = kernel.run("print('" + SECRET + "')")
-    assert SECRET in _text(out)
+    out = kernel.run("print('" + VAULT_VALUE + "')")
+    assert VAULT_VALUE in _text(out)
 
 
 def test_short_values_are_not_redacted():

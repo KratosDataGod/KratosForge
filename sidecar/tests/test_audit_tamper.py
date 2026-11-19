@@ -311,8 +311,8 @@ def test_lines_cut_from_the_end_with_the_head_deleted_are_caught_by_the_event_lo
     missing, cut = _check(anchored)["problems"]
     assert missing == "head.json: missing, so the end of the trail can't be confirmed"
     assert cut.startswith(f"event log: the trail ends before the newest line the Windows event log recorded "
-                          f"(line {COUNT}); lines were deleted from the end. The event log recorded {COUNT} lines")
-    assert cut.endswith(f"; the trail has {COUNT - 2}")
+                          f"(line {COUNT}), so lines were deleted from the end. The event log recorded {COUNT} lines")
+    assert cut.endswith(f", and the trail has {COUNT - 2}")
 
 
 def test_the_head_deleted_alone_is_caught_by_the_event_log(anchored):

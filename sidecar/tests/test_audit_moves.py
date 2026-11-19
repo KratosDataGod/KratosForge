@@ -52,7 +52,7 @@ def test_lines_cut_from_a_moved_trail_are_still_caught(event_log, trail, tmp_pat
     (moved / audit_chain.HEAD).write_text(json.dumps(head))
     [problem] = audit_chain.verify(moved)["problems"]
     assert problem.startswith("event log: the trail ends before the newest line the Windows event log recorded "
-                              "(line 5)") and problem.endswith("; the trail has 3"), problem
+                              "(line 5)") and problem.endswith(", and the trail has 3"), problem
 
 
 def test_after_its_next_write_a_moved_trail_is_checked_against_its_own_records(event_log, trail, tmp_path):

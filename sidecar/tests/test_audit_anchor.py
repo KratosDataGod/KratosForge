@@ -50,9 +50,9 @@ def test_a_cut_end_with_the_head_rewritten_to_match_is_caught(tmp_path, event_lo
     path.write_text("".join(line + "\n" for line in lines[:2]), encoding="utf-8")
     (folder / audit_chain.HEAD).write_text(json.dumps({"hash": json.loads(lines[1])["hash"], "lines": 2}))
     assert log.verify()["problems"] == [
-        (f"event log: the trail ends before the newest line the Windows event log recorded (line {COUNT}); "
+        (f"event log: the trail ends before the newest line the Windows event log recorded (line {COUNT}), so "
          f"lines were deleted from the end. The event log recorded {COUNT} lines in all, ending with "
-         f"{json.loads(lines[-1])['hash'][:12]}; the trail has 2")]
+         f"{json.loads(lines[-1])['hash'][:12]}, and the trail has 2")]
 
 
 def test_a_resealed_trail_with_its_head_rewritten_is_caught(tmp_path, event_log):
@@ -70,7 +70,7 @@ def test_a_resealed_trail_with_its_head_rewritten_is_caught(tmp_path, event_log)
     (folder / audit_chain.HEAD).write_text(json.dumps({"hash": prev, "lines": COUNT}))
     assert log.verify()["problems"] == [
         (f"event log: line {COUNT} isn't the line the Windows event log recorded, so the trail was re-sealed "
-         f"at or before line {COUNT}. Its hash is {prev[:12]}; the event log recorded "
+         f"at or before line {COUNT}. Its hash is {prev[:12]}, and the event log recorded "
          f"{json.loads(lines[-1])['hash'][:12]}")]
 
 

@@ -365,11 +365,11 @@ def _against(anchor: audit_anchor.Anchor, head: dict[str, Any], seen: dict[int, 
     line = anchor.lines - pruned  # its line number in the trail as it now starts
     if line > count:
         problems.append(f"event log: the trail ends before the newest line the Windows event log recorded "
-                        f"(line {line}); lines were deleted from the end. The event log recorded "
-                        f"{anchor.lines} lines in all, ending with {anchor.hash[:12]}; the trail has {count + pruned}")
+                        f"(line {line}), so lines were deleted from the end. The event log recorded "
+                        f"{anchor.lines} lines in all, ending with {anchor.hash[:12]}, and the trail has {count + pruned}")
     elif line > 0 and seen.get(line) != anchor.hash:
         problems.append(f"event log: line {line} isn't the line the Windows event log recorded, so the trail "
-                        f"was re-sealed at or before line {line}. Its hash is {str(seen.get(line) or 'unreadable')[:12]}; "
+                        f"was re-sealed at or before line {line}. Its hash is {str(seen.get(line) or 'unreadable')[:12]}, and "
                         f"the event log recorded {anchor.hash[:12]}")
     elif line == 0 and pruned and anchor.hash != (head.get("base") or {}).get("hash"):
         problems.append("event log: the trail's start isn't the one the Windows event log recorded")

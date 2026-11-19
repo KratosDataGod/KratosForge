@@ -32,7 +32,8 @@ Files are named the way [DaffyDB](https://www.nuget.org/packages/DaffyDB/) names
 - With `naming = "flat"`, folders don't set the schema: `Sales/Customer.csv` is `dbo.Sales_Customer`. A different default schema, or a name for one file (`names = {"sales/2026.csv": "raw.sales_2026"}`), can be set per folder.
 - When two files would get the same name, Parquet wins over CSV and CSV over JSON, and the other file is listed as a conflict. A file never replaces a table or view you created.
 - Skipped: hidden and dot folders, `node_modules`, `bin`, `obj`, `__pycache__`, virtual environments, build folders, and configuration files such as `package.json`. Add more with `exclude`.
-- Column types are inferred. Override them for a table (for example, read `id` as `VARCHAR`).
+- Column types are inferred. Override them for a table (for example, read `id` as `VARCHAR`). In a CSV, an override reads the text straight as that type, so `DECIMAL(38, 10)` keeps every digit, and the folder's issues name a column whose inferred type changes its values: numbers with more digits than a `DOUBLE` holds, hex text such as `0x00FF` read as a whole number, and times with a 7th digit of a second. See [Exporting and reading back results](sql-compatibility.md#exporting-and-reading-back-results).
+- In a CSV, `""` is an empty text and an empty field is `NULL`, as the app's CSV export writes them.
 - A file that can't be read is listed with the reason; the other files still work.
 - Changed files are picked up before the next query (checked at most every 2 seconds). Switch this off with `auto_refresh = false` and refresh when you choose.
 

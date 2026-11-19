@@ -92,7 +92,8 @@ from sqlglot import exp
 
 from . import app_settings, csv_cells, free_memory, jsonfile, sql, sql_params, sql_policy, sql_view, warehouse
 from .filenames import file_stem
-from .frames import EXCEL_MAX_ROWS, ExportNotes, csv_ready_batch, csv_ready_schema, write_xlsx_batches
+from .frames import (EXCEL_MAX_ROWS, ExportNotes, csv_ready_batch, csv_ready_schema, plain_decimals, plain_schema,
+                     write_xlsx_batches)
 from . import known_folders
 
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
@@ -1014,11 +1015,13 @@ class SqlExecutions:
 
     @staticmethod
     def _write_batches(export: Export, reader: Any, schema: pa.Schema, sink: Any) -> None:
-        """CSV or Parquet, through Arrow's own writers. CSV gets binary as hex and lists as JSON text (_csv_ready)."""
+        """CSV or Parquet, through Arrow's own writers. CSV gets binary as hex, lists as JSON text (_csv_ready) and
+        decimals as their digits (plain_decimals)."""
         csv = export.format == "csv"
         header = schema
         if csv:  # the header row's names are protected as the cells are (WR-228), counted once
             header, export.protected = csv_cells.protect_header(csv_ready_schema(schema), raw=export.raw)
+            header = plain_schema(header)  # decimals go out as their digits (frames.plain_decimals)
         writer = _writer(export.format, sink, header)
         try:
             for i in range(reader.num_record_batches):
@@ -1029,6 +1032,7 @@ class SqlExecutions:
                     batch = pa.RecordBatch.from_arrays(batch.columns, schema=schema)
                 if csv:
                     batch, protected = csv_cells.protect_batch(csv_ready_batch(batch), raw=export.raw)
+                    batch = plain_decimals(batch)
                     export.protected += protected
                 writer.write_batch(batch)
                 export.rows += batch.num_rows

@@ -127,6 +127,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
                 parts.replace(_timefromparts(parts))
             tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
+            _leading_zeros(tree)
             notes += _converts(tree)
             notes += _types(tree, schema)
             _percentiles(tree)
@@ -1183,6 +1184,18 @@ def tsql_decimal(op: str, p1: int, s1: int, p2: int, s2: int) -> tuple[int, int]
     return precision, scale
 
 
+def _leading_zeros(tree: exp.Expression) -> None:
+    """A number written with 38 digits after the point, ``0.99999999999999999999999999999999999999``, is a
+    ``decimal(38, 38)`` in T-SQL. DuckDB counts the 0 in front as a 39th digit and reads it as a DOUBLE, which is
+    1.0 (WR-242); without the zeros in front it is the DECIMAL(38, 38) it should be."""
+    for node in tree.find_all(exp.Literal):
+        if not node.is_number or "." not in node.name or "e" in node.name.lower():
+            continue
+        whole, fraction = node.name.split(".", 1)
+        if whole.isdigit() and len(whole) + len(fraction) > 38 >= len(whole.lstrip("0")) + len(fraction):
+            node.set("this", whole.lstrip("0") + "." + fraction)
+
+
 def _tsql_number(node: exp.Expression) -> tuple[int, int, bool] | None:
     """``(precision, scale, is_decimal)`` of a number as T-SQL types it, from the typed copy of the tree; None when
     it isn't a decimal or an integer. sqlglot types ``1.5`` as a float, ``a / b`` of decimals as DuckDB does, and
@@ -1454,6 +1467,15 @@ def _numeric_style(node: exp.Expression, info: exp.Expression) -> exp.DataType |
     if style is None or not isinstance(node.this, exp.TimeToStr) or not isinstance(info.this, exp.TimeToStr):
         return None
     kind = info.this.this.type
+    if _is(kind, _BINARY):  # bytes as hex text, 0x00FF with style 1 and 00FF with 2; 0 gives the bytes as text
+        if style not in ("0", "1", "2"):
+            raise ValueError(f"This T-SQL can't be run on the local engine: CONVERT style {style} isn't a style "
+                             "for binary. Use 0, 1 or 2.")
+        value = node.this.this
+        node.set("this", value if style == "0" else exp.func("UPPER", exp.func("HEX", value)) if style == "2"
+                 else exp.DPipe(this=exp.Literal.string("0x"), expression=exp.func("UPPER", exp.func("HEX", value)),
+                                safe=True))
+        return kind
     if not _is(kind, _NUMBERS):
         _date_style(node.this, kind, style)
         if style not in CHECKED_DATE_STYLES:
@@ -1565,7 +1587,9 @@ def _converts(tree: exp.Expression) -> list[str]:
     which gives NULL instead. Write it as sqlglot does, then make the outer conversion strict. A date
     style that hasn't been checked against T-SQL runs as sqlglot maps it, and the notes say so."""
     notes: list[str] = []
-    for node in list(tree.find_all(exp.Convert)):
+    for node in reversed(list(tree.find_all(exp.Convert))):  # inner first: an outer one writes its inner one out
+        if _hex_to_binary(node):
+            continue
         try:
             new = sqlglot.parse_one(node.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE), read="duckdb")
         except SqlglotError as exc:
@@ -1594,6 +1618,42 @@ def _converts(tree: exp.Expression) -> list[str]:
                 new.meta["tsql_style"] = style.name  # a date style, unless _types finds a number (_numeric_style)
         node.replace(new)
     return notes
+
+
+_BINARY = {exp.DataType.Type.VARBINARY, exp.DataType.Type.BINARY, exp.DataType.Type.BLOB}
+_HEX_TO_BINARY = "Error converting data type varchar to varbinary."
+
+
+def _hex_to_binary(node: exp.Convert) -> bool:
+    """``CONVERT(varbinary, text, 1)`` reads hex text with ``0x`` in front, and style 2 without it, as T-SQL does
+    (WR-242): ``'0x00FF'`` is the two bytes 0x00FF, the form a CSV export writes binary in. sqlglot drops the style,
+    and gave the bytes of the text itself. At most n bytes are kept, 30 without a length, as in T-SQL; text that
+    isn't an even number of hex digits is T-SQL's error (NULL with ``TRY_CONVERT``). Style 0 is a plain cast.
+    Returns whether the node was rewritten."""
+    to, style = node.this, node.args.get("style")
+    if not (isinstance(to, exp.DataType) and to.this in _BINARY and isinstance(style, exp.Literal)
+            and style.name in ("1", "2")):
+        return False
+    params = to.expressions
+    size = params[0].this if params and isinstance(params[0], exp.DataTypeParam) else None
+    if size is None:
+        limit: int | None = 30
+    elif isinstance(size, exp.Literal) and size.name.isdigit():
+        limit = int(size.name)
+    else:  # MAX
+        limit = None
+    prefix = style.name == "1"
+    digits = "SUBSTR(__x, 3)" if prefix else "__x"
+    pattern = ("0[xX]" if prefix else "") + "([0-9A-Fa-f]{2})*"
+    if limit is not None:
+        digits = f"LEFT({digits}, {2 * limit})"
+    wrong = "NULL" if node.args.get("safe") else f"error('{_HEX_TO_BINARY}')"
+    value = node.expression
+    holder = exp.Paren(this=value.copy())
+    node.replace(holder)
+    _fill_in_one(holder.this, f"CAST(CASE WHEN __x IS NULL THEN NULL WHEN regexp_full_match(__x, '{pattern}') "
+                              f"THEN unhex({digits}) ELSE {wrong} END AS BLOB)")  # typed, for a CONVERT around it
+    return True
 
 
 _LIKE_NOTE = ("A LIKE pattern that isn't written in the query (such as LIKE other_column) matches as DuckDB's LIKE "

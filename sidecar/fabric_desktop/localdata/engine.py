@@ -331,7 +331,10 @@ def _empty_select(schema: pa.Schema) -> str:
     return "SELECT " + ", ".join(f"CAST(NULL AS {t}) AS {q(n)}" for n, t in types.items()) + " WHERE false"
 
 
-def file_select(found: Found) -> str:
+def file_select(found: Found, types: dict[str, str] | None = None) -> str:
+    """The view's SELECT over a discovered table. A CSV keeps ``""`` as an empty text and only an empty field as
+    NULL, as the app's CSV export writes them (WR-242); ``types``, the column types set for it, read its text
+    straight as that type, so ``DECIMAL(38, 10)`` keeps every digit that a DOUBLE guessed first would round."""
     if found.format == "delta":
         return delta_select(cast(str, found.folder))[0]  # discovery gives every Delta table its folder
     if found.format == "excel":
@@ -340,7 +343,98 @@ def file_select(found: Found) -> str:
     source = _paths(found.paths)
     hive = ", hive_partitioning = true" if found.hive else ""
     reader = {"parquet": "read_parquet", "csv": "read_csv", "json": "read_json"}[found.format]
-    return f"SELECT * FROM {reader}({source}, union_by_name = true{hive})"
+    csv = ""
+    if found.format == "csv":
+        csv = ", allow_quoted_nulls = false"
+        if types:
+            for type_ in types.values():
+                if not _TYPE_OK.fullmatch(type_ or ""):
+                    raise ValueError(f"{type_!r} is not a column type.")
+            csv += ", types = {" + ", ".join(f"{lit(c)}: {lit(t)}" for c, t in types.items()) + "}"
+    return f"SELECT * FROM {reader}({source}, union_by_name = true{hive}{csv})"
+
+
+_GUESS_ROWS = 20_480  # the rows DuckDB's CSV reader looks at to guess the types (its sample_size)
+_HEX = re.compile(r"\s*[+-]?0[xX]")
+_BELOW_MICROSECOND = re.compile(r".*:\d\d\.\d{6}0*[1-9]")
+
+
+def _number_digits(texts: list[str]) -> tuple[int, int]:
+    """The (whole, fraction) digits a DECIMAL needs for every one of ``texts``."""
+    import decimal
+
+    whole, fraction = 1, 0
+    for text in texts:
+        try:
+            d = decimal.Decimal(text.strip())
+        except decimal.InvalidOperation:
+            continue
+        if not d.is_finite():
+            continue
+        t = d.as_tuple()
+        exponent = int(t.exponent)
+        fraction = max(fraction, -exponent)
+        whole = max(whole, len(t.digits) + exponent)
+    return whole, fraction
+
+
+def _rounded_by_double(text: str) -> bool:
+    """Whether a number written as ``text`` reads back different as a DOUBLE: it has more digits than one holds."""
+    import decimal
+
+    try:
+        d = decimal.Decimal(text.strip())
+    except decimal.InvalidOperation:
+        return False
+    return d.is_finite() and decimal.Decimal(repr(float(d))) != d
+
+
+def csv_guess_problems(con: Any, found: Found, columns: list[dict[str, str]], typed: dict[str, str]) -> list[str]:
+    """What a CSV's guessed column types change, from the rows the guess was made on (WR-242): a DOUBLE column
+    whose numbers have more digits than a DOUBLE holds (a DECIMAL(38, 10) exported as CSV), a whole-number
+    column of hex text such as 0x00FF, which DuckDB reads as the number 255 (a VARBINARY exported as CSV), and a
+    TIMESTAMP or TIME column with a 7th digit of a second, which they drop (a datetime2(7) result). Each names the
+    column, an example and the type to set. A column whose type was set isn't checked."""
+    doubles = [c["name"] for c in columns if c["type"] == "DOUBLE" and c["name"] not in typed]
+    wholes = [c["name"] for c in columns
+              if c["type"] in ("BIGINT", "INTEGER", "SMALLINT", "TINYINT", "HUGEINT") and c["name"] not in typed]
+    times = [c["name"] for c in columns if c["type"] in ("TIMESTAMP", "TIME") and c["name"] not in typed]
+    if not doubles and not wholes and not times:
+        return []
+    names = doubles + wholes + times
+    kinds = {c["name"]: c["type"] for c in columns}
+    try:
+        rows = con.execute(f"SELECT {', '.join(q(n) for n in names)} FROM read_csv({_paths(found.paths)}, "
+                           f"union_by_name = true, all_varchar = true, allow_quoted_nulls = false"
+                           f"{', hive_partitioning = true' if found.hive else ''}) LIMIT {_GUESS_ROWS}").fetchall()
+    except duckdb.Error:  # the view reads; a file this second read can't take isn't a reason to stop it
+        return []
+    problems = []
+    where = f"{found.schema}.{found.table}"
+    for i, name in enumerate(names):
+        texts = [r[i] for r in rows if r[i] is not None]
+        if name in doubles:
+            rounded = [t for t in texts if _rounded_by_double(t)]
+            if rounded:
+                whole, fraction = _number_digits(texts)
+                precision = min(38, whole + fraction)
+                problems.append(f"{where}: column {name} has numbers with more digits than a DOUBLE, the type read "
+                                f"for it, holds (such as {rounded[0].strip()}), so they read rounded. Set its type "
+                                f"to DECIMAL({precision}, {min(fraction, precision)}) to keep every digit.")
+        elif name in times:
+            finer = [t for t in texts if _BELOW_MICROSECOND.match(t)]
+            if finer:
+                fix = ("Set its type to TIMESTAMP_NS to keep them" if kinds[name] == "TIMESTAMP"
+                       else "Set its type to VARCHAR to keep the text")
+                problems.append(f"{where}: column {name} has times with digits below the microsecond (such as "
+                                f"{finer[0].strip()}), which {kinds[name]}, the type read for it, drops. {fix}.")
+        else:
+            hexed = [t for t in texts if _HEX.match(t)]
+            if hexed:
+                problems.append(f"{where}: column {name} holds hex text (such as {hexed[0].strip()}), which is read "
+                                f"as a whole number. Set its type to VARCHAR to keep the text; in T-SQL, "
+                                f"CONVERT(varbinary(max), {name}, 1) makes it bytes again.")
+    return problems
 
 
 _TYPE_OK = re.compile(r"^[A-Za-z][A-Za-z0-9_ ]*(\(\s*\d+\s*(,\s*\d+\s*)?\))?(\[\])?$")
@@ -566,12 +660,15 @@ class LocalEngine:
                     select, info = delta_select(cast(str, table.folder))
                     entry["delta"] = info
                 else:
-                    select = file_select(table)
+                    select = file_select(table, self.project.overrides.get(key, {}))
                 select = with_overrides(select, self.project.overrides.get(key, {}))
                 con.execute(f"CREATE SCHEMA IF NOT EXISTS {q(table.schema)}")
                 con.execute(f"CREATE OR REPLACE VIEW {q(table.schema)}.{q(table.table)} AS {select}")
                 entry["columns"] = [{"name": r[0], "type": r[1]} for r in
                                     con.execute(f"DESCRIBE {q(table.schema)}.{q(table.table)}").fetchall()]
+                if table.format == "csv":
+                    issues += [{"path": table.paths[0], "problem": problem} for problem in
+                               csv_guess_problems(con, table, entry["columns"], self.project.overrides.get(key, {}))]
             except Exception as exc:  # noqa: BLE001 - one unreadable file never stops the others
                 entry["status"], entry["error"] = "error", _short(exc)
                 con.execute(f"DROP VIEW IF EXISTS {q(table.schema)}.{q(table.table)}")

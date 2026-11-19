@@ -657,7 +657,7 @@ T-SQL run on this PC takes the data types Microsoft's "Data types in Fabric Data
 | Type | In a table or view | In a query (`CAST`, `CONVERT`) |
 | --- | --- | --- |
 | `bit`, `smallint`, `int`, `bigint`, `decimal`/`numeric`, `float`, `real`, `date`, `char`, `varchar`, `varbinary`, `uniqueidentifier` | Yes | Yes |
-| `datetime2(n)`, `time(n)` | Only with n up to 6: `datetime2` with no precision is `datetime2(7)` and is refused, naming `datetime2(6)` | Yes, kept to the microsecond (a 7th digit is cut) |
+| `datetime2(n)`, `time(n)` | Only with n up to 6: `datetime2` with no precision is `datetime2(7)` and is refused, naming `datetime2(6)` | Yes. `datetime2(7)` keeps its 7th digit (100 nanoseconds) from 1677 to 2262, and stops with a conversion error outside those years. `time(7)` is kept to the microsecond (a 7th digit is cut) |
 | `datetime` | Refused: use `datetime2(6)` | Yes, rounded as T-SQL rounds it, to 1/300 of a second (`.002` is `.003`, `.005` is `.007`, `23:59:59.999` is the next day). Before 1753 or after 9999-12-31 23:59:59.997 is T-SQL's out-of-range error (`NULL` with `TRY_CAST` and `TRY_CONVERT`), and text with more than three digits of a second is T-SQL's conversion error. `CONVERT` with style 121 or 126 writes it to the millisecond, as T-SQL does |
 | `smalldatetime` | Refused: use `datetime2(0)` | Yes, rounded to the minute (29.998 seconds rounds down, 29.999 up), from 1900-01-01 to 2079-06-06 23:59 |
 | `nchar`, `nvarchar`, `text`, `ntext` | Refused: use `char`, `varchar` or `varchar(max)` | Yes, as text |
@@ -681,6 +681,32 @@ What can still differ:
 - `GETDATE()` and `CURRENT_TIMESTAMP` give the time to the microsecond here. In T-SQL they're `datetime`, in 1/300-second steps.
 - A Delta table's own length limits aren't kept: a `varchar(10)` column written to Delta is text of any length there, as in a Spark table.
 
+## Exporting and reading back results
+
+A query's result can be exported from the SQL page (and a notebook cell's result downloaded) as CSV, Excel or Parquet, and a CSV or Parquet file read back by adding its folder to a local data project. Every type a Fabric Warehouse table takes was sent out and read back this way, value by value, at its edges: the smallest and largest value, zero, `-0`, `NaN` and infinity in a `float` and `real`, a `decimal(38, s)` with all 38 digits, dates on 0001-01-01 and 9999-12-31, times to the microsecond, text with quotes, commas, line breaks, emoji and a leading `=`, an empty text beside a `NULL`, and bytes with `0x00` in them. The types are the ones Microsoft Learn's "Data types in Fabric Data Warehouse" page lists, as it read on 2026-11-18; a warehouse table keeps at most 6 digits of a second, so `datetime2(7)` comes only from a query. Where a value can't come back exactly, it comes back changed in the way this table says, and the export's notes or the folder's issues say so.
+
+| Type | Parquet | CSV, read back from a folder | Excel |
+| --- | --- | --- | --- |
+| `bit` | Exact | Exact (`true`, `false`) | Exact, as TRUE and FALSE |
+| `smallint`, `int` | Exact | The same numbers, as `bigint`. Set the column's type to keep `smallint` or `int` | Exact |
+| `bigint` | Exact | Exact | Exact up to 15 digits. A longer number is saved as text with every digit, and the export says how many |
+| `decimal(p, s)`, `numeric(p, s)` | Exact, with its precision and scale | Written with every digit (`0.0000000001`, not `1E-10`). A decimal with more than 6 places goes out as quoted digits, which readers take as the number. It reads back as a `double`, so a number with more digits than a `double` holds is rounded (`9999999999999999999999999999.9999999999` is `1E+28`). The folder's issues name the column and the `DECIMAL(p, s)` to set; with that type, every digit comes back | Exact up to 15 significant digits. A longer number is saved as text with every digit, and the export says how many |
+| `float` | Exact | Exact, `-0`, `nan`, `inf` and `-inf` included | Exact, as Excel shows it to 15 digits. `NaN` and infinity are saved as the text `nan`, `inf` and `-inf`, and the export says how many. `-0` is written as it is, and Excel shows it as 0 |
+| `real` | Exact | Written with the fewest digits that read as the same `real` (`-3.4028235e+38`). It reads back as a `float` of those digits, a slightly different number; set the column's type to `REAL` to get the same `real` back | Saved as the `float` it equals (`0.1` as a `real` is `0.10000000149011612`). Infinity as text, as for a `float` |
+| `date` | Exact | Exact, from 0001-01-01 to 9999-12-31 | A date from 1900-01-01 on. An earlier date is saved as text (`0001-01-01`), and the export says how many |
+| `time(n)` | Exact | Exact | A time of day to the millisecond. A time with digits below the millisecond is saved as text (`12:00:00.000100`), and the export says how many |
+| `datetime2(n)` | Exact | Exact to the microsecond. A `datetime2(7)` from a query has a 7th digit, which a `TIMESTAMP` drops: the folder's issues name the column, and with its type set to `TIMESTAMP_NS` the 7th digit comes back | A date and time to the millisecond, from 1900 on. Earlier, or with digits below the millisecond, it's saved as text, and the export says how many |
+| `char(n)`, `varchar(n)`, `varchar(max)` | Exact | Exact: quotes, commas, line breaks and emoji, and an empty text apart from `NULL`. A text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets an apostrophe in front, so a spreadsheet doesn't run it as a formula, and the export says how many; **Keep raw values** writes them exactly | Exact, never a formula. Excel shows an empty text and a `NULL` the same way, as an empty cell, and the export says so. Control characters other than tab and line breaks can't be in the file and are left out, with a note; a text past 32,767 characters is cut there, with a note |
+| `varbinary(n)`, `varbinary(max)` | Exact | Written as hex text, `0x00FF` (`0x` for no bytes). It reads back as text, or, when every value is short hex, as a whole number (`0x00FF10` is 65296): the folder's issues name that column, to be read as `VARCHAR`. In T-SQL, `CONVERT(varbinary(max), column, 1)` makes the hex the same bytes again | Hex text, `0x00FF` |
+| `uniqueidentifier` | Text, in lower case | Text, in lower case. Set the column's type to `UUID` to read it as a `uniqueidentifier` again | Text, in lower case |
+
+What can still differ:
+
+- A `uniqueidentifier` is written in lower case here (`a0eebc99-...`). A warehouse shows it in upper case. They compare equal as `uniqueidentifier` values, but not as text.
+- An Excel workbook can't be read back from a folder yet: it is listed with that reason. Save the sheet as CSV.
+- The folder's issues look at the rows DuckDB reads to guess a CSV's types (the first 20,480). A value past them that the guessed type changes isn't named; set the column's type when you know it.
+- Excel keeps 15 significant digits of a number when it calculates or saves the workbook again, so a `float` with 17 digits is exact in the file but may not be after Excel saves it.
+
 ## Local T-SQL decimals
 
 When a project runs T-SQL on this PC, arithmetic with a decimal side gets the precision and scale a Fabric Warehouse gives it, by T-SQL's rules ("Precision, scale, and length" on Microsoft Learn). DuckDB's own rules differ: it widens decimals its own way, keeps every digit of scale, and divides decimals as doubles.
@@ -691,7 +717,7 @@ When a project runs T-SQL on this PC, arithmetic with a decimal side gets the pr
 | `/` with a decimal side | T-SQL's type, and the quotient worked out exactly and cut at that scale (`-10.25 / 3` is `-3.4166666666666`). An inner division is cut at its own scale first, as in T-SQL. Dividing by zero stops with "Divide by zero error encountered" | A dividend or divisor whose digits don't fit in 38 once moved is divided in floating point, and the notes say so. Also when a side calls `RAND` or `NEWID`, which can't be read twice |
 | `SUM` of a decimal | `decimal(38, s)` | Nothing |
 | `AVG` of a decimal, also with `OVER (...)` | `decimal(38, max(s, 6))` | The average is worked out in floating point, then given that type, and the notes say so |
-| Numbers written in the query | `1.5` is `decimal(2,1)`, and a whole number meets a decimal as `decimal(its digits, 0)`, so `1.0 / 3` is `0.333333` | Nothing |
+| Numbers written in the query | `1.5` is `decimal(2,1)`, and a whole number meets a decimal as `decimal(its digits, 0)`, so `1.0 / 3` is `0.333333`. `0.99999999999999999999999999999999999999` is `decimal(38,38)`; DuckDB alone counts its leading 0 as a 39th digit and reads it as the float 1.0 | Nothing |
 | A result too big for its type | Stops, as in a warehouse ("Could not cast value ... to DECIMAL(38,6)" here, "Arithmetic overflow error" there) | The message's words |
 
 `money` and `smallmoney` are refused rather than given decimal rules (use `DECIMAL(19, 4)` and `DECIMAL(10, 4)`). An integer divided by an integer stays an integer, cut toward zero. Dividing by zero is an error for integers and floats too (see below).
@@ -708,6 +734,7 @@ When a project runs T-SQL on this PC, these are checked against T-SQL's referenc
 | Text meets a number | The number's type wins: `'1' + 1` is `2` and `'' + 1` is `1`, while `'1.5' + 1` and `'x' + 1` stop with "Conversion failed". Two texts are concatenated (`'1' + '1'` is `'11'`) |
 | `ISNULL(a, b)`, `COALESCE(a, b)` | `ISNULL` takes `a`'s type, so `b` is converted to it: `ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')` is `'ab'`, and `ISNULL(int_column, 2.7)` is `2`. `COALESCE` takes the type that ranks highest: `2.7` and `'abcd'` |
 | `CAST`, `TRY_CAST` | A value that doesn't convert stops `CAST` and is `NULL` with `TRY_CAST`. A decimal or float to an integer is cut toward zero, and a decimal to a narrower decimal rounds |
+| `CONVERT` to and from `varbinary` with style 1 or 2 | Style 1 reads and writes hex with `0x` in front, style 2 without it: `CONVERT(varbinary(max), '0x00FF', 1)` is the two bytes `0x00FF`, and `CONVERT(varchar(max), 0x00ff, 2)` is `'00FF'`. At most n bytes are kept (30 with no length). Text that isn't an even number of hex digits, or style 1 text without `0x`, stops with "Error converting data type varchar to varbinary." (`NULL` with `TRY_CONVERT`). Style 0 converts the bytes as they are, and other styles are refused by name |
 | `ROUND` | Keeps its value's type: `ROUND(150.75, 0)` is `151.00`, `ROUND(748.58, -1)` is `750.00`, and `ROUND(150.75, 0, 1)` cuts to `150.00`. A result that no longer fits the type stops with "Arithmetic overflow error" (`ROUND(748.58, -3)`, `ROUND(999.5, 0)`) |
 
 ## Local T-SQL JSON

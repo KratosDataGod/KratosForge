@@ -523,23 +523,24 @@ class Frames:
         target = Path(path)
         partial = target.with_name(target.name + ".partial")
         protected = 0
+        notes = ExportNotes(table.schema)  # what Excel can't hold as it is, said with the download (WR-242)
         try:
             with open(partial, "xb") as sink:
                 if fmt == "csv":
                     import pyarrow.csv as pa_csv
                     ready, protected = csv_cells.protect_table(_csv_ready(table), raw=raw)
-                    pa_csv.write_csv(ready, sink)
+                    pa_csv.write_csv(plain_decimals(ready), sink)
                 elif fmt == "parquet":
                     import pyarrow.parquet as pq
                     pq.write_table(table.rename_columns(_unique(table.schema.names)), sink)
                 else:
-                    write_xlsx(table, sink)
+                    write_xlsx(table, sink, notes)
             jsonfile.replace(partial, target)  # over the empty file that reserved the name
         except BaseException:
             with_suppressed_unlink(partial)
             raise
         return {"path": str(target), "rows": table.num_rows, "format": fmt, "raw": bool(raw) and fmt == "csv",
-                "protected": protected, "notes": [csv_cells.note(protected)] if protected else []}
+                "protected": protected, "notes": notes.sentences() + ([csv_cells.note(protected)] if protected else [])}
 
 
 def _csv_ready(table: pa.Table) -> pa.Table:
@@ -574,6 +575,40 @@ def csv_ready_batch(batch: pa.RecordBatch) -> pa.RecordBatch:
 
 def csv_ready_schema(schema: pa.Schema) -> pa.Schema:
     return pa.schema([pa.field(f.name, pa.string()) if csv_text_type(f.type) else f for f in schema])
+
+
+def _sci(t: pa.DataType) -> bool:
+    """A decimal Arrow's CSV writer may write in scientific notation: one with more than 6 digits after the point
+    (it writes a value below 0.000001 as 1E-10, and a zero as 0E-10)."""
+    return pa.types.is_decimal(t) and t.scale > 6
+
+
+def plain_schema(schema: pa.Schema) -> pa.Schema:
+    """The schema a CSV is written with once plain_decimals has made those decimals text."""
+    return pa.schema([f.with_type(pa.string()) if _sci(f.type) else f for f in schema], schema.metadata)
+
+
+def _plain(column: Any) -> pa.Array:
+    if isinstance(column, pa.ChunkedArray):
+        column = column.combine_chunks()
+    import pyarrow.compute as pc  # here, not at the top: the engine starts without it (test_startup_imports)
+
+    text = pc.cast(column, pa.string())
+    if not pc.any(pc.match_substring(text, "E")).as_py():
+        return text
+    return pa.array([None if v is None else format(v, "f") for v in column.to_pylist()], pa.string())
+
+
+def plain_decimals(data: Any) -> Any:
+    """A table or batch with its decimals of more than 6 places as the digits T-SQL shows (0.0000000001), not as
+    Arrow's CSV writer puts them (1E-10, and 0E-10 for zero), which DuckDB can't read as a DECIMAL(38, 38) and a
+    spreadsheet reads as a float (WR-242). They go out as quoted text, which readers take as the number. After
+    csv_cells has protected the text columns: a decimal such as -5 is a number, never a formula."""
+    if not any(_sci(f.type) for f in data.schema):
+        return data
+    columns = [_plain(c) if _sci(f.type) else c for c, f in zip(data.columns, data.schema, strict=True)]
+    kind = pa.Table if isinstance(data, pa.Table) else pa.RecordBatch
+    return kind.from_arrays(columns, schema=plain_schema(data.schema))
 
 
 def with_suppressed_unlink(path: Path) -> None:
@@ -643,6 +678,8 @@ _NOTES = {  # kind: (one value, several), {n} the count
                    "{n} dates are before 1900, which Excel can't hold, so they're saved as text"),
     "utc": ("Excel has no time zones, so these times are saved as clock times in UTC",) * 2,
     "zone": ("Excel has no time zones, so these times are saved as their clock time, without the zone",) * 2,
+    "nonfinite": ("1 number is NaN or infinite, which Excel can't hold, so it's saved as text",
+                  "{n} numbers are NaN or infinite, which Excel can't hold, so they're saved as text"),
     "blank": ("Excel shows an empty text and a NULL the same way, as an empty cell",) * 2,
     "cut": ("1 text is longer than 32,767 characters, Excel's limit for a cell, so it's cut there",
             "{n} texts are longer than 32,767 characters, Excel's limit for a cell, so they're cut there"),
@@ -698,9 +735,10 @@ def _xlsx_cell(ref: str, v: Any, mark: Callable[[str], None] | None = None) -> s
         return ""
     if isinstance(v, bool):
         return f'<c r="{ref}" t="b"><v>{int(v)}</v></c>'
-    if isinstance(v, (int, float, decimal.Decimal)) and not (isinstance(v, float) and v != v):
-        if isinstance(v, float) and v in (float("inf"), float("-inf")):
-            return _text(ref, str(v))
+    if isinstance(v, float) and (v != v or v in (float("inf"), float("-inf"))):
+        note("nonfinite")  # Excel has no NaN or infinity: as text, as the CSV export writes them
+        return _text(ref, str(v))
+    if isinstance(v, (int, float, decimal.Decimal)):
         if not _excel_exact(v):  # Excel keeps 15 digits: an ID like 1234567890123456789 would end in 000
             note("digits")
             return _text(ref, str(v))
@@ -712,7 +750,8 @@ def _xlsx_cell(ref: str, v: Any, mark: Callable[[str], None] | None = None) -> s
         if naive < _EXCEL_FIRST:
             note("before1900")
             return _text(ref, naive.isoformat(sep=" "))
-        if naive.microsecond % 1000:  # Excel keeps times to the millisecond
+        if naive.microsecond % 1000 or getattr(naive, "nanosecond", 0):  # Excel keeps times to the millisecond
+            # (a datetime2(7) result is read as pandas' Timestamp, whose nanosecond holds the 7th digit)
             note("fraction")
             return _text(ref, naive.isoformat(sep=" "))
         serial = (naive - _EPOCH).total_seconds() / 86400 - (naive < _EXCEL_LEAP)
@@ -723,6 +762,12 @@ def _xlsx_cell(ref: str, v: Any, mark: Callable[[str], None] | None = None) -> s
             note("before1900")
             return _text(ref, v.isoformat())
         return f'<c r="{ref}" s="3"><v>{(day - _EPOCH).days - (day < _EXCEL_LEAP)}</v></c>'
+    if isinstance(v, dt.time):  # a time of day is a fraction of a day in Excel, as a datetime's time is (WR-242)
+        if v.microsecond % 1000:
+            note("fraction")
+            return _text(ref, v.isoformat())
+        seconds = v.hour * 3600 + v.minute * 60 + v.second + v.microsecond / 1e6
+        return f'<c r="{ref}" s="{6 if v.microsecond else 5}"><v>{seconds / 86400!r}</v></c>'
     if isinstance(v, (bytes, bytearray, memoryview)):
         return _text(ref, hex_bytes(v))
     text = v if isinstance(v, str) else str(v)
@@ -753,8 +798,8 @@ def _marker(notes: ExportNotes | None, column: str) -> Callable[[str], None] | N
     return lambda kind: notes.add(column, kind)
 
 
-def write_xlsx(table: pa.Table, sink: Any) -> None:
-    write_xlsx_batches(table.schema.names, table.to_batches(max_chunksize=8192), sink)
+def write_xlsx(table: pa.Table, sink: Any, notes: ExportNotes | None = None) -> None:
+    write_xlsx_batches(table.schema.names, table.to_batches(max_chunksize=8192), sink, notes=notes)
 
 
 def write_xlsx_batches(names: list[str], batches: Iterable[pa.RecordBatch], sink: Any,
@@ -791,15 +836,18 @@ def write_xlsx_batches(names: list[str], batches: Iterable[pa.RecordBatch], sink
         z.writestr("xl/styles.xml",
                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-                   '<numFmts count="2"><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm:ss"/>'
-                   '<numFmt numFmtId="165" formatCode="yyyy-mm-dd hh:mm:ss.000"/></numFmts>'
+                   '<numFmts count="4"><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm:ss"/>'
+                   '<numFmt numFmtId="165" formatCode="yyyy-mm-dd hh:mm:ss.000"/>'
+                   '<numFmt numFmtId="166" formatCode="hh:mm:ss"/><numFmt numFmtId="167" formatCode="hh:mm:ss.000"/>'
+                   '</numFmts>'
                    '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'
                    '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
                    '<borders count="1"><border/></borders>'
                    '<cellStyleXfs count="1"><xf/></cellStyleXfs>'
-                   '<cellXfs count="5"><xf/><xf fontId="1" applyFont="1"/>'
+                   '<cellXfs count="7"><xf/><xf fontId="1" applyFont="1"/>'
                    '<xf numFmtId="164" applyNumberFormat="1"/><xf numFmtId="14" applyNumberFormat="1"/>'
-                   '<xf numFmtId="165" applyNumberFormat="1"/></cellXfs>'
+                   '<xf numFmtId="165" applyNumberFormat="1"/><xf numFmtId="166" applyNumberFormat="1"/>'
+                   '<xf numFmtId="167" applyNumberFormat="1"/></cellXfs>'
                    '</styleSheet>')
         with z.open("xl/worksheets/sheet1.xml", "w", force_zip64=True) as sheet:
             sheet.write(b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'

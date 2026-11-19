@@ -74,6 +74,16 @@ def no_interactive_sign_in(monkeypatch):
     monkeypatch.setattr(msal.PublicClientApplication, "acquire_token_interactive", refuse)
 
 
+@pytest.fixture(autouse=True)
+def no_remembered_secrets():
+    """dbutils.secrets keeps the values it read for the process, so one test's secret would be
+    redacted in the next test's output."""
+    from fabric_desktop import secret_redaction
+    secret_redaction.forget_all()
+    yield
+    secret_redaction.forget_all()
+
+
 class _NoSignInService:
     """MSAL's HTTP client for tests. Building a PublicClientApplication asks the sign-in service for its
     settings (the authority's OpenID configuration), so every test that made an Authenticator needed the

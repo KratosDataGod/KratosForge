@@ -223,8 +223,8 @@ def test_a_csv_read_in_a_strict_mode_needs_a_schema():
 
 def test_a_schema_on_a_table_read_names_a_table():
     assert _write_refusals("spark.read.schema('a INT').table('t')")["fabric"] == [
-        (1, "applies read.schema() to a read of a table, which this PC's Spark refuses (leave it out and cast the "
-            "columns after)")]
+        (1, ("applies read.schema() to a read of a table, which this PC's Spark refuses (leave it out and cast the "
+            "columns after)"))]
 
 
 def test_a_loader_that_gives_cells_without_a_lakehouse_is_still_read():
@@ -236,8 +236,8 @@ def test_a_followed_notebook_already_blocked_in_fabric_keeps_its_own_reason():
     cells = [{"type": "code", "source": "spark.read.csv('C:/data/x.csv')"}]
     got = fabric_run._followed("child", "notebook.run", LH, lambda name: {"cells": cells, "lakehouse": None}, (), None,
                                root=False)
-    assert got["fabric"] == ("blocked", "runs child (notebook.run), whose cell 1 reads or writes a path on this PC, "
-                                        "which Fabric can't reach")
+    assert got["fabric"] == ("blocked", ("runs child (notebook.run), whose cell 1 reads or writes a path on this PC, "
+                                        "which Fabric can't reach"))
 
 
 def test_a_quoted_line_is_that_line_even_when_it_is_empty():
@@ -363,8 +363,8 @@ def test_notebooks_are_followed_until_the_depth_limit():
     n = fabric_run.MAX_RUN_DEPTH
     deep = tuple(f"nb{i}" for i in range(n))
     got = fabric_run._followed("x", "%run", LH, lambda name: {"cells": [], "lakehouse": None}, deep, None)
-    assert got["fabric"] == ("unknown", f"runs x (%run), which runs notebooks in a loop or more than {n} deep, so the "
-                                        "check stops there")
+    assert got["fabric"] == ("unknown", (f"runs x (%run), which runs notebooks in a loop or more than {n} deep, so the "
+                                        "check stops there"))
     got = fabric_run._followed("x", "%run", LH, lambda name: {"cells": [], "lakehouse": None}, deep[1:], None)
     assert got == {"local": None, "fabric": None}
 

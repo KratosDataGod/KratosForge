@@ -40,8 +40,8 @@ REVIEWED = {
     ("maintenance.py", "_unnamed"): "dry run only",
     ("maintenance.py", "_named"): "dry run only",
     ("meta/store.py", "_tidy_meta"): "none needed: LocalStore's meta tables on this PC",
-    ("publish.py", "_queue_v_order"): "gate: capacity_gate -> MetaMixin._maintenance_capacity_refusal (V-Order "
-                                      "after a job's write); no gate means no V-Order",
+    ("publish.py", "_queue_v_order"): "gate: capacity_gate -> MetaMixin._job_v_order_refusal (V-Order after a "
+                                      "job's write: Blocked, Warning or unknown stops it); no gate means no V-Order",
 }
 
 

@@ -176,13 +176,14 @@ def test_the_fabric_client_asks_for_no_vacuum_when_v_order_runs_alone(monkeypatc
 def test_a_blocked_capacity_stops_v_order_and_the_written_rows_stay(lake, tmp_path):  # noqa: F811
     """WR-410: Blocked is a hard stop for every Optimize, the V-Order after a job's write too."""
     fabric, asked = Fabric(), []
-    blocked = "OPTIMIZE on dbo.orders is refused: the capacity check is Blocked (Capacity paused). Nothing was changed."
+    blocked = "the capacity check is Blocked (Capacity paused)"
     record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path,
                              capacity_gate=lambda ws, table: asked.append((ws, table)) or blocked)
     assert asked == [("ws1", "dbo.orders")] and fabric.maintenance == []
     assert record.delta_version == 0 and record.v_order_job is None
-    assert record.v_order_error == f"Wrote dbo.orders (Delta version 0), but it wasn't V-Ordered. {blocked} " \
-                                   "The rows are in the table. To V-Order it later, run Optimize on it from X-ray."
+    assert record.v_order_error == ("Wrote dbo.orders (Delta version 0), but it wasn't V-Ordered, because the capacity "
+                                    "check is Blocked (Capacity paused). The rows are in the table. To V-Order it "
+                                    "later, run Optimize on it from X-ray.")
     assert DeltaTable(str(lake / "dbo" / "orders")).version() == 0
 
 
@@ -198,18 +199,48 @@ def test_a_capacity_check_that_fails_doesnt_start_v_order(lake, tmp_path):  # no
         raise OSError("risk store unreadable")
     fabric = Fabric()
     record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path, capacity_gate=broken)
-    assert fabric.maintenance == [] and "The capacity check failed (" in record.v_order_error
+    assert fabric.maintenance == [] and "because the capacity check failed (" in record.v_order_error
 
 
-def test_the_service_checks_the_capacity_before_v_order(tmp_path, monkeypatch):
+def test_the_service_passes_its_job_capacity_check(tmp_path, monkeypatch):
     from fabric_desktop.service import Service
+    import fabric_desktop.service as svc
     service = Service(client_id="x", root=tmp_path)
     seen = {}
-    monkeypatch.setattr(publish, "run_job", lambda *a, **k: seen.update(k) or publish.RunRecord(
+    monkeypatch.setattr(svc, "run_job", lambda *a, **k: seen.update(k) or publish.RunRecord(
         "j", "u", "overwrite", 0, 0, 0.0, "t"))
-    import fabric_desktop.service as svc
-    monkeypatch.setattr(svc, "run_job", publish.run_job)
     monkeypatch.setattr(svc.Job, "load", staticmethod(lambda path: None))
-    monkeypatch.setattr(Service, "_maintenance_capacity_refusal", lambda self, op, ws, table: f"{op} {ws} {table}")
     service.run_job("job.toml")
-    assert seen["capacity_gate"]("ws1", "dbo.orders") == "optimize ws1 dbo.orders"
+    assert seen["capacity_gate"] == service._job_v_order_refusal
+
+
+@pytest.mark.parametrize(("found", "reason"), [
+    (None, "the capacity of its workspace isn't known, and a job run doesn't start an Optimize unchecked"),
+    ({"outcome": "blocked", "title": "Capacity paused"}, "the capacity check is Blocked (Capacity paused)"),
+    ({"outcome": "warning", "title": "Reading over an hour old"},
+     "the capacity check has a warning (Reading over an hour old), and a job run can't accept one"),
+    ({"outcome": "ok", "title": "Fine"}, None),
+])
+def test_a_job_starts_v_order_only_on_a_capacity_known_to_be_fine(tmp_path, monkeypatch, found, reason):
+    """A job runs unattended (the CLI from Task Scheduler too), so it can't accept a warning, and an unknown
+    capacity doesn't start an unchecked Optimize; X-ray, which shows the capacity and asks, does it then."""
+    from fabric_desktop import risk
+    from fabric_desktop.service import Service
+    service = Service(client_id="x", root=tmp_path)
+    if found is not None:
+        found = dict(found, outcome={"blocked": risk.BLOCKED, "warning": risk.WARNING}.get(found["outcome"], "ok"))
+    monkeypatch.setattr(Service, "_maintenance_capacity", lambda self, ws: found)
+    assert service._job_v_order_refusal("ws1", "dbo.orders") == reason
+
+
+def test_a_warning_from_the_real_capacity_check_stops_v_order_end_to_end(lake, tmp_path, monkeypatch):  # noqa: F811
+    from fabric_desktop import risk
+    from fabric_desktop.service import Service
+    service = Service(client_id="x", root=tmp_path)
+    monkeypatch.setattr(Service, "_risk_capacity", lambda self, *a: {"state": "Active"})
+    monkeypatch.setattr(risk, "check_capacity", lambda *a: {"outcome": risk.WARNING, "title": "Throttling likely"})
+    fabric = Fabric()
+    record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path,
+                             capacity_gate=service._job_v_order_refusal)
+    assert fabric.maintenance == [] and record.delta_version == 0
+    assert "has a warning (Throttling likely), and a job run can't accept one" in record.v_order_error

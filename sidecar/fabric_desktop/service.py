@@ -743,7 +743,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def run_job(self, path: str) -> dict[str, Any]:
         record = run_job(Job.load(path), self.fabric, self.auth.storage_token,
                          work_dir=self.root, history_file=self.history_file, guard=self._job_guard,
-                         capacity_gate=lambda ws, table: self._maintenance_capacity_refusal("optimize", ws, table))
+                         capacity_gate=self._job_v_order_refusal)
         return record.__dict__
 
     def history(self, limit: int = 50) -> list[dict[str, Any]]:

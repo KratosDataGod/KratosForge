@@ -276,8 +276,9 @@ def _queue_v_order(fabric: FabricClient | None, ref: TableRef, version: int,
     is reported with the run, never raised: raising would call a written table failed, and a rerun would
     write it again.
 
-    ``capacity_gate`` (workspace id, table) says why Optimize may not run on the capacity now (Blocked is a
-    hard stop, WR-410). With no gate, V-Order isn't started: an Optimize never runs unchecked."""
+    ``capacity_gate`` (workspace id, table) says, as a clause, why Optimize may not run on the capacity now
+    (Blocked is a hard stop, WR-410; a job also stops on a Warning or an unknown capacity). With no gate, or a
+    gate that fails, V-Order isn't started: an Optimize never runs unchecked."""
     name = ref.table if ref.flat else f"{ref.schema}.{ref.table}"
     if capacity_gate is None:
         return None, (f"Wrote {name} (Delta version {version}), but it wasn't V-Ordered, because this run couldn't "
@@ -286,9 +287,9 @@ def _queue_v_order(fabric: FabricClient | None, ref: TableRef, version: int,
         refusal = capacity_gate(ref.workspace_id, name)
     except Exception as exc:  # noqa: BLE001 - the rows are committed; an unchecked Optimize doesn't start
         _log.warning("Couldn't check the capacity before V-Order of %s: %s", name, describe(exc))
-        refusal = f"The capacity check failed ({describe(exc)})."
+        refusal = f"the capacity check failed ({describe(exc)})"
     if refusal:
-        return None, (f"Wrote {name} (Delta version {version}), but it wasn't V-Ordered. {refusal} "
+        return None, (f"Wrote {name} (Delta version {version}), but it wasn't V-Ordered, because {refusal}. "
                       "The rows are in the table. To V-Order it later, run Optimize on it from X-ray.")
     if fabric is None:
         return None, (f"Wrote {name} (Delta version {version}), but it wasn't V-Ordered, because only Fabric V-Orders "

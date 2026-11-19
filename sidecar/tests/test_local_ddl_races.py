@@ -113,7 +113,7 @@ def test_a_table_another_tool_made_in_tables_is_read_without_a_refresh(engine):
 def test_a_table_another_tool_deleted_is_gone_not_read_from_files_that_are_gone(engine):
     rows(engine, "SELECT count(*) FROM lake")
     shutil.rmtree(folder(engine))
-    with pytest.raises(duckdb.Error, match="lake does not exist"):
+    with pytest.raises(duckdb.Error, match="Invalid object name 'lake'"):
         rows(engine, "SELECT * FROM lake")
     assert "lake" not in [t["table"] for t in engine.tables()]
 
@@ -237,7 +237,7 @@ def test_a_table_dropped_and_made_beside_reads_is_read_whole_or_named_missing(en
                 missing.append(str(exc))
     assert sessions(ddl, read) == []
     assert set(seen) <= {2, 3}
-    assert all("plain does not exist" in m for m in missing)
+    assert all("Invalid object name 'plain'" in m for m in missing)
     assert rows(engine, "SELECT count(*) FROM plain") == [[3]]
 
 

@@ -716,7 +716,7 @@ def ossie_to_tmdl(text: str, source: dict[str, str] | None = None) -> tuple[dict
 
 # The vendored converter (see _vendor/ossie_microsoft/README.md; tests check the two agree).
 CONVERTER = {"name": "apache/ossie-converters", "path": "microsoft/src/ossie_microsoft", "version": "0.2.0.dev0",
-             "commit": "82b9eff619c5b701de720b1bb0f02b23ea2c64bf"}
+             "commit": "82b9eff619c5b701de720b1bb0f02b23ea2c64bf"}  # pragma: allowlist secret (upstream git commit sha)
 CLASSES = {"fully_preserved": "Fully preserved", "preserved_through_extensions": "Preserved through extensions",
            "partially_converted": "Partially converted", "unsupported": "Unsupported", "unverified": "Unverified"}
 # Model collections Ossie has no place for: they travel only in the model's POWER_BI extension.

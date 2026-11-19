@@ -30,9 +30,9 @@ FOLDER = Path(__file__).resolve().parent / "_vendor" / "ossie_schema"
 _RAW = "https://raw.githubusercontent.com/apache/ossie/{commit}/core-spec/ossie-schema.json"
 # Version -> the vendored file, its upstream commit and the key a vendor's own data goes under in that version.
 SCHEMAS: dict[str, dict[str, str]] = {
-    "0.2.0.dev0": {"file": "ossie-schema-0.2.0.dev0.json", "commit": "21d14d7a4044e71a19ea46d024c974a57323174a",
+    "0.2.0.dev0": {"file": "ossie-schema-0.2.0.dev0.json", "commit": "21d14d7a4044e71a19ea46d024c974a57323174a",  # pragma: allowlist secret (upstream git commit sha)
                    "extensions": "custom_extensions"},
-    "0.3.0.dev0": {"file": "ossie-schema-0.3.0.dev0.json", "commit": "aa500d37894c3d62c96cdce4192cbecea4d7f06a",
+    "0.3.0.dev0": {"file": "ossie-schema-0.3.0.dev0.json", "commit": "aa500d37894c3d62c96cdce4192cbecea4d7f06a",  # pragma: allowlist secret (upstream git commit sha)
                    "extensions": "nonportable_extensions"},
 }
 MAX_DIAGNOSTICS = 200  # more than this are counted in one "N more" line

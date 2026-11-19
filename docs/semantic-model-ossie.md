@@ -108,6 +108,35 @@ whether `semantic/<name>.SemanticModel/` is new or already there.
 Exporting a model kept as TMDL in the project shows the same Round-trip check, which says whether
 reading the Ossie file back gives the same model or names what differs.
 
+## Fidelity report
+
+Export (from Fabric or from a folder), Import's preview and Ossie file to TMDL each return a
+`fidelity` report beside the `report` rows (OSSIE-004a, engine only; the card shows it in
+OSSIE-004b). It lists every object the conversion reads once: the model, tables or datasets,
+columns or fields, measures or metrics, hierarchies, calculation groups, relationships, roles,
+perspectives, cultures and shared expressions, including those that travel in a file's Power BI
+section. Each object is in one class:
+
+| Class | Meaning |
+| --- | --- |
+| Fully preserved | It reached the destination as it was. |
+| Preserved through extensions | It is only in the Ossie file's `POWER_BI` extension: it comes back in Power BI, and other tools don't see it. |
+| Partially converted | It arrived, but something changed: a measure written as BLANK() until it has DAX (`needs_dax`), a data type with no equivalent, a name changed, a label or another vendor's extension dropped. |
+| Unsupported | It has no equivalent and isn't in the destination. It is named, never dropped silently. |
+| Unverified | It arrived, but no one has checked it behaves the same: SQL translated to DAX, or DAX to SQL. |
+
+The class comes from comparing what went in with what came out (what reached the destination,
+what sits in the extension, what is missing), not from the converter's wording. The converter's
+messages, and the TMDL reader's and the merge's rows, are attached to the object they name as
+`evidence`, so a note such as "Power BI infers a measure's data type from its DAX" is no longer
+counted as a loss. A row that names no object is a warning. The report also gives the source and
+destination formats and versions, the converter (`apache/ossie-converters`, commit `82b9eff`), the
+excluded objects, the metadata changes, the warnings, the round-trip check as `validation`, and one
+remediation line for each object that isn't fully preserved. Security roles and calculation
+groups are always listed and flagged. A role that is lost, or that is kept only in the extension
+where other tools won't apply it, is a security warning at the top of the warnings. The `kind`
+(kept or lost) of the existing rows is unchanged, so the current card still works.
+
 ## Keeping Git in step
 
 After an import, **Save TMDL to Git** reads the model back from Fabric as TMDL and writes it

@@ -274,7 +274,8 @@ class ModelOssieMixin:
         model = self._ossie_model(cfg["workspace_id"], name)
         if model is None:
             raise LookupError(f"There's no semantic model named {name} in {cfg.get('workspace_name') or 'the workspace'}")
-        out = model_ossie.export(self._model_bim(cfg["workspace_id"], model), translate_dax=translate_dax)
+        out = model_ossie.export(self._model_bim(cfg["workspace_id"], model), translate_dax=translate_dax, validate=True)
+        del out["round_trip"]  # its result is in the fidelity report; the Round-trip check card is for folders
         return out | {"model": name, "path": f"{FOLDER}/{_SAFE.sub('_', name).strip() or 'model'}.ossie.yaml"}
 
     def _model_folders(self, project: Any) -> list[Path]:
@@ -304,9 +305,8 @@ class ModelOssieMixin:
             raise LookupError(f"There's no model folder {path}; pick one from {FOLDER}/<name>.SemanticModel")
         name = folder.name.removesuffix(".SemanticModel")
         bim, read_report = _folder_bim(folder, name, path)
-        out = model_ossie.export(bim, translate_dax=translate_dax)
-        return out | {"model": name, "report": read_report + out["report"], "round_trip": model_ossie.round_trip(bim),
-                      "path": f"{FOLDER}/{_SAFE.sub('_', name).strip() or 'model'}.ossie.yaml"}
+        out = model_ossie.export(bim, translate_dax=translate_dax, read_report=read_report, validate=True)
+        return out | {"model": name, "path": f"{FOLDER}/{_SAFE.sub('_', name).strip() or 'model'}.ossie.yaml"}
 
     def _ossie_path(self, project: Any, path: str, suffixes: tuple[str, ...]) -> Path:
         rel = PurePosixPath(path.replace("\\", "/"))
@@ -359,6 +359,8 @@ class ModelOssieMixin:
                                   report) if mode == "update" else incoming
         final["name"] = name
         return {"final": final, "existing": existing, "cfg": cfg, "name": name, "report": report,
+                "fidelity": model_ossie.fidelity(model_ossie.parse(text), incoming, report,
+                                                 model_ossie.round_trip_check(incoming)),
                 "changes": model_ossie.plan(current, final),
                 "removable": model_ossie.removable(current, incoming) if mode == "update" else []}
 
@@ -371,7 +373,7 @@ class ModelOssieMixin:
         p = self._ossie_import_plan(env, text, name, mode, remove, layer)
         return {"env": env, "name": p["name"], "mode": mode, "exists": p["existing"] is not None,
                 "workspace_name": p["cfg"].get("workspace_name", ""), "changes": p["changes"],
-                "removable": p["removable"], "report": p["report"]}
+                "removable": p["removable"], "report": p["report"], "fidelity": p["fidelity"]}
 
     def meta_model_ossie_import(self, env: str = "test", text: str = "", name: str = "", mode: str = "update",
                                 remove: list[str] | None = None, layer: str | None = None,
@@ -492,6 +494,7 @@ class ModelOssieMixin:
                 del final["model"]["cultures"]
         files, written = tmdl.from_bim(final, culture_refs)
         report = report + written
+        fid = model_ossie.fidelity(model_ossie.parse(text), incoming, report, model_ossie.round_trip_check(incoming))
         files["definition.pbism"] = json.dumps({"version": "4.0", "settings": {}}, indent=2) + "\n"
         targets = {}
         kept_keys = {_file_key(rel) for rel in kept}
@@ -514,7 +517,7 @@ class ModelOssieMixin:
         changes = model_ossie.plan(current, final)
         out = {"name": name, "folder": folder.relative_to(root).as_posix(), "exists": current is not None,
                "files": sorted(p.relative_to(root).as_posix() for p in targets),
-               "removed": [p.relative_to(root).as_posix() for p in stale], "report": report,
+               "removed": [p.relative_to(root).as_posix() for p in stale], "report": report, "fidelity": fid,
                "changes": changes if current else [r for r in changes if r["change"] == "needs_dax"],
                "removable": model_ossie.removable(current, incoming) if current else [],
                "unchanged": unchanged, "counts": _model_counts(final),

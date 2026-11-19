@@ -162,22 +162,32 @@ def parse(text: str) -> dict[str, Any]:
     return doc
 
 
-def export(bim: dict[str, Any], translate_dax: bool = True) -> dict[str, Any]:
-    """A model (parsed ``model.bim``) as Ossie YAML, with counts and the conversion report.
+def export(bim: dict[str, Any], translate_dax: bool = True, read_report: list[dict[str, str]] | None = None,
+           validate: bool = False) -> dict[str, Any]:
+    """A model (parsed ``model.bim``) as Ossie YAML, with counts, the conversion report and the ``fidelity`` report.
 
     ``translate_dax`` also writes single-column aggregate measures (SUM, AVERAGE, MIN, MAX, COUNTA,
-    DISTINCTCOUNTNOBLANK) as portable SQL, keeping the DAX beside it."""
+    DISTINCTCOUNTNOBLANK) as portable SQL, keeping the DAX beside it. ``read_report`` (what the TMDL reader left
+    out) leads the report. ``validate`` also runs the round trip (``round_trip_check``): its rows are
+    ``round_trip`` and its result is the fidelity report's validation."""
     require()
     text, report = _convert(convert_semantic_model_to_ossie, bim, translate_dax=translate_dax)
+    report = list(read_report or []) + report
     doc = yaml.safe_load(text)
     datasets = doc.get("datasets") or []
     metrics = list(doc.get("metrics") or []) + [m for d in datasets for m in d.get("metrics") or []]
     portable = sum(1 for m in metrics if any(d.get("dialect") != "DAX"
                                              for d in (m.get("expression") or {}).get("dialects") or []))
-    return {"yaml": text, "name": doc.get("name", ""), "version": doc.get("version", ""), "report": report,
-            "counts": {"datasets": len(datasets), "fields": sum(len(d.get("fields") or []) for d in datasets),
-                       "metrics": len(metrics), "portable_metrics": portable,
-                       "relationships": len(doc.get("relationships") or [])}}
+    check = round_trip_check(bim) if validate else None
+    out = {"yaml": text, "name": doc.get("name", ""), "version": doc.get("version", ""), "report": report,
+           "counts": {"datasets": len(datasets), "fields": sum(len(d.get("fields") or []) for d in datasets),
+                      "metrics": len(metrics), "portable_metrics": portable,
+                      "relationships": len(doc.get("relationships") or [])},
+           "fidelity": fidelity(bim, doc, report, check)}
+    if check is not None:
+        out["round_trip"] = check["rows"] if check["ran"] else [
+            {"object": "model", "kind": "lost", "message": f"the round-trip check couldn't run: {check['error']}"}]
+    return out
 
 
 _SQL_DIALECTS = {"ANSI_SQL": None, "OSSIE_SQL_2026": None, "SNOWFLAKE": "snowflake", "DATABRICKS": "databricks",
@@ -642,8 +652,8 @@ def tmdl_to_ossie(files: dict[str, str], name: str, translate_dax: bool = True) 
     reader left out and anything that wouldn't come back from Ossie."""
     from . import tmdl
     bim, read_report = tmdl.to_bim(files, name)
-    out = export(bim, translate_dax=translate_dax)
-    out["report"] = read_report + out["report"] + round_trip(bim)
+    out = export(bim, translate_dax=translate_dax, read_report=read_report, validate=True)
+    out["report"] = out["report"] + out.pop("round_trip")
     return out
 
 
@@ -655,3 +665,451 @@ def ossie_to_tmdl(text: str, source: dict[str, str] | None = None) -> tuple[dict
     bim, report = to_tmsl(text, source)
     files, written = tmdl.from_bim(bim)
     return files, report + written
+
+
+# ---- the fidelity report (OSSIE-004a): every object a conversion reads, in one of five classes
+
+# The vendored converter (see _vendor/ossie_microsoft/README.md; tests check the two agree).
+CONVERTER = {"name": "apache/ossie-converters", "path": "microsoft/src/ossie_microsoft", "version": "0.2.0.dev0",
+             "commit": "82b9eff619c5b701de720b1bb0f02b23ea2c64bf"}
+CLASSES = {"fully_preserved": "Fully preserved", "preserved_through_extensions": "Preserved through extensions",
+           "partially_converted": "Partially converted", "unsupported": "Unsupported", "unverified": "Unverified"}
+# Model collections Ossie has no place for: they travel only in the model's POWER_BI extension.
+_STASHED_OBJECTS = (("perspectives", "perspective"), ("roles", "role"), ("cultures", "culture"),
+                    ("expressions", "expression"))
+# Extension keys the converter reads as instructions rather than as properties of the object.
+_STASH_CONTROL = frozenset({"_v", "excludedTables", "excludedMeasures", "excludedRelationships", "excludedColumns",
+                            "document", "descriptionSource", "table", "name", "flipped", "normalizedEndpoints",
+                            "sourceColumn", "dataType", *(key for key, _ in _STASHED_OBJECTS), "hierarchies"})
+_DIALECT_ANNOTATION = "OssieExpressionDialect"
+_COLLECTION_ROWS = (*_STASHED_OBJECTS, ("hierarchies", "hierarchy"))
+
+
+def _q(name: Any) -> str:
+    return f"'{name}'"
+
+
+def _dicts(items: Any) -> list[dict[str, Any]]:
+    """The objects of a list, nothing for what isn't one (a file can say anything)."""
+    return [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
+
+
+def _named_items(items: Any) -> list[dict[str, Any]]:
+    return [i for i in _dicts(items) if isinstance(i.get("name"), str)]
+
+
+def _names(items: Any) -> set[str]:
+    return {i["name"] for i in _named_items(items)}
+
+
+class _Objects:
+    """The report's objects in input order, each once, and the names report rows use for them."""
+
+    def __init__(self) -> None:
+        self.items: list[dict[str, Any]] = []
+        self.ids: dict[str, dict[str, Any]] = {}
+        self.aliases: dict[str, dict[str, Any] | None] = {}  # None: more than one object goes by it
+
+    def add(self, kind: str, ident: str, cls: str, changes: list[str] | None = None, notes: list[str] | None = None,
+            aliases: tuple[str, ...] = (), in_extension: list[str] | None = None) -> dict[str, Any]:
+        n, base = 2, ident
+        while ident in self.ids:  # the same name twice (a file can say anything): still one row each
+            ident, n = f"{base} #{n}", n + 1
+        changes = list(changes or [])
+        if cls == "fully_preserved" and changes:
+            cls = "partially_converted"
+        obj: dict[str, Any] = {"object": ident, "kind": kind, "class": cls, "changes": changes,
+                               "notes": list(notes or []), "in_extension": sorted(in_extension or []),
+                               "evidence": []}
+        if kind == "role":
+            obj["flag"] = "security"
+        elif kind == "calculation_group":
+            obj["flag"] = "calculation_group"
+        self.items.append(obj)
+        self.ids[ident] = obj
+        for alias in (base, *aliases):
+            if alias != ident:
+                self.aliases[alias] = obj if self.aliases.get(alias, obj) is obj else None
+        return obj
+
+    def find(self, where: str) -> dict[str, Any] | None:
+        """The object a report row names: the longest id or alias ``where`` starts with, whole words only."""
+        cut = len(where)
+        while cut > 0:
+            prefix = where[:cut]
+            hit = self.ids.get(prefix) or self.aliases.get(prefix)
+            if hit is not None:
+                return hit
+            cut = where.rfind(" ", 0, cut)
+        return None
+
+
+def _extension_keys(data: dict[str, Any]) -> list[str]:
+    return [k for k in data if k not in _STASH_CONTROL]
+
+
+def _tmsl_to_ossie(bim: dict[str, Any], doc: dict[str, Any], objs: _Objects) -> None:
+    """Classify each object of ``bim`` by where it is in ``doc`` (the Ossie document Export wrote): in the
+    Ossie core, only in a POWER_BI extension, or nowhere."""
+    model: dict[str, Any] = bim["model"] if isinstance(bim.get("model"), dict) else {}
+    datasets = {d["name"]: d for d in _named_items(doc.get("datasets"))}
+    stash = _stash_data(doc)
+    excluded = {t["name"]: t for t in _named_items(stash.get("excludedTables"))}
+    metrics: dict[tuple[Any, Any], dict[str, Any]] = {}
+    for m in _named_items(doc.get("metrics")):
+        data = _stash_data(m)
+        metrics.setdefault((data.get("table"), data.get("name", m["name"])), m)
+    excluded_measures = {(e.get("table"), e["measure"].get("name")) for e in _dicts(stash.get("excludedMeasures"))
+                         if isinstance(e.get("measure"), dict)}
+    named = isinstance(bim.get("name"), str) and bool(bim["name"])
+    objs.add("model", "model", "fully_preserved",
+             [] if named else [f"the model has no name; written as {_q(doc.get('name'))}"],
+             in_extension=_extension_keys(stash))
+    for t in _named_items(model.get("tables")):
+        name, tid = t["name"], f"table {_q(t['name'])}"
+        kind = "calculation_group" if t.get("calculationGroup") else "table"
+        ds, ex = datasets.get(name), excluded.get(name)
+        ds_stash = _stash_data(ds) if ds is not None else {}
+        if ds is not None:
+            objs.add(kind, tid, "fully_preserved", in_extension=_extension_keys(ds_stash))
+        else:
+            objs.add(kind, tid, "preserved_through_extensions" if ex is not None else "unsupported")
+        fields = {f["name"]: f for f in _named_items((ds or {}).get("fields"))}
+        set_aside = _names(ds_stash.get("excludedColumns"))
+        for c in _named_items(t.get("columns")):
+            cid = f"{tid} column {_q(c['name'])}"
+            field = fields.get(c["name"])
+            if field is not None:
+                changes, dt = [], c.get("dataType")
+                if field.get("datatype") == "Opaque":
+                    changes.append(f"data type {dt} has no Ossie type; written as Opaque (kept in the POWER_BI extension)")
+                elif isinstance(dt, str) and dt and not field.get("datatype"):
+                    changes.append(f"data type {dt} has no Ossie type; left out (kept in the POWER_BI extension)")
+                objs.add("column", cid, "fully_preserved", changes, aliases=(f"{name}[{c['name']}]",),
+                         in_extension=_extension_keys(_stash_data(field)))
+            else:
+                kept = c["name"] in set_aside or (ex is not None and c["name"] in _names(ex.get("columns")))
+                objs.add("column", cid, "preserved_through_extensions" if kept else "unsupported",
+                         aliases=(f"{name}[{c['name']}]",))
+        for m in _named_items(t.get("measures")):
+            mid = f"{tid} measure {_q(m['name'])}"
+            metric = metrics.get((name, m["name"]))
+            if metric is not None:
+                dialects = [str(d.get("dialect")) for d in (metric.get("expression") or {}).get("dialects") or []
+                            if isinstance(d, dict)]
+                changes = [] if metric["name"] == m["name"] else [f"renamed to {_q(metric['name'])} (Ossie metric names are model-wide)"]
+                translated = [d for d in dialects if d != "DAX"]
+                cls = "unverified" if translated else "fully_preserved"
+                notes = [(f"translated from DAX to {', '.join(translated)}; the DAX is kept beside it, and the two "
+                          "aren't compared")] if translated else []
+                objs.add("measure", mid, cls, changes, notes, aliases=(f"{name}[{m['name']}]",),
+                         in_extension=_extension_keys(_stash_data(metric)))
+            else:
+                kept = (name, m["name"]) in excluded_measures or (ex is not None and m["name"] in _names(ex.get("measures")))
+                objs.add("measure", mid, "preserved_through_extensions" if kept else "unsupported",
+                         aliases=(f"{name}[{m['name']}]",))
+        stashed_hierarchies = _names(ds_stash.get("hierarchies")) | _names((ex or {}).get("hierarchies"))
+        for h in _named_items(t.get("hierarchies")):
+            objs.add("hierarchy", f"{tid} hierarchy {_q(h['name'])}",
+                     "preserved_through_extensions" if h["name"] in stashed_hierarchies else "unsupported")
+    core: dict[Any, dict[str, Any]] = {}
+    for r in _named_items(doc.get("relationships")):
+        data = _stash_data(r)
+        ends = (r.get("from"), (r.get("from_columns") or [None])[0], r.get("to"), (r.get("to_columns") or [None])[0])
+        if "name" in data:
+            core.setdefault(("name", data["name"]), r)
+        core.setdefault(ends, r)
+        core.setdefault((ends[2], ends[3], ends[0], ends[1]), r)
+    set_aside_rels = _dicts(stash.get("excludedRelationships"))
+    unnamed = len([r for r in _dicts(model.get("relationships")) if "name" not in r])
+    for r in _dicts(model.get("relationships")):
+        label = r.get("name") if isinstance(r.get("name"), str) and r.get("name") else _rel_key(r)
+        ends = (r.get("fromTable"), r.get("fromColumn"), r.get("toTable"), r.get("toColumn"))
+        hit = core.get(("name", r["name"])) if r.get("name") else core.get(ends)
+        aliases = (f"relationship {label!r}",) + (("relationship '<unnamed>'",) if "name" not in r and unnamed == 1 else ())
+        if hit is not None:
+            objs.add("relationship", f"relationship {_q(label)}", "fully_preserved", aliases=aliases,
+                     in_extension=_extension_keys(_stash_data(hit)))
+        else:
+            objs.add("relationship", f"relationship {_q(label)}",
+                     "preserved_through_extensions" if r in set_aside_rels else "unsupported", aliases=aliases)
+    for key, kind in _STASHED_OBJECTS:
+        in_stash = _names(stash.get(key))
+        for item in _named_items(model.get(key)):
+            objs.add(kind, f"{kind} {_q(item['name'])}",
+                     "preserved_through_extensions" if item["name"] in in_stash else "unsupported",
+                     aliases=(f"{kind} {item['name']!r}",))
+
+
+def _ossie_drops(obj: dict[str, Any]) -> list[str]:
+    """What the converter drops from an Ossie object because Power BI has nowhere to put it."""
+    out = ["display label dropped: Power BI has nowhere to record it"] if "label" in obj else []
+    out += [f"custom_extensions for vendor {_q(e.get('vendor_name'))} dropped" for e in _dicts(obj.get("custom_extensions"))
+            if e.get("vendor_name") != "POWER_BI"]
+    return out
+
+
+def _expression_class(target: dict[str, Any] | None, changes: list[str], notes: list[str]) -> str:
+    """Fully preserved, Partially converted (a BLANK() placeholder for SQL that wasn't translated) or Unverified
+    (SQL translated to DAX) for a measure or column the converter wrote, or Unsupported when it wrote none."""
+    if target is None:
+        return "unsupported"
+    if _is_placeholder(target):
+        changes.append("needs_dax: the SQL wasn't translated to DAX; written as BLANK() until it's written in DAX")
+        return "partially_converted"
+    dialect = next((a.get("value") for a in _dicts(target.get("annotations")) if a.get("name") == _DIALECT_ANNOTATION),
+                   None)
+    if dialect:
+        notes.append(f"translated from {dialect} to DAX; the two aren't compared, and the original is kept as annotations")
+        return "unverified"
+    return "fully_preserved"
+
+
+def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> None:
+    """Classify each object of ``doc`` (an Ossie document, as written, with its POWER_BI extensions) by
+    what ``bim`` (the model the converter wrote from it) has."""
+    model: dict[str, Any] = bim["model"] if isinstance(bim.get("model"), dict) else {}
+    tables = {t["name"]: t for t in _named_items(model.get("tables"))}
+    stash = _stash_data(doc)
+
+    def member(table: Any, key: str, name: Any) -> dict[str, Any] | None:
+        return next((i for i in _named_items((tables.get(table) or {}).get(key)) if i["name"] == name), None)
+
+    def placed(name: Any, recorded: Any) -> tuple[Any, dict[str, Any] | None]:
+        """Where the converter puts a metric's measure ``name`` (its recorded home table when the model has it,
+        else the first table) and the measure there, if it wrote one."""
+        home = recorded if recorded in tables else next(iter(tables), None)
+        return home, member(home, "measures", name)
+
+    added = sorted(_names(model.get("expressions")) - _names(stash.get("expressions")))
+    objs.add("model", "model", "fully_preserved", _ossie_drops(doc), aliases=("document",),
+             notes=[f"the converter added the shared expression {_q(n)} (the Direct Lake source)" for n in added])
+    datasets = _named_items(doc.get("datasets"))
+    model_metrics = _named_items(doc.get("metrics"))
+    taken = {m["name"] for m in model_metrics}
+    lifted: dict[int, str] = {}  # id(metric) -> its home table, for the dataset metrics _lift_dataset_metrics moves
+    for d in datasets:
+        for m in _named_items(d.get("metrics")):
+            if m["name"] not in taken:
+                taken.add(m["name"])
+                lifted[id(m)] = d["name"]
+    for d in datasets:
+        name, did = d["name"], f"dataset {_q(d['name'])}"
+        ds_stash = _stash_data(d)
+        changes = _ossie_drops(d)
+        if len(d.get("primary_key") or []) > 1:
+            changes.append("composite primary key not marked: Power BI has no composite key")
+        changes += ["composite unique key not marked: Power BI has no composite unique constraint"
+                    for k in d.get("unique_keys") or [] if isinstance(k, list) and len(k) > 1]
+        objs.add("table", did, "fully_preserved" if name in tables else "unsupported",
+                 changes if name in tables else [], aliases=(f"table {_q(name)}",))
+        for f in _named_items(d.get("fields")):
+            col = member(name, "columns", f["name"])
+            changes, notes = _ossie_drops(f), list[str]()
+            dt = f.get("datatype")
+            if col is not None and dt in ("Time", "DateTimeTz"):
+                changes.append(f"data type {dt} stored as dateTime: Power BI has no "
+                               + ("time-only type" if dt == "Time" else "timezone-aware type; the UTC offset is lost"))
+            elif col is not None and dt and not col.get("dataType"):
+                changes.append(f"data type {dt} has no Power BI type; left unspecified")
+            cls = _expression_class(col, changes, notes)
+            objs.add("column", f"{did} field {_q(f['name'])}", cls, changes if col is not None else [], notes,
+                     aliases=(f"table {_q(name)} column {_q(f['name'])}", f"{name}[{f['name']}]"))
+        for c in _named_items(ds_stash.get("excludedColumns")):
+            objs.add("column", f"table {_q(name)} column {_q(c['name'])}",
+                     "fully_preserved" if member(name, "columns", c["name"]) else "unsupported",
+                     notes=["restored from the POWER_BI extension"])
+        for h in _named_items(ds_stash.get("hierarchies")):
+            objs.add("hierarchy", f"table {_q(name)} hierarchy {_q(h['name'])}",
+                     "fully_preserved" if member(name, "hierarchies", h["name"]) else "unsupported",
+                     notes=["restored from the POWER_BI extension"])
+        for m in _named_items(d.get("metrics")):
+            mid = f"{did} metric {_q(m['name'])}"
+            if id(m) not in lifted:
+                objs.add("measure", mid, "unsupported",
+                         notes=["a model-level metric has the same name, so this one was left out"])
+                continue
+            _metric(objs, m, mid, lifted[id(m)], placed, (f"metric {_q(m['name'])}",))
+    for m in model_metrics:
+        _metric(objs, m, f"metric {_q(m['name'])}", None, placed, ())
+    rels = _dicts(model.get("relationships"))
+    by_name = {r.get("name"): r for r in rels if r.get("name")}
+    by_ends = {(r.get("fromTable"), r.get("fromColumn"), r.get("toTable"), r.get("toColumn")): r for r in rels}
+    for r in _dicts(doc.get("relationships")):
+        data, label = _stash_data(r), r.get("name") or "<unnamed>"
+        ends = (r.get("from"), (r.get("from_columns") or [None])[0], r.get("to"), (r.get("to_columns") or [None])[0])
+        hit = by_name.get(data.get("name", r.get("name"))) or by_name.get(r.get("name")) or by_ends.get(ends) \
+            or by_ends.get((ends[2], ends[3], ends[0], ends[1]))
+        if len(r.get("from_columns") or []) != 1 or len(r.get("to_columns") or []) != 1:
+            hit = None  # a composite relationship never converts, whatever else matches its name
+        objs.add("relationship", f"relationship {_q(label)}", "fully_preserved" if hit else "unsupported",
+                 _ossie_drops(r) if hit else [])
+    for key, kind in _STASHED_OBJECTS:
+        have = _names(model.get(key))
+        for item in _named_items(stash.get(key)):
+            objs.add(kind, f"{kind} {_q(item['name'])}", "fully_preserved" if item["name"] in have else "unsupported",
+                     notes=["restored from the POWER_BI extension"], aliases=(f"{kind} {item['name']!r}",))
+    for t in _named_items(stash.get("excludedTables")):
+        tid = f"table {_q(t['name'])}"
+        objs.add("calculation_group" if t.get("calculationGroup") else "table", tid,
+                 "fully_preserved" if t["name"] in tables else "unsupported", notes=["restored from the POWER_BI extension"])
+        for key, kind in (("columns", "column"), ("measures", "measure"), ("hierarchies", "hierarchy")):
+            for i in _named_items(t.get(key)):
+                objs.add(kind, f"{tid} {kind} {_q(i['name'])}",
+                         "fully_preserved" if member(t["name"], key, i["name"]) else "unsupported",
+                         notes=["restored from the POWER_BI extension"], aliases=(f"{t['name']}[{i['name']}]",))
+    for e in _dicts(stash.get("excludedMeasures")):
+        kept = e.get("measure")
+        if not isinstance(kept, dict) or not isinstance(kept.get("name"), str):
+            continue
+        objs.add("measure", f"table {_q(e.get('table'))} measure {_q(kept['name'])}",
+                 "fully_preserved" if member(e.get("table"), "measures", kept["name"]) else "unsupported",
+                 notes=["restored from the POWER_BI extension"],
+                 aliases=(f"excluded measure {_q(kept['name'])}", f"{e.get('table')}[{kept['name']}]"))
+    for r in _dicts(stash.get("excludedRelationships")):
+        label = r.get("name") if isinstance(r.get("name"), str) and r.get("name") else _rel_key(r)
+        objs.add("relationship", f"relationship {_q(label)}", "fully_preserved" if r in rels else "unsupported",
+                 notes=["restored from the POWER_BI extension"])
+
+
+def _metric(objs: _Objects, m: dict[str, Any], mid: str, home: Any, placed: Any, aliases: tuple[str, ...]) -> None:
+    """One Ossie metric, found as the measure the converter wrote for it."""
+    data = _stash_data(m)
+    recorded = data.get("table", home)
+    table, measure = placed(data.get("name", m["name"]), recorded)
+    changes, notes = _ossie_drops(m) if measure is not None else [], []
+    if measure is not None and recorded is None:
+        notes.append(f"no home table recorded; placed on {_q(table)}")
+    elif measure is not None and table != recorded:
+        changes.append(f"placed on {_q(table)}, not {_q(recorded)}, which isn't in the model")
+    if measure is not None and m.get("datatype") and "dataType" not in data:
+        notes.append(f"datatype {m['datatype']} not applied: Power BI infers a measure's data type from its DAX")
+    cls = _expression_class(measure, changes, notes)
+    if measure is None and not _dialect_entries(m):
+        notes.append("the metric has no expression")
+    objs.add("measure", mid, cls, changes, notes, aliases=aliases + ((f"{table}[{measure['name']}]",) if measure else ()))
+
+
+def _dialect_entries(m: dict[str, Any]) -> list[dict[str, Any]]:
+    return [d for d in (m.get("expression") or {}).get("dialects") or [] if isinstance(d, dict) and d.get("expression")]
+
+
+def _remediation(obj: dict[str, Any], to_ossie: bool) -> str:
+    """What to do about an object that didn't come through fully preserved, in one line."""
+    cls, kind = obj["class"], obj["kind"]
+    if cls == "preserved_through_extensions":
+        if kind == "role":
+            return ("Kept for Power BI only, in the POWER_BI extension: a tool that reads this file won't apply this "
+                    "row-level security. Define the same security in that tool before sharing data through it.")
+        return ("Kept for Power BI only, in the POWER_BI extension, so it comes back on import. Another tool won't see "
+                f"this {kind.replace('_', ' ')}; recreate it there if that tool needs it.")
+    if cls == "unverified":
+        return ("Check that the translated expression gives the same results as the original before relying on it; "
+                "KratosForge hasn't compared them.")
+    if cls == "partially_converted":
+        if any(c.startswith("needs_dax") for c in obj["changes"]):
+            return "Write this measure in DAX in Fabric or the TMDL; it is BLANK() until then."
+        return "Review the changes listed and set them by hand in the destination if they matter."
+    if kind == "role":
+        return ("This security role isn't in the result. Recreate it by hand before anyone uses the model, or the "
+                "data it restricts is open to everyone with read access.")
+    if kind == "relationship":
+        return ("Recreate it by hand in the destination; "
+                + ("an Ossie relationship joins one column to one column, many to one" if not to_ossie
+                   else "check that both tables are exported"))
+    if kind == "measure" and not to_ossie:
+        return "Give the metric an expression (DAX converts as written), or recreate the measure by hand."
+    return f"Recreate this {kind.replace('_', ' ')} by hand in the destination; it has no equivalent there."
+
+
+def fidelity(source: dict[str, Any], destination: dict[str, Any], rows: list[dict[str, str]] | None = None,
+             validation: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The fidelity report of one conversion: every object of ``source`` once, in one of ``CLASSES``.
+
+    ``source`` and ``destination`` are a parsed ``model.bim`` and the parsed Ossie document converted from it
+    (Export), or the other way round (Import, Ossie to TMDL). Each object is classed by structure: what reached
+    the destination, what sits only in a POWER_BI extension, what is missing. ``rows`` (the converter's, the TMDL
+    reader's and the merge's report rows) are attached to the object they name as ``evidence``, never read to
+    decide a class; a row that names no object is a warning. ``validation`` is ``round_trip_check``'s result.
+    Security roles and calculation groups are flagged, and a role that doesn't come through is a security warning
+    at the top of ``warnings``."""
+    objs = _Objects()
+    if isinstance(source.get("model"), dict) and isinstance(destination.get("datasets"), list):
+        to_ossie = True
+        _tmsl_to_ossie(source, destination, objs)
+        src = {"format": "TMSL", "version": str(source.get("compatibilityLevel", ""))}
+        dst = {"format": "Apache Ossie", "version": str(destination.get("version", ""))}
+    elif isinstance(source.get("datasets"), list) and isinstance(destination.get("model"), dict):
+        to_ossie = False
+        _ossie_to_tmsl(source, destination, objs)
+        src = {"format": "Apache Ossie", "version": str(source.get("version", ""))}
+        dst = {"format": "TMSL", "version": str(destination.get("compatibilityLevel", ""))}
+    else:
+        raise ValueError("fidelity compares a model.bim with the Ossie document converted from it, or the other way round")
+    warnings_: list[dict[str, Any]] = []
+    for row in rows or []:
+        hit = objs.find(str(row.get("object", "")))
+        # A row about a whole collection ("row-level security roles ('roles') ...") is evidence for its members.
+        kind = next((k for key, k in _COLLECTION_ROWS if f"('{key}')" in str(row.get("message", ""))), None)
+        members = [] if hit is None or kind is None else [
+            o for o in objs.items if o["kind"] == kind and (hit["kind"] == "model" or o["object"].startswith(hit["object"] + " "))]
+        for target in members or ([hit] if hit is not None else []):
+            target["evidence"].append(dict(row))
+        if hit is None:
+            warnings_.append({"object": row.get("object", ""), "message": row.get("message", ""), "severity": "warning"})
+    check = dict(validation or {"check": "round_trip", "ran": False, "passed": None, "error": "", "rows": []})
+    differences = list(check.pop("rows", []) or [])
+    affected = []
+    for row in differences:
+        hit = objs.find(str(row.get("object", "")))
+        if hit is not None:
+            hit["evidence"].append(dict(row) | {"check": "round_trip"})
+            affected.append(hit["object"])
+        else:
+            warnings_.append({"object": row.get("object", ""), "message": row.get("message", ""), "severity": "warning"})
+    check |= {"differences": [r.get("object", "") for r in differences], "objects": list(dict.fromkeys(affected))}
+    security: list[dict[str, Any]] = []
+    for obj in objs.items:
+        obj["label"] = CLASSES[obj["class"]]
+        obj["remediation"] = "" if obj["class"] == "fully_preserved" else _remediation(obj, to_ossie)
+        if obj["kind"] == "role" and obj["class"] == "unsupported":
+            security.append({"object": obj["object"], "severity": "security", "prominent": True,
+                             "message": "This security role is lost: the result has no row-level security for it"})
+        elif obj["kind"] == "role" and obj["class"] == "preserved_through_extensions":
+            security.append({"object": obj["object"], "severity": "security", "prominent": True,
+                             "message": "This security role is only in the POWER_BI extension: a tool other than "
+                                        "Power BI that reads the file won't apply it"})
+        elif obj["kind"] == "calculation_group" and obj["class"] == "unsupported":
+            security.append({"object": obj["object"], "severity": "warning", "prominent": True,
+                             "message": "This calculation group is lost"})
+    by_class: dict[str, list[str]] = {c: [] for c in CLASSES}
+    for obj in objs.items:
+        by_class[obj["class"]].append(obj["object"])
+    return {
+        "source": src, "destination": dst, "converter": dict(CONVERTER),
+        "objects": objs.items,
+        "counts": {c: len(v) for c, v in by_class.items()},
+        "by_class": by_class,
+        "excluded": [{"object": o["object"], "kind": o["kind"], "class": o["class"]} for o in objs.items
+                     if o["class"] in ("preserved_through_extensions", "unsupported")],
+        "metadata_changes": [{"object": o["object"], "change": c} for o in objs.items for c in o["changes"]]
+        + [{"object": o["object"], "change": n, "informational": True} for o in objs.items for n in o["notes"]],
+        "flagged": {"roles": [{"object": o["object"], "class": o["class"]} for o in objs.items if o["kind"] == "role"],
+                    "calculation_groups": [{"object": o["object"], "class": o["class"]} for o in objs.items
+                                           if o["kind"] == "calculation_group"]},
+        "warnings": security + warnings_,
+        "validation": check,
+        "remediation": [{"object": o["object"], "class": o["class"], "action": o["remediation"]} for o in objs.items
+                        if o["remediation"]],
+    }
+
+
+def round_trip_check(bim: dict[str, Any]) -> dict[str, Any]:
+    """``round_trip`` as the fidelity report's validation result: ``ran``, ``passed`` and the ``rows``. A model
+    the check can't send to Ossie and back is a result too (``ran`` false, with the ``error``), not a failure
+    of the conversion it validates."""
+    try:
+        rows = round_trip(bim)
+    except (ValueError, TypeError) as exc:  # narrow: what the converter refuses, kept in the result and shown
+        return {"check": "round_trip", "ran": False, "passed": None, "error": str(exc), "rows": []}
+    return {"check": "round_trip", "ran": True, "passed": not rows, "error": "", "rows": rows}

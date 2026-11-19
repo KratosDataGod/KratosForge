@@ -19,7 +19,7 @@ import json
 
 import pytest
 
-from fabric_desktop import audit_chain
+from fabric_desktop import audit, audit_chain
 from fabric_desktop.service import Service
 
 COUNT = 6
@@ -231,7 +231,12 @@ def test_a_line_that_isnt_an_audit_line_still_reaches_the_app(service, junk):
     out = service.audit_log()
     assert f"{path.name} line 3: not an audit line" in out["check"]["problems"] and not out["check"]["ok"]
     assert all(isinstance(e, dict) for e in out["entries"])
-    assert len(out["entries"]) == COUNT + (junk == "{\"no\": \"hash\"}")  # a JSON object is still listed
+    assert len(out["entries"]) == COUNT + 1  # a JSON object is listed as it is; anything else as a placeholder
+    if junk != "{\"no\": \"hash\"}":
+        [row] = [e for e in out["entries"] if e["action"] == audit.UNREADABLE]
+        assert (row["file"], row["line"], row["outcome"]) == (path.name, 3, "error")
+        assert "line 3 isn't an audit line" in row["error"]
+        assert not [e for e in service.audit.recent(200, action="run_schedule") if e["action"] == audit.UNREADABLE]
 
 
 # ------------------------------------------------------------------------ forged lines, hashes recomputed

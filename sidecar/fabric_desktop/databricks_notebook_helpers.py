@@ -31,7 +31,6 @@ GROUPS = ("dbutils", "cells", "line_magics")
 _TITLES = {"dbutils": "dbutils", "cells": "Cell magics", "line_magics": "Line magics"}
 # What the kernel runs; any other cell language stops with "needs Fabric's Spark" (notebook.Kernel._exec).
 RUNS_HERE = {"python", "sql", "markdown", "html", "shell"}
-SCALA_R = "Scala and R cells need Fabric's Spark. Switch Runs on to Fabric to run them."
 
 
 class _NotCalled(Exception):
@@ -105,7 +104,7 @@ def rows() -> list[dict[str, str]]:
     for header, note in data["cells"].items():
         language = magics.cell(header + "\n").language
         if language not in RUNS_HERE:
-            out.append({"group": "cells", "name": header, "status": "refused", "note": SCALA_R})
+            out.append({"group": "cells", "name": header, "status": "refused", "note": magics.runs_in_fabric(header)})
         else:
             out.append({"group": "cells", "name": header, "status": "differs" if note else "runs", "note": note})
     for magic, note in data["line_magics"].items():

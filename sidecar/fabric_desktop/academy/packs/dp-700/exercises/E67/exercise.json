@@ -1,0 +1,131 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E67",
+  "version": 1,
+  "status": "draft",
+  "title": "Reload one day of a Delta table with replaceWhere",
+  "objectives": [
+    "2.1.1"
+  ],
+  "objective_text": "Replace one business day of a Delta table with a corrected file using an overwrite with replaceWhere, so that day's rows are exactly the file's, every other day is untouched, and a rerun changes nothing.",
+  "scenario": "silver.daily_sales is loaded one business day at a time. The source has sent a corrected file for one day: it holds that whole day as it should be, with an amount fixed, a voided sale gone and a missed sale added. Today's job appends it, so the day is loaded twice. Reload just that day.",
+  "prerequisites": [
+    "LM-21"
+  ],
+  "minutes": 20,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "lesson": "lesson.md",
+  "datasets": [
+    {
+      "name": "silver.daily_sales",
+      "rows": 8,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    },
+    {
+      "name": "bronze.sales_correction",
+      "rows": 3,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    }
+  ],
+  "starting_environment": "Delta tables silver.daily_sales (three business days) and bronze.sales_correction (one corrected day, with the date it was received) in the exercise folder, and an appending job as answer.py.",
+  "required": [
+    "The corrected day in silver.daily_sales holds exactly the file's rows: the fixed amount, no voided sale, and the missed sale.",
+    "Every other day is exactly as it was.",
+    "The table keeps its four columns; received_date isn't one of them.",
+    "Running the job again leaves the table the same."
+  ],
+  "expected": {
+    "description": "silver.daily_sales has 8 rows: days 2026-03-01 and 2026-03-03 unchanged, and 2026-03-02 as sales 4 (15.50), 5 and 9."
+  },
+  "verifies": [
+    "After your job runs, silver.daily_sales holds the corrected day exactly as the file has it and every other day unchanged, on the exercise data and on data you haven't seen, on this PC.",
+    "sale_id is unique and never empty, the columns and types are kept, and a second run leaves the table the same."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark, in a Fabric notebook or on a Fabric lakehouse: the overwrite runs on delta-rs, and the replaceWhere check is the Academy's own, made before the write. It uses Delta's error name, but the message is worded differently from Spark's.",
+    "How the table is laid out: partitionBy does nothing here, so whether the day is a partition, how many files the overwrite rewrites, and V-Order aren't checked.",
+    "Correction files that span several days, or that arrive while another job writes the same table."
+  ],
+  "validation": [
+    {
+      "kind": "result_matches",
+      "table": "silver.daily_sales",
+      "data": "practice",
+      "weight": 2,
+      "required": true,
+      "pass": "silver.daily_sales holds the corrected day and every other day as it was.",
+      "fail": "silver.daily_sales doesn't match: compare each day's rows with what it held before, and the corrected day with the file."
+    },
+    {
+      "kind": "result_matches",
+      "table": "silver.daily_sales",
+      "data": "hidden",
+      "weight": 2,
+      "required": true,
+      "pass": "The reload also works on data you haven't seen.",
+      "fail": "The reload doesn't hold on other data: avoid relying on this file's exact day or rows."
+    },
+    {
+      "kind": "table_shape",
+      "table": "silver.daily_sales",
+      "columns": {
+        "sale_id": "INT",
+        "sale_date": "DATE",
+        "store": "VARCHAR",
+        "amount": "DECIMAL"
+      },
+      "unique": [
+        "sale_id"
+      ],
+      "not_null": [
+        "sale_id",
+        "sale_date",
+        "amount"
+      ],
+      "weight": 1,
+      "required": true,
+      "pass": "The columns, types and keys are right.",
+      "fail": "A column, a type or a key is off: see the detail."
+    },
+    {
+      "kind": "idempotent",
+      "table": "silver.daily_sales",
+      "weight": 1,
+      "required": true,
+      "pass": "A second run leaves silver.daily_sales the same.",
+      "fail": "A second run changed silver.daily_sales: look at what the write does to rows that are already there."
+    }
+  ],
+  "hints": [
+    "The file is the whole day as it should be, so this is a replace, not an upsert: a sale that was voided must disappear. Which write mode replaces rows?",
+    "A plain overwrite replaces the whole table. Delta's replaceWhere option limits an overwrite to the rows that match a condition, and every row you write must match it too.",
+    "Build the condition from the file's own business day (sale_date, not when the file was received), and use mode(\"overwrite\") with .option(\"replaceWhere\", ...)."
+  ],
+  "explanation": "When a source resends a complete slice of a table, such as one business day, the safe reload replaces exactly that slice. An overwrite with replaceWhere does it in one commit: it removes the rows that match the condition and writes the new ones, so other days are untouched and a rerun leaves the same rows. Delta also checks that every row written matches the condition, which catches a condition built from the wrong column or the wrong day before anything changes. A plain overwrite replaces the whole table, an append loads the day twice, a MERGE by key keeps a sale the source voided, and a condition wider than the file's day deletes days the file doesn't hold.",
+  "troubleshooting": [
+    "Only the corrected day is left: the overwrite has no replaceWhere, so it replaced the whole table.",
+    "The day appears twice, and once more on every run: the write appends; replaceWhere only applies to an overwrite.",
+    "DELTA_REPLACE_WHERE_MISMATCH: the rows written don't match the condition. Check which date column and which day it names.",
+    "A later day disappeared: the condition matches more than the file's day.",
+    "A voided sale is still there: an upsert keeps rows the file no longer has; replace the day instead."
+  ],
+  "remediation": [
+    "LM-21",
+    "LM-11",
+    "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
+  ],
+  "reset": "Reset rebuilds silver.daily_sales and bronze.sales_correction from setup.sql and puts the appending job back.",
+  "parity": null,
+  "review_notes": [
+    "replaceWhere runs in the learner shim through spark_replace_where.py (PR #3029): an overwrite replaces only matching rows, a row outside the condition raises DELTA_REPLACE_WHERE_MISMATCH and writes nothing, and an append ignores it with a note, as in Delta.",
+    "wrong-append-with-replace-where shows that last rule: the option is set but the append still doubles the day.",
+    "The solution reads the day from the file and asserts it holds one day; the hidden data corrects a different day, so a typed-in date fails there."
+  ]
+}

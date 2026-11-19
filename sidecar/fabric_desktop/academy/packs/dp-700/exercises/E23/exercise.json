@@ -1,7 +1,7 @@
 {
   "schema": "kratosforge/academy-exercise@1",
   "id": "E23",
-  "version": 1,
+  "version": 2,
   "status": "draft",
   "title": "Prepare a customer dimension: surrogate keys and an Unknown member",
   "objectives": [

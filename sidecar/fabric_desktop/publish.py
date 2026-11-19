@@ -269,12 +269,27 @@ def _local_leases(ref: TableRef) -> Path:
     return Path(ref.uri).parent / "_leases"
 
 
-def _queue_v_order(fabric: FabricClient | None, ref: TableRef, version: int) -> tuple[str | None, str | None]:
+def _queue_v_order(fabric: FabricClient | None, ref: TableRef, version: int,
+                   capacity_gate: Callable[[str, str], str | None] | None = None) -> tuple[str | None, str | None]:
     """Queue Fabric's table maintenance job with V-Order for a table just written: OPTIMIZE alone, with no
     VACUUM, so no version a reader may still need is removed. The write has committed, so a failure here
     is reported with the run, never raised: raising would call a written table failed, and a rerun would
-    write it again."""
+    write it again.
+
+    ``capacity_gate`` (workspace id, table) says why Optimize may not run on the capacity now (Blocked is a
+    hard stop, WR-410). With no gate, V-Order isn't started: an Optimize never runs unchecked."""
     name = ref.table if ref.flat else f"{ref.schema}.{ref.table}"
+    if capacity_gate is None:
+        return None, (f"Wrote {name} (Delta version {version}), but it wasn't V-Ordered, because this run couldn't "
+                      "check the capacity first. To V-Order it, run Optimize on it from X-ray.")
+    try:
+        refusal = capacity_gate(ref.workspace_id, name)
+    except Exception as exc:  # noqa: BLE001 - the rows are committed; an unchecked Optimize doesn't start
+        _log.warning("Couldn't check the capacity before V-Order of %s: %s", name, describe(exc))
+        refusal = f"The capacity check failed ({describe(exc)})."
+    if refusal:
+        return None, (f"Wrote {name} (Delta version {version}), but it wasn't V-Ordered. {refusal} "
+                      "The rows are in the table.")
     if fabric is None:
         return None, (f"Wrote {name} (Delta version {version}), but it wasn't V-Ordered: only Fabric V-Orders a "
                       "table, and this run had no Fabric connection. To V-Order it, run table maintenance on it in Fabric.")
@@ -290,9 +305,11 @@ def _queue_v_order(fabric: FabricClient | None, ref: TableRef, version: int) -> 
 
 def run_job(job: Job, fabric: FabricClient, storage_token: Callable[[], str],
             work_dir: Path, history_file: Path | None = None,
-            guard: Callable[[str, str, str, str], str | None] | None = None) -> RunRecord:
+            guard: Callable[[str, str, str, str], str | None] | None = None,
+            capacity_gate: Callable[[str, str], str | None] | None = None) -> RunRecord:
     """Run the job here and write its table. ``guard`` (workspace id, lakehouse, schema, table)
-    says why the target may not be written; then nothing runs or is written."""
+    says why the target may not be written; then nothing runs or is written. ``capacity_gate`` is checked
+    before a V-Order (see _queue_v_order)."""
     t = job.target
     if guard and (reason := guard(t.workspace_id, t.lakehouse, t.schema, t.table)):
         raise PermissionError(reason)
@@ -306,7 +323,7 @@ def run_job(job: Job, fabric: FabricClient, storage_token: Callable[[], str],
         _log.warning("Writing %s again with a fresh token: %s", job.name, describe(exc))
         table = publish(data, ref, job.target.mode, storage_token)
     version = table.version()
-    v_order_job, v_order_error = (_queue_v_order(fabric, ref, version) if job.target.v_order else (None, None))
+    v_order_job, v_order_error = (_queue_v_order(fabric, ref, version, capacity_gate) if job.target.v_order else (None, None))
     record = RunRecord(
         job=job.name,
         table_uri=ref.uri,

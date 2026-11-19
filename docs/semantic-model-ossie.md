@@ -65,7 +65,17 @@ whether `semantic/<name>.SemanticModel/` is new or already there.
 - A folder already there: the file is laid over the TMDL like an Import update. The table
   lists what is added and changed, and each table, column or measure the file doesn't have
   with a **Keep it** tick. **Replace TMDL in <name>...** asks once more, in red, before it
-  rewrites the files. Translations under `cultures/` are left as they are.
+  rewrites the files. Translations under `cultures/` are read and written back like the rest, so
+  they stay; a culture file named differently from its culture is written back under the
+  culture's name, and the old file is listed as removed. A culture file holding translations
+  KratosForge can't read (of a partition, a data source or a KPI, say) is kept byte for byte:
+  it is never rewritten or removed, the file list shows it as Same, and the Round-trip check
+  says "kept as it is, because it holds translations KratosForge can't read" with their names.
+  Every other culture file that defines one of its cultures is kept as well, and `model.tmdl`
+  still lists those cultures in their places. File names are compared as Windows and macOS
+  compare them (ignoring case and Unicode normalisation), so a write never lands on a kept file
+  under another spelling, and a file already there under another case is rewritten in place
+  rather than removed.
 - The **Round-trip check** lists what is kept, what rides in the Power BI section, and what
   can't be carried, by name. A measure whose SQL has no DAX equivalent is written with no
   expression and shows blank until you add DAX.
@@ -91,22 +101,33 @@ Files Fabric no longer returns are removed from that folder.
 - KratosForge doesn't ship Microsoft's Tabular Object Model libraries. A model in Fabric is read
   as TMSL; a model in Git is read by KratosForge's own TMDL reader (`sidecar/fabric_desktop/tmdl.py`),
   which covers tables, columns, measures, hierarchies, partitions, relationships, expressions,
-  roles, perspectives, calculation groups, annotations and descriptions. It doesn't read cultures
-  and translations yet.
+  roles, perspectives, calculation groups, cultures, annotations and descriptions.
+- Cultures are one file each under `definition/cultures/`, as Power BI Desktop writes them:
+  `cultureInfo <name>`, its `linguisticMetadata` (JSON content is read as JSON, XML as text,
+  with its `contentType`), and `translations`, which repeat the model's tree (`model Model`,
+  then tables, columns, measures, hierarchies and their levels, perspectives, roles and
+  expressions) with `caption`, `description` and `displayFolder`. These become TMSL's
+  `model.cultures[]`, with `translatedCaption`, `translatedDescription` and
+  `translatedDisplayFolder` under `translations.model`. The writer writes them the same way, with
+  the linguistic metadata on the lines after `linguisticMetadata =` as Power BI Desktop does (so
+  re-saving a Power BI culture file shows no diff), plus a `ref cultureInfo <name>` line in
+  `model.tmdl` for each, which keeps their order. Anything
+  else in a culture (a translation of a KPI, a property a translation doesn't have, a
+  translation with no name) is named in the report, never dropped silently.
 - The engine also writes TMDL on this PC (Preview, PB-110): a model, or an Ossie file, becomes
   TMDL files with no Fabric call. Every write is read back with the TMDL reader before it is
   used. Anything that wouldn't come back exactly as it was, such as a blank first or last line in
-  a value, or translations, is listed in the report by name. A name with a line break, or an
+  a value, is listed in the report by name. A name with a line break, or an
   expression with a line of three backticks, would break the TMDL layout, so it is refused and
   the object is named. Line breaks also include the characters other editors break lines on
   (U+2028, U+2029, U+0085, vertical tab, form feed and the file, group and record separators),
-  and values holding them are written fenced.
+  and values holding them are written fenced (in JSON linguistic metadata, as `\u` escapes).
 - Writing an Ossie file as TMDL into the project never follows a link or junction. Each file is
   written whole and swapped in. Only `.tmdl` files under `definition/` that the model no longer
-  has are removed, and the preview lists them first. Table, role and perspective names never become file names as they are:
+  has are removed, and the preview lists them first. Table, role, perspective and culture names never become file names as they are:
   characters Windows doesn't allow, device names such as `CON`, and names that clash are changed
   for the file name only. TMDL to Ossie and back keeps every object the reader reads. Roles,
-  perspectives, hierarchies and calculation groups travel in the Ossie file's Power BI section,
+  perspectives, translations, hierarchies and calculation groups travel in the Ossie file's Power BI section,
   where other tools don't see them.
 
 ## From an AI tool

@@ -583,3 +583,15 @@ def test_the_writer_writes_the_schema_metrics_subfolders(svc):  # noqa: F811
     plan = svc.meta_model_semantic_view_save("Sales", text=_ossie())["confirm"]
     assert sorted(plan["removed"]) == ["semantic-views/Sales/metrics/metrics.yaml",
                                        "semantic-views/Sales/schema/schema.yaml"]
+
+
+def test_switching_from_one_file_to_schema_metrics_lists_the_old_root_file_as_removed(svc):  # noqa: F811
+    plan = svc.meta_model_semantic_view_save("Sales", text=_ossie())["confirm"]
+    svc.meta_model_semantic_view_save("Sales", text=_ossie(), confirmed=True, token=plan["token"])
+    plan = svc.meta_model_semantic_view_save("Sales", text=_ossie(), split="schema_metrics")["confirm"]
+    assert plan["removed"] == ["semantic-views/Sales/Sales.yaml"]  # Fabric would merge it into the view
+    svc.meta_model_semantic_view_save("Sales", text=_ossie(), split="schema_metrics", confirmed=True,
+                                      token=plan["token"])
+    folder = _views(svc) / "Sales"
+    assert sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*.yaml")) == [
+        "metrics/metrics.yaml", "schema/schema.yaml"]

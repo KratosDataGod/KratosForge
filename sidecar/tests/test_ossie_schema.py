@@ -119,6 +119,18 @@ def test_the_pinned_schemas_use_no_regular_expressions(version):
     assert not {"pattern", "patternProperties"} & _keys(_schema(version))
 
 
+@pytest.mark.parametrize("version", sorted(ossie_validate.SCHEMAS))
+def test_the_pinned_schemas_have_nothing_that_inlining_local_refs_could_change(version):
+    # inline_local_refs moves subschemas; that is only a pure substitution while no subschema has its own
+    # $id, $anchor or dynamic ref (each changes how a ref resolves) and nothing tracks evaluated keywords.
+    schema = _schema(version)
+    nested = dict(schema)
+    nested.pop("$id", None)
+    assert "$id" not in _keys(nested["$defs"]) and "$id" not in _keys({k: v for k, v in nested.items() if k != "$defs"})
+    assert not {"$anchor", "$dynamicRef", "$dynamicAnchor", "$recursiveRef", "$recursiveAnchor",
+                "unevaluatedProperties", "unevaluatedItems"} & _keys(schema)
+
+
 def _broken_docs():
     """Documents that break the schema in different ways, for comparing two validators."""
     docs = []

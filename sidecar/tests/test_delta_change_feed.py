@@ -165,6 +165,8 @@ def test_table_changes_needs_literals_and_a_start(lake):
 def test_a_time_without_a_zone_is_read_in_the_session_time_zone(lake, monkeypatch):
     # Spark reads startingTimestamp in spark.sql.session.timeZone (WR-120): 13:00 in Chicago in November (CST,
     # UTC-6) is 19:00 UTC.
+    from fabric_desktop import spark_time_zone
+    monkeypatch.setattr(spark_time_zone, "_SHIFTING", {})  # the Chicago session mustn't stay noted for later tests
     k = Kernel()
     out = k.run("spark.conf.set('spark.sql.session.timeZone', 'America/Chicago')\n"
                 "spark.read.option('readChangeFeed', 'true').option('startingTimestamp', '2000-01-01')"

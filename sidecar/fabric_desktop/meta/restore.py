@@ -45,7 +45,9 @@ def versions(uri: str, options: dict[str, str] | None, retention_days: int, limi
 
     VACUUM deletes files that were removed more than its retention ago (the VACUUM commit says
     how long; ``retention_days`` is the fallback). The files of version v start being removed at
-    version v+1, so v survives a VACUUM at time T when v+1 is newer than T minus the retention.
+    version v+1, so v survives a VACUUM at time T when v+1 is newer than T minus the retention. One
+    removed at exactly that millisecond is counted as gone: saying a version can't be restored when it
+    could is the safe way to be wrong.
     Without any VACUUM, every version still in the log can be restored."""
     table = DeltaTable(uri, storage_options=options)
     history = table.history(limit)  # newest first
@@ -57,7 +59,7 @@ def versions(uri: str, options: dict[str, str] | None, retention_days: int, limi
         params = h.get("operationParameters") or {}
         kept: Any = params.get("specifiedRetentionMillis") or params.get("defaultRetentionMillis")
         hours = int(kept) / 3_600_000 if str(kept or "").isdigit() else int(retention_days) * 24
-        cut = _at(h["timestamp"]) - dt.timedelta(hours=hours)  # files removed before this are gone
+        cut = _at(h["timestamp"]) - dt.timedelta(hours=hours)  # files removed at or before this are gone
         horizon = cut if horizon is None or cut > horizon else horizon
     # When each version's files started being removed: the next commit that removes files
     # (VACUUM's and table property commits don't).

@@ -1814,7 +1814,7 @@ function ossieCard(plan) {
     if (!model.value) model.value = git.folders.length ? `git:${git.folders[0].path}` : "";
     // The engine lacks a package the converter needs (PyYAML): only this card is off, with the reason.
     if (git.unavailable) {
-      importBtn.disabled = exportBtn.disabled = true;
+      importBtn.disabled = exportBtn.disabled = tmdlBtn.disabled = true;
       fill(result, h("div", { class: "warn-box" }, icon("warning", 16), git.unavailable));
     }
   });
@@ -1831,19 +1831,20 @@ function ossieCard(plan) {
     fill(result, ossieExportResult(out));
   };
   const importBtn = btn("Import from Ossie...", "arrowUpload", () => ossieImportDialog(plan, result), "tool outline small");
+  const tmdlBtn = btn("Ossie file to TMDL...", "document", () => ossieToTmdlDialog(result), "tool outline small");
   const exportBtn = btn("Export to Ossie", "arrowDownload", exportModel, "tool primary small");
   return h("div", { class: "card pad ossie-card" },
     h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }),
-      importBtn, exportBtn),
+      importBtn, tmdlBtn, exportBtn),
     h("p", { class: "muted-text" }, "Ossie is the open format Snowflake, dbt, Databricks and others read for semantic models. Export reads the model's definition from Fabric, or its TMDL kept in Git, and converts it on this PC; nothing in Fabric changes. A model sent to Ossie and back comes back the same, because Power BI details travel in the file's Power BI section."),
     h("div", { class: "row wrap" }, h("label", { class: "field" }, "Model", model),
       h("label", { class: "check" }, sql, "Also write simple measures as portable SQL")),
     result,
     howItWorks("ossie", {
       reads: "The model's definition from Fabric (getDefinition, read only), its TMDL under semantic/ in the project's folder (no Fabric call), or the Ossie file you pick.",
-      changes: "Export changes nothing until you save the file into the metadata project's folder. Import writes the model's definition in Fabric (or creates a new model) only after you confirm; no refresh runs. Save TMDL to Git writes the model's TMDL files under semantic/ in the project's folder.",
+      changes: "Export changes nothing until you save the file into the metadata project's folder. Ossie file to TMDL writes TMDL files under semantic/ in the project's folder only when you say so. Import writes the model's definition in Fabric (or creates a new model) only after you confirm; no refresh runs. Save TMDL to Git writes the model's TMDL files under semantic/ in the project's folder.",
       results: "Files under semantic/ in the metadata project, ready to commit in Source control.",
-      more: [["How it converts", "On this PC, with the Apache Ossie Microsoft converter. No AI is involved, and nothing leaves this PC except the Fabric calls above."]],
+      more: [["How it converts", "On this PC, with the Apache Ossie Microsoft converter. Ossie file to TMDL and TMDL to Ossie don't call Fabric at all. No AI is involved, and nothing leaves this PC except the Fabric calls above."]],
     }));
 }
 
@@ -1872,6 +1873,10 @@ function ossieExportResult(out) {
         ossieReportList(kept) || h("p", { class: "muted-text" }, "Nothing: the whole model is portable.")),
       h("div", { class: "card pad" }, h("b", {}, `Not converted (${lost.length})`),
         ossieReportList(lost) || h("p", { class: "muted-text" }, "Nothing. Every object is either portable or kept."))),
+    out.round_trip ? h("div", {}, h("b", {}, "Round-trip check "),
+      out.round_trip.length
+        ? h("div", { class: "warn-box" }, icon("warning", 16), "Reading this file back doesn't give the same model: ", ossieReportList(out.round_trip))
+        : h("span", { class: "muted-text" }, "Reading this file back gives the same model.")) : null,
     h("pre", { class: "ossie-yaml mono" }, out.yaml.split("\n").slice(0, 40).join("\n") + (out.yaml.split("\n").length > 40 ? "\n..." : "")),
     h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Save in the project as", path), save, copy));
 }
@@ -1959,6 +1964,130 @@ function ossieImportDialog(plan, result) {
     h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Into", mode), nameField),
     out,
     h("p", { class: "muted-text" }, "Writes the model definition only. No refresh runs.")),
+  [btn("Cancel", null, closeDialog, "tool outline"), go]);
+}
+
+// The Round-trip check: what the TMDL will hold, by kind, with nothing dropped unlisted (PB-110 mockup).
+function ossieRoundTrip(res) {
+  const c = res.counts || {};
+  const kept = res.report.filter((r) => r.kind === "kept");
+  const lost = [...res.report.filter((r) => r.kind === "lost"),
+    ...(res.changes || []).filter((r) => r.change === "needs_dax").map((r) => ({ object: r.object, message: "its SQL has no DAX equivalent, so the TMDL measure has no expression and shows blank until you add DAX" }))];
+  const total = (c.tables || 0) + (c.columns || 0) + (c.measures || 0) + (c.relationships || 0);
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  return h("div", { class: "ossie-groups ossie-roundtrip", role: "list" },
+    h("div", { class: "card pad", role: "listitem" }, h("b", {}, `Kept (${total})`),
+      h("p", { class: "muted-text" }, `${plural(c.tables || 0, "table")}, ${plural(c.columns || 0, "column")}, ${plural(c.relationships || 0, "relationship")}, ${plural(c.measures || 0, "measure")}, descriptions.`)),
+    h("div", { class: "card pad", role: "listitem" }, h("b", {}, `Kept in the Power BI section (${kept.length})`),
+      ossieReportList(kept) || h("p", { class: "muted-text" }, "None.")),
+    h("div", { class: `card pad${lost.length ? " warn-box" : ""}`, role: "listitem" }, h("b", {}, `Can't be carried (${lost.length})`),
+      ossieReportList(lost) || h("p", { class: "muted-text" }, "None. Nothing was dropped.")));
+}
+
+// Ossie file to TMDL in this project, on this PC with no Fabric call (meta_model_ossie_to_tmdl, PB-110).
+function ossieToTmdlDialog(result) {
+  const picked = { text: "", name: "" };
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const input = h("input", { type: "file", accept: ".yaml,.yml,.json", "aria-label": "Ossie file" });
+  const projectPath = h("input", { class: "mono", placeholder: "semantic/orders.ossie.yaml", "aria-label": "Ossie file in the project" });
+  const folder = h("input", { placeholder: "The name in the file", "aria-label": "Model folder name" });
+  const where = h("span", { class: "mono muted-text ossie-folder" });
+  const out = h("div", { class: "ossie-preview" });
+  const keep = new Map();  // removals the person unticked "Keep it" on
+  const go = btn("Write TMDL", "save", null, "tool primary");
+  go.disabled = true;
+  let last = null;
+  const refresh = async () => {
+    go.disabled = true;
+    last = null;
+    if (!picked.text) return;
+    fill(out, h("p", { class: "muted-text" }, "Converting on this PC..."));
+    let res;
+    try {
+      res = (await rpc("meta_model_ossie_to_tmdl", { text: picked.text, name: folder.value.trim(), remove: [...keep.keys()] })).confirm;
+    } catch (err) {
+      fill(where);
+      fill(out, h("div", { class: "warn-box", role: "alert" }, icon("warning", 16),
+        h("span", {}, h("b", {}, "Can't convert this file, so nothing was written. "), err.message || String(err))));
+      return;
+    }
+    last = res;
+    if (!folder.value.trim()) folder.placeholder = res.name;
+    fill(where, `${res.folder}/ `, h("b", { class: res.exists ? "error-text" : null }, res.exists ? "already there" : "(new)"));
+    const removable = res.removable.filter((o) => !res.changes.some((r) => r.object === o));
+    const rows = [...res.changes, ...removable.map((o) => ({ change: "remove", object: o, detail: "" })), ...[...keep.keys()].filter((o) => !removable.includes(o)).map((o) => ({ change: "remove", object: o, detail: "" }))];
+    const n = (k) => res.changes.filter((r) => r.change === k).length;
+    fill(out,
+      res.exists ? h("b", {}, `What changes in ${res.folder}/`) : h("p", { class: "counts" }, h("b", {}, "From the file: "),
+        `${plural(res.counts.tables, "table")}, ${plural(res.counts.columns, "column")}, ${plural(res.counts.measures, "measure")}, ${plural(res.counts.relationships, "relationship")}.`),
+      res.exists ? (rows.length ? h("table", { class: "list" }, h("thead", {}, h("tr", {}, ["Change", "Object", "Detail"].map((c) => h("th", {}, c)))),
+        h("tbody", {}, rows.map((r) => {
+          const [label, cls] = OSSIE_CHANGE[r.change] || [r.change, "neu"];
+          const kept = r.change === "remove" ? h("label", { class: "check" },
+            h("input", { type: "checkbox", checked: !keep.has(r.object), onchange: (e) => { if (e.target.checked) keep.delete(r.object); else keep.set(r.object, true); refresh(); } }), "Keep it") : null;
+          return h("tr", { class: r.change === "needs_dax" ? "warn-row" : null },
+            h("td", {}, h("span", { class: `pill-s ${cls}` }, label)), h("td", { class: "mono" }, r.object),
+            h("td", {}, r.change === "remove" ? h("span", {}, "Not in the Ossie file. ", kept) : r.detail));
+        }))) : h("p", { class: "muted-text" }, "Nothing changes, because the TMDL already matches the file.")) : null,
+      res.exists ? h("p", { class: "muted-text counts" }, `${n("add")} added, ${n("change")} changed, ${keep.size} removed (${removable.length - keep.size} kept). ${res.unchanged} file${res.unchanged === 1 ? "" : "s"} unchanged.`) : null,
+      h("p", {}, h("b", {}, "Round-trip check "), h("span", { class: "muted-text" }, "What the TMDL will hold. Nothing is dropped without being listed here.")),
+      ossieRoundTrip(res),
+      res.removed.length ? h("p", { class: "muted-text" }, `Removes ${res.removed.length} TMDL file${res.removed.length === 1 ? "" : "s"} for what you chose to take out: `, h("span", { class: "mono" }, res.removed.join(", "))) : null);
+    go.textContent = res.exists ? `Replace TMDL in ${res.name}...` : "Write TMDL";
+    go.disabled = false;
+  };
+  input.onchange = async () => {
+    const f = input.files[0];
+    if (!f) return;
+    if (f.size > OSSIE_MAX_BYTES) { fill(out, h("p", { class: "error-text" }, "The file is larger than 20 MB, so it isn't an Ossie model.")); return; }
+    Object.assign(picked, { text: await f.text(), name: f.name });
+    projectPath.value = "";
+    keep.clear();
+    refresh();
+  };
+  const readProject = btn("Read", null, async () => {
+    const res = await metaCall("meta_model_ossie_read", { path: projectPath.value.trim() }, "Not read");
+    if (!res) return;
+    Object.assign(picked, { text: res.text, name: res.path });
+    input.value = "";
+    keep.clear();
+    refresh();
+  }, "tool outline small");
+  folder.onchange = () => { keep.clear(); refresh(); };
+  go.onclick = async () => {
+    const res = last;
+    if (!res) return;
+    if (res.exists) {
+      const needs = res.changes.filter((r) => r.change === "needs_dax").map((r) => r.object);
+      const n = (k) => res.changes.filter((r) => r.change === k).length;
+      const FILE_CHANGE = { new: ["New", "pass"], changed: ["Changed", "info"], same: ["Same", "neu"], removed: ["Removed", "fail"] };
+      const files = h("table", { class: "list" }, h("thead", {}, h("tr", {}, h("th", {}, "File"), h("th", {}, "Change"))),
+        h("tbody", {}, (res.file_changes || []).map((f) => h("tr", {}, h("td", { class: "mono" }, f.path),
+          h("td", {}, h("span", { class: `pill-s ${(FILE_CHANGE[f.change] || [f.change, "neu"])[1]}` }, (FILE_CHANGE[f.change] || [f.change])[0]))))));
+      const ok = await confirmDialog(`Replace TMDL in ${res.name}?`,
+        h("div", {}, h("p", {}, `${res.folder}/ is already in this project. Writing replaces the files below, with ${n("add")} added, ${n("change")} changed and ${keep.size} removed, and keeps the ${res.removable.length - keep.size} the Ossie file doesn't have, as you ticked.${needs.length ? ` ${needs.length} measure${needs.length === 1 ? " has" : "s have"} no expression yet (${needs.join(", ")}).` : ""} Nothing in Fabric changes, and you can undo it in Source control before you commit.`),
+          h("div", { class: "scroll" }, files)),
+        "Replace TMDL", { danger: true });
+      if (!ok) return;
+    }
+    const done = await metaCall("meta_model_ossie_to_tmdl", { text: picked.text, name: folder.value.trim(), remove: [...keep.keys()], confirmed: true, token: res.token }, "TMDL not written");
+    if (!done) return;
+    closeDialog();
+    const needs = done.changes.filter((r) => r.change === "needs_dax").map((r) => r.object);
+    const n = (k) => done.changes.filter((r) => r.change === k).length;
+    fill(result, h("div", { class: "ossie-done" },
+      h("div", { class: "pass-box", role: "status" }, icon("ok", 16),
+        `Wrote ${done.folder}/ from ${picked.name}${done.exists ? `, with ${n("add")} added, ${n("change")} changed and ${done.removable.length - keep.size} kept` : ""}. It's in Source control, ready to commit.`),
+      needs.length ? h("div", { class: "card pad warn-box" }, `${needs.length} measure${needs.length === 1 ? " has" : "s have"} no expression yet, so ${needs.length === 1 ? "it shows" : "they show"} blank until you add DAX: `,
+        h("span", { class: "mono" }, needs.join(", "))) : null,
+      h("p", {}, h("b", {}, "Round-trip check")), ossieRoundTrip(done)));
+  };
+  showDialog("Ossie file to TMDL", h("div", { class: "scroll ossie-import ossie-to-tmdl" },
+    h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Ossie file on this PC", input),
+      h("label", { class: "field grow" }, "Or in the project", h("span", { class: "row tight" }, projectPath, readProject))),
+    h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Model folder name", folder), where),
+    out,
+    h("p", { class: "muted-text" }, "Writes TMDL files under semantic/ on this PC. Nothing in Fabric changes, and nothing is committed until you commit in Source control.")),
   [btn("Cancel", null, closeDialog, "tool outline"), go]);
 }
 

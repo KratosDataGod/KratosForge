@@ -1375,6 +1375,11 @@ def _spark_decimals(df: DataFrame, cols: Any) -> list[Any]:
     if not at or any(t.strip() == "*" or t.endswith(".*") for t in texts):
         return cols
     from .spark_decimals import spark_decimal_columns
+    from .spark_text_compare import spark_text_comparison_columns
+    for i, compared in zip(at, spark_text_comparison_columns(texts, _types(df)), strict=True):
+        if compared is not None:  # text compared with a number as Spark compares them (WR-254)
+            cols[i] = Column(duckdb.SQLExpression(compared[0]).alias(compared[1] or _bound_name(df, cols[i].expr)))
+            texts[at.index(i)] = str(cols[i].expr)
     for i, new in zip(at, spark_decimal_columns(texts, _types(df)), strict=True):
         if new is not None:
             # The rewritten column keeps the column's name: its alias, or the name DuckDB gives the expression.
@@ -1961,6 +1966,11 @@ def _row_filter(fn: Any) -> Any:
         from .spark_struct_fields import refuse_unresolved
         refuse_unresolved([condition])
         condition = _typed_columns(self, [condition], generators=False)[0]
+        if isinstance(condition, Column):  # text compared with a number as Spark compares them (WR-254)
+            from .spark_text_compare import spark_text_comparison_columns
+            compared = spark_text_comparison_columns([str(condition.expr)], _types(self))[0]
+            if compared is not None:
+                condition = Column(duckdb.SQLExpression(compared[0]))
         if isinstance(condition, Column) and "row_number() OVER ()" in str(condition.expr):
             cols = ", ".join(_col_sql(c) for c in self.columns)
             numbered = self.relation.project(f"*, ({condition.expr}) AS {_KEEP_ROW}")

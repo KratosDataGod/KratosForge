@@ -324,6 +324,10 @@ class Outbox:
         and that file's write while the outbox is locked; the message then goes once more, marked as possibly
         sent already (CUT_OFF), as after any stop mid-send."""
         with _GONE_LOCK:
+            # Every id this Outbox hands out (``sending``) or reads (``pending``) has its created time. One it
+            # never saw is matched by id alone, in memory only: if another process deleted that row and SQLite
+            # reused the id, the new message is taken out unsent, the side the notices rule chose (a missed
+            # notice over a duplicate), and never kept on disk.
             self._gone[item_id] = self._created.pop(item_id, None)
         if not self._settle_gone():
             self._save_gone()

@@ -4,6 +4,7 @@ import base64
 import copy
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -413,3 +414,217 @@ def test_ai_tools_only_read_and_pass_their_arguments_through():
     reg.invoke(svc, ids[1], {"env": "prod", "name": "SM_Gold"}, ctx)
     reg.invoke(svc, ids[2], {"env": "test", "text": "name: m", "mode": "replace"}, ctx)
     assert svc.calls == [("export", "prod", "SM_Gold", True), ("preview", "test", "name: m", "", "replace", [])]
+
+
+# ---- an Ossie file to TMDL in the project, on this PC (PB-110)
+
+def test_an_ossie_file_becomes_tmdl_in_the_project_with_no_fabric_call(svc, monkeypatch):
+    monkeypatch.setattr(svc, "fake", None)  # no Fabric at all
+    root = Path(svc._project().root)
+    stale = root / "semantic" / "orders.SemanticModel" / "definition" / "tables" / "gone.tmdl"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("table gone\n", encoding="utf-8")
+    keep = root / "semantic" / "orders.SemanticModel" / "definition" / "notes.txt"
+    keep.write_text("mine", encoding="utf-8")
+    kept = svc.meta_model_ossie_to_tmdl(_ossie())["confirm"]
+    assert kept["exists"] is True and kept["removable"] == ["gone"] and kept["removed"] == []  # an update keeps it
+    preview = svc.meta_model_ossie_to_tmdl(_ossie(), remove=["gone"])
+    assert set(preview) == {"confirm"}
+    plan = preview["confirm"]
+    assert len(plan["token"]) == 64
+    assert plan["folder"] == "semantic/orders.SemanticModel" and plan["exists"] is True
+    assert plan["removed"] == ["semantic/orders.SemanticModel/definition/tables/gone.tmdl"]
+    assert "semantic/orders.SemanticModel/definition/tables/fact_sales.tmdl" in plan["files"]
+    assert "semantic/orders.SemanticModel/definition.pbism" in plan["files"]
+    assert stale.exists() and not (root / "semantic" / "orders.SemanticModel" / "definition.pbism").exists()
+    with pytest.raises(ValueError, match="changed since the preview"):
+        svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, remove=["gone"])
+    other = root / "semantic" / "orders.SemanticModel" / "definition" / "other.tmdl"
+    other.write_text("table other\n", encoding="utf-8")  # a stale file the preview didn't list
+    with pytest.raises(ValueError, match="changed since the preview"):
+        svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token=plan["token"], remove=["gone"])
+    assert stale.exists() and other.exists()
+    with pytest.raises(ValueError, match="changed since the preview"):
+        svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token="é" * 64)  # not ASCII: still the plain refusal
+    other.unlink()
+    out = svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token=plan["token"], remove=["gone"])
+    assert out == {k: v for k, v in plan.items() if k != "token"}
+    assert not stale.exists() and keep.read_text(encoding="utf-8") == "mine"
+    back = svc.meta_model_ossie_export_folder("semantic/orders.SemanticModel")
+    assert back["counts"]["datasets"] == 2 and back["counts"]["relationships"] == 1
+    assert "\r" not in (root / plan["files"][0]).read_bytes().decode()
+
+
+@pytest.mark.parametrize(("name", "folder"), [
+    ("../../evil", "semantic/_.._evil.SemanticModel"), ("C:\\x", "semantic/C_x.SemanticModel"),
+    ("CON", "semantic/_CON.SemanticModel"), ("", "semantic/orders.SemanticModel"),
+    ("a/b\\c", "semantic/a_b_c.SemanticModel"), ("x" * 300, f"semantic/{'x' * 100}.SemanticModel"),
+])
+def test_the_model_folder_name_is_never_the_name_used_raw(svc, name, folder):
+    plan = svc.meta_model_ossie_to_tmdl(_ossie(), name=name)["confirm"]
+    assert plan["folder"] == folder
+    root = Path(svc._project().root).resolve()
+    for f in plan["files"]:
+        (root / f).resolve().relative_to(root / "semantic")
+
+
+def test_links_and_junctions_on_the_way_are_refused_and_never_followed(svc, tmp_path, monkeypatch):
+    from fabric_desktop import model_ossie_service
+    root = Path(svc._project().root)
+    outside = tmp_path / "outside"
+    (outside / "tables").mkdir(parents=True)
+    (outside / "tables" / "victim.tmdl").write_text("table victim\n", encoding="utf-8")
+    model = root / "semantic" / "orders.SemanticModel"
+    model.mkdir(parents=True)
+    (model / "definition").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="definition is a link"):
+        svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True)
+    assert (outside / "tables" / "victim.tmdl").exists() and not (outside / "model.tmdl").exists()
+    (model / "definition").unlink()
+    (model / "definition" / "tables").mkdir(parents=True)
+    (model / "definition" / "tables" / "fact_sales.tmdl").symlink_to(outside / "tables" / "victim.tmdl")
+    with pytest.raises(ValueError, match="fact_sales.tmdl is a link"):
+        svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True)
+    assert (outside / "tables" / "victim.tmdl").read_text(encoding="utf-8") == "table victim\n"
+    (model / "definition" / "tables" / "fact_sales.tmdl").unlink()
+    (model / "definition" / "tables" / "old").symlink_to(outside / "tables", target_is_directory=True)
+    token = svc.meta_model_ossie_to_tmdl(_ossie())["confirm"]["token"]
+    out = svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token=token)
+    assert out["removed"] == [] and (outside / "tables" / "victim.tmdl").exists()  # never removed through a link
+    # A junction isn't a symlink to pathlib: _is_link sees its reparse tag.
+    real = model_ossie_service._is_link
+    monkeypatch.setattr(model_ossie_service, "_is_link", lambda st: real(st) or st.st_ino == os.stat(root / "semantic").st_ino)
+    with pytest.raises(ValueError, match="semantic is a link"):
+        svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True)
+
+
+def test_a_model_folder_too_deep_or_too_full_is_refused(svc, monkeypatch):
+    from fabric_desktop import model_ossie_service
+    root = Path(svc._project().root)
+    deep = root / "semantic" / "orders.SemanticModel" / "definition"
+    for i in range(model_ossie_service.MAX_DEPTH + 2):
+        deep = deep / f"d{i}"
+    deep.mkdir(parents=True)
+    with pytest.raises(ValueError, match="nested too deeply"):
+        svc.meta_model_ossie_to_tmdl(_ossie())
+    for p in sorted((root / "semantic").rglob("*"), reverse=True):
+        p.rmdir()
+    tables = root / "semantic" / "orders.SemanticModel" / "definition" / "tables"
+    tables.mkdir(parents=True)
+    monkeypatch.setattr(model_ossie_service, "MAX_FILES", 3)
+    for i in range(4):
+        (tables / f"t{i}.tmdl").write_text(f"table t{i}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="more than 3 TMDL files"):
+        svc.meta_model_ossie_to_tmdl(_ossie())
+
+
+def test_an_ossie_file_over_tmdl_already_in_the_project_is_an_update(svc):
+    from fabric_desktop import tmdl as tmdl_mod
+    root = Path(svc._project().root)
+    files, _ = tmdl_mod.from_bim(_bim() | {"name": "orders"})
+    folder = root / "semantic" / "orders.SemanticModel"
+    for rel, text in files.items():
+        (folder / rel).parent.mkdir(parents=True, exist_ok=True)
+        (folder / rel).write_text(text, encoding="utf-8")
+    culture = folder / "definition" / "cultures" / "fr-FR.tmdl"
+    culture.parent.mkdir()
+    culture.write_text("culture fr-FR\n", encoding="utf-8")
+    plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    assert plan["exists"] is True
+    rows = {(r["change"], r["object"]) for r in plan["changes"]}
+    assert ("add", "dim_channel") in rows and ("add", "fact_sales[net revenue]") in rows
+    assert "dim_customer" in plan["removable"] and ("remove", "dim_customer") not in rows  # kept: offered in removable
+    assert plan["removed"] == []  # kept unless named in remove
+    assert plan["counts"]["roles"] == 1 and plan["counts"]["hierarchies"] == 1
+    assert any(r["object"].startswith("culture") for r in plan["report"])  # named: not read, left as it is
+    done = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
+    assert culture.read_text(encoding="utf-8") == "culture fr-FR\n"
+    back, _ = tmdl_mod.to_bim({p.relative_to(folder).as_posix(): p.read_text(encoding="utf-8")
+                               for p in folder.rglob("*.tmdl") if "cultures" not in p.parts}, "orders")
+    names = {t["name"] for t in back["model"]["tables"]}
+    assert {"fact_sales", "dim_customer", "dim_channel"} <= names and back["model"]["roles"][0]["name"] == "EU only"
+    fact = next(t for t in back["model"]["tables"] if t["name"] == "fact_sales")
+    assert {m["name"] for m in fact["measures"]} >= {"fact_sales rows", "net revenue"}  # the hand-written one stays
+    changed = {f["path"]: f["change"] for f in plan["file_changes"]}
+    assert changed["definition/tables/dim_channel.tmdl"] == "new" and changed["definition/tables/fact_sales.tmdl"] == "changed"
+    assert changed["definition/roles/EU only.tmdl"] == "same"
+    again = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    assert again["unchanged"] == len(again["files"]) and again["removed"] == []
+    assert {f["change"] for f in again["file_changes"]} == {"same"}
+    assert done["counts"] == again["counts"]
+
+
+def test_tmdl_save_writes_a_file_named_in_another_case_in_place_and_never_removes_it(svc):
+    """Windows names ignore case: writing fact_sales.tmdl over FACT_Sales.tmdl and then removing FACT_Sales.tmdl as
+    stale would delete the file just written."""
+    tables = svc._project().root / "semantic" / "SM_Gold.SemanticModel" / "definition" / "tables"
+    tables.mkdir(parents=True)
+    old = tables / "FACT_Sales.tmdl"
+    old.write_text("table fact_sales\n\t// old\n")
+    out = svc.meta_model_tmdl_save("test", "SM_Gold")
+    assert out["removed"] == []
+    assert old.read_text() == "table fact_sales\n"
+    assert sorted(p.name for p in tables.iterdir()) == ["FACT_Sales.tmdl"]
+
+
+def test_tmdl_save_never_writes_through_a_link_inside_the_model_folder(svc, tmp_path):
+    folder = svc._project().root / "semantic" / "SM_Gold.SemanticModel"
+    (folder / "definition").mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "fact_sales.tmdl").write_text("not yours\n")
+    try:
+        (folder / "definition" / "tables").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("this system can't make links")
+    with pytest.raises(ValueError, match="is a link, a junction or a file"):
+        svc.meta_model_tmdl_save("test", "SM_Gold")
+    assert (outside / "fact_sales.tmdl").read_text() == "not yours\n"
+    assert not (folder / "definition" / "model.tmdl").exists()  # checked before anything is written
+
+
+def test_ossie_to_tmdl_writes_a_file_named_in_another_case_in_place(svc):
+    root = Path(svc._project().root)
+    tables = root / "semantic" / "orders.SemanticModel" / "definition" / "tables"
+    tables.mkdir(parents=True)
+    upper = tables / "FACT_SALES.tmdl"
+    upper.write_text("table fact_sales\n", encoding="utf-8")
+    plan = svc.meta_model_ossie_to_tmdl(_ossie())["confirm"]
+    rel = "semantic/orders.SemanticModel/definition/tables/FACT_SALES.tmdl"
+    assert plan["removed"] == [] and rel in plan["files"]
+    assert not any(f.endswith("/fact_sales.tmdl") for f in plan["files"])
+    svc.meta_model_ossie_to_tmdl(_ossie(), confirmed=True, token=plan["token"])
+    names = {p.name for p in tables.iterdir()}
+    assert "FACT_SALES.tmdl" in names and "fact_sales.tmdl" not in names
+    assert upper.read_text(encoding="utf-8").startswith("table fact_sales")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="on NTFS the two spellings are one file")
+def test_two_spellings_of_one_name_keep_the_one_written_and_remove_the_other(svc):
+    """On a case-sensitive file system both can exist; only one is written, so the other is still stale."""
+    root = Path(svc._project().root)
+    tables = root / "semantic" / "orders.SemanticModel" / "definition" / "tables"
+    tables.mkdir(parents=True)
+    (tables / "FACT_SALES.tmdl").write_text("table fact_sales\n", encoding="utf-8")
+    (tables / "fact_sales.tmdl").write_text("table fact_sales\n", encoding="utf-8")
+    plan = svc.meta_model_ossie_to_tmdl(_ossie())["confirm"]
+    assert "semantic/orders.SemanticModel/definition/tables/fact_sales.tmdl" in plan["files"]
+    assert plan["removed"] == ["semantic/orders.SemanticModel/definition/tables/FACT_SALES.tmdl"]
+
+
+def test_tmdl_save_never_removes_a_stale_file_behind_a_link(svc, tmp_path):
+    """A link (on Windows, a junction) inside the model folder that no part writes through: the walk never goes
+    into it, so nothing outside the project is removed as stale."""
+    definition = svc._project().root / "semantic" / "SM_Gold.SemanticModel" / "definition"
+    definition.mkdir(parents=True)
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    for name in ("old.tmdl", "x.json", "y.pbism"):
+        (outside / name).write_text("not yours\n")
+    try:
+        (definition / "old").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("this system can't make links")
+    out = svc.meta_model_tmdl_save("test", "SM_Gold")
+    assert out["removed"] == []
+    assert sorted(p.name for p in outside.iterdir()) == ["old.tmdl", "x.json", "y.pbism"]

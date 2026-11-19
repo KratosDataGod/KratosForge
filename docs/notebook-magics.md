@@ -21,6 +21,7 @@ display(top)
 ```
 
 - `_sqldf` is a `spark` DataFrame. It shows in the **Variables** pane.
+- A later SQL cell can read it too, as in Databricks: `SELECT * FROM _sqldf WHERE total > 10`.
 - Only a query sets it (`SELECT`, `WITH`, `SHOW`, `DESCRIBE`...). A cell that creates a view or
   writes a table leaves the previous `_sqldf` as it was. What counts is the cell's last statement,
   with `--` and `/* */` comments skipped; `WITH x AS (...) INSERT INTO ...` is a write, not a query.
@@ -108,9 +109,11 @@ A whole cell can be a script:
 | `%%cmd` | Windows' command prompt |
 | `%%powershell` | PowerShell |
 
-A script cell fails when its last command exits with a non-zero code, as a `%sh` cell does in
-Databricks. `%%cmd` and `%%powershell` cells are listed as not running in Fabric by the **Runs
-on** check; a `%sh` cell is published as `%%sh`.
+A `%%sh`, `%%bash`, `%%cmd` or `%%powershell` cell fails when its last command exits with a
+non-zero code. A Databricks `%sh` cell works as it does in Databricks: it fails on a non-zero exit
+code only when its first line is `%sh -e`. A plain `%sh` cell prints the exit code and goes on, and
+`_exit_code` holds it. `%%cmd` and `%%powershell` cells are listed as not running in Fabric by the
+**Runs on** check; a `%sh` cell is published as `%%sh`.
 
 `%fs` runs one `notebookutils.fs` command, as in Databricks, with the same paths and the same
 rules (writes to OneLake need a lakehouse you can write to, and a proof refuses them):
@@ -124,6 +127,12 @@ rules (writes to OneLake need a lakehouse you can write to, and a proof refuses 
 | `%fs rm [-r] path` | Removes a file, or a folder with `-r` |
 | `%fs mkdirs path` | Makes a folder |
 | `%fs put [-f] path "text"` | Writes text to a file; `-f` replaces one that exists |
+| `%fs mounts`, `%fs refreshMounts` | Answer as `dbutils.fs` does on this PC: there are no mounts |
+
+`%fs mount`, `%fs unmount`, `%fs updateMount` and any other command stop with an error that names
+the command. So does a `dbfs:/`, `/Volumes/` or other bare absolute path, which is Databricks
+storage. Use `Files/...` for the attached lakehouse or `file:` for a folder on this PC. The **Runs
+on** check lists such a `%fs` cell by number before the notebook runs.
 
 Dependencies treat shell commands and `%fs` changes as side effects, so **Run stale cells** asks
 before running them again, and Prove warns that it can't contain what a shell command changes.

@@ -1,7 +1,7 @@
 {
   "schema": "kratosforge/academy-exercise@1",
   "id": "E35",
-  "version": 1,
+  "version": 2,
   "status": "draft",
   "title": "Denormalize a star into a wide reporting table",
   "objectives": [
@@ -54,7 +54,7 @@
       "kind": "result_matches",
       "ordered": true,
       "pass": "Every sale is there with its attributes.",
-      "fail": "Count the rows of fact_sales and of your table, then check the sale with product_key 99."
+      "fail": "Count the rows of fact_sales and of your table, then check the sales with product_key 99 and store_key 7."
     },
     {
       "kind": "table_shape",

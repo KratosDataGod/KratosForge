@@ -28,7 +28,7 @@ from typing import Any, TypeVar, cast
 
 from sqlglot import exp
 
-from . import spark_json, sql_dialects
+from . import spark_json, spark_sql_names, sql_dialects
 
 log = logging.getLogger(__name__)
 
@@ -135,6 +135,9 @@ def spark_complex_results(statement: exp.Expression) -> exp.Expression:
             _put(node, _once(f"CASE WHEN {nulls} THEN NULL WHEN ARRAY_LENGTH(MAP_KEYS({joined})) < {keys} "
                              f"THEN ERROR({stop}) ELSE {joined} END", **maps))
     for node in _mine(list(statement.find_all(exp.ArraySize))):
+        if node.meta.get(spark_sql_names._NAME) == "array_size":  # NULL for NULL, and arrays only, as in Spark
+            _put(node, _once("CASE WHEN {a} IS NULL THEN NULL ELSE CAST(ARRAY_LENGTH({a}) AS INT) END", a=node.this))
+            continue
         literal_map = isinstance(node.this, (exp.Map, exp.VarMap, exp.MapFromEntries))
         new = _put(node, _size_sql(node.this, is_map=literal_map))
         _mark(new, "size", _once_arg(new) or cast(exp.Is, new.find(exp.Is)).this)

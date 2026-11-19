@@ -1105,10 +1105,11 @@ class SqlExecutions:
                     # not at the result's retention. Kept: a link (never followed), a spill written in
                     # the last SPILL_QUIET_S (a live run, should sql_temp_dir be shared), and a file
                     # still open (Windows won't delete it).
+                    # Its age is read first: removing the spill touches the folder, which would make it new.
+                    age = now - folder.stat().st_mtime
                     spill = folder / "spill"
                     if not (_linked(folder) or _linked(spill)) and _quiet(spill, now):
                         shutil.rmtree(spill, ignore_errors=True)
-                    age = now - folder.stat().st_mtime
                     if hours <= 0 or age > hours * 3600:
                         shutil.rmtree(folder, ignore_errors=True)
 

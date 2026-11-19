@@ -26,7 +26,7 @@ SPARK = [
 def test_spark_lambdas_are_written_with_lambda_and_run(spark, answer):
     text = sql.duckdb_sql(sqlglot.parse_one(spark, read="spark"))
     assert "->" not in text and "LAMBDA" in text.upper()
-    assert duckdb.sql(text).fetchall() == [(answer,)]
+    assert duckdb.connect().sql(text).fetchall() == [(answer,)]
 
 
 def test_snowflake_translations_write_lambda():

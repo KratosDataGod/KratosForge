@@ -46,8 +46,9 @@ def _routing(url=HOOK):
     return PlatformRouting([PlatformRoute("default", url)])
 
 
+# A post that got no answer at all (a read timeout) may have arrived: test_notice_retries covers it.
 @pytest.mark.parametrize("fail", [requests.exceptions.ConnectTimeout("connect timed out"),
-                                  requests.exceptions.ReadTimeout("read timed out"), 429, 403, 404, 410, 503])
+                                  requests.exceptions.ConnectionError("no network"), 429, 403, 404, 410, 503])
 def test_a_post_that_fails_any_way_keeps_the_notice_and_sends_it_once_later(tmp_path, fail):
     t = [1_000_000.0]
     outbox, ledger = _box(tmp_path, t)
@@ -177,12 +178,13 @@ def _audited(svc):
 
 def test_a_notice_teams_didnt_take_has_an_audit_line_without_its_address(svc, monkeypatch):  # noqa: F811
     svc.platform_notify_save([{"name": "default", "url": HOOK}])
-    monkeypatch.setattr(pns, "post_teams", Teams(requests.exceptions.ReadTimeout(f"read timed out for {HOOK}")))
+    monkeypatch.setattr(pns, "post_teams", Teams(requests.exceptions.ConnectTimeout(f"connect timed out for {HOOK}")))
     svc.platform_notify([raw()])
     [line] = _audited(svc)
     assert (line["outcome"], line["reason"]) == ("error", "failed")
-    assert line["target"] | {} == {"outbox": "platform_outbox.sqlite", "queued": 1, "dropped": 0, "waiting": 1}
-    assert "ReadTimeout" in line["error"] and "SECRET" not in json.dumps(line) and "webhook.office.com" not in json.dumps(line)
+    assert line["target"] | {} == {"outbox": "platform_outbox.sqlite", "queued": 1, "dropped": 0, "unconfirmed": 0,
+                                   "waiting": 1}
+    assert "ConnectTimeout" in line["error"] and "SECRET" not in json.dumps(line) and "webhook.office.com" not in json.dumps(line)
     svc.platform_notify([raw(id="r2", title="Another")])  # resting: nothing was sent, so nothing new to record
     assert len(_audited(svc)) == 1
 

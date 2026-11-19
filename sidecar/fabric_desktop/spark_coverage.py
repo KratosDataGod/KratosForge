@@ -59,7 +59,9 @@ def canonical(value: Any) -> Any:
         return f"float:{value:.12g}"
     if isinstance(value, Decimal):
         return f"decimal:{value}"
-    if isinstance(value, dt.datetime):
+    if isinstance(value, dt.datetime):  # an instant as PySpark gives it on a UTC driver, as Fabric's is
+        if value.tzinfo is not None:
+            value = value.astimezone(dt.timezone.utc)
         return f"timestamp:{value.replace(tzinfo=None).isoformat()}"
     if isinstance(value, dt.date):
         return f"date:{value.isoformat()}"

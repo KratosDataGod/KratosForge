@@ -57,3 +57,11 @@ def test_a_pattern_ending_in_dollar_refuses_a_final_line_break():
     assert _problems(schema, {"id": "abc-1\n"}) == ["id isn't in the expected form"]
     price = {"type": "object", "properties": {"p": {"type": "string", "pattern": r"^[0-9]+\$"}}}
     assert validate(price, {"p": "12$"}) == {"p": "12$"}  # an escaped $ is a dollar sign, left as it is
+
+
+def test_every_dollar_in_an_alternation_refuses_a_final_line_break():
+    schema = {"type": "object", "properties": {"k": {"type": "string", "pattern": r"^a$|^b$"}}}
+    assert validate(schema, {"k": "b"}) == {"k": "b"}
+    assert _problems(schema, {"k": "a\n"}) == _problems(schema, {"k": "b\n"}) == ["k isn't in the expected form"]
+    money = {"type": "object", "properties": {"k": {"type": "string", "pattern": r"^[$0-9]+$"}}}
+    assert validate(money, {"k": "$12"}) == {"k": "$12"}  # a $ in [...] is a dollar sign

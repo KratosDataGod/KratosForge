@@ -175,4 +175,5 @@ test("an excellence score is never rounded up to 100", { skip }, async () => {
   const shown = await page().evaluate(() => [excNum(99.6), excNum(100), excNum(84.4), excNum(null)]);
   assert.deepStrictEqual(shown, ["99", "100", "84", "—"]);
   assert.equal(await page().evaluate(() => excNeeds("workspace.roles, the users' sign-in names")), "role assignments, the users' sign-in names");
+  assert.equal(await page().evaluate(() => excNeeds("capacity.usage")), "imported Capacity Metrics exports");
 });

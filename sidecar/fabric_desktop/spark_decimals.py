@@ -652,7 +652,7 @@ def _double_round(node: exp.Expr, operand: exp.Expr, places: int, even: bool, an
         raise Refused(f"{name}() of a double to {places} places can't run on this PC the way it runs in Spark, because "
                       f"this PC rounds a double's decimal text only from -{_DOUBLE_PLACES} to {_DOUBLE_PLACES} places, so "
                       f"nothing ran. Cast the value to a decimal first, for example "
-                      f"{name}(CAST(x AS DECIMAL(38, 30)), {places}).")
+                      f"{name}(CAST(x AS DECIMAL(38, {30 if places > 0 else 0})), {places}).")
     branches = []
     for bound, scale in _DOUBLE_SCALES:
         value = f"CAST(CAST(kf_decv AS VARCHAR) AS DECIMAL(38, {scale}))"

@@ -38,7 +38,15 @@ _VIEW_NAMES = itertools.count()
 def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     """Spark SQL first; DuckDB SQL is accepted too when it isn't valid Spark.
 
-    ``dialect="duckdb"`` reads DuckDB SQL only. T-SQL dialects don't run here (sql_dialects.py)."""
+    ``dialect="duckdb"`` reads DuckDB SQL only. T-SQL dialects don't run here (sql_dialects.py).
+    A query nested too deeply to read or rewrite is a ValueError (sql_dialects.TOO_DEEP)."""
+    try:
+        return _parse(query, dialect)
+    except RecursionError:
+        raise ValueError(sql_dialects.TOO_DEEP) from None
+
+
+def _parse(query: str, dialect: str) -> list[exp.Expression]:
     chosen = sql_dialects.get(dialect)
     if not chosen["runs_here"]:
         raise ValueError(f"{chosen['label']} can't run on this PC. KratosForge checks and formats "
@@ -51,15 +59,18 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     except (ParseError, TokenError) as first_error:  # an unclosed quote is a TokenError
         if chosen["id"] == "spark" and (respelled := _spark_spellings(query)) != query:
             try:
-                return parse(respelled, dialect)
+                return _parse(respelled, dialect)
             except ValueError:
                 pass  # report the error in the query as written
         if chosen["id"] == "spark" and _only_empty_structs_fail(query):
             raise ValueError(_EMPTY_STRUCT) from None
-        if chosen["id"] != "spark" or getattr(first_error, "uneven_pairs", False):  # DuckDB would drop an argument
+        if getattr(first_error, "too_deep", False):
+            raise ValueError(sql_dialects.TOO_DEEP) from None
+        if chosen["id"] != "spark" or getattr(first_error, "uneven_pairs", False) \
+                or getattr(first_error, "final", False):  # DuckDB would drop an argument
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
         try:
-            statements = _statements(sqlglot.parse(query, read="duckdb"))
+            statements = _statements(sql_dialects.parse(query, read="duckdb"))
         except (ParseError, TokenError):
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
     if not statements:
@@ -2300,6 +2311,8 @@ def duckdb_sql(statement: exp.Expr) -> str:
     here that is a ValueError instead, and nothing runs (#1253)."""
     try:
         return statement.sql(KfDuckDB, unsupported_level=sqlglot.ErrorLevel.RAISE)
+    except RecursionError:
+        raise ValueError(sql_dialects.TOO_DEEP) from None
     except UnsupportedError as exc:
         reason = str(exc).splitlines()[0] if str(exc) else "sqlglot can't write part of it in DuckDB SQL."
         raise ValueError(f"Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: "

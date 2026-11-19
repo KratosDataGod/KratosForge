@@ -681,8 +681,8 @@ class MetaMixin:
             return
         name = self._confirm_name(project, env)
         if name and confirm_name != name:
-            raise PermissionError(f"{name} is a workspace that a project opened on this PC named as Prod, so {doing} "
-                                  f"runs only after you type its name to confirm. {nothing}")
+            raise PermissionError(f"{name} is another project's Prod workspace on this PC, so {doing} runs only after "
+                                  f"you type its name to confirm. {nothing}")
 
     def meta_promote_check(self, source: str, target: str) -> dict[str, Any]:
         project = self._project()

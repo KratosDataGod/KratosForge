@@ -946,7 +946,7 @@ async function renderEnvTab(body, p) {
           const prodName = checks[target]?.confirm_name || (target === "prod" ? (envs.prod?.workspace_name || envs.prod?.workspace_id || "Prod") : "");
           if (prodName && !(await confirmDialog(`Promote to ${ENV_LABEL[target]}?`,
             target === "prod" ? `This puts ${ENV_LABEL[source]}'s metadata on ${prodName}, the Prod workspace, and its next runs use it.`
-              : `This puts ${ENV_LABEL[source]}'s metadata on ${prodName}, a workspace that a project opened on this PC named as Prod, and its next runs use it.`,
+              : `This puts ${ENV_LABEL[source]}'s metadata on ${prodName}, and its next runs use it. ${prodName} is another project's Prod workspace on this PC.`,
             "Promote", { danger: true, typeToConfirm: prodName }))) return;
           toast(`Promoting to ${ENV_LABEL[target]}...`);
           let cancelled = false;

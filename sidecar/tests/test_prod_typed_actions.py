@@ -132,9 +132,9 @@ def test_a_test_workspace_another_project_named_prod_waits_for_its_name(svc, mon
     svc.meta_set_environment("test", workspace_id="WS-SHARED", workspace_name="Sales Shared", target="local")
     remember_as_prod(svc, "ws-shared")  # the ids are compared without case, as for notebook cells
     assert svc.meta_promote_check("dev", "test")["confirm_name"] == "Sales Shared"
-    with pytest.raises(PermissionError, match="Sales Shared is a workspace that a project opened on this PC named as "
-                                              "Prod, so promoting to it runs only after you type its name to "
-                                              "confirm. Nothing was promoted."):
+    with pytest.raises(PermissionError, match="Sales Shared is another project's Prod workspace on this PC, so "
+                                              "promoting to it runs only after you type its name to confirm. "
+                                              "Nothing was promoted."):
         svc.meta_promote("dev", "test")
     assert svc.meta_releases("test")["releases"] == []
     version = svc.meta_promote("dev", "test", confirm_name="Sales Shared")["version"]

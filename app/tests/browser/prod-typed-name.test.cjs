@@ -84,7 +84,7 @@ test("Promote to a Test workspace another project named Prod waits for that work
   await page.click("#env-under-test button:has-text('Promote to Test')");
   const confirm = page.getByRole("dialog", { name: "Promote to Test?" });
   await confirm.waitFor();
-  assert.match(await confirm.innerText(), /Sales Test, a workspace that a project opened on this PC named as Prod/);
+  assert.match(await confirm.innerText(), /on Sales Test, and its next runs use it\. Sales Test is another project's Prod workspace on this PC\./);
   await confirm.getByRole("textbox", { name: "Type Sales Test to confirm" }).fill("Sales Test");
   await confirm.getByRole("button", { name: "Promote" }).click();
   await until(() => sent.length > 0);

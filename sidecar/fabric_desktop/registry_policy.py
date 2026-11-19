@@ -79,28 +79,39 @@ def read(reader: Callable[[], Raw] | None = None) -> tuple[dict[str, Any], list[
         values, lists = reader()
     except OSError as exc:
         return {}, [f"The Group Policy settings couldn't be read ({exc}), so only the policy file applies"]
+    from .app_settings import RESTRICTED
     kinds = {st.key: st for st in policy_schema.settings() if st.kind != "json"}
     out: dict[str, Any] = {}
     problems: list[str] = []
+
+    def bad(name: str, why: str) -> None:
+        """A value Group Policy sets but that can't be read. A restriction then takes its most restrictive
+        value, as a policy file's would: IT meant to set it, and the safe side is the restriction."""
+        if name in RESTRICTED and not isinstance(RESTRICTED[name], list):
+            out[name] = RESTRICTED[name]
+            problems.append(f"Group Policy value {name} {why}, so its most restrictive value applies")
+        else:
+            problems.append(f"Group Policy value {name} {why}, so it's ignored")
+
     for name, (data, kind) in sorted(values.items()):
         st = kinds.get(name)
         if st is None or st.kind == "list":
             problems.append(f"Group Policy value {name[:80]!r} isn't a setting KratosForge reads, so it's ignored")
             continue
         if st.kind in ("bool", "int"):
-            if kind != REG_DWORD or not isinstance(data, int):
-                problems.append(f"Group Policy value {name} should be a DWORD, so it's ignored")
+            if kind != REG_DWORD or not isinstance(data, int) or isinstance(data, bool):
+                bad(name, "should be a DWORD")
                 continue
             if st.kind == "bool":
                 if data not in (0, 1):
-                    problems.append(f"Group Policy value {name} should be 1 or 0, so it's ignored")
+                    bad(name, "should be 1 or 0")
                     continue
                 out[name] = bool(data)
             else:
                 out[name] = data
         else:  # enum, text
             if kind not in (REG_SZ, REG_EXPAND_SZ) or not isinstance(data, str):
-                problems.append(f"Group Policy value {name} should be a string, so it's ignored")
+                bad(name, "should be a string")
                 continue
             out[name] = data
     for name, items in sorted(lists.items()):

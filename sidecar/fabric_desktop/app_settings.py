@@ -771,6 +771,8 @@ def _in_range(key: str, value: Any) -> bool:
         return value == 0 or value >= 30
     if key in LIMITS:
         return 0 <= value <= LIMITS[key]
+    if key in SQL_RANGES:  # from any source: an out-of-range policy value never applies (policy_problems says so)
+        return SQL_RANGES[key][0] <= value <= SQL_RANGES[key][1]
     if key == "motion_level":
         return MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]
     if key in CHOICES:

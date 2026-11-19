@@ -635,6 +635,8 @@ class LocalEngine:
         held = cast(duckdb.DuckDBPyConnection, self._con)  # open() made it
         con = held if own else held.cursor()
         try:
+            if own:
+                self._refresh_own_if_moved()  # WR-243: the columns another writer's commit left, not the old ones
             discovered = {k: v for k, v in self.project.catalog.items()}
             out: list[dict[str, Any]] = []
             cols: dict[tuple[str, str], list[dict[str, str]]] = {}
@@ -1168,15 +1170,18 @@ class LocalEngine:
         WR-243 they were read again only when the project opened or was refreshed by hand: a SELECT after a
         notebook's write showed the rows from before it, and after a VACUUM failed on files no longer there."""
         now = self._own_logs()
-        if now == self._own_seen:
+        own = {os.path.normcase(v["folder"]): v for v in self.project.catalog.values() if v.get("kind") == OWN}
+        # A folder's modified time is the cheap sign, but a volume with 2-second times (exFAT, FAT32) or a synced
+        # or network folder may not move it for a new file. The next commit's own file is a sure one: one stat more.
+        ahead = {f for f, v in own.items() if f in now and _next_commit_exists(f, v)}
+        if now == self._own_seen and not ahead:
             return
         con = self._con
         assert con is not None
         if set(now) != set(self._own_seen):
             self._refresh_own()  # a table made or taken away: looked at all together, with their issues
             return
-        own = {os.path.normcase(v["folder"]): v for v in self.project.catalog.values() if v.get("kind") == OWN}
-        moved = [f for f, t in now.items() if t != self._own_seen[f]]
+        moved = sorted({f for f, t in now.items() if t != self._own_seen[f]} | ahead)
         if any(f not in own for f in moved):
             self._refresh_own()  # one listed as an issue changed: it may be readable now
             return
@@ -2041,6 +2046,14 @@ class ResultStream:
 
     def __exit__(self, *exc: Any) -> None:
         self.close()
+
+
+def _next_commit_exists(folder: str, entry: dict[str, Any]) -> bool:
+    """Whether the Delta table in ``folder`` has a commit after the version ``entry`` was read at."""
+    version = (entry.get("delta") or {}).get("version")
+    if not isinstance(version, int):
+        return False
+    return os.path.exists(os.path.join(folder, "_delta_log", f"{version + 1:020d}.json"))
 
 
 def _committed(folder: Path, before: int, query_id: str) -> bool:

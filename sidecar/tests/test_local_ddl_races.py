@@ -270,3 +270,22 @@ def test_ddl_waits_for_a_streamed_read_and_the_read_sees_the_table_before_it(eng
     assert done.is_set()
     assert read.column_names == ["id", "n"] and read.num_rows == 2
     assert rows(engine, "SELECT * FROM plain ORDER BY id") == [[1, 0, None], [2, 0, None]]
+
+
+def test_a_commit_is_seen_even_when_the_log_folders_time_doesnt_move(engine):
+    """exFAT and FAT32 keep times to 2 seconds, and a synced or network folder may not move a folder's time for a
+    new file: the next commit's own file is looked for too."""
+    import os
+    log = os.path.join(folder(engine), "_delta_log")
+    rows(engine, "SELECT count(*) FROM lake")
+    seen = os.stat(log)
+    write_deltalake(folder(engine), ints(id=[3], n=[0]), mode="append")
+    os.utime(log, ns=(seen.st_atime_ns, seen.st_mtime_ns))
+    assert rows(engine, "SELECT id FROM lake ORDER BY id") == [[1], [2], [3]]
+
+
+def test_the_table_list_shows_the_columns_another_writer_added(engine):
+    engine.tables()
+    write_deltalake(folder(engine), pa.table({"id": pa.array([3], pa.int32()), "n": pa.array([0], pa.int32()),
+                                              "note": ["new"]}), mode="append", schema_mode="merge")
+    assert [c["name"] for t in engine.tables() if t["table"] == "lake" for c in t["columns"]] == ["id", "n", "note"]

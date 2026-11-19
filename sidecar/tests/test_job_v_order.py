@@ -64,7 +64,7 @@ def test_a_v_order_that_cant_be_queued_is_reported_and_the_written_rows_stay(lak
     record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path, capacity_gate=OPEN)
     assert record.v_order_job is None
     assert record.v_order_error == ("Wrote dbo.orders (Delta version 0), but Fabric didn't start V-Order for it "
-                                    "(RuntimeError: Capacity is paused). The rows are in the table; to V-Order it, "
+                                    "(RuntimeError: Capacity is paused). The rows are in the table. To V-Order it, "
                                     "run table maintenance on it in Fabric.")
     table = DeltaTable(str(lake / "dbo" / "orders"))
     assert table.version() == 0 and sorted(table.to_pyarrow_table().column("id").to_pylist()) == [0, 1, 2]
@@ -88,7 +88,7 @@ def test_v_order_must_be_true_or_false(tmp_path):
     path = tmp_path / "orders.toml"
     path.write_text('name = "orders"\nengine = "duckdb"\nsql = "SELECT 1 AS id"\n[target]\nworkspace_id = "ws1"\n'
                     'lakehouse = "LH"\ntable = "orders"\nv_order = "yes"\n', encoding="utf-8")
-    with pytest.raises(ValueError, match="target.v_order is true or false"):
+    with pytest.raises(ValueError, match="target.v_order must be true or false, not"):
         jobs.Job.load(path)
 
 
@@ -142,8 +142,8 @@ def test_a_run_with_no_fabric_connection_says_v_order_didnt_run(lake, tmp_path, 
     monkeypatch.setattr(publish, "resolve_target", lambda j, f: TableRef("ws1", "lh1", "dbo", "orders"))
     record = publish.run_job(_job(tmp_path, True), None, lambda: "tok", tmp_path, capacity_gate=OPEN)
     assert record.delta_version == 0 and record.v_order_job is None
-    assert record.v_order_error == ("Wrote dbo.orders (Delta version 0), but it wasn't V-Ordered: only Fabric V-Orders "
-                                    "a table, and this run had no Fabric connection. To V-Order it, run table "
+    assert record.v_order_error == ("Wrote dbo.orders (Delta version 0), but it wasn't V-Ordered, because only Fabric "
+                                    "V-Orders a table and this run had no Fabric connection. To V-Order it, run table "
                                     "maintenance on it in Fabric.")
 
 
@@ -182,7 +182,7 @@ def test_a_blocked_capacity_stops_v_order_and_the_written_rows_stay(lake, tmp_pa
     assert asked == [("ws1", "dbo.orders")] and fabric.maintenance == []
     assert record.delta_version == 0 and record.v_order_job is None
     assert record.v_order_error == f"Wrote dbo.orders (Delta version 0), but it wasn't V-Ordered. {blocked} " \
-                                   "The rows are in the table."
+                                   "The rows are in the table. To V-Order it later, run Optimize on it from X-ray."
     assert DeltaTable(str(lake / "dbo" / "orders")).version() == 0
 
 

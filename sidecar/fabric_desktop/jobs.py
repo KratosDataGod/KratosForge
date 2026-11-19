@@ -79,7 +79,7 @@ class Job:
         if self.target.mode not in MODES:
             raise ValueError(f"target.mode must be one of {MODES}")
         if not isinstance(self.target.v_order, bool):
-            raise ValueError(f"target.v_order is true or false, got {self.target.v_order!r}")
+            raise ValueError(f"target.v_order must be true or false, not {self.target.v_order!r}")
         check_name("schema", self.target.schema)
         check_name("table", self.target.table)
         # The name is a folder on this PC (publish.stage_locally), so it must stay one plain folder name.

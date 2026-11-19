@@ -289,17 +289,17 @@ def _queue_v_order(fabric: FabricClient | None, ref: TableRef, version: int,
         refusal = f"The capacity check failed ({describe(exc)})."
     if refusal:
         return None, (f"Wrote {name} (Delta version {version}), but it wasn't V-Ordered. {refusal} "
-                      "The rows are in the table.")
+                      "The rows are in the table. To V-Order it later, run Optimize on it from X-ray.")
     if fabric is None:
-        return None, (f"Wrote {name} (Delta version {version}), but it wasn't V-Ordered: only Fabric V-Orders a "
-                      "table, and this run had no Fabric connection. To V-Order it, run table maintenance on it in Fabric.")
+        return None, (f"Wrote {name} (Delta version {version}), but it wasn't V-Ordered, because only Fabric V-Orders "
+                      "a table and this run had no Fabric connection. To V-Order it, run table maintenance on it in Fabric.")
     try:
         job_id = fabric.run_table_maintenance(ref.workspace_id, ref.lakehouse_id, ref.table,
                                               None if ref.flat else ref.schema, v_order=True, vacuum_retention=None)
     except Exception as exc:  # noqa: BLE001 - said with the run; the rows are already in the table
         _log.warning("Wrote %s, but V-Order wasn't queued: %s", name, describe(exc))
         return None, (f"Wrote {name} (Delta version {version}), but Fabric didn't start V-Order for it "
-                      f"({describe(exc)}). The rows are in the table; to V-Order it, run table maintenance on it in Fabric.")
+                      f"({describe(exc)}). The rows are in the table. To V-Order it, run table maintenance on it in Fabric.")
     return str(job_id), None
 
 

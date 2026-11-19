@@ -8,11 +8,13 @@ enough), so the controls that need it are *not evaluated*, never passed.
 - :func:`roles`           ``GET /workspaces/{id}/roleAssignments`` -> ``workspace.roles``
 - :func:`capacity`        ``GET /capacities`` -> ``capacity.state`` (only when the capacity is visible)
 - :func:`optimization`    an ``optimization_assess`` result -> ``item.optimization`` per analyzed item
+- :func:`inspection`      the same result, assessed with inspect_items.inspect -> ``item.inspection``
 
 What is kept is what the controls need: roles keep each principal's type, role and whether it is a
 guest, plus a display name so a finding can say who; e-mail addresses are dropped. Notebook code
 and pipeline JSON never enter evidence: an item's evidence lists the optimization rules that
-matched it, with their confidence, not the code.
+matched it, with their confidence, not the code; ``item.inspection`` keeps notebook rule ids with
+cell and line, and pipeline activity names and counts (excellence.inspect_items), not the code.
 """
 
 from __future__ import annotations
@@ -26,6 +28,8 @@ LIST_ITEMS = "GET /v1/workspaces/{id}/items"
 LIST_ROLES = "GET /v1/workspaces/{id}/roleAssignments"
 LIST_CAPACITIES = "GET /v1/capacities"
 OPTIMIZATION = "KratosForge optimization engine (getDefinition and job history, docs/optimize/engine.md)"
+INSPECTION = "KratosForge definition inspection (the optimization engine's getDefinition read, excellence.inspect_items)"
+INSPECTED = ("Notebook", "DataPipeline")
 
 
 def _ws_subject(ws: dict[str, Any]) -> dict[str, Any]:
@@ -119,4 +123,26 @@ def optimization(result: dict[str, Any], *, collected_at: str) -> list[dict[str,
                                       "peers_not_read": peers,
                                       "matched": sorted(matched.get(str(w["item_id"]), []),
                                                         key=lambda m: (str(m["rule"]), str(m["opportunity_id"])))}))
+    return out
+
+
+def inspection(result: dict[str, Any], *, collected_at: str) -> list[dict[str, Any]]:
+    """One ``item.inspection`` record per notebook or pipeline whose definition the engine tried to read.
+
+    ``verified_configuration`` when the definition was read and inspected, ``insufficient`` when it
+    wasn't read or couldn't be inspected (its controls are then not evaluated). A workload assessed
+    without the inspection hook, or of another type, gives nothing."""
+    out = []
+    for w in result.get("workloads") or []:
+        got = w.get("inspected")
+        if str(w.get("type")) not in INSPECTED or w.get("definition") not in ("read", "not_read") or not isinstance(got, dict):
+            continue
+        ok = w["definition"] == "read" and bool(got.get("read")) and not got.get("error")
+        payload = dict(got) if ok else {"read": False, "problem": got.get("error") or w.get("problem")
+                                        or "The definition wasn't read."}
+        subj = ev.subject("item", str(w["item_id"]), w.get("name"), workspace_id=str(w.get("workspace_id")),
+                          item_type=str(w["type"]))
+        out.append(ev.record("item.inspection", subj, source=INSPECTION,
+                             confidence="verified_configuration" if ok else "insufficient", collected_at=collected_at,
+                             payload=payload))
     return out

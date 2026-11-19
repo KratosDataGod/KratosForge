@@ -188,7 +188,8 @@ class ExcellenceMixin:
                        "workloads": [], "opportunities": [], "scope": {}}
             reads.append({"read": "items, definitions and job history", "ok": not opt["workspaces"][0].get("problem"),
                           "problem": opt["workspaces"][0].get("problem"), "budget": opt["scope"].get("budget")})
-            models, models_read = _models(opt, lambda item: _model_bim(fabric.get_item_definition(wid, item, "TMSL")))
+            models, models_read = _models(opt, lambda item: _model_bim(
+                fabric.get_item_definition(wid, _guid(item, "semantic model"), "TMSL")))
             if models_read:
                 reads.append(models_read)
             try:

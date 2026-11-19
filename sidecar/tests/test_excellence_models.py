@@ -15,6 +15,7 @@ from fabric_desktop.service import Service
 
 AT = "2026-11-18T02:00:00+00:00"
 WSID = "11111111-2222-3333-4444-555555555555"
+SM1 = "5e5e5e5e-0000-4000-8000-000000000001"
 SECRET_DAX = "CALCULATE(SUM(Sales[secret_margin]), KEEPFILTERS(Region[code] = \"zz-hidden\"))"
 SECRET_FILTER = "[owner_email] = USERPRINCIPALNAME() && [tier] = \"platinum-only\""
 SECRET_M = 'let Source = Sql.Database("hidden-endpoint.example", "aaaaaaaa-2222-3333-4444-555555555555") in Source'
@@ -194,7 +195,7 @@ class FakeFabric:
 
     def list_items(self, ws):
         self.calls.append(("list_items", ws))
-        return [{"id": "sm1", "type": "SemanticModel", "displayName": "Sales"}]
+        return [{"id": SM1, "type": "SemanticModel", "displayName": "Sales"}]
 
     def get_item_definition(self, ws, item, fmt=None):
         self.calls.append(("get_item_definition", item, fmt))
@@ -222,9 +223,9 @@ def test_the_call_reads_model_definitions_as_tmsl_and_keeps_no_text(tmp_path, mo
     fake = FakeFabric()
     monkeypatch.setattr(Service, "fabric", property(lambda self: fake))
     r = Service(root=tmp_path / "app").excellence_assess(workspace_id=WSID)
-    assert ("get_item_definition", "sm1", "TMSL") in fake.calls
-    assert outcome_of(r, "FEA-SM-001", "sm1")["outcome"] == "fail"
-    assert outcome_of(r, "FEA-SM-002", "sm1")["outcome"] == "pass"
+    assert ("get_item_definition", SM1, "TMSL") in fake.calls
+    assert outcome_of(r, "FEA-SM-001", SM1)["outcome"] == "fail"
+    assert outcome_of(r, "FEA-SM-002", SM1)["outcome"] == "pass"
     assert any(x["read"] == "semantic model definitions" and x["ok"] for x in r["reads"])
     text = json.dumps(r)
     assert all(leak not in text for leak in LEAKS)
@@ -236,7 +237,7 @@ def test_a_failed_model_read_is_reported_and_leaves_the_controls_not_evaluated(t
     r = Service(root=tmp_path / "app").excellence_assess(workspace_id=WSID)
     got = next(x for x in r["reads"] if x["read"] == "semantic model definitions")
     assert got["ok"] is False and "1 couldn't be read" in got["problem"]
-    assert {outcome_of(r, c, "sm1")["outcome"] for c in MODEL_CONTROLS} == {"not_evaluated"}
+    assert {outcome_of(r, c, SM1)["outcome"] for c in MODEL_CONTROLS} == {"not_evaluated"}
 
 
 def test_model_reads_are_capped(monkeypatch):
@@ -260,3 +261,40 @@ def test_the_demo_decides_the_model_controls_with_no_fabric_call(tmp_path, monke
     text = json.dumps(r)
     assert "SUM(Orders[amount])" not in text and '[country] = "NL"' not in text and "Sql.Database" not in text
     assert assess.rescore(json.loads(json.dumps(r)), catalog.registry())["scores"] == r["scores"]
+
+
+def test_an_inactive_relationship_doesnt_count_as_filtering_both_ways():
+    b = good_bim()
+    _bidi(b)
+    _rel(b)["isActive"] = False
+    got = inspect_models.inspect(b)
+    assert got["bidirectional"] == [] and got["bidirectional_count"] == 0
+
+
+def test_each_kept_name_is_capped():
+    b = good_bim()
+    b["model"]["roles"][0]["name"] = "r" * 5000
+    got = inspect_models.inspect(b)
+    assert len(got["row_filter_roles"][0]) == inspect_models.MAX_NAME
+    assert all(len(n) <= inspect_models.MAX_NAME for n in json.loads(json.dumps(got, default=str)).get("row_filter_tables"))
+
+
+@pytest.mark.parametrize("bad", [
+    {"roles": ["Owners"]}, {"roles": [None]}, {"tables": "Sales"}, {"tables": [None]},
+    {"relationships": [{"fromTable": ["Sales"], "toTable": "Region"}]},
+])
+def test_a_definition_of_the_wrong_shape_is_an_error_not_a_crash(bad):
+    b = good_bim()
+    b["model"].update(bad)
+    got = inspect_models.inspect(b)
+    assert got["read"] is True and "isn't shaped like a model.bim" in got["error"]
+
+
+def test_an_item_id_that_isnt_a_guid_is_never_read(tmp_path, monkeypatch):
+    fake = FakeFabric()
+    fake.list_items = lambda ws: [{"id": "../../x", "type": "SemanticModel", "displayName": "Sales"}]
+    monkeypatch.setattr(Service, "fabric", property(lambda self: fake))
+    r = Service(root=tmp_path / "app").excellence_assess(workspace_id=WSID)
+    assert not [c for c in fake.calls if c[0] == "get_item_definition"]
+    got = next(x for x in r["reads"] if x["read"] == "semantic model definitions")
+    assert got["ok"] is False and "1 couldn't be read" in got["problem"]

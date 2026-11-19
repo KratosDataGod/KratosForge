@@ -24,10 +24,16 @@ from .. import model_directlake, model_practices
 
 RULES = ("SM001", "SM002", "SM004")
 MAX_NAMES = 50
+MAX_NAME = 256  # characters kept of any one name, so a hostile model can't bloat the evidence
+
+
+def _cut(name: Any) -> str:
+    text = str(name or "")
+    return text if len(text) <= MAX_NAME else text[:MAX_NAME - 1] + "…"
 
 
 def _rel_name(r: dict[str, Any]) -> str:
-    return f"{r.get('fromTable', '')}.{r.get('fromColumn', '')} to {r.get('toTable', '')}.{r.get('toColumn', '')}"
+    return _cut(f"{r.get('fromTable', '')}.{r.get('fromColumn', '')} to {r.get('toTable', '')}.{r.get('toColumn', '')}")
 
 
 def _item(model: dict[str, Any]) -> tuple[dict[str, Any], list[str], list[str]]:
@@ -64,18 +70,28 @@ def _item(model: dict[str, Any]) -> tuple[dict[str, Any], list[str], list[str]]:
 
 
 def inspect(bim: dict[str, Any]) -> dict[str, Any]:
-    """Names and counts from a parsed model.bim (see the module docstring)."""
+    """Names and counts from a parsed model.bim (see the module docstring). A definition that isn't
+    shaped like one gives an ``error``, so its controls are not evaluated."""
     model = bim.get("model") if isinstance(bim, dict) else None
     if not isinstance(model, dict):
         return {"read": True, "error": "The definition has no model."}
+    try:
+        return _inspect(bim, model)
+    except (AttributeError, TypeError, KeyError, ValueError):
+        return {"read": True, "error": "The definition isn't shaped like a model.bim, so it couldn't be inspected."}
+
+
+def _inspect(bim: dict[str, Any], model: dict[str, Any]) -> dict[str, Any]:
     rels = [r for r in model.get("relationships") or [] if isinstance(r, dict)]
-    both = sorted(_rel_name(r) for r in rels if str(r.get("crossFilteringBehavior") or "").lower() == "bothdirections")
+    # An inactive relationship filters nothing until a measure turns it on with USERELATIONSHIP.
+    both = sorted(_rel_name(r) for r in rels if r.get("isActive", True) is not False
+                  and str(r.get("crossFilteringBehavior") or "").lower() == "bothdirections")
     roles, filtered = [], set()
     for role in model.get("roles") or []:
-        hits = [str(p.get("name") or "") for p in role.get("tablePermissions") or []
+        hits = [_cut(p.get("name")) for p in role.get("tablePermissions") or []
                 if str(p.get("filterExpression") or "").strip()]
         if hits:
-            roles.append(str(role.get("name") or ""))
+            roles.append(_cut(role.get("name")))
             filtered.update(hits)
     dl = model_directlake.direct_lake_tables(bim)
     kinds = sorted({(model_directlake.source(bim, t.expression) or {}).get("kind") or "unknown" for t in dl})
@@ -86,7 +102,7 @@ def inspect(bim: dict[str, Any]) -> dict[str, Any]:
         got = rules.setdefault(f["rule_id"], {"count": 0, "objects": []})
         got["count"] += 1
         if len(got["objects"]) < MAX_NAMES:
-            got["objects"].append(f["object"])
+            got["objects"].append(_cut(f["object"]))
     for got in rules.values():
         got["objects"].sort()
     return {"read": True, "kind": "model", "tables": len(item["tables"]), "relationships": len(item["relationships"]),

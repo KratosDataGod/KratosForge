@@ -196,7 +196,7 @@ def _sm(**kw: Any) -> ct.Control:
 CONTROLS = (
     _sm(id="FEA-SM-001", title="Relationship filters in both directions", severity="medium",
         requirement="microsoft_recommendation", evaluate=_bidirectional, references=(_BIDI_DOC, _RELATIONSHIPS_DOC),
-        description="A relationship's cross-filter direction is Both.",
+        description="An active relationship's cross-filter direction is Both.",
         remediation=_t("Filtering both ways adds filter paths, can make results ambiguous, and slows every query "
                        "that crosses the relationship.",
                        "Set the relationship to filter in one direction, and use CROSSFILTER in the one measure "

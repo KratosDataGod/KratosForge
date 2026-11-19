@@ -775,8 +775,9 @@ def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
     try:
         delta_profile.check_table(table)
     except delta_profile.ProfileViolation as exc:
-        raise ValueError(f"{name_} isn't changed on this PC: {exc}. Writing to it could make it unreadable in "
-                         "Fabric.") from None
+        text = str(exc)  # the reader refusal is whole sentences already, with its own next step
+        tail = "" if text.endswith(".") else ". Writing to it could make it unreadable in Fabric."
+        raise ValueError(f"{name_} isn't changed on this PC: {text}{tail}") from None
     before = table.version()
     names = source.schema.names if source is not None else None
     out = delta_dml.apply(change, table, source, names,
@@ -829,6 +830,13 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
     reason = write_refusal(lh.name, ref.schema, ref.table)
     if reason:
         raise PermissionError(reason)
+    # Refused before the app's guard, which writes the run's audit line: a statement that can never run
+    # isn't recorded as started.
+    if operation == "vacuum" and retain_hours is not None and retain_hours < maintenance.MIN_RETENTION_DAYS * 24:
+        raise ValueError(f"VACUUM keeps at least {maintenance.MIN_RETENTION_DAYS} days ("
+                         f"{maintenance.MIN_RETENTION_DAYS * 24} hours) of history on this PC, not {retain_hours:g} "
+                         "hours: with less, it can delete files that readers or writers in other processes still "
+                         "use, and time travel to those versions stops working. Nothing was changed.")
     guard = maintenance_guard
     asked = "zorder" if operation == "optimize" and zorder else operation  # the audit tells a Z-Order apart
     reason = guard(asked, lh.workspace_id, name_) if guard is not None else MAINTENANCE_NEEDS_APP
@@ -836,11 +844,6 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
         raise PermissionError(reason)
     if _proof() is None and (reason := prod_refusal(operation, lh, name_)):  # a proof changes nothing here
         raise ProdConfirmNeeded(reason)
-    if operation == "vacuum" and retain_hours is not None and retain_hours < maintenance.MIN_RETENTION_DAYS * 24:
-        raise ValueError(f"VACUUM keeps at least {maintenance.MIN_RETENTION_DAYS} days ("
-                         f"{maintenance.MIN_RETENTION_DAYS * 24} hours) of history on this PC, not {retain_hours:g} "
-                         "hours: with less, it can delete files that readers or writers in other processes still "
-                         "use, and time travel to those versions stops working. Nothing was changed.")
     if _proof() is not None:
         if operation == "restore":
             raise ValueError("RESTORE isn't run in a proof: the proof's copy of the table doesn't have the shared "

@@ -532,7 +532,7 @@ WAIT = {"wait_seconds": {"type": "number", "minimum": 0, "maximum": 120, "defaul
 EXECUTION = schema({"id": STR, "kind": STR, "state": {"enum": ["queued", "running", "succeeded", "failed", "cancelled", "timed_out"]},
                     "seconds": {"type": "number"}, "result": {}, "error": {"type": "object"}}, ["id", "state"], extra=True)
 OPT_ID = {"type": "string", "maxLength": 100, "pattern": r"^[A-Za-z0-9\-]*$", "default": ""}
-EXECUTION_ID = {"type": "string", "pattern": r"^ex_[0-9a-f]{20}$"}
+EXECUTION_ID = {"type": "string", "maxLength": 23, "pattern": r"^ex_[0-9a-f]{20}$"}
 CODE_LIMITS = ("Runs in a Python process of its own on this PC, ended afterwards; nothing is kept between runs.",
                "Can read the attached lakehouse; writing lakehouse tables and getting other tokens are refused.",
                "Output is capped at 100,000 characters; images and HTML are left out.",
@@ -638,7 +638,7 @@ def _prove_actions() -> list[Capability]:
             "A readable report of a receipt (markdown, HTML or JSON). Parts in hide, and any your organization "
             "requires, are left out. Without hiding values it includes example rows, so it needs READ_DATA.",
             schema({"id": ID, "format": {"enum": ["markdown", "html", "json"], "default": "markdown"},
-                    "hide": {"type": "array", "items": {"enum": ["identity", "locations", "values", "machine"]}, "default": []}},
+                    "hide": {"type": "array", "items": {"enum": ["identity", "locations", "values", "machine"]}, "maxItems": 4, "default": []}},
                    ["id"]),
             schema({"format": STR, "text": STR, "hidden": {"type": "array"}}, ["format", "text"], extra=True),
             "READ_DATA", services.export_receipt, workspaces=scope.receipt, approval="ask", timeout=60),

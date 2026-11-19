@@ -113,6 +113,13 @@ def _decimal(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]]
              ) -> tuple[int, int] | tuple[str, int] | None:
     """Spark's (precision, scale) for ``node`` as a decimal operand, "int" for a whole-number column,
     or None when it is anything else."""
+    from .spark_complex import TYPED
+
+    given = (
+        node.type if node.meta.get(TYPED) else None
+    )  # a rewrite that keeps its type, as a Spark cast's
+    if isinstance(given, exp.DataType) and given.this in _INTEGERS:
+        return ("int", _INTEGERS[given.this])
     while isinstance(node, exp.Paren) or _zero_guard(node):
         node = node.this if isinstance(node, exp.Paren) else node.args["default"]
     if id(node) in typed:
@@ -424,7 +431,7 @@ def _rewrite(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]]
     if isinstance(node, exp.IntDiv):
         return _integral_divide(node, left, right, a, b)
     if a[0] == "int" and b[0] == "int":
-        return None
+        return None if ansi else _whole_wrapped(node, left, right, a, b)
     (p1, s1), (p2, s2) = _operand(a), _operand(b)
     if isinstance(node, (exp.Mod, exp.Case)):  # % and pmod: Spark's Remainder rule
         scale = max(s1, s2)
@@ -457,6 +464,85 @@ def _rewrite(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]]
     text = (f"CAST(CAST(fj_arg0 AS DECIMAL(38, {s1})) {op} CAST(fj_arg1 AS DECIMAL(38, {s2})) "
             f"AS DECIMAL({precision}, {scale}))")
     return _with_args(text, [left, right]), node, (precision, scale)
+
+
+# Spark's whole-number types by the precision _decimal gives them, with their width in bits.
+_WHOLE = {
+    3: ("TINYINT", 8),
+    5: ("SMALLINT", 16),
+    10: ("INTEGER", 32),
+    20: ("BIGINT", 64),
+}
+
+
+def _whole_rank(node: exp.Expr, found: tuple[int, int] | tuple[str, int]) -> int | None:
+    """The precision of ``node``'s Spark type (a key of _WHOLE): a column's by its type, a whole-number
+    literal INT when it fits in 32 bits and BIGINT when it fits in 64 (a larger one is a decimal)."""
+    while isinstance(node, exp.Paren):
+        node = node.this
+    sign = 1
+    if isinstance(node, exp.Neg) and isinstance(node.this, exp.Literal):
+        node, sign = node.this, -1
+    if isinstance(node, exp.Literal):
+        try:
+            value = sign * int(node.this)
+        except ValueError:
+            return None
+        return (
+            10
+            if -(2**31) <= value < 2**31
+            else 20
+            if -(2**63) <= value < 2**63
+            else None
+        )
+    return int(found[1]) if int(found[1]) in _WHOLE else None
+
+
+def _wraps_here(node: exp.Expr) -> bool:
+    """Whether ``node`` wraps around: not inside a TRY (try_add and try_multiply give NULL on an overflow), nor
+    an array index (get and element_at write their own index as a sum), nor a filter (WHERE, HAVING, QUALIFY or a
+    join's ON), where DuckDB can only skip row groups by a column's min and max when ``id + 1 = 5`` stays plain."""
+    child, parent = node, node.parent
+    while parent is not None:
+        if isinstance(parent, exp.Try) or (
+            isinstance(parent, exp.Bracket) and child is not parent.this
+        ):
+            return False
+        if isinstance(parent, (exp.Where, exp.Having, exp.Qualify)) or (
+            isinstance(parent, exp.Join) and child is parent.args.get("on")
+        ):
+            return False
+        if isinstance(parent, exp.Select):  # a select list, or a subquery's own, wraps
+            return True
+        child, parent = parent, parent.parent
+    return True
+
+
+def _whole_wrapped(
+    node: exp.Expr,
+    left: exp.Expr,
+    right: exp.Expr,
+    a: tuple[int, int] | tuple[str, int],
+    b: tuple[int, int] | tuple[str, int],
+) -> tuple[exp.Expr, exp.Expr, tuple[str, int]] | None:
+    """``+``, ``-`` and ``*`` of two whole numbers as Java computes them, with ANSI mode off: in the wider of
+    the two types, wrapping around past its range (2147483647 + 1 is -2147483648), where DuckDB stops."""
+    if not isinstance(node, (exp.Add, exp.Sub, exp.Mul)) or not _wraps_here(node):
+        return None
+    ranks = (_whole_rank(left, a), _whole_rank(right, b))
+    if None in ranks:
+        return None
+    rank = max(r for r in ranks if r is not None)
+    duck_type, bits = _WHOLE[rank]
+    op = "*" if isinstance(node, exp.Mul) else "+" if isinstance(node, exp.Add) else "-"
+    # In a type twice as wide (a product of two ints fits a BIGINT), the low bits kept with & as Java keeps them.
+    wide = "BIGINT" if bits <= 32 else "HUGEINT"
+    half, mask = 2 ** (bits - 1), 2**bits - 1
+    text = (
+        f"CAST((((CAST(fj_arg0 AS {wide}) {op} CAST(fj_arg1 AS {wide})) + {half}) & {mask}) - {half} "
+        f"AS {duck_type})"
+    )
+    return _with_args(text, [left, right]), node, ("int", rank)
 
 
 def _integral_divide(node: exp.Expr, left: exp.Expr, right: exp.Expr, a: tuple[int, int] | tuple[str, int],

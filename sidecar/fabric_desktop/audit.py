@@ -71,7 +71,7 @@ fabric_item_support fabric_git_links fabric_git_check fabric_git_overview fabric
 local_delta_history local_explain local_query_status local_transform_plan local_transform_runs
 pipeline_compatibility pipeline_export pipeline_import
 usage_preview
-risk_check meta_risk_gate risk_settings
+risk_check meta_risk_gate risk_settings meta_optimize_check
 model_bpa_status model_bpa_risk
 incidents_board incidents_for_me incident_sla_policy incidents_history incident_impact
 optimize_discover optimize_findings optimize_recommendations optimize_status optimization_assess excellence_assess
@@ -129,18 +129,36 @@ def target(params: dict[str, Any]) -> dict[str, Any]:
 
 
 # Calls that must not run without a record: a "started" line is written before them, and they are
-# refused when it can't be (a full disk, a locked file). These Prod-reaching changes always; any other
-# call when it is aimed at Prod (an env or target of "prod"); and any other call when it is given a
-# confirmation, an approval, a typed name, a risk-check acknowledgement or an override (a non-empty
-# value). An ordinary query or edit still runs as before when its line can't be written.
+# refused when it can't be (a full disk, a locked file). These Prod-reaching changes, deletes in Fabric
+# and removals of someone's access always; any other call when it is aimed at Prod (an env or target of
+# "prod"); and any other call when it is given a confirmation, an approval, a typed name, a risk-check
+# acknowledgement, an override or a go-ahead to replace what is there (a non-empty value). An ordinary
+# query or edit still runs as before when its line can't be written.
 FAIL_CLOSED = frozenset({"meta_promote", "meta_rollback", "meta_restore", "xray_optimize", "xray_vacuum", "shortcut_repoint",
-                         "shortcut_repoint_many", "shortcut_undo", "shortcut_accept_risk"})
+                         "shortcut_repoint_many", "shortcut_undo", "shortcut_accept_risk",
+                         # a delete in Fabric or OneLake: a shortcut, a OneLake security role, a job schedule
+                         # (a pipeline's, a notebook's, the metadata project's runner), a leftover staging
+                         # lakehouse, a proof's or replay's outputs
+                         "delete_shortcut", "access_delete_role", "delete_fabric_schedule", "delete_notebook_schedule",
+                         "meta_delete_schedule", "xray_remove_staging", "prove_delete_outputs", "replay_delete_outputs",
+                         # a delete in the shared platform catalog, and a governance policy taken off a scope
+                         "platform_delete_domain", "platform_delete_landing_zone", "platform_delete_source",
+                         "platform_remove_product_item", "governance_template_delete", "governance_unassign",
+                         # someone's access taken away: a data product grant, a platform admin, an AI tool.
+                         # (academy_sandbox_remove_grants isn't: it takes the exercise sandbox's read
+                         # permission off this PC's Python, which only narrows access, and the next exercise
+                         # grants it again.)
+                         "platform_revoke", "platform_remove_admin", "integrations_revoke_client"})
 # Parameter names, matched exactly. test_audit lists every audited method's parameters that look like
 # one of these and fails on a name in neither set, so a new one is reviewed rather than missed.
 GUARD_PARAMS = frozenset({
     "confirm", "confirmed", "confirm_name", "confirm_deletes", "confirm_unknown", "confirm_writes",
-    "approve", "approval_id", "typed", "risk_id", "require_acknowledgement",
-    "allow", "allow_commands", "allow_override", "allow_secrets", "allow_uncontained", "force"})
+    "approve", "approval_id", "typed", "risk_id", "risk_ids", "require_acknowledgement",
+    "allow", "allow_commands", "allow_override", "allow_secrets", "allow_uncontained", "force",
+    # a go-ahead to replace what is already there: a Fabric item changed since it was published from
+    # here, a report or model of that name, files of a warehouse project, a file picked on Save as,
+    # a saved engine connection (named by its id)
+    "replace", "replace_fabric_changes", "overwrite"})
 NOT_GUARD_PARAMS = frozenset({"expect"})        # the version a tab opened, not a go-ahead
 _PROD_PARAMS = ("env", "envs", "target")
 
@@ -152,6 +170,8 @@ def _given(value: Any) -> bool:
 def _is_prod(value: Any) -> bool:
     if isinstance(value, (list, tuple, set, frozenset)):
         return any(_is_prod(v) for v in value)
+    if isinstance(value, dict):  # a target given as an object, such as a PC schedule's {"kind": "meta", "env": ...}
+        return any(_is_prod(value.get(key)) for key in _PROD_PARAMS)
     return isinstance(value, str) and value.strip().lower() == "prod"
 
 
@@ -240,10 +260,17 @@ class AuditLog:
         return entry
 
     def entries(self) -> Iterator[dict[str, Any]]:
+        """Every line, oldest first. A line that isn't a JSON object is left out: ``verify()`` names it,
+        and the app can still show the rest of the trail and that check."""
         for path in self._files():
             for line in path.read_text(encoding="utf-8").splitlines():
                 if line.strip():
-                    yield json.loads(line)
+                    try:
+                        entry = json.loads(line)
+                    except ValueError:  # reported by verify()
+                        continue
+                    if isinstance(entry, dict):
+                        yield entry
 
     def recent(self, limit: int = 200, action: str = "") -> list[dict[str, Any]]:
         rows = [e for e in self.entries() if not action or e.get("action") == action]

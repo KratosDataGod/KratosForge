@@ -172,7 +172,8 @@ def test_missing_reference_solution_is_caught(broken):
 
 
 def test_too_few_wrong_answers_are_caught(broken):
-    found = broken("E36", {}, {"grading/E36/wrong-cube.sql": None, "grading/E36/wrong-order.sql": None})
+    found = broken("E36", {}, {"grading/E36/wrong-cube.sql": None, "grading/E36/wrong-order.sql": None,
+                               "grading/E36/wrong-no-grand-total.sql": None, "grading/E36/wrong-reversed-rollup.sql": None})
     assert any("at least two planted wrong answers" in p for p in found)
 
 

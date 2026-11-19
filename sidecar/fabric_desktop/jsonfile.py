@@ -40,7 +40,7 @@ def write_text(path: Path, text: str, newline: str | None = None) -> None:
     """Swap ``text`` in as the whole file: readers see the old file or the new one, never half of it.
     ``newline`` is open()'s: None writes this OS's line endings, "\n" keeps them as LF."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    fd, tmp = _new_temp(path)
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline=newline) as f:
             f.write(text)
@@ -55,7 +55,7 @@ def write_text(path: Path, text: str, newline: str | None = None) -> None:
 def write_bytes(path: Path, data: bytes) -> None:
     """``write_text`` for bytes (a profile picture): the old file or the new one, never half of it."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    fd, tmp = _new_temp(path)
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
@@ -65,6 +65,18 @@ def write_bytes(path: Path, data: bytes) -> None:
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
+
+
+def _new_temp(path: Path) -> tuple[int, str]:
+    """A new temporary file beside ``path``; a folder Windows won't let the app write in (Controlled
+    folder access, a folder the account can't change) is refused with a message naming it."""
+    try:
+        return tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    except OSError as exc:
+        refused = file_locks.folder_error(exc, path)
+        if refused is None:
+            raise
+        raise refused from exc
 
 
 def replace(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
@@ -77,9 +89,10 @@ def replace(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
         try:
             os.replace(src, dst)
             return
-        except PermissionError as exc:
-            if attempt == REPLACE_ATTEMPTS - 1:
-                # Still refused: a program keeps the file open. Say which, where Windows can tell.
+        except OSError as exc:
+            if not isinstance(exc, PermissionError) or attempt == REPLACE_ATTEMPTS - 1:
+                # Still refused (a program keeps the file open, or it is read-only), or Windows Security
+                # stopped it: say so, naming the file and, where Windows can tell, the program.
                 held = file_locks.locked_error(exc, dst)
                 if held is None:
                     raise
@@ -163,9 +176,24 @@ def read_json(path: Path, default: Any) -> Any:
         return json.loads(read_text(path))
     except FileNotFoundError:
         return default
-    except ValueError:  # torn or not JSON (UnicodeDecodeError is a ValueError too)
+    except (ValueError, RecursionError):  # torn or not JSON (UnicodeDecodeError is a ValueError too), or nested too deep
         try:
             set_aside(path)
         except OSError as exc:
             _log.warning("%s could not be read or moved aside (%s); it is being treated as empty.", path, exc)
         return default
+
+
+def read_object(path: Path) -> dict[str, Any]:
+    """``read_json`` for a file that holds one JSON object (a settings file): {} when it is missing or
+    unreadable, and also when it parsed as something else (a list, a number), which is set aside first
+    like an unreadable one, so the next save doesn't silently replace what was in it."""
+    data = read_json(path, {})
+    if isinstance(data, dict):
+        return data
+    try:
+        set_aside(path)
+    except OSError as exc:
+        _log.warning("%s isn't one JSON object and could not be moved aside (%s); it is being treated as empty.",
+                     path, exc)
+    return {}

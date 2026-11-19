@@ -558,3 +558,35 @@ def test_redacted_withholds_role_evidence_from_the_ossie_extension():
     role = _obj(safe, "role 'EU only'")
     assert role["changes"] == ["1 member(s) gone"]
     assert all(e["source"] == "structure" or "withheld" in e for e in role["evidence"])
+
+
+def _strings(value):
+    """Every string anywhere in a JSON-like value, keys included, without recursion."""
+    stack, out = [value], []
+    while stack:
+        v = stack.pop()
+        if isinstance(v, str):
+            out.append(v)
+        elif isinstance(v, dict):
+            stack.extend(v.keys())
+            stack.extend(v.values())
+        elif isinstance(v, (list, tuple)):
+            stack.extend(v)
+    return out
+
+
+def test_redacted_has_no_filter_text_or_member_anywhere_when_filters_are_added_or_removed():
+    left = _bim()
+    role = left["model"]["roles"][0]
+    role["members"] = [{"memberName": "ana.secret@contoso.com", "memberId": "oid-1", "identityProvider": "AzureAD"}]
+    right = copy.deepcopy(left)
+    gone = role["tablePermissions"][0]["filterExpression"] = '[region] = "GONE-SECRET"'
+    right["model"]["roles"][0]["tablePermissions"] = [  # the old filter removed, a filter on another table added
+        {"name": "fact_sales", "filterExpression": '[amount] > 42 && [tag] = "ADDED-SECRET"'}]
+    right["model"]["roles"][0]["members"] = [{"memberName": "ana.secret@contoso.com", "memberId": "oid-2",
+                                              "identityProvider": "AzureAD"}]
+    report = sp.parity_l1(left, right)
+    assert any("GONE-SECRET" in s for s in _strings(report)) and gone
+    for s in _strings(sp.redacted(report)):
+        for leaked in ("SECRET", "ana.secret", "oid-1", "oid-2", "[amount]", "[region]"):
+            assert leaked not in s, (leaked, s)

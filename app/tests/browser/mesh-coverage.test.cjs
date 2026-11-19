@@ -184,7 +184,7 @@ test("with no products of its own or from other teams, the tab says so and offer
   assert.strictEqual(await dialog().getByRole("button", { name: "Delete" }).count(), 0);
 });
 
-test("Links shows where each link points, who uses it, and Remove removes it", { skip }, async () => {
+test("Links shows where each link points, who uses it, and Remove asks in a danger confirm before it removes", { skip }, async () => {
   db.resolved = [{ alias: "ledger_entries", ok: true, table: "abfss://w-fin@onelake.dfs.fabric.microsoft.com/LH_Gold.Lakehouse/Tables/entries" },
     { alias: "stores", ok: false, message: "ops/stores isn't open to this project" }];
   await openTab("links", "text=Links to other teams' products");
@@ -196,7 +196,16 @@ test("Links shows where each link points, who uses it, and Remove removes it", {
   await view().getByRole("button", { name: "silver.ledger" }).click();
   await page().evaluate(() => { window.openEntity = window.__realOpen; });
   assert.deepStrictEqual(await led(), [["openEntity", "silver.ledger"]]);
+  const before = app.calls.filter((c) => c.method === "mesh_delete_link").length;
   await view().locator("tr", { hasText: "stores" }).last().getByRole("button", { name: "Remove" }).click();
+  await page().getByRole("dialog", { name: "Remove link stores?" }).waitFor();
+  assert.match(await dialog().textContent(), /Its file in metadata\/links is deleted\. No entity reads it, and nothing in Fabric changes\. You can bring it back from Source control until you commit\./);
+  assert.ok(await dialog().locator("button.danger-solid").count() > 0, "a danger confirm");
+  await dialog().getByRole("button", { name: "Cancel" }).click();
+  await page().getByRole("dialog", { name: "Remove link stores?" }).waitFor({ state: "detached" });
+  assert.strictEqual(app.calls.filter((c) => c.method === "mesh_delete_link").length, before, "Cancel removes nothing");
+  await view().locator("tr", { hasText: "stores" }).last().getByRole("button", { name: "Remove" }).click();
+  await dialog().getByRole("button", { name: "Remove" }).click();
   assert.deepStrictEqual((await waitCall("mesh_delete_link", 1)).params, { alias: "stores" });
 });
 

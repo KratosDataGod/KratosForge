@@ -1396,8 +1396,10 @@ def _grouping_id(node: exp.Expression) -> exp.Expression | None:
 
 
 def _any(node: exp.Expression) -> exp.Expression | None:
-    """any(col) as an aggregate (not ``x = ANY (subquery)``)."""
-    if isinstance(node.parent, (exp.Binary, exp.Predicate)) and not isinstance(node.parent, (exp.And, exp.Or)):
+    """any(col) as an aggregate (not ``x = ANY (subquery)`` or ``s LIKE ANY ('a%', 'b%')``). A quantifier is the
+    right side of its comparison, so ``any(x) = true``, on the left, is the aggregate."""
+    if isinstance(node.parent, (exp.Binary, exp.Predicate)) and not isinstance(node.parent, (exp.And, exp.Or)) \
+            and node.arg_key != "this":
         return None
     inner = node.this.this if isinstance(node.this, exp.Paren) else node.this
     if isinstance(inner, (exp.Subquery, exp.Select, exp.Query)):

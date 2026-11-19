@@ -139,6 +139,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             _string_edges(tree)
             _char_codes(tree)
             _sharp_s(tree)
+            _key_columns(tree)
             tsql_types.expand_datetimes(tree)
             if known is not None:
                 _unknown_functions(tree, known)
@@ -1470,7 +1471,10 @@ def _numeric_style(node: exp.Expression, info: exp.Expression) -> exp.DataType |
 def _date_style(text: exp.TimeToStr, kind: exp.DataType | None, style: str) -> None:
     """A date written as text with a style, as T-SQL writes it (WR-208): a ``date`` has no time, so styles
     120, 121 and 126 give only ``yyyy-mm-dd``; and style 126 leaves the fraction off when it is zero
-    (``2024-02-29T13:04:05``)."""
+    (``2024-02-29T13:04:05``). A ``time`` is put on T-SQL's base date, 1900-01-01, first: DuckDB's STRFTIME
+    takes no time alone, and a style with a date writes that date in T-SQL."""
+    if _is(kind, {exp.DataType.Type.TIME}):
+        text.set("this", exp.Add(this=exp.cast(exp.Literal.string("1900-01-01"), "DATE"), expression=text.this))
     fmt = text.args.get("format")
     if not isinstance(fmt, exp.Literal) or not fmt.name.startswith("%Y-%m-%d"):
         return
@@ -2530,6 +2534,15 @@ def _char_codes(tree: exp.Expression) -> None:
         bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[_int_of(code)]),
                          exp.Lambda(this=case, expressions=[v]))
         node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))
+
+
+def _key_columns(tree: exp.Expression) -> None:
+    """A table's ``PRIMARY KEY (a, b)`` names its columns only, as DuckDB takes them: sqlglot's T-SQL reader
+    gives each an order (``a NULLS FIRST``), which DuckDB can't read there, and an ASC or DESC changes nothing
+    about which rows a key allows."""
+    for key in tree.find_all(exp.PrimaryKey):
+        for ordered in [e for e in key.expressions if isinstance(e, exp.Ordered)]:
+            ordered.replace(ordered.this)
 
 
 _SHARP_S = "\u00df"  # ß

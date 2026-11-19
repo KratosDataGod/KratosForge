@@ -265,3 +265,20 @@ def test_upper_keeps_sharp_s(engine) -> None:
 def test_upper_reads_its_text_once() -> None:
     from fabric_desktop.localdata import tsql
     assert tsql.translate("SELECT UPPER(LTRIM(x)) FROM t")[0][-1].upper().count("LTRIM(") == 1
+
+
+def test_a_table_level_primary_key_names_its_columns(engine) -> None:
+    # sqlglot's T-SQL reader wrote PRIMARY KEY (a NULLS FIRST), which DuckDB can't read.
+    engine.execute("CREATE TABLE dbo.keyed (a INT NOT NULL, b INT NOT NULL, CONSTRAINT pk_keyed PRIMARY KEY (a, b DESC))",
+                   dialect="tsql")
+    engine.execute("INSERT INTO dbo.keyed VALUES (1, 1), (1, 2)", dialect="tsql")
+    with pytest.raises(Exception, match="(?i)duplicate key|constraint"):
+        engine.execute("INSERT INTO dbo.keyed VALUES (1, 2)", dialect="tsql")
+    assert engine.execute("SELECT COUNT(*) AS n FROM dbo.keyed", dialect="tsql")["rows"][0][0] == 2
+
+
+@pytest.mark.parametrize(("style", "want"), [("108", "10:04:05"), ("120", "1900-01-01 10:04:05")])
+def test_convert_of_a_time_with_a_style(engine, style: str, want: str) -> None:
+    # DuckDB's STRFTIME takes no time alone; T-SQL puts a time on its base date, 1900-01-01.
+    sql = f"SELECT CONVERT(VARCHAR(30), CAST('10:04:05' AS TIME(0)), {style}) AS v"
+    assert engine.execute(sql, dialect="tsql")["rows"][0][0] == want

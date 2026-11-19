@@ -336,10 +336,11 @@ What's written:
   file holds one dataset and the metrics whose home it is. That follows the YAML reference's
   rules for a view split across files. A view never has more than 20 files. Past 19 datasets,
   several datasets share a file, and the report says so. **Schema and metrics** writes
-  `schema/schema.yaml` (description, datasets, relationships) and `metrics/metrics.yaml` (the
-  metrics), the layout of
+  `schema.yaml` (description, datasets, relationships) and `metrics.yaml` (the metrics), the two
+  parts of
   [Separate schema from metrics](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#separate-schema-from-metrics),
-  so each part can be shortcut on its own. `files_summary` in the report gives each file's path,
+  flat in the view folder. Learn documents uploading files to the view folder but not making a
+  subfolder under it, so the subfolder form that page offers for shortcuts isn't written. `files_summary` in the report gives each file's path,
   size in bytes and how many datasets, relationships and metrics it holds, and how many of the
   metrics have DAX.
 - Characters YAML reads as a line break (U+0085, U+2028, U+2029) are written as escapes, never

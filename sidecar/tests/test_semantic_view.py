@@ -541,9 +541,9 @@ def test_a_forged_report_cant_hide_a_measure_dropped_from_the_view():
 
 def test_schema_metrics_writes_learns_schema_and_metrics_files_that_pass_the_check():
     out = sv.semantic_view(_doc(description="Orders"), view_name="Orders", split="schema_metrics")
-    assert sorted(out["files"]) == ["metrics/metrics.yaml", "schema/schema.yaml"]
+    assert sorted(out["files"]) == ["metrics.yaml", "schema.yaml"]
     files = _files(out)
-    schema, metrics = files["schema/schema.yaml"], files["metrics/metrics.yaml"]
+    schema, metrics = files["schema.yaml"], files["metrics.yaml"]
     assert schema["version"] == metrics["version"] == op.V02 and schema["name"] == metrics["name"] == "Orders"
     assert set(schema) == {"version", "name", "description", "datasets", "relationships"}
     assert set(metrics) == {"version", "name", "metrics"} and metrics["metrics"][0]["name"] == "net revenue"
@@ -574,15 +574,24 @@ def test_files_summary_says_what_each_file_holds(split):
     assert totals == {"datasets": 2, "relationships": 1, "metrics": 1, "dax_metrics": 1}  # median excluded
 
 
-def test_the_writer_writes_the_schema_metrics_subfolders(svc):  # noqa: F811
+def test_the_writer_writes_the_schema_metrics_files_flat(svc):  # noqa: F811
     plan = svc.meta_model_semantic_view_save("Sales", text=_ossie(), split="schema_metrics")["confirm"]
     svc.meta_model_semantic_view_save("Sales", text=_ossie(), split="schema_metrics", confirmed=True,
                                       token=plan["token"])
     folder = _views(svc) / "Sales"
-    assert (folder / "schema" / "schema.yaml").is_file() and (folder / "metrics" / "metrics.yaml").is_file()
+    assert sorted(p.name for p in folder.iterdir()) == ["metrics.yaml", "schema.yaml"]
     plan = svc.meta_model_semantic_view_save("Sales", text=_ossie())["confirm"]
-    assert sorted(plan["removed"]) == ["semantic-views/Sales/metrics/metrics.yaml",
-                                       "semantic-views/Sales/schema/schema.yaml"]
+    assert sorted(plan["removed"]) == ["semantic-views/Sales/metrics.yaml", "semantic-views/Sales/schema.yaml"]
+
+
+def test_a_yaml_file_in_a_subfolder_of_the_view_is_listed_as_removed(svc):  # noqa: F811
+    plan = svc.meta_model_semantic_view_save("Sales", text=_ossie())["confirm"]
+    svc.meta_model_semantic_view_save("Sales", text=_ossie(), confirmed=True, token=plan["token"])
+    stray = _views(svc) / "Sales" / "schema" / "schema.yaml"  # e.g. made by hand for a shortcut
+    stray.parent.mkdir()
+    stray.write_text("version: 0.2.0.dev0\nname: Sales\n", encoding="utf-8")
+    plan = svc.meta_model_semantic_view_save("Sales", text=_ossie())["confirm"]
+    assert plan["removed"] == ["semantic-views/Sales/schema/schema.yaml"]  # Fabric merges subfolders too
 
 
 def test_switching_from_one_file_to_schema_metrics_lists_the_old_root_file_as_removed(svc):  # noqa: F811
@@ -594,4 +603,4 @@ def test_switching_from_one_file_to_schema_metrics_lists_the_old_root_file_as_re
                                       token=plan["token"])
     folder = _views(svc) / "Sales"
     assert sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*.yaml")) == [
-        "metrics/metrics.yaml", "schema/schema.yaml"]
+        "metrics.yaml", "schema.yaml"]

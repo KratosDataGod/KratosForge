@@ -28,12 +28,13 @@ is added beside the SQL (Unverified: the two aren't compared, as in the fidelity
 can't translate is flagged before any file is written: Unsupported with the converter's reason, left out of the
 files and listed in ``excluded``. A relationship that isn't single-column is Unsupported and excluded too.
 
-``split="single"`` writes one file. ``split="schema_metrics"`` writes ``schema/schema.yaml`` (description, datasets
-and relationships) and ``metrics/metrics.yaml`` (the metrics), each with ``version`` and ``name``: the layout of
-"Separate schema from metrics" on semantic-views-create
+``split="single"`` writes one file. ``split="schema_metrics"`` writes ``schema.yaml`` (description, datasets
+and relationships) and ``metrics.yaml`` (the metrics), each with ``version`` and ``name``, flat in the view folder.
+Both files are the parts named in "Separate schema from metrics" on semantic-views-create
 (https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#separate-schema-from-metrics, ms.date
-2026-10-20, updated 2026-11-17; read 2026-11-19), which puts them in ``schema/`` and ``metrics/`` subfolders so each
-can be shortcut on its own; "Subfolders don't create separate views". ``split="by_dataset"`` writes the model-level parts (description,
+2026-10-20, updated 2026-11-17; read 2026-11-19). They stay flat because Learn documents uploading files to the view
+folder only ("Select Upload > Upload files"), not making a subfolder under it, and the tutorial keeps the two files
+flat. The subfolder form, which that page offers for shortcutting each part on its own, isn't written. ``split="by_dataset"`` writes the model-level parts (description,
 relationships, metrics with no home dataset) in the first file and one dataset, with the metrics whose home it
 is, in each other file, as the YAML reference's "Validation across files" allows: every file has ``version`` and
 ``name``, ``datasets`` is never an empty list, and the top-level description is in one file only. A view never
@@ -57,7 +58,7 @@ import sqlglot
 from . import model_ossie as mo, ossie_profiles as op, tmdl
 
 SPLITS = ("single", "by_dataset", "schema_metrics")
-SCHEMA_FILE, METRICS_FILE = "schema/schema.yaml", "metrics/metrics.yaml"
+SCHEMA_FILE, METRICS_FILE = "schema.yaml", "metrics.yaml"
 KIND = "Semantic View YAML"  # plan D.1's name for this kind of object
 MODEL_FILE = "00_model.yaml"
 _ROOT_KEYS = ("version", "name", "description", "datasets", "relationships", "metrics")

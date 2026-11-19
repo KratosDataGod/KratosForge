@@ -9,7 +9,8 @@ Rules this module enforces:
 
 - ``environment_id`` is ``kfenv_`` and 32 lowercase hex characters, random at creation.
 - Every resource reference is an id (a GUID in Fabric). Display names are labels only.
-- No secrets: a key named like a credential, or a value that ``redact.secrets`` would change, is refused.
+- No secrets: a key named like a credential (see ``_SECRET_WORDS``), or a value that ``redact.secrets``
+  would change, is refused.
 - The owner is an Entra object id only: no email or sign-in name.
 - Keys this version doesn't know are kept when the manifest is rewritten, and a manifest written by a
   newer ``manifest_version`` is opened read-only (``writable`` is False).
@@ -44,10 +45,13 @@ _PREFIX = re.compile(r"^[a-z][a-z0-9]{1,9}_$")
 _SERVICE = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 _VERSION = re.compile(r"^\d+(?:\.\d+){0,3}$")
 _STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$")
-# Keys that hold credentials somewhere else, matched on whole words of the key name (and the words
-# run together), plus any key ending in "_key"/"Key". "keys" (the shared keys workspace) is allowed.
-_SECRET_WORDS = {"token", "secret", "password", "passwd", "pwd", "credential", "credentials", "apikey",
-                 "sas", "connectionstring", "accountkey", "privatekey"}
+# Keys that hold credentials somewhere else, matched on whole words of the key name (split at "_", "-"
+# and camelCase), singular or plural, and on the words run together ("connectionstring"). A key whose
+# last word is "key" (storage_key, primaryKey, api_key) is refused too; "keys" (the shared keys
+# workspace) and words that merely end in "key" (monkey) are not.
+_SECRET_WORDS = {"token", "secret", "password", "passwd", "pwd", "credential", "sas", "apikey",
+                 "connectionstring", "accountkey", "privatekey", "clientsecret"}
+MAX_BYTES = 64 * 1024  # a manifest is a few kilobytes; anything far larger isn't one
 # Path-like values the manifest may hold, under Files/_kratosforge/ only.
 _CONFIG_REF = re.compile(r"^Files/_kratosforge/[A-Za-z0-9_./-]{1,200}$")
 
@@ -64,10 +68,17 @@ def new_environment_id() -> str:
     return "kfenv_" + uuid.uuid4().hex
 
 
-def _words(key: str) -> set[str]:
+def _words(key: str) -> list[str]:
     spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", key)
-    parts = [p.lower() for p in re.split(r"[^A-Za-z0-9]+", spaced) if p]
-    return set(parts) | {"".join(parts)}
+    return [p.lower() for p in re.split(r"[^A-Za-z0-9]+", spaced) if p]
+
+
+def _secret_key(key: str) -> bool:
+    if key.endswith("_id"):
+        return False  # resource ids: workspace_id, functions_id
+    words = _words(key)
+    singular = {w[:-1] if w.endswith("s") and len(w) > 3 else w for w in words}
+    return bool((singular | set(words) | {"".join(words)}) & _SECRET_WORDS) or (bool(words) and words[-1] == "key")
 
 
 def _check_no_secrets(value: Any, path: str) -> None:
@@ -75,7 +86,7 @@ def _check_no_secrets(value: Any, path: str) -> None:
         for k, v in value.items():
             if not isinstance(k, str):
                 raise ManifestError(f"{path}: keys must be text")
-            if not k.endswith("_id") and (_words(k) & _SECRET_WORDS or k.lower().endswith("key")):
+            if _secret_key(k):
                 raise ManifestError(f"{path}.{k}: a manifest never holds credentials; keep them in the "
                                     "provider's own sign-in or a secret store")
             _check_no_secrets(v, f"{path}.{k}")
@@ -99,7 +110,7 @@ def _text(value: Any, path: str, required: bool = True, limit: int = MAX_TEXT) -
 def _guid(value: Any, path: str, required: bool = True) -> str:
     if (value is None or value == "") and not required:
         return ""
-    if not isinstance(value, str) or not _GUID.match(value):
+    if not isinstance(value, str) or not _GUID.fullmatch(value):
         raise ManifestError(f"{path} must be an id (a GUID), never a display name")
     return value.lower()
 
@@ -111,7 +122,7 @@ def _ref(provider: str, value: Any, path: str, required: bool = True) -> None:
     elif provider == "local":
         if (value is None or value == "") and not required:
             return
-        if not isinstance(value, str) or not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$", value):
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", value):
             raise ManifestError(f"{path} must be a local id: letters, digits, '_', '.', '-'")
     else:
         # A provider this app can't connect to yet: its manifest is read, never written (CP-ADR-007).
@@ -119,7 +130,7 @@ def _ref(provider: str, value: Any, path: str, required: bool = True) -> None:
 
 
 def _stamp(value: Any, path: str) -> None:
-    if not isinstance(value, str) or not _STAMP.match(value):
+    if not isinstance(value, str) or not _STAMP.fullmatch(value):
         raise ManifestError(f"{path} must be an ISO 8601 UTC time")
 
 
@@ -140,6 +151,13 @@ def validate(manifest: Any) -> dict[str, Any]:
 
     A manifest with a newer ``manifest_version`` passes when its common fields are sound, so it can
     be shown; ``writable`` says whether this app may rewrite it."""
+    try:
+        return _validate(manifest)
+    except RecursionError:
+        raise ManifestError("The manifest is nested too deeply to be one KratosForge wrote") from None
+
+
+def _validate(manifest: Any) -> dict[str, Any]:
     if not isinstance(manifest, dict):
         raise ManifestError("A manifest is a JSON object")
     version = manifest.get("manifest_version")
@@ -147,7 +165,7 @@ def validate(manifest: Any) -> dict[str, Any]:
         raise ManifestError("manifest_version must be a whole number, 1 or more")
     _check_no_secrets(manifest, "manifest")
     env_id = manifest.get("environment_id")
-    if not isinstance(env_id, str) or not _ENV_ID.match(env_id):
+    if not isinstance(env_id, str) or not _ENV_ID.fullmatch(env_id):
         raise ManifestError("environment_id must be 'kfenv_' and 32 lowercase hex characters")
     _text(manifest.get("name"), "name", limit=MAX_NAME)
     provider = manifest.get("provider")
@@ -196,7 +214,7 @@ def validate(manifest: Any) -> dict[str, Any]:
     if not isinstance(families, dict):
         raise ManifestError("schema.families must be an object")
     for prefix, v in families.items():
-        if not _PREFIX.match(prefix):
+        if not _PREFIX.fullmatch(prefix):
             raise ManifestError(f"schema.families.{prefix}: a family prefix looks like 'fdopt_'")
         if not isinstance(v, int) or isinstance(v, bool) or v < 1:
             raise ManifestError(f"schema.families.{prefix} must be a whole number, 1 or more")
@@ -205,7 +223,7 @@ def validate(manifest: Any) -> dict[str, Any]:
     if not isinstance(compat, dict):
         raise ManifestError("compatibility must be an object")
     for k in ("min_app_version", "written_by_app_version"):
-        if k in compat and not (isinstance(compat[k], str) and _VERSION.match(compat[k])):
+        if k in compat and not (isinstance(compat[k], str) and _VERSION.fullmatch(compat[k])):
             raise ManifestError(f"compatibility.{k} must be a version like 0.20.0")
 
     owner = manifest.get("owner")
@@ -219,7 +237,7 @@ def validate(manifest: Any) -> dict[str, Any]:
 
     for k in ("services", "capabilities"):
         values = manifest.get(k, [])
-        if not isinstance(values, list) or any(not isinstance(s, str) or not _SERVICE.match(s) for s in values):
+        if not isinstance(values, list) or any(not isinstance(s, str) or not _SERVICE.fullmatch(s) for s in values):
             raise ManifestError(f"{k} must be a list of short lowercase names")
         if len(set(values)) != len(values):
             raise ManifestError(f"{k} lists a name twice")
@@ -237,7 +255,7 @@ def validate(manifest: Any) -> dict[str, Any]:
     if not isinstance(refs, dict):
         raise ManifestError("config_refs must be an object")
     for k, v in refs.items():
-        if not isinstance(v, str) or not _CONFIG_REF.match(v) or ".." in v:
+        if not isinstance(v, str) or not _CONFIG_REF.fullmatch(v) or ".." in v:
             raise ManifestError(f"config_refs.{k} must be a path under Files/_kratosforge/")
     return manifest
 
@@ -300,11 +318,14 @@ def to_json(manifest: dict[str, Any]) -> bytes:
 
 
 def from_json(data: bytes | str) -> dict[str, Any]:
+    if len(data) > MAX_BYTES:
+        raise ManifestError(f"The manifest is larger than {MAX_BYTES // 1024} KB, so it isn't one KratosForge wrote")
     try:
-        value = json.loads(data)
+        return validate(json.loads(data))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ManifestError(f"The manifest isn't valid JSON: {exc.__class__.__name__}") from None
-    return validate(value)
+    except RecursionError:
+        raise ManifestError("The manifest is nested too deeply to be one KratosForge wrote") from None
 
 
 def summary(manifest: dict[str, Any]) -> dict[str, Any]:

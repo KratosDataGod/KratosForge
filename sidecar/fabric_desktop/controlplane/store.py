@@ -13,13 +13,15 @@ environment while offline. Forgetting one never touches the environment.
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
 from .. import jsonfile
-from ..leases import Backend, LocalBackend, OneLakeBackend
-from ..onelake import item_url
+from ..leases import Backend, LocalBackend, OneLakeBackend, Stored
+from ..onelake import _onelake_error, item_url
+from ..retrying import send_with_retry
 from . import manifest as mf
 
 FOLDER = "Files/_kratosforge"
@@ -48,6 +50,30 @@ class OneLakeManifestBackend(OneLakeBackend):
 
     def _url(self, key: str) -> str:
         return item_url(self.workspace_id, self.lakehouse_id, f"{FOLDER}/{key}.json")  # key is NAME
+
+    def read(self, key: str) -> Stored | None:
+        """The file, read at most ``manifest.MAX_BYTES``: anyone who can write to the workspace can put a
+        file here, and discovery reads one per lakehouse, so a huge one is refused, not loaded."""
+        resp = send_with_retry(lambda: self._http.get(self._url(key), headers=self._headers(), timeout=self.timeout,
+                                                      stream=True), "GET", sleep=self._sleep)
+        try:
+            if resp.status_code == 404:
+                return None
+            if resp.status_code >= 400:
+                raise _onelake_error(resp, f"read {self.WHAT} {key}")
+            too_big = mf.ManifestError(f"The manifest is larger than {mf.MAX_BYTES // 1024} KB, so it isn't one "
+                                       "KratosForge wrote")
+            length = resp.headers.get("Content-Length")
+            if length and length.isdigit() and int(length) > mf.MAX_BYTES:
+                raise too_big
+            data = bytearray()
+            for chunk in resp.iter_content(16 * 1024):
+                data += chunk
+                if len(data) > mf.MAX_BYTES:
+                    raise too_big
+            return Stored(bytes(data), resp.headers.get("ETag", ""), time.time())
+        finally:
+            resp.close()
 
 
 class ManifestStore:

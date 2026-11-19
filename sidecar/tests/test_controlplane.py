@@ -97,7 +97,7 @@ def test_resources_are_ids_never_names():
     {"namespace": {"workspace_id": WS, "clientSecret": "x"}},
     {"namespace": {"workspace_id": WS, "connection_string": "x"}},
     {"name": "Server=tcp:x;Password=hunter2"},
-    {"x_note": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl"},
+    {"x_note": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl"},  # pragma: allowlist secret (a fake token)
 ])
 def test_no_secrets_ever(extra):
     with pytest.raises(mf.ManifestError, match="credential"):
@@ -206,7 +206,7 @@ def test_a_broken_manifest_is_shown_not_replaced(tmp_path):
 
 
 def test_onelake_writes_are_conditional_and_in_the_reserved_folder():
-    dfs = FakeDfs()
+    dfs = StreamingDfs()
     store = st.onelake_store(WS, LH, lambda: "tok", session=dfs)
     made = store.create(fabric())
     url = f"https://onelake.dfs.fabric.microsoft.com/{WS}/{LH}/Files/_kratosforge/environment.json"
@@ -249,10 +249,11 @@ def test_databricks_and_snowflake_claim_nothing_and_are_not_offered():
         assert all(c["level"] == "unsupported" for c in d["capabilities"].values())
 
 
-def test_fabric_is_preview_and_not_offered_until_discovery_and_provisioning_are_built():
+def test_fabric_is_preview_and_not_offered_until_provisioning_and_health_are_built():
     d = pv.REGISTRY["fabric"].describe()
     assert d["preview"] and not d["available"]
-    assert d["capabilities"]["discovery"]["level"] == "unsupported"
+    assert d["capabilities"]["discovery"]["level"] == "supported"
+    assert d["capabilities"]["provisioning"]["level"] == "unsupported"
     assert d["capabilities"]["operational_store"]["level"] == "partial"
 
 
@@ -363,3 +364,89 @@ def test_the_secret_key_rule_allows_the_specs_own_names():
     for name in ("api_key", "accountKey", "storage_key", "private_key"):
         with pytest.raises(mf.ManifestError, match="credential"):
             mf.validate(m | {"namespace": {"workspace_id": WS, name: "x"}})
+
+
+@pytest.mark.parametrize("field,value", [
+    ("environment_id", "kfenv_" + "a" * 32 + "\n"),
+    ("created_at", AT + "\n"),
+    ("services", ["optimize\n"]),
+    ("schema", {"families": {"fdopt_\n": 2}}),
+    ("compatibility", {"min_app_version": "0.20.0\n"}),
+    ("config_refs", {"policy": "Files/_kratosforge/p\n"}),
+])
+def test_a_trailing_newline_is_refused(field, value):
+    with pytest.raises(mf.ManifestError):
+        mf.validate(fabric() | {field: value})
+    with pytest.raises(mf.ManifestError, match="GUID"):
+        fabric(namespace={"workspace_id": WS + "\n"})
+
+
+def test_an_oversized_or_deeply_nested_manifest_is_refused():
+    with pytest.raises(mf.ManifestError, match="larger"):
+        mf.from_json(b" " * (mf.MAX_BYTES + 1))
+    deep = ('{"a":' * 5000) + "1" + ("}" * 5000)
+    with pytest.raises(mf.ManifestError):
+        mf.from_json(deep[: mf.MAX_BYTES])
+
+
+@pytest.mark.parametrize("name,refused", [
+    ("tokens", True), ("Secrets", True), ("api_key", True), ("primaryKey", True), ("storage_key", True),
+    ("refresh-token", True), ("keys", False), ("monkey", False), ("turnkey_note", False), ("lakehouse_id", False),
+    ("keyvault_name", False),
+])
+def test_the_secret_key_rule_is_by_word(name, refused):
+    m = fabric() | {"namespace": {"workspace_id": WS, name: "x"}}
+    if refused:
+        with pytest.raises(mf.ManifestError, match="credential"):
+            mf.validate(m)
+    else:
+        mf.validate(m)
+
+
+def test_a_lakehouse_with_only_unrelated_tables_is_left_out(tmp_path):
+    d = discovery(tmp_path, [{"id": "lh1", "displayName": "Sales"}, {"id": "lh2", "displayName": "Access"}],
+                  tables={"lh1": ["customer", "fact_sales"], "lh2": ["fdacc_scans"]})
+    assert d.find_environments(WS) == []
+
+
+class StreamingDfs(FakeDfs):
+    """The fake DFS, answering reads as a stream the way the store asks for them."""
+
+    def get(self, url, headers=None, timeout=None, stream=False):
+        resp = super().get(url, headers, timeout)
+        resp._content_consumed = True  # iter_content then serves the body held in memory
+        return resp
+
+
+def test_onelake_read_is_bounded():
+    dfs = StreamingDfs()
+    store = st.onelake_store(WS, LH, lambda: "tok", session=dfs)
+    store.create(fabric())
+    url = next(iter(dfs.files))
+    dfs.files[url] = (b"{" + b" " * mf.MAX_BYTES + b"}", dfs.files[url][1])
+    with pytest.raises(mf.ManifestError, match="larger"):
+        store.read()
+
+
+def test_a_huge_manifest_shows_as_damaged_in_discovery(tmp_path):
+    from fabric_desktop.controlplane.fabric import FabricDiscovery
+
+    dfs = StreamingDfs()
+    url = f"https://onelake.dfs.fabric.microsoft.com/{WS}/{LH}/Files/_kratosforge/environment.json"
+    dfs.files[url] = (b"[" * (mf.MAX_BYTES + 10), '"1"')
+    d = FabricDiscovery(FakeFabric([{"id": LH, "displayName": "x"}]),
+                        lambda ws, lh: st.onelake_store(ws, lh, lambda: "tok", session=dfs), lambda ws, lh: [])
+    (f,) = d.find_environments(WS)
+    assert f.state == "unreadable" and "damaged" in f.reason
+
+
+def test_deep_nesting_is_a_manifest_error_not_a_crash():
+    with pytest.raises(mf.ManifestError, match="nested"):
+        mf.from_json("[" * 30000 + "]" * 30000)
+    nested: dict = {}
+    cur = nested
+    for _ in range(5000):
+        cur["a"] = {}
+        cur = cur["a"]
+    with pytest.raises(mf.ManifestError):
+        mf.validate(fabric() | {"x_extra": nested})

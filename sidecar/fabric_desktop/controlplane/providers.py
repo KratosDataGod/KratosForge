@@ -98,19 +98,20 @@ class ProviderDescriptor:
 
 _TESTED = Capability("supported", "unit_tests")
 
-# Fabric: the stores are built and tested against fakes (optimize/, central/), not yet live
-# (docs/platform.md "What isn't proven yet"); discovery, provisioning and health arrive with
-# CP-004, CP-005 and CP-007 and are claimed here only when their tests land.
+# Fabric: discovery (controlplane/fabric.py) and the stores (optimize/, central/) are built and tested
+# against fakes, not yet run on a live tenant (docs/platform.md "What isn't proven yet"). Provisioning
+# and health arrive with CP-005 and CP-007 and are claimed here only when their tests land.
 FABRIC = ProviderDescriptor(
     id="fabric", label="Microsoft Fabric", adapter=True,
     capabilities={
+        "discovery": _TESTED,
         "manifest": _TESTED,
         "analytical_store": _TESTED,
         "operational_store": Capability("partial", "unit_tests",
                                         "Needs a Fabric SQL database and user data functions (F2 or larger, or a trial)"),
         "migrations": _TESTED,
     },
-    planned="Discovery (CP-004), provisioning (CP-005) and health checks (CP-007); then a live run in a test workspace (CP-012).",
+    planned="Provisioning (CP-005) and health checks (CP-007); then a live run in a test workspace (CP-012).",
 )
 
 LOCAL = ProviderDescriptor(

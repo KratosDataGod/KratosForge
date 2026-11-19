@@ -130,11 +130,24 @@ _TYPES: dict[str, Callable[[Any], bool]] = {
 
 def _end_of_text(pattern: str) -> str:
     """JSON Schema's $ (ECMA-262) is the end of the text, but Python's also matches before a final
-    line break, so "abc\\n" would pass ^[a-z]+$. A final unescaped $ becomes \\Z."""
-    body = pattern[:-1]
-    if pattern.endswith("$") and (len(body) - len(body.rstrip("\\"))) % 2 == 0:
-        return body + r"\Z"
-    return pattern
+    line break, so "abc\\n" would pass ^[a-z]+$. Every unescaped $ outside [...] becomes \\Z, so
+    ^a$|^b$ is held to the end of the text too."""
+    out: list[str] = []
+    escaped = in_class = False
+    for ch in pattern:
+        if escaped:
+            escaped = False
+        elif ch == "\\":
+            escaped = True
+        elif in_class:
+            in_class = ch != "]"
+        elif ch == "[":
+            in_class = True
+        elif ch == "$":
+            out.append(r"\Z")
+            continue
+        out.append(ch)
+    return "".join(out)
 
 
 def _problems(schema: dict[str, Any], value: Any, path: str) -> list[str]:

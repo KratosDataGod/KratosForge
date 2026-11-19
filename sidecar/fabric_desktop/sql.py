@@ -715,11 +715,11 @@ def _spark_functions(databricks: bool, statement: exp.Expression) -> exp.Express
                     node.replace(exp.Null())
                 elif places.is_int or (isinstance(places, exp.Literal) and not places.is_string and places.name.isdigit()):
                     # isdigit first: sqlglot's is_int is False past Python's 4,300 digits
-                    if len(places.name.lstrip("0")) > 2 or int(places.name) > _FORMAT_NUMBER_MOST:
+                    if len(places.name.lstrip("0")) > 2 or int(places.name.lstrip("0") or "0") > _FORMAT_NUMBER_MOST:
                         raise ValueError(f"This Spark SQL can't be run on this PC: format_number with more than "
                                          f"{_FORMAT_NUMBER_MOST} decimal places isn't written here. Spark writes "
                                          "them, but a decimal here keeps at most 38 digits in all.")
-                    node.replace(_from_template(_format_number(int(places.name)), [args[0]]))
+                    node.replace(_from_template(_format_number(int(places.name.lstrip("0") or "0")), [args[0]]))
                 elif isinstance(places, exp.Literal) and places.is_string:
                     raise ValueError("format_number() with a pattern can't run on this PC the way it runs in Fabric, "
                                      "so nothing ran: Java's DecimalFormat patterns aren't written here. Give the number "

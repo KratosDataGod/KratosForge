@@ -56,6 +56,7 @@ def test_format_number_refuses_more_than_eighteen_places_by_name(spark, places: 
 
 def test_format_number_at_eighteen_places(spark):
     assert _one(spark, "SELECT format_number(1.5, 18)") == "1.500000000000000000"
+    assert _one(spark, "SELECT format_number(1.5, " + "0" * 5000 + "2)") == "1.50"  # leading zeros count for nothing
 
 
 @pytest.mark.parametrize("call", ["substring_index({0}, 'aa', 2)", "substring_index({0}, '.', 2)",

@@ -82,7 +82,25 @@ async function openStudio(name, { embeds = true } = {}) {
   await page().locator(".pbi-list tr", { hasText: name }).getByRole("button", { name: "Open in Embed Studio" }).click();
   await page().getByRole("heading", { name: new RegExp(name) }).waitFor();
   if (embeds) await page().waitForFunction(() => !!document.querySelector("iframe.pbi-frame"));
-  if (embeds) for (let i = 0; i < 400 && !(hostFrame() && (await hostGot()).some((m) => m.command === "embed")); i++) {
+  if (embeds) await hostEmbedded();
+}
+
+// Waits until the host page in the frame has run its script and received the embed command. The frame can be
+// on the page before its script has set window.got, and a new frame can replace it meanwhile, so the wait runs
+// inside the frame and starts again on a frame that went away.
+async function hostEmbedded() {
+  for (const end = Date.now() + 15000; ;) {
+    const frame = hostFrame();
+    if (frame) {
+      try {
+        await frame.waitForFunction(() => Array.isArray(window.got) && window.got.some((m) => m.command === "embed"),
+          null, { timeout: Math.max(1, end - Date.now()) });
+        return;
+      } catch (err) {
+        if (!/detached|destroyed|navigat/i.test(String(err && err.message))) throw err;
+      }
+    }
+    if (Date.now() > end) throw new Error("the embed host never received the embed command");
     await page().evaluate(() => new Promise((r) => requestAnimationFrame(r)));
   }
 }
@@ -207,7 +225,7 @@ test("an engine error opening it is a card that says what to do; Sign in opens i
   assert.ok(await page().locator("iframe.pbi-frame.pbi-hidden").count(), "the card covers the frame");
   await card().getByRole("button", { name: "Sign in" }).click();
   await page().waitForFunction(() => !document.querySelector(".pbi-problem"));
-  for (let i = 0; i < 400 && !(await hostGot()).some((m) => m.command === "embed"); i++) await page().evaluate(() => new Promise((r) => requestAnimationFrame(r)));
+  await hostEmbedded();
   assert.strictEqual(calls("pbi_embed_content").length, 2, "opened again");
 
   world.contentFail = ["The caller isn't allowed to read this report (no access)."];

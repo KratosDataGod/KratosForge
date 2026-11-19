@@ -35,6 +35,7 @@ enterprise ready), see [Platform support levels](platforms.md); this page doesn'
 
 | Area | Visual familiarity | Workflow compatibility | Cloud API integration | Local execution | Verified runtime equivalence |
 | --- | --- | --- | --- | --- | --- |
+| Sign-in and connections | Partial | Missing | Verified | · | · |
 | Workspaces and items | Partial | Partial | Verified | · | · |
 | Lakehouse tables and files | Partial | Partial | Built | Built | · |
 | Warehouse and SQL analytics endpoint | Partial | Missing | Built | Partial | · |
@@ -50,6 +51,7 @@ enterprise ready), see [Platform support levels](platforms.md); this page doesn'
 Notes:
 
 - **Every area, Visual familiarity:** The Fabric-familiar skin (Preview) gives a teal accent and Fabric's page order on the rail (Home, Create, Workspaces, OneLake and Monitor first); pages keep KratosForge's own layout.
+- **Sign-in and connections, Cloud API integration:** Signing in with the developer's own identity was recorded; no app registration or service principal is used. Live: KUDP comparison, 2026-10-29, re-run 2026-11-03 (docs/platforms.md, Live runs).
 - **Workspaces and items, Workflow compatibility:** The skin's rail has Workspaces third, after Home and Create, as in Fabric; inside it, the page is KratosForge's own.
 - **Workspaces and items, Cloud API integration:** Listing workspaces and lakehouses was recorded; other item types were not. Live: KUDP comparison, 2026-10-29, re-run 2026-11-03 (docs/platforms.md, Live runs).
 - **Lakehouse tables and files, Workflow compatibility:** The skin's rail has OneLake fourth, after Workspaces, as in Fabric; inside it, the page is KratosForge's own.
@@ -111,3 +113,43 @@ Notes:
 
 Areas marked · are the parity backlog: each gets assessed against the platform's current
 documentation before it is built, and a new status lands with its tests.
+
+## What's next, and who owns it
+
+The three-platform parity program ([assessment](product/platform-parity-assessment.md),
+[backlog](product/platform-parity-backlog.md)) gives each area a feature family, a priority, the
+backlog items that move it and the workstream that owns it. **Runs** says where the area's work runs
+in KratosForge today, never more than the cells above show. A plan says what's next, not what's done:
+it never raises a status. This table is generated from `PLANS` in the same module.
+
+<!-- BEGIN GENERATED: parity-plan -->
+| Platform | Area | Family | Priority | Runs | Next items | Owner |
+| --- | --- | --- | --- | --- | --- | --- |
+| Microsoft Fabric | Sign-in and connections | A Authentication and connectivity | P0 | Cloud only | PAR-003 | Platform parity |
+| Microsoft Fabric | Workspaces and items | D Data storage and catalog | P1 | Cloud only | FAB-001 | Platform parity |
+| Microsoft Fabric | Lakehouse tables and files | D Data storage and catalog | P1 | Local and cloud | FAB-001 | Local engine |
+| Microsoft Fabric | Warehouse and SQL analytics endpoint | B SQL development | P1 | Local and cloud | FAB-003 | Warehouse |
+| Microsoft Fabric | Notebooks and Spark | C Notebooks and distributed compute | P0 | Local and cloud | PAR-002, FAB-001 | Platform parity |
+| Microsoft Fabric | Data Factory pipelines | E Orchestration and transformation | P1 | Simulated or validated on this PC | FAB-002 | unassigned |
+| Microsoft Fabric | Dataflows Gen2 | E Orchestration and transformation | P2 | Not built yet | FAB-002 | unassigned |
+| Microsoft Fabric | Medallion task flows | E Orchestration and transformation | P3 | Not built yet | · | unassigned |
+| Microsoft Fabric | Semantic models, TMDL and Direct Lake | H Semantic engineering | P2 | Local only | FAB-004 | Semantic engineering (OSSIE) |
+| Microsoft Fabric | Git integration and deployment | F Source control and deployment | P1 | Cloud only | FAB-007 | unassigned |
+| Microsoft Fabric | Monitoring and capacity | G Monitoring, cost and optimization | P1 | Cloud only | FAB-006 | Optimization engine |
+| Microsoft Fabric | Security and governance | I Enterprise shared services | P2 | Not built yet | FAB-005 | Governance |
+| Azure Databricks | Sign-in and workspace discovery | A Authentication and connectivity | P0 | Cloud only | DBX-001, PAR-003 | Databricks and Snowflake parity |
+| Azure Databricks | SQL warehouses and the SQL editor | B SQL development | P0 | Local and cloud | DBX-001, PAR-002 | Databricks and Snowflake parity |
+| Azure Databricks | Notebooks, Spark and dbutils | C Notebooks and distributed compute | P1 | Local and cloud | DBX-001 | Databricks and Snowflake parity |
+| Azure Databricks | Unity Catalog | D Data storage and catalog | P1 | Simulated or validated on this PC | DBX-002 | Platform parity |
+| Azure Databricks | Jobs and Lakeflow pipelines | E Orchestration and transformation | P1 | Cloud only | DBX-003, DBX-004 | Platform parity |
+| Azure Databricks | Compute | C Notebooks and distributed compute | P2 | Not built yet | DBX-005 | Platform parity |
+| Azure Databricks | Asset bundles and deployment | F Source control and deployment | P1 | Cloud only | DBX-001 | Databricks and Snowflake parity |
+| Azure Databricks | Cost and DBU | G Monitoring, cost and optimization | P1 | Cloud only | DBX-006 | Optimization engine |
+| Snowflake | Sign-in, roles and warehouses | A Authentication and connectivity | P0 | Not built yet | SF-001, SF-002, PAR-003 | Platform parity |
+| Snowflake | SQL worksheets | B SQL development | P0 | Simulated or validated on this PC | SF-003, PAR-002 | Platform parity |
+| Snowflake | Databases, schemas and object browser | D Data storage and catalog | P1 | Not built yet | SF-004 | Platform parity |
+| Snowflake | Snowpark | C Notebooks and distributed compute | P2 | Not built yet | SF-007 | unassigned |
+| Snowflake | Stages and data loading | D Data storage and catalog | P2 | Not built yet | SF-009 | unassigned |
+| Snowflake | Streams, tasks and dynamic tables | E Orchestration and transformation | P2 | Not built yet | SF-008 | unassigned |
+| Snowflake | Query history, profiling and credits | G Monitoring, cost and optimization | P1 | Not built yet | SF-005, SF-006 | Platform parity |
+<!-- END GENERATED: parity-plan -->

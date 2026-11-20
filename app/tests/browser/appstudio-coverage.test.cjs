@@ -195,10 +195,16 @@ test("a broken project is listed without Open, and Enter in the name creates the
   await page().locator(".as-template", { hasText: "Blank" }).click();
   assert.strictEqual(await page().locator(".as-template", { hasText: "Blank" }).getAttribute("aria-checked"), "true");
   await page().getByLabel("App name").fill("Ops board");
+  // Enter is the name box's own: its default is prevented, so its keypress can't click a button.
+  await page().evaluate(() => {
+    window.__enterPrevented = null;
+    document.addEventListener("keydown", (e) => { if (e.key === "Enter") window.__enterPrevented = e.defaultPrevented; }, { once: true });
+  });
   await page().getByLabel("App name").press("Enter");
   await page().locator(".as-chips").waitFor();
   assert.deepStrictEqual(calls("appstudio_create"), [{ name: "Ops board", template: "blank", target: "kratosforge-app" }]);
   assert.match(await page().locator(".page.appstudio h1").textContent(), /Ops board/);
+  assert.strictEqual(await page().evaluate(() => window.__enterPrevented), true);
 });
 
 test("Import sends the chosen export and opens the new project", { skip }, async () => {

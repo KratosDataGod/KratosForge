@@ -65,7 +65,7 @@ function appStudioCreateCard(home) {
     const got = await attempt(() => rpc("appstudio_create", { name: chosen, template, target: target.value }), "Could not create the app");
     if (got) { Object.assign(appStudio, { project: got.project, opened: got, tab: "preview", page: null, selection: {} }); go("appStudio"); }
   };
-  name.addEventListener("keydown", (e) => { if (e.key === "Enter") create(); });
+  name.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); create(); } });
   return h("section", { class: "card pad as-create" }, h("h2", {}, "Create an app"),
     h("div", { class: "row as-create-fields" }, h("label", { class: "field" }, "Name", name),
       h("label", { class: "field" }, "Where it will run", target)),

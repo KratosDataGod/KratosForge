@@ -108,6 +108,8 @@ before(async () => {
         remotes: [], credential_helpers: [], ssh_command: true, git_version: null, notes: ["Git Credential Manager isn't set up."] }),
       git_add_remote: ({ url }) => ({ ...status(), remotes: [{ name: "origin", url, provider: "github" }] }),
       git_forget: ({ repo }) => { db.forgotten = repo; return { forgotten: true }; },
+      git_branches: () => ({ local: [{ name: db.branch, current: true, upstream: "origin/main", ahead: 0, behind: 0, subject: "Newest change", date: "2026-11-19T10:00:00+00:00" }], remote: [], stashes: [] }),
+      git_create_branch: ({ name }) => { db.branch = name; return status(); },
       notebook_places: () => ({ places: [{ root: null, label: "This PC" }, { root: REPO, label: "sales" }, { root: OTHER, label: "finance" }] }),
       new_notebook: ({ place }) => ({ name: "Notebook 1", cells: [], place: place ? { root: place, label: place.split("/").pop() } : null }),
       git_capacity_diff: () => ({ read_at: "2026-11-19T08:00:00Z", problems: [], counts: { same: 0, differs: 1, not_in_git: 0, not_visible: 1 },
@@ -529,4 +531,39 @@ test("Repository settings adds an origin and takes the repository off the list a
   await page().waitForFunction(() => gitPage.status?.root === "C:/src/finance");
   assert.deepStrictEqual(calls("git_forget"), [{ repo: REPO }]);
   assert.ok(!(await page().evaluate(() => gitPage.info.repos.map((r) => r.path))).includes(REPO));
+});
+
+// Enter in a text box is the box's own: its default is prevented, so its keypress can't reach a button
+// that gets focus when the box goes away (the one that opened a dialog) and click it again.
+const watchEnter = () => page().evaluate(() => {
+  window.__enterPrevented = null;
+  document.addEventListener("keydown", (e) => { if (e.key === "Enter") window.__enterPrevented = e.defaultPrevented; }, { once: true });
+});
+
+test("Enter in Open a folder opens the repository once and doesn't open the dialog again", { skip }, async () => {
+  await openSource();
+  await page().getByTitle("Switch repository").click();
+  await page().getByRole("menu").getByRole("menuitem", { name: "Open a folder" }).click();
+  const folder = page().locator(".git-form").getByLabel("Folder", { exact: true });
+  await folder.fill(OTHER);
+  await watchEnter();
+  await folder.press("Enter");
+  await page().waitForFunction(() => gitPage.status?.root === "C:/src/finance");
+  await page().locator(".git-page .subtabs").waitFor();
+  assert.strictEqual(await page().evaluate(() => window.__enterPrevented), true);
+  assert.strictEqual(await page().locator("#dialog-root .git-form").count(), 0, "the Open a repository dialog came back");
+  assert.deepStrictEqual(calls("git_open"), [{ path: OTHER }]);
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("Enter in New branch creates the branch once", { skip }, async () => {
+  await openSource("branches");
+  const name = page().getByLabel("New branch name");
+  await name.fill("feature/orders");
+  await watchEnter();
+  await name.press("Enter");
+  await toast("Now on feature/orders.");
+  assert.strictEqual(await page().evaluate(() => window.__enterPrevented), true);
+  assert.deepStrictEqual(calls("git_create_branch"), [{ repo: REPO, name: "feature/orders" }]);
+  assert.deepStrictEqual(app.errors, []);
 });

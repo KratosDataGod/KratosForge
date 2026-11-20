@@ -1177,3 +1177,26 @@ def test_an_iff_that_only_looks_like_div0_keeps_its_division_guard(query):
 def test_div0_and_div0null_still_divide_without_the_guard():
     sql = sf.translate("SELECT DIV0(a, b), DIV0NULL(a, b) FROM t").duckdb_sql
     assert "ERROR" not in sql and sql.count("ELSE a / b END") == 2
+
+
+@pytest.mark.parametrize("fn", ["TO_TIMESTAMP_NTZ", "TO_TIMESTAMP"])
+def test_to_timestamp_ntz_of_a_column_reads_it_by_its_type(fn):
+    # DuckDB has no TO_TIMESTAMP_NTZ, so a column stopped with its catalog error (a literal was rewritten already).
+    import datetime as dt
+    con = duckdb.connect()
+    numbers = con.execute(sf.translate(f"SELECT {fn}(x) FROM (VALUES (1700000000), (-3600), (NULL)) AS t(x)")
+                          .duckdb_sql).fetchall()
+    assert numbers == [(dt.datetime(2023, 11, 14, 22, 13, 20),), (dt.datetime(1969, 12, 31, 23, 0),), (None,)]
+    fraction = con.execute(sf.translate(f"SELECT {fn}(x) FROM (VALUES (1700000000.123456789)) AS t(x)")
+                           .duckdb_sql).fetchall()
+    assert fraction == [(dt.datetime(2023, 11, 14, 22, 13, 20, 123456),)]
+    texts = con.execute(sf.translate(
+        f"SELECT {fn}(x) FROM (VALUES ('2024-01-01 10:00:00'), ('1700000000'), ('1700000000123'), "
+        "('1700000000123456'), ('1700000000123456789')) AS t(x)").duckdb_sql).fetchall()
+    second = dt.datetime(2023, 11, 14, 22, 13, 20)
+    assert texts == [(dt.datetime(2024, 1, 1, 10, 0),), (second,), (second.replace(microsecond=123000),),
+                     (second.replace(microsecond=123456),), (second.replace(microsecond=123456),)]
+    dates = con.execute(sf.translate(f"SELECT {fn}(x) FROM (VALUES (DATE '2024-01-01')) AS t(x)").duckdb_sql).fetchall()
+    assert dates == [(dt.datetime(2024, 1, 1),)]
+    with pytest.raises(duckdb.Error, match="(?i)timestamp"):
+        con.execute(sf.translate(f"SELECT {fn}(x) FROM (VALUES ('nope')) AS t(x)").duckdb_sql).fetchall()

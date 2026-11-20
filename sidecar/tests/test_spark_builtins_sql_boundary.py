@@ -50,3 +50,18 @@ def test_a_negative_literal_past_pythons_digit_limit_reads_as_spark_reads_it():
     nines = "9" * 5000
     got = sql.run(f"SELECT -{nines} a, CAST(-{nines} AS INT) b").to_pylist()
     assert got == [{"a": float("-inf"), "b": -2147483648}]
+
+
+def test_a_rank_cast_to_a_smaller_type_wraps_as_spark_does_with_ansi_off():
+    got = sql.run("SELECT id, CAST(row_number() OVER (ORDER BY id) AS TINYINT) v, "
+                  "CAST(rank() OVER (ORDER BY id) AS SMALLINT) w FROM range(40000) ORDER BY id").to_pylist()
+    assert (got[127]["v"], got[299]["v"], got[39999]["w"]) == (-128, 44, -25536)
+
+
+def test_a_bad_timestamp_literal_stops_as_spark_does_and_a_good_one_reads():
+    import pytest
+    with pytest.raises(Exception, match="out of range"):
+        sql.run("SELECT TIMESTAMP '2026-13-01 00:00:00' v")
+    assert sql.run("SELECT CAST('2026-13-01' AS TIMESTAMP) v, to_timestamp('2026-13-01') w").to_pylist() == [
+        {"v": None, "w": None}]  # a cast or to_timestamp of text that isn't a timestamp is NULL with ANSI off
+    assert str(sql.run("SELECT TIMESTAMP '2026-01-01T10:00:00Z' v").to_pylist()[0]["v"]) == "2026-01-01 10:00:00+00:00"

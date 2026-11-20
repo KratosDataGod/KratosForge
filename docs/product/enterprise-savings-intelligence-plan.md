@@ -373,7 +373,7 @@ person's visible workspaces, grouped by workload, with per-device comparison.
   appears once; another workspace's runs stay hidden.
 - Tests: scenarios 2, 4, 8.
 
-**ESI-107 Security and data docs.** Update `docs/optimize/security.md` for the new columns
+**ESI-107 Security and data docs.** **Documented** in [Optimize: security and retention](../optimize/security.md). Update `docs/optimize/security.md` for the new columns
 (user and tenant ids are identifying), the writer-can-read limit of mode A, and retention.
 
 **ESI-108 Live concurrency check.** Two installations writing to a lakehouse in

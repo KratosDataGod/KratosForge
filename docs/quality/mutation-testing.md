@@ -9976,3 +9976,401 @@ No bugs were found.
 ### Left
 
 None.
+
+# Mutation testing, batch 177
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 16 sampled 150 of its 515 mutants.
+- Proving a notebook and replaying a failure: a proof's two runs, how they are compared, its verdict and receipt, proof rules, and opening, checking and saving replay bundles (`prove_service.py`).
+
+The run was at `main` 82f8e2101 (2026-11-19), with `sidecar/tools/mutate.py` as it is since #2902. `prove_service.py` hasn't changed since batch 16's run. It used `--cap 100000 --seed 7 --kinds all`, so all 515 mutants ran (511 point, 4 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. As batch 178 below explains, each pytest session got a new, empty base folder of its own. A mutant whose run times out counts as killed. One timed out: the loop that finds a free name for an opened bundle's notebook, with its condition changed, never ends.
+
+The module's tests take several minutes together, far over the mutator's 120-second limit for one mutant. So the "before" figures come from four runs, as in batch 95:
+- All 515 mutants ran with the 8 quicker files (the first 8 in the table, about 13 seconds together). 181 survived.
+- The 181 ran again with group A: test_prove and test_wizard, which run whole proofs against a fake Fabric. Group A killed 36: what Fabric's packages are remembered as, receipts exported and saved, proof rules, the list of proofs, a proof's start, its two runs and its verification, deleting its outputs, and the wizard's notebook. The container restarted after 66 of the 181 had run. The other 115 ran on their own with `--only`, from the same commit and with the same files.
+- The 145 left ran with group B: test_replay, which replays bundles in the notebook's own process. Group B killed 79: opening, previewing, listing and saving bundles, a replay's check, its tables and samples, its start, its result and its end, the sandboxes it remembers, and a replay notebook's cells waiting for the replay.
+- The 66 left ran with group C: test_kernel_process. Group C killed 1: a proof measures the notebook's own process when notebooks run in their own process.
+
+Mutants killed in any of the four runs count as killed "before". The "after" run gave the 65 survivors the first set and the new file. The groups weren't needed there.
+
+Before the "after" run, the new tests were run in a copy of `sidecar/` on their own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `prove_service.py` | test_prove_service_edges, test_local_retention_gaps, test_replay_edges, test_receipts_edges, test_notebook_cells, test_prove_service_mutation, test_state_writes, test_debugging, then groups A, B and C above (+ test_prove_service_uncapped) | 515 of 515 (511 + 4), uncapped | 450 / 65 | **87.4%** | 449/511 → 504/511 | 1/4 → 2/4 | 506 / 9 | **98.3%** | 7 equivalent, 2 not killed |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **prove_service.py**:
+  - A proof asks Fabric for news every 5 seconds. A replay bundle may be up to 100 MiB, and a bundle of exactly that size isn't too large.
+  - A notebook's dependencies, the receipt redactions and the list of receipts (50 by default) come from their own modules.
+  - Fabric's packages are remembered under the module's name, whether Fabric reported the module or its distribution. The file is written with `indent=1` and sorted keys, in a folder made with its parents.
+  - A saved receipt says what it left out. It gives up after 999 taken names, and a bundle after 99. A bundle's file name keeps 60 characters of the notebook's name, and so does the notebook made from an opened bundle.
+  - Bundles in Downloads are listed newest first, 50 at most, with the number of samples each has.
+  - A replay's copy that is gone names the bundle's notebook. The live replay is looked up without making a session. A notebook whose extras can't be read isn't a replay.
+  - A bundle without ids never attaches a lakehouse, even when the lakehouse it names still carries one.
+  - A replay's check names the bundle's lakehouse when none is attached, and compares the bundle's environment, for the modules its code cells import, with this PC's.
+  - A replay seeds `random` with 0, and the sandboxes it remembers keep the lakehouse's name. A sandbox that can't be deleted names its lakehouse.
+  - A saved proof keeps its PC side without the cells' outputs, and only the last 200 proofs are kept. A saved proof is found by its id. Proofs are listed newest first, 20 at most.
+  - Cancelling a proof that is verifying doesn't cancel a Fabric job. Cancelling it while Fabric runs ends it cancelled.
+  - Verifying a table again reads that table, from the first differing row, and keeps no limitations when the compare gave none. A proof where neither side wrote a table compares only the time.
+  - A proof's id ends in 6 hex digits. It seeds `random` with 0, counts its code cells from 1, and keeps a silent cell's outputs as `[]`, not `None`. Its Fabric side is the Python engine for a notebook without Spark. Fabric's elapsed time is in whole seconds, its total and job times in hundredths, and its start time is never below 0.
+  - A published notebook that comes back without an id is found by its name.
+  - A record that is busy is copied up to 20 times.
+  - → `test_prove_service_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `prove_service.py` | 248 | an unreadable bundle's copy removed with `missing_ok=True` → `False` | Equivalent: the copy was written just before, so it is always there to remove (batch 16, line 258 then). |
+| `prove_service.py` | 644 | `zip(cells, saved["cell_ids"], strict=True)` → `False` | Equivalent: saving a notebook gives one cell id for each cell, so the two always have the same length. |
+| `prove_service.py` | 661 | the proof's thread `daemon=True` → `False` | Not killed: it changes only whether the app waits for a running proof when it exits, which no test here can see without ending its own process. |
+| `prove_service.py` | 802 | `i < len(suffixes)` → `<=` (boundary) | Equivalent: the parameters bar gives a suffix for every cell, so `i` is always below the length. |
+| `prove_service.py` | 806 | the first poll after a cell starts asks from version `-1` → `-0` | Equivalent: at version 0 nothing has been output yet, so both give no outputs; after it, both give them all (batch 16, line 816 then). |
+| `prove_service.py` | 807 | `snap.get("outputs") or []` → `and []` on that first poll | Equivalent in the record: it changes only what the panel shows for a running cell, and the cell's final outputs come from a poll of their own (batch 16, line 817 then). |
+| `prove_service.py` | 813 | the final poll asks from version `-1` → `-0` | Equivalent: a finished cell's version is past 0, so both give all its outputs. |
+| `prove_service.py` | 815 | the final `snap.get("outputs") or outputs` → `and outputs` | Equivalent: the outputs seen last while the cell ran are the final poll's outputs, and when there are none both are empty (batch 16, line 825 then). |
+| `prove_service.py` | 861 | `time.monotonic() - started < MAX_FABRIC_SECONDS` → `<=` (boundary) | Not killed: it differs only at the exact instant six hours have passed. |
+
+# Mutation testing, batch 178
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 7 sampled 150 of its then 449 mutants.
+- The local `notebookutils`: `fs` on this PC and in the attached lakehouse, credentials and Key Vault, `notebook.run`, the runtime context, Fabric item lists, `loadTable`, user data functions and the variable library (`notebookutils_local.py`).
+
+The run was at `main` bdf2c1775 (2026-11-19), with `sidecar/tools/mutate.py` as it is since #2902. It used `--cap 100000 --seed 7 --kinds all`, so all 516 mutants ran (511 point, 5 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. `test_notebook_parity.py::test_spark_reads_files_and_groups_like_pyspark` reads `examples/`, so it was left out with `--deselect`. Two files from batch 7's set were left out to keep each mutant's run short: `test_keys.py` (16 s on its own, and it doesn't call this module) and `test_estate.py` (42 s). Four quick files that call the module were added: test_notebookutils_load_table, test_dbutils_parity, test_notebook_resources and test_notebook_parity.
+
+No mutant's run timed out.
+
+### Why this run was done again
+
+The first uncapped run of this module gave false kills, so it was thrown away and its numbers are not used here. Each mutant's tests ran with one fixed `--basetemp` folder for the lane. pytest deletes that folder at the start of every session. Mutant 58 drops `_same_or_inside`'s answer for local paths (line 130). With it, `test_local_mv_into_itself` copies a folder into itself until the path is too deep. From then on, deleting the folder raised `RecursionError` at the start of every session, so every later mutant failed before any test ran and counted as killed. That run's timings show it: from mutant 59 on, every mutant was "killed" in about 10.5 s. The run here gave each pytest session a new, empty base folder of its own. A small plugin outside the committed files did this (`pytest_configure` sets `basetemp` to a fresh `tempfile.mkdtemp` folder). The broken run had 4 survivors. This run has 49.
+
+Before the "after" run, the new tests were run in a copy of `sidecar/` on their own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `notebookutils_local.py` | test_notebookutils_local_mutation, test_notebookutils_local_edges, test_notebookutils_fs, test_notebookutils_helpers, test_notebookutils_parity, test_notebookutils_load_table, test_paging_complete, test_contract_onelake, test_dbutils, test_dbutils_parity, test_notebook_resources, test_notebook_parity (+ test_notebookutils_local_uncapped) | 516 of 516 (511 + 5), uncapped | 467 / 49 | **90.5%** | 466/511 → 508/511 | 1/5 → 5/5 | 513 / 3 | **99.4%** | 3 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **notebookutils_local.py**:
+  - `loadTable`: it returns True. An append keeps the table's schema and an overwrite replaces it. A folder's files are joined by name, with missing columns allowed. It needs an attached lakehouse, a table name that isn't blank and a known `pathType`. An empty folder says it has no files. Files of another format are named, five at most, then "and more".
+  - `FileInfo` has a change time of 0 unless one is given. A local path and a OneLake path are never the same path (`False`, not just falsy).
+  - `Files/` itself can't be changed, and nothing is sent.
+  - `head` of a local file reads only its first bytes. `head` of 1 byte gives 1 byte. `head` of 0 bytes reads nothing, also from OneLake.
+  - A folder named `Files` deeper down is looked up in its parent. Only the lakehouse's own `Files` and `Tables` are answered without a listing.
+  - `put` without overwrite keeps what is there. `cp` of a folder needs `recurse`. `mv` onto something that is there needs `overwrite`. `mv` into itself is refused in `mv`'s own words.
+  - A OneLake listing refused with 403 is raised as it is, without a second lookup. `rm` asks OneLake for one entry to see that a folder isn't empty.
+  - An unknown `notebookutils` name is an `AttributeError`.
+  - A Key Vault link whose port isn't a number isn't on the vault. A Key Vault 400 is an error with its code. `getSecret` asks once, with a 30-second limit and API version 7.4.
+  - A token is valid until the second it expires, and payloads of every length get their padding back.
+  - `notebook.run` gives 90 seconds by default, and passes a cell timeout only when one is set.
+  - The notebook, lakehouse and table lists give 1,000 items by default. The default lakehouse is looked up in the workspace given.
+  - The runtime context equals its copy. It isn't a pipeline run or a reference run, and its user name comes from `USERNAME` when `USER` isn't set.
+  - A variable reference reads the library it names.
+  - → `test_notebookutils_local_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `notebookutils_local.py` | 322 | `mv`'s `create_path` default `False` → `True` | Equivalent: `mv` never reads `create_path`. It is there only so Fabric's signature works. |
+| `notebookutils_local.py` | 232 | a local folder's size in `_entry` 0 → 1 | Equivalent: nothing reads a folder's size there. `mv` compares a folder's files, not its size. |
+| `notebookutils_local.py` | 236 | the size of the `Files` or `Tables` root entry 0 → 1 | Equivalent, as batch 7 found: nothing reads that size, and moving `Files` itself is refused. |
+
+# Mutation testing, batch 179
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 12 sampled 150 of its then 411 mutants.
+- The local pipeline runner: the checks before a run, running each list of activities, retries and policy timeouts, mocks, child pipelines, cancels and the run record (`orchestration/runner.py`).
+
+The run was at `main` bdf2c1775 (2026-11-19), with `sidecar/tools/mutate.py` as it is since #2902. It used `--cap 100000 --seed 7 --kinds all`, so all 419 mutants ran (411 point, 8 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. As in batch 178, each pytest session got a new, empty base folder of its own. The 14 files below run in about 35 seconds together. Batch 12's other three files, `test_pipeline_script`, `test_pipeline_data` and `test_pipeline_schedules`, were left out to keep each mutant's run short. Together they take about 18 seconds, and their subjects are other modules. No test in the set reads `docs/`, `examples/` or `app/`, so no `--deselect` was needed.
+
+Before the "after" run, the new tests were run in a copy of `sidecar/` on their own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. The new tests also passed 25 runs in a row, under the load of the other lanes.
+
+A mutant whose run times out counts as killed, as in earlier batches. 25 timed out, each a wait or loop that no longer ends: the run loop of one list of activities (lines 389, 392, 411), waiting for a parallel slot (430), the retry loop and its policy timeout (447, 457, 473 to 492), the record of a step that is running (501, 507), and an activity's wait (622 to 629, 806). One more timed out in the "after" run: `left <= 0` to `< 0` in an activity's wait (line 625). With the new test's clock stopped, a wait of 0 seconds then never ends. With a real clock, a left of exactly 0 would be followed by a negative one.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `orchestration/runner.py` | test_orchestration_runner_mutation, test_pipeline_runner_edges, _service_edges, _fabric_parity, test_cli_tenant_commands, test_pipeline_gotchas, _definitions, _data_edges, _notebooks_edges, _script_edges, _adapters_edges, test_orchestration_definition_edges, _runs_edges, test_pipeline_runs (+ test_orchestration_runner_uncapped) | 419 of 419 (411 + 8), uncapped | 374 / 45 (25 timeouts) | **89.3%** | 371/411 → 392/411 | 3/8 → 6/8 | 398 / 21 (26 timeouts) | **95.0%** | 18 equivalent, 3 timing only |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **orchestration/runner.py**:
+  - Child pipelines nest at most 8 deep: a pipeline that runs itself is refused with 7 child levels in the message.
+  - An integer variable declared without a default starts at 0, for both `Int` and `Integer`.
+  - A cancelled state matches no dependency condition (`False`, not just falsy).
+  - A skipped step is saved as soon as it is skipped, while the run is still going, and a step is saved when it ends, not when it starts.
+  - A notebook step's output is what its notebook gave.
+  - Four activities run at once by default.
+  - A retry waits the interval the policy gives, and 30 seconds when it gives none.
+  - A container cancelled while its steps run is cancelled, not failed.
+  - A list asked for after a cancel records nothing.
+  - A child pipeline is waited on unless the call says not to.
+  - A step that never started made no attempt.
+  - An activity that isn't local is refused, even when its adapter could run.
+  - Steps still waiting for a parallel slot at a cancel end cancelled, without starting.
+  - Only `SecureString` parameters are hidden in the record.
+  - An inactive step marked Skipped, with nothing before it, doesn't fail the run.
+  - A run without notebooks says it ran on this PC.
+  - A run's seconds are kept to the millisecond.
+  - An Until's deadline has passed at that very moment, and a wait that ends exactly at its deadline isn't a timeout. A fake clock pins both.
+  - → `test_orchestration_runner_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `orchestration/runner.py` | 326, 408, 664, 719, 768, 805 | a thread's `daemon=True` to `False` (the run's timer, each step, each ForEach item, a child's watcher, a detached child and a lakehouse read) | Equivalent in a run: each of these threads is cancelled or joined before the run ends. The flag only matters when the process exits. |
+| `orchestration/runner.py` | 720, 768 | a thread's name takes 9 characters of the child's id, not 8 | Equivalent: nothing reads thread names. They only help debugging. |
+| `orchestration/runner.py` | 577 | `_leaves_succeed`'s inner `return False` to `None` | Equivalent: its only caller is `all(...)`, where `None` is false too. |
+| `orchestration/runner.py` | 490 | the `return "failed"` after the retry loop to `None` | Equivalent: it can't be reached. Every pass of the loop returns, or continues to a next pass, and the last pass always returns. |
+| `orchestration/runner.py` | 454, 455 | the default of `policy.get("retry", 0)` 0 to 1, and of `policy.get("retryIntervalInSeconds", 30)` 30 to 31 | Equivalent: each default is used only when the key is missing, and then the `isinstance(..., int)` beside it is false, so the other branch (0, 30) is taken. |
+| `orchestration/runner.py` | 450 | `getattr(adapter, "container", False)` default to `True` | Equivalent: every adapter that can run is a `LocalAdapter`, which sets `container`. |
+| `orchestration/runner.py` | 249 | `getattr(entry.adapter, "can_execute", False)` default to `True` | Equivalent: the registry refuses a local entry whose adapter doesn't set `can_execute`, and every other entry is refused by its classification first. |
+| `orchestration/runner.py` | 411 | `and` to `or` in the test that ends a list's run loop | Equivalent: the loop runs under the lock that steps take to set their state. Each pass starts every step whose dependencies have ended. So a pass never ends with no step running and some step still without a state. |
+| `orchestration/runner.py` | 660 | `or` to `and` in ForEach's wait for a free place in its batch | Equivalent: a cancel stops the running items too, so they free their places. The check right after the wait then starts no more items. |
+| `orchestration/runner.py` | 710 | a child run's depth `depth + 1` to `depth - 1` | Equivalent: the nesting limit is enforced when the top-level run is checked, and that check builds its own probes with the right depth. At run time the depth is only compared with 0, which a child's depth never is either way. |
+| `orchestration/runner.py` | 730 | `child.state == "cancelled" or self.run.cancelled` to `and` | Equivalent: a child waited on is cancelled only by its watcher, and only when an enclosing Until's deadline has passed. The `ActivityFailed` that the mutant raises then becomes `cancelled` in `_attempts`, with no error or output kept. |
+| `orchestration/runner.py` | 749 | the watcher's time left `deadline - now` to `deadline + now` | Timing only: the watcher then checks every 0.2 s, not at the deadline. A child is stopped at most 0.2 s later. A test would depend on the machine's speed. |
+| `orchestration/runner.py` | 746, 809 | `>=` to `>` where a child's watcher and a lakehouse read compare the clock with the deadline | Timing only: they differ only when the clock reads exactly the deadline, and the next check, at most 0.2 s later, stops it either way. Both loops wait on the real clock, so a fake one can't pin them. |
+
+# Mutation testing, batch 180
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 14 sampled 150 of its then 373 mutants.
+- Where a metadata project's tables live: writes and appends that lose a race for the next version, streams and the files a failed one leaves, MERGE, reads from the Delta log, the run metadata tables and their compaction, and files on this PC and in OneLake (`meta/store.py`).
+
+The run was at `main` 9d291bdeb (2026-11-19), with `sidecar/tools/mutate.py` as it is since #2902. It used `--cap 100000 --seed 7 --kinds all`, so all 381 mutants ran (379 point, 2 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. As in batch 178, each pytest session got a new, empty base folder of its own. A mutant whose run times out counts as killed; none timed out.
+
+The store's tests take several minutes together, far over the mutator's 120-second limit for one mutant. So the "before" figures come from four runs, as in batch 95:
+- All 381 mutants ran with the 13 quicker files that call the store directly (the first 13 in the table, about 20 seconds together). 63 survived.
+- The 63 ran again with group A, the other files that call the store and run in under 10 seconds each: test_crash_kills, test_batches, test_meta_compaction, test_landing_manifest, test_maintenance_concurrency, test_dataops_edges, test_delta_profile_matrix, _modern, _readers, test_delta_read_spark_tables, test_meta_service_edges, test_meta_keys_mutation and test_maintenance_entry_points. Group A killed 21: how often meta tables are compacted, the lease-lost note, reading a table with deletion vectors, whether a table exists and its version, which stores remove what a failed stream left, sync conflicts, the compaction lease, OneLake's file list, its downloads and its file client, and the cleanup notes.
+- The 42 left ran with group B, the slow concurrency and DataOps files: test_concurrent_writers, test_dataops and test_large_tables. Group B killed 6: sync conflicts, which writes may move past other writers' commits, and reading CSV dates.
+- The 36 left ran with group C: test_keys, test_delta_step_kills and test_optimize_setup. Group C killed 5: the row count and highest value from the log's statistics, and a table created in a folder that is already there.
+
+Two tests in `test_delta_profile_matrix.py` read `docs/`, so they were left out with `--deselect`. Mutants killed in any of the four runs count as killed "before". The "after" run gave the 31 survivors the first set and the new file. The groups weren't needed there.
+
+Before the "after" run, the new tests were run in a copy of `sidecar/` on their own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `meta/store.py` | test_meta_store_mutation, test_meta_store_edges, test_meta_write_types, test_durable_commits, test_lease_before_commit, test_delta_profile_writes, test_landing_zones, test_bounded_previews, test_conversions_everywhere, test_full_load_memory, test_meta_keys_edges, test_awkward_paths, test_meta_filtered_reads, then groups A, B and C above (+ test_meta_store_uncapped) | 381 of 381 (379 + 2), uncapped | 350 / 31 | **91.9%** | 350/379 → 370/379 | 0/2 → 1/2 | 371 / 10 | **97.4%** | 8 equivalent, 2 not killed |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **meta/store.py**:
+  - Only an append may move up 100 versions past other writers' commits.
+  - Only a store on this PC makes a table's folder before writing it, for a write, a stream and a create. A store elsewhere never makes a local folder.
+  - A first write whose lease is gone raises `LeaseLost`, not a conflict.
+  - An append made again after losing a race is still refused when it would change values. One made again after the table went away raises the conflict.
+  - `merge_insert` returns the new version, and refuses a version that another writer has moved on from.
+  - History gives the last 20 commits by default. `has_commit` looks only at commits after `since`.
+  - CSV files infer types from their first 10,000 rows.
+  - A first write that failed has its files removed. Data files are the files outside the log, and removing one already gone is no error.
+  - A meta table is compacted at every 100th commit and never at version 0, without waiting for the compaction lease. The compaction syncs its commit from the next version. The compaction lease lasts 120 seconds.
+  - Some of the new tests also pin what groups A to C kill (the row count from the log, sync conflicts, OneLake's files), so the store's quick set now catches those too.
+  - → `test_meta_store_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `meta/store.py` | 137 | `options is None and "://" not in uri` to `or` | Equivalent: a store on this PC has no storage options and a local path, and a OneLake store has both, so `and` and `or` agree for every store. |
+| `meta/store.py` | 272 | the row count's `get_add_actions(flatten=True)` to `False` | Equivalent: in deltalake 1.x, `num_records` is a top-level column either way. |
+| `meta/store.py` | 343 (2) | the cast before an append made again: negated, and `!=` to `==` | Equivalent: the rows were already made Fabric-safe before the first try. `delta_safe` gives a writable schema back as it is, so the retry's safe schema always equals the rows' schema. |
+| `meta/store.py` | 402 | `_delta_safe`'s `loaded` default `False` to `True` | Equivalent: the only call that leaves `loaded` out is `write_stream`'s, with `append=False`, and then the table is never loaded. |
+| `meta/store.py` | 645 | `t.version() <= since` to `<` | Equivalent: when `since` is the latest version, the mutant asks for `history(0)`, which gives no commits, so the answer is `False` either way. |
+| `meta/store.py` | 726 | `version.group(1)` to `group(0)` | Equivalent: the pattern is one group of 20 digits matched at the start, so the whole match and the group are the same text. |
+| `meta/store.py` | 792 | `version <= 0` to `<= 1` before a meta compaction | Equivalent: version 1 isn't a multiple of 100, so it is skipped either way. |
+| `meta/store.py` | 692, 701 | `sort(..., maintain_order=True)` to `False` for meta tables | Not killed: Polars 1.x sorted 3,000 rows with one shared time in their order either way, so no test here could tell the two apart. |
+
+# Mutation testing, batch 186
+
+One module, run uncapped: every one of its mutants, not a sample of 150.
+- The Snowflake SQL translator that runs Snowflake cells on this PC (`snowflake_sql.py`).
+
+Batch 11 sampled 150 of this module's mutants then, 732 in all (88.0% before, 96.0% after). The module has grown since, with statements (MERGE, IDENTITY columns, table keys, transactions, ALTER SESSION), FLATTEN, the event and interpolation functions, JSON types and more, to 1250 mutants. This run made all of them: `--cap 100000 --seed 7 --kinds all`, so 1250 of 1250, the boundary mutants (`<` to `<=`, `>` to `>=`) counted with the earlier kinds.
+
+The run was at `main` 75bf5b397 (2026-11-19). `main` has not changed the module since (up to 9dbe9175d). It used `sidecar/tools/mutate.py` as it is since #2902. Test files were given as paths relative to `sidecar/`, and each was checked to exist before the run. The tests first passed once on the unmutated copy (1104 passed). Each pytest run had a temporary folder of its own, a fresh one per run through a local plugin, and none was left too deep to remove, so another run's leftover files could not fail a mutant. The longest streak of kills was 55 of the 1250, and 28 of the last 100 mutants survived, so no run late in the batch failed for another reason. Three "killed" mutants picked at random (792, 959 and 1051) were run again by hand, each failed a real assertion, and the whole set also passed against the module as `ast.unparse` writes it.
+
+A first run of this batch was lost when the container restarted, at about mutant 590. It was not used: the run here started again from the first mutant.
+
+Batch 11 ran test_local_sql_mutation, test_snowflake_coverage, test_snowflake_sql, _edges, _parity, _variadic and test_sql_lambdas. The run here adds test_snowflake_sql_mutation (batch 11's own), test_snowflake_sql_parity_mutation, test_snowflake_coverage_mutation, test_snowflake_coverage_edges and test_snowflake_documented_edges; the score counts only the files given. Four tests read `docs/` or the module's source text, so they were left out with `--deselect`: `test_snowflake_sql.py::test_the_docs_table_is_the_codes` and `::test_every_rule_the_code_uses_is_in_the_docs_table` (as in batch 11), `test_snowflake_coverage_mutation.py::test_the_page_is_the_repositorys_docs_snowflake_functions_md` and `test_snowflake_sql_parity.py::test_the_docs_carry_the_table_and_say_no_account_was_used`. Others that test the module, test_snowflake_sql_statements and test_snowflake_coverage, were left out for time.
+
+Before the "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used.
+
+A mutant whose run times out counts as killed. One timed out in the "before" run: `_strftime`'s step through a format model (line 580) changed so it never moves on. None timed out in the "after" run.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed + timeout / survived | Before | Point before → after | Boundary before → after | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `snowflake_sql.py` | test_snowflake_sql_mutation, test_snowflake_sql_parity_mutation, test_snowflake_coverage_mutation, test_snowflake_sql, test_snowflake_sql_edges, test_snowflake_sql_variadic, test_snowflake_coverage_edges, test_snowflake_documented_edges, test_sql_lambdas, test_local_sql_mutation, test_snowflake_sql_parity (+ test_snowflake_sql_uncapped) | 1250 of 1250 (1225 + 25), uncapped | 1069 / 181 | **85.5%** | 1058/1225 → 1164/1225 | 11/25 → 23/25 | 1187 / 63 | **95.0%** | 49 equivalent, 9 not reached, 5 not killed |
+
+The "after" figures are from two runs of the survivors with the new file first: the 181 left by the "before" run (115 killed), then the 66 left by that run with three more tests (3 killed). 49 of the 63 left are equivalent and 9 are code no query here reaches. Without those 58, the score would be 1187 of 1192.
+
+### Bugs found
+
+- `TO_TIMESTAMP_NTZ` of a number from the data stops here with DuckDB's "Scalar Function with name to_timestamp_ntz does not exist". Snowflake reads the number as seconds since 1970, as it does here for a number written in the query. The rewrite to `TO_TIMESTAMP(...) AT TIME ZONE 'UTC'` is made only for a number written in the query (`_written_number`, line 1260), so a column, or a written number plus a column, was left as it is. #3133 has since fixed it on `main`, so the two tests that pinned it are now plain tests.
+
+Seen while writing the tests, not pinned:
+- `TO_TIMESTAMP` of a text column stops with a DuckDB error, where Snowflake reads the text.
+- `LPAD` of a binary with a binary pad stops with DuckDB's Binder error (`lpad(BLOB, INTEGER, BLOB)`); Snowflake pads binary.
+- `TIME_SLICE(d, n, 'DAY')` with `n` from the data is written by sqlglot as `TIME_BUCKET(INTERVAL (n) DAY, d)`, without Snowflake's 1970 origin: 2024-01-05 for `n = 2`, where a length written in the query gives 2024-01-04.
+- `SET (a, b) = (1, 2)`, which Snowflake takes, stops with DuckDB's Parser error.
+- `SELECT $1 FROM VALUES (1), (2)` stops with DuckDB's prepared-parameter error, where Snowflake gives the first column.
+- `TO_CHAR(d, 'MM')` of a timestamp column whose type the translator can't see is refused as a number format (SFX-003).
+- `CEIL` and `FLOOR` to 7 or more places give a DOUBLE (the FLOAT rewrite, as the code says), where Snowflake keeps the NUMBER: `ceil(123456789012345678901234567890.12345, 7)` is 1.2345678901234568e+29 here.
+
+### What the survivors were, and the tests that now kill them
+
+- **snowflake_sql.py**:
+  - AS_DECIMAL with a precision and a scale, a precision only (scale 0), precision 1 and a scale equal to the precision; precision 0 and DATASKETCHES_HLL with three arguments are refused; HLL of a one-argument call counts the call's values.
+  - TYPEOF of a path into JSON written in the query: an array, an object, a decimal; numbers past 38 digits in all, past 37 places, at exactly 38 digits and 37 places; an element just past the end, far past it, and a subscript into an object.
+  - The event functions: a LAG over another window inside CONDITIONAL_TRUE_EVENT keeps its own order; an event function outside a SELECT is refused with its page.
+  - IDENTITY and AUTOINCREMENT: start and step, a start that isn't a whole number or is past BIGINT at either end, a step of 0; table keys aren't enforced, a key column is NOT NULL (once), and a key naming no column is dropped.
+  - REGEXP_SUBSTR with `e` (a written pattern, one from the data, one Python can't read) and with `m` and a pattern from the data.
+  - TO_TIMESTAMP_NTZ of a number in brackets or negated; TO_DATE and TRY_TO_DATE of text holding seconds, milliseconds, microseconds or nanoseconds, at each unit's first value, either side of midnight, and past DuckDB's dates; a function this PC doesn't know keeps its digit text.
+  - LPAD and RPAD with an empty pad, no pad or a written one; EDITDISTANCE with a maximum from the data or negative; CEIL and FLOOR at 6 and -18 places stay numbers, and a 32-digit number to 7 places runs.
+  - A division in IFF still stops on a zero divisor, in either branch.
+  - Refusals by rule and name: EXECUTE TASK (named by its first word), OBJECT_AGG with one argument, a mixed array (named after the function written), TO_CHAR with a number as its format, a statement sqlglot can't write (with sqlglot's message), INSERT ALL and INSERT FIRST, dynamic tables, stages, sequences and the others in the parametrised test; DDL after COMMIT or ROLLBACK runs.
+  - SAMPLE's methods; a cast of slashed text to VARCHAR stays text; date arithmetic says a DATE may come back as a TIMESTAMP unless the value is plainly a DATE; TIME_SLICE with a length from the data runs.
+  - MERGE stops on a duplicate source row before a conditional update, and a MERGE from a subquery with no name runs; PIVOT columns of numbers are named without quotes; IDENTIFIER($t) keeps the table's alias; ALTER TABLE dropping one column runs; `t.seq` of another table beside FLATTEN is that table's column; two TO_CHAR calls of a column keep their own formats.
+  - → `test_snowflake_sql_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `snowflake_sql.py` | 1163 | the TO_JSON-wrapping check's `and` to `or`, so no other function call is wrapped | Not killed: no call was found where it matters. ARRAY_COMPACT, ARRAY_SLICE, ARRAY_DISTINCT and ARRAY_CAT over an ARRAY column are typed nodes, not plain calls, and gave the same JSON. |
+| `snowflake_sql.py` | 895 | TO_DATE's digit-text check `and` to `or`, so a number written in the query is read too | Not killed: it changes only `to_date(1700006400)`, a NUMBER, which Snowflake's TO_DATE doesn't read as seconds (only text of digits). This PC stops there with DuckDB's Catalog error, and the mutant gives a date; a test would pin the stop. |
+| `snowflake_sql.py` | 1005 | MERGE's SET column check `and` to `or` | Not killed: it changes only a SET column qualified by a database or another table (`set sch.t.a`, `set s.a`), which DuckDB's parser refuses here ("Qualified column names in UPDATE .. SET not supported"); the mutant drops the qualifier. A test would pin the stop. |
+| `snowflake_sql.py` | 980 | the session-variable check `and` to `or` | Not killed: it changes only a positional `$1`, which stops here with DuckDB's prepared-parameter error; the mutant reads it as a session variable and gives NULL. Snowflake gives the first column; a test would pin the stop. |
+| `snowflake_sql.py` | 1571 | `_window_key`'s PARTITION BY `or` to `and`, so partitions are left out of the key | Not killed: a LAG over another partition inside an event's condition is then ordered by the event's place numbers, which tie across partitions. DuckDB's order among ties gave a different answer in 1 of 3 runs, so no test kills it every time. |
+| `snowflake_sql.py` | 718 | the raise when sql.py's SOUNDEX template changes, removed | Not reached: a guard; the template has the text it looks for. |
+| `snowflake_sql.py` | 1826 (two), 1829 (two) | the fallback when sqlglot's qualify can't read the statement: its `and` to `or`, and its return | Not reached: no statement was found that qualify can't read (`v[0]` with LATERAL FLATTEN, USING, NATURAL JOIN and a repeated alias all qualify). |
+| `snowflake_sql.py` | 686 | the VALUES width's `else 1` to `0` | Not reached: sqlglot reads every VALUES row as a tuple, `values 1, 2` too. |
+| `snowflake_sql.py` | 1950 | a JSON path's other-part answer, `_NOT_KNOWN` to `None` | Not reached: a slice (`:a[0:1]`) stops before it, and `[*]` isn't read as a written path (SFD-007). |
+| `snowflake_sql.py` | 2047 | `_nonzero_number`'s except branch, `False` to `True` | Not reached: every number literal sqlglot reads parses as a float. |
+| `snowflake_sql.py` | 376 | ALTER's kind check (WAREHOUSE, STAGE, TASK, PIPE, STREAM) `or` to `and` | Not reached: sqlglot reads those ALTERs as commands, refused earlier as SFN-099. |
+| `snowflake_sql.py` | 1268, 1162, 1164, 1819, 2080, 219, 2038 | a `return False` to `return None` | Equivalent: each is read only for truth. |
+| `snowflake_sql.py` | 2025, 2032 (two), 2043, 2047 | `_div0_branch`'s answers and `_nonzero_number`'s `False` to `None` | Equivalent, as batch 11 found: the zero check is then added inside the branch DIV0 never takes with a zero divisor, or the answer is read only for truth. |
+| `snowflake_sql.py` | 1559, 1610 | `COALESCE(running, 0)` to `1` for the event functions | Equivalent, as batch 11 found: the running sum up to the current row is never NULL, also with a NULL first value. |
+| `snowflake_sql.py` | 208 | `_scalar_kind`'s `'other'` to `None` | Equivalent: either is a kind other than text and number in the set compared. |
+| `snowflake_sql.py` | 603 | the cast to DATE round DATEADD and DATE_TRUNC of a DATE, negated | Equivalent: this sqlglot writes both of a plain DATE as a DATE itself, so the extra or missing cast changes nothing. |
+| `snowflake_sql.py` | 996, 1046, 1039, 2328, 2331 | the MERGE, CREATE TABLE, emptied-properties and ALTER SESSION checks | Equivalent: another statement goes on and finds nothing to change (no WHEN clauses, no column schema, no ALTER SESSION action); emptied properties are written as nothing; UNSET is refused earlier as SFN-022. |
+| `snowflake_sql.py` | 1153 | the VARIANT[] check's `and` to `or` | Equivalent: more TO_JSON calls are wrapped in a check whose other branch is the same TO_JSON. |
+| `snowflake_sql.py` | 216 | the mixed-array check of a call on an array, `and` to `or` | Equivalent: the array inside the call already gives the same SFN-025. |
+| `snowflake_sql.py` | 859 | EDITDISTANCE's maximum check `and` to `or` | Equivalent: a maximum of `-n` or `-(n)` from the data gives the same distances; the CASE on the maximum is written either way. |
+| `snowflake_sql.py` | 920 | ARRAY_INSERT's written-position check `and` to `or` | Equivalent: a position from the data is refused either way. |
+| `snowflake_sql.py` | 966 | the MERGE source's alias check, negated | Equivalent: a source with an alias gets the same alias again, and one without is read by its own name. |
+| `snowflake_sql.py` | 974 | the PIVOT string-value names, `or []` to `and []` | Equivalent: the same SQL (`'a' AS "'a'"`) either way. |
+| `snowflake_sql.py` | 1206 | `_pattern_groups`' check `and` to `or` | Equivalent: a number and a non-literal give 0 either way, and a string goes on either way. |
+| `snowflake_sql.py` | 1715 | `_with_value`'s column check `and` to `or` | Equivalent: the template's lambda variable is an identifier, not a column, so `__sf_arg` is the only column with no table. |
+| `snowflake_sql.py` | 1943, 1946 | the JSON path's key and subscript checks `and` to `or` | Equivalent: sqlglot's path keys always hold text and its subscripts a whole number (a wildcard holds neither). |
+| `snowflake_sql.py` | 1024, 566 (two), 780 (two), 1729, 1832 | `_whole`'s 19 digits to 20; `_strftime`'s `end < 0` to `< 1` and `<= 0`; `_epoch_date`'s `scale <= 6` to `<= 7` and `< 6`; `[:2]` to `[:3]`; `zip(strict=True)` to `False` | Equivalent: a 20-digit number is past 2**63 and refused just after with the same note; `find` from `i + 1` is never 0; the scale is 0, 3, 6 or 9, and at 6 the other branch divides by 10**0; the list is always two long; the lists were just checked to match. |
+| `snowflake_sql.py` | 817 | REGEXP_SUBSTR's first-occurrence check `and` to `or` | Equivalent: a later occurrence is then wrapped in `CASE WHEN REGEXP_MATCHES ... THEN` it, which adds NULL only where there is no match, where it is NULL already. |
+| `snowflake_sql.py` | 888 | TRY_CAST to DATE's check `and` to `or` | Equivalent: TRY_CAST of text `_auto_date` can't read becomes NULL itself, where DuckDB's TRY_CAST gives NULL too (`2024/05/06`, `May 6, 2024`, `20240506`); the ISO dates DuckDB reads are kept out by the check before it. |
+| `snowflake_sql.py` | 1146, 2442, 2448, 2450 | the ARRAY cast check; IDENTIFIER's alias, SET's assignment and SET's text checks, `and` to `or` | Equivalent: a type's parent other than a cast has no `to`; a column in a select has no alias there; every SET item is an assignment to a name; SET of a number then stops either way in IDENTIFIER. |
+| `snowflake_sql.py` | 1505, 1591 | `exp.paren(..., copy=False)` to `True` | Equivalent: the same SQL for the interpolation functions. |
+| `snowflake_sql.py` | 499 | FLATTEN's path prefix `$` and `$.` swapped | Equivalent: a PATH starting with `[` is refused before, and DuckDB reads `$b` as `$.b`. |
+| `snowflake_sql.py` | 839 | CEIL and FLOOR's lowest scale -18 to -19 | Equivalent: `ceil(5, -19)` and `floor(15, -19)` give the same values and type either way. |
+| `snowflake_sql.py` | 1824 | qualify's `identify=False` to `True` | Equivalent: only the copy read for types is quoted; the types are the same. |
+
+# Mutation testing, batch 187
+
+One module, run uncapped: every one of its mutants, not a sample of 150.
+- The Spark SQL built-ins written as DuckDB SQL (`spark_builtins_sql.py`).
+
+Batch 8 sampled 150 of this module's mutants then, 591 in all (75.3% before, 93.3% after). The module has grown since, with upper, lower, initcap, levenshtein, array_join, shifts and more, to 879 mutants. This run made all of them: `--cap 100000 --seed 7 --kinds all`, so 879 of 879, the boundary mutants (`<` to `<=`, `>` to `>=`) counted with the earlier kinds.
+
+The run was at `main` bdf2c1775 (2026-11-19). `main` has changed the module since (b8152b64f, #3069, at 82f8e2101); the new tests pass there too, on both DuckDB versions, and the two bugs below still fail there. It used `sidecar/tools/mutate.py` as it is since #2902. Test files were given as paths relative to `sidecar/`, and each was checked to exist before the run. The tests first passed once on the unmutated copy. Each pytest run had a temporary folder of its own, a fresh one per run through a local plugin, and none was left too deep to remove, so another run's leftover files could not fail a mutant. A few "killed" mutants of both runs were run again by hand to see a test really fail.
+
+Batch 8 ran test_spark_builtins_sql, its _edges and _mutation files and test_spark_session_functions. A first run with those and test_spark_builtins_sql_cov2 was stopped after 59 mutants: most of what the module gained since batch 8 is tested in other files, so it scored code those files test as untested. The run here adds test_spark_string_edges, test_spark_text_arg_nesting, test_spark_format_string, test_spark_hash_refused, test_spark_complex and test_spark_datetime; the score counts only the files given. Two of them read `docs/`, so `test_spark_complex.py::test_docs_list_what_still_differs` and `test_spark_datetime.py::test_what_still_differs_is_listed_in_the_compatibility_docs` were left out with `--deselect`. Others that test the module, such as test_spark_arrays_strings_values (25 s), test_spark_differential_fixes (30 s) and test_spark_hashing_values (76 s), were left out for time.
+
+Before the "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%. No `-k` filter was used.
+
+A mutant whose run times out counts as killed. Two timed out in the "before" run: a changed comparison in the table of characters whose title case DuckDB gets wrong (`_title_table`, line 563), and one in which arguments `_read_once` binds (line 423); each made the test run too slow to finish. None timed out in the "after" run.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed + timeout / survived | Before | Point before → after | Boundary before → after | After: killed + timeout / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `spark_builtins_sql.py` | test_spark_builtins_sql, test_spark_builtins_sql_mutation, test_spark_builtins_sql_edges, test_spark_builtins_sql_cov2, test_spark_session_functions, test_spark_string_edges, test_spark_text_arg_nesting, test_spark_format_string, test_spark_hash_refused, test_spark_complex, test_spark_datetime (+ test_spark_builtins_sql_uncapped) | 879 of 879 (859 + 20), uncapped | 681 / 198 | **77.5%** | 668/859 → 803/859 | 13/20 → 15/20 | 818 / 61 | **93.1%** | 57 equivalent, 3 not reached, 1 not killed |
+
+The after score is short of 95%: 57 of the 61 left are equivalent, and 3 more are code no query here reaches. Without those 60, the score would be 818 of 819.
+
+### Bugs found
+
+- `sha2('abc', 256.0)`, a bit length written as a decimal, is NULL here. Spark casts the length to an int and gives the SHA-256. `_sha2` reads a number literal's digits itself (line 99) and takes `256.0` for a length it doesn't know. The test is marked `xfail(strict=True)`; it isn't fixed here.
+- `shiftleft` of an int column is a `bigint` here, where Spark's is an `int` (the value is right). `_shift` writes a CASE over the value's type when the value isn't an int literal (line 1241), and its int and long branches make the result a BIGINT. The int literal `-2147483648` gave a `bigint` too, since it reaches `_shift` already rewritten. #3150 has since fixed it on `main`, so `test_shiftleft_of_an_int_column_is_an_int` is now a plain test.
+
+Seen while writing the tests, not pinned: `instr(12345, 34)` stops with DuckDB's Binder error, where Spark casts both arguments to text and gives 3; only the first is cast here.
+
+### What the survivors were, and the tests that now kill them
+
+- **spark_builtins_sql.py**:
+  - base64 breaks a line after 76 characters; sha2 with 0, 224, 256, 384, 512, another length, or a length from the data.
+  - monotonically_increasing_id numbers a select's rows from 0 and is refused in ORDER BY.
+  - Text passes through: a column cast to text is written out without a lambda, a Spark cast to string and upper's result aren't cast again, a call that isn't a column is read once, and levenshtein writes two columns out without binding them.
+  - `java_value_text` and `spark_text_arg_sql` write a value as Spark does (an array as DuckDB's text there, `1.0E20`); a DataFrame expression is read with ANSI off.
+  - initcap of a rewritten argument and of `ǆ`; upper's `ß`, lower's final sigma and `İ`; levenshtein's threshold.
+  - array_insert pads up to 10,000,000 NULLs and refuses one more; array_join skips or replaces NULLs, writes a double as Java does and refuses a nested array; locate of empty text, also from the data; concat_ws with only a separator; contains with a bare NULL.
+  - split refuses a pattern that matches empty text and leaves one Python can't read to the engine; substring_index with an overlapping delimiter, written out or from the data.
+  - Shifts: an int literal stays an int, `-2147483649` and `2147483648` take the long path, a double is cut to an int, an int shifts by the count & 31.
+  - octet_length of a number, text and binary; typeof names a struct and a map in `spark.sql`.
+  - to_date with a format (Spark's year without one, two-digit years), Databricks SQL's to_date and to_timestamp_ntz stopping on text that isn't one, to_timestamp_ntz of a column with a format, EXTRACT from text and from an interval.
+  - format_string refuses a stray `%` and an array for `%s`; json_tuple refuses a bare NULL; raise_error of a NULL says `null`; url_encode and url_decode; unbase64, unhex, isnan of NULL, sqrt of a negative number.
+  - make_timestamp with a zone, a zone from the data and an offset; LATERAL VIEW explode keeps an array or struct element whole; a column named `window` stays the column when the query doesn't group by window(); a lambda's tuple names its fields after the columns, then col1, col2; from_csv of a column; btrim with and without characters; elt with one value; any() in a select list and in AND.
+  - → `test_spark_builtins_sql_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `spark_builtins_sql.py` | 1363 | `written_pattern`'s `and` to `or`, so a number reads as a pattern | Not killed: it changes only a number written as date_format's pattern, `date_format(d, 1)`. This PC stops there with DuckDB's Binder error, and the mutant reads `'1'` as the pattern and gives Spark's answer, `'1'`; a test would pin the stop. |
+| `spark_builtins_sql.py` | 1779 | the refusal of a hash that lost its mark, removed | Not reached: no query found loses the mark (hash inside format_string, upper, initcap, levenshtein, array_join, to_csv, concat_ws and `\|\|` all kept it). The refusal is a safety net (as batch 8 found). |
+| `spark_builtins_sql.py` | 1441 | the StrToTime fallback's `safe=True` to `False` | Not reached: to_date with a text format always has its written pattern here, in Spark SQL, in a DataFrame expression and in Databricks SQL. |
+| `spark_builtins_sql.py` | 961 | `strptime.set("safe", True)` to `False` | Not reached: that branch runs only for to_timestamp_ntz, which is built with `safe` False. |
+| `spark_builtins_sql.py` | 404, 646 | `_is_text`'s and `_empty_match`'s `return False` to `return None` | Equivalent: each is read only by an `if`. |
+| `spark_builtins_sql.py` | 397, 403 (two) | `_is_text`'s typed and Cast branches | Equivalent: a cast to text reaches `_is_text` already marked by `spark_text_cast`, so the Cast branch isn't reached, and only a marked node has a type there. The SQL was the same for CAST, TRY_CAST, `VARCHAR(5)`, `string()` and a cast in brackets. |
+| `spark_builtins_sql.py` | 1442 | to_date's written-pattern rewrite, `return` to `return None` | Equivalent: the call left as it is is written the same SQL by the Spark datetime rewrite after it (checked for `'MM-dd'` and `'yy-MM-dd'`). |
+| `spark_builtins_sql.py` | 357 | `spark_text_arg`'s default `bind=False` to `True` | Equivalent: every caller passes `bind`. |
+| `spark_builtins_sql.py` | 1557 | `if keyed` negated in parse_url | Equivalent: both branches make the same replacement. |
+| `spark_builtins_sql.py` | 622 | locate's `or` to `and`, so every locate and instr is rewritten | Equivalent: the rewrite only adds the case of empty text from a start of 1 or more, which is right wherever it applies; without a start it compares NULL, so the call itself is used. |
+| `spark_builtins_sql.py` | 968, 977 (two), 1135, 1137 | make_timestamp's zone and arity checks; to_timestamp_ltz's and try_to_timestamp's `safe` | Equivalent: a number given as the zone stops with the same unknown-zone error; a 7-argument make_timestamp is written the same SQL either way and another arity stops either way; the `safe` flag is read only for to_timestamp_ntz. |
+| `spark_builtins_sql.py` | 1072, 1073, 1074 | `_spark_literal`'s check and return | Equivalent: hash and xxhash64 arguments are typed before this rewrite, in Spark SQL and in Databricks SQL: the same values for `-2147483648` (723455942, Spark's Murmur3), `2147483648`, `-5`, `-2.5`, `'a'` and `1`. |
+| `spark_builtins_sql.py` | 1619 | `_uncast` negated | Equivalent: as batch 8 found, sqlglot writes a column and its identifier the same, and a recast timestamp is the same timestamp. |
+| `spark_builtins_sql.py` | 1655 | `_any`'s check negated | Equivalent: an aggregate any() is then left to the rewrite that writes it as BOOL_OR (the same values, also inside AND), and `x = ANY (subquery)` returns at the subquery check just after. |
+| `spark_builtins_sql.py` | 132, 158 | the `kf_own_window` mark; some()'s arity | Equivalent: the same SQL with and without the mark, also beside a window with ORDER BY; sqlglot reads some() as its own node, written `BOOL_OR` either way. |
+| `spark_builtins_sql.py` | 460 (two) | initcap's delimiter check | Equivalent: sqlglot always gives Spark's initcap the `' '` delimiter. |
+| `spark_builtins_sql.py` | 665 (two) | the negative split limit times -1 to divided by -1, and to times -0 | Equivalent: the limit is only compared with 0, and is still 0 or less. |
+| `spark_builtins_sql.py` | 910 | from_csv's field check `or` to `and` | Equivalent: the schema parses only to fields with a type; one without (`'a'`) stops with the same DuckDB error. |
+| `spark_builtins_sql.py` | 1063 | the hash template cache's size 32 to 33 | Equivalent. |
+| `spark_builtins_sql.py` | 1104, 930, 790, 1056 (two) | csc's arity; timestamp_seconds through the decimal path; map_zip_with's third argument; window() with no or one argument | Equivalent, as batch 8 found for each kind: sqlglot writes csc itself; times 1 is the same; the template has no `fj_arg2`; window() needs two arguments and is an error otherwise. |
+| `spark_builtins_sql.py` | 1600, 1691 (two), 1796 | EXTRACT of a cast, unix_timestamp's format, trunc's cast | Equivalent: a cast round the cast gives the same field for a number, text and a date (in the session's UTC); the same SQL either way for unix_timestamp with a Spark format; trunc reads a value already cast to DATE as the same date. |
+| `spark_builtins_sql.py` | 863, 1612, 1451 | mask with five replacements, date_part with a number as its field, to_char with a number as its format | Equivalent in effect: each stops either way, with another error. |
+| `spark_builtins_sql.py` | 868, 562 | `zip(..., strict=True)` to `False` | Equivalent: the lists are always the same length. |
+| `spark_builtins_sql.py` | 887, 795 | to_csv's field forms; struct field names quoted | Equivalent: the same SQL and values for named_struct, `struct(1 AS a, ...)` and `struct(x, y)`; field names such as `a b`, `order` and `my x` come out the same unquoted. |
+| `spark_builtins_sql.py` | 1672 | the naming fallback's class list | Equivalent: spark_sql_names names every selected rewritten call first. |
+| `spark_builtins_sql.py` | 423 (two) | `uses(i) > 1` to `> 0` and `>= 1` | Equivalent: an argument the template names once is then bound too, with the same values; only the SQL's form changes. |
+| `spark_builtins_sql.py` | 513 (two), 560, 561 (three) | the character ranges' ends, and the title table's single-character branch | Equivalent: the ends moved by one take in or leave out U+0080, U+20000 or U+E000, none of which has a case; no character has a title case longer than one with an upper case of one. |
+| `spark_builtins_sql.py` | 236 | substring_index's overlap check from `k = 0` | Equivalent: `k = 0` compares `''` with the whole delimiter, never equal unless it is `''`, where both ways give `''`. |
+| `spark_builtins_sql.py` | 753 | format_string's rounding to 19 places, not 18 | Equivalent: ROUND of a `DECIMAL(38, 18)` to 19 places is the same value. |
+| `spark_builtins_sql.py` | 764, 702 | format_string's `<` to `<=` and `>` to `>=` | Equivalent: each only adds `''` to the text. |
+| `spark_builtins_sql.py` | 1240 | `-2 ** 31 <= literal` to `<` | Equivalent: `-2147483648` reaches `_shift` already rewritten, not as an int literal. |

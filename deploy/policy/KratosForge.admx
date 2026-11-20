@@ -185,6 +185,12 @@
       <enabledValue><decimal value="1" /></enabledValue>
       <disabledValue><decimal value="0" /></disabledValue>
     </policy>
+    <policy name="allow_central_environment" class="Machine" displayName="$(string.allow_central_environment)" explainText="$(string.allow_central_environment_Help)" key="Software\Policies\KratosBI\KratosForge" valueName="allow_central_environment">
+      <parentCategory ref="cat_fabric" />
+      <supportedOn ref="SUPPORTED_KratosForge" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
     <policy name="sql_page_rows" class="Machine" displayName="$(string.sql_page_rows)" explainText="$(string.sql_page_rows_Help)" key="Software\Policies\KratosBI\KratosForge" presentation="$(presentation.sql_page_rows)">
       <parentCategory ref="cat_sql" />
       <supportedOn ref="SUPPORTED_KratosForge" />

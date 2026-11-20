@@ -83,6 +83,8 @@ Keys:
                      already set that way say so and can only be turned back to signed-in (default true)
     allow_optimize_lakehouse  IT only: false stops Optimize creating, connecting to or writing to a
                      shared optimization lakehouse (default true)
+    allow_central_environment  IT only: false stops the app creating, adopting, connecting to or
+                     checking a KratosForge Environment (controlplane_service.py) (default true)
     allow_replay_samples  IT only: false removes "A sample of the input data" from replay bundles
                      (replay.py), so a bundle never holds lakehouse data (default true)
     allowed_tenants  IT only: Microsoft Entra tenant ids people may sign in to; any other account is
@@ -177,7 +179,7 @@ DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable
                             "cell_time_limit_minutes": 0, "kernel_memory_limit_gb": 0,
                             "kernel_max_sessions": 5, "kernel_idle_minutes": 0,
                             "allow_optimize_lakehouse": True, "allow_notebook_packages": True, "forge_animations": True,
-                            "allow_staging_cleanup": True}
+                            "allow_staging_cleanup": True, "allow_central_environment": True}
 TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "show_preview": bool, "support_url": str,
                                             "platform": dict, "kernel_process": bool, "auto_update": bool,
                                             "allow_fabric_runs": bool, "allow_replay_samples": bool,
@@ -188,7 +190,8 @@ TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "
                                             "cell_time_limit_minutes": (int, float), "kernel_memory_limit_gb": (int, float),
                                             "kernel_max_sessions": (int, float), "kernel_idle_minutes": (int, float),
                                             "allow_optimize_lakehouse": bool, "allow_notebook_packages": bool,
-                                            "forge_animations": bool, "allow_staging_cleanup": bool}
+                                            "forge_animations": bool, "allow_staging_cleanup": bool,
+                                            "allow_central_environment": bool}
 USER_KEYS: tuple[str, ...] = ("client_id", "channel", "show_preview", "kernel_process", "telemetry",  # support_url is for IT only
              "cell_time_limit_minutes", "kernel_memory_limit_gb", "kernel_max_sessions", "kernel_idle_minutes",
              "forge_animations")
@@ -319,7 +322,8 @@ RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO
                               "platform_presence": False,
                               "allow_replay_samples": False, "allow_optimize_lakehouse": False,
                               "allow_notebook_packages": False, "allow_pypi_packages": False,
-                              "allow_signed_out_schedules": False, "allow_staging_cleanup": False}
+                              "allow_signed_out_schedules": False, "allow_staging_cleanup": False,
+                              "allow_central_environment": False}
 
 
 def policy_path() -> Path:

@@ -83,7 +83,7 @@ def test_the_same_run_read_twice_counts_once_but_two_figures_for_it_are_refused(
 def test_too_few_runs_give_unknown_with_the_reason_never_zero():
     b = base([fr("a", 10, 3), fr("b", 12, 10)])
     assert b["cu"]["classification"] == ms.UNKNOWN and b["cu"]["value"] is None
-    assert "Only 2 usable Fabric runs; at least 3" in b["cu"]["reason"]
+    assert "Only 2 usable Fabric runs, and at least 3" in b["cu"]["reason"]
     assert b["row"]["runs"] == 2
     assert base([fr("a", 10, 3), fr("b", 12, 10)], min_runs=2)["cu"]["value"] == pytest.approx(11.0)
     with pytest.raises(ValueError, match="min_runs"):

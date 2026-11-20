@@ -90,8 +90,8 @@ def cu_of(m: dict[str, Any] | None, what: str) -> tuple[float | None, str]:
         return None, ms.UNKNOWN
     cls = m.get("classification")
     if cls == ms.SCENARIO:
-        raise ValueError(f"The {what} is a Scenario figure, which isn't evidence of what a run used; "
-                         "use measured or estimated CU.")
+        raise ValueError(f"The {what} is a Scenario figure, which isn't evidence of what a run used. "
+                         "Use measured or estimated CU.")
     if cls not in (ms.MEASURED, ms.ESTIMATED):
         raise ValueError(f"The {what} has an unknown classification {cls!r}.")
     unit = m.get("unit")
@@ -132,7 +132,7 @@ def _unique(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if seen is not None:
             if (seen.get("cu") or {}).get("value") != (r.get("cu") or {}).get("value") or \
                     (seen.get("cu") or {}).get("classification") != (r.get("cu") or {}).get("classification"):
-                raise ValueError(f"Run {rid} appears twice with different CU figures; keep one.")
+                raise ValueError(f"Run {rid} appears twice with different CU figures. Keep one.")
             continue
         out[rid] = r
     return list(out.values())
@@ -146,7 +146,7 @@ def _pick(runs: list[dict[str, Any]], min_runs: int, what: str) -> dict[str, Any
     left = [r for r in runs if r not in use]
     if len(use) < min_runs:
         return {"use": use, "left": [], "value": None, "classification": ms.UNKNOWN,
-                "reason": (f"Only {len(use)} usable {what} run{'s' if len(use) != 1 else ''}; at least {min_runs} "
+                "reason": (f"Only {len(use)} usable {what} run{'s' if len(use) != 1 else ''}, and at least {min_runs} "
                            "are needed.")}
     cls = _weakest(*(r["_cls"] for r in use))
     return {"use": use, "left": left, "value": statistics.median(r["_cu"] for r in use), "classification": cls,
@@ -175,7 +175,7 @@ def _figure(picked: dict[str, Any], metric: str, workload_key: str, what: str, m
                         period_start=period[0], period_end=period[1],
                         assumptions=[f"{n_est} of the {len(use)} runs' CU is an estimate, not measured.",
                                      "The median CU per run is used."] + inputs,
-                        uncertainty="Rests on estimated CU; treat it as a rough figure.")
+                        uncertainty="Rests on estimated CU, so treat it as a rough figure.")
     m["id"] = mid
     return m
 
@@ -242,7 +242,7 @@ def baseline(workload_key: str, runs: list[dict[str, Any]], *, definition_versio
     made = _time(at, "at") if at not in (None, "") else end
     usable, excluded = _checked_runs(runs, key, (start, end), "Fabric")
     picked = _pick(usable, min_runs, "Fabric")
-    excluded += [{"run_id": r["run_id"], "reason": "Enough measured runs; estimated ones aren't needed."}
+    excluded += [{"run_id": r["run_id"], "reason": "Enough measured runs, so estimated ones aren't needed."}
                  for r in picked["left"]]
     use = picked["use"]  # with too few, the runs that did count (the figure stays Unknown)
     baseline_id = "bl-" + record_id("baseline", key["workload_key"])[:16]
@@ -259,10 +259,10 @@ def baseline(workload_key: str, runs: list[dict[str, Any]], *, definition_versio
         old = previous.get("row", previous)
         if old.get("workload_key") != key["workload_key"]:
             raise ValueError(f"Baseline {old.get('baseline_version')} is of {old.get('workload_key')}, not "
-                             f"{key['workload_key']}; a baseline only replaces one of the same workload.")
+                             f"{key['workload_key']}. A baseline only replaces one of the same workload.")
         if old.get("superseded_by") not in (None, "", version):
-            raise ValueError(f"Baseline {old['baseline_version']} was already replaced by {old['superseded_by']}; "
-                             "replace the current version instead.")
+            raise ValueError(f"Baseline {old['baseline_version']} was already replaced by {old['superseded_by']}. "
+                             "Replace the current version instead.")
         if old.get("baseline_version") != version:
             if _time(old.get("at"), "The previous baseline's at") > made:
                 raise ValueError("A new baseline version must be made after the one it replaces.")
@@ -310,7 +310,7 @@ def change(before: dict[str, Any] | None, after: dict[str, Any] | None, *, workl
         inputs = sorted({x for m in (before, after) for x in m.get("assumptions") or []})
         m = ms.make(ms.ESTIMATED, metric, UNIT, abs(b - a), method="After median minus before median, per run",
                     assumptions=["The before or after figure is an estimate, not measured."] + inputs,
-                    uncertainty="Rests on estimated CU; it can't verify an optimization.", **ids)
+                    uncertainty="Rests on estimated CU, so it can't verify an optimization.", **ids)
     return m | {"direction": "increase" if a > b else ("reduction" if a < b else "none"),
                 "change_cu_hours": round(a - b, 6)}
 
@@ -352,7 +352,7 @@ def validate(optimization_id: str, before: dict[str, Any], after_runs: list[dict
         if x["reason"] == "It ran outside the window.":
             x["reason"] = "It ran before the change was in place."
     picked = _pick(usable, min_runs, "after")
-    excluded += [{"run_id": r["run_id"], "reason": "Enough measured runs; estimated ones aren't needed."}
+    excluded += [{"run_id": r["run_id"], "reason": "Enough measured runs, so estimated ones aren't needed."}
                  for r in picked["left"]]
     use = picked["use"]  # with too few, the runs that did count (the figure stays Unknown)
     span = (min(r["_at"] for r in usable), max(r["_at"] for r in usable)) if usable else (None, None)

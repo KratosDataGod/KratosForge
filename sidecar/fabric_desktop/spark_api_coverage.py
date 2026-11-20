@@ -6,7 +6,9 @@ DataFrameStatFunctions (the Spark of Fabric runtime 1.3), each with the examples
 PySpark documentation and what each example gave in Apache Spark 3.5: the value of an expression
 (a DataFrame by its columns and rows) and what it printed. ``tools/capture_spark_dataframe_api.py``
 makes that file with a real PySpark and Java; it is run by hand when the Spark version changes, never
-in CI.
+in CI. ``load()`` adds what the capture can't give: an alias's examples (ALIASES) and examples
+written by hand, with Spark's documented answers, for methods whose own examples don't compare
+(WRITTEN).
 
 ``coverage()`` runs each method's examples, in order, as notebook cells on this PC (Kernel.run, the
 path a notebook cell takes) and gives the method a status, as spark_coverage does for SQL functions:
@@ -91,8 +93,95 @@ def outcome(value: Any, printed: str) -> dict[str, Any]:
     return out
 
 
+# Methods PySpark 3.5 documents only as another method's alias, with no examples of their own: each is
+# checked with that method's examples, every call of it renamed, and the answers Spark gave for them.
+ALIASES: dict[tuple[str, str], str] = {
+    ("DataFrame", "drop_duplicates"): "dropDuplicates",
+    ("DataFrame", "groupby"): "groupBy",
+    ("DataFrame", "melt"): "unpivot",
+    ("DataFrame", "unionAll"): "union",
+    ("DataFrame", "where"): "filter",
+    ("Column", "astype"): "cast",
+    ("Column", "name"): "alias",
+    ("GroupedData", "mean"): "avg",
+}
+
+_SCHEMA_TO = 'schema = StructType([StructField("j", StringType()), StructField("i", StringType())])'
+_AGES = 'df = spark.createDataFrame([(2, "Alice"), (5, "Bob")], schema=["age", "name"])'
+_QUANTILE_DATA = 'df = spark.createDataFrame([(1,), (2,), (3,), (4,), (5,)], ["values"])'
+
+# Examples written here for methods whose PySpark 3.5 documentation has none that compare: none at
+# all, only ones marked +SKIP, a plan from explain(), or one missing an import. Each answer is Spark
+# 3.5's own: as its documentation prints it, or one no Spark can give otherwise (a hint doesn't change
+# a join's rows; sameSemantics' captured examples show two plans that differ only in a column's name
+# are the same, so their semanticHash is the same; approxQuantile with relativeError 0 is exact).
+WRITTEN: dict[tuple[str, str], list[dict[str, Any]]] = {
+    ("DataFrame", "approxQuantile"): [
+        {"source": _QUANTILE_DATA, "outcome": {}},
+        {"source": 'df.approxQuantile("values", [0.0, 0.5, 1.0], 0.0)',
+         "outcome": {"value": ["float:1", "float:3", "float:5"]}},
+    ],
+    ("DataFrame", "hint"): [  # the documented example shows only explain()'s plan
+        {"source": "from pyspark.sql import Row", "outcome": {}},
+        {"source": _AGES, "outcome": {}},
+        {"source": 'df2 = spark.createDataFrame([Row(height=80, name="Tom"), Row(height=85, name="Bob")])',
+         "outcome": {}},
+        {"source": 'df.join(df2.hint("broadcast"), "name").select("name", "age", "height")',
+         "outcome": {"value": {"columns": ["name", "age", "height"], "rows": [["Bob", 5, 85]]}}},
+    ],
+    ("DataFrame", "semanticHash"): [  # documented with +SKIP: 1855039936 for both
+        {"source": ('spark.range(10).selectExpr("id as col0").semanticHash() == '
+                    'spark.range(10).selectExpr("id as col1").semanticHash()'),
+         "outcome": {"value": True}},
+    ],
+    ("DataFrame", "to"): [  # the documentation's, with the StructType import it leaves out
+        {"source": "from pyspark.sql.types import StructType, StructField, StringType", "outcome": {}},
+        {"source": 'df = spark.createDataFrame([("a", 1)], ["i", "j"])', "outcome": {}},
+        {"source": "df.schema", "outcome": {"value": {"type": "struct<i:string,j:bigint>"}}},
+        {"source": _SCHEMA_TO, "outcome": {}},
+        {"source": "df2 = df.to(schema)", "outcome": {}},
+        {"source": "df2.schema", "outcome": {"value": {"type": "struct<j:string,i:string>"}}},
+        {"source": "df2.show()", "outcome": {"printed": "+---+---+\n|  j|  i|\n+---+---+\n|  1|  a|\n+---+---+"}},
+    ],
+    ("DataFrame", "toPandas"): [  # documented with +SKIP
+        {"source": _AGES, "outcome": {}},
+        {"source": "print(df.toPandas())", "outcome": {"printed": "   age   name\n0    2  Alice\n1    5    Bob"}},
+    ],
+    ("DataFrame", "to_pandas_on_spark"): [  # pandas_api's example, documented with +SKIP
+        {"source": 'df = spark.createDataFrame(\n    [(14, "Tom"), (23, "Alice"), (16, "Bob")], ["age", "name"])',
+         "outcome": {}},
+        {"source": "print(df.to_pandas_on_spark())",
+         "outcome": {"printed": "   age   name\n0   14    Tom\n1   23  Alice\n2   16    Bob"}},
+    ],
+    ("DataFrameStatFunctions", "approxQuantile"): [
+        {"source": _QUANTILE_DATA, "outcome": {}},
+        {"source": 'df.stat.approxQuantile("values", [0.0, 0.5, 1.0], 0.0)',
+         "outcome": {"value": ["float:1", "float:3", "float:5"]}},
+    ],
+}
+
+
+def _renamed(examples: list[dict[str, Any]], target: str, alias: str) -> list[dict[str, Any]]:
+    """``examples`` with each call of ``target`` made a call of ``alias``."""
+    call = re.compile(rf"\.{re.escape(target)}\(")
+    return [{**e, "source": call.sub(f".{alias}(", e["source"])} for e in examples]
+
+
 def load() -> list[dict[str, Any]]:
-    return list(json.loads(DATA.read_text(encoding="utf-8")))
+    """The captured methods, with ALIASES and WRITTEN filled in."""
+    data: list[dict[str, Any]] = json.loads(DATA.read_text(encoding="utf-8"))
+    by_key = {(m["class"], m["name"]): m for m in data}
+    for key, examples in WRITTEN.items():
+        method = by_key[key]
+        method.pop("varying", None)
+        method.pop("spark_error", None)
+        method["examples"] = [dict(e) for e in examples]
+    for (cls, name), target in ALIASES.items():
+        method, source = by_key[(cls, name)], by_key[(cls, target)]
+        if not method["examples"]:
+            method["examples"] = _renamed(source["examples"], target, name)
+            method.update({k: source[k] for k in ("varying", "spark_error") if k in source})
+    return data
 
 
 def _refusal(exc_text: str) -> bool:

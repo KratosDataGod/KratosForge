@@ -20,11 +20,11 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 142 |
+| Runs | 156 |
 | Differs | 7 |
-| Refused | 14 |
+| Refused | 15 |
 | Fails | 0 |
-| Not checked | 24 |
+| Not checked | 9 |
 | **All** | **187** |
 
 ## DataFrame
@@ -33,7 +33,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | --- | --- | --- |
 | `agg` | Runs |  |
 | `alias` | Runs |  |
-| `approxQuantile` | Not checked |  |
+| `approxQuantile` | Runs |  |
 | `cache` | Runs |  |
 | `checkpoint` | Runs |  |
 | `coalesce` | Refused | `df.coalesce(1).rdd.getNumPartitions()`: NotImplementedError: RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), or foreach, foreachPartition and mapInPandas, which run here. |
@@ -55,7 +55,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `drop` | Runs |  |
 | `dropDuplicates` | Runs |  |
 | `dropDuplicatesWithinWatermark` | Not checked |  |
-| `drop_duplicates` | Not checked |  |
+| `drop_duplicates` | Runs |  |
 | `dropna` | Runs |  |
 | `dtypes` | Runs |  |
 | `exceptAll` | Runs |  |
@@ -67,9 +67,9 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `foreachPartition` | Differs | `df.foreachPartition(func)`: {"printed": "Tom\nAlice\nBob"} here, {} in Spark |
 | `freqItems` | Runs |  |
 | `groupBy` | Runs |  |
-| `groupby` | Not checked |  |
+| `groupby` | Runs |  |
 | `head` | Runs |  |
-| `hint` | Not checked |  |
+| `hint` | Runs |  |
 | `inputFiles` | Runs |  |
 | `intersect` | Runs |  |
 | `intersectAll` | Runs |  |
@@ -81,7 +81,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `localCheckpoint` | Runs |  |
 | `mapInArrow` | Runs |  |
 | `mapInPandas` | Runs |  |
-| `melt` | Not checked |  |
+| `melt` | Runs |  |
 | `na` | Runs |  |
 | `observe` | Refused | `spark.streams.addListener(MyErrorListener())`: NotImplementedError: spark.streams.addListener runs in Fabric: stream listeners and the query manager aren't on this PC. A stream started here is managed by the |
 | `offset` | Runs |  |
@@ -102,7 +102,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `schema` | Runs |  |
 | `select` | Runs |  |
 | `selectExpr` | Runs |  |
-| `semanticHash` | Not checked |  |
+| `semanticHash` | Runs |  |
 | `show` | Runs |  |
 | `sort` | Runs |  |
 | `sortWithinPartitions` | Runs |  |
@@ -114,20 +114,20 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `summary` | Runs |  |
 | `tail` | Runs |  |
 | `take` | Runs |  |
-| `to` | Not checked |  |
+| `to` | Runs |  |
 | `toDF` | Runs |  |
 | `toJSON` | Runs |  |
 | `toLocalIterator` | Runs |  |
-| `toPandas` | Not checked |  |
+| `toPandas` | Runs |  |
 | `to_koalas` | Not checked |  |
-| `to_pandas_on_spark` | Not checked |  |
+| `to_pandas_on_spark` | Refused | `print(df.to_pandas_on_spark())`: NotImplementedError: pandas-on-Spark (pandas_api) runs in Fabric. On this PC use toPandas() for a pandas DataFrame. |
 | `transform` | Runs |  |
 | `union` | Runs |  |
-| `unionAll` | Not checked |  |
+| `unionAll` | Runs |  |
 | `unionByName` | Runs |  |
 | `unpersist` | Runs |  |
 | `unpivot` | Runs |  |
-| `where` | Not checked |  |
+| `where` | Runs |  |
 | `withColumn` | Runs |  |
 | `withColumnRenamed` | Runs |  |
 | `withColumns` | Runs |  |
@@ -146,7 +146,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `asc` | Runs |  |
 | `asc_nulls_first` | Runs |  |
 | `asc_nulls_last` | Runs |  |
-| `astype` | Not checked |  |
+| `astype` | Runs |  |
 | `between` | Runs |  |
 | `bitwiseAND` | Runs |  |
 | `bitwiseOR` | Runs |  |
@@ -166,7 +166,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `isNull` | Runs |  |
 | `isin` | Runs |  |
 | `like` | Runs |  |
-| `name` | Not checked |  |
+| `name` | Runs |  |
 | `otherwise` | Runs |  |
 | `over` | Runs |  |
 | `rlike` | Runs |  |
@@ -187,7 +187,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `cogroup` | Not checked |  |
 | `count` | Runs |  |
 | `max` | Runs |  |
-| `mean` | Not checked |  |
+| `mean` | Runs |  |
 | `min` | Runs |  |
 | `pivot` | Runs |  |
 | `sum` | Runs |  |
@@ -242,7 +242,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `approxQuantile` | Not checked |  |
+| `approxQuantile` | Runs |  |
 | `corr` | Runs |  |
 | `cov` | Runs |  |
 | `crosstab` | Runs |  |

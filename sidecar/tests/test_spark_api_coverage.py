@@ -101,3 +101,27 @@ def test_the_readme_counts_match_spark_api_coverage():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert (f"Of PySpark's {sum(frame.values())} DataFrame methods, {listed}. "
             f"{session.get('works', 0)} of SparkSession's {sum(session.values())} work.") in readme
+
+
+def test_an_alias_is_checked_with_its_method_s_examples_each_call_renamed():
+    data = {(m["class"], m["name"]): m for m in spark_api_coverage.load()}
+    for (cls, name), target in spark_api_coverage.ALIASES.items():
+        examples, source = data[(cls, name)]["examples"], data[(cls, target)]["examples"]
+        assert [e.get("outcome") for e in examples] == [e.get("outcome") for e in source]
+        assert any(f".{name}(" in e["source"] and f".{target}(" not in e["source"] for e in examples), name
+
+
+def test_a_written_example_replaces_one_spark_could_not_compare():
+    data = {(m["class"], m["name"]): m for m in spark_api_coverage.load()}
+    for key, examples in spark_api_coverage.WRITTEN.items():
+        method = data[key]
+        assert method["examples"] == examples and "varying" not in method and "spark_error" not in method
+        assert any(f"{key[1]}(" in e["source"] for e in examples), key
+
+
+def test_pandas_on_spark_is_refused_by_name():
+    from fabric_desktop.notebook import Kernel
+    result = Kernel().run("spark.range(1).to_pandas_on_spark()")
+    assert result["status"] != "ok"
+    error = next(o for o in result["outputs"] if o.get("type") == "error")
+    assert error["ename"] == "NotImplementedError" and "toPandas()" in error["evalue"]

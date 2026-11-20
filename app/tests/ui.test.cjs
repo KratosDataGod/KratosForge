@@ -6155,7 +6155,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
       "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests",
       "Promises to readers"],
     trustBadges: ["Endorsement"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
-    lineage: ["Column lineage", "Impact of a column change"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
+    lineage: ["Column lineage", "Impact of a column change", "Export lineage as OpenLineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
     updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
     learn: ["Learn", "Writing a Learn lesson", "Decision patterns"], academy: ["Academy"],
@@ -6625,6 +6625,7 @@ const FABRIC_WRITES = {
 };
 // Listed as "Fabric or OneLake" because they call Fabric, but they change nothing there.
 const FABRIC_READS = {
+  meta_openlineage_export: "reads the run log; writes a new file in Downloads, nothing in Fabric",
   list_capacities: "reads", list_files: "reads", list_items: "reads", list_lakehouses: "reads", list_tables: "reads",
   list_workspaces: "reads", readiness_check: "reads only, never opens a sign-in window", sign_in: "gets a token",
   wh_monitoring_view: "reads the monitoring database", appstudio_plan: "asks the person's model; nothing goes to Fabric",

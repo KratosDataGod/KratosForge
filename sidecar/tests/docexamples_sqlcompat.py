@@ -28,6 +28,19 @@ def _column_type(select: str, table: str, column: str = "v") -> dict:
 
 
 CLAIMS: list[Claim] = [
+    # Double rounding and text-to-number comparison (#3086), math at its edges (WR-116, #3120)
+    Claim("sql-compatibility.md", "round(0.285D, 2)", "notebook"),
+    Claim("sql-compatibility.md", "round(1.005D, 2)", "notebook"),
+    Claim("sql-compatibility.md", "'1.5' = 1", "notebook"),
+    Claim("sql-compatibility.md", "'1.55' = 1.6", "notebook"),
+    Claim("sql-compatibility.md", "'1.0' IN (1, 2)", "notebook"),
+    Claim("sql-compatibility.md", "CAST('.5' AS INT)", "notebook"),
+    Claim("sql-compatibility.md", "factorial(3.7)", "notebook"),
+    Claim("sql-compatibility.md", "cot(0)", "notebook", want="inf", note="Python's float('inf') renders as inf"),
+    Claim("sql-compatibility.md", "atan2(0.0D, -0.0D)", "notebook"),
+    Claim("sql-compatibility.md", "-2147483648", "notebook", typeof=True),
+    Claim("sql-compatibility.md", "try_subtract(-2147483648, 1)", "notebook"),
+    Claim("sql-compatibility.md", "typeof(raise_error(...))", "notebook", query="SELECT typeof(raise_error('x'))"),
     # Whole-number arithmetic wraps as Spark's does with ANSI off (WR-116, #3031)
     Claim("sql-compatibility.md", "2147483647 + 1", "notebook"),
     Claim("sql-compatibility.md", "CAST(100 AS TINYINT) + CAST(100 AS TINYINT)", "notebook"),

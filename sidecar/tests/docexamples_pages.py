@@ -36,6 +36,7 @@ ILLUSTRATIVE: dict[tuple[str, str], str] = {
     ("local-data.md", "SELECT * FROM sales TIMESTAMP AS OF '2026-10-01 14:00'"): "needs a version committed by that time",
     ("local-data.md", "SELECT * FROM sales AT (TIMESTAMP => '2026-10-01 14:00')"): "needs a version committed by that time",
     ("notebooks.md", "SELECT * FROM dbo.sales VERSION AS OF 3"): "reads the attached Fabric lakehouse's table",
+    ("notebooks.md", "SELECT * FROM table_changes('dbo.orders', 1, 3)"): "reads the change feed of the attached lakehouse's table",
     ("notebooks.md", "SELECT * FROM sales"): "the SQL page against a Fabric lakehouse's sales table",
 }
 

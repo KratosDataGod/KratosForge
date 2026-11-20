@@ -234,7 +234,9 @@ only, no rows, repeated values, zeros (a zero divisor, empty text, DAX's zero da
 (decimal fractions, integers past 2^53). The datasets are generated from the tables and columns the
 measures name, typed as each side types them, so a type change between sides is part of the run.
 They are never customer data, and nothing touches disk. The query is built from L2's canonical
-form with quoted names, never from the expression's own text.
+form with quoted names, never from the expression's own text. A referenced measure is computed
+once per dataset and read by each reference. Each measure is capped at 64 aggregates and each side at 2,000.
+A measure past either cap is not run, and the row gives the reason.
 
 | Sides | Result |
 | --- | --- |

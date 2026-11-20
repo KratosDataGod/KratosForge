@@ -54,6 +54,11 @@ LEVEL_L3 = "L3"
 DEFAULT_TOLERANCES_L3: dict[str, float] = {"absolute": 0.0, "relative": 1e-9}
 MAX_MEASURE_DEPTH = 8  # measure references followed on one side before L3 gives up (a cycle, or a long chain)
 MAX_MEASURES_RUN = 200  # measures run per side; the rest are noted, never reported as passing
+# A referenced measure is computed once per dataset and read by every reference, so a chain of measures that each
+# use the one before twice stays linear. Aggregates and row counts per measure and per side are capped as well, so one
+# crafted model can't make L3 run for minutes: past a cap a measure is not run, with the reason.
+MAX_TERMS_PER_MEASURE = 64
+MAX_TERMS_PER_SIDE = 2000
 NOT_CHECKED_L3 = (
     {"what": "the DAX side", "level": "L3", "story": "OSSIE-006d",
      "reason": "no DAX engine runs on this PC; DuckDB runs SQL only, so a DAX side is recorded as not run"},
@@ -133,7 +138,8 @@ def _tolerances(value: Any) -> dict[str, Any]:
 
 
 class _Run:
-    """One side's SQL build: its measures by casefolded name, its column types, the columns its queries read."""
+    """One side's SQL build: its measures by casefolded name, its column types, the columns its queries read, and the
+    referenced measures, each computed once per dataset into a one-row table (``order``) that its references read."""
 
     def __init__(self, side: Any) -> None:
         self.side = side
@@ -143,6 +149,26 @@ class _Run:
         self.types: dict[tuple[str, str], Any] = side.column_types or {}
         self.columns: dict[tuple[str, str], tuple[str, str]] = {}  # (table, column) -> (class, DuckDB type)
         self.tables: set[str] = set()
+        self.parsed: dict[str, dict[str, Any]] = {}
+        self.made: dict[str, str] = {}  # referenced measure -> the one-row table that holds its value
+        self.order: list[tuple[str, str]] = []  # (that table, its query), each after the measures it reads
+        self.schema = _q(f"{side.which}_measures")
+        self.terms = 0  # aggregates and row counts in every query kept so far on this side
+        self.building = 0  # in the query being built
+
+    def build(self, f: tuple[Any, ...]) -> str:
+        """One measure's query, within the term caps; a measure past them isn't run."""
+        self.building = 0
+        sql = self.form(f)
+        self.terms += self.building
+        return sql
+
+    def count(self) -> None:
+        self.building += 1
+        if self.building > MAX_TERMS_PER_MEASURE:
+            raise _NotRun(f"more than {MAX_TERMS_PER_MEASURE} aggregates in one measure")
+        if self.terms + self.building > MAX_TERMS_PER_SIDE:
+            raise _NotRun(f"the {self.side.which} side's measures reach {MAX_TERMS_PER_SIDE} aggregates in all")
 
     def column(self, table: str, column: str) -> str:
         found = self.types.get((table, column))
@@ -155,33 +181,50 @@ class _Run:
         self.tables.add(table)
         return f"{_q(self.side.which)}.{_q(table)}"
 
-    def term(self, t: tuple[Any, ...], depth: int, seen: tuple[str, ...]) -> str:
+    def measure(self, name: str, seen: tuple[str, ...]) -> str:
+        """A reference to measure ``name``: its value, computed once however often it is referenced."""
+        if name in self.made:
+            return f"(SELECT v FROM {self.made[name]})"
+        if name in seen or len(seen) >= MAX_MEASURE_DEPTH:
+            raise _NotRun(f"measure [{mo._short(name)}] refers back to itself or past {MAX_MEASURE_DEPTH} levels")
+        entry = self.measures.get(name)
+        if entry is None:
+            raise _NotRun(f"measure [{mo._short(name)}] isn't on the {self.side.which} side")
+        if name not in self.parsed:
+            self.parsed[name] = sp._side_form(self.side, entry, self.names)
+        parsed = self.parsed[name]
+        if parsed["form"] is None or parsed["dialect"] == "DAX":
+            raise _NotRun(f"measure [{mo._short(name)}] has no SQL form in the subset"
+                          + (f": {parsed['reason']}" if parsed["reason"] else ""))
+        outer, self.building = self.building, 0
+        try:
+            sql = self.form(parsed["form"], (*seen, name))
+            self.terms += self.building
+        finally:
+            self.building = outer
+        table = f"{self.schema}.{_q(f'm{len(self.order)}')}"
+        self.order.append((table, sql))
+        self.made[name] = table
+        return f"(SELECT v FROM {table})"
+
+    def term(self, t: tuple[Any, ...], seen: tuple[str, ...]) -> str:
+        if t[0] == "measure":
+            return self.measure(t[1], seen)
+        self.count()
         if t[0] == "agg":
             if t[1] not in _SQL_AGG:
                 raise _NotRun(f"{t[1]} has no SQL form")
             where = self.column(t[2], t[3])
             return f"(SELECT {_SQL_AGG[t[1]].format(_q(t[3]))} FROM {where})"
-        if t[0] == "rows":
-            if not any(table == t[1] for table, _ in self.types):
-                raise _NotRun(f"the {self.side.which} side has no columns for table {mo._short(t[1])}")
-            self.tables.add(t[1])
-            return f"(SELECT COUNT(*) FROM {_q(self.side.which)}.{_q(t[1])})"
-        name = t[1]
-        if name in seen or depth >= MAX_MEASURE_DEPTH:
-            raise _NotRun(f"measure [{mo._short(name)}] refers back to itself or past {MAX_MEASURE_DEPTH} levels")
-        entry = self.measures.get(name)
-        if entry is None:
-            raise _NotRun(f"measure [{mo._short(name)}] isn't on the {self.side.which} side")
-        parsed = sp._side_form(self.side, entry, self.names)
-        if parsed["form"] is None or parsed["dialect"] == "DAX":
-            raise _NotRun(f"measure [{mo._short(name)}] has no SQL form in the subset"
-                          + (f": {parsed['reason']}" if parsed["reason"] else ""))
-        return f"({self.form(parsed['form'], depth + 1, (*seen, name))})"
+        if not any(table == t[1] for table, _ in self.types):
+            raise _NotRun(f"the {self.side.which} side has no columns for table {mo._short(t[1])}")
+        self.tables.add(t[1])
+        return f"(SELECT COUNT(*) FROM {_q(self.side.which)}.{_q(t[1])})"
 
-    def form(self, f: tuple[Any, ...], depth: int = 0, seen: tuple[str, ...] = ()) -> str:
+    def form(self, f: tuple[Any, ...], seen: tuple[str, ...] = ()) -> str:
         if f[0] != "div":
-            return self.term(f, depth, seen)
-        numerator, divisor = self.term(f[1], depth, seen), self.term(f[2], depth, seen)
+            return self.term(f, seen)
+        numerator, divisor = self.term(f[1], seen), self.term(f[2], seen)
         if f[3] == "BLANK":
             return f"{numerator} / NULLIF({divisor}, 0)"
         if f[3] == "SQL /":
@@ -265,7 +308,23 @@ def _run_side(which: str, run: _Run, queries: dict[str, str]) -> dict[str, dict[
         con = _connect()
         try:
             _load(con, which, run, scenario)
+            failed: dict[str, str] = {}  # a referenced measure's table -> its error, which its readers take
+            if run.order:
+                con.execute(f"CREATE SCHEMA {run.schema}")
+            for table, sql in run.order:
+                read = next((failed[t] for t in failed if t in sql), None)
+                if read is not None:
+                    failed[table] = read
+                    continue
+                try:
+                    con.execute(f"CREATE TABLE {table} AS SELECT {sql} AS v")
+                except duckdb.Error as exc:  # narrow: the engine's refusal on this data is that measure's value
+                    failed[table] = f"error: {type(exc).__name__}"
             for key, sql in queries.items():
+                read = next((failed[t] for t in failed if t in sql), None)
+                if read is not None:
+                    out[key][name] = read
+                    continue
                 try:
                     rows = con.execute(f"SELECT {sql}").fetchall()
                     out[key][name] = _value(rows[0][0])
@@ -329,7 +388,7 @@ def parity_l3(left: Any, right: Any, *, tolerances: dict[str, Any] | None = None
                 b["reason"] = f"not run: past {MAX_MEASURES_RUN} measures on one side"
             else:
                 try:
-                    b["sql"] = "SELECT " + runs[side.which].form(parsed["form"])
+                    b["sql"] = "SELECT " + runs[side.which].build(parsed["form"])
                     queries[side.which][o["id"]] = b["sql"][len("SELECT "):]
                 except _NotRun as exc:  # narrow: a form L3 can't build; the reason is the result
                     b["reason"] = f"not run: {exc}"

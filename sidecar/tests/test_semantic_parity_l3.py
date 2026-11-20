@@ -238,3 +238,40 @@ def test_redacted_hides_the_built_query():
     b = _measure(out)["behavior"]["left"]
     assert "amount" not in b["sql"] and out["redacted"] is True
     assert "amount" in _measure(report)["behavior"]["left"]["sql"]  # the report itself is unchanged
+
+
+def test_a_diamond_chain_of_measure_references_computes_each_measure_once():
+    bim = _model("SUM('fact_sales'[amount])")
+    doc = _ossie(bim, "SUM(amount)")
+    previous = "m"
+    for i in range(1, 9):  # d_i = d_(i-1) / d_(i-1): inlined, the aggregates would double at every level
+        doc["metrics"].append({"name": f"d{i}", "expression": {"dialects": [
+            {"dialect": "ANSI_SQL", "expression": f"{previous} / NULLIF({previous}, 0)"}]}})
+        previous = f"d{i}"
+    report = l3.parity_l3(doc, copy.deepcopy(doc))
+    for i in range(1, 9):
+        b = _measure(report, f"d{i}")["behavior"]["left"]
+        assert b["ran"], b
+        assert b["sql"].count("SELECT v FROM") == 2 and "SUM(" not in b["sql"]  # reads d_(i-1) twice, once computed
+        assert b["results"]["basic"] == "1" and b["results"]["zeros"] is None
+    assert _measure(report, "d8")["result"] == sp.VERIFIED
+
+
+def test_a_measure_that_errors_passes_its_error_to_the_measures_that_read_it():
+    bim = _model("SUM('fact_sales'[amount])")
+    doc = _typed(_ossie(bim, "SUM(amount)"), "amount", "String")
+    doc["metrics"].append({"name": "n", "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "m"}]}})
+    results = _measure(l3.parity_l3(doc, copy.deepcopy(doc)), "n")["behavior"]["left"]["results"]
+    assert results["basic"].startswith("error:")
+
+
+def test_the_aggregates_one_side_runs_are_capped_in_all(monkeypatch):
+    monkeypatch.setattr(l3, "MAX_TERMS_PER_SIDE", 3)
+    bim = _model("SUM('fact_sales'[amount])")
+    doc = _ossie(bim, "SUM(amount)")
+    doc["metrics"] += [{"name": f"s{i}", "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "SUM(amount)"}]}}
+                       for i in range(4)]
+    report = l3.parity_l3(doc, copy.deepcopy(doc))
+    rows = [o["behavior"]["left"] for o in report["objects"] if o.get("behavior")]
+    assert sum(b["ran"] for b in rows) == 3
+    assert all("aggregates in all" in b["reason"] for b in rows if not b["ran"])

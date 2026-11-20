@@ -603,6 +603,8 @@ function keysCard(e) {
 
 // opts.danger: the action deletes or overwrites data, so it is drawn red and Cancel has focus (UX-018).
 // opts.typeToConfirm: the action stays off until exactly this text is typed, for the worst overwrites.
+// opts.typeLabel says what to type when "Type <text> to confirm" isn't the right words.
+// opts.items: a list under the text, such as the reasons for the confirm.
 // opts.reason: { label, placeholder, max } asks why in a required box; the dialog then resolves with
 // the trimmed text instead of true.
 // Escape, the close button and a click outside count as Cancel.
@@ -622,12 +624,12 @@ function confirmDialog(title, text, okLabel = "OK", opts = {}) {
     }
     if (opts.typeToConfirm) {
       ok.disabled = true;
-      typed = h("label", { class: "field" }, `Type ${opts.typeToConfirm} to confirm`,
+      typed = h("label", { class: "field" }, opts.typeLabel || `Type ${opts.typeToConfirm} to confirm`,
         h("input", { autocomplete: "off", spellcheck: "false",
           oninput: (e) => { ok.disabled = e.target.value.trim() !== opts.typeToConfirm; },
           onkeydown: (e) => { if (e.key === "Enter" && !ok.disabled) done(true); } }));
     }
-    showDialog(title, h("div", {}, h("p", { class: "text" }, text), typed), [cancel, ok],
+    showDialog(title, h("div", {}, h("p", { class: "text" }, text), opts.items?.length ? gateList(opts.items) : null, typed), [cancel, ok],
       () => { if (!settled) { settled = true; resolve(false); } });
     if (opts.danger && (!typed || why)) cancel.focus();
   });
@@ -963,7 +965,79 @@ async function renderEnvTab(body, p) {
       box, promoteImpact(source, target), lastRelease(target, render));
   };
   body.replaceChildren(h("div", { class: "env-cards" }, ["dev", "test", "prod"].map(card)),
-    promoteRow("dev", "test"), promoteRow("test", "prod"));
+    promoteRow("dev", "test"), promoteRow("test", "prod"), deltaFeaturesCard(p));
+}
+
+// ---------- Delta table features at publish (Preview) ----------
+
+// Each table's delta_features, as the engine names them (delta_profile.TABLE_CHOICES); "" is no setting,
+// which is the modern profile.
+const DELTA_CHOICES = [
+  ["", "Default: deletion vectors and column mapping (modern)"],
+  ["every_reader", "Every reader: no deletion vectors or column mapping"],
+  ["deletion_vectors", "Allow deletion vectors only"],
+  ["column_mapping", "Allow column mapping by name only"],
+];
+
+// What each choice allows, for the typed confirm's title.
+const DELTA_ALLOWS = { "": "deletion vectors and column mapping", deletion_vectors: "deletion vectors", column_mapping: "column mapping" };
+
+// "a", "a and b", "a, b and c".
+function andList(items) {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+function deltaFeaturesCard(p) {
+  if (!previewShown()) return null;
+  const tables = (p.entities || []).filter((e) => e.delta);
+  return h("div", { class: "card pad" },
+    previewMarked("deltaPerTable", h("b", {}, "Delta table features at publish")),
+    h("p", { class: "muted-text" }, "A run that publishes a table to OneLake uses only the Delta features you allow here. "
+      + "If the table already uses a feature you didn't allow, the run writes nothing, so change the setting first."),
+    tables.length ? h("div", { class: "delta-tables" }, tables.map((e) => deltaFeaturesRow(e)))
+      : h("p", { class: "muted-text" }, "This project has no tables yet. Add an entity to choose its features."));
+}
+
+function deltaFeaturesRow(e) {
+  const note = h("div");
+  const current = e.delta.features || "";
+  const select = h("select", { onchange: () => chooseDeltaFeatures(e, select, note) },
+    DELTA_CHOICES.map(([value, label]) => h("option", { value, selected: value === current ? true : null }, label)));
+  return h("div", { class: "row wrap" },
+    h("span", { class: "mono grow" }, e.name),
+    h("label", { class: "field" }, "Delta features", select),
+    h("span", { class: "muted-text small" }, `Checked against ${andList(e.delta.reader_names)}.`),
+    e.delta.problems?.length ? deltaRefusedNote(e.delta.problems[0]) : null,
+    note);
+}
+
+// Saves a table's choice. A choice one of its readers can't read asks for its full name first, and
+// the engine refuses it without that name (delta_profile.confirm_choice).
+async function chooseDeltaFeatures(e, select, note) {
+  const choice = select.value;
+  const reasons = e.delta.reasons[choice || "default"] || [];
+  let confirmName = null;
+  if (reasons.length) {
+    const ok = await confirmDialog(`Allow ${DELTA_ALLOWS[choice] || "this"} on ${e.name}?`,
+      `These readers of ${e.name} can't read it with this choice, or no source says they can. It applies to this table only.`, "Allow it",
+      { danger: true, typeToConfirm: e.name, typeLabel: `Type ${e.name} to allow it`, items: reasons });
+    if (!ok) { select.value = e.delta.features || ""; return; }
+    confirmName = e.name;
+  }
+  try {
+    const res = await rpc("meta_set_delta_features", { name: e.name, delta_features: choice || null, confirm_name: confirmName });
+    state.meta.project = res;
+    e.delta = (res.entities || []).find((x) => x.name === e.name)?.delta || e.delta;
+    note.replaceChildren();
+    toast(`Saved. Runs that publish ${e.name} now use this choice.`);
+  } catch (err) {
+    select.value = e.delta.features || "";
+    note.replaceChildren(deltaRefusedNote(friendlyError(err).text));
+  }
+}
+
+function deltaRefusedNote(text) {
+  return h("div", { class: "problems" }, h("p", {}, text), docLink("delta-reader-matrix.md#each-tables-own-choice-preview", "See the reader matrix"));
 }
 
 // This PC or Fabric runs the environment's entities. Fabric can only reach tables in OneLake.
@@ -1565,6 +1639,7 @@ async function renderModelTab(body) {
     directLakeCard(plan, () => build()),
     dictionaryCard(plan),
     ossieCard(plan),
+    semanticViewCard(plan),
     h("div", { class: "entity-grid" },
       h("div", { class: "card pad grow" }, h("b", {}, `Tables (${plan.tables.length})`),
         h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Table", "Kind", "Delta table", "Entity"].map((c) => h("th", {}, c)))),
@@ -2112,6 +2187,245 @@ function ossieImportResult(res, file) {
       `${res.needs_dax.length} measure${res.needs_dax.length === 1 ? " needs" : "s need"} DAX before reports use ${res.needs_dax.length === 1 ? "it" : "them"}; ${res.needs_dax.length === 1 ? "it shows" : "they show"} blank until then: `,
       h("span", { class: "mono" }, res.needs_dax.join(", "))) : null,
     h("div", { class: "row wrap" }, h("span", { class: "muted-text grow" }, `Keep Git in step: the model's TMDL, read back from Fabric, goes to semantic/${res.name}.SemanticModel/ next to the Ossie file.`), saveTmdl));
+}
+
+// ---------- Fabric Semantic View: the publish steps (OSSIE-005b, model_ossie_service.py) ----------
+
+// KratosForge never publishes a view or calls Fabric from this card: it reads the files saved in the project's
+// folder (meta_model_semantic_view_status), and its only buttons copy text, open that folder on this PC
+// (meta_model_semantic_view_reveal, audited), or save
+// the view's files there (meta_model_semantic_view_save, previewed and confirmed). Each step links the Learn
+// section it follows (docs/semantic-model-ossie.md#publish-the-view-in-fabric-preview).
+const SV_LEARN = {
+  create: "https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#create-a-view-with-the-starter-file",
+  upload: "https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#upload-existing-yaml-files",
+  save: "https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#edit-and-save",
+  publish: "https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-publish#publish-a-view",
+  check: "https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-publish#check-the-result",
+  createAccess: "https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#prerequisites",
+  publishAccess: "https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-publish#prerequisites",
+  overview: "https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-overview",
+};
+const SV_MAX_FILES = 20;  // ossie_profiles.FABRIC_MAX_FILES
+// What the files leave out, by construct (semantic_view.STRIPPED), for the "left out" line.
+const SV_LEFT_OUT = { primary_key: ["primary key", "primary keys"], unique_keys: ["unique key list", "unique key lists"],
+  ai_context: ["ai_context note", "ai_context notes"], fields: ["dataset field", "dataset fields"],
+  custom_extensions: ["Power BI extension item", "Power BI extension items"], datatype: ["metric datatype", "metric datatypes"],
+  query_source: ["query source", "query sources"] };
+
+function svLearn(url, label, name) {
+  return h("a", { href: "#", class: "learn-more sv-learn", title: url, "aria-label": name || null,
+    onclick: (e) => { e.preventDefault(); openLink(url); } }, label, h("span", { "aria-hidden": "true" }, " ↗"));
+}
+
+function svSize(bytes) {
+  return bytes < 1000 ? `${bytes} bytes` : bytes < 1e6 ? `${Math.round(bytes / 1000)} KB` : `${(bytes / 1e6).toFixed(1)} MB`;
+}
+
+const svCount = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+// "4 datasets, 3 relationships" or "9 metrics, all DAX": what one file holds.
+// "a", "a and b", "a, b and c"
+function svList(items) {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+function svHolds(f) {
+  if (f.unreadable) return "Not readable as one YAML object. The check above says why.";
+  const parts = [];
+  if (f.datasets) parts.push(svCount(f.datasets, "dataset", "datasets"));
+  if (f.relationships) parts.push(svCount(f.relationships, "relationship", "relationships"));
+  if (f.metrics) parts.push(svCount(f.metrics, "metric", "metrics"), f.dax_metrics === f.metrics ? "all DAX" : `${f.dax_metrics} with DAX`);
+  return parts.join(", ") || "Version and name only";
+}
+
+// "2 primary keys and 1 ai_context note", from the report's rows the files leave out.
+function svLeftOutText(rows) {
+  const counts = new Map();
+  for (const r of rows) {
+    const key = r.excluded ? (r.kind === "relationship" ? "relationship" : r.kind === "measure" ? "metric" : "excluded") : (SV_LEFT_OUT[r.construct] ? r.construct : "other");
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  const names = { ...SV_LEFT_OUT, relationship: ["multi-column relationship", "multi-column relationships"],
+    metric: ["metric without DAX", "metrics without DAX"], excluded: ["other object", "other objects"], other: ["other key", "other keys"] };
+  const parts = [...counts].map(([k, n]) => svCount(n, ...names[k]));
+  return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
+}
+
+function svReportDialog(view, rows) {
+  showDialog(`What the ${view} view leaves out`, h("div", { class: "scroll sv-report" },
+    h("p", { class: "muted-text" }, "Each row names the documented rule it follows. Nothing here is sent to Fabric."),
+    h("table", { class: "mini" }, h("thead", {}, h("tr", {}, h("th", {}, "Object"), h("th", {}, "Why"))),
+      h("tbody", {}, rows.map((r) => h("tr", {}, h("td", { class: "mono" }, r.object),
+        h("td", {}, r.reason, r.source ? [" ", svLearn(r.source, "Learn", `Learn: ${r.rule}`)] : null)))))),
+    [btn("Close", null, closeDialog, "tool outline")]);
+}
+
+// Save view files (OSSIE-005a's engine call): previews, lists every file written and removed in the confirm, and
+// writes only with the preview's token. A removal makes it a danger confirm.
+async function svSaveFiles(view, modelPath, split, done) {
+  const params = { view_name: view, path: modelPath, split };
+  const res = await metaCall("meta_model_semantic_view_save", params, "View files not saved");
+  if (!res) return;
+  const c = res.confirm;
+  const names = c.files.map((f) => f.split("/").pop());
+  const removed = c.removed.map((f) => f.slice(c.folder.length + 1));
+  const ok = await confirmDialog(`Save the ${view} view's files?`,
+    `Writes ${svList(names)} to ${c.folder}/ in the project's folder, made on this PC from ${modelPath}. `
+    + (removed.length ? `Deletes ${svList(removed)} there, because Fabric merges every .yaml file in a view's folder into the view. ` : "")
+    + "Nothing is sent to Fabric.", removed.length ? "Save and delete" : "Save view files", { danger: removed.length > 0 });
+  if (!ok) return;
+  const out = await metaCall("meta_model_semantic_view_save", { ...params, confirmed: true, token: c.token }, "View files not saved");
+  if (!out) return;
+  toast(`Saved the ${view} view's files in ${out.folder}/. Commit them from Source control.`);
+  done(view);
+}
+
+// State (a): nothing saved yet, so only "Save the view's files first", with Save view files.
+function svNoFiles(folders, plan, done) {
+  if (!folders.length) {
+    return h("div", { class: "sv-first" }, h("b", {}, "Save the view's files first"),
+      h("p", { class: "muted-text" }, "A view's files are made on this PC from a model kept in the project's folder, under semantic/. Save the model's TMDL to Git first (Import from Ossie or Ossie file to TMDL on the Apache Ossie card), then save the view's files here."));
+  }
+  const pick = h("select", { "aria-label": "Model to make the view from" },
+    folders.map((f) => h("option", { value: f.path, selected: f.name === plan.name ? true : null }, `${f.name} (${f.path})`)));
+  const save = btn("Save view files", "save", () => {
+    const f = folders.find((x) => x.path === pick.value) || folders[0];
+    svSaveFiles(f.name, f.path, "schema_metrics", done);
+  }, "tool primary small");
+  return h("div", { class: "sv-first" }, h("b", {}, "Save the view's files first"),
+    h("p", { class: "muted-text" }, "KratosForge makes the view's .yaml files on this PC from a model in the project's folder and saves them in semantic-views\\<view>\\. Then this card shows the steps to publish them in Fabric."),
+    h("div", { class: "row wrap" }, h("label", { class: "field" }, "Model", pick), save));
+}
+
+function svChecks(st) {
+  const v = st.validation;
+  if (st.valid) {
+    const bytes = v.counts.yaml_bytes;
+    return h("div", { class: "sv-check" }, h("span", { class: "pill-s pass" }, "Ready"),
+      h("span", {}, `Passed Fabric's documented checks: version 0.2.0.dev0, DAX on every metric, single-column relationships, ${v.counts.yaml_files} of ${SV_MAX_FILES} files and ${svSize(bytes)} of 16 MB.`));
+  }
+  const problems = [...(v?.diagnostics || []).map((d) => ["", d]),
+    ...Object.entries(v?.files || {}).flatMap(([file, r]) => r.diagnostics.map((d) => [file, d]))];
+  return h("div", { class: "sv-check-fail" },
+    h("div", { class: "sv-check" }, h("span", { class: "pill-s fail" }, "Failed"),
+      h("span", {}, problems.length ? `${svCount(problems.length, "check", "checks")} failed, so Fabric would refuse to publish these files. Fix each one, or save the view's files again.`
+        : "The files weren't checked, so Fabric may refuse them. Bring the view to 20 files and 16 MB or less.")),
+    problems.length ? h("ul", { class: "gate-list" }, problems.slice(0, 12).map(([file, d]) => h("li", {},
+      file ? h("span", { class: "mono" }, `${file} `) : null, d.path && d.path !== "$" ? h("span", { class: "mono" }, `${d.path} `) : null,
+      `${d.message}. `, h("span", { class: "muted-text" }, `Fix: ${d.fix}`)))) : null,
+    problems.length > 12 ? h("p", { class: "muted-text" }, `And ${problems.length - 12} more.`) : null);
+}
+
+function svWarnings(st) {
+  const v = st.validation;
+  const all = [...(v?.warnings || []), ...Object.values(v?.files || {}).flatMap((r) => r.warnings)];
+  return all.length ? h("ul", { class: "gate-list sv-notes" }, all.map((d) => h("li", {}, h("span", { class: "pill-s wrn" }, "Note"), `${d.message}. `,
+    h("span", { class: "muted-text" }, d.fix)))) : null;
+}
+
+function svSteps(view, lh, ok) {
+  const wait = ok ? null : h("span", { class: "sv-wait" }, "Fix the files first");
+  const step = (n, text, link, label, dim) => h("li", { class: dim ? "sv-dim" : null },
+    h("span", { class: "sv-num", "aria-hidden": "true" }, String(n)),
+    h("div", {}, h("div", {}, text), dim ? wait.cloneNode(true) : null, svLearn(link, `Learn: ${label}`)));
+  const b = (t) => h("b", {}, t);
+  const m = (t) => h("span", { class: "mono" }, t);
+  return h("ol", { class: "sv-steps" },
+    step(1, [`Open ${lh || "the lakehouse"} in Fabric, in the Lakehouse view rather than the SQL analytics endpoint. If `, b("Context > Semantic Views"), " has no ", b(view),
+      " folder, select ", b("New semantic view"), ` on the ribbon, enter ${view} as the name, then select `, b("Create"), "."], SV_LEARN.create, "Create a view", false),
+    step(2, [b("Upload."), " In the Explorer pane, right-click the ", b(view), " folder, select ", b("Upload > Upload files"),
+      `, and choose the ${ok ? svCount(ok, "file", "files") : "files"} above. Uploaded files are saved right away. If Fabric made a starter `, m(".yaml"),
+      " file, delete it, because every ", m(".yaml"), " file in the folder joins the view."], SV_LEARN.upload, "Upload files", !ok),
+    step(3, [b("Save."), " Only if you change a file in Fabric. Open it, edit it, then select ", b("Save"), ". Saving writes the file and doesn't check it or update the model."],
+      SV_LEARN.save, "Edit and save", !ok),
+    step(4, [b("Publish."), " Right-click the ", b(view), " folder, select ", b("Publish"), ", then select ", b("Publish"), " in the dialog. Only saved changes are published."],
+      SV_LEARN.publish, "Publish a view", !ok),
+    step(5, [b("Check the result."), ` Open the ${view} model Fabric made, and read any warnings the publish gave.`], SV_LEARN.check, "Check the result", !ok));
+}
+
+function svBody(st, plan, folders, reload) {
+  const view = st.view;
+  const ok = st.valid ? st.files_summary.length : 0;
+  const source = folders.find((f) => f.name === view);
+  // The lakehouse and workspace only when this layer's model is the view's source: plan names what that model reads.
+  const lh = source && source.name === plan.name && plan.lakehouse ? plan.lakehouse : "";
+  const ws = lh ? plan.workspace_name || "" : "";
+  const where = `${lh ? `${lh} > ` : ""}Context/Semantic Views/${view}/`;
+  const other = view.toLowerCase() !== view ? view.toLowerCase() : view.toUpperCase();
+  const s = st.source;
+  const left = s?.same ? s.left_out : [];
+  const resave = source ? btn("Save view files", "save", () => svSaveFiles(view, source.path, s?.split || "schema_metrics", reload), "tool outline small") : null;
+  const open = btn("Open folder", "folderOpen", async () => {
+    const res = await metaCall("meta_model_semantic_view_reveal", { view_name: view }, "Couldn't open the folder");
+    if (res?.shown) toast(`Opened ${st.folder} in File Explorer.`);
+  }, "tool outline small");
+  const copy = btn("Copy path", "copyArrowRight", () => copyText(where, "Path"), "tool outline small");
+  return [
+    h("p", { class: "muted-text" }, `KratosForge doesn't publish semantic views, and nothing on this card writes to Fabric. You upload the files below to the lakehouse yourself, then publish the view there. Fabric then makes a read-only Direct Lake model named ${view}, and the view's files stay the source of truth.`),
+    h("h3", { class: "sv-h" }, "1. The files"),
+    svChecks(st),
+    h("table", { class: "mini sv-files" }, h("thead", {}, h("tr", {}, h("th", {}, "File"), h("th", {}, "Holds"), h("th", {}, "Size"))),
+      h("tbody", {}, st.files_summary.map((f) => h("tr", {}, h("td", { class: "mono" }, f.path), h("td", {}, svHolds(f)), h("td", { class: "n" }, svSize(f.bytes)))))),
+    svWarnings(st),
+    h("div", { class: "row wrap sv-folder" }, h("span", { class: "mono muted-text grow" }, `${st.folder.replace(/\//g, "\\")}\\ in the project folder`), open),
+    s && !s.same ? h("div", { class: "row wrap sv-line" }, h("span", { class: "pill-s info" }, "Changed"),
+      h("span", { class: "grow" }, `These files aren't what ${source.name} in ${source.path} gives now. Save the view's files again to bring them in step.`), resave) : null,
+    left.length ? h("p", { class: "sv-line" }, h("span", { class: "pill-s wrn" }, `${left.length} left out`),
+      ` The view publishes without ${svLeftOutText(left)}, because Fabric's YAML reference omits them or doesn't support them, so the files leave them out. `,
+      h("a", { href: "#", class: "learn-more", onclick: (e) => { e.preventDefault(); svReportDialog(view, left); } }, "See the report")) : null,
+    h("h3", { class: "sv-h" }, "2. Where they go"),
+    h("div", { class: "sv-path" }, h("span", { class: "mono grow" }, where), copy),
+    h("p", { class: "muted-text sv-small" }, lh ? `Lakehouse ${lh}${ws ? ` in workspace ${ws}` : ""}, which the view's datasets read. ` : "In the lakehouse the view's datasets read. ",
+      `The folder sits right under Semantic Views, and its name becomes the view's name and the model's name. OneLake folder names are case-sensitive but model names aren't, so a ${view} and a ${other} folder can't both publish.`),
+    h("h3", { class: "sv-h" }, "3. The steps in Fabric"),
+    svSteps(view, lh, ok),
+    h("div", { class: "sv-grid" },
+      h("div", {}, h("h3", { class: "sv-h" }, "Permissions you need"),
+        h("ul", { class: "sv-list" },
+          h("li", {}, "To create the folder and upload or save files, Write on the lakehouse. ", svLearn(SV_LEARN.createAccess, "Learn", "Learn: permissions to create and upload")),
+          h("li", {}, "To publish, Write on the lakehouse and the Contributor role or higher on the workspace. ", svLearn(SV_LEARN.publishAccess, "Learn", "Learn: permissions to publish")))),
+      h("div", {}, h("h3", { class: "sv-h" }, "Before you publish (Preview)"),
+        h("ul", { class: "sv-list" },
+          h("li", {}, "Semantic views are in Preview in Fabric."),
+          h("li", {}, "A workspace connected to Git, deployment pipelines or Power Platform solutions, or with workspace-level private links, can't publish a view."),
+          h("li", {}, h("b", {}, "Last write wins."), " If two people publish the same view at the same time, the later publish is the one that counts. Don't edit the files while a publish runs, because publish doesn't lock them. ", svLearn(SV_LEARN.overview, "Learn", "Learn: last write wins")),
+          h("li", {}, "The folder and the model aren't kept in step. A renamed folder can stop updating the model, and deleting either one leaves the other in place. ", svLearn(SV_LEARN.overview, "Learn", "Learn: the folder and the model")),
+          h("li", {}, "If a publish fails to compile, the model from the last publish stays as it was.")))),
+    h("div", { class: "sv-note" }, h("b", {}, "Published model:"), " not read. KratosForge doesn't read the model Fabric makes yet, so it can't compare it with these files."),
+  ];
+}
+
+// The publish-steps card under the Apache Ossie one; null when preview features are hidden.
+function semanticViewCard(plan) {
+  const name = h("span", {}, "Publish the semantic view in Fabric");
+  const title = preview("semanticView", h("b", { class: "sv-title" }, name, " "));
+  if (!title) return null;
+  const pick = h("select", { "aria-label": "Semantic view", hidden: true });
+  const body = h("div", { class: "sv-body" }, h("p", { class: "muted-text" }, "Reading the view's files on this PC..."));
+  const load = async (want) => {
+    const [list, git] = await Promise.all([
+      metaCall("meta_model_semantic_view_status", {}, "Semantic views not read"),
+      rpc("meta_model_ossie_folders", {}).catch(() => ({ folders: [] })),
+    ]);
+    if (!list) { fill(body, h("p", { class: "muted-text" }, "Couldn't read semantic-views\\ in the project's folder.")); return; }
+    const folders = git.folders || [];
+    const view = list.views.includes(want) ? want : list.views.includes(plan.name) ? plan.name : list.views[0];
+    pick.hidden = list.views.length < 2;
+    pick.replaceChildren(...list.views.map((v) => h("option", { value: v, selected: v === view ? true : null }, v)));
+    if (!view) { name.textContent = "Publish the semantic view in Fabric"; fill(body, svNoFiles(folders, plan, load)); return; }
+    name.textContent = `Publish the ${view} semantic view in Fabric`;
+    const source = folders.find((f) => f.name === view);
+    // Compared with its model in the project when there is one; a model that can't be read only loses the comparison.
+    let st = source ? await rpc("meta_model_semantic_view_status", { view_name: view, path: source.path }).catch(() => null) : null;
+    st = st || await metaCall("meta_model_semantic_view_status", { view_name: view }, "View files not read");
+    if (!st) { fill(body, h("p", { class: "muted-text" }, `Couldn't read semantic-views\\${view}\\ in the project's folder.`)); return; }
+    fill(body, st.files_summary.length ? svBody(st, plan, folders, load) : svNoFiles(folders, plan, load));
+  };
+  pick.onchange = () => load(pick.value);
+  load();
+  return h("div", { class: "card pad sv-card" },
+    h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }), pick), body);
 }
 
 // ---------- profiling ----------

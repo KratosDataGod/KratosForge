@@ -55,6 +55,21 @@ CHANGED = ("Something changed since this plan was shown (a name was taken, or a 
            "changed). Nothing was created. Review the new plan and confirm again.")
 
 
+def _manifest_refuses(req: dict[str, Any]) -> str:
+    """Why the manifest written last would refuse this request's name, labels or owner, or "". Checked
+    in the plan, so a workspace and lakehouse are never created for a manifest that can't be written."""
+    try:
+        name = (req.get("name") or "").strip()
+        for key, value in (("name", name), ("workspace_name", req.get("workspace_name")),
+                           ("lakehouse_name", req.get("lakehouse_name"))):
+            mf._text(value, key, required=False, limit=mf.MAX_NAME)
+            mf._check_no_secrets(value, key)
+        mf._guid(req.get("owner_object_id"), "owner_object_id", required=False)
+    except mf.ManifestError as exc:
+        return str(exc)
+    return ""
+
+
 def _same_name(a: Any, b: str) -> bool:
     """Fabric names are compared without case, so "kratosforge" is taken when "KratosForge" exists."""
     return isinstance(a, str) and a.strip().casefold() == b.strip().casefold()
@@ -126,7 +141,7 @@ class FabricProvisioning:
             for fam in self.families():
                 steps.append(PlanStep("initialize", f"{fam.title} tables ({fam.prefix})", True, TABLES_PERMISSION))
         steps.append(PlanStep("write_manifest", "Files/_kratosforge/environment.json", True, TABLES_PERMISSION,
-                              note=MANIFEST_NOTE))
+                              note=MANIFEST_NOTE, blocked=_manifest_refuses(req)))
         return ProvisionPlan("fabric", tuple(steps), req)
 
     def _existing_lakehouse(self, ws_id: str, lh_id: str) -> list[PlanStep]:

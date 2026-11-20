@@ -173,10 +173,10 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `cancel_fabric_run` | `sidecar/fabric_desktop/cloud_service.py:188` | Fabric or OneLake | Fabric's own rights |
 | `capacity_settings_read` | `sidecar/fabric_desktop/capacity_history_service.py:18` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
 | `cp_adopt` | `sidecar/fabric_desktop/controlplane_service.py:297` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
-| `cp_connect` | `sidecar/fabric_desktop/controlplane_service.py:344` | Fabric or OneLake | Fabric's own rights; PermissionError; organization policy |
+| `cp_connect` | `sidecar/fabric_desktop/controlplane_service.py:347` | Fabric or OneLake | Fabric's own rights; PermissionError; organization policy |
 | `cp_create` | `sidecar/fabric_desktop/controlplane_service.py:277` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
-| `cp_disconnect` | `sidecar/fabric_desktop/controlplane_service.py:365` | this PC | the signed-in Windows user's own files |
-| `cp_switch` | `sidecar/fabric_desktop/controlplane_service.py:358` | this PC | PermissionError; organization policy |
+| `cp_disconnect` | `sidecar/fabric_desktop/controlplane_service.py:368` | this PC | the signed-in Windows user's own files |
+| `cp_switch` | `sidecar/fabric_desktop/controlplane_service.py:361` | this PC | PermissionError; organization policy |
 | `cp_upgrade` | `sidecar/fabric_desktop/controlplane_service.py:321` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
 | `create_lakehouse` | `sidecar/fabric_desktop/service.py:725` | Fabric or OneLake | Fabric's own rights |
 | `create_shortcut` | `sidecar/fabric_desktop/estate_service.py:289` | platform: log_shortcut_change; Fabric or OneLake | platform's check per operation; Fabric's own rights; PermissionError |

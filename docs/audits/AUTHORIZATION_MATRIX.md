@@ -549,9 +549,9 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `workload_assign` | `sidecar/fabric_desktop/workload_service.py:442` | Fabric or OneLake | Fabric's own rights |
 | `workload_link` | `sidecar/fabric_desktop/workload_service.py:470` | Fabric or OneLake | Fabric's own rights |
 | `workload_unlink` | `sidecar/fabric_desktop/workload_service.py:482` | this PC | the signed-in Windows user's own files |
-| `xray_adopt` | `sidecar/fabric_desktop/xray_service.py:620` | Fabric or OneLake | Fabric's own rights |
+| `xray_adopt` | `sidecar/fabric_desktop/xray_service.py:621` | Fabric or OneLake | Fabric's own rights |
 | `xray_dismiss` | `sidecar/fabric_desktop/xray_service.py:226` | this PC | the signed-in Windows user's own files |
-| `xray_optimize` | `sidecar/fabric_desktop/xray_service.py:325` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy; risk check |
+| `xray_optimize` | `sidecar/fabric_desktop/xray_service.py:326` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy; risk check |
 | `xray_pause` | `sidecar/fabric_desktop/xray_service.py:135` | Fabric or OneLake | Fabric's own rights |
-| `xray_remove_staging` | `sidecar/fabric_desktop/xray_service.py:567` | Fabric or OneLake | Fabric's own rights; organization policy |
-| `xray_vacuum` | `sidecar/fabric_desktop/xray_service.py:415` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy; risk check |
+| `xray_remove_staging` | `sidecar/fabric_desktop/xray_service.py:568` | Fabric or OneLake | Fabric's own rights; organization policy |
+| `xray_vacuum` | `sidecar/fabric_desktop/xray_service.py:416` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy; risk check |

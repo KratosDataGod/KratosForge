@@ -359,7 +359,7 @@ def test_xray_refuses_a_commit_dated_so_far_out_of_step_that_vacuum_would_remove
         reply = server.handle(svc, json.dumps({"id": i, "method": method, "params": params}))
         assert "error" in reply, reply
         msg = reply["error"] if isinstance(reply["error"], str) else reply["error"].get("message", "")
-        assert "would in effect remove nothing" in msg and "Nothing was started" in msg, msg
+        assert "so it would remove nothing" in msg and "out of step" in msg and "Nothing was started" in msg, msg
     assert len(jobs) == before and _ids(str(uri), 0) == [0]
 
 

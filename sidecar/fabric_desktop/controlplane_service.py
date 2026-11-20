@@ -10,6 +10,7 @@
     cp_switch         make another connected environment the active one
     cp_disconnect     forget an environment on this PC (nothing in it changes)
     cp_check          reachability, compatibility and the one status the app shows
+    cp_cost           what the environment itself costs, apart from savings (CP-011; reads only)
 
 Approval path (Security QC on #3121): the engine never runs a plan or manifest the caller sends. A
 preview keeps the request and what was shown on the engine, under a single-use token that binds the
@@ -32,6 +33,7 @@ from dataclasses import asdict
 from typing import Any
 
 from . import app_settings
+from .controlplane import cost as cpcost
 from .controlplane import health
 from .controlplane import manifest as mf
 from .controlplane import providers as pv
@@ -39,10 +41,11 @@ from .controlplane import store as cps
 from .controlplane.fabric import FabricDiscovery
 from .controlplane.provisioning import FabricProvisioning
 from .optimize import schema, setup
+from .optimize.shared import Shared
 from .redact import describe
 
 METHODS = {"cp_status", "cp_discover", "cp_plan", "cp_create", "cp_adopt_preview", "cp_adopt",
-           "cp_connect", "cp_switch", "cp_disconnect", "cp_check"}
+           "cp_connect", "cp_switch", "cp_disconnect", "cp_check", "cp_cost"}
 PREVIEW_SECONDS = 15 * 60
 MAX_PREVIEWS = 20
 OFF = ("Your organization has turned off KratosForge Environments (allow_central_environment in its "
@@ -225,6 +228,24 @@ class ControlPlaneMixin:
         sync = self.optimize_outbox.sync_state(lh)  # type: ignore[attr-defined]
         return health.status(connected=True, reachable=True, compat=compat, sync=sync) | {
             "environment": mf.summary(got.manifest), "compatibility": compat}
+
+    def cp_cost(self, days: int = 30) -> dict[str, Any]:
+        """What the active environment costs over the last ``days``: this PC's measured sync overhead,
+        and Fabric capacity and money as Unknown until they are measured. Net savings only when both
+        sides are known. Reads only."""
+        self._cp_allowed()
+        days = int(days)
+        if not 1 <= days <= 366:
+            raise ValueError("days is between 1 and 366.")
+        active = self.cp_cache.active()
+        if not active:
+            raise ValueError("Connect this PC to a KratosForge Environment first.")
+        lake = self._optimize_lake(active["workspace_id"], active["lakehouse_id"])  # type: ignore[attr-defined]
+        state = setup.inspect(lake)
+        if state["state"] in (setup.NEWER, setup.CONFLICT):  # rows of a schema this app doesn't know aren't read
+            raise PermissionError(state["message"])
+        rows = Shared(lake, self.optimize_installation, access="read").rows("measurements")  # type: ignore[attr-defined]
+        return cpcost.summary(rows.to_dicts(), days=days) | {"environment": active}
 
     # ---- changes
 

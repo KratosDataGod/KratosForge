@@ -73,7 +73,7 @@ def _policy(tmp_path, **values):
 
 def test_calls_are_registered_audited_and_gated():
     assert cpsvc.METHODS <= server.METHODS
-    for read in ("cp_status", "cp_discover", "cp_plan", "cp_adopt_preview", "cp_check"):
+    for read in ("cp_status", "cp_discover", "cp_plan", "cp_adopt_preview", "cp_check", "cp_cost"):
         assert not audit.audited(read), read
     for change in ("cp_create", "cp_adopt", "cp_connect", "cp_switch", "cp_disconnect"):
         assert audit.audited(change), change
@@ -175,7 +175,8 @@ def test_the_policy_turns_it_off_but_a_pc_can_still_let_go(svc, tmp_path):
     assert svc.cp_status()["allowed"] is False
     calls = [lambda: svc.cp_discover(), lambda: svc.cp_plan({"name": "x"}), lambda: svc.cp_create("t", confirmed=True),
              lambda: svc.cp_adopt_preview("x"), lambda: svc.cp_adopt("t", confirmed=True),
-             lambda: svc.cp_connect(WS, "lh"), lambda: svc.cp_switch(env), lambda: svc.cp_check()]
+             lambda: svc.cp_connect(WS, "lh"), lambda: svc.cp_switch(env), lambda: svc.cp_check(),
+             lambda: svc.cp_cost()]
     for call in calls:
         with pytest.raises(PermissionError, match="allow_central_environment"):
             call()
@@ -279,3 +280,35 @@ def test_check_says_how_the_environment_is(svc, monkeypatch):
     gone = svc.cp_check()
     assert gone["status"] == "Connection failed" and "isn't in its lakehouse" in gone["detail"]
     assert out["environment"]["environment_id"] == gone["environment"]["environment_id"]
+
+
+def test_cost_reads_the_environments_measured_sync_overhead_and_leaves_the_rest_unknown(svc):
+    import datetime as dt
+    from fabric_desktop import measurement as ms
+    from fabric_desktop.optimize.shared import Shared
+    with pytest.raises(ValueError, match="Connect this PC"):
+        svc.cp_cost()
+    out = svc.cp_create(svc.cp_plan({"name": "Ours", "workspace_id": WS})["token"], confirmed=True)
+    lake = LocalLakehouse(svc.lakes / WS / out["lakehouse_id"])
+    at = dt.datetime.now(dt.timezone.utc).isoformat()
+    ids = {"workload_id": "optimize.sync.analysis", "run_id": "r1", "source": "Optimize sync on this PC",
+           "collected_at": at, "period_start": at, "period_end": at}
+    Shared(lake, svc.optimize_installation).record_measurements([
+        ms.make(ms.MEASURED, "optimize_sync_seconds", ms.SECONDS, 2.5, **ids),
+        ms.make(ms.MEASURED, "optimize_sync_rows", ms.COUNT, 40, **ids)])
+    got = svc.cp_cost(days=7)
+    assert got["sync_overhead"]["optimize_sync_seconds"]["value"] == 2.5 and got["syncs"] == 1
+    assert got["sync_overhead"]["optimize_sync_seconds"]["label"] == "Measured"
+    assert got["fabric_cu"]["classification"] == "unknown" and got["fabric_cu"]["value"] is None
+    assert got["cost"]["value"] is None and got["net"]["value"] is None
+    with pytest.raises(ValueError, match="between 1 and 366"):
+        svc.cp_cost(days=0)
+
+
+def test_cost_refuses_tables_a_newer_app_wrote(svc):
+    from fabric_desktop.optimize import setup
+    out = svc.cp_create(svc.cp_plan({"name": "Ours", "workspace_id": WS})["token"], confirmed=True)
+    setup.write(LocalLakehouse(svc.lakes / WS / out["lakehouse_id"]), svc.optimize_installation, "schema_version",
+                [{"record_id": "v99", "version": 99, "description": "later", "applied_at": "2026-11-20T00:00:00Z"}])
+    with pytest.raises(PermissionError, match="(?i)newer"):
+        svc.cp_cost()

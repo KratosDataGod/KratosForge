@@ -11,6 +11,7 @@ The cases fuzzing found are kept below by name: each crashed or ran for minutes 
 
 from __future__ import annotations
 
+import gc
 import random
 import re
 import time
@@ -153,12 +154,19 @@ def test_type_calls_nested_up_to_the_limit_still_read():
 
 
 def _best_time(text: str) -> float:
-    """The quickest of three reads, so a busy runner's pause in one of them isn't counted."""
+    """The quickest of three reads, in this process's CPU time with the garbage collector off: other test workers
+    on the same machine take wall-clock time from a read, not CPU time, and a collection can land in any read."""
     best = float("inf")
-    for _ in range(3):
-        start = time.perf_counter()
-        sql.parse(text, "spark")
-        best = min(best, time.perf_counter() - start)
+    collecting = gc.isenabled()
+    gc.disable()
+    try:
+        for _ in range(3):
+            start = time.process_time()
+            sql.parse(text, "spark")
+            best = min(best, time.process_time() - start)
+    finally:
+        if collecting:
+            gc.enable()
     return best
 
 
@@ -168,10 +176,12 @@ def _best_time(text: str) -> float:
 ], ids=["or chain", "in list"])
 def test_a_long_or_chain_and_a_long_in_list_read_in_linear_time(query):
     # Each call and operator once walked its whole subtree for its first place in the text: 3,000 ORs took 48 s.
-    # The check is how the time grows, not a number of seconds (a loaded Windows runner took 5.06 s for both):
-    # four times the terms takes about four times as long now, and took sixteen times as long before.
-    small, large = _best_time(query(5000)), _best_time(query(20000))
-    assert large < 9 * small, f"{small:.3f}s for 5,000, {large:.3f}s for 20,000: grows faster than the length"
+    # The check is how the time grows, not a number of seconds (a loaded Windows runner took 5.06 s for both).
+    # Eight times the terms takes 8 to 9.3 times as long now (also with twice as many busy processes as cores),
+    # and took 28 to 42 times as long before, so a bound of 16 leaves room on both sides. (4x the terms against
+    # a bound of 9 was flaky with 8 test workers.)
+    small, large = _best_time(query(2500)), _best_time(query(20000))
+    assert large < 16 * small, f"{small:.3f}s for 2,500, {large:.3f}s for 20,000: grows faster than the length"
 
 
 @pytest.mark.parametrize("query, says", [

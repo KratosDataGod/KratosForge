@@ -46,7 +46,7 @@ METHODS = {"cp_status", "cp_discover", "cp_plan", "cp_create", "cp_adopt_preview
 PREVIEW_SECONDS = 15 * 60
 MAX_PREVIEWS = 20
 OFF = ("Your organization has turned off KratosForge Environments (allow_central_environment in its "
-       "policy file).")
+       "policy). Ask IT if you need them.")
 CHANGED = ("Something changed since this was shown, so nothing was done. Look at it again and confirm.")
 EXPIRED = "This preview has expired or was already used. Look at it again and confirm."
 REQUEST_KEYS = ("name", "workspace_id", "workspace_name", "capacity_id", "lakehouse_id", "lakehouse_name",
@@ -129,7 +129,8 @@ class ControlPlaneMixin:
             return
         name = self._cp_workspace_name(workspace_id)
         if confirm_name != name:  # exactly, as every other Prod confirm (WR-249, WR-250)
-            raise PermissionError(f"{name} is a Prod workspace. Type its name exactly to confirm.")
+            raise PermissionError(f"{name} is a Prod workspace, so this runs only after you type its name exactly to confirm. "
+                                  "Nothing was changed.")
 
     def _cp_inspections(self, workspace_id: str, lakehouse_id: str, schemas: bool | None = None) -> list[dict[str, Any]]:
         lake = self._optimize_lake(workspace_id, lakehouse_id, schemas)  # type: ignore[attr-defined]
@@ -161,7 +162,7 @@ class ControlPlaneMixin:
         """What creating an environment would do. Nothing is created; the token names this preview for cp_create."""
         self._cp_allowed()
         if not isinstance(request, dict):
-            raise ValueError("The request is an object: name, and a workspace and lakehouse by id or name.")
+            raise ValueError("The request must be an object with a name, and a workspace and lakehouse by id or name.")
         unknown = sorted(str(k) for k in request if k not in REQUEST_KEYS)
         if unknown:
             raise ValueError(f"Unknown request fields: {', '.join(unknown)[:200]}")
@@ -231,7 +232,7 @@ class ControlPlaneMixin:
         """Run the plan cp_plan showed, by its token. The plan is made again here and must match."""
         self._cp_allowed()
         if not confirmed:
-            raise pv.NotConfirmed("Nothing was created: creating an environment needs your confirmation.")
+            raise pv.NotConfirmed("Nothing was created, because creating an environment needs your confirmation.")
         # The typed name is checked before the token is used, so a mistyped name can simply be typed again.
         self._cp_typed_name(self._cp_peek("create", token)["request"].get("workspace_id") or "", confirm_name)
         entry = self._cp_take("create", token)
@@ -251,7 +252,7 @@ class ControlPlaneMixin:
         """Write the manifest cp_adopt_preview showed, by its token. No table is created or changed."""
         self._cp_allowed()
         if not confirmed:
-            raise pv.NotConfirmed("Nothing was written: adopting needs your confirmation.")
+            raise pv.NotConfirmed("Nothing was written, because adopting needs your confirmation.")
         self._cp_typed_name(self._cp_peek("adopt", token)["manifest"]["analytical_store"]["workspace_id"], confirm_name)
         entry = self._cp_take("adopt", token)
         manifest = entry["manifest"]

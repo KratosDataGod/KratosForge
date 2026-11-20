@@ -162,7 +162,7 @@ def test_a_prod_workspace_needs_its_name_typed(svc):
     plan = svc.cp_plan({"name": "Ours", "workspace_id": WS})
     assert plan["typed_name"] == "Platform"
     for typed in ("", "Platfrom", "platform", " Platform", "Platform "):
-        with pytest.raises(PermissionError, match="Type its name"):
+        with pytest.raises(PermissionError, match="type its name exactly"):
             svc.cp_create(plan["token"], confirmed=True, confirm_name=typed)
     out = svc.cp_create(plan["token"], confirmed=True, confirm_name="Platform")
     assert out["ok"] and svc.fake.created == [("lakehouse", "KratosForgeLakehouse")]

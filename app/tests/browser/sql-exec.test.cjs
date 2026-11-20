@@ -78,7 +78,7 @@ test("Next and Previous page through the result without running it again", { ski
 
 test("Export ▾ CSV streams the result to Downloads", { skip }, async () => {
   await page().locator(".sql-export > summary").click();
-  await page().getByRole("menuitem", { name: "CSV" }).click();
+  await page().getByRole("menuitem", { name: "CSV", exact: true }).click();
   await page().waitForFunction(() => /Saved 2,500 rows to/.test(document.querySelector(".toast")?.textContent || ""));
   const saved = (await toastText()).match(/Saved 2,500 rows to (.+\.csv)/)[1];
   const lines = fs.readFileSync(saved, "utf8").trim().split("\n");
@@ -472,10 +472,21 @@ test("Columns... hides and reorders the grid's columns, a header's edge resizes 
   await widthIs(w1);  // the width too
   await th.locator(".sql-col-resize").dblclick();
   await page().waitForFunction((w) => document.querySelector('.sql-grid th[data-col="2"]').getBoundingClientRect().width < w - 8, w1);  // fits again
+  // A run that ends while Columns... is open carries the layout to a new grid state: changes go to that one.
   await page().getByRole("button", { name: "Columns...", exact: true }).click();
+  const old = await page().evaluate(() => { const t = sqlPage.tabs[sqlPage.active]; const g = t.grid; t.grid = sqlGridCarry(g); window.__oldGrid = g; return g.hidden.length; });
+  await dialog.getByRole("checkbox", { name: /^n\b/ }).uncheck();
+  assert.deepStrictEqual(await heads(), ["twice"], "the grid on screen changed");
+  assert.deepStrictEqual(await page().evaluate(() => window.__oldGrid.hidden.length), old, "not the state the run replaced");
   await dialog.getByRole("button", { name: "Show all" }).click();
   await dialog.getByRole("button", { name: "Done" }).click();
   assert.deepStrictEqual(await heads(), ["n", "note", "twice"]);
+  // Opened on a state kept from other columns, it starts again for these.
+  await page().evaluate(() => { Object.assign(sqlPage.tabs[sqlPage.active].grid, { names: ["gone"], hidden: [0] }); });
+  await page().getByRole("button", { name: "Columns...", exact: true }).click();
+  assert.strictEqual(await dialog.getByRole("checkbox").count(), 3);
+  await dialog.getByRole("button", { name: "Done" }).click();
+  assert.deepStrictEqual(app.errors, []);
 });
 
 test("each statement's result keeps its own sort, and the grid reads that statement's rows (S14 with the grid)", { skip }, async () => {

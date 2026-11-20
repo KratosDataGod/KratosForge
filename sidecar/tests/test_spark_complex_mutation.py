@@ -110,8 +110,6 @@ def test_lateral_view_of_a_generator_other_than_explode_is_left_to_its_own_rewri
     assert len(rows(conn, "SELECT id, x FROM c LATERAL VIEW stack(2, 1, 2) t AS x")) == 6
 
 
-@pytest.mark.xfail(strict=True, reason="LATERAL VIEW stack and json_tuple give each row's values as one struct "
-                                       "(spark_builtins_sql), where Spark gives the values themselves")
 def test_lateral_view_stack_and_json_tuple_give_the_values_themselves(conn):
     assert rows(conn, "SELECT id, x FROM c LATERAL VIEW stack(2, 1, 2) t AS x WHERE id = 1 ORDER BY x") == [(1, 1), (1, 2)]
     assert rows(conn, "SELECT id, a FROM c LATERAL VIEW json_tuple('{\"a\": 1}', 'a') t AS a WHERE id = 1") == [(1, "1")]

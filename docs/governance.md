@@ -250,6 +250,7 @@ The desktop calls these engine methods (JSON-RPC, see [architecture](architectur
 
 Checks come from one registry, `sidecar/fabric_desktop/governance_checks.py`. The built-in checkers (naming, ownership, classification, contract) are registered there, and the notebook, SQL and semantic model best-practice checkers are registered the same way (below). The Best Practice Analyzer rules that need a model's VertiPaq statistics run only in Fabric and aren't registered, so a policy can't name them. A policy points at rules by id in **Checked by**.
 
+<!-- example: illustrative -->
 ```python
 register(kind, rules, check, runs_in="local")   # runs_in: "local" (this PC) or "fabric"
 ```
@@ -262,6 +263,7 @@ register(kind, rules, check, runs_in="local")   # runs_in: "local" (this PC) or 
 
 A minimal checker:
 
+<!-- example: illustrative -->
 ```python
 from fabric_desktop import governance_checks as gc
 
@@ -319,7 +321,7 @@ A note sits beside the built-in guide and never replaces it, and it never change
   and anything past 200 notes in one policy. A note is cut at 2,000 characters.
 
 The engine method `learn_team_notes` returns `{notes: {id: [{text, policy, owner, version, sha256}]},
-problems, package, note}`. The app doesn't show the notes yet: that waits on a mockup.
+problems, package, note}`. The app shows each note at the bottom of **Explain** as **Your team's note**, in plain text, with its policy, version, owner and a short SHA-256, and says when it came from the package.
 
 | Field | Example |
 | --- | --- |

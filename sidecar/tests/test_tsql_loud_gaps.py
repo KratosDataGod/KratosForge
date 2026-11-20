@@ -143,7 +143,6 @@ def test_top_with_ties_keeps_the_tied_rows(engine):
 
 @pytest.mark.parametrize("sql", [
     "SELECT TOP 1 WITH TIES DISTINCT boxes FROM dbo.orders ORDER BY boxes",
-    "SELECT TOP 50 PERCENT WITH TIES id FROM dbo.orders ORDER BY boxes",
     "SELECT value FROM STRING_SPLIT('a,b', ',', 1)",
     "SELECT ROUND(1.5, 0, boxes) FROM dbo.orders",
     "SELECT DATALENGTH(5)",
@@ -160,7 +159,8 @@ def test_top_with_ties_keeps_the_tied_rows(engine):
     "SELECT TIMEFROMPARTS(13, 45, 30, 0, 8)",
     "SELECT TIMEFROMPARTS(13, 45, 30, 1234567, 7)",
     "SELECT TIMEFROMPARTS(13, 45, 30, 0, boxes) FROM dbo.orders",
-    "SELECT FORMAT(boxes, '#,##0')  FROM dbo.orders",
+    "SELECT FORMAT(boxes, '#,##0', 'fr-FR')  FROM dbo.orders",
+    "SELECT FORMAT(boxes, 'P')  FROM dbo.orders",
 ])
 def test_what_isnt_mapped_faithfully_is_refused(engine, sql):
     with pytest.raises(Exception, match="on the local engine"):
@@ -230,7 +230,6 @@ def test_the_refused_list_in_the_docs_names_every_refused_function():
     ("SELECT ISDATE('2024-01-01')", "ISDATE"),
     ("SELECT CHECKSUM('a')", "CHECKSUM"),
     ("SELECT DIFFERENCE('a', 'b')", "DIFFERENCE"),
-    ("SELECT TRY_PARSE('1' AS int)", "TRY_PARSE"),
     ("SELECT id FROM dbo.orders WHERE BINARY_CHECKSUM(id) > 0", "BINARY_CHECKSUM"),
     ("SELECT SYSDATETIMEOFFSET()", "SYSDATETIMEOFFSET"),
 ])
@@ -266,7 +265,6 @@ REFUSED_IN_THE_DOCS = {
     "SMALLMONEY": "SELECT CAST(1 AS SMALLMONEY)",
     "ISDATE": "SELECT ISDATE('2024-01-01')",
     "CHECKSUM": "SELECT CHECKSUM('a')",
-    "TRY_PARSE": "SELECT TRY_PARSE('1' AS int)",
     "HASHBYTES": "SELECT HASHBYTES('SHA2_256', 'a')",
     "CURRENT_USER": "SELECT CURRENT_USER",
     "USER": "SELECT USER",

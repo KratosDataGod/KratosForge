@@ -46,6 +46,12 @@ async function answer(approve, keep = "session") {
   throw new Error("no pairing request reached the app");
 }
 
+async function denyAllWaiting() {
+  for (const req of (await engine.call("editor_pending")).pairing) {
+    await engine.call("editor_decide_pairing", { request_id: req.id, approve: false, keep: "session" });
+  }
+}
+
 before(async () => {
   engine = startEngine();
   dir = path.join(home, "FabricDesktop");
@@ -239,6 +245,21 @@ async function fakeApp(handle) {
   ch.token = "kfp_t";
   return { ch, close: () => new Promise((r) => server.close(r)) };
 }
+
+test("asking to pair after the app restarted says it restarted; a call with the token says the pairing ended", async () => {
+  const { HELLO_CHANGED, NOT_PAIRED } = require("../out/channel.js");
+  const app = await fakeApp((url, req, res, reply) => {
+    if (url.pathname === "/v1/hello") return false;
+    reply(401, { ok: false, error: { code: "unauthorized", message: "x" } });
+    return true;
+  });
+  try {
+    await assert.rejects(app.ch.ask("w", "c"), (err) => err.code === "unauthorized" && err.message === HELLO_CHANGED);
+    await assert.rejects(app.ch.status(), (err) => err.code === "unauthorized" && err.message === NOT_PAIRED);
+  } finally {
+    await app.close();
+  }
+});
 
 test("a busy app is asked again a few times, then the window says it's busy", async () => {
   let busy = 3;
@@ -549,6 +570,119 @@ test("a cell nobody stopped is never interrupted by the run itself", async () =>
   try {
     await app.ch.run("C:\\nb\\a.ipynb", "x = 1", () => undefined, () => false);
     assert.ok(!seen.includes("/v1/interrupt"));
+  } finally {
+    await app.close();
+  }
+});
+
+// ---- Every failure has a name and a next step (WR-505)
+
+// Read here on its own, not from channel.ts, so a message can't pass by changing the list it's checked against.
+const NEXT_STEP = /run the cell again|install kratosforge\.vsix|turn it on|pair the window|answer them|open the repository|restart kratosforge|try again|split it|open the notebook|start kratosforge/i;
+
+test("every refusal the app can send becomes a named error that says what to do next", () => {
+  const { refusal } = require("../out/channel.js");
+  const source = fs.readFileSync(path.join(SIDECAR, "fabric_desktop", "editor_channel.py"), "utf8");
+  const codes = new Set([...source.matchAll(/Refused\(\d+, "(\w+)"/g), ...source.matchAll(/"code": "(\w+)"/g)].map((m) => m[1]));
+  for (const code of ["not_paired", "off", "busy", "refused", "not_found", "failed", "internal", "extension_too_old", "unauthorized"]) {
+    assert.ok(codes.has(code), `the engine no longer sends ${code}; update this list`);
+  }
+  for (const code of codes) {
+    for (const said of ["", "Something the app said."]) {
+      for (const pairing of [false, true]) {
+        const err = refusal(400, code, said, pairing);
+        assert.ok(err instanceof ChannelError && err.code, code);
+        assert.match(err.message, NEXT_STEP, `${code} (${JSON.stringify(said)}) says no next step: ${err.message}`);
+      }
+    }
+  }
+  assert.match(refusal(500, undefined, undefined).message, NEXT_STEP);  // a reply with no code at all
+});
+
+test("the extension's own messages each say what to do next", () => {
+  const ch = require("../out/channel.js");
+  for (const name of ["NOT_LISTENING", "NOT_KRATOSFORGE", "CONNECTION_LOST", "RESTARTED", "BUSY", "APP_TOO_NEW", "EXTENSION_TOO_OLD",
+    "TOO_LARGE", "TIMED_OUT", "NOT_PAIRED", "HELLO_CHANGED", "OFF", "PAIR_DENIED", "PAIR_UNANSWERED", "PAIR_CANCELLED",
+    "PAIR_EXPIRED", "BAD_REPLY"]) {
+    assert.match(ch[name], NEXT_STEP, name);
+  }
+  assert.match(ch.unreachable("EACCES"), NEXT_STEP);
+  assert.match(ch.cellTooLarge(2e6), NEXT_STEP);
+  assert.match(ch.unexpected("x"), NEXT_STEP);
+});
+
+test("a refused hello reads as a restart only while asking to pair", () => {
+  const ch = require("../out/channel.js");
+  assert.strictEqual(ch.refusal(401, "unauthorized", "x", false, true).message, ch.HELLO_CHANGED);
+  assert.strictEqual(ch.refusal(401, "unauthorized", "x", true).message, ch.NOT_PAIRED);  // polling sends the token
+  assert.strictEqual(ch.refusal(401, "unauthorized", "x").message, ch.NOT_PAIRED);
+  assert.match(ch.refusal(404, "not_found", "").message, /couldn't find that notebook or cell/);
+});
+
+test("a pairing ended in the app says so, and to run the cell again to pair", async () => {
+  await engine.call("editor_set_enabled", { enabled: true });
+  const ch = new Channel(dir);
+  const paired = ch.pair(home, "t", () => {}, () => false, 50);
+  await answer(true, "8h");
+  await paired;
+  const { pairings } = await engine.call("editor_status");
+  for (const p of pairings) await engine.call("editor_end_pairing", { pairing_id: p.id });
+  await assert.rejects(ch.status(), (err) => err.code === "not_paired" && err.message === require("../out/channel.js").NOT_PAIRED);
+  await assert.rejects(ch.start(file, "1"), (err) => err.code === "not_paired" && /Run the cell again to pair/.test(err.message));
+});
+
+test("two windows asking at once each get their own code, and each gets its own answer", async () => {
+  await engine.call("editor_set_enabled", { enabled: true });
+  const a = new Channel(dir);
+  const b = new Channel(dir);
+  const codes = {};
+  const pa = a.pair(home, "window A", (c) => { codes.a = c; }, () => false, 50);
+  const pb = b.pair(home, "window B", (c) => { codes.b = c; }, () => false, 50);
+  const denied = assert.rejects(pb, (err) => err.code === "denied" && /run the cell again and choose Pair this window/.test(err.message));
+  let waiting = [];
+  // The app lists a request as soon as it has it, a moment before the window reads its code.
+  const ready = () => waiting.length >= 2 && codes.a && codes.b;
+  for (let i = 0; i < 200 && !ready(); i++) {
+    waiting = (await engine.call("editor_pending")).pairing;
+    if (!ready()) await new Promise((r) => setTimeout(r, 50));
+  }
+  assert.strictEqual(waiting.length, 2);
+  assert.notStrictEqual(codes.a, codes.b);
+  for (const req of waiting) {
+    await engine.call("editor_decide_pairing", { request_id: req.id, approve: req.code === codes.a, keep: "session" });
+  }
+  assert.ok((await pa).token);
+  await denied;
+  assert.strictEqual(b.token, "");
+  assert.strictEqual((await a.status()).app, "KratosForge");
+});
+
+test("a window asking while too many wait is told to answer them first, and nothing is left waiting", async () => {
+  await engine.call("editor_set_enabled", { enabled: true });
+  await denyAllWaiting();  // whatever an earlier test left waiting would take one of the places
+  const stop = { now: false };
+  const waiting = [0, 1, 2].map(() => new Channel(dir).pair(home, "w", () => {}, () => stop.now, 50).catch((e) => e));
+  for (let i = 0; i < 200 && (await engine.call("editor_pending")).pairing.length < 3; i++) await new Promise((r) => setTimeout(r, 50));
+  await assert.rejects(new Channel(dir).pair(home, "fourth", () => {}, () => false, 50),
+    (err) => err.code === "refused" && /Answer them in KratosForge first/.test(err.message));
+  for (const req of (await engine.call("editor_pending")).pairing) {
+    await engine.call("editor_decide_pairing", { request_id: req.id, approve: false, keep: "session" });
+  }
+  stop.now = true;
+  for (const e of await Promise.all(waiting)) assert.ok(e instanceof ChannelError && /run the cell again/i.test(e.message));
+});
+
+test("a request that ran out before an answer, and a cancelled one, each say to run the cell again", async () => {
+  const app = await fakeApp((url, req, res, reply) => {
+    if (url.pathname === "/v1/pair") { reply(200, { ok: true, result: { id: "pq_1", code: "ABC-DEF", expires_in: 60 } }); return true; }
+    if (url.pathname === "/v1/pair/pq_1") { reply(200, { ok: true, result: { state: "expired" } }); return true; }
+    return false;
+  });
+  try {
+    await assert.rejects(app.ch.pair("C:\\nb", "t", () => {}, () => false, 10),
+      (err) => err.code === "expired" && /Run the cell again, then choose Pair this window/.test(err.message));
+    await assert.rejects(app.ch.pair("C:\\nb", "t", () => {}, () => true, 10),
+      (err) => err.code === "cancelled" && /Run the cell again to pair/.test(err.message));
   } finally {
     await app.close();
   }

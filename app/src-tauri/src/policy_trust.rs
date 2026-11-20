@@ -22,6 +22,27 @@ pub fn admin_only(_file: &Path) -> Result<(), String> {
     Err("it is only trusted on Windows".into())
 }
 
+/// None when only SYSTEM and Administrators could have written HKLM\`key` (its owner and
+/// permissions, not whether this process could open it for writing, so an elevated run is judged like
+/// any other), its parent, and the list `subkeys` (which must exist); otherwise why not. The engine's
+/// policy_trust.key_admin_only applies the same rule.
+#[cfg(windows)]
+pub fn key_admin_only(key: &str, subkeys: &[&str]) -> Result<(), String> {
+    use windows::Win32::Security::Authorization::SE_REGISTRY_WOW64_64KEY;
+    let parent = key.rsplit_once('\\').map(|(p, _)| p).unwrap_or(key);
+    win::check_named(&format!("MACHINE\\{parent}"), SE_REGISTRY_WOW64_64KEY, win::PARENT_KEY_RIGHTS)?;
+    win::check_named(&format!("MACHINE\\{key}"), SE_REGISTRY_WOW64_64KEY, win::KEY_RIGHTS)?;
+    for sub in subkeys {
+        win::check_named(&format!("MACHINE\\{key}\\{sub}"), SE_REGISTRY_WOW64_64KEY, win::KEY_RIGHTS)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn key_admin_only(_key: &str, _subkeys: &[&str]) -> Result<(), String> {
+    Err("it is only trusted on Windows".into())
+}
+
 /// For a file or folder of IT's engine (engine_folder.rs): owned by SYSTEM or Administrators, and
 /// nobody else may change it or, for a folder, add, replace or delete anything in it. Stricter than
 /// the policy file's folder, where everyone may create files.
@@ -80,19 +101,24 @@ const INHERIT_ONLY: u8 = 0x08;
 
 /// What one entry of a path's permissions means for `rights`. An entry that applies only to what
 /// is created inside a folder (inherit-only) counts only when `inherited_too`, and then not for
-/// CREATOR OWNER. Deny entries (1, 6, 10, 12), audit and alarm entries (2, 3, 7, 8, 13, 14, 15, 16)
-/// and the mandatory label (17) grant nothing.
+/// CREATOR OWNER. Deny entries (1, 6, 10, 12), audit and alarm entries (2, 3, 7, 8, 13, 14, 15, 16),
+/// the mandatory label (17) and the other system entries (resource attribute, scoped policy, trust
+/// label and access filter, 18 to 21) grant nothing. A type past 21 isn't one Windows defines, so it
+/// can't be checked and counts against the path.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn entry(ace_type: u8, flags: u8, mask: u32, who: Who, rights: u32, inherited_too: bool) -> Entry {
-    if ace_type == ACCESS_DENIED || ace_type > 17 {
+    if ace_type == ACCESS_DENIED {
         return Entry::Fine;
+    }
+    if ace_type > 21 {
+        return Entry::Unknown;
     }
     if flags & INHERIT_ONLY != 0
         && (!inherited_too || flags & (OBJECT_INHERIT | CONTAINER_INHERIT) == 0 || who == Who::CreatorOwner)
     {
         return Entry::Fine;
     }
-    if matches!(ace_type, 2 | 3 | 6 | 7 | 8 | 10 | 12 | 13 | 14 | 15 | 16 | 17) {
+    if matches!(ace_type, 2 | 3 | 6 | 7 | 8 | 10 | 12..=21) {
         return Entry::Fine;
     }
     if ace_type != ACCESS_ALLOWED {
@@ -107,7 +133,7 @@ mod win {
     use std::path::Path;
     use windows::core::{PCWSTR, PWSTR};
     use windows::Win32::Foundation::{LocalFree, ERROR_SUCCESS, HLOCAL};
-    use windows::Win32::Security::Authorization::{ConvertSidToStringSidW, GetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows::Win32::Security::Authorization::{ConvertSidToStringSidW, GetNamedSecurityInfoW, SE_FILE_OBJECT, SE_OBJECT_TYPE};
     use windows::Win32::Security::{
         GetAce, IsWellKnownSid, WinBuiltinAdministratorsSid, WinCreatorOwnerSid, WinLocalSystemSid, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL,
         DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
@@ -130,6 +156,13 @@ mod win {
     /// FILE_WRITE_DATA is FILE_ADD_FILE and FILE_APPEND_DATA is FILE_ADD_SUBDIRECTORY, so this also
     /// refuses a folder where others may create files.
     pub const ENGINE_RIGHTS: u32 = FILE_RIGHTS | FILE_DELETE_CHILD;
+    const KEY_SET_VALUE: u32 = 0x2;
+    const KEY_CREATE_SUB_KEY: u32 = 0x4;
+    /// Rights that let someone change Group Policy's key: set or add values, add subkeys, delete it,
+    /// or take over its permissions.
+    pub const KEY_RIGHTS: u32 = KEY_SET_VALUE | KEY_CREATE_SUB_KEY | DELETE | WRITE_DAC | WRITE_OWNER | GENERIC_WRITE | GENERIC_ALL;
+    /// On its parent: add the key, or take the parent over.
+    pub const PARENT_KEY_RIGHTS: u32 = KEY_CREATE_SUB_KEY | WRITE_DAC | WRITE_OWNER | GENERIC_WRITE | GENERIC_ALL;
 
     /// NT SERVICE\TrustedInstaller, which Windows grants full control of %PROGRAMFILES% and the
     /// folders created in it. Only administrators can control that service, so it counts as one.
@@ -159,13 +192,23 @@ mod win {
     /// what is inside a folder count as well.
     pub fn check(path: &Path, rights: u32, inherited_too: bool) -> Result<(), String> {
         let name: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        check_wide(&name, &path.display().to_string(), SE_FILE_OBJECT, rights, inherited_too)
+    }
+
+    /// `check` for a named object of another kind, such as a registry key ("MACHINE\\...").
+    pub fn check_named(name: &str, kind: SE_OBJECT_TYPE, rights: u32) -> Result<(), String> {
+        let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+        check_wide(&wide, name, kind, rights, false)
+    }
+
+    fn check_wide(name: &[u16], shown: &str, kind: SE_OBJECT_TYPE, rights: u32, inherited_too: bool) -> Result<(), String> {
         let mut owner = PSID::default();
         let mut dacl: *mut ACL = std::ptr::null_mut();
         let mut descriptor = PSECURITY_DESCRIPTOR::default();
         // SAFETY: name is NUL-terminated and outlives the call. owner and dacl point into
         // descriptor, which is only read before it is freed with LocalFree as the API requires.
         unsafe {
-            let status = GetNamedSecurityInfoW(PCWSTR(name.as_ptr()), SE_FILE_OBJECT,
+            let status = GetNamedSecurityInfoW(PCWSTR(name.as_ptr()), kind,
                                                OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
                                                Some(&mut owner), None, Some(&mut dacl), None, &mut descriptor);
             if status != ERROR_SUCCESS {
@@ -173,15 +216,15 @@ mod win {
             }
             let result = (|| {
                 if !admin_sid(owner) {
-                    return Err(format!("{} isn't owned by SYSTEM or Administrators", path.display()));
+                    return Err(format!("{} isn't owned by SYSTEM or Administrators", shown));
                 }
                 if dacl.is_null() {
-                    return Err(format!("{} has no permissions set, so anyone can change it", path.display()));
+                    return Err(format!("{} has no permissions set, so anyone can change it", shown));
                 }
                 for index in 0..u32::from((*dacl).AceCount) {
                     let mut ace: *mut core::ffi::c_void = std::ptr::null_mut();
                     if GetAce(dacl, index, &mut ace).is_err() {
-                        return Err(format!("{}'s permissions can't be read", path.display()));
+                        return Err(format!("{}'s permissions can't be read", shown));
                     }
                     let header = &*(ace as *const ACE_HEADER);
                     // Only an ACCESS_ALLOWED entry is read past its header, as ACCESS_ALLOWED_ACE.
@@ -201,9 +244,9 @@ mod win {
                     };
                     match super::entry(header.AceType, header.AceFlags, mask, who, rights, inherited_too) {
                         super::Entry::Fine => {}
-                        super::Entry::Unknown => return Err(format!("{} has a permission entry the app can't check", path.display())),
+                        super::Entry::Unknown => return Err(format!("{} has a permission entry the app can't check", shown)),
                         super::Entry::Grants => {
-                            return Err(format!("someone other than SYSTEM and Administrators can change {}", path.display()))
+                            return Err(format!("someone other than SYSTEM and Administrators can change {}", shown))
                         }
                     }
                 }
@@ -218,6 +261,13 @@ mod win {
 #[cfg(test)]
 mod tests {
     use super::admin_only;
+
+    #[cfg(windows)]
+    #[test]
+    fn the_registry_view_is_the_64_bit_one_the_engine_names() {
+        // The engine's policy_trust.py passes 13 for the same object type.
+        assert_eq!(windows::Win32::Security::Authorization::SE_REGISTRY_WOW64_64KEY.0, 13);
+    }
 
     #[test]
     fn a_file_anyone_could_have_written_is_not_trusted() {
@@ -276,9 +326,14 @@ mod tests {
             assert_eq!(entry(kind, 0, FULL, Who::Other, ENGINE, true), Entry::Unknown, "{kind}");
             assert_eq!(entry(kind, 0, FULL, Who::Admin, ENGINE, false), Entry::Unknown, "{kind}");
         }
-        // Deny, audit, alarm and label entries, and types past the last one Windows defines, grant nothing.
-        for kind in [1u8, 2, 3, 6, 7, 8, 10, 12, 13, 14, 15, 16, 17, 18, 255] {
+        // Deny, audit, alarm, label and the other system entries grant nothing.
+        for kind in [1u8, 2, 3, 6, 7, 8, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21] {
             assert_eq!(entry(kind, 0, FULL, Who::Other, ENGINE, true), Entry::Fine, "{kind}");
+        }
+        // A type Windows doesn't define can't be checked, even inherit-only.
+        for kind in [22u8, 255] {
+            assert_eq!(entry(kind, 0, FULL, Who::Admin, ENGINE, false), Entry::Unknown, "{kind}");
+            assert_eq!(entry(kind, OI_CI_IO, FULL, Who::Admin, ENGINE, false), Entry::Unknown, "{kind}");
         }
     }
 

@@ -27,11 +27,14 @@ async function renderOptimize() {
   const sync = h("p", { class: "sub optimize-sync", hidden: true });
   const actions = h("div", { class: "head-actions" });
   const body = h("div", { class: "optimize-body" });
-  setView(h("div", { class: "page optimize" },
-    h("div", { class: "page-head" }, h("div", {},
-      h("h1", {}, "Optimize ", previewTag()), band, sync,
-      pageIntro("What your Fabric estate could do better, what was fixed and what it could save, shared with everyone on your optimization lakehouse. ",
-        learnMore("optimize-preview"))), actions),
+  const intro = pageIntro("What your Fabric estate could do better, what was fixed and what it could save, shared with everyone on your optimization lakehouse. ",
+    learnMore("optimize-preview"));
+  // Living Experience (home-hero.js, Preview): Chris's header art with the page's name on its sky. The
+  // shared-lakehouse line and its setup buttons stay under it, buttons at the right.
+  const hero = typeof pageHero === "function" ? pageHero("optimize", "Optimize ", { tag: previewTag() }) : null;
+  setView(h("div", { class: hero ? "page optimize living-head" : "page optimize" },
+    hero ? [hero, h("div", { class: "page-head" }, h("div", {}, band, sync, intro), actions)]
+      : h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Optimize ", previewTag()), band, sync, intro), actions),
     h("div", { class: "subtabs", role: "tablist", "aria-label": "Optimize views" }, OPTIMIZE_TABS.filter(([id]) => id !== "assessment" || previewShown()).map(([id, label]) =>
       h("button", { class: `tab${optimizePage.tab === id ? " active" : ""}`, role: "tab", "aria-selected": optimizePage.tab === id ? "true" : "false",
         onclick: () => { optimizePage.tab = id; render(); } }, label))),
@@ -41,8 +44,9 @@ async function renderOptimize() {
   if (optimizePage.tab === "cost") body.append(costPanel(), previewShown() ? databricksCostSection() : "");
   // Settings history reads the central lakehouse's fdcap_ and fdten_ tables itself.
   if (optimizePage.tab === "settings") body.append(settingsHistoryPanel());
-  // Assessment reads a workspace or capacity straight from Fabric (optimize-assess.js), no lakehouse needed.
-  if (optimizePage.tab === "assessment") optimizeAssessPanel(body);
+  // Assessment reads straight from Fabric, no lakehouse needed: Excellence (optimize-excellence.js) first,
+  // then Opportunities (optimize-assess.js) and Gaps.
+  if (optimizePage.tab === "assessment") optimizeExcellenceTabs(body);
   const status = await rpc("optimize_status").catch(() => null);
   if (state.view !== "optimize" || !band.isConnected) return;
   const [line, buttons] = optimizeBand(status);
@@ -390,12 +394,36 @@ registerFeature({
 // central lakehouse's fdten_ (Enterprise readiness) and fdcap_ (FinOps) tables. The page only reads;
 // the buttons each read Fabric once and add rows. Who changed a setting, and exactly when, aren't known.
 
-const settingsHistoryPage = { scope: "all", overrides: false };
+// busy: the read running now, so a second press while the first is still checking the lakehouse
+// (several seconds over OneLake) neither queues another read nor opens another dialog.
+// lakehouse: the active central lakehouse's id, which the setup answer below is remembered for.
+const settingsHistoryPage = { scope: "all", overrides: false, busy: null, lakehouse: null };
+const SH_SETUP_KEY = "fd.settingsHistory.setup";
+
+// The setup a person turned down with Cancel, remembered on this PC for one lakehouse: the page then
+// offers "Set up history" inline, and a read button asks no more until it is set up.
+// Only the two reads are kept or replayed from storage, never their params (Set up history uses the
+// Include capacity overrides box as it is now); with no known
+// lakehouse (optimize_status failed) nothing is remembered, so the dialog asks next time.
+const SH_SETUP_METHODS = { capacity_settings_read: "Capacities", tenant_settings_read: "Tenant settings" };
+function settingsHistorySetup(value) {
+  const lakehouse = settingsHistoryPage.lakehouse;
+  try {
+    if (value === null) localStorage.removeItem(SH_SETUP_KEY);
+    else if (value && lakehouse && SH_SETUP_METHODS[value.method]) localStorage.setItem(SH_SETUP_KEY, JSON.stringify(value));
+    const saved = JSON.parse(localStorage.getItem(SH_SETUP_KEY) || "null");
+    if (!lakehouse || !saved || saved.lakehouse !== lakehouse || !SH_SETUP_METHODS[saved.method]) return null;
+    return { lakehouse, method: saved.method, label: SH_SETUP_METHODS[saved.method], text: String(saved.text || "") };
+  } catch { return null; /* not remembered: the dialog asks again next time */ }
+}
 
 function settingsHistoryPanel() {
   const panel = h("div", { class: "settings-history" }, h("p", { class: "muted-text" }, "Reading the settings history..."));
-  rpc("tenant_settings_history", {})
-    .then((hist) => { if (panel.isConnected) fill(panel, ...settingsHistoryBody(hist)); })
+  Promise.all([rpc("tenant_settings_history", {}), rpc("optimize_status").catch(() => null)])
+    .then(([hist, status]) => {
+      settingsHistoryPage.lakehouse = status?.active?.lakehouse_id || null;
+      if (panel.isConnected) fill(panel, ...settingsHistoryBody(hist));
+    })
     .catch((err) => { if (panel.isConnected) fill(panel, h("p", { class: "muted-text" }, friendlyError(err).text)); });
   return panel;
 }
@@ -448,13 +476,19 @@ function settingsHistoryBody(hist) {
       lastRead("Tenant settings last read", last.tenant, "Fabric administrators only")),
     h("div", { class: "row wrap" },
       btn("Read capacities now", "sync", () => settingsHistoryRead("capacity_settings_read", "Capacities",
-        settingsHistoryPage.overrides ? { admin: true } : {}), "tool primary"),
+        settingsHistoryPage.overrides ? { admin: true } : {}), "tool primary sh-read", shBusy()),
       h("label", { class: "check", title: "Also reads the tenant settings each capacity overrides. Only a Fabric administrator can; anyone else's capacities are still read." },
         h("input", { type: "checkbox", checked: settingsHistoryPage.overrides ? true : null,
           onchange: (e) => { settingsHistoryPage.overrides = e.target.checked; } }),
         "Include capacity overrides (administrators)"),
-      btn("Read tenant settings (administrators)", null, () => settingsHistoryRead("tenant_settings_read", "Tenant settings"), "tool outline")),
+      btn("Read tenant settings (administrators)", null, () => settingsHistoryRead("tenant_settings_read", "Tenant settings"), "tool outline sh-read", shBusy())),
     h("p", { class: "muted-text small" }, "Anyone who can read the central lakehouse sees this history, including the tenant settings an administrator read."));
+  const declined = settingsHistorySetup();
+  const setup = declined ? h("div", { class: "card pad sh-setup", role: "status" },
+    h("p", { class: "small" }, `The settings history tables aren't set up yet. ${declined.text}`),
+    h("div", { class: "row" }, btn("Set up history", null, () => settingsHistoryRead(declined.method, declined.label,
+      declined.method === "capacity_settings_read" && settingsHistoryPage.overrides ? { admin: true } : {}, { approve: true }),
+    "tool outline sh-read", shBusy()))) : null;
   const failed = settingsHistoryGaps(hist.gaps);
   const gaps = failed.length ? h("div", { class: "card pad sh-gap", role: "status" },
     h("b", {}, (hist.gaps || []).length === 1 ? "One read couldn't be completed" : `${hist.gaps.length} reads couldn't be completed`),
@@ -480,7 +514,7 @@ function settingsHistoryBody(hist) {
         choices.map(([v, label]) => h("option", { value: v, selected: v === settingsHistoryPage.scope ? true : null }, label))))),
     table,
     h("p", { class: "muted-text small" }, "A change was seen between two reads: exactly when it happened, and who made it, aren't known. A capacity you can't see isn't compared, so it's never shown as changed or deleted."));
-  return [withHowItWorks(h("div", { class: "sh-stack" }, reads, gaps, changes), howItWorks("optimize.settings", {
+  return [withHowItWorks(h("div", { class: "sh-stack" }, reads, setup, gaps, changes), howItWorks("optimize.settings", {
     reads: "The settings history tables in your central lakehouse. Read capacities calls Fabric's GET /v1/capacities (Capacity.Read.All), and with Include capacity overrides ticked also GET /v1/admin/capacities/delegatedTenantSettingOverrides (Tenant.Read.All, Fabric administrators only); Read tenant settings calls GET /v1/admin/tenantsettings, which only a Fabric administrator can.",
     changes: "Nothing in Fabric: no tenant or capacity setting is ever changed. Each read adds rows to FabricDesktop_Central: fdcap_snapshot, fdcap_change and fdcap_read for capacities, fdten_snapshot, fdten_change and fdten_read for the tenant. A snapshot row is added only when a value differs from the last one; a read row is added every time, failed reads included. The first read asks before it creates the tables. Writing to OneLake uses capacity; no Fabric job is started.",
     results: "This tab, for everyone who can read the central lakehouse: once an administrator reads the tenant settings, everyone with read access to it sees them. Nothing reads on a schedule.",
@@ -488,20 +522,49 @@ function settingsHistoryBody(hist) {
   }))];
 }
 
-// One read: the first time, the engine says which tables it would create and this asks before
-// passing approve. params adds admin: true for capacity overrides.
-async function settingsHistoryRead(method, label, params = {}) {
-  let res;
+const shBusy = () => (settingsHistoryPage.busy ? { disabled: true, "aria-busy": "true" } : {});
+
+// One read at a time: the buttons stay off until it ends, so pressing again while the lakehouse is
+// still being checked can't queue a second read or stack a second dialog. The first time, the engine
+// says which tables it would create and this asks once before passing approve. Cancel is remembered
+// for this lakehouse (settingsHistorySetup): later presses show "Set up history" inline instead of
+// the dialog. opts.approve is that inline button, which already showed what it adds. params adds
+// admin: true for capacity overrides.
+async function settingsHistoryRead(method, label, params = {}, opts = {}) {
+  if (settingsHistoryPage.busy) return;
+  settingsHistoryPage.busy = method;
+  for (const b of document.querySelectorAll(".settings-history .sh-read")) { b.disabled = true; b.setAttribute("aria-busy", "true"); }
   try {
+    await settingsHistoryReadOnce(method, label, params, opts);
+  } finally {
+    settingsHistoryPage.busy = null;
+    render();  // even after a throw, so the buttons never stay off
+  }
+}
+
+async function settingsHistoryReadOnce(method, label, params, opts) {
+  let res;
+  if (opts.approve) {
+    res = await attempt(() => rpc(method, { ...params, approve: true }), `${label} not read`);
+  } else try {
     res = await rpc(method, params);
   } catch (err) {
     const raw = String(err?.message || err);
     if (!/Confirm to continue\.$/.test(raw)) { attempt(() => Promise.reject(err), `${label} not read`); return; }
     const text = friendlyError(err).text.replace(/ Confirm to continue\.$/, "");
-    if (!(await confirmDialog("Create the settings history tables?", text, "Create and read"))) return;
+    if (settingsHistorySetup()) {
+      settingsHistorySetup({ lakehouse: settingsHistoryPage.lakehouse, method, text });
+      toast("Nothing was read, because the settings history tables aren't in the central lakehouse yet. Choose Set up history on this tab to create them and read.");
+      return;
+    }
+    if (!(await confirmDialog("Create the settings history tables?", text, "Create and read"))) {
+      settingsHistorySetup({ lakehouse: settingsHistoryPage.lakehouse, method, text });
+      return;
+    }
     res = await attempt(() => rpc(method, { ...params, approve: true }), `${label} not read`);
   }
   if (!res) return;
+  settingsHistorySetup(null);  // the tables are there now, whoever set them up
   if (res.outcome !== "read") toast(`${label}: ${res.reason || res.outcome}`, true);
   else {
     // The capacities were read even when the overrides weren't; say which, so a gap isn't read as "nothing changed".
@@ -511,5 +574,4 @@ async function settingsHistoryRead(method, label, params = {}) {
     const base = res.changes.length ? `${label} read: ${res.changes.length} change${res.changes.length === 1 ? "" : "s"}` : `${label} read: nothing changed`;
     toast(overrides ? `${base}. ${overrides}` : base, !!overrides);
   }
-  render();
 }

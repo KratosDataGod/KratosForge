@@ -70,8 +70,13 @@ class _Source:
             dt = DeltaTable(self.target)
         if "deletionVectors" in (dt.protocol().reader_features or []):
             # Files are read by path, which would bring back rows a deletion vector marks deleted.
-            raise ValueError(f"{self.target} uses deletion vectors, which a stream on this PC can't read: it would "
-                             "bring back deleted rows. Run the stream in Fabric.")
+            raise ValueError(f"{self.target} uses deletion vectors, which a stream on this PC can't read, because it "
+                             "would bring back deleted rows. Run the stream in Fabric.")
+        from .delta_read import column_mapping
+        if column_mapping(dt):
+            # Files are read by their own column names, which column mapping keeps apart from the table's.
+            raise ValueError(f"{self.target} uses column mapping, which a stream on this PC can't read, because its "
+                             "files name the columns differently from the table. Run the stream in Fabric.")
         return dt
 
     def _delta_batch(self, state: dict[str, Any]) -> tuple[pa.Table | None, dict[str, Any], str]:
@@ -234,6 +239,12 @@ class StreamReader:
         return self
 
     def _start(self, kind: str, fmt: str, target: str) -> DataFrame:
+        from . import delta_cdf
+        if delta_cdf.asked(self._options):
+            raise NotImplementedError("A stream of a table's change data feed (readChangeFeed) runs in Fabric and on "
+                                      "Databricks, so nothing was read. On this PC, read the changes as a batch: "
+                                      "spark.read.option(\"readChangeFeed\", \"true\")"
+                                      ".option(\"startingVersion\", 0).table(...).")
         for key in ("startingversion", "startingtimestamp"):
             if key in self._options:
                 raise NotImplementedError(f"{key} runs in Fabric. On this PC a stream starts from the table's "

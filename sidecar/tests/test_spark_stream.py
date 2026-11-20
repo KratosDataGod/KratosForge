@@ -142,3 +142,14 @@ def test_a_source_with_deletion_vectors_is_refused(lake):
     out = Kernel().run(STREAM.replace("dbo.bronze", "dbo.dv"))
     assert out["status"] == "error" and "deletion vectors" in str(out["outputs"])
     assert not (lake / "dbo" / "silver").exists()
+
+
+def test_a_source_with_column_mapping_is_refused_with_the_reason(lake):
+    import shutil
+    from pathlib import Path
+    shutil.copytree(Path(__file__).parent / "fixtures" / "delta_spark" / "cm_name", lake / "dbo" / "cm")
+    out = Kernel().run(STREAM.replace("dbo.bronze", "dbo.cm"))
+    text = str(out["outputs"])
+    assert out["status"] == "error" and "uses column mapping, which a stream on this PC can't read, because" in text
+    assert "Run the stream in Fabric." in text
+    assert not (lake / "dbo" / "silver").exists()

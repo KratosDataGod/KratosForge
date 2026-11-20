@@ -34,7 +34,7 @@ from . import runlog
 from .onelake import FileStore, TableRef, storage_options
 from .publish import WriteTokenExpired, publish, refuse_conversions, resolve_schema_mode, stage_locally
 from .redact import describe
-from .retrying import data_upload_dropped, log_commit_dropped
+from .retrying import data_upload_dropped, local_retry, log_commit_dropped
 
 _log = logging.getLogger(__name__)
 
@@ -165,6 +165,50 @@ cell_write_checks: "weakref.WeakKeyDictionary[threading.Thread, Callable[[str, s
 maintenance_guard: Callable[[str, str, str], str | None] | None = None
 MAINTENANCE_NEEDS_APP = ("OPTIMIZE, VACUUM and RESTORE from notebook code run on this PC only inside KratosForge, "
                          "which checks the workspace first. Nothing was changed.")
+
+
+# Set by the app (and passed to a process kernel): why a cell may not change a table in a workspace marked Prod
+# without the person typing the workspace's name first, as (operation, workspace id, workspace name,
+# "schema.table", notebook) -> reason, or None when it may. Marked Prod means named as Prod by the open
+# metadata project or by any project opened on this PC before (prod_writes_service.py). Unset (outside the
+# app) no workspace is known to be Prod, so nothing is asked.
+prod_guard: Callable[[str, str, str, str, str], str | None] | None = None
+# For the engine's own kernel: the notebook a cell runs for and the workspaces the person typed the name of
+# for that one run, by the cell's thread (notebook.Kernel). A process kernel answers the engine's call itself.
+cell_prod_context: "weakref.WeakKeyDictionary[threading.Thread, tuple[str, frozenset[str]]]" = weakref.WeakKeyDictionary()
+# The notebook a write with no cell of its own is asked under: no notebook is named this, so nothing confirms it.
+NO_CELL = "\x00no cell"
+# The operations that ask: they delete or replace rows or files (OPTIMIZE rewrites files but keeps the rows).
+# "overwrite" is write_table's mode, which df.write.saveAsTable(mode="overwrite") and INSERT OVERWRITE use too.
+PROD_CONFIRMED_OPS = ("merge", "update", "delete", "vacuum", "restore", "overwrite")
+# True in a notebook's own process (kernel_host), where every write is a cell's.
+in_kernel_process = False
+
+
+class ProdConfirmNeeded(PermissionError):
+    """A change to a Prod-marked workspace that waits for the person to type the workspace's name. The app
+    shows the typed-name confirm for it (its name is what the cell's error says)."""
+
+
+def prod_refusal(operation: str, lh: "Attached", table: str, cells_only: bool = False) -> str | None:
+    """Why ``operation`` on ``table`` waits for a typed name, or None when it may run. ``cells_only``: only a
+    notebook cell's write asks (the app's own pages, such as the SQL page's Save as table, confirm their own way)."""
+    guard = prod_guard
+    if guard is None or operation not in PROD_CONFIRMED_OPS:
+        return None
+    context = cell_prod_context.get(threading.current_thread())
+    if context is None:
+        # A thread with no context of its own while any cell runs (one a cell started, a pool, a callback, another
+        # notebook's or the app's own writer) is asked as a cell would be, and fails closed: it borrows no cell's
+        # allowance and no notebook's name, so its refusal can't be confirmed into any notebook's next run.
+        if any(t.is_alive() for t in list(cell_prod_context)):
+            context = (NO_CELL, frozenset())
+    if cells_only and context is None and not in_kernel_process:
+        return None
+    notebook, allowed = context or ("", frozenset())
+    if lh.workspace_id.lower() in allowed:
+        return None
+    return guard(operation, lh.workspace_id, lh.workspace_name, table, notebook)
 
 
 def write_refusal(name: str, schema: str, table: str) -> str | None:
@@ -411,7 +455,19 @@ def table_exists(table: str) -> bool:
 
 def read_table(table: str, version: int | None = None, timestamp: Any = None) -> pl.DataFrame:
     """The table as a data frame; ``version`` or ``timestamp`` read it as it was then."""
-    return cast(pl.DataFrame, pl.from_arrow(open_table(table, version, timestamp).to_pyarrow_table()))  # a Table gives a DataFrame
+    return cast(pl.DataFrame, pl.from_arrow(table_arrow(open_table(table, version, timestamp))))  # a Table gives a DataFrame
+
+
+def table_arrow(opened: DeltaTable) -> Any:
+    """Every row of an opened table, with its deletion vectors and column mapping applied."""
+    from . import delta_read
+    return delta_read.arrow(opened)
+
+
+def table_dataset(opened: DeltaTable) -> Any:
+    """An opened table as a pyarrow dataset, with its deletion vectors and column mapping applied."""
+    from . import delta_read
+    return delta_read.dataset(opened)
 
 
 def sql(query: str) -> pl.DataFrame:
@@ -557,6 +613,9 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
     reason = write_refusal(lh.name, ref.schema, ref.table)
     if reason:
         raise PermissionError(reason)
+    if mode == "overwrite" and _proof() is None and \
+            (reason := prod_refusal("overwrite", lh, f"{ref.schema}.{ref.table}", cells_only=True)):  # a proof writes its own copy
+        raise ProdConfirmNeeded(reason)
     streamed = _stream(data)
     arrow, spill = None, None
     if streamed is None:
@@ -694,6 +753,8 @@ def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
     if reason:
         raise PermissionError(reason)
     name_ = f"{ref.schema}.{ref.table}"
+    if _proof() is None and (reason := prod_refusal(change.kind, lh, name_)):  # a proof changes its own copy
+        raise ProdConfirmNeeded(reason)
     if (p := _proof()) is not None:
         opts = p.options()
 
@@ -714,8 +775,9 @@ def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
     try:
         delta_profile.check_table(table)
     except delta_profile.ProfileViolation as exc:
-        raise ValueError(f"{name_} isn't changed on this PC: {exc}. Writing to it could make it unreadable in "
-                         "Fabric.") from None
+        text = str(exc)  # the reader refusal is whole sentences already, with its own next step
+        tail = "" if text.endswith(".") else ". Writing to it could make it unreadable in Fabric."
+        raise ValueError(f"{name_} isn't changed on this PC: {text}{tail}") from None
     before = table.version()
     names = source.schema.names if source is not None else None
     out = delta_dml.apply(change, table, source, names,
@@ -762,6 +824,8 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
     from . import delta_profile, maintenance
     if operation not in MAINTENANCE_OPS:
         raise ValueError(f"operation is one of {MAINTENANCE_OPS}, not {operation!r}")
+    if operation == "vacuum" and retain_hours is not None:
+        maintenance.check_retain_hours(retain_hours)  # before the guard, which records the run as started
     lh = _current()
     ref = table_ref(table)
     name_ = f"{ref.schema}.{ref.table}"
@@ -769,14 +833,12 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
     if reason:
         raise PermissionError(reason)
     guard = maintenance_guard
-    reason = guard(operation, lh.workspace_id, name_) if guard is not None else MAINTENANCE_NEEDS_APP
+    asked = "zorder" if operation == "optimize" and zorder else operation  # the audit tells a Z-Order apart
+    reason = guard(asked, lh.workspace_id, name_) if guard is not None else MAINTENANCE_NEEDS_APP
     if reason:
         raise PermissionError(reason)
-    if operation == "vacuum" and retain_hours is not None and retain_hours < maintenance.MIN_RETENTION_DAYS * 24:
-        raise ValueError(f"VACUUM keeps at least {maintenance.MIN_RETENTION_DAYS} days ("
-                         f"{maintenance.MIN_RETENTION_DAYS * 24} hours) of history on this PC, not {retain_hours:g} "
-                         "hours: with less, it can delete files that readers or writers in other processes still "
-                         "use, and time travel to those versions stops working. Nothing was changed.")
+    if _proof() is None and (reason := prod_refusal(operation, lh, name_)):  # a proof changes nothing here
+        raise ProdConfirmNeeded(reason)
     if _proof() is not None:
         if operation == "restore":
             raise ValueError("RESTORE isn't run in a proof: the proof's copy of the table doesn't have the shared "
@@ -803,13 +865,24 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
             raise ValueError(f"OPTIMIZE ... WHERE filters only on partition columns ({', '.join(parts) or 'none'}), "
                              f"not {', '.join(bad)}. Nothing was changed.")
         filters = [(c, op, v) for c, op, v in where] if where else None
+        # On Windows a writer committing the same next version at the same moment, or holding a log file, makes
+        # this commit fail to open a log file (retrying.windows_log_race). Usually that is the staged commit and
+        # nothing went in; it can also be a later log file read after the commit went in. Either way it runs again
+        # on the table's latest version, and a second compaction or Z-Order there changes no rows.
+        attempts = [0]
+
+        def once() -> dict[str, Any]:
+            if attempts[0]:
+                t.update_incremental()
+            attempts[0] += 1
+            if zorder:
+                return t.optimize.z_order(zorder, partition_filters=filters, commit_properties=commit)
+            return t.optimize.compact(partition_filters=filters, commit_properties=commit)
         if zorder:
             missing = [c for c in zorder if c not in t.schema().to_arrow().names]
             if missing:
                 raise ValueError(f"ZORDER BY names columns {name_} hasn't got: {', '.join(missing)}. Nothing was changed.")
-            metrics = t.optimize.z_order(zorder, partition_filters=filters, commit_properties=commit)
-        else:
-            metrics = t.optimize.compact(partition_filters=filters, commit_properties=commit)
+        metrics = local_retry(once)
         note = "Compacted on this PC without V-Order; Fabric's table maintenance adds V-Order."
     elif operation == "vacuum":
         kept = maintenance.kept_days(t.metadata().configuration)
@@ -819,8 +892,9 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
                              f"(delta.deletedFileRetentionDuration), so VACUUM can't RETAIN {retain_hours:g} hours: "
                              "Fabric's Spark refuses it too. Nothing was changed.")
         hours = retain_hours if retain_hours is not None else maintenance.retention_hours(days)
+        keep, _oldest = maintenance.skewed_versions(t, int(hours))  # a clock out of step deletes nothing still read
         files = t.vacuum(retention_hours=int(hours), dry_run=dry_run, enforce_retention_duration=False,
-                         commit_properties=commit)
+                         commit_properties=commit, **maintenance.vacuum_keep(keep))
         metrics = {"numDeletedFiles": 0 if dry_run else len(files), "retentionHours": int(hours), "dryRun": dry_run}
     else:
         target: int | datetime

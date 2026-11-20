@@ -35,6 +35,20 @@ from typing import Any
 PROOF_ROOT = "Files/_fabric_desktop/proofs"
 
 
+def _rows(table: Any) -> Any:
+    """Every row of a pinned table. The pyarrow reader refuses deletion vectors and reads column-mapped
+    columns as NULL, so a table with either is read through delta-rs's DataFusion reader (as
+    delta_read.py does in the engine; this file can't import it)."""
+    protocol = table.protocol()
+    features = set(protocol.reader_features or []) | set(protocol.writer_features or [])
+    mode = str((table.metadata().configuration or {}).get("delta.columnMapping.mode", "") or "").lower()
+    if not ({"deletionVectors", "columnMapping"} & features) and mode in ("", "none"):
+        return table.to_pyarrow_table()
+    import pyarrow as pa
+    from deltalake import QueryBuilder
+    return pa.table(QueryBuilder().register("kf_table", table).execute("SELECT * FROM kf_table"))
+
+
 class ProofTableMissing(LookupError):
     """A table the proof can't read: it didn't exist when the proof started."""
 
@@ -74,6 +88,7 @@ class ProofRuntime:
         self._options: Any = lambda: {}  # replaced by the side's storage options
         self.log = {"proof": self.id, "side": side, "reads": {}, "files": {}, "writes": {},
                     "seed": self.seed, "timezone": None, "started": time.time()}
+        self._clock = time.monotonic()  # seconds come from this, unmoved by a change to the clock mid-run
         # Tables already in this side's sandbox when it starts (a replay seeded from a bundle's sample):
         # reads and writes of these go to the sandbox copy, as if this side had written them.
         for key in config.get("seeded") or []:
@@ -151,8 +166,8 @@ class ProofRuntime:
             name, version = self._pin(key)
             if name is not None:
                 from deltalake import DeltaTable
-                start = DeltaTable(self.shared_table(*name.split(".", 1)), version=version,
-                                   storage_options=self.options()).to_pyarrow_table()
+                start = _rows(DeltaTable(self.shared_table(*name.split(".", 1)), version=version,
+                                         storage_options=self.options()))
                 self.log["reads"][name] = version
                 write_delta(uri, start)
         self.log["writes"].setdefault(key, []).append(mode)
@@ -221,7 +236,7 @@ class ProofRuntime:
                 "platform": platform.system(), "packages": dict(sorted(packages.items()))}
 
     def finish(self, modules: Iterable[str] | None = None) -> dict[str, Any]:
-        self.log["seconds"] = round(time.time() - self.log["started"], 3)
+        self.log["seconds"] = round(max(0.0, time.monotonic() - self._clock), 3)
         self.log["environment"] = self.environment(modules)
         return self.log
 

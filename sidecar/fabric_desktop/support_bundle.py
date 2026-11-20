@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import __version__, app_settings, policy_watch
+from . import __version__, app_settings, policy_watch, secret_redaction, win_paths
 from .redact import for_support, secret_key
 
 log = logging.getLogger(__name__)
@@ -107,7 +107,7 @@ def about(data_dir: Path | None = None) -> dict[str, Any]:
             value = sorted(value) if isinstance(value, dict) else []
         elif key in ("support_url", "dbconnect_index_url") or secret_key(key):  # a connection string is a secret whatever it looks like
             value = "set" if value else ""  # an internal help desk or package mirror names the organization by its host
-        elif key in ("sql_temp_dir", "notebook_package_folder") and isinstance(value, str) and value[:2] in ("\\\\", "//"):
+        elif key in ("sql_temp_dir", "notebook_package_folder") and isinstance(value, str) and win_paths.is_share(value):
             value = "a network folder"  # a share's server name is the organization's
         summary[key] = {"value": value, "source": entry["source"]}
     engine = app_settings._read_engine_info()
@@ -144,7 +144,7 @@ def path_facts(data_dir: Path) -> dict[str, Any]:
     share, and whether Windows allows long paths."""
     text = str(data_dir)
     return {"data_folder_length": len(text), "data_folder_ascii": text.isascii(), "data_folder_spaces": " " in text,
-            "data_folder_network": text[:2] in ("\\\\", "//"), "long_paths_enabled": long_paths_enabled()}
+            "data_folder_network": win_paths.is_share(text), "long_paths_enabled": long_paths_enabled()}
 
 
 def policy_state(settings: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -222,7 +222,10 @@ def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
                 "about.json has the policy file's SHA-256, to compare with the file IT shipped, and when this PC last saw it change.",
                 f"Logs are the last {LOG_LINES} lines."]
     files["CONTENTS.txt"] = "\n".join(contents) + "\n"
-    return {name: for_support(text) for name, text in files.items()}
+    # Values dbutils.secrets read are remembered by the kernel process that read them, which redacts its
+    # own output and stderr before sidecar.log gets it (kernel_host.py). This engine remembers only
+    # what a kernel running inside it read, so here it is a second pass, not the protection.
+    return {name: secret_redaction.redact(for_support(text)) for name, text in files.items()}
 
 
 def preview(data_dir: Path | None = None, agent_home: Path | None = None) -> dict[str, Any]:

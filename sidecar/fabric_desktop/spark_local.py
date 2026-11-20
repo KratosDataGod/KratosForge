@@ -23,7 +23,7 @@ import datetime
 import tempfile
 import threading
 import weakref
-from typing import Any, NamedTuple, NoReturn
+from typing import Any, NamedTuple, NoReturn, cast
 
 import duckdb
 import pyarrow as pa
@@ -34,11 +34,14 @@ from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.column import Column as _Column
 from duckdb.experimental.spark.sql.session import SparkSession
 
-from . import lakehouse, spark_api, spark_compat, spark_infer, sql as _sql, sql_dialects
+from . import lakehouse, spark_api, spark_compat, spark_infer, sql as _sql, spark_replace_where, sql_dialects
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
-from .duckdb_rows import first_row, keep_try_cast
+from .duckdb_rows import keep_try_cast
+from . import spark_hash, spark_time_zone
 from .spark_complex import spark_complex_types
 from .spark_decimals import spark_decimal_types
+from .spark_text_compare import spark_text_comparisons
+from . import trees
 
 
 def _arrow(df: DataFrame) -> pa.Table:
@@ -108,18 +111,16 @@ def _spark_types(rel: Any) -> Any:
 
 
 # Writer options this PC honors, by lower-case name. Anything else is refused by name, so an
-# option that changes what gets written (replaceWhere) can never be dropped and turn into a full
-# overwrite. A path option is save()'s path, as in Spark; a table write
+# option that changes what gets written can never be dropped and turn into a full overwrite.
+# A path option is save()'s path, as in Spark; a table write
 # refuses it (_TABLE_PATH).
 _SCHEMA_OPTIONS = ("overwriteschema", "mergeschema")
 # Options that only change how files are laid out, not which rows end up in the table.
 _LAYOUT_OPTIONS = ("optimizewrite", "maxrecordsperfile", "compression")
 # partitionOverwriteMode: static or dynamic, as the session setting (_overwrite_mode).
 _MODE_OPTIONS = ("partitionoverwritemode",)
-_REFUSED = {
-    "replacewhere": "replaceWhere (replace only matching rows) isn't supported on this PC, and ignoring it would "
-                    "replace the whole table. Run the cell in Fabric, or filter, union and overwrite the table yourself.",
-}
+# replaceWhere: an overwrite replaces only the rows that match it, and the data must match it (_replace_where).
+_REPLACE_OPTIONS = ("replacewhere",)
 _TABLE_PATH = "Writing a table to its own path (an external table) runs in Fabric. Leave out the path option."
 
 
@@ -189,7 +190,6 @@ def _clear_output(path: str) -> None:
     """Remove a Spark write's folder (or a file) at ``path`` before an overwrite, as Spark does. A
     folder that holds anything a Spark write doesn't leave (part files, _SUCCESS, name=value folders),
     or a link, is refused instead, so an overwrite can't delete someone's own files."""
-    import shutil
     refused = "so overwrite didn't delete anything. Write to a new path, or empty the folder first."
     if _is_link(path):
         raise ValueError(f"{path} is a link, {refused}")
@@ -206,7 +206,7 @@ def _clear_output(path: str) -> None:
         foreign = [f for f in files if not _SPARK_OUTPUT.fullmatch(f)]
         if foreign:
             raise ValueError(f"{path} holds files a Spark write doesn't make ({foreign[0]}), {refused}")
-    shutil.rmtree(path)
+    trees.remove(path)
 
 
 def write_files(rel: Any, path: str, fmt: str, partition_by: list[str], header: bool = False,
@@ -295,8 +295,6 @@ class LakehouseWriter:
 
     def option(self, key: str, value: Any) -> LakehouseWriter:
         name = str(key).lower()
-        if name in _REFUSED:
-            raise NotImplementedError(_REFUSED[name])
         if name in _MODE_OPTIONS:
             _overwrite_mode(None, {name: value})  # static or dynamic, else refused here
         self._options[name] = value
@@ -382,7 +380,24 @@ class LakehouseWriter:
 
     def _write(self, data: pa.Table, name: str, how: str, schema_mode: str | None) -> None:
         predicate = None
-        if how == "overwrite" and _overwrite_mode(self._df.session, self._options) == "dynamic" \
+        replace = self._options.get("replacewhere")
+        if replace is not None and how != "overwrite":
+            print("Note: replaceWhere only applies to an overwrite; this append adds the rows, as Delta does.")
+            replace = None
+        if replace is not None and not lakehouse.table_exists(name):
+            replace = None  # a new table gets every row, as in Delta (there is nothing to replace yet)
+        if replace is not None:
+            if str(self._options.get("partitionoverwritemode", "")).strip().lower() == "dynamic" \
+                    and lakehouse.open_table(name).metadata().partition_columns:  # Delta ignores it unpartitioned
+                raise ValueError("[DELTA_REPLACE_WHERE_WITH_DYNAMIC_PARTITION_OVERWRITE] A 'replaceWhere' expression "
+                                 "and 'partitionOverwriteMode'='dynamic' cannot both be set in the DataFrameWriter "
+                                 "options. Nothing was written.")
+            if schema_mode == "overwrite":  # Delta's canOverwriteSchema is false with replaceWhere
+                print("Note: overwriteSchema doesn't apply with replaceWhere; the table keeps its schema, as in Delta.")
+                schema_mode = "merge" if _true(self._options.get("mergeschema")) else None
+            predicate = _replace_where(str(replace), name)
+            _rows_match(data, predicate, str(replace), name)
+        elif how == "overwrite" and _overwrite_mode(self._df.session, self._options) == "dynamic" \
                 and lakehouse.table_exists(name):
             parts = list(lakehouse.open_table(name).metadata().partition_columns)
             if parts and schema_mode == "overwrite":
@@ -408,7 +423,7 @@ class LakehouseWriter:
                     ".option(\"mergeSchema\", \"true\").")
         if schema_mode != "overwrite" and lakehouse.table_exists(name):
             _check_types(data, name, how)  # mergeSchema adds columns; it never changes a column's type
-        print(_write_table(data, name, how, schema_mode, predicate))
+        print(_write_table(data, name, how, schema_mode, predicate, replace))
 
     def saveAsTable(self, name: str, format: str | None = None, mode: str | None = None,  # noqa: A002
                     partitionBy: Any = None, **options: Any) -> None:  # noqa: N803
@@ -420,7 +435,7 @@ class LakehouseWriter:
         if (format or self._format) not in ("delta", None):
             raise ValueError("Lakehouse tables are Delta tables. Leave out format, or use format(\"delta\").")
         self._table_partitions_note()
-        self._check_options(_SCHEMA_OPTIONS + _MODE_OPTIONS, "a Delta table")
+        self._check_options(_SCHEMA_OPTIONS + _MODE_OPTIONS + _REPLACE_OPTIONS, "a Delta table")
         how = self._write_mode(name)
         if how != "skip":
             self._write(_arrow(self._df), name, how, self._schema_mode(how))
@@ -497,8 +512,18 @@ class LakehouseWriter:
         self.save(path, format="orc", mode=mode, partitionBy=partitionBy, **options)
 
 
-def _write_table(data: pa.Table, name: str, how: str, schema_mode: str | None, predicate: str | None = None) -> Any:
-    from deltalake.exceptions import SchemaMismatchError
+def _replace_where(condition: str, name: str) -> str:
+    """replaceWhere's condition as the predicate delta-rs replaces by (spark_replace_where.predicate)."""
+    return spark_replace_where.predicate(condition, name, _columns(name) or [])
+
+
+_replace_mismatch = spark_replace_where.mismatch
+_rows_match = spark_replace_where.check_rows
+
+
+def _write_table(data: pa.Table, name: str, how: str, schema_mode: str | None, predicate: str | None = None,
+                 replace: Any = None) -> Any:
+    from deltalake.exceptions import DeltaError, SchemaMismatchError
     try:
         if predicate is not None:
             return lakehouse.write_table(data, name, mode=how, schema_mode=schema_mode, predicate=predicate)
@@ -507,6 +532,10 @@ def _write_table(data: pa.Table, name: str, how: str, schema_mode: str | None, p
         raise ValueError(f"The data doesn't match table {name}'s schema ({e}). Nothing was written. To replace "
                          "the schema, add .option(\"overwriteSchema\", \"true\") to an overwrite; to add columns, "
                          "add .option(\"mergeSchema\", \"true\").") from None
+    except DeltaError as e:
+        if replace is None or "failed validation check" not in str(e):
+            raise
+        raise _replace_mismatch(str(replace), name) from None
 
 
 _KINDS = (("a whole number", pa.types.is_integer), ("a decimal", pa.types.is_decimal),
@@ -535,9 +564,42 @@ def _check_types(data: pa.Table, table: str, how: str) -> None:
                          f"written. To write it, {fix}.")
 
 
-_MERGE_SOURCES = itertools.count(1)
 _AUTO_MERGE = "spark.databricks.delta.schema.autoMerge.enabled"
 _SPARK_SET = re.compile(r"\s*SET\s+(?P<key>spark\.[\w.]+)\s*=\s*(?P<value>[^;]*?)\s*;?\s*", re.I)
+_ONE_CHANGE = ("spark.sql runs MERGE INTO, UPDATE and DELETE only as the only statement in the call. "
+               "Nothing ran. Call spark.sql once for each statement.")
+_CHANGE = re.compile(r"\s*(?:MERGE|UPDATE|DELETE)\b", re.I)
+_TIME_ZONE_KEY = "spark.sql.session.timeZone"
+_SET_TIME_ZONE = re.compile(r"\s*SET\s+TIME\s+ZONE\s+(?P<zone>'[^']*'|\"[^\"]*\")\s*;?\s*", re.I)
+_SPARK_RESET = re.compile(r"\s*RESET(?:\s+(?P<key>spark\.[\w.]+))?\s*;?\s*", re.I)
+_SESSION_SETTING = re.compile(r"(?i)\bRESET\b|\bTIME\s+ZONE\b|\bspark\.sql\.session\.timeZone\b")
+
+
+def _session_setting_pieces(query: str) -> list[str]:
+    """``query``'s statements as text, when there are several and one sets (or resets) the session time zone
+    (SET TIME ZONE, SET spark.sql.session.timeZone, RESET); else []."""
+    if not _SESSION_SETTING.search(query):
+        return []
+    import sqlglot
+    from sqlglot.tokens import TokenType
+    try:
+        tokens = sqlglot.Dialect.get_or_raise("spark").tokenize(query)
+    except Exception:  # noqa: BLE001  # silent-ok: text the tokenizer can't read is parse()'s to report
+        return []
+    pieces, start = [], 0
+    for token in tokens:
+        if token.token_type == TokenType.SEMICOLON:
+            pieces.append(query[start:token.start])
+            start = token.end + 1
+    pieces = [p for p in (*pieces, query[start:]) if p.strip()]
+    def sets(piece: str) -> bool:
+        head = delta_dml_comments.sub("", piece)
+        setting = _SPARK_SET.fullmatch(head)
+        return bool(_SET_TIME_ZONE.fullmatch(head) or _SPARK_RESET.fullmatch(head)
+                    or (setting is not None and setting["key"] == _TIME_ZONE_KEY))
+    return pieces if len(pieces) > 1 and any(sets(p) for p in pieces) else []
+
+
 _SCHEMA_EVOLUTION = re.compile(r"\s*MERGE\s+WITH\s+SCHEMA\s+EVOLUTION\b", re.I)
 _SCHEMA_EVOLUTION_WORDS = re.compile(r"\s+WITH\s+SCHEMA\s+EVOLUTION\b", re.I)
 
@@ -571,7 +633,6 @@ def change_runs_here(query: str, lakehouse_name: str | None = None) -> bool:
 # behind Runs on finds it in a notebook's code. tests/test_spark_refusals.py fails when a refusal is
 # added here without an entry, so Runs on can't say "runs on this PC" for code this PC refuses.
 CHECKED_REFUSALS = {
-    "option": "a refused writer option, by its literal name (writer_option_refusal)",
     "_check_options": "an option saveAsTable or insertInto doesn't take, by its literal name (writer_option_refusal)",
     "_preview_on": "change_runs_here, with Preview features off",
     "schema": "read.schema() given a string (READ_SCHEMA_TEXT)",
@@ -601,25 +662,19 @@ REFUSED_CODE: list[tuple[re.Pattern[str], str]] = [
 # DeltaTable maintenance (spark_maint, Preview): runs on this PC only with Preview features on (_preview_on).
 DELTA_MAINTENANCE = ("restoreToVersion", "restoreToTimestamp", "vacuum", "optimize")
 MAINTENANCE_PREVIEW_TEXT = "runs {}, which this PC runs only with Preview features on"
-# For a cell Python can't read: the refused writer options that only a writer takes (a reader's
-# "path" option is fine, so it isn't here). A cell Python reads goes through writer_option_refusal.
-REFUSED_OPTION_TEXT = re.compile(r"""\.option\(\s*["'](replaceWhere)["']""", re.I)
 READ_SCHEMA_TEXT = "gives read.schema() a DDL string, which this PC's Spark refuses (give it a StructType)"
 READ_SCHEMA_ON = "applies read.schema() to a read of {}, which this PC's Spark refuses (leave it out and cast the columns after)"
 READ_FORMATS = ("delta", "csv", "json", "parquet", "text")
 READ_FORMAT_TEXT = "reads format {!r}, which this PC's Spark doesn't have (it reads csv, json, parquet, text and delta)"
 TABLE_FORMAT_TEXT = "saves a lakehouse table as {!r}, which this PC's Spark refuses: lakehouse tables are Delta tables"
 # The options each table write takes on this PC (_check_options), by lower-case name.
-WRITE_TAKES = {"saveAsTable": _SCHEMA_OPTIONS + _LAYOUT_OPTIONS + _MODE_OPTIONS, "insertInto": _LAYOUT_OPTIONS + _MODE_OPTIONS}
+WRITE_TAKES = {"saveAsTable": _SCHEMA_OPTIONS + _LAYOUT_OPTIONS + _MODE_OPTIONS + _REPLACE_OPTIONS, "insertInto": _LAYOUT_OPTIONS + _MODE_OPTIONS}
 
 
 def writer_option_refusal(name: str, terminal: str | None) -> str | None:
     """Why this PC's writer refuses option ``name`` on a write that ends in ``terminal`` (saveAsTable,
     insertInto, or None when the check can't tell), or None when it takes it."""
     key = name.lower()
-    if key in _REFUSED:
-        first = _REFUSED[key].split(". ")[0]
-        return f"uses the {name} write option: {first[0].lower()}{first[1:].rstrip('.')}"
     takes = WRITE_TAKES.get(terminal or "")
     if takes is not None and key == "path":
         return f"uses the {name} write option on {terminal}: writing a table to its own path (an external table) runs in Fabric"
@@ -1078,8 +1133,12 @@ class LakehouseReader:
 
     def table(self, name: str) -> DataFrame:
         self._no_schema("a table")
+        from . import delta_cdf
+        if delta_cdf.asked(self._options):  # readChangeFeed: the table's changes, never the table itself
+            return self._session._from_arrow_dataset(delta_cdf.read(lakehouse.open_table(name), name, self._options,
+                                                                    self._session._instant))
         if self._as_of():
-            data = lakehouse.open_table(name, **self._as_of()).to_pyarrow_dataset()
+            data = lakehouse.table_dataset(lakehouse.open_table(name, **self._as_of()))
             return self._session._from_arrow_dataset(data)
         return self._session.table(name)
 
@@ -1127,10 +1186,14 @@ class LakehouseReader:
                 return self.table(".".join(p for p in rel.split("/")[1:] if p))
             from deltalake import DeltaTable
             opened = DeltaTable(path)
+            from . import delta_cdf
+            if delta_cdf.asked(self._options):
+                return self._session._from_arrow_dataset(delta_cdf.read(opened, path, self._options,
+                                                                        self._session._instant))
             point = lakehouse.as_of(**self._as_of())
             if point is not None:
                 opened.load_as_version(point)
-            return self._session._from_arrow_dataset(opened.to_pyarrow_dataset())
+            return self._session._from_arrow_dataset(lakehouse.table_dataset(opened))
         if fmt == "csv":
             return self.csv(path)
         if fmt == "json":
@@ -1158,7 +1221,9 @@ class LakehouseReader:
         given = self._options
         self._refusal("csv")
         # A comma unless sep or delimiter says otherwise, as in Spark: DuckDB would guess one from the file.
-        extra: dict[str, Any] = {"sep": str(given.get("sep") or given.get("delimiter") or ",")}
+        # skiprows 0: Spark never leaves out a line, where DuckDB's sniffer drops the first lines of a file
+        # when they don't look like the rest (a title, or a first row with fewer columns), with no error.
+        extra: dict[str, Any] = {"sep": str(given.get("sep") or given.get("delimiter") or ","), "skiprows": 0}
         if not _true(given.get("inferschema", False)) or getattr(self, "_schema", None):
             extra["all_varchar"] = True
         if given.get("nullvalue") not in (None, ""):
@@ -1238,6 +1303,7 @@ class LocalSparkSession(SparkSession):
         super().__init__(SparkContext("local"))
         self.conn.execute("SET TimeZone = 'UTC'")  # like Fabric's Spark sessions, not this PC's zone
         keep_try_cast(self.conn)
+        spark_hash.register(self.conn)  # sha2 at 224, 384 and 512 bits
         # The running query's progress, for the line under a running cell (progress()); never printed.
         self.conn.execute("SET enable_progress_bar = true")
         self.conn.execute("SET enable_progress_bar_print = false")
@@ -1349,11 +1415,56 @@ class LocalSparkSession(SparkSession):
                 lambda v: isinstance(v, DataFrame), lambda v: isinstance(v, _Column))
         if args is not None:
             sqlQuery = spark_sql_params.bind(sqlQuery, args)
+        with spark_time_zone.for_session(self):  # its casts are written for this session's time zone
+            return self._sql(sqlQuery)
+
+    @staticmethod
+    def _setting_pieces(query: str) -> list[str]:
+        """``_session_setting_pieces(query)``, checked before any piece runs: a call holding OPTIMIZE, VACUUM,
+        RESTORE or MERGE WITH SCHEMA EVOLUTION isn't split, so it stops as it would without the time zone
+        statement (each must be the only statement in its call), and one holding a MERGE, UPDATE or DELETE
+        is refused, as any call with one beside other statements is."""
+        pieces = _session_setting_pieces(query)
+        if not pieces:
+            return []
+        from sqlglot import exp
+
+        from . import spark_maint
+        heads = [delta_dml_comments.sub("", p) for p in pieces]
+        if any(spark_maint.STARTS.match(h) or _SCHEMA_EVOLUTION.match(h) for h in heads):
+            return []
+        for head in heads:
+            if _CHANGE.match(head):
+                raise ValueError(_ONE_CHANGE)
+            if _SET_TIME_ZONE.fullmatch(head) or _SPARK_SET.fullmatch(head) or _SPARK_RESET.fullmatch(head):
+                continue
+            try:
+                trees = _sql.parse(head)
+            except Exception:  # noqa: BLE001  # silent-ok: the piece's own run reports what it can't read
+                continue
+            if any(t is not None and t.find(exp.Merge, exp.Update, exp.Delete) for t in trees):
+                raise ValueError(_ONE_CHANGE)  # WITH c AS (...) DELETE ... too
+        return pieces
+
+    def _sql(self, sqlQuery: str) -> DataFrame:  # noqa: N803
         head = delta_dml_comments.sub("", sqlQuery)  # a leading comment doesn't hide RESTORE or SCHEMA EVOLUTION
+        if (zone := _SET_TIME_ZONE.fullmatch(head)) is not None:  # SET TIME ZONE 'z' is spark.conf's, as in Spark
+            head = f"SET {_TIME_ZONE_KEY} = {zone['zone']}"
         if (setting := _SPARK_SET.fullmatch(head)) is not None:  # SET spark.x = y goes to spark.conf, as in Spark
             key, value = setting["key"], setting["value"].strip().strip("'\"")
             self.conf.set(key, value)
             return self.createDataFrame([(key, value)], ["key", "value"])
+        if (reset := _SPARK_RESET.fullmatch(head)) is not None:  # RESET [spark.x]: back to the default, as in Spark
+            # Spark's bare RESET puts every key back to its session default, builder settings included; those
+            # aren't kept apart from later ones here, so a bare RESET resets the session time zone only
+            self.conf.unset(reset["key"] or _TIME_ZONE_KEY)
+            return DataFrame(self.conn.sql("SELECT 1 WHERE false"), self)
+        if len(pieces := self._setting_pieces(sqlQuery)) > 1:
+            # a later statement is written for the time zone an earlier one sets, so each runs on its own
+            result: DataFrame | None = None
+            for piece in pieces:
+                result = self._sql(piece)
+            return cast(DataFrame, result)
         from . import spark_maint
         spec = spark_maint.statement(head)  # OPTIMIZE, VACUUM, RESTORE (Preview), as the only statement
         if spec is not None:
@@ -1368,12 +1479,66 @@ class LocalSparkSession(SparkSession):
         from sqlglot import exp
         if len(statements) > 1 and any(isinstance(s, (exp.Merge, exp.Update, exp.Delete)) for s in statements):
             # The change would commit before a later statement could fail; Spark runs one statement per call.
-            raise ValueError("spark.sql runs MERGE INTO, UPDATE and DELETE only as the only statement in the call. "
-                             "Nothing ran. Call spark.sql once for each statement.")
-        result: DataFrame | None = None
+            raise ValueError(_ONE_CHANGE)
+        result = None
         for statement in statements:
             result = self._statement(statement, evolve=evolve)
         return result if result is not None else DataFrame(self.conn.sql("SELECT 1 WHERE false"), self)
+
+    def _instant(self, text: str) -> datetime.datetime:
+        """``text`` (a date, or a date and time with or without a zone) as an instant, a time with no zone read
+        in the session time zone (spark.sql.session.timeZone), as Spark reads it."""
+        from zoneinfo import ZoneInfo
+
+        from . import spark_time_zone
+        when = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if when.tzinfo is None:  # no query on the connection here: a cell's own result may still be open on it
+            zone = spark_time_zone.zone_id(self.conf.get("spark.sql.session.timeZone", "UTC"))
+            when = when.replace(tzinfo=ZoneInfo(zone))
+        return when
+
+    def _table_changes(self, statement: Any) -> Any:
+        """Each ``table_changes(table_str, start [, end])`` in ``statement`` read from the table's change data
+        feed (delta_cdf) into a view, as Databricks and Fabric read it: a whole number is a version, text a
+        timestamp. Only literal arguments, since the read happens before the query runs."""
+        from sqlglot import exp
+
+        from . import delta_cdf
+        for node in list(statement.find_all(exp.Anonymous)):
+            if node.name.lower() != "table_changes":
+                continue
+            values = []
+            for arg in node.expressions:
+                if isinstance(arg, exp.Neg) and isinstance(arg.this, exp.Literal) and not arg.this.is_string:
+                    raise ValueError("table_changes takes versions from 0 up, so nothing ran. A version can't be "
+                                     "negative.")
+                if isinstance(arg, exp.Literal) and arg.is_string and arg.name.strip().isdigit() \
+                        and arg is not node.expressions[0]:
+                    raise ValueError(f"table_changes reads '{arg.name}' in quotes as a timestamp, and it isn't one, "
+                                     f"so nothing ran. Write a version without quotes: table_changes(..., "
+                                     f"{arg.name.strip()}).")
+                if not isinstance(arg, exp.Literal):
+                    raise ValueError("table_changes takes a table name and versions or timestamps written as "
+                                     "literals on this PC, so nothing ran. Write each one as a number or a "
+                                     "quoted time.")
+                values.append(int(arg.name) if not arg.is_string and arg.name.isdigit() else arg.name)
+            if len(values) not in (2, 3) or not isinstance(values[0], str):
+                raise ValueError("table_changes takes a table name, a start and an optional end: "
+                                 "table_changes('orders', 1) or table_changes('orders', 1, 3). Nothing ran.")
+            options: dict[str, Any] = {"readchangefeed": "true"}
+            for side, value in zip(("starting", "ending"), values[1:], strict=False):
+                options[f"{side}{'version' if isinstance(value, int) else 'timestamp'}"] = value
+            name = values[0]
+            views = self._bound()
+            view = f"__lakehouse_changes_{len(views)}"
+            views[f"changes:{name.lower()}:{len(views)}"] = view
+            self.conn.register(view, delta_cdf.read(lakehouse.open_table(name), name, options, self._instant))
+            holder = node.parent if isinstance(node.parent, exp.Table) else node
+            replacement = exp.Table(this=exp.to_identifier(view))
+            if isinstance(holder, exp.Table) and holder.args.get("alias") is not None:
+                replacement.set("alias", holder.args["alias"])
+            holder.replace(replacement)
+        return statement
 
     def _statement(self, statement: Any, evolve: bool = False) -> DataFrame | None:
         from sqlglot import exp
@@ -1381,6 +1546,7 @@ class LocalSparkSession(SparkSession):
             _use(statement)
             return None
         statement = _sql.history_query(statement, self.conn, self._bound())  # DESCRIBE HISTORY t
+        statement = self._table_changes(statement)  # table_changes('t', 1): the table's change data feed
         if isinstance(statement, exp.Merge):
             return self._merge(statement, evolve)
         if isinstance(statement, (exp.Update, exp.Delete)):
@@ -1414,7 +1580,7 @@ class LocalSparkSession(SparkSession):
                 name = _sql.table_name(target)  # with its catalog: main.dbo.t is refused, never written to dbo.t
                 query = statement.expression.copy()
                 self._bind(query)
-                data = self.conn.sql(_sql.duckdb_sql(spark_complex_types(spark_decimal_types(query, self.conn), self.conn)))
+                data = self.conn.sql(_sql.duckdb_sql(spark_complex_types(spark_decimal_types(spark_text_comparisons(query, self.conn), self.conn), self.conn)))
                 insert = isinstance(statement, exp.Insert)
                 mode = "append" if insert and not statement.args.get("overwrite") else "overwrite"
                 if insert and (statement.find(exp.Partition) or statement.args.get("where")):
@@ -1445,7 +1611,8 @@ class LocalSparkSession(SparkSession):
                     print(lakehouse.write_table(arrow, name, mode=mode))
                 return None
         self._bind(statement)
-        statement = spark_complex_types(spark_decimal_types(statement, self.conn), self.conn)
+        statement = spark_complex_types(spark_decimal_types(spark_text_comparisons(statement, self.conn), self.conn),
+                                        self.conn)
         text = _sql.duckdb_sql(statement)
         if isinstance(statement, (exp.Query, exp.Select, exp.Describe, exp.Show)) or text.upper().startswith(("SELECT", "WITH", "FROM", "VALUES", "DESCRIBE", "SHOW")):
             return DataFrame(self.conn.sql(text), self)
@@ -1487,7 +1654,6 @@ class LocalSparkSession(SparkSession):
                 local_delta.fabric_schema(pa.schema(new), names=True)
         names = [cased.get(f.name.lower(), f.name) for f in safe]
         source = source.rename_columns(names).cast(pa.schema([pa.field(n, f.type) for n, f in zip(names, safe, strict=True)]))
-        self._one_match_each(change, source)
         result = lakehouse.change_table(change, source)
         affected = result.rows_inserted + result.rows_updated + result.rows_deleted
         return self._from_arrow_dataset(pa.table({
@@ -1512,37 +1678,6 @@ class LocalSparkSession(SparkSession):
         result = lakehouse.change_table(change)
         return self._from_arrow_dataset(pa.table({
             "num_affected_rows": [result.rows_updated if change.kind == "update" else result.rows_deleted]}))
-
-    def _one_match_each(self, change: Any, source: pa.Table) -> None:
-        """Spark refuses a MERGE in which one row of the table matches two source rows (which one
-        would change it is undefined); delta-rs doesn't, so it is checked here for ON t.a = s.a [AND ...]."""
-        import sqlglot
-
-        from . import delta_dml
-        keys = delta_dml.equi_keys(change)
-        matched = [w for w in change.whens if w.match == "matched"]
-        if not keys or not matched or not source.num_rows:
-            return
-        if len(matched) == 1 and matched[0].action == "delete" and matched[0].condition is None:
-            return  # Spark allows it: every source row deletes the same table row, so the result is defined
-        view = f"__merge_source_{next(_MERGE_SOURCES)}"
-        self.conn.register(view, source)
-        try:
-            sa, ta = change.source_alias or "s", change.alias or change.table
-            group = ", ".join(f"`{sa}`.`{s_col}`" for _t, s_col in keys)
-            target = f"`{change.schema}`.`{change.table}`" if change.schema else f"`{change.table}`"
-            check = sqlglot.parse_one(
-                f"SELECT {group} FROM {view} AS `{sa}` WHERE EXISTS (SELECT 1 FROM {target} AS `{ta}` WHERE "
-                f"{change.on.sql(dialect='spark')}) GROUP BY {group} HAVING count(*) > 1 LIMIT 1", read="spark")
-            self._bind(check)
-            duplicate = first_row(self.conn.execute(_sql.duckdb_sql(check)))
-        finally:
-            self.conn.unregister(view)
-        if duplicate is not None:
-            raise ValueError(f"More than one source row matches the same row of {change.name} (source key "
-                             f"{', '.join(str(v) for v in duplicate)}), so which one changes it is undefined, and "
-                             "Spark refuses it too. Keep one source row per key, for example with QUALIFY "
-                             "row_number() OVER (PARTITION BY key ORDER BY ...) = 1.")
 
     def createDataFrame(self, data: Any, schema: Any = None, samplingRatio: Any = None,  # noqa: N802, N803
                         verifySchema: bool = True) -> DataFrame:  # noqa: N803

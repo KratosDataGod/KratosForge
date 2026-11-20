@@ -12,17 +12,23 @@ import datetime as dt
 import hashlib
 import json
 import logging
+import threading
 import time
-from typing import Any, Callable
+from concurrent.futures import Future, ThreadPoolExecutor, wait
+from contextlib import ExitStack, contextmanager
+from typing import Any, Callable, Iterator
 
 import polars as pl
 import pyarrow as pa
+from deltalake import DeltaTable
+from deltalake.exceptions import TableNotFoundError
 
-from . import http_session, retrying
+from . import http_session, jsonfile, retrying
 from .meta import Engine, impact
 from .meta import compare as compare_mod
 from .meta import diff as diff_mod
 from .meta import drift as drift_mod
+from .meta import data_health as data_health_mod
 from .meta import freshness as freshness_mod
 from .meta import release
 from .meta import store as store_mod
@@ -31,8 +37,9 @@ from .meta_service import NoMetadataProject
 from . import sealed_settings
 from .redact import describe, one_line
 from .retrying import send_with_retry
+from .leases import _file_lock
 from .workloads import deliver
-from .workloads.notify import LINE_MAX
+from .workloads.notify import LINE_MAX, answered
 
 _log = logging.getLogger(__name__)
 
@@ -43,12 +50,43 @@ def _rows_in(table: Any) -> int:
     if "num_records" in actions.column_names and actions.column("num_records").null_count == 0:
         import pyarrow.compute as pc  # here, not at the top: it adds about 30 ms to every engine start
 
-        return int(pc.sum(actions.column("num_records")).as_py() or 0)
-    return table.to_pyarrow_dataset().count_rows()
+        from . import delta_read
+        return int(pc.sum(actions.column("num_records")).as_py() or 0) - delta_read.deleted_rows(table)
+    from . import delta_read
+    return delta_read.count(table)
 
 
 def _rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
     return json.loads(df.head(limit).write_json())
+
+
+DATA_HEALTH_FILE = "data_health.json"
+DATA_HEALTH_MAX = 100  # tables one PC watches
+DATA_HEALTH_LIST_SECONDS = 120  # the whole list; a table not checked by then says so
+DATA_HEALTH_LOCK_SECONDS = 10  # waiting longer for another process's save is an error, not a hang
+DATA_HEALTH_RESET_DAYS = 7  # how long the list says it was started again after an unreadable file
+_DH_LOCK = threading.Lock()  # this process's threads; _dh_locked adds a file lock for other processes
+_DH_RUNNING_LOCK = threading.Lock()  # the checks still running, shared by refreshes
+
+
+def _dh_duration(seconds: float) -> str:
+    """How long, as a person would say it: "2 minutes", "1 minute", or "0.5 s" under a minute."""
+    if seconds >= 60 and seconds % 60 == 0:
+        minutes = int(seconds // 60)
+        return f"{minutes} minute" + ("" if minutes == 1 else "s")
+    return f"{seconds:g} s"
+
+
+def _dh_key(env: str, entity: str, kind: str, version: Any) -> str:
+    return f"{env}|{entity}|{kind}|{version}"
+
+
+def _dh_time(text: str) -> dt.datetime:
+    try:
+        t = dt.datetime.fromisoformat(str(text))
+    except ValueError:
+        return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+    return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
 
 
 class DataOpsMixin:
@@ -87,7 +125,8 @@ class DataOpsMixin:
             result = compare_mod.missing(e, *(None if t is None else _rows_in(t) for t in sides))
         elif max(_rows_in(t) for t in sides) > compare_mod.LIMIT_ROWS:
             # Too many rows to load both sides: stream them for counts, totals and a checksum.
-            result = compare_mod.hashed(e, *(t.to_pyarrow_dataset() for t in sides))
+            from . import delta_read
+            result = compare_mod.hashed(e, *(delta_read.dataset(t) for t in sides))
         else:
             result = compare_mod.compare(e, self._table(project, name, left_env, left_version),
                                          self._table(project, name, right_env, right_version))
@@ -323,6 +362,178 @@ class DataOpsMixin:
         items = freshness_mod.report({n: e.spec for n, e in project.entities.items()}, data["runs"], envs)
         return {"items": items, "unavailable": data["unavailable"], "alerts": alerts, "alerts_unreadable": unreadable}
 
+    def meta_data_health(self, name: str, env: str = "dev") -> dict[str, Any]:
+        """Freshness, volume and schema of one entity's table in ``env``, read from its Delta log on
+        this PC (meta/data_health). Only reads: no Fabric job, and nothing in the table changes."""
+        if env not in ENVIRONMENTS:
+            raise ValueError(f"env is one of {', '.join(ENVIRONMENTS)}")
+        project = self._project()  # type: ignore[attr-defined]
+        if name not in project.entities:
+            raise ValueError(f"{name} isn't an entity in the metadata project")
+        e = project.entities[name]
+        store = self._store(project, env)  # type: ignore[attr-defined]
+        uri, options = store.uri(project.layer(e.layer).lakehouse, e.schema, e.table), store.options()
+        promise = freshness_mod.promise(e.spec)
+        within = promise["within_hours"] if promise and env in promise["envs"] else None
+        out: dict[str, Any] = {"entity": name, "env": env}
+        try:
+            return out | data_health_mod.check(lambda v: DeltaTable(uri, version=v, storage_options=options), within)
+        except TableNotFoundError:
+            return out | {"state": "no_table", "why": f"There's no Delta table for {name} in {env} yet."}
+
+    # ---- Monitor > Data health: the tables each person watches, and alerts they acknowledged or snoozed
+
+    @contextmanager
+    def _dh_locked(self) -> Iterator[None]:
+        """Hold the Data health list for a read-change-write: this process's threads take turns, and so
+        do other processes on this PC (a second app window, the MCP server), so neither loses the other's
+        acknowledgement. A process stuck holding it is waited on for DATA_HEALTH_LOCK_SECONDS, then an error."""
+        with _DH_LOCK, ExitStack() as held:
+            try:
+                held.enter_context(_file_lock(self.root / f"{DATA_HEALTH_FILE}.lock", timeout=DATA_HEALTH_LOCK_SECONDS))  # type: ignore[attr-defined]
+            except TimeoutError:
+                raise TimeoutError("Another KratosForge window or tool is saving the Data health list. Try again in a moment.") from None
+            yield
+
+    def _dh_read(self) -> dict[str, Any]:
+        """The watched tables and quiet alerts. A file that can't be parsed (cut short by a crash, or
+        edited by hand) is kept as ``data_health.json.corrupt-<time>``, the list starts again empty, and
+        ``reset`` says so with the copy's name until DATA_HEALTH_RESET_DAYS pass. Call under _dh_locked."""
+        path = self.root / DATA_HEALTH_FILE  # type: ignore[attr-defined]
+        now = dt.datetime.now(dt.timezone.utc)
+        try:
+            state = json.loads(jsonfile.read_text(path))
+            if not isinstance(state, dict):
+                raise ValueError("it isn't a Data health list")
+        except FileNotFoundError:
+            state = {}
+        except ValueError:
+            copy = jsonfile.set_aside(path, "Data health starts again with no watched tables")
+            state = {"reset": {"at": now.isoformat(timespec="seconds"), "copy": copy.name}}
+            jsonfile.write_json(path, state)
+        watched = [w for w in state.get("watched") or [] if isinstance(w, dict) and w.get("entity") and w.get("env")]
+        quiet = {k: v for k, v in (state.get("quiet") or {}).items() if isinstance(v, dict)}
+        out: dict[str, Any] = {"watched": watched, "quiet": quiet}
+        reset = state.get("reset")
+        if isinstance(reset, dict) and isinstance(reset.get("at"), str) and isinstance(reset.get("copy"), str):
+            try:
+                if now - _dh_time(reset["at"]) < dt.timedelta(days=DATA_HEALTH_RESET_DAYS):
+                    out["reset"] = {"at": reset["at"], "copy": reset["copy"]}
+            except ValueError:
+                pass
+        return out
+
+    def _dh_write(self, state: dict[str, Any]) -> None:
+        jsonfile.write_json(self.root / DATA_HEALTH_FILE, state)  # type: ignore[attr-defined]
+
+    def meta_data_health_list(self, env: str = "dev") -> dict[str, Any]:
+        """The watched tables in ``env``, each checked from its Delta log (meta_data_health), with the
+        alerts acknowledged or snoozed on this PC marked. Only reads."""
+        if env not in ENVIRONMENTS:
+            raise ValueError(f"env is one of {', '.join(ENVIRONMENTS)}")
+        try:
+            names = sorted(self._project().entities)  # type: ignore[attr-defined]
+        except NoMetadataProject:
+            return {"env": env, "tables": [], "entities": [], "no_project": True, "rule": data_health_mod.rule()}
+        with self._dh_locked():
+            state = self._dh_read()
+        watched = [w["entity"] for w in state["watched"] if w["env"] == env]
+        known = set(names)
+
+        def one(name: str) -> dict[str, Any]:
+            if name not in known:  # renamed or removed in the project: say so, never a stale result
+                return {"entity": name, "env": env, "state": "not_in_project",
+                        "why": f"{name} isn't in the metadata project any more. Stop watching it to take it off the list."}
+            try:
+                return self.meta_data_health(name, env)
+            except Exception as exc:  # noqa: BLE001 - one table that can't be read doesn't hide the others
+                return {"entity": name, "env": env, "state": "error", "why": describe(exc)}
+
+        # Four at a time, and the whole list within DATA_HEALTH_LIST_SECONDS: a table whose log read
+        # hangs (OneLake not answering) shows as not checked, never holds up the others or reads as fine.
+        # A check still running from an earlier refresh is waited on again, not started twice, so a
+        # hung read leaves at most one thread per table however often the list is refreshed.
+        running: dict[tuple[str, str], Future[dict[str, Any]]] = self.__dict__.setdefault("_dh_running", {})
+        pool = ThreadPoolExecutor(max_workers=4)
+        futures = []
+        with _DH_RUNNING_LOCK:
+            for name in watched:
+                f = running.get((env, name))
+                if f is None or f.done():
+                    f = running[(env, name)] = pool.submit(one, name)
+                futures.append(f)
+        wait(futures, timeout=DATA_HEALTH_LIST_SECONDS)
+        pool.shutdown(wait=False, cancel_futures=True)
+        limit = _dh_duration(DATA_HEALTH_LIST_SECONDS)
+        tables = [f.result() if f.done() and not f.cancelled() else
+                  {"entity": name, "env": env, "state": "error",
+                   "why": f"The check of {name} didn't finish within {limit}, so it's not shown as healthy. Check again later."}
+                  for name, f in zip(watched, futures, strict=True)]
+        now = dt.datetime.now(dt.timezone.utc)
+        for t in tables:
+            for a in t.get("alerts") or []:
+                q = state["quiet"].get(_dh_key(env, t["entity"], a["kind"], a.get("version")))
+                if q and (not q.get("until") or _dh_time(q["until"]) > now):
+                    a["quiet"] = q
+        self._dh_prune(env, tables)
+        out = {"env": env, "tables": tables, "entities": names, "rule": data_health_mod.rule()}
+        return out | ({"reset": state["reset"]} if "reset" in state else {})
+
+    def _dh_prune(self, env: str, tables: list[dict[str, Any]]) -> None:
+        """Forget acknowledgements and snoozes that no current alert matches: an alert is only ever on a
+        table's latest load, so one for an older version can't come back. A table that couldn't be read
+        keeps its own, since its alerts are unknown."""
+        read = {t["entity"]: {_dh_key(env, t["entity"], a["kind"], a.get("version")) for a in t.get("alerts") or []}
+                for t in tables if t.get("state") not in ("error", "no_table")}
+        if not read:
+            return
+        with self._dh_locked():
+            state = self._dh_read()
+            keep = {k: v for k, v in state["quiet"].items()
+                    if not (k.startswith(f"{env}|") and k.split("|")[1] in read and k not in read[k.split("|")[1]])}
+            if len(keep) != len(state["quiet"]):
+                state["quiet"] = keep
+                self._dh_write(state)
+
+    def meta_data_health_watch(self, name: str, env: str, watch: bool = True) -> dict[str, Any]:
+        """Add a table to (or take it off) this PC's Data health list. Changes nothing in the table."""
+        if env not in ENVIRONMENTS:
+            raise ValueError(f"env is one of {', '.join(ENVIRONMENTS)}")
+        if watch and name not in self._project().entities:  # type: ignore[attr-defined]
+            raise ValueError(f"{name} isn't an entity in the metadata project")
+        with self._dh_locked():
+            state = self._dh_read()
+            state["watched"] = [w for w in state["watched"] if (w["entity"], w["env"]) != (name, env)]
+            if watch:
+                if len(state["watched"]) >= DATA_HEALTH_MAX:
+                    raise ValueError(f"Data health watches at most {DATA_HEALTH_MAX} tables; stop watching one first")
+                state["watched"].append({"entity": name, "env": env,
+                                         "added_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")})
+            else:
+                state["quiet"] = {k: v for k, v in state["quiet"].items() if not k.startswith(f"{env}|{name}|")}
+            self._dh_write(state)
+        return {"entity": name, "env": env, "watched": watch}
+
+    def meta_data_health_quiet(self, name: str, env: str, kind: str, version: int, snooze_days: int = 0) -> dict[str, Any]:
+        """Acknowledge one alert (``snooze_days`` 0: until a newer version alerts) or snooze it for a
+        day. Only this PC's list changes; the table and any incident don't."""
+        if env not in ENVIRONMENTS:
+            raise ValueError(f"env is one of {', '.join(ENVIRONMENTS)}")
+        if kind not in data_health_mod.ALERT_KINDS:
+            raise ValueError(f"kind is one of {', '.join(data_health_mod.ALERT_KINDS)}")
+        if snooze_days not in (0, 1):
+            raise ValueError("snooze_days is 0 (acknowledge) or 1")
+        now = dt.datetime.now(dt.timezone.utc)
+        record = {"at": now.isoformat(timespec="seconds"), "by": self._wl_user(),  # type: ignore[attr-defined]
+                  "until": (now + dt.timedelta(days=1)).isoformat(timespec="seconds") if snooze_days else None}
+        with self._dh_locked():
+            state = self._dh_read()
+            if not any((w["entity"], w["env"]) == (name, env) for w in state["watched"]):
+                raise ValueError(f"{name} isn't on the Data health list for {env}")
+            state["quiet"][_dh_key(env, name, kind, int(version))] = record
+            self._dh_write(state)
+        return {"entity": name, "env": env, "kind": kind, "version": int(version), **record}
+
     def _alerts_unreadable(self) -> bool:
         """The Teams address is saved but this Windows account can't decrypt it (sealed_settings.py)."""
         return sealed_settings.unreadable(self._settings(), "teams_webhook")  # type: ignore[attr-defined]
@@ -372,13 +583,13 @@ TEAMS_WAIT_CAP = 10.0
 
 def post_teams(url: str, title: str, lines: list[str], sleep: Callable[[float], None] = time.sleep) -> None:
     """Post one card. A write: only Teams' throttling (429, refused unread) is sent again, as
-    Retry-After says (capped); after a 5xx or a dropped connection the card may have been posted,
-    so the caller's outbox decides whether to send it again."""
+    Retry-After says (capped). After a 500, 502 or 504, or a dropped connection, the card may have been
+    posted: those raise notify.OutcomeUnknown, so the caller's outbox doesn't send it again."""
     http = http_session.session()
     r = send_with_retry(lambda: http.post(url, json=teams_card(title, lines), timeout=TEAMS_TIMEOUT), "POST",
                         sleep=sleep, attempts=TEAMS_ATTEMPTS, wait_cap=TEAMS_WAIT_CAP)
     if r.status_code >= 300:
-        raise RuntimeError(f"Teams answered {r.status_code}{_teams_error(r)}")
+        raise answered("Teams", r.status_code, _teams_error(r))
 
 
 def _teams_error(resp: Any) -> str:

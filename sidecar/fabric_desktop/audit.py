@@ -34,6 +34,7 @@ from typing import Any, Iterator
 from . import __version__, audit_chain
 from .redact import secrets
 
+UNREADABLE = "unreadable_line"  # the action of the placeholder row recent() shows for a damaged line
 SCHEMA = "audit@1"
 GENESIS = audit_chain.GENESIS
 
@@ -48,12 +49,12 @@ governance_applicability governance_overview governance_policy governance_resolv
 governance_templates governance_last_check governance_practice_settings governance_product_checklist
 incidents_list incidents_summary kernel_complete kernel_inspect kernel_sessions kernel_variable_detail kernel_variables notebook_frame_page notebook_frame_profile notebook_frame_query_profile notebook_frame_chart notebook_frame_wrangle mesh_about mesh_home mesh_map mesh_members mesh_overview notebook_environments environment_job
 mesh_workspace_domains meta_alerts meta_compare meta_drift meta_entity meta_entity_shortcuts meta_fabric_result
-meta_freshness meta_health meta_last_release meta_releases meta_rollback_preview meta_key_lookup meta_key_notebook meta_keys meta_model_plan
+meta_data_health meta_data_health_list meta_freshness meta_health meta_last_release meta_releases meta_rollback_preview meta_key_lookup meta_key_notebook meta_keys meta_model_plan
 meta_model_ossie_models meta_model_ossie_export meta_model_ossie_read meta_model_ossie_preview
 meta_model_directlake_setup meta_model_directlake_check
-meta_model_ossie_folders meta_model_ossie_export_folder
+meta_model_ossie_folders meta_model_ossie_export_folder meta_model_semantic_view_status
 meta_model_dictionary meta_model_dictionary_preview
-meta_preflight meta_profile_preview meta_project meta_promote_check meta_promote_impact
+meta_openlineage_preview meta_preflight meta_profile_preview meta_project meta_promote_check meta_promote_impact
 meta_quarantine meta_run_detail meta_runs meta_runs_all meta_schedules meta_table_history meta_varlib
 meta_versions notebook_dependencies notebook_inputs notebook_places notebook_runs notebook_schedules notebook_syntax notebook_symbol notebook_format notebook_practices notebook_practice_rules notebook_plotly_js open_notebook pc_schedule_runs
 pc_schedules_for time_zones platform_admins platform_audit platform_change_window platform_domains platform_entra_check platform_entra_find platform_entra_groups platform_entra_script platform_glossary platform_key_tables
@@ -71,10 +72,11 @@ fabric_item_support fabric_git_links fabric_git_check fabric_git_overview fabric
 local_delta_history local_explain local_query_status local_transform_plan local_transform_runs
 pipeline_compatibility pipeline_export pipeline_import
 usage_preview
-risk_check meta_risk_gate risk_settings
+risk_check meta_risk_gate risk_settings meta_optimize_check
 model_bpa_status model_bpa_risk
 incidents_board incidents_for_me incident_sla_policy incidents_history incident_impact
-optimize_discover optimize_findings optimize_recommendations optimize_status optimization_assess
+optimize_discover optimize_findings optimize_recommendations optimize_status optimization_assess excellence_assess
+cp_status cp_discover cp_plan cp_adopt_preview cp_check cp_cost cp_upgrade_plan
 tenant_settings_history
 platform_notify_settings platform_notify_open
 pipeline_run_check pipeline_run_status pipeline_runs pipeline_list
@@ -85,10 +87,10 @@ notebook_resources
 local_writes
 notebook_folders
 notebook_file_path notebook_disk_stamp notebook_name_for_path notebook_listing notebook_search notebook_import_check notebook_delete_check notebook_deleted notebook_fabric_check notebook_fabric_step_check notebook_vorder_cell notebook_fabric_step_result notebook_publish_check
-notebook_formats_import_check notebook_print_page notebook_report_open notebook_report_page
+notebook_formats_import_check notebook_print_page notebook_report_open notebook_report_page notebook_prod_pending
 profile_get profile_report profile_avatar
 notebook_comments_list
-engine_catalog engine_connections engine_prepare engine_state engine_poll_cell engine_profiles engine_discover databricks_runs databricks_run databricks_billing_last databricks_sync_pairs databricks_sync_compare databricks_bundle_targets databricks_bundle_validate databricks_bundle_plan
+engine_catalog engine_connections engine_prepare engine_state engine_poll_cell engine_profiles engine_discover databricks_runs databricks_run databricks_billing_last databricks_sync_pairs databricks_sync_compare databricks_bundle_targets databricks_bundle_validate databricks_bundle_plan snowflake_check
 learn_catalog learn_module learn_lab_run learn_lab_check learn_lab_hint learn_rule_guides learn_dismissals
 learn_fixes learn_fix_compare learn_fix_checked learn_patterns learn_team_notes
 academy_catalog academy_exercise academy_run academy_validate academy_hint academy_readiness academy_sandbox_status
@@ -129,18 +131,36 @@ def target(params: dict[str, Any]) -> dict[str, Any]:
 
 
 # Calls that must not run without a record: a "started" line is written before them, and they are
-# refused when it can't be (a full disk, a locked file). These Prod-reaching changes always; any other
-# call when it is aimed at Prod (an env or target of "prod"); and any other call when it is given a
-# confirmation, an approval, a typed name, a risk-check acknowledgement or an override (a non-empty
-# value). An ordinary query or edit still runs as before when its line can't be written.
-FAIL_CLOSED = frozenset({"meta_promote", "meta_rollback", "meta_restore", "xray_vacuum", "shortcut_repoint",
-                         "shortcut_repoint_many", "shortcut_undo", "shortcut_accept_risk"})
+# refused when it can't be (a full disk, a locked file). These Prod-reaching changes, deletes in Fabric
+# and removals of someone's access always; any other call when it is aimed at Prod (an env or target of
+# "prod"); and any other call when it is given a confirmation, an approval, a typed name, a risk-check
+# acknowledgement, an override or a go-ahead to replace what is there (a non-empty value). An ordinary
+# query or edit still runs as before when its line can't be written.
+FAIL_CLOSED = frozenset({"meta_promote", "meta_rollback", "meta_restore", "xray_optimize", "xray_vacuum", "shortcut_repoint",
+                         "shortcut_repoint_many", "shortcut_undo", "shortcut_accept_risk",
+                         # a delete in Fabric or OneLake: a shortcut, a OneLake security role, a job schedule
+                         # (a pipeline's, a notebook's, the metadata project's runner), a leftover staging
+                         # lakehouse, a proof's or replay's outputs
+                         "delete_shortcut", "access_delete_role", "delete_fabric_schedule", "delete_notebook_schedule",
+                         "meta_delete_schedule", "xray_remove_staging", "prove_delete_outputs", "replay_delete_outputs",
+                         # a delete in the shared platform catalog, and a governance policy taken off a scope
+                         "platform_delete_domain", "platform_delete_landing_zone", "platform_delete_source",
+                         "platform_remove_product_item", "governance_template_delete", "governance_unassign",
+                         # someone's access taken away: a data product grant, a platform admin, an AI tool.
+                         # (academy_sandbox_remove_grants isn't: it takes the exercise sandbox's read
+                         # permission off this PC's Python, which only narrows access, and the next exercise
+                         # grants it again.)
+                         "platform_revoke", "platform_remove_admin", "integrations_revoke_client"})
 # Parameter names, matched exactly. test_audit lists every audited method's parameters that look like
 # one of these and fails on a name in neither set, so a new one is reviewed rather than missed.
 GUARD_PARAMS = frozenset({
     "confirm", "confirmed", "confirm_name", "confirm_deletes", "confirm_unknown", "confirm_writes",
-    "approve", "approval_id", "typed", "risk_id", "require_acknowledgement",
-    "allow", "allow_commands", "allow_override", "allow_secrets", "allow_uncontained", "force"})
+    "approve", "approval_id", "typed", "risk_id", "risk_ids", "require_acknowledgement",
+    "allow", "allow_commands", "allow_override", "allow_secrets", "allow_uncontained", "force",
+    # a go-ahead to replace what is already there: a Fabric item changed since it was published from
+    # here, a report or model of that name, files of a warehouse project, a file picked on Save as,
+    # a saved engine connection (named by its id)
+    "replace", "replace_fabric_changes", "overwrite"})
 NOT_GUARD_PARAMS = frozenset({"expect"})        # the version a tab opened, not a go-ahead
 _PROD_PARAMS = ("env", "envs", "target")
 
@@ -152,6 +172,8 @@ def _given(value: Any) -> bool:
 def _is_prod(value: Any) -> bool:
     if isinstance(value, (list, tuple, set, frozenset)):
         return any(_is_prod(v) for v in value)
+    if isinstance(value, dict):  # a target given as an object, such as a PC schedule's {"kind": "meta", "env": ...}
+        return any(_is_prod(value.get(key)) for key in _PROD_PARAMS)
     return isinstance(value, str) and value.strip().lower() == "prod"
 
 
@@ -239,14 +261,30 @@ class AuditLog:
         audit_chain.append(self.folder, entry)  # under the folder's lock: no other process forks the chain
         return entry
 
-    def entries(self) -> Iterator[dict[str, Any]]:
+    def entries(self, unreadable: bool = False) -> Iterator[dict[str, Any]]:
+        """Every line, oldest first. A line that isn't a JSON object is left out (``verify()`` names it), or
+        with ``unreadable`` given as a placeholder row (UNREADABLE) that says which line, so a list of the
+        trail shows where it is damaged rather than skipping over it."""
         for path in self._files():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    yield json.loads(line)
+            for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):  # a stray byte: that line only
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                except ValueError:  # reported by verify()
+                    entry = None
+                if isinstance(entry, dict):
+                    yield entry
+                elif unreadable:
+                    yield {"schema": SCHEMA, "at": "", "action": UNREADABLE, "outcome": "error", "seconds": 0,
+                           "who": "", "params": {}, "file": path.name, "line": number,
+                           "error": (f"{path.name} line {number} isn't an audit line, so it can't be shown. "
+                                     "Run --verify to see what the trail check finds.")}
 
     def recent(self, limit: int = 200, action: str = "") -> list[dict[str, Any]]:
-        rows = [e for e in self.entries() if not action or e.get("action") == action]
+        """The newest lines, newest first. A line that can't be read shows as a placeholder row
+        (UNREADABLE) in the full list; a list of one action leaves it out."""
+        rows = [e for e in self.entries(unreadable=not action) if not action or e.get("action") == action]
         return rows[-limit:][::-1]
 
     def verify(self) -> dict[str, Any]:

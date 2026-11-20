@@ -122,6 +122,7 @@ class Shared:
         self.batch = max(1, int(batch))
         self.rows_sent = 0  # rows handed to an insert, including ones already there
         self.commits = 0
+        self.version: int | None = None  # the schema version the lakehouse is at, found by _check_writable
 
     # Writing
 
@@ -131,7 +132,9 @@ class Shared:
                                   "To add them, ask for Contributor on its workspace.")
         version = max(setup.applied_versions(self.lake), default=0)
         if version > schema.latest():
-            raise PermissionError(setup.MESSAGES[setup.NEWER])
+            raise setup.SchemaMismatch(setup.NEWER)
+        # An older lakehouse is written with its own version's columns until someone upgrades it.
+        self.version = version or None
 
     def _write(self, name: str, rows: list[dict[str, Any]]) -> int:
         """Insert ``rows`` in batches; returns how many rows were sent. A batch that fails after its
@@ -140,7 +143,7 @@ class Shared:
         # The MERGE skips rows already in the table, not repeats within what it is given.
         rows = list({r["record_id"]: r for r in reversed(rows)}.values())[::-1]
         for i in range(0, len(rows), self.batch):
-            setup.write(self.lake, self.installation, name, rows[i:i + self.batch])
+            setup.write(self.lake, self.installation, name, rows[i:i + self.batch], self.version)
             self.commits += 1
             self.rows_sent += len(rows[i:i + self.batch])
         return len(rows)

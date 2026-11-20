@@ -20,7 +20,7 @@ from . import governance_notices as notices
 from . import shortcut_center as center
 from . import shortcut_watch as watch
 from . import shortcuts as shortcuts_mod
-from . import sql_exec
+from . import csv_cells, sql_exec
 from .auth import ONELAKE_SCOPES
 from .central import core
 from .errors import NotSetUp
@@ -165,8 +165,10 @@ class ShortcutMixin:
         folder.mkdir(parents=True, exist_ok=True)
         path = sql_exec._reserve(folder, "KratosForge shortcuts", ".csv")
         # The mark tells Excel it's UTF-8; newline="" keeps the CSV's own \r\n (Windows would make it \r\r\n)
-        path.write_text(center.to_csv(rows), encoding="utf-8-sig", newline="")
-        return {"path": str(path), "rows": len(rows)}
+        cells = csv_cells.Cells()
+        path.write_text(center.to_csv(rows, cells), encoding="utf-8-sig", newline="")
+        notes = [csv_cells.note(cells.protected, can_keep_raw=False)] if cells.protected else []
+        return {"path": str(path), "rows": len(rows), "protected": cells.protected, "notes": notes}
 
     # ---- health
 

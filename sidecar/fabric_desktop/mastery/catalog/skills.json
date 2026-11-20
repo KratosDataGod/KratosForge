@@ -1,0 +1,41 @@
+{
+ "schema": "kratosforge/mastery-skills@1",
+ "version": 1,
+ "competencies": [
+  {"id": "lakehouse-design", "title": "Lakehouse and medallion design"},
+  {"id": "delta-storage", "title": "Delta Lake storage and maintenance"},
+  {"id": "data-loading", "title": "Loading patterns: full, incremental, idempotent"}
+ ],
+ "skills": [
+  {"id": "best-practice-fixes-checked-with-compare", "title": "Best-practice fixes checked with Compare", "competency": "data-loading", "evidence": {"events": ["fix.checked"]}, "cloud": false},
+  {"id": "bronze-to-silver-that-survives-a-rerun", "title": "Bronze to Silver that survives a rerun", "competency": "lakehouse-design", "evidence": {"learn": ["LAB-06", "LM-21"], "events": ["validate.pass"]}, "cloud": false},
+  {"id": "business-and-surrogate-keys", "title": "Business and surrogate keys", "competency": "lakehouse-design", "evidence": {"learn": ["LM-05"], "academy": ["dp-700/E23"], "objectives": ["dp-700:2.1.2"]}, "cloud": false},
+  {"id": "capstone-raw-data-to-a-trusted-answer", "title": "Capstone: raw data to a trusted answer", "competency": "lakehouse-design", "evidence": {"learn": ["LAB-12"]}, "cloud": false},
+  {"id": "data-quality-checks-in-code", "title": "Data quality checks in code", "competency": "data-loading", "evidence": {"learn": ["LM-20"], "checks": ["defects_found"]}, "cloud": false},
+  {"id": "data-skipping-that-works", "title": "Data skipping that works", "competency": "delta-storage", "evidence": {"academy": ["dp-700/E59"], "objectives": ["dp-700:3.3.6"]}, "cloud": false},
+  {"id": "data-types-that-keep-money-exact", "title": "Data types that keep money exact", "competency": "lakehouse-design", "evidence": {"learn": ["LM-02"]}, "cloud": false},
+  {"id": "deduplicating-retried-loads", "title": "Deduplicating retried loads", "competency": "data-loading", "evidence": {"learn": ["LM-17"], "academy": ["dp-700/E37"]}, "cloud": false},
+  {"id": "delta-tables-and-the-transaction-log", "title": "Delta tables and the transaction log", "competency": "lakehouse-design", "evidence": {"learn": ["LM-07"]}, "cloud": false},
+  {"id": "files-parquet-and-the-delta-log", "title": "Files, Parquet and the Delta log", "competency": "delta-storage", "evidence": {"learn": ["LM-07"]}, "cloud": false},
+  {"id": "fixing-broken-loads", "title": "Fixing broken loads", "competency": "data-loading", "evidence": {"learn": ["LAB-04"], "academy": ["dp-700/E51"]}, "cloud": false},
+  {"id": "gold-star-schema-for-reporting", "title": "Gold star schema for reporting", "competency": "lakehouse-design", "evidence": {"learn": ["LAB-03"], "academy": ["dp-700/E35"], "checks": ["integrity", "table_shape"]}, "cloud": false},
+  {"id": "idempotent-loads", "title": "Idempotent loads", "competency": "data-loading", "evidence": {"learn": ["LM-21"], "academy": ["dp-700/E58"]}, "cloud": false},
+  {"id": "incident-response-for-late-and-broken-data", "title": "Incident response for late and broken data", "competency": "data-loading", "evidence": {"learn": ["LAB-11", "LM-35"]}, "cloud": false},
+  {"id": "incremental-loads-with-a-watermark", "title": "Incremental loads with a watermark", "competency": "delta-storage", "evidence": {"learn": ["LM-12"], "academy": ["dp-700/E21", "dp-700/E57"], "objectives": ["dp-700:2.1.1"]}, "cloud": false},
+  {"id": "lakehouses-and-the-medallion-layers", "title": "Lakehouses and the medallion layers", "competency": "lakehouse-design", "evidence": {"learn": ["LM-06"], "academy": ["dp-700/E27"], "objectives": ["dp-700:2.2.1"]}, "cloud": false},
+  {"id": "late-arriving-data", "title": "Late-arriving data", "competency": "data-loading", "evidence": {"academy": ["dp-700/E25", "dp-700/E39"], "objectives": ["dp-700:2.2.9"]}, "cloud": false},
+  {"id": "measured-optimization", "title": "Measured optimization", "competency": "delta-storage", "evidence": {"learn": ["LAB-02"], "events": ["fix.checked"], "checks": ["faster_than"]}, "cloud": false},
+  {"id": "merge-upserts", "title": "MERGE upserts", "competency": "delta-storage", "evidence": {"learn": ["LM-11"], "academy": ["dp-700/E22"]}, "cloud": false},
+  {"id": "missing-data-and-the-unknown-member", "title": "Missing data and the Unknown member", "competency": "data-loading", "evidence": {"academy": ["dp-700/E38"]}, "cloud": false},
+  {"id": "notebooks-that-pass-validate", "title": "Notebooks that pass Validate", "competency": "data-loading", "evidence": {"events": ["validate.pass"]}, "cloud": false},
+  {"id": "optimize-and-vacuum-done-safely", "title": "OPTIMIZE and VACUUM done safely", "competency": "delta-storage", "evidence": {"learn": ["LM-25"], "rules": ["NB020"]}, "cloud": false},
+  {"id": "partitioning-and-file-pruning", "title": "Partitioning and file pruning", "competency": "delta-storage", "evidence": {"learn": ["LM-27"], "academy": ["dp-700/E63"], "objectives": ["dp-700:3.3.5"]}, "cloud": false},
+  {"id": "production-ready-notebook-portfolio", "title": "Production-ready notebook portfolio", "competency": "data-loading", "evidence": {"events": ["validate.pass", "prove.match"]}, "cloud": false},
+  {"id": "raw-landing-and-bronze-tables", "title": "Raw landing and Bronze tables", "competency": "lakehouse-design", "evidence": {"learn": ["LM-21"], "objectives": ["dp-700:2.1.1"]}, "cloud": false},
+  {"id": "reading-a-query-plan", "title": "Reading a query plan", "competency": "delta-storage", "evidence": {"learn": ["LM-18"], "academy": ["dp-700/E64"]}, "cloud": false},
+  {"id": "schema-drift-handling", "title": "Schema drift handling", "competency": "lakehouse-design", "evidence": {"learn": ["LM-22"], "academy": ["dp-700/E51"], "objectives": ["dp-700:3.2.3"]}, "cloud": false},
+  {"id": "small-files-and-compaction", "title": "Small files and compaction", "competency": "delta-storage", "evidence": {"learn": ["LM-25"], "academy": ["dp-700/E56"], "objectives": ["dp-700:3.3.1"]}, "cloud": false},
+  {"id": "time-travel-and-restore", "title": "Time travel and restore", "competency": "delta-storage", "evidence": {"learn": ["LM-29"]}, "cloud": false},
+  {"id": "type-2-slowly-changing-dimensions", "title": "Type 2 slowly changing dimensions", "competency": "lakehouse-design", "evidence": {"learn": ["LAB-05"], "academy": ["dp-700/E24"]}, "cloud": false}
+ ]
+}

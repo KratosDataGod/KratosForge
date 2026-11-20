@@ -147,12 +147,20 @@ def test_a_like_on_a_value_whose_type_cant_be_told_is_noted():
     assert any("'a  ' LIKE 'a'" in n for n in notes), notes
 
 
-# Not in T-SQL's reference, so not yet checked against a warehouse. These pin the local answers that
-# sql-compatibility.md states, until Run 11's live check settles them.
+# Not in T-SQL's reference: a Fabric Warehouse gave these answers in live run 11 (smoke-test flow 17).
 @pytest.mark.parametrize(("expr", "local"), [
-    ("CASE WHEN 'abc  ' LIKE 'abc_' THEN 1 ELSE 0 END", 0),
+    ("CASE WHEN 'abc  ' LIKE 'abc_' THEN 1 ELSE 0 END", 1),
     ("CASE WHEN 'abc  ' LIKE 'abc__' THEN 1 ELSE 0 END", 1),
+    ("CASE WHEN 'abc  ' LIKE 'abc___' THEN 1 ELSE 0 END", 0),
+    ("CASE WHEN 'abc  ' LIKE 'abc' THEN 1 ELSE 0 END", 1),
+    ("CASE WHEN 'abc  ' NOT LIKE 'abc_' THEN 1 ELSE 0 END", 0),
+    ("CASE WHEN 'a%  ' LIKE 'a!%_' ESCAPE '!' THEN 1 ELSE 0 END", 1),
+    ("CASE WHEN 'abc' LIKE 'abc ' THEN 1 ELSE 0 END", 0),
     ("CHARINDEX('b', 'abc', NULL)", None),
+    ("CAST(CAST('2024-02-29 13:04:05' AS DATETIME2(6)) AS VARCHAR(30))", "2024-02-29 13:04:05.000000"),
+    ("CAST(CAST('2024-02-29 13:04:05.5' AS DATETIME2(3)) AS VARCHAR(30))", "2024-02-29 13:04:05.500"),
+    ("CAST(CAST('13:04:05.25' AS TIME(3)) AS VARCHAR(30))", "13:04:05.250"),
+    ("CAST(CAST('2024-02-29 13:04:05' AS DATETIME2(6)) AS VARCHAR(10))", "2024-02-29"),
 ])
-def test_unverified_text_edges_give_the_documented_local_answer(engine, expr, local):
+def test_edges_a_live_warehouse_answered_give_its_answer(engine, expr, local):
     assert one(engine, f"SELECT {expr}")[0] == local

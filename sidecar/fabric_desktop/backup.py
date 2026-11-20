@@ -37,6 +37,7 @@ from typing import Any
 
 from .redact import secrets
 from . import jsonfile
+from . import trees
 
 _log = logging.getLogger(__name__)
 
@@ -441,7 +442,7 @@ def _prune_safety(folder: Path, keep: int = KEEP_SAFETY) -> list[str]:
     gone = []
     for old in stamps[:-keep] if keep > 0 else stamps:
         try:
-            shutil.rmtree(old)
+            trees.remove(old)
             gone.append(old.name)
         except OSError:
             _log.warning("restore: couldn't remove the old copies in %s", old, exc_info=True)

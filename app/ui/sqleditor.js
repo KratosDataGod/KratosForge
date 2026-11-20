@@ -146,8 +146,10 @@ function sqlUnquote(word) {
   return word;
 }
 
-// `text` with string literals and comments blanked out (same length), and whether `pos` is inside one.
-function sqlMask(text, pos = -1) {
+// `text` with string literals and comments blanked out (same length), and whether `pos` is inside one. Block
+// comments nest, as in T-SQL, Spark SQL and DuckDB. `backslash`: a backslash escapes the next character in a
+// string, as in Spark SQL.
+function sqlMask(text, pos = -1, { backslash = false } = {}) {
   const out = text.split("");
   let inert = false;
   let i = 0;
@@ -157,7 +159,7 @@ function sqlMask(text, pos = -1) {
     let end = -1;
     if (text[i] === "'") {
       end = i + 1;
-      while (end < text.length && !(text[end] === "'" && text[end + 1] !== "'")) end += text[end] === "'" ? 2 : 1;
+      while (end < text.length && !(text[end] === "'" && text[end + 1] !== "'")) end += text[end] === "'" || (backslash && text[end] === "\\") ? 2 : 1;
       end = Math.min(end + 1, text.length);
       blank(start + 1, Math.max(start + 1, end - 1));
     } else if (text.startsWith("--", i)) {
@@ -165,8 +167,11 @@ function sqlMask(text, pos = -1) {
       if (end === -1) end = text.length;
       blank(start, end);
     } else if (text.startsWith("/*", i)) {
-      end = text.indexOf("*/", i + 2);
-      end = end === -1 ? text.length : end + 2;
+      let depth = 1;
+      end = i + 2;
+      while (end < text.length && depth) {
+        if (text.startsWith("/*", end)) { depth++; end += 2; } else if (text.startsWith("*/", end)) { depth--; end += 2; } else end++;
+      }
       blank(start, end);
     }
     if (end === -1) { i++; continue; }
@@ -179,11 +184,54 @@ function sqlMask(text, pos = -1) {
   return { text: out.join(""), inert };
 }
 
-// The statement around `pos`: from the `;` before it to the `;` after it, outside strings and comments.
-function sqlStatementAt(text, pos) {
-  const masked = sqlMask(text).text;
-  let from = masked.lastIndexOf(";", pos - 1) + 1;
-  let to = masked.indexOf(";", pos);
+// Where statements can end: sqlMask's text with quoted names ("a;b", `a;b`, [a;b]) blanked too, and for a
+// dialect its own strings: Spark SQL's backslash escapes and "..." strings, DuckDB's $$...$$ strings. Only for
+// finding `;` and GO lines: names stay in sqlMask's text, where hover and suggestions read them.
+function sqlSplitMask(text, dialect = null) {
+  const d = dialect ? sqlDialect(dialect) : null;
+  const tsql = ["warehouse", "endpoint", "sqldb"].includes(d);
+  const out = text.split("");
+  const blank = (from, to) => { for (let k = from; k < to; k++) if (out[k] !== "\n") out[k] = " "; };
+  // A quoted run from i: where it ends (after its closing quote, or at the end), with `q` doubled inside as itself.
+  const quoted = (i, q, escapes) => {
+    let end = i + 1;
+    while (end < text.length) {
+      if (escapes && text[end] === "\\") { end += 2; continue; }
+      if (text[end] === q) { if (text[end + 1] === q) { end += 2; continue; } return end + 1; }
+      end++;
+    }
+    return text.length;
+  };
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    let end = -1;
+    if (c === "'") end = quoted(i, "'", d === "spark");
+    else if (c === '"') end = quoted(i, '"', d === "spark");
+    else if (c === "`") end = quoted(i, "`", false);
+    else if (c === "[" && tsql) end = quoted(i, "]", false);  // in Spark SQL and DuckDB, [ is a list or an index
+    else if (d === "duckdb" && text.startsWith("$$", i)) { const e = text.indexOf("$$", i + 2); end = e === -1 ? text.length : e + 2; }
+    else if (text.startsWith("--", i)) { end = text.indexOf("\n", i); if (end === -1) end = text.length; }
+    else if (text.startsWith("/*", i)) {
+      let depth = 1;
+      end = i + 2;
+      while (end < text.length && depth) {
+        if (text.startsWith("/*", end)) { depth++; end += 2; } else if (text.startsWith("*/", end)) { depth--; end += 2; } else end++;
+      }
+    }
+    if (end === -1) { i++; continue; }
+    blank(c === "-" || c === "/" ? i : i + 1, c === "-" || c === "/" ? end : Math.max(i + 1, end - 1));
+    i = end;
+  }
+  return out.join("");
+}
+
+// The statement around `pos`: from the `;` before it to the `;` after it, outside strings, comments and quoted names.
+function sqlStatementAt(text, pos, dialect = null) {
+  const masked = sqlMask(text, -1, { backslash: dialect ? sqlDialect(dialect) === "spark" : false }).text;
+  const ends = sqlSplitMask(text, dialect);
+  let from = ends.lastIndexOf(";", pos - 1) + 1;
+  let to = ends.indexOf(";", pos);
   if (to === -1) to = text.length;
   return { from, to, text: text.slice(from, to), masked: masked.slice(from, to) };
 }
@@ -193,8 +241,8 @@ function sqlStatementAt(text, pos) {
 // out. T-SQL (`tsql` true) splits a GO batch at `;` only when that is safe: a batch that declares or uses a
 // variable, has a BEGIN ... END block, or defines a procedure, function, trigger or view stays whole, since its
 // statements only mean something together. Each is { from, to, text, line } with line 1-based, from `base`.
-function sqlSplitStatements(text, { tsql = false, base = 0, firstLine = 1 } = {}) {
-  const masked = sqlMask(text).text;
+function sqlSplitStatements(text, { tsql = false, base = 0, firstLine = 1, dialect = null } = {}) {
+  const masked = sqlSplitMask(text, dialect || (tsql ? "warehouse" : null));
   const out = [];
   const lineAt = (pos) => firstLine + (text.slice(0, pos).match(/\n/g)?.length || 0);
   const push = (from, to) => {
@@ -253,17 +301,17 @@ function sqlParamProblem(type, value) {
 // (spaces between are fine) runs the statement that `;` ends; one in a blank stretch, or in a statement that is
 // only comments, runs the nearest statement before it, then after it. Leading and trailing whitespace is left
 // out; null when the text has no statement at all.
-function sqlRunnableStatementAt(text, pos) {
-  const has = (st) => !!st.masked.trim();
-  const masked = sqlMask(text).text;
+function sqlRunnableStatementAt(text, pos, dialect = null) {
+  const masked = sqlSplitMask(text, dialect);
+  const has = (st) => !!masked.slice(st.from, st.to).replace(/[\s;]/g, "");
   let back = pos;
   while (back > 0 && (masked[back - 1] === " " || masked[back - 1] === "\t")) back--;
-  let stmt = sqlStatementAt(text, back > 0 && masked[back - 1] === ";" ? back - 1 : pos);
+  let stmt = sqlStatementAt(text, back > 0 && masked[back - 1] === ";" ? back - 1 : pos, dialect);
   const start = stmt;
   // Back one statement at a time. From 1 or less there is nothing before (a lone ";" at most).
-  while (!has(stmt) && stmt.from > 1) stmt = sqlStatementAt(text, stmt.from - 1);
+  while (!has(stmt) && stmt.from > 1) stmt = sqlStatementAt(text, stmt.from - 1, dialect);
   if (!has(stmt)) stmt = start;
-  while (!has(stmt) && stmt.to < text.length) stmt = sqlStatementAt(text, stmt.to + 1);
+  while (!has(stmt) && stmt.to < text.length) stmt = sqlStatementAt(text, stmt.to + 1, dialect);
   if (!has(stmt)) return null;
   const lead = stmt.text.length - stmt.text.trimStart().length;
   const from = stmt.from + lead;
@@ -585,7 +633,58 @@ function sqlRowsAs(format, columns, rows, { dialect = "spark", table = "results"
     }
     return out.join("\n");
   }
-  return [names, ...rows.map((r) => r.map(cell))].map((l) => l.join("\t")).join("\n");
+  return sqlTsv([names, ...rows.map((r) => r.map(sqlTsvCell))]);
+}
+
+// A value for tab-separated text a spreadsheet pastes: text that starts with = + - @, a tab or a carriage return
+// (after any spaces) gets a leading ' so the spreadsheet shows it as text and never runs it as a formula, as
+// OWASP's CSV injection guidance lists them. Numbers, and every other value, are as they are.
+function sqlTsvCell(v) {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "object") return JSON.stringify(v);
+  const t = String(v);
+  return typeof v === "string" && /^ *[=+\-@\t\r]/.test(t) ? `'${t}` : t;
+}
+
+// Lines of tab-separated fields, as spreadsheets paste them: a field holding a tab or a line break, or starting
+// with a quote, is quoted, its quotes doubled, so it stays one cell. A single field is left as it is.
+function sqlTsv(lines) {
+  if (lines.length === 1 && lines[0].length === 1) return lines[0][0];
+  const field = (t) => (/[\t\r\n]/.test(t) || t.startsWith('"') ? `"${t.replace(/"/g, '""')}"` : t);
+  return lines.map((l) => l.map(field).join("\t")).join("\n");
+}
+
+// The dotted name under the cursor, as its parts (["dbo", "usp_load"]), or null. Go to definition reads it
+// for what a hover doesn't name: a warehouse's procedures and functions.
+function sqlNameAt(text, pos) {
+  const stmt = sqlStatementAt(text, pos);
+  const toks = [];
+  const re = new RegExp(SQL_TOKEN.source, "g");
+  for (let m; (m = re.exec(stmt.masked));) toks.push({ t: m[0], from: stmt.from + m.index, to: stmt.from + m.index + m[0].length });
+  const i = toks.findIndex((k) => k.from <= pos && pos < k.to);
+  if (i < 0 || !SQL_NAME_TOKEN.test(toks[i].t)) return null;
+  const parts = [sqlUnquote(toks[i].t)];
+  for (let j = i; j >= 2 && toks[j - 1].t === "." && SQL_NAME_TOKEN.test(toks[j - 2].t); j -= 2) parts.unshift(sqlUnquote(toks[j - 2].t));
+  for (let j = i; toks[j + 1]?.t === "." && toks[j + 2] && SQL_NAME_TOKEN.test(toks[j + 2].t); j += 2) parts.push(sqlUnquote(toks[j + 2].t));
+  return parts;
+}
+
+// The catalog object (table, view, procedure or function) that parts name: schema.name, or a bare name
+// that only one schema has (dbo when several do). Null when none, or more than schema.name is given.
+function sqlCatalogObject(parts, objects) {
+  if (!parts?.length || parts.length > 2) return null;
+  const name = parts.at(-1).toLowerCase();
+  const schema = parts.length > 1 ? parts[0].toLowerCase() : null;
+  const hits = (objects || []).filter((o) => o.name.toLowerCase() === name && (!schema || o.schema.toLowerCase() === schema));
+  return hits.length === 1 ? hits[0] : hits.find((o) => o.schema.toLowerCase() === "dbo") || null;
+}
+
+// A lakehouse table as CREATE TABLE, from the columns the Explorer lists. A sketch to read or start from:
+// the table's Delta properties and partitioning aren't in it, and its first line says so.
+function sqlLakehouseCreate(t, cols) {
+  const lines = cols.map((c) => `  ${sqlQuoteIdent(c.name)} ${String(c.type || "STRING").toUpperCase()}`);
+  return `-- ${sqlTableName(t.schema, t.name)}, sketched from the columns the Explorer lists. Its table properties and partitioning aren't shown.\n` +
+    `CREATE TABLE ${sqlQuoteIdent(t.schema)}.${sqlQuoteIdent(t.name)} (\n${lines.join(",\n")}\n) USING DELTA;\n`;
 }
 
 // ---------- the editor ----------
@@ -714,6 +813,43 @@ async function sqlTargetTable(target, provider) {
     if (cols.some((c) => c.name.toLowerCase() === target.name.toLowerCase())) return t;
   }
   return null;
+}
+
+// Peek definition (Alt+F12): the object's definition in a panel under the cursor, without leaving the query.
+// show({ title, kind, text, error, actions: [{ label, run }] }) fills it; Esc, Close or a click outside closes it.
+let sqlPeekOpen = null;
+function sqlPeekClose(refocus = true) {
+  const open = sqlPeekOpen;
+  if (!open) return;
+  sqlPeekOpen = null;
+  document.removeEventListener("mousedown", open.outside, true);
+  clearInterval(open.gone);
+  open.box.remove();
+  if (refocus) open.view.focus();
+}
+function sqlPeek(view, at = view.state.selection.main.head) {
+  sqlPeekClose(false);
+  const box = h("div", { class: "sql-peek", role: "region", tabindex: "-1" });
+  const open = sqlPeekOpen = { view, box, outside: (e) => { if (!box.contains(e.target)) sqlPeekClose(false); } };
+  box.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); sqlPeekClose(); } });
+  document.addEventListener("mousedown", open.outside, true);
+  // Leaving the page by keyboard (another view, another tab) hides the editor: the panel goes with it.
+  open.gone = setInterval(() => { if (!view.dom.isConnected || !view.dom.getClientRects().length) sqlPeekClose(false); }, 300);
+  document.body.append(box);
+  const coords = view.coordsAtPos(at) || view.dom.getBoundingClientRect();
+  const show = ({ title, kind, text = "", error = null, actions = [] }) => {
+    if (sqlPeekOpen !== open) return;
+    box.setAttribute("aria-label", `Definition of ${title}`);
+    const close = h("button", { type: "button", class: "tool small sql-side-close", "aria-label": "Close", title: "Close (Esc)", onclick: () => sqlPeekClose() }, "✕");
+    const code = h("pre", { class: "sql-peek-code", tabindex: "0", "aria-label": `Definition of ${title}` }, text);
+    box.replaceChildren(
+      h("div", { class: "sql-peek-head" }, h("code", {}, h("b", {}, title)), h("span", { class: "nb-intel-kind" }, kind),
+        h("span", { class: "sql-peek-actions" }, ...actions.map((a) => h("button", { type: "button", class: "tool outline small", onclick: () => { sqlPeekClose(false); a.run(); } }, a.label)), close)),
+      error ? h("p", { class: "sql-peek-error", role: "alert" }, error) : code);
+    intelPlace(box, coords);
+    (error ? close : code).focus();
+  };
+  return { show };
 }
 
 // The hover card for a target from sqlHoverTarget, as nodes for intelFloat (nbintel.js), or null.
@@ -927,6 +1063,8 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
     { id: "go_to_line", key: "Mod-g", run: (v) => sqlGotoLine(v), preventDefault: true },
     // F12, as in SSMS and VS Code: the table under the cursor (or an alias's or a column's) in the Explorer.
     { id: "definition", key: "F12", run: () => { on.definition?.(); return true; }, preventDefault: true },
+    // Alt+F12, as in VS Code: the definition in a panel under the cursor.
+    { id: "peek_definition", key: "Alt-F12", run: () => { on.peek?.(); return true; }, preventDefault: true },
     // Bookmarks, as in SSMS and VS Code (S46).
     { id: "bookmark", key: "Mod-F2", run: sqlBookmarkToggle, preventDefault: true },
     { id: "bookmark_next", key: "F2", run: (v) => sqlBookmarkGo(v, 1), preventDefault: true },
@@ -984,7 +1122,7 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
     statement: () => {
       const { from, to, head } = view.state.selection.main;
       if (to > from) return view.state.sliceDoc(from, to);
-      return sqlRunnableStatementAt(view.state.doc.toString(), head)?.text || "";
+      return sqlRunnableStatementAt(view.state.doc.toString(), head, current)?.text || "";
     },
     selection: () => view.state.selection.main,
     // Replace the selection with `text` and leave the cursor after it.

@@ -145,6 +145,7 @@ class ProcessKernel:
             "variable_libraries": variable_libraries or (lambda name: None),
             "write_guard": self._write_refusal,
             "maintenance_guard": _maintenance_refusal,
+            "prod_guard": self._prod_refusal,
             "proof_options": lambda: (self._proof_options or (lambda: {}))(),
             "schemas_enabled": _attached_schemas,
         }
@@ -160,8 +161,13 @@ class ProcessKernel:
         # Set before each cell (service._start_cell): asked before every write the cell makes, as for
         # a cell a paired VS Code window started (editor_service.py). None for the app's own cells.
         self.write_check: Callable[[str, str, str], str | None] | None = None
+        # Set before each cell (service._start_cell): the workspaces the person typed the name of for that one
+        # run, so its MERGE, UPDATE, DELETE, VACUUM or RESTORE there may go ahead (lakehouse.prod_guard).
+        self.prod_allowed: frozenset[str] = frozenset()
         self._lock = threading.Lock()  # one process at a time: starting, stopping
         self._proc: subprocess.Popen[str] | None = None
+        # The ended process a poll already waited for, weakly: an ended process isn't kept for it.
+        self._awaited: weakref.ref[subprocess.Popen[str]] | None = None
         self._tree: _Tree | None = None  # the process and everything its cells start
         # One send lock per process: a write stuck on an ended process's stdin can't hold up the next one's.
         self._send_locks: weakref.WeakKeyDictionary[subprocess.Popen[str], threading.Lock] = weakref.WeakKeyDictionary()
@@ -359,8 +365,10 @@ class ProcessKernel:
         if self._running and self._last is not None:
             outputs = list(self._last.get("outputs") or []) + [{"type": "error", "ename": "KernelStopped", "evalue": why,
                                                                 "traceback": [why]}]
-            self._last = {**self._last, "status": "cancelled" if why == STOPPED_TEXT else "error",
-                          "version": self._last.get("version", 0) + 1, "outputs": outputs}
+            # A cell paused in the debugger isn't paused any more: its process is gone.
+            last = {k: v for k, v in self._last.items() if k != "paused"}
+            self._last = {**last, "status": "cancelled" if why == STOPPED_TEXT else "error",
+                          "version": last.get("version", 0) + 1, "outputs": outputs}
         self._running = False
         self._proc = None
 
@@ -418,6 +426,13 @@ class ProcessKernel:
         reason = lakehouse.write_guard(name, schema, table) if lakehouse.write_guard else None
         check = self.write_check
         return reason or (check(name, schema, table) if check else None)
+
+    def _prod_refusal(self, operation: str, workspace_id: str, workspace_name: str, table: str) -> str | None:
+        """The engine's answer for a change this process's cell makes in a Prod-marked workspace."""
+        if str(workspace_id).lower() in self.prod_allowed:
+            return None
+        guard = lakehouse.prod_guard
+        return guard(operation, workspace_id, workspace_name, table, self.notebook_name) if guard else None
 
     def _sync_lakehouse(self) -> None:
         """Pass the engine's attached lakehouse (and whether tables are guarded) to the kernel."""
@@ -485,6 +500,7 @@ class ProcessKernel:
             except KernelGone:
                 return idle
         if self._proc is None or self._proc.poll() is not None:
+            self._await_gone()
             if self._last is None:
                 return {"status": "idle", "execution_count": self.count, "version": 0, "seconds": 0, "outputs": []}
             last = dict(self._last)
@@ -507,6 +523,17 @@ class ProcessKernel:
             if snap.get("outputs") is not None:
                 self._last = snap
         return snap
+
+    def _await_gone(self, seconds: float = 5.0) -> None:
+        """The process has ended but its reader may not have read the end yet (it lags on Windows):
+        wait for it to mark the cell ended, so a poll never shows a dead process's cell running or paused."""
+        proc = self._proc
+        if proc is None or (self._awaited is not None and self._awaited() is proc):
+            return  # waited for this one already: a tree that keeps the pipe open doesn't slow every poll
+        self._awaited = weakref.ref(proc)
+        deadline = time.monotonic() + seconds
+        while self._proc is proc and time.monotonic() < deadline:
+            time.sleep(0.02)
 
     def _stuck(self, known_version: int) -> dict[str, Any]:
         last = dict(self._last or {"status": "running", "execution_count": self.count, "version": 0, "seconds": 0})
@@ -629,10 +656,11 @@ class ProcessKernel:
             raise FrameGone(GONE)
         return self._request("frame_wrangle", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, steps=steps, name=name)
 
-    def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
+    def frame_download(self, frame: str, format: str, path: str, raw: bool = False) -> dict[str, Any]:  # noqa: A002 - RPC name
         if not self.alive():
             raise FrameGone(GONE)
-        return self._request("frame_download", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, format=format, path=path)
+        return self._request("frame_download", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, format=format, path=path,
+                             **({"raw": True} if raw else {}))
 
     # ---- proofs (prove_service): the proof runtime lives where the cells run
 

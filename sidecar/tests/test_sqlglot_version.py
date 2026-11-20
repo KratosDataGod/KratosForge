@@ -18,7 +18,7 @@ from packaging.version import Version
 from sqlglot import exp
 
 SIDECAR = Path(__file__).resolve().parents[1]
-TESTED = ("30.22.0", "30.27.0")  # oldest and newest sqlglot the SQL tests pass on
+TESTED = ("30.23.0", "30.27.0")  # oldest and newest sqlglot the SQL tests pass on
 
 
 def _requirement(name: str) -> Requirement:

@@ -90,15 +90,16 @@ from typing import Any, Callable
 import pyarrow as pa
 from sqlglot import exp
 
-from . import app_settings, free_memory, jsonfile, sql, sql_params, sql_policy, sql_view, warehouse
+from . import app_settings, csv_cells, free_memory, jsonfile, sql, sql_params, sql_policy, sql_view, warehouse
 from .filenames import file_stem
-from .frames import EXCEL_MAX_ROWS, ExportNotes, csv_ready_batch, csv_ready_schema, write_xlsx_batches
+from .frames import EXCEL_MAX_COLUMNS, EXCEL_MAX_ROWS, ExportNotes, csv_ready_batch, csv_ready_schema, write_xlsx_batches
 from . import known_folders
 
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
 FINISHED = ("completed", "failed", "cancelled", "timed_out")
 MAX_KEPT = 20  # finished runs whose snapshots are kept, newest first
 MAX_STATEMENTS = 200  # statements one run may hold (S14)
+MAX_EXPORTS_KEPT = 50  # finished exports whose status can still be asked for, newest first; running ones always
 MAX_PINNED = 10  # results kept past MAX_KEPT and retention because the person pinned them (S27)
 EXPORT_FORMATS = ("csv", "parquet", "xlsx", "json")
 EXPORT_BATCH_ROWS = 65_536
@@ -211,6 +212,23 @@ class Execution:
     failed_statement: int = 0  # S14: the statement that failed (1-based), 0 if none
     pinned: bool = False  # kept past MAX_KEPT and the retention time until unpinned (S27)
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        # started, ended and created stay the wall-clock times the page shows; each is also stamped on the
+        # monotonic clock, so a run's seconds stay right when the PC's clock is changed mid-run (by hand or
+        # by a time sync). DST doesn't move time.time, but a manual change does.
+        if name in ("created", "started", "ended") and value is not None:
+            object.__setattr__(self, f"_mono_{name}", time.monotonic())
+        object.__setattr__(self, name, value)
+
+    def seconds(self) -> float:
+        """How long the run has taken (or took), from the monotonic clock: never negative, and not moved by a
+        change to the PC's clock. Counted from the start, or from creation for a run that never started."""
+        begin = getattr(self, "_mono_started", None) if self.started else getattr(self, "_mono_created", None)
+        if begin is None:
+            return 0.0
+        end = getattr(self, "_mono_ended", None) if self.ended else None
+        return max(0.0, (end if end is not None else time.monotonic()) - begin)
+
     @property
     def snapshot(self) -> Path:
         if self.units and self.parts:  # S14: the run's own result is its last statement's
@@ -219,12 +237,11 @@ class Execution:
 
     def status(self) -> dict[str, Any]:
         """What the page shows: never the SQL or the token."""
-        end = self.ended or time.time()
         return {"id": self.id, "state": self.state, "target": self.target, "dialect": self.dialect,
                 "lakehouse": self.lakehouse.get("name", ""), "project": self.project_name,
                 "warehouse": self.warehouse.get("database", ""),
                 "created": self.created, "started": self.started, "ended": self.ended,
-                "seconds": round(end - self.started, 2) if self.started else 0.0,
+                "seconds": round(self.seconds(), 2) if self.started else 0.0,
                 "rows": self.rows, "columns": self.columns, "permission": self.permission,
                 "error": self.error, "error_kind": self.error_kind, "refused": self.refused,
                 "time_limit_minutes": round(self.time_limit_s / 60, 2),
@@ -260,11 +277,13 @@ class Export:
     error: str = ""
     cancel: threading.Event = field(default_factory=threading.Event)
     notes: list[str] = field(default_factory=list)  # what the file couldn't keep exactly (WR-221), once it's done
+    raw: bool = False  # CSV: Keep raw values, so no cell is protected (WR-228)
+    protected: int = 0  # CSV: text cells that got an apostrophe so a spreadsheet doesn't run them (WR-228)
 
     def status(self) -> dict[str, Any]:
         return {"id": self.id, "execution": self.execution, "format": self.format, "path": str(self.path),
                 "state": self.state, "rows": self.rows, "total": self.total, "error": self.error,
-                "notes": list(self.notes)}
+                "notes": list(self.notes), "raw": self.raw, "protected": self.protected}
 
 
 class SqlExecutions:
@@ -840,7 +859,7 @@ class SqlExecutions:
             lh = run.lakehouse
             try:
                 self._audit("sql_execution", "ok" if run.state == "completed" else "error",
-                            (run.ended or time.time()) - (run.started or run.created),
+                            run.seconds(),
                             {"execution": run.id, "state": run.state, "dialect": run.dialect,
                              "permission": run.permission or "", "rows": run.rows, "target": run.target,
                              "workspace_id": lh.get("workspace_id", ""), "lakehouse_id": lh.get("lakehouse_id", ""),
@@ -887,7 +906,7 @@ class SqlExecutions:
         limit = int(limit or self._limits()["sql_page_rows"])
         limit = max(1, min(limit, app_settings.SQL_RANGES["sql_page_rows"][1]))
         part_of = {"part": res.part} if res.part is not None else {}
-        filters = [f for f in filters or [] if str(f.get("text") or "").strip()]
+        filters = [f for f in sql_view.entries(filters, "filter") if str(f.get("text") or "").strip()]
         if sort or filters:
             sql_view.check_size(res.rows, "Sorting and filtering")
             rows, total = sql_view.view_page(_whole(res.path, res.rows), max(0, int(offset)), limit, sort, filters)
@@ -943,9 +962,11 @@ class SqlExecutions:
 
     # ---- export
 
-    def export(self, run_id: str, fmt: str = "csv", name: str = "", part: int | None = None) -> dict[str, Any]:
+    def export(self, run_id: str, fmt: str = "csv", name: str = "", part: int | None = None,
+               raw: bool = False) -> dict[str, Any]:
         """Stream a completed run's snapshot (or, with ``part``, one statement's, S14) to a new file in
-        Downloads; never replaces a file."""
+        Downloads; never replaces a file. A CSV protects text cells that start like a formula unless ``raw``
+        (Keep raw values, WR-228)."""
         if fmt not in EXPORT_FORMATS:
             raise ValueError(f"Export as {', '.join(EXPORT_FORMATS[:-1])} or {EXPORT_FORMATS[-1]}.")
         run = self._get(run_id)
@@ -953,17 +974,30 @@ class SqlExecutions:
         if fmt == "xlsx" and res.rows > EXCEL_MAX_ROWS:
             raise ValueError(f"Excel holds at most {EXCEL_MAX_ROWS:,} rows and this result has "
                              f"{res.rows:,}. Export it as CSV or Parquet instead.")
+        if fmt == "xlsx" and len(res.columns) > EXCEL_MAX_COLUMNS:
+            raise ValueError(f"Excel holds at most {EXCEL_MAX_COLUMNS:,} columns and this result has "
+                             f"{len(res.columns):,}. Export it as CSV or Parquet instead.")
         if not res.path.exists():
             return {"rerun_needed": True, "message": "This result was cleaned up. Run the query again to export it."}
         folder = self._downloads()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name or run.lakehouse.get('name') or run.project_name or '')} query {time.strftime('%Y-%m-%d %H%M%S')}"
         path = _reserve(folder, base, "." + fmt)
-        export = Export(id=uuid.uuid4().hex[:12], execution=run.id, format=fmt, path=path, total=res.rows)
+        export = Export(id=uuid.uuid4().hex[:12], execution=run.id, format=fmt, path=path, total=res.rows,
+                        raw=bool(raw) and fmt == "csv")
         with self._lock:
             self._exports[export.id] = export
+            self._forget_old_exports()
         threading.Thread(target=self._write, args=(res.path, export), daemon=True, name=f"sql-export-{export.id}").start()
         return export.status()
+
+    def _forget_old_exports(self) -> None:
+        """Keep the newest MAX_EXPORTS_KEPT finished exports (the page asks for an export's status only while it
+        runs and just after): each export was kept for the engine's life, so a long session's exports added up.
+        A running export is always kept. Called with ``_lock`` held."""
+        finished = [e.id for e in self._exports.values() if e.state != "running"]  # oldest first: insertion order
+        for export_id in finished[:max(0, len(finished) - MAX_EXPORTS_KEPT)]:
+            del self._exports[export_id]
 
     def export_status(self, export_id: str) -> dict[str, Any]:
         return self._get_export(export_id).status()
@@ -998,7 +1032,7 @@ class SqlExecutions:
                 raise ValueError(f"The export read {export.rows:,} of the result's {export.total:,} rows from its "
                                  "snapshot on this PC, so the file was removed. Run the query again and export it.")
             # After the file is closed: Windows can't rename a file that is still open.
-            export.notes = notes.sentences()
+            export.notes = notes.sentences() + ([csv_cells.note(export.protected)] if export.protected else [])
             self._done(export, partial)
         except _Stopped:
             _discard(partial, export.path)  # before the state changes: a finished export leaves no files
@@ -1011,7 +1045,10 @@ class SqlExecutions:
     def _write_batches(export: Export, reader: Any, schema: pa.Schema, sink: Any) -> None:
         """CSV or Parquet, through Arrow's own writers. CSV gets binary as hex and lists as JSON text (_csv_ready)."""
         csv = export.format == "csv"
-        writer = _writer(export.format, sink, csv_ready_schema(schema) if csv else schema)
+        header = schema
+        if csv:  # the header row's names are protected as the cells are (WR-228), counted once
+            header, export.protected = csv_cells.protect_header(csv_ready_schema(schema), raw=export.raw)
+        writer = _writer(export.format, sink, header)
         try:
             for i in range(reader.num_record_batches):
                 if export.cancel.is_set():
@@ -1019,7 +1056,10 @@ class SqlExecutions:
                 batch = reader.get_batch(i)
                 if export.format == "parquet":
                     batch = pa.RecordBatch.from_arrays(batch.columns, schema=schema)
-                writer.write_batch(csv_ready_batch(batch) if csv else batch)
+                if csv:
+                    batch, protected = csv_cells.protect_batch(csv_ready_batch(batch), raw=export.raw)
+                    export.protected += protected
+                writer.write_batch(batch)
                 export.rows += batch.num_rows
         finally:
             writer.close()
@@ -1091,10 +1131,11 @@ class SqlExecutions:
                     # not at the result's retention. Kept: a link (never followed), a spill written in
                     # the last SPILL_QUIET_S (a live run, should sql_temp_dir be shared), and a file
                     # still open (Windows won't delete it).
+                    # Its age is read first: removing the spill touches the folder, which would make it new.
+                    age = now - folder.stat().st_mtime
                     spill = folder / "spill"
                     if not (_linked(folder) or _linked(spill)) and _quiet(spill, now):
                         shutil.rmtree(spill, ignore_errors=True)
-                    age = now - folder.stat().st_mtime
                     if hours <= 0 or age > hours * 3600:
                         shutil.rmtree(folder, ignore_errors=True)
 

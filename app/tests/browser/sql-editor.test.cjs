@@ -380,9 +380,33 @@ test("F12 shows the table under the cursor, an alias's or a column's, in the Exp
   await page().waitForFunction(() => document.activeElement?.title === "Query customers");
   await setDoc(text, text.indexOf("SELECT") + 2);  // on a keyword: nothing to go to
   await page().keyboard.press("F12");
-  await page().waitForFunction(() => /F12 goes to a table or view/.test(document.querySelector(".toast")?.textContent || ""));
+  await page().waitForFunction(() => /Put the cursor on the name of a table or view/.test(document.querySelector(".toast")?.textContent || ""));
   assert.strictEqual(await page().evaluate(() => document.activeElement?.getAttribute("aria-label")), "SQL query", "focus stays in the editor");
   await collapse();
+});
+
+test("Alt+F12 peeks at a lakehouse table as CREATE TABLE from its columns, and Show in Explorer goes there", { skip }, async () => {
+  const text = "SELECT amount FROM sales";
+  await setDoc(text, text.indexOf("sales") + 2);
+  await page().keyboard.press("Alt+F12");
+  const peek = page().getByRole("region", { name: "Definition of sales" });
+  await peek.waitFor();
+  assert.strictEqual(await peek.locator("pre").innerText(),
+    "-- sales, sketched from the columns the Explorer lists. Its table properties and partitioning aren't shown.\n" +
+    "CREATE TABLE dbo.sales (\n  order_id LONG,\n  customer_id LONG,\n  order_date DATE,\n  amount DECIMAL(18,2),\n  `Region Name` STRING\n) USING DELTA;\n");
+  await page().mouse.click(5, 5);  // a click outside closes it
+  await peek.waitFor({ state: "detached" });
+  await setDoc(text, text.indexOf("sales") + 2);
+  await page().keyboard.press("Alt+F12");
+  await page().evaluate(() => { document.querySelector(".sql-edit").style.display = "none"; });  // the editor leaves the screen
+  await peek.waitFor({ state: "detached" });
+  await page().evaluate(() => { document.querySelector(".sql-edit").style.display = ""; });
+  await setDoc(text, text.indexOf("sales") + 2);
+  await page().keyboard.press("Alt+F12");
+  await peek.getByRole("button", { name: "Show in Explorer" }).click();
+  await page().waitForFunction(() => document.activeElement?.title === "Query sales");
+  assert.strictEqual(await page().locator(".sql-peek").count(), 0);
+  await page().locator(".sql-table-row", { hasText: "sales" }).first().locator(".chev").click();
 });
 
 test("SQL errors stay visible under the editor", { skip }, async () => {

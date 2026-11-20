@@ -302,8 +302,14 @@ def test_a_pinned_tables_reads_use_the_short_read_limits_when_signed_in(svc, mon
         def version(self):
             return 3
 
+        def protocol(self):  # plain Delta, so the pyarrow reader reads it
+            return type("Protocol", (), {"reader_features": None, "writer_features": None})()
+
+        def metadata(self):
+            return type("Metadata", (), {"configuration": {}})()
+
         def to_pyarrow_dataset(self):
-            return type("Dataset", (), {"head": lambda self, n: None})()
+            return type("Dataset", (), {"head": lambda self, n, columns=None: None})()
 
     monkeypatch.setattr(deltalake, "DeltaTable", Opened)
     row = svc._replay_table({"table": "dbo.sales", "version": 1}, "root", lambda: {"bearer_token": "tok"}, False)

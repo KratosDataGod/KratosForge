@@ -174,10 +174,14 @@ async function rollbackDialog(env, onChange) {
   const earlier = res.releases.filter((r) => !r.current && r.kept);
   let pick = earlier.length ? earlier[0].version : null;
   const what = h("div", { class: "rollback-what" });
+  // A Prod workspace (WR-250), or another project's Prod on this PC (WR-251): the rollback waits for its name typed.
+  const needs = res.confirm_name || "";
+  const typed = needs ? h("input", { autocomplete: "off", spellcheck: "false", oninput: () => { go.disabled = !ready(); } }) : null;
+  const ready = () => !!pick && (!typed || typed.value.trim() === needs);
   const go = btn("Roll back", null, async () => {
-    if (!pick) return;
+    if (!ready()) return;
     if (!state.user && !(await signIn())) return;
-    const out = await metaCall("meta_rollback", { env, version: pick }, "Rollback blocked");
+    const out = await metaCall("meta_rollback", { env, version: pick, ...(needs ? { confirm_name: needs } : {}) }, "Rollback blocked");
     if (!out) return;
     closeDialog();
     toast(`${ENV_LABEL[env]} is back on metadata ${out.version}`, false, { log: true });
@@ -186,7 +190,7 @@ async function rollbackDialog(env, onChange) {
   }, "tool primary");
   const label = (r) => `${r.version} (${relTime(r.at)})`;
   const show = async () => {
-    go.disabled = !pick;
+    go.disabled = !ready();
     go.textContent = pick ? `Roll back ${ENV_LABEL[env]} to ${pick}` : "Roll back";
     if (!pick) { what.replaceChildren(); return; }
     what.replaceChildren(h("p", { class: "muted-text small" }, "Working out what changes..."));
@@ -223,7 +227,9 @@ async function rollbackDialog(env, onChange) {
     h("fieldset", { class: "rollback-releases" }, h("legend", {}, `Releases to ${ENV_LABEL[env]}`), res.releases.map(row)),
     earlier.length ? null : h("p", { class: "muted-text small" }, `${ENV_LABEL[env]} keeps no earlier release to go back to. Releases promoted before this version of the app didn't keep their files.`),
     what,
-    h("p", { class: "muted-text small" }, `The rollback is recorded as a new release in ${ENV_LABEL[env]}, naming the release it went back to. Your project folder on this PC is not changed.`));
+    h("p", { class: "muted-text small" }, `The rollback is recorded as a new release in ${ENV_LABEL[env]}, naming the release it went back to. Your project folder on this PC is not changed.`),
+    typed ? [h("p", { class: "text" }, `${needs} is a Prod workspace, so this rollback runs only after you type its name exactly to confirm.`),
+      h("label", { class: "field" }, `Type ${needs} to confirm`, typed)] : null);
   showDialog(`Roll back ${ENV_LABEL[env]}`, body, [btn("Cancel", null, closeDialog, "tool"), go])
     .querySelector(".dialog")?.classList.add("wide");
   show();
@@ -270,7 +276,8 @@ async function columnLineage(name, pick = null) {
             (s.inputs || []).length ? h("div", {}, s.inputs.map(input).join(", ")) : null,
             s.note ? h("div", { class: "muted-text" }, s.note) : null,
             s.custom_may_change ? h("div", { class: "muted-text" }, `custom code may change it (${s.custom_may_change.join(", ")})`) : null]))))),
-      h("b", {}, "Read further on"),
+      h("div", { class: "row" }, h("b", { class: "grow" }, "Read further on"),
+        btn("Impact of a change...", null, () => { closeDialog(); impactDialog(name, col); }, "tool link small")),
       r.downstream.length ? h("ul", { class: "gate-list small" }, r.downstream.map((d) => h("li", {},
         h("button", { class: "tool link small", onclick: () => { closeDialog(); openEntity(d.entity); } }, `${d.entity}.${d.column}`),
         ` (${LINEAGE_HOW[d.how] || d.how})`)))
@@ -281,6 +288,118 @@ async function columnLineage(name, pick = null) {
     h("div", { class: "lineage-split" }, list, detail)), [btn("Close", null, closeDialog, "tool outline")]);
   overlay.querySelector(".dialog").classList.add("wide");
   if (pick && res.columns[pick]) list.querySelectorAll(".lineage-col")[columns.findIndex(([c]) => c === pick)].click();
+}
+
+// ---------- impact of a column change ----------
+
+const IMPACT_CHANGE = { drop: "Drop it", rename: "Rename it", retype: "Change its type" };
+const IMPACT_KIND = { table: "table", python: "your Python", model: "semantic model" };
+
+// One consumer: what it is, Breaks or Check, and each reason. Tables open their entity page.
+function impactRow(it) {
+  const name = it.kind === "table" ? entityName(it.name) : it.name;
+  return h("div", { class: "impact-row" },
+    h("span", { class: `pill-s ${it.severity === "breaks" ? "fail" : "wrn"}` }, it.severity === "breaks" ? "Breaks" : "Check"),
+    h("span", { class: "impact-name" }, h("b", { class: it.kind === "python" ? "mono" : null }, name), " ",
+      h("span", { class: "muted-text small" }, it.detail || IMPACT_KIND[it.kind])),
+    it.kind === "table" && it.entity
+      ? btn("Open", null, () => { closeDialog(); openEntity(it.entity); }, "tool outline small", { "aria-label": `Open ${it.name}` })
+      : h("span", {}),
+    h("ul", { class: "impact-why muted-text small" }, it.why.map((w) => h("li", {}, w))));
+}
+
+// Breaks first, then Check, each under its own heading.
+function impactList(res) {
+  const groups = [["breaks", "Breaks"], ["check", "Check"]].map(([sev, label]) => {
+    const rows = res.items.filter((i) => i.severity === sev);
+    return rows.length ? [h("h3", { class: "impact-group" }, `${label} (${rows.length})`), ...rows.map(impactRow)] : [];
+  }).flat();
+  return h("div", { class: "impact-list" }, groups.length ? groups
+    : h("p", { class: "muted-text small" }, `Nothing in this project reads ${res.entity}.${res.column} in a way this change touches.`));
+}
+
+// Pick a column of the entity and a change; the list shows what Breaks and what to Check, each with
+// the reason, worked out from the project's files. Nothing runs and nothing changes.
+async function impactDialog(name, pick = null) {
+  const res = await metaCall("meta_lineage", { name }, "Lineage not available");
+  if (!res) return;
+  const columns = Object.keys(res.columns);
+  const colSel = h("select", { "aria-label": "Column" }, columns.map((c) => h("option", { value: c, selected: c === pick ? true : null }, c)));
+  const changeSel = h("select", { "aria-label": "Change" }, Object.entries(IMPACT_CHANGE).map(([v, label]) => h("option", { value: v }, label)));
+  const out = h("div", { class: "impact-out", "aria-live": "polite" });
+  let asked = 0;
+  const draw = async () => {
+    const mine = ++asked;
+    out.replaceChildren(h("p", { class: "muted-text small" }, "Working it out..."));
+    const r = await metaCall("meta_impact", { name, column: colSel.value, change: changeSel.value }, "Impact not available");
+    if (!r || mine !== asked) return;
+    const first = r.items.find((i) => i.chain?.length > 1);
+    out.replaceChildren(
+      h("div", { class: "impact-tiles" },
+        h("div", { class: "impact-tile" }, h("b", { class: r.counts.breaks ? "bad" : null }, String(r.counts.breaks)), h("span", {}, "Will break")),
+        h("div", { class: "impact-tile" }, h("b", { class: r.counts.check ? "wrn" : null }, String(r.counts.check)), h("span", {}, "To check")),
+        h("div", { class: "impact-tile" }, h("b", {}, String(r.counts.table_only)), h("span", {}, "Read the table, not this column"))),
+      impactList(r),
+      first ? h("div", { class: "impact-chain small" }, `How ${first.name} is reached: `,
+        first.chain.map((c, i) => [i ? " → " : null, h("code", {}, c)])) : null);
+  };
+  colSel.addEventListener("change", draw);
+  changeSel.addEventListener("change", draw);
+  const overlay = showDialog(`Impact of a change: ${name}`, h("div", { class: "impact-view" },
+    h("div", { class: "row wrap" }, h("label", { class: "inline" }, "Column ", colSel), h("label", { class: "inline" }, "Change ", changeSel),
+      h("span", { class: "muted-text small" }, "From this project's lineage. Nothing runs and nothing changes.")),
+    out,
+    h("p", { class: "muted-text small" }, "Covers this project's tables, your Python, and the semantic model on its last layer. Notebooks outside a project aren't traced yet.")),
+    [btn("Export OpenLineage...", null, () => { closeDialog(); openLineageDialog(); }, "tool outline"), btn("Close", null, closeDialog, "tool outline")]);
+  overlay.querySelector(".dialog").classList.add("wide");
+  draw();
+}
+
+// Export lineage as OpenLineage: one run event per entity's last run in this environment, written to
+// a new file in Downloads that DataHub, OpenMetadata or Marquez can read. Says first what it leaves out.
+async function openLineageDialog() {
+  const env = state.meta.env;
+  const pre = await metaCall("meta_openlineage_preview", { env }, "Export not available");
+  if (!pre) return;
+  const envName = ENV_LABEL[env] || env;
+  const exportBtn = btn("Export", null, async () => {
+    const res = await metaCall("meta_openlineage_export", { env }, "Not exported");
+    if (!res) return;
+    closeDialog();
+    toast(`Saved ${res.events} OpenLineage event${res.events === 1 ? "" : "s"} to ${res.path}`);
+  }, "tool primary", pre.events ? {} : { disabled: true });
+  showDialog("Export lineage as OpenLineage", h("div", { class: "impact-view" },
+    h("p", { class: "lead" }, pre.events
+      ? `Writes ${pre.events} OpenLineage run event${pre.events === 1 ? "" : "s"} (inputs, outputs and column lineage), one for each table's last run in ${envName}, to a new file in Downloads that DataHub, OpenMetadata or Marquez can read.`
+      : `No table has a finished run in ${envName} yet, so there is nothing to export. Run the project first.`),
+    pre.left_out.length ? h("div", {}, h("b", { class: "small" }, `Left out (${pre.left_out.length})`),
+      h("ul", { class: "gate-list small" }, pre.left_out.map((x) => h("li", {}, `${x.entity}: ${x.why}`)))) : null,
+    h("p", { class: "muted-text small" }, "Table, column and job names and how they link, one event per line. No data rows, no run messages and no paths on this PC.")),
+  [btn("Cancel", null, closeDialog, "tool outline"), exportBtn]);
+}
+
+// Before an entity is saved: if its contract change breaks something, say what and ask. Resolves
+// true to save, false to stay. A check that can't run never blocks the save.
+async function confirmContractChange(name, text) {
+  let res;
+  try {
+    res = await rpc("meta_edit_impact", { name, text });
+  } catch {
+    return true;
+  }
+  const breaking = (res?.changes || []).filter((c) => c.counts.breaks);
+  if (!breaking.length) return true;
+  const total = breaking.reduce((n, c) => n + c.counts.breaks, 0);
+  const what = (c) => c.change === "rename" ? `renaming ${c.column} to ${c.new_name}` : c.change === "drop" ? `removing ${c.column}` : `changing the type of ${c.column}`;
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (v) => { if (settled) return; settled = true; closeDialog(); resolve(v); };
+    showDialog(`This change breaks ${total} thing${total === 1 ? "" : "s"}`, h("div", { class: "impact-view" },
+      breaking.map((c) => [h("p", { class: "lead" }, `You're ${what(c)} in ${name}. ${c.change === "rename" ? "These read it by its old name:" : "These read it:"}`),
+        impactList({ ...c, items: c.items })])),
+    [btn("Cancel", null, () => done(false), "tool outline"), btn("Save anyway", null, () => done(true), "tool danger-solid")],
+    () => done(false)).querySelector(".dialog").classList.add("wide");
+  });
 }
 
 // ---------- schema drift ----------

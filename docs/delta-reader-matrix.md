@@ -1,6 +1,6 @@
 # Delta reader matrix
 
-Which readers can read a Delta table that uses a feature outside KratosForge's Fabric-safe Delta profile (`sidecar/fabric_desktop/delta_profile.py`). The profile allows reader version 1 and writer version 2 at most, with no deletion vectors, no column mapping and no V2 checkpoints. KratosForge refuses to write to a table outside it.
+Which readers can read a Delta table that uses a newer Delta feature, and what that means for the Delta profiles KratosForge writes to (`sidecar/fabric_desktop/delta_profile.py`). The same cells are in the code as `delta_profile.MATRIX`, and a test checks the two agree.
 
 Every cell comes from a public page, linked below. "Unknown" means no page we found says either way. It is not a guess.
 
@@ -30,11 +30,37 @@ Microsoft's page [1] lists more Fabric items than the six above. These ones can'
 | Dataflows Gen2 | Reads | Reads | Doesn't read |
 | KQL databases | Reads | Reads | Doesn't read |
 
-## What this means for the profile
+## The profiles
 
-The profile is stricter than Microsoft's page requires for the SQL analytics endpoint and Direct Lake. Both read deletion vectors and column mapping by name [1]. Other Fabric items can't read them: Python notebooks, pipelines and eventstreams. Column mapping by ID also breaks the SQL analytics endpoint. The profile stays as it is. Allowing a feature per table is separate work, and it waits for the product decision.
+KratosForge writes to a table only when the table is inside the profile and every one of the table's readers can read it. Otherwise the write is refused before anything is committed, and the refusal says why.
 
-When KratosForge refuses a write, the message names the feature and the readers on this page that can't read it.
+| Profile | Allows | Readers that can't read it |
+| --- | --- | --- |
+| Modern (the default) | Reader version 3 at most, and writer version 2 or 7, with deletion vectors and column mapping by name. Writer versions 3 to 6 are refused, because they turn on features without listing them | Fabric Python notebooks, pipelines and eventstreams |
+| Conservative ("Fabric-safe") | Reader version 1 and writer version 2 at most, no table features | None in the matrix |
+
+Both profiles refuse column mapping by ID, because Fabric's SQL analytics endpoint can't read it. Both also refuse V2 checkpoints, which users report the endpoint refusing, and any other table feature.
+
+- **The default.** The modern profile has been the default since 2026-11-17. It is the setting `delta_profile.DEFAULT_PROFILE`. The SQL analytics endpoint and Direct Lake both read deletion vectors and column mapping by name [1][2], so the conservative profile was stricter than they need.
+- **Readers.** A write checks the table's features against its readers. Unless a write names others, the readers are the SQL analytics endpoint and Direct Lake (`delta_profile.DEFAULT_READERS`). Suppose a table uses a feature that one of its readers can't read, or that no source says the reader can read (an "Unknown" cell). Then the write is refused, and the refusal names the reader, the feature and the source.
+- **How to choose.**
+  - Keep the modern profile when the table is read through the SQL analytics endpoint, Direct Lake, Fabric Spark, Databricks or DuckDB. It lets KratosForge write to tables that Fabric Spark made with deletion vectors, and to tables with a column name that needs column mapping.
+  - Use the conservative profile when a Fabric Python notebook, a pipeline or an eventstream reads the table, or when you don't know who reads it.
+- **What KratosForge itself writes.** A table KratosForge creates stays at reader 1 and writer 2: delta-rs never writes deletion vectors (a DELETE rewrites files), and no feature is turned on for you. On a table that has these features, appends, overwrites, merges, updates and deletes keep the features and the rows right. We checked this with Spark reading the tables back.
+- **Column mapping limits.** delta-rs can't change a column-mapped table's columns. A write that adds or leaves out a column is refused before it starts. Change the columns in Fabric Spark first. Compacting a column-mapped table on this PC is also refused by delta-rs. Fabric's table maintenance compacts it instead.
+
+## Reading these tables in KratosForge
+
+KratosForge reads tables with deletion vectors or column mapping correctly, whoever wrote them. Fabric Spark writes both: deleted rows stay in the data files and a deletion vector marks them, and with column mapping the data files name each column `col-<id>`. Fabric turns column mapping on for a column name with a space.
+
+- The pyarrow reader in delta-rs refuses deletion vectors. On a column-mapped table that another writer made, it reads every value as NULL. KratosForge reads these tables through delta-rs's DataFusion reader instead (`sidecar/fabric_desktop/delta_read.py`). This covers previews, notebooks, Spark on this PC, SQL over the lakehouse, pipeline Lookup and Get Metadata, proofs and environment compare. A table with neither feature is read as before. The DataFusion reader reads such a table whole into memory before a query or a notebook works on it, even for a `SELECT ... LIMIT 10`. So a table whose data files hold more than 2 GB is refused, and the refusal gives the reason. The files are compressed, so the read can take several times that in memory. Previews and pipeline Lookup read only the first rows, so they have no limit. A local data project reads the table in place, without the limit.
+- A local data project reads such a table through its own view. The view reads each column by its physical name and gives it the table's name. It leaves out each deleted row by its row number in its file. Two limits apply. A struct column under column mapping is refused, because a local read names only top-level columns. A table with more than 50,000 runs of deleted rows is also refused, and compacting it in Fabric (OPTIMIZE) folds the vectors in.
+- A stream on this PC refuses both features. It reads new files by path, so it would bring deleted rows back or miss renamed columns. Run the stream in Fabric.
+- Row counts from the log's file statistics (previews, environment compare) leave out rows that a deletion vector removed.
+
+Reading a table doesn't make it writable. Writes follow the profiles above.
+
+The tests use tables that Apache Spark 3.5.5 with Delta Lake 3.3.2 wrote (`sidecar/tests/fixtures/delta_spark`, made by `sidecar/tools/make_spark_delta_fixtures.py`). Each test checks the rows Spark read back.
 
 ## Notes on the sources
 

@@ -91,6 +91,9 @@ function hydrateIcons(root = document) {
 // toast stays while the pointer or keyboard focus is on it (UX-011).
 function toast(text, isError = false, opts = {}) {
   const t = document.getElementById("toast");
+  // A hidden status region isn't in the accessibility tree when its words change, so the first toast after a quiet
+  // spell isn't read; the window's polite region (motion.js announce) says it. An error is an alert, read when shown.
+  if (t.hidden && !isError && typeof announce === "function") announce(text);
   t.textContent = opts.details ? `${text}\nDetails are in Activity (the bell).` : text;
   if (opts.action) {
     t.append(" ", btn(opts.action.label, null, () => { clearTimeout(toast.timer); t.hidden = true; opts.action.run(); },
@@ -1031,8 +1034,13 @@ function tile(iconName, title, desc, onClick) {
 }
 
 function renderCreate() {
-  setView(h("div", { class: "page" },
-    h("h1", {}, "Create"), pageIntro("Items you create here run on this PC and store their data in OneLake. ", learnMore("create")),
+  // Living Experience (home-hero.js, Preview): Chris's header art with "Create" and the two items most
+  // people start with in its text-safe left side. Off, the plain heading.
+  const hero = typeof pageHero === "function"
+    ? pageHero("create", "Create", { actions: [btn("New notebook", "notebook", () => newNotebook(), "tool primary"),
+      btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool hero-outline")] }) : null;
+  setView(h("div", { class: hero ? "page living-head" : "page" },
+    hero || h("h1", {}, "Create"), pageIntro("Items you create here run on this PC and store their data in OneLake. ", learnMore("create")),
     h("h2", {}, "Data engineering"),
     h("div", { class: "tiles" },
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
@@ -1065,6 +1073,8 @@ const MONITOR_OPS = [
     text: "Which identity runs your workloads in each place, and with what credential" },
   { panel: "incidents", feature: "incidents", label: "Incidents", anchor: "incidents-preview",
     text: "One record per problem, shared by everyone who can read the environment" },
+  { panel: "data_health", feature: "dataHealth", label: "Data health", anchor: "data-health-preview",
+    text: "The tables you watch: freshness, rows per load and schema, read from each table's Delta log" },
 ];
 // Monitor's tabs are by source, the way Data mesh groups its pages: what KratosForge ran and schedules, and
 // Fabric's own Monitoring hub and schedules. Another source (Databricks, Snowflake) is a tab beside them.
@@ -1169,10 +1179,17 @@ async function renderMonitor() {
   const forge = monitorPage.panel === "runs" && !runsBand && forgeViewShown();
   const forgeStripSlot = forge ? h("div", { class: "forge-strip-slot" }) : null;
   const forgeBandSlot = forge && forgeViewOn() ? h("div", { class: "forge-slot" }) : null;
-  setView(h("div", { class: `page monitor${hubShown ? "" : " no-fabric"}` },
-    POP_OUT ? null : h("div", { class: "page-head" },
-      h("div", {}, h("h1", {}, "Monitor"), h("p", { class: "sub monitor-context" }, monitorAbout(...about))),
-      forgeStripSlot, h("div", { class: "head-actions" }, popOutHere)),
+  // Living Experience (home-hero.js, Preview): Chris's header art with the page's name and its button on
+  // the sky. Not in a pop-out window, not over the docked Fabric hub (the working area keeps its height),
+  // and not above the Forge Activity band, which carries its own Monitor art (#2226): one picture per screen.
+  const hero = !POP_OUT && !hubShown && !forgeBandSlot && typeof pageHero === "function"
+    ? pageHero("monitor", "Monitor", { actions: [h("div", { class: "head-actions" }, popOutHere)] }) : null;
+  const context = h("p", { class: "sub monitor-context" }, monitorAbout(...about));
+  setView(h("div", { class: `page monitor${hubShown ? "" : " no-fabric"}${hero ? " living-head" : ""}` },
+    POP_OUT ? null : hero ? [hero, h("div", { class: "page-head" }, h("div", {}, context), forgeStripSlot)]
+      : h("div", { class: "page-head" },
+        h("div", {}, h("h1", {}, "Monitor"), context),
+        forgeStripSlot, h("div", { class: "head-actions" }, popOutHere)),
     tabs, runsBand ? null : viewRow,
     hub ? (fabricOut ? poppedOutBand("fabric", "Fabric's Monitoring hub", "monitor-fabric")
       : h("section", { class: "card monitor-fabric" }, slot))
@@ -1188,6 +1205,7 @@ async function renderMonitor() {
   if (monitorPage.panel === "agents") { local.replaceWith(agentsPanel()); return; }
   if (monitorPage.panel === "queue") { local.replaceWith(queuePanel()); return; }
   if (monitorPage.panel === "runas") { local.replaceWith(runAsPanel()); return; }
+  if (monitorPage.panel === "data_health") { local.replaceWith(dataHealthPanel()); return; }
 
   const refreshFabricPipelines = monitorPage.fabricPipelinesRefresh;
   monitorPage.fabricPipelinesRefresh = false;
@@ -1247,7 +1265,7 @@ async function renderMonitor() {
     ...fabricPipelineRunRows(fabricPipelines, cloud),
     ...(writes || []).map((r) => ({
       at: r.finished_at, status: "ok", activity: r.job, kind: historyKind(r), env: "", where: "local",
-      seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})`, reason: "",
+      seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})${r.v_order_error ? ` ${r.v_order_error}` : ""}`, reason: "",
     })),
   ];
   if (forge) forgeActivityFill(forgeStripSlot, forgeBandSlot, all);
@@ -1369,7 +1387,9 @@ async function renderWorkspaces() {
   const chips = h("div", { class: "ws-filters" });
   const previewing = itemPreviewOn();
   if (itemPreview.target?.kind !== "item" && !itemPreview.parent) itemPreview.target = null;
-  setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"), workspacesTabs("workspaces"),
+  // Living Experience (home-hero.js, Preview): Chris's header art with the page's name on its sky.
+  const hero = typeof pageHero === "function" ? pageHero("workspace", "Workspaces") : null;
+  setView(h("div", { class: hero ? "page living-head" : "page" }, hero || h("h1", {}, "Workspaces"), workspacesTabs("workspaces"),
     pageIntro("Your Fabric workspaces. Expand one to see its items, star your favorites and pin the ones you use most. ",
       previewing ? "Click an item to preview it. " : "", learnMore("workspaces")),
     signInCallout(), withHowItWorks([chips, previewing ? previewLayout(body, () => draw()) : body], howItWorks("workspaces", {
@@ -2585,6 +2605,7 @@ async function runInFabric() {
     return;
   }
   if (!(await ensureSignedIn())) return;
+  if (typeof dbgRemoteNote === "function") dbgRemoteNote(nb, nb.cells);  // debugging.js: breakpoints don't pause in Fabric
   // The risk check (FINOPS-004) asks only when something should stop or slow the run. A notebook
   // not yet linked to its Fabric item can't be checked and runs as before.
   if (!(await riskGate({ id: `notebook:${nb.name}`, action: "run_in_fabric", title: `Run in Fabric ${nb.name}?`,

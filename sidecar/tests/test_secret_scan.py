@@ -9,6 +9,8 @@ import re
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 CI = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
@@ -154,3 +156,40 @@ def test_a_value_a_pull_request_adds_and_later_takes_out_warns_once_naming_its_c
     assert len(out) == 1 and out[0].startswith("::warning file=x.py,line=3::Looks like a secret (AWS Access Key) "
                                                "in commit c1c1c1c1c1c1. ")
     assert "bbb" not in out[0]
+
+
+class _File:
+    def __init__(self, name: str) -> None:
+        self.name, self.at = name, 7
+
+    def seek(self, at: int) -> None:
+        self.at = at
+
+
+def test_a_file_too_deep_to_read_as_yaml_is_scanned_line_by_line_and_named(capsys):
+    def deep(file, use_eager_transformers=False):
+        raise RecursionError("maximum recursion depth exceeded")
+
+    file = _File(str(ROOT / "models" / "deep,one:x.yaml"))
+    guarded = scan._line_by_line_when_too_deep(deep)
+    assert guarded(file) is None and guarded(file, True) is None  # None: read line by line, as any other file
+    assert file.at == 0  # from the top
+    out = capsys.readouterr().out.splitlines()
+    assert len(out) == 2 and out[0].startswith("::warning file=") and "deep%2Cone%3Ax.yaml::" in out[0]
+    assert "nested too deeply" in out[0] and "scanned line by line" in out[0]
+
+
+def test_only_too_deep_is_read_line_by_line_and_the_guard_is_added_once():
+    seen = []
+
+    def parse(file, use_eager_transformers=False):
+        seen.append(use_eager_transformers)
+        if file.name == "broken":
+            raise ValueError("not this one")
+        return ["k: v"]
+
+    guarded = scan._line_by_line_when_too_deep(parse)
+    assert guarded(_File("ok")) == ["k: v"] and guarded(_File("ok"), True) == ["k: v"] and seen == [False, True]
+    with pytest.raises(ValueError):  # another failure is the scanner's own, not read line by line
+        guarded(_File("broken"))
+    assert scan._line_by_line_when_too_deep(guarded) is guarded

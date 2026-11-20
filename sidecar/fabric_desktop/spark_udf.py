@@ -16,7 +16,7 @@ from __future__ import annotations
 import inspect
 import itertools
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 _ids = itertools.count(1)
 
@@ -173,7 +173,7 @@ class UserDefinedFunction:
                 except (TypeError, ValueError) as exc:  # ArrowTypeError and ArrowInvalid too, as Spark catches them
                     # Spark stops on values Arrow won't convert (text, for one); it doesn't null them
                     raise RuntimeError(
-                        f"The pandas_udf {self.__name__} returned values that aren't {dt.simpleString()}, so the "
+                        f"The pandas_udf {self.__name__} returned values that aren't {cast(Any, dt).simpleString()}, so the "
                         f"cell stopped, as it does in Fabric: Exception thrown when converting pandas.Series "
                         f"({series.dtype}) to Arrow Array ({_arrow_type(dt)}). Return "
                         f"numbers, or change the pandas_udf's return type.") from exc

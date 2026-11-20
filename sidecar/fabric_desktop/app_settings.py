@@ -879,8 +879,8 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"{key} is not a setting you can change")
         if unknown and _unknown(key, unknown) and not (key in RESTRICTED and new == RESTRICTED[key]):
             # What Group Policy says about it is unknown: it stays as it is, unless it's made stricter.
-            raise ValueError(f"Group Policy on this PC couldn't be read, and it may set {key}, so it can't be changed "
-                             "until it can be read. Try again later, or ask IT")
+            raise ValueError(f"Group Policy on this PC couldn't be read, and it may set {key}, so {key} can only be made "
+                             "stricter until Group Policy can be read. Try again later, or ask IT.")
         if current[key]["source"] == "policy":
             raise ValueError(f"Your organization sets {key}, so it can't be changed here")
         if current[key]["source"] == "environment":

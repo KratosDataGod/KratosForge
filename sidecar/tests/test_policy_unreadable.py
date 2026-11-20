@@ -1,5 +1,6 @@
-"""Group Policy that exists but can't be read never quietly drops what it sets: the settings it may manage
-stay as they are and can't be changed (except made stricter), no source sets a setting that widens what
+"""Group Policy that exists but can't be read never quietly drops what it sets: each on/off restriction takes
+its most restrictive value (as for a policy file that can't be read), the other settings it may manage stay as
+they are and can't be changed (except made stricter), no source sets a setting that widens what
 KratosForge trusts, the problem says so and the record of policy changes notes it. One list subkey that
 can't be read leaves only its own setting unknown. Read again each time, so a passing error clears."""
 
@@ -29,13 +30,27 @@ def broken(monkeypatch):
     return state
 
 
-def test_an_unreadable_key_is_reported_as_unknown(policy, broken):  # noqa: F811
+def test_an_unreadable_key_is_reported_as_unknown_and_its_restrictions_take_their_safest_values(policy, broken):  # noqa: F811
     out, problems, unknown = registry_policy.read_all()
-    assert out == {} and unknown == {registry_policy.ALL}
-    assert problems == [("The Group Policy settings couldn't be read ([Errno 5] Access is denied), so the settings "
-                        "it can manage are kept as they are and can't be changed here, and settings that widen "
-                        "what KratosForge trusts don't apply, until it can be read. Ask IT if this stays")]
+    assert unknown == {registry_policy.ALL}
+    assert out == {k: v for k, v in app_settings.RESTRICTED.items() if not isinstance(v, list)}
+    assert "allowed_tenants" not in out  # people can still sign in (Chris, 2026-10-18)
+    assert problems == [("The Group Policy settings couldn't be read ([Errno 5] Access is denied). Until they can, "
+                         "each on/off restriction takes its most restrictive value, as it does when the policy file "
+                         "can't be read, and settings that widen what KratosForge trusts don't apply. Other settings "
+                         "Group Policy can manage stay as they are and can only be made stricter here. Sign-in still "
+                         "works. Ask IT if this doesn't clear.")]
     assert problems[0] in app_settings.policy_problems()
+
+
+def test_a_restriction_set_only_in_group_policy_still_applies_while_it_cant_be_read(policy, gp, monkeypatch):  # noqa: F811
+    gp({"allow_fabric_runs": (0, registry_policy.REG_DWORD)})
+    assert app_settings.value("allow_fabric_runs") is False
+
+    def unreadable():
+        raise PermissionError(5, "Access is denied")
+    monkeypatch.setattr(registry_policy, "_reader", lambda: unreadable)
+    assert app_settings.load()["allow_fabric_runs"] == {"value": False, "source": "policy"}
 
 
 def test_while_it_cant_be_read_the_policy_file_sets_nothing_that_loosens(policy, broken):  # noqa: F811
@@ -48,15 +63,22 @@ def test_while_it_cant_be_read_the_policy_file_sets_nothing_that_loosens(policy,
     assert data["fabric_view_sign_in_hosts"] == HOSTS
 
 
-def test_while_it_cant_be_read_settings_stay_as_they_are_unless_made_stricter(policy, broken):  # noqa: F811
-    with pytest.raises(ValueError, match="Group Policy on this PC couldn't be read, and it may set show_preview"):
+def test_while_it_cant_be_read_settings_stay_as_they_are(policy, broken):  # noqa: F811
+    assert app_settings.load()["show_preview"] == {"value": False, "source": "policy"}  # its safest value
+    with pytest.raises(ValueError, match="it may set show_preview, so show_preview can only be made stricter"):
         app_settings.save({"show_preview": True})
-    with pytest.raises(ValueError, match="couldn't be read"):
+    with pytest.raises(ValueError, match="Group Policy on this PC couldn't be read, and it may set ui_skin, so "
+                                         "ui_skin can only be made stricter"):
         app_settings.save({"ui_skin": "forge"})
-    app_settings.save({"telemetry": False})  # stricter: allowed
     broken["fixed"] = True
-    app_settings.save({"show_preview": True})
+    app_settings.save({"show_preview": True, "ui_skin": "forge"})
     assert app_settings.value("show_preview") is True
+
+
+def test_a_stricter_change_goes_through_while_a_list_is_unknown(policy, gp):  # noqa: F811
+    gp({}, {"allowed_tenants": PermissionError(5, "Access is denied")})
+    app_settings.save({"telemetry": False})  # not unknown: saved as usual
+    assert app_settings.value("telemetry") is False
 
 
 def test_one_unreadable_list_leaves_only_that_setting_unknown(policy, gp):  # noqa: F811
@@ -66,7 +88,7 @@ def test_one_unreadable_list_leaves_only_that_setting_unknown(policy, gp):  # no
     assert out == {"telemetry": False, "allowed_tenants": ["contoso.com"]}
     assert unknown == {"fabric_view_sign_in_hosts"}
     assert problems == [("Group Policy key fabric_view_sign_in_hosts couldn't be read ([Errno 5] Access is denied), "
-                        "so fabric_view_sign_in_hosts is kept as it is and can't be changed here until it can be read")]
+                        "so fabric_view_sign_in_hosts is kept as it is and can't be changed here until the key can be read")]
     policy({"fabric_view_sign_in_hosts": HOSTS, "support_url": "https://help.contoso.example"})
     data, _ = app_settings.read_policy()
     assert "fabric_view_sign_in_hosts" not in data  # unknown: no source loosens it
@@ -98,5 +120,5 @@ def test_an_unreadable_tenant_list_says_the_restriction_may_not_apply(policy, gp
     _, problems, unknown = registry_policy.read_all()
     assert unknown == {"allowed_tenants"}
     assert problems == [("Group Policy key allowed_tenants couldn't be read ([Errno 5] Access is denied), so the "
-                         "restriction it sets may not apply: allowed_tenants comes from the policy file or its "
-                         "default until it can be read")]
+                         "restriction it sets may not apply. Until the key can be read, allowed_tenants comes from "
+                         "the policy file or its default.")]

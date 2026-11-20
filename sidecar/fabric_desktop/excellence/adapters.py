@@ -9,12 +9,15 @@ enough), so the controls that need it are *not evaluated*, never passed.
 - :func:`capacity`        ``GET /capacities`` -> ``capacity.state`` (only when the capacity is visible)
 - :func:`optimization`    an ``optimization_assess`` result -> ``item.optimization`` per analyzed item
 - :func:`inspection`      the same result, assessed with inspect_items.inspect -> ``item.inspection``
+- :func:`models`          semantic model getDefinition (TMSL), via inspect_models.inspect -> ``item.model``
 
 What is kept is what the controls need: roles keep each principal's type, role and whether it is a
 guest, plus a display name so a finding can say who; e-mail addresses are dropped. Notebook code
 and pipeline JSON never enter evidence: an item's evidence lists the optimization rules that
 matched it, with their confidence, not the code; ``item.inspection`` keeps notebook rule ids with
-cell and line, and pipeline activity names and counts (excellence.inspect_items), not the code.
+cell and line, and pipeline activity names and counts (excellence.inspect_items), not the code;
+``item.model`` keeps rule ids, table, column, relationship and role names and counts
+(excellence.inspect_models), never DAX, M or the definition text.
 """
 
 from __future__ import annotations
@@ -30,6 +33,8 @@ LIST_CAPACITIES = "GET /v1/capacities"
 OPTIMIZATION = "KratosForge optimization engine (getDefinition and job history, docs/optimize/engine.md)"
 INSPECTION = "KratosForge definition inspection (the optimization engine's getDefinition read, excellence.inspect_items)"
 INSPECTED = ("Notebook", "DataPipeline")
+MODEL_DEFINITION = ("POST /v1/workspaces/{id}/items/{itemId}/getDefinition?format=TMSL "
+                    "(read only, excellence.inspect_models)")
 
 
 def _ws_subject(ws: dict[str, Any]) -> dict[str, Any]:
@@ -143,6 +148,27 @@ def inspection(result: dict[str, Any], *, collected_at: str) -> list[dict[str, A
         subj = ev.subject("item", str(w["item_id"]), w.get("name"), workspace_id=str(w.get("workspace_id")),
                           item_type=str(w["type"]))
         out.append(ev.record("item.inspection", subj, source=INSPECTION,
+                             confidence="verified_configuration" if ok else "insufficient", collected_at=collected_at,
+                             payload=payload))
+    return out
+
+
+def models(reads: list[dict[str, Any]], *, collected_at: str) -> list[dict[str, Any]]:
+    """One ``item.model`` record per semantic model whose definition was read or tried.
+
+    Each of ``reads`` is ``{"item_id", "name", "workspace_id", "inspected"}``, ``inspected`` being
+    inspect_models.inspect's result, or ``{"read": False, "problem": text}``. ``verified_configuration``
+    when it was read and inspected, ``insufficient`` otherwise (its controls are then not evaluated)."""
+    out = []
+    for m in reads:
+        raw = m.get("inspected")
+        got: dict[str, Any] = raw if isinstance(raw, dict) else {}
+        ok = bool(got.get("read")) and not got.get("error")
+        payload = dict(got) if ok else {"read": False, "problem": got.get("error") or got.get("problem")
+                                        or "The definition wasn't read."}
+        subj = ev.subject("item", str(m["item_id"]), m.get("name"), workspace_id=str(m.get("workspace_id")),
+                          item_type="SemanticModel")
+        out.append(ev.record("item.model", subj, source=MODEL_DEFINITION,
                              confidence="verified_configuration" if ok else "insufficient", collected_at=collected_at,
                              payload=payload))
     return out

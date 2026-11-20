@@ -596,9 +596,15 @@ function report(rows) {
       "must show an outline or ring. Each page is checked in light and dark (the window's color scheme); the app has " +
       "one theme, so dark is checked to show nothing breaks when Windows is set to dark. At 200% (the 1440x940 window laid out " +
       "as 720x470) no page may scroll sideways as a whole, and each Tab stop must be on screen and not under something when " +
-      "it has focus. In a Windows contrast theme (forced colors) contrast is the theme's, so it isn't measured, and each Tab " +
-      "stop must still show a ring (the theme removes rings drawn as box shadows). The keyboard walk runs in light, at 200% " +
-      "and in the contrast theme. Dialogs opened from buttons are checked the same way in `a11y-dialogs.test.cjs`.",
+      "it has focus. In a Windows contrast theme (forced colors) the theme picks the colors, so axe's contrast rule is off there; " +
+      "where the app keeps its own colors (forced-color-adjust: none, as on a selected tab or choice), the text must still " +
+      "reach 4.5:1 against what it sits on (3:1 for large text), measured with the theme's colors. Each Tab stop must still " +
+      "show a ring there too (the theme removes rings drawn as box shadows). The keyboard walk runs in light, at 200% and in " +
+      "the contrast theme. Every page is opened with reduced motion asked for, as Windows asks when Show animations is off: " +
+      "nothing may still be moving once it has drawn (a loop, or an animation longer than the stylesheet's cap), and no script " +
+      "may start an animation, unless the person chose motion anyway in Settings. A button or link that shows only an icon or " +
+      "a symbol must be named in words (aria-label, aria-labelledby or title). Dialogs opened from buttons are checked the " +
+      "same way in `a11y-dialogs.test.cjs`.",
     "",
     "The pages are opened signed in with test data (two workspaces, one lakehouse, two notebooks), so lists show rows " +
       "where they can. Screens that need a live tenant to fill are audited in their empty or signed-in state. " +
@@ -623,6 +629,9 @@ function report(rows) {
     ...r.noRing.map((k) => `- **${r.page}** (${r.scheme}): \`${k}\` shows no focus ring`),
     ...(r.sideways || []).map((k) => `- **${r.page}** (${r.scheme}): ${k}`),
     ...(r.hidden || []).map((k) => `- **${r.page}** (${r.scheme}): \`${k}\` is off screen or covered when it has focus`),
+    ...(r.forcedLow || []).map((k) => `- **${r.page}** (${r.scheme}): \`${k}\` keeps its own colors with too little contrast`),
+    ...(r.moving || []).map((k) => `- **${r.page}** (${r.scheme}): ${k} with reduced motion on`),
+    ...(r.unnamed || []).map((k) => `- **${r.page}** (${r.scheme}): \`${k}\` shows only an icon and isn't named in words`),
   ]);
   const looks = rows.filter((r) => r.scheme === "light").flatMap((r) => r.incomplete.map((v) => {
     const verdicts = [...new Set(v.nodes.map((n) => judged(`${r.id}: ${v.id} @ ${n}`) || "Not judged yet."))];

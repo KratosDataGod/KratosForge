@@ -518,6 +518,20 @@ def _rel_key(r: dict[str, Any]) -> str:
     return f"{r.get('fromTable')}.{r.get('fromColumn')} -> {r.get('toTable')}.{r.get('toColumn')}"
 
 
+def ends_key(a_table: Any, a_columns: Any, b_table: Any, b_columns: Any) -> tuple[str, str]:
+    """A relationship's two ends (each a table and its list of columns) as one key, the same whichever end is
+    written first: an Ossie relationship and the TMSL relationship it converts to share it."""
+    def end(table: Any, columns: Any) -> str:
+        return _canon([table, columns if isinstance(columns, list) else [columns]])
+    a, b = end(a_table, a_columns), end(b_table, b_columns)
+    return (a, b) if a <= b else (b, a)
+
+
+def tmsl_ends_key(r: dict[str, Any]) -> tuple[str, str]:
+    """``ends_key`` of a TMSL relationship."""
+    return ends_key(r.get("fromTable"), [r.get("fromColumn")], r.get("toTable"), [r.get("toColumn")])
+
+
 def _is_placeholder(obj: dict[str, Any]) -> bool:
     """A BLANK() the converter put in place of SQL it couldn't translate."""
     return str(obj.get("expression") or "").strip().upper() == "BLANK()" and any(a.get("name") == PLACEHOLDER_ANNOTATION for a in obj.get("annotations") or [] if isinstance(a, dict))
@@ -727,6 +741,7 @@ _STASH_CONTROL = frozenset({"_v", "excludedTables", "excludedMeasures", "exclude
                             "document", "descriptionSource", "table", "name", "flipped", "normalizedEndpoints",
                             "sourceColumn", "dataType", *(key for key, _ in _STASHED_OBJECTS), "hierarchies"})
 _DIALECT_ANNOTATION = "OssieExpressionDialect"
+RESTORED = "restored from the POWER_BI extension"  # the note on an object that lives only in that extension
 _COLLECTION_ROWS = (*_STASHED_OBJECTS, ("hierarchies", "hierarchy"))
 
 
@@ -847,9 +862,13 @@ class _Objects:
         self.lengths: set[int] = set()  # of the ids and aliases, so find tries only cuts that can match
         self._next: dict[str, int] = {}  # the next number to try for a name used again
         self._cuts: list[int] | None = None  # lengths, longest first, sorted once for every find
+        # id -> the object's structural key (its full names, never cut short), for the enumerations that set one;
+        # kept beside the report's objects, not in them, so the report's shape is unchanged (structural parity)
+        self.keys: dict[str, tuple[Any, ...]] = {}
 
     def add(self, kind: str, ident: str, cls: str, changes: list[str] | None = None, notes: list[str] | None = None,
-            aliases: tuple[str, ...] = (), in_extension: list[str] | None = None, parent: str = "model") -> dict[str, Any]:
+            aliases: tuple[str, ...] = (), in_extension: list[str] | None = None, parent: str = "model",
+            key: tuple[Any, ...] | None = None) -> dict[str, Any]:
         base = ident
         if ident in self.ids:  # the same name twice (a file can say anything): still one row each
             n = self._next.get(base, 2)
@@ -872,6 +891,8 @@ class _Objects:
         self.lengths.add(len(ident))
         self._cuts = None
         self.children.setdefault((parent, kind), []).append(obj)
+        if key is not None:
+            self.keys[ident] = key
         for alias in (base, *aliases):
             if alias != ident:
                 self.aliases[alias] = obj if self.aliases.get(alias, obj) is obj else None
@@ -1054,7 +1075,7 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
         return home, member(home, "measures", name)
 
     added = sorted(_names(model.get("expressions")) - _names(stash.get("expressions")))
-    objs.add("model", "model", "fully_preserved", _ossie_drops(doc), aliases=("document",),
+    objs.add("model", "model", "fully_preserved", _ossie_drops(doc), aliases=("document",), key=("model",),
              notes=[f"the converter added the shared expression {_q(n)} (the Direct Lake source)" for n in added])
     datasets = _named_items(doc.get("datasets"))
     model_metrics = _named_items(doc.get("metrics"))
@@ -1074,7 +1095,7 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
         changes += ["composite unique key not marked: Power BI has no composite unique constraint"
                     for k in d.get("unique_keys") or [] if isinstance(k, list) and len(k) > 1]
         objs.add("table", did, "fully_preserved" if name in tables else "unsupported",
-                 changes if name in tables else [], aliases=(f"table {_q(name)}",))
+                 changes if name in tables else [], aliases=(f"table {_q(name)}",), key=("table", name))
         for f in _named_items(d.get("fields")):
             col = member(name, "columns", f["name"])
             changes, notes = _ossie_drops(f), list[str]()
@@ -1086,20 +1107,22 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
                 changes.append(f"data type {dt} has no Power BI type; left unspecified")
             cls = _expression_class(col, changes, notes)
             objs.add("column", f"{did} field {_q(f['name'])}", cls, changes if col is not None else [], notes,
-                     aliases=(f"table {_q(name)} column {_q(f['name'])}", f"{_short(name)}[{_short(f['name'])}]"))
+                     aliases=(f"table {_q(name)} column {_q(f['name'])}", f"{_short(name)}[{_short(f['name'])}]"),
+                     key=("column", name, f["name"]))
         for c in _named_items(ds_stash.get("excludedColumns")):
             objs.add("column", f"table {_q(name)} column {_q(c['name'])}",
                      "fully_preserved" if member(name, "columns", c["name"]) else "unsupported",
-                     notes=["restored from the POWER_BI extension"])
+                     notes=[RESTORED], key=("column", name, c["name"]))
         for h in _named_items(ds_stash.get("hierarchies")):
             objs.add("hierarchy", f"table {_q(name)} hierarchy {_q(h['name'])}",
                      "fully_preserved" if member(name, "hierarchies", h["name"]) else "unsupported",
-                     notes=["restored from the POWER_BI extension"], parent=did)
+                     notes=[RESTORED], parent=did, key=("hierarchy", name, h["name"]))
         for m in _named_items(d.get("metrics")):
             mid = f"{did} metric {_q(m['name'])}"
             if id(m) not in lifted:
                 objs.add("measure", mid, "unsupported",
-                         notes=["a model-level metric has the same name, so this one was left out"])
+                         notes=["a model-level metric has the same name, so this one was left out"],
+                         key=("measure", m["name"]))
                 continue
             _metric(objs, m, mid, lifted[id(m)], placed, (f"metric {_q(m['name'])}",))
     for m in model_metrics:
@@ -1138,7 +1161,8 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
             for pair in (ends, (ends[2], ends[3], ends[0], ends[1])):
                 hit = hit or claim(by_ends.get(_canon(pair)))
         objs.add("relationship", f"relationship {_q(label)}", "fully_preserved" if hit else "unsupported",
-                 _ossie_drops(r) if hit else [])
+                 _ossie_drops(r) if hit else [],
+                 key=("relationship", ends_key(r.get("from"), r.get("from_columns"), r.get("to"), r.get("to_columns"))))
     for key, kind in _STASHED_OBJECTS:
         have: dict[str, dict[str, Any]] = {}
         for i in _named_items(model.get(key)):
@@ -1147,32 +1171,34 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
             restored_item = have.get(item["name"])
             objs.add(kind, f"{kind} {_q(item['name'])}", "fully_preserved" if restored_item is not None else "unsupported",
                      _role_changes(item, restored_item) if restored_item is not None and kind == "role" else [],
-                     notes=["restored from the POWER_BI extension"], aliases=(f"{kind} {_short(item['name'])!r}",))
+                     notes=[RESTORED], aliases=(f"{kind} {_short(item['name'])!r}",), key=(kind, item["name"]))
     for t in _named_items(stash.get("excludedTables")):
         tid = f"table {_q(t['name'])}"
         out_table = tables.get(t["name"])
         group = bool(t.get("calculationGroup"))
         objs.add("calculation_group" if group else "table", tid, "fully_preserved" if out_table else "unsupported",
                  _calc_changes(t, out_table) if out_table is not None and group else [],
-                 notes=["restored from the POWER_BI extension"])
+                 notes=[RESTORED], key=("table", t["name"]))
         for key, kind in (("columns", "column"), ("measures", "measure"), ("hierarchies", "hierarchy")):
             for i in _named_items(t.get(key)):
                 objs.add(kind, f"{tid} {kind} {_q(i['name'])}",
                          "fully_preserved" if member(t["name"], key, i["name"]) else "unsupported",
-                         notes=["restored from the POWER_BI extension"], parent=tid,
-                         aliases=(f"{_short(t['name'])}[{_short(i['name'])}]",))
+                         notes=[RESTORED], parent=tid,
+                         aliases=(f"{_short(t['name'])}[{_short(i['name'])}]",),
+                         key=("measure", i["name"]) if kind == "measure" else (kind, t["name"], i["name"]))
     for e in _dicts(stash.get("excludedMeasures")):
         kept = e.get("measure")
         if not isinstance(kept, dict) or not isinstance(kept.get("name"), str):
             continue
         objs.add("measure", f"table {_q(e.get('table'))} measure {_q(kept['name'])}",
                  "fully_preserved" if member(e.get("table"), "measures", kept["name"]) else "unsupported",
-                 notes=["restored from the POWER_BI extension"],
-                 aliases=(f"excluded measure {_q(kept['name'])}", f"{_short(e.get('table'))}[{_short(kept['name'])}]"))
+                 notes=[RESTORED],
+                 aliases=(f"excluded measure {_q(kept['name'])}", f"{_short(e.get('table'))}[{_short(kept['name'])}]"),
+                 key=("measure", kept["name"]))
     for r, back in set_aside:
         label = r.get("name") if isinstance(r.get("name"), str) and r.get("name") else _rel_key(r)
         objs.add("relationship", f"relationship {_q(label)}", "fully_preserved" if back else "unsupported",
-                 notes=["restored from the POWER_BI extension"])
+                 notes=[RESTORED], key=("relationship", tmsl_ends_key(r)))
 
 
 def _metric(objs: _Objects, m: dict[str, Any], mid: str, home: Any, placed: Any, aliases: tuple[str, ...]) -> None:
@@ -1191,7 +1217,8 @@ def _metric(objs: _Objects, m: dict[str, Any], mid: str, home: Any, placed: Any,
     if measure is None and not _dialect_entries(m):
         notes.append("the metric has no expression")
     objs.add("measure", mid, cls, changes, notes,
-             aliases=aliases + ((f"{_short(table)}[{_short(measure['name'])}]",) if measure else ()))
+             aliases=aliases + ((f"{_short(table)}[{_short(measure['name'])}]",) if measure else ()),
+             key=("measure", data.get("name", m["name"])))
 
 
 def _dialect_entries(m: dict[str, Any]) -> list[dict[str, Any]]:

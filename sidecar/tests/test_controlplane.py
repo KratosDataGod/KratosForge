@@ -145,7 +145,7 @@ def test_bad_json_is_refused_not_guessed():
 
 def test_summary_holds_ids_and_labels_only():
     s = mf.summary(fabric())
-    assert set(s) == {"environment_id", "name", "provider", "writable", "workspace_id", "lakehouse_id",
+    assert set(s) == {"environment_id", "name", "provider", "writable", "workspace_id", "workspace_name", "lakehouse_id",
                       "lakehouse_name", "has_operational_store", "operational_name", "families", "updated_at"}
     assert s["lakehouse_name"] == "KratosForgeLakehouse" and s["families"] == {"fdopt_": 2, "fdacc_": 1}
 
@@ -249,12 +249,12 @@ def test_databricks_and_snowflake_claim_nothing_and_are_not_offered():
         assert all(c["level"] == "unsupported" for c in d["capabilities"].values())
 
 
-def test_fabric_is_preview_and_not_offered_until_provisioning_and_health_are_built():
+def test_fabric_is_offered_as_preview_until_a_live_run_is_recorded():
     d = pv.REGISTRY["fabric"].describe()
-    assert d["preview"] and not d["available"]
-    assert d["capabilities"]["discovery"]["level"] == "supported"
-    assert d["capabilities"]["provisioning"]["level"] == "unsupported"
+    assert d["preview"] and d["available"] and d["status"] == "Preview"
+    assert all(c["evidence"] != "live_verified" for c in d["capabilities"].values())
     assert d["capabilities"]["operational_store"]["level"] == "partial"
+    assert not pv.REGISTRY["local"].available  # its discovery and provisioning aren't built
 
 
 def test_a_claim_without_evidence_or_adapter_is_refused():
@@ -461,3 +461,289 @@ def test_the_streamed_read_stops_past_the_cap_without_content_length():
         backend.read(st.NAME)  # the backend itself refuses, before from_json sees anything
     dfs.files[url] = (b"x" * mf.MAX_BYTES, '"2"')
     assert len(backend.read(st.NAME).data) == mf.MAX_BYTES
+# ---- CP-005 Fabric provisioning
+
+class ProvFabric:
+    """Fabric for provisioning: records every create, so a test can say exactly what was made."""
+
+    def __init__(self, workspaces=(), lakehouses=()):
+        self.workspaces = [dict(w) for w in workspaces]
+        self.lakehouses = {w["id"]: [] for w in self.workspaces} | {k: list(v) for k, v in dict(lakehouses).items()}
+        self.created = []
+
+    def list_workspaces(self):
+        return list(self.workspaces)
+
+    def list_lakehouses(self, ws):
+        return list(self.lakehouses.get(ws, []))
+
+    def create_workspace(self, name, capacity_id="", description=""):
+        ws = {"id": "66666666-6666-4666-8666-666666666666", "displayName": name}
+        self.workspaces.append(ws)
+        self.lakehouses[ws["id"]] = []
+        self.created.append(("workspace", name, capacity_id))
+        return ws
+
+    def create_lakehouse(self, ws, name, description=""):
+        lh = {"id": "77777777-7777-4777-8777-777777777777", "displayName": name}
+        self.lakehouses[ws].append(lh)
+        self.created.append(("lakehouse", name))
+        return lh
+
+
+def provisioning(tmp_path, fab, families=None):
+    from fabric_desktop.controlplane.provisioning import FabricProvisioning
+    from fabric_desktop.optimize.installation import Installation
+    from fabric_desktop.optimize.lakehouse import LocalLakehouse
+    from fabric_desktop.optimize import schema
+
+    lakes = {}
+
+    def open_lake(ws, lh, schemas):
+        return lakes.setdefault(lh, LocalLakehouse(tmp_path / "lakes" / lh))
+
+    prov = FabricProvisioning(fab, open_lake, lambda ws, lh: st.local_store(tmp_path / "lakes" / lh),
+                              Installation(tmp_path / "pc" / "optimize"), families or [schema.OPTIMIZE])
+    return prov, lakes
+
+
+def test_plan_reads_only_and_says_what_it_costs(tmp_path):
+    fab = ProvFabric()
+    prov, lakes = provisioning(tmp_path, fab)
+    plan = prov.plan({"name": "Ours", "capacity_id": "cap"})
+    assert fab.created == [] and lakes == {}
+    assert [(s.action, s.target) for s in plan.steps] == [
+        ("create", "workspace KratosForge"), ("create", "lakehouse KratosForgeLakehouse"),
+        ("initialize", "Optimize tables (fdopt_)"), ("write_manifest", "Files/_kratosforge/environment.json")]
+    assert plan.steps[0].cost and plan.steps[0].permission and not plan.blocked
+
+
+def test_apply_without_confirm_creates_nothing(tmp_path):
+    fab = ProvFabric()
+    prov, lakes = provisioning(tmp_path, fab)
+    with pytest.raises(pv.NotConfirmed):
+        prov.apply(prov.plan({"name": "Ours", "capacity_id": "cap"}), confirmed=False)
+    assert fab.created == [] and lakes == {}
+
+
+def test_create_makes_each_thing_once_and_writes_the_manifest_last(tmp_path):
+    from fabric_desktop.optimize import setup
+    fab = ProvFabric()
+    prov, lakes = provisioning(tmp_path, fab)
+    out = prov.apply(prov.plan({"name": "Ours", "capacity_id": "cap", "owner_object_id": OID}), confirmed=True)
+    assert out["ok"] and fab.created == [("workspace", "KratosForge", "cap"), ("lakehouse", "KratosForgeLakehouse")]
+    m = out["manifest"]
+    assert m["analytical_store"]["lakehouse_id"] == out["lakehouse_id"] and m["schema"]["families"]["fdopt_"] >= 2
+    assert m["owner"] == {"object_id": OID} and [s["step"] for s in out["steps"]][-1] == "Manifest"
+    assert setup.inspect(lakes[out["lakehouse_id"]])["state"] == setup.READY
+    # A second PC asking for the same thing is told the names are taken: it connects instead.
+    again = prov.plan({"name": "Ours", "capacity_id": "cap"})
+    assert "already exists" in again.blocked[0]
+    picked = prov.plan({"name": "Ours", "workspace_id": out["workspace_id"], "lakehouse_id": out["lakehouse_id"]})
+    assert picked.blocked == ["This lakehouse already holds a KratosForge Environment. Connect to it instead."]
+    with pytest.raises(PermissionError, match="Connect to it"):
+        prov.apply(picked, confirmed=True)
+    assert len(fab.created) == 2
+
+
+def test_a_blocked_plan_never_runs_and_says_why(tmp_path):
+    fab = ProvFabric(workspaces=[{"id": WS, "displayName": "KratosForge"}])
+    prov, _ = provisioning(tmp_path, fab)
+    for request, why in [({"capacity_id": "cap"}, "name"), ({"name": "x"}, "already exists"),
+                         ({"name": "x", "workspace_name": "Other"}, "capacity"),
+                         ({"name": "x", "workspace_id": "nope"}, "can open"),
+                         ({"name": "x", "workspace_name": "Other", "capacity_id": "c", "lakehouse_id": LH}, "existing workspace")]:
+        plan = prov.plan(request)
+        assert any(why in b for b in plan.blocked), (request, plan.blocked)
+        with pytest.raises(PermissionError):
+            prov.apply(plan, confirmed=True)
+    assert fab.created == []
+
+
+def test_an_existing_central_lakehouse_is_upgraded_in_place_and_newer_is_refused(tmp_path):
+    from fabric_desktop.optimize import setup
+    from fabric_desktop.optimize.installation import Installation
+    fab = ProvFabric(workspaces=[{"id": WS, "displayName": "Data"}], lakehouses={WS: [{"id": LH, "displayName": "FabricDesktop_Central"}]})
+    prov, lakes = provisioning(tmp_path, fab)
+    lake = prov._open_lake(WS, LH, None)
+    setup.initialize(lake, Installation(tmp_path / "other" / "optimize"), approve=True)
+    plan = prov.plan({"name": "Ours", "workspace_id": WS, "lakehouse_id": LH})
+    assert [s.action for s in plan.steps] == ["find", "find", "find", "write_manifest"] and not plan.blocked
+    out = prov.apply(plan, confirmed=True)
+    assert out["ok"] and fab.created == [] and out["manifest"]["analytical_store"]["lakehouse_id"] == LH
+    # A lakehouse a newer app upgraded is read-only here: the plan is blocked, nothing is initialized.
+    other = "88888888-8888-4888-8888-888888888888"
+    newer = prov._open_lake(WS, other, None)
+    setup.initialize(newer, Installation(tmp_path / "o2" / "optimize"), approve=True)
+    setup.write(newer, Installation(tmp_path / "o2" / "optimize"), "schema_version",
+                [{"record_id": "v99", "version": 99, "description": "later", "applied_at": AT}])
+    blocked = prov.plan({"name": "Ours", "workspace_id": WS, "lakehouse_id": other})
+    assert blocked.blocked and "newer" in blocked.blocked[0].lower()
+
+
+def test_a_failed_step_stops_the_rest_and_a_new_plan_finishes_it(tmp_path):
+    fab = ProvFabric()
+    prov, lakes = provisioning(tmp_path, fab)
+
+    def fails(*a, **k):
+        raise RuntimeError("capacity paused")
+
+    fab.create_lakehouse, real = fails, fab.create_lakehouse
+    out = prov.apply(prov.plan({"name": "Ours", "capacity_id": "cap"}), confirmed=True)
+    assert not out["ok"] and out["steps"][-1]["status"] == "failed" and "capacity paused" in out["steps"][-1]["detail"]
+    assert out["manifest"] is None and lakes == {}
+    fab.create_lakehouse = real
+    done = prov.apply(prov.plan({"name": "Ours", "workspace_id": out["workspace_id"]}), confirmed=True)
+    assert done["ok"] and [c[0] for c in fab.created] == ["workspace", "lakehouse"]
+
+
+def test_apply_checks_the_plan_again_and_refuses_one_that_changed(tmp_path):
+    fab = ProvFabric()
+    prov, lakes = provisioning(tmp_path, fab)
+    shown = prov.plan({"name": "Ours", "capacity_id": "cap"})
+    fab.workspaces.append({"id": WS, "displayName": "kratosforge"})  # taken meanwhile, in another case
+    with pytest.raises(PermissionError, match="already exists"):
+        prov.apply(shown, confirmed=True)
+    # A plan edited after it was shown (here: a step dropped) is refused, not run.
+    fab.workspaces.clear()
+    shown = prov.plan({"name": "Ours", "capacity_id": "cap"})
+    edited = pv.ProvisionPlan(shown.provider, shown.steps[:-1], shown.request)
+    with pytest.raises(PermissionError, match="changed since this plan was shown"):
+        prov.apply(edited, confirmed=True)
+    assert fab.created == [] and lakes == {}
+
+
+def test_names_are_taken_whatever_their_case(tmp_path):
+    fab = ProvFabric(workspaces=[{"id": WS, "displayName": "KRATOSFORGE"}],
+                     lakehouses={WS: [{"id": LH, "displayName": "kratosforgelakehouse"}]})
+    prov, _ = provisioning(tmp_path, fab)
+    assert "already exists" in prov.plan({"name": "x", "capacity_id": "c"}).blocked[0]
+    assert "already has a lakehouse" in prov.plan({"name": "x", "workspace_id": WS}).blocked[0]
+
+
+def test_core_tables_are_set_up_first_whatever_order_families_come_in(tmp_path, monkeypatch):
+    from fabric_desktop.optimize import schema, setup
+    other = next((f for f in schema.FAMILIES.values() if f is not setup.CORE), None)
+    if other is None:
+        pytest.skip("only one table family is registered")
+    fab = ProvFabric()
+    prov, _ = provisioning(tmp_path, fab, families=[other, setup.CORE])
+    order, real = [], setup.initialize
+
+    def recording(lake, installation, approve=False, family=setup.CORE):
+        order.append(family.prefix)
+        return real(lake, installation, approve=approve, family=family)
+
+    monkeypatch.setattr(setup, "initialize", recording)
+    out = prov.apply(prov.plan({"name": "Ours", "capacity_id": "cap"}), confirmed=True)
+    assert out["ok"] and order[0] == setup.CORE.prefix and set(order) == {setup.CORE.prefix, other.prefix}
+    plan = prov.plan({"name": "Ours", "capacity_id": "cap", "workspace_name": "Other"})
+    assert [s.target for s in plan.steps if s.action == "initialize"][0].endswith(f"({setup.CORE.prefix})")
+
+
+def test_plan_steps_say_what_a_ready_or_upgraded_family_means(tmp_path):
+    from fabric_desktop.controlplane import provisioning as prv
+    from fabric_desktop.optimize import setup
+    from fabric_desktop.optimize.installation import Installation
+    fab = ProvFabric(workspaces=[{"id": WS, "displayName": "Data"}])
+    prov, _ = provisioning(tmp_path, fab)
+    setup.initialize(prov._open_lake(WS, LH, None), Installation(tmp_path / "other" / "optimize"), approve=True)
+    ready = [s for s in prov.plan({"name": "x", "workspace_id": WS, "lakehouse_id": LH}).steps if s.target.startswith("Optimize")]
+    assert ready[0].action == "find" and ready[0].note == prv.READY_NOTE
+    assert "only read" in prv.UPGRADE_NOTE
+
+
+# ---- CP-006 adopt, CP-007 compatibility, CP-008 status
+
+def test_adopt_previews_a_manifest_of_ids_from_this_pcs_connections(tmp_path):
+    from fabric_desktop.controlplane import health
+    from fabric_desktop.optimize import setup
+    from fabric_desktop.optimize.installation import Installation
+    from fabric_desktop.optimize.lakehouse import LocalLakehouse
+    lake = LocalLakehouse(tmp_path / "lh")
+    setup.initialize(lake, Installation(tmp_path / "pc" / "optimize"), approve=True)
+    before = sorted(lake.table_names())
+    m = health.adopt_preview(
+        name="Ours", inspections=[setup.inspect(lake)],
+        lake_connection={"workspace_id": WS, "workspace_name": "Data", "lakehouse_id": LH,
+                         "lakehouse_name": "FabricDesktop_Central", "schemas": True},
+        platform={"workspace_id": WS, "functions_id": FN, "sql_id": DB}, keys={"workspace_id": WS},
+        operational_version=5)
+    assert m["operational_store"]["database_id"] == DB and m["schema"]["operational"] == 5
+    assert m["deployments"] == {"prod": {"platform_workspace_id": WS}, "keys": {"workspace_id": WS}}
+    assert m["analytical_store"]["display_name"] == "FabricDesktop_Central" and m["schema"]["families"]["fdopt_"] >= 2
+    assert sorted(lake.table_names()) == before  # a preview touches nothing
+    store = st.local_store(tmp_path / "lh")
+    store.create(m)
+    assert store.read().manifest == m  # adopting is this one file; deleting it undoes it
+
+
+def test_adopt_refuses_an_empty_or_newer_lakehouse():
+    from fabric_desktop.controlplane import health
+    conn = {"workspace_id": WS, "lakehouse_id": LH}
+    with pytest.raises(mf.ManifestError, match="Create an environment"):
+        health.adopt_preview(name="x", lake_connection=conn, inspections=[{"family": "fdopt_", "state": "empty", "schema_version": None}])
+    with pytest.raises(mf.ManifestError, match="newer"):
+        health.adopt_preview(name="x", lake_connection=conn,
+                             inspections=[{"family": "fdopt_", "state": "newer", "schema_version": 9, "message": "a newer schema"}])
+
+
+@pytest.mark.parametrize("states,op,want", [
+    (["ready"], None, "ready"),
+    (["ready", "upgrade"], None, "upgrade"),
+    (["ready", "incomplete"], None, "incomplete"),
+    (["upgrade", "newer"], None, "read_only"),
+    (["ready", "conflict"], None, "read_only"),
+    (["empty"], None, "upgrade"),
+    (["ready", "unrelated"], None, "upgrade"),
+    ([], None, "missing"),
+    (["ready"], 4, "upgrade"),
+    (["ready"], 6, "read_only"),
+])
+def test_the_environment_is_as_compatible_as_its_worst_store(states, op, want):
+    from fabric_desktop.controlplane import health
+    m = fabric(operational_store={"workspace_id": WS, "functions_id": FN}, operational_version=5)
+    got = health.compatibility(m, [{"family": f"f{i}x_", "state": s} for i, s in enumerate(states)], op, 5)
+    assert got["state"] == want and got["writable"] == (want != "read_only")
+    assert got["can_upgrade"] == (want in ("upgrade", "incomplete"))
+
+
+def test_a_family_not_set_up_yet_asks_for_an_upgrade_not_connected():
+    from fabric_desktop.controlplane import health
+    got = health.compatibility(fabric(), [{"family": "fdopt_", "state": "ready"}, {"family": "fdacc_", "state": "empty"}])
+    assert got["state"] == "upgrade" and got["can_upgrade"]
+    assert health.status(connected=True, reachable=True, compat=got)["status"] == "Upgrade required"
+
+
+def test_a_newer_manifest_makes_the_environment_read_only():
+    from fabric_desktop.controlplane import health
+    newer = {"manifest_version": 2, "environment_id": "kfenv_" + "b" * 32, "name": "x", "provider": "fabric"}
+    assert health.compatibility(newer, [{"family": "fdopt_", "state": "ready"}])["state"] == "read_only"
+
+
+@pytest.mark.parametrize("kw,want", [
+    ({"reachable": None}, "Connected"),
+    ({"reachable": True, "sync": {"state": "synced", "kinds": {}}}, "Connected"),
+    ({"reachable": False}, "Working offline"),
+    ({"reachable": True, "sync": {"state": "offline", "kinds": {"analysis": {"pending": 2}}}}, "Working offline"),
+    ({"reachable": True, "sync": {"state": "synchronizing"}}, "Synchronizing"),
+    ({"reachable": True, "sync": {"state": "pending"}}, "Synchronizing"),
+    ({"reachable": True, "sync": {"state": "conflict"}}, "Upgrade required"),
+    ({"reachable": True, "compat": {"state": "upgrade"}}, "Upgrade required"),
+    ({"reachable": True, "compat": {"state": "read_only"}}, "Upgrade required"),
+    ({"reachable": True, "sync": {"state": "failed"}}, "Limited permissions"),
+    ({"reachable": True, "denied": True}, "Limited permissions"),
+])
+def test_every_status_has_a_next_step(kw, want):
+    from fabric_desktop.controlplane import health
+    got = health.status(connected=True, **kw)
+    assert got["status"] == want and (got["next"] or want == "Connected")
+
+
+def test_status_details():
+    from fabric_desktop.controlplane import health
+    offline = health.status(connected=True, reachable=False, sync={"state": "offline", "kinds": {"a": {"pending": 2}, "b": {"pending": 1}}})
+    assert offline["detail"] == "3 results waiting on this PC"
+    assert "Update KratosForge" in health.status(connected=True, reachable=True, compat={"state": "read_only"})["next"]
+    assert health.status(connected=False, reachable=None)["status"] == ""
+    assert health.failed("Its manifest is damaged")["status"] == "Connection failed"

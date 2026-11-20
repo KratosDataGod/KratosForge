@@ -190,15 +190,21 @@ LIVE_READER = """
 
 # Blind appends of whole batches with delta-rs, each loading the table afresh. Half way it touches a
 # file and waits for a gate, so the test knows a maintenance round finished between two of its appends.
-# Each batch is recorded as committed, or as failed with the exception's type name.
+# Each batch is recorded as committed, or as failed with the exception's type name. On Windows an append
+# that loses the race for a version to maintenance's own commit can be refused as the staged commit
+# (_delta_log/NNN.json#1, os error 5) instead of being made on the next version: nothing was committed, so
+# it is sent again, as the app's own appends do (LocalStore.write, APPEND_RACE_ATTEMPTS). Any other
+# failure is recorded.
 APPENDER = """
     import json, os, sys, time
     from pathlib import Path
     import pyarrow as pa
     from deltalake import write_deltalake
+    from fabric_desktop.meta.store import APPEND_RACE_ATTEMPTS
+    from fabric_desktop.retrying import staged_commit_race
     uri, first, batches, size = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
     half, gate = Path(sys.argv[5]), Path(sys.argv[6])
-    ok, failed = [], []
+    ok, failed, staged = [], [], 0
     for b in range(batches):
         if b == batches // 2:
             half.touch()
@@ -208,12 +214,19 @@ APPENDER = """
         start = first + b * size
         rows = pa.table({"id": pa.array(range(start, start + size), pa.int64()), "region": ["EU"] * size,
                          "amount": [0.0] * size})
-        try:
-            write_deltalake(uri, rows, mode="append")
-            ok.append(b)
-        except Exception as e:
-            failed.append([b, type(e).__name__, str(e)[:300]])
-    print(json.dumps({"ok": ok, "failed": failed}), flush=True)
+        for attempt in range(APPEND_RACE_ATTEMPTS):
+            try:
+                write_deltalake(uri, rows, mode="append")
+                ok.append(b)
+                break
+            except Exception as e:
+                if staged_commit_race(e) and attempt < APPEND_RACE_ATTEMPTS - 1:
+                    staged += 1
+                    time.sleep(0.05)
+                    continue
+                failed.append([b, type(e).__name__, str(e)[:300]])
+                break
+    print(json.dumps({"ok": ok, "failed": failed, "staged_races": staged}), flush=True)
     os._exit(0)
 """
 

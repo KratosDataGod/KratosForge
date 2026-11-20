@@ -340,6 +340,57 @@ def test_xray_vacuum_keeps_seven_days_when_the_dates_rise(vacuum_svc, monkeypatc
     assert jobs[-1][1]["vacuum_retention"] == "7.01:00:00"
 
 
+@pytest.mark.parametrize("age_days", [400, 20_000])  # past the bound; 20,000 is about a commit dated 1970
+def test_xray_refuses_a_commit_dated_so_far_out_of_step_that_vacuum_would_remove_nothing(vacuum_svc, monkeypatch,  # noqa: F811
+                                                                                         age_days):
+    """A removal dated more than MAX_SKEW_DAYS ago by a clock out of step would make Fabric's VACUUM keep that
+    many days, in effect removing nothing. X-ray refuses and says why, and submits no job."""
+    from fabric_desktop.xray_service import NoMetadataProject
+    svc, uri, jobs = vacuum_svc
+    for v, age in enumerate((2 * DAY, age_days * DAY, DAY)):
+        _stamp(str(uri), v, age)
+    monkeypatch.setattr(svc, "_wl_token", lambda _s: "token", raising=False)
+    monkeypatch.setattr(svc, "_risk_capacity", lambda *a: _optimize_capacity("running"), raising=False)
+    monkeypatch.setattr(svc, "_project", lambda: (_ for _ in ()).throw(NoMetadataProject("none")))
+    params = {"workspace_id": "ws-other", "lakehouse_id": "lh-silver", "table": "orders", "schema": "dbo",
+              "lakehouse_name": "LH_X"}
+    before = len(jobs)
+    for i, method in enumerate(("xray_vacuum_preview", "xray_vacuum")):
+        reply = server.handle(svc, json.dumps({"id": i, "method": method, "params": params}))
+        assert "error" in reply, reply
+        msg = reply["error"] if isinstance(reply["error"], str) else reply["error"].get("message", "")
+        assert "so it would remove nothing" in msg and "out of step" in msg and "Nothing was started" in msg, msg
+    assert len(jobs) == before and _ids(str(uri), 0) == [0]
+
+
+def test_the_bound_is_a_year_and_a_skew_inside_it_still_keeps_enough_days(vacuum_svc):  # noqa: F811
+    svc, uri, _jobs = vacuum_svc
+    assert maintenance.MAX_SKEW_DAYS == 365
+    for v, age in enumerate((2 * DAY, 300 * DAY, DAY)):  # skewed, but inside the bound
+        _stamp(str(uri), v, age)
+    safe, why = svc._xray_skew_days(str(uri), {}, 7, "Fabric's default")
+    assert 300 <= safe <= maintenance.MAX_SKEW_DAYS and "out of step" in why
+
+
+@pytest.mark.parametrize("days", [400, 3650])
+def test_a_long_retention_with_dates_in_order_is_kept_not_refused(vacuum_svc, days):  # noqa: F811
+    """A table's own retention (or a layer's Keep history) past the bound, with no clock skew, is not the skew
+    the bound is for: Optimize, its check, Vacuum and its preview keep those days as asked."""
+    svc, uri, _jobs = vacuum_svc
+    for v, age in enumerate((50 * DAY, 40 * DAY, DAY)):
+        _stamp(str(uri), v, age)
+    assert maintenance.skew_safe_days(DeltaTable(str(uri)), days) == days
+    assert svc._xray_skew_days(str(uri), {}, days, "the table's own setting") == (days, "the table's own setting")
+
+
+def test_a_skew_past_the_bound_is_refused_even_when_the_asked_days_are_long(vacuum_svc):  # noqa: F811
+    svc, uri, _jobs = vacuum_svc
+    for v, age in enumerate((2 * DAY, 900 * DAY, DAY)):
+        _stamp(str(uri), v, age)
+    with pytest.raises(RuntimeError, match="so it would remove nothing"):
+        svc._xray_skew_days(str(uri), {}, 400, "the table's own setting")
+
+
 # ---- 4. the cutoff is UTC: the same whatever the PC's time zone
 
 @pytest.fixture(params=["America/Chicago", "Asia/Kolkata", "UTC"])

@@ -261,3 +261,30 @@ def pytest_terminal_summary(terminalreporter, config):
     terminalreporter.write_sep("=", f"slowest {min(25, len(files))} test files of {len(files)} ({total:.0f}s of test time in all)")
     for path, (setup, rest, count) in sorted(files.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))[:25]:
         terminalreporter.write_line(f"{setup + rest:8.1f}s  setup {setup:7.1f}s  {count:4d} tests  {path}")
+
+
+# A test id carries each parametrized value as text. A long value (a 1,025-column CREATE TABLE, a 5,000-digit
+# number) made ids of many KB, and a 20 MB one wedged a Windows runner while xdist and the JUnit report passed
+# it around. A text or bytes value over PARAM_ID_LIMIT characters is named by its start, its length and a hash
+# of the whole, so ids stay short and still unique; and collection stops on any id over TEST_ID_LIMIT.
+PARAM_ID_LIMIT = 60
+TEST_ID_LIMIT = 200
+
+
+def pytest_make_parametrize_id(config, val, argname):
+    if not isinstance(val, (str, bytes)) or len(val) <= PARAM_ID_LIMIT:
+        return None  # pytest's own id
+    import hashlib
+    import re
+    raw = val.encode("utf-8", "surrogatepass") if isinstance(val, str) else val
+    start = re.sub(r"[^A-Za-z0-9_.,:=+-]", "_", (val if isinstance(val, str) else val.decode("latin-1"))[:24])
+    return f"{start}...{len(val)}chars-{hashlib.sha256(raw).hexdigest()[:10]}"
+
+
+def pytest_collection_modifyitems(session, config, items):
+    long = [item.nodeid for item in items
+            if hasattr(item, "callspec") and len(item.callspec.id) > TEST_ID_LIMIT]
+    if long:
+        shown = "\n".join(f"  {nodeid[:300]}" for nodeid in long[:20])
+        raise pytest.UsageError(f"{len(long)} test id(s) are over {TEST_ID_LIMIT} characters; give the "
+                                f"parametrize call short ids= (tests/conftest.py TEST_ID_LIMIT):\n{shown}")

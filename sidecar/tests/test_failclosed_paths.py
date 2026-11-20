@@ -122,6 +122,8 @@ def test_an_agents_prod_job_writes_its_started_line_before_it_runs(setup, monkey
 # Parameter names that look like they name an environment but don't: each says what it is instead.
 NOT_AN_ENVIRONMENT = {
     "target_workspace_name": "a workspace's display name, shown to the person; never matched against prod",
+    "environment_id": "a KratosForge Environment's id (kfenv_...) cached on this PC, not a Dev/Test/Prod stage "
+                      "(cp_switch, cp_disconnect); CP-ADR-002",
 }
 
 

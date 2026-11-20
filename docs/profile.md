@@ -137,13 +137,11 @@ Each talent has a mastery level: Not started, Initiate, Apprentice, Journeyman, 
 or Grandmaster. Levels come only from work KratosForge verified on this PC, and they're worked out
 again every time you open the tab. A talent opens when every talent before it reaches Apprentice. If
 you have evidence for a locked talent, it's kept and counts as soon as the talent opens. A talent at
-Adept or higher is mastered, and the path from a mastered talent to each talent it opens glows. It moves only when branded
-motion is on. Grandmaster needs reviewer verification, which KratosForge doesn't offer yet. A skill
+Adept or higher is mastered, and the path from a mastered talent to each talent it opens glows. The glow moves only when branded motion is on. Grandmaster needs reviewer verification, which KratosForge doesn't offer yet. A skill
 that only a cloud service can fully prove stops at Journeyman until the evidence comes from that
 service.
 
-Levels aren't professional certifications. Your character level and rank stay as they are; a class
-doesn't change them.
+Levels aren't professional certifications. Your character level and rank stay as they are. A class doesn't change them.
 
 ## Skills
 

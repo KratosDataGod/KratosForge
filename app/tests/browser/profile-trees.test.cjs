@@ -88,7 +88,14 @@ test("a mastered talent lights the path to the next one, and picking a talent sh
   const detail = page.getByRole("complementary", { name: "Selected talent" });
   assert.match(await detail.textContent(), /MERGE upserts[\s\S]*To reach Expert[\s\S]*Evidence/);
   // Lines leave a mastered talent only toward one that has opened.
-  assert.ok(await page.locator(".tree-line.lit").count() >= 1);
+  // Every lit line leaves a mastered talent toward an open one, and a line out of an unmastered talent stays dark.
+  const lines = await page.evaluate(() => [...document.querySelectorAll(".tree-line[data-from]")].map((l) => ({
+    lit: l.classList.contains("lit"),
+    from: document.querySelector(`.tree-node[data-talent="${l.dataset.from}"]`).classList[1],
+    to: document.querySelector(`.tree-node[data-talent="${l.dataset.to}"]`).classList[1] })));
+  assert.ok(lines.some((l) => l.lit));
+  for (const l of lines) assert.strictEqual(l.lit, l.from === "mastered" && l.to !== "locked", JSON.stringify(l));
+  assert.ok(lines.some((l) => !l.lit && l.from !== "mastered" && l.from !== "locked" && l.to !== "locked"), "a path out of an unmastered, open talent");
   // Arrow keys walk the tree: down from MERGE upserts is the talent it opens, up goes back to its root.
   await merge.focus();
   await page.keyboard.press("ArrowDown");

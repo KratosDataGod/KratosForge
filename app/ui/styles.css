@@ -4072,7 +4072,7 @@ html[data-motion="on"][data-fx-ambient="on"] .tree-line.flow { animation: tree-f
 .tree-node.mastered .tree-node-level { color: var(--tree-ember-hi); }
 .tree-detail { padding: 18px; display: flex; flex-direction: column; gap: 12px; color: var(--tree-text); background: var(--tree-sky); border-left: 1px solid var(--tree-node); }
 .tree-detail .muted-text { color: var(--tree-muted); }
-.tree-detail-title { margin: 0; font-family: "Barlow Condensed", "Arial Narrow", "Segoe UI", sans-serif; font-style: italic; font-weight: 800; font-size: 24px; line-height: 1.05; text-transform: uppercase; }
+.tree-detail-title { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.3; }
 .tree-detail p { margin: 4px 0 0; }
 .tree-pill { color: var(--tree-ink); background: var(--tree-ring-open); }
 .tree-pill.mastered { background: var(--tree-ember); }

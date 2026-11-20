@@ -373,8 +373,8 @@ function profileTrees() {
   return h("div", { class: "profile-col" }, head,
     h("div", { class: "tree-body" }, treeCanvas(spec, talent), treeDetail(spec, talent)),
     h("p", { class: "muted-text small" }, `Levels show only work KratosForge verified on this PC (rules v${d.rules_version}). `
-      + "They aren't professional certifications. A talent counts as mastered from Adept. A talent opens when every talent before it reaches Apprentice; "
-      + "evidence for a locked talent is kept and counts once it opens."));
+      + "They aren't professional certifications. A talent counts as mastered from Adept. A talent opens when every talent before it reaches Apprentice. "
+      + "Evidence for a locked talent is kept and counts once the talent opens."));
 }
 
 // The tree: tiers top to bottom, each tier's talents spread across. Lines are drawn in a 100 x 100 box
@@ -397,12 +397,13 @@ function treeCanvas(spec, selected) {
       const a = pos[r], b = pos[n.id];
       const lit = byId[r].state === "mastered" && n.state !== "locked";
       const d = `M${a.x} ${a.y + 4} C${a.x} ${(a.y + b.y) / 2} ${b.x} ${(a.y + b.y) / 2} ${b.x} ${b.y - 4}`;
-      if (lit) svg.append(el("path", { d, class: "tree-line lit-glow" }), el("path", { d, class: "tree-line lit" }), el("path", { d, class: "tree-line flow" }));
-      else svg.append(el("path", { d, class: "tree-line" }));
+      const edge = { "data-from": r, "data-to": n.id };
+      if (lit) svg.append(el("path", { d, class: "tree-line lit-glow" }), el("path", { d, class: "tree-line lit", ...edge }), el("path", { d, class: "tree-line flow" }));
+      else svg.append(el("path", { d, class: "tree-line", ...edge }));
     }
   }
   const nodes = spec.nodes.map((n, i) => h("button", {
-    class: `tree-node ${n.state}${n.id === selected.id ? " selected" : ""}${n.capstone ? " capstone" : ""}`,
+    class: `tree-node ${n.state}${n.id === selected.id ? " selected" : ""}${n.capstone ? " capstone" : ""}`, "data-talent": n.id,
     style: `left:${pos[n.id].x}%;top:${pos[n.id].y}%`,
     "aria-label": `${n.title}${n.capstone ? " (capstone)" : ""}, ${n.state === "locked" ? "locked" : `${n.level_name}, ${TREE_STATE[n.state].toLowerCase()}`}`,
     "aria-pressed": n.id === selected.id ? "true" : "false",
@@ -442,8 +443,8 @@ function treeDetail(spec, n) {
     h("div", { class: "row wrap" }, h("span", { class: `pill-s tree-pill ${n.state}` }, n.level_name),
       h("span", { class: "muted-text small" }, `${spec.title} · tier ${n.tier} · ${TREE_STATE[n.state]}`)),
     needs.length ? h("p", { class: "small" }, `Builds on ${names(needs)}.`) : null,
-    n.state === "locked" ? h("p", { class: "small" }, `Opens when ${names(short)} ${short.length > 1 ? "reach" : "reaches"} Apprentice.`
-      + (n.banked_name ? ` You already have ${n.banked_name} here; it counts as soon as it opens.` : "")) : null,
+    n.state === "locked" ? h("p", { class: "small" }, (short.length ? `Opens when ${names(short)} ${short.length > 1 ? "reach" : "reaches"} Apprentice.` : "Opens when the talents it builds on open.")
+      + (n.banked_name ? ` You already have ${n.banked_name} here, and it counts as soon as the talent opens.` : "")) : null,
     n.next ? h("div", {}, h("b", { class: "small" }, n.level < n.ceiling ? `To reach ${profilePage.trees.data.levels[n.level + 1]}` : "Highest level for now"),
       h("p", { class: "small" }, n.next)) : null,
     h("div", {}, h("b", { class: "small" }, "Evidence"),

@@ -165,11 +165,34 @@ These cases can still differ. LOC-003 warns wherever a pattern is used:
 
 | Case | Spark | This PC |
 | --- | --- | --- |
-| Text with more fraction digits than the pattern's `S` letters, such as `.123` with `ss.SS` | NULL | Read, up to 6 digits |
 | Text with one digit where the pattern has two, such as `2024-2-9` with `yyyy-MM-dd` | Not read: see the next row | Read |
 | Text the pattern doesn't read the Spark 3 way, with `spark.sql.legacy.timeParserPolicy` at its default `EXCEPTION` | Stops with `SparkUpgradeException` when Spark 2's parser would have read it | NULL, as with the policy `CORRECTED`. The setting isn't read here |
 
 A cast of text that is only a year or a year and month, such as `CAST('2024-02' AS DATE)` or `to_timestamp('2024')`, also still differs. Spark reads it as the month's or the year's first day; here it is NULL. No rule warns about it yet.
+
+## Times below a second on this PC (WR-258)
+
+Spark keeps a timestamp to the microsecond, and Spark SQL run on this PC gives its answers where the fraction of a second matters, with ANSI mode off as Fabric runs it. The queries in `sidecar/tools/spark_value_cases/subseconds.txt` were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_subsecond_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Query | On this PC, as in Spark |
+| --- | --- |
+| `CAST(x AS TIMESTAMP)` of a decimal or double, `timestamp_seconds` of a double | Cut to the microsecond toward zero: `CAST(1.23456789 AS TIMESTAMP)` is `1970-01-01 00:00:01.234567` (it was rounded to `.234568`). `timestamp_seconds` of NaN or infinity is NULL |
+| `timestamp_seconds` of a decimal with more than 6 places, such as `timestamp_seconds(1.23456789)` | Stops, as Spark stops with "Rounding necessary" (it was rounded) |
+| `CAST(CAST(x AS TIMESTAMP) AS STRING)` | The time with no offset after it (it had `+00`) |
+| `CAST(a_timestamp AS DOUBLE)` and `FLOAT` | Its seconds since 1970 with the microseconds as a fraction (it was NULL) |
+| `unix_seconds`, `unix_millis` | Whole units counted down: `unix_millis(TIMESTAMP'1969-12-31 23:59:59.9995')` is -1 (it was 0) |
+| `unix_timestamp` | Whole seconds toward zero: `unix_timestamp(TIMESTAMP'1969-12-31 23:59:59.9995')` is 0 (it was -1) |
+| `to_timestamp`, `to_date`, `unix_timestamp` with `S` letters | At most as many digits of a second as the pattern has `S`: `.123456` with `ss.SSS` is NULL. Seven to nine `S` letters read up to nine digits and keep six |
+| `date_trunc` | Always Spark's `timestamp`, also of a `timestamp_ntz` or a date. A unit Spark doesn't take, such as `'MS'`, gives NULL |
+| `timestampadd`, `dateadd` with `MICROSECOND` to `HOUR` | The count is read as Spark's `int` (`86400000001` microseconds is `500654081`), and a date or text becomes Spark's `timestamp` first |
+| `extract`, `date_part` | `SECOND` of an interval keeps its fraction (it was NULL). A field Spark doesn't take, such as `'MILLISECONDS'` or `MICROSECOND`, stops, as in Spark |
+
+Refused by name, and nothing runs:
+
+| Case | Why |
+| --- | --- |
+| `CAST(a_difference AS STRING)` of two timestamps, such as `CAST(t1 - t2 AS STRING)` | Spark writes it as `INTERVAL '0 00:00:00.2' DAY TO SECOND`, which this PC's interval doesn't carry. Use `extract()` for its parts |
+| `to_timestamp`, `to_date` or `unix_timestamp` with more than six `S` letters and an offset (`X`, `x` or `Z`) | This PC can't cut the fraction to the microsecond there. Use at most six `S` letters |
 
 ## The session time zone on this PC (WR-120)
 
@@ -318,6 +341,7 @@ Spark SQL run on this PC gives Spark's answers for these array and string functi
 | `array_size`, `size` | `array_size` of NULL is NULL; `size` of NULL is -1 |
 | `array_insert` | A position past the end pads with NULLs; a negative one counts from the end (-1 is after the last element) and pads at the front; 0 is an error |
 | `locate`, `instr`, `position` | An empty search text is found at 1 from any start of 1 or more |
+| `substring`, `substr` (WR-256) | A number is read as its text. With no length, from position -2147483648 it ends one character before the end, as Spark's `Int.MaxValue` length does (it kept the whole text). Zero, negative, NULL and past-the-end positions and lengths, empty text and characters past ASCII are checked in `sidecar/tests/test_spark_substring_values.py` |
 | `substring_index` | A delimiter that overlaps itself is counted at each place it starts (`substring_index('aaa', 'aa', -1)` is `''`) |
 | `concat_ws` | With only a separator it is `''` (NULL for a NULL separator) |
 | `format_number` | A whole number or a decimal keeps every digit; a decimal rounds half-even and keeps a `-` that rounds to 0 (`-0`) |
@@ -334,6 +358,7 @@ Refused by name, and nothing runs:
 | `format_number` with more than 18 decimal places | A decimal here keeps at most 38 digits in all |
 | `array_insert` that would pad the array with more than 10,000,000 NULLs | Spark pads up to its array limit, but that many would use up this PC's memory |
 | `format_string` and `printf` with `%s` of an array, map or struct | Spark writes them as text its own way (`[1,2]`) |
+| `substring`, `substr`, `left` and `right` of binary | Spark gives binary bytes back; this PC reads these functions' argument as text. Cast it to string first, or run the cell in Fabric |
 
 ## Hashing and encoding on this PC (WR-119)
 

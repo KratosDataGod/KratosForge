@@ -57,6 +57,9 @@ CLAIMS: list[Claim] = [
     _nb("CAST(1 AS DECIMAL(10,2)) / 3", want="0.333333"),
     # Dates and times on this PC
     _nb("add_months(DATE'2019-02-28', 1)"),
+    _nb("CAST(1.23456789 AS TIMESTAMP)", query="SELECT CAST(CAST(1.23456789 AS TIMESTAMP) AS STRING)"),
+    _nb("unix_millis(TIMESTAMP'1969-12-31 23:59:59.9995')"),
+    _nb("unix_timestamp(TIMESTAMP'1969-12-31 23:59:59.9995')"),
     # Aggregates on this PC: the grand-total row of a ROLLUP over a NULL in the data
     _nb("grouping(a)", query="SELECT grouping(a) AS g FROM VALUES (CAST(NULL AS INT), 1) AS t(a, b) "
                              "GROUP BY a, b WITH ROLLUP ORDER BY g DESC LIMIT 1"),

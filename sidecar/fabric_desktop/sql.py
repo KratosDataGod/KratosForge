@@ -363,7 +363,12 @@ def _spark_date_results(statement: exp.Expression, ansi: bool) -> exp.Expression
                 unit = node.args.get("unit")
                 trunc = isinstance(unit, exp.Literal)  # trunc(date, 'MM'); date_trunc('MM', ts) has a Var
                 allowed = _TRUNC_UNITS if trunc else _DATE_TRUNC_UNITS
-                if isinstance(unit, (exp.Literal, exp.Var)) and unit.name.upper() not in allowed and node is not statement:
+                name = unit.name.upper() if isinstance(unit, (exp.Literal, exp.Var)) else None
+                written = node.meta.get(spark_sql_names._ARGS) or []
+                if not trunc and name is not None and written and re.fullmatch(r"'[A-Za-z_]+'", written[0]):
+                    # sqlglot reads date_trunc('MS', ...) as MILLISECOND; Spark knows no unit 'MS' (WR-258)
+                    name = written[0][1:-1].upper()
+                if name is not None and name not in allowed and node is not statement:
                     wrap(node, "CAST(NULL AS DATE)" if trunc else "CAST(NULL AS TIMESTAMPTZ)", [])
             elif node.name.upper() == "MAKE_DATE" and len(node.expressions) == 3 and node is not statement:
                 wrap(node, _MAKE_DATE, list(node.expressions))
@@ -1343,13 +1348,25 @@ def _java_narrowed(number: str, duck_type: str, from_double: bool = False) -> st
 def spark_timestamp_cast(value: str, duck_type: str, mode: str) -> str:
     """DuckDB SQL casting ``value`` to a timestamp as Spark does (EA-014): a number is seconds since 1970
     (UTC), fractions kept; anything else is DuckDB's own cast. DuckDB can't cast a number to a timestamp,
-    and its TRY_CAST gives NULL. ``mode`` as in spark_integer_cast."""
+    and its TRY_CAST gives NULL. ``mode`` as in spark_integer_cast. ``value`` is written several times, so
+    callers pass a column, a literal or a lambda's name.
+
+    Past the microsecond Spark truncates toward zero (WR-258): a decimal's exact digits
+    (decimalToTimestamp), a double's product with a million cast to a whole number (doubleToTimestamp), so
+    CAST(1.23456789 AS TIMESTAMP) is ...01.234567, where DuckDB's to_timestamp rounded to ...01.234568."""
     cast_ = "CAST" if mode == "ansi" else "TRY_CAST"
     seconds = f"TRY_CAST(CAST({value} AS VARCHAR) AS DOUBLE)"
+    exact = f"typeof({value}) IN ({_WHOLE_TYPES}) OR typeof({value}) LIKE 'DECIMAL%'"
+    digits = f"TRY_CAST({value} AS DECIMAL(38, 18))"  # TRY_: the branch is bound for text too
+    micros = (f"CASE WHEN {exact} THEN CAST(trunc({digits}) AS BIGINT) * 1000000 "
+              f"+ CAST(trunc(({digits} - trunc({digits})) * 1000000) AS BIGINT) "
+              f"ELSE CAST(trunc(TRY_CAST({value} AS DOUBLE) * 1000000.0) AS BIGINT) END")
+    inside = f"{seconds} BETWEEN -{_EPOCH_LIMIT} AND {_EPOCH_LIMIT}"
+    stamp = f"TIMEZONE('UTC', make_timestamp({micros}))"
     if mode == "ansi":  # out of a timestamp's range stops the query, as Spark's ANSI cast does
-        number = f"to_timestamp({seconds})"
+        number = f"CASE WHEN {inside} THEN {stamp} ELSE to_timestamp({seconds}) END"
     else:  # out of range, NaN or infinite is NULL
-        number = (f"CASE WHEN {seconds} BETWEEN -{_EPOCH_LIMIT} AND {_EPOCH_LIMIT} THEN to_timestamp({seconds}) END")
+        number = f"CASE WHEN {inside} THEN {stamp} END"
     return (f"CASE WHEN typeof({value}) IN ({_WHOLE_TYPES}, 'DOUBLE', 'FLOAT') OR typeof({value}) LIKE 'DECIMAL%' "
             f"THEN CAST({number} AS {duck_type}) ELSE {cast_}({value} AS {duck_type}) END")
 
@@ -1434,17 +1451,24 @@ _NOT_UTF8 = ("'A cast of binary to string can''t run on this PC the way it runs 
              "base64() instead.'")
 
 
-def spark_text_cast(value: str) -> str:
+_INTERVAL_TEXT = ("'An interval cast to string isn''t written here as Spark writes it (INTERVAL ''0 00:00:00.2'' DAY "
+                  "TO SECOND), so nothing ran on this PC. Write its parts with extract(), or run the cell in Fabric.'")
+
+
+def spark_text_cast(value: str, difference: bool = False) -> str:
     """CAST(value AS STRING) as Spark writes it: a timestamp as the session zone's wall time with no
     offset ('2026-01-02 03:04:05', where DuckDB writes '+00' after it), a double or float as Java
     writes it ('1.0E20', where DuckDB writes '1e+20'), and binary as its UTF-8 text (bytes that aren't UTF-8
-    are refused). Every other type casts as DuckDB casts it."""
+    are refused). With ``difference`` (``value`` is a subtraction), an interval is refused by name (WR-258):
+    Spark writes the difference of two timestamps as INTERVAL '0 00:00:00.2' DAY TO SECOND, which DuckDB's
+    interval doesn't carry, and DuckDB wrote 00:00:00.2. Every other type casts as DuckDB casts it."""
     java = spark_builtins_sql.java_double_text
     return (f"CASE WHEN typeof({value}) = 'TIMESTAMP WITH TIME ZONE' THEN "
             f"regexp_replace(CAST({value} AS VARCHAR), '[+-][0-9][0-9](:[0-9][0-9])?$', '') "
             f"WHEN typeof({value}) = 'DOUBLE' THEN {java(f'TRY_CAST({value} AS DOUBLE)')} "
             f"WHEN typeof({value}) = 'FLOAT' THEN {java(f'TRY_CAST({value} AS FLOAT)')} "
-            f"WHEN typeof({value}) = 'BLOB' THEN (LIST_TRANSFORM([TRY_CAST({value} AS BLOB)], lambda kf_bin: CASE WHEN kf_bin "
+            + (f"WHEN typeof({value}) = 'INTERVAL' THEN CAST(ERROR({_INTERVAL_TEXT}) AS VARCHAR) " if difference else "")
+            + f"WHEN typeof({value}) = 'BLOB' THEN (LIST_TRANSFORM([TRY_CAST({value} AS BLOB)], lambda kf_bin: CASE WHEN kf_bin "
             f"IS NULL THEN NULL ELSE COALESCE(TRY(DECODE(kf_bin)), ERROR({_NOT_UTF8})) END))[1] "
             f"ELSE CAST({value} AS VARCHAR) END")
 
@@ -1545,6 +1569,34 @@ def _negative_literals(statement: exp.Expression) -> None:
             neg.replace(cast_)
 
 
+_FLOAT_CASTS = (exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT)
+
+
+def _may_be_a_timestamp(source: exp.Expression) -> bool:
+    """``source`` isn't plainly something other than a timestamp: a literal, or a cast to another type."""
+    inner = source.unnest()
+    if isinstance(inner, (exp.Literal, exp.Null, exp.Boolean)):
+        return False
+    return not (isinstance(inner, (exp.Cast, exp.TryCast)) and isinstance(inner.to, exp.DataType)
+                and inner.to.this not in _TIMESTAMP_CASTS)
+
+
+def _timestamp_seconds(node: exp.Expression) -> None:
+    """CAST(a_timestamp AS DOUBLE) (or FLOAT) as Spark casts it: its seconds since 1970 with the microseconds
+    as a fraction (WR-258). DuckDB has no such cast, and Spark's CAST with ANSI off (a TRY_CAST) gave NULL.
+    Any other source is the cast as written, which later passes still see. The source is read once."""
+    source = node.this
+    other = node.copy()
+    other.set("this", exp.column("kf_cast"))
+    kind = duckdb_sql(node.args["to"])
+    body = _with_args(f"CASE WHEN typeof(kf_cast) = 'TIMESTAMP WITH TIME ZONE' "
+                      f"THEN CAST(CAST(EPOCH_US(TRY_CAST(kf_cast AS TIMESTAMPTZ)) AS DOUBLE) / 1000000.0 AS {kind}) ELSE fj_arg0 END", [other])
+    lam = exp.Lambda(this=body, expressions=[exp.to_identifier("kf_cast")])
+    call = exp.Bracket(this=exp.paren(exp.func("LIST_TRANSFORM", exp.Array(expressions=[source.copy()]), lam)),
+                       expressions=[exp.Literal.number(1)], offset=1)
+    node.replace(call)
+
+
 def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
     """Casts to TINYINT, SMALLINT, INT or BIGINT written out as Spark casts (EA-003, and EA-014 for a
     timestamp): see spark_integer_cast. Casts to a timestamp read a number as seconds (spark_timestamp_cast).
@@ -1555,8 +1607,12 @@ def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
     for node in reversed(list(statement.find_all(exp.Cast, exp.TryCast))):
         kind = node.to.this if isinstance(node.to, exp.DataType) else None
         source = node.this
-        if (id(source) in done and kind not in _BINARY_CASTS) or isinstance(source, exp.Null):
-            continue  # a cast already written here is a value of its type; only a cast to binary reads it again
+        rewritten_text = isinstance(source.type, exp.DataType) and source.type.this in _TEXT_CASTS
+        if (id(source) in done and (kind not in _BINARY_CASTS + _TEXT_CASTS or (kind in _TEXT_CASTS and rewritten_text))) \
+                or isinstance(source, exp.Null):
+            # A cast already written here is a value of its type; only a cast to binary or text reads it again
+            # (CAST(CAST(1.5 AS TIMESTAMP) AS STRING) had DuckDB's '+00' after it).
+            continue
         if isinstance(node, exp.TryCast):
             mode = "try" if node.args.get("safe") else "legacy"
         else:
@@ -1569,8 +1625,11 @@ def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
         elif kind in _TIMESTAMP_CASTS and not (isinstance(source, exp.Literal) and source.is_string):
             to = "TIMESTAMPTZ" if _to_timestamp_call(node) else duckdb_sql(node.to)
             write = functools.partial(spark_timestamp_cast, duck_type=to, mode=mode)
+        elif kind in _FLOAT_CASTS and _may_be_a_timestamp(source):
+            _timestamp_seconds(node)
+            continue
         elif kind in _TEXT_CASTS and not (isinstance(source, exp.Literal) and source.is_string) and not node.to.expressions:
-            write = functools.partial(spark_text_cast)
+            write = functools.partial(spark_text_cast, difference=isinstance(source.unnest(), exp.Sub))
         elif kind in _BINARY_CASTS and not (isinstance(source, exp.Literal) and source.is_string):
             write = functools.partial(spark_binary_cast)
         else:
@@ -2144,9 +2203,10 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
             # Without a year Spark reads the date as 1970-01-01; strptime starts from 1900-01-01.
             parsed = f"try_strptime(CAST({value} AS VARCHAR), {fmt})" + ("" if has_year else " + INTERVAL 70 YEAR")
         # A timestamp_ntz (DuckDB's TIMESTAMP) is read as UTC, as Spark reads it; a date and text are read in
-        # the session's time zone.
+        # the session's time zone. The seconds are truncated toward zero, as Spark divides its microseconds
+        # (WR-258): 1969-12-31 23:59:59.9995 is 0, where floor gave -1.
         swapped = unix.replace(_with_args(
-            f"CAST(floor(CASE WHEN typeof({value}) IN ({_NTZ_TYPES}) THEN epoch(TRY_CAST({value} AS TIMESTAMP)) "
+            f"CAST(trunc(CASE WHEN typeof({value}) IN ({_NTZ_TYPES}) THEN epoch(TRY_CAST({value} AS TIMESTAMP)) "
             f"WHEN typeof({value}) IN ({_TIME_TYPES}) THEN epoch(TRY_CAST({value} AS TIMESTAMPTZ)) "
             f"ELSE epoch(CAST({parsed} AS TIMESTAMPTZ)) END) AS BIGINT)", [unix.this]))
         node = swapped if unix is node else node
@@ -2160,6 +2220,11 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
         elif not isinstance(start, (exp.Literal, exp.Neg)):  # -3 counts from the end in both
             sub.set("start", exp.Case(ifs=[exp.If(this=exp.EQ(this=start.copy(), expression=exp.Literal.number(0)),
                                                   true=exp.Literal.number(1))], default=start.copy()))
+        if sub.args.get("length") is None:
+            # Spark's substring(s, pos) is substringSQL(pos, Int.MaxValue), whose end is pos + that length: from
+            # pos -2147483648 it ends one before the end ('hell' of 'hello'), where DuckDB's two-argument
+            # substring kept the whole text. DuckDB's three-argument substring counts the end the same way.
+            sub.set("length", exp.Literal.number(2147483647))
         _spark_negative_length(sub)
     return node
 
@@ -2175,6 +2240,7 @@ def _spark_negative_length(sub: exp.Substring) -> None:
     empty = exp.Substring(this=sub.this.copy(), start=exp.Add(
         this=exp.Mul(this=exp.paren(sub.args["start"].copy()), expression=exp.Literal.number(0)),
         expression=exp.Literal.number(1)), length=exp.Literal.number(0))  # '' of s's type, NULL for a NULL s or pos
+    empty.meta.update(sub.meta)  # spark_builtins_sql's mark: s is read as text there too, as Spark reads it
     kept = sub.copy()
     kept.meta["kf_negative_length"] = True
     sub.replace(exp.Case(ifs=[exp.If(this=exp.LT(this=exp.paren(length.copy()), expression=exp.Literal.number(0)),

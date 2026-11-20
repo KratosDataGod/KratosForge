@@ -486,7 +486,7 @@ def spark_text_arg(a: str, fn: str, bind: bool = False) -> str:
 # A plain column, a parameter or a literal: cheap to write more than once in a rewrite.
 _CHEAP = (exp.Column, exp.Literal, exp.Null, exp.Boolean, exp.Placeholder, exp.Parameter)
 # Calls whose DuckDB SQL is text whatever their argument (that argument is made text, by _text_this).
-_TEXT_RESULTS = (exp.Upper, exp.Lower, exp.Trim, exp.Pad, exp.Repeat, exp.Left, exp.Right)
+_TEXT_RESULTS = (exp.Upper, exp.Lower, exp.Trim, exp.Pad, exp.Repeat, exp.Left, exp.Right, exp.Substring)
 _TEXT_KEY = "kf_text_result"  # meta of a rewrite whose SQL is text (initcap's)
 _UPPER_KEY = "kf_upper_result"  # meta of upper's rewrite: Java's toUpperCase of it is itself
 _TEXT_TYPES = (exp.DataType.Type.TEXT, exp.DataType.Type.VARCHAR)
@@ -1084,11 +1084,53 @@ def _try_to_binary(node: exp.Expression, args: list[exp.Expression]) -> exp.Expr
     return _with_args(template, args[:1]) if template else None
 
 
+_EXACT_UNITS = {"MICROSECOND": 1, "MILLISECOND": 1000, "SECOND": 1000000, "MINUTE": 60000000, "HOUR": 3600000000}
+
+
+def _timestamp_add(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """timestampadd(unit, n, ts) and dateadd(unit, n, ts) as Spark's TimestampAdd (WR-258). A unit of an hour or
+    less adds that many microseconds, the count read as Spark's int: DuckDB couldn't read INTERVAL
+    86400000001 MICROSECOND, so the query stopped. A date or text is Spark's timestamp first, in the session's zone, so the result is a timestamp,
+    not a timestamp_ntz. Other units are left to sqlglot's interval."""
+    value, unit = node.this, node.args.get("unit")
+    if not isinstance(value, exp.Expression):
+        return None
+    to_stamp = value.is_string or (isinstance(value, (exp.Cast, exp.TryCast))
+                                   and value.to.is_type(exp.DataType.Type.DATE, *exp.DataType.TEXT_TYPES))
+    if to_stamp:
+        node.set("this", exp.TryCast(this=value.copy(), to=exp.DataType.build("TIMESTAMPTZ")))
+    scale = _EXACT_UNITS.get(unit.name.upper()) if isinstance(unit, (exp.Var, exp.Literal)) else None
+    if scale is None:
+        return None
+    # Spark reads the count as an int, wrapping as Java does with ANSI off: 86400000001 is 500654081.
+    count = "(((CAST(fj_arg1 AS BIGINT) + 2147483648) % 4294967296 + 4294967296) % 4294967296 - 2147483648)"
+    return _read_once(f"fj_arg0 + TO_MICROSECONDS({count} * {scale})", [node.this, node.expression])
+
+
+_FLOOR_EPOCH = "(EPOCH_US(fj_arg0) - (EPOCH_US(fj_arg0) % {unit} + {unit}) % {unit}) // {unit}"
+
+
 def _timestamp_from(scale: int) -> Callable[..., exp.Expression | None]:
     """timestamp_seconds/millis/micros: the instant that many units after 1970-01-01 00:00 UTC, as Spark's
-    timestamp (with time zone)."""
-    to_micros = "fj_arg0" if scale == 1 else f"TRUNC(CAST(fj_arg0 AS DECIMAL(38, 6)) * {scale})"
-    return _template(f"TIMEZONE('UTC', MAKE_TIMESTAMP(CAST({to_micros} AS BIGINT)))", 1)
+    timestamp (with time zone).
+
+    timestamp_seconds of a decimal stops when it has digits past the microsecond (Spark's SecondsToTimestamp
+    multiplies exactly and stops with "Rounding necessary"); of a double it truncates the microseconds toward
+    zero and a NaN or infinity is NULL (WR-258). Both were rounded here: timestamp_seconds(1.23456789) was
+    ...01.234568."""
+    if scale == 1:
+        return _template("TIMEZONE('UTC', MAKE_TIMESTAMP(CAST(fj_arg0 AS BIGINT)))", 1)
+    digits = f"(TRY_CAST(fj_arg0 AS DECIMAL(38, 18)) * {scale})"
+    stop = ("ERROR('timestamp_seconds() of a decimal with more than 6 digits after the point stops in Spark with "
+            "\"Rounding necessary\", so nothing ran. Round it to 6 decimal places first.')")
+    double = "TRY_CAST(fj_arg0 AS DOUBLE)"
+    to_micros = (f"CASE WHEN typeof(fj_arg0) LIKE 'DECIMAL%' THEN CASE WHEN TRUNC({digits}) = {digits} "
+                 f"THEN CAST({digits} AS BIGINT) ELSE {stop} END "
+                 f"WHEN typeof(fj_arg0) IN ('DOUBLE', 'FLOAT') THEN CASE WHEN ISFINITE({double}) "
+                 f"THEN CAST(TRUNC({double} * {scale}.0) AS BIGINT) END "
+                 f"ELSE CAST(TRUNC(CAST(fj_arg0 AS DECIMAL(38, 6)) * {scale}) AS BIGINT) END")
+    template = f"TIMEZONE('UTC', MAKE_TIMESTAMP({to_micros}))"
+    return lambda node, args: _read_once(template, args) if len(args) == 1 else None
 
 
 def _make_dt_interval(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
@@ -1460,12 +1502,17 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("ParseUrl", _parse_url),
         ("Extract", _extract),
         ("Hour", _template(f"HOUR({_TS})", 1)),
+        ("TimestampAdd", _timestamp_add),
+        # unix_seconds and unix_millis count whole units down, as Spark's Math.floorDiv does (WR-258): a moment
+        # before 1970 with a fraction is one unit lower. DuckDB's EPOCH rounded and EPOCH_MS truncated.
+        ("UnixSeconds", lambda n, a: _read_once(_FLOOR_EPOCH.format(unit=1000000), [n.this])),
+        ("UnixMillis", lambda n, a: _read_once(_FLOOR_EPOCH.format(unit=1000), [n.this])),
         # Spark casts a number, boolean or date to text where these take text (upper(14) = '14'). Not initcap:
         # sqlglot writes its DuckDB SQL by reading the argument back, which this one can't be.
         *((name, _text_this(fn)) for name, fn in (
             ("Trim", "trim"), ("Ascii", "ascii"), ("Length", "length"),
             ("Translate", "translate"), ("RegexpReplace", "regexp_replace"), ("Left", "left"), ("Right", "right"),
-            ("Repeat", "repeat"), ("Pad", "lpad"))),
+            ("Repeat", "repeat"), ("Pad", "lpad"), ("Substring", "substring"))),
         ("RegexpSplit", _split),
         ("Upper", _upper),
         ("Lower", _lower),
@@ -1761,6 +1808,10 @@ def _parse_url(node: exp.Expression, args: list[exp.Expression]) -> exp.Expressi
 _SPARK_DOW = {"DOW", "DAYOFWEEK"}
 _SPARK_DOW_ISO = {"DOW_ISO", "DAYOFWEEK_ISO"}
 _SPARK_SECOND = {"S", "SEC", "SECS", "SECOND", "SECONDS"}
+# Every field Spark 3.5's extract and date_part take (DatePart.parseExtractField), by any of its names.
+_SPARK_FIELDS = {"YEAR", "Y", "YEARS", "YR", "YRS", "YEAROFWEEK", "QUARTER", "QTR", "MONTH", "MON", "MONS", "MONTHS",
+                 "WEEK", "W", "WEEKS", "DAY", "D", "DAYS", "DOY", "HOUR", "H", "HOURS", "HR", "HRS", "MINUTE", "M",
+                 "MIN", "MINS", "MINUTES", *_SPARK_DOW, *_SPARK_DOW_ISO, *_SPARK_SECOND}
 
 
 def _extract(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
@@ -1770,13 +1821,22 @@ def _extract(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression
     value, part = node.expression, node.this.name.upper()
     if not isinstance(value, exp.Expression):
         return None
+    if re.fullmatch(r"[A-Z_]+", part) and part not in _SPARK_FIELDS:
+        # Spark's DatePart.parseExtractField knows no other field: date_part('MILLISECONDS', ts) stops with
+        # INVALID_EXTRACT_FIELD in Spark, where DuckDB answered it (WR-258).
+        raise ValueError(f"Spark can't extract the field {part} from a date, time or interval: it stops with "
+                         "INVALID_EXTRACT_FIELD, so nothing ran. Use YEAR, QUARTER, MONTH, WEEK, DAY, DAYOFWEEK, "
+                         "DOY, HOUR, MINUTE or SECOND (SECOND keeps the fraction of a second).")
     ts = "TRY_CAST(fj_arg0 AS TIMESTAMP)"
     if part in _SPARK_DOW:
         return _with_args(f"CAST(DAYOFWEEK({ts}) + 1 AS INTEGER)", [value])
     if part in _SPARK_DOW_ISO:
         return _with_args(f"CAST(ISODOW({ts}) AS INTEGER)", [value])
     if part in _SPARK_SECOND:
-        return _with_args(f"CAST(CAST(MICROSECOND({ts}) AS DECIMAL(14, 6)) / 1000000 AS DECIMAL(8, 6))", [value])
+        # An interval's seconds with their fraction too (they were NULL here), as Spark's ExtractANSIIntervalSeconds.
+        micros = (f"CASE WHEN TYPEOF(fj_arg0) = 'INTERVAL' THEN EXTRACT(MICROSECOND FROM TRY_CAST(fj_arg0 AS INTERVAL)) "
+                  f"ELSE MICROSECOND({ts}) END")
+        return _read_once(f"CAST(CAST({micros} AS DECIMAL(14, 6)) / 1000000 AS DECIMAL(8, 6))", [value])
     out = node.copy()
     if not isinstance(value, exp.Literal) and (value.type is None or value.is_type(exp.DataType.Type.UNKNOWN)) \
             and re.fullmatch(r"[A-Z_]+", part):
@@ -1974,13 +2034,11 @@ def _no_duckdb_hash(statement: exp.Expression) -> None:
 
 def _truncated_time(node: exp.Expression) -> None:
     """trunc(x, unit) reads x as a date and date_trunc(unit, 'text') reads text as a timestamp (with
-    time zone, in the session's zone), as Spark does (text that isn't one gives NULL). date_trunc of anything else is left as it is, so a
-    timestamp keeps its type."""
+    time zone, in the session's zone), as Spark does (text that isn't one gives NULL). date_trunc's result is
+    Spark's timestamp whatever it is given (TruncTimestamp casts a timestamp_ntz or a date to one, in the
+    session's zone): date_trunc of a timestamp_ntz was a timestamp_ntz here (WR-258)."""
     value = node.this
     if isinstance(node, exp.TimestampTrunc):
-        text = value.is_string or (isinstance(value, (exp.Cast, exp.TryCast)) and value.to.is_type(*exp.DataType.TEXT_TYPES))
-        if not text:
-            return
         target = exp.DataType.Type.TIMESTAMPTZ  # Spark's timestamp, read in the session's zone
     else:
         target = exp.DataType.Type.DATE

@@ -52,7 +52,6 @@ SCALARS = [
     ("SELECT try_to_timestamp('2016-12-31', 'yyyy-MM-dd')", dt.datetime(2016, 12, 31)),
     ("SELECT make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)", dt.datetime(2014, 12, 28, 6, 30, 45, 887000)),
     ("SELECT make_timestamp_ntz(2014, 13, 28, 6, 30, 45)", None),  # Spark with ANSI off: NULL, not an error
-    ("SELECT CAST(make_dt_interval(1, 12, 30, 01.001001) AS STRING)", "1 day 12:30:01.001001"),
     ("SELECT isnull(1)", False),
     ("SELECT isnotnull(1)", True),
     ("SELECT nanvl(cast('NaN' as double), 123)", 123.0),
@@ -263,9 +262,10 @@ def test_reserved_names_are_refused_plainly():
         sql.parse("SELECT array_repeat(kf_i, 2) FROM VALUES (1) AS t(kf_i)")
 
 
-def test_date_trunc_of_a_timestamp_keeps_its_type():
+def test_date_trunc_is_sparks_timestamp_whatever_it_is_given():
+    """TruncTimestamp's result is Spark's timestamp: a timestamp_ntz or a date is cast to one first (WR-258)."""
     statement = sql.parse("SELECT date_trunc('HOUR', ts) FROM t")[0]
-    assert "TRY_CAST" not in sql.duckdb_sql(statement)
+    assert "TRY_CAST(ts AS TIMESTAMPTZ)" in sql.duckdb_sql(statement)
 
 
 def test_databricks_sql_gets_the_same_functions():

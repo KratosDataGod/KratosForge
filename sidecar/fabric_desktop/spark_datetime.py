@@ -230,7 +230,9 @@ def parse_format(pattern: str, fn: str) -> tuple[str, bool, bool, bool]:
             has_year = has_year or c == "y"
             two_digit = two_digit or run == "yy"
         elif c == "S":
-            code = "%f"  # one to six digits; Spark takes one up to as many as the pattern has S
+            # One up to as many digits as the pattern has S (parse_sql holds the text to that); past six,
+            # strptime's %n reads up to nine into nanoseconds, which parse_sql truncates to microseconds.
+            code = "%f" if len(run) <= 6 else "%n"
         elif c in "XxZ" and len(run) <= 3:
             code, has_offset = "%z", True
         else:
@@ -246,12 +248,55 @@ def parse_sql(pattern: str, fn: str, strict: bool = False) -> str:
     text's wall time in the session's zone unless it gives an offset; NULL when it doesn't match, as in
     Spark with ANSI off; ``strict`` (ANSI on) stops instead."""
     fmt, has_year, has_offset, two_digit = parse_format(pattern, fn)
-    text = "CAST(fj_arg0 AS VARCHAR)"
+    shape = _fraction_shape(pattern)
+    text = "kf_text" if shape else "CAST(fj_arg0 AS VARCHAR)"
+    if has_offset and "%n" in fmt:
+        raise ValueError(_PARSE_REFUSED.format(fn=fn, run="S" * 7, why="more than six S letters with an offset "
+                                               "(X, x or Z) can't be read to Spark's microsecond here. Use at most "
+                                               "six S letters, or run it in Fabric."))
     if has_offset:  # Spark's X reads 'Z' for +00:00; strptime's %z doesn't. Only a Z on its own, not one in a word
         text = f"REGEXP_REPLACE({text}, '(^|[^A-Za-z])Z($|[^A-Za-z])', '\\1+00:00\\2')"
     parsed = f"{'STRPTIME' if strict else 'TRY_STRPTIME'}({text}, {_quote(fmt)})"
+    if "%n" in fmt:  # nanoseconds, truncated to Spark's microsecond (down, before 1970 too)
+        parsed = (f"MAKE_TIMESTAMP((LIST_TRANSFORM([EPOCH_NS({parsed})], kf_ns -> "
+                  f"(kf_ns - (kf_ns % 1000 + 1000) % 1000) // 1000))[1])")
     if not has_year:  # strptime starts from 1900-01-01
         parsed = f"({parsed} + INTERVAL 70 YEAR)"
     if two_digit:
         parsed = f"(LIST_TRANSFORM([{parsed}], kf_t -> CASE WHEN YEAR(kf_t) < 2000 THEN kf_t + INTERVAL 100 YEAR ELSE kf_t END))[1]"
-    return f"CAST({parsed} AS TIMESTAMPTZ)"
+    parsed = f"CAST({parsed} AS TIMESTAMPTZ)"
+    if not shape:
+        return parsed
+    # Spark reads at most as many digits of a second as the pattern has S: 'SSS' doesn't match .123456.
+    other = (f"ERROR('The text ' || kf_text || ' has more digits of a second than the pattern {_sql_text(pattern)} "
+             f"has S letters, so it isn''t a timestamp to Spark and nothing ran.')" if strict else "NULL")
+    return (f"(LIST_TRANSFORM([CAST(fj_arg0 AS VARCHAR)], kf_text -> CASE WHEN kf_text IS NULL THEN NULL "
+            f"WHEN REGEXP_FULL_MATCH(kf_text, {_quote(shape)}) THEN {parsed} ELSE {other} END))[1]")
+
+
+def _fraction_shape(pattern: str) -> str | None:
+    """A regular expression the text must match for ``pattern`` when it has a run of S other than six
+    (strptime's %f reads up to six digits, %n up to nine, where Spark reads as many as the run has S). Its
+    other letters match loosely, leaving them to strptime. None when there's no such run."""
+    pieces = tokens(pattern)
+    if not any(kind == "letter" and run[0] == "S" and len(run) != 6 for kind, run in pieces):
+        return None
+    out = []
+    for kind, run in pieces:
+        if kind == "text":
+            out.append("".join(ch if ch.isalnum() else f"[{ch}]" if ch not in "\\^]" else f"\\{ch}" for ch in run))
+        elif run[0] == "S":
+            out.append(f"[0-9]{{1,{len(run)}}}")
+        elif run[0] in "yudDHhKkmsMLQqwWeFcn" and (run[0] not in "ML" or len(run) <= 2):
+            out.append("[0-9]+")
+        elif run[0] in "XxZ":
+            out.append("(Z|[+-][0-9:]+)")
+        elif run[0] == "V":
+            out.append("[A-Za-z_/+-][A-Za-z0-9_/+-]*")
+        else:  # a name: a month's or a day's, AM or PM
+            out.append("\\pL+")
+    return "".join(out)
+
+
+def _sql_text(text: str) -> str:
+    return text.replace("'", "''")

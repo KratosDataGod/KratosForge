@@ -1,0 +1,2704 @@
+{
+ "spark": "3.5.3",
+ "ansi": false,
+ "time_zone": "UTC",
+ "cases": [
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05",
+     "2024-01-02 03:04:05"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05",
+     "2024-01-02 03:04:05"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05",
+     "2024-01-02 03:04:05"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.1' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05.1' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.100000",
+     "2024-01-02 03:04:05.1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.1' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05.1' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.100000",
+     "2024-01-02 03:04:05.1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.1' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05.1' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.100000",
+     "2024-01-02 03:04:05.1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.1') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.100000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59.1' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59.1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.12' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05.12' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.120000",
+     "2024-01-02 03:04:05.12"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.12' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05.12' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.120000",
+     "2024-01-02 03:04:05.12"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.12' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05.12' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.120000",
+     "2024-01-02 03:04:05.12"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.12') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.120000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59.12' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59.12"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.123' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05.123' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123000",
+     "2024-01-02 03:04:05.123"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.123' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05.123' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123000",
+     "2024-01-02 03:04:05.123"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.123' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05.123' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123000",
+     "2024-01-02 03:04:05.123"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.123') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59.123' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59.123"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.1234' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05.1234' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123400",
+     "2024-01-02 03:04:05.1234"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.1234' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05.1234' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123400",
+     "2024-01-02 03:04:05.1234"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.1234' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05.1234' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123400",
+     "2024-01-02 03:04:05.1234"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.1234') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123400"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59.1234' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59.1234"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.12345' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05.12345' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123450",
+     "2024-01-02 03:04:05.12345"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.12345' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05.12345' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123450",
+     "2024-01-02 03:04:05.12345"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.12345' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05.12345' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123450",
+     "2024-01-02 03:04:05.12345"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.12345') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123450"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59.12345' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59.12345"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.123456' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05.123456' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456",
+     "2024-01-02 03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.123456' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05.123456' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456",
+     "2024-01-02 03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.123456' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05.123456' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456",
+     "2024-01-02 03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.123456') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59.123456' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.1234567' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05.1234567' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456",
+     "2024-01-02 03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.1234567' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05.1234567' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456",
+     "2024-01-02 03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.1234567' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05.1234567' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456",
+     "2024-01-02 03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.1234567') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59.1234567' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.12345678' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05.12345678' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456",
+     "2024-01-02 03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.12345678' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05.12345678' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456",
+     "2024-01-02 03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.12345678' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05.12345678' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456",
+     "2024-01-02 03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.12345678') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59.12345678' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.123456789' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05.123456789' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456",
+     "2024-01-02 03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.123456789' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05.123456789' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456",
+     "2024-01-02 03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.123456789' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05.123456789' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456",
+     "2024-01-02 03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.123456789') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59.123456789' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.9999995' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05.9999995' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.999999",
+     "2024-01-02 03:04:05.999999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.9999995' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05.9999995' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.999999",
+     "2024-01-02 03:04:05.999999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.9999995' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05.9999995' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.999999",
+     "2024-01-02 03:04:05.999999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.9999995') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.999999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59.9999995' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59.999999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.999999999' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05.999999999' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.999999",
+     "2024-01-02 03:04:05.999999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.999999999' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05.999999999' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.999999",
+     "2024-01-02 03:04:05.999999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.999999999' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05.999999999' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.999999",
+     "2024-01-02 03:04:05.999999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.999999999') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.999999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59.999999999' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59.999999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.000000999' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05.000000999' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05",
+     "2024-01-02 03:04:05"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.000000999' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05.000000999' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05",
+     "2024-01-02 03:04:05"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.000000999' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05.000000999' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05",
+     "2024-01-02 03:04:05"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.000000999') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59.000000999' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.100000' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05.100000' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.100000",
+     "2024-01-02 03:04:05.1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.100000' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05.100000' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.100000",
+     "2024-01-02 03:04:05.1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.100000' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05.100000' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.100000",
+     "2024-01-02 03:04:05.1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.100000') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.100000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59.100000' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59.1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.120' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05.120' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.120000",
+     "2024-01-02 03:04:05.12"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.120' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05.120' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.120000",
+     "2024-01-02 03:04:05.12"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.120' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05.120' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.120000",
+     "2024-01-02 03:04:05.12"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.120') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.120000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59.120' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59.12"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.000001' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05.000001' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.000001",
+     "2024-01-02 03:04:05.000001"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.000001' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05.000001' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.000001",
+     "2024-01-02 03:04:05.000001"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.000001' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05.000001' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.000001",
+     "2024-01-02 03:04:05.000001"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.000001') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.000001"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59.000001' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59.000001"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.0000005' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05.0000005' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05",
+     "2024-01-02 03:04:05"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.0000005' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05.0000005' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05",
+     "2024-01-02 03:04:05"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.0000005' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05.0000005' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05",
+     "2024-01-02 03:04:05"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.0000005') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59.0000005' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.0' AS TIMESTAMP) AS v, CAST(CAST('2024-01-02 03:04:05.0' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05",
+     "2024-01-02 03:04:05"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.0' AS TIMESTAMP_NTZ) AS v, CAST(CAST('2024-01-02 03:04:05.0' AS TIMESTAMP_NTZ) AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05",
+     "2024-01-02 03:04:05"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.0' AS v, CAST(TIMESTAMP'2024-01-02 03:04:05.0' AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05",
+     "2024-01-02 03:04:05"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.0') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST('1969-12-31 23:59:59.0' AS TIMESTAMP) AS STRING) AS s",
+   "value": [
+    [
+     "1969-12-31 23:59:59"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02T03:04:05.123456789Z' AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.123456789' AS DATE) AS v",
+   "value": [
+    [
+     "date:2024-01-02"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02T03:04:05.1234567Z' AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.1234567' AS DATE) AS v",
+   "value": [
+    [
+     "date:2024-01-02"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02T03:04:05.9999999Z' AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.999999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.9999999' AS DATE) AS v",
+   "value": [
+    [
+     "date:2024-01-02"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02T03:04:05.5Z' AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.500000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('2024-01-02 03:04:05.5' AS DATE) AS v",
+   "value": [
+    [
+     "date:2024-01-02"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.123456789', 'yyyy-MM-dd HH:mm:ss.SSSSSSSSS') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.123456', 'yyyy-MM-dd HH:mm:ss.SSSSSSSSS') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.123', 'yyyy-MM-dd HH:mm:ss.SSSSSSSSS') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.123456789', 'yyyy-MM-dd HH:mm:ss.SSSSSS') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.123456', 'yyyy-MM-dd HH:mm:ss.SSSSSS') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.123', 'yyyy-MM-dd HH:mm:ss.SSSSSS') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.123456789', 'yyyy-MM-dd HH:mm:ss.SSS') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.123456', 'yyyy-MM-dd HH:mm:ss.SSS') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.123', 'yyyy-MM-dd HH:mm:ss.SSS') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('MICROSECOND', TIMESTAMP'2024-01-02 03:04:05.123456') AS v, CAST(date_trunc('MICROSECOND', TIMESTAMP'2024-01-02 03:04:05.123456') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456",
+     "2024-01-02 03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('MICROSECOND', TIMESTAMP'1969-12-31 23:59:59.9995') AS v, CAST(date_trunc('MICROSECOND', TIMESTAMP'1969-12-31 23:59:59.9995') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:59.999500",
+     "1969-12-31 23:59:59.9995"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('MICROSECOND', TIMESTAMP'1969-12-31 23:59:59.999999') AS v, CAST(date_trunc('MICROSECOND', TIMESTAMP'1969-12-31 23:59:59.999999') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:59.999999",
+     "1969-12-31 23:59:59.999999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('MILLISECOND', TIMESTAMP'2024-01-02 03:04:05.123456') AS v, CAST(date_trunc('MILLISECOND', TIMESTAMP'2024-01-02 03:04:05.123456') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123000",
+     "2024-01-02 03:04:05.123"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('MILLISECOND', TIMESTAMP'1969-12-31 23:59:59.9995') AS v, CAST(date_trunc('MILLISECOND', TIMESTAMP'1969-12-31 23:59:59.9995') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:59.999000",
+     "1969-12-31 23:59:59.999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('MILLISECOND', TIMESTAMP'1969-12-31 23:59:59.999999') AS v, CAST(date_trunc('MILLISECOND', TIMESTAMP'1969-12-31 23:59:59.999999') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:59.999000",
+     "1969-12-31 23:59:59.999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('SECOND', TIMESTAMP'2024-01-02 03:04:05.123456') AS v, CAST(date_trunc('SECOND', TIMESTAMP'2024-01-02 03:04:05.123456') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05",
+     "2024-01-02 03:04:05"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('SECOND', TIMESTAMP'1969-12-31 23:59:59.9995') AS v, CAST(date_trunc('SECOND', TIMESTAMP'1969-12-31 23:59:59.9995') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:59",
+     "1969-12-31 23:59:59"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('SECOND', TIMESTAMP'1969-12-31 23:59:59.999999') AS v, CAST(date_trunc('SECOND', TIMESTAMP'1969-12-31 23:59:59.999999') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:59",
+     "1969-12-31 23:59:59"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('MINUTE', TIMESTAMP'2024-01-02 03:04:05.123456') AS v, CAST(date_trunc('MINUTE', TIMESTAMP'2024-01-02 03:04:05.123456') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:00",
+     "2024-01-02 03:04:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('MINUTE', TIMESTAMP'1969-12-31 23:59:59.9995') AS v, CAST(date_trunc('MINUTE', TIMESTAMP'1969-12-31 23:59:59.9995') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:00",
+     "1969-12-31 23:59:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('MINUTE', TIMESTAMP'1969-12-31 23:59:59.999999') AS v, CAST(date_trunc('MINUTE', TIMESTAMP'1969-12-31 23:59:59.999999') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:00",
+     "1969-12-31 23:59:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('HOUR', TIMESTAMP'2024-01-02 03:04:05.123456') AS v, CAST(date_trunc('HOUR', TIMESTAMP'2024-01-02 03:04:05.123456') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:00:00",
+     "2024-01-02 03:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('HOUR', TIMESTAMP'1969-12-31 23:59:59.9995') AS v, CAST(date_trunc('HOUR', TIMESTAMP'1969-12-31 23:59:59.9995') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:00:00",
+     "1969-12-31 23:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('HOUR', TIMESTAMP'1969-12-31 23:59:59.999999') AS v, CAST(date_trunc('HOUR', TIMESTAMP'1969-12-31 23:59:59.999999') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:00:00",
+     "1969-12-31 23:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('DAY', TIMESTAMP'2024-01-02 03:04:05.123456') AS v, CAST(date_trunc('DAY', TIMESTAMP'2024-01-02 03:04:05.123456') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-02T00:00:00",
+     "2024-01-02 00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('DAY', TIMESTAMP'1969-12-31 23:59:59.9995') AS v, CAST(date_trunc('DAY', TIMESTAMP'1969-12-31 23:59:59.9995') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-12-31T00:00:00",
+     "1969-12-31 00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('DAY', TIMESTAMP'1969-12-31 23:59:59.999999') AS v, CAST(date_trunc('DAY', TIMESTAMP'1969-12-31 23:59:59.999999') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-12-31T00:00:00",
+     "1969-12-31 00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('WEEK', TIMESTAMP'2024-01-02 03:04:05.123456') AS v, CAST(date_trunc('WEEK', TIMESTAMP'2024-01-02 03:04:05.123456') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-01T00:00:00",
+     "2024-01-01 00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('WEEK', TIMESTAMP'1969-12-31 23:59:59.9995') AS v, CAST(date_trunc('WEEK', TIMESTAMP'1969-12-31 23:59:59.9995') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-12-29T00:00:00",
+     "1969-12-29 00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('WEEK', TIMESTAMP'1969-12-31 23:59:59.999999') AS v, CAST(date_trunc('WEEK', TIMESTAMP'1969-12-31 23:59:59.999999') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-12-29T00:00:00",
+     "1969-12-29 00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('MONTH', TIMESTAMP'2024-01-02 03:04:05.123456') AS v, CAST(date_trunc('MONTH', TIMESTAMP'2024-01-02 03:04:05.123456') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-01T00:00:00",
+     "2024-01-01 00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('MONTH', TIMESTAMP'1969-12-31 23:59:59.9995') AS v, CAST(date_trunc('MONTH', TIMESTAMP'1969-12-31 23:59:59.9995') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-12-01T00:00:00",
+     "1969-12-01 00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('MONTH', TIMESTAMP'1969-12-31 23:59:59.999999') AS v, CAST(date_trunc('MONTH', TIMESTAMP'1969-12-31 23:59:59.999999') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-12-01T00:00:00",
+     "1969-12-01 00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('QUARTER', TIMESTAMP'2024-01-02 03:04:05.123456') AS v, CAST(date_trunc('QUARTER', TIMESTAMP'2024-01-02 03:04:05.123456') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-01T00:00:00",
+     "2024-01-01 00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('QUARTER', TIMESTAMP'1969-12-31 23:59:59.9995') AS v, CAST(date_trunc('QUARTER', TIMESTAMP'1969-12-31 23:59:59.9995') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-10-01T00:00:00",
+     "1969-10-01 00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('QUARTER', TIMESTAMP'1969-12-31 23:59:59.999999') AS v, CAST(date_trunc('QUARTER', TIMESTAMP'1969-12-31 23:59:59.999999') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-10-01T00:00:00",
+     "1969-10-01 00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('YEAR', TIMESTAMP'2024-01-02 03:04:05.123456') AS v, CAST(date_trunc('YEAR', TIMESTAMP'2024-01-02 03:04:05.123456') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:2024-01-01T00:00:00",
+     "2024-01-01 00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('YEAR', TIMESTAMP'1969-12-31 23:59:59.9995') AS v, CAST(date_trunc('YEAR', TIMESTAMP'1969-12-31 23:59:59.9995') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-01-01T00:00:00",
+     "1969-01-01 00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('YEAR', TIMESTAMP'1969-12-31 23:59:59.999999') AS v, CAST(date_trunc('YEAR', TIMESTAMP'1969-12-31 23:59:59.999999') AS STRING) AS s",
+   "value": [
+    [
+     "timestamp:1969-01-01T00:00:00",
+     "1969-01-01 00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('MS', TIMESTAMP'2024-01-02 03:04:05.123456') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('millisecond', TIMESTAMP_NTZ'2024-01-02 03:04:05.123456') AS v, typeof(date_trunc('millisecond', TIMESTAMP_NTZ'2024-01-02 03:04:05.123456')) AS t",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123000",
+     "timestamp"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('millisecond', CAST(NULL AS TIMESTAMP)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MICROSECOND, TIMESTAMP'2024-01-02 03:04:05.900', TIMESTAMP'2024-01-02 03:04:06.100') AS v, typeof(timestampdiff(MICROSECOND, TIMESTAMP'2024-01-02 03:04:05.900', TIMESTAMP'2024-01-02 03:04:06.100')) AS t",
+   "value": [
+    [
+     200000,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MILLISECOND, TIMESTAMP'2024-01-02 03:04:05.900', TIMESTAMP'2024-01-02 03:04:06.100') AS v, typeof(timestampdiff(MILLISECOND, TIMESTAMP'2024-01-02 03:04:05.900', TIMESTAMP'2024-01-02 03:04:06.100')) AS t",
+   "value": [
+    [
+     200,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(SECOND, TIMESTAMP'2024-01-02 03:04:05.900', TIMESTAMP'2024-01-02 03:04:06.100') AS v, typeof(timestampdiff(SECOND, TIMESTAMP'2024-01-02 03:04:05.900', TIMESTAMP'2024-01-02 03:04:06.100')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MINUTE, TIMESTAMP'2024-01-02 03:04:05.900', TIMESTAMP'2024-01-02 03:04:06.100') AS v, typeof(timestampdiff(MINUTE, TIMESTAMP'2024-01-02 03:04:05.900', TIMESTAMP'2024-01-02 03:04:06.100')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(HOUR, TIMESTAMP'2024-01-02 03:04:05.900', TIMESTAMP'2024-01-02 03:04:06.100') AS v, typeof(timestampdiff(HOUR, TIMESTAMP'2024-01-02 03:04:05.900', TIMESTAMP'2024-01-02 03:04:06.100')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(DAY, TIMESTAMP'2024-01-02 03:04:05.900', TIMESTAMP'2024-01-02 03:04:06.100') AS v, typeof(timestampdiff(DAY, TIMESTAMP'2024-01-02 03:04:05.900', TIMESTAMP'2024-01-02 03:04:06.100')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT datediff(MILLISECOND, TIMESTAMP'2024-01-02 03:04:05.900', TIMESTAMP'2024-01-02 03:04:06.100') AS v",
+   "value": [
+    [
+     200
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(TIMESTAMP'2024-01-02 03:04:06.100' - TIMESTAMP'2024-01-02 03:04:05.900' AS STRING) AS v",
+   "value": [
+    [
+     "INTERVAL '0 00:00:00.2' DAY TO SECOND"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MICROSECOND, TIMESTAMP'2024-01-02 03:04:06.100', TIMESTAMP'2024-01-02 03:04:05.900') AS v, typeof(timestampdiff(MICROSECOND, TIMESTAMP'2024-01-02 03:04:06.100', TIMESTAMP'2024-01-02 03:04:05.900')) AS t",
+   "value": [
+    [
+     -200000,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MILLISECOND, TIMESTAMP'2024-01-02 03:04:06.100', TIMESTAMP'2024-01-02 03:04:05.900') AS v, typeof(timestampdiff(MILLISECOND, TIMESTAMP'2024-01-02 03:04:06.100', TIMESTAMP'2024-01-02 03:04:05.900')) AS t",
+   "value": [
+    [
+     -200,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(SECOND, TIMESTAMP'2024-01-02 03:04:06.100', TIMESTAMP'2024-01-02 03:04:05.900') AS v, typeof(timestampdiff(SECOND, TIMESTAMP'2024-01-02 03:04:06.100', TIMESTAMP'2024-01-02 03:04:05.900')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MINUTE, TIMESTAMP'2024-01-02 03:04:06.100', TIMESTAMP'2024-01-02 03:04:05.900') AS v, typeof(timestampdiff(MINUTE, TIMESTAMP'2024-01-02 03:04:06.100', TIMESTAMP'2024-01-02 03:04:05.900')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(HOUR, TIMESTAMP'2024-01-02 03:04:06.100', TIMESTAMP'2024-01-02 03:04:05.900') AS v, typeof(timestampdiff(HOUR, TIMESTAMP'2024-01-02 03:04:06.100', TIMESTAMP'2024-01-02 03:04:05.900')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(DAY, TIMESTAMP'2024-01-02 03:04:06.100', TIMESTAMP'2024-01-02 03:04:05.900') AS v, typeof(timestampdiff(DAY, TIMESTAMP'2024-01-02 03:04:06.100', TIMESTAMP'2024-01-02 03:04:05.900')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT datediff(MILLISECOND, TIMESTAMP'2024-01-02 03:04:06.100', TIMESTAMP'2024-01-02 03:04:05.900') AS v",
+   "value": [
+    [
+     -200
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(TIMESTAMP'2024-01-02 03:04:05.900' - TIMESTAMP'2024-01-02 03:04:06.100' AS STRING) AS v",
+   "value": [
+    [
+     "INTERVAL '-0 00:00:00.2' DAY TO SECOND"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MICROSECOND, TIMESTAMP'2024-01-02 03:04:05.000999', TIMESTAMP'2024-01-02 03:04:05.001001') AS v, typeof(timestampdiff(MICROSECOND, TIMESTAMP'2024-01-02 03:04:05.000999', TIMESTAMP'2024-01-02 03:04:05.001001')) AS t",
+   "value": [
+    [
+     2,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MILLISECOND, TIMESTAMP'2024-01-02 03:04:05.000999', TIMESTAMP'2024-01-02 03:04:05.001001') AS v, typeof(timestampdiff(MILLISECOND, TIMESTAMP'2024-01-02 03:04:05.000999', TIMESTAMP'2024-01-02 03:04:05.001001')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(SECOND, TIMESTAMP'2024-01-02 03:04:05.000999', TIMESTAMP'2024-01-02 03:04:05.001001') AS v, typeof(timestampdiff(SECOND, TIMESTAMP'2024-01-02 03:04:05.000999', TIMESTAMP'2024-01-02 03:04:05.001001')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MINUTE, TIMESTAMP'2024-01-02 03:04:05.000999', TIMESTAMP'2024-01-02 03:04:05.001001') AS v, typeof(timestampdiff(MINUTE, TIMESTAMP'2024-01-02 03:04:05.000999', TIMESTAMP'2024-01-02 03:04:05.001001')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(HOUR, TIMESTAMP'2024-01-02 03:04:05.000999', TIMESTAMP'2024-01-02 03:04:05.001001') AS v, typeof(timestampdiff(HOUR, TIMESTAMP'2024-01-02 03:04:05.000999', TIMESTAMP'2024-01-02 03:04:05.001001')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(DAY, TIMESTAMP'2024-01-02 03:04:05.000999', TIMESTAMP'2024-01-02 03:04:05.001001') AS v, typeof(timestampdiff(DAY, TIMESTAMP'2024-01-02 03:04:05.000999', TIMESTAMP'2024-01-02 03:04:05.001001')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT datediff(MILLISECOND, TIMESTAMP'2024-01-02 03:04:05.000999', TIMESTAMP'2024-01-02 03:04:05.001001') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(TIMESTAMP'2024-01-02 03:04:05.001001' - TIMESTAMP'2024-01-02 03:04:05.000999' AS STRING) AS v",
+   "value": [
+    [
+     "INTERVAL '0 00:00:00.000002' DAY TO SECOND"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MICROSECOND, TIMESTAMP'1969-12-31 23:59:59.9995', TIMESTAMP'1970-01-01 00:00:00.0005') AS v, typeof(timestampdiff(MICROSECOND, TIMESTAMP'1969-12-31 23:59:59.9995', TIMESTAMP'1970-01-01 00:00:00.0005')) AS t",
+   "value": [
+    [
+     1000,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MILLISECOND, TIMESTAMP'1969-12-31 23:59:59.9995', TIMESTAMP'1970-01-01 00:00:00.0005') AS v, typeof(timestampdiff(MILLISECOND, TIMESTAMP'1969-12-31 23:59:59.9995', TIMESTAMP'1970-01-01 00:00:00.0005')) AS t",
+   "value": [
+    [
+     1,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(SECOND, TIMESTAMP'1969-12-31 23:59:59.9995', TIMESTAMP'1970-01-01 00:00:00.0005') AS v, typeof(timestampdiff(SECOND, TIMESTAMP'1969-12-31 23:59:59.9995', TIMESTAMP'1970-01-01 00:00:00.0005')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MINUTE, TIMESTAMP'1969-12-31 23:59:59.9995', TIMESTAMP'1970-01-01 00:00:00.0005') AS v, typeof(timestampdiff(MINUTE, TIMESTAMP'1969-12-31 23:59:59.9995', TIMESTAMP'1970-01-01 00:00:00.0005')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(HOUR, TIMESTAMP'1969-12-31 23:59:59.9995', TIMESTAMP'1970-01-01 00:00:00.0005') AS v, typeof(timestampdiff(HOUR, TIMESTAMP'1969-12-31 23:59:59.9995', TIMESTAMP'1970-01-01 00:00:00.0005')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(DAY, TIMESTAMP'1969-12-31 23:59:59.9995', TIMESTAMP'1970-01-01 00:00:00.0005') AS v, typeof(timestampdiff(DAY, TIMESTAMP'1969-12-31 23:59:59.9995', TIMESTAMP'1970-01-01 00:00:00.0005')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT datediff(MILLISECOND, TIMESTAMP'1969-12-31 23:59:59.9995', TIMESTAMP'1970-01-01 00:00:00.0005') AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(TIMESTAMP'1970-01-01 00:00:00.0005' - TIMESTAMP'1969-12-31 23:59:59.9995' AS STRING) AS v",
+   "value": [
+    [
+     "INTERVAL '0 00:00:00.001' DAY TO SECOND"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MICROSECOND, TIMESTAMP'2024-01-02 03:04:59.999', TIMESTAMP'2024-01-02 03:05:00.001') AS v, typeof(timestampdiff(MICROSECOND, TIMESTAMP'2024-01-02 03:04:59.999', TIMESTAMP'2024-01-02 03:05:00.001')) AS t",
+   "value": [
+    [
+     2000,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MILLISECOND, TIMESTAMP'2024-01-02 03:04:59.999', TIMESTAMP'2024-01-02 03:05:00.001') AS v, typeof(timestampdiff(MILLISECOND, TIMESTAMP'2024-01-02 03:04:59.999', TIMESTAMP'2024-01-02 03:05:00.001')) AS t",
+   "value": [
+    [
+     2,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(SECOND, TIMESTAMP'2024-01-02 03:04:59.999', TIMESTAMP'2024-01-02 03:05:00.001') AS v, typeof(timestampdiff(SECOND, TIMESTAMP'2024-01-02 03:04:59.999', TIMESTAMP'2024-01-02 03:05:00.001')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MINUTE, TIMESTAMP'2024-01-02 03:04:59.999', TIMESTAMP'2024-01-02 03:05:00.001') AS v, typeof(timestampdiff(MINUTE, TIMESTAMP'2024-01-02 03:04:59.999', TIMESTAMP'2024-01-02 03:05:00.001')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(HOUR, TIMESTAMP'2024-01-02 03:04:59.999', TIMESTAMP'2024-01-02 03:05:00.001') AS v, typeof(timestampdiff(HOUR, TIMESTAMP'2024-01-02 03:04:59.999', TIMESTAMP'2024-01-02 03:05:00.001')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(DAY, TIMESTAMP'2024-01-02 03:04:59.999', TIMESTAMP'2024-01-02 03:05:00.001') AS v, typeof(timestampdiff(DAY, TIMESTAMP'2024-01-02 03:04:59.999', TIMESTAMP'2024-01-02 03:05:00.001')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT datediff(MILLISECOND, TIMESTAMP'2024-01-02 03:04:59.999', TIMESTAMP'2024-01-02 03:05:00.001') AS v",
+   "value": [
+    [
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(TIMESTAMP'2024-01-02 03:05:00.001' - TIMESTAMP'2024-01-02 03:04:59.999' AS STRING) AS v",
+   "value": [
+    [
+     "INTERVAL '0 00:00:00.002' DAY TO SECOND"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MICROSECOND, TIMESTAMP'2024-01-02 23:59:59.999', TIMESTAMP'2024-01-03 00:00:00') AS v, typeof(timestampdiff(MICROSECOND, TIMESTAMP'2024-01-02 23:59:59.999', TIMESTAMP'2024-01-03 00:00:00')) AS t",
+   "value": [
+    [
+     1000,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MILLISECOND, TIMESTAMP'2024-01-02 23:59:59.999', TIMESTAMP'2024-01-03 00:00:00') AS v, typeof(timestampdiff(MILLISECOND, TIMESTAMP'2024-01-02 23:59:59.999', TIMESTAMP'2024-01-03 00:00:00')) AS t",
+   "value": [
+    [
+     1,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(SECOND, TIMESTAMP'2024-01-02 23:59:59.999', TIMESTAMP'2024-01-03 00:00:00') AS v, typeof(timestampdiff(SECOND, TIMESTAMP'2024-01-02 23:59:59.999', TIMESTAMP'2024-01-03 00:00:00')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(MINUTE, TIMESTAMP'2024-01-02 23:59:59.999', TIMESTAMP'2024-01-03 00:00:00') AS v, typeof(timestampdiff(MINUTE, TIMESTAMP'2024-01-02 23:59:59.999', TIMESTAMP'2024-01-03 00:00:00')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(HOUR, TIMESTAMP'2024-01-02 23:59:59.999', TIMESTAMP'2024-01-03 00:00:00') AS v, typeof(timestampdiff(HOUR, TIMESTAMP'2024-01-02 23:59:59.999', TIMESTAMP'2024-01-03 00:00:00')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampdiff(DAY, TIMESTAMP'2024-01-02 23:59:59.999', TIMESTAMP'2024-01-03 00:00:00') AS v, typeof(timestampdiff(DAY, TIMESTAMP'2024-01-02 23:59:59.999', TIMESTAMP'2024-01-03 00:00:00')) AS t",
+   "value": [
+    [
+     0,
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT datediff(MILLISECOND, TIMESTAMP'2024-01-02 23:59:59.999', TIMESTAMP'2024-01-03 00:00:00') AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(TIMESTAMP'2024-01-03 00:00:00' - TIMESTAMP'2024-01-02 23:59:59.999' AS STRING) AS v",
+   "value": [
+    [
+     "INTERVAL '0 00:00:00.001' DAY TO SECOND"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampadd(MICROSECOND, 1, TIMESTAMP'2024-01-02 03:04:05.999999') AS v, typeof(timestampadd(MICROSECOND, 1, TIMESTAMP'2024-01-02 03:04:05.999999')) AS t",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:06",
+     "timestamp"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT dateadd(MICROSECOND, 1, TIMESTAMP'1969-12-31 23:59:59.9995') AS v",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:59.999501"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampadd(MICROSECOND, -1, TIMESTAMP'2024-01-02 03:04:05.999999') AS v, typeof(timestampadd(MICROSECOND, -1, TIMESTAMP'2024-01-02 03:04:05.999999')) AS t",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.999998",
+     "timestamp"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT dateadd(MICROSECOND, -1, TIMESTAMP'1969-12-31 23:59:59.9995') AS v",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:59.999499"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampadd(MILLISECOND, 1, TIMESTAMP'2024-01-02 03:04:05.999999') AS v, typeof(timestampadd(MILLISECOND, 1, TIMESTAMP'2024-01-02 03:04:05.999999')) AS t",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:06.000999",
+     "timestamp"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT dateadd(MILLISECOND, 1, TIMESTAMP'1969-12-31 23:59:59.9995') AS v",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:00:00.000500"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampadd(MILLISECOND, -1500, TIMESTAMP'2024-01-02 03:04:05.999999') AS v, typeof(timestampadd(MILLISECOND, -1500, TIMESTAMP'2024-01-02 03:04:05.999999')) AS t",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:04.499999",
+     "timestamp"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT dateadd(MILLISECOND, -1500, TIMESTAMP'1969-12-31 23:59:59.9995') AS v",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:58.499500"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampadd(SECOND, 1, TIMESTAMP'2024-01-02 03:04:05.999999') AS v, typeof(timestampadd(SECOND, 1, TIMESTAMP'2024-01-02 03:04:05.999999')) AS t",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:06.999999",
+     "timestamp"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT dateadd(SECOND, 1, TIMESTAMP'1969-12-31 23:59:59.9995') AS v",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:00:00.999500"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampadd(MICROSECOND, 86400000001, TIMESTAMP'2024-01-02 03:04:05.999999') AS v, typeof(timestampadd(MICROSECOND, 86400000001, TIMESTAMP'2024-01-02 03:04:05.999999')) AS t",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:12:26.654080",
+     "timestamp"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT dateadd(MICROSECOND, 86400000001, TIMESTAMP'1969-12-31 23:59:59.9995') AS v",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:08:20.653581"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampadd(MILLISECOND, 1, DATE'2024-01-02') AS v, typeof(timestampadd(MILLISECOND, 1, DATE'2024-01-02')) AS t",
+   "value": [
+    [
+     "timestamp:2024-01-02T00:00:00.001000",
+     "timestamp"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.999999' + INTERVAL 1 MILLISECOND AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:06.000999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.999999' + INTERVAL 1 MICROSECOND AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:06"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.999999' + INTERVAL '0.0015' SECOND AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:06.001499"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.999999' + INTERVAL '0.000001' SECOND AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:06"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.999999' + INTERVAL -1 MICROSECOND AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.999998"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.999999' + INTERVAL '1.5' SECOND AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:07.499999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT second(TIMESTAMP'2024-01-02 03:04:05.123456') AS a, extract(SECOND FROM TIMESTAMP'2024-01-02 03:04:05.123456') AS b, typeof(extract(SECOND FROM TIMESTAMP'2024-01-02 03:04:05.123456')) AS t",
+   "value": [
+    [
+     5,
+     "decimal:5.123456",
+     "decimal(8,6)"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_part('MILLISECONDS', TIMESTAMP'2024-01-02 03:04:05.123456') AS a, date_part('MICROSECONDS', TIMESTAMP'2024-01-02 03:04:05.123456') AS b, typeof(date_part('MILLISECONDS', TIMESTAMP'2024-01-02 03:04:05.123456')) AS t, typeof(date_part('MICROSECONDS', TIMESTAMP'2024-01-02 03:04:05.123456')) AS u",
+   "error": "[INVALID_EXTRACT_FIELD] Cannot extract `MILLISECONDS` from \"TIMESTAMP '2024-01-02 03:04:05.123456'\".; line 1 pos 7"
+  },
+  {
+   "sql": "SELECT unix_millis(TIMESTAMP'2024-01-02 03:04:05.123456') AS a, unix_micros(TIMESTAMP'2024-01-02 03:04:05.123456') AS b, unix_seconds(TIMESTAMP'2024-01-02 03:04:05.123456') AS c",
+   "value": [
+    [
+     1704164645123,
+     1704164645123456,
+     1704164645
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(TIMESTAMP'2024-01-02 03:04:05.123456' AS DOUBLE) AS a, CAST(TIMESTAMP'2024-01-02 03:04:05.123456' AS BIGINT) AS b, CAST(TIMESTAMP'2024-01-02 03:04:05.123456' AS INT) AS c",
+   "value": [
+    [
+     "float:1704164645.12",
+     1704164645,
+     1704164645
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(TIMESTAMP'2024-01-02 03:04:05.123456' AS DATE) AS a, unix_timestamp(TIMESTAMP'2024-01-02 03:04:05.123456') AS b",
+   "value": [
+    [
+     "date:2024-01-02",
+     1704164645
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'2024-01-02 03:04:05.123456', 'S') AS v",
+   "value": [
+    [
+     "1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'2024-01-02 03:04:05.123456', 'SS') AS v",
+   "value": [
+    [
+     "12"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'2024-01-02 03:04:05.123456', 'SSS') AS v",
+   "value": [
+    [
+     "123"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'2024-01-02 03:04:05.123456', 'SSSSSS') AS v",
+   "value": [
+    [
+     "123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'2024-01-02 03:04:05.123456', 'SSSSSSSSS') AS v",
+   "value": [
+    [
+     "123456000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'2024-01-02 03:04:05.123456', 'yyyy-MM-dd HH:mm:ss.SSS') AS v",
+   "value": [
+    [
+     "2024-01-02 03:04:05.123"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT second(TIMESTAMP'1969-12-31 23:59:59.9995') AS a, extract(SECOND FROM TIMESTAMP'1969-12-31 23:59:59.9995') AS b, typeof(extract(SECOND FROM TIMESTAMP'1969-12-31 23:59:59.9995')) AS t",
+   "value": [
+    [
+     59,
+     "decimal:59.999500",
+     "decimal(8,6)"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_part('MILLISECONDS', TIMESTAMP'1969-12-31 23:59:59.9995') AS a, date_part('MICROSECONDS', TIMESTAMP'1969-12-31 23:59:59.9995') AS b, typeof(date_part('MILLISECONDS', TIMESTAMP'1969-12-31 23:59:59.9995')) AS t, typeof(date_part('MICROSECONDS', TIMESTAMP'1969-12-31 23:59:59.9995')) AS u",
+   "error": "[INVALID_EXTRACT_FIELD] Cannot extract `MILLISECONDS` from \"TIMESTAMP '1969-12-31 23:59:59.9995'\".; line 1 pos 7"
+  },
+  {
+   "sql": "SELECT unix_millis(TIMESTAMP'1969-12-31 23:59:59.9995') AS a, unix_micros(TIMESTAMP'1969-12-31 23:59:59.9995') AS b, unix_seconds(TIMESTAMP'1969-12-31 23:59:59.9995') AS c",
+   "value": [
+    [
+     -1,
+     -500,
+     -1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(TIMESTAMP'1969-12-31 23:59:59.9995' AS DOUBLE) AS a, CAST(TIMESTAMP'1969-12-31 23:59:59.9995' AS BIGINT) AS b, CAST(TIMESTAMP'1969-12-31 23:59:59.9995' AS INT) AS c",
+   "value": [
+    [
+     "float:-0.0005",
+     -1,
+     -1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(TIMESTAMP'1969-12-31 23:59:59.9995' AS DATE) AS a, unix_timestamp(TIMESTAMP'1969-12-31 23:59:59.9995') AS b",
+   "value": [
+    [
+     "date:1969-12-31",
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1969-12-31 23:59:59.9995', 'S') AS v",
+   "value": [
+    [
+     "9"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1969-12-31 23:59:59.9995', 'SS') AS v",
+   "value": [
+    [
+     "99"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1969-12-31 23:59:59.9995', 'SSS') AS v",
+   "value": [
+    [
+     "999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1969-12-31 23:59:59.9995', 'SSSSSS') AS v",
+   "value": [
+    [
+     "999500"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1969-12-31 23:59:59.9995', 'SSSSSSSSS') AS v",
+   "value": [
+    [
+     "999500000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1969-12-31 23:59:59.9995', 'yyyy-MM-dd HH:mm:ss.SSS') AS v",
+   "value": [
+    [
+     "1969-12-31 23:59:59.999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT second(TIMESTAMP'1969-12-31 23:59:59.000001') AS a, extract(SECOND FROM TIMESTAMP'1969-12-31 23:59:59.000001') AS b, typeof(extract(SECOND FROM TIMESTAMP'1969-12-31 23:59:59.000001')) AS t",
+   "value": [
+    [
+     59,
+     "decimal:59.000001",
+     "decimal(8,6)"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_part('MILLISECONDS', TIMESTAMP'1969-12-31 23:59:59.000001') AS a, date_part('MICROSECONDS', TIMESTAMP'1969-12-31 23:59:59.000001') AS b, typeof(date_part('MILLISECONDS', TIMESTAMP'1969-12-31 23:59:59.000001')) AS t, typeof(date_part('MICROSECONDS', TIMESTAMP'1969-12-31 23:59:59.000001')) AS u",
+   "error": "[INVALID_EXTRACT_FIELD] Cannot extract `MILLISECONDS` from \"TIMESTAMP '1969-12-31 23:59:59.000001'\".; line 1 pos 7"
+  },
+  {
+   "sql": "SELECT unix_millis(TIMESTAMP'1969-12-31 23:59:59.000001') AS a, unix_micros(TIMESTAMP'1969-12-31 23:59:59.000001') AS b, unix_seconds(TIMESTAMP'1969-12-31 23:59:59.000001') AS c",
+   "value": [
+    [
+     -1000,
+     -999999,
+     -1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(TIMESTAMP'1969-12-31 23:59:59.000001' AS DOUBLE) AS a, CAST(TIMESTAMP'1969-12-31 23:59:59.000001' AS BIGINT) AS b, CAST(TIMESTAMP'1969-12-31 23:59:59.000001' AS INT) AS c",
+   "value": [
+    [
+     "float:-0.999999",
+     -1,
+     -1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(TIMESTAMP'1969-12-31 23:59:59.000001' AS DATE) AS a, unix_timestamp(TIMESTAMP'1969-12-31 23:59:59.000001') AS b",
+   "value": [
+    [
+     "date:1969-12-31",
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1969-12-31 23:59:59.000001', 'S') AS v",
+   "value": [
+    [
+     "0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1969-12-31 23:59:59.000001', 'SS') AS v",
+   "value": [
+    [
+     "00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1969-12-31 23:59:59.000001', 'SSS') AS v",
+   "value": [
+    [
+     "000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1969-12-31 23:59:59.000001', 'SSSSSS') AS v",
+   "value": [
+    [
+     "000001"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1969-12-31 23:59:59.000001', 'SSSSSSSSS') AS v",
+   "value": [
+    [
+     "000001000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1969-12-31 23:59:59.000001', 'yyyy-MM-dd HH:mm:ss.SSS') AS v",
+   "value": [
+    [
+     "1969-12-31 23:59:59.000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT second(TIMESTAMP'1970-01-01 00:00:00.5') AS a, extract(SECOND FROM TIMESTAMP'1970-01-01 00:00:00.5') AS b, typeof(extract(SECOND FROM TIMESTAMP'1970-01-01 00:00:00.5')) AS t",
+   "value": [
+    [
+     0,
+     "decimal:0.500000",
+     "decimal(8,6)"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_part('MILLISECONDS', TIMESTAMP'1970-01-01 00:00:00.5') AS a, date_part('MICROSECONDS', TIMESTAMP'1970-01-01 00:00:00.5') AS b, typeof(date_part('MILLISECONDS', TIMESTAMP'1970-01-01 00:00:00.5')) AS t, typeof(date_part('MICROSECONDS', TIMESTAMP'1970-01-01 00:00:00.5')) AS u",
+   "error": "[INVALID_EXTRACT_FIELD] Cannot extract `MILLISECONDS` from \"TIMESTAMP '1970-01-01 00:00:00.5'\".; line 1 pos 7"
+  },
+  {
+   "sql": "SELECT unix_millis(TIMESTAMP'1970-01-01 00:00:00.5') AS a, unix_micros(TIMESTAMP'1970-01-01 00:00:00.5') AS b, unix_seconds(TIMESTAMP'1970-01-01 00:00:00.5') AS c",
+   "value": [
+    [
+     500,
+     500000,
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(TIMESTAMP'1970-01-01 00:00:00.5' AS DOUBLE) AS a, CAST(TIMESTAMP'1970-01-01 00:00:00.5' AS BIGINT) AS b, CAST(TIMESTAMP'1970-01-01 00:00:00.5' AS INT) AS c",
+   "value": [
+    [
+     "float:0.5",
+     0,
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(TIMESTAMP'1970-01-01 00:00:00.5' AS DATE) AS a, unix_timestamp(TIMESTAMP'1970-01-01 00:00:00.5') AS b",
+   "value": [
+    [
+     "date:1970-01-01",
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1970-01-01 00:00:00.5', 'S') AS v",
+   "value": [
+    [
+     "5"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1970-01-01 00:00:00.5', 'SS') AS v",
+   "value": [
+    [
+     "50"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1970-01-01 00:00:00.5', 'SSS') AS v",
+   "value": [
+    [
+     "500"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1970-01-01 00:00:00.5', 'SSSSSS') AS v",
+   "value": [
+    [
+     "500000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1970-01-01 00:00:00.5', 'SSSSSSSSS') AS v",
+   "value": [
+    [
+     "500000000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'1970-01-01 00:00:00.5', 'yyyy-MM-dd HH:mm:ss.SSS') AS v",
+   "value": [
+    [
+     "1970-01-01 00:00:00.500"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestamp_seconds(1.5) AS v",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:00:01.500000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(1.5 AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:00:01.500000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST(1.5 AS DOUBLE) AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:00:01.500000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestamp_seconds(-1.5) AS v",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:58.500000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(-1.5 AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:58.500000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST(-1.5 AS DOUBLE) AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:58.500000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestamp_seconds(1.0000015) AS v",
+   "error": "Rounding necessary"
+  },
+  {
+   "sql": "SELECT CAST(1.0000015 AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:00:01.000001"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST(1.0000015 AS DOUBLE) AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:00:01.000001"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestamp_seconds(1.23456789) AS v",
+   "error": "Rounding necessary"
+  },
+  {
+   "sql": "SELECT CAST(1.23456789 AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:00:01.234567"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST(1.23456789 AS DOUBLE) AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:00:01.234567"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestamp_seconds(-0.0000015) AS v",
+   "error": "Rounding necessary"
+  },
+  {
+   "sql": "SELECT CAST(-0.0000015 AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:59.999999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST(-0.0000015 AS DOUBLE) AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:59.999999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestamp_seconds(0.0000009) AS v",
+   "error": "Rounding necessary"
+  },
+  {
+   "sql": "SELECT CAST(0.0000009 AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST(0.0000009 AS DOUBLE) AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestamp_seconds(1e-7) AS v",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(1e-7 AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST(1e-7 AS DOUBLE) AS TIMESTAMP) AS v",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestamp_millis(1) AS a, timestamp_micros(1) AS b",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:00:00.001000",
+     "timestamp:1970-01-01T00:00:00.000001"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestamp_millis(-1) AS a, timestamp_micros(-1) AS b",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:59.999000",
+     "timestamp:1969-12-31T23:59:59.999999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestamp_millis(1500) AS a, timestamp_micros(1500) AS b",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:00:01.500000",
+     "timestamp:1970-01-01T00:00:00.001500"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestamp_millis(-1500) AS a, timestamp_micros(-1500) AS b",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:58.500000",
+     "timestamp:1969-12-31T23:59:59.998500"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT make_timestamp(2024, 1, 2, 3, 4, 5.123456) AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT make_timestamp(2024, 1, 2, 3, 4, 5.1234567) AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123457"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT make_timestamp(2024, 1, 2, 3, 4, 59.999999) AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:59.999999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT make_timestamp(2024, 1, 2, 3, 4, 59.9999999) AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:05:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT make_timestamp(2024, 1, 2, 3, 4, 60.000000) AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:05:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT make_timestamp(2024, 1, 2, 3, 4, 0.000001) AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:00.000001"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(t AS STRING) AS s FROM VALUES (TIMESTAMP'2024-01-02 03:04:05.1'), (TIMESTAMP'2024-01-02 03:04:05'), (TIMESTAMP'2024-01-02 03:04:05.000100') AS x(t)",
+   "value": [
+    [
+     "2024-01-02 03:04:05"
+    ],
+    [
+     "2024-01-02 03:04:05.0001"
+    ],
+    [
+     "2024-01-02 03:04:05.1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT concat('t=', TIMESTAMP'2024-01-02 03:04:05.120') AS v",
+   "value": [
+    [
+     "t=2024-01-02 03:04:05.12"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(c AS TIMESTAMP) AS v FROM VALUES ('2024-01-02 03:04:05.1234567'), ('2024-01-02 03:04:05.9999999'), ('2024-01-02 03:04:05.123456789') AS x(c)",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.123456"
+    ],
+    [
+     "timestamp:2024-01-02T03:04:05.123456"
+    ],
+    [
+     "timestamp:2024-01-02T03:04:05.999999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT TIMESTAMP'2024-01-02 03:04:05.9999999' = TIMESTAMP'2024-01-02 03:04:05.999999' AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.12', 'yyyy-MM-dd HH:mm:ss.SSS') AS a, to_timestamp('2024-01-02 03:04:05.1234567', 'yyyy-MM-dd HH:mm:ss.SSSSSSS') AS b, to_timestamp('2024-01-02 03:04:05.12345678', 'yyyy-MM-dd HH:mm:ss.SSSSSSS') AS c",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.120000",
+     "timestamp:2024-01-02T03:04:05.123456",
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('1969-12-31 23:59:59.123456789', 'yyyy-MM-dd HH:mm:ss.SSSSSSSSS') AS a, to_timestamp('Jan 02 2024 03:04:05.1', 'MMM dd yyyy HH:mm:ss.S') AS b, unix_timestamp('2024-01-02 03:04:05.12', 'yyyy-MM-dd HH:mm:ss.SS') AS c",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:59.123456",
+     "timestamp:2024-01-02T03:04:05.100000",
+     1704164645
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.123+01:00', 'yyyy-MM-dd HH:mm:ss.SSSXXX') AS a, to_timestamp('2024-01-02 03:04:05.1234+01:00', 'yyyy-MM-dd HH:mm:ss.SSSXXX') AS b, to_date('2024-01-02 03:04:05.1234', 'yyyy-MM-dd HH:mm:ss.SSS') AS c",
+   "value": [
+    [
+     "timestamp:2024-01-02T02:04:05.123000",
+     null,
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp(c, 'yyyy-MM-dd HH:mm:ss.SSS') AS v FROM VALUES ('2024-01-02 03:04:05.1'), ('2024-01-02 03:04:05.1234'), (NULL) AS x(c)",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05.100000"
+    ],
+    [
+     null
+    ],
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT unix_timestamp('1969-12-31 23:59:59.5', 'yyyy-MM-dd HH:mm:ss.S') AS a, unix_timestamp(TIMESTAMP'1969-12-31 23:59:58.5') AS b",
+   "value": [
+    [
+     0,
+     -1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT extract(SECOND FROM INTERVAL 5 SECOND) AS a, extract(SECOND FROM INTERVAL '65.25' SECOND) AS b, extract(SECOND FROM INTERVAL '-1.5' SECOND) AS c",
+   "value": [
+    [
+     "decimal:5.000000",
+     "decimal:5.250000",
+     "decimal:-1.500000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT extract(SECOND FROM TIMESTAMP'2024-01-02 03:04:06.100' - TIMESTAMP'2024-01-02 03:04:05.900') AS a",
+   "value": [
+    [
+     "decimal:0.200000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_part('ms', TIMESTAMP'2024-01-02 03:04:05.5') AS v",
+   "error": "[INVALID_EXTRACT_FIELD] Cannot extract `ms` from \"TIMESTAMP '2024-01-02 03:04:05.5'\".; line 1 pos 7"
+  },
+  {
+   "sql": "SELECT extract(MICROSECOND FROM TIMESTAMP'2024-01-02 03:04:05.5') AS v",
+   "error": "[INVALID_EXTRACT_FIELD] Cannot extract `MICROSECOND` from \"TIMESTAMP '2024-01-02 03:04:05.5'\".; line 1 pos 7"
+  },
+  {
+   "sql": "SELECT date_part('SECS', TIMESTAMP'2024-01-02 03:04:05.5') AS a, date_part('yearofweek', DATE'2024-01-01') AS b, extract(DOW_ISO FROM DATE'2024-01-07') AS c",
+   "value": [
+    [
+     "decimal:5.500000",
+     2024,
+     7
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('HOUR', DATE'2024-01-02') AS v, typeof(date_trunc('HOUR', DATE'2024-01-02')) AS t",
+   "value": [
+    [
+     "timestamp:2024-01-02T00:00:00",
+     "timestamp"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('ms', TIMESTAMP'2024-01-02 03:04:05.123456') AS a, date_trunc('us', TIMESTAMP'2024-01-02 03:04:05.123456') AS b, date_trunc('MICROSECOND', TIMESTAMP'2024-01-02 03:04:05.123456') AS c",
+   "value": [
+    [
+     null,
+     null,
+     "timestamp:2024-01-02T03:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_trunc('SECOND', c) AS v, typeof(date_trunc('SECOND', c)) AS t FROM VALUES (TIMESTAMP_NTZ'2024-01-02 03:04:05.9') AS x(c)",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:05",
+     "timestamp"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampadd(HOUR, 2, TIMESTAMP_NTZ'2024-01-02 00:00:00.5') AS v, typeof(timestampadd(HOUR, 2, TIMESTAMP_NTZ'2024-01-02 00:00:00.5')) AS t",
+   "value": [
+    [
+     "timestamp:2024-01-02T02:00:00.500000",
+     "timestamp_ntz"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampadd(DAY, 1, DATE'2024-01-02') AS v, typeof(timestampadd(DAY, 1, DATE'2024-01-02')) AS t",
+   "value": [
+    [
+     "timestamp:2024-01-03T00:00:00",
+     "timestamp"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampadd(MILLISECOND, c, TIMESTAMP'2024-01-02 03:04:05.999999') AS v FROM VALUES (1), (-1500), (86400001) AS x(c)",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:04.499999"
+    ],
+    [
+     "timestamp:2024-01-02T03:04:06.000999"
+    ],
+    [
+     "timestamp:2024-01-03T03:04:06.000999"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestampadd(SECOND, 1, '2024-01-02 03:04:05.5') AS v, typeof(timestampadd(SECOND, 1, '2024-01-02 03:04:05.5')) AS t",
+   "value": [
+    [
+     "timestamp:2024-01-02T03:04:06.500000",
+     "timestamp"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestamp_seconds(CAST(1.23456789 AS DOUBLE)) AS a, timestamp_seconds(CAST('NaN' AS DOUBLE)) AS b, timestamp_seconds(CAST(-1.5 AS FLOAT)) AS c",
+   "value": [
+    [
+     "timestamp:1970-01-01T00:00:01.234567",
+     null,
+     "timestamp:1969-12-31T23:59:58.500000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT timestamp_seconds(c) AS v FROM VALUES (CAST(1.5 AS DECIMAL(10, 3))), (CAST(-0.000001 AS DECIMAL(10, 6))) AS x(c)",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:59.999999"
+    ],
+    [
+     "timestamp:1970-01-01T00:00:01.500000"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(c AS TIMESTAMP) AS v FROM VALUES (CAST(0.000003 AS DECIMAL(10, 6))), (CAST(-1.0000019 AS DECIMAL(10, 7))) AS x(c)",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:58.999999"
+    ],
+    [
+     "timestamp:1970-01-01T00:00:00.000003"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(c AS TIMESTAMP) AS v FROM VALUES (CAST(3e-6 AS DOUBLE)), (CAST(-1.0000019 AS DOUBLE)) AS x(c)",
+   "value": [
+    [
+     "timestamp:1969-12-31T23:59:58.999999"
+    ],
+    [
+     "timestamp:1970-01-01T00:00:00.000003"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(c AS DOUBLE) AS a, CAST(c AS FLOAT) AS b FROM VALUES (TIMESTAMP'1969-12-31 23:59:58.25'), (TIMESTAMP'2024-01-02 03:04:05.5') AS x(c)",
+   "value": [
+    [
+     "float:-1.75",
+     "float:-1.75"
+    ],
+    [
+     "float:1704164645.5",
+     "float:1704164608"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(c AS DOUBLE) AS v FROM VALUES (' 1.5 '), ('x') AS x(c)",
+   "value": [
+    [
+     "float:1.5"
+    ],
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT unix_seconds(c) AS a, unix_millis(c) AS b FROM VALUES (TIMESTAMP'1969-12-31 23:59:59.000001'), (TIMESTAMP'2024-01-02 03:04:05.9999'), (NULL) AS x(c)",
+   "value": [
+    [
+     -1,
+     -1000
+    ],
+    [
+     1704164645,
+     1704164645999
+    ],
+    [
+     null,
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -2147483647) AS a, substr('hello', -2147483648, 2) AS b",
+   "value": [
+    [
+     "hello",
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT to_timestamp('2024-01-02 03:04:05.1234567+01:00', 'yyyy-MM-dd HH:mm:ss.SSSSSSSXXX') AS v",
+   "value": [
+    [
+     "timestamp:2024-01-02T02:04:05.123456"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(CAST(1.23456789 AS TIMESTAMP) AS STRING) AS a, CAST(CAST(c AS TIMESTAMP) AS STRING) AS b, CAST(CAST(c AS INT) AS STRING) AS d FROM VALUES (1.5) AS x(c)",
+   "value": [
+    [
+     "1970-01-01 00:00:01.234567",
+     "1970-01-01 00:00:01.5",
+     "1"
+    ]
+   ]
+  }
+ ]
+}

@@ -409,7 +409,8 @@ def to_bim(files: dict[str, str], name: str = "") -> tuple[dict[str, Any], list[
         if isinstance(found, dict):
             model.update(found)
         else:  # "model" or "model: x" with no name: not the model object
-            report.append({"object": "model", "kind": "lost", "message": f"not understood, left out ({path})"})
+            report.append({"object": "model", "kind": "lost", "message": f"not understood, left out ({path})",
+                           "file": path})
         for key, value in top.items():
             if isinstance(value, list):
                 model.setdefault(key, []).extend(value)

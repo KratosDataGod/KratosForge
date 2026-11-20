@@ -10,6 +10,7 @@ when the file can't be used, its bytes are still on disk (in place or in a ``.co
 from __future__ import annotations
 
 import json
+import time
 import tomllib
 from pathlib import Path
 
@@ -109,6 +110,19 @@ def test_valid_settings_round_trip(home):
             assert got == (app_settings.DEFAULTS[key] if want is None else want), (key, value, got)
 
 
+def _unlink(path: Path) -> None:
+    """Remove ``path``, waiting out a brief hold: on Windows a virus scanner or the indexer may still have a
+    file the engine just wrote open (WinError 32), as jsonfile.replace waits out for a swap."""
+    for attempt in range(20):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.1)
+
+
 @pytest.mark.parametrize("seed", [3])
 def test_any_policy_file_applies_or_is_named_as_broken(home, seed):
     path = app_settings.policy_path()
@@ -116,7 +130,7 @@ def test_any_policy_file_applies_or_is_named_as_broken(home, seed):
     valid = {"channel": "stable", "show_preview": False, "allowed_tenants": ["contoso.onmicrosoft.com"],
              "telemetry": False, "sql_page_rows": 200}
     for label, raw in mutations(valid, seed, CASES):
-        app_settings.saved_policy_path().unlink(missing_ok=True)
+        _unlink(app_settings.saved_policy_path())
         path.write_bytes(raw)
         policy, reason = app_settings.read_policy()
         assert isinstance(policy, dict), label

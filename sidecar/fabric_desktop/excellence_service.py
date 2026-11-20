@@ -8,7 +8,12 @@ table, for the architecture controls; at most ``MAX_LAKEHOUSE_READS`` per assess
 workspace's Git connection and Git status (the reads the Git tab makes, for the DevOps controls; the
 status only with a permission already granted, never with a new prompt).
 Notebook and pipeline definitions are inspected while the engine has them (excellence.inspect_items):
-the evidence keeps the rules that matched and where, never the code.
+the evidence keeps the rules that matched and where, never the code. Semantic model definitions are
+read as TMSL with the getDefinition call the Semantic model tab already makes (at most
+``MAX_MODELS``) and inspected the same way (excellence.inspect_models): names and counts, never DAX,
+M or the definition text.
+It also uses the Capacity Metrics exports already imported on this PC (the local usage store,
+FEA-202); that is a local read, not a Fabric call.
 A read that fails is reported in ``reads`` and leaves the controls that need it *not evaluated*;
 it never stops the assessment and never counts as a pass. No Fabric job starts and nothing is
 written to Fabric, OneLake or this PC.
@@ -19,16 +24,50 @@ docs/optimize/excellence-assessment.md.
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import json
 from typing import Any, Callable
 
 from .auth import GIT_STATUS_SCOPES
-from .excellence import adapters, assess, catalog, catalog_architecture, catalog_devops, inspect_items, profiles
+from .excellence import (adapters, assess, catalog, catalog_architecture, catalog_capacity, catalog_devops,
+                         inspect_items, inspect_models, profiles)
 from .opportunities_service import _guid
 from .redact import describe
 
 METHODS = {"excellence_assess"}
 MAX_LAKEHOUSE_READS = 50  # lakehouse properties read per assessment; the rest are not evaluated, and reads says so
+MAX_MODELS = 30  # semantic model definitions read per assessment; the rest are not evaluated
+# The demonstration fixture's semantic model ("Sales"), as a parsed model.bim. Made up.
+FIXTURE_MODEL: dict[str, Any] = {"model": {
+    "directLakeBehavior": "Automatic",
+    "expressions": [{"name": "DatabaseQuery", "kind": "m",
+                     "expression": 'let Source = Sql.Database("demo.datawarehouse.fabric.microsoft.com", '
+                                   '"f1f1f1f1-0000-4000-8000-0000000003e2") in Source'}],
+    "tables": [
+        {"name": "Orders", "partitions": [{"name": "Orders", "mode": "directLake", "source": {
+            "type": "entity", "entityName": "orders", "expressionSource": "DatabaseQuery"}}],
+         "columns": [{"name": "order_id", "dataType": "int64", "sourceColumn": "order_id"},
+                     {"name": "customer_sk", "dataType": "int64", "sourceColumn": "customer_sk"},
+                     {"name": "product_code", "dataType": "string", "sourceColumn": "product_code", "isHidden": True},
+                     {"name": "amount", "dataType": "decimal", "sourceColumn": "amount"}],
+         "measures": [{"name": "Revenue", "expression": "SUM(Orders[amount])"}]},
+        {"name": "Customer", "partitions": [{"name": "Customer", "mode": "directLake", "source": {
+            "type": "entity", "entityName": "customers", "expressionSource": "DatabaseQuery"}}],
+         "columns": [{"name": "customer_sk", "dataType": "int64", "sourceColumn": "customer_sk", "isHidden": True},
+                     {"name": "country", "dataType": "string", "sourceColumn": "country"}]},
+        {"name": "Product", "partitions": [{"name": "Product", "mode": "directLake", "source": {
+            "type": "entity", "entityName": "products", "expressionSource": "DatabaseQuery"}}],
+         "columns": [{"name": "product_code", "dataType": "string", "sourceColumn": "product_code"},
+                     {"name": "category", "dataType": "string", "sourceColumn": "category"}]}],
+    "relationships": [
+        {"name": "r1", "fromTable": "Orders", "fromColumn": "customer_sk", "toTable": "Customer",
+         "toColumn": "customer_sk", "crossFilteringBehavior": "bothDirections"},
+        {"name": "r2", "fromTable": "Orders", "fromColumn": "product_code", "toTable": "Product",
+         "toColumn": "product_code"}],
+    "roles": [{"name": "Country managers", "modelPermission": "read",
+               "tablePermissions": [{"name": "Customer", "filterExpression": '[country] = "NL"'}]}],
+}}
 FIXTURE_ROLES = [
     {"role": "Admin", "principal": {"id": "demo-admin-1", "type": "Group", "displayName": "Sales platform admins"}},
     {"role": "Admin", "principal": {"id": "demo-app-1", "type": "ServicePrincipal", "displayName": "orders-sync app"}},
@@ -61,6 +100,32 @@ FIXTURE_GIT_STATUS: dict[str, Any] = {
          "workspaceChange": None, "remoteChange": "Modified", "conflictType": "None"},
     ],
 }
+
+
+def _fixture_usage(workspace: str) -> list[dict[str, Any]]:
+    """Two made-up Capacity Metrics imports for the demonstration: 14 days of item totals on the demo
+    F64 (about 4% used) and 30 hours of operations with one semantic model refreshed 30 times in a day."""
+    def row(n: int, item: str, cu: float, start: str, end: str | None = None, op: str | None = None,
+            status: str | None = None) -> dict[str, Any]:
+        return {"key": f"fixture:cap:{n}", "provider": "metrics_app", "workspace": workspace, "item": item,
+                "operation": op, "status": status, "start": start, "end": end,
+                "cu": {"value": cu, "period": {"start": start, "end": end or start}}}
+    period = ("2026-10-18T00:00:00+00:00", "2026-11-01T00:00:00+00:00")
+    items = [row(i, name, cu, *period) for i, (name, cu) in enumerate(
+        [("nb_orders_refresh_finance", 1_620_000.0), ("pl_finance_sales_copy", 930_000.0), ("Sales model", 560_000.0)])]
+    ops = [row(100 + h, "Sales model", 1_200.0, f"2026-10-31T{h % 24:02d}:{(h // 24) * 30:02d}:00+00:00", None,
+               "Dataset On-Demand Refresh", "Success") for h in range(30)]
+    ops += [row(200, "nb_orders_refresh_finance", 40_000.0, "2026-10-31T06:00:00+00:00", "2026-10-31T06:40:00+00:00",
+                "Notebook Run", "Success"),
+            row(201, "nb_orders_refresh_finance", 40_000.0, "2026-11-01T06:00:00+00:00", "2026-11-01T06:40:00+00:00",
+                "Notebook Run", "Success"),
+            row(202, "pl_finance_sales_copy", 2_000.0, "2026-11-01T05:00:00+00:00", "2026-11-01T05:02:00+00:00",
+                "Pipeline Run", "Failure")]
+    label = " (demonstration fixture).csv"
+    return [{"id": "u-fixturecap00001", "provider": "metrics_app", "layout": "items", "file_name": "compute-items" + label,
+             "period": {"start": period[0], "end": period[1]}, "rows": items},
+            {"id": "u-fixturecap00002", "provider": "metrics_app", "layout": "operations",
+             "file_name": "timepoint-operations" + label, "rows": ops}]
 
 
 def _now() -> str:
@@ -97,6 +162,40 @@ def _lakehouses(fabric: Any, wid: str, items: list[dict[str, Any]] | None,
         notes.append(f"{left} past the first {MAX_LAKEHOUSE_READS} weren't read.")
     reads.append({"read": "lakehouse properties", "ok": not notes, "problem": " ".join(notes) or None})
     return got
+
+
+def _model_bim(got: dict[str, Any]) -> dict[str, Any]:
+    """The parsed model.bim of a getDefinition (TMSL) result, as model_ossie_service reads it."""
+    part = next((p for p in (got.get("definition") or {}).get("parts", []) if p.get("path") == "model.bim"), None)
+    if part is None:
+        raise ValueError("Fabric didn't return the model's model.bim")
+    return json.loads(base64.b64decode(part.get("payload") or "").decode("utf-8-sig"))
+
+
+def _models(opt: dict[str, Any], read: Any) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    """Each semantic model in the engine's inventory, inspected from ``read(item_id)`` (a parsed
+    model.bim), at most MAX_MODELS; and the ``reads`` entry (None when there's no model)."""
+    found = [w for w in opt.get("workloads") or [] if w.get("type") == "SemanticModel"]
+    out, failed = [], 0
+    for i, w in enumerate(found):
+        row = {"item_id": w["item_id"], "name": w.get("name"), "workspace_id": w.get("workspace_id")}
+        if i >= MAX_MODELS:
+            row["inspected"] = {"read": False, "problem": f"Not read: only the first {MAX_MODELS} semantic models "
+                                                          "are read in one assessment."}
+        else:
+            try:
+                row["inspected"] = inspect_models.inspect(read(str(w["item_id"])))
+            except Exception as exc:  # noqa: BLE001 - its controls are then not evaluated
+                failed += 1
+                row["inspected"] = {"read": False, "problem": f"Couldn't be read ({describe(exc)})."}
+        out.append(row)
+    if not found:
+        return out, None
+    skipped = max(0, len(found) - MAX_MODELS)
+    problems = ([f"{failed} couldn't be read."] if failed else []) + (
+        [f"{skipped} over the limit of {MAX_MODELS} weren't read."] if skipped else [])
+    return out, {"read": "semantic model definitions", "ok": not problems,
+                 "problem": " ".join(problems) or None, "count": min(len(found), MAX_MODELS)}
 
 
 def _git(fabric: Any, status_client: Callable[[], Any], wid: str,
@@ -158,9 +257,11 @@ class ExcellenceMixin:
             capacities: list[dict[str, Any]] | None = [{"id": ws["capacityId"], "displayName": "Demo F64",
                                                         "sku": "F64", "state": "Active", "region": "West Europe"}]
             at = str(opt.get("assessed_at") or at)
+            imports: list[dict[str, Any]] | None = _fixture_usage(str(ws["displayName"]))
             lakehouses = dict(FIXTURE_LAKEHOUSES)
             git_conn: dict[str, Any] | None = FIXTURE_GIT_CONNECTION
             git_status: dict[str, Any] | None = FIXTURE_GIT_STATUS
+            models, _ = _models(opt, lambda _item: FIXTURE_MODEL)
         else:
             wid = _guid(workspace_id, "workspace")
             fabric = self.fabric  # type: ignore[attr-defined]
@@ -181,6 +282,10 @@ class ExcellenceMixin:
                        "workloads": [], "opportunities": [], "scope": {}}
             reads.append({"read": "items, definitions and job history", "ok": not opt["workspaces"][0].get("problem"),
                           "problem": opt["workspaces"][0].get("problem"), "budget": opt["scope"].get("budget")})
+            models, models_read = _models(opt, lambda item: _model_bim(
+                fabric.get_item_definition(wid, _guid(item, "semantic model"), "TMSL")))
+            if models_read:
+                reads.append(models_read)
             try:
                 assignments = fabric.list_role_assignments(wid)
                 reads.append({"read": "role assignments", "ok": True, "problem": None})
@@ -197,6 +302,12 @@ class ExcellenceMixin:
                 reads.append({"read": "capacities", "ok": False, "problem": f"Couldn't be read ({describe(exc)})."})
             lakehouses = _lakehouses(fabric, wid, _items(opt), reads)
             git_conn, git_status = _git(fabric, self._git_status_client, wid, reads)
+            try:
+                imports = self._usage.all()  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - the capacity usage controls are then not evaluated
+                imports = None
+                reads.append({"read": "imported Capacity Metrics exports", "ok": False,
+                              "problem": f"The imports on this PC couldn't be read ({describe(exc)})."})
         cap_id = str(ws.get("capacityId") or "").lower()
         records = (adapters.workspace(ws, _items(opt), collected_at=at, info_read=info_read)
                    + adapters.roles(ws, assignments, collected_at=at)
@@ -204,7 +315,15 @@ class ExcellenceMixin:
                    + adapters.optimization(opt, collected_at=at)
                    + adapters.inspection(opt, collected_at=at)
                    + catalog_architecture.evidence(ws, _items(opt), opt, lakehouses, collected_at=at)
+                   + adapters.models(models, collected_at=at)
                    + catalog_devops.evidence(ws, git_conn, git_status, collected_at=at))
+        cap_name = next((c.get("displayName") for c in capacities or [] if str(c.get("id") or "").lower() == cap_id), None)
+        usage = catalog_capacity.usage(cap_id, cap_name, ws.get("displayName"), imports, collected_at=at)
+        records += usage
+        if cap_id and imports is not None:
+            reads.append({"read": "imported Capacity Metrics exports", "ok": True, "problem": None if usage else (
+                "No Capacity Metrics export imported on this PC has this workspace's use, so the capacity usage "
+                "controls aren't evaluated. Import one in Optimize > Cost and savings.")})
         scope = {"workspaces": [{"id": str(ws["id"]), "name": ws.get("displayName")}],
                  "capacities": [cap_id] if cap_id else []}
         result = assess.assess(records, catalog.registry(), scope=scope, assessed_at=at, profile=prof, fixture=demo)

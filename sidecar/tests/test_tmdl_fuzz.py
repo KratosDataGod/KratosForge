@@ -114,6 +114,37 @@ class _Gen:
             t["isHidden"] = True
         return t
 
+    def translation(self, name: str) -> dict:
+        t = {"name": name, **({"translatedCaption": self.value()} if self.maybe(.7) else {})}
+        return t | {k: self.value() for k in ("translatedDescription", "translatedDisplayFolder") if self.maybe(.3)}
+
+    def cultures(self, tables: list[dict]) -> list[dict]:
+        """Cultures with linguistic metadata (JSON or text) and translations of the model's own objects."""
+        r = self.r
+        out, names = [], set()
+        for _ in range(r.randint(1, 2)):
+            c: dict = {"name": self.name(names)}
+            if self.maybe(.5):
+                c["linguisticMetadata"] = r.choice([
+                    {"content": {"Version": "1.0.0", self.value(): self.value(), "n": [1, 2.5, True, None, {self.value(): -1}]},
+                     "contentType": "json"},
+                    {"content": self.value() or "x", "contentType": "xml"}])
+            if self.maybe(.7):
+                model: dict = self.translation("Model")
+                translated = []
+                for t in tables[:r.randint(0, len(tables))]:
+                    entry = self.translation(t["name"])
+                    for key in ("columns", "measures"):
+                        items = [self.translation(i["name"]) for i in t.get(key) or [] if self.maybe(.5)]
+                        if items:
+                            entry[key] = items
+                    translated.append(entry)
+                if translated:
+                    model["tables"] = translated
+                c["translations"] = {"model": model}
+            out.append(c)
+        return out
+
     def model(self) -> dict:
         r = self.r
         taken: set[str] = set()
@@ -152,6 +183,8 @@ class _Gen:
             model["description"] = self.value()
         if self.maybe(.5):
             model["culture"] = self.value()
+        if self.maybe(.4):
+            model["cultures"] = self.cultures(tables)
         return {"name": self.text(1, 3, 0), "compatibilityLevel": 1604, "model": model}
 
 

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from fabric_desktop import onelake
-from fabric_desktop.onelake import DFS_HOST, TableRef, lakehouse_root, table_uri
+from fabric_desktop.onelake import DFS_HOST, TableRef, lakehouse_root, table_uri, workspace_root
 
 PACKAGE = Path(__file__).resolve().parents[1] / "fabric_desktop"
 
@@ -87,3 +87,9 @@ def test_side_by_side_puts_a_table_without_a_schema_in_dbo(monkeypatch):
     assert tables._uri("orders") == f"abfss://ws@{DFS_HOST}/lh/Tables/dbo/orders"  # was Tables//orders
     assert tables._uri("sales.orders") == f"abfss://ws@{DFS_HOST}/lh/Tables/sales/orders"
     assert OneLakeTables("ws", "lh", False, lambda: "tok")._uri("dbo.orders") == f"abfss://ws@{DFS_HOST}/lh/Tables/orders"
+
+
+def test_a_workspace_root_is_the_container_and_checks_its_id():
+    assert workspace_root("ws-1") == f"abfss://ws-1@{DFS_HOST}"
+    with pytest.raises(ValueError):
+        workspace_root("ws/1")

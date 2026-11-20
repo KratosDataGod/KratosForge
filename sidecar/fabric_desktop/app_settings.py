@@ -321,6 +321,36 @@ RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO
                               "allow_notebook_packages": False, "allow_pypi_packages": False,
                               "allow_signed_out_schedules": False, "allow_staging_cleanup": False}
 
+# What each policy setting does when a policy source sets it, so a new setting can't be added without
+# someone deciding (tests/test_policy_classes.py fails until it is listed here):
+#   "loosens"    widens what KratosForge trusts, or where it sends or fetches things (LOOSENING; the two
+#                SHELL_LOOSENING keys are checked by the shell itself, main.rs and engine_folder.rs)
+#   "restricts"  can only take away from what the person could do or choose without it
+#   "preference" the person's own choice, which policy may set for them; it reaches nothing the person
+#                couldn't choose in Settings
+#   "neutral"    policy only, but neither widens trust nor takes anything away; the reason is given
+SHELL_LOOSENING = ("engine_download_url", "engine_folder")  # where the engine's code comes from
+POLICY_NEUTRAL: dict[str, str] = {
+    "platform": "where the platform catalog is; the person can choose their own in Settings > Platform",
+    "local_retention_days": "how long local copies of tables are kept; they can be fetched again, and the person can delete them",
+    "incident_sla": "targets an incident is measured against; changes no access",
+}
+POLICY_RESTRICTS = (*RESTRICTED, "auto_update", "register_link_scheme", "integrations",
+                    "integrations_max_permissions", "integrations_extensions", "integrations_editors",
+                    "receipt_redactions", "appstudio_models", "appstudio_providers", "appstudio_sample_rows")
+
+
+def policy_effect(key: str) -> str:
+    """"loosens", "restricts", "preference" or "neutral" for a policy setting (see POLICY_NEUTRAL's comment);
+    "" for a name that isn't one."""
+    if key in LOOSENING or key in SHELL_LOOSENING:
+        return "loosens"
+    if key in POLICY_RESTRICTS:
+        return "restricts"
+    if key in POLICY_NEUTRAL:
+        return "neutral"
+    return "preference" if key in USER_KEYS and key in POLICY_KEYS else ""
+
 
 def policy_path() -> Path:
     base = os.environ.get("ProgramData") or os.environ.get("PROGRAMDATA") or "/etc"
@@ -386,12 +416,18 @@ def _policy_sources(digest: dict[str, str | None] | None = None
                     ) -> tuple[dict[str, Any], str | None, bool, dict[str, Any], dict[str, tuple[list[str], str]]]:
     """The policy file's settings (as _file_policy reads them) and Group Policy's, each without the
     LOOSENING settings unless only administrators could have written that source, and which were left
-    out and why ({"file" or "registry": ([keys], why)}). The Group Policy fingerprint is of all it sets."""
+    out and why ({"file" or "registry": ([keys], why)}). The Group Policy fingerprint is of all it sets.
+    While Group Policy can't be read (or a list in it can't), no source sets a LOOSENING setting it may
+    manage: what it would say is unknown, and the safe side is the setting's default."""
     from . import registry_policy
     data, reason, from_copy = _file_policy(digest)
-    registry, _ = registry_policy.read()
+    registry, _, unknown = registry_policy.read_all()
     if digest is not None:
-        digest["registry_sha256"] = registry_policy.fingerprint(registry)
+        digest["registry_sha256"] = registry_policy.fingerprint(
+            {**registry, "(unreadable)": sorted(unknown)} if unknown else registry)
+        digest["registry_unreadable"] = ",".join(sorted(unknown)) or None
+    if unknown:
+        data = {k: v for k, v in data.items() if not (k in LOOSENING and _unknown(k, unknown))}
     ignored: dict[str, tuple[list[str], str]] = {}
     if any(k in data for k in LOOSENING):
         why = ("the last copy of the policy file kept in your profile applies, which you can change" if from_copy
@@ -405,6 +441,17 @@ def _policy_sources(digest: dict[str, str | None] | None = None
             ignored["registry"] = (sorted(k for k in registry if k in LOOSENING), why)
             registry = {k: v for k, v in registry.items() if k not in LOOSENING}
     return data, reason, from_copy, registry, ignored
+
+
+def _unknown(key: str, unknown: frozenset[str]) -> bool:
+    from .registry_policy import ALL
+    return key in unknown or (ALL in unknown and key in POLICY_KEYS)
+
+
+def group_policy_unknown() -> frozenset[str]:
+    """The settings Group Policy may set that couldn't be read just now (registry_policy.read_all)."""
+    from . import registry_policy
+    return registry_policy.read_all()[2]
 
 
 def _file_policy(digest: dict[str, str | None] | None = None) -> tuple[dict[str, Any], str | None, bool]:
@@ -483,9 +530,12 @@ def policy_fingerprint() -> dict[str, Any]:
     registry = digest.get("registry_sha256")
     state = ("last_good" if from_copy else "fail_closed" if reason else "applied" if exists or registry
              else "none")
-    return {"sha256": digest["sha256"], "state": state,
-            "user_can_change": (exists and user_can_change(path)) or bool(registry and registry_policy.user_can_change()),
-            "registry_sha256": registry}
+    out = {"sha256": digest["sha256"], "state": state,
+           "user_can_change": (exists and user_can_change(path)) or bool(registry and registry_policy.user_can_change()),
+           "registry_sha256": registry}
+    if digest.get("registry_unreadable"):  # recorded with the change: "*" for the whole key, else list names
+        out["registry_unreadable"] = digest["registry_unreadable"]
+    return out
 
 
 def _restricted(key: str, policy: dict[str, Any], error: str | None) -> bool:
@@ -741,6 +791,8 @@ def _in_range(key: str, value: Any) -> bool:
         return value == 0 or value >= 30
     if key in LIMITS:
         return 0 <= value <= LIMITS[key]
+    if key in SQL_RANGES:  # from any source: an out-of-range policy value never applies (policy_problems says so)
+        return SQL_RANGES[key][0] <= value <= SQL_RANGES[key][1]
     if key == "motion_level":
         return MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]
     if key in CHOICES:
@@ -821,9 +873,14 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
     """Saves this person's choices. A setting the organization fixed can't be changed here."""
     current = load()
     user = _read(user_path())
+    unknown = group_policy_unknown()
     for key, new in changes.items():
         if key not in USER_KEYS:
             raise ValueError(f"{key} is not a setting you can change")
+        if unknown and _unknown(key, unknown) and not (key in RESTRICTED and new == RESTRICTED[key]):
+            # What Group Policy says about it is unknown: it stays as it is, unless it's made stricter.
+            raise ValueError(f"Group Policy on this PC couldn't be read, and it may set {key}, so {key} can only be made "
+                             "stricter until Group Policy can be read. Try again later, or ask IT.")
         if current[key]["source"] == "policy":
             raise ValueError(f"Your organization sets {key}, so it can't be changed here")
         if current[key]["source"] == "environment":

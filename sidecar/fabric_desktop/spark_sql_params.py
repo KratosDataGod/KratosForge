@@ -211,7 +211,11 @@ def _get_argument(query: str, widgets: Any) -> str:
         if j >= len(tokens) or tokens[j].token_type != TokenType.R_PAREN:
             continue
         end = tokens[j]
-        value = widgets.getArgument(name, default)
+        from .dbutils_local import InputWidgetNotDefined
+        try:
+            value = widgets.getArgument(name, default)
+        except InputWidgetNotDefined:  # getArgument without a default raises, as in Databricks
+            value = None
         if value is None:
             raise ValueError(f"The SQL uses getArgument('{name}'), and there's no widget named {name}. "
                              f"Create it first, for example dbutils.widgets.text({name!r}, \"\").")

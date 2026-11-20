@@ -328,7 +328,7 @@ def test_the_engine_is_registered_as_a_read_only_preview_that_uses_credits():
     assert d is sw.SNOWFLAKE_SQL and d.adapter and d.preview and d.remote and d.billing == "snowflake_credits"
     assert isinstance(registry.adapter("snowflake-sql"), sw.SnowflakeSqlAdapter)
     assert "Preview: tested against fakes of the documented API, not yet against a live account." in d.limitations[0]
-    assert any("resumes it; a running warehouse uses credits" in x for x in d.limitations)
+    assert any("resumes it, and a running warehouse uses credits until it suspends" in x for x in d.limitations)
     assert all(s.evidence == "unit_tests" for s in d.capabilities.values() if s.available)
 
 

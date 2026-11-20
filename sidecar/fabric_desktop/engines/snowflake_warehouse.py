@@ -82,7 +82,7 @@ SNOWFLAKE_SQL = EngineDescriptor(
     requirements=("A Snowflake account and a warehouse, with USAGE on it for the connection's role",
                   "Key-pair sign-in or a programmatic access token in a connection profile"),
     limitations=("Preview: tested against fakes of the documented API, not yet against a live account.",
-                 "A statement on a suspended warehouse resumes it; a running warehouse uses credits.",
+                 "A statement on a suspended warehouse resumes it, and a running warehouse uses credits until it suspends.",
                  f"Read-only for now. {READ_ONLY} run, and anything else is refused before it is sent.",
                  "The read-only check reads the SQL. A user-defined function a query calls runs whatever it holds.",
                  "Only the last statement's result is shown.",

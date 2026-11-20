@@ -153,7 +153,8 @@ class Client:
             except PollTimedOut:
                 self.cancel(handle)
                 took = f"{int(max_wait)} seconds" if max_wait < 120 else f"{int(max_wait // 60)} minutes"
-                raise SnowflakeError(f"The statement was still running after {took}, so it was cancelled.") from None
+                raise SnowflakeError(f"The statement was still running after {took}, so it was cancelled. "
+                                     "Narrow the query, or run it in Snowsight.") from None
             if self.stopped():  # the person pressed Cancel, even if the last look was refused or throttled
                 self.cancel(handle)
                 raise SnowflakeError("Cancelled.")

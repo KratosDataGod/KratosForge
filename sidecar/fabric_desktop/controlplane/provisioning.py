@@ -249,7 +249,9 @@ class FabricProvisioning:
             elif st["state"] != setup.READY:
                 action = "upgrade" if st["state"] in (setup.UPGRADE, setup.INCOMPLETE) else "initialize"
                 steps.append(PlanStep(action, label, bool(st["adds"]), TABLES_PERMISSION, note=UPGRADE_NOTE))
-        if not steps:
+        recorded = (manifest.get("schema") or {}).get("families") or {}
+        lagging = any(st["schema_version"] and recorded.get(fam.prefix) != st["schema_version"] for fam, st in states)
+        if not steps and not lagging:  # a manifest behind its tables (a write that failed) is still caught up
             steps.append(PlanStep("refuse", "environment", False, blocked=UPGRADE_DONE))
         steps.append(PlanStep("write_manifest", "Files/_kratosforge/environment.json", False, TABLES_PERMISSION,
                               note=MANIFEST_NOTE))
@@ -286,6 +288,10 @@ class FabricProvisioning:
             except Exception as exc:  # noqa: BLE001 - reported, and the steps after it don't run
                 done.append({"step": f"{fam.title} tables", "status": "failed", "detail": describe(exc)})
                 return out
+        for fam in self.families():  # what each family is at now, the ones left alone included
+            at = setup.inspect(lake, fam).get("schema_version")
+            if at:
+                versions[fam.prefix] = int(at)
         try:
             schema_part = dict(current.manifest.get("schema") or {}) | {"families": versions}
             made = self._manifest_store(store["workspace_id"], store["lakehouse_id"]).replace(

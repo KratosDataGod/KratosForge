@@ -382,3 +382,9 @@ def test_upgrade_never_overwrites_a_manifest_another_pc_changed(svc, monkeypatch
     out = svc.cp_upgrade(plan["token"], confirmed=True)
     assert not out["ok"] and out["steps"][-1]["step"] == "Manifest" and out["steps"][-1]["status"] == "failed"
     monkeypatch.setattr(st.ManifestStore, "replace", real)
+    # The tables were upgraded but the manifest wasn't: the next plan only catches the manifest up.
+    again = svc.cp_upgrade_plan()
+    assert again["token"] and [s["action"] for s in again["steps"]] == ["write_manifest"]
+    done = svc.cp_upgrade(again["token"], confirmed=True)
+    assert done["ok"] and [s["step"] for s in done["steps"]] == ["Manifest"]
+    assert "Nothing to upgrade" in svc.cp_upgrade_plan()["blocked"][0]

@@ -150,7 +150,10 @@ FAIL_CLOSED = frozenset({"meta_promote", "meta_rollback", "meta_restore", "xray_
                          # (academy_sandbox_remove_grants isn't: it takes the exercise sandbox's read
                          # permission off this PC's Python, which only narrows access, and the next exercise
                          # grants it again.)
-                         "platform_revoke", "platform_remove_admin", "integrations_revoke_client"})
+                         "platform_revoke", "platform_remove_admin", "integrations_revoke_client",
+                         # an access review's confirmation that projects still need a product's data: it
+                         # keeps their access, and takes no go-ahead parameter to be read (WR-410)
+                         "platform_confirm_access"})
 # Parameter names, matched exactly. test_audit lists every audited method's parameters that look like
 # one of these and fails on a name in neither set, so a new one is reviewed rather than missed.
 GUARD_PARAMS = frozenset({

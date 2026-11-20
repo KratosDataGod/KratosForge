@@ -8,7 +8,6 @@ Replies can arrive in a different order from the requests (see QUICK); the shell
 
 from __future__ import annotations
 
-import io
 import json
 import logging
 import math
@@ -21,7 +20,7 @@ import time
 from pathlib import Path
 from typing import IO, Any, Callable
 
-from . import app_control, audit, disk_full, net_trust, rpc_params, sqlitefile
+from . import app_control, audit, disk_full, net_trust, rpc_params, secret_redaction, sqlitefile
 from .redact import secrets
 from .service import Service, data_dir
 
@@ -501,54 +500,11 @@ def _log_file() -> IO[str]:
 
 class _SafeFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        return secrets(super().format(record))
+        return secret_redaction.redact(secrets(super().format(record)))
 
 
-class _RedactedStream(io.TextIOBase):
-    """The engine's stderr, which the shell keeps in sidecar.log: every line passes through
-    ``redact.secrets`` first. Log records already do; this covers what doesn't go through them:
-    tracebacks, ``warnings``, third-party loggers' last-resort handler and anything a library prints.
-    Writes are held until a newline, so a credential split across writes (``print("Bearer", token)``)
-    is redacted whole; ``flush`` writes out a part line, and a line past ``HOLD`` characters goes out
-    as it is. Native code writing to the file descriptor directly isn't seen here."""
-
-    HOLD = 64 * 1024
-
-    def __init__(self, stream: IO[str]):
-        self.stream = stream
-        self._part = ""
-        self._lock = threading.Lock()
-
-    def writable(self) -> bool:
-        return True
-
-    @property
-    def encoding(self) -> str:  # type: ignore[override]
-        return getattr(self.stream, "encoding", None) or "utf-8"
-
-    def fileno(self) -> int:
-        return self.stream.fileno()
-
-    def isatty(self) -> bool:
-        return False
-
-    def write(self, text: str) -> int:
-        with self._lock:
-            held = self._part + text
-            cut = held.rfind("\n") + 1
-            if len(held) - cut > self.HOLD:
-                cut = len(held)
-            self._part = held[cut:]
-            if cut:
-                self.stream.write(secrets(held[:cut]))
-        return len(text)
-
-    def flush(self) -> None:
-        with self._lock:
-            part, self._part = self._part, ""
-            if part:
-                self.stream.write(secrets(part))
-        self.stream.flush()
+# The engine's stderr, which the shell keeps in sidecar.log (secret_redaction.RedactedStream).
+_RedactedStream = secret_redaction.RedactedStream
 
 
 def _log_to_stderr() -> None:

@@ -1252,9 +1252,33 @@ def _rewrite_timestamp_parts(statement: exp.Expression) -> None:
             ltz = exp.TimestampLtzFromParts(**{k: v for k, v in tz_parts.args.items() if v is not None})
             tz_parts.replace(ltz)
     for anonymous in list(statement.find_all(exp.Anonymous)):
-        if str(anonymous.this).upper() in ("TO_TIMESTAMP", "TO_TIMESTAMP_NTZ") and len(anonymous.expressions) == 1 \
-                and _written_number(anonymous.expressions[0]):
-            _put(anonymous, "CAST(TO_TIMESTAMP(fj_arg0) AT TIME ZONE 'UTC' AS TIMESTAMP)", [anonymous.expressions[0]])
+        if str(anonymous.this).upper() in ("TO_TIMESTAMP", "TO_TIMESTAMP_NTZ") and len(anonymous.expressions) == 1:
+            if _written_number(anonymous.expressions[0]):
+                _put(anonymous, "CAST(TO_TIMESTAMP(fj_arg0) AT TIME ZONE 'UTC' AS TIMESTAMP)", [anonymous.expressions[0]])
+            else:  # a column or expression, whose type is known only when the query runs
+                _put(anonymous, _TIMESTAMP_OF_ANY, [anonymous.expressions[0]])
+
+
+# TO_TIMESTAMP and TO_TIMESTAMP_NTZ of a value whose type isn't known here (a column), by its type when the query
+# runs: a number is seconds since 1970 with no time zone (fractions to the microsecond, cut off); text holding a
+# whole number is read by its size, as SFX-022 reads one written in the query; anything else (a date, other text)
+# is cast to TIMESTAMP. DuckDB has no TO_TIMESTAMP_NTZ, so a column stopped with its catalog error. The value is
+# read once; each branch binds for any type, and TYPEOF picks one when the query is planned.
+_SF_NUMBER_TYPES = ("'TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT', 'UTINYINT', 'USMALLINT', 'UINTEGER', "
+                    "'UBIGINT', 'UHUGEINT', 'FLOAT', 'DOUBLE'")
+_SF_WHOLE_TEXT = r"^\s*-?[0-9]+\s*$"
+_TIMESTAMP_OF_ANY = (
+    "(LIST_TRANSFORM([fj_arg0], kf_ts -> CASE "
+    f"WHEN TYPEOF(kf_ts) IN ({_SF_NUMBER_TYPES}) OR TYPEOF(kf_ts) LIKE 'DECIMAL%' "
+    "THEN MAKE_TIMESTAMP(CAST(TRUNC(TRY_CAST(CAST(kf_ts AS VARCHAR) AS DECIMAL(38, 9)) * 1000000) AS BIGINT)) "
+    f"WHEN TYPEOF(kf_ts) = 'VARCHAR' AND REGEXP_MATCHES(CAST(kf_ts AS VARCHAR), '{_SF_WHOLE_TEXT}') THEN "
+    "(LIST_TRANSFORM([TRY_CAST(TRIM(CAST(kf_ts AS VARCHAR)) AS HUGEINT)], kf_n -> MAKE_TIMESTAMP(CAST(CASE "
+    "WHEN kf_n < 31536000000 THEN kf_n * 1000000 WHEN kf_n < 31536000000000 THEN kf_n * 1000 "
+    "WHEN kf_n < 31536000000000000 THEN kf_n ELSE kf_n // 1000 END AS BIGINT))))[1] "
+    # Text with a UTC offset ('... 03:04:05 +02:00') is read as Snowflake's NTZ reads it: the offset is dropped.
+    # DuckDB 1.5.6 stops on it ("not UTC") where 2.0 drops it, so it is dropped here for both.
+    r"ELSE CAST(REGEXP_REPLACE(CAST(kf_ts AS VARCHAR), '(\d:\d\d(:\d\d(\.\d+)?)?)\s*(Z|[+-]\d\d(:?\d\d)?)$', "
+    r"'\1') AS TIMESTAMP) END))[1]")
 
 
 def _written_number(node: exp.Expression) -> bool:
@@ -2200,8 +2224,11 @@ CATALOG = (
                 "CURRENT_TIMESTAMP and a cast to TIMESTAMP_TZ or TIMESTAMP_LTZ go through TIMESTAMP, the "
                 "local time; a TIMESTAMP_TZ column stops with DuckDB's cast error, since its type isn't known "
                 "here. TIMESTAMP_FROM_PARTS and TIMESTAMP_NTZ_FROM_PARTS carry a part outside its range over "
-                "(seconds of -3600 is an hour earlier). TO_TIMESTAMP and TO_TIMESTAMP_NTZ of a number written "
-                "in the query are seconds since 1970, with no time zone. TIMESTAMP_TZ_FROM_PARTS with no time zone "
+                "(seconds of -3600 is an hour earlier). TO_TIMESTAMP and TO_TIMESTAMP_NTZ of a number are seconds "
+                "since 1970, with no time zone; of a column, a number is read that way, text holding a whole "
+                "number by its size, and anything else is cast to TIMESTAMP, with a UTC offset in text dropped. A TIMESTAMP_TZ "
+                "column gives the session time zone's wall clock, since DuckDB doesn't keep a value's own offset, "
+                "where Snowflake gives the value's own local time. TIMESTAMP_TZ_FROM_PARTS with no time zone "
                 "argument is in the session's time zone.")),
     ("SFX-018", "Rewritten", ("CONDITIONAL_TRUE_EVENT and CONDITIONAL_CHANGE_EVENT count events from each "
                 "partition's first row in ORDER BY order (a NULL is neither true nor a change), and "

@@ -193,6 +193,12 @@ def _started(run: dict[str, Any]) -> dt.datetime:
     return start if start.tzinfo else start.replace(tzinfo=dt.timezone.utc)
 
 
+def _latest(run: dict[str, Any]) -> tuple[Any, ...]:
+    """How runs of one entity are ordered: by start, then (two runs that started at the same time) by
+    what the event is made of, so the rows' order never changes which run is exported."""
+    return (_started(run), *(str(run.get(k)) for k in ("run_id", "status", "seconds", "started_at")))
+
+
 def _event_time(run: dict[str, Any]) -> str | None:
     try:
         start = dt.datetime.fromisoformat(str(run.get("started_at")))
@@ -217,14 +223,21 @@ def _dataset_key(names: Names, inp: dict[str, Any]) -> tuple[str, str] | None:
     return None
 
 
-def _own_sources(cols: dict[str, Any], entity: str, col: str, seen: set[str]) -> list[dict[str, Any]]:
-    """The inputs from outside the entity that one of its own columns is built from, however many steps in."""
-    if col in seen or col not in cols:
-        return []
-    seen.add(col)
+def _own_sources(cols: dict[str, Any], entity: str, col: str) -> list[dict[str, Any]]:
+    """The inputs from outside the entity that one of its own columns is built from, however many steps in
+    (depth first, each own column once; a stack, not recursion, so a long chain of derives ends)."""
+    seen: set[str] = set()
     out: list[dict[str, Any]] = []
-    for i in cols[col]["inputs"]:
-        out += _own_sources(cols, entity, i["column"], seen) if i.get("entity") == entity else [i]
+    todo: list[Any] = [col]
+    while todo:
+        item = todo.pop()
+        if isinstance(item, dict):  # an input from outside the entity
+            out.append(item)
+            continue
+        if item in seen or item not in cols:
+            continue
+        seen.add(item)
+        todo += [i["column"] if i.get("entity") == entity else i for i in reversed(cols[item]["inputs"])]
     return out
 
 
@@ -241,7 +254,7 @@ def entity_event(project: Project, names: Names, entity: str, run: dict[str, Any
         for n, inp in enumerate(rec["inputs"]):
             # A column it makes from its own columns (a derive over a cleaned or renamed one) traces back
             # through them to where they start.
-            ups = _own_sources(cols, entity, inp["column"], set()) if inp.get("entity") == entity else [inp]
+            ups = _own_sources(cols, entity, inp["column"]) if inp.get("entity") == entity else [inp]
             for up in ups:
                 key = _dataset_key(names, up)
                 if key is None or key == names.table(entity):
@@ -258,11 +271,12 @@ def entity_event(project: Project, names: Names, entity: str, run: dict[str, Any
                 in_fields.append({"namespace": key[0], "name": key[1], "field": field,
                                   "transformations": [{"type": t, "subtype": sub, "masking": False,
                                                        **({"description": safe_text(str(rec["expr"]))} if rec.get("expr") else {})}]})
-        if in_fields:
-            fields[col] = {"inputFields": in_fields}
+        if in_fields:  # named as readers' events name it: a column named like a path or URL is cleaned the same way
+            fields.setdefault(_safe_column(str(col)), {"inputFields": []})["inputFields"] += in_fields
     out_ns, out_name = names.table(entity)
     output = {"namespace": out_ns, "name": out_name, "facets": {
-        "schema": _facet(SCHEMA_FACET, fields=[{"name": c, **({"type": str(types[c])} if c in types else {})} for c in cols]),
+        "schema": _facet(SCHEMA_FACET, fields=[{"name": _safe_column(str(c)), **({"type": str(types[c])} if c in types else {})}
+                                             for c in cols]),
         **({"columnLineage": _facet(COLUMN_FACET, fields=fields)} if fields else {}),
     }}
     return {
@@ -289,7 +303,7 @@ def run_events(project: Project, runs: list[dict[str, Any]], env: str,
     last: dict[str, dict[str, Any]] = {}
     for r in runs:
         ent = r.get("entity")
-        if ent in project.entities and (ent not in last or _started(r) >= _started(last[ent])):
+        if ent in project.entities and (ent not in last or _latest(r) >= _latest(last[ent])):
             last[ent] = r
     events, left_out = [], []
     for ent in sorted(project.entities):

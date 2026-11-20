@@ -947,14 +947,17 @@ def run_order(project: Project) -> list[str]:
 
 def impact(project: Project, entity: str) -> list[str]:
     """Everything downstream of an entity, nearest first."""
+    reads = {n: set(e.reads()) for n, e in project.entities.items()}  # once, not again at every step of a long chain
     out: list[str] = []
+    found: set[str] = set()
     frontier = [entity]
     while frontier:
         nxt = []
         for f in frontier:
-            for n, e in project.entities.items():
-                if f in e.reads() and n not in out and n != entity:
+            for n in project.entities:
+                if f in reads[n] and n not in found and n != entity:
                     out.append(n)
+                    found.add(n)
                     nxt.append(n)
         frontier = nxt
     return out

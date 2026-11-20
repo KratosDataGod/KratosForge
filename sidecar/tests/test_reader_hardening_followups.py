@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 
 import pytest
 
@@ -121,6 +122,38 @@ def test_a_push_of_a_file_that_isnt_utf8_is_refused_by_name(tmp_path, name):
     with pytest.raises(ValueError, match=rf"{name} wasn't pushed, because it isn't UTF-8 text") as got:
         sync._content(path)
     assert not isinstance(got.value, UnicodeDecodeError)
+
+
+def test_a_push_of_a_damaged_ipynb_is_refused_by_name_and_its_notes_never_crash(tmp_path):
+    """The push path reads .ipynb through parse_ipynb: every damaged notebook is a ValueError there, never a crash,
+    and the loss notes shown before a push say it can't be read instead of raising."""
+    rng = random.Random(3176)
+    good = json.dumps({"nbformat": 4, "cells": [
+        {"cell_type": "code", "source": ["x = 1\n", "print(x)"], "outputs": []},
+        {"cell_type": "markdown", "source": "# T", "metadata": {"tags": ["a"]}},
+        {"cell_type": "raw", "source": "plain"}]})
+    shapes = [5, None, "x", [1, None], {"a": [1]}, "\ud800", [{"cell_type": "code", "source": 5}]]
+    path = tmp_path / "nb.ipynb"
+    for _ in range(300):
+        text = good
+        kind = rng.randrange(4)
+        if kind == 0:
+            text = text[:rng.randrange(len(text))]
+        elif kind == 1:
+            at = rng.randrange(len(text))
+            text = text[:at] + chr(rng.randrange(32, 127)) + text[at + 1:]
+        else:
+            nb = json.loads(good)
+            target = nb if kind == 2 else rng.choice(nb["cells"])
+            target[rng.choice(list(target) + ["cells", "source", "cell_type"])] = rng.choice(shapes)
+            text = json.dumps(nb)
+        path.write_text(text, encoding="utf-8", errors="surrogatepass")
+        try:
+            sync._content(path)
+        except ValueError:
+            pass
+        notes = sync._loss_notes(path)
+        assert isinstance(notes, list), text
 
 
 # ---------------------------------------------------------------- 6: a folder named like an audit file

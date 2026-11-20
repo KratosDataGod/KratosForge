@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import json
 import socket
 
@@ -139,9 +140,10 @@ def test_every_seeded_case_runs_locally_and_unconfirmed_ones_say_so():
     ({"evidence_level": "local", "platform": "local", "location": "this_pc", "outcome": "match"}, False),
     ({"evidence_level": "fake", "platform": "snowflake", "location": "fake_api", "outcome": "match"}, False),
     ({"evidence_level": "live", "platform": "local", "location": "this_pc", "outcome": "match"}, False),
+    ({"evidence_level": "live", "platform": "fabric", "location": "this_pc", "outcome": "match"}, False),
     ({"evidence_level": "live", "platform": "snowflake", "location": "account", "outcome": "unconfirmed"}, False),
     ({"evidence_level": "live", "platform": "snowflake", "location": "account", "outcome": "match"}, True),
-], ids=["local", "fake", "live-local", "live-unconf", "live"])
+], ids=["local", "fake", "live-local", "live-this-pc", "live-unconf", "live"])
 def test_only_a_matching_live_platform_run_can_verify(record, ok):
     assert h.can_verify(record) is ok
 
@@ -164,3 +166,11 @@ def test_the_cli_runs_locally(tmp_path, capsys):
     with pytest.raises(SystemExit) as done:
         cli.main(["parity-check", "--case", "nope"])
     assert done.value.code == 2
+
+
+def test_a_timestamp_offset_is_converted_or_refused():
+    utc = h._value("2024-01-01T05:00:00+05:00", "timestamp_tz", "t")
+    assert utc == dt.datetime(2024, 1, 1, 0, 0, tzinfo=dt.timezone.utc)
+    assert h._value("2024-01-01T05:00:00", "timestamp_tz", "t").hour == 5
+    with pytest.raises(h.CaseError):
+        h._value("2024-01-01T05:00:00+05:00", "timestamp", "t")

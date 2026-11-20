@@ -97,7 +97,10 @@ def _value(v: Any, kind: str, where: str) -> Any:
             return dt.date.fromisoformat(v)
         if kind in ("timestamp", "timestamp_tz") and isinstance(v, str):
             t = dt.datetime.fromisoformat(v)
-            return t.replace(tzinfo=dt.timezone.utc) if kind == "timestamp_tz" else t
+            if kind == "timestamp_tz":  # an offset is converted to UTC; no offset means UTC
+                return t.astimezone(dt.timezone.utc) if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
+            if t.tzinfo is None:  # a timestamp without a time zone can't carry an offset
+                return t
     except (ValueError, InvalidOperation):
         pass
     raise CaseError(f"{where}: {v!r} isn't a {kind} value (decimals, dates and timestamps are written as text).")

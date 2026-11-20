@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
+import numbers
 import os
 import re
 import stat
@@ -22,7 +24,7 @@ from urllib.parse import unquote
 from deltalake import DeltaTable
 from deltalake.exceptions import TableNotFoundError
 
-from . import durable
+from . import durable, retrying
 
 SMALL_FILE_BYTES = 32 * 1024 * 1024
 SMALL_FILE_COUNT = 20     # this many files averaging under SMALL_FILE_BYTES is worth compacting
@@ -140,14 +142,84 @@ def retention_hours(days: int) -> int:
     return int(days) * 24 + 1
 
 
+def _retention_number(value: Any, unit: str) -> float:
+    """``value`` as a finite number, or the refusal: NaN, infinity, True and text are no length of history."""
+    if isinstance(value, bool) or not isinstance(value, numbers.Real) or not math.isfinite(float(value)):
+        raise ValueError(f"VACUUM has to keep at least {MIN_RETENTION_DAYS} days of history, and {value!r} isn't a "
+                         f"number of {unit}. Nothing was changed. Give a number of {unit}, "
+                         f"{MIN_RETENTION_DAYS if unit == 'days' else MIN_RETENTION_DAYS * 24} or more.")
+    return float(value)
+
+
 def check_retention(days: int, allow_shorter: bool = False) -> None:
     """Refuse a VACUUM keeping less than MIN_RETENTION_DAYS of history, unless a policy allows it
     (``allow_shorter``). With less, VACUUM can delete files that a read or write still under way in
-    another process is using, and time travel to those versions stops working."""
-    if int(days) < MIN_RETENTION_DAYS and not allow_shorter:
-        raise ValueError(f"VACUUM has to keep at least {MIN_RETENTION_DAYS} days of history, not {int(days)}: with "
-                         "less, it can delete files that readers or writers in other processes still use, and time "
+    another process is using, and time travel to those versions stops working. What isn't a finite
+    number of days, or is negative, is refused whatever ``allow_shorter`` says."""
+    n = _retention_number(days, "days")
+    if n < 0 or (n < MIN_RETENTION_DAYS and not allow_shorter):
+        raise ValueError(f"VACUUM has to keep at least {MIN_RETENTION_DAYS} days of history, not {n:g}, because "
+                         "with less it can delete files that readers or writers in other processes still use, and time "
                          "travel to those versions stops working. Nothing was changed.")
+
+
+def check_retain_hours(hours: Any) -> None:
+    """Refuse ``VACUUM t RETAIN n HOURS`` keeping less than MIN_RETENTION_DAYS (in hours), or n that isn't a
+    finite number. There is no way past it."""
+    n = _retention_number(hours, "hours")
+    if n < MIN_RETENTION_DAYS * 24:
+        raise ValueError(f"VACUUM keeps at least {MIN_RETENTION_DAYS} days ({MIN_RETENTION_DAYS * 24} hours) of "
+                         f"history on this PC, not {n:g} hours, because with less it can delete files that readers "
+                         "or writers in other processes still use, and time travel to those versions stops working. "
+                         f"Nothing was changed. Use RETAIN {MIN_RETENTION_DAYS * 24} HOURS or more, or leave RETAIN out.")
+
+
+def skewed_versions(table: DeltaTable, hours: float, now: float | None = None) -> tuple[list[int], int | None]:
+    """The versions inside the retention whose files VACUUM would still delete because a later commit is dated
+    before the cutoff although an earlier one isn't (a writer's clock out of step), and the oldest such later
+    commit's time (ms). VACUUM goes by each removal's own date; a version is inside the retention when a commit
+    at or before the one that replaced it is dated inside it. A commit with no date counts as now. Both are
+    empty for a log whose dates rise with its versions."""
+    now_ms = (time.time() if now is None else now) * 1000
+    cutoff = now_ms - hours * 3_600_000 + 300_000  # five minutes later than VACUUM's own, which reads the clock after
+    stamps = sorted((int(h["version"]), now_ms if h.get("timestamp") is None else float(h["timestamp"]))
+                    for h in table.history() if "version" in h)
+    earliest_after = [math.inf] * (len(stamps) + 1)  # [i]: the earliest date from commit i on
+    for i in range(len(stamps) - 1, -1, -1):
+        earliest_after[i] = min(stamps[i][1], earliest_after[i + 1])
+    keep: list[int] = []
+    oldest: float | None = None
+    latest = -math.inf
+    for i in range(len(stamps) - 1):
+        latest = max(latest, stamps[i][1], stamps[i + 1][1])  # the newest date up to the commit that replaced it
+        later = earliest_after[i + 1]
+        if latest >= cutoff and later < cutoff:
+            keep.append(stamps[i][0])
+            oldest = later if oldest is None else min(oldest, later)
+    return keep, None if oldest is None else int(oldest)
+
+
+def vacuum_keep(versions: list[int]) -> dict[str, Any]:
+    """VACUUM's keep_versions, only when there are any: a log whose dates rise is vacuumed as before."""
+    return {"keep_versions": versions} if versions else {}
+
+
+# More history than this for a clock out of step is a date that can't be right (a commit dated 1970, say):
+# Fabric's VACUUM would in effect stop removing anything, so X-ray refuses and says why instead.
+MAX_SKEW_DAYS = 365
+
+
+def skew_safe_days(table: DeltaTable, days: int, now: float | None = None) -> int:
+    """``days``, or more when a commit dated out of step with the one before it would let a VACUUM keeping
+    ``days`` delete files a version inside them still reads: enough that the removal dated earliest is kept,
+    for an engine (Fabric's table maintenance job) that can't be told which versions to keep."""
+    now = time.time() if now is None else now
+    while True:
+        keep, oldest = skewed_versions(table, retention_hours(days), now)
+        need = math.ceil((now * 1000 - oldest) / 86_400_000) if keep and oldest is not None else days
+        if need <= days:
+            return days
+        days = need
 
 
 def fabric_retention(days: int) -> str:
@@ -177,13 +249,24 @@ def kept_days(config: dict[str, str] | None) -> int | None:
     return -(-int(m.group(1)) * _UNIT_HOURS[m.group(2)] // 24)
 
 
+def _with_own(table: DeltaTable, days: int) -> int:
+    """``days``, or the table's own delta.deletedFileRetentionDuration when that keeps longer: it wins, as in
+    a notebook's VACUUM and X-ray's."""
+    own = kept_days(table.metadata().configuration)
+    return own if own and own > days else days
+
+
 def vacuum_preview(uri: str, days: int, options: dict[str, str] | None = None,
                    allow_shorter: bool = False) -> list[str]:
     """The files (relative to the table folder) VACUUM keeping ``days`` of history would delete.
-    A dry run: nothing is deleted. Fewer than MIN_RETENTION_DAYS needs ``allow_shorter``."""
+    A dry run: nothing is deleted. Fewer than MIN_RETENTION_DAYS needs ``allow_shorter``. The table's own longer
+    retention wins, and a version inside it keeps its files whatever a later commit's clock says."""
     check_retention(days, allow_shorter)
     table = DeltaTable(uri, storage_options=options)
-    paths = table.vacuum(retention_hours=retention_hours(days), dry_run=True, enforce_retention_duration=False)
+    days = _with_own(table, days)
+    keep, _oldest = skewed_versions(table, retention_hours(days))
+    paths = table.vacuum(retention_hours=retention_hours(days), dry_run=True, enforce_retention_duration=False,
+                         **vacuum_keep(keep))
     root = uri.rstrip("/") + "/"
     return [p[len(root):] if p.startswith(root) else p for p in paths]
 
@@ -203,14 +286,26 @@ def set_retention(uri: str, days: int, options: dict[str, str] | None = None, al
 
 def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[str, Any]:
     """OPTIMIZE (compaction, no V-Order) and VACUUM for a table on this PC, keeping ``days`` of history.
-    Fewer than MIN_RETENTION_DAYS is refused before anything changes, unless ``allow_shorter``."""
+    Fewer than MIN_RETENTION_DAYS is refused before anything changes, unless ``allow_shorter``. The table's own
+    longer retention wins (and stays), and a version inside it keeps its files whatever a later commit's clock says."""
     check_retention(days, allow_shorter)
     first = DeltaTable(uri)
     before, files_before = first.version(), len(first.file_uris())
+    days = _with_own(first, days)
     set_retention(uri, days, allow_shorter=allow_shorter)
+    # On Windows a writer committing the same next version at the same moment makes this commit fail to open
+    # its staged log file, or another process holds a log file (retrying.windows_log_race); nothing was committed,
+    # so compacting again is safe.
+    metrics = retrying.local_retry(lambda: DeltaTable(uri).optimize.compact())
     table = DeltaTable(uri)
-    metrics = table.optimize.compact()
-    removed = table.vacuum(retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False)
+    present = {Path(e.path).relative_to(uri).as_posix() for e in _data_folder_files(uri)}
+    keep, _oldest = skewed_versions(table, retention_hours(days))
+    listed = table.vacuum(retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False,
+                          **vacuum_keep(keep))
+    # Counted from what this VACUUM actually removed: delta-rs also lists a file already gone meanwhile.
+    root = uri.rstrip("/") + "/"
+    listed = [unquote(p[len(root):] if p.startswith(root) else p) for p in listed]
+    removed = [p for p in listed if p in present and not (Path(uri) / p).exists()]
     # A data file no commit names (a write stopped before its commit) goes once it's as old as the
     # history kept, the age at which VACUUM removes any file: a write still under way never loses one.
     unnamed = _remove(uri, _unnamed(uri, table, retention_hours(days)))

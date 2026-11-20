@@ -1,7 +1,7 @@
 """WR-118: Spark 3.5's JSON functions on this PC, value-checked against Spark 3.5.3 (see spark_values.py).
 
 get_json_object, json_tuple, from_json in its PERMISSIVE, FAILFAST and DROPMALFORMED modes (with the
-corrupt-record column), to_json and schema_of_json: 232 queries in tools/spark_value_cases/json.txt, each
+corrupt-record column), to_json and schema_of_json: 260 queries in tools/spark_value_cases/json.txt, each
 answered by Spark 3.5.3 in tests/fixtures/spark_3_5_3_json.json. What this PC can't answer as Spark does is
 refused by name below, and listed in docs/sql-compatibility.md."""
 
@@ -52,3 +52,8 @@ def test_range_gives_sparks_id_column_unless_the_query_reads_duckdbs_range_colum
     assert spark.sql("SELECT * FROM range(3)").columns == ["id"]
     assert [r[0] for r in spark.sql("SELECT range AS n FROM range(3)").collect()] == [0, 1, 2]
     assert [r[0] for r in spark.sql("SELECT sum(a.range * b.range) AS s FROM range(3) a, range(2) b").collect()] == [3]
+
+
+def test_a_tables_own_range_column_leaves_range_reading_as_spark(spark):
+    spark.sql("CREATE OR REPLACE TEMP VIEW kf_ranges AS SELECT 7 AS range")
+    assert spark.sql("SELECT t.range, r.id FROM kf_ranges t, range(2) r ORDER BY r.id").collect() == [(7, 0), (7, 1)]

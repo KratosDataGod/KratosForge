@@ -161,6 +161,17 @@ class UserDefinedFunction:
             if not hasattr(out, "__len__") or isinstance(out, (str, bytes)) or len(out) != n:
                 raise RuntimeError(f"The pandas_udf {self.__name__} returned {len(out) if hasattr(out, '__len__') else 'one value'} "
                                    f"for {n} rows. A scalar pandas_udf returns a Series as long as its input.")
+            if isinstance(dt, _numeric_types()):
+                # As Spark converts a pandas_udf's numbers (pa.Array.from_pandas, safe off by default):
+                # a null in an int Series makes it float, and 2.0 is still 2; a float is cut to a whole
+                # number and a whole number wraps into a smaller type, as Arrow casts them.
+                import pandas as pd
+                series = out if isinstance(out, pd.Series) else pd.Series(list(out), dtype=object)
+                try:
+                    return pa.Array.from_pandas(series, mask=series.isnull().to_numpy(), type=_arrow_type(dt),
+                                                safe=False)
+                except (pa.ArrowInvalid, pa.ArrowTypeError, TypeError, ValueError):
+                    pass  # values that aren't numbers: each one as a plain UDF's, below
             values = [_fits(None if _isnull(v) else _plain(v), dt) for v in list(out)]
             return pa.array(values, type=_arrow_type(dt))
         return call
@@ -204,6 +215,11 @@ def _plain(v: Any) -> Any:
     column's arrays as lists). An array is checked first: a one-element array's item() is its value."""
     import datetime
     if getattr(v, "ndim", 0) and hasattr(v, "tolist"):
+        kind = getattr(getattr(v, "dtype", None), "kind", "")
+        if kind and kind in "Mm":  # finer than microseconds lists as whole numbers; in microseconds, as Python's
+            import numpy as np  # [D], [s], [ms] and [us] already list as dates, datetimes and timedeltas
+            if np.datetime_data(v.dtype)[0] in ("ns", "ps", "fs", "as"):
+                v = v.astype(f"{'datetime64' if kind == 'M' else 'timedelta64'}[us]")
         return v.tolist()
     if hasattr(v, "to_pydatetime"):
         return v.to_pydatetime()
@@ -215,6 +231,11 @@ def _plain(v: Any) -> Any:
     if hasattr(v, "tolist"):
         return v.tolist()
     return v
+
+
+def _numeric_types() -> tuple[type, ...]:
+    T = _types()
+    return (T.ByteType, T.ShortType, T.IntegerType, T.LongType, T.FloatType, T.DoubleType)
 
 
 def _arrow_type(dt: Any) -> Any:

@@ -66,7 +66,7 @@ def test_a_duckdb_relation_cell_result_pages_searches_and_downloads_every_row(tm
     import duckdb
     target = tmp_path / "r.csv"
     target.touch()
-    assert store.download(store.keep(duckdb.sql("SELECT range AS n FROM range(2500)")), "csv", str(target))["rows"] == 2500
+    assert store.download(store.keep(duckdb.connect().sql("SELECT range AS n FROM range(2500)")), "csv", str(target))["rows"] == 2500
 
 
 def test_odd_and_duplicate_column_names_are_safe():
@@ -131,6 +131,17 @@ def test_excel_refuses_more_rows_than_a_sheet_holds(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="CSV or Parquet"):
         store.download(store.keep(pa.table({"a": list(range(11))})), "xlsx", str(target))
     assert target.stat().st_size == 0 and not (tmp_path / "r.xlsx.partial").exists()
+
+
+def test_excel_refuses_more_columns_than_a_sheet_holds(tmp_path, monkeypatch):
+    monkeypatch.setattr(frames, "EXCEL_MAX_COLUMNS", 2)
+    store = Frames()
+    target = tmp_path / "r.xlsx"
+    target.touch()
+    with pytest.raises(ValueError, match="Excel holds at most 2 columns and this result has 3"):
+        store.download(store.keep(pa.table({"a": [1], "b": [2], "c": [3]})), "xlsx", str(target))
+    assert target.stat().st_size == 0
+    store.download(store.keep(pa.table({"a": [1], "b": [2]})), "xlsx", str(target))  # at the limit: written
 
 
 def test_a_failed_download_leaves_no_partial_file(tmp_path, monkeypatch):

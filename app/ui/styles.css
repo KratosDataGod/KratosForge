@@ -2919,6 +2919,31 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .dialog:has(.ossie-import) { max-width: 900px; }
 .ossie-preview { display: flex; flex-direction: column; gap: 8px; }
 .ossie-preview tr.warn-row { background: var(--warn-soft-3); }
+/* Publish the semantic view in Fabric (meta.js semanticViewCard, OSSIE-005b): existing card and control styles */
+.sv-body { display: flex; flex-direction: column; gap: 8px; }
+.sv-body > p { margin: 0; }
+.sv-h { font-size: 13px; font-weight: 600; margin: 8px 0 0; }
+.sv-check { display: flex; align-items: baseline; gap: 6px; font-size: 13px; }
+.sv-check-fail .gate-list { margin: 6px 0 0; }
+.sv-files td.mono { font-size: 12px; }
+.sv-folder, .sv-line { align-items: center; font-size: 13px; margin: 0; }
+.sv-path { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--surface-warm); border: 1px solid var(--border); border-radius: var(--r-md); }
+.sv-small { font-size: 12px; }
+.sv-steps { list-style: none; margin: 0; padding: 0; }
+.sv-steps li { display: grid; grid-template-columns: 26px 1fr; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border-soft); font-size: 13px; }
+.sv-steps li > div { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.sv-num { width: 20px; height: 20px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-dark); font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+.sv-steps li.sv-dim { color: var(--muted); }
+.sv-steps li.sv-dim .sv-num { background: var(--hover); color: var(--muted); }
+.sv-wait { font-size: 12px; font-weight: 600; color: var(--warn); }
+.sv-learn { font-size: 12px; }
+.sv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.sv-list { margin: 4px 0 0; padding-left: 18px; font-size: 13px; }
+.sv-list li { margin: 4px 0; }
+.sv-note { padding: 8px 12px; border-radius: var(--r-md); background: var(--info-soft); font-size: 13px; }
+.sv-first { display: flex; flex-direction: column; gap: 6px; }
+.sv-first p { margin: 0; }
+.dialog:has(.sv-report) { max-width: 820px; }
 
 /* Data dictionary on the Semantic model tab (meta.js dictionaryCard) */
 .dict-out, .dict-preview { display: flex; flex-direction: column; gap: 10px; }
@@ -3101,9 +3126,10 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
   .sql-edit .cm-line.sql-bookmarked { border-left: 3px solid Highlight; }  /* box-shadow and background are dropped */
   .cell.selected .cell-box, .sqlt-card.on, .mesh-node.me, .card.pad.mf-domain.me { border-color: Highlight; outline: 2px solid Highlight; outline-offset: -2px; }
   .pill, .pill-s, .badge, .preview-tag, .cell-head .tag { border: 1px solid CanvasText; }
-  :focus-visible, .search:focus-within, .palette-input:focus-within { outline: 2px solid Highlight; }
+  :focus-visible, .search:focus-within, .palette-input:focus-within, .nbf-search:focus-within, .pbi-frame.pbi-focus { outline: 2px solid Highlight; }
   .avatar { border: 1px solid CanvasText; }
   .seg button.on:disabled { color: HighlightText; }  /* a locked choice: outranks the normal-mode rule */
+  .choice-row.selected .muted-text { color: HighlightText; }  /* its description, on the theme's Highlight like its name */
 }
 
 /* Home > Recent notebooks: details, Run several and items pinned to Home (home-notebooks.js) */
@@ -3223,6 +3249,35 @@ table.bundle-files .num { text-align: right; white-space: nowrap; color: inherit
 .cx-warn { color: var(--danger); }
 .cx-problems, .cx-part-error { color: var(--danger); }
 .cx-empty pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--canvas); padding: 8px; border-radius: var(--r-sm); }
+/* Settings > Environment (kf-environment.js, Preview, CP-010) */
+.kfe-page { display: flex; flex-direction: column; gap: 12px; }
+.kfe-title { margin: 0; }
+.kfe-page > p { margin: 0; }
+.kfe-card { display: flex; flex-direction: column; gap: 10px; }
+.kfe-card h3, .kfe-card h4 { margin: 0; }
+.kfe-card h4 { margin-top: 6px; font-size: 14px; }
+.kfe-card > p { margin: 0; }
+.kfe-card .row { flex-wrap: wrap; gap: 8px; }
+.kfe-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 20px; margin: 0; }
+.kfe-kv dt { color: var(--muted); }
+.kfe-kv dd { margin: 0; overflow-wrap: anywhere; }
+.kfe-status { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 10px; align-items: center; padding: 10px 12px; border-radius: var(--r-md); background: var(--hover); }
+.kfe-status.pass { background: var(--ok-soft); }
+.kfe-status.wrn { background: var(--warn-soft); }
+.kfe-status.fail { background: var(--danger-soft); }
+.kfe-status.info { background: var(--info-soft); }
+.kfe-status .kfe-waiting { grid-column: 2; }
+.kfe-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.kfe-table th { text-align: left; font-weight: 600; color: var(--muted); }
+.kfe-table th, .kfe-table td { padding: 6px 8px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.kfe-table tr.dim td { opacity: 0.5; }
+.kfe-table .kfe-act { text-align: right; white-space: nowrap; }
+.kfe-plan td:first-child { min-width: 220px; }
+.kfe-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.kfe-field small { font-size: 12px; }
+.kfe-narrow { max-width: 360px; }
+.kfe-buttons { justify-content: flex-end; }
+@media (max-width: 640px) { .kfe-table .kfe-act { white-space: normal; } .kfe-plan td:first-child { min-width: 0; } }
 /* Optimize's sync line under the band, and its details (PR-OPT-006). */
 .optimize-sync[hidden] { display: none; }
 .optimize-sync { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 2px; }
@@ -3579,6 +3634,7 @@ tr.fg-conflict { background: var(--danger-soft); }
 .pbi-frame-wrap { position: relative; flex: 1; min-height: 480px; }
 .pbi-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--surface); }
 .pbi-frame.pbi-hidden { visibility: hidden; }
+.pbi-frame.pbi-focus { outline: 2px solid var(--accent); outline-offset: -2px; }  /* powerbi.js: focus is inside the report */
 .pbi-problem-slot { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; pointer-events: none; }
 .pbi-problem-slot:empty { display: none; }
 .pbi-problem { max-width: 520px; pointer-events: auto; display: flex; flex-direction: column; gap: 8px; }
@@ -3851,6 +3907,49 @@ body[data-skin-cells="rounded"] .cells.editing .cell.selected .cell-box { box-sh
 .assess-evidence section p { margin: 0; }
 .assess-ev { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .assess-ev li { display: flex; flex-direction: column; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: 6px; }
+
+/* Optimize > Assessment > Excellence (FEA-109, Preview; optimize-excellence.js), from the FEA-108 mockup.
+   No art and no color besides status. */
+.exc-views { margin-top: 4px; }
+.exc-hero { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.exc-stat { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 6px; min-width: 0; }
+.exc-k { font-size: 12px; color: var(--muted); }
+.exc-v { font-size: 30px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.exc-v small { font-size: 14px; font-weight: 400; color: var(--muted); }
+.exc-v-s { font-size: 20px; }
+.exc-h { font-size: 12px; color: var(--muted); }
+.exc-rating { align-self: flex-start; padding: 2px 8px; border-radius: 10px; background: var(--info-soft); color: var(--info); font-size: 12px; font-weight: 600; }
+.exc-rating.prov { background: var(--warn-soft); color: var(--warn-ink); }
+.exc-rating.none { background: var(--hover); color: var(--text-2); }
+.exc-crit { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; padding: 10px 14px; border: 1px solid var(--danger); border-radius: 6px; background: var(--danger-soft-2); color: var(--danger); font-size: 13px; }
+.exc-crit > .tool { margin-left: auto; }
+.exc-info { padding: 10px 14px; border-radius: 6px; background: var(--warn-soft); color: var(--warn-ink); font-size: 13px; }
+.exc-info.grey { background: var(--surface-2); color: var(--text); }
+.exc-sec { margin: 4px 0 0; font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.exc-dims { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.exc-dim { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.exc-dim:hover, .exc-dim:focus-visible { border-color: var(--accent); }
+.exc-dim.ne { border-style: dashed; background: var(--surface-2); }
+.exc-dn { font-size: 13px; font-weight: 600; }
+.exc-ds { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.exc-dr { font-size: 12px; color: var(--info); }
+.exc-dr.prov { color: var(--warn-ink); font-weight: 600; }
+.exc-dr.none { color: var(--muted); font-weight: 600; }
+.exc-dm { font-size: 12px; color: var(--muted); }
+.exc-acts { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 6px; }
+.exc-act { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 10px 12px; font-size: 13px; }
+.exc-act + .exc-act { border-top: 1px solid var(--border-soft); }
+.exc-sev { text-align: center; }
+.exc-t { font-weight: 600; }
+.exc-w { font-size: 12px; color: var(--muted); }
+.exc-counts { display: flex; flex-wrap: wrap; gap: 22px; font-size: 13px; }
+.exc-counts b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+.exc-foot { margin: 0; padding-top: 12px; border-top: 1px solid var(--border-soft); font-size: 12px; color: var(--muted); }
+.exc-refs, .assess-evidence > .row { flex-wrap: wrap; }
+.exc-counts .tool.link { padding: 0; min-height: 0; }
+.dialog.exc-sheet { max-width: 760px; }
+.exc-outcomes td { vertical-align: top; }
+@media (max-width: 560px) { .exc-act { grid-template-columns: minmax(0, 1fr); } }
 
 /* Notebook Export > PDF (notebook-formats.js): the web page export, shown alone when printing. */
 .nbf-print { display: none; }

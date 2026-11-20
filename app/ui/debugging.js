@@ -100,6 +100,16 @@ function dbgDroppedText(dropped, why) {
   return `Removed the ${dropped.length === 1 ? "breakpoint" : "breakpoints"} on ${list}, because ${why}.`;
 }
 
+// Where a pause is in the code as it is now. The kernel pauses on a line of the code as it ran, so
+// after an edit mid-run that line is found again by its text (as dbgBpRematch does), and is null
+// when it isn't in the cell any more: the paused mark is then never put on some other line.
+function dbgPausedLine(ran, now, line) {
+  if (ran == null || ran === now) return { line, edited: false };
+  const before = ran.split("\n");
+  const found = dbgBpRematch([line], (n) => before[n - 1] ?? null, now.split("\n")).lines;
+  return { line: found.length ? found[0] : null, edited: true, text: (before[line - 1] || "").trim() };
+}
+
 // The paused call stack, outermost first: "(cell) line 5 › f line 3".
 function dbgStackText(stack) {
   return (stack || []).map((f) => `${f.function} line ${f.line}`).join(" › ");
@@ -112,6 +122,32 @@ function dbgKeyAction(e) {
   if (e.key === "F10" && !e.shiftKey) return "next";
   if (e.key === "F11") return e.shiftKey ? "out" : "step";
   return null;
+}
+
+// A pause as the engine sent it, in the shape the panel draws: every field checked and capped, so
+// a garbled or oversized snapshot (an engine bug, a newer engine) shows less, never breaks the
+// notebook. No usable line means no pause to show.
+const DBG_MAX_ROWS = 500;
+function dbgCleanPause(p) {
+  if (!p || typeof p !== "object" || Array.isArray(p)) return null;
+  const whole = (v) => (Number.isInteger(v) && v >= 1 ? v : null);
+  if (whole(p.line) == null) return null;
+  const text = (v, n = 2000) => (v == null ? "" : typeof v === "object" ? "" : String(v)).slice(0, n);
+  const items = (v, n) => (Array.isArray(v) ? v.slice(0, n).filter((x) => x && typeof x === "object" && !Array.isArray(x)) : []);
+  const value = (r) => ({ expr: text(r.expr), value: text(r.value), type: text(r.type, 200), size: text(r.size, 200),
+    ...(r.error != null ? { error: text(r.error) } : {}) });
+  const out = {
+    line: p.line,
+    reason: text(p.reason, 40),
+    stack: items(p.stack, DBG_MAX_ROWS).map((f) => ({ function: text(f.function, 200), line: whole(f.line) ?? 0 })),
+    variables: items(p.variables, DBG_MAX_ROWS).map((r) => ({ name: text(r.name, 200), type: text(r.type, 200), size: text(r.size, 200), value: text(r.value) })),
+    watches: items(p.watches, 100).map(value),
+    evals: items(p.evals, 100).map(value),
+  };
+  if (whole(p.variables_total) != null) out.variables_total = p.variables_total;
+  const skipped = Array.isArray(p.skipped) ? p.skipped.filter((n) => typeof n === "string").slice(0, 20).map((n) => n.slice(0, 200)) : [];
+  if (skipped.length) out.skipped = skipped;
+  return out;
 }
 
 // ---------- state ----------
@@ -342,7 +378,8 @@ function dbgEditorMarks(cell) {
 
 function dbgMarks(cell) {
   const lines = new Map(dbgBreakpoints(cell).map((n) => [n, "cm-bp"]));
-  if (cell.paused?.line) lines.set(cell.paused.line, `${lines.has(cell.paused.line) ? "cm-bp " : ""}cm-paused`);
+  const at = cell.paused?.line ? dbgPausedLine(cell.dbgRan, cell.source, cell.paused.line).line : null;
+  if (at) lines.set(at, `${lines.has(at) ? "cm-bp " : ""}cm-paused`);
   if (!lines.size) return [];
   const view = editors.get(cell.id);
   const doc = view ? view.state.doc : CM.EditorState.create({ doc: cell.source }).doc;
@@ -390,6 +427,7 @@ function dbgToggleAtCursor(cell) {
 // whole cell was replaced at once (Format cell, a language change), each finds its line's text
 // again instead. A breakpoint that can't follow is removed and named in a message.
 function dbgEdited(cell, u) {
+  if (cell.paused) dbgPausedEdited(cell);
   const lines = cell.meta?.breakpoints;
   if (!lines?.length) return;
   const before = u.startState.doc;
@@ -419,6 +457,18 @@ function dbgEdited(cell, u) {
   if (dropped.length) toast(dbgDroppedText(dropped, why));
 }
 
+// An edit while the cell is paused: the paused mark follows its line's code, and the panel says the
+// pause is in the code as it ran (once, when that changes, so what's typed in Evaluate is kept).
+function dbgPausedEdited(cell) {
+  queueMicrotask(() => dbgRepaintMarks(cell));
+  const p = dbgPausedLine(cell.dbgRan, cell.source, cell.paused.line);
+  const key = p.edited ? String(p.line) : "";
+  if (key !== (cell.dbgEditedAt || "")) {
+    cell.dbgEditedAt = key;
+    updateResults(cell);  // notebook.js
+  }
+}
+
 // Before a run: breakpoints past the cell's end (its code changed where no editor saw it, or in
 // another program) are removed and named, never sent and quietly never hit.
 function dbgCheckLines(cell) {
@@ -437,13 +487,15 @@ function dbgStartArgs(cell, debug) {
   if (dbgOn() && cell.type === "code") dbgCheckLines(cell);
   const lines = dbgBreakpoints(cell);
   if (!dbgOn()) return {};
+  cell.dbgRan = cell.source;  // what the kernel pauses in, if the cell is edited while it runs
+  cell.dbgEditedAt = "";
   return { ...(lines.length ? { breakpoints: lines } : {}), ...(debug ? { step: true } : {}) };
 }
 
 // Called by runCell with each snapshot: shows or clears the paused line and panel.
 function dbgSnapshot(cell, snap) {
   const was = cell.paused?.line;
-  const now = snap?.status === "running" ? snap.paused || null : null;
+  const now = snap?.status === "running" ? dbgCleanPause(snap.paused) : null;
   const changed = JSON.stringify(cell.paused || null) !== JSON.stringify(now);
   cell.paused = now;
   if (was !== now?.line) dbgRepaintMarks(cell);
@@ -525,6 +577,7 @@ function dbgPausedPanel(cell) {
   const value = (r) => r.error ? h("span", { class: "warn" }, r.error) : h("span", { class: "dbg-value" }, r.value, r.type ? h("span", { class: "muted-text" }, `  ${r.type}${r.size ? ` · ${r.size}` : ""}`) : null);
   return h("div", { class: "output dbg-paused", role: "region", "aria-label": "Debugger" },
     h("div", { class: "dbg-hidden-title" }, h("b", {}, `Paused at line ${p.line}${p.reason === "breakpoint" ? " (breakpoint)" : ""}`), previewTag()),
+    dbgEditedNote(dbgPausedLine(cell.dbgRan, cell.source, p.line), p.line),
     h("div", { class: "dbg-actions" },
       step("Continue", "continue", "F5", "play"), step("Step over", "next", "F10", null), step("Step into", "step", "F11", null),
       step("Step out", "out", "Shift+F11", null), btn("Stop", "stop", cancelRun, "tool outline small", { title: "Cancel the cell (keeps variables)" })),
@@ -543,6 +596,16 @@ function dbgPausedPanel(cell) {
       ...(p.evals || []).map((w) => h("div", { class: "dbg-eval" }, h("code", {}, w.expr), value(w))),
       h("div", { class: "dbg-addrow" }, input, btn("Evaluate", null, evaluate, "tool outline small"))),
     h("div", { class: "muted-text dbg-note" }, "Evaluating runs notebook code in the paused frame, so keep it to reads. A cell under the debugger has no time limit. Only this cell's own code stops at breakpoints; libraries, functions from other cells, %run notebooks and threads the cell starts don't."));
+}
+
+// The cell was changed after it started: the pause, and its breakpoints, are in the code as it ran.
+function dbgEditedNote(at, line) {
+  if (!at.edited) return null;
+  const where = at.line == null ? `Line ${line} as it ran${at.text ? ` (${at.text})` : ""} isn't in the cell now.`
+    : at.line === line ? `It's paused at line ${line} of the code as it ran.`
+      : `It's paused at line ${line} of the code as it ran, which is line ${at.line} now.`;
+  return h("div", { class: "muted-text dbg-note dbg-edited", role: "status" },
+    `You changed this cell after it started. ${where} Your edits and breakpoint changes take effect the next time the cell runs.`);
 }
 
 // Under the paused frame's variables: what is capped and how to see more.

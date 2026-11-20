@@ -9240,7 +9240,7 @@ The "after" run of the 88 survivors was done in three passes, because tests were
 
 ### Bugs found
 
-- **fabric_run.py**: a read with an empty format, `spark.read.format('').load('f')`, is refused with "reads format 'parquet', which this PC's Spark doesn't have", though this PC reads Parquet. The empty text isn't one of the formats this PC reads, so the read is refused, but the message names it with `fmt_text or "parquet"` (line 680), which turns the empty format into Parquet. `test_an_empty_format_is_not_refused_as_parquet` pins it as a strict expected failure. Not fixed here.
+- **fabric_run.py**: a read with an empty format, `spark.read.format('').load('f')`, is refused with "reads format 'parquet', which this PC's Spark doesn't have", though this PC reads Parquet. The empty text isn't one of the formats this PC reads, so the read is refused, but the message names it with `fmt_text or "parquet"` (line 680), which turns the empty format into Parquet. #3118 has since fixed it on `main`, so `test_an_empty_format_is_not_refused_as_parquet` is now a plain test (it was a strict expected failure until then).
 
 ### What the survivors were, and the tests that now kill them
 

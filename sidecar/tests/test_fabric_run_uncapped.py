@@ -282,7 +282,6 @@ def test_a_format_this_pc_does_not_read_is_named():
         (1, "reads format 'xml', which this PC's Spark doesn't have (it reads csv, json, parquet, text and delta)")]
 
 
-@pytest.mark.xfail(strict=True, reason="bug: an empty format is refused as format 'parquet', which this PC does read")
 def test_an_empty_format_is_not_refused_as_parquet():
     [(_, text)] = _write_refusals("spark.read.format('').load('f')")["fabric"]
     assert "'parquet'" not in text

@@ -329,11 +329,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Create a new table with CREATE TABLE AS SELECT and WITH (CLUSTER BY (SaleDate)), and point the reports at it"
+          "text": "Create a new table with CREATE TABLE AS SELECT and WITH (CLUSTER BY (StoreRegion)), so rows are clustered by region"
         },
         {
           "id": "b",
-          "text": "Create a new table with CREATE TABLE AS SELECT and WITH (CLUSTER BY (StoreRegion)), so rows are clustered by region"
+          "text": "Create a new table with CREATE TABLE AS SELECT and WITH (CLUSTER BY (SaleDate)), and point the reports at it"
         },
         {
           "id": "c",
@@ -345,7 +345,7 @@
         }
       ],
       "answer": [
-        "a"
+        "b"
       ],
       "explanation": "Clustering is defined when a table is created and can't be added to an existing table, so CTAS builds a clustered copy. SaleDate is used in range filters and has many distinct values. IDENTITY columns can't be used with CLUSTER BY, and a low-cardinality column such as a region gives little file skipping.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/data-clustering",

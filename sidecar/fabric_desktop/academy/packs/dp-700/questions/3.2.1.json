@@ -327,11 +327,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Open the pipeline run's details and rerun the pipeline from the failed activity"
+          "text": "Run the whole pipeline on demand again as soon as the bug fix has been saved"
         },
         {
           "id": "b",
-          "text": "Run the whole pipeline on demand again as soon as the bug fix has been saved"
+          "text": "Open the pipeline run's details and rerun the pipeline from the failed activity"
         },
         {
           "id": "c",
@@ -343,7 +343,7 @@
         }
       ],
       "answer": [
-        "a"
+        "b"
       ],
       "explanation": "In the pipeline run detail view you can rerun the pipeline from the failed activity or a selected activity, so the copies that succeeded aren't repeated. Running the whole pipeline repeats them, and a scheduled run is a new run that starts from the beginning.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/monitoring-hub-pipeline-runs",

@@ -330,15 +330,15 @@
         },
         {
           "id": "c",
-          "text": "Turn on fault tolerance to skip incompatible rows, with logging left off"
+          "text": "Turn on fault tolerance to skip incompatible rows, and turn on logging"
         },
         {
           "id": "d",
-          "text": "Turn on fault tolerance to skip incompatible rows, and turn on logging"
+          "text": "Turn on fault tolerance to skip incompatible rows, with logging left off"
         }
       ],
       "answer": [
-        "d"
+        "c"
       ],
       "explanation": "Fault tolerance lets the copy ignore errors such as rows incompatible with the destination, and logging records the copied files and the skipped files and rows. Without logging the team can't see which rows were left out. Staging, throughput and parallelism only change speed.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-data-activity",

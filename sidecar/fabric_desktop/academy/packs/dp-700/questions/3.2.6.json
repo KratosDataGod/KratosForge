@@ -324,11 +324,11 @@
       "options": [
         {
           "id": "a",
-          "text": "The adjuster should name only the columns they were granted in the query's SELECT list"
+          "text": "The adjuster should rerun the query later, because Msg 230 is a transient connection error"
         },
         {
           "id": "b",
-          "text": "The adjuster should rerun the query later, because Msg 230 is a transient connection error"
+          "text": "The adjuster should name only the columns they were granted in the query's SELECT list"
         },
         {
           "id": "c",
@@ -340,7 +340,7 @@
         }
       ],
       "answer": [
-        "a"
+        "b"
       ],
       "explanation": "With column-level security, a query that includes a column the user can't read fails rather than skipping that column, and SELECT * includes it. Naming the granted columns fixes it. Read all data using SQL would give the adjuster every column, including FraudScore, which the case forbids.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/column-level-security",
@@ -364,15 +364,15 @@
         },
         {
           "id": "c",
-          "text": "MERGE statements always create new Parquet files, which can't conflict, so the cause is somewhere else"
+          "text": "The warehouse checks write-write conflicts at table level, so two transactions that change FactSales can conflict"
         },
         {
           "id": "d",
-          "text": "The warehouse checks write-write conflicts at table level, so two transactions that change FactSales can conflict"
+          "text": "MERGE statements always create new Parquet files, which can't conflict, so the cause is somewhere else"
         }
       ],
       "answer": [
-        "d"
+        "c"
       ],
       "explanation": "The warehouse uses table-level locking, so transactions that modify different rows of the same table can still conflict; the first to commit wins and the other is rolled back. MERGE causes write-write conflicts even when it only appends. Running the loads one after the other avoids the conflict.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/transactions",

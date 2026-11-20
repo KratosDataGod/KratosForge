@@ -32,7 +32,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from ..redact import one_line
-from .notify import OutcomeUnknown
+from .notify import OutcomeUnknown, answered
 
 _log = logging.getLogger(__name__)
 
@@ -225,7 +225,7 @@ def post_flow(url: str, title: str, lines: list[str], http: Any = None) -> None:
         http = http_session.session()
     r = http.post(url, json=flow_body(title, lines), timeout=(5, 15), allow_redirects=False)
     if r.status_code >= 300:
-        raise RuntimeError(f"The flow answered {r.status_code}")
+        raise answered("The flow", r.status_code)
 
 
 def poster(mail: MailServer | None, teams: Post, password: Callable[[], str | None] = lambda: None,

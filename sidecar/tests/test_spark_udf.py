@@ -97,6 +97,35 @@ print([tuple(r) for r in df.select(plus_one("amt"), tens("id")).collect()])
     assert out == "[(1.0, 10), (4.5, 20), (2.0, 30)]"
 
 
+def test_a_pandas_udf_keeps_its_numbers_beside_a_null_as_spark_converts_them(kernel):
+    # A null in a long column makes the pandas Series float, and Spark's Arrow conversion still keeps 2.0
+    # as 2 (it was null here). A float cut to a long, an int as a double and NaN as null, as in Spark 3.5.
+    out = run(kernel, """
+import pandas as pd
+from typing import Iterator
+from pyspark.sql import functions as F
+df = spark.createDataFrame([(1, 0.5), (None, 2.7), (3, None)], "i long, d double")
+@F.pandas_udf("long")
+def plus_one(s: pd.Series) -> pd.Series:
+    return s + 1
+@F.pandas_udf("long")
+def plus_one_each(batches: Iterator[pd.Series]) -> Iterator[pd.Series]:
+    for b in batches:
+        yield b + 1
+@F.pandas_udf("long")
+def cut(s: pd.Series) -> pd.Series:
+    return s * 2
+@F.pandas_udf("double")
+def whole(s: pd.Series) -> pd.Series:
+    return pd.Series([7] * len(s))
+@F.pandas_udf("double")
+def nan(s: pd.Series) -> pd.Series:
+    return s * float("nan")
+print([tuple(r) for r in df.select(plus_one("i"), plus_one_each("i"), cut("d"), whole("i"), nan("d")).collect()])
+""")
+    assert out == "[(2, 2, 1, 7.0, None), (None, None, 5, 7.0, None), (4, 4, None, 7.0, None)]"
+
+
 def test_a_grouped_aggregate_pandas_udf_says_it_runs_in_fabric(kernel):
     out = kernel.run(SETUP + """
 import pandas as pd

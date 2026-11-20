@@ -61,7 +61,7 @@ Effort: S under a week of agent work, M one to two weeks, L more.
 
 ## Cross-platform
 
-### PAR-001 Registry plan metadata (P0, this program's first PR)
+### PAR-001 Registry plan metadata (P0, this program's first PR) **Built** (#3112)
 
 - **Functional:** each parity area says its feature family, priority, where its work runs today,
   the backlog items that move it, its owner and when it was reviewed. docs/parity.md shows it.

@@ -116,9 +116,11 @@ class EstateMixin:
             restores = []
         return {"entity": name, "env": env, "retention_days": days, "layer": e.layer, "versions": versions,
                 "restores": restores, "downstream": impact(project, name),
+                **({"confirm_name": name_} if (name_ := self._confirm_name(project, env)) else {}),  # type: ignore[attr-defined]
                 "incremental": e.mode == "incremental" and bool(e.spec.get("load", {}).get("watermark"))}
 
-    def meta_restore(self, name: str, env: str, version: int, reason: str = "") -> dict[str, Any]:
+    def meta_restore(self, name: str, env: str, version: int, reason: str = "",
+                     confirm_name: str = "") -> dict[str, Any]:
         """Put the table back to ``version`` (a new Delta commit; later versions stay in history).
 
         An incremental table's watermark moves back to the restored data, so its next run loads
@@ -129,6 +131,8 @@ class EstateMixin:
             errors, _ = self._duties_gate(project, env, env, separation=False)  # type: ignore[attr-defined]
             if errors:
                 raise GateError("restore", errors)
+        self._confirm_typed(project, env, confirm_name, f"restoring {name} there",  # type: ignore[attr-defined]
+                           "Nothing was restored.")
         e, store, uri = self._entity_uri(project, name, env)
         result = restore_mod.restore(uri, store.options(), int(version),
                                      {"fabric_desktop_restored_to": str(version),

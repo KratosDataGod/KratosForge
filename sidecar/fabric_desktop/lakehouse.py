@@ -34,7 +34,7 @@ from . import runlog
 from .onelake import FileStore, TableRef, storage_options
 from .publish import WriteTokenExpired, publish, refuse_conversions, resolve_schema_mode, stage_locally
 from .redact import describe
-from .retrying import data_upload_dropped, log_commit_dropped
+from .retrying import data_upload_dropped, local_retry, log_commit_dropped
 
 _log = logging.getLogger(__name__)
 
@@ -865,13 +865,24 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
             raise ValueError(f"OPTIMIZE ... WHERE filters only on partition columns ({', '.join(parts) or 'none'}), "
                              f"not {', '.join(bad)}. Nothing was changed.")
         filters = [(c, op, v) for c, op, v in where] if where else None
+        # On Windows a writer committing the same next version at the same moment, or holding a log file, makes
+        # this commit fail to open a log file (retrying.windows_log_race). Usually that is the staged commit and
+        # nothing went in; it can also be a later log file read after the commit went in. Either way it runs again
+        # on the table's latest version, and a second compaction or Z-Order there changes no rows.
+        attempts = [0]
+
+        def once() -> dict[str, Any]:
+            if attempts[0]:
+                t.update_incremental()
+            attempts[0] += 1
+            if zorder:
+                return t.optimize.z_order(zorder, partition_filters=filters, commit_properties=commit)
+            return t.optimize.compact(partition_filters=filters, commit_properties=commit)
         if zorder:
             missing = [c for c in zorder if c not in t.schema().to_arrow().names]
             if missing:
                 raise ValueError(f"ZORDER BY names columns {name_} hasn't got: {', '.join(missing)}. Nothing was changed.")
-            metrics = t.optimize.z_order(zorder, partition_filters=filters, commit_properties=commit)
-        else:
-            metrics = t.optimize.compact(partition_filters=filters, commit_properties=commit)
+        metrics = local_retry(once)
         note = "Compacted on this PC without V-Order; Fabric's table maintenance adds V-Order."
     elif operation == "vacuum":
         kept = maintenance.kept_days(t.metadata().configuration)

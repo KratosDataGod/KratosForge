@@ -250,6 +250,7 @@ The desktop calls these engine methods (JSON-RPC, see [architecture](architectur
 
 Checks come from one registry, `sidecar/fabric_desktop/governance_checks.py`. The built-in checkers (naming, ownership, classification, contract) are registered there, and the notebook, SQL and semantic model best-practice checkers are registered the same way (below). The Best Practice Analyzer rules that need a model's VertiPaq statistics run only in Fabric and aren't registered, so a policy can't name them. A policy points at rules by id in **Checked by**.
 
+<!-- example: illustrative -->
 ```python
 register(kind, rules, check, runs_in="local")   # runs_in: "local" (this PC) or "fabric"
 ```
@@ -262,6 +263,7 @@ register(kind, rules, check, runs_in="local")   # runs_in: "local" (this PC) or 
 
 A minimal checker:
 
+<!-- example: illustrative -->
 ```python
 from fabric_desktop import governance_checks as gc
 

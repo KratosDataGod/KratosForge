@@ -57,7 +57,16 @@ _MONTH = re.compile(r"\d{4}-\d{2}")  # audit-YYYY-MM.jsonl
 
 def hash_entry(prev: str, entry: dict[str, Any]) -> str:
     body = json.dumps(entry, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256((prev + body).encode()).hexdigest()
+    return hashlib.sha256((str(prev) + body).encode()).hexdigest()  # str: a damaged line's prev may be any JSON
+
+
+def _one_each(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """A JSON object whose fields each appear once. A sealed line never repeats one; a repeat would let a
+    reader that keeps the first copy see other content than the hash covers (json keeps the last)."""
+    out = dict(pairs)
+    if len(out) != len(pairs):
+        raise ValueError("a field appears twice")
+    return out
 
 
 def files(folder: Path) -> list[Path]:
@@ -88,7 +97,7 @@ def last_hash(folder: Path) -> str:
         if line:
             try:
                 return str(json.loads(line)["hash"])
-            except (ValueError, KeyError, TypeError):
+            except (ValueError, KeyError, TypeError, RecursionError):  # RecursionError: nested too deep
                 return GENESIS
     return GENESIS
 
@@ -150,7 +159,7 @@ def _hashes(folder: Path) -> list[str | None]:
             if line.strip():
                 try:
                     out.append(str(json.loads(line)["hash"]))
-                except (ValueError, KeyError, TypeError):
+                except (ValueError, KeyError, TypeError, RecursionError):
                     out.append(None)
     return out
 
@@ -258,7 +267,7 @@ def prune(folder: Path, days: int, now: float | None = None) -> dict[str, Any]:
         last = _last_line(old[-1])
         try:
             last_hash = str(json.loads(last)["hash"])
-        except (ValueError, KeyError, TypeError):  # a damaged last line: verify() reports the break that follows
+        except (ValueError, KeyError, TypeError, RecursionError):  # a damaged last line: verify() reports the break that follows
             last_hash = ""
         new = dict(head)
         # The head only moves forward: after a prune stopped part way and a clock put back, months it already
@@ -296,9 +305,9 @@ def verify(folder: Path) -> dict[str, Any]:
                 continue
             count += 1
             try:
-                entry = json.loads(line)
+                entry = json.loads(line, object_pairs_hook=_one_each)
                 stored = entry.pop("hash")
-            except (ValueError, KeyError, AttributeError, TypeError):  # TypeError: a JSON array
+            except (ValueError, KeyError, AttributeError, TypeError, RecursionError):  # TypeError: a JSON array
                 problems.append(f"{path.name} line {number}: not an audit line")
                 continue
             if count == 1 and base.get("hash") and entry.get("prev") == base["hash"]:
@@ -320,7 +329,8 @@ def verify(folder: Path) -> dict[str, Any]:
     counted = sum(1 for path in files(folder) if base.get("through") and _month(path) <= str(base["through"])
                   for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip())
     seen = {n - counted: h for n, h in seen.items()}
-    for name, mark in (("newest line recorded", head), ("line recorded before lines went missing", head.get("lost") or {})):
+    lost: dict[str, Any] = head["lost"] if isinstance(head.get("lost"), dict) else {}
+    for name, mark in (("newest line recorded", head), ("line recorded before lines went missing", lost)):
         lines, want = mark.get("lines"), mark.get("hash")
         if want and isinstance(lines, int) and seen.get(lines) != want:
             problems.append(f"{HEAD}: the trail ends before the {name} (line {lines}); lines were deleted from the end")
@@ -422,7 +432,7 @@ def export(folder: Path, out: Path, since: str = "", replace: bool = False) -> d
                 if not lines and start is not None:
                     try:
                         at = _moment(str(json.loads(line).get("at", "")))
-                    except (ValueError, AttributeError):
+                    except (ValueError, AttributeError, RecursionError):
                         at = None
                     if at is None or at < start:
                         continue
@@ -430,8 +440,8 @@ def export(folder: Path, out: Path, since: str = "", replace: bool = False) -> d
         head = _head(folder)
     out.parent.mkdir(parents=True, exist_ok=True)
     jsonfile.write_text(out, "".join(line + "\n" for line in lines), newline="\n")
-    first = json.loads(lines[0]) if lines else {}
-    last = json.loads(lines[-1]) if lines else {}
+    first = _object(lines[0]) if lines else {}
+    last = _object(lines[-1]) if lines else {}
     manifest = {
         "schema": EXPORT_SCHEMA, "lines": len(lines), "since": since, "first_prev": first.get("prev", GENESIS),
         "first_at": first.get("at", ""), "last_hash": last.get("hash", GENESIS), "last_at": last.get("at", ""),
@@ -440,6 +450,15 @@ def export(folder: Path, out: Path, since: str = "", replace: bool = False) -> d
     }
     jsonfile.write_json(manifest_path(out), manifest)
     return {"file": str(out), "manifest": str(manifest_path(out)), **manifest}
+
+
+def _object(line: str) -> dict[str, Any]:
+    """A line as a JSON object; {} for a damaged one, which the copy keeps and verify_export() reports."""
+    try:
+        value = json.loads(line)
+    except (ValueError, RecursionError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def verify_export(out: Path, folder: Path | None = None) -> dict[str, Any]:
@@ -462,9 +481,9 @@ def verify_export(out: Path, folder: Path | None = None) -> dict[str, Any]:
             continue
         count += 1
         try:
-            entry = json.loads(line)
+            entry = json.loads(line, object_pairs_hook=_one_each)
             stored = entry.pop("hash")
-        except (ValueError, KeyError, AttributeError, TypeError):
+        except (ValueError, KeyError, AttributeError, TypeError, RecursionError):
             problems.append(f"line {number}: not an audit line")
             continue
         if entry.get("prev") != prev:

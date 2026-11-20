@@ -168,7 +168,9 @@ def test_a_rollback_is_stopped_by_the_role_check(bare, monkeypatch):
 
 
 def test_a_rollback_in_fabric_syncs_the_release_it_went_back_to(bare, monkeypatch):
-    monkeypatch.setattr(bare, "_project", lambda: SimpleNamespace())
+    # A Prod rollback asks for the Prod workspace's name to be typed (WR-250).
+    project = SimpleNamespace(environments={"prod": {"workspace_name": "Sales Prod"}})
+    monkeypatch.setattr(bare, "_project", lambda: project)
     monkeypatch.setattr(bare, "_duties_gate", lambda p, s, t, separation=True: ([], []))
     monkeypatch.setattr(bare, "_store", lambda p, env: "store")
     monkeypatch.setattr(ms, "rollback", lambda p, store, version, user, oid: {"project": "released", "version": version})
@@ -177,13 +179,13 @@ def test_a_rollback_in_fabric_syncs_the_release_it_went_back_to(bare, monkeypatc
     monkeypatch.setattr(bare, "_compute", lambda p, env: "fabric")
     synced = []
     monkeypatch.setattr(bare, "_fabric_bundle", lambda p, env, store: synced.append(p))
-    assert bare.meta_rollback("prod", "2") == {"version": "2", "fabric": "synced"}
+    assert bare.meta_rollback("prod", "2", confirm_name="Sales Prod") == {"version": "2", "fabric": "synced"}
     assert synced == ["released"]
 
     def fails(*a):
         raise RuntimeError("offline")
     monkeypatch.setattr(bare, "_fabric_bundle", fails)
-    assert bare.meta_rollback("prod", "2")["fabric"] == "not synced: offline"
+    assert bare.meta_rollback("prod", "2", confirm_name="Sales Prod")["fabric"] == "not synced: offline"
 
 
 def test_dev_has_no_duties_and_an_unreadable_source_has_no_deployments(bare, monkeypatch):

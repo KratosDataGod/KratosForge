@@ -336,6 +336,26 @@ def _is_link(entry: os.DirEntry[str]) -> bool:
     return bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
 
 
+def table_files(uri: str) -> set[str]:
+    """Every data file in a table folder on this PC (deletion vectors included, the log and linked folders
+    left out), relative to the table with forward slashes, as os.path.normcase compares them (Windows paths
+    ignore case)."""
+    return {os.path.normcase(Path(e.path).relative_to(uri).as_posix()) for e in _data_folder_files(uri)}
+
+
+def relative_to_table(uri: str, path: str) -> str:
+    """``path`` as delta-rs lists it (whole, a file:// URL, or relative; either slash; percent-encoded),
+    relative to the table folder ``uri`` with forward slashes."""
+    text = path[len("file://"):] if path.startswith("file://") else path
+    text = unquote(text).replace("\\", "/")
+    root = uri.rstrip("/\\").replace("\\", "/") + "/"
+    if os.path.normcase(text).startswith(os.path.normcase(root)):
+        return text[len(root):]
+    if text.startswith("/") and os.path.normcase(text[1:]).startswith(os.path.normcase(root)):  # file:///C:/...
+        return text[1 + len(root):]
+    return text
+
+
 def _data_folder_files(uri: str) -> Any:
     """The plain files of a table folder outside its log, never going into a linked folder or one Delta
     keeps out of the table (_delta_log, _change_data and any other _ or . folder)."""

@@ -98,20 +98,23 @@ class ProviderDescriptor:
 
 _TESTED = Capability("supported", "unit_tests")
 
-# Fabric: discovery (controlplane/fabric.py) and the stores (optimize/, central/) are built and tested
-# against fakes, not yet run on a live tenant (docs/platform.md "What isn't proven yet"). Provisioning
-# and health arrive with CP-005 and CP-007 and are claimed here only when their tests land.
+# Fabric: built and tested against fakes of Fabric and OneLake (controlplane/fabric.py, provisioning.py,
+# health.py; the stores in optimize/ and central/), not yet run on a live tenant (docs/platform.md "What
+# isn't proven yet"), so it stays Preview until CP-012's recorded live run.
 FABRIC = ProviderDescriptor(
     id="fabric", label="Microsoft Fabric", adapter=True,
     capabilities={
         "discovery": _TESTED,
+        "provisioning": _TESTED,
         "manifest": _TESTED,
         "analytical_store": _TESTED,
         "operational_store": Capability("partial", "unit_tests",
-                                        "Needs a Fabric SQL database and user data functions (F2 or larger, or a trial)"),
+                                        "Linked from an existing Platform; not created here yet. Needs a Fabric SQL "
+                                        "database and user data functions (F2 or larger, or a trial)"),
         "migrations": _TESTED,
+        "health": _TESTED,
     },
-    planned="Provisioning (CP-005) and health checks (CP-007); then a live run in a test workspace (CP-012).",
+    planned="A recorded live run in a test workspace (CP-012), then the operational store created by setup.",
 )
 
 LOCAL = ProviderDescriptor(
@@ -170,12 +173,14 @@ class PlanStep:
     permission: str = ""  # the role or permission the step needs
     cost: str = ""        # what it may cost, or "" for none
     blocked: str = ""     # why it can't go ahead, or ""
+    note: str = ""        # what else the person should know: a side effect, or a consequence for other PCs
 
 
 @dataclass(frozen=True)
 class ProvisionPlan:
     provider: str
     steps: tuple[PlanStep, ...]
+    request: dict[str, Any] = field(default_factory=dict)  # what was asked, so apply does exactly that
 
     @property
     def blocked(self) -> list[str]:

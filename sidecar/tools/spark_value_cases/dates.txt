@@ -1,0 +1,19 @@
+# Spark 3.5's date and time functions, each case one query. Spark's answers:
+# tests/fixtures/spark_3_5_3_dates.json, written by hand from the Spark 3.5.3 probe of 2026-11-18
+# (sql-differential/spark-probe-findings-2026-11-18.md); tools/capture_spark_values.py dates writes the same
+# file. Checked by tests/test_spark_date_values.py.
+
+# a date plus a month is a date, at the month's last day
+SELECT DATE'2024-01-31' + INTERVAL 1 MONTH
+# trunc takes QUARTER, not the letter Q
+SELECT trunc(DATE'2024-05-17', 'Q')
+# unix_seconds rounds down
+SELECT unix_seconds(TIMESTAMP'2024-05-17 13:45:12.9')
+# the session zone's name (UTC here, as in Fabric)
+SELECT date_format(TIMESTAMP'2024-05-17 13:05:02', 'z')
+# text that is a time of day only
+SELECT minute('13:45:12')
+# a zone written as an offset from GMT
+SELECT from_utc_timestamp(TIMESTAMP'2024-05-17 12:00:00', 'GMT+2')
+# no year-month interval type on this PC
+SELECT make_ym_interval(1, 2) IS NOT NULL

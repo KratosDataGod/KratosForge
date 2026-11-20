@@ -914,9 +914,11 @@ def test_current_time_is_a_time_cut_to_its_precision_in_the_session_zone():
     after = dt.datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
     zero, three, six, one, local = rows[0]
     assert re.fullmatch(r"time:\d\d:\d\d:\d\d", zero)
-    assert re.fullmatch(r"time:\d\d:\d\d:\d\d\.\d{3}000", three)
+    # a zero fraction is written with no digits
+    assert re.fullmatch(r"time:\d\d:\d\d:\d\d(\.\d{3}000)?", three)
     assert re.fullmatch(r"time:\d\d:\d\d:\d\d(\.\d{6})?", six) and local == six
-    assert re.fullmatch(r"time:\d\d:\d\d:\d\d\.\d00000", one)
+    assert re.fullmatch(r"time:\d\d:\d\d:\d\d(\.\d00000)?", one)
+    assert three.startswith(zero) and one.startswith(zero) and six.startswith(zero)
     # the session's time of day (Kolkata, UTC+05:30), not UTC's
     seconds = dt.time.fromisoformat(zero.removeprefix("time:"))
     if before.date() == after.date():  # not across midnight

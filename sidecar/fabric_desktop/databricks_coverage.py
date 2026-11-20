@@ -133,8 +133,9 @@ DATABRICKS_CHECKS: dict[str, dict[str, Any]] = {
                         "note": "Databricks SQL no longer supports it either (17.3 LTS and above): use _metadata.file_name"},
     "java_method": {"example": "SELECT java_method('java.util.UUID', 'fromString', 'a5cf6c42-0c85-418f-af6c-3e4e5b1328f2')",
                     "value": [["A5cf6c42-0c85-418f-af6c-3e4e5b1328f2"]]},
-    # a synonym of current_time: three digits after the second, then zeros (canonical writes six)
-    "localtime": {"example": "SELECT localtime(3)", "pattern": r"time:\d\d:\d\d:\d\d\.\d{3}000"},
+    # a synonym of current_time: three digits after the second, then zeros (canonical writes six, and none
+    # when the fraction is zero)
+    "localtime": {"example": "SELECT localtime(3)", "pattern": r"time:\d\d:\d\d:\d\d(\.\d{3}000)?"},
     "monotonically_increasing_id": {"example": "SELECT monotonically_increasing_id()", "value": [[0]],
                                     "note": "0, 1, 2 ... here; Databricks' ids are unique and increasing, with gaps"},
     "raise_error": {"example": "SELECT raise_error('custom error message')", "error": "custom error message",

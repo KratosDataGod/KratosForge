@@ -98,3 +98,29 @@ def test_system_information_schema_lists_the_sessions_tables(cell):
 def test_quotes_in_a_schema_name_stay_in_the_name(cell):
     answer = cell("USE SCHEMA `it's`")
     assert answer.startswith("error: [SCHEMA_NOT_FOUND] The schema `main`.`it's` cannot be found."), answer
+
+
+@pytest.mark.parametrize("code", ["SELECT main.default.t.id FROM main.default.t", "SELECT default.t.id FROM default.t",
+                                  "SELECT workspace.default.t.id FROM t", "SELECT t.id FROM main.default.t"])
+def test_columns_qualified_with_the_schema_or_catalog(cell, code):
+    assert cell(code) == [[1]]
+
+
+def test_a_column_in_another_catalog_is_refused(cell):
+    assert cell("SELECT prod.default.t.id FROM t").startswith("error: A table in the catalog prod can't run")
+
+
+@pytest.mark.parametrize("code, what", [("USE main", "USE main"), ("USE SCHEMA main", "USE SCHEMA main"),
+                                        ("SELECT * FROM main.t", "The schema main in main.t"),
+                                        ("SELECT main.t.id FROM t", "The schema main in main.t.id")])
+def test_a_schema_named_main_is_refused_since_it_is_default_here(cell, code, what):
+    # On Databricks USE x is USE SCHEMA x, so USE main names a schema main, not the catalog
+    answer = cell(code)
+    assert answer.startswith(f"error: {what} can't run on this PC the way it runs in Databricks, because this PC's "
+                             "engine keeps the name main for the schema shown as default"), answer
+    assert cell("SELECT current_schema()") == [["default"]]
+
+
+def test_duckdb_catalogs_are_named_as_this_pcs_own(cell):
+    assert "memory is a catalog of this PC's own engine, not one of the session's" in cell("SELECT * FROM memory.main.t")
+    assert "prod is a Unity Catalog catalog" in cell("SELECT * FROM prod.default.t")

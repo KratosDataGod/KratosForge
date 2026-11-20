@@ -2044,7 +2044,7 @@ def _refused_in_script(said: Exception, where: "tsql.InScript") -> str:
     error = str(said)
     if not error.endswith((".", "!", "?")):
         error += "."
-    return (f"Statement {where.index + 1} of {where.count} ({where.kind}) failed: {error} None of the script ran, "
+    return (f"Statement {where.index + 1} of {where.count} ({where.kind}) was refused: {error} None of the script ran, "
             "because every statement is checked before the first one runs.")
 
 

@@ -62,7 +62,8 @@ def tiny():
     tiers, req = [1, 2, 2, 3, 3, 4, 4, 5, 5, 6], [[], [0], [0], [1], [2], [3], [3, 4], [5], [6], [7, 8]]
     specs = [{"id": sp, "title": sp.title(), "professional": "P", "competency": "c",
               "nodes": [{"id": f"{sp}.{i + 1:02d}", "skill": f"s{k * 10 + i}", "tier": tiers[i],
-                         "requires": [f"{sp}.{j + 1:02d}" for j in req[i]]} for i in range(10)]}
+                         "requires": [f"{sp}.{j + 1:02d}" for j in req[i]], **({"capstone": True} if i == 9 else {})}
+                        for i in range(10)]}
              for k, sp in enumerate(("alpha", "beta", "gamma"))]
     cls = {"schema": catalog.CLASS_SCHEMA, "id": "test-class", "version": 1, "title": "Test Warden", "professional": "Tester",
            "fantasy": "F", "competency": "C", "emblem": "E", "platforms": [], "technologies": [],
@@ -515,3 +516,12 @@ def test_every_lakehouse_warden_achievement_can_be_earned_on_this_pc():
     for cls in levels.evaluate(progress.empty(), CAT)["classes"].values():
         for a in cls["achievements"]:
             assert a["available"] or a["unavailable_reason"], (cls["id"], a["id"])
+
+
+def test_each_specialization_has_one_capstone_alone_on_its_top_tier():
+    for change in (lambda c: c["specializations"][0]["nodes"][9].pop("capstone"),
+                   lambda c: c["specializations"][1]["nodes"][8].update(capstone=True),
+                   lambda c: c["specializations"][2]["nodes"][8].update(tier=6, requires=["gamma.07"])):
+        skills, cls = tiny()
+        change(cls)
+        assert any("one capstone talent" in x for x in catalog.problems(skills, [cls]))

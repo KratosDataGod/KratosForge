@@ -182,6 +182,10 @@ def _class_problems(c: dict[str, Any], skills: dict[str, dict[str, Any]], out: l
         mine = [n for n in sp.get("nodes") or [] if isinstance(n, dict)]
         if len(mine) < MIN_NODES:
             out.append(f"{where}/{sid}: {len(mine)} talents, needs at least {MIN_NODES}")
+        caps = [n for n in mine if n.get("capstone") is True]
+        top = max((n["tier"] for n in mine if isinstance(n.get("tier"), int)), default=0)
+        if len(caps) != 1 or caps[0].get("tier") != top or sum(n.get("tier") == top for n in mine) != 1:
+            out.append(f"{where}/{sid}: needs exactly one capstone talent, alone on the top tier")
         for n in mine:
             nid = str(n.get("id"))
             if not _NODE.fullmatch(nid) or not nid.startswith(f"{sid}."):

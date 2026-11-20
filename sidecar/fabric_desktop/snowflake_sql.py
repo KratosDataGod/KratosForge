@@ -640,7 +640,7 @@ def _rewrite_to_char(statement: exp.Expression) -> None:
                                           f"{_DOCS}/functions-conversion#date-and-time-formats-in-conversion-functions"))
 
 
-# SFN-031: Snowflake's timestamps and times keep nanoseconds (precision 9 by default); DuckDB's keep microseconds,
+# SFN-033: Snowflake's timestamps and times keep nanoseconds (precision 9 by default); DuckDB's keep microseconds,
 # so a 7th to 9th digit of a second would be cut off here without a word.
 _NANO_TEXT = re.compile(r"\.\d{6}\d*[1-9]")
 _TIME_TYPES = (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPNTZ, exp.DataType.Type.TIMESTAMPLTZ,
@@ -648,7 +648,7 @@ _TIME_TYPES = (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPNTZ, exp.
 
 
 def _nano_refusal(what: str) -> _Untranslatable:
-    return _Untranslatable(_refuse("SFN-031", "Nanoseconds", f"{what} Snowflake keeps a timestamp or time to the "
+    return _Untranslatable(_refuse("SFN-033", "Nanoseconds", f"{what} Snowflake keeps a timestamp or time to the "
                                    "nanosecond, and the local engine keeps it to the microsecond, so nothing ran. "
                                    "Keep to whole microseconds (at most 6 digits of a second), or run it in Snowflake.",
                                    f"{_DOCS}/data-types-datetime"))
@@ -662,7 +662,7 @@ def _whole_microseconds(nanos: exp.Expression | None) -> bool:
 
 
 def _refuse_nanoseconds(statement: exp.Expression) -> None:
-    """SFN-031: what would need a digit of a second past the microsecond, refused by name."""
+    """SFN-033: what would need a digit of a second past the microsecond, refused by name."""
     for conversion in statement.find_all(exp.Cast, exp.TryCast):
         to, text = conversion.args.get("to"), conversion.this
         if not (isinstance(to, exp.DataType) and to.this in _TIME_TYPES and isinstance(text, exp.Literal)
@@ -689,7 +689,7 @@ def _refuse_nanoseconds(statement: exp.Expression) -> None:
             raise _nano_refusal(f"TO_TIMESTAMP with scale {scale.name}.")
 
 
-# SFX-028: a timestamp or time written as text in Snowflake's default output formats (TIMESTAMP_NTZ_OUTPUT_FORMAT
+# SFX-029: a timestamp or time written as text in Snowflake's default output formats (TIMESTAMP_NTZ_OUTPUT_FORMAT
 # YYYY-MM-DD HH24:MI:SS.FF3, TIMESTAMP_OUTPUT_FORMAT with TZHTZM for TIMESTAMP_LTZ and TIMESTAMP_TZ,
 # TIME_OUTPUT_FORMAT HH24:MI:SS). DuckDB wrote its own ('2024-01-02 03:04:05.123456', '... +00'). ALTER SESSION
 # of these formats is refused (SFN-022), so the defaults hold. TYPEOF folds when the query is planned.
@@ -727,7 +727,7 @@ _TEXT_NODES = (exp.Cast, exp.TryCast, exp.ToChar, exp.DPipe, exp.Concat)
 
 
 def _rewrite_time_text(statement: exp.Expression, written: list[Any]) -> None:
-    """SFX-028: casts to text (::VARCHAR, CAST, TRY_CAST, TO_VARCHAR and TO_CHAR with no format) and the parts
+    """SFX-029: casts to text (::VARCHAR, CAST, TRY_CAST, TO_VARCHAR and TO_CHAR with no format) and the parts
     of || and CONCAT, written in Snowflake's default output formats when they are a timestamp or time. Only the
     ones in ``written`` (the statement as written, held so no new node reuses an id) and still in it: the casts
     the other rewrites make are their own. A JSON or VARIANT path isn't a timestamp, and is left as it is."""
@@ -2380,7 +2380,7 @@ CATALOG = (
                 "table is replaced or dropped. TRANSIENT and CLUSTER BY are dropped, "
                 "as they don't change what a query reads. In MERGE, UPDATE SET target.column = ... names the "
                 "target's column. START TRANSACTION is BEGIN.")),
-    ("SFX-028", "Rewritten", ("A timestamp or time cast to text (::VARCHAR, CAST, TRY_CAST, and TO_VARCHAR or "
+    ("SFX-029", "Rewritten", ("A timestamp or time cast to text (::VARCHAR, CAST, TRY_CAST, and TO_VARCHAR or "
                 "TO_CHAR with no format), or joined with || or CONCAT, is written in Snowflake's default output "
                 "formats: TIMESTAMP_NTZ as YYYY-MM-DD HH24:MI:SS.FF3, TIMESTAMP_LTZ and TIMESTAMP_TZ with the "
                 "session time zone's offset as TZHTZM after it, and TIME as HH24:MI:SS.")),
@@ -2452,7 +2452,7 @@ CATALOG = (
                 "DuckDB's ALTER TABLE changes one column at a time and has no SWAP.")),
     ("SFN-030", "Runs only in Snowflake", ("CREATE, ALTER or DROP after BEGIN in the same cell: Snowflake commits "
                 "the open transaction first, and DuckDB doesn't.")),
-    ("SFN-031", "Runs only in Snowflake", ("Nanoseconds: text with a nonzero digit of a second past the sixth cast "
+    ("SFN-033", "Runs only in Snowflake", ("Nanoseconds: text with a nonzero digit of a second past the sixth cast "
                 "to a timestamp or time, DATEADD, TIMEADD or TIMESTAMPADD by NANOSECOND, a nanosecond part of "
                 "TIMESTAMP_FROM_PARTS or TIME_FROM_PARTS, and TO_TIMESTAMP with scale 7 to 9, unless the "
                 "nanoseconds are written as whole microseconds. Snowflake keeps nanoseconds; DuckDB keeps "

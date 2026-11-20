@@ -26,3 +26,20 @@ def test_window_drops_a_row_with_no_time():
 
 def test_shiftleft_of_the_smallest_int_literal_stays_an_int():
     assert one("SELECT shiftleft(-2147483648, 1)") == 0  # Spark reads -2147483648 as an int
+
+
+def test_a_shift_of_an_int_column_is_an_int_and_of_a_long_a_long():
+    # Spark's shiftleft, shiftright and shiftrightunsigned of a tinyint, smallint or int is an int (WR-116)
+    table = sql.run("SELECT shiftleft(i, 1) a, shiftright(i, 1) b, shiftrightunsigned(i, 1) c, shiftleft(s, 1) d, "
+                    "shiftleft(l, 1) e, shiftrightunsigned(l, 1) f FROM VALUES "
+                    "(CAST(-5 AS INT), CAST(5 AS SMALLINT), CAST(5 AS BIGINT)) t(i, s, l)")
+    assert [str(f.type) for f in table.schema] == ["int32", "int32", "int32", "int32", "int64", "int64"]
+    assert table.to_pylist() == [{"a": -10, "b": -3, "c": 2147483645, "d": 10, "e": 10, "f": 2}]
+
+
+def test_typeof_a_shift_of_an_int_column_in_spark_sql_is_int():
+    from fabric_desktop.notebook import Kernel
+    out = Kernel().run("print(spark.sql(\"SELECT typeof(shiftleft(i, 1)) t, typeof(shiftleft(l, 1)) u FROM VALUES "
+                       "(CAST(1 AS INT), CAST(1 AS BIGINT)) v(i, l)\").collect())")
+    text = "".join(o.get("text", "") for o in out["outputs"])
+    assert "Row(t='int', u='bigint')" in text, out

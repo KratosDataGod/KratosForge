@@ -335,6 +335,7 @@ def summary(manifest: dict[str, Any]) -> dict[str, Any]:
     return {"environment_id": manifest["environment_id"], "name": manifest.get("name", ""),
             "provider": manifest.get("provider", ""), "writable": writable(manifest),
             "workspace_id": (manifest.get("namespace") or {}).get("workspace_id", ""),
+            "workspace_name": (manifest.get("namespace") or {}).get("display_name", ""),
             "lakehouse_id": a.get("lakehouse_id", ""), "lakehouse_name": a.get("display_name", ""),
             "has_operational_store": bool(o), "operational_name": o.get("display_name", ""),
             "families": dict((manifest.get("schema") or {}).get("families") or {}),

@@ -103,7 +103,8 @@ CASES = [
 ]
 
 
-@pytest.mark.parametrize(("sql", "want"), CASES, ids=[c[0] for c in CASES])
+@pytest.mark.parametrize(("sql", "want"), CASES,
+                         ids=[c[0] if len(c[0]) <= 150 else f"{c[0][:60]}... case {i}" for i, c in enumerate(CASES)])
 def test_each_query_gives_tsqls_rows(engine, sql, want):
     got, notes = rows(engine, sql)
     assert got == want

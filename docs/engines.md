@@ -101,10 +101,11 @@ result:
 A cell runs whole or not at all: if any statement runs only in Snowflake, nothing in the cell runs.
 A cell that can't be read as Snowflake SQL at all shows only the error, with no label.
 The same session rules apply as for any DuckDB cell (no files, extensions or network). **Plan**
-shows DuckDB's plan for the translated SQL, not Snowflake's.
+shows DuckDB's plan for the translated SQL, not Snowflake's. A result column that is or holds a VARIANT,
+such as an ARRAY, shows its values as JSON, as Snowflake does (`[1,"a"]`).
 
 The rules and differences come from a probe of 29 common Snowflake statements on the pinned sqlglot
-and DuckDB versions, and from 268 function checks against Snowflake's documented values (below);
+and DuckDB versions, and from the function checks against Snowflake's documented values (below);
 each is a test. [Snowflake functions on this PC](snowflake-functions.md) lists every Snowflake SQL
 function, with common operators and statements, and whether each runs, differs, is refused or fails
 here, kept current by CI.
@@ -623,7 +624,7 @@ another computer.
 ### Checking a Snowflake connection (Preview)
 
 A Snowflake connection signed in with a key pair or a programmatic access token can be checked
-through Snowflake's SQL API (`snowflake_check`). The check signs in, then checks each field the
+through Snowflake's SQL API (`snowflake_check`). There's no button for it in the app yet, so for now it is an engine call. A connection imported from the Snowflake CLI is saved as a CLI connection, which the check can't sign in with yet, so set a key pair or a token in the profile instead. The check signs in, then checks each field the
 connection sets, and says for each one what's wrong and what to do:
 
 | Field | Checked by | Fails when |
@@ -637,7 +638,7 @@ connection sets, and says for each one what's wrong and what to do:
 The check never names a warehouse, because Snowflake's cloud services answer these statements. So
 no warehouse resumes and no warehouse credits are used. A passed check shows the connection works for
 metadata as that role, not that queries on the warehouse will. A key-pair token is made on this PC,
-lasts under an hour and is never stored; a token Snowflake refused is not sent again. Running
+lasts under an hour and is never stored. A token Snowflake refuses ends the check. The next check reads the token from its reference again. Running
 queries on Snowflake comes in a later release. This has been tested against a fake of the SQL API,
 not a live Snowflake account.
 

@@ -454,15 +454,28 @@ def test_a_calculation_item_whose_expression_changes_on_import_is_partially_conv
 
 # ---- hostile sizes stay linear
 
-def test_rows_naming_a_huge_name_are_matched_fast_and_the_name_is_cut_short():
-    import time
+def test_rows_naming_a_huge_name_are_matched_fast_and_the_name_is_cut_short(monkeypatch):
+    """A row is matched by trying only cuts as long as some id or alias, not every word boundary of the row.
+    It counts the lookups rather than timing them (a busy runner can be 35 times slower than usual): trying
+    every word boundary of these rows took 26 s and about 4 million lookups."""
+    looked = [0]
+
+    class Counted(dict):
+        def get(self, key, default=None):
+            looked[0] += 1
+            return super().get(key, default)
+
+    class Objects(model_ossie._Objects):
+        def __init__(self):
+            super().__init__()
+            self.ids, self.aliases = Counted(), Counted()
+    monkeypatch.setattr(model_ossie, "_Objects", Objects)
     big = "a " * 20_000  # 40 KB, a space every other character
     bim = {"name": "m", "model": {"tables": [{"name": big, "columns": [{"name": "c", "dataType": "string"}]}]}}
     doc = {"version": model_ossie.OSSIE_VERSION, "name": "m", "datasets": [{"name": big, "fields": [{"name": "c"}]}]}
     rows = [{"object": f"nothing {big} {i}", "kind": "lost", "message": "m"} for i in range(200)]
-    started = time.perf_counter()
     fid = model_ossie.fidelity(bim, doc, rows)
-    assert time.perf_counter() - started < 1.0  # 26 s before the fix
+    assert looked[0] < 50 * len(rows), looked[0]
     assert len(fid["warnings"]) == 200
     table = fid["objects"][1]
     assert table["object"].endswith("... (40000 characters)'") and len(table["object"]) < model_ossie.MAX_NAME + 40

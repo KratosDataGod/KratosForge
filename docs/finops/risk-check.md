@@ -9,6 +9,7 @@ It runs for actions that start work on a notebook, a metadata entity or a Fabric
 - **Workloads.** The run dialog shows the result under what the run will do. A pass folds its checks away under **Show checks**. Warnings and blocks are shown with their evidence, and the other checks fold away below them.
 - **Notebook > Run in Fabric** and **Data mesh > Run.** These have no dialog of their own, so the check stays quiet when it passes or finds nothing it can judge (Unknown), and the run starts as before. With warnings or a block, a dialog shows them first. When the check couldn't run at all (for example, a notebook that isn't deployed to a workspace yet), a dialog says **The risk check couldn't run** with the reason, and **Continue** or **Cancel**: the run never starts without you seeing that, and the check never blocks it. **Run all** in Data mesh checks every entity in one batch (each workspace's capacity and the run history are read once) and shows them in one dialog. If some are blocked, going ahead starts only the others: a blocked entity doesn't start, and neither does any entity that reads from it, so nothing runs on top of a table that wasn't refreshed. The dialog names the entities that wait and what they read. If none can start, the dialog only offers Close.
 - **Estate X-ray > Optimize.** Its confirm always shows the check, for the policy, your sign-in and the workspace's capacity (a table has no run history, so nothing about past runs or their CU). Going ahead past warnings there isn't recorded, because a table isn't a workload.
+- **Data mesh > Quality > Table health > Optimize.** It shows each workspace's capacity warning and asks first; going ahead is recorded before any job starts. Optimize after a run skips a workspace with a warning, and a notebook's OPTIMIZE or VACUUM is refused on one.
 - **Check again** reads the capacity again instead of using the last reading.
 - **Blocked** has no way to run anyway. In a notebook whose cells don't need Fabric, **Run on this PC** runs it here instead. The run still reads and writes OneLake, which uses some capacity.
 - **Warning** lets you go ahead. Going ahead is recorded (see below) (except Estate X-ray > Optimize, above). When the settings ask for it, you tick **I've looked at these and want to run anyway** first.
@@ -65,7 +66,7 @@ The assessment is checked again first:
 - A blocked result can't be acknowledged.
 - If the findings changed since you looked, the acknowledgement is refused and you need to look again.
 
-A pass or an unknown result records nothing. X-ray's **Optimize** checks again and records going ahead past warnings itself, before it submits the Fabric job.
+A pass or an unknown result records nothing. X-ray's and table health's **Optimize** checks again and records going ahead past warnings itself, before it submits the Fabric job.
 
 Checking is never audited, because it only reads. That includes `meta_risk_gate`, the batch check behind Data mesh **Run all**, which returns each entity's assessment, the blocked entities, the ones waiting on them, and the ones that can start.
 

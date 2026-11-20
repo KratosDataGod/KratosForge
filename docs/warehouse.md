@@ -153,6 +153,7 @@ Your templates show in the gallery beside the built-in ones, in their group (or 
 
 Each template is a `.sql` file you can read and edit anywhere: a few header lines, a blank line, then the SQL. The blank line ends the header, so comments at the top of your SQL stay part of it.
 
+<!-- example: illustrative -->
 ```sql
 -- template: Top rows
 -- group: Team checks
@@ -178,6 +179,7 @@ The explorer's **Queries** tab lists them, My queries first, then each repositor
 
 A saved query is plain T-SQL with a few header lines, so any `.sql` file put in one of those folders shows up too, named after its file. A blank line ends the header:
 
+<!-- example: illustrative -->
 ```sql
 -- query: Revenue by region
 -- warehouse: WH_Gold

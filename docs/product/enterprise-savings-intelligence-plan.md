@@ -386,7 +386,7 @@ CU per call) from documentation, then a recommendation. Building it needs Chris'
 
 ### Phase 2: Unified execution savings
 
-**ESI-201 Comparison rules.** Extend the calibration inputs with definition version, input scope
+**ESI-201 Comparison rules.** **Built** (engine only, no writes). `calibration.py` (`calibrate_comparable`, `enrich`). Extend the calibration inputs with definition version, input scope
 and data volume checks: a Fabric run counts as a baseline only when the logical workload,
 definition version and input scope match and its metrics are valid. Change through FinOps
 rules in `calibration.py` (additive).

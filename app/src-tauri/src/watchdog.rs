@@ -4,7 +4,7 @@
 use std::process::Child;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Calls that only read local state or the kernel, which answer in well under a second. One
 /// that takes longer than this means the engine is stuck, and every later quick call would
@@ -43,22 +43,42 @@ pub enum Reply {
     TimedOut,
 }
 
+/// How often the wait looks at the clock.
+const STEP: Duration = Duration::from_secs(1);
+
+/// How much of a wait step that took `took` counts toward the limit. On Windows the clock behind
+/// Instant keeps counting while the PC sleeps, so a call in flight when the lid closed would look
+/// hours late on resume, and the engine, asleep too, would be ended with every run in it. A step
+/// that took far longer than asked was the PC asleep, not the engine stuck: none of it counts.
+fn counted(took: Duration) -> Duration {
+    if took > STEP * 5 { Duration::ZERO } else { took }
+}
+
 /// Waits for this call's reply line (the engine's reader thread sends it, or drops the sender
-/// when the engine's output closes). If none comes within `limit`, ends `child`, which ends
-/// every other call too, and says so.
+/// when the engine's output closes). If none comes within `limit` of awake time, ends `child`,
+/// which ends every other call too, and says so.
 pub fn wait_reply(reply: &Receiver<String>, child: &Arc<Mutex<Child>>, limit: Option<Duration>) -> Reply {
-    let got = match limit {
-        Some(limit) => reply.recv_timeout(limit).map_err(|e| e == RecvTimeoutError::Timeout),
-        None => reply.recv().map_err(|_| false),
+    let Some(limit) = limit else {
+        return match reply.recv() {
+            Ok(line) => Reply::Line(line),
+            Err(_) => Reply::Closed,
+        };
     };
-    match got {
-        Ok(line) => Reply::Line(line),
-        Err(false) => Reply::Closed,
-        Err(true) => {
+    let mut waited = Duration::ZERO;
+    loop {
+        let step = STEP.min(limit.saturating_sub(waited)).max(Duration::from_millis(1));
+        let before = Instant::now();
+        match reply.recv_timeout(step) {
+            Ok(line) => return Reply::Line(line),
+            Err(RecvTimeoutError::Disconnected) => return Reply::Closed,
+            Err(RecvTimeoutError::Timeout) => {}
+        }
+        waited += counted(before.elapsed());
+        if waited >= limit {
             if let Ok(mut child) = child.lock() {
                 let _ = child.kill();
             }
-            Reply::TimedOut
+            return Reply::TimedOut;
         }
     }
 }
@@ -104,6 +124,13 @@ mod tests {
         assert!(matches!(wait_reply(&reply, &child, Some(Duration::from_millis(300))), Reply::TimedOut));
         assert!(start.elapsed() < Duration::from_secs(10));
         assert!(child.lock().unwrap().wait().is_ok());
+    }
+
+    #[test]
+    fn time_the_pc_spent_asleep_does_not_count_toward_the_limit() {
+        assert_eq!(counted(Duration::from_millis(1000)), Duration::from_millis(1000));
+        assert_eq!(counted(STEP * 5), STEP * 5); // a busy PC that ran a step late still counts it
+        assert_eq!(counted(Duration::from_secs(3 * 3600)), Duration::ZERO); // the lid was closed for hours
     }
 
     #[test]

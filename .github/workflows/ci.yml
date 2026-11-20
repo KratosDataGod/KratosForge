@@ -158,7 +158,10 @@ jobs:
       # install, which would stop another worker's running exercise, so they run alone afterwards.
       # Each pytest run also writes its results (--junitxml), so a failure's name reaches the job's
       # summary page even when the log GitHub serves has lost it (failed_tests.py, after the last test).
-      - run: python -m pytest -q -n auto --dist loadfile --durations=25 -m "not machine_wide_grants" --junitxml="${{ runner.temp }}/junit-main.xml"
+      # A test still running after 10 minutes is hung: its worker prints every thread's stack and exits, and
+      # with no worker restarts the run stops there, so the log names the stuck line instead of the job
+      # waiting out GitHub's 6-hour limit with no log to read.
+      - run: python -m pytest -q -n auto --dist loadfile --max-worker-restart=0 -o faulthandler_timeout=600 -o faulthandler_exit_on_timeout=true --durations=25 -m "not machine_wide_grants" --junitxml="${{ runner.temp }}/junit-main.xml"
         if: env.RUN_TESTS == 'true'
         env:
           TMP: ${{ matrix.os == 'windows-latest' && runner.temp || '' }}

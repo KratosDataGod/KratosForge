@@ -319,6 +319,80 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.1-q11",
+      "type": "hotarea",
+      "stem": "A Copy activity that loads a nightly extract sometimes fails on a transient network error. It must try again up to three times after a failure, wait one minute between tries, and stop any run that goes past 45 minutes. Complete the activity's General settings.",
+      "snippet": "Timeout               {{1}}\nRetry                 {{2}}\nRetry interval (sec)  {{3}}",
+      "snippet_label": "Copy activity General settings",
+      "parts": [
+        {
+          "label": "Timeout",
+          "options": [
+            {
+              "id": "a",
+              "text": "45"
+            },
+            {
+              "id": "b",
+              "text": "0.00:45:00"
+            },
+            {
+              "id": "c",
+              "text": "0.00:00:45"
+            },
+            {
+              "id": "d",
+              "text": "45.00:00:00"
+            }
+          ]
+        },
+        {
+          "label": "Retry",
+          "options": [
+            {
+              "id": "a",
+              "text": "1"
+            },
+            {
+              "id": "b",
+              "text": "4"
+            },
+            {
+              "id": "c",
+              "text": "3"
+            }
+          ]
+        },
+        {
+          "label": "Retry interval (sec)",
+          "options": [
+            {
+              "id": "a",
+              "text": "60"
+            },
+            {
+              "id": "b",
+              "text": "1"
+            },
+            {
+              "id": "c",
+              "text": "3600"
+            }
+          ]
+        }
+      ],
+      "answer": [
+        "b",
+        "c",
+        "a"
+      ],
+      "explanation": "The timeout is written as D.HH:MM:SS, so 45 minutes is 0.00:45:00; 0.00:00:45 is 45 seconds and 45.00:00:00 is longer than the seven-day maximum. Retry is the number of retry attempts after a failure, so three tries again is 3 (the default is 1). The retry interval is in seconds, so a one-minute wait is 60; the default is 30.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/activity-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

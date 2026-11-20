@@ -322,6 +322,36 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.3-q11",
+      "type": "yesno",
+      "stem": "A lakehouse has a shortcut named Landing in its Files folder that points to a folder in an ADLS Gen2 account. You have write and delete permissions in that account. For each statement, choose Yes if it is true. Otherwise, choose No.",
+      "parts": [
+        {
+          "text": "Deleting the Landing shortcut deletes the files in the ADLS Gen2 folder."
+        },
+        {
+          "text": "Deleting a file inside Landing deletes that file in the ADLS Gen2 account."
+        },
+        {
+          "text": "A shortcut can be created in a subfolder of the lakehouse's Tables folder."
+        },
+        {
+          "text": "A shortcut at the top level of Tables that points to Delta data is recognized as a table."
+        }
+      ],
+      "answer": [
+        "no",
+        "yes",
+        "no",
+        "yes"
+      ],
+      "explanation": "A shortcut is an object that points to its target, like a symbolic link: deleting the shortcut deletes only the shortcut, and shortcuts don't cascade deletes. Deleting a file or folder through the shortcut, with permission in the target, deletes it in the target. In the Tables folder, shortcuts can be created only at the top level, and when the target holds Delta data the lakehouse recognizes the folder as a table.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

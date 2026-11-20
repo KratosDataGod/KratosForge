@@ -454,6 +454,10 @@ def test_a_calculation_item_whose_expression_changes_on_import_is_partially_conv
 
 # ---- hostile sizes stay linear
 
+# A loose budget: a shared Windows runner can be ten times slower than a laptop, so the bound only has to
+# catch the quadratic regressions, which take tens of seconds on these inputs, never the normal run.
+SLOW = 10.0
+
 def test_rows_naming_a_huge_name_are_matched_fast_and_the_name_is_cut_short():
     import time
     big = "a " * 20_000  # 40 KB, a space every other character
@@ -462,21 +466,21 @@ def test_rows_naming_a_huge_name_are_matched_fast_and_the_name_is_cut_short():
     rows = [{"object": f"nothing {big} {i}", "kind": "lost", "message": "m"} for i in range(200)]
     started = time.perf_counter()
     fid = model_ossie.fidelity(bim, doc, rows)
-    assert time.perf_counter() - started < 1.0  # 26 s before the fix
+    assert time.perf_counter() - started < SLOW  # 26 s before the fix, about 0.01 s now
     assert len(fid["warnings"]) == 200
     table = fid["objects"][1]
     assert table["object"].endswith("... (40000 characters)'") and len(table["object"]) < model_ossie.MAX_NAME + 40
 
 
-def test_four_thousand_columns_of_one_name_are_numbered_fast():
+def test_twenty_thousand_columns_of_one_name_are_numbered_fast():
     import time
-    bim = {"name": "m", "model": {"tables": [{"name": "T", "columns": [{"name": "c", "dataType": "string"}] * 4000}]}}
+    bim = {"name": "m", "model": {"tables": [{"name": "T", "columns": [{"name": "c", "dataType": "string"}] * 20000}]}}
     doc = {"version": model_ossie.OSSIE_VERSION, "name": "m", "datasets": [{"name": "T", "fields": [{"name": "c"}]}]}
     started = time.perf_counter()
     fid = model_ossie.fidelity(bim, doc)
-    assert time.perf_counter() - started < 1.0
+    assert time.perf_counter() - started < SLOW  # about 0.1 s; numbering each from #2 again takes about 28 s
     ids = [o["object"] for o in fid["objects"]]
-    assert len(ids) == len(set(ids)) == 4002 and ids[-1] == "table 'T' column 'c' #4000"
+    assert len(ids) == len(set(ids)) == 20002 and ids[-1] == "table 'T' column 'c' #20000"
 
 
 # ---- a report that can't be built, and relationships on the same columns

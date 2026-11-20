@@ -205,7 +205,8 @@ def spark_complex_types(statement: exp.Expr, conn: Any, kinds: tuple[str, ...] |
             continue
         kind = node.meta.pop(_KEY)
         source = node.meta.pop("kf_complex_source", None)
-        found = next((a for a in node.walk() if a.meta.get(_ARG)), None)
+        # a shift's own argument, not the shift itself when it is in turn another fix's argument (typeof)
+        found = next((a for a in node.walk() if a.meta.get(_ARG) and not (kind == "int_shift" and a is node)), None)
         if found is None:
             continue
         arg = found

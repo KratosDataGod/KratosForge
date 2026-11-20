@@ -45,11 +45,18 @@ def test_typeof_a_shift_of_an_int_column_in_spark_sql_is_int():
     assert "Row(t='int', u='bigint')" in text, out
 
 
+def test_typeof_a_shift_of_an_int_column_in_a_sql_cell_is_int():
+    # typeof's argument is the shift itself: the shift's own argument decides its type
+    assert sql.run("SELECT typeof(shiftleft(CAST(1 AS TINYINT), 1)) a, typeof(shiftrightunsigned(i, 1)) b, "
+                   "typeof(shiftleft(l, 1)) c FROM VALUES (CAST(1 AS INT), CAST(1 AS BIGINT)) v(i, l)"
+                   ).to_pylist() == [{"a": "int", "b": "int", "c": "bigint"}]
+
+
 def test_a_negative_literal_past_pythons_digit_limit_reads_as_spark_reads_it():
     # Spark reads a literal past decimal(38) as a double: -1e5000 is -inf, and cast to an int its smallest
     nines = "9" * 5000
-    got = sql.run(f"SELECT -{nines} a, CAST(-{nines} AS INT) b").to_pylist()
-    assert got == [{"a": float("-inf"), "b": -2147483648}]
+    got = sql.run(f"SELECT -{nines} a, CAST(-{nines} AS INT) b, CAST(-{nines} AS TINYINT) c").to_pylist()
+    assert got == [{"a": float("-inf"), "b": -2147483648, "c": 0}]  # Java: (byte) Integer.MIN_VALUE is 0
 
 
 def test_a_rank_cast_to_a_smaller_type_wraps_as_spark_does_with_ansi_off():

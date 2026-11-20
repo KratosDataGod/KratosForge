@@ -174,7 +174,7 @@ async function rollbackDialog(env, onChange) {
   const earlier = res.releases.filter((r) => !r.current && r.kept);
   let pick = earlier.length ? earlier[0].version : null;
   const what = h("div", { class: "rollback-what" });
-  // Prod: the rollback waits for its workspace's name typed (WR-250), as a Prod write does.
+  // A Prod workspace (WR-250), or another project's Prod on this PC (WR-251): the rollback waits for its name typed.
   const needs = res.confirm_name || "";
   const typed = needs ? h("input", { autocomplete: "off", spellcheck: "false", oninput: () => { go.disabled = !ready(); } }) : null;
   const ready = () => !!pick && (!typed || typed.value.trim() === needs);
@@ -228,7 +228,8 @@ async function rollbackDialog(env, onChange) {
     earlier.length ? null : h("p", { class: "muted-text small" }, `${ENV_LABEL[env]} keeps no earlier release to go back to. Releases promoted before this version of the app didn't keep their files.`),
     what,
     h("p", { class: "muted-text small" }, `The rollback is recorded as a new release in ${ENV_LABEL[env]}, naming the release it went back to. Your project folder on this PC is not changed.`),
-    typed ? h("label", { class: "field" }, `Type ${needs} to confirm`, typed) : null);
+    typed ? [h("p", { class: "text" }, `${needs} is a Prod workspace, so this rollback runs only after you type its name exactly to confirm.`),
+      h("label", { class: "field" }, `Type ${needs} to confirm`, typed)] : null);
   showDialog(`Roll back ${ENV_LABEL[env]}`, body, [btn("Cancel", null, closeDialog, "tool"), go])
     .querySelector(".dialog")?.classList.add("wide");
   show();

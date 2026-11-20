@@ -684,8 +684,7 @@ class MetaMixin:
         if env == "prod":
             return prod_name(project)
         cfg = project.environments.get(env, {}) or {}
-        marked = getattr(self, "_prod_marked", None)
-        if marked is not None and any(marked(ws) for ws in sorted(_env_workspaces(cfg))):
+        if any(self._prod_marked(ws) for ws in sorted(_env_workspaces(cfg))):  # type: ignore[attr-defined]
             return str(cfg.get("workspace_name") or cfg.get("workspace_id"))
         return ""
 

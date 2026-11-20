@@ -142,6 +142,25 @@ class ControlPlaneMixin:
         lake = self._optimize_lake(workspace_id, lakehouse_id, schemas)  # type: ignore[attr-defined]
         return [dict(setup.inspect(lake, fam), family=fam.prefix) for fam in schema.FAMILIES.values()]
 
+    def _cp_platform_links(self) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        """The Prod Platform (its database is the environment's operational store, CP-ADR-005) and the
+        shared Keys workspace this PC uses, by ids only; None for each one that isn't in Fabric."""
+        prod = self._platform_config().get("prod") or {}  # type: ignore[attr-defined]
+        platform = ({k: prod[k] for k in ("workspace_id", "functions_id", "sql_id") if prod.get(k)}
+                    if prod.get("workspace_id") and prod.get("functions_id") else None)
+        keys_cfg = self._keys_config()  # type: ignore[attr-defined]
+        keys = ({"workspace_id": keys_cfg["workspace_id"]}
+                if keys_cfg.get("shared") and keys_cfg.get("workspace_id") and keys_cfg.get("functions_id") else None)
+        return platform, keys
+
+    @staticmethod
+    def _cp_adopt_seen(conn: dict[str, Any], inspections: list[dict[str, Any]], platform: dict[str, Any] | None,
+                       keys: dict[str, Any] | None) -> str:
+        """What an adopt preview was made from: confirm refuses when any of it changed meanwhile."""
+        return _digest({"connection": {k: conn.get(k) for k in ("workspace_id", "lakehouse_id", "schemas")},
+                        "inspections": [(i["family"], i["state"], i.get("schema_version")) for i in inspections],
+                        "platform": platform, "keys": keys})
+
     # ---- reads
 
     def cp_status(self) -> dict[str, Any]:
@@ -185,7 +204,9 @@ class ControlPlaneMixin:
         return out | self._cp_keep("create", request=plan.request, digest=_digest({"request": plan.request, **view}))
 
     def cp_adopt_preview(self, name: str) -> dict[str, Any]:
-        """The manifest adopting this PC's central lakehouse would write: ids only. Nothing is written."""
+        """The manifest adopting this PC's central lakehouse would write: ids only. Nothing is written.
+        When this PC uses a Platform in Fabric, its Prod database is linked as the operational store
+        (CP-ADR-005), and a shared Keys workspace is recorded beside it."""
         self._cp_allowed()
         conn = self.optimize_registry.active()  # type: ignore[attr-defined]
         if not conn:
@@ -195,9 +216,10 @@ class ControlPlaneMixin:
         if self._cp_store(ws, lh).read() is not None:
             raise ValueError("This lakehouse already holds a KratosForge Environment. Connect to it instead.")
         inspections = self._cp_inspections(ws, lh, conn.get("schemas", True))
-        manifest = health.adopt_preview(name=(name or "").strip(), lake_connection=conn, inspections=inspections)
-        seen = _digest({"connection": {k: conn.get(k) for k in ("workspace_id", "lakehouse_id", "schemas")},
-                        "inspections": [(i["family"], i["state"], i.get("schema_version")) for i in inspections]})
+        platform, keys = self._cp_platform_links()
+        manifest = health.adopt_preview(name=(name or "").strip(), lake_connection=conn, inspections=inspections,
+                                        platform=platform, keys=keys)
+        seen = self._cp_adopt_seen(conn, inspections, platform, keys)
         prod = self._prod_marked(ws)  # type: ignore[attr-defined]
         return {"manifest": manifest, "environment": mf.summary(manifest),
                 "typed_name": self._cp_workspace_name(ws) if prod else ""} | \
@@ -308,9 +330,7 @@ class ControlPlaneMixin:
         if not conn or (conn["workspace_id"], conn["lakehouse_id"]) != (ws, lh):
             raise PermissionError(CHANGED)
         inspections = self._cp_inspections(ws, lh, conn.get("schemas", True))
-        seen = _digest({"connection": {k: conn.get(k) for k in ("workspace_id", "lakehouse_id", "schemas")},
-                        "inspections": [(i["family"], i["state"], i.get("schema_version")) for i in inspections]})
-        if seen != entry["seen"]:
+        if self._cp_adopt_seen(conn, inspections, *self._cp_platform_links()) != entry["seen"]:
             raise PermissionError(CHANGED)
         try:
             made = self._cp_store(ws, lh).create(manifest)

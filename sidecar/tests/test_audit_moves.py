@@ -63,6 +63,24 @@ def test_after_its_next_write_a_moved_trail_is_checked_against_its_own_records(e
     assert result == {"lines": 6, "ok": True, "problems": []}
 
 
+def test_a_moved_trail_cut_after_writes_in_its_new_folder_is_caught_though_its_head_names_the_old_one(
+        event_log, trail, tmp_path):
+    moved = tmp_path / "moved"
+    shutil.move(str(trail), str(moved))
+    was = json.loads((moved / audit_chain.HEAD).read_text())["folder"]
+    _add(moved, ["2026-11-04T09:00:00+00:00", "2026-11-05T09:00:00+00:00", "2026-11-06T09:00:00+00:00"])
+    path = audit_chain.files(moved)[-1]
+    kept = _lines(path)[:-2]
+    path.write_text("".join(line + "\n" for line in kept), encoding="utf-8")
+    head = json.loads((moved / audit_chain.HEAD).read_text())
+    head.update(hash=json.loads(kept[-1])["hash"], lines=6, folder=was)  # rewritten to point at the old folder
+    (moved / audit_chain.HEAD).write_text(json.dumps(head))
+    result = audit_chain.verify(moved)
+    assert not result["ok"]
+    assert any(p.startswith("event log: the trail ends before the newest line the Windows event log recorded "
+                            "(line 8)") for p in result["problems"]), result
+
+
 # ---------------------------------------------------------------- month files renamed or rotated
 
 def test_a_copy_of_a_month_under_another_name_isnt_read_and_is_named(trail):
@@ -139,8 +157,8 @@ def test_an_export_partly_pruned_since_checks_against_what_the_trail_still_has(t
     assert audit_chain.prune(trail, 1, now=DECEMBER)["files"] == ["audit-2026-10.jsonl"]
     result = audit_chain.verify_export(out, trail)
     assert result["ok"] and result["notes"] == [
-        ("the export's first 2 lines were pruned from this trail (through 2026-10) after it was taken; "
-        "the rest match the trail")]
+        ("the export's first 2 lines were pruned from this trail (through 2026-10) after it was taken, "
+        "and the rest match the trail")]
 
 
 def test_an_export_wholly_pruned_since_joins_where_the_trail_now_starts(tmp_path):
@@ -177,17 +195,17 @@ def test_a_forged_export_dated_after_the_pruned_months_fails(trail, tmp_path):
     assert audit_chain.verify_export(out, trail)["problems"] == ["the export's lines aren't in this trail"]
 
 
-def test_an_export_of_pruned_months_is_checked_against_its_manifest_only_and_says_so(trail, tmp_path):
-    """The documented limit: lines a prune deleted can't be compared with the trail any more."""
+def test_an_export_of_pruned_months_cant_pass_against_the_trail(trail, tmp_path):
+    """The documented limit: lines a prune deleted can't be compared with the trail any more, so the export
+    doesn't pass against it (a file and manifest rebuilt to match can claim any date)."""
     audit_chain.prune(trail, 1, now=DECEMBER)
     other = tmp_path / "other"
     _add(other, OCTOBER, who="someone-else@example.com")
     out = tmp_path / "old.jsonl"
     audit_chain.export(other, out)
-    result = audit_chain.verify_export(out, trail)
-    assert result["ok"] and result["notes"] == [
-        ("the export's lines are in months pruned from this trail (through 2026-10), so it's checked against "
-        "its manifest only")]
+    assert audit_chain.verify_export(out, trail)["problems"] == [
+        ("the export's lines are in months pruned from this trail (through 2026-10), so they can't be compared "
+         "with it. Only its manifest was checked")]
 
 
 def test_a_pruned_month_that_ended_on_a_damaged_line_is_noted(trail):

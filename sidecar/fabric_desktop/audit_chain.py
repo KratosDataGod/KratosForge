@@ -341,14 +341,16 @@ def verify(folder: Path) -> dict[str, Any]:
         key: object = (stat.st_size, stat.st_mtime_ns, count)
     except OSError:
         key = ("no head", count)
-    anchor, note = _recorded(folder, head, key, notes)
+    anchors, note = _recorded(folder, head, key, notes)
     if note:
         notes.append(note)
     for name in strays(folder)[:MAX_NOTES]:
         notes.append(f"{name}: looks like a month of this trail under another name (renamed, copied or rotated), "
                      f"so it isn't checked. Name a month's file audit-YYYY-MM.jsonl to check it with the trail")
-    if anchor is not None:
-        problems.extend(_against(anchor, head, seen, count, missing=not (Path(folder) / HEAD).exists()))
+    for anchor in anchors:  # each record that applies: a problem against either is reported
+        for problem in _against(anchor, head, seen, count, missing=not (Path(folder) / HEAD).exists()):
+            if problem not in problems:
+                problems.append(problem)
     result: dict[str, Any] = {"lines": count, "ok": not problems, "problems": problems}
     if notes:  # only when the clock went back: the usual result keeps its shape
         result["notes"] = notes
@@ -362,18 +364,21 @@ def verify(folder: Path) -> dict[str, Any]:
 
 
 def _recorded(folder: Path, head: dict[str, Any], key: object,
-              notes: list[str]) -> tuple[audit_anchor.Anchor | None, str]:
-    """The newest event-log record for this trail. A trail moved here from another folder (its head names
-    the folder it was written in) is checked against that folder's records until its next write here."""
+              notes: list[str]) -> tuple[list[audit_anchor.Anchor], str]:
+    """The newest event-log records that apply to this trail: this folder's, and, for a trail moved here from
+    another folder (its head names the folder it was written in), that folder's too. Both are checked, since
+    head.json can be rewritten as easily as the trail: naming another folder never hides this one's record."""
+    anchor, note = audit_anchor.newest(folder, key)
+    anchors = [anchor] if anchor is not None else []
     here = audit_anchor.fingerprint(folder)
     was = head.get("folder")
     if isinstance(was, str) and was and was != here:
-        anchor, note = audit_anchor.newest_for(was, key)
-        if anchor is not None:
-            notes.append("this trail was moved from the folder it was written in, so it's checked against "
+        before, _ = audit_anchor.newest_for(was, key)
+        if before is not None:
+            notes.append("this trail was moved from the folder it was written in, so it's also checked against "
                          "the Windows event log's records for that folder")
-            return anchor, ""
-    return audit_anchor.newest(folder, key)
+            anchors.append(before)
+    return anchors, (note if not anchors else "")
 
 
 def _against(anchor: audit_anchor.Anchor, head: dict[str, Any], seen: dict[int, str], count: int,
@@ -499,8 +504,8 @@ def verify_export(out: Path, folder: Path | None = None) -> dict[str, Any]:
         manifest, found = _manifest_by_checksum(out)
         if found is None:
             return {"ok": False, "lines": 0, "problems": [
-                (f"{manifest_path(out).name}: missing. An export is checked with the manifest written beside it: "
-                f"if the export was renamed, keep its manifest in the same folder (or name it {manifest_path(out).name})")]}
+                (f"{manifest_path(out).name}: missing. An export is checked with the manifest written beside it. "
+                f"If the export was renamed, keep its manifest in the same folder (or name it {manifest_path(out).name})")]}
         notes.append(f"{found.name}: the manifest for this export, written for {manifest.get('file') or 'another name'} "
                      f"(the export was renamed)")
     if not isinstance(manifest, dict) or manifest.get("schema") != EXPORT_SCHEMA:
@@ -558,19 +563,19 @@ def _export_against_trail(folder: Path, hashes: list[str], last_at: str, notes: 
     if first is None:
         if through and hashes[-1] == base.get("hash"):
             notes.append(f"the export's lines were all pruned from this trail (through {through}) after it was "
-                         "taken; its last line is the one the trail now starts after")
+                         "taken, and its last line is the one the trail now starts after")
             return []
         at = _moment(last_at)
         if through and at is not None and at.timestamp() <= _month_end(through):
-            notes.append(f"the export's lines are in months pruned from this trail (through {through}), so it's "
-                         "checked against its manifest only")
-            return []
+            # A file and manifest rebuilt to match can claim any date: never a pass against the trail.
+            return [(f"the export's lines are in months pruned from this trail (through {through}), so they can't "
+                     "be compared with it. Only its manifest was checked")]
         return ["the export's lines aren't in this trail"]
     start = where[hashes[first]]
     if first and not (start == 0 and through and hashes[first - 1] == base.get("hash")):
         return ["the export's lines differ from this trail's"]
     if first:
         notes.append(f"the export's first {first} lines were pruned from this trail (through {through}) after "
-                     "it was taken; the rest match the trail")
+                     "it was taken, and the rest match the trail")
     rest = hashes[first:]
     return [] if trail[start:start + len(rest)] == rest else ["the export's lines differ from this trail's"]

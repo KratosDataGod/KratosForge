@@ -16,10 +16,11 @@ import re
 import shutil
 import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
-from . import file_locks
+from . import file_locks, win_paths
 
 _log = logging.getLogger(__name__)
 
@@ -38,33 +39,59 @@ def write_json(path: Path, data: Any, indent: int | None = 2) -> None:
 
 def write_text(path: Path, text: str, newline: str | None = None) -> None:
     """Swap ``text`` in as the whole file: readers see the old file or the new one, never half of it.
-    ``newline`` is open()'s: None writes this OS's line endings, "\n" keeps them as LF."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = _new_temp(path)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline=newline) as f:
-            f.write(text)
-            f.flush()
-            os.fsync(f.fileno())
-        replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    ``newline`` is open()'s: None writes this OS's line endings, "\n" keeps them as LF. A path past
+    Windows' limit on a PC without long paths is refused by name (path_too_long)."""
+    with long_path_named(path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = _new_temp(path)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline=newline) as f:
+                f.write(text)
+                f.flush()
+                os.fsync(f.fileno())
+            replace(tmp, path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
 
 
 def write_bytes(path: Path, data: bytes) -> None:
     """``write_text`` for bytes (a profile picture): the old file or the new one, never half of it."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = _new_temp(path)
+    with long_path_named(path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = _new_temp(path)
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+                f.flush()
+                os.fsync(f.fileno())
+            replace(tmp, path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+
+
+def path_too_long(exc: BaseException, path: str | os.PathLike[str], doing: str = "saved") -> OSError | None:
+    """The error to raise in place of ``exc`` when writing ``path`` failed because a path is past
+    Windows' 260 characters on a PC where long paths are turned off: its text names the file, the
+    length and the setting (win_paths.too_long), and it keeps errno, winerror and the path. None for
+    any other failure, and off Windows."""
+    if not isinstance(exc, OSError):
+        return None
+    from .support_bundle import long_paths_enabled  # here: support_bundle imports much of the package
+    return file_locks.plain_error(exc, path, win_paths.too_long(exc, path, doing, long_paths_enabled()))
+
+
+@contextmanager
+def long_path_named(path: str | os.PathLike[str], doing: str = "saved") -> Iterator[None]:
+    """Raise ``path_too_long``'s error in place of an OSError from the block that it explains."""
     try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-            f.flush()
-            os.fsync(f.fileno())
-        replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+        yield
+    except OSError as exc:
+        refused = path_too_long(exc, path, doing)
+        if refused is None:
+            raise
+        raise refused from exc
 
 
 def _new_temp(path: Path) -> tuple[int, str]:

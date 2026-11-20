@@ -167,7 +167,7 @@ class SqlTemplatesMixin:
         for n in range(1, 1000):
             path = folder / (f"{base}.sql" if n == 1 else f"{base} ({n}).sql")
             try:
-                with open(path, "x", encoding="utf-8", newline="\n") as f:
+                with jsonfile.long_path_named(path), open(path, "x", encoding="utf-8", newline="\n") as f:
                     f.write(text)
             except FileExistsError:
                 continue
@@ -245,7 +245,7 @@ class SqlTemplatesMixin:
         for n in range(1, 1000):
             path = folder / (f"{stem}.sql" if n == 1 else f"{stem} ({n}).sql")
             try:
-                with open(path, "x", encoding="utf-8", newline="\n") as f:
+                with jsonfile.long_path_named(path), open(path, "x", encoding="utf-8", newline="\n") as f:
                     f.write(text)
             except FileExistsError:
                 continue

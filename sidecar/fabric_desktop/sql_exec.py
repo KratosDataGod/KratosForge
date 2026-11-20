@@ -1054,7 +1054,8 @@ class SqlExecutions:
             export.state = "cancelled"
         except Exception as exc:  # noqa: BLE001 - shown on the page
             _discard(partial, export.path)
-            export.state, export.error = "failed", str(exc) or type(exc).__name__
+            too_long = jsonfile.path_too_long(exc, export.path, "exported")  # Windows' 260 without long paths
+            export.state, export.error = "failed", str(too_long or exc) or type(exc).__name__
 
     @staticmethod
     def _write_batches(export: Export, reader: Any, schema: pa.Schema, sink: Any) -> None:

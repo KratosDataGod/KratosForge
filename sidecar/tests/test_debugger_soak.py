@@ -7,6 +7,7 @@ from __future__ import annotations
 import gc
 import time
 import tracemalloc
+from collections import Counter
 
 import pytest
 
@@ -42,7 +43,8 @@ def threads_and_trace(k):
     snap = wait(k)
     assert snap["status"] == "ok", snap
     untraced, _, names = snap["outputs"][-1]["text"].strip().partition(" ")
-    return set(names.split("|")) - {""}, untraced == "True"
+    # A Counter, not a set: a leaked thread whose name repeats one already running still counts.
+    return Counter(n for n in names.split("|") if n), untraced == "True"
 
 
 def assert_no_threads_left(k, before, seconds=10):
@@ -52,10 +54,10 @@ def assert_no_threads_left(k, before, seconds=10):
     while True:
         after, untraced = threads_and_trace(k)
         assert untraced
-        if after <= before or time.monotonic() > deadline:
+        if not after - before or time.monotonic() > deadline:
             break
         time.sleep(0.2)
-    assert after <= before, f"threads left behind: {sorted(after - before)}"
+    assert not after - before, f"threads left behind: {sorted((after - before).elements())}"
 
 
 PAUSES = 1000
@@ -180,4 +182,13 @@ def test_a_thread_that_stays_is_named(kernel):
     with pytest.raises(AssertionError, match="left-behind"):
         assert_no_threads_left(kernel, before, seconds=0.5)
     kernel.start("stay.set()")
+    assert wait(kernel)["status"] == "ok"
+    # One that takes the name of a thread already running is counted too.
+    before, _ = threads_and_trace(kernel)
+    kernel.start("import threading\nstay2 = threading.Event()\n"
+                 "threading.Thread(target=stay2.wait, name='MainThread', daemon=True).start()")
+    assert wait(kernel)["status"] == "ok"
+    with pytest.raises(AssertionError, match="MainThread"):
+        assert_no_threads_left(kernel, before, seconds=0.5)
+    kernel.start("stay2.set()")
     assert wait(kernel)["status"] == "ok"

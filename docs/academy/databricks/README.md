@@ -27,7 +27,7 @@ without Chris's typed OK inside this project, and each learner's own go in the p
 | 2 | Reuse and gap analysis against the DP-700 Academy | [Capability audit](capability-audit.md#reuse-and-gaps) |
 | 3 | Official objective coverage matrix | [Coverage](coverage.md) |
 | 4 | Backlog DBA-001 to DBA-016 | [Backlog](backlog.md) |
-| 5 | Inventory of 64 exercises (12 troubleshooting labs), 4 supplementary, 3 capstones | [Curriculum](curriculum.md) |
+| 5 | Inventory of 68 exercises (14 troubleshooting labs), 4 supplementary, 3 capstones | [Curriculum](curriculum.md) |
 | 6 | Databricks execution adapter architecture | [Adapter](adapter.md) |
 | 7 | Implementation dependency graph | [Delivery plan](delivery-plan.md#dependency-graph) |
 | 8 | Agent and thread assignments | [Delivery plan](delivery-plan.md#threads) |

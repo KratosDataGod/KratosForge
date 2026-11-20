@@ -1372,8 +1372,7 @@ function renderResultViewer(o, wrap, bar, numeric, count, redraw = () => {}) {
       h("td", { "data-c": String(c), "data-col": String(i), class: numeric[i] ? "n" : null }, r[i] === null ? "null" : r[i]))))));
     if (table.tBodies) sqlGridWire(table, shown(), g, grid, vis);  // a real table (the unit tests draw plain objects)
     const hidden = cols.length - vis.length;
-    return [style, table, hidden ? h("p", { class: "muted-text sql-grid-hidden" },
-      `${hidden.toLocaleString()} column${hidden === 1 ? " is" : "s are"} hidden. Columns... shows ${hidden === 1 ? "it" : "them"}.`) : null].filter(Boolean);
+    return [style, table, hidden ? h("p", { class: "muted-text sql-grid-hidden" }, sqlGridHiddenNote(cols.length, vis, v.filters)) : null].filter(Boolean);
   };
   const statusText = () => {
     const p = v.page;
@@ -1655,6 +1654,7 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
   nb.stopRequested = false;
   setKernel("busy", nb);
   cell.status = "running";
+  if (!nb.runningAll) announce(`Running cell ${nb.cells.indexOf(cell) + 1}`);  // cellFx says how it ended
   cell.outputs = [];
   cell.seconds = 0;
   cell.engineFlag = null;
@@ -1779,6 +1779,7 @@ async function runCells(cells, { debug = false } = {}) {
   const ended = (result, done) => Object.assign(forgeRun, { result, done, ended: Date.now() });
   if (code.length > 1) forgeEvent("notebook.run.started", document.querySelector("button[data-run]"));
   nb.runningAll = true;
+  if (code.length) announce(`Running ${code.length} ${code.length === 1 ? "cell" : "cells"}`);  // the end is said below
   try {
     for (const [i, cell] of code.entries()) {
       const ok = await runCell(cell, { nb, debug: dbgStepNext(nb) });  // goes on in nb's session if another notebook is opened

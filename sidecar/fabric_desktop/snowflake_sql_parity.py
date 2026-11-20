@@ -120,6 +120,12 @@ _CONTRACTORS = (
     "zip_code VARCHAR); INSERT INTO contractors VALUES ('Bradley', 'Greenbloom', '1-650-445-0676', 'San Francisco', "
     "'94110'), ('Cole', 'Simpson', '1-212-285-8904', 'New York', '10001'), ('Laurel', 'Slater', '1-650-633-4495', "
     "'San Francisco', '94115');")
+_DEMO1 = ("CREATE TABLE demo1 (id INTEGER, json_data VARCHAR); "
+          "INSERT INTO demo1 SELECT 1, '{\"level_1_key\": \"level_1_value\"}'; "
+          "INSERT INTO demo1 SELECT 2, '{\"level_1_key\": {\"level_2_key\": \"level_2_value\"}}'; "
+          "INSERT INTO demo1 SELECT 3, '{\"level_1_key\": {\"level_2_key\": [\"zero\", \"one\", \"two\"]}}';")
+_TESTTABLE = "CREATE TABLE testtable (i INTEGER); INSERT INTO testtable VALUES (1), (2), (3), (4), (5);"
+_T2 = "CREATE TABLE t2 (i INTEGER); INSERT INTO t2 VALUES (1), (2), (3), (4), (5);"
 
 
 def _values(*rows: Any) -> str:
@@ -953,6 +959,73 @@ CASES: tuple[Case, ...] = (
     _c("TRUNCATE TABLE", "Statements", "CREATE OR REPLACE TABLE merge_example_target (id INTEGER, description VARCHAR); "
        "INSERT INTO merge_example_target (id, description) VALUES (10, 'To be updated (this is the old value)'); "
        "TRUNCATE table merge_example_target; SELECT count(*) FROM merge_example_target", 0, page="../sql/merge"),
+    # WR-313: statements, each from the page cited (read 2026-11-19)
+    # merge: "Perform a basic merge that updates values", which names the target's column in UPDATE SET
+    _c("MERGE (UPDATE SET target.column)", "Statements", "CREATE OR REPLACE TABLE merge_example_target (id INTEGER, "
+       "description VARCHAR); INSERT INTO merge_example_target (id, description) VALUES "
+       "(10, 'To be updated (this is the old value)'); CREATE OR REPLACE TABLE merge_example_source (id INTEGER, "
+       "description VARCHAR); INSERT INTO merge_example_source (id, description) VALUES "
+       "(10, 'To be updated (this is the new value)'); MERGE INTO merge_example_target USING merge_example_source "
+       "ON merge_example_target.id = merge_example_source.id WHEN MATCHED THEN "
+       "UPDATE SET merge_example_target.description = merge_example_source.description; "
+       "SELECT description FROM merge_example_target", "To be updated (this is the new value)", page="../sql/merge"),
+    # merge: "the target gets one copy of the row for each copy in the source" (two source rows, 2 inserted)
+    _c("MERGE (NOT MATCHED, source duplicates)", "Statements", "CREATE TABLE target (id INTEGER, v INTEGER); "
+       "CREATE TABLE src (id INTEGER, v INTEGER); INSERT INTO src VALUES (50, 1), (50, 2); MERGE INTO target USING "
+       "src ON target.id = src.id WHEN NOT MATCHED THEN INSERT (id, v) VALUES (src.id, src.v); "
+       "SELECT count(*) FROM target", 2, page="../sql/merge"),
+    # merge: AND <case_predicate> "when true, causes the not-matching case to be executed"
+    _c("MERGE (NOT MATCHED AND)", "Statements", "CREATE TABLE target (id INTEGER, v INTEGER); "
+       "CREATE TABLE src (id INTEGER, v INTEGER); INSERT INTO src VALUES (1, 400), (2, 2000); MERGE INTO target "
+       "USING src ON target.id = src.id WHEN NOT MATCHED AND src.v > 1000 THEN INSERT (id, v) VALUES (src.id, src.v); "
+       "SELECT list(id) FROM target", [2], page="../sql/merge"),
+    # insert-multi-table: the page's INSERT FIRST example, src n1 = 1, 11, 101; t1 gets 101 and 11
+    _c("INSERT FIRST", "Statements", "CREATE TABLE src (n1 INTEGER); INSERT INTO src VALUES (1), (11), (101); "
+       "CREATE TABLE t1 (n1 INTEGER); CREATE TABLE t2 (n1 INTEGER); INSERT FIRST WHEN n1 > 100 THEN INTO t1 "
+       "WHEN n1 > 10 THEN INTO t1 INTO t2 ELSE INTO t2 SELECT n1 FROM src; SELECT list(n1 ORDER BY n1) FROM t1",
+       [11, 101], "untranslated", "Refused by SFN-026. Write one INSERT ... SELECT for each table.", page="../sql/insert-multi-table"),
+    # create-table: LIKE copies "Column names, types, defaults, and constraints"
+    _c("CREATE TABLE LIKE", "Statements", "CREATE TABLE t (id INTEGER DEFAULT 7, v INTEGER); CREATE TABLE u LIKE t; "
+       "INSERT INTO u (v) VALUES (1); SELECT id FROM u", 7, "untranslated",
+       "Refused by SFN-027. Write the column definitions out.", page="../sql/create-table"),
+    # create-table: CREATE TABLE mytable_copy (b) AS SELECT * FROM mytable
+    _c("CREATE TABLE AS (column list)", "Statements", "CREATE TABLE mytable (amount NUMBER); "
+       "INSERT INTO mytable VALUES (1); CREATE TABLE mytable_copy (b) AS SELECT * FROM mytable; "
+       "SELECT b FROM mytable_copy", 1, page="../sql/create-table"),
+    # create-table: a transient table has "a lower level of data protection"; it answers queries as any table
+    _c("CREATE TRANSIENT TABLE", "Statements", "CREATE TRANSIENT TABLE t (a INTEGER) CLUSTER BY (a); "
+       "INSERT INTO t VALUES (1), (2); SELECT count(*) FROM t", 2, page="../sql/create-table"),
+    # create-table: AUTOINCREMENT START 10 INCREMENT 5 numbers from 10 by 5; NOORDER values aren't always in order
+    _c("AUTOINCREMENT", "Statements", "CREATE TABLE t (id INTEGER AUTOINCREMENT START 10 INCREMENT 5, v INTEGER); "
+       "INSERT INTO t (v) VALUES (1), (2), (3); SELECT bool_and(id >= 10 AND (id - 10) % 5 = 0) "
+       "AND count(DISTINCT id) = 3 FROM t", True, page="../sql/create-table"),
+    # constraints-overview: "Snowflake doesn't enforce PRIMARY KEY, UNIQUE, and FOREIGN KEY constraints on
+    # standard tables", so a repeated key is kept
+    _c("PRIMARY KEY (not enforced)", "Statements", "CREATE TABLE t (id INTEGER PRIMARY KEY, code VARCHAR UNIQUE); "
+       "INSERT INTO t VALUES (1, 'a'), (1, 'a'); SELECT count(*) FROM t", 2, page="../constraints-overview"),
+    # begin: START TRANSACTION is a synonym for BEGIN; the transaction stays open until COMMIT or ROLLBACK
+    _c("START TRANSACTION", "Statements", "CREATE TABLE t (a INTEGER); START TRANSACTION; INSERT INTO t VALUES (1); "
+       "ROLLBACK; SELECT count(*) FROM t", 0, page="../sql/begin"),
+    # begin: the transaction stays open until COMMIT or ROLLBACK, and COMMIT keeps its rows
+    _c("BEGIN (COMMIT)", "Statements", "CREATE TABLE t (a INTEGER); BEGIN; INSERT INTO t VALUES (1); COMMIT; "
+       "SELECT count(*) FROM t", 1, page="../sql/begin"),
+    # transactions: "DDL statements implicitly commit active transactions", so the INSERT before CREATE stays
+    _c("DDL INSIDE BEGIN", "Statements", "CREATE TABLE t (a INTEGER); BEGIN; INSERT INTO t VALUES (1); "
+       "CREATE TABLE x (b INTEGER); ROLLBACK; SELECT count(*) FROM t", 1, "untranslated",
+       "Refused by SFN-030. Put COMMIT before the CREATE.", page="../transactions"),
+    # truncate-table: the page's own TRUNCATE TABLE IF EXISTS example
+    _c("TRUNCATE TABLE IF EXISTS", "Statements", "CREATE TABLE temp_test_truncate (i INTEGER); "
+       "INSERT INTO temp_test_truncate VALUES (1); TRUNCATE TABLE IF EXISTS temp_test_truncate; "
+       "SELECT count(*) FROM temp_test_truncate", 0, "untranslated", "Refused by SFN-028. Leave out IF EXISTS.",
+       page="../sql/truncate-table"),
+    # alter-table: ADD COLUMN, RENAME COLUMN ... TO and RENAME TO, as its syntax gives them
+    _c("ALTER TABLE RENAME (column and table)", "Statements", "CREATE TABLE t1 (a1 INTEGER); ALTER TABLE t1 ADD COLUMN a2 NUMBER; "
+       "ALTER TABLE t1 RENAME COLUMN a1 TO b1; ALTER TABLE t1 RENAME TO t2; INSERT INTO t2 (b1, a2) VALUES (1, 2); "
+       "SELECT b1 + a2 FROM t2", 3, page="../sql/alter-table"),
+    # alter-table: DROP [ COLUMN ] [ IF EXISTS ] <col1_name> [, <col2_name> ... ]
+    _c("ALTER TABLE DROP COLUMN A, B", "Statements", "CREATE TABLE t (a INTEGER, b INTEGER, c INTEGER); "
+       "ALTER TABLE t DROP COLUMN a, b; SELECT count(*) FROM information_schema.columns WHERE table_name ILIKE 't'",
+       1, "untranslated", "Refused by SFN-029. Write one ALTER TABLE for each column.", page="../sql/alter-table"),
     _c("ARRAY_APPEND", "Semi-structured", "SELECT array_append(array_construct(1, 2, 3), 4)", [1, 2, 3, 4]),
     # the page's ARRAY column example: two UPDATEs append 4, then 'five'
     _c("ARRAY_APPEND (ARRAY column)", "Semi-structured", f"{_ARRAY_APPEND} {_APPEND_FOUR} {_APPEND_FIVE} "
@@ -1102,6 +1175,35 @@ CASES: tuple[Case, ...] = (
        31.5, page="get"),
     _c("CHECK_JSON", "Semi-structured", "SELECT check_json('{\"a\": 1}')", None),
     _c("TRY_PARSE_JSON", "Semi-structured", "SELECT try_parse_json('{\"x\": \"abc\", \"y\": false')", None),
+    # TRY_TO_TIMESTAMP's page: its one example calls TRY_TO_TIMESTAMP, which "maps to TRY_TO_TIMESTAMP_NTZ by
+    # default" (TIMESTAMP_TYPE_MAPPING's default, TIMESTAMP_NTZ), so these are its values for the _NTZ form
+    _c("TRY_TO_TIMESTAMP_NTZ", "Conversion", "SELECT try_to_timestamp_ntz('2024-01-15 12:30:00')",
+       dt.datetime(2024, 1, 15, 12, 30), page="try_to_timestamp"),
+    _c("TRY_TO_TIMESTAMP_NTZ (not a timestamp)", "Conversion", "SELECT try_to_timestamp_ntz('Invalid')", None,
+       page="try_to_timestamp"),
+    _c("JSON_EXTRACT_PATH_TEXT", "Semi-structured", f"{_DEMO1} SELECT list(JSON_EXTRACT_PATH_TEXT(json_data, "
+       "'level_1_key') ORDER BY id) FROM demo1",
+       ["level_1_value", '{"level_2_key":"level_2_value"}', '{"level_2_key":["zero","one","two"]}']),
+    _c("JSON_EXTRACT_PATH_TEXT (two levels)", "Semi-structured", f"{_DEMO1} SELECT list(JSON_EXTRACT_PATH_TEXT("
+       "json_data, 'level_1_key.level_2_key') ORDER BY id) FROM demo1", [None, "level_2_value", '["zero","one","two"]'],
+       page="json_extract_path_text"),
+    _c("JSON_EXTRACT_PATH_TEXT (array index)", "Semi-structured", f"{_DEMO1} SELECT list(JSON_EXTRACT_PATH_TEXT("
+       "json_data, 'level_1_key.level_2_key[1]') ORDER BY id) FROM demo1", [None, None, "one"],
+       page="json_extract_path_text"),
+    _c("ARRAY_UNIQUE_AGG", "Semi-structured", "CREATE OR REPLACE TABLE array_unique_agg_test (a INTEGER); "
+       "INSERT INTO array_unique_agg_test VALUES (5), (2), (1), (2), (1); "
+       "SELECT ARRAY_SIZE(ARRAY_UNIQUE_AGG(a)) AS number_of_distinct_values FROM array_unique_agg_test", 3,
+       page="../../user-guide/querying-arrays-for-distinct-counts"),
+    # the page's testtable isn't created there; SAMPLE ROW (0) is empty and TABLESAMPLE (100) is every row, as it says
+    _c("SAMPLE (ROW 0)", "Operators", f"{_TESTTABLE} SELECT count(*) FROM testtable SAMPLE ROW (0)", 0,
+       page="../constructs/sample"),
+    _c("SAMPLE (TABLESAMPLE 100)", "Operators", f"{_TESTTABLE} SELECT count(*) FROM testtable TABLESAMPLE (100)", 5,
+       page="../constructs/sample"),
+    # the page's t2 (SHOW TABLES says 5 rows), then SHOW TABLES LIKE 't2%' read from information_schema: empty
+    _c("DROP TABLE", "Statements", f"{_T2} DROP TABLE t2; SELECT count(*) FROM information_schema.tables "
+       "WHERE table_name ILIKE 't2%'", 0, page="../sql/drop-table"),
+    _c("DROP TABLE (IF EXISTS)", "Statements", f"{_T2} DROP TABLE t2; DROP TABLE IF EXISTS t2; "
+       "SELECT count(*) FROM information_schema.tables WHERE table_name ILIKE 't2%'", 0, page="../sql/drop-table"),
 )
 
 

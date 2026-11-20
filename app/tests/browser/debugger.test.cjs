@@ -226,3 +226,102 @@ test("a kernel restart while paused unpauses, and a Debug from here run doesn't 
   assert.strictEqual(await p.evaluate(() => state.notebook.dbgRun), null);
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("a cell edited while paused marks the pause on its code, or nowhere, never on another line", { skip }, async () => {
+  const p = page();
+  await p.evaluate(() => {
+    loadIntoState({ name: "Edit paused", cells: [{ type: "code", cell_id: "p1", source: "a = 1\nb = 2\nc = 3", meta: { breakpoints: [2] } }] });
+    go("notebook");
+  });
+  await p.evaluate(() => { runCell(state.notebook.cells[0]); });
+  const panel = p.locator(".dbg-paused");
+  await panel.getByText("Paused at line 2 (breakpoint)").waitFor({ timeout: 30000 });
+  assert.strictEqual(await panel.locator(".dbg-edited").count(), 0);
+  // Two lines inserted above: the paused mark moves with line 2's code, and the panel says why.
+  await p.evaluate(() => { setSource(state.notebook.cells[0], "# one\n# two\na = 1\nb = 2\nc = 3"); });
+  await panel.locator(".dbg-edited").waitFor();
+  assert.match(await p.locator(".cm-line.cm-paused").innerText(), /^b = 2$/);
+  assert.match(await panel.locator(".dbg-edited").innerText(),
+    /You changed this cell after it started\. It's paused at line 2 of the code as it ran, which is line 4 now\. Your edits and breakpoint changes take effect the next time the cell runs\./);
+  // The paused line's code is gone: no mark at all, and the panel names the line as it ran.
+  await p.evaluate(() => { setSource(state.notebook.cells[0], "a = 1\nc = 3"); });
+  await panel.locator(".dbg-edited", { hasText: "isn't in the cell now" }).waitFor();
+  assert.strictEqual(await p.locator(".cm-line.cm-paused").count(), 0);
+  assert.match(await panel.locator(".dbg-edited").innerText(), /Line 2 as it ran \(b = 2\) isn't in the cell now\./);
+  await panel.getByRole("button", { name: "Continue" }).click();
+  await p.locator(".cell-status", { hasText: "Succeeded" }).waitFor({ timeout: 30000 });
+  assert.strictEqual(await p.locator(".dbg-paused").count(), 0);
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("a garbled pause from the engine draws what it can, with no errors", { skip }, async () => {
+  const p = page();
+  await p.evaluate(() => {
+    loadIntoState({ name: "Garbled", cells: [{ type: "code", cell_id: "g1", source: "a = 1\nb = 2", meta: {} }] });
+    go("notebook");
+  });
+  const garbled = [
+    { line: 2, stack: "(cell) line 2", variables: { a: 1 }, watches: [null], evals: 7, skipped: "json.dumps" },
+    { line: 2, stack: [{ function: { x: 1 }, line: "two" }, 5], variables: [{ name: null, value: { deep: [1] } }], variables_total: -3 },
+    { line: 99, variables: Array.from({ length: 3000 }, (_, i) => ({ name: `v${i}`, type: "int", size: "", value: "y".repeat(5000) })) },
+    { line: "2" },
+    "paused",
+  ];
+  for (const paused of garbled) {
+    const shown = await p.evaluate((paused) => {
+      const cell = state.notebook.cells[0];
+      cell.status = "running";
+      dbgSnapshot(cell, { status: "running", paused });
+      updateResults(cell);
+      const panel = document.querySelector(".dbg-paused");
+      const text = panel ? panel.innerText : null;
+      dbgSnapshot(cell, null);
+      cell.status = null;
+      updateResults(cell);
+      return text;
+    }, paused);
+    if (typeof paused === "object" && Number.isInteger(paused.line)) {
+      assert.match(shown, new RegExp(`Paused at line ${paused.line}`));
+      assert.ok(shown.length < 2_000_000);
+    } else {
+      assert.strictEqual(shown, null);  // no usable line: not shown as paused
+    }
+  }
+  assert.strictEqual(await p.locator(".dbg-paused").count(), 0);
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("Debug from here over 20 cells: Stop ends the run there, and Continue runs the rest", { skip }, async () => {
+  const p = page();
+  const cells = Array.from({ length: 20 }, (_, i) => ({ type: "code", cell_id: `m${i}`, source: `v${i} = ${i}\nw${i} = v${i} + 1`, meta: i === 15 ? { breakpoints: [2] } : {} }));
+  await p.evaluate((cells) => { loadIntoState({ name: "Twenty", cells }); go("notebook"); }, cells);
+  const panel = (i) => p.locator(`[data-cell="${i}"] .dbg-paused`);
+  const ids = await p.evaluate(() => state.notebook.cells.map((c) => c.id));
+  // Step through the first three cells line by line, then Stop in the fourth.
+  await p.evaluate(() => { debugFromHere(state.notebook.cells[0]); });
+  for (let i = 0; i < 3; i++) {
+    await panel(ids[i]).getByText("Paused at line 1").waitFor({ timeout: 30000 });
+    await p.keyboard.press("F10");
+    await panel(ids[i]).getByText("Paused at line 2").waitFor({ timeout: 30000 });
+    await p.keyboard.press("F10");
+  }
+  await panel(ids[3]).getByText("Paused at line 1").waitFor({ timeout: 30000 });
+  await panel(ids[3]).getByRole("button", { name: "Stop" }).click();
+  await p.waitForFunction(() => !state.notebook.runningAll && !state.notebook.dbgRun, null, { timeout: 30000 });
+  let status = await p.evaluate(() => state.notebook.cells.map((c) => c.status));
+  assert.deepStrictEqual(status.slice(0, 4), ["ok", "ok", "ok", "cancelled"]);
+  assert.ok(status.slice(4).every((s) => s == null), "nothing ran after Stop");
+  assert.strictEqual(await p.locator(".dbg-paused").count(), 0);
+  // Again from the fifth cell: Continue at once, so the rest run to cell 16's breakpoint only, then to the end.
+  await p.evaluate(() => { debugFromHere(state.notebook.cells[4]); });
+  await panel(ids[4]).getByText("Paused at line 1").waitFor({ timeout: 30000 });
+  await p.keyboard.press("F5");
+  await panel(ids[15]).getByText("Paused at line 2 (breakpoint)").waitFor({ timeout: 30000 });
+  await p.keyboard.press("F5");
+  await p.waitForFunction(() => !state.notebook.runningAll && !state.notebook.dbgRun, null, { timeout: 60000 });
+  status = await p.evaluate(() => state.notebook.cells.map((c) => c.status));
+  assert.ok(status.slice(4).every((s) => s === "ok"), JSON.stringify(status));
+  assert.strictEqual(await p.locator(".dbg-paused").count(), 0);
+  assert.strictEqual(await p.locator(".cm-line.cm-paused").count(), 0);
+  assert.deepStrictEqual(app.errors, []);
+});

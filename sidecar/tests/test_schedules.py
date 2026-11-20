@@ -478,6 +478,29 @@ def test_waiting_alerts_go_before_the_new_one_and_only_one_run_sends_them(svc, m
     assert sent == ["Delayed: Scheduled run failed on this PC: Older", "Scheduled run failed on this PC: Bad"]
 
 
+@pytest.mark.parametrize("status", [500, 502, 504])
+def test_a_waiting_alert_that_may_have_arrived_is_never_sent_again(svc, monkeypatch, status):
+    """A 500, 502 or 504 may mean Teams took it; the scrubbed post keeps that, so it isn't re-sent."""
+    from fabric_desktop import dataops_service
+    from fabric_desktop.workloads.notify import answered
+    svc.notebooks.save("Bad", [{"type": "code", "source": "1 / 0"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Bad"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    monkeypatch.setattr(svc, "_settings", lambda: {"teams_webhook": "https://example.webhook.office.com/x"})
+    svc._schedule_alerts().add("Scheduled run failed on this PC: Older", ["boom"], "RuntimeError: down")
+    sent: list[str] = []
+
+    def post(url, title, lines):
+        sent.append(title)
+        if title.startswith("Delayed:"):
+            raise answered("Teams", status)
+    monkeypatch.setattr(dataops_service, "post_teams", post)
+    svc.run_schedule(sid)
+    assert svc._schedule_alerts().pending() == []  # taken out: it may be in the channel
+    sent.clear()
+    svc.run_schedule(sid)
+    assert sent == ["Scheduled run failed on this PC: Bad"]
+
+
 def test_a_legacy_webhook_never_reaches_the_alert_outbox(svc, monkeypatch):
     from fabric_desktop.schedule_service import SCHEDULE_ALERTS
     legacy = ("https://127.0.0.1:9/webhookb2/11111111-2222-3333-4444-555555555555@66666666-7777-8888-9999-000000000000"

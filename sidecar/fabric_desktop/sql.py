@@ -24,8 +24,7 @@ from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
 from . import (spark_aggregates, spark_builtins_sql, spark_complex, spark_datetime, spark_decimals, spark_hash,
-               spark_sql_names,
-               spark_strings, spark_windows, sql_dialects)
+               spark_sql_names, spark_strings, spark_time_zone, spark_windows, sql_dialects)
 from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
 
 # sqlglot logs a warning when it reads a statement as a bare command ('SHOW TABLES' ...). With no
@@ -39,7 +38,15 @@ _VIEW_NAMES = itertools.count()
 def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     """Spark SQL first; DuckDB SQL is accepted too when it isn't valid Spark.
 
-    ``dialect="duckdb"`` reads DuckDB SQL only. T-SQL dialects don't run here (sql_dialects.py)."""
+    ``dialect="duckdb"`` reads DuckDB SQL only. T-SQL dialects don't run here (sql_dialects.py).
+    A query nested too deeply to read or rewrite is a ValueError (sql_dialects.TOO_DEEP)."""
+    try:
+        return _parse(query, dialect)
+    except RecursionError:
+        raise ValueError(sql_dialects.TOO_DEEP) from None
+
+
+def _parse(query: str, dialect: str) -> list[exp.Expression]:
     chosen = sql_dialects.get(dialect)
     if not chosen["runs_here"]:
         raise ValueError(f"{chosen['label']} can't run on this PC. KratosForge checks and formats "
@@ -48,19 +55,23 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
         statements = _statements(sql_dialects.parse(diff_spellings(query) if chosen["id"] == "spark" else query,
                                                     read=chosen["sqlglot"]))
         if chosen["id"] == "spark":
-            statements = [spark_legacy_times(spark_fixes(spark_legacy_casts(s))) for s in statements]
+            statements = [spark_legacy_times(spark_fixes(spark_legacy_casts(spark_builtins_sql.refuse_nested_concat_ws(s))))
+                          for s in statements]
     except (ParseError, TokenError) as first_error:  # an unclosed quote is a TokenError
         if chosen["id"] == "spark" and (respelled := _spark_spellings(query)) != query:
             try:
-                return parse(respelled, dialect)
+                return _parse(respelled, dialect)
             except ValueError:
                 pass  # report the error in the query as written
         if chosen["id"] == "spark" and _only_empty_structs_fail(query):
             raise ValueError(_EMPTY_STRUCT) from None
-        if chosen["id"] != "spark" or getattr(first_error, "uneven_pairs", False):  # DuckDB would drop an argument
+        if getattr(first_error, "too_deep", False):
+            raise ValueError(sql_dialects.TOO_DEEP) from None
+        if chosen["id"] != "spark" or getattr(first_error, "uneven_pairs", False) \
+                or getattr(first_error, "final", False):  # DuckDB would drop an argument
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
         try:
-            statements = _statements(sqlglot.parse(query, read="duckdb"))
+            statements = _statements(sql_dialects.parse(query, read="duckdb"))
         except (ParseError, TokenError):
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
     if not statements:
@@ -183,6 +194,7 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     (_spark_timestampdiff)."""
     statement = spark_builtins_sql.mark(statement)
     _no_reserved_names(statement)  # on the SQL as written, before any rewrite adds its own kf_ names
+    statement = spark_builtins_sql.check_nested_concat_ws(statement)
     if databricks:
         _mark_divisions(statement)
     statement = _try_divisions(statement)
@@ -192,20 +204,23 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
         ansi=databricks))
     statement = spark_windows.spark_window_results(spark_complex.spark_complex_results(statement))
     if databricks:
-        return _spark_range(_ansi_divisions(statement))
-    return _spark_range(_spark_session_functions(_null_remainders(_not_in_spark_3_5(statement))))
+        return _spark_range(spark_time_zone.fix(_ansi_divisions(statement)))
+    return _spark_range(spark_time_zone.fix(_spark_session_functions(_null_remainders(_not_in_spark_3_5(statement)))))
 
 
 def _spark_range(statement: exp.Expression) -> exp.Expression:
     """FROM range(...): Spark's column is ``id``, DuckDB's is ``range``. A fourth argument (Spark's number
     of partitions) changes no values, so it is left out. Written last, so the cast stays a plain cast. A
-    query that reads a column named ``range`` (written for DuckDB's range, which Spark stops on) keeps it."""
-    if any(c.name.lower() == "range" for c in statement.find_all(exp.Column)):
+    query that reads range()'s column ``range`` (written for DuckDB's range, which Spark stops on) keeps it; a
+    table's own column named range (t.range) doesn't count."""
+    calls = [t for t in statement.find_all(exp.Table) if isinstance(t.this, exp.Anonymous)
+             and t.this.name.upper() == "RANGE" and 1 <= len(t.this.expressions) <= 4]
+    names = {(t.alias or "range").lower() for t in calls}
+    if any(c.name.lower() == "range" and (not c.table or c.table.lower() in names)
+           for c in statement.find_all(exp.Column)):
         return statement
-    for table in list(statement.find_all(exp.Table)):
+    for table in calls:
         call = table.this
-        if not (isinstance(call, exp.Anonymous) and call.name.upper() == "RANGE" and 1 <= len(call.expressions) <= 4):
-            continue
         args = ", ".join(duckdb_sql(a.copy()) for a in call.expressions[:3])
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier("range"))
         query = sql_dialects.parse_one(f"SELECT CAST(range AS BIGINT) AS id FROM range({args})", read="duckdb")
@@ -366,19 +381,36 @@ def _spark_date_results(statement: exp.Expression, ansi: bool) -> exp.Expression
     return statement
 
 
+_USER_REFUSED = "in Fabric it names the identity running the notebook and here it would name DuckDB"
+# Spark's session functions this PC refuses by name in a Spark SQL cell: the reason, after "because "
+_SESSION_REFUSED = {
+    "current_user": _USER_REFUSED, "user": _USER_REFUSED, "session_user": _USER_REFUSED,
+    "version": "in Fabric it gives the Spark build and git revision and here it would give DuckDB's version",
+}
+
+
 def _spark_session_functions(statement: exp.Expression) -> exp.Expression:
     """Spark's session functions in a Fabric notebook, where DuckDB would describe its own session
     ('memory' for its catalog). current_catalog() is spark_catalog, as in Fabric; current_timezone()
     is the session's spark.sql.session.timeZone (DuckDB's TimeZone, which spark.conf.set changes).
     current_database() and current_schema() are refused: in Fabric they name the default lakehouse,
-    which a SQL cell here can't read; spark.catalog.currentDatabase() can. Databricks SQL keeps
+    which a SQL cell here can't read; spark.catalog.currentDatabase() can. current_user(), user(),
+    session_user() and version() are refused too: Fabric names the identity running the notebook and its
+    own Spark build, where DuckDB would give 'duckdb' and its own version. Databricks SQL keeps
     DuckDB's own answers (its session is the engine's, not a Unity Catalog one)."""
+    for user in list(statement.find_all(exp.CurrentUser, exp.SessionUser, exp.Anonymous)):
+        name = ("current_user" if isinstance(user, exp.CurrentUser) else "session_user"
+                if isinstance(user, exp.SessionUser) else user.name.lower())
+        if name in _SESSION_REFUSED:
+            raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric, because "
+                             f"{_SESSION_REFUSED[name]}, so nothing ran. Run the cell in Fabric.")
     for node in list(statement.find_all(exp.CurrentCatalog, exp.CurrentTimezone, exp.CurrentDatabase,
                                         exp.CurrentSchema)):
         if isinstance(node, exp.CurrentCatalog):
             new: exp.Expression = exp.Literal.string("spark_catalog")
-        elif isinstance(node, exp.CurrentTimezone):
-            new = exp.Anonymous(this="CURRENT_SETTING", expressions=[exp.Literal.string("TimeZone")])
+        elif isinstance(node, exp.CurrentTimezone):  # the id spark.conf set (spark_api), else DuckDB's zone
+            new = cast(exp.Expression, sqlglot.parse_one(
+                "COALESCE(GETVARIABLE('kf_spark_time_zone'), CURRENT_SETTING('TimeZone'))", read="duckdb"))
         else:
             name = "current_database" if isinstance(node, exp.CurrentDatabase) else "current_schema"
             raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric, so nothing ran: in Fabric "
@@ -446,15 +478,35 @@ def _bround(places: int) -> str:
             f"THEN TRUNC({{0}}, {places}) ELSE ROUND({{0}}, {places}) END")
 
 
-# format_number(x, d) with a whole number of places: decimals round half-even first, as Spark's
-# BigDecimal does; doubles are formatted as they are, as Java's DecimalFormat does.
-_FORMAT_NUMBER = ("CASE WHEN TYPEOF({0}) LIKE 'DECIMAL%' THEN FORMAT('{{:,.{1}f}}', CAST(ROUND_EVEN({0}, {1}) AS DOUBLE)) "
-                  "ELSE FORMAT('{{:,.{1}f}}', CAST({0} AS DOUBLE)) END")
+_FORMAT_NUMBER_MOST = 18  # places: DECIMAL(38, 18) still keeps 20 whole digits
+
+
+def _format_number(places: int) -> str:
+    """format_number(x, d) with a whole number of places, as Java's DecimalFormat writes it for Spark. A whole
+    number or a decimal keeps every digit (a BIGINT or DECIMAL(38) went through DOUBLE, so
+    123456789012345678 was written 123,456,789,012,345,680); a decimal rounds half-even, as Spark's BigDecimal
+    does, and keeps a - when it rounds to 0 (-0.4 is -0). Doubles are formatted as they are."""
+    zeros = f" || '.{'0' * places}'" if places else ""
+    # + 0.0 makes a whole number a decimal before it is scaled: DuckDB 2 works out this branch for an integer
+    # constant too, and an INT64 times 10^d could overflow there.
+    rounded = f"CAST(({_bround(places)}) AS DECIMAL(38, {places}))".replace("{0}", "({0} + 0.0)")
+    whole = f"SPLIT_PART(CAST({rounded} AS VARCHAR), '.', 1)"
+    fraction = f" || '.' || SPLIT_PART(CAST({rounded} AS VARCHAR), '.', 2)" if places else ""
+    exact = (f"(CASE WHEN {{0}} < 0 AND CAST({whole} AS HUGEINT) = 0 THEN '-' ELSE '' END) || "
+             f"FORMAT('{{{{:,}}}}', CAST({whole} AS HUGEINT)){fraction}")
+    return (f"CASE WHEN TYPEOF({{0}}) IN ('TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT') "
+            f"THEN FORMAT('{{{{:,}}}}', CAST({{0}} AS HUGEINT)){zeros} "
+            f"WHEN TYPEOF({{0}}) LIKE 'DECIMAL%' THEN {exact} "
+            f"ELSE FORMAT('{{{{:,.{places}f}}}}', CAST({{0}} AS DOUBLE)) END")
 # exists(array, x -> ...): true if any is true, else NULL if any is NULL, else false (Spark's
 # three-valued exists).
 _EXISTS = ("(LIST_TRANSFORM([LIST_TRANSFORM({0}, {1})], kf_t -> CASE WHEN kf_t IS NULL THEN NULL "
            "WHEN LIST_BOOL_OR(kf_t) THEN TRUE WHEN LIST_POSITION(kf_t, NULL) IS NOT NULL THEN NULL ELSE FALSE END))[1]")
-_DISTINCT = "LIST_FILTER({0}, (kf_v, kf_i) -> LIST_POSITION({0}, kf_v) = kf_i)"
+# A DOUBLE or FLOAT array is kept apart by each value's text, since Spark keeps 0.0 and -0.0 apart (DuckDB's
+# = takes them as one); NaN is one value either way. TYPEOF folds when the query is planned.
+_DISTINCT = ("CASE WHEN TYPEOF({0}) IN ('DOUBLE[]', 'FLOAT[]') THEN LIST_FILTER({0}, (kf_v, kf_i) -> "
+             "LIST_POSITION(LIST_TRANSFORM({0}, kf_w -> CAST(kf_w AS VARCHAR)), CAST(kf_v AS VARCHAR)) = kf_i) "
+             "ELSE LIST_FILTER({0}, (kf_v, kf_i) -> LIST_POSITION({0}, kf_v) = kf_i) END")
 # array_intersect and array_except: first-seen order of the first array, each value once, NULL included.
 _INTERSECT = ("CASE WHEN ({0}) IS NULL OR ({1}) IS NULL THEN NULL ELSE LIST_FILTER({0}, (kf_v, kf_i) -> "
               "LIST_POSITION({0}, kf_v) = kf_i AND LIST_POSITION({1}, kf_v) IS NOT NULL) END")
@@ -690,8 +742,17 @@ def _spark_functions(databricks: bool, statement: exp.Expression) -> exp.Express
                 places = args[1]
                 if isinstance(places, exp.Neg) and places.this.is_int:  # a negative count is NULL in Spark
                     node.replace(exp.Null())
-                elif places.is_int:
-                    node.replace(_from_template(_FORMAT_NUMBER.replace("{1}", str(int(places.name))), [args[0]]))
+                elif places.is_int or (isinstance(places, exp.Literal) and not places.is_string and places.name.isdigit()):
+                    # isdigit first: sqlglot's is_int is False past Python's 4,300 digits
+                    if len(places.name.lstrip("0")) > 2 or int(places.name.lstrip("0") or "0") > _FORMAT_NUMBER_MOST:
+                        raise ValueError(f"This Spark SQL can't be run on this PC: format_number with more than "
+                                         f"{_FORMAT_NUMBER_MOST} decimal places isn't written here. Spark writes "
+                                         "them, but a decimal here keeps at most 38 digits in all.")
+                    node.replace(_from_template(_format_number(int(places.name.lstrip("0") or "0")), [args[0]]))
+                elif isinstance(places, exp.Literal) and places.is_string:
+                    raise ValueError("format_number() with a pattern can't run on this PC the way it runs in Fabric, "
+                                     "so nothing ran: Java's DecimalFormat patterns aren't written here. Give the number "
+                                     "of decimal places, or run the cell in Fabric.")
             elif name == "FORALL" and len(args) == 2 and isinstance(args[1], exp.Lambda):
                 # forall(a, x -> p) is NOT exists(a, x -> NOT p): FALSE on any FALSE, else NULL on any NULL.
                 negated = exp.Lambda(this=exp.Not(this=exp.paren(args[1].this.copy())),
@@ -1231,8 +1292,11 @@ def spark_integer_cast(value: str, duck_type: str, spark_type: str, mode: str) -
         string = (f"CASE WHEN regexp_matches({text}, '{_WHOLE_NUMBER}') THEN CAST(regexp_extract({text}, "
                   f"'{_WHOLE_NUMBER}', 1) AS {duck_type}) ELSE ERROR({message}) END")
     else:
-        pattern = _PLAIN_NUMBER if mode == "legacy" else _WHOLE_NUMBER
-        string = f"TRY_CAST(NULLIF(regexp_extract({text}, '{pattern}', 1), '') AS {duck_type})"
+        if mode == "legacy":  # '.5' and '-.5' are 0 too, as Spark's UTF8String.toInt reads them
+            from .spark_text_compare import whole_text
+            string = whole_text(value, duck_type)
+        else:
+            string = f"TRY_CAST(NULLIF(regexp_extract({text}, '{_WHOLE_NUMBER}', 1), '') AS {duck_type})"
     # A timestamp is its seconds since 1970 (UTC), rounded down, as in Spark (EA-014); DuckDB has no such
     # cast. It is read through text, so the CASE binds whatever the value's type.
     seconds = f"floor(epoch(TRY_CAST({text} AS TIMESTAMPTZ)))"
@@ -1294,6 +1358,8 @@ def _whole_number(node: exp.Expression) -> bool:
     """Plainly a whole number already: an integer literal or a cast to a whole-number type."""
     if isinstance(node, exp.Paren):
         return _whole_number(node.this)
+    if isinstance(node, exp.Neg) and isinstance(node.this, exp.Literal):  # -2147483648 (_negative_literals)
+        return node.this.is_int
     if isinstance(node, exp.Literal):
         return node.is_int
     if isinstance(node, exp.Window):  # row_number, rank, dense_rank and ntile count whole rows
@@ -1435,8 +1501,11 @@ def _past(source: exp.Expression, kind: Any) -> bool:
     bits = _WIDTHS[_INT_CASTS[kind][0]]
     while isinstance(source, exp.Paren):
         source = source.this
-    if isinstance(source, exp.Literal):
-        return not -(2 ** (bits - 1)) <= int(source.this) < 2 ** (bits - 1)
+    if isinstance(source, exp.Literal) or (isinstance(source, exp.Neg) and isinstance(source.this, exp.Literal)):
+        value = int(source.this) if isinstance(source, exp.Literal) else -int(source.this.this)
+        return not -(2 ** (bits - 1)) <= value < 2 ** (bits - 1)
+    if isinstance(source, exp.Window):  # row_number, rank, dense_rank and ntile are ints (_whole_number)
+        return _WIDTHS["INTEGER"] > bits
     if isinstance(source, (exp.Cast, exp.TryCast)) and source.to.this in _INT_CASTS:
         return _WIDTHS[_INT_CASTS[source.to.this][0]] > bits
     return False
@@ -1463,7 +1532,9 @@ def _negative_literals(statement: exp.Expression) -> None:
         cast_ = neg.this
         if isinstance(cast_, exp.Literal) and not cast_.is_string and cast_.name.isdigit():
             negative: exp.Expression = exp.Literal.number(f"-{cast_.name}")
-            if int(cast_.name) == 2 ** 31:  # an int, as in Spark: DuckDB reads it as minus a bigint
+            # an int, as in Spark: DuckDB reads it as minus a bigint. Compared as text, since a literal
+            # may have more digits than Python's int() reads
+            if cast_.name.lstrip("0") == str(2 ** 31):
                 negative = exp.Cast(this=negative, to=exp.DataType.build("INT"))
             neg.replace(negative)
             continue
@@ -1732,6 +1803,13 @@ _TIMESTAMPS = (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPTZ, exp.D
 _SPARK_DATE_CAST = "kf_spark_date_cast"
 
 
+def _typed_literal(node: exp.Expression) -> bool:
+    """``node`` is a typed literal, TIMESTAMP '...': a Cast of text with no function name's place in the
+    query (see spark_legacy_casts). Spark refuses a bad one ([INVALID_TYPED_LITERAL]) even with ANSI off,
+    so it stays a Cast, and DuckDB stops on it, as on DATE '2026-13-01'."""
+    return isinstance(node.this, exp.Literal) and node.this.is_string and "start" not in node.meta
+
+
 def spark_legacy_times(statement: exp.Expression) -> exp.Expression:
     """Spark's to_timestamp with ANSI off, as Fabric runs it: text that isn't a timestamp gives NULL
     (EA-015). sqlglot reads to_timestamp(x) as a CAST and to_timestamp(x, format) as a strptime,
@@ -1748,7 +1826,7 @@ def spark_legacy_times(statement: exp.Expression) -> exp.Expression:
             node.replace(read)
         elif isinstance(node, exp.StrToTime):
             node.set("safe", True)
-        elif type(node) is exp.Cast and node.to.this in _TIMESTAMPS:
+        elif type(node) is exp.Cast and node.to.this in _TIMESTAMPS and not _typed_literal(node):
             # to_timestamp gives Spark's timestamp: with time zone, text read in the session's zone
             to = exp.DataType.build("TIMESTAMPTZ") if _to_timestamp_call(node) else node.to
             replacement = exp.TryCast(this=node.this, to=to)
@@ -1825,6 +1903,7 @@ def _spark_timestampdiff(statement: exp.Expression) -> exp.Expression:
 
 
 _TIME_TYPES = "'DATE', 'TIMESTAMP', 'TIMESTAMP WITH TIME ZONE', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP_NS'"
+_NTZ_TYPES = "'TIMESTAMP', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP_NS'"
 
 
 def _strptime_format(node: exp.Expression) -> tuple[str, bool]:
@@ -2054,7 +2133,8 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
         swapped = between.replace(cast(exp.Expression, sqlglot.parse_one(value, read="duckdb")))
         node = swapped if between is node else node
     for unix in list(node.find_all(exp.StrToUnix)):
-        value = duckdb_sql(unix.this)
+        # The argument goes in as its node (_with_args), so a call in it is still rewritten by the later passes.
+        value = "fj_arg0"
         pattern = spark_builtins_sql.written_pattern(unix) if unix.args.get("format") else None
         if pattern is not None:  # read as Spark reads its pattern (spark_datetime)
             name = unix.meta.get(spark_sql_names._NAME) or "unix_timestamp"
@@ -2063,9 +2143,12 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
             fmt, has_year = _strptime_format(unix) if unix.args.get("format") else ("'%Y-%m-%d %H:%M:%S'", True)
             # Without a year Spark reads the date as 1970-01-01; strptime starts from 1900-01-01.
             parsed = f"try_strptime(CAST({value} AS VARCHAR), {fmt})" + ("" if has_year else " + INTERVAL 70 YEAR")
-        swapped = unix.replace(cast(exp.Expression, sqlglot.parse_one(
-            f"CAST(floor(epoch(CASE WHEN typeof({value}) IN ({_TIME_TYPES}) THEN TRY_CAST({value} AS TIMESTAMPTZ) "
-            f"ELSE CAST({parsed} AS TIMESTAMPTZ) END)) AS BIGINT)", read="duckdb")))
+        # A timestamp_ntz (DuckDB's TIMESTAMP) is read as UTC, as Spark reads it; a date and text are read in
+        # the session's time zone.
+        swapped = unix.replace(_with_args(
+            f"CAST(floor(CASE WHEN typeof({value}) IN ({_NTZ_TYPES}) THEN epoch(TRY_CAST({value} AS TIMESTAMP)) "
+            f"WHEN typeof({value}) IN ({_TIME_TYPES}) THEN epoch(TRY_CAST({value} AS TIMESTAMPTZ)) "
+            f"ELSE epoch(CAST({parsed} AS TIMESTAMPTZ)) END) AS BIGINT)", [unix.this]))
         node = swapped if unix is node else node
     for sub in list(node.find_all(exp.Substring)):
         start = sub.args.get("start")
@@ -2260,6 +2343,8 @@ def duckdb_sql(statement: exp.Expr) -> str:
     here that is a ValueError instead, and nothing runs (#1253)."""
     try:
         return statement.sql(KfDuckDB, unsupported_level=sqlglot.ErrorLevel.RAISE)
+    except RecursionError:
+        raise ValueError(sql_dialects.TOO_DEEP) from None
     except UnsupportedError as exc:
         reason = str(exc).splitlines()[0] if str(exc) else "sqlglot can't write part of it in DuckDB SQL."
         raise ValueError(f"Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: "
@@ -2316,11 +2401,13 @@ def execute_sandboxed(con: duckdb.DuckDBPyConnection, statement: str) -> pa.Tabl
 def _decimal_types(statement: exp.Expression, con: duckdb.DuckDBPyConnection, dialect: str) -> exp.Expression:
     """Spark SQL's decimal result types and div (spark_decimals), as a notebook's spark.sql gives them: without
     them floor(-1.25) div 7 was DuckDB's double division, -0.2857..., where Spark gives 0. And to_json,
-written from its argument's type as Spark writes it (spark_json)."""
+written from its argument's type as Spark writes it (spark_json), and a shift of an int typed as an int."""
     if sql_dialects.get(dialect)["id"] != "spark":
         return statement
+    from . import spark_text_compare
+    statement = cast(exp.Expression, spark_text_compare.spark_text_comparisons(statement, con))
     statement = cast(exp.Expression, spark_decimals.spark_decimal_types(statement, con))
-    return cast(exp.Expression, spark_complex.spark_complex_types(statement, con, kinds=("to_json",)))
+    return cast(exp.Expression, spark_complex.spark_complex_types(statement, con, kinds=("to_json", "int_shift")))
 
 
 def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyConnection, Any]:

@@ -33,6 +33,9 @@ class _Clock:
     def time(self):
         return self.now
 
+    def monotonic(self):  # elapsed comes from the monotonic clock; this fake keeps both at ``now``
+        return self.now
+
 
 def test_a_folder_already_added_is_refused(local, pid, tmp_path):
     data = tmp_path / "data"
@@ -63,7 +66,8 @@ def test_the_status_of_an_unknown_query_says_so(local):
 
 
 def test_elapsed_is_seconds_since_the_start_to_a_tenth(local, monkeypatch):
-    local._queries["q"] = {"query_id": "q", "project": "p", "state": "running", "started_at": 100.0}
+    local._queries["q"] = {"query_id": "q", "project": "p", "state": "running", "started_at": 100.0,
+                           "_clock": 100.0}
     monkeypatch.setattr(M, "time", _Clock(102.26))
     out = local.status("q")
     assert out == {"query_id": "q", "project": "p", "state": "running", "elapsed": 2.3}

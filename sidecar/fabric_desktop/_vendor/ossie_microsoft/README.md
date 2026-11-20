@@ -17,6 +17,8 @@ Export to Ossie and Import from Ossie on the Semantic model tab (`model_ossie.py
 - `__init__.py` exports only the converters.
 - The two places that called `tom.py` for TMDL text raise `ValueError` instead. KratosForge
   reads and writes models as TMSL through Fabric's getDefinition and updateDefinition.
+- `_represent_str` writes a string holding U+0085 (NEL) in double quotes: PyYAML, with
+  `allow_unicode`, writes NEL raw and reads it back as a line break.
 
-To update: copy those five modules from a newer commit, re-apply the two `# KratosForge:`
+To update: copy those five modules from a newer commit, re-apply the `# KratosForge:`
 edits, update the commit above, and run `tests/test_model_ossie.py`.

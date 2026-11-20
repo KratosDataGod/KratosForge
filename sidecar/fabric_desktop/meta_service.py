@@ -23,7 +23,7 @@ from .errors import NotSetUp
 from .leases import Backend, Leases, LocalBackend, OneLakeBackend, lease_timeout, onelake_table_lease, table_key
 from .onelake import storage_options
 from .publish import WRITER
-from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, entity_name_problem, validate
+from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, entity_name_problem, prod_name, prod_typed, validate
 from .meta import diff as diff_mod
 from .meta import snapshot
 from .meta.promote import promote_checks, releases, rollback
@@ -174,11 +174,20 @@ class MetaMixin:
         try:
             project = self._project()
         except LookupError:
+            project = None
+        if project is not None:
+            for env in ("test", "prod"):
+                if workspace_id in _env_workspaces(project.environments.get(env, {})):
+                    return (f"This workspace is {env.title()}'s, which changes only by promote. "
+                            "Point the job at a Dev or scratch workspace.")
+        # WR-248: a workspace an earlier project named Prod stays Prod on this PC with no project open, as it does
+        # for a notebook's changes (prod_writes_service); a job's write there would skip every typed-name check
+        marked = getattr(self, "_prod_marked", None)
+        if marked is not None and marked(workspace_id):
+            return ("This workspace was named Prod by a project opened on this PC, and Prod changes only by promote. "
+                    "Point the job at a Dev or scratch workspace.")
+        if project is None:
             return None
-        for env in ("test", "prod"):
-            if workspace_id in _env_workspaces(project.environments.get(env, {})):
-                return (f"This workspace is {env.title()}'s, which changes only by promote. "
-                        "Point the job at a Dev or scratch workspace.")
         return lakehouse.write_guard(lakehouse_name, schema, table) if lakehouse.write_guard else None
 
     def _maintenance_refusal(self, operation: str, workspace_id: str, table: str) -> str | None:
@@ -255,6 +264,21 @@ class MetaMixin:
             return None
         return (f"{_statement(operation)} on {table} is refused: the capacity check is Blocked ({found['title']}). "
                 f"{found.get('remedy') or ''} Nothing was changed.").replace("  ", " ")
+
+    def _job_v_order_refusal(self, workspace_id: str, table: str) -> str | None:
+        """Why a job's V-Order (an Optimize on the capacity, after its write) mustn't start now, as a clause, or
+        None. A job runs unattended and can't accept a warning, so it starts only on a capacity known to be
+        fine: Blocked, a Warning and an unknown reading all stop it, and X-ray, which shows the capacity and
+        asks, is the way to V-Order the table then."""
+        found = self._maintenance_capacity(workspace_id)
+        if found is not None and found["outcome"] == risk.PASS:
+            return None
+        if found is not None and found["outcome"] == risk.BLOCKED:
+            return f"the capacity check is Blocked ({found['title']})"
+        if found is not None and found["outcome"] == risk.WARNING:
+            return f"the capacity check has a warning ({found['title']}), and a job run can't accept one"
+        # None, risk.UNKNOWN (never read, unreadable or stale) or any outcome this doesn't know: not checked.
+        return "the capacity of its workspace isn't known, and a job run doesn't start an Optimize unchecked"
 
     def meta_project(self) -> dict[str, Any]:
         try:
@@ -681,7 +705,7 @@ class MetaMixin:
                 "notes": notes + more + duty_notes + policies["notes"], "git": git,
                 "policy_exceptions": policies["excepted"]}
 
-    def meta_promote(self, source: str, target: str) -> dict[str, Any]:
+    def meta_promote(self, source: str, target: str, confirm_name: str = "") -> dict[str, Any]:
         project = self._project()
         src = self._store(project, source)
         errors = promote_checks(project, src, target, dt.date.today())
@@ -701,6 +725,7 @@ class MetaMixin:
         errors += policies["errors"]
         if errors:
             raise GateError("promote", errors)
+        prod_typed(project, target, confirm_name, "promoting to it", "Nothing was promoted.")
         target_store = self._store(project, target, create=True)
         uses_keys = bool(project.key_tables or project.source_systems)
         keys_store = self._keys_store(project, target, create=True) if uses_keys else None  # fails before promoting
@@ -776,7 +801,8 @@ class MetaMixin:
             history = releases(self._store(project, env))
         except Exception as exc:  # noqa: BLE001 - the environment can't be read: say so
             return {"env": env, "releases": [], "problem": str(exc)}
-        return {"env": env, "releases": history, "problem": None}
+        return {"env": env, "releases": history, "problem": None,
+                **({"confirm_name": prod_name(project)} if env == "prod" else {})}
 
     def meta_rollback_preview(self, env: str, version: str) -> dict[str, Any]:
         """What rolling ``env`` back to ``version`` changes, by meaning, entity by entity. Reads only."""
@@ -793,7 +819,7 @@ class MetaMixin:
         changes = diff_mod.project_changes(texts(history[0]["version"]), texts(version))
         return {"env": env, "from": history[0]["version"], "to": version, "entities": changes}
 
-    def meta_rollback(self, env: str, version: str) -> dict[str, Any]:
+    def meta_rollback(self, env: str, version: str, confirm_name: str = "") -> dict[str, Any]:
         """Put Test or Prod back on an earlier release, from the files that environment keeps. The
         workspace role check of a promote applies; tables keep their rows until their next run."""
         if env == "dev":
@@ -802,6 +828,7 @@ class MetaMixin:
         errors, _ = self._duties_gate(project, env, env, separation=False)  # undoing a release isn't a second promote
         if errors:
             raise GateError("rollback", errors)
+        prod_typed(project, env, confirm_name, "rolling it back", "Nothing was rolled back.")
         store = self._store(project, env)
         result = rollback(project, store, version, duties.current_user(), self._signed_in_object_id())
         released = result.pop("project")

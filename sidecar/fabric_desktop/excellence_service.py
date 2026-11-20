@@ -10,6 +10,8 @@ the evidence keeps the rules that matched and where, never the code. Semantic mo
 read as TMSL with the getDefinition call the Semantic model tab already makes (at most
 ``MAX_MODELS``) and inspected the same way (excellence.inspect_models): names and counts, never DAX,
 M or the definition text.
+It also uses the Capacity Metrics exports already imported on this PC (the local usage store,
+FEA-202); that is a local read, not a Fabric call.
 A read that fails is reported in ``reads`` and leaves the controls that need it *not evaluated*;
 it never stops the assessment and never counts as a pass. No Fabric job starts and nothing is
 written to Fabric, OneLake or this PC.
@@ -25,7 +27,7 @@ import datetime as dt
 import json
 from typing import Any
 
-from .excellence import adapters, assess, catalog, catalog_architecture, inspect_items, inspect_models, profiles
+from .excellence import adapters, assess, catalog, catalog_architecture, catalog_capacity, inspect_items, inspect_models, profiles
 from .opportunities_service import _guid
 from .redact import describe
 
@@ -75,6 +77,32 @@ FIXTURE_LAKEHOUSES: dict[str, dict[str, Any] | None] = {
     "f1f1f1f1-0000-4000-8000-000000000301": {"displayName": "LH_Bronze", "properties": {"defaultSchema": "dbo"}},
     "f1f1f1f1-0000-4000-8000-000000000302": {"displayName": "LH_Silver", "properties": {}},
 }
+
+
+def _fixture_usage(workspace: str) -> list[dict[str, Any]]:
+    """Two made-up Capacity Metrics imports for the demonstration: 14 days of item totals on the demo
+    F64 (about 4% used) and 30 hours of operations with one semantic model refreshed 30 times in a day."""
+    def row(n: int, item: str, cu: float, start: str, end: str | None = None, op: str | None = None,
+            status: str | None = None) -> dict[str, Any]:
+        return {"key": f"fixture:cap:{n}", "provider": "metrics_app", "workspace": workspace, "item": item,
+                "operation": op, "status": status, "start": start, "end": end,
+                "cu": {"value": cu, "period": {"start": start, "end": end or start}}}
+    period = ("2026-10-18T00:00:00+00:00", "2026-11-01T00:00:00+00:00")
+    items = [row(i, name, cu, *period) for i, (name, cu) in enumerate(
+        [("nb_orders_refresh_finance", 1_620_000.0), ("pl_finance_sales_copy", 930_000.0), ("Sales model", 560_000.0)])]
+    ops = [row(100 + h, "Sales model", 1_200.0, f"2026-10-31T{h % 24:02d}:{(h // 24) * 30:02d}:00+00:00", None,
+               "Dataset On-Demand Refresh", "Success") for h in range(30)]
+    ops += [row(200, "nb_orders_refresh_finance", 40_000.0, "2026-10-31T06:00:00+00:00", "2026-10-31T06:40:00+00:00",
+                "Notebook Run", "Success"),
+            row(201, "nb_orders_refresh_finance", 40_000.0, "2026-11-01T06:00:00+00:00", "2026-11-01T06:40:00+00:00",
+                "Notebook Run", "Success"),
+            row(202, "pl_finance_sales_copy", 2_000.0, "2026-11-01T05:00:00+00:00", "2026-11-01T05:02:00+00:00",
+                "Pipeline Run", "Failure")]
+    label = " (demonstration fixture).csv"
+    return [{"id": "u-fixturecap00001", "provider": "metrics_app", "layout": "items", "file_name": "compute-items" + label,
+             "period": {"start": period[0], "end": period[1]}, "rows": items},
+            {"id": "u-fixturecap00002", "provider": "metrics_app", "layout": "operations",
+             "file_name": "timepoint-operations" + label, "rows": ops}]
 
 
 def _now() -> str:
@@ -166,6 +194,7 @@ class ExcellenceMixin:
             capacities: list[dict[str, Any]] | None = [{"id": ws["capacityId"], "displayName": "Demo F64",
                                                         "sku": "F64", "state": "Active", "region": "West Europe"}]
             at = str(opt.get("assessed_at") or at)
+            imports: list[dict[str, Any]] | None = _fixture_usage(str(ws["displayName"]))
             lakehouses = dict(FIXTURE_LAKEHOUSES)
             models, _ = _models(opt, lambda _item: FIXTURE_MODEL)
         else:
@@ -207,6 +236,12 @@ class ExcellenceMixin:
                 capacities = None
                 reads.append({"read": "capacities", "ok": False, "problem": f"Couldn't be read ({describe(exc)})."})
             lakehouses = _lakehouses(fabric, wid, _items(opt), reads)
+            try:
+                imports = self._usage.all()  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - the capacity usage controls are then not evaluated
+                imports = None
+                reads.append({"read": "imported Capacity Metrics exports", "ok": False,
+                              "problem": f"The imports on this PC couldn't be read ({describe(exc)})."})
         cap_id = str(ws.get("capacityId") or "").lower()
         records = (adapters.workspace(ws, _items(opt), collected_at=at, info_read=info_read)
                    + adapters.roles(ws, assignments, collected_at=at)
@@ -215,6 +250,13 @@ class ExcellenceMixin:
                    + adapters.inspection(opt, collected_at=at)
                    + catalog_architecture.evidence(ws, _items(opt), opt, lakehouses, collected_at=at)
                    + adapters.models(models, collected_at=at))
+        cap_name = next((c.get("displayName") for c in capacities or [] if str(c.get("id") or "").lower() == cap_id), None)
+        usage = catalog_capacity.usage(cap_id, cap_name, ws.get("displayName"), imports, collected_at=at)
+        records += usage
+        if cap_id and imports is not None:
+            reads.append({"read": "imported Capacity Metrics exports", "ok": True, "problem": None if usage else (
+                "No Capacity Metrics export imported on this PC has this workspace's use, so the capacity usage "
+                "controls aren't evaluated. Import one in Optimize > Cost and savings.")})
         scope = {"workspaces": [{"id": str(ws["id"]), "name": ws.get("displayName")}],
                  "capacities": [cap_id] if cap_id else []}
         result = assess.assess(records, catalog.registry(), scope=scope, assessed_at=at, profile=prof, fixture=demo)

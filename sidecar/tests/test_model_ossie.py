@@ -812,3 +812,313 @@ def test_a_link_under_cultures_is_never_read_followed_or_removed(svc, tmp_path):
     svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
     assert cultures.is_symlink() and [p.name for p in (tmp_path / "elsewhere").iterdir()] == ["de-DE.tmdl"]
     assert (tmp_path / "elsewhere" / "de-DE.tmdl").read_text(encoding="utf-8") == PARTITION_CAPTION
+
+
+def _snapshot(folder):
+    return {p: p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+
+
+def test_a_table_file_with_a_line_it_cant_read_is_refused_and_nothing_is_written(svc):
+    folder = _orders_folder(svc)
+    table = folder / "definition" / "tables" / "fact_sales.tmdl"
+    # A calendar (newer TMDL than the reader knows) and a line it doesn't understand: rewriting would drop both.
+    table.write_text(table.read_text(encoding="utf-8").replace(
+        "\tlineageTag: t-fact\n", "\tlineageTag: t-fact\n\tcalendar 'Fiscal year'\n\t\tcolumn: customer_sk\n"
+        "\tsparkle mode on\n", 1), encoding="utf-8")
+    before = _snapshot(folder)
+    with pytest.raises(ValueError) as refused:
+        svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")
+    assert str(refused.value).startswith(
+        "tables/fact_sales.tmdl holds lines KratosForge can't read (calendar 'Fiscal year', sparkle mode on), "
+        "so it would lose them if rewritten; nothing was written.")
+    with pytest.raises(ValueError, match="tables/fact_sales.tmdl holds lines"):  # a confirm is refused the same way
+        svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token="anything")
+    assert _snapshot(folder) == before
+    # A property it doesn't know, written as key: value, is read and written back, so it isn't refused.
+    table.write_text(table.read_text(encoding="utf-8").replace(  # by text: on Windows the file has CRLF line ends
+        "\tcalendar 'Fiscal year'\n\t\tcolumn: customer_sk\n\tsparkle mode on\n", ""), encoding="utf-8")
+    kept = folder / "definition" / "tables" / "dim_customer.tmdl"  # a table the file doesn't have: kept by the merge
+    kept.write_text(kept.read_text(encoding="utf-8").replace("\n", "\n\tsparkleMode: on\n", 1), encoding="utf-8")
+    plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
+    assert "\tsparkleMode: on\n" in kept.read_text(encoding="utf-8")
+
+
+def test_model_tmdl_with_a_line_it_cant_read_is_refused_naming_every_such_file(svc):
+    folder = _orders_folder(svc)
+    model = folder / "definition" / "model.tmdl"
+    model.write_text(model.read_text(encoding="utf-8") + "frobnicate the model\n", encoding="utf-8")
+    roles = folder / "definition" / "roles" / "EU only.tmdl"
+    roles.write_text(roles.read_text(encoding="utf-8") + "\t'??? one'\n\t'??? two'\n\t'??? three'\n\t'??? four'\n",
+                     encoding="utf-8")
+    (folder / "definition" / "cultures" / "de-DE.tmdl").write_text(PARTITION_CAPTION, encoding="utf-8")  # kept, not refused
+    before = _snapshot(folder)
+    with pytest.raises(ValueError) as refused:
+        svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")
+    message = str(refused.value)
+    assert message.startswith("model.tmdl holds lines KratosForge can't read (frobnicate the model); "
+                              "roles/EU only.tmdl holds lines KratosForge can't read ('??? one', '??? two', '??? three' "
+                              "and 1 more), so it would lose those lines if rewritten; nothing was written.")
+    assert "cultures/" not in message
+    assert _snapshot(folder) == before
+
+
+def test_a_clean_folder_still_updates_and_a_culture_it_cant_read_is_still_kept(svc):
+    folder = _orders_folder(svc)
+    culture = folder / "definition" / "cultures" / "de-DE.tmdl"
+    culture.write_text(PARTITION_CAPTION, encoding="utf-8")
+    plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    assert [r["object"] for r in plan["report"] if r.get("file")] == ["cultures/de-DE.tmdl"]
+    svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
+    assert (folder / "definition" / "tables" / "dim_channel.tmdl").exists()
+    assert "net revenue" in (folder / "definition" / "tables" / "fact_sales.tmdl").read_text(encoding="utf-8")
+    assert culture.read_text(encoding="utf-8") == PARTITION_CAPTION
+
+
+def test_a_line_it_cant_read_added_after_the_preview_is_refused_at_the_confirm(svc):
+    folder = _orders_folder(svc)
+    plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]  # clean: a token is given
+    table = folder / "definition" / "tables" / "dim_customer.tmdl"
+    table.write_text(table.read_text(encoding="utf-8") + "\tcalendar Fiscal\n", encoding="utf-8")
+    before = _snapshot(folder)
+    with pytest.raises(ValueError, match=r"^tables/dim_customer.tmdl holds lines KratosForge can't read \(calendar Fiscal\)"):
+        svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
+    assert _snapshot(folder) == before and not (folder / "definition" / "tables" / "dim_channel.tmdl").exists()
+
+
+# ---- properties the Ossie file doesn't set are carried over, or named in the report
+
+
+def _fabric_only_bim():
+    """_bim() with properties Fabric has and an Ossie file from another tool doesn't set, on objects the file has."""
+    bim = _bim()
+    fact = bim["model"]["tables"][0]
+    fact["sparkleMode"] = "on"  # a property KratosForge doesn't know
+    fact["isHidden"] = True
+    fact["annotations"] = [{"name": "PBI_Note", "value": "hand-written"}, {"name": "OssieAIContext", "value": "old"}]
+    cols = {c["name"]: c for c in fact["columns"]}
+    cols["amount"]["description"] = "Old description"
+    cols["amount"]["displayFolder"] = "Money"
+    cols["customer_sk"]["isKey"] = True  # Ossie owns keys: the file says it isn't one
+    return bim
+
+
+def test_merge_carries_over_properties_the_file_doesnt_set_and_takes_the_ones_ossie_owns():
+    incoming, _ = model_ossie.to_tmsl(_ossie(), source=SOURCE)
+    report: list = []
+    final = model_ossie.merge(_fabric_only_bim(), incoming, None, model_ossie.stashed(_ossie()), report)
+    fact = next(t for t in final["model"]["tables"] if t["name"] == "fact_sales")
+    assert fact["sparkleMode"] == "on" and fact["isHidden"] is True
+    assert [a["name"] for a in fact["annotations"]] == ["PBI_Note"]  # the converter's own annotation isn't carried
+    cols = {c["name"]: c for c in fact["columns"]}
+    assert cols["amount"]["description"] == "Order amount"  # Ossie owns the description
+    assert cols["amount"]["displayFolder"] == "Money" and cols["amount"]["formatString"] == "#,0.00"
+    assert cols["customer_sk"]["isHidden"] is True and cols["customer_sk"]["summarizeBy"] == "none"
+    assert "isKey" not in cols["customer_sk"]
+    assert report == []
+    # The change plan reads only what Ossie owns, so carrying the rest over changes none of its rows.
+    assert model_ossie.plan(_fabric_only_bim(), final) == model_ossie.plan(_bim(), model_ossie.merge(_bim(), incoming))
+    assert model_ossie.removable(_fabric_only_bim(), incoming) == model_ossie.removable(_bim(), incoming)
+
+
+def test_import_update_keeps_a_property_it_doesnt_know_on_a_table_the_file_has(svc):
+    svc.fake.bim = _fabric_only_bim()
+    done = svc.meta_model_ossie_import("test", _ossie(), "SM_Gold", confirmed=True)
+    written = json.loads(svc.fake.saved[-1][1]["model.bim"])
+    fact = next(t for t in written["model"]["tables"] if t["name"] == "fact_sales")
+    assert fact["sparkleMode"] == "on" and fact["lineageTag"] == "t-fact"
+    assert not any("sparkleMode" in r["object"] for r in done["report"])
+
+
+def test_ossie_to_tmdl_keeps_a_property_it_doesnt_know_on_a_table_the_file_has(svc):
+    folder = _orders_folder(svc)
+    table = folder / "definition" / "tables" / "fact_sales.tmdl"
+    table.write_text(table.read_text(encoding="utf-8").replace("\n", "\n\tsparkleMode: on\n", 1), encoding="utf-8")
+    plan = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    svc.meta_model_ossie_to_tmdl(_ossie(), name="orders", confirmed=True, token=plan["token"])
+    text = table.read_text(encoding="utf-8")
+    assert "\tsparkleMode: on\n" in text and "net revenue" in text
+    again = svc.meta_model_ossie_to_tmdl(_ossie(), name="orders")["confirm"]
+    assert {f["change"] for f in again["file_changes"]} == {"same"}
+
+
+def _with_power_bi_section(text, dataset, data):
+    doc = yaml.safe_load(text)
+    target = next(d for d in doc["datasets"] if d["name"] == dataset)
+    target["custom_extensions"] = [{"vendor_name": "POWER_BI", "data": json.dumps({"_v": 2} | data)}]
+    return yaml.safe_dump(doc, sort_keys=False)
+
+
+def test_what_isnt_carried_over_is_named_in_the_report():
+    # A Power BI section for the table speaks for all its properties: what it leaves out is taken out, by name.
+    text = _with_power_bi_section(_ossie(), "fact_sales", {"isHidden": True})
+    assert model_ossie.stashed(text) == {"fact_sales"}
+    metric = {"name": "m", "expression": {"dialects": [{"dialect": "DAX", "expression": "1"}]},
+              "custom_extensions": [{"vendor_name": "POWER_BI", "data": json.dumps({"_v": 2, "name": "M 1"})}]}
+    assert model_ossie.stashed(_ossie(metric)) == {"fact_sales[M 1]"}  # a dataset's metric: its home table
+    incoming, _ = model_ossie.to_tmsl(text, source=SOURCE)
+    report: list = []
+    final = model_ossie.merge(_fabric_only_bim(), incoming, None, model_ossie.stashed(text), report)
+    fact = next(t for t in final["model"]["tables"] if t["name"] == "fact_sales")
+    assert "sparkleMode" not in fact and fact["isHidden"] is True
+    assert {r["object"]: r["message"] for r in report} == {
+        "fact_sales sparkleMode": "taken out, because the file's Power BI section for it doesn't have it",
+        "fact_sales annotation PBI_Note": "taken out, because the file's Power BI section for it doesn't have it"}
+    # A column whose data type the file changes keeps none of its old properties; a sort column that's gone neither.
+    bim = _fabric_only_bim()
+    cols = {c["name"]: c for c in bim["model"]["tables"][0]["columns"]}
+    cols["amount"]["dataType"] = "string"
+    cols["customer_sk"]["sortByColumn"] = "gone_column"
+    report = []
+    final = model_ossie.merge(bim, model_ossie.to_tmsl(_ossie(), source=SOURCE)[0], None, set(), report)
+    cols = {c["name"]: c for c in next(t for t in final["model"]["tables"] if t["name"] == "fact_sales")["columns"]}
+    assert "displayFolder" not in cols["amount"] and "formatString" not in cols["amount"]
+    assert "sortByColumn" not in cols["customer_sk"] and cols["customer_sk"]["isHidden"] is True
+    rows = {r["object"]: r["message"] for r in report}
+    assert rows["fact_sales[amount] displayFolder"] == "not kept, because the file makes its data type decimal, not string"
+    assert {"fact_sales[amount] formatString", "fact_sales[amount] summarizeBy"} <= set(rows)
+    assert rows["fact_sales[customer_sk] sortByColumn"] == "not kept, because the model no longer has the column gone_column"
+
+
+def test_a_column_mapped_to_another_source_column_keeps_nothing_about_the_old_source():
+    bim = _fabric_only_bim()
+    amount = next(c for c in bim["model"]["tables"][0]["columns"] if c["name"] == "amount")
+    amount |= {"sourceColumn": "amount_old", "sourceLineageTag": "[amount_old]", "sourceProviderType": "decimal(18, 2)"}
+    report: list = []
+    final = model_ossie.merge(bim, model_ossie.to_tmsl(_ossie(), source=SOURCE)[0], None, set(), report)
+    amount = next(c for c in final["model"]["tables"][0]["columns"] if c["name"] == "amount")
+    assert amount["sourceColumn"] == "amount" and "sourceLineageTag" not in amount and "sourceProviderType" not in amount
+    assert amount["displayFolder"] == "Money" and amount["lineageTag"] == "c-amount"  # the rest is the model's still
+    assert {r["object"]: r["message"] for r in report} == {
+        "fact_sales[amount] sourceLineageTag": "not kept, because the file maps it to source column amount, not amount_old",
+        "fact_sales[amount] sourceProviderType": "not kept, because the file maps it to source column amount, not amount_old"}
+
+
+def _referencing_bim():
+    """_bim() whose columns and measure the file has point at objects an update can take out."""
+    bim = _bim()
+    fact = bim["model"]["tables"][0]
+    cols = {c["name"]: c for c in fact["columns"]}
+    fact["columns"].append({"name": "legacy_code", "dataType": "string", "sourceColumn": "legacy_code"})
+    cols["customer_sk"]["variations"] = [{"name": "Geo", "relationship": "r1", "defaultHierarchy": "dim_customer.Geo"}]
+    cols["amount"]["relatedColumnDetails"] = {"groupByColumns": [{"groupingColumn": "legacy_code"}]}
+    cols["amount"]["alternateOf"] = {"summarization": "sum", "baseColumn": "'dim_customer'[country]"}
+    fact["measures"].append({
+        "name": "net revenue", "expression": "SUM('fact_sales'[amount])",
+        "kpi": {"targetExpression": "[fact_sales rows] * 2"},
+        "formatStringDefinition": {"expression": "IF('fact_sales'[fact_sales total amount] > 0, \"#,0\", \"0\")"},
+        "detailRowsDefinition": {"expression": "SELECTCOLUMNS(dim_customer, \"c\", [country])"}})
+    return bim
+
+
+REFERENCING = ("fact_sales[customer_sk] variations", "fact_sales[amount] relatedColumnDetails",
+               "fact_sales[amount] alternateOf", "fact_sales[net revenue] kpi",
+               "fact_sales[net revenue] formatStringDefinition", "fact_sales[net revenue] detailRowsDefinition")
+
+
+def test_carried_properties_naming_objects_the_update_keeps_are_kept():
+    report: list = []
+    final = model_ossie.merge(_referencing_bim(), model_ossie.to_tmsl(_ossie(), source=SOURCE)[0], None, set(), report)
+    fact = final["model"]["tables"][0]
+    objects = {c["name"]: c for c in fact["columns"] + fact["measures"]}
+    for ref in REFERENCING:
+        name, key = ref.removeprefix("fact_sales[").split("] ")
+        assert key in objects[name], ref
+    assert report == []
+
+
+def test_carried_properties_naming_objects_the_update_takes_out_are_named_in_the_report():
+    report: list = []
+    remove = ["dim_customer", "fact_sales[legacy_code]", "fact_sales[fact_sales rows]",
+              "fact_sales[fact_sales total amount]"]
+    final = model_ossie.merge(_referencing_bim(), model_ossie.to_tmsl(_ossie(), source=SOURCE)[0], remove, set(), report)
+    fact = final["model"]["tables"][0]
+    objects = {c["name"]: c for c in fact["columns"] + fact["measures"]}
+    for ref in REFERENCING:
+        name, key = ref.removeprefix("fact_sales[").split("] ")
+        assert key not in objects[name], ref
+    assert {r["object"]: r["message"] for r in report} == {
+        "fact_sales[customer_sk] variations": "not kept, because the model no longer has the relationship r1",
+        "fact_sales[amount] relatedColumnDetails": "not kept, because the model no longer has the column legacy_code",
+        "fact_sales[amount] alternateOf": "not kept, because the model no longer has the column 'dim_customer'[country]",
+        "fact_sales[net revenue] kpi": "not kept, because the model no longer has fact_sales[fact_sales rows]",
+        "fact_sales[net revenue] formatStringDefinition":
+            "not kept, because the model no longer has fact_sales[fact_sales total amount]",
+        "fact_sales[net revenue] detailRowsDefinition": "not kept, because the model no longer has the table dim_customer"}
+    assert objects["amount"]["summarizeBy"] == "none"  # what names nothing is still carried
+
+
+def test_a_variation_and_an_alternate_of_are_checked_part_by_part():
+    bim = _referencing_bim()
+    cols = {c["name"]: c for c in bim["model"]["tables"][0]["columns"]}
+    cols["customer_sk"]["variations"][0]["defaultHierarchy"] = {"table": "dim_customer", "hierarchy": "Gone"}
+    cols["amount"]["alternateOf"] = {"summarization": "count", "baseTable": "'dim_customer'"}
+    report: list = []
+    final = model_ossie.merge(bim, model_ossie.to_tmsl(_ossie(), source=SOURCE)[0], None, set(), report)
+    cols = {c["name"]: c for c in final["model"]["tables"][0]["columns"]}
+    assert "variations" not in cols["customer_sk"] and cols["amount"]["alternateOf"]["baseTable"] == "'dim_customer'"
+    # A sort column whose name has a dot in it is found as written, not read as Table.Hierarchy.
+    bim = _bim()
+    bim["model"]["tables"][0]["columns"].append({"name": "amount.v2", "dataType": "decimal", "sourceColumn": "a2"})
+    next(c for c in bim["model"]["tables"][0]["columns"] if c["name"] == "amount")["sortByColumn"] = "amount.v2"
+    final = model_ossie.merge(bim, model_ossie.to_tmsl(_ossie(), source=SOURCE)[0], None, set(), report)
+    assert next(c for c in final["model"]["tables"][0]["columns"] if c["name"] == "amount")["sortByColumn"] == "amount.v2"
+    assert [r["message"] for r in report] == [
+        'not kept, because the model no longer has the hierarchy {"hierarchy": "Gone", "table": "dim_customer"}']
+
+
+def test_stashed_names_each_measure_where_the_converter_puts_it():
+    def metric(name, data=None):
+        m = {"name": name, "expression": {"dialects": [{"dialect": "DAX", "expression": "1"}]}}
+        if data is not None:
+            m["custom_extensions"] = [{"vendor_name": "POWER_BI", "data": json.dumps({"_v": 2} | data)}]
+        return m
+    doc = yaml.safe_load(_ossie())
+    doc["metrics"] = [metric("no table", {"isHidden": True}),  # no table: the first dataset
+                      metric("other table", {"table": "dim_channel"}),
+                      metric("missing table", {"table": "nowhere"}),  # not a table: the first dataset
+                      metric("renamed", {"name": "Renamed M", "table": "dim_channel"}),
+                      metric("shared name", {"table": "dim_channel"})]
+    doc["datasets"][1]["metrics"] = [metric("own", {"formatString": "0"}),  # a dataset's own metric: that dataset
+                                     metric("sent elsewhere", {"table": "fact_sales"}),
+                                     metric("table is null", {"table": None}),
+                                     metric("shared name", {"formatString": "0"}),  # left out: the model has one
+                                     metric("no section")]
+    text = yaml.safe_dump(doc, sort_keys=False)
+    bim, _ = model_ossie.to_tmsl(text, source=SOURCE)
+    placed = {f"{t['name']}[{m['name']}]" for t in bim["model"]["tables"] for m in t.get("measures") or []}
+    found = model_ossie.stashed(text)
+    assert {r for r in found if "[" in r} == placed - {"dim_channel[no section]", "fact_sales[net revenue]"}
+    assert found >= {"fact_sales[no table]", "fact_sales[missing table]", "dim_channel[Renamed M]",
+                     "dim_channel[own]", "fact_sales[sent elsewhere]", "fact_sales[table is null]"}
+
+
+@pytest.mark.parametrize("value", [
+    "a" + " " * 5000 + "x[",
+    "a." + " " * 5000 + "x",
+    "a" + " b" * 3000 + "[",
+    "'" + "''" * 3000,
+])
+def test_a_crafted_reference_is_read_quickly_and_a_long_one_is_not_a_reference(value):
+    """A model from Fabric or a TMDL folder can hold any text here: reading it never backtracks slowly."""
+    import time
+    start = time.perf_counter()
+    assert model_ossie._parse_ref(value, "t") is None
+    model_ossie._TMDL_REF.match(value.strip())  # the pattern itself, past the length cap, is quick too
+    assert time.perf_counter() - start < 0.5
+
+
+def test_ordinary_references_still_read():
+    assert model_ossie._parse_ref(" Sales [Amount] ", "t") == ("sales", "amount")
+    assert model_ossie._parse_ref("'My T'[c]", "t") == ("my t", "c")
+    assert model_ossie._parse_ref("'Q''s'.h", "t") == ("q's", "h")
+    assert model_ossie._parse_ref("T . h ", "t") == ("t", "h")
+    assert model_ossie._parse_ref("amount", "t") == ("t", "amount")
+
+
+def test_a_dataset_metric_whose_sql_cant_be_tokenized_is_reported_not_raised():
+    """An unclosed quote makes sqlglot raise TokenError, not ParseError: the metric is still converted or named."""
+    bad = {"name": "broken", "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "SUM('amount)"}]}}
+    bim, report = model_ossie.to_tmsl(_ossie(extra_metric=bad))
+    names = {m["name"] for t in bim["model"]["tables"] for m in t.get("measures") or []}
+    assert "broken" in names or any("broken" in r["object"] for r in report)

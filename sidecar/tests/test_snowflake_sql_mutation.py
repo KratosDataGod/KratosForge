@@ -66,7 +66,7 @@ def test_flatten_reads_a_positional_input():
 
 def test_alter_that_sets_a_tag_is_refused_and_a_rename_runs():
     assert _verdicts("alter table t set tag a = 'x'") == [("not_translatable", ["SFN-010"])]
-    assert _verdicts("alter table t rename to u") == [("difference", ["SFD-001"])]
+    assert _verdicts("alter table t rename to u") == [("translated", [])]  # stored as U (SFX-030)
 
 
 # ---- the report

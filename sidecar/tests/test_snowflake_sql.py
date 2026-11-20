@@ -1200,3 +1200,14 @@ def test_to_timestamp_ntz_of_a_column_reads_it_by_its_type(fn):
     assert dates == [(dt.datetime(2024, 1, 1),)]
     with pytest.raises(duckdb.Error, match="(?i)timestamp"):
         con.execute(sf.translate(f"SELECT {fn}(x) FROM (VALUES ('nope')) AS t(x)").duckdb_sql).fetchall()
+    # Text with a UTC offset: the offset is dropped, as Snowflake's NTZ reads it (DuckDB 1.5.6 stopped, 2.0 dropped it).
+    offsets = con.execute(sf.translate(
+        f"SELECT {fn}(x) FROM (VALUES ('2024-01-02 03:04:05 +02:00'), ('2024-01-02 03:04:05.5-0700'), "
+        "('2024-01-02T03:04:05Z'), ('2024-01-02')) AS t(x)").duckdb_sql).fetchall()
+    assert offsets == [(dt.datetime(2024, 1, 2, 3, 4, 5),), (dt.datetime(2024, 1, 2, 3, 4, 5, 500000),),
+                       (dt.datetime(2024, 1, 2, 3, 4, 5),), (dt.datetime(2024, 1, 2),)]
+    # A TIMESTAMPTZ column: the session time zone's wall clock (DuckDB keeps no offset of its own per value).
+    con.execute("SET TimeZone = 'UTC'")
+    zoned = con.execute(sf.translate(
+        f"SELECT {fn}(x) FROM (SELECT CAST('2024-01-02 03:04:05+02' AS TIMESTAMPTZ) AS x) AS t").duckdb_sql).fetchall()
+    assert zoned == [(dt.datetime(2024, 1, 2, 1, 4, 5),)]

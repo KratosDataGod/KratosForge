@@ -1275,7 +1275,10 @@ _TIMESTAMP_OF_ANY = (
     "(LIST_TRANSFORM([TRY_CAST(TRIM(CAST(kf_ts AS VARCHAR)) AS HUGEINT)], kf_n -> MAKE_TIMESTAMP(CAST(CASE "
     "WHEN kf_n < 31536000000 THEN kf_n * 1000000 WHEN kf_n < 31536000000000 THEN kf_n * 1000 "
     "WHEN kf_n < 31536000000000000 THEN kf_n ELSE kf_n // 1000 END AS BIGINT))))[1] "
-    "ELSE CAST(CAST(kf_ts AS VARCHAR) AS TIMESTAMP) END))[1]")
+    # Text with a UTC offset ('... 03:04:05 +02:00') is read as Snowflake's NTZ reads it: the offset is dropped.
+    # DuckDB 1.5.6 stops on it ("not UTC") where 2.0 drops it, so it is dropped here for both.
+    r"ELSE CAST(REGEXP_REPLACE(CAST(kf_ts AS VARCHAR), '(\d:\d\d(:\d\d(\.\d+)?)?)\s*(Z|[+-]\d\d(:?\d\d)?)$', "
+    r"'\1') AS TIMESTAMP) END))[1]")
 
 
 def _written_number(node: exp.Expression) -> bool:
@@ -2223,7 +2226,9 @@ CATALOG = (
                 "here. TIMESTAMP_FROM_PARTS and TIMESTAMP_NTZ_FROM_PARTS carry a part outside its range over "
                 "(seconds of -3600 is an hour earlier). TO_TIMESTAMP and TO_TIMESTAMP_NTZ of a number are seconds "
                 "since 1970, with no time zone; of a column, a number is read that way, text holding a whole "
-                "number by its size, and anything else is cast to TIMESTAMP. TIMESTAMP_TZ_FROM_PARTS with no time zone "
+                "number by its size, and anything else is cast to TIMESTAMP, with a UTC offset in text dropped. A TIMESTAMP_TZ "
+                "column gives the session time zone's wall clock, since DuckDB doesn't keep a value's own offset, "
+                "where Snowflake gives the value's own local time. TIMESTAMP_TZ_FROM_PARTS with no time zone "
                 "argument is in the session's time zone.")),
     ("SFX-018", "Rewritten", ("CONDITIONAL_TRUE_EVENT and CONDITIONAL_CHANGE_EVENT count events from each "
                 "partition's first row in ORDER BY order (a NULL is neither true nor a change), and "

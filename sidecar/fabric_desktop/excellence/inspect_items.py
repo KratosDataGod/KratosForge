@@ -153,8 +153,8 @@ def pipeline(w: dict[str, Any]) -> dict[str, Any]:
         elif any(str(c).lower() in _FAILURE_CONDITIONS for d in deps if isinstance(d, dict)
                  for c in (d.get("conditions") or [])):
             failure_path = True
-        if str(a.get("type")) not in CALLOUT_TYPES:
-            continue
+        if str(a.get("type")) not in CALLOUT_TYPES or a.get("inactive") is True:
+            continue  # a deactivated activity is skipped at run time, so its retry and timeout don't matter
         callouts += 1
         policy = a.get("policy")
         retry = _retry_set(policy) if isinstance(policy, dict) else None

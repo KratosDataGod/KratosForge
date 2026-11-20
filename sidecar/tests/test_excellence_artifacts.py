@@ -189,7 +189,7 @@ def test_pipeline_inspection_keeps_names_and_counts_only():
     got = inspect_items.inspect(pipeline("p", [activity("A", inactive=True, workspace=OTHER_WS)]))
     assert got == {"read": True, "kind": "pipeline", "activities": 1, "inactive": ["A"], "inactive_count": 1,
                    "fixed_workspace": ["A"], "fixed_workspace_count": 1, "state_unknown": [], "properties_unknown": [],
-                   "calls_out": 1, "no_retry": [], "no_retry_count": 0, "no_timeout": [], "no_timeout_count": 0,
+                   "calls_out": 0, "no_retry": [], "no_retry_count": 0, "no_timeout": [], "no_timeout_count": 0,
                    "policy_unknown": [], "failure_path": False, "depends_unknown": []}
 
 
@@ -430,3 +430,8 @@ def test_an_unknown_schedule_leaves_the_scheduled_only_rules_unchecked():
     assert got["scheduled"] is None and "NB004" in got["unchecked"]
     known = inspect_items.inspect({**w, "runs": {"read": True, "scheduled": 0}})
     assert known["scheduled"] is False and known["unchecked"] == []
+
+
+def test_a_deactivated_activity_doesnt_count_toward_retry_or_timeout():
+    got = inspect_items.inspect(pipeline("p", [activity("Off", inactive=True, policy={}), activity("On")]))
+    assert got["calls_out"] == 1 and got["no_retry"] == [] and got["no_timeout"] == []

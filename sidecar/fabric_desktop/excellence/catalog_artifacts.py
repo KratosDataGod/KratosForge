@@ -372,7 +372,7 @@ CONTROLS = (
                     "0.12:00:00).",
         remediation=_t("With the 12-hour default, a hung step holds the run, and its capacity, for up to 12 hours "
                        "before anyone is told, and the next scheduled run can start on top of it.",
-                       "Set a timeout that fits the step: its longest normal run plus a margin.",
+                       "Set a timeout that fits the step, such as its longest normal run plus a margin.",
                        ["Open the activities named in the finding.",
                         "Look up each one's longest recent run in the Monitoring hub.",
                         "On General settings, set Timeout to that plus a margin, under 12 hours.", "Run once.",
@@ -389,7 +389,7 @@ CONTROLS = (
                        "no clean-up of what it left half done.",
                        "Add an activity (Teams, Outlook, a log write, or a Fail activity after clean-up) on the "
                        "On fail or On completion path of the steps that call out.",
-                       ["Decide what should happen when a step fails: alert, log, clean up.",
+                       ["Decide what should happen when a step fails, such as an alert, a log entry or a clean-up.",
                         ("Add that activity and connect it with On fail (or On completion) from the steps that "
                          "call out."), "Run once with a forced failure.", "Assess again."],
                        "Failures are handled and reported by the pipeline itself.", "low", "low",

@@ -108,6 +108,19 @@ def test_python_outside_transforms_is_never_read(tmp_path):
     assert change_impact._module_file(root, "transforms.out:run") is None
 
 
+def test_a_transforms_folder_that_links_elsewhere_is_never_read(tmp_path):
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (outside / "fix.py").write_text("segment = 1\n", encoding="utf-8")
+    root = tmp_path / "proj"
+    root.mkdir()
+    try:
+        (root / "transforms").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("no symlinks here (Windows without the right)")
+    assert change_impact._module_file(root, "transforms.fix:run") is None
+
+
 def test_bad_requests_are_refused(svc):
     with pytest.raises(LookupError):
         svc.meta_impact("silver.nope", "x", "drop")

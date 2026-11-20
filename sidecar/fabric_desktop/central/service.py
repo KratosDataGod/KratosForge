@@ -1169,7 +1169,7 @@ class PlatformMixin:
 
     def mesh_save_product(self, product: dict[str, Any], original: str = "") -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
-        name = str(product.get("name", "")).strip()  # the name write_product saves it under
+        name = mesh.product_name(product.get("name", ""))  # before its file is read: it names the file
         if original:
             mesh.file_name(original, "product name")  # before anything is written: it names a file to remove
         path = project.root / "metadata" / "products" / f"{name}.toml"
@@ -1305,7 +1305,7 @@ class PlatformMixin:
         product's current version, so a later breaking version doesn't reach it unnoticed."""
         project = self._project()  # type: ignore[attr-defined]
         reads = {env: (link.get("reads") or {}).get(env, env) for env in ENVIRONMENTS}
-        alias = str(link.get("alias", "")).strip()  # the alias write_link saves it under
+        alias = mesh.link_alias(link.get("alias", ""))  # before the catalog hears of it
         link = link | {"alias": alias}
         kept = project.links.get(alias)
         if kept is not None and kept.product != link.get("product", ""):
@@ -1398,7 +1398,10 @@ class PlatformMixin:
         project = self._project()  # type: ignore[attr-defined]
         users = [e.name for e in project.entities.values() if e.spec.get("source", {}).get("link") == alias]
         if users:
-            raise GateError("save", [f"can't delete link {alias}: {', '.join(users)} read it"])
+            names = users[0] if len(users) == 1 else ", ".join(users[:-1]) + " and " + users[-1]
+            verb, them = ("reads", "it") if len(users) == 1 else ("read", "them")
+            raise GateError("save", [(f"Link {alias} can't be removed, because {names} {verb} it. "
+                                     f"Point {them} at another source first, then remove the link.")])
         (project.root / "metadata" / "links" / f"{mesh.file_name(alias, 'link name')}.toml").unlink(missing_ok=True)
         return self.mesh_overview()
 

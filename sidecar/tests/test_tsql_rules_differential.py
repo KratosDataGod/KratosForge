@@ -236,17 +236,125 @@ def test_cases_are_seeded_and_cover_every_family() -> None:
     ("(SELECT CHAR(c) FROM (VALUES ('66')) AS t(c))", "B"),
     ("(SELECT REPLICATE('ab', c) FROM (VALUES ('2')) AS t(c))", "abab"),
     ("(SELECT SPACE(c) + '|' FROM (VALUES ('1')) AS t(c))", " |"),
+    # '' and spaces alone convert to 0 (CAST('' AS INT) is 0 in T-SQL)
+    ("REPLICATE('ab', '') + '|'", "|"), ("SPACE('  ') + '|'", "|"), ("ASCII(CHAR(''))", 0),
+    ("(SELECT REPLICATE('ab', c) + '|' FROM (VALUES ('')) AS t(c))", "|"),
+    ("CHAR(-2147483648)", None), ("REPLICATE('a', 2147483647 - 2147483647)", ""),
 ])
 def test_text_codes_and_counts_are_made_ints_as_tsql_does(engine, expression: str, want: object) -> None:
     assert engine.execute(f"SELECT {expression} AS v", dialect="tsql")["rows"][0][0] == want
 
 
 @pytest.mark.parametrize("expression", [
-    "CHAR('6.5')", "REPLICATE('a', '2.5')", "(SELECT CHAR(c) FROM (VALUES ('6.5')) AS t(c))",
-    "(SELECT SPACE(c) FROM (VALUES ('x')) AS t(c))", "SPACE(1e400)",
+    "CHAR('6.5')", "(SELECT CHAR(c) FROM (VALUES ('6.5')) AS t(c))",
+    "(SELECT SPACE(c) FROM (VALUES ('x')) AS t(c))", "SPACE(1e400)", "CHAR('+')",
+    # past an int (CHAR, SPACE) or a bigint (REPLICATE): T-SQL's overflow error
+    "CHAR('9999999999')", "CHAR(1e10)", "CHAR(-2147483649)", "SPACE(2147483648)",
+    "(SELECT CHAR(c) FROM (VALUES ('9999999999')) AS t(c))", "(SELECT SPACE(c) FROM (VALUES (3000000000)) AS t(c))",
+    "REPLICATE('a', 9223372036854775808)",
+    # more digits than Python's int() reads (4,300) or a float holds: still the overflow error, not Python's own
+    "CHAR(1" + "0" * 5000 + ")", "SPACE('1" + "0" * 5000 + "')", "REPLICATE('a', '1" + "0" * 5000 + "')",
 ])
 def test_text_that_is_not_a_whole_number_stops_as_in_tsql(engine, expression: str) -> None:
     # T-SQL: "Conversion failed when converting the varchar value '6.5' to data type int."; a float too
     # large for an int is an overflow there.
-    with pytest.raises(Exception, match=r"Conversion failed when converting the varchar value|out of range"):
+    with pytest.raises(Exception, match=r"Conversion failed when converting the varchar value|out of range|Arithmetic overflow"):
         engine.execute(f"SELECT {expression} AS v", dialect="tsql")
+
+
+@pytest.mark.parametrize("expression", ["CHAR(RAND() * 300)", "REPLICATE('a', RAND() * 6 - 3)", "SPACE(RAND() * 4)"])
+def test_a_computed_code_or_count_is_read_once(expression: str) -> None:
+    from fabric_desktop.localdata import tsql
+    assert tsql.translate(f"SELECT {expression}")[0][-1].upper().count("RANDOM()") == 1
+
+
+def test_nested_codes_and_counts_grow_the_sql_linearly() -> None:
+    from fabric_desktop.localdata import tsql
+    sizes = []
+    for depth in range(1, 6):
+        expression = "x"
+        for _ in range(depth):
+            expression = f"CHAR(ASCII(REPLICATE({expression}, x)))"
+        sizes.append(len(tsql.translate(f"SELECT {expression} FROM (VALUES ('1')) AS t(x)")[0][-1]))
+    steps = [b - a for a, b in zip(sizes, sizes[1:], strict=False)]
+    assert max(steps) <= 1.2 * min(steps), sizes
+
+
+def test_a_call_nested_in_a_count_is_rewritten_too(engine) -> None:
+    got = engine.execute("SELECT REPLICATE(REPLICATE('ab', c), c) AS v FROM (VALUES ('2'), ('-1')) AS t(c)",
+                         dialect="tsql")["rows"]
+    assert [r[0] for r in got] == ["abababab", None]
+
+
+def test_replicate_takes_a_bigint_count(engine) -> None:
+    # REPLICATE takes "any integer type, including bigint" (functions/replicate-transact-sql): a count past an
+    # int runs on VARCHAR(MAX) text, text is made a bigint, and a count past a bigint is the overflow error.
+    def one(sql: str) -> object:
+        return engine.execute(f"SELECT {sql} AS v", dialect="tsql")["rows"][0][0]
+    assert one("REPLICATE(CAST('' AS VARCHAR(MAX)), 3000000000)") == ""
+    assert one("(SELECT REPLICATE(CAST('' AS VARCHAR(MAX)), c) FROM (VALUES (3000000000)) AS t(c))") == ""
+    assert one("LEN(REPLICATE(CAST('ab' AS VARCHAR(MAX)), '3'))") == 6
+    assert one("LEN(REPLICATE(CAST('a' AS VARCHAR(MAX)), " + "0" * 5000 + "3))") == 3  # a number literal too
+    assert one("REPLICATE('x', '')") == ""  # '' is 0, as SQL Server's CAST('' AS INT)
+    assert one("LEN(REPLICATE(CAST('a' AS VARCHAR(MAX)), '" + "0" * 5000 + "3'))") == 3  # leading zeros
+    with pytest.raises(Exception, match="Error converting data type varchar to bigint"):
+        one("REPLICATE('a', '2.5')")
+    # Text that isn't VARCHAR(MAX) is cut at 8,000 bytes in a warehouse, so a long result is refused by name.
+    with pytest.raises(Exception, match="8,000 bytes"):
+        one("REPLICATE('a', 3000000000)")
+
+
+def test_space_of_a_negative_count_is_null(engine) -> None:
+    # Checked against SQL Server: SPACE(-1) is NULL, as REPLICATE of a negative count is.
+    got = engine.execute("SELECT SPACE(-1) AS a, SPACE(c) AS b FROM (VALUES (-2)) AS t(c)", dialect="tsql")["rows"]
+    assert list(got[0]) == [None, None]
+
+
+def test_upper_keeps_sharp_s(engine) -> None:
+    # Unicode's simple case mapping (UnicodeData.txt) gives U+00DF no one-letter capital, and T-SQL's UPPER
+    # keeps it: UPPER(N'straße') is N'STRAßE'. DuckDB alone gave the capital U+1E9E.
+    rows = engine.execute("SELECT UPPER(N'straße') AS a, UPPER(x) AS b FROM (VALUES (N'ßaß'), (N''), (NULL), (N'Grüße'))"
+                          " AS t(x)", dialect="tsql")["rows"]
+    assert [tuple(r) for r in rows] == [("STRAßE", "ßAß"), ("STRAßE", ""), ("STRAßE", None), ("STRAßE", "GRÜßE")]
+    one = engine.execute("SELECT UPPER(5) AS a, UPPER(N'abc') AS b, UPPER(N'ẞ') AS c", dialect="tsql")["rows"][0]
+    assert list(one) == ["5", "ABC", "ẞ"]
+    nested = engine.execute("SELECT UPPER(UPPER(N'ß')) AS a, UPPER(LOWER(UPPER(x))) AS b FROM (VALUES (N'ßa')) AS t(x)",
+                            dialect="tsql")["rows"][0]
+    assert list(nested) == ["ß", "ßA"]
+
+
+def test_upper_reads_its_text_once() -> None:
+    from fabric_desktop.localdata import tsql
+    assert tsql.translate("SELECT UPPER(LTRIM(x)) FROM t")[0][-1].upper().count("LTRIM(") == 1
+
+
+def test_a_table_level_primary_key_names_its_columns(engine) -> None:
+    # sqlglot's T-SQL reader wrote PRIMARY KEY (a NULLS FIRST), which DuckDB can't read.
+    engine.execute("CREATE TABLE dbo.keyed (a INT NOT NULL, b INT NOT NULL, CONSTRAINT pk_keyed PRIMARY KEY (a, b DESC))",
+                   dialect="tsql")
+    engine.execute("INSERT INTO dbo.keyed VALUES (1, 1), (1, 2)", dialect="tsql")
+    with pytest.raises(Exception, match="(?i)duplicate key|constraint"):
+        engine.execute("INSERT INTO dbo.keyed VALUES (1, 2)", dialect="tsql")
+    assert engine.execute("SELECT COUNT(*) AS n FROM dbo.keyed", dialect="tsql")["rows"][0][0] == 2
+
+
+@pytest.mark.parametrize(("style", "want"), [("108", "10:04:05"), ("120", "1900-01-01 10:04:05")])
+def test_convert_of_a_time_with_a_style(engine, style: str, want: str) -> None:
+    # DuckDB's STRFTIME takes no time alone; T-SQL puts a time on its base date, 1900-01-01.
+    sql = f"SELECT CONVERT(VARCHAR(30), CAST('10:04:05' AS TIME(0)), {style}) AS v"
+    assert engine.execute(sql, dialect="tsql")["rows"][0][0] == want
+
+
+@pytest.mark.parametrize("call", ["LEFT('abc', {0})", "RIGHT('abc', {0})"])
+@pytest.mark.parametrize("length", ["9" * 400, "9223372036854775808", "1e400"])
+def test_left_and_right_past_a_bigint_are_the_overflow_error(engine, call: str, length: str) -> None:
+    # LEFT and RIGHT take a bigint length; past one is T-SQL's overflow error, not Python's OverflowError.
+    with pytest.raises(ValueError, match="Arithmetic overflow error converting expression to data type bigint"):
+        engine.execute(f"SELECT {call.format(length)} AS v", dialect="tsql")
+
+
+def test_left_with_a_long_bigint_length_keeps_the_whole_text(engine) -> None:
+    assert engine.execute("SELECT LEFT('abc', 9223372036854775807) AS v", dialect="tsql")["rows"][0][0] == "abc"
+    rows = engine.execute("SELECT LEFT(s, n) AS a, RIGHT(s, n) AS b FROM (VALUES ('abc', CAST(5000000000 AS BIGINT)))"
+                          " AS t(s, n)", dialect="tsql")["rows"]
+    assert list(rows[0]) == ["abc", "abc"]

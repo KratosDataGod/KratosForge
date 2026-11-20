@@ -485,16 +485,47 @@ def _open_app(tag: str, nocache: bool):
                 raise
 
 
+KEPT = "This version stays as it is."
+
+
 def download_app(dest: str, commit: str = "") -> int:
     """Download the latest exe. With a commit, check the file is that build, since each
     exe carries its commit; a stale cached copy is fetched once more, then refused. When the
     release names another build, before or after the download, prints "moved <commit>" and
-    returns MOVED: the channel was republished since the shell last checked it."""
+    returns MOVED: the channel was republished since the shell last checked it.
+
+    A download that fails its checks is deleted here, so a cut-off or tampered file is never left
+    at ``dest`` for anything to install; the last line printed says why, as the shell shows it."""
+    try:
+        code, why = _download_app(dest, commit)
+    except BaseException:
+        _discard(dest)  # cut off by an error part way (the connection dropped): never half an exe
+        raise
+    if code != 0:
+        _discard(dest)
+    if why:
+        print(why, flush=True)
+    return code
+
+
+def _discard(path: str) -> None:
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:  # a scanner holding it: the shell removes exe.new too, and on its next start
+        print(f"Could not remove the unfinished download {path}: {exc}", file=sys.stderr, flush=True)
+
+
+def _download_app(dest: str, commit: str) -> tuple[int, str]:
+    """download_app's work: the exit code and, for a failure, the line that says why."""
     tags = release_channels()
+    short = commit[:7]
+    why = f"The release download is not build {short} yet. Try again in a few minutes. {KEPT}"
     for attempt in range(2):
         if commit and attempt == 0 and (named := _moved(tags[0], commit)):
             print(f"moved {named}", flush=True)
-            return MOVED
+            return MOVED, ""
         try:
             resp = _open_app(tags[0], bool(attempt))
         except urllib.error.HTTPError as exc:
@@ -517,32 +548,38 @@ def download_app(dest: str, commit: str = "") -> int:
                     last = percent
         if total and done != total:  # the connection dropped part way: never install half an exe
             print(f"The download stopped at {done} of {total} bytes; trying again", flush=True)
+            why = (f"The download of build {short} kept stopping part way, so it was discarded and not installed. "
+                   f"Try again in a few minutes. {KEPT}")
             continue
         if not commit:
-            return 0
+            return 0, ""
         expected = release_sha256(tags[0], commit)
         if expected is None and (named := _moved(tags[0], commit)):
             print(f"moved {named}", flush=True)
-            return MOVED
+            return MOVED, ""
         if expected is None:
-            print(f"Could not read build {commit[:7]}'s checksum from its release; trying again", flush=True)
+            print(f"Could not read build {short}'s checksum from its release; trying again", flush=True)
+            why = (f"Could not read build {short}'s checksum from its release, so the download was discarded and "
+                   f"not installed. Try again in a few minutes. {KEPT}")
             continue
         if not expected:
             # Every release CI publishes gives one; without it the download can't be checked (HD-022).
-            print(f"Build {commit[:7]}'s release gives no checksum for the app, so it wasn't installed.", flush=True)
-            return 1
+            return 1, (f"Build {short}'s release gives no checksum for the app, so it wasn't installed. "
+                       f"Report it so the release can be fixed. {KEPT}")
         if digest.hexdigest() != expected:
-            print(f"The download does not match build {commit[:7]}'s checksum; trying again", flush=True)
+            print(f"The download does not match build {short}'s checksum; trying again", flush=True)
+            why = (f"The download does not match build {short}'s checksum, so it was discarded and not installed. "
+                   f"Try the update again, and report it if it keeps happening. {KEPT}")
             continue
         with open(dest, "rb") as f:
             if commit.encode() in f.read():
                 # The shell re-checks the file against this once it holds it, just before the swap
                 # (main.rs update_app, update_guard.rs swap_in_checked).
                 print(f"verified {expected}", flush=True)
-                return 0
-        print(f"The download was not build {commit[:7]}; trying again", flush=True)
-    print(f"The release download is not build {commit[:7]} yet. Try again in a few minutes.", flush=True)
-    return 1
+                return 0, ""
+        print(f"The download was not build {short}; trying again", flush=True)
+        why = f"The release download is not build {short} yet. Try again in a few minutes. {KEPT}"
+    return 1, why
 
 
 def main(argv: list[str]) -> int:

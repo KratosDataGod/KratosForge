@@ -32,6 +32,9 @@ Every other engine runs through one ``engines.sessions.SessionManager``:
   Asset Bundle with the person's own Databricks CLI, as the connection's CLI profile
   (engines/databricks_bundles.py). Validate and plan change nothing; deploy plans again, stops if the
   plan changed, and needs the target's name typed for a plan that deletes or rebuilds, or for production.
+- ``snowflake_check`` (Preview, SF-002) checks a Snowflake connection from a profile: sign-in, role,
+  database, schema and warehouse, each with what to fix (engines/snowflake_remote.py). It sends no
+  warehouse, so nothing resumes and no warehouse credits are used.
 - ``engine_start_cell`` and ``engine_poll_cell`` run one cell at a time per notebook, like
   ``start_cell`` and ``poll_cell``; ``engine_cancel`` and ``engine_close`` stop them.
 
@@ -61,7 +64,8 @@ METHODS = {"engine_catalog", "engine_connections", "engine_prepare", "engine_sel
            "databricks_runs", "databricks_run", "databricks_billing", "databricks_billing_last",
            "databricks_sync_pairs", "databricks_sync_pair_save", "databricks_sync_pair_remove", "databricks_sync_compare",
            "databricks_sync_push", "databricks_sync_pull",
-           "databricks_bundle_targets", "databricks_bundle_validate", "databricks_bundle_plan", "databricks_bundle_deploy"}
+           "databricks_bundle_targets", "databricks_bundle_validate", "databricks_bundle_plan", "databricks_bundle_deploy",
+           "snowflake_check"}
 # Answered at once even while a cell or a session start runs (server.QUICK).
 QUICK = {"engine_state", "engine_poll_cell", "engine_cancel"}
 
@@ -266,6 +270,15 @@ class EnginesMixin:
                     "parts": {}, "suggested": {"warehouse_id": "", "cluster_id": ""},
                     "error": redact.secrets(str(exc))}
         return redact.walk(databricks_discovery.Discovery(client, catalogs=bool(catalogs)).run())
+
+    def snowflake_check(self, connection: str) -> dict[str, Any]:
+        """Check a Snowflake connection (a ``profile:<id>:<connection>`` key) field by field: sign-in,
+        role, database, schema, warehouse. Metadata only: no warehouse is resumed."""
+        from .engines import snowflake_remote
+        conn, _, _ = self._connection(connection)
+        if conn.get("platform") != "snowflake":
+            raise ValueError("That connection isn't a Snowflake connection.")
+        return redact.walk(snowflake_remote.check_connection(conn))
 
     def _runs_reader(self, connection: str) -> Any:
         from .engines import databricks_jobs

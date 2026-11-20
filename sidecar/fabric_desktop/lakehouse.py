@@ -34,7 +34,7 @@ from . import runlog
 from .onelake import FileStore, TableRef, storage_options
 from .publish import WriteTokenExpired, publish, refuse_conversions, resolve_schema_mode, stage_locally
 from .redact import describe
-from .retrying import data_upload_dropped, log_commit_dropped
+from .retrying import data_upload_dropped, local_retry, log_commit_dropped
 
 _log = logging.getLogger(__name__)
 
@@ -824,6 +824,8 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
     from . import delta_profile, maintenance
     if operation not in MAINTENANCE_OPS:
         raise ValueError(f"operation is one of {MAINTENANCE_OPS}, not {operation!r}")
+    if operation == "vacuum" and retain_hours is not None:
+        maintenance.check_retain_hours(retain_hours)  # before the guard, which records the run as started
     lh = _current()
     ref = table_ref(table)
     name_ = f"{ref.schema}.{ref.table}"
@@ -837,11 +839,6 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
         raise PermissionError(reason)
     if _proof() is None and (reason := prod_refusal(operation, lh, name_)):  # a proof changes nothing here
         raise ProdConfirmNeeded(reason)
-    if operation == "vacuum" and retain_hours is not None and retain_hours < maintenance.MIN_RETENTION_DAYS * 24:
-        raise ValueError(f"VACUUM keeps at least {maintenance.MIN_RETENTION_DAYS} days ("
-                         f"{maintenance.MIN_RETENTION_DAYS * 24} hours) of history on this PC, not {retain_hours:g} "
-                         "hours: with less, it can delete files that readers or writers in other processes still "
-                         "use, and time travel to those versions stops working. Nothing was changed.")
     if _proof() is not None:
         if operation == "restore":
             raise ValueError("RESTORE isn't run in a proof: the proof's copy of the table doesn't have the shared "
@@ -868,13 +865,24 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
             raise ValueError(f"OPTIMIZE ... WHERE filters only on partition columns ({', '.join(parts) or 'none'}), "
                              f"not {', '.join(bad)}. Nothing was changed.")
         filters = [(c, op, v) for c, op, v in where] if where else None
+        # On Windows a writer committing the same next version at the same moment, or holding a log file, makes
+        # this commit fail to open a log file (retrying.windows_log_race). Usually that is the staged commit and
+        # nothing went in; it can also be a later log file read after the commit went in. Either way it runs again
+        # on the table's latest version, and a second compaction or Z-Order there changes no rows.
+        attempts = [0]
+
+        def once() -> dict[str, Any]:
+            if attempts[0]:
+                t.update_incremental()
+            attempts[0] += 1
+            if zorder:
+                return t.optimize.z_order(zorder, partition_filters=filters, commit_properties=commit)
+            return t.optimize.compact(partition_filters=filters, commit_properties=commit)
         if zorder:
             missing = [c for c in zorder if c not in t.schema().to_arrow().names]
             if missing:
                 raise ValueError(f"ZORDER BY names columns {name_} hasn't got: {', '.join(missing)}. Nothing was changed.")
-            metrics = t.optimize.z_order(zorder, partition_filters=filters, commit_properties=commit)
-        else:
-            metrics = t.optimize.compact(partition_filters=filters, commit_properties=commit)
+        metrics = local_retry(once)
         note = "Compacted on this PC without V-Order; Fabric's table maintenance adds V-Order."
     elif operation == "vacuum":
         kept = maintenance.kept_days(t.metadata().configuration)
@@ -884,8 +892,9 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
                              f"(delta.deletedFileRetentionDuration), so VACUUM can't RETAIN {retain_hours:g} hours: "
                              "Fabric's Spark refuses it too. Nothing was changed.")
         hours = retain_hours if retain_hours is not None else maintenance.retention_hours(days)
+        keep, _oldest = maintenance.skewed_versions(t, int(hours))  # a clock out of step deletes nothing still read
         files = t.vacuum(retention_hours=int(hours), dry_run=dry_run, enforce_retention_duration=False,
-                         commit_properties=commit)
+                         commit_properties=commit, **maintenance.vacuum_keep(keep))
         metrics = {"numDeletedFiles": 0 if dry_run else len(files), "retentionHours": int(hours), "dryRun": dry_run}
     else:
         target: int | datetime

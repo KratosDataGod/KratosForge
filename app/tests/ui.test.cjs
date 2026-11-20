@@ -1148,7 +1148,7 @@ function dbgHelpers() {
   const src = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgBpRematch, dbgDroppedText, dbgStackText, dbgKeyAction });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgBpRematch, dbgDroppedText, dbgPausedLine, dbgCleanPause, dbgStackText, dbgKeyAction });`, ctx);
   return ctx;
 }
 
@@ -3027,6 +3027,54 @@ test("a cell replaced whole keeps its breakpoints by line text, and names the on
   assert.strictEqual(dbgDroppedText([4], "its line was deleted"), "Removed the breakpoint on line 4, because its line was deleted.");
   assert.strictEqual(dbgDroppedText([2, 5, 9], "their lines were deleted"), "Removed the breakpoints on lines 2, 5 and 9, because their lines were deleted.");
   assert.strictEqual(dbgDroppedText([], "x"), "");
+});
+
+test("a garbled or oversized pause from the engine is cleaned to what the panel draws, never thrown on", () => {
+  const { dbgCleanPause } = dbgHelpers();
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  // No usable line: nothing to show as paused.
+  for (const bad of [null, undefined, 3, "paused", [], [{ line: 2 }], {}, { line: 0 }, { line: -1 }, { line: "2" }, { line: 2.5 }, { line: null }]) {
+    assert.strictEqual(dbgCleanPause(bad), null, JSON.stringify(bad));
+  }
+  // A good pause reads as sent.
+  const good = { line: 3, reason: "breakpoint", stack: [{ function: "(cell)", line: 5 }, { function: "f", line: 3 }],
+    variables: [{ name: "n", type: "int", size: "", value: "2" }], watches: [{ expr: "n", value: "2", type: "int", size: "" }],
+    evals: [{ expr: "m", error: "NameError: m" }], variables_total: 250, skipped: ["json.dumps"] };
+  assert.deepStrictEqual(plain(dbgCleanPause(good)), {
+    line: 3, reason: "breakpoint", stack: good.stack, variables: good.variables, watches: good.watches,
+    evals: [{ expr: "m", value: "", type: "", size: "", error: "NameError: m" }], variables_total: 250, skipped: ["json.dumps"] });
+  // Wrong types: lists that aren't lists, rows that aren't objects, values that are objects.
+  const odd = plain(dbgCleanPause({ line: 2, reason: { x: 1 }, stack: "(cell) line 2", variables: [null, 3, "x", [1], { name: { a: 1 }, value: 5 }],
+    watches: {}, evals: "e", variables_total: "9", skipped: [1, null, "ok"] }));
+  assert.deepStrictEqual(odd, { line: 2, reason: "", stack: [], variables: [{ name: "", type: "", size: "", value: "5" }], watches: [], evals: [], skipped: ["ok"] });
+  // Oversized: rows and text are capped.
+  const big = dbgCleanPause({ line: 1, variables: Array.from({ length: 5000 }, (_, i) => ({ name: `v${i}`, value: "x".repeat(10000) })),
+    stack: Array.from({ length: 5000 }, () => ({ function: "f", line: 1 })), skipped: Array.from({ length: 50 }, (_, i) => `f${i}`) });
+  assert.strictEqual(big.variables.length, 500);
+  assert.strictEqual(big.variables[0].value.length, 2000);
+  assert.strictEqual(big.stack.length, 500);
+  assert.strictEqual(big.skipped.length, 20);
+  const dbg = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
+  assert.match(dbg, /const now = snap\?\.status === "running" \? dbgCleanPause\(snap\.paused\) : null;/);
+});
+
+test("a pause in a cell edited mid-run is marked on its code, never on another line", () => {
+  const { dbgPausedLine } = dbgHelpers();
+  const ran = "a = 1\nb = 2\nc = 3";
+  // Not edited: the kernel's line as is.
+  assert.deepStrictEqual({ ...dbgPausedLine(ran, ran, 2) }, { line: 2, edited: false });
+  assert.deepStrictEqual({ ...dbgPausedLine(undefined, "x", 1) }, { line: 1, edited: false });
+  // Two lines inserted above: the mark moves with line 2's code.
+  assert.deepStrictEqual({ ...dbgPausedLine(ran, "# new\n# new\na = 1\nb = 2\nc = 3", 2) }, { line: 4, edited: true, text: "b = 2" });
+  // The paused line was deleted or rewritten: no mark at all, rather than one on some other line.
+  assert.deepStrictEqual({ ...dbgPausedLine(ran, "a = 1\nc = 3", 2) }, { line: null, edited: true, text: "b = 2" });
+  assert.deepStrictEqual({ ...dbgPausedLine(ran, "a = 1\nb = 20\nc = 3", 2) }, { line: null, edited: true, text: "b = 2" });
+  // An edit elsewhere: same line, but still said to be the code as it ran.
+  assert.deepStrictEqual({ ...dbgPausedLine(ran, "a = 1\nb = 2\nc = 30", 2) }, { line: 2, edited: true, text: "b = 2" });
+  const dbg = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
+  assert.match(dbg, /cell\.dbgRan = cell\.source;/);
+  assert.match(dbg, /if \(cell\.paused\) dbgPausedEdited\(cell\);/);
+  assert.match(dbg, /dbgEditedNote\(dbgPausedLine\(cell\.dbgRan, cell\.source, p\.line\), p\.line\)/);
 });
 
 test("the notebook editor wires breakpoints and the debugger through debugging.js", () => {
@@ -5946,6 +5994,30 @@ test("the Ossie card exports, previews and imports only after a confirm, and hid
   assert.match(card, /OSSIE_MAX_BYTES/, "a file too large to be a model is refused before it's read");
 });
 
+test("the semantic view publish-steps card reads the saved files and writes nothing to Fabric (OSSIE-005b)", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const card = meta.split("// ---------- Fabric Semantic View: the publish steps")[1].split("// ---------- profiling ----------")[0];
+  assert.match(card, /preview\("semanticView", /, "the card is a Preview feature and hides with them");
+  assert.match(meta, /\n    ossieCard\(plan\),\n    semanticViewCard\(plan\),\n/, "the card sits under the Apache Ossie card");
+  for (const method of ["meta_model_semantic_view_status", "meta_model_semantic_view_reveal", "meta_model_semantic_view_save", "meta_model_ossie_folders"]) {
+    assert.match(card, new RegExp(`"${method}"`), `${method} has a caller`);
+  }
+  // Only these engine calls: nothing that reaches Fabric.
+  const called = new Set([...card.matchAll(/(?:rpc|metaCall)\("(\w+)"/g)].map(([, m]) => m));
+  assert.deepStrictEqual([...called].sort(), ["meta_model_ossie_folders", "meta_model_semantic_view_reveal", "meta_model_semantic_view_save", "meta_model_semantic_view_status"]);
+  // Save view files: the write carries confirmed and the preview's token only after confirmDialog said yes, danger when it deletes.
+  const save = card.split("async function svSaveFiles(")[1].split("\n}\n")[0];
+  assert.ok(save.indexOf("confirmDialog(") < save.indexOf("confirmed: true"), "confirm comes before the write");
+  assert.match(save, /if \(!ok\) return;/);
+  assert.match(save, /\{ danger: removed\.length > 0 \}/);
+  assert.match(save, /token: c\.token/);
+  // Every Learn link is a literal learn.microsoft.com URL, opened through open_link.
+  const urls = [...card.matchAll(/"(https:\/\/[^"]+)"/g)].map(([, u]) => new URL(u).hostname);
+  assert.ok(urls.length >= 8 && urls.every((h) => h === "learn.microsoft.com"), urls.join(", "));
+  assert.match(card, /onclick: \(e\) => \{ e\.preventDefault\(\); openLink\(url\); \}/);
+  assert.doesNotMatch(card, /publishes the view for you|KratosForge publishes/i, "never says the app publishes");
+});
+
 test("the Direct Lake check is a Preview card that only reads, with fixes that open where the change is made", () => {
   const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
   const card = meta.split("function directLakeCard(plan, updateModel)")[1].split("// ---------- Apache Ossie")[0];
@@ -6107,16 +6179,18 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
       "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests",
       "Promises to readers"],
     trustBadges: ["Endorsement"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
-    lineage: ["Column lineage", "Impact of a column change"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
+    lineage: ["Column lineage", "Impact of a column change", "Export lineage as OpenLineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
     updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
     learn: ["Learn", "Writing a Learn lesson", "Decision patterns"], academy: ["Academy"],
     engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker",
       "Databricks workspace discovery", "Connection profiles in Settings",
       "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
-      "Databricks workspace sync", "Databricks Asset Bundles in Source control"],
+      "Databricks workspace sync", "Databricks Asset Bundles in Source control", "Checking a Snowflake connection"],
     embedStudio: ["Embed Studio"], sqlStatements: ["Several statements in one run"], sqlParams: ["Query parameters"],
-    sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"], ossie: ["Ossie file to TMDL"],
+    sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"],
+    semanticView: ["Semantic View files", "Publish the view in Fabric"], ossie: ["Ossie file to TMDL"],
+    kfEnvironment: ["KratosForge Environment"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
@@ -6551,6 +6625,11 @@ const FABRIC_WRITES = {
   appstudio_publish: ["appstudio.js", "page", null],
   // Settings' Motion sample also starts a run, but only Wait and SetVariable steps on this PC (checked below)
   pipeline_run_start: ["pipelines.js", "page", null],
+  // Settings > Environment (CP-010): shown only with preview features on, its heading tagged Preview
+  cp_create: ["kf-environment.js", null, null, 'kf-environment.js: h("h2", { class: "kfe-title" }, "KratosForge Environment ", previewTag())'],
+  cp_adopt: ["kf-environment.js", null, null, 'kf-environment.js: h("h2", { class: "kfe-title" }, "KratosForge Environment ", previewTag())'],
+  cp_connect: ["kf-environment.js", null, null, 'kf-environment.js: h("h2", { class: "kfe-title" }, "KratosForge Environment ", previewTag())'],
+  cp_upgrade: ["kf-environment.js", null, null, 'kf-environment.js: h("h2", { class: "kfe-title" }, "KratosForge Environment ", previewTag())'],
   optimize_create: ["optimize.js", "page", null],
   optimize_connect: ["optimize.js", "page", null],
   optimize_set_recommendation: ["optimize.js", "page", null],
@@ -6577,6 +6656,7 @@ const FABRIC_WRITES = {
 };
 // Listed as "Fabric or OneLake" because they call Fabric, but they change nothing there.
 const FABRIC_READS = {
+  meta_openlineage_export: "reads the run log; writes a new file in Downloads, nothing in Fabric",
   list_capacities: "reads", list_files: "reads", list_items: "reads", list_lakehouses: "reads", list_tables: "reads",
   list_workspaces: "reads", readiness_check: "reads only, never opens a sign-in window", sign_in: "gets a token",
   wh_monitoring_view: "reads the monitoring database", appstudio_plan: "asks the person's model; nothing goes to Fabric",

@@ -85,3 +85,13 @@ def test_a_daily_schedule_needs_a_time():
 def test_a_schedule_of_another_kind_is_described_by_its_type():
     assert fr.describe_schedule({"configuration": {"type": "Monthly"}}) == "Monthly"
     assert fr.describe_schedule({}) == "Schedule"
+
+
+def test_a_read_with_an_empty_format_is_refused_by_that_name_not_as_parquet():
+    import ast
+
+    from fabric_desktop import fabric_run
+    out: dict[str, list] = {"fabric": [], "unknown_local": []}
+    fabric_run._spark_refused(ast.parse("spark.read.format('').load('f')").body[0].value, {}, out, 1)
+    assert out["fabric"] == [(1, ("reads format '', which this PC's Spark doesn't have (it reads csv, json, "
+                                  "parquet, text and delta)"))]

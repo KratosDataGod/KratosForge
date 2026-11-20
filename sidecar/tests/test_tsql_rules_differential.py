@@ -310,6 +310,41 @@ def test_space_of_a_negative_count_is_null(engine) -> None:
     assert list(got[0]) == [None, None]
 
 
+def test_upper_keeps_sharp_s(engine) -> None:
+    # Unicode's simple case mapping (UnicodeData.txt) gives U+00DF no one-letter capital, and T-SQL's UPPER
+    # keeps it: UPPER(N'straße') is N'STRAßE'. DuckDB alone gave the capital U+1E9E.
+    rows = engine.execute("SELECT UPPER(N'straße') AS a, UPPER(x) AS b FROM (VALUES (N'ßaß'), (N''), (NULL), (N'Grüße'))"
+                          " AS t(x)", dialect="tsql")["rows"]
+    assert [tuple(r) for r in rows] == [("STRAßE", "ßAß"), ("STRAßE", ""), ("STRAßE", None), ("STRAßE", "GRÜßE")]
+    one = engine.execute("SELECT UPPER(5) AS a, UPPER(N'abc') AS b, UPPER(N'ẞ') AS c", dialect="tsql")["rows"][0]
+    assert list(one) == ["5", "ABC", "ẞ"]
+    nested = engine.execute("SELECT UPPER(UPPER(N'ß')) AS a, UPPER(LOWER(UPPER(x))) AS b FROM (VALUES (N'ßa')) AS t(x)",
+                            dialect="tsql")["rows"][0]
+    assert list(nested) == ["ß", "ßA"]
+
+
+def test_upper_reads_its_text_once() -> None:
+    from fabric_desktop.localdata import tsql
+    assert tsql.translate("SELECT UPPER(LTRIM(x)) FROM t")[0][-1].upper().count("LTRIM(") == 1
+
+
+def test_a_table_level_primary_key_names_its_columns(engine) -> None:
+    # sqlglot's T-SQL reader wrote PRIMARY KEY (a NULLS FIRST), which DuckDB can't read.
+    engine.execute("CREATE TABLE dbo.keyed (a INT NOT NULL, b INT NOT NULL, CONSTRAINT pk_keyed PRIMARY KEY (a, b DESC))",
+                   dialect="tsql")
+    engine.execute("INSERT INTO dbo.keyed VALUES (1, 1), (1, 2)", dialect="tsql")
+    with pytest.raises(Exception, match="(?i)duplicate key|constraint"):
+        engine.execute("INSERT INTO dbo.keyed VALUES (1, 2)", dialect="tsql")
+    assert engine.execute("SELECT COUNT(*) AS n FROM dbo.keyed", dialect="tsql")["rows"][0][0] == 2
+
+
+@pytest.mark.parametrize(("style", "want"), [("108", "10:04:05"), ("120", "1900-01-01 10:04:05")])
+def test_convert_of_a_time_with_a_style(engine, style: str, want: str) -> None:
+    # DuckDB's STRFTIME takes no time alone; T-SQL puts a time on its base date, 1900-01-01.
+    sql = f"SELECT CONVERT(VARCHAR(30), CAST('10:04:05' AS TIME(0)), {style}) AS v"
+    assert engine.execute(sql, dialect="tsql")["rows"][0][0] == want
+
+
 @pytest.mark.parametrize("call", ["LEFT('abc', {0})", "RIGHT('abc', {0})"])
 @pytest.mark.parametrize("length", ["9" * 400, "9223372036854775808", "1e400"])
 def test_left_and_right_past_a_bigint_are_the_overflow_error(engine, call: str, length: str) -> None:

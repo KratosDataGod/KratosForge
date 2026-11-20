@@ -12,6 +12,7 @@ import json
 import socket
 import threading
 import time
+from concurrent.futures import Future
 
 import msal
 import pytest
@@ -53,6 +54,20 @@ def block(monkeypatch, hosts: set[str] | None = None) -> list[str]:
     return tried
 
 
+def waits(monkeypatch) -> list[float | None]:
+    """The waits on the sign-in setup's answer, each by its timeout. A call that answers at once
+    waits on nothing; counting the waits keeps these tests off the clock of a busy test runner."""
+    seen: list[float | None] = []
+
+    class Counted(Future):
+        def result(self, timeout=None):
+            seen.append(timeout)
+            return super().result(timeout)
+
+    monkeypatch.setattr(service_mod, "Future", Counted)
+    return seen
+
+
 def saved_sign_in(local_app_data) -> None:
     """A cache with one account, as MSAL writes it after a sign-in (no tokens: none are needed here)."""
     folder = local_app_data / "FabricDesktop"
@@ -85,11 +100,11 @@ def app(monkeypatch, tmp_path, no_proxy):  # noqa: F811
 def test_the_first_call_shows_the_saved_sign_in_without_the_network(monkeypatch, tmp_path, app, hosts):
     saved_sign_in(tmp_path)
     tried = block(monkeypatch, hosts)
-    started = time.monotonic()
+    waited = waits(monkeypatch)
     env = app.environment()
-    assert time.monotonic() - started < 2
     assert env["user"] == "pilot@contoso.example" and env["tenant"] == "tid1"
     assert tried == [] and app._auth is None  # nothing asked Microsoft
+    assert app._auth_building is None and waited == []  # no sign-in setup started, nothing waited on
 
 
 def test_signed_out_offline_is_signed_out_not_an_error(monkeypatch, app):
@@ -108,19 +123,23 @@ def test_an_alias_host_counts_as_microsofts_sign_in(tmp_path):
 
 @pytest.mark.parametrize("hosts", [None, {SIGN_IN}], ids=["offline", "proxy-blocks-sign-in"])
 def test_a_sign_in_setup_that_cant_reach_microsoft_fails_once_then_at_once(monkeypatch, app, hosts, real_msal):
-    block(monkeypatch, hosts)
+    tried = block(monkeypatch, hosts)
+    waited = waits(monkeypatch)
     built = []
     real = service_mod.Authenticator
     monkeypatch.setattr(service_mod, "Authenticator", lambda *a, **k: built.append(1) or real(*a, **k))
     with pytest.raises(requests.exceptions.ConnectionError) as first:
         build(app)
     assert net_trust.explain(first.value) == net_trust.OFFLINE_HINT
-    started = time.monotonic()
+    assert waited == [service_mod.AUTH_WAIT_SECONDS] and tried
+    asked = len(tried)
     for _ in range(5):  # a page's loads, queued behind the first
         with pytest.raises(requests.exceptions.ConnectionError) as again:
             build(app)
+        assert again.value is first.value  # the remembered answer
         assert net_trust.explain(again.value) == net_trust.OFFLINE_HINT
-    assert time.monotonic() - started < 1 and built == [1]
+    # At once: no new setup, no wait on one, and nothing more asked of the network.
+    assert built == [1] and waited == [service_mod.AUTH_WAIT_SECONDS] and len(tried) == asked
     app._auth_failed = (*app._auth_failed[:2], time.monotonic() - 1)  # AUTH_RETRY_SECONDS later
     with pytest.raises(requests.exceptions.ConnectionError):
         build(app)
@@ -143,13 +162,15 @@ def test_a_network_that_drops_the_traffic_doesnt_hold_up_local_work(monkeypatch,
 
     monkeypatch.setattr(service_mod, "Authenticator", Waiting)
     monkeypatch.setattr(service_mod, "AUTH_WAIT_SECONDS", 0.2)
-    started = time.monotonic()
+    waited = waits(monkeypatch)
     with pytest.raises(requests.exceptions.ConnectTimeout) as caught:
         build(app)
     assert net_trust.explain(caught.value) == net_trust.TIMEOUT_HINT and SIGN_IN in str(caught.value)
     rows = {r["key"]: r for r in app.readiness_check()}  # Home's first check
     assert rows["sign_in"]["status"] == "ok" and net_trust.TIMEOUT_HINT in rows["fabric"]["text"]
-    assert app.new_notebook() and time.monotonic() - started < 2
+    assert waited == [0.2, 0.2]  # each waited the short wait, not the setup's own (up to 30 s)
+    assert app.new_notebook() and waited == [0.2, 0.2]  # local work waits on no sign-in at all
+    assert app._auth is None and not answer.is_set()  # and finished while the setup was still waiting
     answer.set()  # Microsoft answers after all: the setup that carried on is used
     deadline = time.monotonic() + 10
     while app._auth is None and time.monotonic() < deadline:

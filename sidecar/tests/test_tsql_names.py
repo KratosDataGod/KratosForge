@@ -153,7 +153,7 @@ def test_a_view_keeps_reading_dbo_and_stops_when_its_table_is_dropped(engine):
     run(engine, "CREATE TABLE sales.t (id INT)")
     run(engine, "INSERT INTO sales.t VALUES (99)")
     run(engine, "DROP TABLE dbo.t")
-    with pytest.raises(Exception, match="t does not exist"):
+    with pytest.raises(Exception, match=r"Invalid object name 't'\."):
         engine.execute("SELECT id FROM dbo.w", dialect="tsql")  # not sales.t's 99
 
 

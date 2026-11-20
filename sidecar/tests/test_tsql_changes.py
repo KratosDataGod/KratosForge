@@ -151,7 +151,8 @@ def test_rowcount_is_refused_by_name(engine):
 def test_a_delta_table_keeps_its_own_checks(engine):
     engine.execute("CREATE TABLE dbo.dt USING DELTA AS SELECT * FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c')) v(id, v)",
                    dialect="duckdb")
-    with pytest.raises(ValueError, match="More than one source row matches the same row of dbo.dt"):
+    # WR-244: in T-SQL a Delta table's MERGE is refused with T-SQL's error 8672, as a warehouse's table is
+    with pytest.raises(ValueError, match=DUPLICATE_MERGE + r".* Nothing in dbo\.dt was changed"):
         engine.execute(f"MERGE dbo.dt AS t USING {TWO} AS s ON t.id = s.id WHEN MATCHED THEN UPDATE SET v = s.v;",
                        dialect="tsql")
     with pytest.raises(ValueError, match="UPDATE ... FROM isn't supported on a Delta table"):

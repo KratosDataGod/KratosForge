@@ -42,6 +42,7 @@ class When:
     action: str                     # update | update_all | delete | insert | insert_all
     condition: exp.Expression | None = None
     sets: list[tuple[str, exp.Expression]] = field(default_factory=list)
+    values: list[exp.Expression] = field(default_factory=list)  # INSERT VALUES (...) without columns: in order
 
 
 @dataclass
@@ -58,6 +59,7 @@ class Change:
     sets: list[tuple[str, exp.Expression]] = field(default_factory=list)   # UPDATE
     where: exp.Expression | None = None                                     # UPDATE and DELETE
     schema_evolution: bool = False  # MERGE: UPDATE SET * and INSERT * add the source's new columns
+    tsql: bool = False  # read from T-SQL: the caller checks SQL Server's error 8672, not Delta's rule
 
     @property
     def name(self) -> str:
@@ -176,6 +178,9 @@ def _merge(tree: exp.Merge) -> Change:
                 continue
             columns = then.this.expressions if isinstance(then.this, exp.Tuple) else []
             values = then.expression.expressions if isinstance(then.expression, exp.Tuple) else []
+            if not columns and values and then.this is None:  # INSERT VALUES (...): every column, in order
+                whens.append(When(match, "insert", condition, values=values))
+                continue
             if not columns or len(columns) != len(values):
                 raise ValueError("INSERT (columns) VALUES (values) needs as many values as columns.")
             whens.append(When(match, "insert", condition, [(c.name, v) for c, v in zip(columns, values, strict=True)]))
@@ -328,6 +333,14 @@ def apply(change: Change, table: Any, source: Any = None, source_names: list[str
     Returns what changed."""
     target_names = [f.name for f in table.schema().fields]
     names = _Names(change, target_names, source_names or [])
+    for when in change.whens:
+        if when.values and not when.sets:
+            if len(when.values) != len(target_names):
+                raise ValueError(f"INSERT VALUES without a column list gives a value for each column of "
+                                 f"{change.name} in order, and it has {len(target_names)} "
+                                 f"({', '.join(target_names)}), but VALUES gives {len(when.values)}. Give one "
+                                 "for each, or list the columns: INSERT (a, b) VALUES (...).")
+            when.sets = list(zip(target_names, when.values, strict=True))
     if change.kind == "delete":
         metrics = table.delete(names.render(change.where) if change.where is not None else None,
                                commit_properties=commit_properties)

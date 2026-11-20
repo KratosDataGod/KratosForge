@@ -44,7 +44,7 @@ Click a cell to select it; Shift+click or drag selects a block, a row's number s
 
 | Key or menu item | What it does |
 | --- | --- |
-| **Copy** (Ctrl+C) | The selected values, tab-separated, as a spreadsheet pastes them |
+| **Copy** (Ctrl+C) | The selected values, tab-separated, as a spreadsheet pastes them. A value with a tab or a line break stays one cell, and text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return (after any spaces) gets a leading `'` so a spreadsheet never runs it as a formula, even for one cell. **Copy** in **Open value** gives a value exactly as it is |
 | **Copy with headers** (Ctrl+Shift+C) | The same, with the column names first |
 | **Copy as CSV**, **JSON** or **INSERT statements** | The selection in that format, as **Copy ▾** does for the page |
 | **Open value** (Enter, or double-click) | The value in full beside the grid: JSON and long text formatted, with its type and length. Esc closes it |
@@ -136,7 +136,7 @@ On a lakehouse (editor parity S39, S40), `estimated_plan = true` runs `EXPLAIN (
 
 ## Several statements in one run (Preview)
 
-With Preview features shown, **Run** on a script of several statements runs them one after another and gives each its own result tab above the grid: `1 SELECT · 5 rows`, `2 UPDATE · 14 rows changed`, and so on. Statements are split on `;` and, for T-SQL, on `GO` lines; a semicolon inside a string, a comment or a quoted name doesn't split, and a T-SQL batch that declares variables or creates a procedure, function, trigger or view stays one statement. **Ctrl+Shift+Enter**, a selection, and a single statement run as before, with one result.
+With Preview features shown, **Run** on a script of several statements runs them one after another and gives each its own result tab above the grid: `1 SELECT · 5 rows`, `2 UPDATE · 14 rows changed`, and so on. Statements are split on `;` and, for T-SQL, on `GO` lines; a semicolon or a `GO` line inside a string, a comment (comments can nest) or a quoted name (`"a;b"`, `` `a;b` ``, and `[a;b]` in T-SQL) doesn't split, nor does one inside a Spark SQL string after a backslash (`'it\'s;'`) or a DuckDB `$$...$$` string, and a T-SQL batch that declares variables or creates a procedure, function, trigger or view stays one statement. On a local data project, a T-SQL `GO` line inside a string or comment is refused instead. **Ctrl+Shift+Enter**, a selection, and a single statement run as before, with one result.
 
 - On a lakehouse, the statements share one DuckDB session, so a temporary view made by the first can be read by the second. Every statement is read and checked before the first one runs: a statement that can't be read, or that [isn't allowed](#what-a-query-may-do), stops the run before anything runs, and the message names it (*Statement 2: ...*).
 - On a warehouse, the statements run one at a time on one connection. A script that only reads may hold several reads. A script that changes the warehouse still goes through **Allow changes** and the confirm, and runs in one transaction: `BEGIN TRAN` and `COMMIT` around it are dropped, since the run has its own.

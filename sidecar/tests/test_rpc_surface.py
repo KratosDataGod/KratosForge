@@ -36,9 +36,12 @@ _FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 
 NO_UI_CALLER: dict[str, str] = {
+    # CP-011: the environment's cost, apart from savings. The approved Settings > Environment mockup has no cost panel.
+    "cp_cost": "CP-011 engine call; its panel waits on a mockup (the CP-010 screen shows no cost)",
     # OE-004: the Share button on Optimize > Assessment waits on its mockup.
     "optimization_share": "OE-004 engine call; the Assessment tab's Share button waits on its mockup",
-    "excellence_assess": "FEA-105 engine call; the Excellence scorecard (FEA-108 mockup) waits on Chris's reaction",
+    # SF-002: the Check button in Settings > Connections waits on its mockup.
+    "snowflake_check": "SF-002 engine call; the Snowflake connection's Check button waits on its mockup",
     # Best practices check (semantic-link-labs in Fabric).
     "model_bpa_status": _BPA,
     "model_bpa_risk": _BPA,

@@ -394,3 +394,30 @@ def test_a_huge_sql_cell_is_scanned_only_up_to_the_cap():
     cell = "%%sql\n" + "CREATE OR REPLACE TABLE t " * 50_000
     r = _run([("a", "Notebook", "nb", _nb([cell]), _daily(2, 1))])
     assert isinstance(r["opportunities"], list)
+
+
+def test_pipeline_activities_keep_their_retry_timeout_and_dependency_conditions():
+    first = dict(_copy("land"), policy={"retry": 2, "retryIntervalInSeconds": 30, "timeout": "0.01:00:00",
+                                        "secureOutput": False, "other": "dropped"})
+    then = dict(_copy("after"), dependsOn=[{"activity": "land", "dependencyConditions": ["Failed", "Skipped"]}])
+    acts = {a["name"]: a for a in inventory.pipeline_activities(_pl("pl", [first, then]), "pl")}
+    assert acts["land"]["policy"] == {"retry": 2, "retryIntervalInSeconds": 30, "timeout": "0.01:00:00",
+                                      "secureOutput": False}
+    assert acts["after"]["policy"] == {}  # not set: Fabric's defaults aren't filled in
+    assert acts["after"]["depends_on"] == [{"activity": "land", "conditions": ["Failed", "Skipped"]}]
+    assert acts["land"]["depends_on"] == []
+
+
+def test_a_monthly_figure_is_scaled_from_the_measured_value_not_its_rounded_display():
+    from fabric_desktop.opportunities import impact
+    # 1.0000009 s is shown as 1.000001 (rounded up); scaled 30 times that would state 30.00003 s
+    w = {"item_id": "nb", "workspace_id": WS["id"], "workspace_name": "Sales", "name": "nb",
+         "runs": {"read": True, "seconds_total": 1.0000009, "days": 1, "runs": 1, "scheduled": 1}}
+    usage = {impact._key("Sales", "nb"): {"cu_seconds": 2.0000009, "start": NOW - dt.timedelta(days=1), "end": NOW,
+                                          "rows": 1, "files": {"usage.csv"}}}
+    per = impact.per_workload(w, usage, NOW)
+    assert per["run_seconds_per_month"]["value"] == round(1.0000009 * 30, 6) == 30.000027
+    assert per["cu_per_month"]["value"] == round(2.0000009 * 30, 6)
+    whole = impact.avoidable([w], usage, NOW)
+    assert whole["run_seconds_per_month"]["value"] == 30.000027
+    assert whole["current"][0]["run_seconds"]["value"] == 1.000001  # the display rounding stays as it was

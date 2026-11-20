@@ -144,7 +144,7 @@ def test_what_isnt_a_convertible_model_is_refused(source, says):
 
 
 def test_an_unknown_split_is_refused():
-    with pytest.raises(ValueError, match="split is one of"):
+    with pytest.raises(ValueError, match="split must be one of"):
         sv.semantic_view(_bim(), view_name="V", split="by_table")
 
 
@@ -582,6 +582,32 @@ def test_the_writer_writes_the_schema_metrics_files_flat(svc):  # noqa: F811
     assert sorted(p.name for p in folder.iterdir()) == ["metrics.yaml", "schema.yaml"]
     plan = svc.meta_model_semantic_view_save("Sales", text=_ossie())["confirm"]
     assert sorted(plan["removed"]) == ["semantic-views/Sales/metrics.yaml", "semantic-views/Sales/schema.yaml"]
+
+
+def test_a_stale_file_swapped_for_a_link_during_the_write_is_left_alone(svc, tmp_path, monkeypatch):  # noqa: F811
+    from fabric_desktop import model_ossie_service as mos
+    plan = svc.meta_model_semantic_view_save("Sales", text=_ossie())["confirm"]
+    svc.meta_model_semantic_view_save("Sales", text=_ossie(), confirmed=True, token=plan["token"])
+    plan = svc.meta_model_semantic_view_save("Sales", text=_ossie(), split="schema_metrics")["confirm"]
+    assert plan["removed"] == ["semantic-views/Sales/Sales.yaml"]
+    old = _views(svc) / "Sales" / "Sales.yaml"
+    outside = tmp_path / "elsewhere.yaml"
+    outside.write_text("keep me\n", encoding="utf-8")
+    real_write = mos.write_text
+
+    def write_then_swap(path, content, **kw):  # after the token check, before the stale file is removed
+        real_write(path, content, **kw)
+        if not old.is_symlink():
+            old.unlink()
+            try:
+                old.symlink_to(outside)
+            except OSError:  # Windows without the right to make links
+                pytest.skip("can't make a symbolic link here")
+
+    monkeypatch.setattr(mos, "write_text", write_then_swap)
+    svc.meta_model_semantic_view_save("Sales", text=_ossie(), split="schema_metrics", confirmed=True,
+                                      token=plan["token"])
+    assert old.is_symlink() and outside.read_text(encoding="utf-8") == "keep me\n"  # not a regular file: not removed
 
 
 def test_a_yaml_file_in_a_subfolder_of_the_view_is_listed_as_removed(svc):  # noqa: F811

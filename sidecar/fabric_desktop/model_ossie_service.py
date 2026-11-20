@@ -99,7 +99,7 @@ def _no_context(path: Path) -> None:
         if hit is not None:
             raise ValueError(f"{path.as_posix()} has a folder named {hit}, like a lakehouse's {hit}/ folder, and "
                              "KratosForge never writes there, so nothing was written. Pick another view name or "
-                             "project folder; publishing a view is done by hand in Fabric.")
+                             "project folder. You publish a view by hand in Fabric.")
 
 
 def _file_key(rel: str) -> str:
@@ -321,7 +321,7 @@ class ModelOssieMixin:
         rel = PurePosixPath(path.replace("\\", "/"))
         folder = next((p for p in self._model_folders(project) if p.relative_to(project.root).as_posix() == rel.as_posix()), None)
         if folder is None:
-            raise LookupError(f"There's no model folder {path}; pick one from {FOLDER}/<name>.SemanticModel")
+            raise LookupError(f"There's no model folder {path}. Pick one from {FOLDER}/<name>.SemanticModel.")
         name = folder.name.removesuffix(".SemanticModel")
         bim, read_report = _folder_bim(folder, name, path)
         out = model_ossie.export(bim, translate_dax=translate_dax, read_report=read_report, validate=True)
@@ -587,7 +587,7 @@ class ModelOssieMixin:
             folder = next((p for p in self._model_folders(project) if p.relative_to(project.root).as_posix() == rel),
                           None)
             if folder is None:
-                raise LookupError(f"There's no model folder {path}; pick one from {FOLDER}/<name>.SemanticModel")
+                raise LookupError(f"There's no model folder {path}. Pick one from {FOLDER}/<name>.SemanticModel.")
             return _folder_bim(folder, folder.name.removesuffix(".SemanticModel"), path)[0]
         if len(text) > tmdl.MAX_CHARS * 4:
             raise ValueError("This text is too large to be a semantic model")

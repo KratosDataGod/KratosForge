@@ -407,14 +407,15 @@ def _detect(value: Any) -> str:
             return "ossie"
         if value and any(isinstance(k, str) and k.endswith(".tmdl") for k in value):
             return "tmdl"
-    raise ValueError("This isn't a semantic model KratosForge can compare: a model.bim (TMSL) has a model object, "
-                     "a TMDL folder is its files (path -> text, with .tmdl files), and an Ossie document has a version")
+    raise ValueError("This isn't a semantic model KratosForge can compare. Give a model.bim (TMSL) with a model "
+                     "object, a TMDL folder's files (path -> text, with .tmdl files), or an Ossie document with a "
+                     "version.")
 
 
 def _json_text(text: str) -> Any:
     """JSON text (a model.bim, or an Ossie document written as JSON) under ``MAX_TMSL_CHARS``."""
     if len(text) > MAX_TMSL_CHARS:
-        raise ValueError(f"This text is {len(text) // 1_000_000} million characters; a model.bim is compared at "
+        raise ValueError(f"This text is {len(text) // 1_000_000} million characters, but a model.bim is compared at "
                          f"most {MAX_TMSL_CHARS // 1_000_000} million characters")
     try:
         return json.loads(text.lstrip("\ufeff"))
@@ -480,7 +481,7 @@ def _view_reason(side: _Side, entry: dict[str, Any]) -> str:
 def _read(side: _Side, value: Any, kind: str | None) -> None:
     if kind is not None:
         if not isinstance(kind, str) or kind.lower() not in _KIND_ALIASES:
-            raise ValueError(f"There's no kind {mo._short(kind)!r} to compare; the kinds are {', '.join(KINDS)}")
+            raise ValueError(f"There's no kind {mo._short(kind)!r} to compare. The kinds are {', '.join(KINDS)}")
         kind = _KIND_ALIASES[kind.lower()]
     if kind == "semantic_view":
         _read_view(side, value)
@@ -492,7 +493,7 @@ def _read(side: _Side, value: Any, kind: str | None) -> None:
         if kind == "tmsl" or (kind is None and value.lstrip("\ufeff \t\r\n").startswith("{")):
             value = _json_text(value)  # a model.bim: JSON under its own, larger cap
             if (kind or _detect(value)) == "ossie" and size > mo.MAX_CHARS:  # Ossie keeps Ossie's cap
-                raise ValueError(f"This file is {size // 1_000_000} MB; an Ossie model is at most "
+                raise ValueError(f"This file is {size // 1_000_000} MB, but an Ossie model is at most "
                                  f"{mo.MAX_CHARS // 1_000_000} MB")
         else:
             value = mo.load_text(value)  # Ossie YAML or JSON: size-capped, no aliases
@@ -530,7 +531,7 @@ def _read(side: _Side, value: Any, kind: str | None) -> None:
     if meta["root"] == "wrapper":
         model = value.get("semantic_model")
         if isinstance(model, list) and len(model) != 1:
-            side.unsupported = (f"This {meta['label']} file holds {len(model)} models in semantic_model; L1 compares "
+            side.unsupported = (f"This {meta['label']} file holds {len(model)} models in semantic_model, but L1 compares "
                                 "one model with one model")
             return
         model = model[0] if isinstance(model, list) else model

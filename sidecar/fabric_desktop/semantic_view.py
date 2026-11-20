@@ -68,8 +68,8 @@ _METRIC_KEYS = ("name", "description", "expression")
 _QUERY = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)  # the vendored converter's test for a query source
 _SQL_DIALECTS = mo._SQL_DIALECTS
 _YAML_REF, _REF_DATE = op.FABRIC_YAML_REFERENCE, op.FABRIC_YAML_REFERENCE_DATE
-PUBLISH = ("KratosForge doesn't publish Semantic Views and never writes a lakehouse's Context/ folder. Publishing is "
-           "manual, in Fabric: upload these files to the view's folder in the lakehouse, then Save and Publish.")
+PUBLISH = ("KratosForge doesn't publish Semantic Views and never writes a lakehouse's Context/ folder. You publish it "
+           "by hand in Fabric. Upload these files to the view's folder in the lakehouse, then Save and Publish.")
 
 
 def _source(rule: str, says: str, url: str = _YAML_REF) -> dict[str, str]:
@@ -116,14 +116,14 @@ def folder_name(view_name: Any) -> str:
         raise ValueError("Give the semantic view a name")
     name = view_name
     if name != name.strip() or name.startswith(".") or name.endswith("."):
-        raise ValueError("A semantic view's name can't start or end with a space or a dot: Windows drops them, so "
-                         "it would share another view's folder")
+        raise ValueError("A semantic view's name can't start or end with a space or a dot, because Windows drops "
+                         "them, so the view would share another view's folder")
     if "/" in name or "\\" in name or ".." in name:
-        raise ValueError("A semantic view's name is a folder name, not a path: leave out /, \\ and ..")
+        raise ValueError("A semantic view's name is a folder name, not a path, so leave out /, \\ and ..")
     if not name.strip(". "):
         raise ValueError("A semantic view's name needs a letter or digit")
     if name.split(".")[0].upper().rstrip() in tmdl._RESERVED:
-        raise ValueError(f"{name} is a device name on Windows, so it can't name the view's folder; pick another name")
+        raise ValueError(f"{name} is a device name on Windows, so it can't name the view's folder. Pick another name.")
     return tmdl.file_name(name, set())
 
 
@@ -160,8 +160,8 @@ def _read(source: Any, view: str) -> tuple[dict[str, Any], str, dict[str, Any] |
         out = mo.export(bim, translate_dax=True, read_report=read_report)
         return mo.yaml.safe_load(out["yaml"]), "tmdl", out["fidelity"]
     if "version" not in source:
-        raise ValueError("This isn't a semantic model KratosForge can make a view from: a model.bim has a model "
-                         "object, a TMDL folder is its .tmdl files, and an Ossie document has a version")
+        raise ValueError("This isn't a semantic model KratosForge can make a view from. Give a model.bim with a "
+                         "model object, a TMDL folder's .tmdl files, or an Ossie document with a version.")
     refusal = mo.not_convertible(source)  # UnknownProfile (a ValueError naming the version) for an unknown one
     if refusal:
         raise ValueError(refusal)
@@ -226,9 +226,9 @@ def _stash_rows(rows: _Rows, stash: dict[str, Any], owner: str, path: str, datas
                 if kind == "role":
                     rows.warnings.append({
                         "object": row["object"], "severity": "security", "prominent": True,
-                        "message": "This security role can't go into a Semantic View: it lives only in the POWER_BI "
-                                   "extension, which Fabric omits, so the published view's model has no row-level "
-                                   "security for it. Anyone who can read that model sees the data this role "
+                        "message": "This security role can't go into a Semantic View, because it lives only in the "
+                                   "POWER_BI extension, which Fabric omits. So the published view's model has no "
+                                   "row-level security for it. Anyone who can read that model sees the data this role "
                                    "restricts. Set up the same restriction in Fabric (OneLake security) before "
                                    "sharing the view."})
         for t in mo._named_items(stash.get("excludedTables")):
@@ -241,8 +241,8 @@ def _stash_rows(rows: _Rows, stash: dict[str, Any], owner: str, path: str, datas
                            rule="fabric/extensions-omitted", stripped="custom_extensions")
             if group:
                 rows.warnings.append({"object": row["object"], "severity": "warning", "prominent": True,
-                                      "message": "This calculation group can't go into a Semantic View: it lives "
-                                                 "only in the POWER_BI extension, which Fabric omits"})
+                                      "message": "This calculation group can't go into a Semantic View, because "
+                                                 "it lives only in the POWER_BI extension, which Fabric omits."})
             for key, sub in (("columns", "column"), ("measures", "measure"), ("hierarchies", "hierarchy")):
                 for i in mo._named_items(t.get(key)):
                     k = ("measure", i["name"]) if sub == "measure" else (sub, t["name"], i["name"])
@@ -332,7 +332,7 @@ def semantic_view(source: Any, *, view_name: str, split: str = "single") -> dict
     was left out of it is a row of its own, named in its ``notes``), Unverified for a metric whose DAX was
     translated from SQL, Unsupported for every construct left out and every object excluded."""
     if split not in SPLITS:
-        raise ValueError(f"split is one of {', '.join(SPLITS)}")
+        raise ValueError(f"split must be one of {', '.join(SPLITS)}")
     folder = folder_name(view_name)
     doc, kind, conversion = _read(source, folder)
     rows = _Rows()
@@ -371,7 +371,7 @@ def semantic_view(source: Any, *, view_name: str, split: str = "single") -> dict
             rows.strip("fields", did, _path(dpath, "fields", fi), kind="column",
                        key=("column", name, fname) if isinstance(fname, str) else None,
                        ident=f"{did} field {mo._q(fname)}" if isinstance(fname, str) else f"{did} field #{fi + 1}",
-                       detail=(f"Field {mo._q(fname)}; " if isinstance(fname, str) else "")
+                       detail=(f"Field {mo._q(fname)}. " if isinstance(fname, str) else "")
                        + "Fabric reads the columns from the lakehouse table.")
         notes = ["fields left out"] if d.get("fields") else []
         notes += _strip_extras(rows, d, _DATASET_KEYS, did, dpath, dataset=name, skip=("fields", "metrics"))
@@ -488,7 +488,8 @@ def semantic_view(source: Any, *, view_name: str, split: str = "single") -> dict
 
     files, split_note = _files(folder, root, datasets, relationships, out_metrics, split)
     if len(files) > op.FABRIC_MAX_FILES:  # never: _files merges first; checked so no caller ever gets more
-        raise RuntimeError(f"The view came to {len(files)} files; Fabric takes at most {op.FABRIC_MAX_FILES}")
+        raise RuntimeError(f"The view came to {len(files)} files, but Fabric takes at most "
+                           f"{op.FABRIC_MAX_FILES}, so nothing was written.")
     validation = op.validate_files(files, "fabric-semantic-view")
     by_class: dict[str, list[str]] = {c: [] for c in mo.CLASSES}
     for row in rows.rows:
@@ -558,7 +559,7 @@ def _dump(doc: dict[str, Any]) -> str:
                              width=float("inf"))
     if any(c in text for c in _BREAKS[:3]) or mo.yaml.safe_load(text) != doc:
         raise ValueError(f"The view file for {mo._q(doc.get('name'))} wouldn't read back as written, so it wasn't "
-                         "made; check names and expressions for unusual line-break characters")
+                         "made. Check names and expressions for unusual line-break characters.")
     return text
 
 

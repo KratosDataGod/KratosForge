@@ -173,7 +173,7 @@ home table only. Each object gets one of the plan's results:
 | Structurally compatible but behavior unverified | The structure matches. This is the best L1 result. |
 | Different results | Missing on one side (the side is named), or a change, each listed. |
 | Unsupported | The conversion couldn't carry it, or the other side has no place for it (a role, calculation group or inactive relationship against Ossie 0.3). Never counted as a match. |
-| Test failed | A side couldn't be read; the reason is in `error`. |
+| Test failed | A side couldn't be read. The reason is in `error`. |
 
 **L1 never claims equivalence.** It never reports Verified equivalent or Equivalent within
 tolerance: matching structure says nothing about what the expressions compute (L2, OSSIE-006b),

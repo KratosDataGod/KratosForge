@@ -27,7 +27,7 @@ ACCOUNT_ATOMS = ["myorg", "-", "acct", ".", "us-east-1", "aws", "@", "/", "?", "
                  "https://", "file://", ".snowflakecomputing.com", "x" * 160, "%2f", "\\"]
 # A made-up token, joined at run time so secret scanners don't read it as a real one.
 FAKE_PAT = "dapi" + "0123456789abcdef" * 2
-SECRET_VALUES = [FAKE_PAT, "ghp_" + "a" * 36, "-----BEGIN PRIVATE KEY-----\nMIIabc",
+SECRET_VALUES = [FAKE_PAT, "ghp_" + "a" * 36, "-----BEGIN PRIVATE KEY-----\nMIIabc",  # pragma: allowlist secret (made up for the test)
                  "password=hunter2xyz"]
 CASES = 6000
 
@@ -96,7 +96,7 @@ CRED = ["method", "secret", "passphrase", "client_id", "profile", "connection", 
 VALID = [_databricks(GOOD_HOST),
          {"name": "F", "kind": "fabric", "connections": [{"platform": "fabric"}]},
          {"name": "S", "kind": "snowflake", "connections": [{"platform": "snowflake", "account": "myorg-myacct",
-                                                             "credential": {"method": "pat", "secret": "env:SF_PAT"}}]},
+                                                             "credential": {"method": "pat", "secret": "env:SF_PAT"}}]},  # pragma: allowlist secret (made up for the test)
          {"name": "H", "kind": "hybrid", "connections": [{"platform": "fabric"}, {"platform": "databricks", "host": GOOD_HOST}]}]
 
 
@@ -206,7 +206,7 @@ account = "myorg-myacct"
 user = "me"
 authenticator = "SNOWFLAKE_JWT"
 private_key_file = "/k.p8"
-password = "hunter2xyz"
+password = "hunter2xyz"  # pragma: allowlist secret (made up)
 """
 
 

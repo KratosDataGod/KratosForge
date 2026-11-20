@@ -51,6 +51,8 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E18 | Schedule a pipeline and trigger it when a file lands | 1.4.2 | C | SIM +FV | config | 20 | |
 | E19 | Parameterised pipeline: ForEach over tables with dynamic expressions | 1.4.3 | C | LV | pipeline | 30 | Orchestration |
 | E20 | Notebook orchestration with runMultiple, parameters and exit values | 1.4.3 | C | LV | pyspark | 25 | notebookutils |
+| E73 | Pipeline, notebook or something else: choose the tool for five jobs | 1.4.1 | C | SIM | config | 20 | LM-08 |
+| E76 | Govern a workspace: who can endorse, and where labels end up | 1.3.5, 1.3.6 | C | SIM +FV | config | 20 | Governance |
 
 ## 2. Ingest and transform data
 
@@ -80,6 +82,8 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E42 | Structured streaming with foreachBatch and MERGE | 2.3.3 | C | LV +FV | pyspark | 30 | |
 | E43 | Tumbling, hopping and session windows over device events | 2.3.5 | G | LV +FV | duckdb | 25 | LM-15 |
 | E67 | Reload one day of a Delta table with replaceWhere | 2.1.1 | C | LV | pyspark | 20 | LM-21 |
+| E74 | Six workloads, four stores: lakehouse, warehouse, eventhouse or SQL database | 2.2.1 | C | SIM | config | 20 | LM-06, LM-23 |
+| E75 | Five streaming flows: eventstream, Spark Structured Streaming or KQL | 2.3.1 | C | SIM | config | 20 | |
 
 ## 3. Monitor and optimize an analytics solution
 
@@ -130,11 +134,11 @@ validation checks both the fix and that nothing else changed.
 
 | | Count |
 | --- | --- |
-| Exercises | 68 (54 Guided or Challenge, 14 Troubleshoot) |
+| Exercises | 72 (58 Guided or Challenge, 14 Troubleshoot) |
 | LOCAL VERIFIED | 34 |
-| SIMULATED | 24 |
+| SIMULATED | 28 |
 | KNOWLEDGE ONLY | 10 |
-| With a planned FABRIC VERIFIED version | 35 |
+| With a planned FABRIC VERIFIED version | 36 |
 | Capstones | 3 |
 | Built from existing Learn lessons or labs | 26 |
 

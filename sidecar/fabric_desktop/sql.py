@@ -38,7 +38,15 @@ _VIEW_NAMES = itertools.count()
 def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     """Spark SQL first; DuckDB SQL is accepted too when it isn't valid Spark.
 
-    ``dialect="duckdb"`` reads DuckDB SQL only. T-SQL dialects don't run here (sql_dialects.py)."""
+    ``dialect="duckdb"`` reads DuckDB SQL only. T-SQL dialects don't run here (sql_dialects.py).
+    A query nested too deeply to read or rewrite is a ValueError (sql_dialects.TOO_DEEP)."""
+    try:
+        return _parse(query, dialect)
+    except RecursionError:
+        raise ValueError(sql_dialects.TOO_DEEP) from None
+
+
+def _parse(query: str, dialect: str) -> list[exp.Expression]:
     chosen = sql_dialects.get(dialect)
     if not chosen["runs_here"]:
         raise ValueError(f"{chosen['label']} can't run on this PC. KratosForge checks and formats "
@@ -51,15 +59,18 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     except (ParseError, TokenError) as first_error:  # an unclosed quote is a TokenError
         if chosen["id"] == "spark" and (respelled := _spark_spellings(query)) != query:
             try:
-                return parse(respelled, dialect)
+                return _parse(respelled, dialect)
             except ValueError:
                 pass  # report the error in the query as written
         if chosen["id"] == "spark" and _only_empty_structs_fail(query):
             raise ValueError(_EMPTY_STRUCT) from None
-        if chosen["id"] != "spark" or getattr(first_error, "uneven_pairs", False):  # DuckDB would drop an argument
+        if getattr(first_error, "too_deep", False):
+            raise ValueError(sql_dialects.TOO_DEEP) from None
+        if chosen["id"] != "spark" or getattr(first_error, "uneven_pairs", False) \
+                or getattr(first_error, "final", False):  # DuckDB would drop an argument
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
         try:
-            statements = _statements(sqlglot.parse(query, read="duckdb"))
+            statements = _statements(sql_dialects.parse(query, read="duckdb"))
         except (ParseError, TokenError):
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
     if not statements:
@@ -368,13 +379,29 @@ def _spark_date_results(statement: exp.Expression, ansi: bool) -> exp.Expression
     return statement
 
 
+_USER_REFUSED = "in Fabric it names the identity running the notebook and here it would name DuckDB"
+# Spark's session functions this PC refuses by name in a Spark SQL cell: the reason, after "because "
+_SESSION_REFUSED = {
+    "current_user": _USER_REFUSED, "user": _USER_REFUSED, "session_user": _USER_REFUSED,
+    "version": "in Fabric it gives the Spark build and git revision and here it would give DuckDB's version",
+}
+
+
 def _spark_session_functions(statement: exp.Expression) -> exp.Expression:
     """Spark's session functions in a Fabric notebook, where DuckDB would describe its own session
     ('memory' for its catalog). current_catalog() is spark_catalog, as in Fabric; current_timezone()
     is the session's spark.sql.session.timeZone (DuckDB's TimeZone, which spark.conf.set changes).
     current_database() and current_schema() are refused: in Fabric they name the default lakehouse,
-    which a SQL cell here can't read; spark.catalog.currentDatabase() can. Databricks SQL keeps
+    which a SQL cell here can't read; spark.catalog.currentDatabase() can. current_user(), user(),
+    session_user() and version() are refused too: Fabric names the identity running the notebook and its
+    own Spark build, where DuckDB would give 'duckdb' and its own version. Databricks SQL keeps
     DuckDB's own answers (its session is the engine's, not a Unity Catalog one)."""
+    for user in list(statement.find_all(exp.CurrentUser, exp.SessionUser, exp.Anonymous)):
+        name = ("current_user" if isinstance(user, exp.CurrentUser) else "session_user"
+                if isinstance(user, exp.SessionUser) else user.name.lower())
+        if name in _SESSION_REFUSED:
+            raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric, because "
+                             f"{_SESSION_REFUSED[name]}, so nothing ran. Run the cell in Fabric.")
     for node in list(statement.find_all(exp.CurrentCatalog, exp.CurrentTimezone, exp.CurrentDatabase,
                                         exp.CurrentSchema)):
         if isinstance(node, exp.CurrentCatalog):
@@ -2300,6 +2327,8 @@ def duckdb_sql(statement: exp.Expr) -> str:
     here that is a ValueError instead, and nothing runs (#1253)."""
     try:
         return statement.sql(KfDuckDB, unsupported_level=sqlglot.ErrorLevel.RAISE)
+    except RecursionError:
+        raise ValueError(sql_dialects.TOO_DEEP) from None
     except UnsupportedError as exc:
         reason = str(exc).splitlines()[0] if str(exc) else "sqlglot can't write part of it in DuckDB SQL."
         raise ValueError(f"Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: "

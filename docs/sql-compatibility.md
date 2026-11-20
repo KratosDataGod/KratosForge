@@ -55,6 +55,17 @@ Queries over 100,000 characters are checked when you press **Check now** in the 
 - Check every construct. Statements the engine treats as commands (GRANT, DBCC, SHOW, OPTIMIZE and similar) are checked only by the rules that read their words.
 - Put SQL text or findings in the security audit log, or put string literals in findings: a password in the SQL never shows in a message.
 
+## Queries this PC refuses to read
+
+Spark SQL that runs on this PC is read first, and a query that can't be read is refused with a message that
+says why, and nothing runs. Besides SQL with a mistake in it, that is:
+
+- A query nested too deeply: brackets, operators or calls inside one another a few dozen levels deep, or
+  more than 12 calls named like a type (`string(`, `int(`, `struct(`, `decimal(`...) inside one another, which
+  would take the reader minutes. Split it into smaller parts, such as a WITH clause or a view.
+- A call missing an argument it needs, such as `datediff('2024-02-01')`, which Spark refuses too.
+- A number Spark SQL can't read, such as `1e10.5BD`.
+
 ## ANSI mode on this PC
 
 Spark SQL and the DataFrame API on this PC run with ANSI mode off (`spark.sql.ansi.enabled = false`). That is how Fabric runs them. Runtime 1.3 (Spark 3.5) keeps Spark's default, and Runtime 2.0 (Spark 4.1) is set to false by Microsoft, although Spark 4 turns it on. Databricks SQL on the DuckDB engine runs with ANSI mode on, as a Databricks SQL warehouse (`ANSI_MODE`) and Databricks Runtime 17.0 and later do. Each case below is checked against Spark 3.5's ANSI compliance page and Databricks' `ANSI_MODE` page in `sidecar/tests/test_spark_ansi.py`. None has been compared with a Fabric or Databricks run, so treat them as UNVERIFIED there.
@@ -352,6 +363,32 @@ These cases still differ:
 | Case | Spark | This PC |
 | --- | --- | --- |
 | Databricks SQL on the DuckDB engine | `base64` and `unbase64` as in Spark SQL | `base64` writes one line, and `unbase64` reads only strict base64 |
+
+## Session, reflection and error functions on this PC (WR-122)
+
+Spark SQL run on this PC answers as Spark does for `raise_error`, or refuses the function by name, with ANSI mode off as Fabric runs it. 42 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_functions_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `raise_error` | Stops the query only when a row reaches it, so a `CASE`, `if` or `coalesce` that doesn't reach it gives its other value. A NULL message stops it too. `typeof(raise_error(...))` is `void` |
+
+Refused by name, and nothing runs:
+
+| Case | Why |
+| --- | --- |
+| `aes_encrypt`, `aes_decrypt`, `try_aes_encrypt`, `try_aes_decrypt` | AES isn't available in the engine on this PC |
+| `java_method`, `reflect` | They call a Java method by reflection, and this PC runs no Java |
+| `input_file_name`, `input_file_block_start`, `input_file_block_length` | This PC doesn't track the file each row was read from. Spark gives `''`, `-1` and `-1` for a row that wasn't read from a file |
+| `sql_keywords()` | This PC doesn't have Spark's list of SQL keywords and which of them are reserved |
+| `current_user()`, `user()`, `session_user()` | In Fabric they name the identity running the notebook. DuckDB would name itself |
+| `version()` | In Fabric it gives Fabric's Spark build and its git revision. DuckDB would give its own version |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| `raise_error`'s error | `[USER_RAISED_EXCEPTION]` with the message | DuckDB's `Invalid Input Error:` with the message |
+| `user` written without brackets | The identity running the notebook, when no column is named `user` | `duckdb` |
 
 ## Local T-SQL changes
 

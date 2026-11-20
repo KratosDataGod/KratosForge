@@ -230,7 +230,12 @@ def main() -> None:
     os.dup2(2, 1)
     devnull = os.open(os.devnull, os.O_RDONLY)
     os.dup2(devnull, 0)
-    sys.stdout = os.fdopen(1, "w", encoding="utf-8", errors="replace", buffering=1)
+    # Both reach the engine's sidecar.log as they are (kernel_proc starts this process with the engine's
+    # stderr), so what isn't a cell's output (a background thread's print, a log line) is redacted here:
+    # credential-shaped text and the values dbutils.secrets read.
+    from .secret_redaction import RedactedStream
+    sys.stdout = RedactedStream(os.fdopen(1, "w", encoding="utf-8", errors="replace", buffering=1))
+    sys.stderr = RedactedStream(sys.stderr)
     sys.stdin = open(os.devnull, encoding="utf-8")  # noqa: SIM115 - for the life of the process
     channel = Channel(proto_in, proto_out)
     host = Host(channel)

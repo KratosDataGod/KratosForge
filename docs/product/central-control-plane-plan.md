@@ -272,9 +272,12 @@ Rules (enforced by `controlplane/manifest.py`, CP-001):
   (`config.setting` and each family's `<prefix>schema_version`). A mismatch means the manifest is
   refreshed, not that the store is changed.
 - No key may hold a secret. The validator refuses values `redact.secrets` would change, and any key
-  whose name contains the word `token`, `secret`, `password`, `pwd`, `credential`, `sas`,
-  `connection_string`, `api_key` or `account_key`, or ends in `_key`. Names such as `keys` (the
-  shared keys workspace binding) and ids ending in `_id` are allowed.
+  whose name contains the word `token`, `secret`, `password`, `pwd`, `credential` or `sas` (singular
+  or plural, split at `_`, `-` and camelCase), is `connection_string`, `api_key`, `account_key` or
+  `private_key` run together or not, or whose last word is `key` (`storage_key`, `primaryKey`). Names
+  such as `keys` (the shared keys workspace binding) and `monkey`, and ids ending in `_id`, are allowed.
+- A manifest larger than 64 KB, or nested too deeply, is refused before it is used; discovery reads at
+  most 64 KB of each lakehouse's file, since anyone who can write to a workspace can put one there.
 - Unknown keys are kept on rewrite (forward compatibility); a `manifest_version` newer than the app
   knows opens the environment read-only.
 - `migration.state` is `idle`, `running` (with `by` installation and `started_at`, used as a lock

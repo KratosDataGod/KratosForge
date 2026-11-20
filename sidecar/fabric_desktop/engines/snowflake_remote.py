@@ -36,7 +36,7 @@ import uuid
 from typing import Any, Callable
 
 from .. import connprofiles, redact
-from ..retrying import send_remote
+from ..retrying import PollTimedOut, poll_until, send_remote
 from .snowflake_auth import SnowflakeAuthError, TokenProvider, provider_for
 
 SCHEMA = "kratosforge.snowflake-check/1"
@@ -127,17 +127,24 @@ class Client:
                 body[key] = value
         # A submit is never sent twice on a 5xx: it may have started (retrying.send_remote).
         resp = self._send("POST", f"/api/v2/statements?requestId={uuid.uuid4()}", False, data=json.dumps(body))
-        deadline = self._clock() + MAX_WAIT
-        while resp.status_code == 202:
+        if resp.status_code == 202:
             handle = str(self._body(resp).get("statementHandle") or "")
             if not _HANDLE.fullmatch(handle):
                 raise SnowflakeError("Snowflake accepted the statement but gave no statement handle to follow.")
-            if self.stopped() or self._clock() >= deadline:
+
+            def look() -> tuple[Any, Any]:
+                answer = self._send("GET", f"/api/v2/statements/{handle}", True)
+                return answer, getattr(answer, "headers", None)
+            try:
+                resp = poll_until(look, lambda r: r.status_code != 202 or self.stopped(), MAX_WAIT,
+                                  getattr(resp, "headers", None), self._sleep, self._clock, POLL_SECONDS)
+            except PollTimedOut:
                 self.cancel(handle)
-                raise SnowflakeError("Cancelled." if self.stopped() else
-                                     f"The statement was still running after {int(MAX_WAIT)} seconds, so it was cancelled.")
-            self._sleep(POLL_SECONDS)
-            resp = self._send("GET", f"/api/v2/statements/{handle}", True)
+                raise SnowflakeError(f"The statement was still running after {int(MAX_WAIT)} seconds, "
+                                     "so it was cancelled.") from None
+            if resp.status_code == 202:  # stopped: the person pressed Cancel
+                self.cancel(handle)
+                raise SnowflakeError("Cancelled.")
         if resp.status_code != 200:
             raise self._refused(resp)
         return self._body(resp)

@@ -247,3 +247,17 @@ def test_the_service_checks_only_snowflake_connections_and_is_a_read(monkeypatch
     with pytest.raises(ValueError, match="isn't a Snowflake connection"):
         Svc({"platform": "databricks"}).snowflake_check("profile:p:db")
     assert "snowflake_check" in es.METHODS and "snowflake_check" in audit.READ_ONLY
+
+
+def test_cancel_while_following_cancels_on_snowflake():
+    fake = FakeSnowflake()
+
+    def request(method, url, **kw):
+        fake.calls.append({"method": method, "url": url})
+        return Resp(200, {}) if url.endswith("/cancel") else Resp(202, {"statementHandle": "01b2-aa"})
+    fake.request = request
+    c = client(fake)
+    c.stopped = lambda: len(fake.calls) >= 2
+    with pytest.raises(sr.SnowflakeError, match="^Cancelled.$"):
+        c.statement("SELECT 1")
+    assert fake.calls[-1] == {"method": "POST", "url": HOST + "/api/v2/statements/01b2-aa/cancel"}

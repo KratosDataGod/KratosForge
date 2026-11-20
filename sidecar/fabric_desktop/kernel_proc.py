@@ -271,6 +271,9 @@ class ProcessKernel:
                 slot.update({k: v for k, v in message.items() if k in ("result", "error")})
                 slot["done"].set()
         code = proc.wait()
+        tree = self._tree
+        if tree is not None and tree.proc is proc:
+            tree.reap()  # a kernel that died on its own (a crash, killed from outside) leaves no process behind
         self._close_pipes(proc)
         if proc is self._proc:
             self._gone(stopped_text(code) if not self._ended else self._ended)
@@ -722,6 +725,16 @@ class _Tree:
             kernel32.TerminateJobObject(self.job, 1)
             kernel32.CloseHandle(self.job)
             self.job = None
+
+    def reap(self) -> None:
+        """After the kernel process ended: end what its cells started that is still running. On Windows the job
+        holds them; elsewhere they stay in the kernel's process group (the parent links went with the kernel)."""
+        if sys.platform == "win32":
+            self.release()
+            return
+        import signal
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(self.proc.pid, signal.SIGKILL)
 
     def kill(self) -> None:
         if sys.platform == "win32":

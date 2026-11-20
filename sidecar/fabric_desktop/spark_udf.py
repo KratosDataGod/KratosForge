@@ -170,8 +170,13 @@ class UserDefinedFunction:
                 try:
                     return pa.Array.from_pandas(series, mask=series.isnull().to_numpy(), type=_arrow_type(dt),
                                                 safe=False)
-                except (pa.ArrowInvalid, pa.ArrowTypeError, TypeError, ValueError):
-                    pass  # values that aren't numbers: each one as a plain UDF's, below
+                except (TypeError, ValueError) as exc:  # ArrowTypeError and ArrowInvalid too, as Spark catches them
+                    # Spark stops on values Arrow won't convert (text, for one); it doesn't null them
+                    raise RuntimeError(
+                        f"The pandas_udf {self.__name__} returned values that aren't {dt.simpleString()}, so the "
+                        f"cell stopped, as it does in Fabric: Exception thrown when converting pandas.Series "
+                        f"({series.dtype}) to Arrow Array ({_arrow_type(dt)}). Return "
+                        f"numbers, or change the pandas_udf's return type.") from exc
             values = [_fits(None if _isnull(v) else _plain(v), dt) for v in list(out)]
             return pa.array(values, type=_arrow_type(dt))
         return call

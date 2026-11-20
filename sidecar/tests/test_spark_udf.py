@@ -137,6 +137,20 @@ def mean_(a: pd.Series) -> float:
     assert "grouped-aggregate pandas_udf" in str(out["outputs"]) and "runs in Fabric" in str(out["outputs"])
 
 
+def test_a_pandas_udf_returning_text_for_a_number_type_stops_as_in_spark(kernel):
+    # Spark converts with pa.Array.from_pandas and stops on what Arrow won't convert; it doesn't null it
+    out = kernel.run(SETUP + """
+import pandas as pd
+@F.pandas_udf("long")
+def text(a: pd.Series) -> pd.Series:
+    return a.astype(str)
+df.select(text("id")).collect()
+""")
+    assert out["status"] == "error"
+    assert "returned values that aren't bigint" in str(out["outputs"])
+    assert "pandas.Series (object) to Arrow Array (int64)" in str(out["outputs"])
+
+
 def test_a_pandas_udf_returning_the_wrong_length_is_refused(kernel):
     out = kernel.run(SETUP + """
 import pandas as pd

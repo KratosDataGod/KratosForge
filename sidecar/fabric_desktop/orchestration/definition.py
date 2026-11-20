@@ -245,6 +245,17 @@ def _parse(text: str, what: str, duplicates: list[str]) -> Any:
                               "invalid_json", hint="Check for a missing comma, quote or bracket near that place.") from None
     except RecursionError:
         raise DefinitionError(f"{what} is nested too deeply to be a pipeline definition.", "invalid_json") from None
+    except ValueError:  # a number past Python's 4300-digit limit
+        raise DefinitionError(f"{what} can't be read because it holds a number too long to be a value. "
+                              "Shorten or remove that number, then import it again.", "invalid_json") from None
+
+
+def _platform(text: str) -> Any:
+    """.platform parsed, or None when it isn't JSON: the part is kept as it is either way."""
+    try:
+        return json.loads(text)
+    except (ValueError, RecursionError):
+        return None
 
 
 def _parts(wrapper: dict[str, Any]) -> list[Any]:
@@ -293,10 +304,7 @@ def _from_parts(wrapper: dict[str, Any], text: str, duplicates: list[str], name_
         if path == CONTENT_PART:
             content_text = _decode(part, i, prefix)
         elif path == PLATFORM_PART:
-            try:
-                platform = json.loads(_decode(part, i, prefix))
-            except json.JSONDecodeError:
-                platform = None  # kept as the raw part regardless; only the schema record misses it
+            platform = _platform(_decode(part, i, prefix))  # kept as the raw part regardless; only the schema record misses it
     if content_text is None:
         raise DefinitionError(f"The definition has no {CONTENT_PART} part.", "missing_content_part", f"{prefix}.parts",
                               hint="Fabric keeps a pipeline in a part whose path is pipeline-content.json.")
@@ -318,20 +326,21 @@ def load(path: str | Path) -> ImportedPipeline:
         if not content_file.is_file():
             raise DefinitionError(f"{p.name} has no {CONTENT_PART}.", "missing_content_part",
                                   hint="Choose the pipeline's .DataPipeline folder from a Fabric Git repository.")
+        if content_file.stat().st_size > MAX_BYTES:
+            raise DefinitionError(f"{CONTENT_PART} is larger than {MAX_BYTES // (1024 * 1024)} MB.", "too_large")
         files: dict[str, str] = {}
         for f in sorted(p.iterdir()):
             if f.is_file() and f.stat().st_size <= MAX_BYTES:
                 files[f.name] = f.read_bytes().decode("utf-8", "surrogateescape")
+        for part in (CONTENT_PART, PLATFORM_PART):
+            if part in files and not _utf8(files[part]):
+                raise DefinitionError(f"{part} can't be read because it isn't UTF-8 text. Save it as UTF-8 and "
+                                      "open the folder again.", "invalid_encoding")
         duplicates: list[str] = []
         content = _parse(files[CONTENT_PART], CONTENT_PART, duplicates)
         if not isinstance(content, dict):
             raise DefinitionError(f"{CONTENT_PART} must be a JSON object.", "not_an_object")
-        platform = None
-        if PLATFORM_PART in files:
-            try:
-                platform = json.loads(files[PLATFORM_PART])
-            except json.JSONDecodeError:
-                platform = None
+        platform = _platform(files[PLATFORM_PART]) if PLATFORM_PART in files else None
         name = p.name[:-len(".DataPipeline")] if p.name.endswith(".DataPipeline") else p.name
         if isinstance(platform, dict) and isinstance(platform.get("metadata"), dict):
             name = str(platform["metadata"].get("displayName") or name)
@@ -339,7 +348,21 @@ def load(path: str | Path) -> ImportedPipeline:
                        original=files, duplicates=duplicates)
     if p.stat().st_size > MAX_BYTES:
         raise DefinitionError(f"{p.name} is larger than {MAX_BYTES // (1024 * 1024)} MB.", "too_large")
-    return loads(p.read_bytes().decode("utf-8-sig"), name_hint=p.stem if p.name != CONTENT_PART else "")
+    try:
+        text = p.read_bytes().decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise DefinitionError(f"{p.name} can't be read because it isn't UTF-8 text. Save it as UTF-8 and import "
+                              "it again.", "invalid_encoding") from None
+    return loads(text, name_hint=p.stem if p.name != CONTENT_PART else "")
+
+
+def _utf8(text: str) -> bool:
+    """``text`` was valid UTF-8: decoding with surrogateescape left no lone surrogate in it."""
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _finish(fmt: str, content: dict[str, Any], name_hint: str, wrapper: dict[str, Any] | None = None,

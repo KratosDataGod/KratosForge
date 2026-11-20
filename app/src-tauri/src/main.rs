@@ -161,7 +161,8 @@ fn policy_engine_url(text: &str) -> Option<String> {
 /// Extra hosts the Fabric view may open for sign-in: the organization's own identity provider
 /// (AD FS, Okta, Ping, ...), from `"fabric_view_sign_in_hosts"` in the policy file or Group Policy.
 /// Only those can set it, and only when the account running the app couldn't change them
-/// (policy_registry::trusted_hosts); a missing or unreadable file means none (its last good copy isn't used).
+/// (policy_registry::trusted_hosts); a missing or unreadable file means none (its last good copy isn't used),
+/// and Group Policy that is there but can't be read means none from either source.
 fn fabric_view_sign_in_hosts() -> Vec<String> {
     sign_in_hosts_state().0
 }
@@ -172,11 +173,11 @@ fn sign_in_hosts_state() -> (Vec<String>, String) {
     let file = path.as_deref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
     let file_hosts = policy_sign_in_hosts(&file);
     let file_ok = if file_hosts.is_empty() { Ok(()) } else { path.as_deref().map_or(Err("there is no policy file".into()), policy_trust::admin_only) };
-    let found = policy_registry::read();
+    let (found, unreadable) = policy_registry::read_all();
     let registry = policy_registry::sets(&found, "fabric_view_sign_in_hosts")
         .then(|| policy_sign_in_hosts(&policy_registry::overlay("", &found)));
     let registry_ok = if registry.is_some() { policy_registry::admin_only(&["fabric_view_sign_in_hosts"]) } else { Ok(()) };
-    policy_registry::trusted_hosts(file_hosts, file_ok, registry, registry_ok)
+    policy_registry::trusted_hosts(unreadable, file_hosts, file_ok, registry, registry_ok)
 }
 
 /// The valid entries of `fabric_view_sign_in_hosts`, lower-cased; invalid ones are skipped.

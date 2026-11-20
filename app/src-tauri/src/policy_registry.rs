@@ -80,9 +80,13 @@ pub fn sets(found: &[(String, Raw)], key: &str) -> bool {
 /// The Fabric view's extra sign-in hosts, and why any were ignored ("" for none). Hosts widen what the
 /// view trusts, so only a source the person using the PC couldn't change may set them (as the engine's
 /// app_settings.LOOSENING): Group Policy's (`registry`, when it sets them) when `registry_ok`, else the
-/// policy file's when `file_ok`. An ignored source leaves the other in force.
-pub fn trusted_hosts(file: Vec<String>, file_ok: Result<(), String>, registry: Option<Vec<String>>,
-                     registry_ok: Result<(), String>) -> (Vec<String>, String) {
+/// policy file's when `file_ok`. An ignored source leaves the other in force. When Group Policy can't be
+/// read (`unreadable`), none: IT may have set hosts there to narrow the file's, so neither is used.
+pub fn trusted_hosts(unreadable: Option<String>, file: Vec<String>, file_ok: Result<(), String>,
+                     registry: Option<Vec<String>>, registry_ok: Result<(), String>) -> (Vec<String>, String) {
+    if let Some(why) = unreadable {
+        return (Vec::new(), format!("none are used, since Group Policy couldn't be read ({why})"));
+    }
     let mut ignored = Vec::new();
     if let Some(hosts) = registry {
         match registry_ok {
@@ -315,15 +319,21 @@ mod tests {
     fn sign_in_hosts_come_only_from_a_source_the_user_couldnt_change() {
         let h = |x: &str| vec![x.to_string()];
         let no = || Err::<(), String>("changeable".into());
-        assert_eq!(trusted_hosts(h("f.example.com"), Ok(()), Some(h("g.example.com")), Ok(())), (h("g.example.com"), String::new()));
-        let (hosts, why) = trusted_hosts(h("f.example.com"), Ok(()), Some(h("g.example.com")), no());
+        assert_eq!(trusted_hosts(None, h("f.example.com"), Ok(()), Some(h("g.example.com")), Ok(())), (h("g.example.com"), String::new()));
+        let (hosts, why) = trusted_hosts(None, h("f.example.com"), Ok(()), Some(h("g.example.com")), no());
         assert_eq!(hosts, h("f.example.com"));
         assert!(why.starts_with("Group Policy's are ignored"));
-        let (hosts, why) = trusted_hosts(h("f.example.com"), no(), None, Ok(()));
+        let (hosts, why) = trusted_hosts(None, h("f.example.com"), no(), None, Ok(()));
         assert!(hosts.is_empty() && why.starts_with("the policy file's are ignored"));
-        let (hosts, why) = trusted_hosts(h("f.example.com"), no(), Some(h("g.example.com")), no());
+        let (hosts, why) = trusted_hosts(None, h("f.example.com"), no(), Some(h("g.example.com")), no());
         assert!(hosts.is_empty() && why.contains("Group Policy's") && why.contains("policy file's"));
-        assert_eq!(trusted_hosts(Vec::new(), no(), None, no()), (Vec::new(), String::new()));
+        assert_eq!(trusted_hosts(None, Vec::new(), no(), None, no()), (Vec::new(), String::new()));
+        // Group Policy there but unreadable (a list that failed part way): no extra hosts from either
+        // source, never the file's, which Group Policy may have been set to narrow.
+        let (hosts, why) = trusted_hosts(Some("2 couldn't be read (Windows error 5)".into()), h("f.example.com"), Ok(()),
+                                         None, Ok(()));
+        assert!(hosts.is_empty());
+        assert_eq!(why, "none are used, since Group Policy couldn't be read (2 couldn't be read (Windows error 5))");
     }
 
     #[test]

@@ -1504,6 +1504,8 @@ def _past(source: exp.Expression, kind: Any) -> bool:
     if isinstance(source, exp.Literal) or (isinstance(source, exp.Neg) and isinstance(source.this, exp.Literal)):
         value = int(source.this) if isinstance(source, exp.Literal) else -int(source.this.this)
         return not -(2 ** (bits - 1)) <= value < 2 ** (bits - 1)
+    if isinstance(source, exp.Window):  # row_number, rank, dense_rank and ntile are ints (_whole_number)
+        return _WIDTHS["INTEGER"] > bits
     if isinstance(source, (exp.Cast, exp.TryCast)) and source.to.this in _INT_CASTS:
         return _WIDTHS[_INT_CASTS[source.to.this][0]] > bits
     return False
@@ -1530,7 +1532,9 @@ def _negative_literals(statement: exp.Expression) -> None:
         cast_ = neg.this
         if isinstance(cast_, exp.Literal) and not cast_.is_string and cast_.name.isdigit():
             negative: exp.Expression = exp.Literal.number(f"-{cast_.name}")
-            if int(cast_.name) == 2 ** 31:  # an int, as in Spark: DuckDB reads it as minus a bigint
+            # an int, as in Spark: DuckDB reads it as minus a bigint. Compared as text, since a literal
+            # may have more digits than Python's int() reads
+            if cast_.name.lstrip("0") == str(2 ** 31):
                 negative = exp.Cast(this=negative, to=exp.DataType.build("INT"))
             neg.replace(negative)
             continue
@@ -1799,6 +1803,13 @@ _TIMESTAMPS = (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPTZ, exp.D
 _SPARK_DATE_CAST = "kf_spark_date_cast"
 
 
+def _typed_literal(node: exp.Expression) -> bool:
+    """``node`` is a typed literal, TIMESTAMP '...': a Cast of text with no function name's place in the
+    query (see spark_legacy_casts). Spark refuses a bad one ([INVALID_TYPED_LITERAL]) even with ANSI off,
+    so it stays a Cast, and DuckDB stops on it, as on DATE '2026-13-01'."""
+    return isinstance(node.this, exp.Literal) and node.this.is_string and "start" not in node.meta
+
+
 def spark_legacy_times(statement: exp.Expression) -> exp.Expression:
     """Spark's to_timestamp with ANSI off, as Fabric runs it: text that isn't a timestamp gives NULL
     (EA-015). sqlglot reads to_timestamp(x) as a CAST and to_timestamp(x, format) as a strptime,
@@ -1815,7 +1826,7 @@ def spark_legacy_times(statement: exp.Expression) -> exp.Expression:
             node.replace(read)
         elif isinstance(node, exp.StrToTime):
             node.set("safe", True)
-        elif type(node) is exp.Cast and node.to.this in _TIMESTAMPS:
+        elif type(node) is exp.Cast and node.to.this in _TIMESTAMPS and not _typed_literal(node):
             # to_timestamp gives Spark's timestamp: with time zone, text read in the session's zone
             to = exp.DataType.build("TIMESTAMPTZ") if _to_timestamp_call(node) else node.to
             replacement = exp.TryCast(this=node.this, to=to)
@@ -2390,13 +2401,13 @@ def execute_sandboxed(con: duckdb.DuckDBPyConnection, statement: str) -> pa.Tabl
 def _decimal_types(statement: exp.Expression, con: duckdb.DuckDBPyConnection, dialect: str) -> exp.Expression:
     """Spark SQL's decimal result types and div (spark_decimals), as a notebook's spark.sql gives them: without
     them floor(-1.25) div 7 was DuckDB's double division, -0.2857..., where Spark gives 0. And to_json,
-written from its argument's type as Spark writes it (spark_json)."""
+written from its argument's type as Spark writes it (spark_json), and a shift of an int typed as an int."""
     if sql_dialects.get(dialect)["id"] != "spark":
         return statement
     from . import spark_text_compare
     statement = cast(exp.Expression, spark_text_compare.spark_text_comparisons(statement, con))
     statement = cast(exp.Expression, spark_decimals.spark_decimal_types(statement, con))
-    return cast(exp.Expression, spark_complex.spark_complex_types(statement, con, kinds=("to_json",)))
+    return cast(exp.Expression, spark_complex.spark_complex_types(statement, con, kinds=("to_json", "int_shift")))
 
 
 def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyConnection, Any]:

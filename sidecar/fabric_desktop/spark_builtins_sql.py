@@ -1250,6 +1250,13 @@ def _user_size(arg: exp.Expression) -> exp.Expression:
     return size
 
 
+# shiftrightunsigned (>>> in Java): the bits move as an unsigned long or int, by the count mod 64 or 32
+_SHIFT_UNSIGNED = ("CASE WHEN TYPEOF(fj_arg0) = 'BIGINT' THEN CAST(CASE WHEN fj_arg1 % 64 = 0 "
+                   "THEN fj_arg0::HUGEINT ELSE (fj_arg0::HUGEINT & 18446744073709551615) >> (fj_arg1 % 64) END AS BIGINT) "
+                   "ELSE CAST(CASE WHEN fj_arg1 % 32 = 0 THEN fj_arg0::BIGINT "
+                   "ELSE (fj_arg0::BIGINT & 4294967295) >> (fj_arg1 % 32) END AS INTEGER) END")
+_shift_unsigned = _template(_SHIFT_UNSIGNED, 2)
+
 _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     **_AGGREGATES,
     "ARRAY_REPEAT": _template("CASE WHEN fj_arg1 IS NULL THEN NULL ELSE LIST_TRANSFORM(RANGE(GREATEST(fj_arg1, 0)), "
@@ -1283,10 +1290,7 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     "MASK": _mask,
     "OCTET_LENGTH": _octet_length,
     "POSITIVE": _template("(+fj_arg0)", 1),
-    "SHIFTRIGHTUNSIGNED": _template("CASE WHEN TYPEOF(fj_arg0) = 'BIGINT' THEN CAST(CASE WHEN fj_arg1 % 64 = 0 "
-                                    "THEN fj_arg0::HUGEINT ELSE (fj_arg0::HUGEINT & 18446744073709551615) >> (fj_arg1 % 64) END AS BIGINT) "
-                                    "ELSE CAST(CASE WHEN fj_arg1 % 32 = 0 THEN fj_arg0::BIGINT "
-                                    "ELSE (fj_arg0::BIGINT & 4294967295) >> (fj_arg1 % 32) END AS INTEGER) END", 2),
+    "SHIFTRIGHTUNSIGNED": lambda n, a: None if (u := _shift_unsigned(n, a)) is None else _int_when_int(exp.paren(u), a[0]),
     "TIMESTAMP_MICROS": _timestamp_from(1),
     "TIMESTAMP_MILLIS": _timestamp_from(1000),
     "TIMESTAMP_SECONDS": _timestamp_from(1000000),
@@ -1399,9 +1403,21 @@ def _shift(left: bool) -> Callable[..., exp.Expression | None]:
         literal = _int_literal(node.this)
         if literal is not None:
             return exp.paren(_with_args(_shift_sql(left, 32 if -2 ** 31 <= literal < 2 ** 31 else 64), operands))
-        return exp.paren(_with_args(f"CASE WHEN TYPEOF(fj_arg0) IN {_LONG_TYPES} THEN {_shift_sql(left, 64)} "
-                                    f"ELSE {_shift_sql(left, 32)} END", operands))
+        return _int_when_int(exp.paren(_with_args(f"CASE WHEN TYPEOF(fj_arg0) IN {_LONG_TYPES} THEN {_shift_sql(left, 64)} "
+                                                  f"ELSE {_shift_sql(left, 32)} END", operands)), node.this)
     return build
+
+
+
+def _int_when_int(new: exp.Expression, value: exp.Expression) -> exp.Expression:
+    """``new``, a shift that picks its int or long path by ``value``'s type when the query runs, so DuckDB
+    types it BIGINT either way: marked for spark_complex_types, which casts it to INT where ``value`` is
+    a tinyint, smallint or int, as Spark's shiftleft, shiftright and shiftrightunsigned of one is an int."""
+    from . import spark_complex
+    arg = next((n for n in new.walk() if n is not new and n == value), None)
+    if arg is not None:
+        spark_complex._mark(new, "int_shift", arg)
+    return new
 
 
 def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:

@@ -206,10 +206,27 @@ def status_of(exc: BaseException) -> int | None:
 
 def windows_log_race(exc: BaseException) -> bool:
     """Windows refuses to open a Delta log file another process or thread is writing or renaming
-    (os error 5 "Access is denied", os error 32 "being used by another process"). The file is
-    complete a moment later, so the call is safe to repeat."""
+    (os error 5 "Access is denied", os error 32 "being used by another process", os error 33 "another
+    process has locked a portion of the file"). The file is complete a moment later, so the call is safe
+    to repeat."""
     text = str(exc)
-    return isinstance(exc, OSError) and "_delta_log" in text and ("os error 5)" in text or "os error 32)" in text)
+    return isinstance(exc, OSError) and "_delta_log" in text and (
+        "os error 5)" in text or "os error 32)" in text or "os error 33)" in text)
+
+
+def windows_file_held(exc: BaseException) -> bool:
+    """delta-rs stopped because Windows says another program has one of the table's files open: a
+    virus scanner, the search indexer or OneDrive reading a data file just written, or one VACUUM is
+    deleting (os error 32, a sharing violation, or 33, a lock violation). Any file of the table, not only
+    its log. Only a call that is safe to repeat (VACUUM, compaction) waits it out this way."""
+    text = str(exc)
+    return isinstance(exc, OSError) and ("os error 32)" in text or "os error 33)" in text)
+
+
+def held_file_message(what: str) -> str:
+    """What to say when a table's file is still held after ``local_retry`` waited it out (windows_file_held)."""
+    return (f"{what} stopped because another program has one of the table's files open, often a virus scanner, "
+            "the search indexer or OneDrive. The table's rows are unchanged. Try again in a moment.")
 
 
 _STAGED_COMMIT = re.compile(r"\d{20}\.json#\d+")
@@ -279,14 +296,16 @@ def retry_call(fn: Callable[[], T], retry_on: Callable[[BaseException], bool], a
     raise ValueError("attempts must be at least 1")
 
 
-def local_retry(fn: Callable[[], T], attempts: int = 6, backoff: float = 0.05) -> T:
-    """Repeat ``fn`` while it hits the Windows Delta log race, a bounded number of times. Only
-    calls that are safe to repeat go through here; any other error is raised at once."""
+def local_retry(fn: Callable[[], T], attempts: int = 6, backoff: float = 0.05,
+                when: Callable[[BaseException], bool] = windows_log_race) -> T:
+    """Repeat ``fn`` while it hits the Windows Delta log race (or what ``when`` accepts), a bounded
+    number of times: about 1.5 s in all. Only calls that are safe to repeat go through here; any other
+    error is raised at once."""
     for attempt in range(attempts):
         try:
             return fn()
         except OSError as exc:
-            if attempt == attempts - 1 or not windows_log_race(exc):
+            if attempt == attempts - 1 or not when(exc):
                 raise
             time.sleep(backoff * (2 ** attempt))
     raise AssertionError("unreachable")
@@ -307,12 +326,13 @@ def commit_conflict(what: str) -> Exception:
                              "committed (Windows refused its staged commit). Nothing was changed by it; run it again.")
 
 
-def local_commit(fn: Callable[[], T], what: str, attempts: int = 6, backoff: float = 0.05) -> T:
+def local_commit(fn: Callable[[], T], what: str, attempts: int = 6, backoff: float = 0.05,
+                 when: Callable[[BaseException], bool] = windows_log_race) -> T:
     """local_retry for a call that commits to a Delta table on this PC and is safe to repeat (OPTIMIZE,
     VACUUM, a table property). One that still loses the staged-commit race after its tries fails as
     delta-rs's own CommitFailedError (lost_commit), not as a raw OSError."""
     try:
-        return local_retry(fn, attempts, backoff)
+        return local_retry(fn, attempts, backoff, when)
     except OSError as exc:
         conflict = lost_commit(exc, what)
         if conflict is None:

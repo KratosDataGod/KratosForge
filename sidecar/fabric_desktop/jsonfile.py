@@ -183,6 +183,25 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def read_bytes(path: str | os.PathLike[str], limit: int | None = None) -> bytes:
+    """The file's bytes (only its first ``limit`` with one), to copy or upload. On Windows a virus scanner,
+    the indexer or OneDrive can hold a file just written so that opening it fails for a moment (a sharing
+    violation): that is waited out as ``read_text`` does. Still refused after that, the error names the
+    file and, where Windows says, the program (file_locks)."""
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            with open(path, "rb") as f:
+                return f.read() if limit is None else f.read(limit)
+        except PermissionError as exc:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                held = file_locks.locked_error(exc, path, "read")
+                if held is None:
+                    raise
+                raise held from exc
+            time.sleep(REPLACE_BACKOFF * (2 ** attempt))
+    raise AssertionError("unreachable")
+
+
 def read_json(path: Path, default: Any) -> Any:
     """The parsed file; ``default`` when it is missing or unreadable (an unreadable one is set aside first)."""
     try:

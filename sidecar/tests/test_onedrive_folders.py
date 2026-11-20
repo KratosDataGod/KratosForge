@@ -92,6 +92,7 @@ def test_the_old_default_metadata_project_is_copied_out_and_the_original_kept(ho
     new = svc._out_of_onedrive(str(old))
     assert new == str(home / "KratosForge" / "metadata")
     assert (Path(new) / "semantic" / "m.tmdl").read_text(encoding="utf-8") == "model\n"
+    assert not (Path(new) / ".kratosforge-copied-from").exists()
     assert (old / "layers.toml").exists()  # nothing removed in OneDrive
     settings = svc._settings()
     assert settings["meta_project"] == new and settings["meta_project_moved_from"] == str(old)
@@ -158,3 +159,38 @@ def test_a_copy_that_fails_part_way_leaves_nothing_in_the_profile(home, tmp_path
     svc = Service(root=tmp_path / "app")
     assert svc._out_of_onedrive(str(old)) == str(old)
     assert not (home / "KratosForge").exists() or not any((home / "KratosForge").iterdir())
+
+
+def test_a_copy_whose_setting_wasnt_saved_is_used_by_the_next_run(home, tmp_path, monkeypatch):
+    from fabric_desktop.service import Service
+    old = home / "OneDrive - Contoso" / "Documents" / "FabricDesktop" / "metadata"
+    old.mkdir(parents=True)
+    (old / "layers.toml").write_text("", encoding="utf-8")
+    monkeypatch.setattr(known_folders, "documents", lambda: home / "OneDrive - Contoso" / "Documents")
+    first = Service(root=tmp_path / "app")
+    real_save = first._save_settings
+
+    def fails(**_):
+        raise OSError(13, "Access is denied")
+    monkeypatch.setattr(first, "_save_settings", fails)
+    with pytest.raises(OSError):
+        first._out_of_onedrive(str(old))
+    new = home / "KratosForge" / "metadata"
+    assert (new / "layers.toml").exists() and (new / ".kratosforge-copied-from").exists()
+    real_save(meta_project=str(old))
+    again = Service(root=tmp_path / "app")
+    assert again._out_of_onedrive(str(old)) == str(new)  # its own finished copy, so it switches
+    assert again._settings()["meta_project"] == str(new)
+    assert not (new / ".kratosforge-copied-from").exists()
+
+
+def test_a_folder_someone_else_made_at_the_new_place_is_still_never_used(home, tmp_path, monkeypatch):
+    from fabric_desktop.service import Service
+    old = home / "OneDrive - Contoso" / "Documents" / "FabricDesktop" / "metadata"
+    old.mkdir(parents=True)
+    (old / "layers.toml").write_text("", encoding="utf-8")
+    new = home / "KratosForge" / "metadata"
+    new.mkdir(parents=True)
+    (new / ".kratosforge-copied-from").write_text(str(home / "elsewhere"), encoding="utf-8")
+    monkeypatch.setattr(known_folders, "documents", lambda: home / "OneDrive - Contoso" / "Documents")
+    assert Service(root=tmp_path / "app")._out_of_onedrive(str(old)) == str(old)

@@ -105,6 +105,14 @@ def _days(value: Any) -> Any:
 
 
 _ONEDRIVE_LOCK = threading.Lock()
+_COPIED_FROM = ".kratosforge-copied-from"  # written into the copy before its rename, removed once the setting is saved
+
+
+def _copied_from(marker: Path) -> str | None:
+    try:
+        return marker.read_text(encoding="utf-8")
+    except OSError:
+        return None
 
 
 def DEFAULT_PROJECT_FOLDER() -> Path:  # noqa: N802 - a constant that depends on the profile
@@ -191,6 +199,9 @@ class MetaMixin:
                 or not known_folders.in_onedrive(path) or not (Path(path) / "layers.toml").exists():
             return path
         new = DEFAULT_PROJECT_FOLDER()
+        marker = new / _COPIED_FROM
+        if new.exists() and _copied_from(marker) == path:
+            return self._switch_to_copy(path, new, marker, checked)  # copied last run; the setting wasn't saved
         if new.exists():
             _log.warning("The metadata project in OneDrive (%s) wasn't copied out, because %s already exists.", path, new)
             return path
@@ -198,7 +209,10 @@ class MetaMixin:
         try:
             if work.exists():
                 trees.remove(work)  # a copy an earlier run didn't finish: only ever this app's own work folder
+            _log.info("Copying the metadata project out of OneDrive, from %s to %s. A large project in "
+                      "Files On-Demand downloads first, so this can take a while.", path, new)
             shutil.copytree(path, work, symlinks=True)
+            write_text(work / _COPIED_FROM, path)
             work.rename(new)
         except OSError as exc:
             _log.warning("Couldn't copy the metadata project out of OneDrive (%s to %s); it stays where it is: %s",
@@ -209,7 +223,16 @@ class MetaMixin:
             except OSError as left:
                 _log.warning("Couldn't remove the part copy %s: %s", work, describe_error(left))
             return path
+        return self._switch_to_copy(path, new, new / _COPIED_FROM, checked)
+
+    def _switch_to_copy(self, path: str, new: Path, marker: Path, checked: dict[str, str]) -> str:
+        """Point the setting at the finished copy, then drop the marker. If saving fails the marker stays,
+        so the next run recognises this copy as its own and switches then."""
         self._save_settings(meta_project=str(new), meta_project_moved_from=path)
+        try:
+            marker.unlink()
+        except OSError as exc:
+            _log.warning("Couldn't remove %s: %s", marker, describe_error(exc))
         _log.info("Copied the metadata project out of OneDrive, from %s to %s. The original is left as it was.", path, new)
         checked[path] = str(new)
         return str(new)

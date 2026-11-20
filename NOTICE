@@ -9,6 +9,8 @@ It also includes third-party software under its own licenses:
 - The Apache Ossie Microsoft converter, in
   sidecar/fabric_desktop/_vendor/ossie_microsoft, under the Apache License 2.0,
   with its own LICENSE and NOTICE in that folder.
+- The Apache Ossie JSON Schema, in sidecar/fabric_desktop/_vendor/ossie_schema,
+  under the Apache License 2.0, with its own LICENSE and NOTICE in that folder.
 - Vega, Vega-Lite, vega-embed and the packages their build includes, in
   app/ui/vendor/vega, listed with their licenses in THIRD-PARTY-NOTICES.md there.
 - CodeMirror, in app/ui/vendor/codemirror, under the MIT License (LICENSE in

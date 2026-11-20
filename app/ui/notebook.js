@@ -10,7 +10,28 @@ state.mode = "command";        // command | edit, as in Fabric and Jupyter
 state.nbTables = {};           // lakehouse_id -> ["dbo.sales", ...], for autocomplete
 state.nbSchemas = {};          // lakehouse_id -> { tables: {schema: [names]}, cols, cached, pending }, for %%sql completion
 
-const editors = new Map();     // cell id -> CodeMirror view
+// A long notebook (WR-134: more than EAGER_EDITORS cells shown). With every cell's editor built and in
+// the page, a 2,000-cell notebook took seconds to open, and every scroll ran each editor's scroll
+// handler and measured the ones coming into view. So in a long notebook only code cells within
+// NEAR_MARGIN of the visible ones have their editor in the page; the others show their code as plain
+// text in the editor's font and size (.nb-lazy-code, the same height). A cell's editor is built when
+// it first comes near, and taken out of the page again, kept with its undo history, when the cell goes
+// far away. The first EAGER_EDITORS cells and the selected one are drawn with their editor, and a
+// notebook with fewer cells is drawn as it always was. editors.get(id) puts a waiting cell's editor in
+// the page first, so every caller gets one on screen; editors.peek(id) and has(id) don't.
+const EAGER_EDITORS = 40;
+const NEAR_MARGIN = "1500px 0px";
+const waitingEditors = new Map();  // cell id -> puts the cell's editor in place of its plain text
+let nearSlots = [];                // editor slots drawn since the observer last started
+let nearObserver = null;
+class CellEditors extends Map {
+  get(id) {
+    waitingEditors.get(id)?.();
+    return super.get(id);
+  }
+  peek(id) { return super.get(id); }
+}
+const editors = new CellEditors();  // cell id -> CodeMirror view
 const deletedCells = [];       // for Z (undo delete)
 let cellClipboard = null;
 let lastDKey = 0;
@@ -47,11 +68,60 @@ const isParams = (cell) => (cell.meta?.tags || []).includes("parameters");
 function disposeEditors() {
   editors.forEach((v) => v.destroy());
   editors.clear();
+  waitingEditors.clear();
 }
 
 function dropEditor(cell) {
-  editors.get(cell.id)?.destroy();
+  waitingEditors.delete(cell.id);
+  editors.peek(cell.id)?.destroy();
   editors.delete(cell.id);
+}
+
+// A code cell's editor slot. ``index`` is the cell's place among the cells of a long notebook that
+// renderNotebook draws (see EAGER_EDITORS): its editor comes and goes with the cell's distance from the
+// screen (observeNear). Without it (a short notebook, updateCell) the editor is put in at once and stays.
+function editorSlot(cell, index) {
+  if (index === undefined) return h("div", { class: "editor" }, editorFor(cell).dom);
+  const slot = h("div", { class: "editor" });
+  const plain = () => {
+    const code = cell.source || "";
+    return h("pre", { class: `nb-lazy-code${state.lineNumbers ? "" : " plain"}`, "aria-hidden": "true" },
+      !code || code.endsWith("\n") ? `${code} ` : code);  // a last empty line still takes its height
+  };
+  slot.attach = () => {
+    if (!slot.isConnected) return;  // not in the page yet, or drawn again since
+    waitingEditors.delete(cell.id);
+    if (!slot.contains(editors.peek(cell.id)?.dom || null)) slot.replaceChildren(editorFor(cell).dom);
+  };
+  slot.park = () => {
+    const view = editors.peek(cell.id);
+    if (!slot.isConnected || !view || view.hasFocus || !slot.contains(view.dom)) return;
+    slot.replaceChildren(plain());
+    waitingEditors.set(cell.id, slot.attach);
+  };
+  // On screen now (in the page that is being replaced), near the top, or selected: drawn with its editor.
+  if (index < EAGER_EDITORS || cell.id === state.selected || editors.peek(cell.id)?.dom.isConnected) {
+    slot.append(editorFor(cell).dom);
+  } else {
+    slot.append(plain());
+    waitingEditors.set(cell.id, slot.attach);
+  }
+  nearSlots.push(slot);
+  return slot;
+}
+
+// Puts each slot's editor in as its cell comes within NEAR_MARGIN of the visible part of ``root`` (the
+// cells), and takes it out when the cell goes further away.
+function observeNear(root) {
+  nearObserver?.disconnect();
+  nearObserver = null;
+  const slots = nearSlots;
+  nearSlots = [];
+  if (!slots.length) return;
+  if (typeof IntersectionObserver !== "function") { slots.forEach((s) => s.attach()); return; }
+  nearObserver = new IntersectionObserver((entries) => entries.forEach((e) => (e.isIntersecting ? e.target.attach() : e.target.park())),
+    { root, rootMargin: NEAR_MARGIN });
+  slots.forEach((s) => nearObserver.observe(s));
 }
 
 // ---------- the screen ----------
@@ -180,7 +250,8 @@ function renderNotebook() {
         : `Compute: Python ${state.python || "3"} on this PC, no Fabric job`),
       nbFabricRunStatus(nb)));
   document.querySelector(".cells").scrollTop = scrollTop;
-  editors.forEach((v) => v.requestMeasure());
+  observeNear(document.querySelector(".cells"));
+  editors.forEach((v) => { if (v.dom.isConnected) v.requestMeasure(); });
   depsChanged();
 }
 
@@ -332,7 +403,10 @@ async function refreshVariables() {
 
 // ---------- cells ----------
 
-function renderCell(cell) {
+// index and shown: from renderNotebook's map over the cells it draws. In a long notebook a code cell's
+// editor then follows its distance from the screen (editorSlot); updateCell draws one cell on its own.
+function renderCell(cell, index, shown) {
+  if (!(shown?.length > EAGER_EDITORS)) index = undefined;
   const selected = cell.id === state.selected;
   const meta = cell.meta || (cell.meta = {});
   const node = h("div", {
@@ -395,7 +469,7 @@ function renderCell(cell) {
     box.append(h("button", { class: "hidden-input", onclick: () => setMeta(cell, "source_hidden", false) },
       `Code hidden (${cell.source.split("\n").length} lines): ${first.slice(0, 80)}`));
   } else {
-    box.append(h("div", { class: "editor" }, editorFor(cell).dom));
+    box.append(editorSlot(cell, index));
   }
   box.append(depsStrip(cell), practiceStrip(cell), h("div", { class: "cell-results" }, cellResults(cell)));  // nbpractices.js
   node.append(gutter, box);
@@ -874,7 +948,7 @@ async function pythonCompletions(ctx) {
 }
 
 function editorFor(cell) {
-  let view = editors.get(cell.id);
+  let view = editors.peek(cell.id);
   if (view) return view;
   const keys = cellKeymap(cell);
   view = new CM.EditorView({

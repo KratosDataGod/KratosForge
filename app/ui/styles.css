@@ -399,6 +399,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .editor { position: relative; }
 .editor .cm-editor, .md-edit .cm-editor { background: transparent; }
+/* A code cell's code while its editor isn't in the page (notebook.js EAGER_EDITORS): the editor's font, line
+   height and padding, so the cell is the same height and nothing moves when the editor takes its place. */
+.nb-lazy-code { margin: 0; padding: 8px 2px 8px 36px; font: 13px/20px var(--mono); white-space: pre; overflow: hidden; color: var(--text); }
+.nb-lazy-code.plain { padding-left: 6px; }
 .md-edit { background: var(--surface); }
 .cm-tooltip-autocomplete .cm-completionIcon { width: 1em; }
 .cm-panels { font-size: 12px; }

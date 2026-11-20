@@ -183,7 +183,7 @@ function freezeSelected() {
     c.meta = c.meta || {};
     if (on) c.meta.frozen = true;
     else delete c.meta.frozen;
-    editors.get(c.id)?.dispatch({ effects: readOnlyComp.reconfigure(readOnly(c)) });
+    editors.peek(c.id)?.dispatch({ effects: readOnlyComp.reconfigure(readOnly(c)) });
   });
   markDirty();
   renderNotebook();
@@ -294,7 +294,7 @@ document.addEventListener("keydown", (e) => {
   const inEditor = !!t.closest?.(".cm-editor");
   if (inEditor) {
     if (e.key === "Enter" && e.shiftKey && (e.ctrlKey || e.metaKey) && !e.altKey) {
-      const cell = state.notebook.cells.find((c) => editors.get(c.id)?.contentDOM.contains(t));
+      const cell = state.notebook.cells.find((c) => editors.peek(c.id)?.contentDOM.contains(t));
       if (cell && runSelectionText(cell)) { e.preventDefault(); e.stopPropagation(); }
     }
     return;
